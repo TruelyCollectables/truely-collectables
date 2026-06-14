@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { supabase } from "../../lib/supabase";
 
 export default async function Shop() {
@@ -26,9 +27,11 @@ export default async function Shop() {
             key={product.id}
             className="border rounded-lg p-4 hover:shadow-lg transition"
           >
-            <div className="bg-gray-100 h-64 flex items-center justify-center mb-4 rounded">
-              <span className="text-gray-500">Card Image</span>
-            </div>
+            <img
+  src={product.image_url}
+  alt={product.title}
+  className="w-full h-64 object-cover rounded mb-4"
+/>
 
             <h2 className="font-bold text-lg">
               {product.title}
@@ -46,9 +49,12 @@ export default async function Shop() {
               Quantity: {product.quantity}
             </p>
 
-            <button className="mt-4 w-full border rounded py-2">
-              View Card
-            </button>
+            <Link
+  href={`/product/${product.id}`}
+  className="block text-center mt-4 w-full border rounded py-2"
+>
+  View Card
+</Link>
           </div>
         ))}
       </div>
