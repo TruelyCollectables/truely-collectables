@@ -1,3 +1,4 @@
+import AddToCartButton from "../../components/AddToCartButton";
 import { supabase } from "../../../lib/supabase";
 
 export default async function ProductPage({
@@ -63,9 +64,7 @@ export default async function ProductPage({
             </p>
           </div>
 
-          <button className="mt-8 w-full border rounded py-3 text-lg">
-            Add To Cart
-          </button>
+        <AddToCartButton product={product} />
         </div>
       </div>
     </main>
