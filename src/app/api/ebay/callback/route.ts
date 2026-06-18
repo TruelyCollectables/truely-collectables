@@ -3,11 +3,39 @@ import { NextResponse } from "next/server";
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
-console.log("eBay callback route hit");
+
+  if (!code) {
+    return NextResponse.json({
+      error: "No authorization code received",
+    });
+  }
+
+  const credentials = Buffer.from(
+    `${process.env.EBAY_CLIENT_ID}:${process.env.EBAY_CLIENT_SECRET}`
+  ).toString("base64");
+
+  const response = await fetch(
+    "https://api.ebay.com/identity/v1/oauth2/token",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${credentials}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        code,
+        redirect_uri: "Truely_Collecta-TruelyCo-Truely-kmpcb",
+      }),
+    }
+  );
+
+  const data = await response.json();
+
   return NextResponse.json({
     success: true,
-    message: "eBay callback received",
-    has_code: !!code,
-    code_preview: code ? code.slice(0, 20) + "..." : null,
+    token_received: !!data.access_token,
+    refresh_token_received: !!data.refresh_token,
+    expires_in: data.expires_in,
   });
 }
