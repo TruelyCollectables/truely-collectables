@@ -1,13 +1,17 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
+);
 
 export async function GET(request: Request) {
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
 
   if (!code) {
-    return NextResponse.json({
-      error: "No authorization code received",
-    });
+    return NextResponse.json({ error: "No code received" });
   }
 
   const credentials = Buffer.from(
@@ -31,6 +35,12 @@ export async function GET(request: Request) {
   );
 
   const data = await response.json();
+
+  if (data.refresh_token) {
+    await supabase.from("ebay_tokens").insert({
+      refresh_token: data.refresh_token,
+    });
+  }
 
   return NextResponse.json({
     success: true,
