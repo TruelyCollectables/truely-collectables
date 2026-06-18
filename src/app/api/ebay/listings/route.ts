@@ -5,13 +5,8 @@ export async function GET() {
     `${process.env.EBAY_CLIENT_ID}:${process.env.EBAY_CLIENT_SECRET}`
   ).toString("base64");
 
-  const isProduction = process.env.EBAY_ENVIRONMENT === "production";
-  const tokenUrl = isProduction
-    ? "https://api.ebay.com/identity/v1/oauth2/token"
-    : "https://api.sandbox.ebay.com/identity/v1/oauth2/token";
-
   const tokenResponse = await fetch(
-    tokenUrl,
+    "https://api.ebay.com/identity/v1/oauth2/token",
     {
       method: "POST",
       headers: {
@@ -28,8 +23,7 @@ export async function GET() {
   const tokenData = await tokenResponse.json();
 
   return NextResponse.json({
-    success: true,
-    token_received: !!tokenData.access_token,
+    authenticated: !!tokenData.access_token,
     expires_in: tokenData.expires_in,
   });
 }
