@@ -1,11 +1,29 @@
 import Stripe from "stripe";
 import { NextResponse } from "next/server";
+import { supabase } from "../../../lib/supabase";
 
 const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
 
 export async function POST(request: Request) {
   try {
     const cart = await request.json();
+
+    for (const item of cart) {
+      const { data: product } = await supabase
+        .from("products")
+        .select("quantity")
+        .eq("id", item.id)
+        .single();
+
+      if (product) {
+        await supabase
+          .from("products")
+          .update({
+            quantity: product.quantity - item.quantity,
+          })
+          .eq("id", item.id);
+      }
+    }
 
     const session = await stripe.checkout.sessions.create({
       payment_method_types: ["card"],
@@ -23,7 +41,12 @@ export async function POST(request: Request) {
 
       mode: "payment",
 
-      success_url: "http://localhost:3000/success?session_id={CHECKOUT_SESSION_ID}",
+      metadata: {
+        cart: JSON.stringify(cart),
+      },
+
+      success_url:
+        "http://localhost:3000/success?session_id={CHECKOUT_SESSION_ID}",
 
       cancel_url: "http://localhost:3000/cart",
     });
