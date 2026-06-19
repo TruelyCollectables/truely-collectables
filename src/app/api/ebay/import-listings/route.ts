@@ -39,7 +39,7 @@ async function getAccessToken(refreshToken: string) {
   return data.access_token;
 }
 
-function getFirst(value: any) {
+function first(value: any) {
   if (Array.isArray(value)) return value[0] || null;
   return value || null;
 }
@@ -62,18 +62,18 @@ export async function GET() {
     let offset = 0;
     let imported = 0;
     let totalSeen = 0;
-    let page = 1;
+    let pages = 0;
 
     while (true) {
-      const inventoryUrl = `${EBAY_API}/sell/inventory/v1/inventory_item?limit=${PAGE_LIMIT}&offset=${offset}`;
-
-      const inventoryRes = await fetch(inventoryUrl, {
-        headers: {
-          Authorization: `Bearer ${accessToken}`,
-          "Content-Type": "application/json",
-          "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
-        },
-      });
+      const inventoryRes = await fetch(
+        `${EBAY_API}/sell/inventory/v1/inventory_item?limit=${PAGE_LIMIT}&offset=${offset}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
 
       const inventoryData = await inventoryRes.json();
 
@@ -83,15 +83,13 @@ export async function GET() {
 
       const items = inventoryData.inventoryItems || [];
 
-      if (items.length === 0) {
-        break;
-      }
+      if (items.length === 0) break;
 
+      pages++;
       totalSeen += items.length;
 
       for (const item of items) {
         const sku = item.sku;
-
         if (!sku) continue;
 
         const offerRes = await fetch(
@@ -100,7 +98,6 @@ export async function GET() {
             headers: {
               Authorization: `Bearer ${accessToken}`,
               "Content-Type": "application/json",
-              "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
             },
           }
         );
@@ -108,15 +105,13 @@ export async function GET() {
         const offerData = await offerRes.json();
 
         if (!offerRes.ok) {
-          console.error("Offer error:", sku, offerData);
+          console.error("Offer error for SKU:", sku, offerData);
           continue;
         }
 
         const offer = offerData.offers?.[0];
 
-        if (!offer?.listing?.listingId) {
-          continue;
-        }
+        if (!offer?.listing?.listingId) continue;
 
         const product = item.product || {};
         const aspects = product.aspects || {};
@@ -129,11 +124,11 @@ export async function GET() {
           : 0;
 
         const player =
-          getFirst(aspects.Player) ||
-          getFirst(aspects.Athlete) ||
-          getFirst(aspects["Player/Athlete"]);
+          first(aspects.Player) ||
+          first(aspects.Athlete) ||
+          first(aspects["Player/Athlete"]);
 
-        const sport = getFirst(aspects.Sport);
+        const sport = first(aspects.Sport);
 
         const { error: upsertError } = await supabase.from("products").upsert(
           {
@@ -159,21 +154,16 @@ export async function GET() {
         imported++;
       }
 
-      console.log(`Finished page ${page}, items: ${items.length}`);
-
-      if (items.length < PAGE_LIMIT) {
-        break;
-      }
+      if (items.length < PAGE_LIMIT) break;
 
       offset += PAGE_LIMIT;
-      page++;
     }
 
     return NextResponse.json({
       success: true,
       imported,
       totalSeen,
-      pages: page,
+      pages,
     });
   } catch (error: any) {
     console.error("Import failed:", error);
