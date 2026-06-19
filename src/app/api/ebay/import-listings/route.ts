@@ -59,6 +59,8 @@ export async function GET(request: Request) {
     const requestedLimit = Number(url.searchParams.get("limit") || DEFAULT_LIMIT);
     const limit = Math.min(Math.max(requestedLimit, 1), MAX_LIMIT);
 
+    const runId = url.searchParams.get("runId") || new Date().toISOString();
+
     const { data: tokenRow, error: tokenError } = await supabase
       .from("ebay_tokens")
       .select("refresh_token")
@@ -147,6 +149,7 @@ export async function GET(request: Request) {
           quantity,
           image_url: product.imageUrls?.[0] || null,
           ebay_item_id: offer.listing.listingId,
+          last_seen_at: runId,
         },
         {
           onConflict: "ebay_item_id",
@@ -164,6 +167,13 @@ export async function GET(request: Request) {
 
     const nextOffset = items.length < limit ? null : offset + limit;
 
+    if (nextOffset === null) {
+      await supabase
+        .from("products")
+        .update({ quantity: 0 })
+        .neq("last_seen_at", runId);
+    }
+
     return NextResponse.json({
       success: true,
       imported,
@@ -172,10 +182,11 @@ export async function GET(request: Request) {
       limit,
       received: items.length,
       nextOffset,
+      runId,
       nextUrl:
         nextOffset === null
           ? null
-          : `/api/ebay/import-listings?offset=${nextOffset}&limit=${limit}`,
+          : `/api/ebay/import-listings?offset=${nextOffset}&limit=${limit}&runId=${encodeURIComponent(runId)}`,
     });
   } catch (error: any) {
     return NextResponse.json(
