@@ -47,7 +47,7 @@ export async function GET() {
   }
 
   const inventoryResponse = await fetch(
-    "https://api.ebay.com/sell/inventory/v1/inventory_item?limit=25",
+    "https://api.ebay.com/sell/inventory/v1/inventory_item?limit=200",
     {
       headers: {
         Authorization: `Bearer ${tokenData.access_token}`,
