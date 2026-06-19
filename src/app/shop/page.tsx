@@ -9,7 +9,6 @@ export default async function Shop() {
     .from("products")
     .select("*")
     .gt("quantity", 0)
-    .not("image_url", "is", null)
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -25,41 +24,39 @@ export default async function Shop() {
     <main className="p-8">
       <h1 className="text-4xl font-bold mb-8">Shop Sports Cards</h1>
 
-      {!products || products.length === 0 ? (
-        <p>No products found.</p>
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-          {products.map((product) => (
-            <div
-              key={product.id}
-              className="border rounded-lg p-4 hover:shadow-lg transition"
+      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+        {products?.map((product) => (
+          <div
+            key={product.id}
+            className="border rounded-lg p-4 hover:shadow-lg transition"
+          >
+            <img
+              src={product.image_url || "/placeholder.png"}
+              alt={product.title}
+              className="w-full h-64 object-cover rounded mb-4"
+            />
+
+            <h2 className="font-bold text-lg">{product.title}</h2>
+
+            <p className="text-sm text-gray-500 mt-1">
+              {product.sport} {product.player ? `• ${product.player}` : ""}
+            </p>
+
+            <p className="text-2xl font-bold mt-3">
+              ${Number(product.price || 0).toFixed(2)}
+            </p>
+
+            <p className="text-sm mt-1">Quantity: {product.quantity}</p>
+
+            <Link
+              href={`/product/${product.id}`}
+              className="block text-center mt-4 w-full border rounded py-2"
             >
-              <img
-                src={product.image_url}
-                alt={product.title}
-                className="w-full h-64 object-cover rounded mb-4"
-              />
-
-              <h2 className="font-bold text-lg">{product.title}</h2>
-
-              <p className="text-sm text-gray-500 mt-1">
-                {product.sport} {product.player ? `• ${product.player}` : ""}
-              </p>
-
-              <p className="text-2xl font-bold mt-3">${product.price}</p>
-
-              <p className="text-sm mt-1">Quantity: {product.quantity}</p>
-
-              <Link
-                href={`/product/${product.id}`}
-                className="block text-center mt-4 w-full border rounded py-2"
-              >
-                View Card
-              </Link>
-            </div>
-          ))}
-        </div>
-      )}
+              View Card
+            </Link>
+          </div>
+        ))}
+      </div>
     </main>
   );
 }
