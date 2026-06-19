@@ -10,8 +10,8 @@ const supabase = createClient(
 );
 
 const EBAY_API = "https://api.ebay.com";
-const DEFAULT_LIMIT = 50;
-const MAX_LIMIT = 200;
+const DEFAULT_LIMIT = 100;
+const MAX_LIMIT = 100;
 
 function ebayHeaders(accessToken: string) {
   return {
@@ -51,6 +51,22 @@ function first(value: any) {
   return value || null;
 }
 
+function getPrice(offer: any) {
+  const possiblePrices = [
+    offer?.pricingSummary?.price?.value,
+    offer?.pricingSummary?.originalRetailPrice?.value,
+    offer?.listingPolicies?.pricingSummary?.price?.value,
+    offer?.price?.value,
+  ];
+
+  for (const value of possiblePrices) {
+    const num = Number(value);
+    if (!Number.isNaN(num) && num > 0) return num;
+  }
+
+  return 0;
+}
+
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
@@ -58,7 +74,6 @@ export async function GET(request: Request) {
     const offset = Number(url.searchParams.get("offset") || "0");
     const requestedLimit = Number(url.searchParams.get("limit") || DEFAULT_LIMIT);
     const limit = Math.min(Math.max(requestedLimit, 1), MAX_LIMIT);
-
     const runId = url.searchParams.get("runId") || new Date().toISOString();
 
     const { data: tokenRow, error: tokenError } = await supabase
@@ -128,9 +143,7 @@ export async function GET(request: Request) {
       const quantity =
         item.availability?.shipToLocationAvailability?.quantity ?? 0;
 
-      const price = offer.pricingSummary?.price?.value
-        ? Number(offer.pricingSummary.price.value)
-        : 0;
+      const price = getPrice(offer);
 
       const player =
         first(aspects.Player) ||
