@@ -4,7 +4,9 @@ import { supabase } from "../../lib/supabase";
 export default async function Shop() {
   const { data: products, error } = await supabase
     .from("products")
-    .select("*");
+    .select("*")
+    .gt("quantity", 0)
+    .order("created_at", { ascending: false });
 
   if (error) {
     return (
@@ -28,10 +30,10 @@ export default async function Shop() {
             className="border rounded-lg p-4 hover:shadow-lg transition"
           >
             <img
-  src={product.image_url}
-  alt={product.title}
-  className="w-full h-64 object-cover rounded mb-4"
-/>
+              src={product.image_url}
+              alt={product.title}
+              className="w-full h-64 object-cover rounded mb-4"
+            />
 
             <h2 className="font-bold text-lg">
               {product.title}
@@ -50,11 +52,11 @@ export default async function Shop() {
             </p>
 
             <Link
-  href={`/product/${product.id}`}
-  className="block text-center mt-4 w-full border rounded py-2"
->
-  View Card
-</Link>
+              href={`/product/${product.id}`}
+              className="block text-center mt-4 w-full border rounded py-2"
+            >
+              View Card
+            </Link>
           </div>
         ))}
       </div>
