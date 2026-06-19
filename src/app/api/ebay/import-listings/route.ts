@@ -12,6 +12,12 @@ const supabase = createClient(
 const EBAY_API = "https://api.ebay.com";
 const PAGE_LIMIT = 200;
 
+const ebayHeaders = (accessToken: string) => ({
+  Authorization: `Bearer ${accessToken}`,
+  "Content-Type": "application/json",
+  "Accept-Language": "en-US",
+});
+
 async function getAccessToken(refreshToken: string) {
   const credentials = Buffer.from(
     `${process.env.EBAY_CLIENT_ID}:${process.env.EBAY_CLIENT_SECRET}`
@@ -32,9 +38,7 @@ async function getAccessToken(refreshToken: string) {
 
   const data = await res.json();
 
-  if (!res.ok) {
-    throw new Error(JSON.stringify(data));
-  }
+  if (!res.ok) throw new Error(JSON.stringify(data));
 
   return data.access_token;
 }
@@ -68,10 +72,7 @@ export async function GET() {
       const inventoryRes = await fetch(
         `${EBAY_API}/sell/inventory/v1/inventory_item?limit=${PAGE_LIMIT}&offset=${offset}`,
         {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "Content-Type": "application/json",
-          },
+          headers: ebayHeaders(accessToken),
         }
       );
 
@@ -95,10 +96,7 @@ export async function GET() {
         const offerRes = await fetch(
           `${EBAY_API}/sell/inventory/v1/offer?sku=${encodeURIComponent(sku)}`,
           {
-            headers: {
-              Authorization: `Bearer ${accessToken}`,
-              "Content-Type": "application/json",
-            },
+            headers: ebayHeaders(accessToken),
           }
         );
 
@@ -110,7 +108,6 @@ export async function GET() {
         }
 
         const offer = offerData.offers?.[0];
-
         if (!offer?.listing?.listingId) continue;
 
         const product = item.product || {};
@@ -166,8 +163,6 @@ export async function GET() {
       pages,
     });
   } catch (error: any) {
-    console.error("Import failed:", error);
-
     return NextResponse.json(
       {
         success: false,
