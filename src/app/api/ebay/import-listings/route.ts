@@ -10,8 +10,8 @@ const supabase = createClient(
 );
 
 const EBAY_API = "https://api.ebay.com";
-const DEFAULT_LIMIT = 100;
-const MAX_LIMIT = 100;
+const DEFAULT_LIMIT = 1;
+const MAX_LIMIT = 10;
 
 function ebayHeaders(accessToken: string) {
   return {
@@ -46,26 +46,6 @@ async function getAccessToken(refreshToken: string) {
   return data.access_token;
 }
 
-function first(value: any) {
-  if (Array.isArray(value)) return value[0] || null;
-  return value || null;
-}
-
-function getPrice(offer: any) {
-  const possiblePrices = [
-    offer?.pricingSummary?.price?.value,
-    offer?.pricingSummary?.originalRetailPrice?.value,
-    offer?.price?.value,
-  ];
-
-  for (const value of possiblePrices) {
-    const num = Number(value);
-    if (!Number.isNaN(num) && num > 0) return num;
-  }
-
-  return 0;
-}
-
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
@@ -73,7 +53,6 @@ export async function GET(request: Request) {
     const offset = Number(url.searchParams.get("offset") || "0");
     const requestedLimit = Number(url.searchParams.get("limit") || DEFAULT_LIMIT);
     const limit = Math.min(Math.max(requestedLimit, 1), MAX_LIMIT);
-    const runId = url.searchParams.get("runId") || new Date().toISOString();
 
     const { data: tokenRow, error: tokenError } = await supabase
       .from("ebay_tokens")
@@ -100,15 +79,16 @@ export async function GET(request: Request) {
     }
 
     const items = inventoryData.inventoryItems || [];
-
-    let imported = 0;
-    let skipped = 0;
+    const debugResults = [];
 
     for (const item of items) {
       const sku = item.sku;
 
       if (!sku) {
-        skipped++;
+        debugResults.push({
+          reason: "No SKU found",
+          item,
+        });
         continue;
       }
 
@@ -119,89 +99,22 @@ export async function GET(request: Request) {
 
       const offerData = await offerRes.json();
 
-      if (!offerRes.ok) {
-        console.error("Offer error for SKU:", sku, offerData);
-        skipped++;
-        continue;
-      }
-
-      const offer = offerData.offers?.[0];
-
-      if (!offer) {
-        skipped++;
-        continue;
-      }
-
-      const product = item.product || {};
-      const aspects = product.aspects || {};
-
-      const quantity =
-        item.availability?.shipToLocationAvailability?.quantity ?? 0;
-
-      const price = getPrice(offer);
-
-      const player =
-        first(aspects.Player) ||
-        first(aspects.Athlete) ||
-        first(aspects["Player/Athlete"]);
-
-      const sport = first(aspects.Sport);
-
-      const listingId =
-        offer?.listing?.listingId ||
-        offer?.listingId ||
-        offer?.marketplaceId ||
-        null;
-
-      const { error: upsertError } = await supabase.from("products").upsert(
-        {
-          sku,
-          title: product.title || "Untitled",
-          description: product.description || "",
-          price,
-          player,
-          sport,
-          quantity,
-          image_url: product.imageUrls?.[0] || null,
-          ebay_item_id: listingId,
-          last_seen_at: runId,
-        },
-        {
-          onConflict: "sku",
-        }
-      );
-
-      if (upsertError) {
-        console.error("Supabase upsert error:", upsertError);
-        skipped++;
-        continue;
-      }
-
-      imported++;
-    }
-
-    const nextOffset = items.length < limit ? null : offset + limit;
-
-    if (nextOffset === null) {
-      await supabase
-        .from("products")
-        .update({ quantity: 0 })
-        .neq("last_seen_at", runId);
+      debugResults.push({
+        sku,
+        inventoryTitle: item.product?.title || null,
+        offerStatus: offerRes.status,
+        offerOk: offerRes.ok,
+        offerData,
+      });
     }
 
     return NextResponse.json({
       success: true,
-      imported,
-      skipped,
+      debug: true,
       offset,
       limit,
       received: items.length,
-      nextOffset,
-      runId,
-      nextUrl:
-        nextOffset === null
-          ? null
-          : `/api/ebay/import-listings?offset=${nextOffset}&limit=${limit}&runId=${encodeURIComponent(runId)}`,
+      results: debugResults,
     });
   } catch (error: any) {
     return NextResponse.json(
