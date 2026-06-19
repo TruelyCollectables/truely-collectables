@@ -7,14 +7,14 @@ export const revalidate = 0;
 export default async function ProductPage({
   params,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
-  const productId = params.id;
+  const { id } = await params;
 
   const { data: product, error } = await supabase
     .from("products")
     .select("*")
-    .eq("id", Number(productId))
+    .eq("id", Number(id))
     .maybeSingle();
 
   if (error || !product) {
@@ -23,11 +23,11 @@ export default async function ProductPage({
         <h1 className="text-3xl font-bold mb-4">Product Not Found</h1>
 
         <p className="mb-2">
-          Product ID checked: <strong>{productId}</strong>
+          Product ID checked: <strong>{id}</strong>
         </p>
 
         <p className="mb-6">
-          This usually means the card was sold, removed, or the shop page is showing old cached data.
+          This card may have been sold, removed, or no longer exists.
         </p>
 
         <Link href="/shop" className="inline-block border rounded px-4 py-2">
