@@ -55,7 +55,6 @@ function getPrice(offer: any) {
   const possiblePrices = [
     offer?.pricingSummary?.price?.value,
     offer?.pricingSummary?.originalRetailPrice?.value,
-    offer?.listingPolicies?.pricingSummary?.price?.value,
     offer?.price?.value,
   ];
 
@@ -91,9 +90,7 @@ export async function GET(request: Request) {
 
     const inventoryRes = await fetch(
       `${EBAY_API}/sell/inventory/v1/inventory_item?limit=${limit}&offset=${offset}`,
-      {
-        headers: ebayHeaders(accessToken),
-      }
+      { headers: ebayHeaders(accessToken) }
     );
 
     const inventoryData = await inventoryRes.json();
@@ -117,9 +114,7 @@ export async function GET(request: Request) {
 
       const offerRes = await fetch(
         `${EBAY_API}/sell/inventory/v1/offer?sku=${encodeURIComponent(sku)}`,
-        {
-          headers: ebayHeaders(accessToken),
-        }
+        { headers: ebayHeaders(accessToken) }
       );
 
       const offerData = await offerRes.json();
@@ -132,7 +127,7 @@ export async function GET(request: Request) {
 
       const offer = offerData.offers?.[0];
 
-      if (!offer?.listing?.listingId) {
+      if (!offer) {
         skipped++;
         continue;
       }
@@ -152,8 +147,15 @@ export async function GET(request: Request) {
 
       const sport = first(aspects.Sport);
 
+      const listingId =
+        offer?.listing?.listingId ||
+        offer?.listingId ||
+        offer?.marketplaceId ||
+        null;
+
       const { error: upsertError } = await supabase.from("products").upsert(
         {
+          sku,
           title: product.title || "Untitled",
           description: product.description || "",
           price,
@@ -161,11 +163,11 @@ export async function GET(request: Request) {
           sport,
           quantity,
           image_url: product.imageUrls?.[0] || null,
-          ebay_item_id: offer.listing.listingId,
+          ebay_item_id: listingId,
           last_seen_at: runId,
         },
         {
-          onConflict: "ebay_item_id",
+          onConflict: "sku",
         }
       );
 
