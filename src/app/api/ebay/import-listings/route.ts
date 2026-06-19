@@ -10,13 +10,16 @@ const supabase = createClient(
 );
 
 const EBAY_API = "https://api.ebay.com";
-const PAGE_LIMIT = 200;
+const DEFAULT_LIMIT = 50;
+const MAX_LIMIT = 200;
 
-const ebayHeaders = (accessToken: string) => ({
-  Authorization: `Bearer ${accessToken}`,
-  "Content-Type": "application/json",
-  "Accept-Language": "en-US",
-});
+function ebayHeaders(accessToken: string) {
+  return {
+    Authorization: `Bearer ${accessToken}`,
+    "Content-Type": "application/json",
+    "Accept-Language": "en-US",
+  };
+}
 
 async function getAccessToken(refreshToken: string) {
   const credentials = Buffer.from(
@@ -48,8 +51,14 @@ function first(value: any) {
   return value || null;
 }
 
-export async function GET() {
+export async function GET(request: Request) {
   try {
+    const url = new URL(request.url);
+
+    const offset = Number(url.searchParams.get("offset") || "0");
+    const requestedLimit = Number(url.searchParams.get("limit") || DEFAULT_LIMIT);
+    const limit = Math.min(Math.max(requestedLimit, 1), MAX_LIMIT);
+
     const { data: tokenRow, error: tokenError } = await supabase
       .from("ebay_tokens")
       .select("refresh_token")
@@ -63,104 +72,110 @@ export async function GET() {
 
     const accessToken = await getAccessToken(tokenRow.refresh_token);
 
-    let offset = 0;
-    let imported = 0;
-    let totalSeen = 0;
-    let pages = 0;
+    const inventoryRes = await fetch(
+      `${EBAY_API}/sell/inventory/v1/inventory_item?limit=${limit}&offset=${offset}`,
+      {
+        headers: ebayHeaders(accessToken),
+      }
+    );
 
-    while (true) {
-      const inventoryRes = await fetch(
-        `${EBAY_API}/sell/inventory/v1/inventory_item?limit=${PAGE_LIMIT}&offset=${offset}`,
+    const inventoryData = await inventoryRes.json();
+
+    if (!inventoryRes.ok) {
+      throw new Error(JSON.stringify(inventoryData));
+    }
+
+    const items = inventoryData.inventoryItems || [];
+
+    let imported = 0;
+    let skipped = 0;
+
+    for (const item of items) {
+      const sku = item.sku;
+
+      if (!sku) {
+        skipped++;
+        continue;
+      }
+
+      const offerRes = await fetch(
+        `${EBAY_API}/sell/inventory/v1/offer?sku=${encodeURIComponent(sku)}`,
         {
           headers: ebayHeaders(accessToken),
         }
       );
 
-      const inventoryData = await inventoryRes.json();
+      const offerData = await offerRes.json();
 
-      if (!inventoryRes.ok) {
-        throw new Error(JSON.stringify(inventoryData));
+      if (!offerRes.ok) {
+        console.error("Offer error for SKU:", sku, offerData);
+        skipped++;
+        continue;
       }
 
-      const items = inventoryData.inventoryItems || [];
+      const offer = offerData.offers?.[0];
 
-      if (items.length === 0) break;
-
-      pages++;
-      totalSeen += items.length;
-
-      for (const item of items) {
-        const sku = item.sku;
-        if (!sku) continue;
-
-        const offerRes = await fetch(
-          `${EBAY_API}/sell/inventory/v1/offer?sku=${encodeURIComponent(sku)}`,
-          {
-            headers: ebayHeaders(accessToken),
-          }
-        );
-
-        const offerData = await offerRes.json();
-
-        if (!offerRes.ok) {
-          console.error("Offer error for SKU:", sku, offerData);
-          continue;
-        }
-
-        const offer = offerData.offers?.[0];
-        if (!offer?.listing?.listingId) continue;
-
-        const product = item.product || {};
-        const aspects = product.aspects || {};
-
-        const quantity =
-          item.availability?.shipToLocationAvailability?.quantity ?? 0;
-
-        const price = offer.pricingSummary?.price?.value
-          ? Number(offer.pricingSummary.price.value)
-          : 0;
-
-        const player =
-          first(aspects.Player) ||
-          first(aspects.Athlete) ||
-          first(aspects["Player/Athlete"]);
-
-        const sport = first(aspects.Sport);
-
-        const { error: upsertError } = await supabase.from("products").upsert(
-          {
-            title: product.title || "Untitled",
-            description: product.description || "",
-            price,
-            player,
-            sport,
-            quantity,
-            image_url: product.imageUrls?.[0] || null,
-            ebay_item_id: offer.listing.listingId,
-          },
-          {
-            onConflict: "ebay_item_id",
-          }
-        );
-
-        if (upsertError) {
-          console.error("Supabase upsert error:", upsertError);
-          continue;
-        }
-
-        imported++;
+      if (!offer?.listing?.listingId) {
+        skipped++;
+        continue;
       }
 
-      if (items.length < PAGE_LIMIT) break;
+      const product = item.product || {};
+      const aspects = product.aspects || {};
 
-      offset += PAGE_LIMIT;
+      const quantity =
+        item.availability?.shipToLocationAvailability?.quantity ?? 0;
+
+      const price = offer.pricingSummary?.price?.value
+        ? Number(offer.pricingSummary.price.value)
+        : 0;
+
+      const player =
+        first(aspects.Player) ||
+        first(aspects.Athlete) ||
+        first(aspects["Player/Athlete"]);
+
+      const sport = first(aspects.Sport);
+
+      const { error: upsertError } = await supabase.from("products").upsert(
+        {
+          title: product.title || "Untitled",
+          description: product.description || "",
+          price,
+          player,
+          sport,
+          quantity,
+          image_url: product.imageUrls?.[0] || null,
+          ebay_item_id: offer.listing.listingId,
+        },
+        {
+          onConflict: "ebay_item_id",
+        }
+      );
+
+      if (upsertError) {
+        console.error("Supabase upsert error:", upsertError);
+        skipped++;
+        continue;
+      }
+
+      imported++;
     }
+
+    const nextOffset = items.length < limit ? null : offset + limit;
 
     return NextResponse.json({
       success: true,
       imported,
-      totalSeen,
-      pages,
+      skipped,
+      offset,
+      limit,
+      received: items.length,
+      nextOffset,
+      nextUrl:
+        nextOffset === null
+          ? null
+          : `/api/ebay/import-listings?offset=${nextOffset}&limit=${limit}`,
     });
   } catch (error: any) {
     return NextResponse.json(
