@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/ebay/import-listings",
+      "schedule": "*/15 * * * *"
+    }
+  ]
+}
