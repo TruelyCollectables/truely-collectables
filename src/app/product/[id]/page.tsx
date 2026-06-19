@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { supabase } from "../../../lib/supabase";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export default async function ProductPage({
   params,
 }: {
@@ -14,9 +17,19 @@ export default async function ProductPage({
 
   if (error || !product) {
     return (
-      <main className="p-8">
-        <h1 className="text-3xl font-bold">Product not found</h1>
-        <Link href="/shop" className="underline mt-4 block">
+      <main className="p-8 max-w-6xl mx-auto">
+        <h1 className="text-3xl font-bold mb-4">
+          Product Not Found
+        </h1>
+
+        <p className="mb-6">
+          This card may have been sold or removed.
+        </p>
+
+        <Link
+          href="/shop"
+          className="inline-block border rounded px-4 py-2"
+        >
           Back to Shop
         </Link>
       </main>
@@ -25,39 +38,67 @@ export default async function ProductPage({
 
   return (
     <main className="p-8 max-w-6xl mx-auto">
-      <Link href="/shop" className="underline mb-6 block">
+      <Link
+        href="/shop"
+        className="inline-block mb-6 underline"
+      >
         ← Back to Shop
       </Link>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-10">
-        <img
-          src={product.image_url}
-          alt={product.title}
-          className="w-full rounded-lg border object-cover"
-        />
+        <div>
+          <img
+            src={product.image_url || "/placeholder.png"}
+            alt={product.title}
+            className="w-full rounded-lg border"
+          />
+        </div>
 
         <div>
-          <h1 className="text-4xl font-bold mb-4">{product.title}</h1>
+          <h1 className="text-3xl font-bold mb-4">
+            {product.title}
+          </h1>
 
-          <p className="text-gray-600 mb-2">
-            {product.sport} {product.player ? `• ${product.player}` : ""}
+          <div className="space-y-2 mb-6">
+            {product.player && (
+              <p>
+                <strong>Player:</strong> {product.player}
+              </p>
+            )}
+
+            {product.sport && (
+              <p>
+                <strong>Sport:</strong> {product.sport}
+              </p>
+            )}
+
+            <p>
+              <strong>Quantity:</strong> {product.quantity}
+            </p>
+          </div>
+
+          <p className="text-4xl font-bold mb-6">
+            ${Number(product.price).toFixed(2)}
           </p>
 
-          <p className="text-4xl font-bold mb-4">${product.price}</p>
-
-          <p className="mb-4">Quantity: {product.quantity}</p>
-
           {product.description && (
-            <div className="mb-6">
-              <h2 className="text-xl font-bold mb-2">Description</h2>
-              <p className="whitespace-pre-wrap text-gray-700">
+            <div className="mb-8">
+              <h2 className="font-bold text-xl mb-2">
+                Description
+              </h2>
+
+              <p className="whitespace-pre-wrap">
                 {product.description}
               </p>
             </div>
           )}
 
           <form action="/api/checkout" method="POST">
-            <input type="hidden" name="productId" value={product.id} />
+            <input
+              type="hidden"
+              name="productId"
+              value={product.id}
+            />
 
             <button
               type="submit"
@@ -67,23 +108,12 @@ export default async function ProductPage({
             </button>
           </form>
 
-          {product.ebay_url ? (
-            <a
-              href={product.ebay_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block w-full text-center border rounded py-3 font-bold mt-3"
-            >
-              Make Best Offer on eBay
-            </a>
-          ) : (
-            <button
-              disabled
-              className="w-full border rounded py-3 font-bold opacity-50 mt-3"
-            >
-              Best Offer Coming Soon
-            </button>
-          )}
+          <button
+            disabled
+            className="w-full border rounded py-3 font-bold mt-3 opacity-50"
+          >
+            Best Offer Coming Soon
+          </button>
         </div>
       </div>
     </main>
