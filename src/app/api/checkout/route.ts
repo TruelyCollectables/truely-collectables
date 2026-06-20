@@ -2,10 +2,14 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { supabase } from "../../../lib/supabase";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   try {
+    const stripe = new Stripe(
+      process.env.STRIPE_SECRET_KEY || "sk_test_placeholder"
+    );
+
     const formData = await request.formData();
     const productId = formData.get("productId") as string;
 
