@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { supabase } from "../../../lib/supabase";
+import OfferForm from "./OfferForm";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -81,12 +82,10 @@ export default async function ProductPage({
             </button>
           </form>
 
-          <button
-            disabled
-            className="w-full border rounded py-3 font-bold mt-3 opacity-50"
-          >
-            Best Offer Coming Soon
-          </button>
+         <OfferForm
+  productId={product.id}
+  price={Number(product.price)}
+/>
         </div>
       </div>
     </main>
