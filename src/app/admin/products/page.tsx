@@ -20,12 +20,21 @@ export default async function AdminProductsPage() {
       <h1 className="text-4xl font-bold mb-8">
         Admin Products
       </h1>
-<a
-  href="/admin/products/new"
-  className="inline-block border rounded px-4 py-2 mb-6"
->
-  Add Product
-</a>
+
+      <a
+        href="/admin/products/new"
+        className="inline-block border rounded px-4 py-2 mb-6"
+      >
+        Add Product
+      </a>
+
+      <a
+        href="/admin/logout"
+        className="inline-block border rounded px-4 py-2 mb-6 ml-4"
+      >
+        Logout
+      </a>
+
       {products?.map((product) => (
         <div
           key={product.id}
