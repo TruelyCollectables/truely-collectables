@@ -1,0 +1,152 @@
+import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+import Stripe from "stripe";
+import { Resend } from "resend";
+
+export const dynamic = "force-dynamic";
+
+export async function POST(req: Request) {
+  try {
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    const stripeKey = process.env.STRIPE_SECRET_KEY;
+    const resendKey = process.env.RESEND_API_KEY;
+
+    if (!supabaseUrl || !supabaseKey || !stripeKey) {
+      return NextResponse.json(
+        { error: "Missing environment variables" },
+        { status: 500 }
+      );
+    }
+
+    const supabase = createClient(supabaseUrl, supabaseKey);
+    const stripe = new Stripe(stripeKey);
+    const resend = resendKey ? new Resend(resendKey) : null;
+
+    const { offerId, counterAmount } = await req.json();
+
+    if (!offerId || !counterAmount || Number(counterAmount) <= 0) {
+      return NextResponse.json(
+        { error: "Missing offerId or counter amount" },
+        { status: 400 }
+      );
+    }
+
+    const { data: offer, error: offerError } = await supabase
+      .from("offers")
+      .select("*, products(id, title, image_url, price, quantity, ebay_item_id)")
+      .eq("id", offerId)
+      .single();
+
+    if (offerError || !offer) {
+      return NextResponse.json(
+        { error: offerError?.message || "Offer not found" },
+        { status: 404 }
+      );
+    }
+
+    if (offer.status !== "pending") {
+      return NextResponse.json(
+        { error: "Only pending offers can be countered" },
+        { status: 400 }
+      );
+    }
+
+    if (!offer.products) {
+      return NextResponse.json(
+        { error: "Product not found for this offer" },
+        { status: 404 }
+      );
+    }
+
+    if (Number(offer.products.quantity) <= 0) {
+      return NextResponse.json(
+        { error: "Product is already sold out" },
+        { status: 400 }
+      );
+    }
+
+    const origin =
+      req.headers.get("origin") ||
+      "https://truely-collectables-tt3b.vercel.app";
+
+    const amount = Number(counterAmount);
+
+    const session = await stripe.checkout.sessions.create({
+      mode: "payment",
+      customer_email: offer.customer_email,
+      line_items: [
+        {
+          price_data: {
+            currency: "usd",
+            product_data: {
+              name: offer.products.title,
+              images: offer.products.image_url ? [offer.products.image_url] : [],
+            },
+            unit_amount: Math.round(amount * 100),
+          },
+          quantity: 1,
+        },
+      ],
+      metadata: {
+        offer_id: offer.id,
+        product_id: offer.products.id,
+        ebay_item_id: offer.products.ebay_item_id || "",
+        type: "accepted_offer",
+        counter_amount: String(amount),
+      },
+      success_url: `${origin}/shop?counter_success=true`,
+      cancel_url: `${origin}/product/${offer.products.id}`,
+    });
+
+    const { data: updatedOffer, error: updateError } = await supabase
+      .from("offers")
+      .update({
+        status: "countered",
+        counter_amount: amount,
+        stripe_checkout_url: session.url,
+        stripe_session_id: session.id,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", offerId)
+      .select()
+      .single();
+
+    if (updateError) {
+      return NextResponse.json({ error: updateError.message }, { status: 500 });
+    }
+
+    if (resend && session.url) {
+      await resend.emails.send({
+        from: "Truely Collectables <sales@truelycollectables.com>",
+        to: offer.customer_email,
+        subject: "Counter offer from Truely Collectables",
+        html: `
+          <h2>Counter Offer</h2>
+          <p>Hi ${offer.customer_name || "there"},</p>
+          <p>Thank you for your offer on <strong>${offer.products.title}</strong>.</p>
+          <p>Your original offer was <strong>$${Number(offer.offer_amount).toFixed(2)}</strong>.</p>
+          <p>We can accept a counter offer of <strong>$${amount.toFixed(2)}</strong>.</p>
+          <p>You can accept and pay securely here:</p>
+          <p>
+            <a href="${session.url}" style="display:inline-block;padding:12px 18px;background:#000;color:#fff;text-decoration:none;border-radius:6px;">
+              Accept Counter Offer
+            </a>
+          </p>
+          <p>Thank you,<br/>Truely Collectables</p>
+        `,
+      });
+    }
+
+    return NextResponse.json({
+      success: true,
+      offer: updatedOffer,
+      checkoutUrl: session.url,
+    });
+  } catch (error: any) {
+    return NextResponse.json(
+      { error: error.message || "Failed to send counter offer" },
+      { status: 500 }
+    );
+  }
+}
