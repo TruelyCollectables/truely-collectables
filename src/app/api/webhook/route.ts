@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
+import { syncEbayQuantityAfterSale } from "@/lib/ebay";
 
 export const dynamic = "force-dynamic";
 
@@ -72,19 +73,31 @@ export async function POST(req: Request) {
       }
 
       if (productId) {
-        const { data: product } = await supabase
+        const { data: product, error: productError } = await supabase
           .from("products")
-          .select("id, quantity")
+          .select("id, quantity, sku, ebay_item_id")
           .eq("id", productId)
           .single();
 
-        if (product && Number(product.quantity) > 0) {
+        if (!productError && product && Number(product.quantity) > 0) {
+          const newQuantity = Number(product.quantity) - 1;
+
           await supabase
             .from("products")
             .update({
-              quantity: Number(product.quantity) - 1,
+              quantity: newQuantity,
             })
             .eq("id", productId);
+
+          try {
+            await syncEbayQuantityAfterSale({
+              sku: product.sku,
+              ebayItemId: product.ebay_item_id,
+              newQuantity,
+            });
+          } catch (ebayError: any) {
+            console.error("eBay sync after sale failed:", ebayError.message);
+          }
         }
       }
 
