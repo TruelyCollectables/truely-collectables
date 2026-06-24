@@ -23,11 +23,18 @@ export async function POST(req: Request) {
     const stripe = new Stripe(stripeKey);
     const resend = resendKey ? new Resend(resendKey) : null;
 
-    const { offerId, counterAmount } = await req.json();
+    const { offerId, status } = await req.json();
 
-    if (!offerId || !counterAmount || Number(counterAmount) <= 0) {
+    if (!offerId || !status) {
       return NextResponse.json(
-        { error: "Missing offerId or counter amount" },
+        { error: "Missing offerId or status" },
+        { status: 400 }
+      );
+    }
+
+    if (!["accepted", "declined"].includes(status)) {
+      return NextResponse.json(
+        { error: "Invalid status" },
         { status: 400 }
       );
     }
@@ -45,18 +52,44 @@ export async function POST(req: Request) {
       );
     }
 
-    if (offer.status !== "pending") {
-      return NextResponse.json(
-        { error: "Only pending offers can be countered" },
-        { status: 400 }
-      );
-    }
-
     if (!offer.products) {
       return NextResponse.json(
         { error: "Product not found for this offer" },
         { status: 404 }
       );
+    }
+
+    if (status === "declined") {
+      const { data: updatedOffer, error: updateError } = await supabase
+        .from("offers")
+        .update({
+          status: "declined",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", offerId)
+        .select()
+        .single();
+
+      if (updateError) {
+        return NextResponse.json({ error: updateError.message }, { status: 500 });
+      }
+
+      if (resend) {
+        await resend.emails.send({
+          from: "Truely Collectables <sales@truelycollectables.com>",
+          to: offer.customer_email,
+          subject: "Offer update from Truely Collectables",
+          html: `
+            <h2>Offer Declined</h2>
+            <p>Hi ${offer.customer_name || "there"},</p>
+            <p>Thank you for your offer on <strong>${offer.products.title}</strong>.</p>
+            <p>Unfortunately, we are unable to accept this offer.</p>
+            <p>Thank you,<br/>Truely Collectables</p>
+          `,
+        });
+      }
+
+      return NextResponse.json({ success: true, offer: updatedOffer });
     }
 
     if (Number(offer.products.quantity) <= 0) {
@@ -70,7 +103,7 @@ export async function POST(req: Request) {
       req.headers.get("origin") ||
       "https://truely-collectables-tt3b.vercel.app";
 
-    const amount = Number(counterAmount);
+    const amount = Number(offer.offer_amount);
 
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
@@ -89,21 +122,20 @@ export async function POST(req: Request) {
         },
       ],
       metadata: {
-        offer_id: offer.id,
-        product_id: offer.products.id,
-        ebay_item_id: offer.products.ebay_item_id || "",
         type: "accepted_offer",
-        counter_amount: String(amount),
+        offer_id: String(offer.id),
+        product_id: String(offer.products.id),
+        ebay_item_id: offer.products.ebay_item_id || "",
+        offer_amount: String(amount),
       },
-      success_url: `${origin}/shop?counter_success=true`,
+      success_url: `${origin}/shop?offer_success=true`,
       cancel_url: `${origin}/product/${offer.products.id}`,
     });
 
     const { data: updatedOffer, error: updateError } = await supabase
       .from("offers")
       .update({
-        status: "countered",
-        counter_amount: amount,
+        status: "accepted",
         stripe_checkout_url: session.url,
         stripe_session_id: session.id,
         updated_at: new Date().toISOString(),
@@ -120,29 +152,18 @@ export async function POST(req: Request) {
       await resend.emails.send({
         from: "Truely Collectables <sales@truelycollectables.com>",
         to: offer.customer_email,
-        subject: "Counter offer from Truely Collectables",
+        subject: "Your offer was accepted",
         html: `
-          <h2>Counter Offer</h2>
+          <h2>Offer Accepted</h2>
           <p>Hi ${offer.customer_name || "there"},</p>
-
-          <p>Thank you for your offer on <strong>${offer.products.title}</strong>.</p>
-
-          <p>Your original offer was <strong>$${Number(
-            offer.offer_amount
-          ).toFixed(2)}</strong>.</p>
-
-          <p>We can accept a counter offer of <strong>$${amount.toFixed(
-            2
-          )}</strong>.</p>
-
-          <p>You can accept and pay securely here:</p>
-
+          <p>Your offer on <strong>${offer.products.title}</strong> was accepted.</p>
+          <p>Accepted price: <strong>$${amount.toFixed(2)}</strong></p>
+          <p>Pay securely here:</p>
           <p>
             <a href="${session.url}" style="display:inline-block;padding:12px 18px;background:#000;color:#fff;text-decoration:none;border-radius:6px;">
-              Accept Counter Offer
+              Pay Now
             </a>
           </p>
-
           <p>Thank you,<br/>Truely Collectables</p>
         `,
       });
@@ -155,7 +176,7 @@ export async function POST(req: Request) {
     });
   } catch (error: any) {
     return NextResponse.json(
-      { error: error.message || "Failed to send counter offer" },
+      { error: error.message || "Failed to update offer" },
       { status: 500 }
     );
   }
