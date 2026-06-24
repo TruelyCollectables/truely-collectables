@@ -38,6 +38,9 @@ export default async function ProductPage({
     );
   }
 
+  const quantity = Number(product.quantity || 0);
+  const isSoldOut = quantity <= 0;
+
   return (
     <main className="p-8 max-w-6xl mx-auto">
       <Link href="/shop" className="inline-block mb-6 underline">
@@ -62,7 +65,7 @@ export default async function ProductPage({
             ${Number(product.price).toFixed(2)}
           </p>
 
-          <p className="mb-6">Quantity: {product.quantity}</p>
+          <p className="mb-6">Quantity: {quantity}</p>
 
           {product.description && (
             <div className="mb-8">
@@ -71,21 +74,26 @@ export default async function ProductPage({
             </div>
           )}
 
-          <form action="/api/checkout" method="POST">
-            <input type="hidden" name="productId" value={product.id} />
+          {isSoldOut ? (
+            <div className="w-full bg-red-600 text-white rounded py-3 font-bold text-center">
+              SOLD OUT
+            </div>
+          ) : (
+            <>
+              <form action="/api/checkout" method="POST">
+                <input type="hidden" name="productId" value={product.id} />
 
-            <button
-              type="submit"
-              className="w-full bg-black text-white rounded py-3 font-bold"
-            >
-              Buy Now
-            </button>
-          </form>
+                <button
+                  type="submit"
+                  className="w-full bg-black text-white rounded py-3 font-bold"
+                >
+                  Buy Now
+                </button>
+              </form>
 
-         <OfferForm
-  productId={product.id}
-  price={Number(product.price)}
-/>
+              <OfferForm productId={product.id} price={Number(product.price)} />
+            </>
+          )}
         </div>
       </div>
     </main>

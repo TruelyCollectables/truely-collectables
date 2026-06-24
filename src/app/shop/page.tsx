@@ -7,13 +7,14 @@ export const revalidate = 0;
 export default async function Shop({
   searchParams,
 }: {
-  searchParams?: {
+  searchParams?: Promise<{
     q?: string;
     sport?: string;
-  };
+  }>;
 }) {
-  const q = searchParams?.q || "";
-  const sport = searchParams?.sport || "";
+  const params = await searchParams;
+  const q = (params?.q || "").trim();
+  const sport = (params?.sport || "").trim();
 
   let query = supabase
     .from("products")
@@ -23,8 +24,10 @@ export default async function Shop({
     .order("created_at", { ascending: false });
 
   if (q) {
+    const safeQ = q.replaceAll(",", " ").replaceAll("%", "").trim();
+
     query = query.or(
-      `title.ilike.%${q}%,player.ilike.%${q}%,sport.ilike.%${q}%`
+      `title.ilike.%${safeQ}%,player.ilike.%${safeQ}%,sport.ilike.%${safeQ}%`
     );
   }
 
@@ -91,6 +94,10 @@ export default async function Shop({
       <p className="mb-6 text-gray-600">
         Showing {products?.length || 0} cards
       </p>
+
+      {products?.length === 0 && (
+        <p className="text-gray-600">No cards found.</p>
+      )}
 
       <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
         {products?.map((product) => (

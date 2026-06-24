@@ -8,7 +8,11 @@ export const revalidate = 0;
 export default async function AdminOffersPage() {
   const { data: offers, error } = await supabase
     .from("offers")
-    .select("*, products(title, image_url, price)")
+   .select(`
+  *,
+  stripe_checkout_url,
+  products(title, image_url, price)
+`)
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -52,7 +56,11 @@ export default async function AdminOffersPage() {
               <p className="font-bold">Status: {offer.status}</p>
             </div>
 
-            <OfferActions offerId={offer.id} status={offer.status} />
+            <OfferActions
+  offerId={offer.id}
+  status={offer.status}
+  checkoutUrl={offer.stripe_checkout_url}
+/>
           </div>
         ))}
 
