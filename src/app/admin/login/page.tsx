@@ -10,7 +10,6 @@ export default function AdminLoginPage() {
 
   async function handleLogin(e: React.FormEvent) {
     e.preventDefault();
-    setError("");
 
     const res = await fetch("/api/admin/login", {
       method: "POST",
@@ -26,33 +25,30 @@ export default function AdminLoginPage() {
     }
 
     router.push("/admin/products");
-    router.refresh();
   }
 
   return (
-    <main style={{ padding: 40, maxWidth: 400, margin: "0 auto" }}>
+    <main style={{ maxWidth: 400, margin: "40px auto" }}>
       <h1>Admin Login</h1>
 
       <form onSubmit={handleLogin}>
         <input
           type="password"
-          placeholder="Admin password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
-          style={{
-            width: "100%",
-            padding: 12,
-            marginTop: 20,
-            marginBottom: 12,
-          }}
+          placeholder="Password"
+          style={{ width: "100%", padding: 10 }}
         />
 
-        <button type="submit" style={{ padding: 12, width: "100%" }}>
+        <button
+          type="submit"
+          style={{ width: "100%", padding: 10, marginTop: 10 }}
+        >
           Login
         </button>
       </form>
 
-      {error && <p style={{ color: "red" }}>{error}</p>}
+      {error && <p>{error}</p>}
     </main>
   );
 }
