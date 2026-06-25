@@ -7,33 +7,28 @@ const SITE_URL =
   process.env.NEXT_PUBLIC_SITE_URL ||
   "https://truely-collectables.vercel.app";
 
-const LIMIT = 50;
-const OFFSETS = [
-  0, 50, 100, 150, 200, 250, 300, 350, 400, 450,
-  500, 550, 600, 650, 700, 750, 800, 850, 900, 950,
-  1000, 1050, 1100, 1150, 1200, 1250, 1300, 1350,
-  1400, 1450, 1500, 1550, 1600, 1650, 1700, 1750
-];
+const LIMIT = 100;
+const MAX_BATCHES = 25;
 
 export async function GET() {
   try {
     const results = [];
     const runId = new Date().toISOString();
 
-    for (const offset of OFFSETS) {
+    let offset = 0;
+
+    for (let batch = 1; batch <= MAX_BATCHES; batch++) {
       const url =
         `${SITE_URL}/api/ebay/import-listings` +
         `?offset=${offset}` +
         `&limit=${LIMIT}` +
         `&runId=${encodeURIComponent(runId)}`;
 
-      const res = await fetch(url, {
-        cache: "no-store",
-      });
-
+      const res = await fetch(url, { cache: "no-store" });
       const data = await res.json();
 
       results.push({
+        batch,
         offset,
         status: res.status,
         ok: res.ok,
@@ -48,11 +43,13 @@ export async function GET() {
       if (!res.ok || data?.nextOffset === null) {
         break;
       }
+
+      offset = data.nextOffset;
     }
 
     return NextResponse.json({
       success: true,
-      message: "Full sync completed",
+      message: "Full eBay sync completed",
       runId,
       limit: LIMIT,
       results,
