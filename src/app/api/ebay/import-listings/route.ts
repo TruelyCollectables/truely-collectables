@@ -10,7 +10,7 @@ const supabase = createClient(
 );
 
 const EBAY_API = "https://api.ebay.com";
-const DEFAULT_LIMIT = 100;
+const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
 
 function ebayHeaders(accessToken: string) {
@@ -40,7 +40,11 @@ async function getAccessToken(refreshToken: string) {
   });
 
   const data = await res.json();
-  if (!res.ok) throw new Error(JSON.stringify(data));
+
+  if (!res.ok) {
+    throw new Error(`eBay token error: ${JSON.stringify(data)}`);
+  }
+
   return data.access_token;
 }
 
@@ -71,6 +75,8 @@ export async function GET(request: Request) {
     const limit = Math.min(Math.max(requestedLimit, 1), MAX_LIMIT);
     const runId = url.searchParams.get("runId") || new Date().toISOString();
 
+    const debugSamples: any[] = [];
+
     const { data: tokenRow, error: tokenError } = await supabase
       .from("ebay_tokens")
       .select("refresh_token")
@@ -92,7 +98,7 @@ export async function GET(request: Request) {
     const inventoryData = await inventoryRes.json();
 
     if (!inventoryRes.ok) {
-      throw new Error(JSON.stringify(inventoryData));
+      throw new Error(`Inventory fetch failed: ${JSON.stringify(inventoryData)}`);
     }
 
     const items = inventoryData.inventoryItems || [];
@@ -103,8 +109,13 @@ export async function GET(request: Request) {
 
     for (const item of items) {
       const sku = item.sku;
+
       if (!sku) {
         skipped++;
+        debugSamples.push({
+          reason: "missing_sku",
+          item,
+        });
         continue;
       }
 
@@ -117,26 +128,46 @@ export async function GET(request: Request) {
 
       if (!offerRes.ok) {
         skipped++;
+        debugSamples.push({
+          reason: "offer_lookup_failed",
+          sku,
+          status: offerRes.status,
+          offerData,
+        });
         continue;
       }
 
       const offer = offerData.offers?.[0];
       const listingId = offer?.listing?.listingId || null;
 
-      if (!offer || !isActiveOffer(offer)) {
+      if (!offer) {
+        skipped++;
+        debugSamples.push({
+          reason: "no_offer_returned",
+          sku,
+          offerData,
+        });
+        continue;
+      }
+
+      if (!isActiveOffer(offer)) {
+        await supabase.from("products").update({ quantity: 0 }).eq("sku", sku);
+
         if (listingId) {
           await supabase
             .from("products")
-            .update({ quantity: 0, sku })
+            .update({ quantity: 0 })
             .eq("ebay_item_id", listingId);
         }
 
-        await supabase
-          .from("products")
-          .update({ quantity: 0 })
-          .eq("sku", sku);
-
         markedSold++;
+        debugSamples.push({
+          reason: "offer_not_active",
+          sku,
+          listingId,
+          offerStatus: offer?.status,
+          listingStatus: offer?.listing?.listingStatus,
+        });
         continue;
       }
 
@@ -169,11 +200,22 @@ export async function GET(request: Request) {
       };
 
       if (listingId) {
-        const { data: updatedRows } = await supabase
+        const { data: updatedRows, error: updateError } = await supabase
           .from("products")
           .update(productData)
           .eq("ebay_item_id", listingId)
           .select("id");
+
+        if (updateError) {
+          skipped++;
+          debugSamples.push({
+            reason: "update_by_ebay_item_id_failed",
+            sku,
+            listingId,
+            updateError,
+          });
+          continue;
+        }
 
         if (updatedRows && updatedRows.length > 0) {
           imported++;
@@ -190,6 +232,13 @@ export async function GET(request: Request) {
 
       if (upsertError) {
         skipped++;
+        debugSamples.push({
+          reason: "upsert_failed",
+          sku,
+          listingId,
+          upsertError,
+          productData,
+        });
         continue;
       }
 
@@ -197,13 +246,6 @@ export async function GET(request: Request) {
     }
 
     const nextOffset = items.length < limit ? null : offset + limit;
-
-    if (nextOffset === null) {
-      await supabase
-        .from("products")
-        .update({ quantity: 0 })
-        .or(`last_seen_at.is.null,last_seen_at.neq.${runId}`);
-    }
 
     return NextResponse.json({
       success: true,
@@ -215,6 +257,7 @@ export async function GET(request: Request) {
       received: items.length,
       nextOffset,
       runId,
+      debugSamples: debugSamples.slice(0, 10),
       nextUrl:
         nextOffset === null
           ? null
