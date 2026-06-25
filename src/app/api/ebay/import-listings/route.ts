@@ -196,7 +196,7 @@ export async function GET(request: Request) {
         quantity,
         image_url: product.imageUrls?.[0] || null,
         ebay_item_id: listingId,
-        last_seen_at: runId,
+        last_seen_at: new Date().toISOString(),
       };
 
       if (listingId) {
