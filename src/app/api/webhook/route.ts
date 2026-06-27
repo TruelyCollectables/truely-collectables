@@ -48,44 +48,63 @@ export async function POST(req: Request) {
       );
     }
 
-    if (event.type === "checkout.session.completed") {
-      const session = event.data.object as Stripe.Checkout.Session;
+    if (event.type !== "checkout.session.completed") {
+      return NextResponse.json({ received: true });
+    }
 
-      const offerId = session.metadata?.offer_id;
-      const checkoutType = session.metadata?.type || "cart";
-      const cartMetadata = session.metadata?.cart || "[]";
+    const session = event.data.object as Stripe.Checkout.Session;
 
-      const shippingMethod = session.metadata?.shipping_method || "";
-      const shippingName = session.metadata?.shipping_name || "";
-      const shippingAmount = Number(session.metadata?.shipping_amount || 0);
-      const subtotal = Number(session.metadata?.subtotal || 0);
-      const itemCount = Number(session.metadata?.item_count || 0);
+    const offerId = session.metadata?.offer_id;
+    const checkoutType = session.metadata?.type || "cart";
+    const cartMetadata = session.metadata?.cart || "[]";
 
-      const customerEmail =
-        session.customer_details?.email ||
-        session.customer_email ||
-        "unknown";
+    const shippingMethod = session.metadata?.shipping_method || "";
+    const shippingName = session.metadata?.shipping_name || "";
+    const shippingAmount = Number(session.metadata?.shipping_amount || 0);
+    const subtotal = Number(session.metadata?.subtotal || 0);
+    const itemCount = Number(session.metadata?.item_count || 0);
 
-      const total = Number(session.amount_total || 0) / 100;
+    const customerEmail =
+      session.customer_details?.email ||
+      session.customer_email ||
+      "unknown";
 
-      const { data: existingOrder } = await supabase
+    const total = Number(session.amount_total || 0) / 100;
+
+    let cart: CartItem[] = [];
+
+    try {
+      cart = JSON.parse(cartMetadata);
+    } catch {
+      cart = [];
+    }
+
+    const { data: existingOrder } = await supabase
+      .from("orders")
+      .select("id")
+      .eq("stripe_session_id", session.id)
+      .maybeSingle();
+
+    let orderId: number;
+
+    if (existingOrder) {
+      orderId = existingOrder.id;
+
+      await supabase
         .from("orders")
-        .select("id")
-        .eq("stripe_session_id", session.id)
-        .maybeSingle();
-
-      if (existingOrder) {
-        return NextResponse.json({ received: true });
-      }
-
-      let cart: CartItem[] = [];
-
-      try {
-        cart = JSON.parse(cartMetadata);
-      } catch {
-        cart = [];
-      }
-
+        .update({
+          customer_email: customerEmail,
+          total,
+          status: "paid",
+          shipping_method: shippingMethod,
+          shipping_name: shippingName,
+          shipping_amount: shippingAmount,
+          subtotal,
+          item_count: itemCount,
+          fulfillment_status: "ready_to_ship",
+        })
+        .eq("id", orderId);
+    } else {
       const { data: order, error: orderError } = await supabase
         .from("orders")
         .insert({
@@ -104,13 +123,22 @@ export async function POST(req: Request) {
         .single();
 
       if (orderError || !order) {
-        console.error("Order insert failed:", orderError?.message);
         return NextResponse.json(
           { error: "Order insert failed" },
           { status: 500 }
         );
       }
 
+      orderId = order.id;
+    }
+
+    const { data: existingItems } = await supabase
+      .from("order_items")
+      .select("id")
+      .eq("order_id", orderId)
+      .limit(1);
+
+    if (!existingItems || existingItems.length === 0) {
       for (const cartItem of cart) {
         const { data: product, error: productError } = await supabase
           .from("products")
@@ -121,7 +149,7 @@ export async function POST(req: Request) {
         if (productError || !product) continue;
 
         await supabase.from("order_items").insert({
-          order_id: order.id,
+          order_id: orderId,
           product_id: product.id,
           title: product.title,
           price: Number(product.price),
@@ -148,16 +176,16 @@ export async function POST(req: Request) {
           console.error("eBay sync after sale failed:", ebayError.message);
         }
       }
+    }
 
-      if (checkoutType === "accepted_offer" && offerId) {
-        await supabase
-          .from("offers")
-          .update({
-            status: "paid",
-            updated_at: new Date().toISOString(),
-          })
-          .eq("id", offerId);
-      }
+    if (checkoutType === "accepted_offer" && offerId) {
+      await supabase
+        .from("offers")
+        .update({
+          status: "paid",
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", offerId);
     }
 
     return NextResponse.json({ received: true });
