@@ -23,6 +23,9 @@ type Order = {
   tracking_number: string | null;
   carrier: string | null;
   shipped_at: string | null;
+  discount_amount?: number | null;
+  discount_code?: string | null;
+  customer_notes?: string | null;
   order_items?: OrderItem[];
 };
 
@@ -72,6 +75,16 @@ export default async function AdminOrderDetailPage({
 
   const typedOrder = order as Order;
 
+  const itemsTotal =
+    typedOrder.order_items?.reduce(
+      (sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 0),
+      0
+    ) || Number(typedOrder.subtotal || 0);
+
+  const discountAmount = Number(typedOrder.discount_amount || 0);
+  const shippingPaid = Number(typedOrder.shipping_amount || 0);
+  const totalPaid = Number(typedOrder.total || 0);
+
   return (
     <main className="p-8 max-w-5xl mx-auto">
       <div className="mb-8">
@@ -86,7 +99,7 @@ export default async function AdminOrderDetailPage({
         </p>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
         <div className="border rounded-lg p-4">
           <p className="text-sm text-gray-500">Payment</p>
           <p className="text-2xl font-bold">{label(typedOrder.status)}</p>
@@ -100,14 +113,26 @@ export default async function AdminOrderDetailPage({
         </div>
 
         <div className="border rounded-lg p-4">
-          <p className="text-sm text-gray-500">Total</p>
-          <p className="text-2xl font-bold">{money(typedOrder.total)}</p>
+          <p className="text-sm text-gray-500">Items Total</p>
+          <p className="text-2xl font-bold">{money(itemsTotal)}</p>
+        </div>
+
+        <div className="border rounded-lg p-4">
+          <p className="text-sm text-gray-500">Total Paid</p>
+          <p className="text-2xl font-bold">{money(totalPaid)}</p>
         </div>
       </div>
 
       <section className="border rounded-lg p-6 mb-6">
         <h2 className="text-2xl font-bold mb-4">Customer</h2>
         <p>Email: {typedOrder.customer_email || "No email"}</p>
+
+        <div className="mt-4">
+          <h3 className="font-bold">Customer Notes</h3>
+          <p className="mt-1 whitespace-pre-wrap">
+            {typedOrder.customer_notes?.trim() || "No customer notes."}
+          </p>
+        </div>
       </section>
 
       <section className="border rounded-lg p-6 mb-6">
@@ -118,14 +143,11 @@ export default async function AdminOrderDetailPage({
         ) : (
           <div className="space-y-3">
             {typedOrder.order_items.map((item) => (
-              <div
-                key={item.id}
-                className="flex justify-between border-b pb-3"
-              >
+              <div key={item.id} className="flex justify-between border-b pb-3">
                 <div>
                   <p className="font-bold">{item.title}</p>
                   <p className="text-sm text-gray-600">
-                    Quantity: {item.quantity}
+                    Quantity: {item.quantity} × {money(item.price)}
                   </p>
                 </div>
 
@@ -139,11 +161,39 @@ export default async function AdminOrderDetailPage({
       </section>
 
       <section className="border rounded-lg p-6 mb-6">
+        <h2 className="text-2xl font-bold mb-4">Order Totals</h2>
+
+        <div className="max-w-md space-y-2">
+          <div className="flex justify-between">
+            <span>Items Total</span>
+            <strong>{money(itemsTotal)}</strong>
+          </div>
+
+          <div className="flex justify-between">
+            <span>
+              Discount
+              {typedOrder.discount_code ? ` (${typedOrder.discount_code})` : ""}
+            </span>
+            <strong>-{money(discountAmount)}</strong>
+          </div>
+
+          <div className="flex justify-between">
+            <span>Shipping Paid</span>
+            <strong>{money(shippingPaid)}</strong>
+          </div>
+
+          <div className="flex justify-between border-t pt-3 text-xl">
+            <span>Total Paid</span>
+            <strong>{money(totalPaid)}</strong>
+          </div>
+        </div>
+      </section>
+
+      <section className="border rounded-lg p-6 mb-6">
         <h2 className="text-2xl font-bold mb-4">Shipping</h2>
 
         <p>Method: {typedOrder.shipping_name || typedOrder.shipping_method}</p>
         <p>Shipping Paid: {money(typedOrder.shipping_amount)}</p>
-        <p>Subtotal: {money(typedOrder.subtotal)}</p>
         <p>Items: {typedOrder.item_count || 0}</p>
 
         <div className="mt-4">
