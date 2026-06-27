@@ -1,5 +1,8 @@
 import { supabase } from "../../../lib/supabase";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 type OrderItem = {
   id: number;
   title: string;
@@ -96,6 +99,9 @@ export default async function AdminOrdersPage({
           <h1 className="text-4xl font-bold">Fulfillment Center</h1>
           <p className="text-gray-600 mt-2">
             Manage paid orders, packing slips, tracking, and shipping.
+          </p>
+          <p className="text-xs text-gray-400 mt-2">
+            Last refreshed: {new Date().toLocaleString()}
           </p>
         </div>
 
