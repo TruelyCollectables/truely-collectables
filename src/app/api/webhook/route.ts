@@ -21,7 +21,10 @@ export async function POST(req: Request) {
     const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
     if (!supabaseUrl || !supabaseKey || !stripeKey || !webhookSecret) {
-      return NextResponse.json({ error: "Missing webhook environment variables" }, { status: 500 });
+      return NextResponse.json(
+        { error: "Missing webhook environment variables" },
+        { status: 500 }
+      );
     }
 
     const stripe = new Stripe(stripeKey);
@@ -31,7 +34,10 @@ export async function POST(req: Request) {
     const signature = req.headers.get("stripe-signature");
 
     if (!signature) {
-      return NextResponse.json({ error: "Missing Stripe signature" }, { status: 400 });
+      return NextResponse.json(
+        { error: "Missing Stripe signature" },
+        { status: 400 }
+      );
     }
 
     let event: Stripe.Event;
@@ -39,7 +45,10 @@ export async function POST(req: Request) {
     try {
       event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
     } catch (err: any) {
-      return NextResponse.json({ error: `Webhook signature failed: ${err.message}` }, { status: 400 });
+      return NextResponse.json(
+        { error: `Webhook signature failed: ${err.message}` },
+        { status: 400 }
+      );
     }
 
     if (event.type !== "checkout.session.completed") {
@@ -49,12 +58,24 @@ export async function POST(req: Request) {
     const session = event.data.object as Stripe.Checkout.Session;
     const metadata = session.metadata || {};
 
-    console.log("Stripe session metadata:", metadata);
-
     const customerEmail =
       session.customer_details?.email ||
       session.customer_email ||
       "unknown";
+
+    const customerName =
+      session.customer_details?.name ||
+      session.shipping_details?.name ||
+      null;
+
+    const shipping = session.shipping_details?.address;
+
+    const shippingAddressLine1 = shipping?.line1 || null;
+    const shippingAddressLine2 = shipping?.line2 || null;
+    const shippingCity = shipping?.city || null;
+    const shippingState = shipping?.state || null;
+    const shippingPostalCode = shipping?.postal_code || null;
+    const shippingCountry = shipping?.country || null;
 
     const total = Number(session.amount_total || 0) / 100;
 
@@ -77,8 +98,6 @@ export async function POST(req: Request) {
       cart = [];
     }
 
-    console.log("Parsed cart:", cart);
-
     const { data: existingOrder, error: existingOrderError } = await supabase
       .from("orders")
       .select("id")
@@ -91,22 +110,31 @@ export async function POST(req: Request) {
 
     let orderId: number;
 
+    const orderPayload = {
+      customer_email: customerEmail,
+      customer_name: customerName,
+      total,
+      status: "paid",
+      shipping_method: shippingMethod,
+      shipping_name: shippingName,
+      shipping_amount: shippingAmount,
+      subtotal,
+      item_count: itemCount || cart.length,
+      fulfillment_status: "ready_to_ship",
+      shipping_address_line1: shippingAddressLine1,
+      shipping_address_line2: shippingAddressLine2,
+      shipping_city: shippingCity,
+      shipping_state: shippingState,
+      shipping_postal_code: shippingPostalCode,
+      shipping_country: shippingCountry,
+    };
+
     if (existingOrder) {
       orderId = existingOrder.id;
 
       const { error: updateError } = await supabase
         .from("orders")
-        .update({
-          customer_email: customerEmail,
-          total,
-          status: "paid",
-          shipping_method: shippingMethod,
-          shipping_name: shippingName,
-          shipping_amount: shippingAmount,
-          subtotal,
-          item_count: itemCount || cart.length,
-          fulfillment_status: "ready_to_ship",
-        })
+        .update(orderPayload)
         .eq("id", orderId);
 
       if (updateError) {
@@ -116,23 +144,18 @@ export async function POST(req: Request) {
       const { data: order, error: orderError } = await supabase
         .from("orders")
         .insert({
-          customer_email: customerEmail,
-          total,
-          status: "paid",
+          ...orderPayload,
           stripe_session_id: session.id,
-          shipping_method: shippingMethod,
-          shipping_name: shippingName,
-          shipping_amount: shippingAmount,
-          subtotal,
-          item_count: itemCount || cart.length,
-          fulfillment_status: "ready_to_ship",
         })
         .select("id")
         .single();
 
       if (orderError || !order) {
         console.error("Order insert failed:", orderError?.message);
-        return NextResponse.json({ error: "Order insert failed" }, { status: 500 });
+        return NextResponse.json(
+          { error: "Order insert failed" },
+          { status: 500 }
+        );
       }
 
       orderId = order.id;
@@ -146,7 +169,9 @@ export async function POST(req: Request) {
 
     if (!existingItems || existingItems.length === 0) {
       for (const cartItem of cart) {
-        const productId = Number(cartItem.id || cartItem.product_id || cartItem.productId);
+        const productId = Number(
+          cartItem.id || cartItem.product_id || cartItem.productId
+        );
         const quantityPurchased = Number(cartItem.quantity || cartItem.qty || 1);
 
         if (!productId || quantityPurchased <= 0) {
@@ -178,7 +203,10 @@ export async function POST(req: Request) {
           continue;
         }
 
-        const newQuantity = Math.max(Number(product.quantity || 0) - quantityPurchased, 0);
+        const newQuantity = Math.max(
+          Number(product.quantity || 0) - quantityPurchased,
+          0
+        );
 
         const { error: productUpdateError } = await supabase
           .from("products")
@@ -215,6 +243,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ received: true });
   } catch (error: any) {
     console.error("Webhook failed:", error.message);
-    return NextResponse.json({ error: error.message || "Webhook failed" }, { status: 500 });
+    return NextResponse.json(
+      { error: error.message || "Webhook failed" },
+      { status: 500 }
+    );
   }
 }
