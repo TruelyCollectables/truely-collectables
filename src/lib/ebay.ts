@@ -21,14 +21,6 @@ function ebayReadHeaders(accessToken: string) {
   };
 }
 
-function ebayWriteHeaders(accessToken: string) {
-  return {
-    Authorization: `Bearer ${accessToken}`,
-    "Content-Type": "application/json",
-    "Content-Language": "en-US",
-  };
-}
-
 async function getLatestRefreshToken() {
   const supabase = getSupabase();
 
@@ -128,47 +120,32 @@ export async function syncEbayQuantityAfterSale(params: {
     };
   }
 
-  const inventoryRes = await fetch(
-    `${EBAY_API}/sell/inventory/v1/inventory_item/${encodeURIComponent(
-      finalSku
-    )}`,
-    { headers: ebayReadHeaders(accessToken) }
-  );
-
-  const inventoryItem = await inventoryRes.json();
-
-  if (!inventoryRes.ok) {
-    throw new Error(
-      `Could not read eBay inventory item: ${JSON.stringify(inventoryItem)}`
-    );
-  }
-
-  const updatedInventoryItem = {
-    ...inventoryItem,
-    availability: {
-      ...(inventoryItem.availability || {}),
-      shipToLocationAvailability: {
-        ...(inventoryItem.availability?.shipToLocationAvailability || {}),
-        quantity: Math.max(0, newQuantity),
-      },
-    },
-  };
-
   const updateRes = await fetch(
-    `${EBAY_API}/sell/inventory/v1/inventory_item/${encodeURIComponent(
-      finalSku
-    )}`,
+    `${EBAY_API}/sell/inventory/v1/bulk_update_price_quantity`,
     {
-      method: "PUT",
-      headers: ebayWriteHeaders(accessToken),
-      body: JSON.stringify(updatedInventoryItem),
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        requests: [
+          {
+            sku: finalSku,
+            shipToLocationAvailability: {
+              quantity: Math.max(0, newQuantity),
+            },
+          },
+        ],
+      }),
     }
   );
 
+  const updateData = await updateRes.json().catch(() => ({}));
+
   if (!updateRes.ok) {
-    const updateData = await updateRes.json().catch(() => ({}));
     throw new Error(
-      `Could not update eBay quantity: ${JSON.stringify(updateData)}`
+      `Could not bulk update eBay quantity: ${JSON.stringify(updateData)}`
     );
   }
 
