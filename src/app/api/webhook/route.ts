@@ -5,6 +5,11 @@ import { syncEbayQuantityAfterSale } from "../../../lib/ebay";
 
 export const dynamic = "force-dynamic";
 
+type CartItem = {
+  id: number;
+  quantity: number;
+};
+
 export async function POST(req: Request) {
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -46,9 +51,15 @@ export async function POST(req: Request) {
     if (event.type === "checkout.session.completed") {
       const session = event.data.object as Stripe.Checkout.Session;
 
-      const productId = session.metadata?.product_id;
       const offerId = session.metadata?.offer_id;
-      const checkoutType = session.metadata?.type || "buy_now";
+      const checkoutType = session.metadata?.type || "cart";
+      const cartMetadata = session.metadata?.cart || "[]";
+
+      const shippingMethod = session.metadata?.shipping_method || "";
+      const shippingName = session.metadata?.shipping_name || "";
+      const shippingAmount = Number(session.metadata?.shipping_amount || 0);
+      const subtotal = Number(session.metadata?.subtotal || 0);
+      const itemCount = Number(session.metadata?.item_count || 0);
 
       const customerEmail =
         session.customer_details?.email ||
@@ -63,41 +74,78 @@ export async function POST(req: Request) {
         .eq("stripe_session_id", session.id)
         .maybeSingle();
 
-      if (!existingOrder) {
-        await supabase.from("orders").insert({
+      if (existingOrder) {
+        return NextResponse.json({ received: true });
+      }
+
+      let cart: CartItem[] = [];
+
+      try {
+        cart = JSON.parse(cartMetadata);
+      } catch {
+        cart = [];
+      }
+
+      const { data: order, error: orderError } = await supabase
+        .from("orders")
+        .insert({
           customer_email: customerEmail,
           total,
           status: "paid",
           stripe_session_id: session.id,
-        });
+          shipping_method: shippingMethod,
+          shipping_name: shippingName,
+          shipping_amount: shippingAmount,
+          subtotal,
+          item_count: itemCount,
+          fulfillment_status: "ready_to_ship",
+        })
+        .select("id")
+        .single();
+
+      if (orderError || !order) {
+        console.error("Order insert failed:", orderError?.message);
+        return NextResponse.json(
+          { error: "Order insert failed" },
+          { status: 500 }
+        );
       }
 
-      if (productId) {
+      for (const cartItem of cart) {
         const { data: product, error: productError } = await supabase
           .from("products")
-          .select("id, quantity, sku, ebay_item_id")
-          .eq("id", productId)
+          .select("id, title, price, quantity, sku, ebay_item_id")
+          .eq("id", cartItem.id)
           .single();
 
-        if (!productError && product && Number(product.quantity) > 0) {
-          const newQuantity = Number(product.quantity) - 1;
+        if (productError || !product) continue;
 
-          await supabase
-            .from("products")
-            .update({
-              quantity: newQuantity,
-            })
-            .eq("id", productId);
+        await supabase.from("order_items").insert({
+          order_id: order.id,
+          product_id: product.id,
+          title: product.title,
+          price: Number(product.price),
+          quantity: cartItem.quantity,
+        });
 
-          try {
-            await syncEbayQuantityAfterSale({
-              sku: product.sku,
-              ebayItemId: product.ebay_item_id,
-              newQuantity,
-            });
-          } catch (ebayError: any) {
-            console.error("eBay sync after sale failed:", ebayError.message);
-          }
+        const newQuantity = Math.max(
+          Number(product.quantity || 0) - cartItem.quantity,
+          0
+        );
+
+        await supabase
+          .from("products")
+          .update({ quantity: newQuantity })
+          .eq("id", product.id);
+
+        try {
+          await syncEbayQuantityAfterSale({
+            sku: product.sku,
+            ebayItemId: product.ebay_item_id,
+            newQuantity,
+          });
+        } catch (ebayError: any) {
+          console.error("eBay sync after sale failed:", ebayError.message);
         }
       }
 

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { supabase } from "../../../lib/supabase";
 import OfferForm from "./OfferForm";
+import ProductActions from "./ProductActions";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -80,16 +81,14 @@ export default async function ProductPage({
             </div>
           ) : (
             <>
-              <form action="/api/checkout" method="POST">
-                <input type="hidden" name="productId" value={product.id} />
-
-                <button
-                  type="submit"
-                  className="w-full bg-black text-white rounded py-3 font-bold"
-                >
-                  Buy Now
-                </button>
-              </form>
+              <ProductActions
+                product={{
+                  id: product.id,
+                  title: product.title,
+                  price: Number(product.price),
+                  image_url: product.image_url,
+                }}
+              />
 
               <OfferForm productId={product.id} price={Number(product.price)} />
             </>
