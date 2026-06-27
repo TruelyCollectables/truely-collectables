@@ -13,11 +13,19 @@ function getSupabase() {
   return createClient(supabaseUrl, supabaseKey);
 }
 
-function ebayHeaders(accessToken: string) {
+function ebayReadHeaders(accessToken: string) {
   return {
     Authorization: `Bearer ${accessToken}`,
     "Content-Type": "application/json",
     "Accept-Language": "en-US",
+  };
+}
+
+function ebayWriteHeaders(accessToken: string) {
+  return {
+    Authorization: `Bearer ${accessToken}`,
+    "Content-Type": "application/json",
+    "Content-Language": "en-US",
   };
 }
 
@@ -96,7 +104,7 @@ export async function syncEbayQuantityAfterSale(params: {
   if (!finalSku && ebayItemId) {
     const offerRes = await fetch(
       `${EBAY_API}/sell/inventory/v1/offer?limit=200`,
-      { headers: ebayHeaders(accessToken) }
+      { headers: ebayReadHeaders(accessToken) }
     );
 
     const offerData = await offerRes.json();
@@ -124,13 +132,15 @@ export async function syncEbayQuantityAfterSale(params: {
     `${EBAY_API}/sell/inventory/v1/inventory_item/${encodeURIComponent(
       finalSku
     )}`,
-    { headers: ebayHeaders(accessToken) }
+    { headers: ebayReadHeaders(accessToken) }
   );
 
   const inventoryItem = await inventoryRes.json();
 
   if (!inventoryRes.ok) {
-    throw new Error(`Could not read eBay inventory item: ${JSON.stringify(inventoryItem)}`);
+    throw new Error(
+      `Could not read eBay inventory item: ${JSON.stringify(inventoryItem)}`
+    );
   }
 
   const updatedInventoryItem = {
@@ -150,14 +160,16 @@ export async function syncEbayQuantityAfterSale(params: {
     )}`,
     {
       method: "PUT",
-      headers: ebayHeaders(accessToken),
+      headers: ebayWriteHeaders(accessToken),
       body: JSON.stringify(updatedInventoryItem),
     }
   );
 
   if (!updateRes.ok) {
     const updateData = await updateRes.json().catch(() => ({}));
-    throw new Error(`Could not update eBay quantity: ${JSON.stringify(updateData)}`);
+    throw new Error(
+      `Could not update eBay quantity: ${JSON.stringify(updateData)}`
+    );
   }
 
   return {
