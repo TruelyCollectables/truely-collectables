@@ -57,6 +57,7 @@ export async function POST(req: Request) {
 
     const session = event.data.object as Stripe.Checkout.Session;
     const metadata = session.metadata || {};
+    const collectedInfo = session.collected_information as any;
 
     const customerEmail =
       session.customer_details?.email ||
@@ -65,10 +66,10 @@ export async function POST(req: Request) {
 
     const customerName =
       session.customer_details?.name ||
-      session.shipping_details?.name ||
+      collectedInfo?.shipping_details?.name ||
       null;
 
-    const shipping = session.shipping_details?.address;
+    const shipping = collectedInfo?.shipping_details?.address;
 
     const shippingAddressLine1 = shipping?.line1 || null;
     const shippingAddressLine2 = shipping?.line2 || null;
@@ -186,7 +187,11 @@ export async function POST(req: Request) {
           .single();
 
         if (productError || !product) {
-          console.error("Product lookup failed:", productId, productError?.message);
+          console.error(
+            "Product lookup failed:",
+            productId,
+            productError?.message
+          );
           continue;
         }
 
@@ -214,7 +219,10 @@ export async function POST(req: Request) {
           .eq("id", product.id);
 
         if (productUpdateError) {
-          console.error("Product quantity update failed:", productUpdateError.message);
+          console.error(
+            "Product quantity update failed:",
+            productUpdateError.message
+          );
           continue;
         }
 
