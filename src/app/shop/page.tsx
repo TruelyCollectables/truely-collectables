@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { supabase } from "../../lib/supabase";
+import ClearCartOnSuccess from "../../components/ClearCartOnSuccess";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -59,6 +60,8 @@ export default async function Shop({
 
   return (
     <main className="p-8">
+      <ClearCartOnSuccess />
+
       <h1 className="text-4xl font-bold mb-8">Shop Sports Cards</h1>
 
       <form className="mb-8 grid grid-cols-1 md:grid-cols-4 gap-4">
@@ -76,6 +79,7 @@ export default async function Shop({
           className="border rounded px-4 py-3"
         >
           <option value="">All Sports</option>
+
           {uniqueSports.map((sportName) => (
             <option key={sportName} value={sportName}>
               {sportName}
@@ -122,7 +126,9 @@ export default async function Shop({
               ${Number(product.price).toFixed(2)}
             </p>
 
-            <p className="text-sm mt-1">Quantity: {product.quantity}</p>
+            <p className="text-sm mt-1">
+              Quantity: {product.quantity}
+            </p>
 
             <Link
               href={`/product/${product.id}`}
