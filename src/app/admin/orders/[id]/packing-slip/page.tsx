@@ -1,0 +1,241 @@
+import Link from "next/link";
+import { supabase } from "../../../../../lib/supabase";
+
+type OrderItem = {
+  id: number;
+  title: string;
+  quantity: number;
+  price: number;
+};
+
+type Order = {
+  id: number;
+  created_at: string;
+  customer_email: string | null;
+  customer_name: string | null;
+  total: number;
+  status: string | null;
+  shipping_name: string | null;
+  shipping_method: string | null;
+  shipping_amount: number | null;
+  subtotal: number | null;
+  item_count: number | null;
+  discount_amount?: number | null;
+  discount_code?: string | null;
+  customer_notes?: string | null;
+  shipping_address_line1?: string | null;
+  shipping_address_line2?: string | null;
+  shipping_city?: string | null;
+  shipping_state?: string | null;
+  shipping_postal_code?: string | null;
+  shipping_country?: string | null;
+  order_items?: OrderItem[];
+};
+
+function money(value: number | null | undefined) {
+  return `$${Number(value || 0).toFixed(2)}`;
+}
+
+export default async function PackingSlipPage({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}) {
+  const { id } = await params;
+
+  const { data: order, error } = await supabase
+    .from("orders")
+    .select(
+      `
+      *,
+      order_items (
+        id,
+        title,
+        quantity,
+        price
+      )
+    `
+    )
+    .eq("id", id)
+    .single();
+
+  if (error || !order) {
+    return (
+      <main className="p-8">
+        <h1 className="text-3xl font-bold">Packing Slip Not Found</h1>
+        <pre>{error?.message}</pre>
+        <Link href="/admin/orders" className="underline">
+          Back to Fulfillment Center
+        </Link>
+      </main>
+    );
+  }
+
+  const typedOrder = order as Order;
+
+  const itemsTotal =
+    typedOrder.order_items?.reduce(
+      (sum, item) => sum + Number(item.price || 0) * Number(item.quantity || 0),
+      0
+    ) || Number(typedOrder.subtotal || 0);
+
+  const discountAmount = Number(typedOrder.discount_amount || 0);
+  const shippingPaid = Number(typedOrder.shipping_amount || 0);
+  const totalPaid = Number(typedOrder.total || 0);
+
+  return (
+    <main className="p-8 max-w-4xl mx-auto bg-white text-black print:p-0">
+      <div className="mb-6 print:hidden flex justify-between">
+        <Link href={`/admin/orders/${typedOrder.id}`} className="underline">
+          ← Back to Order
+        </Link>
+
+        <button
+          onClick={() => window.print()}
+          className="border rounded px-4 py-2"
+        >
+          Print Packing Slip
+        </button>
+      </div>
+
+      <section className="border rounded-lg p-8 print:border-0">
+        <div className="text-center border-b pb-6 mb-6">
+          <div className="mx-auto mb-3 h-16 w-16 rounded-full bg-black text-white flex items-center justify-center text-xl font-bold">
+            TC
+          </div>
+
+          <h1 className="text-3xl font-bold">Truely Collectables</h1>
+          <p className="text-lg mt-2">Packing Slip</p>
+        </div>
+
+        <div className="grid grid-cols-2 gap-6 border-b pb-6 mb-6">
+          <div>
+            <h2 className="font-bold text-lg mb-2">Order</h2>
+            <p>Order #{typedOrder.id}</p>
+            <p>{new Date(typedOrder.created_at).toLocaleString()}</p>
+            <p>Status: {typedOrder.status || "paid"}</p>
+          </div>
+
+          <div>
+            <h2 className="font-bold text-lg mb-2">Customer</h2>
+            <p>{typedOrder.customer_name || "Customer name not saved"}</p>
+            <p>{typedOrder.customer_email || "No email"}</p>
+          </div>
+        </div>
+
+        <div className="border-b pb-6 mb-6">
+          <h2 className="font-bold text-lg mb-2">Ship To</h2>
+
+          {typedOrder.shipping_address_line1 ? (
+            <div>
+              <p>{typedOrder.customer_name || typedOrder.customer_email}</p>
+              <p>{typedOrder.shipping_address_line1}</p>
+              {typedOrder.shipping_address_line2 && (
+                <p>{typedOrder.shipping_address_line2}</p>
+              )}
+              <p>
+                {typedOrder.shipping_city}
+                {typedOrder.shipping_city && typedOrder.shipping_state
+                  ? ", "
+                  : ""}
+                {typedOrder.shipping_state} {typedOrder.shipping_postal_code}
+              </p>
+              <p>{typedOrder.shipping_country}</p>
+            </div>
+          ) : (
+            <p className="text-gray-600">
+              Shipping address not saved on this order.
+            </p>
+          )}
+        </div>
+
+        <div className="border-b pb-6 mb-6">
+          <h2 className="font-bold text-lg mb-4">Items</h2>
+
+          {!typedOrder.order_items || typedOrder.order_items.length === 0 ? (
+            <p>No order items found.</p>
+          ) : (
+            <table className="w-full border-collapse">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left py-2">Item</th>
+                  <th className="text-center py-2">Qty</th>
+                  <th className="text-right py-2">Total</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {typedOrder.order_items.map((item) => (
+                  <tr key={item.id} className="border-b">
+                    <td className="py-3">{item.title}</td>
+                    <td className="py-3 text-center">{item.quantity}</td>
+                    <td className="py-3 text-right">
+                      {money(Number(item.price) * Number(item.quantity))}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+
+        <div className="grid grid-cols-2 gap-8 border-b pb-6 mb-6">
+          <div>
+            <h2 className="font-bold text-lg mb-3">Packing Checklist</h2>
+
+            <ul className="space-y-2">
+              <li>☐ Item inspected</li>
+              <li>☐ Item protected</li>
+              <li>☐ Packing slip included</li>
+              <li>☐ Package sealed</li>
+              <li>☐ Tracking added</li>
+            </ul>
+          </div>
+
+          <div>
+            <h2 className="font-bold text-lg mb-3">Totals</h2>
+
+            <div className="space-y-2">
+              <div className="flex justify-between">
+                <span>Items Total</span>
+                <strong>{money(itemsTotal)}</strong>
+              </div>
+
+              <div className="flex justify-between">
+                <span>
+                  Discount
+                  {typedOrder.discount_code
+                    ? ` (${typedOrder.discount_code})`
+                    : ""}
+                </span>
+                <strong>-{money(discountAmount)}</strong>
+              </div>
+
+              <div className="flex justify-between">
+                <span>Shipping Paid</span>
+                <strong>{money(shippingPaid)}</strong>
+              </div>
+
+              <div className="flex justify-between border-t pt-3 text-xl">
+                <span>Total Paid</span>
+                <strong>{money(totalPaid)}</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div className="border-b pb-6 mb-6">
+          <h2 className="font-bold text-lg mb-2">Customer Notes</h2>
+          <p className="whitespace-pre-wrap">
+            {typedOrder.customer_notes?.trim() || "No customer notes."}
+          </p>
+        </div>
+
+        <div className="text-center">
+          <p className="text-lg font-bold">Thank you for your purchase!</p>
+          <p>Truely Collectables</p>
+        </div>
+      </section>
+    </main>
+  );
+}
