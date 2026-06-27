@@ -6,8 +6,11 @@ import { syncEbayQuantityAfterSale } from "../../../lib/ebay";
 export const dynamic = "force-dynamic";
 
 type CartItem = {
-  id: number;
-  quantity: number;
+  id?: number;
+  product_id?: number;
+  productId?: number;
+  quantity?: number;
+  qty?: number;
 };
 
 export async function POST(req: Request) {
@@ -18,10 +21,7 @@ export async function POST(req: Request) {
     const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
     if (!supabaseUrl || !supabaseKey || !stripeKey || !webhookSecret) {
-      return NextResponse.json(
-        { error: "Missing webhook environment variables" },
-        { status: 500 }
-      );
+      return NextResponse.json({ error: "Missing webhook environment variables" }, { status: 500 });
     }
 
     const stripe = new Stripe(stripeKey);
@@ -31,10 +31,7 @@ export async function POST(req: Request) {
     const signature = req.headers.get("stripe-signature");
 
     if (!signature) {
-      return NextResponse.json(
-        { error: "Missing Stripe signature" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Missing Stripe signature" }, { status: 400 });
     }
 
     let event: Stripe.Event;
@@ -42,10 +39,7 @@ export async function POST(req: Request) {
     try {
       event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
     } catch (err: any) {
-      return NextResponse.json(
-        { error: `Webhook signature failed: ${err.message}` },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: `Webhook signature failed: ${err.message}` }, { status: 400 });
     }
 
     if (event.type !== "checkout.session.completed") {
@@ -53,16 +47,9 @@ export async function POST(req: Request) {
     }
 
     const session = event.data.object as Stripe.Checkout.Session;
+    const metadata = session.metadata || {};
 
-    const offerId = session.metadata?.offer_id;
-    const checkoutType = session.metadata?.type || "cart";
-    const cartMetadata = session.metadata?.cart || "[]";
-
-    const shippingMethod = session.metadata?.shipping_method || "";
-    const shippingName = session.metadata?.shipping_name || "";
-    const shippingAmount = Number(session.metadata?.shipping_amount || 0);
-    const subtotal = Number(session.metadata?.subtotal || 0);
-    const itemCount = Number(session.metadata?.item_count || 0);
+    console.log("Stripe session metadata:", metadata);
 
     const customerEmail =
       session.customer_details?.email ||
@@ -71,26 +58,43 @@ export async function POST(req: Request) {
 
     const total = Number(session.amount_total || 0) / 100;
 
+    const shippingMethod = metadata.shipping_method || null;
+    const shippingName = metadata.shipping_name || null;
+    const shippingAmount = Number(metadata.shipping_amount || 0);
+    const subtotal = Number(metadata.subtotal || total);
+    const itemCount = Number(metadata.item_count || 0);
+
+    const offerId = metadata.offer_id;
+    const checkoutType = metadata.type || "cart";
+
     let cart: CartItem[] = [];
 
     try {
-      cart = JSON.parse(cartMetadata);
-    } catch {
+      const parsed = JSON.parse(metadata.cart || "[]");
+      cart = Array.isArray(parsed) ? parsed : parsed.items || [];
+    } catch (err: any) {
+      console.error("Cart metadata parse failed:", err.message);
       cart = [];
     }
 
-    const { data: existingOrder } = await supabase
+    console.log("Parsed cart:", cart);
+
+    const { data: existingOrder, error: existingOrderError } = await supabase
       .from("orders")
       .select("id")
       .eq("stripe_session_id", session.id)
       .maybeSingle();
+
+    if (existingOrderError) {
+      console.error("Existing order lookup failed:", existingOrderError.message);
+    }
 
     let orderId: number;
 
     if (existingOrder) {
       orderId = existingOrder.id;
 
-      await supabase
+      const { error: updateError } = await supabase
         .from("orders")
         .update({
           customer_email: customerEmail,
@@ -100,10 +104,14 @@ export async function POST(req: Request) {
           shipping_name: shippingName,
           shipping_amount: shippingAmount,
           subtotal,
-          item_count: itemCount,
+          item_count: itemCount || cart.length,
           fulfillment_status: "ready_to_ship",
         })
         .eq("id", orderId);
+
+      if (updateError) {
+        console.error("Order update failed:", updateError.message);
+      }
     } else {
       const { data: order, error: orderError } = await supabase
         .from("orders")
@@ -116,17 +124,15 @@ export async function POST(req: Request) {
           shipping_name: shippingName,
           shipping_amount: shippingAmount,
           subtotal,
-          item_count: itemCount,
+          item_count: itemCount || cart.length,
           fulfillment_status: "ready_to_ship",
         })
         .select("id")
         .single();
 
       if (orderError || !order) {
-        return NextResponse.json(
-          { error: "Order insert failed" },
-          { status: 500 }
-        );
+        console.error("Order insert failed:", orderError?.message);
+        return NextResponse.json({ error: "Order insert failed" }, { status: 500 });
       }
 
       orderId = order.id;
@@ -140,35 +146,53 @@ export async function POST(req: Request) {
 
     if (!existingItems || existingItems.length === 0) {
       for (const cartItem of cart) {
+        const productId = Number(cartItem.id || cartItem.product_id || cartItem.productId);
+        const quantityPurchased = Number(cartItem.quantity || cartItem.qty || 1);
+
+        if (!productId || quantityPurchased <= 0) {
+          console.error("Invalid cart item:", cartItem);
+          continue;
+        }
+
         const { data: product, error: productError } = await supabase
           .from("products")
-          .select("id, title, price, quantity, sku, ebay_item_id")
-          .eq("id", cartItem.id)
+          .select("id, title, price, quantity, ebay_item_id")
+          .eq("id", productId)
           .single();
 
-        if (productError || !product) continue;
+        if (productError || !product) {
+          console.error("Product lookup failed:", productId, productError?.message);
+          continue;
+        }
 
-        await supabase.from("order_items").insert({
+        const { error: itemError } = await supabase.from("order_items").insert({
           order_id: orderId,
           product_id: product.id,
           title: product.title,
           price: Number(product.price),
-          quantity: cartItem.quantity,
+          quantity: quantityPurchased,
         });
 
-        const newQuantity = Math.max(
-          Number(product.quantity || 0) - cartItem.quantity,
-          0
-        );
+        if (itemError) {
+          console.error("Order item insert failed:", itemError.message);
+          continue;
+        }
 
-        await supabase
+        const newQuantity = Math.max(Number(product.quantity || 0) - quantityPurchased, 0);
+
+        const { error: productUpdateError } = await supabase
           .from("products")
           .update({ quantity: newQuantity })
           .eq("id", product.id);
 
+        if (productUpdateError) {
+          console.error("Product quantity update failed:", productUpdateError.message);
+          continue;
+        }
+
         try {
           await syncEbayQuantityAfterSale({
-            sku: product.sku,
+            sku: String(product.id),
             ebayItemId: product.ebay_item_id,
             newQuantity,
           });
@@ -190,9 +214,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ received: true });
   } catch (error: any) {
-    return NextResponse.json(
-      { error: error.message || "Webhook failed" },
-      { status: 500 }
-    );
+    console.error("Webhook failed:", error.message);
+    return NextResponse.json({ error: error.message || "Webhook failed" }, { status: 500 });
   }
 }
