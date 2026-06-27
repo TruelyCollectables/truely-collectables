@@ -33,7 +33,25 @@ function statusLabel(status: string | null | undefined) {
   return status.replaceAll("_", " ").toUpperCase();
 }
 
-export default async function AdminOrdersPage() {
+function isReadyToShip(order: Order) {
+  return (
+    order.status === "paid" &&
+    (order.fulfillment_status === "ready_to_ship" || !order.fulfillment_status)
+  );
+}
+
+function isShipped(order: Order) {
+  return order.fulfillment_status === "shipped";
+}
+
+export default async function AdminOrdersPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{ tab?: string }>;
+}) {
+  const params = await searchParams;
+  const activeTab = params?.tab || "ready";
+
   const { data: orders, error } = await supabase
     .from("orders")
     .select(
@@ -60,22 +78,16 @@ export default async function AdminOrdersPage() {
 
   const typedOrders = (orders || []) as Order[];
 
-  const readyToShip = typedOrders.filter(
-    (order) =>
-      order.status === "paid" &&
-      (order.fulfillment_status === "ready_to_ship" ||
-        !order.fulfillment_status)
-  );
+  const readyToShip = typedOrders.filter(isReadyToShip);
+  const shipped = typedOrders.filter(isShipped);
+  const allOrders = typedOrders;
 
-  const shipped = typedOrders.filter(
-    (order) => order.fulfillment_status === "shipped"
-  );
-
-  const otherOrders = typedOrders.filter(
-    (order) =>
-      !readyToShip.includes(order) &&
-      !shipped.includes(order)
-  );
+  const visibleOrders =
+    activeTab === "shipped"
+      ? shipped
+      : activeTab === "all"
+      ? allOrders
+      : readyToShip;
 
   return (
     <main className="p-8">
@@ -83,7 +95,7 @@ export default async function AdminOrdersPage() {
         <div>
           <h1 className="text-4xl font-bold">Fulfillment Center</h1>
           <p className="text-gray-600 mt-2">
-            Manage paid orders, packing, tracking, and shipping.
+            Manage paid orders, packing slips, tracking, and shipping.
           </p>
         </div>
 
@@ -101,79 +113,91 @@ export default async function AdminOrdersPage() {
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-        <div className="border rounded-lg p-4">
-          <p className="text-sm text-gray-500">Total Orders</p>
-          <p className="text-3xl font-bold">{typedOrders.length}</p>
-        </div>
-
-        <div className="border rounded-lg p-4">
-          <p className="text-sm text-gray-500">Ready to Ship</p>
-          <p className="text-3xl font-bold">{readyToShip.length}</p>
-        </div>
-
-        <div className="border rounded-lg p-4">
-          <p className="text-sm text-gray-500">Shipped</p>
-          <p className="text-3xl font-bold">{shipped.length}</p>
-        </div>
-
-        <div className="border rounded-lg p-4">
-          <p className="text-sm text-gray-500">Revenue</p>
-          <p className="text-3xl font-bold">
-            {money(
-              typedOrders
-                .filter((order) => order.status === "paid")
-                .reduce((sum, order) => sum + Number(order.total || 0), 0)
-            )}
-          </p>
-        </div>
+        <DashboardCard label="Total Orders" value={String(typedOrders.length)} />
+        <DashboardCard label="Ready to Ship" value={String(readyToShip.length)} />
+        <DashboardCard label="Shipped" value={String(shipped.length)} />
+        <DashboardCard
+          label="Revenue"
+          value={money(
+            typedOrders
+              .filter((order) => order.status === "paid")
+              .reduce((sum, order) => sum + Number(order.total || 0), 0)
+          )}
+        />
       </div>
 
-      <section className="mb-10">
+      <div className="flex flex-wrap gap-3 mb-8 border-b pb-4">
+        <TabLink
+          href="/admin/orders?tab=ready"
+          active={activeTab === "ready"}
+          label={`Ready to Ship (${readyToShip.length})`}
+        />
+
+        <TabLink
+          href="/admin/orders?tab=shipped"
+          active={activeTab === "shipped"}
+          label={`Shipped (${shipped.length})`}
+        />
+
+        <TabLink
+          href="/admin/orders?tab=all"
+          active={activeTab === "all"}
+          label={`All Orders (${allOrders.length})`}
+        />
+      </div>
+
+      <section>
         <h2 className="text-2xl font-bold mb-4">
-          Ready to Ship ({readyToShip.length})
+          {activeTab === "shipped"
+            ? `Shipped (${shipped.length})`
+            : activeTab === "all"
+            ? `All Orders (${allOrders.length})`
+            : `Ready to Ship (${readyToShip.length})`}
         </h2>
 
-        {readyToShip.length === 0 ? (
-          <p className="text-gray-600">No orders ready to ship.</p>
+        {visibleOrders.length === 0 ? (
+          <p className="text-gray-600">No orders in this queue.</p>
         ) : (
           <div className="space-y-4">
-            {readyToShip.map((order) => (
+            {visibleOrders.map((order) => (
               <OrderCard key={order.id} order={order} />
             ))}
           </div>
         )}
       </section>
-
-      <section className="mb-10">
-        <h2 className="text-2xl font-bold mb-4">
-          Shipped ({shipped.length})
-        </h2>
-
-        {shipped.length === 0 ? (
-          <p className="text-gray-600">No shipped orders yet.</p>
-        ) : (
-          <div className="space-y-4">
-            {shipped.map((order) => (
-              <OrderCard key={order.id} order={order} />
-            ))}
-          </div>
-        )}
-      </section>
-
-      {otherOrders.length > 0 && (
-        <section>
-          <h2 className="text-2xl font-bold mb-4">
-            Other Orders ({otherOrders.length})
-          </h2>
-
-          <div className="space-y-4">
-            {otherOrders.map((order) => (
-              <OrderCard key={order.id} order={order} />
-            ))}
-          </div>
-        </section>
-      )}
     </main>
+  );
+}
+
+function DashboardCard({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="border rounded-lg p-4 bg-white">
+      <p className="text-sm text-gray-500">{label}</p>
+      <p className="text-3xl font-bold">{value}</p>
+    </div>
+  );
+}
+
+function TabLink({
+  href,
+  active,
+  label,
+}: {
+  href: string;
+  active: boolean;
+  label: string;
+}) {
+  return (
+    <a
+      href={href}
+      className={
+        active
+          ? "bg-black text-white border border-black rounded px-4 py-2 font-bold"
+          : "border rounded px-4 py-2"
+      }
+    >
+      {label}
+    </a>
   );
 }
 
@@ -265,19 +289,12 @@ function OrderCard({ order }: { order: Order }) {
               Print Packing Slip
             </a>
 
-            <button
-              disabled
-              className="border rounded px-4 py-2 text-gray-400 cursor-not-allowed"
+            <a
+              href={`/admin/orders/${order.id}`}
+              className="border rounded px-4 py-2 text-center"
             >
-              Add Tracking
-            </button>
-
-            <button
-              disabled
-              className="border rounded px-4 py-2 text-gray-400 cursor-not-allowed"
-            >
-              Mark Shipped
-            </button>
+              Add Tracking / Mark Shipped
+            </a>
           </div>
         </div>
       </div>
