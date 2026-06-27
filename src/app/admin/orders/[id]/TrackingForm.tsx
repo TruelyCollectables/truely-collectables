@@ -15,7 +15,9 @@ export default function TrackingForm({
   const [trackingNumber, setTrackingNumber] = useState(
     currentTrackingNumber || ""
   );
+
   const [saving, setSaving] = useState(false);
+  const [shipping, setShipping] = useState(false);
   const [message, setMessage] = useState("");
 
   async function saveTracking() {
@@ -38,55 +40,134 @@ export default function TrackingForm({
       const data = await res.json();
 
       if (!res.ok) {
-        setMessage(data.error || "Tracking update failed");
+        setMessage(data.error || "Failed to save tracking.");
         setSaving(false);
         return;
       }
 
-      setMessage("Tracking saved.");
-      window.location.reload();
-    } catch (error: any) {
-      setMessage(error.message || "Tracking update failed");
-      setSaving(false);
+      setMessage("✅ Tracking saved.");
+    } catch (err: any) {
+      setMessage(err.message);
     }
+
+    setSaving(false);
+  }
+
+  async function markShipped() {
+    setShipping(true);
+    setMessage("");
+
+    try {
+      const save = await fetch("/api/orders/update-tracking", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          orderId,
+          carrier,
+          trackingNumber,
+        }),
+      });
+
+      const saveData = await save.json();
+
+      if (!save.ok) {
+        setMessage(saveData.error || "Unable to save tracking.");
+        setShipping(false);
+        return;
+      }
+
+      const ship = await fetch("/api/orders/mark-shipped", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          orderId,
+        }),
+      });
+
+      const shipData = await ship.json();
+
+      if (!ship.ok) {
+        setMessage(shipData.error || "Unable to mark shipped.");
+        setShipping(false);
+        return;
+      }
+
+      setMessage("✅ Order marked shipped.");
+
+      setTimeout(() => {
+        window.location.reload();
+      }, 800);
+    } catch (err: any) {
+      setMessage(err.message);
+    }
+
+    setShipping(false);
   }
 
   return (
-    <div className="space-y-4 max-w-xl">
+    <div className="space-y-6">
+
       <div>
-        <label className="block font-bold mb-2">Carrier</label>
+        <label className="block font-bold mb-2">
+          Carrier
+        </label>
+
         <select
           value={carrier}
           onChange={(e) => setCarrier(e.target.value)}
-          className="border rounded px-4 py-2 w-full"
+          className="border rounded px-3 py-2 w-full"
         >
-          <option value="USPS">USPS</option>
-          <option value="UPS">UPS</option>
-          <option value="FedEx">FedEx</option>
-          <option value="Canada Post">Canada Post</option>
-          <option value="Other">Other</option>
+          <option>USPS</option>
+          <option>UPS</option>
+          <option>FedEx</option>
+          <option>Canada Post</option>
+          <option>Other</option>
         </select>
       </div>
 
       <div>
-        <label className="block font-bold mb-2">Tracking Number</label>
+        <label className="block font-bold mb-2">
+          Tracking Number
+        </label>
+
         <input
+          className="border rounded px-3 py-2 w-full"
           value={trackingNumber}
           onChange={(e) => setTrackingNumber(e.target.value)}
-          className="border rounded px-4 py-2 w-full"
-          placeholder="Enter tracking number"
+          placeholder="9405..."
         />
       </div>
 
-      <button
-        onClick={saveTracking}
-        disabled={saving}
-        className="border rounded px-4 py-2"
-      >
-        {saving ? "Saving..." : "Save Tracking"}
-      </button>
+      <div className="flex gap-4">
 
-      {message && <p className="text-sm">{message}</p>}
+        <button
+          onClick={saveTracking}
+          disabled={saving}
+          className="bg-blue-600 text-white px-5 py-2 rounded"
+        >
+          {saving ? "Saving..." : "Save Tracking"}
+        </button>
+
+        <button
+          onClick={markShipped}
+          disabled={shipping}
+          className="bg-green-600 text-white px-5 py-2 rounded"
+        >
+          {shipping ? "Shipping..." : "Mark Shipped"}
+        </button>
+
+      </div>
+
+      {message && (
+        <div className="border rounded bg-gray-50 p-3">
+          {message}
+        </div>
+      )}
+
     </div>
   );
 }
