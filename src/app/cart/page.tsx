@@ -23,6 +23,15 @@ export default function CartPage() {
     useState<ShippingMethod>("GROUND_ADVANTAGE");
 
   useEffect(() => {
+    // Clear cart after successful checkout
+    if (localStorage.getItem("checkoutSuccess") === "true") {
+      localStorage.removeItem("checkoutSuccess");
+      localStorage.removeItem("cart");
+      sessionStorage.removeItem("cart");
+      setCart([]);
+      return;
+    }
+
     const storedCart = localStorage.getItem("cart");
 
     if (storedCart) {
@@ -59,6 +68,7 @@ export default function CartPage() {
 
   function clearCart() {
     saveCart([]);
+    localStorage.removeItem("cart");
   }
 
   const subtotal = cart.reduce(
@@ -148,7 +158,7 @@ export default function CartPage() {
           </div>
 
           <div className="mt-8 border-t pt-6">
-            <p className="text-lg">Cards: {itemCount}</p>
+            <p className="text-lg">Items: {itemCount}</p>
 
             <h2 className="text-2xl font-bold mt-2">
               Subtotal: ${subtotal.toFixed(2)}
@@ -160,8 +170,6 @@ export default function CartPage() {
               <label className="block border rounded p-4 mb-3 cursor-pointer">
                 <input
                   type="radio"
-                  name="shipping"
-                  value="GROUND_ADVANTAGE"
                   checked={shippingMethod === "GROUND_ADVANTAGE"}
                   onChange={() => setShippingMethod("GROUND_ADVANTAGE")}
                   className="mr-2"
@@ -173,24 +181,11 @@ export default function CartPage() {
                     ? "FREE"
                     : `$${groundShipping.toFixed(2)}`}
                 </strong>
-
-                <p className="text-sm mt-1">
-                  ${SHIPPING_RULES.GROUND_ADVANTAGE.basePrice.toFixed(2)} for
-                  the first {SHIPPING_RULES.GROUND_ADVANTAGE.cardsIncluded}{" "}
-                  cards, +$
-                  {SHIPPING_RULES.GROUND_ADVANTAGE.additionalCardPrice.toFixed(
-                    2
-                  )}{" "}
-                  per additional card, FREE over $
-                  {SHIPPING_RULES.GROUND_ADVANTAGE.freeShippingThreshold}.
-                </p>
               </label>
 
               <label className="block border rounded p-4 cursor-pointer">
                 <input
                   type="radio"
-                  name="shipping"
-                  value="PRIORITY_MAIL"
                   checked={shippingMethod === "PRIORITY_MAIL"}
                   onChange={() => setShippingMethod("PRIORITY_MAIL")}
                   className="mr-2"
@@ -202,35 +197,27 @@ export default function CartPage() {
                     ? "FREE"
                     : `$${priorityShipping.toFixed(2)}`}
                 </strong>
-
-                <p className="text-sm mt-1">
-                  ${SHIPPING_RULES.PRIORITY_MAIL.basePrice.toFixed(2)} for the
-                  first {SHIPPING_RULES.PRIORITY_MAIL.cardsIncluded} cards, +$
-                  {SHIPPING_RULES.PRIORITY_MAIL.additionalCardPrice.toFixed(2)}{" "}
-                  per additional card, FREE over $
-                  {SHIPPING_RULES.PRIORITY_MAIL.freeShippingThreshold}.
-                </p>
               </label>
 
               <div className="mt-4 rounded-lg bg-blue-50 border border-blue-200 p-4">
-                <p className="font-medium">
-                  {getFreeShippingMessage({
-                    subtotal,
-                    method: shippingMethod,
-                  })}
-                </p>
+                <p>{getFreeShippingMessage({ subtotal, method: shippingMethod })}</p>
               </div>
             </div>
 
             <div className="mt-6 text-xl">
               <p>Shipping: ${selectedShipping.toFixed(2)}</p>
-              <p className="font-bold mt-2">Total: ${total.toFixed(2)}</p>
+              <p className="font-bold mt-2">
+                Total: ${total.toFixed(2)}
+              </p>
             </div>
 
             <div className="mt-6 flex gap-4">
               <CheckoutButton shippingMethod={shippingMethod} />
 
-              <button onClick={clearCart} className="border px-4 py-2 rounded">
+              <button
+                onClick={clearCart}
+                className="border px-4 py-2 rounded"
+              >
                 Clear Cart
               </button>
             </div>

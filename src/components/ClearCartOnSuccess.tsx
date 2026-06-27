@@ -8,6 +8,9 @@ export default function ClearCartOnSuccess() {
 
     if (params.get("success") === "true") {
       localStorage.removeItem("cart");
+      sessionStorage.removeItem("cart");
+      localStorage.setItem("checkoutSuccess", "true");
+      window.dispatchEvent(new Event("storage"));
       window.dispatchEvent(new Event("cartUpdated"));
     }
   }, []);
