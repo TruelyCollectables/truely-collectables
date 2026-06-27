@@ -1,5 +1,6 @@
 import { supabase } from "../../../../lib/supabase";
 import Link from "next/link";
+import TrackingForm from "./TrackingForm";
 
 type OrderItem = {
   id: number;
@@ -12,6 +13,7 @@ type Order = {
   id: number;
   created_at: string;
   customer_email: string | null;
+  customer_name?: string | null;
   total: number;
   status: string | null;
   shipping_method: string | null;
@@ -26,6 +28,12 @@ type Order = {
   discount_amount?: number | null;
   discount_code?: string | null;
   customer_notes?: string | null;
+  shipping_address_line1?: string | null;
+  shipping_address_line2?: string | null;
+  shipping_city?: string | null;
+  shipping_state?: string | null;
+  shipping_postal_code?: string | null;
+  shipping_country?: string | null;
   order_items?: OrderItem[];
 };
 
@@ -125,6 +133,7 @@ export default async function AdminOrderDetailPage({
 
       <section className="border rounded-lg p-6 mb-6">
         <h2 className="text-2xl font-bold mb-4">Customer</h2>
+        <p>Name: {typedOrder.customer_name || "Not saved"}</p>
         <p>Email: {typedOrder.customer_email || "No email"}</p>
 
         <div className="mt-4">
@@ -133,6 +142,28 @@ export default async function AdminOrderDetailPage({
             {typedOrder.customer_notes?.trim() || "No customer notes."}
           </p>
         </div>
+      </section>
+
+      <section className="border rounded-lg p-6 mb-6">
+        <h2 className="text-2xl font-bold mb-4">Ship To</h2>
+
+        {typedOrder.shipping_address_line1 ? (
+          <div>
+            <p>{typedOrder.customer_name || typedOrder.customer_email}</p>
+            <p>{typedOrder.shipping_address_line1}</p>
+            {typedOrder.shipping_address_line2 && (
+              <p>{typedOrder.shipping_address_line2}</p>
+            )}
+            <p>
+              {typedOrder.shipping_city}
+              {typedOrder.shipping_city && typedOrder.shipping_state ? ", " : ""}
+              {typedOrder.shipping_state} {typedOrder.shipping_postal_code}
+            </p>
+            <p>{typedOrder.shipping_country}</p>
+          </div>
+        ) : (
+          <p className="text-gray-600">Shipping address not saved.</p>
+        )}
       </section>
 
       <section className="border rounded-lg p-6 mb-6">
@@ -208,6 +239,16 @@ export default async function AdminOrderDetailPage({
         </div>
       </section>
 
+      <section className="border rounded-lg p-6 mb-6">
+        <h2 className="text-2xl font-bold mb-4">Add Tracking</h2>
+
+        <TrackingForm
+          orderId={typedOrder.id}
+          currentCarrier={typedOrder.carrier || ""}
+          currentTrackingNumber={typedOrder.tracking_number || ""}
+        />
+      </section>
+
       <section className="border rounded-lg p-6">
         <h2 className="text-2xl font-bold mb-4">Actions</h2>
 
@@ -218,13 +259,6 @@ export default async function AdminOrderDetailPage({
           >
             Print Packing Slip
           </Link>
-
-          <button
-            disabled
-            className="border rounded px-4 py-2 text-gray-400 cursor-not-allowed"
-          >
-            Add Tracking
-          </button>
 
           <button
             disabled
