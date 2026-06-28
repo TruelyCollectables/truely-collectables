@@ -42,6 +42,7 @@ export type StoreOperationalSettings = {
   stripeAccountId: string | null;
   ebayEnvironment: string;
   ebayAccountLabel: string | null;
+  ebaySyncEnabled: boolean;
   sellerCommissionRate: number;
   metadata: Record<string, unknown>;
   source: "database" | "fallback";
@@ -50,6 +51,22 @@ export type StoreOperationalSettings = {
 function configured(value: string | null | undefined) {
   const trimmed = value?.trim();
   return trimmed && trimmed.length > 0 ? trimmed : null;
+}
+
+function metadataBoolean(
+  metadata: Record<string, unknown> | null | undefined,
+  key: string,
+  fallback: boolean,
+) {
+  const value = metadata?.[key];
+
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    if (value.toLowerCase() === "true") return true;
+    if (value.toLowerCase() === "false") return false;
+  }
+
+  return fallback;
 }
 
 export function resolveStoreSettings(input: {
@@ -104,6 +121,11 @@ export function resolveStoreSettings(input: {
     ebayAccountLabel:
       configured(input.settings?.ebay_account_label) ||
       `${displayName} eBay`,
+    ebaySyncEnabled: metadataBoolean(
+      input.settings?.metadata,
+      "ebay_sync_enabled",
+      true,
+    ),
     sellerCommissionRate: Number(input.settings?.seller_commission_rate ?? 0.05),
     metadata: input.settings?.metadata || {},
     source: input.source || (input.settings ? "database" : "fallback"),

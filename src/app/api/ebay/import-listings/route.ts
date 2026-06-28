@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { inventoryEngine } from "../../../../modules/inventory";
 import { getActiveStoreId } from "../../../../lib/stores";
+import { getStoreSettings } from "../../../../lib/store-settings";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -82,6 +83,19 @@ export async function GET(request: Request) {
   try {
     const supabase = getSupabaseClient();
     const storeId = getActiveStoreId();
+    const storeSettings = await getStoreSettings(supabase, storeId);
+
+    if (!storeSettings.ebaySyncEnabled) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "eBay sync is disabled for this store",
+          storeId,
+        },
+        { status: 403 },
+      );
+    }
+
     const url = new URL(request.url);
 
     const offset = Number(url.searchParams.get("offset") || "0");

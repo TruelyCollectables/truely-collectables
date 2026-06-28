@@ -921,6 +921,30 @@ src/lib/collector-intelligence.ts</code></pre>
 </tbody></table>
 <p>Rule:</p>
 <p>Use <code>/admin/ebay</code> before and after large imports. Missing SKU and stale sync warnings should be reviewed before assuming local inventory and eBay inventory agree.</p>
+<h3>eBay Sync Toggle</h3>
+<p>Open:</p>
+<pre><code>/admin/settings</code></pre>
+<p>The <code>Enable eBay Sync</code> toggle controls whether the active store can use eBay integration.</p>
+<p>When eBay sync is enabled:</p>
+<ul>
+<li><code>/api/ebay/import-listings</code> can import an eBay inventory page</li>
+<li><code>/api/ebay/full-sync</code> can run the batch import loop</li>
+<li><code>/api/ebay/auth</code> can reconnect the store's eBay OAuth token</li>
+<li>completed sales can push quantity changes back to eBay</li>
+</ul>
+<p>When eBay sync is disabled:</p>
+<ul>
+<li>import is blocked</li>
+<li>full sync is blocked</li>
+<li>reconnect/OAuth is blocked</li>
+<li>post-sale eBay quantity updates are skipped</li>
+<li><code>/admin/ebay</code> shows a disabled warning</li>
+</ul>
+<p>Storage:</p>
+<pre><code>store_settings.metadata.ebay_sync_enabled</code></pre>
+<p>Default behavior:</p>
+<pre><code>enabled</code></pre>
+<p>This keeps Store #1 working unless an admin intentionally turns eBay sync off. For TCOS/future stores, turn this off when eBay sync should not help an outside seller or competitor.</p>
 <h2>15. Checkout</h2>
 <p>Checkout route:</p>
 <pre><code>/api/checkout</code></pre>

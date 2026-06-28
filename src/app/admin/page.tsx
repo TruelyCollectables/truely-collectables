@@ -222,6 +222,7 @@ export default async function AdminDashboard() {
             <CommandButton href="/admin/products/new" label="Add Product" primary />
             <CommandButton href="/admin/inventory" label="Inventory V2" />
             <CommandButton href="/admin/ebay" label="eBay Health" />
+            <CommandButton href="/admin/settings" label="Settings" />
             <CommandButton href="/api/ebay/import-listings?offset=0&limit=50" label="Sync eBay" />
             <CommandButton href="/admin/launch-readiness" label="Readiness" />
             <CommandButton href="/admin/logout" label="Logout" danger />
@@ -326,6 +327,7 @@ export default async function AdminDashboard() {
                 <LinkButton href="/admin/products" label="Products" />
                 <LinkButton href="/admin/inventory" label="Inventory V2" />
                 <LinkButton href="/admin/ebay" label="eBay" />
+                <LinkButton href="/admin/settings" label="Settings" />
                 <LinkButton href="/admin/orders" label="Orders" />
                 <LinkButton href="/admin/offers" label="Offers" />
                 <LinkButton href="/admin/files" label="Files" />

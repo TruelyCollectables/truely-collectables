@@ -1,9 +1,12 @@
 import Link from "next/link";
+import { createClient } from "@supabase/supabase-js";
 import {
   inventoryEngine,
   type EbayReconciliationIssue,
   type EbayReconciliationRow,
 } from "../../../modules/inventory";
+import { getStoreSettings } from "../../../lib/store-settings";
+import { getActiveStoreId } from "../../../lib/stores";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -52,8 +55,23 @@ function needsAttention(row: EbayReconciliationRow) {
   );
 }
 
+function getSupabaseClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseKey) {
+    throw new Error("Missing Supabase environment variables");
+  }
+
+  return createClient(supabaseUrl, supabaseKey);
+}
+
 export default async function AdminEbayPage() {
   const status = await inventoryEngine.getEbayReconciliationStatus();
+  const storeSettings = await getStoreSettings(
+    getSupabaseClient(),
+    getActiveStoreId(),
+  );
   const attentionRows = status.rows.filter(needsAttention);
   const otherRows = status.rows.filter((row) => !needsAttention(row));
   const visibleRows = [...attentionRows, ...otherRows].slice(0, 150);
@@ -78,15 +96,28 @@ export default async function AdminEbayPage() {
           <div className="flex flex-wrap gap-2">
             <CommandLink href="/admin" label="Command Center" />
             <CommandLink href="/admin/inventory" label="Inventory V2" />
+            <CommandLink href="/admin/settings" label="Settings" />
             <CommandLink href="/api/ebay/test" label="Test Route" />
-            <CommandLink href="/api/ebay/import-listings?offset=0&limit=50" label="Import Batch" primary />
-            <CommandLink href="/api/ebay/full-sync" label="Full Sync" primary />
-            <CommandLink href="/api/ebay/auth" label="Reconnect" danger />
+            {storeSettings.ebaySyncEnabled ? (
+              <>
+                <CommandLink href="/api/ebay/import-listings?offset=0&limit=50" label="Import Batch" primary />
+                <CommandLink href="/api/ebay/full-sync" label="Full Sync" primary />
+                <CommandLink href="/api/ebay/auth" label="Reconnect" danger />
+              </>
+            ) : null}
           </div>
         </div>
       </section>
 
       <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
+        {!storeSettings.ebaySyncEnabled ? (
+          <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-800">
+            eBay sync is disabled for this store. Imports, full sync,
+            reconnect, and post-sale quantity updates are blocked until it is
+            enabled in Store Settings.
+          </div>
+        ) : null}
+
         <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
           <Metric label="Total Products" value={String(status.totalProducts)} />
           <Metric label="eBay Linked" value={String(status.ebayLinkedItems)} />

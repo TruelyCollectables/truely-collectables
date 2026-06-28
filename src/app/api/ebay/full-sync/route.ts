@@ -1,4 +1,7 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
+import { getActiveStoreId } from "../../../../lib/stores";
+import { getStoreSettings } from "../../../../lib/store-settings";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -10,8 +13,34 @@ const SITE_URL =
 const LIMIT = 100;
 const MAX_BATCHES = 25;
 
+function getSupabaseClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseKey) {
+    throw new Error("Missing Supabase environment variables");
+  }
+
+  return createClient(supabaseUrl, supabaseKey);
+}
+
 export async function GET() {
   try {
+    const supabase = getSupabaseClient();
+    const storeId = getActiveStoreId();
+    const storeSettings = await getStoreSettings(supabase, storeId);
+
+    if (!storeSettings.ebaySyncEnabled) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: "eBay sync is disabled for this store",
+          storeId,
+        },
+        { status: 403 },
+      );
+    }
+
     const results = [];
     const runId = new Date().toISOString();
 

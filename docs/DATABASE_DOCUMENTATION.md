@@ -401,6 +401,38 @@ The eBay page links to the existing protected routes:
 - `/api/ebay/full-sync`
 - `/api/ebay/auth`
 
+Store-level eBay sync toggle:
+
+```text
+store_settings.metadata.ebay_sync_enabled
+```
+
+Resolved through:
+
+```text
+src/lib/store-settings.ts
+```
+
+Default value:
+
+```text
+true
+```
+
+Admin screen:
+
+```text
+src/app/admin/settings/page.tsx
+```
+
+When the toggle is false, TCOS blocks or skips:
+
+- `/api/ebay/import-listings`
+- `/api/ebay/full-sync`
+- `/api/ebay/auth`
+- `/api/ebay/callback`
+- post-sale `syncEbayQuantityAfterSale()`
+
 ### `sales_comp_snapshots`
 
 Stores pricing comp history.

@@ -812,6 +812,45 @@ Rule:
 
 Use `/admin/ebay` before and after large imports. Missing SKU and stale sync warnings should be reviewed before assuming local inventory and eBay inventory agree.
 
+### eBay Sync Toggle
+
+Open:
+
+```text
+/admin/settings
+```
+
+The `Enable eBay Sync` toggle controls whether the active store can use eBay integration.
+
+When eBay sync is enabled:
+
+- `/api/ebay/import-listings` can import an eBay inventory page
+- `/api/ebay/full-sync` can run the batch import loop
+- `/api/ebay/auth` can reconnect the store's eBay OAuth token
+- completed sales can push quantity changes back to eBay
+
+When eBay sync is disabled:
+
+- import is blocked
+- full sync is blocked
+- reconnect/OAuth is blocked
+- post-sale eBay quantity updates are skipped
+- `/admin/ebay` shows a disabled warning
+
+Storage:
+
+```text
+store_settings.metadata.ebay_sync_enabled
+```
+
+Default behavior:
+
+```text
+enabled
+```
+
+This keeps Store #1 working unless an admin intentionally turns eBay sync off. For TCOS/future stores, turn this off when eBay sync should not help an outside seller or competitor.
+
 ## 15. Checkout
 
 Checkout route:

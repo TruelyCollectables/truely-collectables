@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { getActiveStoreId } from "./stores";
+import { getStoreSettings } from "./store-settings";
 
 const EBAY_API = "https://api.ebay.com";
 const EBAY_FINDING_API = "https://svcs.ebay.com/services/search/FindingService/v1";
@@ -83,6 +84,17 @@ export async function syncEbayQuantityAfterSale(params: {
   newQuantity: number;
 }) {
   const { sku, ebayItemId, newQuantity } = params;
+  const storeId = getActiveStoreId();
+  const supabase = getSupabase();
+  const storeSettings = await getStoreSettings(supabase, storeId);
+
+  if (!storeSettings.ebaySyncEnabled) {
+    return {
+      success: false,
+      skipped: true,
+      reason: "eBay sync is disabled for this store",
+    };
+  }
 
   if (!sku && !ebayItemId) {
     return {

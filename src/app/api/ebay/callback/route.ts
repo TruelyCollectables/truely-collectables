@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { getActiveStoreId } from "../../../../lib/stores";
+import { getStoreSettings } from "../../../../lib/store-settings";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +30,17 @@ export async function GET(request: Request) {
     supabaseKey
   );
   const storeId = getActiveStoreId();
+  const storeSettings = await getStoreSettings(supabase, storeId);
+
+  if (!storeSettings.ebaySyncEnabled) {
+    return NextResponse.json(
+      {
+        error: "eBay sync is disabled for this store",
+        storeId,
+      },
+      { status: 403 },
+    );
+  }
 
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
