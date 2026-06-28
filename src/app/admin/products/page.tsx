@@ -1,10 +1,15 @@
-import { supabase } from "../../../lib/supabase";
+import { inventoryEngine } from "../../../modules/inventory";
+import type { UniversalInventoryItem } from "../../../modules/inventory";
 
 export default async function AdminProductsPage() {
-  const { data: products, error } = await supabase
-    .from("products")
-    .select("*")
-    .order("id");
+  let products: UniversalInventoryItem[] = [];
+  let error: Error | null = null;
+
+  try {
+    products = await inventoryEngine.listAll();
+  } catch (err: any) {
+    error = err;
+  }
 
   if (error) {
     return (
@@ -37,7 +42,7 @@ export default async function AdminProductsPage() {
 
       {products?.map((product) => (
         <div
-          key={product.id}
+          key={product.legacyProductId}
           className="border rounded p-4 mb-4"
         >
           <h2 className="font-bold text-xl">
@@ -48,9 +53,20 @@ export default async function AdminProductsPage() {
 
           <p>Quantity: {product.quantity}</p>
 
+          <p>Status: {product.status}</p>
+
+          <p>Inventory Source: {product.source}</p>
+
           <p>Player: {product.player}</p>
 
           <p>Sport: {product.sport}</p>
+
+          <a
+            href={`/admin/products/${product.legacyProductId}`}
+            className="inline-block border rounded px-4 py-2 mt-4"
+          >
+            Edit
+          </a>
         </div>
       ))}
     </main>

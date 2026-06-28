@@ -1,6 +1,14 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
+import {
+  TERMS_OF_SERVICE_VERSION,
+  hasAcceptedTerms,
+} from "../../../../lib/legal";
+import { getClientIdentity } from "../../../../lib/client-identity";
+import { recordTermsAcceptance } from "../../../../lib/tos-acceptance";
+import { getStoreSettings } from "../../../../lib/store-settings";
+import { getActiveStoreId } from "../../../../lib/stores";
 
 export async function POST(req: Request) {
   try {
@@ -16,20 +24,62 @@ export async function POST(req: Request) {
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey);
+    const storeId = getActiveStoreId();
+    const storeSettings = await getStoreSettings(supabase, storeId);
 
     const body = await req.json();
     const { productId, name, email, offerAmount } = body;
+    const tosAccepted = hasAcceptedTerms(body.tosAccepted);
+    const tosVersion = String(body.tosVersion || TERMS_OF_SERVICE_VERSION);
 
-    const { data: offer, error } = await supabase
-      .from("offers")
-      .insert([
+    if (!tosAccepted) {
+      return NextResponse.json(
+        { error: "Terms of Service must be accepted before submitting an offer" },
+        { status: 400 }
+      );
+    }
+
+    const clientIdentity = await getClientIdentity(req);
+
+    if (clientIdentity.blocked) {
+      return NextResponse.json(
         {
-          product_id: productId,
-          customer_name: name,
-          customer_email: email,
-          offer_amount: offerAmount,
+          error:
+            "Terms of Service cannot be accepted while client identity is masked or missing a public IP address",
+          reason: clientIdentity.blockReason,
         },
-      ])
+        { status: 403 }
+      );
+    }
+
+    const tosAcceptanceEventId = await recordTermsAcceptance(supabase, {
+      contextType: "offer",
+      tosKind: "buyer",
+      tosVersion,
+      identity: clientIdentity,
+      storeId,
+    });
+
+    const offerPayload = {
+      store_id: storeId,
+      product_id: productId,
+      customer_name: name,
+      customer_email: email,
+      offer_amount: offerAmount,
+      tos_accepted: true,
+      tos_version: tosVersion,
+      tos_accepted_at: new Date().toISOString(),
+      tos_acceptance_event_id: tosAcceptanceEventId,
+      tos_ip_address: clientIdentity.ipAddress,
+      tos_user_agent: clientIdentity.userAgent,
+      tos_ip_risk: clientIdentity.risk,
+      tos_ip_block_reason: clientIdentity.blockReason,
+      tos_ip_evidence: clientIdentity.evidence,
+    };
+
+    let { data: offer, error } = await supabase
+      .from("offers")
+      .insert([offerPayload])
       .select("*, products(title, price)")
       .single();
 
@@ -41,8 +91,8 @@ export async function POST(req: Request) {
       const resend = new Resend(resendApiKey);
 
       await resend.emails.send({
-        from: "Truely Collectables Offers <offers@truelycollectables.com>",
-        to: "sales@truelycollectables.com",
+        from: `${storeSettings.displayName} Offers <${storeSettings.offersEmail}>`,
+        to: storeSettings.salesEmail,
         subject: "New Best Offer Received",
         html: `
           <h2>New Best Offer Received</h2>

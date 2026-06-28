@@ -1,6 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import {
+  TERMS_OF_SERVICE_PATH,
+  TERMS_OF_SERVICE_VERSION,
+} from "../../../lib/legal";
 
 export default function OfferForm({
   productId,
@@ -28,6 +32,8 @@ export default function OfferForm({
         name: formData.get("name"),
         email: formData.get("email"),
         offerAmount: Number(formData.get("offerAmount")),
+        tosAccepted: formData.get("tosAccepted") === "on",
+        tosVersion: TERMS_OF_SERVICE_VERSION,
       }),
     });
 
@@ -78,6 +84,28 @@ export default function OfferForm({
             placeholder={`Offer amount, asking $${price.toFixed(2)}`}
             className="w-full border rounded p-2"
           />
+
+          <label className="flex items-start gap-3 rounded border p-3 text-sm leading-6">
+            <input
+              type="checkbox"
+              name="tosAccepted"
+              required
+              className="mt-1"
+            />
+
+            <span>
+              I agree to the{" "}
+              <a
+                href={TERMS_OF_SERVICE_PATH}
+                target="_blank"
+                rel="noreferrer"
+                className="font-bold underline"
+              >
+                Terms of Service
+              </a>{" "}
+              version {TERMS_OF_SERVICE_VERSION}.
+            </span>
+          </label>
 
           <button
             type="submit"

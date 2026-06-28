@@ -1,13 +1,17 @@
 "use client";
 
-import CheckoutButton from "../components/CheckoutButton";
 import { useEffect, useState } from "react";
+import CheckoutButton from "../components/CheckoutButton";
 import {
   calculateShipping,
+  getFreeShippingMessage,
   SHIPPING_RULES,
   type ShippingMethod,
-  getFreeShippingMessage,
 } from "../../lib/shipping";
+import {
+  TERMS_OF_SERVICE_PATH,
+  TERMS_OF_SERVICE_VERSION,
+} from "../../lib/legal";
 
 type CartItem = {
   id: number;
@@ -21,9 +25,9 @@ export default function CartPage() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [shippingMethod, setShippingMethod] =
     useState<ShippingMethod>("GROUND_ADVANTAGE");
+  const [termsAccepted, setTermsAccepted] = useState(false);
 
   useEffect(() => {
-    // Clear cart after successful checkout
     if (localStorage.getItem("checkoutSuccess") === "true") {
       localStorage.removeItem("checkoutSuccess");
       localStorage.removeItem("cart");
@@ -47,8 +51,8 @@ export default function CartPage() {
   function increaseQuantity(id: number) {
     saveCart(
       cart.map((item) =>
-        item.id === id ? { ...item, quantity: item.quantity + 1 } : item
-      )
+        item.id === id ? { ...item, quantity: item.quantity + 1 } : item,
+      ),
     );
   }
 
@@ -56,9 +60,9 @@ export default function CartPage() {
     saveCart(
       cart
         .map((item) =>
-          item.id === id ? { ...item, quantity: item.quantity - 1 } : item
+          item.id === id ? { ...item, quantity: item.quantity - 1 } : item,
         )
-        .filter((item) => item.quantity > 0)
+        .filter((item) => item.quantity > 0),
     );
   }
 
@@ -73,109 +77,122 @@ export default function CartPage() {
 
   const subtotal = cart.reduce(
     (sum, item) => sum + Number(item.price) * item.quantity,
-    0
+    0,
   );
-
   const itemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
-
   const groundShipping = calculateShipping({
     itemCount,
     subtotal,
     method: "GROUND_ADVANTAGE",
   });
-
   const priorityShipping = calculateShipping({
     itemCount,
     subtotal,
     method: "PRIORITY_MAIL",
   });
-
   const selectedShipping = calculateShipping({
     itemCount,
     subtotal,
     method: shippingMethod,
   });
-
   const total = subtotal + selectedShipping;
 
   return (
-    <main className="p-8 max-w-4xl mx-auto">
-      <h1 className="text-4xl font-bold mb-8">Shopping Cart</h1>
+    <main className="mx-auto max-w-5xl px-6 py-8">
+      <div className="mb-8 border-b border-neutral-200 pb-6">
+        <p className="text-sm font-bold uppercase text-neutral-500">
+          Secure Checkout
+        </p>
+        <h1 className="mt-2 text-4xl font-black md:text-5xl">Shopping Cart</h1>
+      </div>
 
       {cart.length === 0 ? (
-        <p>Your cart is empty.</p>
+        <section className="rounded border bg-white p-8">
+          <p className="text-lg font-bold">Your cart is empty.</p>
+          <a
+            href="/shop"
+            className="mt-5 inline-block rounded bg-neutral-950 px-5 py-3 font-bold text-white"
+          >
+            Shop Inventory
+          </a>
+        </section>
       ) : (
-        <>
-          <div className="space-y-4">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_360px]">
+          <section className="space-y-4">
             {cart.map((item) => (
               <div
                 key={item.id}
-                className="border rounded p-4 flex gap-4 items-center"
+                className="flex flex-col gap-4 rounded border bg-white p-4 sm:flex-row sm:items-center"
               >
-                {item.image_url && (
+                {item.image_url ? (
                   <img
                     src={item.image_url}
                     alt={item.title}
-                    className="w-24 h-24 object-cover rounded"
+                    className="h-28 w-28 rounded object-cover"
                   />
-                )}
+                ) : null}
 
                 <div className="flex-1">
-                  <h2 className="font-bold">{item.title}</h2>
-                  <p>${Number(item.price).toFixed(2)}</p>
+                  <h2 className="font-black">{item.title}</h2>
+                  <p className="mt-1 text-neutral-600">
+                    ${Number(item.price).toFixed(2)} each
+                  </p>
 
-                  <div className="flex items-center gap-3 mt-3">
+                  <div className="mt-3 flex items-center gap-3">
                     <button
                       onClick={() => decreaseQuantity(item.id)}
-                      className="border px-3 py-1 rounded"
+                      className="rounded border px-3 py-1 font-bold"
                     >
                       -
                     </button>
-
-                    <span>Qty: {item.quantity}</span>
-
+                    <span className="text-sm font-bold">Qty: {item.quantity}</span>
                     <button
                       onClick={() => increaseQuantity(item.id)}
-                      className="border px-3 py-1 rounded"
+                      className="rounded border px-3 py-1 font-bold"
                     >
                       +
                     </button>
-
                     <button
                       onClick={() => removeItem(item.id)}
-                      className="text-red-600 ml-4"
+                      className="ml-2 text-sm font-bold text-red-600"
                     >
                       Remove
                     </button>
                   </div>
                 </div>
 
-                <div className="font-bold">
+                <div className="text-xl font-black">
                   ${(Number(item.price) * item.quantity).toFixed(2)}
                 </div>
               </div>
             ))}
-          </div>
+          </section>
 
-          <div className="mt-8 border-t pt-6">
-            <p className="text-lg">Items: {itemCount}</p>
+          <section className="h-fit rounded border bg-white p-5">
+            <h2 className="text-2xl font-black">Order Summary</h2>
 
-            <h2 className="text-2xl font-bold mt-2">
-              Subtotal: ${subtotal.toFixed(2)}
-            </h2>
+            <div className="mt-4 space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span>Items</span>
+                <strong>{itemCount}</strong>
+              </div>
+              <div className="flex justify-between">
+                <span>Subtotal</span>
+                <strong>${subtotal.toFixed(2)}</strong>
+              </div>
+            </div>
 
-            <div className="mt-6 border rounded p-4">
-              <h3 className="text-xl font-bold mb-4">Choose Shipping</h3>
+            <div className="mt-6">
+              <h3 className="text-lg font-black">Choose Shipping</h3>
 
-              <label className="block border rounded p-4 mb-3 cursor-pointer">
+              <label className="mt-3 block cursor-pointer rounded border p-4">
                 <input
                   type="radio"
                   checked={shippingMethod === "GROUND_ADVANTAGE"}
                   onChange={() => setShippingMethod("GROUND_ADVANTAGE")}
                   className="mr-2"
                 />
-
-                {SHIPPING_RULES.GROUND_ADVANTAGE.name} —{" "}
+                {SHIPPING_RULES.GROUND_ADVANTAGE.name} -{" "}
                 <strong>
                   {groundShipping === 0
                     ? "FREE"
@@ -183,15 +200,14 @@ export default function CartPage() {
                 </strong>
               </label>
 
-              <label className="block border rounded p-4 cursor-pointer">
+              <label className="mt-3 block cursor-pointer rounded border p-4">
                 <input
                   type="radio"
                   checked={shippingMethod === "PRIORITY_MAIL"}
                   onChange={() => setShippingMethod("PRIORITY_MAIL")}
                   className="mr-2"
                 />
-
-                {SHIPPING_RULES.PRIORITY_MAIL.name} —{" "}
+                {SHIPPING_RULES.PRIORITY_MAIL.name} -{" "}
                 <strong>
                   {priorityShipping === 0
                     ? "FREE"
@@ -199,30 +215,58 @@ export default function CartPage() {
                 </strong>
               </label>
 
-              <div className="mt-4 rounded-lg bg-blue-50 border border-blue-200 p-4">
+              <div className="mt-4 rounded border border-blue-200 bg-blue-50 p-4 text-sm">
                 <p>{getFreeShippingMessage({ subtotal, method: shippingMethod })}</p>
               </div>
             </div>
 
-            <div className="mt-6 text-xl">
-              <p>Shipping: ${selectedShipping.toFixed(2)}</p>
-              <p className="font-bold mt-2">
-                Total: ${total.toFixed(2)}
-              </p>
+            <div className="mt-6 space-y-2 border-t pt-4 text-sm">
+              <div className="flex justify-between">
+                <span>Shipping</span>
+                <strong>${selectedShipping.toFixed(2)}</strong>
+              </div>
+              <div className="flex justify-between text-xl">
+                <span className="font-black">Total</span>
+                <strong>${total.toFixed(2)}</strong>
+              </div>
             </div>
 
-            <div className="mt-6 flex gap-4">
-              <CheckoutButton shippingMethod={shippingMethod} />
+            <label className="mt-6 flex items-start gap-3 rounded border p-4 text-sm leading-6">
+              <input
+                type="checkbox"
+                checked={termsAccepted}
+                onChange={(event) => setTermsAccepted(event.target.checked)}
+                className="mt-1"
+              />
+              <span>
+                I agree to the{" "}
+                <a
+                  href={TERMS_OF_SERVICE_PATH}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="font-bold underline"
+                >
+                  Truely Collectables Terms of Service
+                </a>{" "}
+                version {TERMS_OF_SERVICE_VERSION}.
+              </span>
+            </label>
+
+            <div className="mt-6 flex flex-col gap-3">
+              <CheckoutButton
+                shippingMethod={shippingMethod}
+                termsAccepted={termsAccepted}
+              />
 
               <button
                 onClick={clearCart}
-                className="border px-4 py-2 rounded"
+                className="rounded border px-4 py-3 font-bold"
               >
                 Clear Cart
               </button>
             </div>
-          </div>
-        </>
+          </section>
+        </div>
       )}
     </main>
   );

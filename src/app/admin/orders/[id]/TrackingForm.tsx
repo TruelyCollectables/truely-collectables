@@ -15,7 +15,6 @@ export default function TrackingForm({
   const [trackingNumber, setTrackingNumber] = useState(
     currentTrackingNumber || ""
   );
-
   const [saving, setSaving] = useState(false);
   const [shipping, setShipping] = useState(false);
   const [message, setMessage] = useState("");
@@ -41,16 +40,15 @@ export default function TrackingForm({
 
       if (!res.ok) {
         setMessage(data.error || "Failed to save tracking.");
-        setSaving(false);
         return;
       }
 
-      setMessage("✅ Tracking saved.");
+      setMessage("Tracking saved.");
     } catch (err: any) {
       setMessage(err.message);
+    } finally {
+      setSaving(false);
     }
-
-    setSaving(false);
   }
 
   async function markShipped() {
@@ -74,7 +72,6 @@ export default function TrackingForm({
 
       if (!save.ok) {
         setMessage(saveData.error || "Unable to save tracking.");
-        setShipping(false);
         return;
       }
 
@@ -92,29 +89,25 @@ export default function TrackingForm({
 
       if (!ship.ok) {
         setMessage(shipData.error || "Unable to mark shipped.");
-        setShipping(false);
         return;
       }
 
-      setMessage("✅ Order marked shipped.");
+      setMessage("Order marked shipped.");
 
       setTimeout(() => {
         window.location.reload();
       }, 800);
     } catch (err: any) {
       setMessage(err.message);
+    } finally {
+      setShipping(false);
     }
-
-    setShipping(false);
   }
 
   return (
     <div className="space-y-6">
-
       <div>
-        <label className="block font-bold mb-2">
-          Carrier
-        </label>
+        <label className="block font-bold mb-2">Carrier</label>
 
         <select
           value={carrier}
@@ -130,9 +123,7 @@ export default function TrackingForm({
       </div>
 
       <div>
-        <label className="block font-bold mb-2">
-          Tracking Number
-        </label>
+        <label className="block font-bold mb-2">Tracking Number</label>
 
         <input
           className="border rounded px-3 py-2 w-full"
@@ -143,11 +134,10 @@ export default function TrackingForm({
       </div>
 
       <div className="flex gap-4">
-
         <button
           onClick={saveTracking}
           disabled={saving}
-          className="bg-blue-600 text-white px-5 py-2 rounded"
+          className="bg-blue-600 text-white px-5 py-2 rounded disabled:opacity-50"
         >
           {saving ? "Saving..." : "Save Tracking"}
         </button>
@@ -155,19 +145,13 @@ export default function TrackingForm({
         <button
           onClick={markShipped}
           disabled={shipping}
-          className="bg-green-600 text-white px-5 py-2 rounded"
+          className="bg-green-600 text-white px-5 py-2 rounded disabled:opacity-50"
         >
           {shipping ? "Shipping..." : "Mark Shipped"}
         </button>
-
       </div>
 
-      {message && (
-        <div className="border rounded bg-gray-50 p-3">
-          {message}
-        </div>
-      )}
-
+      {message && <div className="border rounded bg-gray-50 p-3">{message}</div>}
     </div>
   );
 }

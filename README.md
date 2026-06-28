@@ -1,4 +1,30 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Truely Collectables / TCOS
+
+Copyright 2026 Dag Danky Holdings LLC. All rights reserved.
+
+Authored by David Bakanas.
+
+Software ownership: Dag Danky Holdings LLC.
+
+This repository contains the Truely Collectables storefront and TCOS admin system.
+
+Start with the operator manual:
+
+- [TCOS Operator Manual](docs/TCOS_OPERATOR_MANUAL.md)
+- [TCOS Operator Manual PDF](docs/TCOS_OPERATOR_MANUAL.pdf)
+
+The manual explains daily store operation, inventory, orders, offers, eBay sync, AI descriptions, sales comps, suggested pricing, and required environment variables.
+
+Customer legal page:
+
+- [Terms of Service](src/app/terms/page.tsx)
+- [Seller Terms of Service](src/app/seller-terms/page.tsx)
+
+To regenerate the downloadable manual PDF:
+
+```bash
+npm run manual:pdf
+```
 
 ## Getting Started
 

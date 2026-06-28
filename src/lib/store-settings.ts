@@ -1,0 +1,143 @@
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { DEFAULT_STORE, getActiveStoreId } from "./stores";
+
+type StoreRow = {
+  id?: string | null;
+  slug?: string | null;
+  display_name?: string | null;
+  legal_name?: string | null;
+  status?: string | null;
+  primary_domain?: string | null;
+};
+
+type StoreSettingsRow = {
+  support_email?: string | null;
+  sales_email?: string | null;
+  offers_email?: string | null;
+  evidence_email?: string | null;
+  evidence_from_email?: string | null;
+  order_from_email?: string | null;
+  stripe_mode?: string | null;
+  stripe_account_id?: string | null;
+  ebay_environment?: string | null;
+  ebay_account_label?: string | null;
+  seller_commission_rate?: number | string | null;
+  metadata?: Record<string, unknown> | null;
+};
+
+export type StoreOperationalSettings = {
+  storeId: string;
+  slug: string;
+  displayName: string;
+  legalName: string | null;
+  status: string;
+  primaryDomain: string | null;
+  supportEmail: string;
+  salesEmail: string;
+  offersEmail: string;
+  evidenceEmail: string | null;
+  evidenceFromEmail: string;
+  orderFromEmail: string;
+  stripeMode: string;
+  stripeAccountId: string | null;
+  ebayEnvironment: string;
+  ebayAccountLabel: string | null;
+  sellerCommissionRate: number;
+  metadata: Record<string, unknown>;
+  source: "database" | "fallback";
+};
+
+function configured(value: string | null | undefined) {
+  const trimmed = value?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed : null;
+}
+
+export function resolveStoreSettings(input: {
+  store?: StoreRow | null;
+  settings?: StoreSettingsRow | null;
+  source?: StoreOperationalSettings["source"];
+} = {}): StoreOperationalSettings {
+  const storeId = input.store?.id || getActiveStoreId();
+  const slug = input.store?.slug || DEFAULT_STORE.slug;
+  const displayName = input.store?.display_name || DEFAULT_STORE.displayName;
+  const legalName = input.store?.legal_name ?? DEFAULT_STORE.legalName;
+  const salesEmail =
+    configured(input.settings?.sales_email) || "sales@truelycollectables.com";
+  const offersEmail =
+    configured(input.settings?.offers_email) || "offers@truelycollectables.com";
+
+  return {
+    storeId,
+    slug,
+    displayName,
+    legalName,
+    status: input.store?.status || "active",
+    primaryDomain: input.store?.primary_domain ?? null,
+    supportEmail:
+      configured(input.settings?.support_email) ||
+      configured(process.env.TECHNICAL_SUPPORT_EMAIL) ||
+      "support@truelycollectables.com",
+    salesEmail,
+    offersEmail,
+    evidenceEmail:
+      configured(input.settings?.evidence_email) ||
+      configured(process.env.TRANSACTION_EVIDENCE_EMAIL),
+    evidenceFromEmail:
+      configured(input.settings?.evidence_from_email) ||
+      configured(process.env.TRANSACTION_EVIDENCE_FROM) ||
+      `${displayName} Evidence <${salesEmail}>`,
+    orderFromEmail:
+      configured(input.settings?.order_from_email) ||
+      `${displayName} <${salesEmail}>`,
+    stripeMode:
+      configured(input.settings?.stripe_mode) ||
+      (process.env.STRIPE_SECRET_KEY?.startsWith("sk_live_")
+        ? "live"
+        : process.env.STRIPE_SECRET_KEY?.startsWith("sk_test_")
+        ? "test"
+        : "env"),
+    stripeAccountId: configured(input.settings?.stripe_account_id),
+    ebayEnvironment:
+      configured(input.settings?.ebay_environment) ||
+      process.env.EBAY_ENVIRONMENT ||
+      "production",
+    ebayAccountLabel:
+      configured(input.settings?.ebay_account_label) ||
+      `${displayName} eBay`,
+    sellerCommissionRate: Number(input.settings?.seller_commission_rate ?? 0.05),
+    metadata: input.settings?.metadata || {},
+    source: input.source || (input.settings ? "database" : "fallback"),
+  };
+}
+
+export async function getStoreSettings(
+  supabase: SupabaseClient,
+  storeId = getActiveStoreId(),
+): Promise<StoreOperationalSettings> {
+  const { data: store } = await supabase
+    .from("stores")
+    .select("id,slug,display_name,legal_name,status,primary_domain")
+    .eq("id", storeId)
+    .maybeSingle();
+
+  const { data: settings, error } = await supabase
+    .from("store_settings")
+    .select(
+      "support_email,sales_email,offers_email,evidence_email,evidence_from_email,order_from_email,stripe_mode,stripe_account_id,ebay_environment,ebay_account_label,seller_commission_rate,metadata",
+    )
+    .eq("store_id", storeId)
+    .maybeSingle();
+
+  if (error) {
+    return resolveStoreSettings({
+      store: store as StoreRow | null,
+      source: "fallback",
+    });
+  }
+
+  return resolveStoreSettings({
+    store: store as StoreRow | null,
+    settings: settings as StoreSettingsRow | null,
+    source: settings ? "database" : "fallback",
+  });
+}

@@ -6,6 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "manual:pdf": "node scripts/build-manual-pdf.mjs",
     "lint": "eslint"
   },
   "dependencies": {

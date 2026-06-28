@@ -1,4 +1,5 @@
 import { supabase } from "../../../../lib/supabase";
+import { getActiveStoreId } from "../../../../lib/stores";
 import Link from "next/link";
 import TrackingForm from "./TrackingForm";
 
@@ -34,7 +35,25 @@ type Order = {
   shipping_state?: string | null;
   shipping_postal_code?: string | null;
   shipping_country?: string | null;
+  tos_accepted?: boolean | null;
+  tos_version?: string | null;
+  tos_accepted_at?: string | null;
+  tos_acceptance_event_id?: string | null;
+  tos_ip_address?: string | null;
+  tos_user_agent?: string | null;
+  tos_ip_risk?: string | null;
+  tos_ip_block_reason?: string | null;
   order_items?: OrderItem[];
+};
+
+type EvidenceReport = {
+  id: string;
+  status: string | null;
+  emailed_to: string | null;
+  email_sent_at: string | null;
+  email_error: string | null;
+  created_at: string;
+  updated_at: string | null;
 };
 
 function money(value: number | null | undefined) {
@@ -52,6 +71,7 @@ export default async function AdminOrderDetailPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const storeId = getActiveStoreId();
 
   const { data: order, error } = await supabase
     .from("orders")
@@ -67,6 +87,7 @@ export default async function AdminOrderDetailPage({
     `
     )
     .eq("id", id)
+    .eq("store_id", storeId)
     .single();
 
   if (error || !order) {
@@ -82,6 +103,23 @@ export default async function AdminOrderDetailPage({
   }
 
   const typedOrder = order as Order;
+  const { data: evidenceReports, error: evidenceError } = await supabase
+    .from("transaction_evidence_reports")
+    .select(
+      `
+      id,
+      status,
+      emailed_to,
+      email_sent_at,
+      email_error,
+      created_at,
+      updated_at
+    `
+    )
+    .eq("order_id", typedOrder.id)
+    .eq("store_id", storeId)
+    .order("created_at", { ascending: false });
+  const latestEvidence = ((evidenceReports || []) as EvidenceReport[])[0];
 
   const itemsTotal =
     typedOrder.order_items?.reduce(
@@ -240,6 +278,74 @@ export default async function AdminOrderDetailPage({
       </section>
 
       <section className="border rounded-lg p-6 mb-6">
+        <h2 className="text-2xl font-bold mb-4">Chargeback Evidence</h2>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <h3 className="font-bold mb-2">Terms And Identity</h3>
+            <p>TOS Accepted: {typedOrder.tos_accepted ? "Yes" : "No"}</p>
+            <p>Version: {typedOrder.tos_version || "Not saved"}</p>
+            <p>
+              Accepted At:{" "}
+              {typedOrder.tos_accepted_at
+                ? new Date(typedOrder.tos_accepted_at).toLocaleString()
+                : "Not saved"}
+            </p>
+            <p>IP Address: {typedOrder.tos_ip_address || "Not saved"}</p>
+            <p>IP Risk: {typedOrder.tos_ip_risk || "Not saved"}</p>
+            <p>
+              Block Reason: {typedOrder.tos_ip_block_reason || "None saved"}
+            </p>
+            <p className="break-all">
+              Acceptance Event:{" "}
+              {typedOrder.tos_acceptance_event_id || "Not saved"}
+            </p>
+          </div>
+
+          <div>
+            <h3 className="font-bold mb-2">Evidence Packet</h3>
+
+            {evidenceError ? (
+              <p className="text-red-600">
+                Evidence table unavailable: {evidenceError.message}
+              </p>
+            ) : latestEvidence ? (
+              <>
+                <p>Status: {latestEvidence.status || "ready"}</p>
+                <p>
+                  Created:{" "}
+                  {new Date(latestEvidence.created_at).toLocaleString()}
+                </p>
+                <p>
+                  Last Updated:{" "}
+                  {latestEvidence.updated_at
+                    ? new Date(latestEvidence.updated_at).toLocaleString()
+                    : "Not saved"}
+                </p>
+                <p>
+                  Email:{" "}
+                  {latestEvidence.email_sent_at
+                    ? `Sent to ${latestEvidence.emailed_to}`
+                    : latestEvidence.email_error || "Not sent"}
+                </p>
+
+                <a
+                  href={`/api/admin/files/${latestEvidence.id}/download`}
+                  className="inline-block mt-4 border rounded px-4 py-2"
+                >
+                  Download Evidence PDF
+                </a>
+              </>
+            ) : (
+              <p className="text-gray-600">
+                No evidence packet has been created for this order yet.
+              </p>
+            )}
+          </div>
+        </div>
+      </section>
+
+      <section className="border rounded-lg p-6 mb-6">
         <h2 className="text-2xl font-bold mb-4">Add Tracking</h2>
 
         <TrackingForm
@@ -254,18 +360,18 @@ export default async function AdminOrderDetailPage({
 
         <div className="flex flex-wrap gap-4">
           <Link
+            href="/admin/files"
+            className="border rounded px-4 py-2"
+          >
+            Evidence Files
+          </Link>
+
+          <Link
             href={`/admin/orders/${typedOrder.id}/packing-slip`}
             className="border rounded px-4 py-2"
           >
             Print Packing Slip
           </Link>
-
-          <button
-            disabled
-            className="border rounded px-4 py-2 text-gray-400 cursor-not-allowed"
-          >
-            Mark Shipped
-          </button>
         </div>
       </section>
     </main>

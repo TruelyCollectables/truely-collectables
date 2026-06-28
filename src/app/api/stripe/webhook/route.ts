@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
 import { syncEbayQuantityAfterSale } from "../../../../lib/ebay";
+import { inventoryEngine } from "../../../../modules/inventory";
+import { createTransactionEvidenceReport } from "../../../../lib/transaction-evidence";
+import { getActiveStoreId } from "../../../../lib/stores";
 
 export const dynamic = "force-dynamic";
 
@@ -26,6 +29,7 @@ export async function POST(req: Request) {
 
     const stripe = new Stripe(stripeKey);
     const supabase = createClient(supabaseUrl, supabaseKey);
+    const storeId = getActiveStoreId();
 
     const body = await req.text();
     const signature = req.headers.get("stripe-signature");
@@ -60,6 +64,15 @@ export async function POST(req: Request) {
       const shippingAmount = Number(session.metadata?.shipping_amount || 0);
       const subtotal = Number(session.metadata?.subtotal || 0);
       const itemCount = Number(session.metadata?.item_count || 0);
+      const tosAccepted = session.metadata?.tos_accepted === "true";
+      const tosVersion = session.metadata?.tos_version || null;
+      const tosAcceptedAt = session.metadata?.tos_accepted_at || null;
+      const tosAcceptanceEventId =
+        session.metadata?.tos_acceptance_event_id || null;
+      const tosIpAddress = session.metadata?.tos_ip_address || null;
+      const tosUserAgent = session.metadata?.tos_user_agent || null;
+      const tosIpRisk = session.metadata?.tos_ip_risk || null;
+      const tosIpBlockReason = session.metadata?.tos_ip_block_reason || null;
 
       const customerEmail =
         session.customer_details?.email ||
@@ -72,6 +85,7 @@ export async function POST(req: Request) {
         .from("orders")
         .select("id")
         .eq("stripe_session_id", session.id)
+        .eq("store_id", storeId)
         .maybeSingle();
 
       if (existingOrder) {
@@ -86,20 +100,43 @@ export async function POST(req: Request) {
         cart = [];
       }
 
+      if (cart.length === 0 && checkoutType === "accepted_offer") {
+        const productId = Number(session.metadata?.product_id);
+
+        if (productId) {
+          cart = [{ id: productId, quantity: 1 }];
+        }
+      }
+
+      const orderPayload = {
+        store_id: storeId,
+        customer_email: customerEmail,
+        total,
+        status: "paid",
+        stripe_session_id: session.id,
+        shipping_method: shippingMethod,
+        shipping_name: shippingName,
+        shipping_amount: shippingAmount,
+        subtotal,
+        item_count: itemCount,
+        fulfillment_status: "ready_to_ship",
+      };
+
+      const orderPayloadWithTerms = {
+        ...orderPayload,
+        tos_accepted: tosAccepted,
+        tos_version: tosVersion,
+        tos_accepted_at: tosAcceptedAt,
+        tos_acceptance_event_id: tosAcceptanceEventId,
+        tos_ip_address: tosIpAddress,
+        tos_user_agent: tosUserAgent,
+        tos_ip_risk: tosIpRisk,
+        tos_ip_block_reason: tosIpBlockReason,
+      };
+
       const { data: order, error: orderError } = await supabase
         .from("orders")
-        .insert({
-          customer_email: customerEmail,
-          total,
-          status: "paid",
-          stripe_session_id: session.id,
-          shipping_method: shippingMethod,
-          shipping_name: shippingName,
-          shipping_amount: shippingAmount,
-          subtotal,
-          item_count: itemCount,
-          fulfillment_status: "ready_to_ship",
-        })
+        .insert(orderPayloadWithTerms)
         .select("id")
         .single();
 
@@ -112,37 +149,32 @@ export async function POST(req: Request) {
       }
 
       for (const cartItem of cart) {
-        const { data: product, error: productError } = await supabase
-          .from("products")
-          .select("id, title, price, quantity, sku, ebay_item_id")
-          .eq("id", cartItem.id)
-          .single();
+        const product = await inventoryEngine.getByLegacyProductId(cartItem.id);
 
-        if (productError || !product) continue;
+        if (!product) continue;
 
         await supabase.from("order_items").insert({
+          store_id: storeId,
           order_id: order.id,
-          product_id: product.id,
+          product_id: product.legacyProductId,
           title: product.title,
           price: Number(product.price),
           quantity: cartItem.quantity,
         });
 
-        const newQuantity = Math.max(
-          Number(product.quantity || 0) - cartItem.quantity,
-          0
-        );
+        const mutation = await inventoryEngine.decrementAfterSale({
+          legacyProductId: product.legacyProductId,
+          quantity: cartItem.quantity,
+          source: "stripe-webhook",
+        });
 
-        await supabase
-          .from("products")
-          .update({ quantity: newQuantity })
-          .eq("id", product.id);
+        if (!mutation) continue;
 
         try {
           await syncEbayQuantityAfterSale({
             sku: product.sku,
-            ebayItemId: product.ebay_item_id,
-            newQuantity,
+            ebayItemId: product.ebayItemId,
+            newQuantity: mutation.newQuantity,
           });
         } catch (ebayError: any) {
           console.error("eBay sync after sale failed:", ebayError.message);
@@ -156,7 +188,23 @@ export async function POST(req: Request) {
             status: "paid",
             updated_at: new Date().toISOString(),
           })
-          .eq("id", offerId);
+          .eq("id", offerId)
+          .eq("store_id", storeId);
+      }
+
+      try {
+        await createTransactionEvidenceReport({
+          supabase,
+          orderId: order.id,
+          stripeSession: session,
+          stripeEvent: event,
+          storeId,
+        });
+      } catch (reportError: any) {
+        console.error(
+          "Transaction evidence report failed:",
+          reportError.message || reportError,
+        );
       }
     }
 

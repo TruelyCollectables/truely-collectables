@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
 import { syncEbayQuantityAfterSale } from "../../../lib/ebay";
+import { inventoryEngine } from "../../../modules/inventory";
+import { createTransactionEvidenceReport } from "../../../lib/transaction-evidence";
+import { getActiveStoreId } from "../../../lib/stores";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +32,7 @@ export async function POST(req: Request) {
 
     const stripe = new Stripe(stripeKey);
     const supabase = createClient(supabaseUrl, supabaseKey);
+    const storeId = getActiveStoreId();
 
     const body = await req.text();
     const signature = req.headers.get("stripe-signature");
@@ -85,6 +89,14 @@ export async function POST(req: Request) {
     const shippingAmount = Number(metadata.shipping_amount || 0);
     const subtotal = Number(metadata.subtotal || total);
     const itemCount = Number(metadata.item_count || 0);
+    const tosAccepted = metadata.tos_accepted === "true";
+    const tosVersion = metadata.tos_version || null;
+    const tosAcceptedAt = metadata.tos_accepted_at || null;
+    const tosAcceptanceEventId = metadata.tos_acceptance_event_id || null;
+    const tosIpAddress = metadata.tos_ip_address || null;
+    const tosUserAgent = metadata.tos_user_agent || null;
+    const tosIpRisk = metadata.tos_ip_risk || null;
+    const tosIpBlockReason = metadata.tos_ip_block_reason || null;
 
     const offerId = metadata.offer_id;
     const checkoutType = metadata.type || "cart";
@@ -99,10 +111,19 @@ export async function POST(req: Request) {
       cart = [];
     }
 
+    if (cart.length === 0 && checkoutType === "accepted_offer") {
+      const productId = Number(metadata.product_id);
+
+      if (productId) {
+        cart = [{ id: productId, quantity: 1 }];
+      }
+    }
+
     const { data: existingOrder, error: existingOrderError } = await supabase
       .from("orders")
       .select("id")
       .eq("stripe_session_id", session.id)
+      .eq("store_id", storeId)
       .maybeSingle();
 
     if (existingOrderError) {
@@ -112,6 +133,7 @@ export async function POST(req: Request) {
     let orderId: number;
 
     const orderPayload = {
+      store_id: storeId,
       customer_email: customerEmail,
       customer_name: customerName,
       total,
@@ -130,12 +152,24 @@ export async function POST(req: Request) {
       shipping_country: shippingCountry,
     };
 
+    const orderPayloadWithTerms = {
+      ...orderPayload,
+      tos_accepted: tosAccepted,
+      tos_version: tosVersion,
+      tos_accepted_at: tosAcceptedAt,
+      tos_acceptance_event_id: tosAcceptanceEventId,
+      tos_ip_address: tosIpAddress,
+      tos_user_agent: tosUserAgent,
+      tos_ip_risk: tosIpRisk,
+      tos_ip_block_reason: tosIpBlockReason,
+    };
+
     if (existingOrder) {
       orderId = existingOrder.id;
 
       const { error: updateError } = await supabase
         .from("orders")
-        .update(orderPayload)
+        .update(orderPayloadWithTerms)
         .eq("id", orderId);
 
       if (updateError) {
@@ -145,7 +179,7 @@ export async function POST(req: Request) {
       const { data: order, error: orderError } = await supabase
         .from("orders")
         .insert({
-          ...orderPayload,
+          ...orderPayloadWithTerms,
           stripe_session_id: session.id,
         })
         .select("id")
@@ -166,6 +200,7 @@ export async function POST(req: Request) {
       .from("order_items")
       .select("id")
       .eq("order_id", orderId)
+      .eq("store_id", storeId)
       .limit(1);
 
     if (!existingItems || existingItems.length === 0) {
@@ -180,24 +215,20 @@ export async function POST(req: Request) {
           continue;
         }
 
-        const { data: product, error: productError } = await supabase
-          .from("products")
-          .select("id, title, price, quantity, ebay_item_id")
-          .eq("id", productId)
-          .single();
+        const product = await inventoryEngine.getByLegacyProductId(productId);
 
-        if (productError || !product) {
+        if (!product) {
           console.error(
             "Product lookup failed:",
-            productId,
-            productError?.message
+            productId
           );
           continue;
         }
 
         const { error: itemError } = await supabase.from("order_items").insert({
+          store_id: storeId,
           order_id: orderId,
-          product_id: product.id,
+          product_id: product.legacyProductId,
           title: product.title,
           price: Number(product.price),
           quantity: quantityPurchased,
@@ -208,29 +239,25 @@ export async function POST(req: Request) {
           continue;
         }
 
-        const newQuantity = Math.max(
-          Number(product.quantity || 0) - quantityPurchased,
-          0
-        );
+        const mutation = await inventoryEngine.decrementAfterSale({
+          legacyProductId: product.legacyProductId,
+          quantity: quantityPurchased,
+          source: "stripe-webhook",
+        });
 
-        const { error: productUpdateError } = await supabase
-          .from("products")
-          .update({ quantity: newQuantity })
-          .eq("id", product.id);
-
-        if (productUpdateError) {
+        if (!mutation) {
           console.error(
             "Product quantity update failed:",
-            productUpdateError.message
+            product.legacyProductId
           );
           continue;
         }
 
         try {
           await syncEbayQuantityAfterSale({
-            sku: String(product.id),
-            ebayItemId: product.ebay_item_id,
-            newQuantity,
+            sku: product.sku,
+            ebayItemId: product.ebayItemId,
+            newQuantity: mutation.newQuantity,
           });
         } catch (ebayError: any) {
           console.error("eBay sync after sale failed:", ebayError.message);
@@ -245,7 +272,23 @@ export async function POST(req: Request) {
           status: "paid",
           updated_at: new Date().toISOString(),
         })
-        .eq("id", offerId);
+        .eq("id", offerId)
+        .eq("store_id", storeId);
+    }
+
+    try {
+      await createTransactionEvidenceReport({
+        supabase,
+        orderId,
+        stripeSession: session,
+        stripeEvent: event,
+        storeId,
+      });
+    } catch (reportError: any) {
+      console.error(
+        "Transaction evidence report failed:",
+        reportError.message || reportError,
+      );
     }
 
     return NextResponse.json({ received: true });

@@ -1,5 +1,8 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { refreshTransactionEvidenceReportForOrder } from "../../../../lib/transaction-evidence";
+import { getStoreSettings } from "../../../../lib/store-settings";
+import { getActiveStoreId } from "../../../../lib/stores";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +38,8 @@ export async function POST(req: Request) {
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey);
+    const storeId = getActiveStoreId();
+    const storeSettings = await getStoreSettings(supabase, storeId);
 
     const body = await req.json();
     const orderId = Number(body.orderId);
@@ -59,6 +64,7 @@ export async function POST(req: Request) {
       `
       )
       .eq("id", orderId)
+      .eq("store_id", storeId)
       .single();
 
     if (lookupError || !order) {
@@ -86,10 +92,24 @@ export async function POST(req: Request) {
         fulfillment_status: "shipped",
         shipped_at: shippedAt,
       })
-      .eq("id", orderId);
+      .eq("id", orderId)
+      .eq("store_id", storeId);
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    try {
+      await refreshTransactionEvidenceReportForOrder({
+        supabase,
+        orderId,
+        storeId,
+      });
+    } catch (reportError: any) {
+      console.error(
+        "Evidence report refresh after shipment update failed:",
+        reportError.message || reportError
+      );
     }
 
     let emailSent = false;
@@ -148,9 +168,9 @@ Thank you for shopping with Truely Collectables!
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            from: "Truely Collectables <sales@truelycollectables.com>",
+            from: storeSettings.orderFromEmail,
             to: order.customer_email,
-            subject: `Your Truely Collectables order #${order.id} has shipped!`,
+            subject: `Your ${storeSettings.displayName} order #${order.id} has shipped!`,
             html,
             text,
           }),

@@ -36,7 +36,7 @@ export default function ProductActions({ product }: { product: Product }) {
         onClick={handleBuyNow}
         className="w-full bg-black text-white rounded py-3 font-bold"
       >
-        Buy Now
+        Make It Mine
       </button>
 
       <button

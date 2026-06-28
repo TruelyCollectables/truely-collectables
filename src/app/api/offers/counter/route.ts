@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
 import { Resend } from "resend";
+import { inventoryEngine } from "../../../../modules/inventory";
+import { getStoreSettings } from "../../../../lib/store-settings";
+import { getActiveStoreId } from "../../../../lib/stores";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +25,8 @@ export async function POST(req: Request) {
     const supabase = createClient(supabaseUrl, supabaseKey);
     const stripe = new Stripe(stripeKey);
     const resend = resendKey ? new Resend(resendKey) : null;
+    const storeId = getActiveStoreId();
+    const storeSettings = await getStoreSettings(supabase, storeId);
 
     const { offerId, counterAmount } = await req.json();
 
@@ -36,6 +41,7 @@ export async function POST(req: Request) {
       .from("offers")
       .select("*, products(id, title, image_url, price, quantity, ebay_item_id)")
       .eq("id", offerId)
+      .eq("store_id", storeId)
       .single();
 
     if (offerError || !offer) {
@@ -59,7 +65,11 @@ export async function POST(req: Request) {
       );
     }
 
-    if (Number(offer.products.quantity) <= 0) {
+    const inventoryItem = await inventoryEngine.getByLegacyProductId(
+      Number(offer.products.id)
+    );
+
+    if (!inventoryItem || inventoryItem.quantity <= 0) {
       return NextResponse.json(
         { error: "Product is already sold out" },
         { status: 400 }
@@ -94,8 +104,16 @@ export async function POST(req: Request) {
         ebay_item_id: offer.products.ebay_item_id || "",
         type: "accepted_offer",
         counter_amount: String(amount),
+        tos_accepted: offer.tos_accepted ? "true" : "false",
+        tos_version: offer.tos_version || "",
+        tos_accepted_at: offer.tos_accepted_at || "",
+        tos_acceptance_event_id: offer.tos_acceptance_event_id || "",
+        tos_ip_address: offer.tos_ip_address || "",
+        tos_user_agent: offer.tos_user_agent || "",
+        tos_ip_risk: offer.tos_ip_risk || "",
+        tos_ip_block_reason: offer.tos_ip_block_reason || "",
       },
-      success_url: `${origin}/shop?counter_success=true`,
+      success_url: `${origin}/success?type=counter&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/product/${offer.products.id}`,
     });
 
@@ -109,6 +127,7 @@ export async function POST(req: Request) {
         updated_at: new Date().toISOString(),
       })
       .eq("id", offerId)
+      .eq("store_id", storeId)
       .select()
       .single();
 
@@ -118,9 +137,9 @@ export async function POST(req: Request) {
 
     if (resend && session.url) {
       await resend.emails.send({
-        from: "Truely Collectables <sales@truelycollectables.com>",
+        from: storeSettings.orderFromEmail,
         to: offer.customer_email,
-        subject: "Counter offer from Truely Collectables",
+        subject: `Counter offer from ${storeSettings.displayName}`,
         html: `
           <h2>Counter Offer</h2>
           <p>Hi ${offer.customer_name || "there"},</p>

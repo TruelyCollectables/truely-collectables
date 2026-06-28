@@ -1,17 +1,25 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { inventoryEngine } from "../../../../modules/inventory";
+import { getActiveStoreId } from "../../../../lib/stores";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL || "https://placeholder.supabase.co",
-  process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || "placeholder-key"
-);
-
 const EBAY_API = "https://api.ebay.com";
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 100;
+
+function getSupabaseClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseKey) {
+    throw new Error("Missing Supabase environment variables");
+  }
+
+  return createClient(supabaseUrl, supabaseKey);
+}
 
 function ebayHeaders(accessToken: string) {
   return {
@@ -22,6 +30,10 @@ function ebayHeaders(accessToken: string) {
 }
 
 async function getAccessToken(refreshToken: string) {
+  if (!process.env.EBAY_CLIENT_ID || !process.env.EBAY_CLIENT_SECRET) {
+    throw new Error("Missing eBay client credentials");
+  }
+
   const credentials = Buffer.from(
     `${process.env.EBAY_CLIENT_ID}:${process.env.EBAY_CLIENT_SECRET}`
   ).toString("base64");
@@ -68,6 +80,8 @@ function isActiveOffer(offer: any) {
 
 export async function GET(request: Request) {
   try {
+    const supabase = getSupabaseClient();
+    const storeId = getActiveStoreId();
     const url = new URL(request.url);
 
     const offset = Number(url.searchParams.get("offset") || "0");
@@ -80,6 +94,7 @@ export async function GET(request: Request) {
     const { data: tokenRow, error: tokenError } = await supabase
       .from("ebay_tokens")
       .select("refresh_token")
+      .eq("store_id", storeId)
       .order("created_at", { ascending: false })
       .limit(1)
       .single();
@@ -151,14 +166,10 @@ export async function GET(request: Request) {
       }
 
       if (!isActiveOffer(offer)) {
-        await supabase.from("products").update({ quantity: 0 }).eq("sku", sku);
-
-        if (listingId) {
-          await supabase
-            .from("products")
-            .update({ quantity: 0 })
-            .eq("ebay_item_id", listingId);
-        }
+        await inventoryEngine.markEbayListingInactive({
+          sku,
+          ebayItemId: listingId,
+        });
 
         markedSold++;
         debugSamples.push({
@@ -199,38 +210,19 @@ export async function GET(request: Request) {
         last_seen_at: new Date().toISOString(),
       };
 
-      if (listingId) {
-        const { data: updatedRows, error: updateError } = await supabase
-          .from("products")
-          .update(productData)
-          .eq("ebay_item_id", listingId)
-          .select("id");
-
-        if (updateError) {
-          skipped++;
-          debugSamples.push({
-            reason: "update_by_ebay_item_id_failed",
-            sku,
-            listingId,
-            updateError,
-          });
-          continue;
-        }
-
-        if (updatedRows && updatedRows.length > 0) {
-          imported++;
-          continue;
-        }
-      }
-
-      const { error: upsertError } = await supabase.from("products").upsert(
-        productData,
-        {
-          onConflict: "sku",
-        }
-      );
-
-      if (upsertError) {
+      try {
+        await inventoryEngine.upsertFromEbayListing({
+          sku: productData.sku,
+          title: productData.title,
+          description: productData.description,
+          price: productData.price,
+          quantity: productData.quantity,
+          imageUrl: productData.image_url,
+          ebayItemId: productData.ebay_item_id,
+          player: productData.player,
+          sport: productData.sport,
+        });
+      } catch (upsertError) {
         skipped++;
         debugSamples.push({
           reason: "upsert_failed",

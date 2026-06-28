@@ -1,11 +1,25 @@
 import { NextResponse } from "next/server";
+import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
-import { supabase } from "../../../lib/supabase";
 import {
   calculateShipping,
   SHIPPING_RULES,
   type ShippingMethod,
 } from "../../../lib/shipping";
+import {
+  InventoryEngineError,
+  inventoryEngine,
+} from "../../../modules/inventory";
+import {
+  TERMS_OF_SERVICE_VERSION,
+  hasAcceptedTerms,
+} from "../../../lib/legal";
+import {
+  getClientIdentity,
+  metadataSafeIdentity,
+} from "../../../lib/client-identity";
+import { recordTermsAcceptance } from "../../../lib/tos-acceptance";
+import { getActiveStoreId } from "../../../lib/stores";
 
 export const dynamic = "force-dynamic";
 
@@ -16,18 +30,66 @@ type CartItem = {
 
 export async function POST(request: Request) {
   try {
-    const stripe = new Stripe(
-      process.env.STRIPE_SECRET_KEY || "sk_test_placeholder"
-    );
+    const stripeKey = process.env.STRIPE_SECRET_KEY;
+    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+    if (!stripeKey) {
+      return NextResponse.json(
+        { error: "Missing Stripe secret key" },
+        { status: 500 }
+      );
+    }
+
+    if (!supabaseUrl || !supabaseKey) {
+      return NextResponse.json(
+        { error: "Missing Supabase environment variables" },
+        { status: 500 }
+      );
+    }
+
+    const stripe = new Stripe(stripeKey);
+    const supabase = createClient(supabaseUrl, supabaseKey);
+    const storeId = getActiveStoreId();
 
     const body = await request.json();
 
     const cart = body.cart as CartItem[];
     const shippingMethod = body.shippingMethod as ShippingMethod;
+    const tosAccepted = hasAcceptedTerms(body.tosAccepted);
+    const tosVersion = String(body.tosVersion || TERMS_OF_SERVICE_VERSION);
 
     if (!cart || cart.length === 0) {
       return NextResponse.json({ error: "Cart is empty" }, { status: 400 });
     }
+
+    if (!tosAccepted) {
+      return NextResponse.json(
+        { error: "Terms of Service must be accepted before checkout" },
+        { status: 400 }
+      );
+    }
+
+    const clientIdentity = await getClientIdentity(request);
+
+    if (clientIdentity.blocked) {
+      return NextResponse.json(
+        {
+          error:
+            "Terms of Service cannot be accepted while client identity is masked or missing a public IP address",
+          reason: clientIdentity.blockReason,
+        },
+        { status: 403 }
+      );
+    }
+
+    const tosAcceptanceEventId = await recordTermsAcceptance(supabase, {
+      contextType: "checkout",
+      tosKind: "buyer",
+      tosVersion,
+      identity: clientIdentity,
+      storeId,
+    });
 
     if (
       shippingMethod !== "GROUND_ADVANTAGE" &&
@@ -39,38 +101,21 @@ export async function POST(request: Request) {
       );
     }
 
-    const productIds = cart.map((item) => item.id);
-
-    const { data: products, error } = await supabase
-      .from("products")
-      .select("*")
-      .in("id", productIds);
-
-    if (error || !products) {
-      return NextResponse.json(
-        { error: "Products not found" },
-        { status: 404 }
-      );
-    }
+    const inventoryItems = await inventoryEngine.requireAvailableCartItems(cart);
 
     const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [];
     let subtotal = 0;
     let itemCount = 0;
 
     for (const cartItem of cart) {
-      const product = products.find((p) => p.id === cartItem.id);
+      const product = inventoryItems.find(
+        (item) => item.legacyProductId === cartItem.id
+      );
 
       if (!product) {
         return NextResponse.json(
           { error: `Product ${cartItem.id} not found` },
           { status: 404 }
-        );
-      }
-
-      if (product.quantity < cartItem.quantity) {
-        return NextResponse.json(
-          { error: `${product.title} does not have enough inventory` },
-          { status: 400 }
         );
       }
 
@@ -84,7 +129,7 @@ export async function POST(request: Request) {
           currency: "usd",
           product_data: {
             name: product.title,
-            images: product.image_url ? [product.image_url] : [],
+            images: product.imageUrl ? [product.imageUrl] : [],
           },
           unit_amount: Math.round(price * 100),
         },
@@ -123,19 +168,32 @@ export async function POST(request: Request) {
       mode: "payment",
       line_items: lineItems,
       metadata: {
+        store_id: storeId,
         cart: JSON.stringify(cart),
         shipping_method: shippingMethod,
         shipping_name: shippingName,
         shipping_amount: shippingAmount.toFixed(2),
         subtotal: subtotal.toFixed(2),
         item_count: String(itemCount),
+        tos_accepted: "true",
+        tos_version: tosVersion,
+        tos_accepted_at: new Date().toISOString(),
+        tos_acceptance_event_id: tosAcceptanceEventId,
+        ...metadataSafeIdentity(clientIdentity),
       },
-      success_url: `${origin}/shop?success=true`,
+      success_url: `${origin}/success?type=cart&session_id={CHECKOUT_SESSION_ID}`,
       cancel_url: `${origin}/cart`,
     });
 
     return NextResponse.json({ url: session.url });
   } catch (error: any) {
+    if (error instanceof InventoryEngineError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: error.statusCode }
+      );
+    }
+
     return NextResponse.json(
       { error: error.message || "Checkout failed" },
       { status: 500 }

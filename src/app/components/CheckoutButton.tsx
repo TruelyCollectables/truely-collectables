@@ -2,21 +2,27 @@
 
 import { useState } from "react";
 import type { ShippingMethod } from "../../lib/shipping";
+import { TERMS_OF_SERVICE_VERSION } from "../../lib/legal";
 
 export default function CheckoutButton({
   shippingMethod = "GROUND_ADVANTAGE",
+  termsAccepted,
 }: {
   shippingMethod?: ShippingMethod;
+  termsAccepted: boolean;
 }) {
   const [loading, setLoading] = useState(false);
 
   const handleCheckout = async () => {
     try {
+      if (!termsAccepted) {
+        alert("Please accept the Terms of Service before checkout.");
+        return;
+      }
+
       setLoading(true);
 
       const cart = JSON.parse(localStorage.getItem("cart") || "[]");
-
-      console.log("CHECKOUT SHIPPING METHOD:", shippingMethod);
 
       const response = await fetch("/api/checkout", {
         method: "POST",
@@ -26,12 +32,12 @@ export default function CheckoutButton({
         body: JSON.stringify({
           cart,
           shippingMethod,
+          tosAccepted: termsAccepted,
+          tosVersion: TERMS_OF_SERVICE_VERSION,
         }),
       });
 
       const data = await response.json();
-
-      console.log("CHECKOUT RESPONSE:", data);
 
       if (data.url) {
         window.location.href = data.url;
@@ -51,9 +57,9 @@ export default function CheckoutButton({
     <button
       onClick={handleCheckout}
       disabled={loading}
-      className="mt-4 border rounded px-6 py-3 disabled:opacity-50"
+      className="rounded bg-neutral-950 px-6 py-3 font-black text-white disabled:opacity-50"
     >
-      {loading ? "Loading..." : "🔒 Proceed to Secure Checkout"}
+      {loading ? "Loading..." : "Proceed to Secure Checkout"}
     </button>
   );
 }

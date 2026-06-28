@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { supabase } from "../../../../../lib/supabase";
+import { getActiveStoreId } from "../../../../../lib/stores";
 
 type OrderItem = {
   id: number;
@@ -42,6 +43,7 @@ export default async function PackingSlipPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
+  const storeId = getActiveStoreId();
 
   const { data: order, error } = await supabase
     .from("orders")
@@ -57,6 +59,7 @@ export default async function PackingSlipPage({
     `
     )
     .eq("id", id)
+    .eq("store_id", storeId)
     .single();
 
   if (error || !order) {

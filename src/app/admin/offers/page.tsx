@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { supabase } from "../../../lib/supabase";
+import { getActiveStoreId } from "../../../lib/stores";
 import OfferActions from "./OfferActions";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 export default async function AdminOffersPage() {
+  const storeId = getActiveStoreId();
   const { data: offers, error } = await supabase
     .from("offers")
    .select(`
@@ -13,6 +15,7 @@ export default async function AdminOffersPage() {
   stripe_checkout_url,
   products(title, image_url, price)
 `)
+    .eq("store_id", storeId)
     .order("created_at", { ascending: false });
 
   if (error) {

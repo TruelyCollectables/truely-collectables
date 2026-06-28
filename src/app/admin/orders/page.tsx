@@ -1,4 +1,5 @@
 import { supabase } from "../../../lib/supabase";
+import { getActiveStoreId } from "../../../lib/stores";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -54,6 +55,7 @@ export default async function AdminOrdersPage({
 }) {
   const params = await searchParams;
   const activeTab = params?.tab || "ready";
+  const storeId = getActiveStoreId();
 
   const { data: orders, error } = await supabase
     .from("orders")
@@ -68,6 +70,7 @@ export default async function AdminOrdersPage({
       )
     `
     )
+    .eq("store_id", storeId)
     .order("created_at", { ascending: false });
 
   if (error) {
@@ -111,6 +114,9 @@ export default async function AdminOrdersPage({
           </a>
           <a href="/admin/offers" className="border rounded px-4 py-2">
             Offers
+          </a>
+          <a href="/admin/files" className="border rounded px-4 py-2">
+            Files
           </a>
           <a href="/admin/logout" className="border rounded px-4 py-2">
             Logout
@@ -281,6 +287,13 @@ function OrderCard({ order }: { order: Order }) {
           <h4 className="font-bold mb-2">Actions</h4>
 
           <div className="flex flex-col gap-2">
+            <a
+              href="/admin/files"
+              className="border rounded px-4 py-2 text-center"
+            >
+              Evidence Files
+            </a>
+
             <a
               href={`/admin/orders/${order.id}`}
               className="border rounded px-4 py-2 text-center"

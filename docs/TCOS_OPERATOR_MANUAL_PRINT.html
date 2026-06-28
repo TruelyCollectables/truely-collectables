@@ -1,0 +1,2027 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>TCOS Operator Manual</title>
+  <style>
+    @page {
+      size: letter;
+      margin: 0.65in;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      color: #18191f;
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 10.5pt;
+      line-height: 1.45;
+      margin: 0;
+    }
+
+    h1,
+    h2,
+    h3,
+    h4 {
+      color: #111827;
+      line-height: 1.18;
+      margin: 0.28in 0 0.08in;
+      page-break-after: avoid;
+    }
+
+    h1 {
+      border-bottom: 2px solid #111827;
+      font-size: 24pt;
+      margin-top: 0;
+      padding-bottom: 0.12in;
+    }
+
+    h2 {
+      border-bottom: 1px solid #d8dde8;
+      font-size: 15pt;
+      padding-bottom: 0.04in;
+    }
+
+    h3 {
+      font-size: 12pt;
+    }
+
+    p {
+      margin: 0 0 0.08in;
+    }
+
+    ul,
+    ol {
+      margin: 0 0 0.1in 0.22in;
+      padding-left: 0.18in;
+    }
+
+    li {
+      margin: 0.025in 0;
+    }
+
+    table {
+      border-collapse: collapse;
+      margin: 0.08in 0 0.16in;
+      page-break-inside: avoid;
+      width: 100%;
+    }
+
+    th,
+    td {
+      border: 1px solid #cdd5e1;
+      padding: 0.055in 0.07in;
+      text-align: left;
+      vertical-align: top;
+    }
+
+    th {
+      background: #eef2f7;
+      font-weight: 700;
+    }
+
+    code {
+      background: #f1f5f9;
+      border: 1px solid #e2e8f0;
+      border-radius: 3px;
+      font-family: Consolas, "Courier New", monospace;
+      font-size: 9pt;
+      padding: 0.01in 0.035in;
+    }
+
+    pre {
+      background: #f8fafc;
+      border: 1px solid #dce3ee;
+      border-radius: 4px;
+      margin: 0.08in 0 0.15in;
+      overflow-wrap: anywhere;
+      padding: 0.09in;
+      white-space: pre-wrap;
+    }
+
+    pre code {
+      background: transparent;
+      border: 0;
+      padding: 0;
+    }
+
+    a {
+      color: #1d4ed8;
+      text-decoration: none;
+    }
+
+    .print-meta {
+      color: #5b6472;
+      font-size: 8.5pt;
+      margin-bottom: 0.18in;
+    }
+  </style>
+</head>
+<body>
+  <div class="print-meta">Generated 2026-06-28 from docs/TCOS_OPERATOR_MANUAL.md</div>
+  <h1>Totally Collectibles OS Operator Manual</h1>
+<p>Copyright 2026 Dag Danky Holdings LLC. All rights reserved.</p>
+<p>Authored by David Bakanas.</p>
+<p>Software ownership: Dag Danky Holdings LLC.</p>
+<p>Software platform: Totally Collectibles OS (TCOS).</p>
+<p>Main TCOS website/domain: TotallyCollectibles.com.</p>
+<p>Flagship store / Store #1: Truely Collectables.</p>
+<p>Last updated: 2026-06-28</p>
+<p>This is the working manual for Totally Collectibles OS (TCOS). It must stay current as features are added.</p>
+<p>TCOS means Totally Collectibles OS. It is the multi-store software platform, admin system, order system, inventory engine, marketplace layer, and pricing/helper system. Truely Collectables is the flagship store inside TCOS, not a separate rebuild.</p>
+<h2>Ownership And Account Separation</h2>
+<p>David Bakanas is the owner of Dag Danky Holdings LLC.</p>
+<p>Dag Danky Holdings LLC owns and administers the Totally Collectibles OS software platform.</p>
+<p>David Bakanas is an admin/operator of Dag Danky Holdings LLC and TCOS.</p>
+<p>Truely Collectables LLC is the collectables storefront operating company and should be treated as Store #1 inside TCOS. It should become its own platform seller/buyer account when seller, buyer, collection, wishlist, trade, or payout accounts are built.</p>
+<p>Dag Danky Shoes is the footwear storefront/operator for the shoe and sneaker portion of the platform. It should be treated as its own storefront seller/buyer account when footwear seller, buyer, inventory, collection, wishlist, trade, or payout accounts are built.</p>
+<p>David Bakanas is also the admin/operator of the Truely Collectables LLC account.</p>
+<p>Dag Danky Holdings LLC platform revenue should come from:</p>
+<ul>
+<li>platform commission/rake from third-party seller transactions</li>
+<li>the commission/rake is calculated from total sale amount, including item sale price plus buyer-paid shipping</li>
+<li>advertising revenue</li>
+<li>sponsorship revenue</li>
+<li>other platform-level service fees only after they are defined and disclosed</li>
+</ul>
+<p>Truely Collectables LLC revenue and activity should stay separate from Dag Danky Holdings LLC platform revenue. Truely Collectables LLC is the storefront seller/buyer account for its own buying, selling, collecting, inventory, offers, trades, messages, payouts, and account history.</p>
+<p>Truely Collectables LLC must have completely separate login credentials, account profile, seller settings, buyer settings, payout setup, and audit history from Dag Danky Holdings LLC platform-admin access.</p>
+<p>Future account roles should stay separate:</p>
+<ul>
+<li><code>platform_owner</code>: Dag Danky Holdings LLC</li>
+<li><code>platform_admin_user</code>: David Bakanas and any future authorized TCOS admins</li>
+<li><code>storefront_operator</code>: Truely Collectables LLC</li>
+<li><code>storefront_seller_account</code>: Truely Collectables LLC selling inventory on TCOS</li>
+<li><code>storefront_buyer_account</code>: Truely Collectables LLC buying/trading/collecting on TCOS when needed</li>
+<li><code>footwear_storefront_operator</code>: Dag Danky Shoes</li>
+<li><code>footwear_seller_account</code>: Dag Danky Shoes selling footwear inventory on TCOS</li>
+<li><code>footwear_buyer_account</code>: Dag Danky Shoes buying/trading/collecting footwear on TCOS when needed</li>
+<li><code>external_seller_account</code>: future third-party sellers</li>
+<li><code>external_buyer_account</code>: future customers/collectors</li>
+</ul>
+<p>Important rule:</p>
+<p>Dag Danky Holdings LLC admin authority must not be mixed with Truely Collectables LLC seller/buyer activity. David may administer both, but the software should track platform-admin actions separately from seller/buyer actions so audits, payouts, disputes, chargebacks, taxes, and permissions stay clean.</p>
+<h2>Product North Star</h2>
+<p>TCOS should be built toward the ultimate collecting experience.</p>
+<p>The collector should feel:</p>
+<ul>
+<li>confident they know exactly what the item is</li>
+<li>informed about rarity, demand, condition, and market value</li>
+<li>protected by clear policies, secure checkout, and honest evidence</li>
+<li>excited when the item arrives</li>
+<li>proud enough to share the pickup, collection, story, or mail day with the community</li>
+</ul>
+<p>Every customer-facing item page should help answer:</p>
+<ul>
+<li>What exactly is this collectable?</li>
+<li>Why does it matter?</li>
+<li>How rare is it?</li>
+<li>What condition is it in?</li>
+<li>What data supports the price?</li>
+<li>What similar items have sold for?</li>
+<li>Is there population, certification, serial-number, autograph, patch, variant, or provenance information?</li>
+<li>What should a collector know before buying?</li>
+<li>What makes this item fun to own?</li>
+<li>What can the collector do with it after purchase, such as add it to a collection board or brag session?</li>
+</ul>
+<p>Product data should be layered:</p>
+<ol>
+<li>TCOS local inventory data</li>
+<li>seller/admin-entered facts</li>
+<li>AI extraction and description support</li>
+<li>catalog/reference matching</li>
+<li>sales comps</li>
+<li>pricing guides</li>
+<li>grading/certification data when available</li>
+<li>rarity/population/print-run data when available</li>
+<li>community context after moderation features exist</li>
+</ol>
+<p>The tone should be collector-first: excited, knowledgeable, honest, and brand-safe. Public copy should invite collectors to celebrate their items without using sexual, hateful, private, or unsafe language.</p>
+<h3>Future: Collectable Megahub And Sneaker Expansion</h3>
+<p>TCOS should be designed to become a collectable megahub, not only a sports-card storefront.</p>
+<p>Long-term ambition:</p>
+<ul>
+<li>become a premier destination for sneaker collectors</li>
+<li>support shoes, cards, memorabilia, comics, toys, TCG, autographs, graded items, sealed products, and other collectables</li>
+<li>help collectors research, find, request, buy, trade, show off, and track what they care about</li>
+<li>make AI search, collection tracking, and wish lists the best collector discovery experience possible</li>
+<li>turn Truely Collectables into a trusted place to understand collectables, not only transact on them</li>
+</ul>
+<p>Sneaker marketplace goals:</p>
+<ul>
+<li>support sneaker brands such as Nike, Jordan, Adidas, New Balance, Puma, Reebok, Asics, Converse, Vans, and future brands</li>
+<li>support shoe model, colorway, SKU/style code, size, gender sizing, release date, condition, box status, authenticity status, defects, and provenance</li>
+<li>track deadstock, new with box, used, tried on, restored, custom, sample, player exclusive, collaboration, limited release, and graded/authenticated shoe states</li>
+<li>store multiple photos including box label, outsole, insole, size tag, heel, toe box, stitching, defects, and receipt/provenance when available</li>
+<li>support authentication workflow before high-value sneaker sales go public</li>
+<li>support size-specific pricing and comps because sneaker value changes heavily by size</li>
+<li>show comparable listings and sales only when the size/model/colorway match is close enough</li>
+</ul>
+<p>AI collection and wish list goals:</p>
+<ul>
+<li>users can create a wish list for any collectable category</li>
+<li>users can describe what they want in natural language</li>
+<li>AI should translate wish-list language into structured search fields</li>
+<li>AI should match wish-list items against TCOS inventory, seller inventory, want ads, trades, auctions, and approved outside data sources</li>
+<li>AI should notify users only through consented notification channels</li>
+<li>users can mark items as grails, priority targets, set fillers, size targets, gift ideas, or research-only</li>
+<li>wish lists should support budget range, condition preference, grading preference, size, category, player, team, character, franchise, era, brand, colorway, and urgency</li>
+</ul>
+<p>Set builder checklist goals:</p>
+<ul>
+<li>users can create checklists for complete sets, partial sets, team sets, player runs, character runs, release runs, parallel runs, graded runs, shoe colorway runs, or custom collector goals</li>
+<li>checklist templates should support year, brand, set, subset, card number, player, team, character, franchise, variant, parallel, serial number, autograph, relic/patch, grade target, condition target, and notes</li>
+<li>users can mark each checklist item as owned, needed, upgraded, incoming, watching, trade target, or not interested</li>
+<li>users can attach owned items from their collection to checklist slots</li>
+<li>users can add missing checklist items to wish lists or want ads</li>
+<li>AI should help build a checklist from natural language, uploaded lists, scans, set names, catalog sources, or manufacturer checklists when allowed</li>
+<li>TCOS should show checklist progress by percentage, count owned, count missing, estimated value when available, and highest-priority missing items</li>
+<li>set builders should be able to filter by missing cards, rookies, inserts, parallels, autographs, patches, graded targets, and price range</li>
+</ul>
+<p>Checklist acquisition links:</p>
+<ul>
+<li>each missing checklist item should first search TCOS inventory</li>
+<li>if not in TCOS inventory, show approved outside lookup links</li>
+<li>outside links should include eBay sold/active search, CollX research, COMC search, Sportlots search, 130point sales search, Google source search, PriceCharting/SportsCardsPro, PSA when relevant, and other approved category sources</li>
+<li>outside links should preserve the structured checklist query as much as possible, including year, set, card number, player, team, grade, variant, size, colorway, or brand</li>
+<li>TCOS should clearly label outside links as external research or external marketplace links</li>
+<li>TCOS should not imply outside marketplaces are partners unless a partnership exists</li>
+<li>users should be able to save outside finds back to a checklist as <code>watching</code>, <code>found externally</code>, or <code>research note</code></li>
+</ul>
+<p>Megahub information goals:</p>
+<ul>
+<li>product pages should become research pages</li>
+<li>category pages should explain brands, sets, releases, pop reports, size markets, rarity, and recent demand</li>
+<li>collector intelligence should apply to all categories, not only cards</li>
+<li>buyer decisions should be supported by sources, comps, photos, condition proof, authenticity data, and clear risk notes</li>
+<li>AI should help summarize the collectable's story while showing source links and confidence</li>
+</ul>
+<p>Competitive standard:</p>
+<ul>
+<li>TCOS should compete on trust, depth of information, buyer confidence, seller tools, AI discovery, and collector experience</li>
+<li>TCOS should not copy another marketplace's user experience blindly</li>
+<li>TCOS should avoid fake scarcity, fake hype, fake sold data, hidden fees, or misleading authenticity claims</li>
+<li>every expansion category should have its own data model, condition standards, authenticity rules, pricing logic, and dispute rules</li>
+</ul>
+<p>Future data tables should store:</p>
+<ul>
+<li>collectable_categories</li>
+<li>sneaker_products</li>
+<li>sneaker_sizes</li>
+<li>sneaker_condition_reports</li>
+<li>sneaker_authentication_events</li>
+<li>sneaker_release_data</li>
+<li>sneaker_price_snapshots</li>
+<li>user_collections</li>
+<li>user_collection_items</li>
+<li>user_wish_lists</li>
+<li>user_wish_list_items</li>
+<li>wish_list_matches</li>
+<li>wish_list_notifications</li>
+<li>set_builder_checklists</li>
+<li>set_builder_checklist_items</li>
+<li>set_builder_templates</li>
+<li>set_builder_item_matches</li>
+<li>set_builder_external_links</li>
+<li>set_builder_progress_snapshots</li>
+<li>collectable_reference_sources</li>
+<li>collectable_category_attributes</li>
+</ul>
+<p>Downloadable PDF copy:</p>
+<pre><code>docs/TCOS_OPERATOR_MANUAL.pdf</code></pre>
+<p>The PDF is regenerated with:</p>
+<pre><code>npm run manual:pdf</code></pre>
+<p>Links in this manual are clickable in both Markdown and PDF form. Use them for direct lookup, examples, API docs, and troubleshooting references.</p>
+<h2>Current V2 UI Baseline</h2>
+<p>The public storefront has been moved away from the default scaffold look.</p>
+<p>Current UI baseline includes:</p>
+<ul>
+<li>sticky storefront navigation with TCOS/admin entry</li>
+<li>production metadata for Truely Collectables</li>
+<li>premium dark homepage hero with clear storefront positioning</li>
+<li>homepage feature blocks for Collector Intelligence, secure checkout, and fulfillment control</li>
+<li>shop page header, search/filter panel, active inventory count, and cleaner product cards</li>
+<li>product detail pages styled as collector research pages</li>
+<li>cart page with a structured order summary, shipping selector, TOS acceptance, and secure checkout action</li>
+<li>consistent neutral/off-white storefront background</li>
+<li><code>/admin</code> now renders as a live TCOS command center with revenue metrics, fulfillment queues, offer desk, inventory watch, store settings status, evidence health, operator alerts, and fast links</li>
+</ul>
+<h2>1. Quick Start</h2>
+<p>Daily operator path:</p>
+<ol>
+<li>Open <code>/admin/login</code>.</li>
+<li>Log in with the admin password.</li>
+<li>Open <code>/admin/products</code> to manage cards.</li>
+<li>Open <code>/admin/orders</code> to ship paid orders.</li>
+<li>Open <code>/admin/offers</code> to handle customer offers.</li>
+<li>Use product edit pages to check comps, apply suggested prices, update descriptions, and change inventory status.</li>
+</ol>
+<p>Most day-to-day work starts at:</p>
+<pre><code>/admin</code></pre>
+<h2>2. Routes</h2>
+<h3>Public Storefront</h3>
+<table>
+<thead><tr>
+<th>Route</th>
+<th>Purpose</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><code>/</code></td>
+<td>Home page</td>
+</tr>
+<tr>
+<td><code>/shop</code></td>
+<td>Product grid with search and sport filtering</td>
+</tr>
+<tr>
+<td><code>/product/[id]</code></td>
+<td>Product detail page</td>
+</tr>
+<tr>
+<td><code>/cart</code></td>
+<td>Customer cart</td>
+</tr>
+<tr>
+<td><code>/success</code></td>
+<td>Purchase confirmation page with rotating collector sayings</td>
+</tr>
+<tr>
+<td><code>/terms</code></td>
+<td>Customer Terms of Service</td>
+</tr>
+<tr>
+<td><code>/seller-terms</code></td>
+<td>Seller Terms of Service for future auction/seller accounts</td>
+</tr>
+</tbody></table>
+<h3>Admin</h3>
+<table>
+<thead><tr>
+<th>Route</th>
+<th>Purpose</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><code>/admin/login</code></td>
+<td>Admin login</td>
+</tr>
+<tr>
+<td><code>/admin</code></td>
+<td>Admin dashboard</td>
+</tr>
+<tr>
+<td><code>/admin/products</code></td>
+<td>Product list</td>
+</tr>
+<tr>
+<td><code>/admin/products/new</code></td>
+<td>Add product</td>
+</tr>
+<tr>
+<td><code>/admin/products/[id]</code></td>
+<td>Edit product and pricing tools</td>
+</tr>
+<tr>
+<td><code>/admin/orders</code></td>
+<td>Fulfillment center</td>
+</tr>
+<tr>
+<td><code>/admin/orders/[id]</code></td>
+<td>Order detail and tracking</td>
+</tr>
+<tr>
+<td><code>/admin/orders/[id]/packing-slip</code></td>
+<td>Printable packing slip</td>
+</tr>
+<tr>
+<td><code>/admin/files</code></td>
+<td>Transaction evidence files</td>
+</tr>
+<tr>
+<td><code>/admin/launch-readiness</code></td>
+<td>Live payment and production readiness checklist</td>
+</tr>
+<tr>
+<td><code>/admin/offers</code></td>
+<td>Offer review</td>
+</tr>
+</tbody></table>
+<h3>API</h3>
+<table>
+<thead><tr>
+<th>Route</th>
+<th>Purpose</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><code>/api/admin/login</code></td>
+<td>Sets <code>admin_auth</code> cookie</td>
+</tr>
+<tr>
+<td><code>/api/admin/logout</code></td>
+<td>Clears admin cookie</td>
+</tr>
+<tr>
+<td><code>/api/admin/files/[id]/download</code></td>
+<td>Downloads transaction evidence PDF</td>
+</tr>
+<tr>
+<td><code>/api/checkout</code></td>
+<td>Creates Stripe checkout session</td>
+</tr>
+<tr>
+<td><code>/api/webhook</code></td>
+<td>Main Stripe webhook handler</td>
+</tr>
+<tr>
+<td><code>/api/stripe/webhook</code></td>
+<td>Alternate Stripe webhook handler</td>
+</tr>
+<tr>
+<td><code>/api/offers/create</code></td>
+<td>Customer offer submission</td>
+</tr>
+<tr>
+<td><code>/api/offers/update-status</code></td>
+<td>Accept/decline offer</td>
+</tr>
+<tr>
+<td><code>/api/offers/counter</code></td>
+<td>Send counter offer</td>
+</tr>
+<tr>
+<td><code>/api/orders/update-tracking</code></td>
+<td>Save carrier/tracking</td>
+</tr>
+<tr>
+<td><code>/api/orders/mark-shipped</code></td>
+<td>Mark shipped and send email if configured</td>
+</tr>
+<tr>
+<td><code>/api/ebay/auth</code></td>
+<td>Start eBay OAuth</td>
+</tr>
+<tr>
+<td><code>/api/ebay/callback</code></td>
+<td>Store eBay refresh token</td>
+</tr>
+<tr>
+<td><code>/api/ebay/import-listings</code></td>
+<td>Import one eBay inventory page</td>
+</tr>
+<tr>
+<td><code>/api/ebay/full-sync</code></td>
+<td>Batch import eBay inventory</td>
+</tr>
+</tbody></table>
+<h2>3. Admin Login</h2>
+<p>Admin login uses:</p>
+<pre><code>ADMIN_PASSWORD=</code></pre>
+<p>Successful login sets a cookie:</p>
+<pre><code>admin_auth=&lt;issued_timestamp&gt;.&lt;signature&gt;</code></pre>
+<p>Cookie behavior:</p>
+<ul>
+<li>HTTP-only</li>
+<li>Secure</li>
+<li>Same-site lax</li>
+<li>Max age: 24 hours</li>
+</ul>
+<p>Protected admin routes redirect to <code>/admin/login</code> if the cookie is missing.</p>
+<p>Admin sessions are signed by <code>ADMIN_SESSION_SECRET</code> when configured. If <code>ADMIN_SESSION_SECRET</code> is missing, TCOS falls back to <code>ADMIN_PASSWORD</code> for signing. Production should use a separate strong <code>ADMIN_SESSION_SECRET</code>.</p>
+<h2>4. Product And Inventory Basics</h2>
+<p>TCOS currently keeps two inventory layers in sync:</p>
+<ol>
+<li>Legacy <code>products</code></li>
+<li>TCOS V2 <code>inventory_items</code></li>
+</ol>
+<p>The legacy <code>products</code> table still supports older screens and relations. The V2 <code>inventory_items</code> table is the newer inventory authority for status, price, and quantity.</p>
+<p>The sync layer is:</p>
+<pre><code>src/modules/inventory/engine.ts</code></pre>
+<p>Do not bypass the engine for normal admin inventory changes.</p>
+<h2>4A. Multi-Store Platform Foundation</h2>
+<p>TCOS is being converted from a single-store Truely Collectables app into a multi-store Totally Collectibles OS platform without breaking Store #1.</p>
+<p>Current Store #1:</p>
+<pre><code>Truely Collectables
+Truely Collectables LLC
+store_id: 00000000-0000-4000-8000-000000000001</code></pre>
+<p>Foundation migration:</p>
+<pre><code>supabase/migrations/20260628110000_create_tcos_stores.sql
+supabase/migrations/20260628113000_create_store_settings.sql</code></pre>
+<p>The migration:</p>
+<ol>
+<li>Creates <code>stores</code>.</li>
+<li>Inserts Store #1 = Truely Collectables.</li>
+<li>Adds defaulted <code>store_id</code> columns to current core tables.</li>
+<li>Backfills existing rows to Store #1.</li>
+<li>Adds store indexes for future filtering.</li>
+</ol>
+<p>Tables prepared with <code>store_id</code>:</p>
+<ul>
+<li><code>products</code></li>
+<li><code>inventory_items</code></li>
+<li><code>orders</code></li>
+<li><code>order_items</code></li>
+<li><code>offers</code></li>
+<li><code>ebay_tokens</code></li>
+<li><code>sales_comp_snapshots</code></li>
+<li><code>tos_acceptance_events</code></li>
+<li><code>transaction_evidence_reports</code></li>
+</ul>
+<p>Safety rule:</p>
+<p>Current Store #1 constants live in:</p>
+<pre><code>src/lib/stores.ts</code></pre>
+<p>Current active store context is resolved through <code>src/lib/stores.ts</code>. Store #1 is still the only active store, but app code now calls active-store helpers instead of importing the Store #1 ID across the app.</p>
+<p>Current write paths pass the active store ID when creating products, inventory items, orders, order items, offers, eBay tokens, sales comp snapshots, TOS acceptance events, and transaction evidence reports. Current inventory, eBay token, sales comp, fulfillment, offer, evidence, admin, and success-page read/update paths are also scoped to the active store. The database default still points new rows to Store #1 as a safety net.</p>
+<p>The inventory repository and inventory engine now carry store context internally. Future multi-store work should replace the current Store #1 resolver with request/account/domain-selected store context.</p>
+<p>Store operational settings live in:</p>
+<pre><code>src/lib/store-settings.ts</code></pre>
+<p>The <code>store_settings</code> table stores per-store support, sales, offer, evidence, order email, Stripe mode, eBay environment, eBay account label, and seller commission settings. If the table is missing or empty, TCOS falls back to current environment variables and Store #1 defaults so production behavior does not break.</p>
+<p><code>/admin/launch-readiness</code> shows the active store settings and whether they came from the database or fallback defaults.</p>
+<h2>5. Inventory Status Values</h2>
+<p>Allowed status values:</p>
+<table>
+<thead><tr>
+<th>Status</th>
+<th>Meaning</th>
+<th>Checkout allowed?</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><code>draft</code></td>
+<td>Not ready to sell</td>
+<td>No</td>
+</tr>
+<tr>
+<td><code>active</code></td>
+<td>Ready to sell</td>
+<td>Yes, if quantity is enough</td>
+</tr>
+<tr>
+<td><code>reserved</code></td>
+<td>Held back</td>
+<td>No</td>
+</tr>
+<tr>
+<td><code>sold</code></td>
+<td>Sold out</td>
+<td>No</td>
+</tr>
+<tr>
+<td><code>archived</code></td>
+<td>Removed from active workflow</td>
+<td>No</td>
+</tr>
+</tbody></table>
+<p>Checkout requires:</p>
+<ul>
+<li>status is <code>active</code></li>
+<li>quantity is greater than or equal to cart quantity</li>
+<li>price is greater than zero</li>
+</ul>
+<h2>6. Add A Product</h2>
+<p>Open:</p>
+<pre><code>/admin/products/new</code></pre>
+<p>Fields:</p>
+<ul>
+<li>Title</li>
+<li>Player</li>
+<li>Sport</li>
+<li>Price</li>
+<li>Quantity</li>
+<li>Image URL</li>
+<li>Description</li>
+</ul>
+<p>Description can be left blank. If blank, TCOS generates a description from product data.</p>
+<p>When saved, TCOS:</p>
+<ol>
+<li>Creates a row in <code>products</code>.</li>
+<li>Creates a row in <code>inventory_items</code>.</li>
+<li>Creates an <code>inventory_images</code> primary image row if image URL exists.</li>
+<li>Redirects to <code>/admin/products</code>.</li>
+</ol>
+<h2>7. Edit A Product</h2>
+<p>Open:</p>
+<pre><code>/admin/products</code></pre>
+<p>Click <code>Edit</code>.</p>
+<p>Edit page:</p>
+<pre><code>/admin/products/[id]</code></pre>
+<p>Fields editable:</p>
+<ul>
+<li>Title</li>
+<li>Player</li>
+<li>Sport</li>
+<li>Price</li>
+<li>Quantity</li>
+<li>Status</li>
+<li>Image URL</li>
+<li>Description</li>
+</ul>
+<p>Click <code>Save Product</code>.</p>
+<p>Save behavior:</p>
+<ol>
+<li>Updates legacy <code>products</code>.</li>
+<li>Ensures V2 <code>inventory_items</code> exists.</li>
+<li>Updates V2 title/description/category/status/quantity/price.</li>
+<li>If image URL changed, adds a new primary <code>inventory_images</code> row.</li>
+<li>Publishes an in-memory inventory event.</li>
+</ol>
+<h2>8. Quick Status Buttons</h2>
+<p>On <code>/admin/products/[id]</code>:</p>
+<ul>
+<li><code>Set Active</code></li>
+<li><code>Reserve</code></li>
+<li><code>Mark Sold</code></li>
+<li><code>Archive</code></li>
+</ul>
+<p><code>Mark Sold</code> sets quantity to <code>0</code>.</p>
+<p>Status changes update through <code>inventoryEngine.setStatus</code>.</p>
+<h2>9. Product Description Tools</h2>
+<p>On <code>/admin/products/[id]</code>, the Description panel has:</p>
+<ul>
+<li><code>Auto-Fill Description</code></li>
+<li><code>AI Write Description</code></li>
+</ul>
+<h3>Auto-Fill Description</h3>
+<p>Uses only local TCOS product data.</p>
+<p>Generated from:</p>
+<ul>
+<li>title</li>
+<li>player</li>
+<li>sport</li>
+<li>price</li>
+<li>quantity</li>
+<li>status</li>
+<li>SKU</li>
+<li>eBay listing ID</li>
+</ul>
+<p>This is deterministic and does not call outside APIs.</p>
+<h3>AI Write Description</h3>
+<p>Uses <a href="https://platform.openai.com/docs/api-reference">OpenAI API docs</a> if configured:</p>
+<pre><code>OPENAI_API_KEY=
+OPENAI_DESCRIPTION_MODEL=</code></pre>
+<p>Default model:</p>
+<pre><code>gpt-5.5</code></pre>
+<p>If OpenAI is not configured or the request fails, TCOS falls back to local auto-fill.</p>
+<p>The AI prompt forbids inventing:</p>
+<ul>
+<li>year</li>
+<li>set</li>
+<li>grade</li>
+<li>condition</li>
+<li>autograph</li>
+<li>patch</li>
+<li>serial number</li>
+<li>rookie status</li>
+<li>scarcity</li>
+</ul>
+<h3>Product Detail Collector Intelligence</h3>
+<p>Product pages currently show a Collector Intelligence panel on:</p>
+<pre><code>/product/[id]</code></pre>
+<p>Implementation files:</p>
+<pre><code>src/app/product/[id]/page.tsx
+src/lib/collector-intelligence.ts</code></pre>
+<p>Current behavior:</p>
+<ul>
+<li>lays out <code>/product/[id]</code> as a collector research page with image, status badge, price, purchase actions, description, and a collector snapshot</li>
+<li>the collector snapshot shows category, player/subject, availability, status, SKU, and eBay linkage when available</li>
+<li>shows an honest trend badge</li>
+<li>defaults to <code>Not Enough Verified Data</code></li>
+<li>creates market research links for eBay sold search and 130point</li>
+<li>creates acquisition/research links for TCOS search, eBay active search, COMC, Sportlots, CollX, PriceCharting, SportsCardsPro, PSA Auction Prices, and Google marketplace search</li>
+<li>creates news/source links for Google News and official-source searches</li>
+<li>creates an X search link for the player, item, team, character, or franchise query</li>
+<li>shows a <code>Complete The Set Or Run</code> helper with TCOS, eBay, COMC, Sportlots, CollX, manufacturer-checklist, and 130point research links</li>
+<li>shows an <code>Exact Match Signals</code> panel using deterministic title extraction</li>
+<li>detects title-level serial numbering, card number, parallel/finish words, autograph, relic/patch, rookie, grading company, and grade signals when present</li>
+<li>marks title-level variant/parallel evidence as needing checklist/source confirmation before TCOS claims an exact rare variation</li>
+<li>detects PSA, SGC, CGC, Beckett, or BGS names in the title when present</li>
+<li>detects grade-like title text when present</li>
+<li>detects cert-number-like title text when present</li>
+<li>links to official grading lookup pages</li>
+<li>gives a watch list of things collectors should check before treating the item as hot or rare</li>
+</ul>
+<p>TCOS does not currently store live trend snapshots or verified grading population counts for storefront display. Until those sources are saved and verified, the public trend state remains <code>Not Enough Verified Data</code>.</p>
+<h2>10. Sales Comps</h2>
+<p>Sales comps live on:</p>
+<pre><code>/admin/products/[id]</code></pre>
+<p>Click:</p>
+<pre><code>Check eBay Sold Comps</code></pre>
+<p>The page reloads with:</p>
+<pre><code>?comps=true</code></pre>
+<p>TCOS tries these sources:</p>
+<ol>
+<li><a href="https://developer.ebay.com/api-docs/buy/marketplace_insights/overview.html">eBay Marketplace Insights API</a></li>
+<li><a href="https://www.ebay.com/sch/i.html?_nkw=Michael+Jordan+1991+Fleer&amp;_sacat=0&amp;LH_Sold=1&amp;LH_Complete=1">eBay completed-items fallback</a></li>
+<li><a href="https://developers.google.com/custom-search/v1/overview">Google Programmable Search JSON API</a>, if configured</li>
+<li><a href="https://www.pricecharting.com/">PriceCharting</a> / <a href="https://www.sportscardspro.com/">SportsCardsPro</a> API, if configured</li>
+</ol>
+<p>TCOS also gives research links for:</p>
+<ul>
+<li><a href="https://www.collx.app/">CollX</a></li>
+<li><a href="https://130point.com/sales/">130point sales search</a></li>
+<li><a href="https://www.google.com/search?q=Michael+Jordan+1991+Fleer+sold+card">Google sold search example</a></li>
+<li><a href="https://www.pricecharting.com/search-products?q=Michael+Jordan+1991+Fleer&amp;type=prices">PriceCharting example search</a></li>
+<li><a href="https://www.sportscardspro.com/">SportsCardsPro</a></li>
+<li><a href="https://www.psacard.com/auctionprices">PSA Auction Prices</a></li>
+<li><a href="https://app.cardladder.com/">Card Ladder</a></li>
+<li><a href="https://app.alt.xyz/">ALT</a></li>
+<li><a href="https://www.comc.com/">COMC</a></li>
+<li><a href="https://www.ebay.com/sch/i.html?_nkw=Michael+Jordan+1991+Fleer&amp;_sacat=0&amp;LH_Sold=1&amp;LH_Complete=1">eBay sold search example</a></li>
+</ul>
+<h3>Lookup Examples</h3>
+<p>Use the product title, player, year, set, card number, grade, and autograph/patch terms when known.</p>
+<p>Example searches:</p>
+<ul>
+<li><a href="https://www.ebay.com/sch/i.html?_nkw=Michael+Jordan+1991+Fleer&amp;_sacat=0&amp;LH_Sold=1&amp;LH_Complete=1">eBay sold: Michael Jordan 1991 Fleer</a></li>
+<li><a href="https://www.google.com/search?q=Michael+Jordan+1991+Fleer+sold+card">Google sold-card search: Michael Jordan 1991 Fleer</a></li>
+<li><a href="https://www.pricecharting.com/search-products?q=Michael+Jordan+1991+Fleer&amp;type=prices">PriceCharting: Michael Jordan 1991 Fleer</a></li>
+<li><a href="https://www.psacard.com/auctionprices">PSA Auction Prices</a></li>
+<li><a href="https://130point.com/sales/">130point sales search</a></li>
+</ul>
+<p>When checking comps, ignore listings that are not the same card or same grade. A raw card, PSA 10, BGS 9.5, autographed card, patch card, serial-numbered parallel, and base card are different markets.</p>
+<h2>11. Suggested Price</h2>
+<p>Suggested price uses a CollX-style method:</p>
+<ol>
+<li>Average of up to 10 recent sold comps from the last six months.</li>
+<li>If unavailable, use the last known sold comp.</li>
+<li>If unavailable, use median of available comps.</li>
+<li>If no comps exist, no suggested price is shown.</li>
+</ol>
+<p>Displayed values:</p>
+<ul>
+<li>Suggested</li>
+<li>Count</li>
+<li>Median</li>
+<li>Average</li>
+<li>Range</li>
+<li>Recent comps used</li>
+<li>Source status</li>
+</ul>
+<h2>12. Apply Suggested Price</h2>
+<p>Click:</p>
+<pre><code>Apply Suggested Price</code></pre>
+<p>TCOS does not trust stale browser data. It recalculates comps server-side, saves a new snapshot, then updates the product price.</p>
+<p>Flow:</p>
+<ol>
+<li>Load current product from <code>inventoryEngine</code>.</li>
+<li>Run <code>getSalesComps</code>.</li>
+<li>Save a <code>sales_comp_snapshots</code> row if table exists.</li>
+<li>If suggested price exists, update product through <code>inventoryEngine.updateProduct</code>.</li>
+<li>Redirect back to product edit page with comps loaded.</li>
+</ol>
+<h2>13. Comps History</h2>
+<p>Comps history shows on product edit pages.</p>
+<p>Table:</p>
+<pre><code>sales_comp_snapshots</code></pre>
+<p>Migration:</p>
+<pre><code>supabase/migrations/20260627160000_create_sales_comp_snapshots.sql</code></pre>
+<p>If this table is missing, the page still works but history will show a Supabase error. Apply the migration to enable saving.</p>
+<h2>14. eBay Sync</h2>
+<h3>Connect eBay</h3>
+<p>Start OAuth:</p>
+<pre><code>/api/ebay/auth</code></pre>
+<p>Callback stores refresh token into:</p>
+<pre><code>ebay_tokens</code></pre>
+<p>Reference links:</p>
+<ul>
+<li><a href="https://developer.ebay.com/develop">eBay Developers Program</a></li>
+<li><a href="https://developer.ebay.com/api-docs/sell/inventory/overview.html">eBay Sell Inventory API</a></li>
+<li><a href="https://developer.ebay.com/api-docs/buy/marketplace_insights/overview.html">eBay Marketplace Insights API</a></li>
+</ul>
+<h3>Import Listings</h3>
+<p>Single page:</p>
+<pre><code>/api/ebay/import-listings</code></pre>
+<p>Batch sync:</p>
+<pre><code>/api/ebay/full-sync</code></pre>
+<p>Import behavior:</p>
+<ol>
+<li>Reads latest eBay refresh token.</li>
+<li>Gets eBay access token.</li>
+<li>Pulls eBay inventory items.</li>
+<li>Fetches offer data per SKU.</li>
+<li>If listing is active, updates <code>products</code> and <code>inventory_items</code>.</li>
+<li>If listing is not active, marks local quantity zero.</li>
+</ol>
+<p>It does not delete eBay inventory.</p>
+<h2>15. Checkout</h2>
+<p>Checkout route:</p>
+<pre><code>/api/checkout</code></pre>
+<p>Customers must accept the Terms of Service before checkout can start.</p>
+<p>Current Terms of Service:</p>
+<pre><code>/terms</code></pre>
+<p>Current TOS version:</p>
+<pre><code>2026-06-27</code></pre>
+<p>Checkout validates:</p>
+<ul>
+<li>cart is not empty</li>
+<li>shipping method is valid</li>
+<li>Terms of Service was accepted</li>
+<li>each product exists</li>
+<li>each product is <code>active</code></li>
+<li>each product has enough quantity</li>
+</ul>
+<p>Then it creates a Stripe checkout session.</p>
+<p>Successful cart checkout sends the buyer to:</p>
+<pre><code>/success?type=cart&amp;session_id={CHECKOUT_SESSION_ID}</code></pre>
+<p>Stripe metadata includes:</p>
+<ul>
+<li>cart</li>
+<li>shipping method</li>
+<li>shipping name</li>
+<li>shipping amount</li>
+<li>subtotal</li>
+<li>item count</li>
+<li>TOS accepted flag</li>
+<li>TOS version</li>
+<li>TOS accepted timestamp</li>
+</ul>
+<p>Reference:</p>
+<ul>
+<li><a href="https://docs.stripe.com/payments/checkout">Stripe Checkout docs</a></li>
+</ul>
+<h2>16. Stripe Webhooks</h2>
+<p>Main webhook:</p>
+<pre><code>/api/webhook</code></pre>
+<p>Alternate webhook:</p>
+<pre><code>/api/stripe/webhook</code></pre>
+<p>On <code>checkout.session.completed</code>:</p>
+<ol>
+<li>Verify Stripe signature.</li>
+<li>Create or update order.</li>
+<li>Insert order items if not already inserted.</li>
+<li>Decrement inventory through <code>inventoryEngine</code>.</li>
+<li>Sync eBay quantity after sale.</li>
+<li>If accepted offer, mark offer paid.</li>
+<li>Create or update transaction evidence report.</li>
+<li>Email evidence PDF if evidence email is configured.</li>
+</ol>
+<p>Accepted-offer sessions use <code>product_id</code> metadata if cart metadata is missing.</p>
+<p>Order webhooks store TOS/IP acceptance fields and create a transaction evidence report. The evidence report is intended for chargeback defense, fraud review, and legal dispute support.</p>
+<p>Offer and counter-offer Stripe success URLs send buyers to:</p>
+<pre><code>/success?type=offer&amp;session_id={CHECKOUT_SESSION_ID}
+/success?type=counter&amp;session_id={CHECKOUT_SESSION_ID}</code></pre>
+<p>The confirmation page uses the Stripe checkout session ID server-side to read checkout metadata, find the purchased product, and personalize the customer experience. When product data is available, it shows the purchased item image/title and themes the page with inferred team, character, franchise, or collectable colors. If product data is unavailable, it falls back to the Truely Collectables black/gold theme.</p>
+<p>The confirmation page rotates short collector-focused sayings such as <code>Welcome to the family.</code> so the purchase feels like a meaningful addition to the customer's collection instead of a plain receipt page.</p>
+<p>Reference:</p>
+<ul>
+<li><a href="https://docs.stripe.com/webhooks">Stripe webhooks docs</a></li>
+</ul>
+<h3>Live Payment Readiness</h3>
+<p>Open:</p>
+<pre><code>/admin/launch-readiness</code></pre>
+<p>This page is server-rendered for admins only. It checks production configuration without exposing secret values.</p>
+<p>It reports:</p>
+<ul>
+<li>public site URL</li>
+<li>Supabase configuration</li>
+<li>admin password/session secret configuration</li>
+<li>Stripe live/test/mixed key mode</li>
+<li>Stripe webhook secret</li>
+<li>IP intelligence/VPN blocking configuration</li>
+<li>transaction evidence email configuration</li>
+<li>eBay production sync configuration</li>
+<li>AI product helper configuration</li>
+<li>platform/storefront account separation status</li>
+</ul>
+<p>Live buyer payments should stay closed until:</p>
+<ol>
+<li><code>NEXT_PUBLIC_SITE_URL</code> is the final HTTPS production domain.</li>
+<li>Supabase production variables are set.</li>
+<li><code>ADMIN_PASSWORD</code> and <code>ADMIN_SESSION_SECRET</code> are set.</li>
+<li><code>STRIPE_SECRET_KEY</code> is a live key.</li>
+<li><code>NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY</code> is a matching live key.</li>
+<li><code>STRIPE_WEBHOOK_SECRET</code> is the live webhook signing secret for <code>/api/webhook</code>.</li>
+<li><code>IP_INTELLIGENCE_REQUIRED=true</code> and the IP intelligence provider is configured.</li>
+<li>A real low-dollar checkout succeeds.</li>
+<li>The order appears in admin.</li>
+<li>The transaction evidence PDF is created.</li>
+<li>eBay inventory quantity sync is confirmed.</li>
+<li>The live test transaction is refunded in Stripe.</li>
+</ol>
+<p>Platform/storefront account separation remains a readiness warning until real account roles exist. Before seller accounts, footwear operations, or third-party sellers go live, TCOS must enforce separate logins, roles, audit trails, payout profiles, and seller/buyer records for Dag Danky Holdings LLC, Truely Collectables LLC, Dag Danky Shoes, and outside sellers/customers.</p>
+<h2>17. Orders And Fulfillment</h2>
+<p>Open:</p>
+<pre><code>/admin/orders</code></pre>
+<p>Tabs:</p>
+<ul>
+<li>Ready to Ship</li>
+<li>Shipped</li>
+<li>All Orders</li>
+</ul>
+<p>Order detail:</p>
+<pre><code>/admin/orders/[id]</code></pre>
+<p>Order detail shows:</p>
+<ul>
+<li>payment status</li>
+<li>fulfillment status</li>
+<li>customer name/email</li>
+<li>shipping address</li>
+<li>item list</li>
+<li>totals</li>
+<li>carrier/tracking</li>
+<li>packing slip link</li>
+<li>TOS/IP chargeback evidence</li>
+<li>evidence packet download if created</li>
+</ul>
+<h2>18. Transaction Evidence Files</h2>
+<p>Open:</p>
+<pre><code>/admin/files</code></pre>
+<p>Every completed Stripe transaction should create one evidence packet in:</p>
+<pre><code>transaction_evidence_reports</code></pre>
+<p>Evidence packets include:</p>
+<ul>
+<li>order ID</li>
+<li>order creation timestamp</li>
+<li>customer name and email</li>
+<li>shipping address</li>
+<li>carrier and tracking when saved</li>
+<li>shipped timestamp when marked shipped</li>
+<li>item list</li>
+<li>quantities and prices</li>
+<li>subtotal</li>
+<li>shipping paid</li>
+<li>total paid</li>
+<li>Stripe checkout session ID</li>
+<li>Stripe payment intent ID when available</li>
+<li>Stripe webhook event ID</li>
+<li>Stripe payment status</li>
+<li>accepted TOS version</li>
+<li>TOS accepted timestamp</li>
+<li>TOS acceptance audit event ID</li>
+<li>server-observed IP address</li>
+<li>user agent</li>
+<li>IP risk status</li>
+<li>IP block reason if applicable</li>
+<li>raw Stripe metadata saved with the transaction</li>
+<li>report generation timestamp</li>
+</ul>
+<p>Admin actions:</p>
+<ul>
+<li>download PDF packet</li>
+<li>open related order</li>
+<li>download packet directly from the order detail page</li>
+</ul>
+<p>Email behavior:</p>
+<ul>
+<li>if <code>RESEND_API_KEY</code> and <code>TRANSACTION_EVIDENCE_EMAIL</code> are set, TCOS emails the evidence PDF after the transaction report is created</li>
+<li>if email is not configured, the report is still saved in Admin Files</li>
+<li>if email fails, the error is saved on the report</li>
+</ul>
+<p>Refresh behavior:</p>
+<ul>
+<li>saving tracking refreshes the saved evidence packet</li>
+<li>marking shipped refreshes the saved evidence packet</li>
+<li>the original transaction email is not resent during tracking/shipment refreshes</li>
+<li>the Admin Files PDF download uses the latest saved packet text</li>
+</ul>
+<p>Evidence files:</p>
+<pre><code>src/lib/evidence-pdf.ts
+src/lib/transaction-evidence.ts
+src/app/admin/files/page.tsx
+src/app/api/admin/files/[id]/download/route.ts</code></pre>
+<h2>19. Tracking And Shipment</h2>
+<p>Tracking update API:</p>
+<pre><code>/api/orders/update-tracking</code></pre>
+<p>Required:</p>
+<ul>
+<li>order ID</li>
+<li>carrier</li>
+<li>tracking number</li>
+</ul>
+<p>Mark shipped API:</p>
+<pre><code>/api/orders/mark-shipped</code></pre>
+<p>Requirements:</p>
+<ul>
+<li>order exists</li>
+<li>carrier exists</li>
+<li>tracking number exists</li>
+</ul>
+<p>When marked shipped:</p>
+<ul>
+<li><code>fulfillment_status</code> becomes <code>shipped</code></li>
+<li><code>shipped_at</code> is set</li>
+<li>the transaction evidence packet refreshes with shipment details if one exists</li>
+<li>email is sent if <code>RESEND_API_KEY</code> and customer email exist</li>
+</ul>
+<p>Supported tracking links:</p>
+<ul>
+<li>USPS</li>
+<li>UPS</li>
+<li>FedEx</li>
+</ul>
+<h2>20. Packing Slips</h2>
+<p>Open:</p>
+<pre><code>/admin/orders/[id]/packing-slip</code></pre>
+<p>Use this when packing shipments.</p>
+<h2>21. Offers</h2>
+<p>Product pages include offer submission.</p>
+<p>Customers must accept the Terms of Service before submitting an offer.</p>
+<p>Offer creation route:</p>
+<pre><code>/api/offers/create</code></pre>
+<p>Admin page:</p>
+<pre><code>/admin/offers</code></pre>
+<p>Admin actions:</p>
+<ul>
+<li>accept</li>
+<li>decline</li>
+<li>counter</li>
+</ul>
+<p>Accept/counter creates a Stripe checkout link.</p>
+<p>Offer checkout payment decrements inventory through TCOS V2.</p>
+<p>Accepted and counter offer Stripe sessions carry the TOS acceptance metadata from the original customer offer when available.</p>
+<h2>22. Seller Accounts And Auctions</h2>
+<p>Seller accounts and auctions are future-build features. Do not create placeholder seller tables or fake seller account workflows before the real account model is designed.</p>
+<p>Current seller legal page:</p>
+<pre><code>/seller-terms</code></pre>
+<p>Seller-account requirements:</p>
+<ul>
+<li>Truely Collectables LLC should be modeled as the storefront seller/buyer account</li>
+<li>David Bakanas can administer the Truely Collectables LLC account, but those seller/buyer actions must be recorded separately from Dag Danky Holdings LLC platform-admin actions</li>
+<li>Truely Collectables LLC must use separate login credentials and account information from Dag Danky Holdings LLC platform-admin access</li>
+<li>Dag Danky Shoes should be modeled as the footwear storefront seller/buyer account</li>
+<li>Dag Danky Shoes must use separate login credentials and account information from Dag Danky Holdings LLC platform-admin access and from Truely Collectables LLC</li>
+<li>sellers must accept the Seller Terms of Service before listing, auction submission, payout setup, or seller account use</li>
+<li>seller bank and payout information must be verified by an approved third-party payment, banking, or identity provider</li>
+<li>TCOS must not store raw bank credentials directly</li>
+<li>seller payout status must be gated by third-party verification status</li>
+<li>Dag Danky Holdings LLC charges a 5% seller commission/rake on third-party seller transactions</li>
+<li>the 5% commission is calculated from total sale amount, including item sale price plus buyer-paid shipping</li>
+<li>seller acceptance should be stored with seller TOS version and timestamp when seller accounts are implemented</li>
+</ul>
+<p>Seller constants live in:</p>
+<pre><code>src/lib/legal.ts</code></pre>
+<h3>Future: AI Collectable Scan Assist</h3>
+<p>This is a future-build feature. It must support all collectables, not only sports cards.</p>
+<p>Goal:</p>
+<ul>
+<li>scan or upload front/back images</li>
+<li>use AI to identify visible details</li>
+<li>match the item against outside catalog/reference sources</li>
+<li>show confidence and possible matches</li>
+<li>help estimate rarity, demand, and value</li>
+<li>create an educated product draft only after admin approval</li>
+</ul>
+<p>The system must not rely on AI guessing alone. AI detection should propose candidates, then TCOS should compare those candidates against trusted reference and marketplace sources.</p>
+<p>Collectable categories to support over time:</p>
+<ul>
+<li>sports cards</li>
+<li>trading card games</li>
+<li>comics</li>
+<li>coins</li>
+<li>currency</li>
+<li>stamps</li>
+<li>autographs</li>
+<li>memorabilia</li>
+<li>sealed wax/product</li>
+<li>toys</li>
+<li>graded collectables</li>
+<li>limited edition collectables</li>
+<li>other cataloged collectables</li>
+</ul>
+<p>Data-source research checklist:</p>
+<ul>
+<li>find official APIs first</li>
+<li>confirm licensing and allowed use before storing or displaying data</li>
+<li>prefer catalog IDs, cert numbers, set names, card numbers, issue years, print runs, population data, and verified images</li>
+<li>separate catalog identity data from pricing data</li>
+<li>record source names, source URLs, lookup timestamps, confidence scores, and raw evidence</li>
+<li>never auto-list a collectable from AI recognition without admin confirmation</li>
+</ul>
+<p>Candidate source categories to evaluate:</p>
+<ul>
+<li>eBay sold/active marketplace data</li>
+<li>PriceCharting/SportsCardsPro pricing data</li>
+<li>PSA certification, population, CardFacts, and auction data</li>
+<li>TCGplayer catalog/pricing data for trading card games</li>
+<li>COMC card marketplace/catalog data</li>
+<li>Beckett/card checklist references</li>
+<li>manufacturer checklists when available</li>
+<li>grading-company certification lookups</li>
+<li>comic, coin, stamp, toy, and memorabilia catalog databases</li>
+<li>broad collectable catalog/reference sites such as Colnect-style catalogs</li>
+<li>Google Programmable Search as a fallback discovery layer</li>
+</ul>
+<p>Scan Assist output should include:</p>
+<ul>
+<li>likely collectable title</li>
+<li>category</li>
+<li>manufacturer/brand</li>
+<li>year or era</li>
+<li>set or series</li>
+<li>card/comic/coin/stamp/catalog number when available</li>
+<li>player/character/person/franchise</li>
+<li>condition clues visible from scan</li>
+<li>grade and cert number when visible</li>
+<li>serial number, autograph, patch, variant, parallel, or limited mark when visible</li>
+<li>rarity notes</li>
+<li>value range with source breakdown</li>
+<li>confidence score</li>
+<li>missing information warnings</li>
+<li>recommended next action</li>
+</ul>
+<p>Variant and parallel resolver requirements:</p>
+<ul>
+<li>TCOS should identify the exact variation or parallel whenever visual evidence and checklist data support it</li>
+<li>do not show a long list of near-duplicate options when the evidence resolves the match</li>
+<li>if the card is a refractor, TCOS should not ask whether it is pink, blue, green, gold, base, wave, mojo, cracked ice, shimmer, lava, scope, x-fractor, atomic, numbered, or unnumbered unless the scan/checklist evidence cannot prove the answer</li>
+<li>use front/back scan evidence, border color, foil pattern, refractor effect, serial numbering, card number, set name, year, manufacturer, player, team, logo marks, autograph/relic markers, and visible checklist identifiers</li>
+<li>use online checklists and manufacturer/reference sources only where access is allowed by terms or official API</li>
+<li>compare visual/color clues against checklist variant names and numbering ranges</li>
+<li>use serial numbering to narrow parallels when the checklist defines print runs</li>
+<li>use back-of-card codes and fine print when visible</li>
+<li>collapse candidates into one selected match when confidence is high and source evidence agrees</li>
+<li>if multiple variants remain plausible, ask one targeted question instead of showing dozens of options</li>
+<li>show why TCOS picked the match, including visible clues and source evidence</li>
+<li>show <code>Needs Review</code> instead of guessing when evidence is incomplete</li>
+<li>admin approval is required before auto-listing, repricing, or publicly claiming an exact rare variant</li>
+</ul>
+<p>Target identification flow:</p>
+<ol>
+<li>Extract visible facts from images.</li>
+<li>Normalize title/player/team/year/set/card number/manufacturer.</li>
+<li>Query approved checklist/catalog sources.</li>
+<li>Compare variant names, colors, patterns, serial-number ranges, and card numbers.</li>
+<li>Score candidates by evidence match.</li>
+<li>Select the exact match if one candidate is clearly supported.</li>
+<li>Ask one targeted follow-up if the remaining candidates differ by a detail the image cannot prove.</li>
+<li>Save evidence, confidence score, source URLs, and reviewer decision.</li>
+</ol>
+<p>Future data tables should store:</p>
+<ul>
+<li>scan event</li>
+<li>uploaded image references</li>
+<li>AI extracted fields</li>
+<li>matched catalog candidates</li>
+<li>selected catalog match</li>
+<li>source evidence</li>
+<li>value estimate snapshot</li>
+<li>admin approval decision</li>
+<li>variant_resolver_runs</li>
+<li>variant_resolver_candidates</li>
+<li>variant_resolver_evidence</li>
+<li>checklist_source_matches</li>
+</ul>
+<h3>Future: Expanded Product Detail Collector Intelligence</h3>
+<p>The first source-link version is implemented on product pages. The expanded version should make each collectable page feel alive by showing verified trend data, saved population-report snapshots, official social context, and current news without inventing hype or scraping restricted sources.</p>
+<p>Target route:</p>
+<pre><code>/product/[id]</code></pre>
+<p>Goal:</p>
+<ul>
+<li>show trend signals for the player, character, franchise, team, brand, or exact collectable</li>
+<li>show grading population reports when a grade/cert/company is known</li>
+<li>link to official or approved social profiles such as X, Instagram, YouTube, team pages, manufacturer pages, or franchise pages</li>
+<li>show relevant news or milestones when available</li>
+<li>explain the item's current collector story in plain language</li>
+<li>help the buyer understand rarity, demand, timing, and context before purchase</li>
+</ul>
+<p>Collector Intelligence panel should evaluate:</p>
+<ul>
+<li>sales velocity from TCOS/eBay/comps when available</li>
+<li>recent sold-price movement</li>
+<li>watch/search activity when available from allowed sources</li>
+<li>player/team news such as big games, awards, trades, records, injuries, call-ups, retirements, or playoff runs</li>
+<li>character/franchise news such as new movie, show, game, comic arc, anniversary, limited release, or manufacturer announcement</li>
+<li>grading population for the exact grade when cert/set/card details are known</li>
+<li>related social profiles and official links</li>
+<li>related collector content such as manufacturer checklist, league/team bio, player page, franchise page, or grading certification page</li>
+</ul>
+<p>Trending labels must be evidence-based:</p>
+<ul>
+<li><code>Trending Up</code> only when recent source data supports it</li>
+<li><code>Steady Demand</code> when comps/activity are consistent</li>
+<li><code>Cooling Off</code> when recent source data supports lower demand</li>
+<li><code>Not Enough Data</code> when TCOS cannot prove a trend</li>
+</ul>
+<p>TCOS must not show fake urgency, fake scarcity, fake endorsements, or unsourced claims.</p>
+<p>Grading/population report requirements:</p>
+<ul>
+<li>support PSA, CGC, SGC, Beckett/BGS, and other grading companies only when lookup access is permitted</li>
+<li>prefer official cert lookup or official population data</li>
+<li>store grading company, grade, cert number, population count, lookup URL, lookup timestamp, and source confidence</li>
+<li>show <code>population unavailable</code> instead of guessing</li>
+<li>never imply a cert is verified unless the source confirms it</li>
+</ul>
+<p>Social and news requirements:</p>
+<ul>
+<li>use official APIs, official embeds, RSS feeds, licensed news/search APIs, or manually approved links</li>
+<li>never bypass platform limits, scraping protections, login walls, or terms</li>
+<li>never imply a player, team, manufacturer, grading company, league, or franchise endorses TCOS unless there is a written sponsorship/partnership</li>
+<li>public social links should open to the source instead of copying restricted content into TCOS</li>
+<li>summarize news in TCOS language with source links and timestamps</li>
+<li>separate factual news from AI-generated collector commentary</li>
+</ul>
+<p>AI collector commentary may help write:</p>
+<ul>
+<li>why this item is interesting</li>
+<li>what recently happened around the player, team, character, franchise, or brand</li>
+<li>what a pop report means in simple terms</li>
+<li>why collectors may care about the grade, parallel, serial number, autograph, patch, rookie status, set, or era</li>
+</ul>
+<p>AI collector commentary must:</p>
+<ul>
+<li>cite stored sources</li>
+<li>say when data is missing</li>
+<li>avoid investment advice</li>
+<li>avoid guaranteed future value claims</li>
+<li>avoid medical, legal, or financial claims</li>
+<li>be reviewed or source-gated before public display</li>
+</ul>
+<p>Product page display should include:</p>
+<ul>
+<li>trend badge</li>
+<li>short collector story</li>
+<li>latest relevant news link list</li>
+<li>official social/source links</li>
+<li>grading pop report card when grade/cert data exists</li>
+<li>last updated timestamp</li>
+<li>source list</li>
+<li><code>Not Enough Data</code> state when sources are missing</li>
+</ul>
+<p>Future data tables should store:</p>
+<ul>
+<li>collectable_intelligence_snapshots</li>
+<li>collectable_trend_signals</li>
+<li>collectable_news_links</li>
+<li>collectable_social_links</li>
+<li>collectable_grading_reports</li>
+<li>collectable_source_evidence</li>
+<li>collectable_intelligence_refresh_jobs</li>
+<li>collectable_intelligence_admin_reviews</li>
+</ul>
+<h3>Future: Brag Session And Collection Board</h3>
+<p>This is a future-build community feature. It should not copy eBay-style transactional feedback.</p>
+<p>Goal:</p>
+<ul>
+<li>give buyers a fun way to show off what they received</li>
+<li>let collectors post collection photos, mail days, favorites, displays, and stories</li>
+<li>build community around collectables instead of only buyer/seller ratings</li>
+<li>keep transaction issues, chargebacks, and evidence packets separate from public community posts</li>
+</ul>
+<p>Buyer post-purchase flow:</p>
+<ul>
+<li>after delivery, invite the buyer to create a <code>Brag Session</code></li>
+<li>buyer can upload photos of the item or collection</li>
+<li>buyer can add title, story, category, tags, and optional order/item link</li>
+<li>buyer can choose public, private, or admin-review-only visibility</li>
+<li>public posts must go through moderation before appearing</li>
+</ul>
+<p>Collection board:</p>
+<ul>
+<li>users can show collection shelves, slabs, binders, sealed product, memorabilia, or themed collections</li>
+<li>posts can be grouped by category, sport, franchise, player, set, era, or custom tags</li>
+<li>users can like/save/comment only after community safety controls are built</li>
+<li>admin can feature posts on storefront/community pages</li>
+</ul>
+<p>Safety and moderation rules:</p>
+<ul>
+<li>no addresses, tracking labels, order numbers, phone numbers, payment details, or private customer information in public posts</li>
+<li>image uploads must be scanned/moderated before public display</li>
+<li>admin must be able to approve, hide, remove, or feature posts</li>
+<li>reporting tools should exist before public comments go live</li>
+<li>public community posts must not expose chargeback evidence, IP evidence, TOS audit records, or private order records</li>
+<li>community reputation must stay separate from seller compliance, payout, fraud, and transaction evidence workflows</li>
+</ul>
+<p>Future data tables should store:</p>
+<ul>
+<li>community profile</li>
+<li>brag session post</li>
+<li>collection board post</li>
+<li>post images</li>
+<li>post moderation status</li>
+<li>tags/categories</li>
+<li>optional order item reference</li>
+<li>likes/saves/comments after moderation is ready</li>
+<li>abuse reports and admin actions</li>
+</ul>
+<h3>Future: Trades And Collector Swaps</h3>
+<p>This is a future-build marketplace/community feature. It should let collectors propose trades safely after buyer/seller accounts, identity controls, moderation, shipping evidence, and dispute rules exist.</p>
+<p>Goal:</p>
+<ul>
+<li>let collectors mark items as open for trade</li>
+<li>let collectors build trade offers from their collection</li>
+<li>support one-for-one and multi-item trade proposals</li>
+<li>support cash difference only if payments, tax, and dispute rules are designed</li>
+<li>give each side a clear trade review screen before accepting</li>
+<li>protect both parties with identity, address, shipping, condition, and evidence controls</li>
+<li>keep trades separate from normal store inventory until a trade is accepted and locked</li>
+</ul>
+<p>Trade section entry points to evaluate:</p>
+<ul>
+<li><code>/trades</code> public trade browsing page</li>
+<li>product page <code>Open To Trade</code> signal when the owner allows it</li>
+<li>user collection item <code>Trade This</code> action</li>
+<li>want ad match to trade offer</li>
+<li>admin trade review queue</li>
+<li>post-purchase prompt to add an item to collection/trade board after delivery</li>
+</ul>
+<p>Trade offer data should include:</p>
+<ul>
+<li>initiating user</li>
+<li>receiving user</li>
+<li>offered item list</li>
+<li>requested item list</li>
+<li>optional cash difference only if enabled</li>
+<li>item photos</li>
+<li>condition notes</li>
+<li>grade/cert details when available</li>
+<li>declared value from comps when available</li>
+<li>shipping method</li>
+<li>tracking numbers for both sides</li>
+<li>trade status</li>
+<li>timestamps for offer, counter, acceptance, shipment, delivery, dispute, and completion</li>
+</ul>
+<p>Required safety rules:</p>
+<ul>
+<li>require user accounts before trades can exist</li>
+<li>require TOS acceptance for trade terms</li>
+<li>require verified email and recommended multi-factor authentication</li>
+<li>do not expose addresses until both sides accept and shipping flow requires it</li>
+<li>keep address and identity data private</li>
+<li>require item condition photos before acceptance</li>
+<li>record IP/user-agent evidence for trade acceptance events</li>
+<li>require tracking on both shipments</li>
+<li>allow admin freeze/review on suspicious trade activity</li>
+<li>prohibit off-platform payment pressure, scams, harassment, counterfeit claims, and unsafe meetups</li>
+<li>provide report/dispute tools before public trading goes live</li>
+</ul>
+<p>Trade fulfillment models to evaluate:</p>
+<ul>
+<li>direct ship: both collectors ship to each other with tracking</li>
+<li>admin-mediated trade: both collectors ship to TCOS first, TCOS verifies, then forwards</li>
+<li>local meetup: future option only if safety, location privacy, and event rules are designed</li>
+</ul>
+<p>Admin-mediated trade is safer but operationally heavier. Direct ship is easier but higher risk. TCOS should not enable public trades until the chosen model has clear rules, evidence packets, and dispute handling.</p>
+<p>Trade evidence packets should store:</p>
+<ul>
+<li>accepted trade terms</li>
+<li>TOS version</li>
+<li>IP/user-agent evidence</li>
+<li>item photos at acceptance</li>
+<li>declared condition and value</li>
+<li>shipping labels/tracking</li>
+<li>delivery proof</li>
+<li>user messages related to the trade</li>
+<li>admin actions</li>
+<li>dispute notes</li>
+</ul>
+<p>Future data tables should store:</p>
+<ul>
+<li>trade_profiles</li>
+<li>trade_items</li>
+<li>trade_offers</li>
+<li>trade_offer_items</li>
+<li>trade_offer_messages</li>
+<li>trade_acceptance_events</li>
+<li>trade_shipments</li>
+<li>trade_evidence_packets</li>
+<li>trade_disputes</li>
+<li>trade_admin_reviews</li>
+<li>trade_terms_acceptance</li>
+</ul>
+<h3>Future: Collector Map, Card Shows, And Shop Finder</h3>
+<p>This is a future-build discovery feature. It should help collectors find card shows, collectable shows, local card shops, hobby stores, trade nights, release events, grading events, and community meetups near them.</p>
+<p>Goal:</p>
+<ul>
+<li>search by ZIP code, city, state, or current location with consent</li>
+<li>show nearby card shops and collectable shops on a map</li>
+<li>show upcoming card shows and collectable events by radius</li>
+<li>support geofenced regions for promoted local events</li>
+<li>use AI to help discover and normalize show/event information from permitted sources</li>
+<li>help collectors plan where to go, what to bring, and whether an event fits their collecting interests</li>
+</ul>
+<p>Collector search should support:</p>
+<ul>
+<li>ZIP code</li>
+<li>city/state</li>
+<li>radius</li>
+<li>date range</li>
+<li>category, such as sports cards, TCG, comics, coins, toys, memorabilia, autographs, or mixed collectables</li>
+<li>event type, such as show, trade night, signing, release, grading submission event, shop event, or auction preview</li>
+<li>shop/event name</li>
+<li>free/paid admission</li>
+<li>family-friendly flag</li>
+<li>vendor/table information when available</li>
+</ul>
+<p>Map and data-source candidates to evaluate:</p>
+<ul>
+<li>Google Maps Platform Places API for shop/place discovery</li>
+<li>Google Maps Geocoding API for ZIP/city lookup</li>
+<li>Mapbox or similar map provider as an alternate map/search provider</li>
+<li>Eventbrite or other event APIs where terms allow event discovery</li>
+<li>promoter-submitted event listings</li>
+<li>shop-owner submitted listings</li>
+<li>admin-entered shows and shops</li>
+<li>Google Programmable Search as a fallback discovery layer</li>
+<li>public show calendars where licensing/terms allow use</li>
+<li>social/event advertising sources only when access is permitted by their terms or an official API</li>
+</ul>
+<p>AI event discovery should:</p>
+<ul>
+<li>parse event title, location, dates, times, promoter, admission, vendor tables, categories, and source URL</li>
+<li>deduplicate repeated listings for the same show</li>
+<li>assign confidence scores</li>
+<li>flag missing or conflicting details</li>
+<li>require admin approval before publishing uncertain events</li>
+<li>keep raw source evidence and lookup timestamps</li>
+</ul>
+<p>Geofencing and promotion rules:</p>
+<ul>
+<li>geofenced promotions should use ZIP, city, radius, or coarse region targeting by default</li>
+<li>precise location should require clear user consent</li>
+<li>do not store exact user location unless the feature truly needs it and the user has opted in</li>
+<li>allow collectors to search by ZIP without enabling device location</li>
+<li>disclose when a result is sponsored or promoted</li>
+<li>keep sponsored placement separate from organic relevance</li>
+<li>never sell or expose private user location data</li>
+</ul>
+<p>Collector-facing event pages should include:</p>
+<ul>
+<li>event/shop name</li>
+<li>address and map</li>
+<li>date/time</li>
+<li>distance from searched area</li>
+<li>event category</li>
+<li>admission cost</li>
+<li>promoter/shop contact link when available</li>
+<li>source link</li>
+<li>confidence/verification status</li>
+<li>last verified timestamp</li>
+<li>notes for collectors</li>
+<li>related nearby shops/events</li>
+</ul>
+<p>Future data tables should store:</p>
+<ul>
+<li>shops</li>
+<li>shows/events</li>
+<li>event venues</li>
+<li>promoters</li>
+<li>event categories</li>
+<li>geofenced promotion campaigns</li>
+<li>source evidence</li>
+<li>verification status</li>
+<li>admin approvals</li>
+<li>user saved events</li>
+<li>opt-in location preferences</li>
+</ul>
+<h3>Future: AI Search, Want Ads, And Site Help</h3>
+<p>This is a future-build discovery and support feature.</p>
+<p>Goal:</p>
+<ul>
+<li>help collectors find the exact item they want</li>
+<li>understand natural-language collector searches</li>
+<li>recommend matching products, categories, saved searches, shows, shops, and content</li>
+<li>create a Want Ad when TCOS does not have the item</li>
+<li>help users navigate the site and answer technical questions</li>
+<li>escalate support questions to a future technical support email inbox when AI cannot answer safely</li>
+</ul>
+<p>AI search should support:</p>
+<ul>
+<li>player/person/character/franchise</li>
+<li>year, set, brand, card number, issue number, catalog number, cert number, or serial number</li>
+<li>sport/category</li>
+<li>grade, condition, raw/graded/sealed</li>
+<li>autograph, patch, parallel, variant, refractor, short print, rookie, insert, or limited mark</li>
+<li>price range</li>
+<li>seller-owned inventory when seller accounts exist</li>
+<li>active storefront products</li>
+<li>sold/reference/comps context when useful</li>
+<li>collector intent, such as buying, researching, completing a set, finding a gift, or valuing an item</li>
+</ul>
+<p>Search behavior:</p>
+<ul>
+<li>return direct product matches first</li>
+<li>show close matches and explain why they match</li>
+<li>show confidence and missing details</li>
+<li>ask clarifying questions when the request is ambiguous</li>
+<li>do not invent facts or pretend an item is available</li>
+<li>offer to create a Want Ad if no suitable item is found</li>
+</ul>
+<p>Want Ads:</p>
+<ul>
+<li>run for 30 days by default</li>
+<li>can be renewed by the user</li>
+<li>should expire automatically if not renewed</li>
+<li>should support status values such as active, matched, expired, renewed, canceled, and fulfilled</li>
+<li>should allow item details, category, desired condition/grade, budget, notes, and optional images</li>
+<li>should notify admin when a new Want Ad is created</li>
+<li>should notify the user when matching inventory appears</li>
+<li>should not publicly expose private email, phone, address, IP, payment, or account details</li>
+<li>should be moderated before public/community display if Want Ads become public</li>
+</ul>
+<p>AI site help should:</p>
+<ul>
+<li>answer site navigation questions</li>
+<li>explain how checkout, offers, tracking, orders, TOS, evidence/security, and community features work</li>
+<li>guide collectors to product pages, cart, orders, Brag Sessions, Collection Board, shows/shops, and support</li>
+<li>avoid legal, tax, medical, financial, or authentication-sensitive claims beyond approved policy text</li>
+<li>avoid exposing private admin, customer, seller, payout, IP, or evidence data</li>
+<li>escalate unresolved technical issues to support</li>
+</ul>
+<p>Technical support escalation:</p>
+<ul>
+<li>future env var should define the support inbox</li>
+<li>likely name: <code>TECHNICAL_SUPPORT_EMAIL</code></li>
+<li>user should be able to submit name, email, issue type, order ID if relevant, and message</li>
+<li>AI conversation context should be summarized, not forwarded with private hidden data</li>
+<li>support submissions should be saved for admin review</li>
+<li>email forwarding should be added after the support mailbox is chosen</li>
+</ul>
+<p>Future data tables should store:</p>
+<ul>
+<li>ai_search_sessions</li>
+<li>ai_search_messages</li>
+<li>want_ads</li>
+<li>want_ad_matches</li>
+<li>want_ad_renewals</li>
+<li>support_requests</li>
+<li>support_request_messages</li>
+<li>support_email_delivery_status</li>
+</ul>
+<h3>Future: Sponsorships, Advertising, And Partner Outreach</h3>
+<p>This is a future-build revenue feature. It should help TCOS sell advertising and sponsorship placements to collectable-related companies without creating spam, privacy risk, or low-quality ads.</p>
+<p>Goal:</p>
+<ul>
+<li>create advertising inventory on TCOS</li>
+<li>sell logo placements, sponsored placements, newsletter spots, show/shop placements, and category sponsorships</li>
+<li>help collectable companies reach collectors through relevant pages</li>
+<li>create a compliant sponsor outreach workflow</li>
+<li>track leads, conversations, packages, contracts, payment status, creative assets, start/end dates, and performance</li>
+</ul>
+<p>Potential sponsor categories:</p>
+<ul>
+<li>card shops</li>
+<li>card show promoters</li>
+<li>grading companies</li>
+<li>supplies companies</li>
+<li>storage/display companies</li>
+<li>auction houses</li>
+<li>breakers and stream sellers</li>
+<li>collectable insurance companies</li>
+<li>memorabilia companies</li>
+<li>comic, coin, toy, stamp, and TCG businesses</li>
+<li>local shops promoted by ZIP, city, state, radius, or event category</li>
+</ul>
+<p>Ad inventory to evaluate:</p>
+<ul>
+<li>homepage sponsor block</li>
+<li>shop/category sponsor block</li>
+<li>product-page related sponsor block</li>
+<li>Collector Map sponsor pins</li>
+<li>card show/event sponsor placement</li>
+<li>Brag Session/Collection Board sponsor placements after moderation tools exist</li>
+<li>newsletter/email sponsor slot after subscriber consent tools exist</li>
+<li>admin-approved banner/logo placements</li>
+</ul>
+<p>Sponsor packages should define:</p>
+<ul>
+<li>placement</li>
+<li>audience/category</li>
+<li>region or geofence</li>
+<li>price</li>
+<li>duration</li>
+<li>impressions/clicks when tracking is built</li>
+<li>creative/logo requirements</li>
+<li>prohibited content</li>
+<li>approval workflow</li>
+<li>renewal rules</li>
+</ul>
+<p>Outreach rules:</p>
+<ul>
+<li>do not scrape or harvest email addresses in ways that violate laws, terms, or platform rules</li>
+<li>do not send deceptive mass email</li>
+<li>use truthful sender identity, subject lines, and offer language</li>
+<li>include Dag Danky Holdings LLC / Truely Collectables contact information</li>
+<li>include a valid physical mailing address when sending commercial outreach</li>
+<li>include a clear opt-out/unsubscribe method</li>
+<li>honor opt-out requests within 10 business days</li>
+<li>keep a suppression list and never email suppressed contacts again except as required for compliance</li>
+<li>separate one-to-one relationship outreach from marketing blasts</li>
+<li>prefer warm leads, opt-in lists, business cards, show contacts, inbound sponsor forms, and manually verified public business contacts</li>
+</ul>
+<p>TCOS can help with:</p>
+<ul>
+<li>sponsor media kit copy</li>
+<li>rate card</li>
+<li>sponsorship package definitions</li>
+<li>compliant outreach email templates</li>
+<li>lead tracker</li>
+<li>outreach status pipeline</li>
+<li>follow-up reminders</li>
+<li>opt-out/suppression tracking</li>
+<li>sponsor asset uploads</li>
+<li>ad placement scheduling</li>
+<li>invoice/payment tracking</li>
+<li>performance reporting after analytics is built</li>
+</ul>
+<p>TCOS should not send sponsor outreach until:</p>
+<ul>
+<li><code>SPONSOR_OUTREACH_FROM_EMAIL</code> is configured</li>
+<li><code>SPONSOR_OUTREACH_REPLY_TO_EMAIL</code> is configured</li>
+<li><code>SPONSOR_OUTREACH_PHYSICAL_ADDRESS</code> is configured</li>
+<li>opt-out handling is built</li>
+<li>suppression list handling is built</li>
+<li>a reviewed outreach template is approved</li>
+<li>contacts are sourced and verified through allowed methods</li>
+</ul>
+<p>Reference:</p>
+<ul>
+<li><a href="https://www.ftc.gov/business-guidance/resources/can-spam-act-compliance-guide-business">FTC CAN-SPAM Act Compliance Guide</a></li>
+</ul>
+<p>Future data tables should store:</p>
+<ul>
+<li>sponsors</li>
+<li>sponsor_contacts</li>
+<li>sponsor_leads</li>
+<li>sponsor_outreach_messages</li>
+<li>sponsor_outreach_suppression_list</li>
+<li>sponsor_packages</li>
+<li>ad_placements</li>
+<li>ad_creatives</li>
+<li>ad_campaigns</li>
+<li>ad_impressions</li>
+<li>ad_clicks</li>
+<li>sponsor_invoices</li>
+<li>sponsor_payments</li>
+</ul>
+<h3>Future: Marketing Campaigns, Social Posting, And Collectable Of The Day</h3>
+<p>This is a future-build promotion feature. It should help TCOS advertise the website, promote listings, and keep social channels active without spam, fake engagement, deceptive posting, or platform policy problems.</p>
+<p>Goal:</p>
+<ul>
+<li>create organized advertising campaigns for TCOS</li>
+<li>schedule approved promotional posts across connected social channels</li>
+<li>automatically feature a Collectable of the Day</li>
+<li>generate platform-specific captions, hashtags, and safe tags</li>
+<li>promote store listings, card shows, sponsor campaigns, collection posts, want ads, and major inventory drops</li>
+<li>track campaign status, approvals, channels, post history, clicks, conversions, and engagement</li>
+<li>avoid repetitive posting, unwanted tagging, or random website posting that looks like spam</li>
+</ul>
+<p>Supported campaign types to evaluate:</p>
+<ul>
+<li>Collectable of the Day</li>
+<li>new inventory drop</li>
+<li>featured category</li>
+<li>local card show or shop spotlight</li>
+<li>sponsor spotlight</li>
+<li>holiday/event promotion</li>
+<li>price drop</li>
+<li>buyer brag/collection highlight after customer permission</li>
+<li>want ad spotlight</li>
+<li>newsletter promotion after subscriber consent tools exist</li>
+</ul>
+<p>Collectable of the Day automation should:</p>
+<ul>
+<li>select one eligible product per day from active inventory</li>
+<li>avoid sold, hidden, draft, or blocked products</li>
+<li>prefer items with strong photos, clean title, price, category, and description</li>
+<li>create a short caption for each connected platform</li>
+<li>generate hashtags from product title, category, brand, manufacturer, player, team, set, year, grade, sport, franchise, rarity, and condition</li>
+<li>tag manufacturers, teams, players, leagues, or brands only when the tag is accurate, relevant, and not excessive</li>
+<li>avoid tagging companies or public figures repeatedly just to force attention</li>
+<li>include the product link and clear call to action</li>
+<li>support admin preview and approval before publishing</li>
+<li>record exactly what was posted, where it was posted, and when it was posted</li>
+</ul>
+<p>Posting controls should include:</p>
+<ul>
+<li>enabled channels</li>
+<li>posting calendar</li>
+<li>daily/weekly posting limits</li>
+<li>quiet hours</li>
+<li>duplicate detection</li>
+<li>campaign approval status</li>
+<li>link tracking</li>
+<li>image selection</li>
+<li>generated caption review</li>
+<li>generated hashtag review</li>
+<li>generated tag review</li>
+<li>failure/retry handling</li>
+<li>admin override</li>
+</ul>
+<p>Web and community promotion rules:</p>
+<ul>
+<li>do not randomly post to unrelated websites</li>
+<li>do not bypass moderation, captchas, posting limits, or site rules</li>
+<li>do not use bots to create fake engagement, fake comments, or fake accounts</li>
+<li>post only where TCOS has permission, an account, an official integration, or clear allowed community participation</li>
+<li>respect each site's terms, community rules, rate limits, and promotional posting policies</li>
+<li>keep a record of where TCOS is allowed to post and what kind of promotion is allowed there</li>
+<li>prefer official APIs, approved social integrations, owned channels, paid advertising accounts, newsletters, and permission-based communities</li>
+</ul>
+<p>Social channels to evaluate:</p>
+<ul>
+<li>Facebook page and groups where promotion is allowed</li>
+<li>Instagram business account</li>
+<li>TikTok business account</li>
+<li>X account</li>
+<li>YouTube Shorts</li>
+<li>Pinterest</li>
+<li>LinkedIn company page for sponsor/business updates</li>
+<li>Reddit only in communities where promotional posting is allowed by the subreddit rules</li>
+<li>Discord servers only where the server owner permits promotions</li>
+<li>email newsletter after subscriber consent tools exist</li>
+</ul>
+<p>Campaign copy should be generated in the TCOS voice:</p>
+<ul>
+<li>collector-first</li>
+<li>accurate</li>
+<li>excited but not misleading</li>
+<li>no fake scarcity</li>
+<li>no fake endorsements</li>
+<li>no unsupported price claims</li>
+<li>no unauthorized claim that a player, manufacturer, team, league, or brand sponsors TCOS</li>
+</ul>
+<p>TCOS should not publish automated posts until:</p>
+<ul>
+<li>at least one official social account is connected</li>
+<li>platform API access or posting method is approved</li>
+<li>admin approval workflow is built</li>
+<li>duplicate/spam controls are built</li>
+<li>channel-specific rules are saved</li>
+<li>link tracking is configured</li>
+<li>image/caption/tag review is enabled</li>
+<li>opt-in newsletter consent exists for email campaigns</li>
+</ul>
+<p>Future data tables should store:</p>
+<ul>
+<li>marketing_campaigns</li>
+<li>marketing_campaign_channels</li>
+<li>marketing_campaign_posts</li>
+<li>marketing_campaign_assets</li>
+<li>marketing_campaign_post_approvals</li>
+<li>marketing_campaign_post_metrics</li>
+<li>collectable_of_the_day_candidates</li>
+<li>collectable_of_the_day_posts</li>
+<li>social_accounts</li>
+<li>social_channel_rules</li>
+<li>social_posting_limits</li>
+<li>social_post_failures</li>
+<li>campaign_link_clicks</li>
+</ul>
+<h2>23. Security And Data Protection</h2>
+<p>Security is required for owner, buyer, and seller data.</p>
+<p>Current implemented protections:</p>
+<ul>
+<li>admin sessions use a signed HTTP-only cookie instead of a plain <code>true</code> cookie</li>
+<li>admin session cookies are secure, same-site lax, and expire after 24 hours</li>
+<li>site usage can be blocked when VPN, proxy, Tor, relay, hosting, or anonymous IP risk is detected</li>
+<li>blocked site users see: <code>Sorry, you must turn off your proxy or VPN to use this website.</code></li>
+<li>admin pages are protected by <code>src/proxy.ts</code></li>
+<li>sensitive admin-style API routes are protected by the same admin session</li>
+<li>security headers are applied globally from <code>src/proxy.ts</code></li>
+<li>admin/API responses are marked <code>no-store</code></li>
+<li>Stripe webhooks require Stripe signature verification</li>
+<li>customer TOS acceptance is required before checkout and offer submission</li>
+<li>customer TOS acceptance records the server-observed public IP, user agent, IP risk, and request header evidence</li>
+<li>checkout creates a <code>tos_acceptance_events</code> audit row before Stripe checkout is created</li>
+<li>completed transactions create <code>transaction_evidence_reports</code> for chargeback/legal packets</li>
+<li>offer submission stores TOS/IP evidence before the offer is accepted</li>
+<li>bank credentials are not stored in TCOS</li>
+</ul>
+<p>Important IP rule:</p>
+<p>TCOS can log and enforce the server-observed public client IP. If a customer hides behind a VPN, proxy, Tor, relay, or hosting network, TCOS cannot discover the hidden residential IP by itself. Production masking detection requires a third-party IP intelligence provider configured through environment variables.</p>
+<p>Routes currently protected by admin session:</p>
+<ul>
+<li><code>/admin/*</code></li>
+<li><code>/ebay/*</code></li>
+<li><code>/api/admin/*</code> except <code>/api/admin/login</code></li>
+<li><code>/api/ebay/*</code></li>
+<li><code>/api/orders/*</code></li>
+<li><code>/api/offers/update-status</code></li>
+<li><code>/api/offers/counter</code></li>
+</ul>
+<p>Public routes that must remain public:</p>
+<ul>
+<li><code>/shop</code></li>
+<li><code>/product/[id]</code></li>
+<li><code>/cart</code></li>
+<li><code>/terms</code></li>
+<li><code>/seller-terms</code></li>
+<li><code>/api/checkout</code></li>
+<li><code>/api/offers/create</code></li>
+<li><code>/api/webhook</code></li>
+<li><code>/api/stripe/webhook</code></li>
+</ul>
+<p>Webhook routes are exempt from the site-wide identity gate so Stripe can deliver signed webhook events.</p>
+<p>Required future seller-account protections:</p>
+<ul>
+<li>use a real identity/auth provider for buyer and seller accounts</li>
+<li>require email verification before buying or selling account use</li>
+<li>require multi-factor authentication for sellers and admins</li>
+<li>use a third-party provider for bank verification and payouts</li>
+<li>store only provider IDs, verification status, timestamps, and non-sensitive payout metadata</li>
+<li>never store raw bank account numbers, routing numbers, SSNs, tax IDs, passwords, or payment card data in TCOS</li>
+<li>encrypt sensitive internal notes or documents if they are ever added</li>
+<li>restrict seller data so one seller cannot read another seller's account, payout, auction, or customer data</li>
+<li>audit seller-account changes, payout changes, bank verification changes, and admin overrides</li>
+<li>rate-limit login, checkout, offer, and seller onboarding endpoints before public launch</li>
+<li>add fraud review and payout hold controls before seller payouts go live</li>
+</ul>
+<p>Security files:</p>
+<pre><code>src/lib/admin-session.ts
+src/lib/client-identity.ts
+src/lib/tos-acceptance.ts
+src/proxy.ts</code></pre>
+<h2>24. Clean Fake Orders</h2>
+<p>To clear fake local orders, run this in Supabase SQL Editor:</p>
+<pre><code>truncate table order_items, orders restart identity cascade;</code></pre>
+<p>This clears only local orders.</p>
+<p>It does not delete:</p>
+<ul>
+<li>products</li>
+<li>inventory</li>
+<li>eBay listings</li>
+<li>eBay inventory</li>
+<li>offers</li>
+<li>eBay tokens</li>
+</ul>
+<p>If fake orders reduced quantity, run eBay sync afterward.</p>
+<h2>25. Environment Variables</h2>
+<p>Core:</p>
+<pre><code>NEXT_PUBLIC_SUPABASE_URL=
+NEXT_PUBLIC_SUPABASE_ANON_KEY=
+NEXT_PUBLIC_SITE_URL=</code></pre>
+<p>Admin:</p>
+<pre><code>ADMIN_PASSWORD=
+ADMIN_SESSION_SECRET=</code></pre>
+<p>Stripe:</p>
+<pre><code>STRIPE_SECRET_KEY=
+STRIPE_WEBHOOK_SECRET=</code></pre>
+<p>eBay:</p>
+<pre><code>EBAY_CLIENT_ID=
+EBAY_CLIENT_SECRET=
+EBAY_ENVIRONMENT=production</code></pre>
+<p>Email:</p>
+<pre><code>RESEND_API_KEY=
+TRANSACTION_EVIDENCE_EMAIL=
+TRANSACTION_EVIDENCE_FROM=
+TECHNICAL_SUPPORT_EMAIL=</code></pre>
+<p><code>TRANSACTION_EVIDENCE_EMAIL</code> is the fallback destination address for transaction evidence PDFs when <code>store_settings.evidence_email</code> is not set. <code>TRANSACTION_EVIDENCE_FROM</code> is optional and defaults to the store evidence sender. <code>TECHNICAL_SUPPORT_EMAIL</code> is the fallback support inbox when <code>store_settings.support_email</code> is not set.</p>
+<p>AI descriptions:</p>
+<pre><code>OPENAI_API_KEY=
+OPENAI_DESCRIPTION_MODEL=</code></pre>
+<p>Optional comps:</p>
+<pre><code>GOOGLE_SEARCH_API_KEY=
+GOOGLE_SEARCH_ENGINE_ID=
+PRICECHARTING_API_TOKEN=</code></pre>
+<p>IP intelligence and masked-identity blocking:</p>
+<pre><code>IP_INTELLIGENCE_API_URL=
+IP_INTELLIGENCE_API_KEY=
+IP_INTELLIGENCE_REQUIRED=true</code></pre>
+<p><code>IP_INTELLIGENCE_API_URL</code> may contain <code>{ip}</code> as a placeholder. If <code>IP_INTELLIGENCE_REQUIRED=true</code>, TCOS blocks site/API usage when the provider is missing, unavailable, or reports VPN/proxy/Tor/hosting/anonymous risk.</p>
+<p>Reference links:</p>
+<ul>
+<li><a href="https://vercel.com/docs/environment-variables">Vercel environment variables</a></li>
+<li><a href="https://supabase.com/docs">Supabase project settings</a></li>
+<li><a href="https://docs.stripe.com/">Stripe docs</a></li>
+<li><a href="https://developer.ebay.com/develop">eBay developer keys</a></li>
+<li><a href="https://developers.google.com/custom-search/v1/overview">Google Programmable Search JSON API</a></li>
+<li><a href="https://platform.openai.com/docs/api-reference">OpenAI API docs</a></li>
+</ul>
+<h2>26. Database Tables</h2>
+<p>Legacy compatibility:</p>
+<ul>
+<li><code>products</code></li>
+<li><code>orders</code></li>
+<li><code>order_items</code></li>
+<li><code>offers</code></li>
+<li><code>ebay_tokens</code></li>
+</ul>
+<p>TCOS V2:</p>
+<ul>
+<li><code>inventory_items</code></li>
+<li><code>inventory_images</code></li>
+<li><code>inventory_attributes</code></li>
+<li><code>sales_comp_snapshots</code></li>
+<li><code>tos_acceptance_events</code></li>
+<li><code>transaction_evidence_reports</code></li>
+</ul>
+<p>See:</p>
+<pre><code>docs/DATABASE_DOCUMENTATION.md</code></pre>
+<h2>27. Migrations</h2>
+<p>Migration directory:</p>
+<pre><code>supabase/migrations</code></pre>
+<p>Current migration:</p>
+<pre><code>20260628113000_create_store_settings.sql
+20260628110000_create_tcos_stores.sql
+20260627160000_create_sales_comp_snapshots.sql
+20260627170000_add_tos_acceptance_to_orders_offers.sql
+20260627173000_add_tos_identity_evidence.sql
+20260627180000_create_transaction_evidence_reports.sql</code></pre>
+<p>Apply migrations before using features that depend on new tables.</p>
+<p>Reference:</p>
+<ul>
+<li><a href="https://supabase.com/docs/guides/deployment/database-migrations">Supabase database migrations</a></li>
+</ul>
+<h2>28. Build And Verification</h2>
+<p>Run:</p>
+<pre><code>npm run build</code></pre>
+<p>Expected:</p>
+<ul>
+<li>compile succeeds</li>
+<li>TypeScript succeeds</li>
+<li>route generation succeeds</li>
+</ul>
+<p>Use this before deploy or after feature changes.</p>
+<p>Reference:</p>
+<ul>
+<li><a href="https://nextjs.org/docs">Next.js docs</a></li>
+</ul>
+<h2>29. Safe Operating Rules</h2>
+<p>Do:</p>
+<ul>
+<li>use admin status buttons instead of deleting products</li>
+<li>use eBay sync to restore stock from eBay</li>
+<li>check comps before repricing important cards</li>
+<li>apply suggested price only after reviewing comps</li>
+<li>update tracking before marking shipped</li>
+</ul>
+<p>Do not:</p>
+<ul>
+<li>delete eBay tokens casually</li>
+<li>delete inventory rows manually</li>
+<li>assume clearing orders restores quantity</li>
+<li>assume AI descriptions know card facts not entered in TCOS</li>
+<li>scrape pricing sites without permission/API</li>
+</ul>
+<h2>30. Troubleshooting</h2>
+<h3>Admin redirects to login</h3>
+<p>Cookie is missing or expired. Log in again.</p>
+<h3>Checkout says not enough inventory</h3>
+<p>Check product status and quantity on <code>/admin/products/[id]</code>.</p>
+<h3>Product does not show in shop</h3>
+<p>Check:</p>
+<ul>
+<li>status is <code>active</code></li>
+<li>quantity is above zero</li>
+<li>price is above zero</li>
+</ul>
+<h3>eBay sync fails</h3>
+<p>Check:</p>
+<ul>
+<li><code>EBAY_CLIENT_ID</code></li>
+<li><code>EBAY_CLIENT_SECRET</code></li>
+<li><code>ebay_tokens</code> has a refresh token</li>
+<li>eBay API scopes are valid</li>
+</ul>
+<h3>Sales comps do not save</h3>
+<p>Apply:</p>
+<pre><code>supabase/migrations/20260627160000_create_sales_comp_snapshots.sql</code></pre>
+<h3>Google comps show not configured</h3>
+<p>Set:</p>
+<pre><code>GOOGLE_SEARCH_API_KEY=
+GOOGLE_SEARCH_ENGINE_ID=</code></pre>
+<h3>PriceCharting shows not configured</h3>
+<p>Set:</p>
+<pre><code>PRICECHARTING_API_TOKEN=</code></pre>
+<h3>AI description falls back to local</h3>
+<p>Check:</p>
+<pre><code>OPENAI_API_KEY=
+OPENAI_DESCRIPTION_MODEL=</code></pre>
+<h2>31. Developer Map</h2>
+<p>Inventory:</p>
+<pre><code>src/modules/inventory</code></pre>
+<p>eBay, comps, pricing:</p>
+<pre><code>src/lib/ebay.ts</code></pre>
+<p>Checkout:</p>
+<pre><code>src/app/api/checkout/route.ts</code></pre>
+<p>Terms of Service:</p>
+<pre><code>src/lib/legal.ts
+src/app/terms/page.tsx
+supabase/migrations/20260627170000_add_tos_acceptance_to_orders_offers.sql</code></pre>
+<p>Stripe webhooks:</p>
+<pre><code>src/app/api/webhook/route.ts
+src/app/api/stripe/webhook/route.ts</code></pre>
+<p>Transaction evidence:</p>
+<pre><code>src/lib/evidence-pdf.ts
+src/lib/transaction-evidence.ts
+src/app/admin/files/page.tsx
+src/app/api/admin/files/[id]/download/route.ts
+supabase/migrations/20260627180000_create_transaction_evidence_reports.sql</code></pre>
+<p>Admin product screens:</p>
+<pre><code>src/app/admin/products/page.tsx
+src/app/admin/products/new/page.tsx
+src/app/admin/products/[id]/page.tsx</code></pre>
+<p>Orders:</p>
+<pre><code>src/app/admin/orders
+src/app/api/orders</code></pre>
+<p>Offers:</p>
+<pre><code>src/app/admin/offers
+src/app/api/offers</code></pre>
+<h2>32. Maintenance Rule</h2>
+<p>When a feature changes, update this manual in the same work session.</p>
+<p>PDF generation can wait until the end of a completed module or lane so development can move faster. Keep the Markdown manual current during implementation, then run <code>npm run manual:pdf</code> at the module checkpoint.</p>
+<p>Checklist for future changes:</p>
+<ol>
+<li>Update feature behavior section.</li>
+<li>Update route list if routes changed.</li>
+<li>Update environment variables if new keys are added.</li>
+<li>Update database docs if tables/fields change.</li>
+<li>Run <code>npm run build</code>.</li>
+</ol>
+<p>The app should not get ahead of the documentation.</p>
+</body>
+</html>

@@ -1,6 +1,7 @@
 import Link from "next/link";
-import { supabase } from "../../lib/supabase";
 import ClearCartOnSuccess from "../../components/ClearCartOnSuccess";
+import { inventoryEngine } from "../../modules/inventory";
+import type { UniversalInventoryItem } from "../../modules/inventory";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -17,37 +18,16 @@ export default async function Shop({
   const q = (params?.q || "").trim();
   const sport = (params?.sport || "").trim();
 
-  let query = supabase
-    .from("products")
-    .select("*")
-    .gt("quantity", 0)
-    .gt("price", 0)
-    .order("created_at", { ascending: false });
+  let products: UniversalInventoryItem[] = [];
+  let uniqueSports: string[] = [];
+  let error: Error | null = null;
 
-  if (q) {
-    const safeQ = q.replaceAll(",", " ").replaceAll("%", "").trim();
-
-    query = query.or(
-      `title.ilike.%${safeQ}%,player.ilike.%${safeQ}%,sport.ilike.%${safeQ}%`
-    );
+  try {
+    products = await inventoryEngine.listAvailable({ query: q, sport });
+    uniqueSports = await inventoryEngine.listAvailableSports();
+  } catch (err: any) {
+    error = err;
   }
-
-  if (sport) {
-    query = query.eq("sport", sport);
-  }
-
-  const { data: products, error } = await query;
-
-  const { data: sports } = await supabase
-    .from("products")
-    .select("sport")
-    .gt("quantity", 0)
-    .gt("price", 0)
-    .not("sport", "is", null);
-
-  const uniqueSports = Array.from(
-    new Set((sports || []).map((item) => item.sport).filter(Boolean))
-  ).sort();
 
   if (error) {
     return (
@@ -59,24 +39,41 @@ export default async function Shop({
   }
 
   return (
-    <main className="p-8">
+    <main className="mx-auto max-w-7xl px-6 py-8">
       <ClearCartOnSuccess />
 
-      <h1 className="text-4xl font-bold mb-8">Shop Sports Cards</h1>
+      <section className="mb-8 flex flex-wrap items-end justify-between gap-4 border-b border-neutral-200 pb-6">
+        <div>
+          <p className="text-sm font-bold uppercase text-neutral-500">
+            Active Inventory
+          </p>
+          <h1 className="mt-2 text-4xl font-black md:text-5xl">
+            Shop Sports Cards
+          </h1>
+          <p className="mt-3 max-w-2xl text-neutral-600">
+            Search by player, card, or category. Every product page includes
+            collector research links and exact-match signals.
+          </p>
+        </div>
 
-      <form className="mb-8 grid grid-cols-1 md:grid-cols-4 gap-4">
+        <p className="rounded bg-white px-4 py-2 text-sm font-bold text-neutral-700">
+          {products.length} active cards
+        </p>
+      </section>
+
+      <form className="mb-8 grid grid-cols-1 gap-3 rounded border bg-white p-4 md:grid-cols-4">
         <input
           type="text"
           name="q"
           placeholder="Search player, card, sport..."
           defaultValue={q}
-          className="border rounded px-4 py-3 md:col-span-2"
+          className="rounded border px-4 py-3 md:col-span-2"
         />
 
         <select
           name="sport"
           defaultValue={sport}
-          className="border rounded px-4 py-3"
+          className="rounded border px-4 py-3"
         >
           <option value="">All Sports</option>
 
@@ -89,54 +86,55 @@ export default async function Shop({
 
         <button
           type="submit"
-          className="bg-black text-white rounded px-4 py-3 font-bold"
+          className="rounded bg-neutral-950 px-4 py-3 font-bold text-white hover:bg-neutral-800"
         >
           Search
         </button>
       </form>
 
-      <p className="mb-6 text-gray-600">
-        Showing {products?.length || 0} cards
-      </p>
+      {products.length === 0 && <p className="text-gray-600">No cards found.</p>}
 
-      {products?.length === 0 && (
-        <p className="text-gray-600">No cards found.</p>
-      )}
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-        {products?.map((product) => (
-          <div
-            key={product.id}
-            className="border rounded-lg p-4 hover:shadow-lg transition"
+      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
+        {products.map((product) => (
+          <article
+            key={product.legacyProductId}
+            className="overflow-hidden rounded border bg-white"
           >
-            <img
-              src={product.image_url || "/placeholder.png"}
-              alt={product.title}
-              className="w-full h-64 object-cover rounded mb-4"
-            />
+            <div className="aspect-[4/5] bg-neutral-100">
+              <img
+                src={product.imageUrl || "/placeholder.png"}
+                alt={product.title}
+                className="h-full w-full object-cover"
+              />
+            </div>
 
-            <h2 className="font-bold text-lg">{product.title}</h2>
+            <div className="p-4">
+              <h2 className="line-clamp-2 min-h-14 text-lg font-black leading-7">
+                {product.title}
+              </h2>
 
-            <p className="text-sm text-gray-500 mt-1">
-              {product.sport}
-              {product.player ? ` • ${product.player}` : ""}
-            </p>
+              <p className="mt-2 text-sm text-neutral-500">
+                {product.sport || "Collectable"}
+                {product.player ? ` - ${product.player}` : ""}
+              </p>
 
-            <p className="text-2xl font-bold mt-3">
-              ${Number(product.price).toFixed(2)}
-            </p>
+              <div className="mt-4 flex items-center justify-between gap-3">
+                <p className="text-2xl font-black">
+                  ${Number(product.price).toFixed(2)}
+                </p>
+                <p className="rounded bg-neutral-100 px-2 py-1 text-xs font-bold text-neutral-600">
+                  Qty {product.quantity}
+                </p>
+              </div>
 
-            <p className="text-sm mt-1">
-              Quantity: {product.quantity}
-            </p>
-
-            <Link
-              href={`/product/${product.id}`}
-              className="block text-center mt-4 w-full border rounded py-2"
-            >
-              View Card
-            </Link>
-          </div>
+              <Link
+                href={`/product/${product.legacyProductId}`}
+                className="mt-4 block w-full rounded border border-neutral-950 px-4 py-2 text-center font-bold hover:bg-neutral-950 hover:text-white"
+              >
+                View Research Page
+              </Link>
+            </div>
+          </article>
         ))}
       </div>
     </main>

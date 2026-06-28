@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { refreshTransactionEvidenceReportForOrder } from "../../../../lib/transaction-evidence";
+import { getActiveStoreId } from "../../../../lib/stores";
 
 export const dynamic = "force-dynamic";
 
@@ -16,6 +18,7 @@ export async function POST(req: Request) {
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey);
+    const storeId = getActiveStoreId();
 
     const body = await req.json();
 
@@ -36,12 +39,26 @@ export async function POST(req: Request) {
         carrier,
         tracking_number: trackingNumber,
       })
-      .eq("id", orderId);
+      .eq("id", orderId)
+      .eq("store_id", storeId);
 
     if (error) {
       return NextResponse.json(
         { error: error.message },
         { status: 500 }
+      );
+    }
+
+    try {
+      await refreshTransactionEvidenceReportForOrder({
+        supabase,
+        orderId,
+        storeId,
+      });
+    } catch (reportError: any) {
+      console.error(
+        "Evidence report refresh after tracking update failed:",
+        reportError.message || reportError
       );
     }
 

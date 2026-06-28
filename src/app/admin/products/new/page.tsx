@@ -1,5 +1,5 @@
-import { supabase } from "../../../../lib/supabase";
 import { redirect } from "next/navigation";
+import { inventoryEngine } from "../../../../modules/inventory";
 
 async function addProduct(formData: FormData) {
   "use server";
@@ -12,14 +12,14 @@ async function addProduct(formData: FormData) {
   const description = formData.get("description") as string;
   const image_url = formData.get("image_url") as string;
 
-  await supabase.from("products").insert({
+  await inventoryEngine.createManualProduct({
     title,
-    player,
-    sport,
+    player: player || null,
+    sport: sport || null,
     price,
     quantity,
-    description,
-    image_url,
+    description: description || null,
+    imageUrl: image_url || null,
   });
 
   redirect("/admin/products");
@@ -42,7 +42,7 @@ export default function NewProductPage() {
 
         <textarea
           name="description"
-          placeholder="Description"
+          placeholder="Description (leave blank to auto-fill)"
           className="border p-2 w-full"
         />
 

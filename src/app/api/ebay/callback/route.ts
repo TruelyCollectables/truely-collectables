@@ -1,13 +1,34 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import { getActiveStoreId } from "../../../../lib/stores";
 
 export const dynamic = "force-dynamic";
 
 export async function GET(request: Request) {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  const clientId = process.env.EBAY_CLIENT_ID;
+  const clientSecret = process.env.EBAY_CLIENT_SECRET;
+
+  if (!supabaseUrl || !supabaseKey) {
+    return NextResponse.json(
+      { error: "Missing Supabase environment variables" },
+      { status: 500 }
+    );
+  }
+
+  if (!clientId || !clientSecret) {
+    return NextResponse.json(
+      { error: "Missing eBay client credentials" },
+      { status: 500 }
+    );
+  }
+
   const supabase = createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL || "",
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || ""
+    supabaseUrl,
+    supabaseKey
   );
+  const storeId = getActiveStoreId();
 
   const url = new URL(request.url);
   const code = url.searchParams.get("code");
@@ -17,7 +38,7 @@ export async function GET(request: Request) {
   }
 
   const credentials = Buffer.from(
-    `${process.env.EBAY_CLIENT_ID}:${process.env.EBAY_CLIENT_SECRET}`
+    `${clientId}:${clientSecret}`
   ).toString("base64");
 
   const response = await fetch(
@@ -40,6 +61,7 @@ export async function GET(request: Request) {
 
   if (data.refresh_token) {
     await supabase.from("ebay_tokens").insert({
+      store_id: storeId,
       refresh_token: data.refresh_token,
     });
   }
