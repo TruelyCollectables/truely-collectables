@@ -76,7 +76,7 @@ export default function TermsPage() {
             Shipping options, costs, carriers, and delivery timeframes are shown
             during checkout when available. Delivery dates are estimates and may
             be affected by carrier delays, address issues, weather, or other
-            events outside Truely Collectables' control.
+            events outside Truely Collectables&apos; control.
           </p>
         </section>
 

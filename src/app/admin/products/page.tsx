@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { inventoryEngine } from "../../../modules/inventory";
 import type { UniversalInventoryItem } from "../../../modules/inventory";
 
@@ -26,19 +27,19 @@ export default async function AdminProductsPage() {
         Admin Products
       </h1>
 
-      <a
+      <Link
         href="/admin/products/new"
         className="inline-block border rounded px-4 py-2 mb-6"
       >
         Add Product
-      </a>
+      </Link>
 
-      <a
+      <Link
         href="/admin/logout"
         className="inline-block border rounded px-4 py-2 mb-6 ml-4"
       >
         Logout
-      </a>
+      </Link>
 
       {products?.map((product) => (
         <div
@@ -61,12 +62,12 @@ export default async function AdminProductsPage() {
 
           <p>Sport: {product.sport}</p>
 
-          <a
+          <Link
             href={`/admin/products/${product.legacyProductId}`}
             className="inline-block border rounded px-4 py-2 mt-4"
           >
             Edit
-          </a>
+          </Link>
         </div>
       ))}
     </main>

@@ -17,7 +17,7 @@ export default function ClearCartOnSuccess({
       window.dispatchEvent(new Event("storage"));
       window.dispatchEvent(new Event("cartUpdated"));
     }
-  }, []);
+  }, [clearOnLoad]);
 
   return null;
 }

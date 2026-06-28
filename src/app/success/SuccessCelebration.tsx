@@ -23,12 +23,11 @@ export default function SuccessCelebration({
   productTitle?: string | null;
   theme: SuccessTheme;
 }) {
-  const [index, setIndex] = useState(0);
+  const [index, setIndex] = useState(() =>
+    Math.floor(Math.random() * SAYINGS.length),
+  );
 
   useEffect(() => {
-    const nextIndex = Math.floor(Math.random() * SAYINGS.length);
-    setIndex(nextIndex);
-
     const interval = window.setInterval(() => {
       setIndex((currentIndex) => (currentIndex + 1) % SAYINGS.length);
     }, 4500);

@@ -1,4 +1,5 @@
 import Stripe from "stripe";
+import Link from "next/link";
 import ClearCartOnSuccess from "../../components/ClearCartOnSuccess";
 import { supabase } from "../../lib/supabase";
 import { getActiveStoreId } from "../../lib/stores";
@@ -226,19 +227,19 @@ export default async function SuccessPage({
         </div>
 
         <div className="flex flex-wrap justify-center gap-4">
-          <a
+          <Link
             href="/shop"
             className="rounded px-6 py-3 font-bold"
             style={{ backgroundColor: theme.accent, color: theme.textOnAccent }}
           >
             Keep Collecting
-          </a>
-          <a
+          </Link>
+          <Link
             href="/"
             className="rounded border border-neutral-700 px-6 py-3 font-bold text-white"
           >
             Back Home
-          </a>
+          </Link>
         </div>
       </section>
     </main>

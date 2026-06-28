@@ -73,6 +73,14 @@ function isIdentityCheckExempt(pathname: string): boolean {
   );
 }
 
+function isLocalhostRequest(req: NextRequest): boolean {
+  return (
+    req.nextUrl.hostname === "localhost" ||
+    req.nextUrl.hostname === "127.0.0.1" ||
+    req.nextUrl.hostname === "::1"
+  );
+}
+
 function maskedIdentityResponse(req: NextRequest, reason: string | null) {
   const message = "Sorry, you must turn off your proxy or VPN to use this website.";
 
@@ -154,7 +162,7 @@ function unauthorized(req: NextRequest) {
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
-  if (!isIdentityCheckExempt(pathname)) {
+  if (!isIdentityCheckExempt(pathname) && !isLocalhostRequest(req)) {
     const clientIdentity = await getClientIdentity(req);
 
     if (clientIdentity.blocked) {

@@ -77,7 +77,7 @@ export async function POST(req: Request) {
       tos_ip_evidence: clientIdentity.evidence,
     };
 
-    let { data: offer, error } = await supabase
+    const { data: offer, error } = await supabase
       .from("offers")
       .insert([offerPayload])
       .select("*, products(title, price)")

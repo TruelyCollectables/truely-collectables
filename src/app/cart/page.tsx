@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import Link from "next/link";
+import { useState } from "react";
 import CheckoutButton from "../components/CheckoutButton";
 import {
   calculateShipping,
@@ -22,26 +23,29 @@ type CartItem = {
 };
 
 export default function CartPage() {
-  const [cart, setCart] = useState<CartItem[]>([]);
-  const [shippingMethod, setShippingMethod] =
-    useState<ShippingMethod>("GROUND_ADVANTAGE");
-  const [termsAccepted, setTermsAccepted] = useState(false);
+  const [cart, setCart] = useState<CartItem[]>(() => {
+    if (typeof window === "undefined") return [];
 
-  useEffect(() => {
     if (localStorage.getItem("checkoutSuccess") === "true") {
       localStorage.removeItem("checkoutSuccess");
       localStorage.removeItem("cart");
       sessionStorage.removeItem("cart");
-      setCart([]);
-      return;
+      return [];
     }
 
     const storedCart = localStorage.getItem("cart");
 
-    if (storedCart) {
-      setCart(JSON.parse(storedCart));
+    if (!storedCart) return [];
+
+    try {
+      return JSON.parse(storedCart) as CartItem[];
+    } catch {
+      return [];
     }
-  }, []);
+  });
+  const [shippingMethod, setShippingMethod] =
+    useState<ShippingMethod>("GROUND_ADVANTAGE");
+  const [termsAccepted, setTermsAccepted] = useState(false);
 
   function saveCart(updatedCart: CartItem[]) {
     setCart(updatedCart);
@@ -109,12 +113,12 @@ export default function CartPage() {
       {cart.length === 0 ? (
         <section className="rounded border bg-white p-8">
           <p className="text-lg font-bold">Your cart is empty.</p>
-          <a
+          <Link
             href="/shop"
             className="mt-5 inline-block rounded bg-neutral-950 px-5 py-3 font-bold text-white"
           >
             Shop Inventory
-          </a>
+          </Link>
         </section>
       ) : (
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_360px]">

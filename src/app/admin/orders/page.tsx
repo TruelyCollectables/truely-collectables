@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { supabase } from "../../../lib/supabase";
 import { getActiveStoreId } from "../../../lib/stores";
 
@@ -109,18 +110,18 @@ export default async function AdminOrdersPage({
         </div>
 
         <div className="flex gap-3">
-          <a href="/admin/products" className="border rounded px-4 py-2">
+          <Link href="/admin/products" className="border rounded px-4 py-2">
             Products
-          </a>
-          <a href="/admin/offers" className="border rounded px-4 py-2">
+          </Link>
+          <Link href="/admin/offers" className="border rounded px-4 py-2">
             Offers
-          </a>
-          <a href="/admin/files" className="border rounded px-4 py-2">
+          </Link>
+          <Link href="/admin/files" className="border rounded px-4 py-2">
             Files
-          </a>
-          <a href="/admin/logout" className="border rounded px-4 py-2">
+          </Link>
+          <Link href="/admin/logout" className="border rounded px-4 py-2">
             Logout
-          </a>
+          </Link>
         </div>
       </div>
 
