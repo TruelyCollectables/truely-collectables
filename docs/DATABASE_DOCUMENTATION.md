@@ -350,6 +350,14 @@ Backfill behavior:
 - copies missing product images into `inventory_images`
 - records per-row failures instead of stopping the whole run
 
+Checkout availability behavior:
+
+- `inventoryEngine.requireAvailableCartItems()` requires the product to exist
+- item status must be `active`
+- requested quantity must be available
+- checkout price must be greater than zero
+- offer accept/counter checkout creation uses this same gate
+
 Bridge labels returned by the engine:
 
 - `ok`

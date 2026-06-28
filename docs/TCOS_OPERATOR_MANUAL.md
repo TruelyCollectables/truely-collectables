@@ -842,6 +842,7 @@ Checkout validates:
 - each product exists
 - each product is `active`
 - each product has enough quantity
+- each product has a price greater than zero
 
 Then it creates a Stripe checkout session.
 
@@ -893,6 +894,10 @@ On `checkout.session.completed`:
 8. Email evidence PDF if evidence email is configured.
 
 Accepted-offer sessions use `product_id` metadata if cart metadata is missing.
+
+Safety rule:
+
+Inventory is decremented only after the order item row is successfully recorded. If order item insertion fails, the webhook logs the failure and does not reduce stock for that line.
 
 Order webhooks store TOS/IP acceptance fields and create a transaction evidence report. The evidence report is intended for chargeback defense, fraud review, and legal dispute support.
 
@@ -1129,6 +1134,10 @@ Admin actions:
 Accept/counter creates a Stripe checkout link.
 
 Offer checkout payment decrements inventory through TCOS V2.
+
+Accepted and counter offers must pass `inventoryEngine.requireAvailableCartItems()` before TCOS creates the Stripe checkout session. That means the product must exist, be active, have enough quantity, and have a positive checkout price.
+
+Accepted and counter offer Stripe sessions include Store #1 metadata, cart metadata, subtotal, item count, and zero-dollar offer-checkout shipping metadata so the webhook can create a normal order record.
 
 Accepted and counter offer Stripe sessions carry the TOS acceptance metadata from the original customer offer when available.
 

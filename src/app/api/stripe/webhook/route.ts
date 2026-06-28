@@ -153,7 +153,7 @@ export async function POST(req: Request) {
 
         if (!product) continue;
 
-        await supabase.from("order_items").insert({
+        const { error: itemError } = await supabase.from("order_items").insert({
           store_id: storeId,
           order_id: order.id,
           product_id: product.legacyProductId,
@@ -161,6 +161,11 @@ export async function POST(req: Request) {
           price: Number(product.price),
           quantity: cartItem.quantity,
         });
+
+        if (itemError) {
+          console.error("Order item insert failed:", itemError.message);
+          continue;
+        }
 
         const mutation = await inventoryEngine.decrementAfterSale({
           legacyProductId: product.legacyProductId,

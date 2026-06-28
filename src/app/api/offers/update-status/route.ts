@@ -2,7 +2,10 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
 import { Resend } from "resend";
-import { inventoryEngine } from "../../../../modules/inventory";
+import {
+  InventoryEngineError,
+  inventoryEngine,
+} from "../../../../modules/inventory";
 import { getStoreSettings } from "../../../../lib/store-settings";
 import { getActiveStoreId } from "../../../../lib/stores";
 
@@ -99,16 +102,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true, offer: updatedOffer });
     }
 
-    const inventoryItem = await inventoryEngine.getByLegacyProductId(
-      Number(offer.products.id)
-    );
-
-    if (!inventoryItem || inventoryItem.quantity <= 0) {
-      return NextResponse.json(
-        { error: "Product is already sold out" },
-        { status: 400 }
-      );
-    }
+    await inventoryEngine.requireAvailableCartItems([
+      { id: Number(offer.products.id), quantity: 1 },
+    ]);
 
     const origin =
       req.headers.get("origin") ||
@@ -133,11 +129,18 @@ export async function POST(req: Request) {
         },
       ],
       metadata: {
+        store_id: storeId,
         type: "accepted_offer",
         offer_id: String(offer.id),
         product_id: String(offer.products.id),
         ebay_item_id: offer.products.ebay_item_id || "",
         offer_amount: String(amount),
+        cart: JSON.stringify([{ id: Number(offer.products.id), quantity: 1 }]),
+        subtotal: amount.toFixed(2),
+        item_count: "1",
+        shipping_method: "OFFER_CHECKOUT",
+        shipping_name: "Offer checkout",
+        shipping_amount: "0.00",
         tos_accepted: offer.tos_accepted ? "true" : "false",
         tos_version: offer.tos_version || "",
         tos_accepted_at: offer.tos_accepted_at || "",
@@ -195,6 +198,13 @@ export async function POST(req: Request) {
       checkoutUrl: session.url,
     });
   } catch (error: any) {
+    if (error instanceof InventoryEngineError) {
+      return NextResponse.json(
+        { error: error.message },
+        { status: error.statusCode }
+      );
+    }
+
     return NextResponse.json(
       { error: error.message || "Failed to update offer" },
       { status: 500 }

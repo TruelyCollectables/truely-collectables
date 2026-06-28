@@ -937,6 +937,7 @@ src/lib/collector-intelligence.ts</code></pre>
 <li>each product exists</li>
 <li>each product is <code>active</code></li>
 <li>each product has enough quantity</li>
+<li>each product has a price greater than zero</li>
 </ul>
 <p>Then it creates a Stripe checkout session.</p>
 <p>Successful cart checkout sends the buyer to:</p>
@@ -974,6 +975,8 @@ src/lib/collector-intelligence.ts</code></pre>
 <li>Email evidence PDF if evidence email is configured.</li>
 </ol>
 <p>Accepted-offer sessions use <code>product_id</code> metadata if cart metadata is missing.</p>
+<p>Safety rule:</p>
+<p>Inventory is decremented only after the order item row is successfully recorded. If order item insertion fails, the webhook logs the failure and does not reduce stock for that line.</p>
 <p>Order webhooks store TOS/IP acceptance fields and create a transaction evidence report. The evidence report is intended for chargeback defense, fraud review, and legal dispute support.</p>
 <p>Offer and counter-offer Stripe success URLs send buyers to:</p>
 <pre><code>/success?type=offer&amp;session_id={CHECKOUT_SESSION_ID}
@@ -1146,6 +1149,8 @@ src/app/api/admin/files/[id]/download/route.ts</code></pre>
 </ul>
 <p>Accept/counter creates a Stripe checkout link.</p>
 <p>Offer checkout payment decrements inventory through TCOS V2.</p>
+<p>Accepted and counter offers must pass <code>inventoryEngine.requireAvailableCartItems()</code> before TCOS creates the Stripe checkout session. That means the product must exist, be active, have enough quantity, and have a positive checkout price.</p>
+<p>Accepted and counter offer Stripe sessions include Store #1 metadata, cart metadata, subtotal, item count, and zero-dollar offer-checkout shipping metadata so the webhook can create a normal order record.</p>
 <p>Accepted and counter offer Stripe sessions carry the TOS acceptance metadata from the original customer offer when available.</p>
 <h2>22. Seller Accounts And Auctions</h2>
 <p>Seller accounts and auctions are future-build features. Do not create placeholder seller tables or fake seller account workflows before the real account model is designed.</p>

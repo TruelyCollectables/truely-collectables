@@ -656,6 +656,13 @@ export class InventoryEngine {
           400
         );
       }
+
+      if (inventoryItem.price <= 0) {
+        throw new InventoryEngineError(
+          `${inventoryItem.title} is not priced for checkout`,
+          400
+        );
+      }
     }
 
     return items;
