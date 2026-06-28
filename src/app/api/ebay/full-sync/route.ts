@@ -1,79 +1,56 @@
 import { NextResponse } from "next/server";
-import { createClient } from "@supabase/supabase-js";
-import { getActiveStoreId } from "../../../../lib/stores";
-import { getStoreSettings } from "../../../../lib/store-settings";
+import { importEbayListingsPage } from "../../../../lib/ebay-sync";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const SITE_URL =
-  process.env.NEXT_PUBLIC_SITE_URL ||
-  "https://truely-collectables.vercel.app";
-
 const LIMIT = 100;
 const MAX_BATCHES = 25;
 
-function getSupabaseClient() {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
-
-  if (!supabaseUrl || !supabaseKey) {
-    throw new Error("Missing Supabase environment variables");
-  }
-
-  return createClient(supabaseUrl, supabaseKey);
-}
-
 export async function GET() {
   try {
-    const supabase = getSupabaseClient();
-    const storeId = getActiveStoreId();
-    const storeSettings = await getStoreSettings(supabase, storeId);
-
-    if (!storeSettings.ebaySyncEnabled) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: "eBay sync is disabled for this store",
-          storeId,
-        },
-        { status: 403 },
-      );
-    }
-
     const results = [];
     const runId = new Date().toISOString();
-
     let offset = 0;
+    let totals = {
+      received: 0,
+      imported: 0,
+      markedSold: 0,
+      skipped: 0,
+    };
 
     for (let batch = 1; batch <= MAX_BATCHES; batch++) {
-      const url =
-        `${SITE_URL}/api/ebay/import-listings` +
-        `?offset=${offset}` +
-        `&limit=${LIMIT}` +
-        `&runId=${encodeURIComponent(runId)}`;
+      const result = await importEbayListingsPage({
+        offset,
+        limit: LIMIT,
+        runId,
+      });
 
-      const res = await fetch(url, { cache: "no-store" });
-      const data = await res.json();
+      totals = {
+        received: totals.received + result.received,
+        imported: totals.imported + result.imported,
+        markedSold: totals.markedSold + result.markedSold,
+        skipped: totals.skipped + result.skipped,
+      };
 
       results.push({
         batch,
         offset,
-        status: res.status,
-        ok: res.ok,
-        received: data?.received,
-        imported: data?.imported,
-        markedSold: data?.markedSold,
-        skipped: data?.skipped,
-        nextOffset: data?.nextOffset,
-        error: data?.error,
+        status: 200,
+        ok: true,
+        received: result.received,
+        imported: result.imported,
+        markedSold: result.markedSold,
+        skipped: result.skipped,
+        nextOffset: result.nextOffset,
+        debugSamples: result.debugSamples,
       });
 
-      if (!res.ok || data?.nextOffset === null) {
+      if (result.nextOffset === null) {
         break;
       }
 
-      offset = data.nextOffset;
+      offset = result.nextOffset;
     }
 
     return NextResponse.json({
@@ -81,15 +58,19 @@ export async function GET() {
       message: "Full eBay sync completed",
       runId,
       limit: LIMIT,
+      maxBatches: MAX_BATCHES,
+      totals,
       results,
     });
   } catch (error: any) {
+    const message = error.message || "Full sync failed";
+
     return NextResponse.json(
       {
         success: false,
-        error: error.message || "Full sync failed",
+        error: message,
       },
-      { status: 500 }
+      { status: message.includes("disabled") ? 403 : 500 },
     );
   }
 }

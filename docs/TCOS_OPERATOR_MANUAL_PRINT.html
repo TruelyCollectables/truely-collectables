@@ -845,6 +845,9 @@ src/lib/collector-intelligence.ts</code></pre>
 <li>If listing is not active, marks local quantity zero.</li>
 </ol>
 <p>It does not delete eBay inventory.</p>
+<p>Current sync implementation:</p>
+<pre><code>src/lib/ebay-sync.ts</code></pre>
+<p>Both single-page import and full sync use this shared server-side importer. Full sync calls the importer directly instead of calling TCOS through its own protected HTTP route, so it does not depend on an admin browser cookie or <code>NEXT_PUBLIC_SITE_URL</code> to keep running. This keeps Truely Collectables eBay sync more reliable when the toggle is enabled.</p>
 <h3>eBay Health</h3>
 <p>Open:</p>
 <pre><code>/admin/ebay</code></pre>
@@ -1178,6 +1181,14 @@ src/app/api/admin/files/[id]/download/route.ts</code></pre>
 <p>Accepted and counter offer Stripe sessions carry the TOS acceptance metadata from the original customer offer when available.</p>
 <h2>22. Seller Accounts And Auctions</h2>
 <p>Seller accounts and auctions are future-build features. Do not create placeholder seller tables or fake seller account workflows before the real account model is designed.</p>
+<p>Account signup direction:</p>
+<ul>
+<li>TCOS accounts should use email and password as the baseline login method.</li>
+<li>Buyer/customer accounts, seller/store accounts, and platform-admin accounts must stay separate.</li>
+<li>Platform admin access for Dag Danky Holdings LLC must not be mixed with Truely Collectables LLC seller/buyer activity.</li>
+<li>Future seller accounts must have their own profile, verification status, payout-provider IDs, TOS acceptance, audit trail, and permissions.</li>
+<li>Future buyer accounts must have their own profile, order history, TOS acceptance, saved addresses, collection, wishlist, want ads, and communication preferences.</li>
+</ul>
 <p>Current seller legal page:</p>
 <pre><code>/seller-terms</code></pre>
 <p>Seller-account requirements:</p>

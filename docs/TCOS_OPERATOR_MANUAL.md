@@ -760,6 +760,14 @@ Import behavior:
 
 It does not delete eBay inventory.
 
+Current sync implementation:
+
+```text
+src/lib/ebay-sync.ts
+```
+
+Both single-page import and full sync use this shared server-side importer. Full sync calls the importer directly instead of calling TCOS through its own protected HTTP route, so it does not depend on an admin browser cookie or `NEXT_PUBLIC_SITE_URL` to keep running. This keeps Truely Collectables eBay sync more reliable when the toggle is enabled.
+
 ### eBay Health
 
 Open:
@@ -1183,6 +1191,14 @@ Accepted and counter offer Stripe sessions carry the TOS acceptance metadata fro
 ## 22. Seller Accounts And Auctions
 
 Seller accounts and auctions are future-build features. Do not create placeholder seller tables or fake seller account workflows before the real account model is designed.
+
+Account signup direction:
+
+- TCOS accounts should use email and password as the baseline login method.
+- Buyer/customer accounts, seller/store accounts, and platform-admin accounts must stay separate.
+- Platform admin access for Dag Danky Holdings LLC must not be mixed with Truely Collectables LLC seller/buyer activity.
+- Future seller accounts must have their own profile, verification status, payout-provider IDs, TOS acceptance, audit trail, and permissions.
+- Future buyer accounts must have their own profile, order history, TOS acceptance, saved addresses, collection, wishlist, want ads, and communication preferences.
 
 Current seller legal page:
 

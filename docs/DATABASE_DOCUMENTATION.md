@@ -401,6 +401,14 @@ The eBay page links to the existing protected routes:
 - `/api/ebay/full-sync`
 - `/api/ebay/auth`
 
+Shared eBay sync service:
+
+```text
+src/lib/ebay-sync.ts
+```
+
+Both `/api/ebay/import-listings` and `/api/ebay/full-sync` use this service. Full sync calls the importer directly instead of calling the protected import route through HTTP, so it does not require admin cookies or a correct public site URL to continue batch syncing.
+
 Store-level eBay sync toggle:
 
 ```text
