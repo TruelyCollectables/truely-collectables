@@ -318,6 +318,48 @@ Fields expected:
 | `attribute_value` | Attribute value |
 | `created_at` | Created timestamp |
 
+## Inventory Bridge Operations
+
+Inventory bridge logic lives in:
+
+```text
+src/modules/inventory/engine.ts
+```
+
+Current bridge methods:
+
+| Method | Purpose |
+| --- | --- |
+| `getBridgeStatus()` | Compares Store #1 `products` against `inventory_items` and returns reconciliation rows |
+| `backfillInventoryItemsFromProducts()` | Creates or updates V2 inventory rows from legacy products |
+
+Admin screen:
+
+```text
+src/app/admin/inventory/page.tsx
+```
+
+Backfill behavior:
+
+- scans active-store `products`
+- matches an existing V2 item by `legacy_product_id`
+- falls back to active-store SKU match when no legacy bridge exists
+- creates missing V2 rows
+- updates existing V2 rows with product title, description, category, status, quantity, price, SKU, and legacy product ID
+- copies missing product images into `inventory_images`
+- records per-row failures instead of stopping the whole run
+
+Bridge labels returned by the engine:
+
+- `ok`
+- `missing_inventory_item`
+- `sku_link_only`
+- `quantity_mismatch`
+- `price_mismatch`
+- `sold_out`
+
+eBay import now avoids global SKU upserts. The import updates by active-store eBay listing ID first, then by active-store SKU, then inserts only when no store-scoped product exists.
+
 ### `sales_comp_snapshots`
 
 Stores pricing comp history.

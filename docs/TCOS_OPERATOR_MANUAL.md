@@ -331,6 +331,31 @@ src/modules/inventory/engine.ts
 
 Do not bypass the engine for normal admin inventory changes.
 
+Inventory V2 bridge screen:
+
+```text
+/admin/inventory
+```
+
+Use this screen to verify that every legacy storefront product has a matching TCOS V2 `inventory_items` record. The page shows total legacy products, V2 bridged items, missing inventory rows, mismatch counts, active items, sold-out items, and eBay-linked items.
+
+The `Backfill V2 Inventory` button runs an idempotent backfill. It can be run more than once. It scans Store #1 products, creates missing `inventory_items`, updates existing inventory rows by legacy product ID or SKU, mirrors quantity/price/title/description/status, and adds product images into `inventory_images` when they are not already present.
+
+Reconciliation labels:
+
+| Label | Meaning |
+| --- | --- |
+| `OK` | Legacy product and V2 inventory row are aligned |
+| `MISSING INVENTORY ITEM` | Product exists but no V2 inventory row exists yet |
+| `SKU LINK ONLY` | V2 row matched by SKU but still needs the legacy product bridge filled |
+| `QUANTITY MISMATCH` | Legacy quantity and V2 quantity differ |
+| `PRICE MISMATCH` | Legacy price and V2 price differ |
+| `SOLD OUT` | Product quantity is zero; not a failure by itself |
+
+eBay import safety:
+
+The eBay import path is store-scoped. It first updates by Store #1 eBay listing ID, then by Store #1 SKU, then inserts a new product if no store-scoped match exists. It does not perform a global SKU upsert across all stores.
+
 ## 4A. Multi-Store Platform Foundation
 
 TCOS is being converted from a single-store Truely Collectables app into a multi-store Totally Collectibles OS platform without breaking Store #1.

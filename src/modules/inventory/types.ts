@@ -2,6 +2,7 @@ export type InventoryStatus = "draft" | "active" | "reserved" | "sold" | "archiv
 
 export type InventoryItem = {
   id: string;
+  store_id: string;
   legacy_product_id: number | null;
   sku: string | null;
   title: string;
@@ -113,4 +114,54 @@ export type InventoryDescriptionInput = {
   sku: string | null;
   ebayItemId: string | null;
   imageUrl?: string | null;
+};
+
+export type InventoryBridgeIssue =
+  | "missing_inventory_item"
+  | "quantity_mismatch"
+  | "price_mismatch"
+  | "sku_link_only"
+  | "sold_out"
+  | "ok";
+
+export type InventoryBridgeRow = {
+  legacyProductId: number;
+  inventoryItemId: string | null;
+  title: string;
+  sku: string | null;
+  ebayItemId: string | null;
+  productQuantity: number;
+  inventoryQuantity: number | null;
+  productPrice: number;
+  inventoryPrice: number | null;
+  status: InventoryStatus;
+  source: "inventory_items" | "products";
+  issues: InventoryBridgeIssue[];
+};
+
+export type InventoryBridgeStatus = {
+  storeId: string;
+  totalProducts: number;
+  bridgedItems: number;
+  missingInventoryItems: number;
+  skuLinkedItems: number;
+  quantityMismatches: number;
+  priceMismatches: number;
+  activeItems: number;
+  soldOutItems: number;
+  ebayLinkedItems: number;
+  rows: InventoryBridgeRow[];
+};
+
+export type InventoryBackfillResult = {
+  storeId: string;
+  scanned: number;
+  created: number;
+  updated: number;
+  imagesAdded: number;
+  failed: Array<{
+    legacyProductId: number;
+    title: string;
+    message: string;
+  }>;
 };

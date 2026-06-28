@@ -5,6 +5,10 @@ import { InventoryRepository, inventoryRepository } from "./repository";
 import type {
   InventoryItem,
   InventoryStatus,
+  InventoryBackfillResult,
+  InventoryBridgeIssue,
+  InventoryBridgeRow,
+  InventoryBridgeStatus,
   InventoryDescriptionInput,
   LegacyProductSnapshot,
   UpdateInventoryProductInput,
@@ -115,6 +119,15 @@ function mapUniversal(
     status: normalizeStatus(product.quantity),
     source: "products",
   };
+}
+
+function pricesMatch(left: number, right: number | null) {
+  if (right === null) return false;
+  return Math.round(left * 100) === Math.round(toNumber(right) * 100);
+}
+
+function primaryIssue(issues: InventoryBridgeIssue[]) {
+  return issues.length > 0 ? issues : ["ok" as const];
 }
 
 function cleanText(value: string | null | undefined) {
@@ -262,6 +275,205 @@ export class InventoryEngine {
     }
 
     return items;
+  }
+
+  async getBridgeStatus(): Promise<InventoryBridgeStatus> {
+    const [{ data: products, error: productsError }, { data: inventoryItems, error: inventoryError }] =
+      await Promise.all([
+        supabase
+          .from("products")
+          .select("*")
+          .eq("store_id", this.storeId)
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("inventory_items")
+          .select("*")
+          .eq("store_id", this.storeId),
+      ]);
+
+    if (productsError) throw productsError;
+    if (inventoryError) throw inventoryError;
+
+    const items = (inventoryItems ?? []) as InventoryItem[];
+    const byLegacyProductId = new Map<number, InventoryItem>();
+    const bySku = new Map<string, InventoryItem>();
+
+    for (const item of items) {
+      if (item.legacy_product_id) {
+        byLegacyProductId.set(Number(item.legacy_product_id), item);
+      }
+
+      if (item.sku) {
+        bySku.set(item.sku, item);
+      }
+    }
+
+    const rows: InventoryBridgeRow[] = (products ?? []).map((productRow) => {
+      const product = mapLegacyProduct(productRow);
+      const legacyLinkedItem = byLegacyProductId.get(product.id) ?? null;
+      const skuLinkedItem = product.sku ? bySku.get(product.sku) ?? null : null;
+      const inventoryItem = legacyLinkedItem ?? skuLinkedItem;
+      const issues: InventoryBridgeIssue[] = [];
+
+      if (!inventoryItem) {
+        issues.push("missing_inventory_item");
+      } else {
+        if (!legacyLinkedItem && skuLinkedItem) {
+          issues.push("sku_link_only");
+        }
+
+        if (toNumber(inventoryItem.quantity) !== product.quantity) {
+          issues.push("quantity_mismatch");
+        }
+
+        if (!pricesMatch(product.price, inventoryItem.price)) {
+          issues.push("price_mismatch");
+        }
+      }
+
+      if (product.quantity <= 0) {
+        issues.push("sold_out");
+      }
+
+      return {
+        legacyProductId: product.id,
+        inventoryItemId: inventoryItem?.id ?? null,
+        title: product.title,
+        sku: product.sku,
+        ebayItemId: product.ebay_item_id,
+        productQuantity: product.quantity,
+        inventoryQuantity:
+          inventoryItem?.quantity === undefined ? null : toNumber(inventoryItem.quantity),
+        productPrice: product.price,
+        inventoryPrice:
+          inventoryItem?.price === undefined ? null : toNumber(inventoryItem.price),
+        status: inventoryItem?.status ?? normalizeStatus(product.quantity),
+        source: inventoryItem ? "inventory_items" : "products",
+        issues: primaryIssue(issues),
+      };
+    });
+
+    return {
+      storeId: this.storeId,
+      totalProducts: rows.length,
+      bridgedItems: rows.filter((row) => row.inventoryItemId).length,
+      missingInventoryItems: rows.filter((row) =>
+        row.issues.includes("missing_inventory_item")
+      ).length,
+      skuLinkedItems: rows.filter((row) => row.issues.includes("sku_link_only")).length,
+      quantityMismatches: rows.filter((row) =>
+        row.issues.includes("quantity_mismatch")
+      ).length,
+      priceMismatches: rows.filter((row) => row.issues.includes("price_mismatch")).length,
+      activeItems: rows.filter((row) => row.productQuantity > 0).length,
+      soldOutItems: rows.filter((row) => row.productQuantity <= 0).length,
+      ebayLinkedItems: rows.filter((row) => row.ebayItemId).length,
+      rows,
+    };
+  }
+
+  async backfillInventoryItemsFromProducts(): Promise<InventoryBackfillResult> {
+    const { data: products, error } = await supabase
+      .from("products")
+      .select("*")
+      .eq("store_id", this.storeId)
+      .order("id");
+
+    if (error) throw error;
+
+    const result: InventoryBackfillResult = {
+      storeId: this.storeId,
+      scanned: products?.length ?? 0,
+      created: 0,
+      updated: 0,
+      imagesAdded: 0,
+      failed: [],
+    };
+
+    for (const productRow of products ?? []) {
+      const product = mapLegacyProduct(productRow);
+
+      try {
+        const existing =
+          (await this.repository.getByLegacyProductId(product.id)) ??
+          (product.sku ? await this.repository.getBySku(product.sku) : null);
+
+        const payload = {
+          legacy_product_id: product.id,
+          sku: product.sku,
+          title: product.title,
+          description:
+            product.description ??
+            generateInventoryDescription({
+              title: product.title,
+              player: product.player,
+              sport: product.sport,
+              price: product.price,
+              quantity: product.quantity,
+              status: normalizeStatus(product.quantity),
+              sku: product.sku,
+              ebayItemId: product.ebay_item_id,
+              imageUrl: product.image_url,
+            }),
+          category: product.sport ?? "sports cards",
+          condition: "unknown",
+          status: normalizeStatus(product.quantity),
+          quantity: product.quantity,
+          price: product.price,
+          currency: "USD",
+          notes: product.ebay_item_id ? `eBay listing ${product.ebay_item_id}` : null,
+        };
+
+        const inventoryItem = existing
+          ? await this.repository.update(existing.id, payload)
+          : await this.repository.create(payload);
+
+        if (existing) {
+          result.updated++;
+        } else {
+          result.created++;
+        }
+
+        if (product.image_url) {
+          const images = await this.repository.getImages(inventoryItem.id);
+          const hasImage = images.some(
+            (image) => image.image_url === product.image_url
+          );
+
+          if (!hasImage) {
+            await this.repository.addImage({
+              inventoryItemId: inventoryItem.id,
+              imageUrl: product.image_url,
+              altText: product.title,
+              sortOrder: images.length,
+              isPrimary: images.length === 0,
+            });
+
+            result.imagesAdded++;
+          }
+        }
+      } catch (backfillError: any) {
+        result.failed.push({
+          legacyProductId: product.id,
+          title: product.title,
+          message: backfillError.message || "Unknown inventory backfill error",
+        });
+      }
+    }
+
+    await eventBus.publish(
+      "inventory.backfilled",
+      {
+        scanned: result.scanned,
+        created: result.created,
+        updated: result.updated,
+        imagesAdded: result.imagesAdded,
+        failed: result.failed.length,
+      },
+      "inventory-engine"
+    );
+
+    return result;
   }
 
   async getByLegacyProductId(
@@ -451,15 +663,36 @@ export class InventoryEngine {
     }
 
     if (!legacyProduct) {
-      const { data: product, error: upsertError } = await supabase
+      const { data: skuMatches, error: lookupError } = await supabase
         .from("products")
-        .upsert(productData, { onConflict: "sku" })
         .select("*")
-        .single();
+        .eq("sku", input.sku)
+        .eq("store_id", this.storeId)
+        .limit(1);
 
-      if (upsertError) throw upsertError;
+      if (lookupError) throw lookupError;
 
-      legacyProduct = mapLegacyProduct(product);
+      if (skuMatches && skuMatches.length > 0) {
+        const { data: updatedRows, error: updateError } = await supabase
+          .from("products")
+          .update(productData)
+          .eq("id", skuMatches[0].id)
+          .eq("store_id", this.storeId)
+          .select("*");
+
+        if (updateError) throw updateError;
+        legacyProduct = mapLegacyProduct(updatedRows?.[0] ?? skuMatches[0]);
+      } else {
+        const { data: product, error: insertError } = await supabase
+          .from("products")
+          .insert(productData)
+          .select("*")
+          .single();
+
+        if (insertError) throw insertError;
+
+        legacyProduct = mapLegacyProduct(product);
+      }
     }
 
     const inventoryItem = await this.repository.upsertBySku({
