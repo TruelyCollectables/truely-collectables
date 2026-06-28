@@ -2023,6 +2023,7 @@ supabase/migrations
 Current migration:
 
 ```text
+20260628114000_create_inventory_tables.sql
 20260628113000_create_store_settings.sql
 20260628110000_create_tcos_stores.sql
 20260627160000_create_sales_comp_snapshots.sql

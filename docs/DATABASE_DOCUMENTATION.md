@@ -433,6 +433,15 @@ Creates:
 - eBay environment/account label
 - seller commission rate foundation
 
+### `20260628114000_create_inventory_tables.sql`
+
+Creates:
+
+- `inventory_items`
+- `inventory_images`
+- `inventory_attributes`
+- indexes for SKU, status, image ordering, and attributes
+
 ### `20260627160000_create_sales_comp_snapshots.sql`
 
 Creates:

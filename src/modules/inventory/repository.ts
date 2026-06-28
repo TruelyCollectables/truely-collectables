@@ -123,36 +123,28 @@ export class InventoryRepository {
       throw new Error("Cannot upsert inventory item without a SKU");
     }
 
-    const { data, error } = await supabase
-      .from("inventory_items")
-      .upsert(
-        {
-          legacy_product_id: input.legacy_product_id ?? null,
-          store_id: this.storeId,
-          sku: input.sku,
-          title: input.title,
-          description: input.description ?? null,
-          category: input.category ?? "other",
-          condition: input.condition ?? "unknown",
-          status: input.status ?? "active",
-          quantity: input.quantity ?? 1,
-          cost: input.cost ?? null,
-          price: input.price ?? 0,
-          currency: input.currency ?? "USD",
-          location: input.location ?? null,
-          notes: input.notes ?? null,
-          updated_at: new Date().toISOString(),
-        },
-        {
-          onConflict: "sku",
-        }
-      )
-      .select("*")
-      .single();
+    const existing = await this.getBySku(input.sku);
+    const payload = {
+      legacy_product_id: input.legacy_product_id ?? null,
+      sku: input.sku,
+      title: input.title,
+      description: input.description ?? null,
+      category: input.category ?? "other",
+      condition: input.condition ?? "unknown",
+      status: input.status ?? "active",
+      quantity: input.quantity ?? 1,
+      cost: input.cost ?? null,
+      price: input.price ?? 0,
+      currency: input.currency ?? "USD",
+      location: input.location ?? null,
+      notes: input.notes ?? null,
+    };
 
-    if (error) throw error;
+    if (existing) {
+      return this.update(existing.id, payload);
+    }
 
-    return data as InventoryItem;
+    return this.create(payload);
   }
 
   async update(id: string, input: UpdateInventoryItemInput): Promise<InventoryItem> {
