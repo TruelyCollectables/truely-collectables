@@ -845,6 +845,82 @@ src/lib/collector-intelligence.ts</code></pre>
 <li>If listing is not active, marks local quantity zero.</li>
 </ol>
 <p>It does not delete eBay inventory.</p>
+<h3>eBay Health</h3>
+<p>Open:</p>
+<pre><code>/admin/ebay</code></pre>
+<p>This page is the local eBay reconciliation board. It does not call eBay on page load. It reads TCOS product and inventory data to show whether Store #1 inventory looks ready for eBay sync.</p>
+<p>The page shows:</p>
+<ul>
+<li>total products</li>
+<li>eBay-linked products</li>
+<li>healthy linked products</li>
+<li>products needing attention</li>
+<li>missing SKU count</li>
+<li>never-synced count</li>
+<li>stale-sync count</li>
+<li>sold-out count</li>
+<li>latest eBay import timestamp</li>
+</ul>
+<p>Health labels:</p>
+<table>
+<thead><tr>
+<th>Label</th>
+<th>Meaning</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><code>OK</code></td>
+<td>Linked product has no local sync warning</td>
+</tr>
+<tr>
+<td><code>MISSING SKU</code></td>
+<td>Product cannot safely sync to eBay inventory without a SKU</td>
+</tr>
+<tr>
+<td><code>NOT LINKED</code></td>
+<td>Product is local-only and has no eBay listing ID</td>
+</tr>
+<tr>
+<td><code>NEVER SYNCED</code></td>
+<td>Product has an eBay listing ID but no <code>last_seen_at</code> import timestamp</td>
+</tr>
+<tr>
+<td><code>STALE SYNC</code></td>
+<td>Product has not been seen by eBay import in the configured stale window</td>
+</tr>
+<tr>
+<td><code>SOLD OUT</code></td>
+<td>Local TCOS quantity is zero</td>
+</tr>
+</tbody></table>
+<p>Current stale window:</p>
+<pre><code>12 hours</code></pre>
+<p>Buttons on the page:</p>
+<table>
+<thead><tr>
+<th>Button</th>
+<th>Purpose</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><code>Test Route</code></td>
+<td>Confirms the eBay test route responds</td>
+</tr>
+<tr>
+<td><code>Import Batch</code></td>
+<td>Runs one import page from eBay</td>
+</tr>
+<tr>
+<td><code>Full Sync</code></td>
+<td>Runs the batch eBay import loop</td>
+</tr>
+<tr>
+<td><code>Reconnect</code></td>
+<td>Starts eBay OAuth again</td>
+</tr>
+</tbody></table>
+<p>Rule:</p>
+<p>Use <code>/admin/ebay</code> before and after large imports. Missing SKU and stale sync warnings should be reviewed before assuming local inventory and eBay inventory agree.</p>
 <h2>15. Checkout</h2>
 <p>Checkout route:</p>
 <pre><code>/api/checkout</code></pre>

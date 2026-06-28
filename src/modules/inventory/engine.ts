@@ -5,6 +5,8 @@ import { InventoryRepository, inventoryRepository } from "./repository";
 import type {
   InventoryItem,
   InventoryStatus,
+  EbayReconciliationIssue,
+  EbayReconciliationStatus,
   InventoryBackfillResult,
   InventoryBridgeIssue,
   InventoryBridgeRow,
@@ -77,6 +79,7 @@ function mapLegacyProduct(product: any): LegacyProductSnapshot {
     quantity: toNumber(product.quantity),
     image_url: product.image_url ?? null,
     ebay_item_id: product.ebay_item_id ?? null,
+    last_seen_at: product.last_seen_at ?? null,
     player: product.player ?? null,
     sport: product.sport ?? null,
   };
@@ -128,6 +131,20 @@ function pricesMatch(left: number, right: number | null) {
 
 function primaryIssue(issues: InventoryBridgeIssue[]) {
   return issues.length > 0 ? issues : ["ok" as const];
+}
+
+function primaryEbayIssue(issues: EbayReconciliationIssue[]) {
+  return issues.length > 0 ? issues : ["ok" as const];
+}
+
+function hoursSince(value: string | null) {
+  if (!value) return null;
+
+  const timestamp = new Date(value).getTime();
+
+  if (!Number.isFinite(timestamp)) return null;
+
+  return Math.max(0, Math.round((Date.now() - timestamp) / 36_000) / 100);
 }
 
 function cleanText(value: string | null | undefined) {
@@ -474,6 +491,88 @@ export class InventoryEngine {
     );
 
     return result;
+  }
+
+  async getEbayReconciliationStatus(params: {
+    staleAfterHours?: number;
+  } = {}): Promise<EbayReconciliationStatus> {
+    const staleAfterHours = params.staleAfterHours ?? 12;
+    const { data: products, error } = await supabase
+      .from("products")
+      .select("*")
+      .eq("store_id", this.storeId)
+      .order("created_at", { ascending: false });
+
+    if (error) throw error;
+
+    const rows = (products ?? []).map((productRow) => {
+      const product = mapLegacyProduct(productRow);
+      const syncAgeHours = hoursSince(product.last_seen_at);
+      const issues: EbayReconciliationIssue[] = [];
+
+      if (!product.sku) {
+        issues.push("missing_sku");
+      }
+
+      if (!product.ebay_item_id) {
+        issues.push("not_linked");
+      }
+
+      if (product.ebay_item_id && !product.last_seen_at) {
+        issues.push("never_synced");
+      }
+
+      if (
+        product.ebay_item_id &&
+        syncAgeHours !== null &&
+        syncAgeHours > staleAfterHours
+      ) {
+        issues.push("stale_sync");
+      }
+
+      if (product.quantity <= 0) {
+        issues.push("sold_out");
+      }
+
+      return {
+        legacyProductId: product.id,
+        title: product.title,
+        sku: product.sku,
+        ebayItemId: product.ebay_item_id,
+        quantity: product.quantity,
+        price: product.price,
+        status: normalizeStatus(product.quantity),
+        lastSeenAt: product.last_seen_at,
+        syncAgeHours,
+        issues: primaryEbayIssue(issues),
+      };
+    });
+
+    const latestSeenAt =
+      rows
+        .map((row) => row.lastSeenAt)
+        .filter(Boolean)
+        .sort()
+        .at(-1) ?? null;
+
+    return {
+      storeId: this.storeId,
+      totalProducts: rows.length,
+      ebayLinkedItems: rows.filter((row) => row.ebayItemId).length,
+      localOnlyItems: rows.filter((row) => row.issues.includes("not_linked")).length,
+      missingSkuItems: rows.filter((row) => row.issues.includes("missing_sku")).length,
+      neverSyncedItems: rows.filter((row) => row.issues.includes("never_synced")).length,
+      staleItems: rows.filter((row) => row.issues.includes("stale_sync")).length,
+      soldOutItems: rows.filter((row) => row.issues.includes("sold_out")).length,
+      healthyLinkedItems: rows.filter(
+        (row) =>
+          row.ebayItemId &&
+          row.issues.every((issue) => issue === "ok" || issue === "sold_out")
+      ).length,
+      latestSeenAt,
+      staleAfterHours,
+      rows,
+    };
   }
 
   async getByLegacyProductId(

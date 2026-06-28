@@ -31,6 +31,7 @@ export type LegacyProductSnapshot = {
   quantity: number;
   image_url: string | null;
   ebay_item_id: string | null;
+  last_seen_at: string | null;
 };
 
 export type UniversalInventoryItem = {
@@ -164,4 +165,40 @@ export type InventoryBackfillResult = {
     title: string;
     message: string;
   }>;
+};
+
+export type EbayReconciliationIssue =
+  | "missing_sku"
+  | "not_linked"
+  | "never_synced"
+  | "stale_sync"
+  | "sold_out"
+  | "ok";
+
+export type EbayReconciliationRow = {
+  legacyProductId: number;
+  title: string;
+  sku: string | null;
+  ebayItemId: string | null;
+  quantity: number;
+  price: number;
+  status: InventoryStatus;
+  lastSeenAt: string | null;
+  syncAgeHours: number | null;
+  issues: EbayReconciliationIssue[];
+};
+
+export type EbayReconciliationStatus = {
+  storeId: string;
+  totalProducts: number;
+  ebayLinkedItems: number;
+  localOnlyItems: number;
+  missingSkuItems: number;
+  neverSyncedItems: number;
+  staleItems: number;
+  soldOutItems: number;
+  healthyLinkedItems: number;
+  latestSeenAt: string | null;
+  staleAfterHours: number;
+  rows: EbayReconciliationRow[];
 };

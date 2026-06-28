@@ -760,6 +760,58 @@ Import behavior:
 
 It does not delete eBay inventory.
 
+### eBay Health
+
+Open:
+
+```text
+/admin/ebay
+```
+
+This page is the local eBay reconciliation board. It does not call eBay on page load. It reads TCOS product and inventory data to show whether Store #1 inventory looks ready for eBay sync.
+
+The page shows:
+
+- total products
+- eBay-linked products
+- healthy linked products
+- products needing attention
+- missing SKU count
+- never-synced count
+- stale-sync count
+- sold-out count
+- latest eBay import timestamp
+
+Health labels:
+
+| Label | Meaning |
+| --- | --- |
+| `OK` | Linked product has no local sync warning |
+| `MISSING SKU` | Product cannot safely sync to eBay inventory without a SKU |
+| `NOT LINKED` | Product is local-only and has no eBay listing ID |
+| `NEVER SYNCED` | Product has an eBay listing ID but no `last_seen_at` import timestamp |
+| `STALE SYNC` | Product has not been seen by eBay import in the configured stale window |
+| `SOLD OUT` | Local TCOS quantity is zero |
+
+Current stale window:
+
+```text
+12 hours
+```
+
+Buttons on the page:
+
+| Button | Purpose |
+| --- | --- |
+| `Test Route` | Confirms the eBay test route responds |
+| `Import Batch` | Runs one import page from eBay |
+| `Full Sync` | Runs the batch eBay import loop |
+| `Reconnect` | Starts eBay OAuth again |
+
+Rule:
+
+Use `/admin/ebay` before and after large imports. Missing SKU and stale sync warnings should be reviewed before assuming local inventory and eBay inventory agree.
+
 ## 15. Checkout
 
 Checkout route:

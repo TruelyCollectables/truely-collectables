@@ -332,6 +332,7 @@ Current bridge methods:
 | --- | --- |
 | `getBridgeStatus()` | Compares Store #1 `products` against `inventory_items` and returns reconciliation rows |
 | `backfillInventoryItemsFromProducts()` | Creates or updates V2 inventory rows from legacy products |
+| `getEbayReconciliationStatus()` | Builds the local eBay listing health view from Store #1 product sync fields |
 
 Admin screen:
 
@@ -359,6 +360,38 @@ Bridge labels returned by the engine:
 - `sold_out`
 
 eBay import now avoids global SKU upserts. The import updates by active-store eBay listing ID first, then by active-store SKU, then inserts only when no store-scoped product exists.
+
+## eBay Reconciliation Operations
+
+Admin screen:
+
+```text
+src/app/admin/ebay/page.tsx
+```
+
+This screen reads local TCOS data only. It does not call eBay on page load. It uses `products.sku`, `products.ebay_item_id`, `products.quantity`, `products.price`, and `products.last_seen_at` to show local sync readiness.
+
+Current local eBay labels:
+
+- `ok`
+- `missing_sku`
+- `not_linked`
+- `never_synced`
+- `stale_sync`
+- `sold_out`
+
+Current stale-sync threshold:
+
+```text
+12 hours
+```
+
+The eBay page links to the existing protected routes:
+
+- `/api/ebay/test`
+- `/api/ebay/import-listings?offset=0&limit=50`
+- `/api/ebay/full-sync`
+- `/api/ebay/auth`
 
 ### `sales_comp_snapshots`
 
