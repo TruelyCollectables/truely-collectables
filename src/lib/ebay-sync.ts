@@ -113,6 +113,17 @@ function isActiveOffer(offer: any) {
   );
 }
 
+function isUnavailableOfferResponse(status: number, data: unknown) {
+  if (status === 404) return true;
+
+  const serialized = JSON.stringify(data).toLowerCase();
+
+  return (
+    serialized.includes("offer is not available") ||
+    serialized.includes("offer not available")
+  );
+}
+
 function clampLimit(value: number) {
   if (!Number.isFinite(value)) return DEFAULT_LIMIT;
   return Math.min(Math.max(value, 1), MAX_LIMIT);
@@ -190,6 +201,22 @@ export async function importEbayListingsPage(params: {
     const offerData = await offerRes.json();
 
     if (!offerRes.ok) {
+      if (isUnavailableOfferResponse(offerRes.status, offerData)) {
+        await inventoryEngine.markEbayListingInactive({
+          sku,
+          ebayItemId: null,
+        });
+
+        markedSold++;
+        debugSamples.push({
+          reason: "offer_unavailable",
+          sku,
+          status: offerRes.status,
+          offerData,
+        });
+        continue;
+      }
+
       skipped++;
       debugSamples.push({
         reason: "offer_lookup_failed",
@@ -204,9 +231,14 @@ export async function importEbayListingsPage(params: {
     const listingId = offer?.listing?.listingId || null;
 
     if (!offer) {
-      skipped++;
+      await inventoryEngine.markEbayListingInactive({
+        sku,
+        ebayItemId: null,
+      });
+
+      markedSold++;
       debugSamples.push({
-        reason: "no_offer_returned",
+        reason: "no_active_offer_returned",
         sku,
         offerData,
       });
