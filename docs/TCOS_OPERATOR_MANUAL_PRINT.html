@@ -422,6 +422,10 @@
 <td>Live payment and production readiness checklist</td>
 </tr>
 <tr>
+<td><code>/admin/inventory/category-review</code></td>
+<td>eBay import category confidence and review queue</td>
+</tr>
+<tr>
 <td><code>/admin/offers</code></td>
 <td>Offer review</td>
 </tr>
@@ -957,6 +961,9 @@ src/lib/collector-intelligence.ts</code></pre>
 <li><code>other_collectable</code></li>
 </ul>
 <p>The mapper stores category confidence in generated attributes. Low-confidence imports remain in inventory but receive <code>tcos_review_required = true</code> so admin review can identify listings that need better categorization instead of silently guessing wrong.</p>
+<p>Admin review:</p>
+<pre><code>/admin/inventory/category-review</code></pre>
+<p>This page shows mapped eBay imports, TCOS category confidence, review-required flags, mapping evidence, and sample eBay aspects. Review-required, low-confidence, and <code>other_collectable</code> rows appear first and link back to the product edit screen.</p>
 <p>Current sync implementation:</p>
 <pre><code>src/lib/ebay-sync.ts
 src/lib/ebay-category-mapper.ts</code></pre>

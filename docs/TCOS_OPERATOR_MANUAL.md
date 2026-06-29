@@ -271,6 +271,7 @@ Most day-to-day work starts at:
 | `/admin/orders/[id]/packing-slip` | Printable packing slip |
 | `/admin/files` | Transaction evidence files |
 | `/admin/launch-readiness` | Live payment and production readiness checklist |
+| `/admin/inventory/category-review` | eBay import category confidence and review queue |
 | `/admin/offers` | Offer review |
 | `/admin/security` | Admin login audit and lockout review |
 
@@ -824,6 +825,14 @@ Current eBay category mapper output:
 - `other_collectable`
 
 The mapper stores category confidence in generated attributes. Low-confidence imports remain in inventory but receive `tcos_review_required = true` so admin review can identify listings that need better categorization instead of silently guessing wrong.
+
+Admin review:
+
+```text
+/admin/inventory/category-review
+```
+
+This page shows mapped eBay imports, TCOS category confidence, review-required flags, mapping evidence, and sample eBay aspects. Review-required, low-confidence, and `other_collectable` rows appear first and link back to the product edit screen.
 
 Current sync implementation:
 

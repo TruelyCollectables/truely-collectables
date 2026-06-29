@@ -93,6 +93,12 @@ export default async function AdminInventoryPage({
             >
               Products
             </Link>
+            <Link
+              href="/admin/inventory/category-review"
+              className="rounded-md border border-white/20 px-4 py-2 text-sm font-bold hover:bg-white/10"
+            >
+              Category Review
+            </Link>
             <form action={backfillInventory}>
               <button
                 type="submit"
