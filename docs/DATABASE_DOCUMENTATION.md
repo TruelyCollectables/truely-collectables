@@ -70,6 +70,78 @@ Runtime behavior:
 
 ## Legacy Compatibility Tables
 
+## TCOS Account Tables
+
+### `account_profiles`
+
+Customer/account profile table linked to Supabase Auth users.
+
+Created by migration:
+
+```text
+supabase/migrations/20260628190000_create_tcos_accounts.sql
+```
+
+Fields:
+
+| Field | Purpose |
+| --- | --- |
+| `id` | Supabase Auth user ID |
+| `display_name` | Public or account display name |
+| `email` | Account email |
+| `account_status` | Current account status |
+| `default_account_type` | Baseline account type, such as buyer |
+| `tos_accepted` | Whether customer TOS was accepted at signup |
+| `tos_version` | Accepted TOS version |
+| `tos_accepted_at` | Accepted timestamp |
+| `created_at` | Created timestamp |
+| `updated_at` | Updated timestamp |
+
+### `account_store_memberships`
+
+Separates buyer, seller, store-operator, and platform roles by store.
+
+Fields:
+
+| Field | Purpose |
+| --- | --- |
+| `id` | Membership ID |
+| `account_id` | Account profile ID |
+| `store_id` | Store context |
+| `role` | Role such as buyer, seller, store_operator, or platform_admin |
+| `status` | Membership status |
+| `created_at` | Created timestamp |
+| `updated_at` | Updated timestamp |
+
+### `account_auth_events`
+
+Account signup/login audit trail.
+
+Fields:
+
+| Field | Purpose |
+| --- | --- |
+| `id` | Event ID |
+| `account_id` | Account profile ID when known |
+| `store_id` | Store context |
+| `email` | Login/signup email |
+| `event_type` | signup or login |
+| `success` | Whether auth event succeeded |
+| `ip_address` | Client IP |
+| `user_agent` | User agent |
+| `identity_risk` | Identity risk value |
+| `identity_evidence` | Request header evidence JSON |
+| `created_at` | Event timestamp |
+
+Runtime behavior:
+
+- account helpers live in `src/lib/account-auth.ts`
+- buyer signup route is `/api/account/signup`
+- buyer login route is `/api/account/login`
+- public account pages live under `/account`
+- current account session storage is browser-local and separate from admin auth
+- admin login remains separate from customer/buyer account login
+
 ## Multi-Store Platform Tables
 
 ### `stores`

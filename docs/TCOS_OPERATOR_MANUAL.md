@@ -249,6 +249,9 @@ Most day-to-day work starts at:
 | `/shop` | Product grid with search and sport filtering |
 | `/product/[id]` | Product detail page |
 | `/cart` | Customer cart |
+| `/account` | Customer account home |
+| `/account/login` | Customer email/password login |
+| `/account/signup` | Customer email/password signup |
 | `/success` | Purchase confirmation page with rotating collector sayings |
 | `/terms` | Customer Terms of Service |
 | `/seller-terms` | Seller Terms of Service for future auction/seller accounts |
@@ -277,6 +280,8 @@ Most day-to-day work starts at:
 | `/api/admin/login` | Sets `admin_auth` cookie |
 | `/api/admin/logout` | Clears admin cookie |
 | `/api/admin/files/[id]/download` | Downloads transaction evidence PDF |
+| `/api/account/signup` | Creates customer account through Supabase Auth |
+| `/api/account/login` | Logs customer account in through Supabase Auth |
 | `/api/checkout` | Creates Stripe checkout session |
 | `/api/webhook` | Main Stripe webhook handler |
 | `/api/stripe/webhook` | Alternate Stripe webhook handler |
@@ -1229,6 +1234,33 @@ Account signup direction:
 - Platform admin access for Dag Danky Holdings LLC must not be mixed with Truely Collectables LLC seller/buyer activity.
 - Future seller accounts must have their own profile, verification status, payout-provider IDs, TOS acceptance, audit trail, and permissions.
 - Future buyer accounts must have their own profile, order history, TOS acceptance, saved addresses, collection, wishlist, want ads, and communication preferences.
+
+Current account foundation:
+
+```text
+/account
+/account/login
+/account/signup
+/api/account/login
+/api/account/signup
+```
+
+Current behavior:
+
+- customer accounts use Supabase Auth email/password
+- signup requires buyer Terms of Service acceptance
+- password must be at least 10 characters
+- signup creates or updates `account_profiles`
+- signup assigns a Store #1 buyer membership in `account_store_memberships`
+- signup/login writes `account_auth_events` when the migration exists
+- account sessions are browser-local and separate from admin login cookies
+- admin login still uses `/admin/login` and `admin_auth`
+
+Migration:
+
+```text
+supabase/migrations/20260628190000_create_tcos_accounts.sql
+```
 
 Current seller legal page:
 

@@ -28,6 +28,9 @@ export default function Navbar() {
           <Link href="/cart" className="text-sm font-medium text-neutral-700 hover:text-black">
             Cart
           </Link>
+          <Link href="/account" className="text-sm font-medium text-neutral-700 hover:text-black">
+            Account
+          </Link>
           <Link href="/terms" className="text-sm font-medium text-neutral-700 hover:text-black">
             Terms
           </Link>

@@ -346,6 +346,18 @@
 <td>Customer cart</td>
 </tr>
 <tr>
+<td><code>/account</code></td>
+<td>Customer account home</td>
+</tr>
+<tr>
+<td><code>/account/login</code></td>
+<td>Customer email/password login</td>
+</tr>
+<tr>
+<td><code>/account/signup</code></td>
+<td>Customer email/password signup</td>
+</tr>
+<tr>
 <td><code>/success</code></td>
 <td>Purchase confirmation page with rotating collector sayings</td>
 </tr>
@@ -432,6 +444,14 @@
 <tr>
 <td><code>/api/admin/files/[id]/download</code></td>
 <td>Downloads transaction evidence PDF</td>
+</tr>
+<tr>
+<td><code>/api/account/signup</code></td>
+<td>Creates customer account through Supabase Auth</td>
+</tr>
+<tr>
+<td><code>/api/account/login</code></td>
+<td>Logs customer account in through Supabase Auth</td>
 </tr>
 <tr>
 <td><code>/api/checkout</code></td>
@@ -1228,6 +1248,25 @@ src/app/api/admin/files/[id]/download/route.ts</code></pre>
 <li>Future seller accounts must have their own profile, verification status, payout-provider IDs, TOS acceptance, audit trail, and permissions.</li>
 <li>Future buyer accounts must have their own profile, order history, TOS acceptance, saved addresses, collection, wishlist, want ads, and communication preferences.</li>
 </ul>
+<p>Current account foundation:</p>
+<pre><code>/account
+/account/login
+/account/signup
+/api/account/login
+/api/account/signup</code></pre>
+<p>Current behavior:</p>
+<ul>
+<li>customer accounts use Supabase Auth email/password</li>
+<li>signup requires buyer Terms of Service acceptance</li>
+<li>password must be at least 10 characters</li>
+<li>signup creates or updates <code>account_profiles</code></li>
+<li>signup assigns a Store #1 buyer membership in <code>account_store_memberships</code></li>
+<li>signup/login writes <code>account_auth_events</code> when the migration exists</li>
+<li>account sessions are browser-local and separate from admin login cookies</li>
+<li>admin login still uses <code>/admin/login</code> and <code>admin_auth</code></li>
+</ul>
+<p>Migration:</p>
+<pre><code>supabase/migrations/20260628190000_create_tcos_accounts.sql</code></pre>
 <p>Current seller legal page:</p>
 <pre><code>/seller-terms</code></pre>
 <p>Seller-account requirements:</p>
