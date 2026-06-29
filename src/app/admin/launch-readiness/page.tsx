@@ -200,6 +200,44 @@ function summarize(items: ReadinessItem[]) {
   };
 }
 
+async function checkAdminLoginAuditTable(): Promise<ReadinessItem> {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseKey) {
+    return {
+      label: "Admin Login Audit",
+      status: "blocked",
+      detail: "Supabase is not configured, so admin login audit storage cannot be checked.",
+      action:
+        "Set Supabase environment variables and apply the admin login attempts migration.",
+    };
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseKey);
+  const { error } = await supabase
+    .from("admin_login_attempts")
+    .select("id")
+    .limit(1);
+
+  if (!error) {
+    return {
+      label: "Admin Login Audit",
+      status: "ready",
+      detail: "admin_login_attempts is available for login audit and lockout storage.",
+      action: "Review recent activity in /admin/security before launch.",
+    };
+  }
+
+  return {
+    label: "Admin Login Audit",
+    status: "blocked",
+    detail: `Admin login audit storage is unavailable: ${error.message}`,
+    action:
+      "Apply supabase/migrations/20260628180000_create_admin_login_attempts.sql before launch.",
+  };
+}
+
 async function loadStoreSettings(): Promise<StoreOperationalSettings> {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -214,11 +252,15 @@ async function loadStoreSettings(): Promise<StoreOperationalSettings> {
 }
 
 export default async function LaunchReadinessPage() {
-  const items = buildReadinessItems();
+  const baseItems = buildReadinessItems();
+  const [storeSettings, adminLoginAuditItem] = await Promise.all([
+    loadStoreSettings(),
+    checkAdminLoginAuditTable(),
+  ]);
+  const items = [...baseItems, adminLoginAuditItem];
   const summary = summarize(items);
   const paymentMode = getPaymentMode();
   const canAcceptLivePayment = paymentMode === "live" && summary.blocked === 0;
-  const storeSettings = await loadStoreSettings();
 
   return (
     <main className="min-h-screen bg-neutral-50 p-8 text-neutral-950">
@@ -240,6 +282,9 @@ export default async function LaunchReadinessPage() {
           </Link>
           <Link href="/admin/files" className="rounded border bg-white px-4 py-2">
             Files
+          </Link>
+          <Link href="/admin/security" className="rounded border bg-white px-4 py-2">
+            Security
           </Link>
         </div>
       </div>

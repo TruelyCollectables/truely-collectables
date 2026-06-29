@@ -342,6 +342,8 @@ Admin security page:
 
 This page shows recent admin login attempts, successful logins, failed logins, active lockouts, unique IP count, identity risk, failure reason, lockout expiration, and user agent. If the audit table has not been migrated yet, the page shows an unavailable warning instead of crashing.
 
+Launch readiness also checks whether `admin_login_attempts` is available. If the table is missing or unavailable, `/admin/launch-readiness` marks Admin Login Audit as blocked.
+
 ## 4. Product And Inventory Basics
 
 TCOS currently keeps two inventory layers in sync:
