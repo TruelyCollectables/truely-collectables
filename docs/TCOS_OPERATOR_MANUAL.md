@@ -1253,6 +1253,7 @@ Current account foundation:
 /api/account/signup
 /api/account/orders
 /api/account/dashboard/preferences
+/api/account/collector/items
 ```
 
 Current behavior:
@@ -1271,6 +1272,8 @@ Current behavior:
 - completed Stripe webhooks save `orders.account_id` when account metadata is present
 - customer-created offers save `offers.account_id` when the customer is logged in
 - `/account` shows recent linked orders for the logged-in customer
+- `/account` lets customers save owned collection items with category, condition, grade, estimated value, and notes
+- `/account` lets customers save wish list items, 30-day want ads, set needs, and trade targets
 - `/account` lets customers save favorite teams/sports and market watchlist items
 - sports dashboard preferences are stored locally first; live news, scores, schedules, and odds require approved data providers later
 - market watchlist preferences support stocks, ETFs, indexes, crypto, NFTs, commodities, collectable indexes, and other assets
@@ -1288,6 +1291,55 @@ supabase/migrations/20260628190000_create_tcos_accounts.sql
 supabase/migrations/20260628193000_link_accounts_to_orders_offers.sql
 supabase/migrations/20260628201500_add_account_auth_lockouts.sql
 supabase/migrations/20260628213000_create_sports_dashboard_tables.sql
+supabase/migrations/20260628220000_create_collector_dashboard_tables.sql
+```
+
+### Current: Collection Shelf, Wish List, And Want Ads
+
+The collector dashboard now has the foundation for owned collections and hunting targets.
+
+Collection Shelf supports:
+
+- title
+- category
+- item type
+- condition
+- grade company
+- grade value
+- estimated value
+- ownership status
+- privacy/visibility
+- favorite flag
+- notes
+
+Wish List and Want Ads support:
+
+- wish list items
+- 30-day want ads
+- set needs
+- trade targets
+- category and item type
+- player/character, team/franchise, brand, set, year, card number, and variant fields
+- desired condition and grade
+- budget range
+- priority levels including grail
+- status tracking
+- future match records
+
+Current behavior:
+
+- collector records are account-scoped and store-scoped
+- removing a collection item soft-archives it
+- removing a wish list item cancels it
+- want ads default to a 30-day expiration
+- matching, AI identification, image uploads, alerts, and outside marketplace links are future layers on this foundation
+
+Foundation tables:
+
+```text
+account_collection_items
+account_wish_list_items
+account_wish_list_matches
 ```
 
 ### Future: Sports, Scores, Schedules, Odds, And Market Watchlists
@@ -2296,6 +2348,7 @@ supabase/migrations
 Current migration:
 
 ```text
+20260628220000_create_collector_dashboard_tables.sql
 20260628213000_create_sports_dashboard_tables.sql
 20260628201500_add_account_auth_lockouts.sql
 20260628193000_link_accounts_to_orders_offers.sql

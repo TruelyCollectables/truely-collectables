@@ -376,6 +376,29 @@ async function checkDatabaseReadiness(): Promise<ReadinessItem[]> {
       migration: "20260628213000_create_sports_dashboard_tables.sql",
       readyDetail: "market_price_snapshots is available for provider-backed market pricing.",
     },
+    {
+      label: "Collection Shelf",
+      table: "account_collection_items",
+      select:
+        "id,account_id,store_id,title,category,estimated_value,grade_company,grade_value,ownership_status,visibility,is_active",
+      migration: "20260628220000_create_collector_dashboard_tables.sql",
+      readyDetail: "account_collection_items is available for owned collection tracking.",
+    },
+    {
+      label: "Wish List And Want Ads",
+      table: "account_wish_list_items",
+      select:
+        "id,account_id,store_id,wish_type,title,priority,status,visibility,expires_at,auto_renew",
+      migration: "20260628220000_create_collector_dashboard_tables.sql",
+      readyDetail: "account_wish_list_items is available for wish lists, want ads, set needs, and trade targets.",
+    },
+    {
+      label: "Wish List Matches",
+      table: "account_wish_list_matches",
+      select: "id,wish_list_item_id,account_id,store_id,match_source,match_score,status",
+      migration: "20260628220000_create_collector_dashboard_tables.sql",
+      readyDetail: "account_wish_list_matches is available for future inventory matching and alerts.",
+    },
   ];
 
   return Promise.all(capabilities.map(checkDatabaseCapability));

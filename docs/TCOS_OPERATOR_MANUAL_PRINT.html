@@ -1270,7 +1270,8 @@ src/app/api/admin/files/[id]/download/route.ts</code></pre>
 /api/account/login
 /api/account/signup
 /api/account/orders
-/api/account/dashboard/preferences</code></pre>
+/api/account/dashboard/preferences
+/api/account/collector/items</code></pre>
 <p>Current behavior:</p>
 <ul>
 <li>customer accounts use Supabase Auth email/password</li>
@@ -1287,6 +1288,8 @@ src/app/api/admin/files/[id]/download/route.ts</code></pre>
 <li>completed Stripe webhooks save <code>orders.account_id</code> when account metadata is present</li>
 <li>customer-created offers save <code>offers.account_id</code> when the customer is logged in</li>
 <li><code>/account</code> shows recent linked orders for the logged-in customer</li>
+<li><code>/account</code> lets customers save owned collection items with category, condition, grade, estimated value, and notes</li>
+<li><code>/account</code> lets customers save wish list items, 30-day want ads, set needs, and trade targets</li>
 <li><code>/account</code> lets customers save favorite teams/sports and market watchlist items</li>
 <li>sports dashboard preferences are stored locally first; live news, scores, schedules, and odds require approved data providers later</li>
 <li>market watchlist preferences support stocks, ETFs, indexes, crypto, NFTs, commodities, collectable indexes, and other assets</li>
@@ -1301,7 +1304,50 @@ src/app/api/admin/files/[id]/download/route.ts</code></pre>
 <pre><code>supabase/migrations/20260628190000_create_tcos_accounts.sql
 supabase/migrations/20260628193000_link_accounts_to_orders_offers.sql
 supabase/migrations/20260628201500_add_account_auth_lockouts.sql
-supabase/migrations/20260628213000_create_sports_dashboard_tables.sql</code></pre>
+supabase/migrations/20260628213000_create_sports_dashboard_tables.sql
+supabase/migrations/20260628220000_create_collector_dashboard_tables.sql</code></pre>
+<h3>Current: Collection Shelf, Wish List, And Want Ads</h3>
+<p>The collector dashboard now has the foundation for owned collections and hunting targets.</p>
+<p>Collection Shelf supports:</p>
+<ul>
+<li>title</li>
+<li>category</li>
+<li>item type</li>
+<li>condition</li>
+<li>grade company</li>
+<li>grade value</li>
+<li>estimated value</li>
+<li>ownership status</li>
+<li>privacy/visibility</li>
+<li>favorite flag</li>
+<li>notes</li>
+</ul>
+<p>Wish List and Want Ads support:</p>
+<ul>
+<li>wish list items</li>
+<li>30-day want ads</li>
+<li>set needs</li>
+<li>trade targets</li>
+<li>category and item type</li>
+<li>player/character, team/franchise, brand, set, year, card number, and variant fields</li>
+<li>desired condition and grade</li>
+<li>budget range</li>
+<li>priority levels including grail</li>
+<li>status tracking</li>
+<li>future match records</li>
+</ul>
+<p>Current behavior:</p>
+<ul>
+<li>collector records are account-scoped and store-scoped</li>
+<li>removing a collection item soft-archives it</li>
+<li>removing a wish list item cancels it</li>
+<li>want ads default to a 30-day expiration</li>
+<li>matching, AI identification, image uploads, alerts, and outside marketplace links are future layers on this foundation</li>
+</ul>
+<p>Foundation tables:</p>
+<pre><code>account_collection_items
+account_wish_list_items
+account_wish_list_matches</code></pre>
 <h3>Future: Sports, Scores, Schedules, Odds, And Market Watchlists</h3>
 <p>The account dashboard now has the data foundation for favorite teams and market watchlists.</p>
 <p>Sports dashboard goals:</p>
@@ -2207,7 +2253,8 @@ IP_INTELLIGENCE_REQUIRED=true</code></pre>
 <p>Migration directory:</p>
 <pre><code>supabase/migrations</code></pre>
 <p>Current migration:</p>
-<pre><code>20260628213000_create_sports_dashboard_tables.sql
+<pre><code>20260628220000_create_collector_dashboard_tables.sql
+20260628213000_create_sports_dashboard_tables.sql
 20260628201500_add_account_auth_lockouts.sql
 20260628193000_link_accounts_to_orders_offers.sql
 20260628190000_create_tcos_accounts.sql

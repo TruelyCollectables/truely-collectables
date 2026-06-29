@@ -158,6 +158,8 @@ Runtime behavior:
 - account auth lockout checks use recent attempts by IP address and email address
 - account dashboard preferences route is `/api/account/dashboard/preferences`
 - account dashboard preferences store favorite teams/sports and market watchlist items
+- collector dashboard route is `/api/account/collector/items`
+- collector dashboard stores owned collection items, wish list items, want ads, set needs, trade targets, and future match records
 
 ## Account Dashboard Intelligence Tables
 
@@ -258,6 +260,93 @@ Important rules:
 - market data is informational only
 - TCOS should not present saved market watchlists as financial advice
 - provider licensing, freshness, attribution, and redistribution rules must be reviewed before public launch
+
+## Collector Dashboard Tables
+
+Created by migration:
+
+```text
+supabase/migrations/20260628220000_create_collector_dashboard_tables.sql
+```
+
+### `account_collection_items`
+
+Stores account-owned collection items.
+
+Fields:
+
+| Field | Purpose |
+| --- | --- |
+| `id` | Collection item ID |
+| `account_id` | Account profile ID |
+| `store_id` | Store context |
+| `linked_product_id` | Optional TCOS product ID |
+| `inventory_item_id` | Optional TCOS V2 inventory ID |
+| `source_order_id` | Optional originating order ID |
+| `source_order_item_id` | Optional originating order item ID |
+| `title` | Collection item title |
+| `category` | Category such as cards, shoes, comics, memorabilia |
+| `item_type` | Collectable type |
+| `image_url` | Future/manual image URL |
+| `acquisition_source` | Where the user acquired it |
+| `acquisition_price` | What the user paid |
+| `estimated_value` | User/provider estimated value |
+| `value_confidence` | Future confidence label |
+| `grade_company` | PSA, BGS, CGC, SGC, etc. |
+| `grade_value` | Grade value |
+| `certification_number` | Grading/cert number |
+| `condition` | User-entered condition |
+| `ownership_status` | owned, incoming, sold, traded, archived |
+| `visibility` | private, community, public, admin_review |
+| `is_favorite` | Favorite flag |
+| `is_active` | Soft-delete flag |
+| `notes` | Collector notes |
+| `metadata` | Future structured metadata |
+
+### `account_wish_list_items`
+
+Stores wish list items, want ads, set needs, and trade targets.
+
+Fields:
+
+| Field | Purpose |
+| --- | --- |
+| `id` | Wish list item ID |
+| `account_id` | Account profile ID |
+| `store_id` | Store context |
+| `wish_type` | wish_list, want_ad, set_need, trade_target |
+| `title` | Desired item title |
+| `category` | Category |
+| `item_type` | Collectable type |
+| `search_query` | Future matching query |
+| `player_name` | Player/person/character |
+| `team_name` | Team/franchise |
+| `brand` | Brand/manufacturer |
+| `set_name` | Set/release |
+| `release_year` | Year |
+| `card_number` | Card/catalog number |
+| `variant` | Parallel, variant, refractor, color, size, etc. |
+| `desired_condition` | Desired condition |
+| `desired_grade` | Desired grade |
+| `budget_min` | Minimum budget |
+| `budget_max` | Maximum budget |
+| `priority` | low, normal, high, grail |
+| `status` | active, matched, fulfilled, expired, canceled, renewed |
+| `visibility` | private, community, public, admin_review |
+| `expires_at` | Expiration timestamp, especially for want ads |
+| `auto_renew` | Renewal preference |
+| `matched_product_id` | Future matched TCOS product |
+| `matched_at` | Future match timestamp |
+| `notes` | Collector notes |
+| `metadata` | Future structured metadata |
+
+Want ads default to a 30-day expiration in the API when created with `wish_type = want_ad`.
+
+### `account_wish_list_matches`
+
+Stores future inventory or external matches against wish list items.
+
+Fields include wish list item ID, account ID, store ID, product/inventory references, match source, match score, status, notes, metadata, and timestamps.
 
 ## Multi-Store Platform Tables
 
@@ -874,6 +963,15 @@ Creates:
 - `market_price_snapshots`
 - `market_news_snapshots`
 - indexes for account dashboards, provider snapshots, odds snapshots, and market pricing/news lookup
+
+### `20260628220000_create_collector_dashboard_tables.sql`
+
+Creates:
+
+- `account_collection_items`
+- `account_wish_list_items`
+- `account_wish_list_matches`
+- indexes for account collection shelves, wish list expiry, wish list search, and future match lookup
 
 ## Operational SQL
 

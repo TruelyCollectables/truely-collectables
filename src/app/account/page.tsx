@@ -43,6 +43,52 @@ type MarketWatchlistItem = {
   include_alerts: boolean;
 };
 
+type CollectionItem = {
+  id: string;
+  title: string;
+  category: string | null;
+  item_type: string | null;
+  image_url: string | null;
+  acquisition_source: string | null;
+  acquisition_price: number | null;
+  estimated_value: number | null;
+  grade_company: string | null;
+  grade_value: string | null;
+  certification_number: string | null;
+  condition: string | null;
+  ownership_status: string;
+  visibility: string;
+  is_favorite: boolean;
+  notes: string | null;
+  created_at: string;
+};
+
+type WishListItem = {
+  id: string;
+  wish_type: string;
+  title: string;
+  category: string | null;
+  item_type: string | null;
+  player_name: string | null;
+  team_name: string | null;
+  brand: string | null;
+  set_name: string | null;
+  release_year: string | null;
+  card_number: string | null;
+  variant: string | null;
+  desired_condition: string | null;
+  desired_grade: string | null;
+  budget_min: number | null;
+  budget_max: number | null;
+  priority: string;
+  status: string;
+  visibility: string;
+  expires_at: string | null;
+  auto_renew: boolean;
+  notes: string | null;
+  created_at: string;
+};
+
 export default function AccountPage() {
   const [session, setSession] = useState<StoredAccountSession | null>(() =>
     typeof window === "undefined" ? null : getAccountSession(),
@@ -56,6 +102,11 @@ export default function AccountPage() {
   );
   const [dashboardError, setDashboardError] = useState("");
   const [isLoadingDashboard, setIsLoadingDashboard] = useState(false);
+  const [collectionItems, setCollectionItems] = useState<CollectionItem[]>([]);
+  const [wishListItems, setWishListItems] = useState<WishListItem[]>([]);
+  const [collectorError, setCollectorError] = useState("");
+  const [isLoadingCollector, setIsLoadingCollector] = useState(false);
+  const [isSavingCollector, setIsSavingCollector] = useState(false);
   const [teamName, setTeamName] = useState("");
   const [sportKey, setSportKey] = useState("football");
   const [leagueKey, setLeagueKey] = useState("nfl");
@@ -66,6 +117,22 @@ export default function AccountPage() {
   const [assetName, setAssetName] = useState("");
   const [exchangeKey, setExchangeKey] = useState("");
   const [isSavingPreference, setIsSavingPreference] = useState(false);
+  const [collectionTitle, setCollectionTitle] = useState("");
+  const [collectionCategory, setCollectionCategory] = useState("cards");
+  const [collectionCondition, setCollectionCondition] = useState("");
+  const [collectionGradeCompany, setCollectionGradeCompany] = useState("");
+  const [collectionGradeValue, setCollectionGradeValue] = useState("");
+  const [collectionEstimatedValue, setCollectionEstimatedValue] = useState("");
+  const [collectionNotes, setCollectionNotes] = useState("");
+  const [wishTitle, setWishTitle] = useState("");
+  const [wishType, setWishType] = useState("wish_list");
+  const [wishCategory, setWishCategory] = useState("cards");
+  const [wishPlayerName, setWishPlayerName] = useState("");
+  const [wishTeamName, setWishTeamName] = useState("");
+  const [wishBrand, setWishBrand] = useState("");
+  const [wishSetName, setWishSetName] = useState("");
+  const [wishBudgetMax, setWishBudgetMax] = useState("");
+  const [wishPriority, setWishPriority] = useState("normal");
   const accessToken = session?.access_token || "";
 
   useEffect(() => {
@@ -162,6 +229,55 @@ export default function AccountPage() {
     };
   }, [accessToken]);
 
+  useEffect(() => {
+    if (!accessToken) return;
+
+    let isCancelled = false;
+
+    async function loadCollectorItems() {
+      setIsLoadingCollector(true);
+      setCollectorError("");
+
+      try {
+        const response = await fetch("/api/account/collector/items", {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || "Could not load collector dashboard");
+        }
+
+        if (!isCancelled) {
+          setCollectionItems(
+            Array.isArray(data.collectionItems) ? data.collectionItems : [],
+          );
+          setWishListItems(
+            Array.isArray(data.wishListItems) ? data.wishListItems : [],
+          );
+        }
+      } catch (error: any) {
+        if (!isCancelled) {
+          setCollectorError(error.message || "Could not load collector dashboard");
+          setCollectionItems([]);
+          setWishListItems([]);
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsLoadingCollector(false);
+        }
+      }
+    }
+
+    loadCollectorItems();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [accessToken]);
+
   function logout() {
     clearAccountSession();
     setSession(null);
@@ -170,6 +286,9 @@ export default function AccountPage() {
     setSportsFavorites([]);
     setMarketWatchlist([]);
     setDashboardError("");
+    setCollectionItems([]);
+    setWishListItems([]);
+    setCollectorError("");
   }
 
   async function saveDashboardPreference(payload: Record<string, unknown>) {
@@ -251,6 +370,91 @@ export default function AccountPage() {
     }
   }
 
+  async function saveCollectorItem(payload: Record<string, unknown>) {
+    if (!accessToken) return;
+
+    setIsSavingCollector(true);
+    setCollectorError("");
+
+    try {
+      const response = await fetch("/api/account/collector/items", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Could not save collector item");
+      }
+
+      if (payload.kind === "collection_item" && data.collectionItem) {
+        setCollectionItems((current) => [
+          data.collectionItem as CollectionItem,
+          ...current,
+        ]);
+        setCollectionTitle("");
+        setCollectionCondition("");
+        setCollectionGradeCompany("");
+        setCollectionGradeValue("");
+        setCollectionEstimatedValue("");
+        setCollectionNotes("");
+      }
+
+      if (payload.kind === "wish_list_item" && data.wishListItem) {
+        setWishListItems((current) => [
+          data.wishListItem as WishListItem,
+          ...current,
+        ]);
+        setWishTitle("");
+        setWishPlayerName("");
+        setWishTeamName("");
+        setWishBrand("");
+        setWishSetName("");
+        setWishBudgetMax("");
+      }
+    } catch (error: any) {
+      setCollectorError(error.message || "Could not save collector item");
+    } finally {
+      setIsSavingCollector(false);
+    }
+  }
+
+  async function removeCollectorItem(kind: string, id: string) {
+    if (!accessToken) return;
+
+    setCollectorError("");
+
+    try {
+      const response = await fetch("/api/account/collector/items", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ kind, id }),
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(data.error || "Could not remove collector item");
+      }
+
+      if (kind === "collection_item") {
+        setCollectionItems((current) => current.filter((item) => item.id !== id));
+      }
+
+      if (kind === "wish_list_item") {
+        setWishListItems((current) => current.filter((item) => item.id !== id));
+      }
+    } catch (error: any) {
+      setCollectorError(error.message || "Could not remove collector item");
+    }
+  }
+
   return (
     <main className="mx-auto max-w-5xl px-6 py-10">
       <section className="border-b border-neutral-200 pb-6">
@@ -312,12 +516,333 @@ export default function AccountPage() {
           <aside className="rounded-md border border-neutral-200 bg-white p-6">
             <h2 className="text-xl font-black">Coming Next</h2>
             <ul className="mt-4 space-y-2 text-sm text-neutral-600">
-              <li>Saved collection items</li>
-              <li>Wishlists and want ads</li>
+              <li>Image uploads</li>
+              <li>AI item matching</li>
+              <li>Collector alerts</li>
               <li>Seller account separation</li>
               <li>Optional MFA path</li>
             </ul>
           </aside>
+
+          <div className="lg:col-span-2">
+            <div className="flex flex-wrap items-center justify-between gap-3 pb-4">
+              <div>
+                <h2 className="text-2xl font-black">Collector Core</h2>
+                <p className="mt-1 text-sm text-neutral-600">
+                  Your owned collection and the items you are hunting.
+                </p>
+              </div>
+              {isLoadingCollector ? (
+                <span className="rounded bg-neutral-100 px-3 py-1 text-xs font-bold uppercase text-neutral-600">
+                  Loading
+                </span>
+              ) : null}
+            </div>
+
+            {collectorError ? (
+              <p className="mb-5 rounded border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+                {collectorError}
+              </p>
+            ) : null}
+
+            <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
+              <section className="rounded border border-neutral-200 bg-neutral-50 p-4">
+                <h3 className="text-lg font-black">Collection Shelf</h3>
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    saveCollectorItem({
+                      kind: "collection_item",
+                      title: collectionTitle,
+                      category: collectionCategory,
+                      condition: collectionCondition,
+                      gradeCompany: collectionGradeCompany,
+                      gradeValue: collectionGradeValue,
+                      estimatedValue: collectionEstimatedValue,
+                      notes: collectionNotes,
+                    });
+                  }}
+                  className="mt-4 grid grid-cols-1 gap-3"
+                >
+                  <label className="text-sm font-bold text-neutral-700">
+                    Item
+                    <input
+                      value={collectionTitle}
+                      onChange={(event) => setCollectionTitle(event.target.value)}
+                      className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
+                      placeholder="2023 Topps Chrome..."
+                      required
+                    />
+                  </label>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <label className="text-sm font-bold text-neutral-700">
+                      Category
+                      <input
+                        value={collectionCategory}
+                        onChange={(event) =>
+                          setCollectionCategory(event.target.value)
+                        }
+                        className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
+                        placeholder="cards"
+                      />
+                    </label>
+                    <label className="text-sm font-bold text-neutral-700">
+                      Condition
+                      <input
+                        value={collectionCondition}
+                        onChange={(event) =>
+                          setCollectionCondition(event.target.value)
+                        }
+                        className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
+                        placeholder="raw nm, slabbed, sealed"
+                      />
+                    </label>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <label className="text-sm font-bold text-neutral-700">
+                      Grader
+                      <input
+                        value={collectionGradeCompany}
+                        onChange={(event) =>
+                          setCollectionGradeCompany(event.target.value)
+                        }
+                        className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
+                        placeholder="PSA"
+                      />
+                    </label>
+                    <label className="text-sm font-bold text-neutral-700">
+                      Grade
+                      <input
+                        value={collectionGradeValue}
+                        onChange={(event) =>
+                          setCollectionGradeValue(event.target.value)
+                        }
+                        className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
+                        placeholder="10"
+                      />
+                    </label>
+                    <label className="text-sm font-bold text-neutral-700">
+                      Value
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={collectionEstimatedValue}
+                        onChange={(event) =>
+                          setCollectionEstimatedValue(event.target.value)
+                        }
+                        className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
+                        placeholder="125"
+                      />
+                    </label>
+                  </div>
+                  <label className="text-sm font-bold text-neutral-700">
+                    Notes
+                    <input
+                      value={collectionNotes}
+                      onChange={(event) => setCollectionNotes(event.target.value)}
+                      className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
+                      placeholder="Where you got it, story, defects, plans..."
+                    />
+                  </label>
+                  <button
+                    type="submit"
+                    disabled={isSavingCollector}
+                    className="rounded bg-neutral-950 px-4 py-2 text-sm font-bold text-white disabled:bg-neutral-500"
+                  >
+                    Add To Collection
+                  </button>
+                </form>
+
+                <div className="mt-5 space-y-2">
+                  {collectionItems.length === 0 ? (
+                    <p className="text-sm text-neutral-500">
+                      No collection items saved.
+                    </p>
+                  ) : (
+                    collectionItems.map((item) => (
+                      <WatchlistRow
+                        key={item.id}
+                        title={item.title}
+                        detail={`${item.category || "collectable"}${
+                          item.grade_company || item.grade_value
+                            ? ` / ${item.grade_company || ""} ${item.grade_value || ""}`
+                            : ""
+                        }`}
+                        badges={[
+                          item.condition || "",
+                          item.estimated_value
+                            ? formatCurrency(item.estimated_value)
+                            : "",
+                          item.is_favorite ? "Favorite" : "",
+                        ]}
+                        onRemove={() =>
+                          removeCollectorItem("collection_item", item.id)
+                        }
+                      />
+                    ))
+                  )}
+                </div>
+              </section>
+
+              <section className="rounded border border-neutral-200 bg-neutral-50 p-4">
+                <h3 className="text-lg font-black">Wish List And Want Ads</h3>
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    saveCollectorItem({
+                      kind: "wish_list_item",
+                      wishType,
+                      title: wishTitle,
+                      category: wishCategory,
+                      playerName: wishPlayerName,
+                      teamName: wishTeamName,
+                      brand: wishBrand,
+                      setName: wishSetName,
+                      budgetMax: wishBudgetMax,
+                      priority: wishPriority,
+                    });
+                  }}
+                  className="mt-4 grid grid-cols-1 gap-3"
+                >
+                  <label className="text-sm font-bold text-neutral-700">
+                    Target Item
+                    <input
+                      value={wishTitle}
+                      onChange={(event) => setWishTitle(event.target.value)}
+                      className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
+                      placeholder="Shohei Ohtani rookie auto"
+                      required
+                    />
+                  </label>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <label className="text-sm font-bold text-neutral-700">
+                      Type
+                      <select
+                        value={wishType}
+                        onChange={(event) => setWishType(event.target.value)}
+                        className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
+                      >
+                        <option value="wish_list">Wish List</option>
+                        <option value="want_ad">Want Ad</option>
+                        <option value="set_need">Set Need</option>
+                        <option value="trade_target">Trade Target</option>
+                      </select>
+                    </label>
+                    <label className="text-sm font-bold text-neutral-700">
+                      Category
+                      <input
+                        value={wishCategory}
+                        onChange={(event) => setWishCategory(event.target.value)}
+                        className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
+                        placeholder="cards"
+                      />
+                    </label>
+                    <label className="text-sm font-bold text-neutral-700">
+                      Priority
+                      <select
+                        value={wishPriority}
+                        onChange={(event) => setWishPriority(event.target.value)}
+                        className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
+                      >
+                        <option value="low">Low</option>
+                        <option value="normal">Normal</option>
+                        <option value="high">High</option>
+                        <option value="grail">Grail</option>
+                      </select>
+                    </label>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <label className="text-sm font-bold text-neutral-700">
+                      Player / Character
+                      <input
+                        value={wishPlayerName}
+                        onChange={(event) => setWishPlayerName(event.target.value)}
+                        className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
+                        placeholder="Shohei Ohtani"
+                      />
+                    </label>
+                    <label className="text-sm font-bold text-neutral-700">
+                      Team / Franchise
+                      <input
+                        value={wishTeamName}
+                        onChange={(event) => setWishTeamName(event.target.value)}
+                        className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
+                        placeholder="Dodgers"
+                      />
+                    </label>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <label className="text-sm font-bold text-neutral-700">
+                      Brand
+                      <input
+                        value={wishBrand}
+                        onChange={(event) => setWishBrand(event.target.value)}
+                        className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
+                        placeholder="Topps"
+                      />
+                    </label>
+                    <label className="text-sm font-bold text-neutral-700">
+                      Set
+                      <input
+                        value={wishSetName}
+                        onChange={(event) => setWishSetName(event.target.value)}
+                        className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
+                        placeholder="Chrome"
+                      />
+                    </label>
+                    <label className="text-sm font-bold text-neutral-700">
+                      Max Budget
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={wishBudgetMax}
+                        onChange={(event) => setWishBudgetMax(event.target.value)}
+                        className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
+                        placeholder="500"
+                      />
+                    </label>
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={isSavingCollector}
+                    className="rounded bg-neutral-950 px-4 py-2 text-sm font-bold text-white disabled:bg-neutral-500"
+                  >
+                    Add Target
+                  </button>
+                </form>
+
+                <div className="mt-5 space-y-2">
+                  {wishListItems.length === 0 ? (
+                    <p className="text-sm text-neutral-500">
+                      No wish list items saved.
+                    </p>
+                  ) : (
+                    wishListItems.map((item) => (
+                      <WatchlistRow
+                        key={item.id}
+                        title={item.title}
+                        detail={`${item.wish_type.replaceAll("_", " ")} / ${
+                          item.category || "collectable"
+                        }`}
+                        badges={[
+                          item.priority,
+                          item.budget_max
+                            ? `Up to ${formatCurrency(item.budget_max)}`
+                            : "",
+                          item.expires_at
+                            ? `Expires ${formatDate(item.expires_at)}`
+                            : "",
+                        ]}
+                        onRemove={() =>
+                          removeCollectorItem("wish_list_item", item.id)
+                        }
+                      />
+                    ))
+                  )}
+                </div>
+              </section>
+            </div>
+          </div>
 
           <div className="lg:col-span-2">
             <div className="flex flex-wrap items-center justify-between gap-3 pb-4">
