@@ -61,6 +61,64 @@ export async function POST(req: Request) {
 
     const session = event.data.object as Stripe.Checkout.Session;
     const metadata = session.metadata || {};
+
+    if (metadata.type === "collector_binding_offer_setup") {
+      const bindingOfferId = metadata.binding_offer_id;
+      const conversationId = metadata.conversation_id;
+      const setupIntentId =
+        typeof session.setup_intent === "string" ? session.setup_intent : null;
+      const setupIntent = setupIntentId
+        ? await stripe.setupIntents.retrieve(setupIntentId)
+        : null;
+      const paymentMethodId =
+        typeof setupIntent?.payment_method === "string"
+          ? setupIntent.payment_method
+          : null;
+      const customerId =
+        typeof session.customer === "string" ? session.customer : null;
+
+      if (bindingOfferId) {
+        await supabase
+          .from("account_binding_offers")
+          .update({
+            status: "submitted",
+            payment_requirement: "payment_method_on_file",
+            stripe_customer_id: customerId,
+            stripe_setup_intent_id: setupIntentId,
+            stripe_payment_method_id: paymentMethodId,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", bindingOfferId)
+          .eq("store_id", storeId);
+      }
+
+      if (conversationId) {
+        await supabase.from("account_conversation_messages").insert({
+          conversation_id: conversationId,
+          store_id: storeId,
+          sender_account_id: metadata.buyer_account_id,
+          message_type: "system",
+          body:
+            "Payment method confirmed. The binding offer has been submitted for seller review.",
+          metadata: {
+            binding_offer_id: bindingOfferId,
+            stripe_setup_intent_id: setupIntentId,
+          },
+        });
+
+        await supabase
+          .from("account_conversations")
+          .update({
+            last_message_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", conversationId)
+          .eq("store_id", storeId);
+      }
+
+      return NextResponse.json({ received: true });
+    }
+
     const collectedInfo = session.collected_information as any;
 
     const customerEmail =

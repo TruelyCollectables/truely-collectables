@@ -348,6 +348,83 @@ Stores future inventory or external matches against wish list items.
 
 Fields include wish list item ID, account ID, store ID, product/inventory references, match source, match score, status, notes, metadata, and timestamps.
 
+## Collector Profile, Messaging, Binding Offer, And Export Tables
+
+Created by migration:
+
+```text
+supabase/migrations/20260628223000_create_collector_profiles_messaging_exports.sql
+```
+
+### `account_collector_profiles`
+
+Stores the account's collector-facing bio and social profile.
+
+Fields:
+
+| Field | Purpose |
+| --- | --- |
+| `id` | Collector profile row ID |
+| `account_id` | Account profile ID |
+| `store_id` | Store context |
+| `collector_handle` | Public/community handle |
+| `bio` | Collector bio |
+| `collecting_focus` | What the collector focuses on |
+| `location_label` | User-entered region/city label |
+| `website_url` | Personal/site URL |
+| `instagram_url` | Instagram URL |
+| `facebook_url` | Facebook URL |
+| `x_url` | X URL |
+| `tiktok_url` | TikTok URL |
+| `youtube_url` | YouTube URL |
+| `whatnot_url` | Whatnot URL |
+| `ebay_url` | eBay URL |
+| `visibility` | private, community, public, admin_review |
+| `allow_messages` | Whether community messaging can target this profile |
+| `metadata` | Future structured profile metadata |
+
+### `account_conversations`
+
+Stores account-to-account collector message threads.
+
+Fields include store ID, creator account, optional recipient account, related product/collection/wish list references, subject, status, last message timestamp, metadata, and timestamps.
+
+### `account_conversation_messages`
+
+Stores messages inside collector conversations.
+
+Message types:
+
+- `message`
+- `binding_offer`
+- `system`
+
+### `account_binding_offers`
+
+Stores future binding offers created from collector messaging.
+
+Important behavior:
+
+- binding offer rows start as `payment_required`
+- the buyer must pass TOS and identity checks before a row is created
+- Stripe Checkout setup mode collects payment info before the offer is submitted
+- Stripe webhook confirmation updates the row to `submitted` and saves the setup/payment method IDs
+- seller acceptance and off-session charging are a later payment slice
+
+Fields include buyer/seller account IDs, conversation ID, related product/collection/wish list references, offer/shipping/tax/total amounts, Stripe customer/session/setup/payment method IDs, TOS/IP evidence, status, expiration, notes, metadata, and timestamps.
+
+### `account_collection_export_jobs`
+
+Stores export audit rows for CSV and catalog backups.
+
+Export types:
+
+- `csv`
+- `catalog_json`
+- `media_archive`
+
+Current exports are generated inline by `/api/account/collector/exports`; future media archives can use queued jobs and object storage.
+
 ## Multi-Store Platform Tables
 
 ### `stores`
@@ -972,6 +1049,17 @@ Creates:
 - `account_wish_list_items`
 - `account_wish_list_matches`
 - indexes for account collection shelves, wish list expiry, wish list search, and future match lookup
+
+### `20260628223000_create_collector_profiles_messaging_exports.sql`
+
+Creates:
+
+- `account_collector_profiles`
+- `account_conversations`
+- `account_conversation_messages`
+- `account_binding_offers`
+- `account_collection_export_jobs`
+- indexes for collector profiles, conversations, binding offers, and export audit lookup
 
 ## Operational SQL
 

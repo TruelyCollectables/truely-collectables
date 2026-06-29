@@ -466,6 +466,26 @@
 <td>Saves account sports/team and market watchlist preferences</td>
 </tr>
 <tr>
+<td><code>/api/account/collector/profile</code></td>
+<td>Loads and saves collector bio, social URLs, visibility, and message preference</td>
+</tr>
+<tr>
+<td><code>/api/account/collector/items</code></td>
+<td>Saves collection shelf items, wish list items, want ads, set needs, and trade targets</td>
+</tr>
+<tr>
+<td><code>/api/account/collector/exports</code></td>
+<td>Downloads the logged-in collector collection as CSV or full catalog JSON</td>
+</tr>
+<tr>
+<td><code>/api/account/collector/messages</code></td>
+<td>Creates and lists collector conversation records</td>
+</tr>
+<tr>
+<td><code>/api/account/collector/binding-offers</code></td>
+<td>Starts a card-required binding offer through Stripe setup checkout</td>
+</tr>
+<tr>
 <td><code>/api/checkout</code></td>
 <td>Creates Stripe checkout session</td>
 </tr>
@@ -639,6 +659,11 @@ supabase/migrations/20260628113000_create_store_settings.sql</code></pre>
 <li><code>sales_comp_snapshots</code></li>
 <li><code>tos_acceptance_events</code></li>
 <li><code>transaction_evidence_reports</code></li>
+<li><code>account_collector_profiles</code></li>
+<li><code>account_conversations</code></li>
+<li><code>account_conversation_messages</code></li>
+<li><code>account_binding_offers</code></li>
+<li><code>account_collection_export_jobs</code></li>
 </ul>
 <p>Safety rule:</p>
 <p>Current Store #1 constants live in:</p>
@@ -1271,7 +1296,11 @@ src/app/api/admin/files/[id]/download/route.ts</code></pre>
 /api/account/signup
 /api/account/orders
 /api/account/dashboard/preferences
-/api/account/collector/items</code></pre>
+/api/account/collector/profile
+/api/account/collector/items
+/api/account/collector/exports
+/api/account/collector/messages
+/api/account/collector/binding-offers</code></pre>
 <p>Current behavior:</p>
 <ul>
 <li>customer accounts use Supabase Auth email/password</li>
@@ -1288,8 +1317,10 @@ src/app/api/admin/files/[id]/download/route.ts</code></pre>
 <li>completed Stripe webhooks save <code>orders.account_id</code> when account metadata is present</li>
 <li>customer-created offers save <code>offers.account_id</code> when the customer is logged in</li>
 <li><code>/account</code> shows recent linked orders for the logged-in customer</li>
+<li><code>/account</code> lets customers save a collector handle, bio, collecting focus, location label, social URLs, visibility, and message preference</li>
 <li><code>/account</code> lets customers save owned collection items with category, condition, grade, estimated value, and notes</li>
 <li><code>/account</code> lets customers save wish list items, 30-day want ads, set needs, and trade targets</li>
+<li><code>/account</code> lets customers download their collection as CSV or a full catalog JSON backup</li>
 <li><code>/account</code> lets customers save favorite teams/sports and market watchlist items</li>
 <li>sports dashboard preferences are stored locally first; live news, scores, schedules, and odds require approved data providers later</li>
 <li>market watchlist preferences support stocks, ETFs, indexes, crypto, NFTs, commodities, collectable indexes, and other assets</li>
@@ -1305,7 +1336,8 @@ src/app/api/admin/files/[id]/download/route.ts</code></pre>
 supabase/migrations/20260628193000_link_accounts_to_orders_offers.sql
 supabase/migrations/20260628201500_add_account_auth_lockouts.sql
 supabase/migrations/20260628213000_create_sports_dashboard_tables.sql
-supabase/migrations/20260628220000_create_collector_dashboard_tables.sql</code></pre>
+supabase/migrations/20260628220000_create_collector_dashboard_tables.sql
+supabase/migrations/20260628223000_create_collector_profiles_messaging_exports.sql</code></pre>
 <h3>Current: Collection Shelf, Wish List, And Want Ads</h3>
 <p>The collector dashboard now has the foundation for owned collections and hunting targets.</p>
 <p>Collection Shelf supports:</p>
@@ -1348,6 +1380,45 @@ supabase/migrations/20260628220000_create_collector_dashboard_tables.sql</code><
 <pre><code>account_collection_items
 account_wish_list_items
 account_wish_list_matches</code></pre>
+<h3>Current: Collector Bio, Messaging, Binding Offers, And Backups</h3>
+<p>Collector profiles support:</p>
+<ul>
+<li>collector handle</li>
+<li>bio</li>
+<li>collecting focus</li>
+<li>location label</li>
+<li>website URL</li>
+<li>social marketplace URLs for Instagram, Facebook, X, TikTok, YouTube, Whatnot, and eBay</li>
+<li>profile visibility</li>
+<li>message opt-in flag</li>
+</ul>
+<p>Collection exports:</p>
+<ul>
+<li><code>/api/account/collector/exports?format=csv</code> downloads a spreadsheet-friendly collection backup</li>
+<li><code>/api/account/collector/exports?format=catalog_json</code> downloads profile, collection items, wish list items, pricing fields, descriptions/notes, image URLs, and a media manifest</li>
+<li>each export writes an <code>account_collection_export_jobs</code> audit row when the migration is available</li>
+</ul>
+<p>Messaging foundation:</p>
+<ul>
+<li><code>account_conversations</code> stores account-to-account collector threads</li>
+<li><code>account_conversation_messages</code> stores regular messages, binding-offer messages, and system messages</li>
+<li>the account page does not yet expose the full inbox UI; the API and schema foundation are in place</li>
+</ul>
+<p>Binding offer rule:</p>
+<ul>
+<li>a binding offer starts in <code>payment_required</code></li>
+<li>the buyer must accept buyer TOS</li>
+<li>masked identity checks still apply</li>
+<li>Stripe Checkout runs in setup mode before the offer is submitted</li>
+<li>after Stripe confirms the payment method, the webhook updates the offer to <code>submitted</code></li>
+<li>the later seller-acceptance slice must charge the saved payment method, mark the offer paid or failed, and create/lock the order</li>
+</ul>
+<p>Foundation tables:</p>
+<pre><code>account_collector_profiles
+account_conversations
+account_conversation_messages
+account_binding_offers
+account_collection_export_jobs</code></pre>
 <h3>Future: Sports, Scores, Schedules, Odds, And Market Watchlists</h3>
 <p>The account dashboard now has the data foundation for favorite teams and market watchlists.</p>
 <p>Sports dashboard goals:</p>
@@ -2253,7 +2324,8 @@ IP_INTELLIGENCE_REQUIRED=true</code></pre>
 <p>Migration directory:</p>
 <pre><code>supabase/migrations</code></pre>
 <p>Current migration:</p>
-<pre><code>20260628220000_create_collector_dashboard_tables.sql
+<pre><code>20260628223000_create_collector_profiles_messaging_exports.sql
+20260628220000_create_collector_dashboard_tables.sql
 20260628213000_create_sports_dashboard_tables.sql
 20260628201500_add_account_auth_lockouts.sql
 20260628193000_link_accounts_to_orders_offers.sql

@@ -399,6 +399,37 @@ async function checkDatabaseReadiness(): Promise<ReadinessItem[]> {
       migration: "20260628220000_create_collector_dashboard_tables.sql",
       readyDetail: "account_wish_list_matches is available for future inventory matching and alerts.",
     },
+    {
+      label: "Collector Profiles",
+      table: "account_collector_profiles",
+      select:
+        "id,account_id,store_id,collector_handle,bio,visibility,allow_messages,updated_at",
+      migration: "20260628223000_create_collector_profiles_messaging_exports.sql",
+      readyDetail: "account_collector_profiles is available for collector bios and social links.",
+    },
+    {
+      label: "Collector Conversations",
+      table: "account_conversations",
+      select:
+        "id,store_id,created_by_account_id,recipient_account_id,subject,status,last_message_at",
+      migration: "20260628223000_create_collector_profiles_messaging_exports.sql",
+      readyDetail: "account_conversations is available for collector messaging.",
+    },
+    {
+      label: "Binding Offers",
+      table: "account_binding_offers",
+      select:
+        "id,store_id,buyer_account_id,seller_account_id,offer_amount,total_amount,status,payment_requirement",
+      migration: "20260628223000_create_collector_profiles_messaging_exports.sql",
+      readyDetail: "account_binding_offers is available for card-required binding offer records.",
+    },
+    {
+      label: "Collection Export Jobs",
+      table: "account_collection_export_jobs",
+      select: "id,account_id,store_id,export_type,status,file_name,item_count,created_at",
+      migration: "20260628223000_create_collector_profiles_messaging_exports.sql",
+      readyDetail: "account_collection_export_jobs is available for CSV and catalog export audit logs.",
+    },
   ];
 
   return Promise.all(capabilities.map(checkDatabaseCapability));

@@ -89,6 +89,24 @@ type WishListItem = {
   created_at: string;
 };
 
+type CollectorProfile = {
+  id: string;
+  collector_handle: string | null;
+  bio: string | null;
+  collecting_focus: string | null;
+  location_label: string | null;
+  website_url: string | null;
+  instagram_url: string | null;
+  facebook_url: string | null;
+  x_url: string | null;
+  tiktok_url: string | null;
+  youtube_url: string | null;
+  whatnot_url: string | null;
+  ebay_url: string | null;
+  visibility: string;
+  allow_messages: boolean;
+};
+
 export default function AccountPage() {
   const [session, setSession] = useState<StoredAccountSession | null>(() =>
     typeof window === "undefined" ? null : getAccountSession(),
@@ -104,9 +122,13 @@ export default function AccountPage() {
   const [isLoadingDashboard, setIsLoadingDashboard] = useState(false);
   const [collectionItems, setCollectionItems] = useState<CollectionItem[]>([]);
   const [wishListItems, setWishListItems] = useState<WishListItem[]>([]);
+  const [collectorProfile, setCollectorProfile] =
+    useState<CollectorProfile | null>(null);
   const [collectorError, setCollectorError] = useState("");
   const [isLoadingCollector, setIsLoadingCollector] = useState(false);
   const [isSavingCollector, setIsSavingCollector] = useState(false);
+  const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [isExportingCollection, setIsExportingCollection] = useState(false);
   const [teamName, setTeamName] = useState("");
   const [sportKey, setSportKey] = useState("football");
   const [leagueKey, setLeagueKey] = useState("nfl");
@@ -133,6 +155,20 @@ export default function AccountPage() {
   const [wishSetName, setWishSetName] = useState("");
   const [wishBudgetMax, setWishBudgetMax] = useState("");
   const [wishPriority, setWishPriority] = useState("normal");
+  const [collectorHandle, setCollectorHandle] = useState("");
+  const [collectorBio, setCollectorBio] = useState("");
+  const [collectingFocus, setCollectingFocus] = useState("");
+  const [locationLabel, setLocationLabel] = useState("");
+  const [websiteUrl, setWebsiteUrl] = useState("");
+  const [instagramUrl, setInstagramUrl] = useState("");
+  const [facebookUrl, setFacebookUrl] = useState("");
+  const [xUrl, setXUrl] = useState("");
+  const [tiktokUrl, setTiktokUrl] = useState("");
+  const [youtubeUrl, setYoutubeUrl] = useState("");
+  const [whatnotUrl, setWhatnotUrl] = useState("");
+  const [ebayUrl, setEbayUrl] = useState("");
+  const [profileVisibility, setProfileVisibility] = useState("private");
+  const [allowMessages, setAllowMessages] = useState(true);
   const accessToken = session?.access_token || "";
 
   useEffect(() => {
@@ -278,6 +314,56 @@ export default function AccountPage() {
     };
   }, [accessToken]);
 
+  useEffect(() => {
+    if (!accessToken) return;
+
+    let isCancelled = false;
+
+    async function loadCollectorProfile() {
+      try {
+        const response = await fetch("/api/account/collector/profile", {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || "Could not load collector profile");
+        }
+
+        if (!isCancelled && data.profile) {
+          const profile = data.profile as CollectorProfile;
+          setCollectorProfile(profile);
+          setCollectorHandle(profile.collector_handle || "");
+          setCollectorBio(profile.bio || "");
+          setCollectingFocus(profile.collecting_focus || "");
+          setLocationLabel(profile.location_label || "");
+          setWebsiteUrl(profile.website_url || "");
+          setInstagramUrl(profile.instagram_url || "");
+          setFacebookUrl(profile.facebook_url || "");
+          setXUrl(profile.x_url || "");
+          setTiktokUrl(profile.tiktok_url || "");
+          setYoutubeUrl(profile.youtube_url || "");
+          setWhatnotUrl(profile.whatnot_url || "");
+          setEbayUrl(profile.ebay_url || "");
+          setProfileVisibility(profile.visibility || "private");
+          setAllowMessages(profile.allow_messages !== false);
+        }
+      } catch (error: any) {
+        if (!isCancelled) {
+          setCollectorError(error.message || "Could not load collector profile");
+        }
+      }
+    }
+
+    loadCollectorProfile();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [accessToken]);
+
   function logout() {
     clearAccountSession();
     setSession(null);
@@ -288,6 +374,7 @@ export default function AccountPage() {
     setDashboardError("");
     setCollectionItems([]);
     setWishListItems([]);
+    setCollectorProfile(null);
     setCollectorError("");
   }
 
@@ -455,6 +542,94 @@ export default function AccountPage() {
     }
   }
 
+  async function saveCollectorProfile() {
+    if (!accessToken) return;
+
+    setIsSavingProfile(true);
+    setCollectorError("");
+
+    try {
+      const response = await fetch("/api/account/collector/profile", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          collectorHandle,
+          bio: collectorBio,
+          collectingFocus,
+          locationLabel,
+          websiteUrl,
+          instagramUrl,
+          facebookUrl,
+          xUrl,
+          tiktokUrl,
+          youtubeUrl,
+          whatnotUrl,
+          ebayUrl,
+          visibility: profileVisibility,
+          allowMessages,
+        }),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Could not save collector profile");
+      }
+
+      setCollectorProfile(data.profile as CollectorProfile);
+    } catch (error: any) {
+      setCollectorError(error.message || "Could not save collector profile");
+    } finally {
+      setIsSavingProfile(false);
+    }
+  }
+
+  async function downloadCollectionExport(format: "csv" | "catalog_json") {
+    if (!accessToken) return;
+
+    setIsExportingCollection(true);
+    setCollectorError("");
+
+    try {
+      const response = await fetch(
+        `/api/account/collector/exports?format=${format}`,
+        {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        },
+      );
+
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || "Could not export collection");
+      }
+
+      const blob = await response.blob();
+      const disposition = response.headers.get("content-disposition") || "";
+      const match = /filename="([^"]+)"/.exec(disposition);
+      const fileName =
+        match?.[1] ||
+        (format === "catalog_json"
+          ? "tcos-collection-catalog.json"
+          : "tcos-collection.csv");
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = fileName;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+    } catch (error: any) {
+      setCollectorError(error.message || "Could not export collection");
+    } finally {
+      setIsExportingCollection(false);
+    }
+  }
+
   return (
     <main className="mx-auto max-w-5xl px-6 py-10">
       <section className="border-b border-neutral-200 pb-6">
@@ -519,10 +694,186 @@ export default function AccountPage() {
               <li>Image uploads</li>
               <li>AI item matching</li>
               <li>Collector alerts</li>
-              <li>Seller account separation</li>
+              <li>Messaging inbox UI</li>
+              <li>Binding offer charge-on-accept</li>
               <li>Optional MFA path</li>
             </ul>
           </aside>
+
+          <div className="rounded-md border border-neutral-200 bg-white p-6 lg:col-span-2">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-2xl font-black">Collector Bio</h2>
+                <p className="mt-1 text-sm text-neutral-600">
+                  Public-facing collector story, social links, and message
+                  settings.
+                </p>
+              </div>
+              {collectorProfile ? (
+                <span className="rounded bg-emerald-50 px-3 py-1 text-xs font-bold uppercase text-emerald-700">
+                  Saved
+                </span>
+              ) : null}
+            </div>
+
+            <form
+              onSubmit={(event) => {
+                event.preventDefault();
+                saveCollectorProfile();
+              }}
+              className="mt-5 grid grid-cols-1 gap-4"
+            >
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                <label className="text-sm font-bold text-neutral-700">
+                  Handle
+                  <input
+                    value={collectorHandle}
+                    onChange={(event) => setCollectorHandle(event.target.value)}
+                    className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
+                    placeholder="TruelyCollector"
+                  />
+                </label>
+                <label className="text-sm font-bold text-neutral-700">
+                  Location
+                  <input
+                    value={locationLabel}
+                    onChange={(event) => setLocationLabel(event.target.value)}
+                    className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
+                    placeholder="Colorado"
+                  />
+                </label>
+                <label className="text-sm font-bold text-neutral-700">
+                  Visibility
+                  <select
+                    value={profileVisibility}
+                    onChange={(event) => setProfileVisibility(event.target.value)}
+                    className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
+                  >
+                    <option value="private">Private</option>
+                    <option value="community">Community</option>
+                    <option value="public">Public</option>
+                    <option value="admin_review">Admin Review</option>
+                  </select>
+                </label>
+              </div>
+
+              <label className="text-sm font-bold text-neutral-700">
+                Bio
+                <textarea
+                  value={collectorBio}
+                  onChange={(event) => setCollectorBio(event.target.value)}
+                  className="mt-1 min-h-24 w-full rounded border border-neutral-300 px-3 py-2"
+                  placeholder="What you collect, what got you started, and what makes your shelf yours."
+                />
+              </label>
+
+              <label className="text-sm font-bold text-neutral-700">
+                Collecting Focus
+                <input
+                  value={collectingFocus}
+                  onChange={(event) => setCollectingFocus(event.target.value)}
+                  className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
+                  placeholder="Vintage baseball, Denver teams, rare shoes, sealed wax..."
+                />
+              </label>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+                <label className="text-sm font-bold text-neutral-700">
+                  Website
+                  <input
+                    value={websiteUrl}
+                    onChange={(event) => setWebsiteUrl(event.target.value)}
+                    className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
+                    placeholder="https://"
+                  />
+                </label>
+                <label className="text-sm font-bold text-neutral-700">
+                  Instagram
+                  <input
+                    value={instagramUrl}
+                    onChange={(event) => setInstagramUrl(event.target.value)}
+                    className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
+                    placeholder="@handle or URL"
+                  />
+                </label>
+                <label className="text-sm font-bold text-neutral-700">
+                  Facebook
+                  <input
+                    value={facebookUrl}
+                    onChange={(event) => setFacebookUrl(event.target.value)}
+                    className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
+                    placeholder="Profile URL"
+                  />
+                </label>
+                <label className="text-sm font-bold text-neutral-700">
+                  X
+                  <input
+                    value={xUrl}
+                    onChange={(event) => setXUrl(event.target.value)}
+                    className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
+                    placeholder="@handle or URL"
+                  />
+                </label>
+              </div>
+
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
+                <label className="text-sm font-bold text-neutral-700">
+                  TikTok
+                  <input
+                    value={tiktokUrl}
+                    onChange={(event) => setTiktokUrl(event.target.value)}
+                    className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
+                    placeholder="@handle or URL"
+                  />
+                </label>
+                <label className="text-sm font-bold text-neutral-700">
+                  YouTube
+                  <input
+                    value={youtubeUrl}
+                    onChange={(event) => setYoutubeUrl(event.target.value)}
+                    className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
+                    placeholder="Channel URL"
+                  />
+                </label>
+                <label className="text-sm font-bold text-neutral-700">
+                  Whatnot
+                  <input
+                    value={whatnotUrl}
+                    onChange={(event) => setWhatnotUrl(event.target.value)}
+                    className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
+                    placeholder="Store URL"
+                  />
+                </label>
+                <label className="text-sm font-bold text-neutral-700">
+                  eBay
+                  <input
+                    value={ebayUrl}
+                    onChange={(event) => setEbayUrl(event.target.value)}
+                    className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
+                    placeholder="Seller URL"
+                  />
+                </label>
+              </div>
+
+              <label className="flex items-center gap-2 text-sm font-semibold text-neutral-700">
+                <input
+                  type="checkbox"
+                  checked={allowMessages}
+                  onChange={(event) => setAllowMessages(event.target.checked)}
+                />
+                Allow other collectors to message this profile when community
+                features are enabled
+              </label>
+
+              <button
+                type="submit"
+                disabled={isSavingProfile}
+                className="w-fit rounded bg-neutral-950 px-4 py-2 text-sm font-bold text-white disabled:bg-neutral-500"
+              >
+                Save Collector Bio
+              </button>
+            </form>
+          </div>
 
           <div className="lg:col-span-2">
             <div className="flex flex-wrap items-center justify-between gap-3 pb-4">
@@ -532,11 +883,29 @@ export default function AccountPage() {
                   Your owned collection and the items you are hunting.
                 </p>
               </div>
-              {isLoadingCollector ? (
-                <span className="rounded bg-neutral-100 px-3 py-1 text-xs font-bold uppercase text-neutral-600">
-                  Loading
-                </span>
-              ) : null}
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => downloadCollectionExport("csv")}
+                  disabled={isExportingCollection}
+                  className="rounded border border-neutral-300 px-3 py-2 text-xs font-bold hover:bg-neutral-50 disabled:text-neutral-400"
+                >
+                  Download CSV
+                </button>
+                <button
+                  type="button"
+                  onClick={() => downloadCollectionExport("catalog_json")}
+                  disabled={isExportingCollection}
+                  className="rounded border border-neutral-300 px-3 py-2 text-xs font-bold hover:bg-neutral-50 disabled:text-neutral-400"
+                >
+                  Download Catalog
+                </button>
+                {isLoadingCollector ? (
+                  <span className="rounded bg-neutral-100 px-3 py-1 text-xs font-bold uppercase text-neutral-600">
+                    Loading
+                  </span>
+                ) : null}
+              </div>
             </div>
 
             {collectorError ? (
