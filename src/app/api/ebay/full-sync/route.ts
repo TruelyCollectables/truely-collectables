@@ -6,9 +6,24 @@ export const maxDuration = 60;
 
 const LIMIT = 100;
 const MAX_BATCHES = 25;
+const LIMIT_OPTIONS = [10, 25, 50, 100];
 
-export async function GET() {
+function safeLimit(value: string | null) {
+  const parsed = Number(value || LIMIT);
+  return LIMIT_OPTIONS.includes(parsed) ? parsed : LIMIT;
+}
+
+function safeMaxBatches(value: string | null) {
+  const parsed = Number(value || MAX_BATCHES);
+  if (!Number.isFinite(parsed)) return MAX_BATCHES;
+  return Math.min(Math.max(Math.floor(parsed), 1), MAX_BATCHES);
+}
+
+export async function GET(request: Request) {
   try {
+    const url = new URL(request.url);
+    const limit = safeLimit(url.searchParams.get("limit"));
+    const maxBatches = safeMaxBatches(url.searchParams.get("maxBatches"));
     const results = [];
     const runId = new Date().toISOString();
     let offset = 0;
@@ -19,10 +34,10 @@ export async function GET() {
       skipped: 0,
     };
 
-    for (let batch = 1; batch <= MAX_BATCHES; batch++) {
+    for (let batch = 1; batch <= maxBatches; batch++) {
       const result = await importEbayListingsPage({
         offset,
-        limit: LIMIT,
+        limit,
         runId,
       });
 
@@ -57,8 +72,8 @@ export async function GET() {
       success: true,
       message: "Full eBay sync completed",
       runId,
-      limit: LIMIT,
-      maxBatches: MAX_BATCHES,
+      limit,
+      maxBatches,
       totals,
       results,
     });

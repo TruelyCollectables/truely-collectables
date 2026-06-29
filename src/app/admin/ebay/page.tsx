@@ -97,6 +97,7 @@ export default async function AdminEbayPage() {
             <CommandLink href="/admin" label="Command Center" />
             <CommandLink href="/admin/inventory" label="Inventory V2" />
             <CommandLink href="/admin/inventory/category-review" label="Category Review" />
+            <CommandLink href="/admin/ebay/sync-control" label="Sync Control" primary />
             <CommandLink href="/admin/settings" label="Settings" />
             <CommandLink href="/api/ebay/test" label="Test Route" />
             {storeSettings.ebaySyncEnabled ? (

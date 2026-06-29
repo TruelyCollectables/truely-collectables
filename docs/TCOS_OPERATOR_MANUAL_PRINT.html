@@ -426,6 +426,10 @@
 <td>eBay import category confidence and review queue</td>
 </tr>
 <tr>
+<td><code>/admin/ebay/sync-control</code></td>
+<td>Controlled eBay batch sync launcher</td>
+</tr>
+<tr>
 <td><code>/admin/offers</code></td>
 <td>Offer review</td>
 </tr>
@@ -935,6 +939,8 @@ src/lib/collector-intelligence.ts</code></pre>
 <pre><code>/api/ebay/import-listings</code></pre>
 <p>Batch sync:</p>
 <pre><code>/api/ebay/full-sync</code></pre>
+<p>Controlled admin launcher:</p>
+<pre><code>/admin/ebay/sync-control</code></pre>
 <p>Import behavior:</p>
 <ol>
 <li>Reads latest eBay refresh token.</li>
@@ -964,6 +970,15 @@ src/lib/collector-intelligence.ts</code></pre>
 <p>Admin review:</p>
 <pre><code>/admin/inventory/category-review</code></pre>
 <p>This page shows mapped eBay imports, TCOS category confidence, review-required flags, mapping evidence, and sample eBay aspects. Review-required, low-confidence, and <code>other_collectable</code> rows appear first and link back to the product edit screen.</p>
+<p>Safe sync workflow:</p>
+<ol>
+<li>Open <code>/admin/ebay/sync-control</code>.</li>
+<li>Run a small batch, usually 10 or 25 listings.</li>
+<li>Review imported categories on <code>/admin/inventory/category-review</code>.</li>
+<li>Continue with the next offset if results look clean.</li>
+<li>Use larger batch sizes only after the category mapper is behaving well.</li>
+</ol>
+<p>The full-sync API accepts optional <code>limit</code> and <code>maxBatches</code> query parameters. Allowed batch sizes are 10, 25, 50, and 100. <code>maxBatches</code> is capped at 25.</p>
 <p>Current sync implementation:</p>
 <pre><code>src/lib/ebay-sync.ts
 src/lib/ebay-category-mapper.ts</code></pre>

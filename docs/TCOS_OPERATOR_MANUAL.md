@@ -272,6 +272,7 @@ Most day-to-day work starts at:
 | `/admin/files` | Transaction evidence files |
 | `/admin/launch-readiness` | Live payment and production readiness checklist |
 | `/admin/inventory/category-review` | eBay import category confidence and review queue |
+| `/admin/ebay/sync-control` | Controlled eBay batch sync launcher |
 | `/admin/offers` | Offer review |
 | `/admin/security` | Admin login audit and lockout review |
 
@@ -798,6 +799,12 @@ Batch sync:
 /api/ebay/full-sync
 ```
 
+Controlled admin launcher:
+
+```text
+/admin/ebay/sync-control
+```
+
 Import behavior:
 
 1. Reads latest eBay refresh token.
@@ -833,6 +840,16 @@ Admin review:
 ```
 
 This page shows mapped eBay imports, TCOS category confidence, review-required flags, mapping evidence, and sample eBay aspects. Review-required, low-confidence, and `other_collectable` rows appear first and link back to the product edit screen.
+
+Safe sync workflow:
+
+1. Open `/admin/ebay/sync-control`.
+2. Run a small batch, usually 10 or 25 listings.
+3. Review imported categories on `/admin/inventory/category-review`.
+4. Continue with the next offset if results look clean.
+5. Use larger batch sizes only after the category mapper is behaving well.
+
+The full-sync API accepts optional `limit` and `maxBatches` query parameters. Allowed batch sizes are 10, 25, 50, and 100. `maxBatches` is capped at 25.
 
 Current sync implementation:
 
