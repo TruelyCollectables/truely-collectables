@@ -86,7 +86,15 @@ const CATEGORY_RULES: CategoryRule[] = [
   },
   {
     category: "autographs",
-    highTerms: ["autograph", "autographed", "signed", "auto "],
+    highTerms: [
+      "autograph",
+      "autographed",
+      "autographs",
+      "signature",
+      "signatures",
+      "signed",
+      "auto",
+    ],
     mediumTerms: ["coa", "jsa", "beckett authenticated", "psa dna"],
   },
   {
@@ -107,6 +115,10 @@ const CATEGORY_RULES: CategoryRule[] = [
 ];
 
 const ATTRIBUTE_NAMES = [
+  "Autograph Authentication",
+  "Autograph Authentication Number",
+  "Autograph Format",
+  "Autographed",
   "Brand",
   "Card Manufacturer",
   "Character",
@@ -165,15 +177,33 @@ function scoreRule(rule: CategoryRule, text: string) {
   };
 }
 
+function isAffirmativeAspect(value: string) {
+  return ["1", "true", "yes", "y", "autographed", "signed"].includes(
+    value.trim().toLowerCase(),
+  );
+}
+
 function aspectSearchText(aspects: EbayAspectMap) {
-  return Object.entries(aspects)
-    .flatMap(([key, value]) => [key, textValue(value) ?? ""])
-    .join(" ")
-    .toLowerCase();
+  const values = Object.values(aspects)
+    .map((value) => textValue(value) ?? "")
+    .filter(Boolean);
+  const autographed = textValue(aspects.Autographed);
+
+  if (autographed && isAffirmativeAspect(autographed)) {
+    values.push("autographed");
+  }
+
+  return values.join(" ").toLowerCase();
 }
 
 function getAspectValue(aspects: EbayAspectMap, name: string) {
   return textValue(aspects[name])?.toLowerCase() || "";
+}
+
+function hasAffirmativeAutographedAspect(aspects: EbayAspectMap) {
+  const autographed = getAspectValue(aspects, "Autographed");
+
+  return Boolean(autographed && isAffirmativeAspect(autographed));
 }
 
 function hasStrongAutographEvidence(title: string, aspects: EbayAspectMap) {
@@ -188,6 +218,7 @@ function hasStrongAutographEvidence(title: string, aspects: EbayAspectMap) {
     .toLowerCase();
 
   return (
+    hasAffirmativeAutographedAspect(aspects) ||
     hasTerm(focused, "autograph") ||
     hasTerm(focused, "autographed") ||
     hasTerm(focused, "signed") ||
@@ -263,6 +294,19 @@ export function mapEbayInventoryCategory(input: {
     })
   ) {
     best = focusedResults.find((result) => result.category === "sports_cards") ?? best;
+  }
+
+  if (
+    best?.category === "sports_cards" &&
+    hasStrongAutographEvidence(input.title, aspects)
+  ) {
+    const autographResult = focusedResults.find(
+      (result) => result.category === "autographs" && result.score > 0,
+    );
+
+    if (autographResult) {
+      best = autographResult;
+    }
   }
 
   const mappingConfidence = confidence(best?.score ?? 0);
