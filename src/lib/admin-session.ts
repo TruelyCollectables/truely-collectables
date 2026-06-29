@@ -40,6 +40,37 @@ async function sign(value: string, secret: string): Promise<string> {
   return toBase64Url(signature);
 }
 
+async function digest(value: string): Promise<Uint8Array> {
+  const encoder = new TextEncoder();
+  const hash = await crypto.subtle.digest("SHA-256", encoder.encode(value));
+
+  return new Uint8Array(hash);
+}
+
+function safeBytesEqual(left: Uint8Array, right: Uint8Array): boolean {
+  const length = Math.max(left.length, right.length);
+  let mismatch = left.length ^ right.length;
+
+  for (let index = 0; index < length; index += 1) {
+    mismatch |= (left[index] ?? 0) ^ (right[index] ?? 0);
+  }
+
+  return mismatch === 0;
+}
+
+export async function verifyAdminPassword(password: string): Promise<boolean> {
+  const expectedPassword = process.env.ADMIN_PASSWORD;
+
+  if (!expectedPassword) return false;
+
+  const [providedHash, expectedHash] = await Promise.all([
+    digest(password),
+    digest(expectedPassword),
+  ]);
+
+  return safeBytesEqual(providedHash, expectedHash);
+}
+
 export async function createAdminSessionValue(): Promise<string> {
   const secret = getSessionSecret();
 

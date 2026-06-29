@@ -33,6 +33,40 @@ Do not store raw bank account numbers, routing numbers, payment card numbers, SS
 
 Future seller payout and bank verification must use an approved third-party provider. Store only provider IDs, verification status, timestamps, payout state, and non-sensitive metadata needed for operations.
 
+## Security Audit Tables
+
+### `admin_login_attempts`
+
+Admin login audit and lockout table.
+
+Created by migration:
+
+```text
+supabase/migrations/20260628180000_create_admin_login_attempts.sql
+```
+
+Fields:
+
+| Field | Purpose |
+| --- | --- |
+| `id` | Attempt ID |
+| `store_id` | TCOS store context, defaults to Store #1 |
+| `ip_address` | Server-observed client IP or development marker |
+| `user_agent` | Browser user agent |
+| `success` | Whether login succeeded |
+| `failure_reason` | Reason for failed/blocked attempt |
+| `lockout_until` | Timestamp when IP lockout expires |
+| `identity_risk` | Client identity risk status |
+| `identity_evidence` | Request header evidence JSON |
+| `created_at` | Attempt timestamp |
+
+Runtime behavior:
+
+- login security helper lives in `src/lib/admin-login-security.ts`
+- five failed attempts from the same IP inside 15 minutes triggers a 15-minute lockout
+- successful logins are also audited
+- if the table is missing, login still works but audit/lockout storage is unavailable
+
 ## Legacy Compatibility Tables
 
 ## Multi-Store Platform Tables

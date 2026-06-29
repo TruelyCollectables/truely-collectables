@@ -492,6 +492,37 @@
 </ul>
 <p>Protected admin routes redirect to <code>/admin/login</code> if the cookie is missing.</p>
 <p>Admin sessions are signed by <code>ADMIN_SESSION_SECRET</code> when configured. If <code>ADMIN_SESSION_SECRET</code> is missing, TCOS falls back to <code>ADMIN_PASSWORD</code> for signing. Production should use a separate strong <code>ADMIN_SESSION_SECRET</code>.</p>
+<p>Admin login hardening:</p>
+<ul>
+<li>password verification uses fixed-length hashed comparison instead of plain string equality</li>
+<li>every login attempt is evaluated through <code>src/lib/admin-login-security.ts</code></li>
+<li>failed and successful attempts are written to <code>admin_login_attempts</code> when the table is available</li>
+<li>login attempts store store ID, IP address, user agent, result, failure reason, identity risk, header evidence, and lockout timestamp when applicable</li>
+<li>five failed attempts from the same IP inside 15 minutes triggers a 15-minute lockout</li>
+<li>locked-out login attempts return HTTP <code>429</code></li>
+<li>masked or blocked identity attempts return HTTP <code>403</code></li>
+<li>if the audit table has not been migrated yet, login still works but audit/lockout storage is unavailable</li>
+</ul>
+<p>Admin login policy:</p>
+<table>
+<thead><tr>
+<th>Setting</th>
+<th>Value</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>Failed-attempt window</td>
+<td>15 minutes</td>
+</tr>
+<tr>
+<td>Failed-attempt limit</td>
+<td>5</td>
+</tr>
+<tr>
+<td>Lockout duration</td>
+<td>15 minutes</td>
+</tr>
+</tbody></table>
 <h2>4. Product And Inventory Basics</h2>
 <p>TCOS currently keeps two inventory layers in sync:</p>
 <ol>
