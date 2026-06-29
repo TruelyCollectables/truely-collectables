@@ -221,6 +221,7 @@ export default async function AdminDashboard() {
           <div className="flex flex-wrap gap-2">
             <CommandButton href="/admin/products/new" label="Add Product" primary />
             <CommandButton href="/admin/inventory" label="Inventory V2" />
+            <CommandButton href="/admin/accounts" label="Accounts" />
             <CommandButton href="/admin/ebay" label="eBay Health" />
             <CommandButton href="/admin/settings" label="Settings" />
             <CommandButton href="/admin/security" label="Security" />
@@ -330,6 +331,7 @@ export default async function AdminDashboard() {
                 <LinkButton href="/admin/ebay" label="eBay" />
                 <LinkButton href="/admin/settings" label="Settings" />
                 <LinkButton href="/admin/security" label="Security" />
+                <LinkButton href="/admin/accounts" label="Accounts" />
                 <LinkButton href="/admin/orders" label="Orders" />
                 <LinkButton href="/admin/offers" label="Offers" />
                 <LinkButton href="/admin/files" label="Files" />

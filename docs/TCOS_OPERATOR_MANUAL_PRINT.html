@@ -386,6 +386,10 @@
 <td>Admin dashboard</td>
 </tr>
 <tr>
+<td><code>/admin/accounts</code></td>
+<td>Customer account lookup and linked order/offer activity</td>
+</tr>
+<tr>
 <td><code>/admin/products</code></td>
 <td>Product list</td>
 </tr>
@@ -1271,6 +1275,9 @@ src/app/api/admin/files/[id]/download/route.ts</code></pre>
 <li>completed Stripe webhooks save <code>orders.account_id</code> when account metadata is present</li>
 <li>customer-created offers save <code>offers.account_id</code> when the customer is logged in</li>
 <li><code>/account</code> shows recent linked orders for the logged-in customer</li>
+<li><code>/admin/accounts</code> shows customer accounts, linked order counts, offer counts, TOS status, and linked revenue</li>
+<li><code>/admin/orders</code> and <code>/admin/orders/[id]</code> show whether an order is linked to a TCOS account or was a guest checkout</li>
+<li><code>/admin/offers</code> shows whether an offer is linked to a TCOS account or was a guest offer</li>
 <li>guest checkout still works and leaves <code>account_id</code> empty</li>
 <li>account sessions are browser-local and separate from admin login cookies</li>
 <li>admin login still uses <code>/admin/login</code> and <code>admin_auth</code></li>
@@ -2259,6 +2266,12 @@ supabase/migrations/20260627180000_create_transaction_evidence_reports.sql</code
 <pre><code>src/app/admin/products/page.tsx
 src/app/admin/products/new/page.tsx
 src/app/admin/products/[id]/page.tsx</code></pre>
+<p>Accounts:</p>
+<pre><code>src/app/admin/accounts/page.tsx
+src/app/account
+src/app/api/account
+src/lib/account-auth.ts
+src/lib/account-profiles.ts</code></pre>
 <p>Orders:</p>
 <pre><code>src/app/admin/orders
 src/app/api/orders</code></pre>

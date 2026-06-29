@@ -262,6 +262,7 @@ Most day-to-day work starts at:
 | --- | --- |
 | `/admin/login` | Admin login |
 | `/admin` | Admin dashboard |
+| `/admin/accounts` | Customer account lookup and linked order/offer activity |
 | `/admin/products` | Product list |
 | `/admin/products/new` | Add product |
 | `/admin/products/[id]` | Edit product and pricing tools |
@@ -1259,6 +1260,9 @@ Current behavior:
 - completed Stripe webhooks save `orders.account_id` when account metadata is present
 - customer-created offers save `offers.account_id` when the customer is logged in
 - `/account` shows recent linked orders for the logged-in customer
+- `/admin/accounts` shows customer accounts, linked order counts, offer counts, TOS status, and linked revenue
+- `/admin/orders` and `/admin/orders/[id]` show whether an order is linked to a TCOS account or was a guest checkout
+- `/admin/offers` shows whether an offer is linked to a TCOS account or was a guest offer
 - guest checkout still works and leaves `account_id` empty
 - account sessions are browser-local and separate from admin login cookies
 - admin login still uses `/admin/login` and `admin_auth`
@@ -2410,6 +2414,16 @@ Admin product screens:
 src/app/admin/products/page.tsx
 src/app/admin/products/new/page.tsx
 src/app/admin/products/[id]/page.tsx
+```
+
+Accounts:
+
+```text
+src/app/admin/accounts/page.tsx
+src/app/account
+src/app/api/account
+src/lib/account-auth.ts
+src/lib/account-profiles.ts
 ```
 
 Orders:

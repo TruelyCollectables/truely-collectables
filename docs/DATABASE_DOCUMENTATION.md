@@ -146,6 +146,10 @@ Runtime behavior:
 - checkout and accepted/countered offer Stripe sessions include `account_id` metadata when available
 - Stripe webhooks persist `orders.account_id` when account metadata is present
 - guest checkout and guest offers remain supported with a null account link
+- admin account lookup lives at `/admin/accounts`
+- `/admin/accounts` reads account profiles and summarizes linked order/offer activity for the active store
+- admin order and offer screens show whether each record is linked to a TCOS account or was created as a guest
+- account profile summaries are loaded through `src/lib/account-profiles.ts`
 
 ## Multi-Store Platform Tables
 

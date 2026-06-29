@@ -1,4 +1,8 @@
 import Link from "next/link";
+import {
+  getAccountProfilesByIds,
+  type AccountProfileSummary,
+} from "../../../lib/account-profiles";
 import { supabase } from "../../../lib/supabase";
 import { getActiveStoreId } from "../../../lib/stores";
 
@@ -14,6 +18,7 @@ type OrderItem = {
 
 type Order = {
   id: number;
+  account_id?: string | null;
   created_at: string;
   customer_email: string | null;
   total: number;
@@ -84,6 +89,9 @@ export default async function AdminOrdersPage({
   }
 
   const typedOrders = (orders || []) as Order[];
+  const accountProfiles = await getAccountProfilesByIds(
+    typedOrders.map((order) => order.account_id),
+  );
 
   const readyToShip = typedOrders.filter(isReadyToShip);
   const shipped = typedOrders.filter(isShipped);
@@ -173,7 +181,15 @@ export default async function AdminOrdersPage({
         ) : (
           <div className="space-y-4">
             {visibleOrders.map((order) => (
-              <OrderCard key={order.id} order={order} />
+              <OrderCard
+                key={order.id}
+                order={order}
+                accountProfile={
+                  order.account_id
+                    ? accountProfiles.get(order.account_id)
+                    : undefined
+                }
+              />
             ))}
           </div>
         )}
@@ -214,13 +230,29 @@ function TabLink({
   );
 }
 
-function OrderCard({ order }: { order: Order }) {
+function OrderCard({
+  order,
+  accountProfile,
+}: {
+  order: Order;
+  accountProfile?: AccountProfileSummary;
+}) {
   return (
     <div className="border rounded-lg p-5 bg-white">
       <div className="flex flex-wrap justify-between gap-4 border-b pb-4 mb-4">
         <div>
           <h3 className="text-xl font-bold">Order #{order.id}</h3>
           <p className="text-gray-600">{order.customer_email || "No email"}</p>
+          <p className="mt-1 text-sm font-semibold text-gray-700">
+            Account:{" "}
+            {accountProfile
+              ? accountProfile.email ||
+                accountProfile.display_name ||
+                accountProfile.id
+              : order.account_id
+                ? "Linked account profile unavailable"
+                : "Guest checkout"}
+          </p>
           <p className="text-sm text-gray-500">
             {new Date(order.created_at).toLocaleString()}
           </p>

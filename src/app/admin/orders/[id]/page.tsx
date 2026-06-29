@@ -1,5 +1,6 @@
 import { supabase } from "../../../../lib/supabase";
 import { getActiveStoreId } from "../../../../lib/stores";
+import { getAccountProfilesByIds } from "../../../../lib/account-profiles";
 import Link from "next/link";
 import TrackingForm from "./TrackingForm";
 
@@ -12,6 +13,7 @@ type OrderItem = {
 
 type Order = {
   id: number;
+  account_id?: string | null;
   created_at: string;
   customer_email: string | null;
   customer_name?: string | null;
@@ -103,6 +105,12 @@ export default async function AdminOrderDetailPage({
   }
 
   const typedOrder = order as Order;
+  const accountProfiles = await getAccountProfilesByIds([
+    typedOrder.account_id,
+  ]);
+  const accountProfile = typedOrder.account_id
+    ? accountProfiles.get(typedOrder.account_id)
+    : undefined;
   const { data: evidenceReports, error: evidenceError } = await supabase
     .from("transaction_evidence_reports")
     .select(
@@ -173,6 +181,41 @@ export default async function AdminOrderDetailPage({
         <h2 className="text-2xl font-bold mb-4">Customer</h2>
         <p>Name: {typedOrder.customer_name || "Not saved"}</p>
         <p>Email: {typedOrder.customer_email || "No email"}</p>
+        <div className="mt-4 rounded border border-gray-200 bg-gray-50 p-4">
+          <h3 className="font-bold">Linked TCOS Account</h3>
+          {accountProfile ? (
+            <dl className="mt-2 grid grid-cols-1 gap-2 text-sm md:grid-cols-2">
+              <div>
+                <dt className="font-semibold text-gray-500">Account Email</dt>
+                <dd className="break-words">
+                  {accountProfile.email || "Not saved"}
+                </dd>
+              </div>
+              <div>
+                <dt className="font-semibold text-gray-500">Display Name</dt>
+                <dd>{accountProfile.display_name || "Not saved"}</dd>
+              </div>
+              <div>
+                <dt className="font-semibold text-gray-500">Status</dt>
+                <dd>{label(accountProfile.account_status)}</dd>
+              </div>
+              <div>
+                <dt className="font-semibold text-gray-500">Account Type</dt>
+                <dd>{label(accountProfile.default_account_type)}</dd>
+              </div>
+              <div className="md:col-span-2">
+                <dt className="font-semibold text-gray-500">Account ID</dt>
+                <dd className="break-all">{accountProfile.id}</dd>
+              </div>
+            </dl>
+          ) : (
+            <p className="mt-2 text-sm text-gray-600">
+              {typedOrder.account_id
+                ? "This order has an account ID, but the account profile could not be loaded."
+                : "Guest checkout. No TCOS account was linked to this order."}
+            </p>
+          )}
+        </div>
 
         <div className="mt-4">
           <h3 className="font-bold">Customer Notes</h3>
