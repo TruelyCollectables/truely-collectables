@@ -704,7 +704,9 @@ Fields expected:
 
 ### `inventory_attributes`
 
-Future structured card attributes.
+Structured inventory attributes.
+
+Current eBay import writes generated attributes for category confidence, review flags, and selected eBay aspects.
 
 Fields expected:
 
@@ -715,6 +717,16 @@ Fields expected:
 | `attribute_name` | Attribute name |
 | `attribute_value` | Attribute value |
 | `created_at` | Created timestamp |
+
+Generated attribute naming:
+
+- `tcos_category`
+- `tcos_category_confidence`
+- `tcos_review_required`
+- `tcos_category_evidence`
+- `ebay_aspect_*`
+
+When eBay imports rerun, TCOS replaces generated `tcos_` and `ebay_` attributes for that item and leaves other future/manual attribute names alone.
 
 ## Inventory Bridge Operations
 
@@ -766,6 +778,8 @@ Bridge labels returned by the engine:
 - `sold_out`
 
 eBay import now avoids global SKU upserts. The import updates by active-store eBay listing ID first, then by active-store SKU, then inserts only when no store-scoped product exists.
+
+The shared eBay importer maps active listings into TCOS categories before upserting V2 inventory. Current categories include `sports_cards`, `trading_cards`, `shoes`, `comics`, `memorabilia`, `toys`, `sealed_wax`, `autographs`, `coins`, and `other_collectable`. Low-confidence mappings write `tcos_review_required = true` to `inventory_attributes` for admin review.
 
 ## eBay Reconciliation Operations
 
@@ -962,6 +976,16 @@ Creates:
 - `inventory_images`
 - `inventory_attributes`
 - indexes for SKU, status, image ordering, and attributes
+
+### `20260629080000_grant_inventory_v2_table_access.sql`
+
+Grants active application roles access to:
+
+- `inventory_items`
+- `inventory_images`
+- `inventory_attributes`
+
+This is required for the server-side eBay importer to upsert V2 inventory rows and generated category/aspect attributes when the deployed environment uses the public Supabase anon key.
 
 ### `20260627160000_create_sales_comp_snapshots.sql`
 

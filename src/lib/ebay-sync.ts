@@ -1,5 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import { inventoryEngine } from "../modules/inventory";
+import { mapEbayInventoryCategory } from "./ebay-category-mapper";
 import { getActiveStoreId } from "./stores";
 import { getStoreSettings } from "./store-settings";
 
@@ -239,6 +240,11 @@ export async function importEbayListingsPage(params: {
       first(aspects.Athlete) ||
       first(aspects["Player/Athlete"]);
     const sport = first(aspects.Sport);
+    const categoryMapping = mapEbayInventoryCategory({
+      title: product.title || "Untitled",
+      description: product.description || offer.listingDescription || "",
+      aspects,
+    });
 
     const productData = {
       sku,
@@ -263,6 +269,10 @@ export async function importEbayListingsPage(params: {
         ebayItemId: productData.ebay_item_id,
         player: productData.player as string | null,
         sport: productData.sport as string | null,
+        category: categoryMapping.category,
+        categoryConfidence: categoryMapping.confidence,
+        reviewRequired: categoryMapping.reviewRequired,
+        attributes: categoryMapping.attributes,
       });
     } catch (upsertError) {
       skipped++;

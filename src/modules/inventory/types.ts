@@ -94,6 +94,11 @@ export type CreateInventoryItemInput = {
 
 export type UpdateInventoryItemInput = Partial<CreateInventoryItemInput>;
 
+export type InventoryAttributeInput = {
+  attribute_name: string;
+  attribute_value: string | null;
+};
+
 export type UpdateInventoryProductInput = {
   title: string;
   description: string | null;

@@ -804,14 +804,32 @@ Import behavior:
 3. Pulls eBay inventory items.
 4. Fetches offer data per SKU.
 5. If listing is active, updates `products` and `inventory_items`.
-6. If listing is not active, marks local quantity zero.
+6. Maps the eBay title/aspects into a TCOS category.
+7. Saves useful eBay aspects as generated inventory attributes.
+8. If listing is not active, marks local quantity zero.
 
 It does not delete eBay inventory.
+
+Current eBay category mapper output:
+
+- `sports_cards`
+- `trading_cards`
+- `shoes`
+- `comics`
+- `memorabilia`
+- `toys`
+- `sealed_wax`
+- `autographs`
+- `coins`
+- `other_collectable`
+
+The mapper stores category confidence in generated attributes. Low-confidence imports remain in inventory but receive `tcos_review_required = true` so admin review can identify listings that need better categorization instead of silently guessing wrong.
 
 Current sync implementation:
 
 ```text
 src/lib/ebay-sync.ts
+src/lib/ebay-category-mapper.ts
 ```
 
 Both single-page import and full sync use this shared server-side importer. Full sync calls the importer directly instead of calling TCOS through its own protected HTTP route, so it does not depend on an admin browser cookie or `NEXT_PUBLIC_SITE_URL` to keep running. This keeps Truely Collectables eBay sync more reliable when the toggle is enabled.
@@ -2430,6 +2448,7 @@ supabase/migrations
 Current migration:
 
 ```text
+20260629080000_grant_inventory_v2_table_access.sql
 20260628223000_create_collector_profiles_messaging_exports.sql
 20260628220000_create_collector_dashboard_tables.sql
 20260628213000_create_sports_dashboard_tables.sql

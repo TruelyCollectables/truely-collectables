@@ -32,6 +32,10 @@ type EbayImportInput = {
   ebayItemId: string | null;
   player?: string | null;
   sport?: string | null;
+  category?: string | null;
+  categoryConfidence?: string | null;
+  reviewRequired?: boolean;
+  attributes?: Record<string, string | null>;
 };
 
 type ManualProductInput = {
@@ -737,6 +741,19 @@ export class InventoryEngine {
   }
 
   async upsertFromEbayListing(input: EbayImportInput): Promise<UniversalInventoryItem> {
+    const category = input.category ?? input.sport ?? "other_collectable";
+    const reviewNote = input.reviewRequired
+      ? "Category review required"
+      : null;
+    const notes = [
+      input.ebayItemId ? `eBay listing ${input.ebayItemId}` : null,
+      input.categoryConfidence
+        ? `Category confidence: ${input.categoryConfidence}`
+        : null,
+      reviewNote,
+    ]
+      .filter(Boolean)
+      .join(" | ");
     const productData = {
       store_id: this.storeId,
       sku: input.sku,
@@ -806,14 +823,22 @@ export class InventoryEngine {
       sku: input.sku,
       title: input.title,
       description: input.description,
-      category: input.sport ?? "sports cards",
+      category,
       condition: "unknown",
       status: normalizeStatus(input.quantity),
       quantity: input.quantity,
       price: input.price,
       currency: "USD",
-      notes: input.ebayItemId ? `eBay listing ${input.ebayItemId}` : null,
+      notes: notes || null,
     });
+
+    await this.repository.replaceGeneratedAttributes(
+      inventoryItem.id,
+      Object.entries(input.attributes ?? {}).map(([attribute_name, value]) => ({
+        attribute_name,
+        attribute_value: value,
+      })),
+    );
 
     await eventBus.publish(
       "inventory.ebay_imported",
@@ -823,6 +848,9 @@ export class InventoryEngine {
         sku: input.sku,
         ebayItemId: input.ebayItemId,
         quantity: input.quantity,
+        category,
+        categoryConfidence: input.categoryConfidence,
+        reviewRequired: input.reviewRequired === true,
       },
       "inventory-engine"
     );

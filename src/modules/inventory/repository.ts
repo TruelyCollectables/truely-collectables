@@ -2,6 +2,7 @@ import { supabase } from "../../lib/supabase";
 import { getActiveStoreId } from "../../lib/stores";
 import type {
   CreateInventoryItemInput,
+  InventoryAttributeInput,
   InventoryImage,
   InventoryItem,
   InventorySearchParams,
@@ -225,6 +226,35 @@ export class InventoryRepository {
       sortOrder: 0,
       isPrimary: true,
     });
+  }
+
+  async replaceGeneratedAttributes(
+    inventoryItemId: string,
+    attributes: InventoryAttributeInput[],
+  ): Promise<void> {
+    const { error: deleteError } = await supabase
+      .from("inventory_attributes")
+      .delete()
+      .eq("inventory_item_id", inventoryItemId)
+      .or("attribute_name.like.ebay_%,attribute_name.like.tcos_%");
+
+    if (deleteError) throw deleteError;
+
+    const rows = attributes
+      .map((attribute) => ({
+        inventory_item_id: inventoryItemId,
+        attribute_name: attribute.attribute_name.trim(),
+        attribute_value: attribute.attribute_value?.trim() || null,
+      }))
+      .filter((attribute) => attribute.attribute_name.length > 0);
+
+    if (rows.length === 0) return;
+
+    const { error: insertError } = await supabase
+      .from("inventory_attributes")
+      .insert(rows);
+
+    if (insertError) throw insertError;
   }
 }
 

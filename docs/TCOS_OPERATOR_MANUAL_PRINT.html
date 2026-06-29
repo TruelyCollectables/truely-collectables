@@ -938,11 +938,28 @@ src/lib/collector-intelligence.ts</code></pre>
 <li>Pulls eBay inventory items.</li>
 <li>Fetches offer data per SKU.</li>
 <li>If listing is active, updates <code>products</code> and <code>inventory_items</code>.</li>
+<li>Maps the eBay title/aspects into a TCOS category.</li>
+<li>Saves useful eBay aspects as generated inventory attributes.</li>
 <li>If listing is not active, marks local quantity zero.</li>
 </ol>
 <p>It does not delete eBay inventory.</p>
+<p>Current eBay category mapper output:</p>
+<ul>
+<li><code>sports_cards</code></li>
+<li><code>trading_cards</code></li>
+<li><code>shoes</code></li>
+<li><code>comics</code></li>
+<li><code>memorabilia</code></li>
+<li><code>toys</code></li>
+<li><code>sealed_wax</code></li>
+<li><code>autographs</code></li>
+<li><code>coins</code></li>
+<li><code>other_collectable</code></li>
+</ul>
+<p>The mapper stores category confidence in generated attributes. Low-confidence imports remain in inventory but receive <code>tcos_review_required = true</code> so admin review can identify listings that need better categorization instead of silently guessing wrong.</p>
 <p>Current sync implementation:</p>
-<pre><code>src/lib/ebay-sync.ts</code></pre>
+<pre><code>src/lib/ebay-sync.ts
+src/lib/ebay-category-mapper.ts</code></pre>
 <p>Both single-page import and full sync use this shared server-side importer. Full sync calls the importer directly instead of calling TCOS through its own protected HTTP route, so it does not depend on an admin browser cookie or <code>NEXT_PUBLIC_SITE_URL</code> to keep running. This keeps Truely Collectables eBay sync more reliable when the toggle is enabled.</p>
 <h3>eBay Health</h3>
 <p>Open:</p>
@@ -1509,11 +1526,32 @@ market_news_snapshots</code></pre>
 <li>TCGplayer catalog/pricing data for trading card games</li>
 <li>COMC card marketplace/catalog data</li>
 <li>Beckett/card checklist references</li>
+<li>customer-authorized PSAcard.com account linking so collectors can import owned PSA-graded cards, cert data, population/card facts when permitted, and any supported account collection data</li>
+<li>customer-authorized Beckett.com account/subscription linking so collectors can use permitted Beckett pricing/checklist data inside their own TCOS collection dashboard</li>
 <li>manufacturer checklists when available</li>
 <li>grading-company certification lookups</li>
 <li>comic, coin, stamp, toy, and memorabilia catalog databases</li>
 <li>broad collectable catalog/reference sites such as Colnect-style catalogs</li>
 <li>Google Programmable Search as a fallback discovery layer</li>
+</ul>
+<p>Future linked-provider portal requirements:</p>
+<ul>
+<li>build a secure connected-accounts page for collector-owned provider logins, tokens, or authorized import sessions</li>
+<li>never store raw third-party passwords when OAuth, API tokens, or import files are available</li>
+<li>encrypt any provider access tokens and separate them from public profile data</li>
+<li>log provider name, account owner, scopes, sync status, last sync time, and revocation status</li>
+<li>let collectors disconnect a provider and stop future syncs</li>
+<li>keep provider data source labels visible anywhere pricing or collection data is displayed</li>
+<li>respect each provider's licensing, subscription, caching, and redistribution rules</li>
+</ul>
+<p>Future collection analytics goals:</p>
+<ul>
+<li>import PSA-owned card data into the user's collection shelf when permitted</li>
+<li>use Beckett subscription pricing/checklist data for the user's own dashboard when permitted</li>
+<li>track what the collector paid, current estimated value, realized sale price, and date sold</li>
+<li>show collection profit/loss, unrealized gain/loss, realized gain/loss, cost basis, current value, and performance over time</li>
+<li>chart collection value by category, player/character, team/franchise, set, grader, grade, and acquisition source</li>
+<li>support CSV/catalog exports that include provider source, paid price, current value, sold price, and profit/loss fields</li>
 </ul>
 <p>Scan Assist output should include:</p>
 <ul>
@@ -2324,7 +2362,8 @@ IP_INTELLIGENCE_REQUIRED=true</code></pre>
 <p>Migration directory:</p>
 <pre><code>supabase/migrations</code></pre>
 <p>Current migration:</p>
-<pre><code>20260628223000_create_collector_profiles_messaging_exports.sql
+<pre><code>20260629080000_grant_inventory_v2_table_access.sql
+20260628223000_create_collector_profiles_messaging_exports.sql
 20260628220000_create_collector_dashboard_tables.sql
 20260628213000_create_sports_dashboard_tables.sql
 20260628201500_add_account_auth_lockouts.sql
