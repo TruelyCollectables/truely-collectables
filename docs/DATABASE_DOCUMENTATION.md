@@ -63,6 +63,7 @@ Fields:
 Runtime behavior:
 
 - login security helper lives in `src/lib/admin-login-security.ts`
+- admin review screen lives in `src/app/admin/security/page.tsx`
 - five failed attempts from the same IP inside 15 minutes triggers a 15-minute lockout
 - successful logins are also audited
 - if the table is missing, login still works but audit/lockout storage is unavailable

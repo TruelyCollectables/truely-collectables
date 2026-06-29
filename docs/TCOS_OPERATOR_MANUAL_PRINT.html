@@ -121,7 +121,7 @@
   </style>
 </head>
 <body>
-  <div class="print-meta">Generated 2026-06-28 from docs/TCOS_OPERATOR_MANUAL.md</div>
+  <div class="print-meta">Generated 2026-06-29 from docs/TCOS_OPERATOR_MANUAL.md</div>
   <h1>Totally Collectibles OS Operator Manual</h1>
 <p>Copyright 2026 Dag Danky Holdings LLC. All rights reserved.</p>
 <p>Authored by David Bakanas.</p>
@@ -409,6 +409,10 @@
 <td><code>/admin/offers</code></td>
 <td>Offer review</td>
 </tr>
+<tr>
+<td><code>/admin/security</code></td>
+<td>Admin login audit and lockout review</td>
+</tr>
 </tbody></table>
 <h3>API</h3>
 <table>
@@ -523,6 +527,9 @@
 <td>15 minutes</td>
 </tr>
 </tbody></table>
+<p>Admin security page:</p>
+<pre><code>/admin/security</code></pre>
+<p>This page shows recent admin login attempts, successful logins, failed logins, active lockouts, unique IP count, identity risk, failure reason, lockout expiration, and user agent. If the audit table has not been migrated yet, the page shows an unavailable warning instead of crashing.</p>
 <h2>4. Product And Inventory Basics</h2>
 <p>TCOS currently keeps two inventory layers in sync:</p>
 <ol>

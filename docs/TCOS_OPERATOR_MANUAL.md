@@ -268,6 +268,7 @@ Most day-to-day work starts at:
 | `/admin/files` | Transaction evidence files |
 | `/admin/launch-readiness` | Live payment and production readiness checklist |
 | `/admin/offers` | Offer review |
+| `/admin/security` | Admin login audit and lockout review |
 
 ### API
 
@@ -332,6 +333,14 @@ Admin login policy:
 | Failed-attempt window | 15 minutes |
 | Failed-attempt limit | 5 |
 | Lockout duration | 15 minutes |
+
+Admin security page:
+
+```text
+/admin/security
+```
+
+This page shows recent admin login attempts, successful logins, failed logins, active lockouts, unique IP count, identity risk, failure reason, lockout expiration, and user agent. If the audit table has not been migrated yet, the page shows an unavailable warning instead of crashing.
 
 ## 4. Product And Inventory Basics
 
