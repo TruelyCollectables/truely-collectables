@@ -2,6 +2,9 @@ import Link from "next/link";
 import { inventoryEngine } from "../../../modules/inventory";
 import type { UniversalInventoryItem } from "../../../modules/inventory";
 
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export default async function AdminProductsPage() {
   let products: UniversalInventoryItem[] = [];
   let error: Error | null = null;

@@ -2448,6 +2448,7 @@ supabase/migrations
 Current migration:
 
 ```text
+20260629083000_create_inventory_v2_app_policies.sql
 20260629080000_grant_inventory_v2_table_access.sql
 20260628223000_create_collector_profiles_messaging_exports.sql
 20260628220000_create_collector_dashboard_tables.sql

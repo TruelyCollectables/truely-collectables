@@ -987,6 +987,16 @@ Grants active application roles access to:
 
 This is required for the server-side eBay importer to upsert V2 inventory rows and generated category/aspect attributes when the deployed environment uses the public Supabase anon key.
 
+### `20260629083000_create_inventory_v2_app_policies.sql`
+
+Creates RLS policies for active application roles on:
+
+- `inventory_items`
+- `inventory_images`
+- `inventory_attributes`
+
+The grant migration gives table privileges, but Row Level Security can still block reads and writes. This migration adds the matching policies required by the current server-side Supabase anon-key architecture.
+
 ### `20260627160000_create_sales_comp_snapshots.sql`
 
 Creates:
