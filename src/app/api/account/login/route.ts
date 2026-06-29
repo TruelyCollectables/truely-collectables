@@ -5,6 +5,10 @@ import {
   ensureAccountStoreMembership,
   recordAccountAuthEvent,
 } from "../../../../lib/account-auth";
+import {
+  accountAuthBlockedResponse,
+  checkAccountAuthAllowed,
+} from "../../../../lib/account-login-security";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +38,29 @@ export async function POST(request: Request) {
       );
     }
 
+    const securityCheck = await checkAccountAuthAllowed({
+      request,
+      email,
+      eventType: "login",
+    });
+
+    if (!securityCheck.allowed) {
+      await recordAccountAuthEvent({
+        request,
+        email,
+        eventType: "login",
+        success: false,
+        failureReason: securityCheck.reason || "blocked",
+        lockoutUntil: securityCheck.lockoutUntil,
+      });
+
+      const blocked = accountAuthBlockedResponse(securityCheck);
+      return NextResponse.json(
+        { error: blocked.error },
+        { status: blocked.status },
+      );
+    }
+
     const supabase = getSupabaseClient();
     const { data, error } = await supabase.auth.signInWithPassword({
       email,
@@ -46,6 +73,7 @@ export async function POST(request: Request) {
         email,
         eventType: "login",
         success: false,
+        failureReason: error?.message || "invalid_credentials",
       });
 
       return NextResponse.json(
@@ -89,6 +117,7 @@ export async function POST(request: Request) {
       email,
       eventType: "login",
       success: false,
+      failureReason: error.message || "login_exception",
     }).catch(() => undefined);
 
     return NextResponse.json(

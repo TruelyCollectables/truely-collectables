@@ -6,6 +6,10 @@ import {
   recordAccountAuthEvent,
 } from "../../../../lib/account-auth";
 import {
+  accountAuthBlockedResponse,
+  checkAccountAuthAllowed,
+} from "../../../../lib/account-login-security";
+import {
   TERMS_OF_SERVICE_VERSION,
   hasAcceptedTerms,
 } from "../../../../lib/legal";
@@ -55,6 +59,29 @@ export async function POST(request: Request) {
       );
     }
 
+    const securityCheck = await checkAccountAuthAllowed({
+      request,
+      email,
+      eventType: "signup",
+    });
+
+    if (!securityCheck.allowed) {
+      await recordAccountAuthEvent({
+        request,
+        email,
+        eventType: "signup",
+        success: false,
+        failureReason: securityCheck.reason || "blocked",
+        lockoutUntil: securityCheck.lockoutUntil,
+      });
+
+      const blocked = accountAuthBlockedResponse(securityCheck);
+      return NextResponse.json(
+        { error: blocked.error },
+        { status: blocked.status },
+      );
+    }
+
     const supabase = getSupabaseClient();
     const { data, error } = await supabase.auth.signUp({
       email,
@@ -74,6 +101,7 @@ export async function POST(request: Request) {
         email,
         eventType: "signup",
         success: false,
+        failureReason: error?.message || "signup_failed",
       });
 
       return NextResponse.json(
@@ -117,6 +145,7 @@ export async function POST(request: Request) {
       email,
       eventType: "signup",
       success: false,
+      failureReason: error.message || "signup_exception",
     }).catch(() => undefined);
 
     return NextResponse.json(

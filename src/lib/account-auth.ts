@@ -55,8 +55,19 @@ function bearerToken(request: Request) {
 function isMissingAccountTableError(error: { code?: string; message?: string }) {
   return (
     error.code === "42P01" ||
+    error.message?.toLowerCase().includes("account_auth_events") === true ||
     error.message?.toLowerCase().includes("account_profiles") === true ||
     error.message?.toLowerCase().includes("account_store_memberships") === true
+  );
+}
+
+function isMissingAccountAuthColumnError(error: { code?: string; message?: string }) {
+  const message = error.message?.toLowerCase() || "";
+
+  return (
+    error.code === "42703" ||
+    message.includes("failure_reason") ||
+    message.includes("lockout_until")
   );
 }
 
@@ -66,23 +77,46 @@ export async function recordAccountAuthEvent(params: {
   email?: string | null;
   eventType: string;
   success: boolean;
+  failureReason?: string | null;
+  lockoutUntil?: string | null;
 }) {
   const supabase = getSupabaseClient();
   const identity = await getClientIdentity(params.request);
 
-  const { error } = await supabase.from("account_auth_events").insert({
+  const payload = {
     account_id: params.accountId ?? null,
     store_id: getActiveStoreId(),
     email: params.email ? cleanEmail(params.email) : null,
     event_type: params.eventType,
     success: params.success,
+    failure_reason: params.success ? null : params.failureReason || "failed",
+    lockout_until: params.lockoutUntil || null,
     ip_address: identity.ipAddress,
     user_agent: identity.userAgent,
     identity_risk: identity.risk,
     identity_evidence: identity.evidence,
-  });
+  };
 
-  if (error && !isMissingAccountTableError(error)) {
+  const { error } = await supabase.from("account_auth_events").insert(payload);
+
+  if (!error) return;
+
+  if (isMissingAccountAuthColumnError(error)) {
+    const { failure_reason, lockout_until, ...legacyPayload } = payload;
+    void failure_reason;
+    void lockout_until;
+
+    const { error: legacyError } = await supabase
+      .from("account_auth_events")
+      .insert(legacyPayload);
+
+    if (!legacyError || isMissingAccountTableError(legacyError)) return;
+
+    console.error("Account auth event insert failed:", legacyError.message);
+    return;
+  }
+
+  if (!isMissingAccountTableError(error)) {
     console.error("Account auth event insert failed:", error.message);
   }
 }

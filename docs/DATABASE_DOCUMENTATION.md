@@ -127,6 +127,8 @@ Fields:
 | `email` | Login/signup email |
 | `event_type` | signup or login |
 | `success` | Whether auth event succeeded |
+| `failure_reason` | Failure or block reason when auth did not succeed |
+| `lockout_until` | Timestamp when a temporary account auth lockout expires |
 | `ip_address` | Client IP |
 | `user_agent` | User agent |
 | `identity_risk` | Identity risk value |
@@ -138,6 +140,7 @@ Runtime behavior:
 - account helpers live in `src/lib/account-auth.ts`
 - buyer signup route is `/api/account/signup`
 - buyer login route is `/api/account/login`
+- signup/login security helper lives in `src/lib/account-login-security.ts`
 - logged-in order history route is `/api/account/orders`
 - public account pages live under `/account`
 - current account session storage is browser-local and separate from admin auth
@@ -150,6 +153,9 @@ Runtime behavior:
 - `/admin/accounts` reads account profiles and summarizes linked order/offer activity for the active store
 - admin order and offer screens show whether each record is linked to a TCOS account or was created as a guest
 - account profile summaries are loaded through `src/lib/account-profiles.ts`
+- account signup/login rejects masked identity when identity intelligence blocks the request
+- six failed signup or login attempts inside 15 minutes triggers a 15-minute account auth lockout
+- account auth lockout checks use recent attempts by IP address and email address
 
 ## Multi-Store Platform Tables
 
@@ -737,6 +743,14 @@ Adds:
 - `orders.account_id`
 - `offers.account_id`
 - indexes for account-scoped Store #1 order and offer history
+
+### `20260628201500_add_account_auth_lockouts.sql`
+
+Adds:
+
+- `account_auth_events.failure_reason`
+- `account_auth_events.lockout_until`
+- indexes for account auth review and lockout checks by store, IP, email, and lockout timestamp
 
 ## Operational SQL
 

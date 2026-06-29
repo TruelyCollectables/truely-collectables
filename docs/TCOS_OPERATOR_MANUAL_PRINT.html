@@ -1271,6 +1271,10 @@ src/app/api/admin/files/[id]/download/route.ts</code></pre>
 <li>signup creates or updates <code>account_profiles</code></li>
 <li>signup assigns a Store #1 buyer membership in <code>account_store_memberships</code></li>
 <li>signup/login writes <code>account_auth_events</code> when the migration exists</li>
+<li>signup/login blocks masked identity when IP intelligence marks the request as VPN, proxy, Tor, relay, hosting, or anonymous</li>
+<li>signup/login checks recent failed attempts by IP and email before calling Supabase Auth</li>
+<li>six failed signup or login attempts inside 15 minutes triggers a 15-minute account auth lockout</li>
+<li>account auth failures store <code>failure_reason</code> and <code>lockout_until</code> when the lockout migration exists</li>
 <li>logged-in checkout and offer flows attach the account ID to Stripe metadata</li>
 <li>completed Stripe webhooks save <code>orders.account_id</code> when account metadata is present</li>
 <li>customer-created offers save <code>offers.account_id</code> when the customer is logged in</li>
@@ -1284,7 +1288,8 @@ src/app/api/admin/files/[id]/download/route.ts</code></pre>
 </ul>
 <p>Migration:</p>
 <pre><code>supabase/migrations/20260628190000_create_tcos_accounts.sql
-supabase/migrations/20260628193000_link_accounts_to_orders_offers.sql</code></pre>
+supabase/migrations/20260628193000_link_accounts_to_orders_offers.sql
+supabase/migrations/20260628201500_add_account_auth_lockouts.sql</code></pre>
 <p>Current seller legal page:</p>
 <pre><code>/seller-terms</code></pre>
 <p>Seller-account requirements:</p>
@@ -2036,6 +2041,8 @@ supabase/migrations/20260628193000_link_accounts_to_orders_offers.sql</code></pr
 <li>checkout creates a <code>tos_acceptance_events</code> audit row before Stripe checkout is created</li>
 <li>completed transactions create <code>transaction_evidence_reports</code> for chargeback/legal packets</li>
 <li>offer submission stores TOS/IP evidence before the offer is accepted</li>
+<li>buyer account signup/login blocks masked identity when configured identity checks detect VPN, proxy, Tor, relay, hosting, or anonymous IP use</li>
+<li>buyer account signup/login locks out repeated failures after six failed attempts inside 15 minutes</li>
 <li>bank credentials are not stored in TCOS</li>
 </ul>
 <p>Important IP rule:</p>
@@ -2162,7 +2169,8 @@ IP_INTELLIGENCE_REQUIRED=true</code></pre>
 <p>Migration directory:</p>
 <pre><code>supabase/migrations</code></pre>
 <p>Current migration:</p>
-<pre><code>20260628193000_link_accounts_to_orders_offers.sql
+<pre><code>20260628201500_add_account_auth_lockouts.sql
+20260628193000_link_accounts_to_orders_offers.sql
 20260628190000_create_tcos_accounts.sql
 20260628180000_create_admin_login_attempts.sql
 20260628114000_create_inventory_tables.sql

@@ -1256,6 +1256,10 @@ Current behavior:
 - signup creates or updates `account_profiles`
 - signup assigns a Store #1 buyer membership in `account_store_memberships`
 - signup/login writes `account_auth_events` when the migration exists
+- signup/login blocks masked identity when IP intelligence marks the request as VPN, proxy, Tor, relay, hosting, or anonymous
+- signup/login checks recent failed attempts by IP and email before calling Supabase Auth
+- six failed signup or login attempts inside 15 minutes triggers a 15-minute account auth lockout
+- account auth failures store `failure_reason` and `lockout_until` when the lockout migration exists
 - logged-in checkout and offer flows attach the account ID to Stripe metadata
 - completed Stripe webhooks save `orders.account_id` when account metadata is present
 - customer-created offers save `offers.account_id` when the customer is logged in
@@ -1272,6 +1276,7 @@ Migration:
 ```text
 supabase/migrations/20260628190000_create_tcos_accounts.sql
 supabase/migrations/20260628193000_link_accounts_to_orders_offers.sql
+supabase/migrations/20260628201500_add_account_auth_lockouts.sql
 ```
 
 Current seller legal page:
@@ -2059,6 +2064,8 @@ Current implemented protections:
 - checkout creates a `tos_acceptance_events` audit row before Stripe checkout is created
 - completed transactions create `transaction_evidence_reports` for chargeback/legal packets
 - offer submission stores TOS/IP evidence before the offer is accepted
+- buyer account signup/login blocks masked identity when configured identity checks detect VPN, proxy, Tor, relay, hosting, or anonymous IP use
+- buyer account signup/login locks out repeated failures after six failed attempts inside 15 minutes
 - bank credentials are not stored in TCOS
 
 Important IP rule:
@@ -2246,6 +2253,7 @@ supabase/migrations
 Current migration:
 
 ```text
+20260628201500_add_account_auth_lockouts.sql
 20260628193000_link_accounts_to_orders_offers.sql
 20260628190000_create_tcos_accounts.sql
 20260628180000_create_admin_login_attempts.sql
