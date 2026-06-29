@@ -265,6 +265,12 @@ Fields expected by current code:
 
 Stores order headers.
 
+Current fulfillment policy:
+
+- checkout and offer payment links collect United States shipping addresses only
+- Stripe Checkout is configured with `shipping_address_collection.allowed_countries = ["US"]`
+- orders should store `shipping_country` as `US` for normal checkout-created shipments while this policy is active
+
 Fields used by current code:
 
 | Field | Purpose |

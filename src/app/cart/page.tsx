@@ -188,6 +188,9 @@ export default function CartPage() {
 
             <div className="mt-6">
               <h3 className="text-lg font-black">Choose Shipping</h3>
+              <p className="mt-1 text-sm font-semibold text-neutral-600">
+                Shipping is currently available only to United States addresses.
+              </p>
 
               <label className="mt-3 block cursor-pointer rounded border p-4">
                 <input
@@ -253,6 +256,10 @@ export default function CartPage() {
                   Truely Collectables Terms of Service
                 </a>{" "}
                 version {TERMS_OF_SERVICE_VERSION}.
+                <span className="mt-1 block text-neutral-600">
+                  I understand Truely Collectables currently ships only to
+                  United States addresses.
+                </span>
               </span>
             </label>
 

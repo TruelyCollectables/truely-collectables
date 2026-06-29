@@ -915,13 +915,14 @@ Current Terms of Service:
 Current TOS version:
 
 ```text
-2026-06-27
+2026-06-28
 ```
 
 Checkout validates:
 
 - cart is not empty
 - shipping method is valid
+- shipping is currently limited to United States addresses
 - Terms of Service was accepted
 - each product exists
 - each product is `active`
@@ -929,6 +930,8 @@ Checkout validates:
 - each product has a price greater than zero
 
 Then it creates a Stripe checkout session.
+
+Stripe checkout is configured with `shipping_address_collection.allowed_countries = ["US"]` for cart checkout, accepted offer checkout, and counter-offer checkout. Truely Collectables does not currently accept shipments outside the United States.
 
 Successful cart checkout sends the buyer to:
 
@@ -1224,6 +1227,8 @@ Accepted and counter offers must pass `inventoryEngine.requireAvailableCartItems
 Accepted and counter offer Stripe sessions include Store #1 metadata, cart metadata, subtotal, item count, and zero-dollar offer-checkout shipping metadata so the webhook can create a normal order record.
 
 Accepted and counter offer Stripe sessions carry the TOS acceptance metadata from the original customer offer when available.
+
+Accepted and counter offer Stripe sessions are also limited to United States shipping addresses.
 
 ## 22. Seller Accounts And Auctions
 

@@ -1022,11 +1022,12 @@ src/lib/collector-intelligence.ts</code></pre>
 <p>Current Terms of Service:</p>
 <pre><code>/terms</code></pre>
 <p>Current TOS version:</p>
-<pre><code>2026-06-27</code></pre>
+<pre><code>2026-06-28</code></pre>
 <p>Checkout validates:</p>
 <ul>
 <li>cart is not empty</li>
 <li>shipping method is valid</li>
+<li>shipping is currently limited to United States addresses</li>
 <li>Terms of Service was accepted</li>
 <li>each product exists</li>
 <li>each product is <code>active</code></li>
@@ -1034,6 +1035,7 @@ src/lib/collector-intelligence.ts</code></pre>
 <li>each product has a price greater than zero</li>
 </ul>
 <p>Then it creates a Stripe checkout session.</p>
+<p>Stripe checkout is configured with <code>shipping_address_collection.allowed_countries = [&quot;US&quot;]</code> for cart checkout, accepted offer checkout, and counter-offer checkout. Truely Collectables does not currently accept shipments outside the United States.</p>
 <p>Successful cart checkout sends the buyer to:</p>
 <pre><code>/success?type=cart&amp;session_id={CHECKOUT_SESSION_ID}</code></pre>
 <p>Stripe metadata includes:</p>
@@ -1246,6 +1248,7 @@ src/app/api/admin/files/[id]/download/route.ts</code></pre>
 <p>Accepted and counter offers must pass <code>inventoryEngine.requireAvailableCartItems()</code> before TCOS creates the Stripe checkout session. That means the product must exist, be active, have enough quantity, and have a positive checkout price.</p>
 <p>Accepted and counter offer Stripe sessions include Store #1 metadata, cart metadata, subtotal, item count, and zero-dollar offer-checkout shipping metadata so the webhook can create a normal order record.</p>
 <p>Accepted and counter offer Stripe sessions carry the TOS acceptance metadata from the original customer offer when available.</p>
+<p>Accepted and counter offer Stripe sessions are also limited to United States shipping addresses.</p>
 <h2>22. Seller Accounts And Auctions</h2>
 <p>Seller accounts and auctions are future-build features. Do not create placeholder seller tables or fake seller account workflows before the real account model is designed.</p>
 <p>Account signup direction:</p>

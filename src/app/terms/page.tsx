@@ -78,6 +78,11 @@ export default function TermsPage() {
             be affected by carrier delays, address issues, weather, or other
             events outside Truely Collectables&apos; control.
           </p>
+          <p className="mt-2">
+            Truely Collectables currently ships only to addresses in the United
+            States. Orders, accepted offers, or counter offers requiring
+            shipment outside the United States cannot be completed at this time.
+          </p>
         </section>
 
         <section>
