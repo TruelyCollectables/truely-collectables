@@ -1510,11 +1510,32 @@ Candidate source categories to evaluate:
 - TCGplayer catalog/pricing data for trading card games
 - COMC card marketplace/catalog data
 - Beckett/card checklist references
+- customer-authorized PSAcard.com account linking so collectors can import owned PSA-graded cards, cert data, population/card facts when permitted, and any supported account collection data
+- customer-authorized Beckett.com account/subscription linking so collectors can use permitted Beckett pricing/checklist data inside their own TCOS collection dashboard
 - manufacturer checklists when available
 - grading-company certification lookups
 - comic, coin, stamp, toy, and memorabilia catalog databases
 - broad collectable catalog/reference sites such as Colnect-style catalogs
 - Google Programmable Search as a fallback discovery layer
+
+Future linked-provider portal requirements:
+
+- build a secure connected-accounts page for collector-owned provider logins, tokens, or authorized import sessions
+- never store raw third-party passwords when OAuth, API tokens, or import files are available
+- encrypt any provider access tokens and separate them from public profile data
+- log provider name, account owner, scopes, sync status, last sync time, and revocation status
+- let collectors disconnect a provider and stop future syncs
+- keep provider data source labels visible anywhere pricing or collection data is displayed
+- respect each provider's licensing, subscription, caching, and redistribution rules
+
+Future collection analytics goals:
+
+- import PSA-owned card data into the user's collection shelf when permitted
+- use Beckett subscription pricing/checklist data for the user's own dashboard when permitted
+- track what the collector paid, current estimated value, realized sale price, and date sold
+- show collection profit/loss, unrealized gain/loss, realized gain/loss, cost basis, current value, and performance over time
+- chart collection value by category, player/character, team/franchise, set, grader, grade, and acquisition source
+- support CSV/catalog exports that include provider source, paid price, current value, sold price, and profit/loss fields
 
 Scan Assist output should include:
 
