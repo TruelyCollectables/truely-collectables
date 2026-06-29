@@ -156,6 +156,108 @@ Runtime behavior:
 - account signup/login rejects masked identity when identity intelligence blocks the request
 - six failed signup or login attempts inside 15 minutes triggers a 15-minute account auth lockout
 - account auth lockout checks use recent attempts by IP address and email address
+- account dashboard preferences route is `/api/account/dashboard/preferences`
+- account dashboard preferences store favorite teams/sports and market watchlist items
+
+## Account Dashboard Intelligence Tables
+
+Created by migration:
+
+```text
+supabase/migrations/20260628213000_create_sports_dashboard_tables.sql
+```
+
+### `account_sports_favorites`
+
+Stores account-level favorite teams, leagues, sports, or athletes.
+
+Fields:
+
+| Field | Purpose |
+| --- | --- |
+| `id` | Favorite ID |
+| `account_id` | Account profile ID |
+| `store_id` | Store context |
+| `favorite_type` | team, league, sport, or athlete |
+| `sport_key` | Sport key such as football or basketball |
+| `league_key` | League key such as nfl, nba, mlb, nhl, ncaa, or other provider key |
+| `team_name` | Team or favorite display name |
+| `team_abbreviation` | Optional abbreviation |
+| `external_team_id` | Optional provider team ID |
+| `data_provider` | Provider key when known |
+| `display_order` | Dashboard ordering |
+| `is_active` | Soft-delete/display flag |
+| `include_news` | Whether news should be shown when providers exist |
+| `include_scores` | Whether scores should be shown when providers exist |
+| `include_schedule` | Whether schedules should be shown when providers exist |
+| `include_odds` | Whether odds should be shown when legal/provider rules allow |
+| `metadata` | Provider/category metadata |
+
+### `sports_data_sources`
+
+Stores approved or candidate sports data providers.
+
+Fields include provider key, source type, display name, sport/league scope, base URL, usage policy notes, enabled flag, supported capabilities, and metadata.
+
+### `sports_event_snapshots`
+
+Stores provider-fetched games, scores, schedules, status, venue, broadcast, and raw payload data.
+
+### `sports_news_snapshots`
+
+Stores provider-fetched team or league news headlines, summaries, URLs, timestamps, and raw payload data.
+
+### `sports_odds_snapshots`
+
+Stores provider-fetched odds snapshots for display-only sports intelligence.
+
+Important rules:
+
+- odds data must come from an approved provider
+- odds display must follow jurisdiction, age, attribution, and provider policy rules
+- TCOS must not add a betting flow without legal/compliance review
+
+### `account_market_watchlist_items`
+
+Stores account-level market watchlist preferences.
+
+Fields:
+
+| Field | Purpose |
+| --- | --- |
+| `id` | Watchlist item ID |
+| `account_id` | Account profile ID |
+| `store_id` | Store context |
+| `asset_type` | stock, etf, index, crypto, nft, commodity, collectable_index, other |
+| `symbol` | Ticker/symbol/slug |
+| `display_name` | Optional display name |
+| `exchange_key` | Exchange or venue key |
+| `data_provider` | Provider key when known |
+| `external_asset_id` | Optional provider asset ID |
+| `display_order` | Dashboard ordering |
+| `is_active` | Soft-delete/display flag |
+| `include_price` | Whether price should be shown when providers exist |
+| `include_news` | Whether news should be shown when providers exist |
+| `include_alerts` | Future alert preference |
+| `metadata` | Provider/category metadata |
+
+### `market_data_sources`
+
+Stores approved or candidate market data providers for quotes, news, history, NFT floor pricing, crypto pricing, and collectable indexes.
+
+### `market_price_snapshots`
+
+Stores provider-fetched stock, ETF, index, crypto, NFT, commodity, or collectable index prices.
+
+### `market_news_snapshots`
+
+Stores provider-fetched market news by asset type and symbol.
+
+Important rules:
+
+- market data is informational only
+- TCOS should not present saved market watchlists as financial advice
+- provider licensing, freshness, attribution, and redistribution rules must be reviewed before public launch
 
 ## Multi-Store Platform Tables
 
@@ -757,6 +859,21 @@ Adds:
 - `account_auth_events.failure_reason`
 - `account_auth_events.lockout_until`
 - indexes for account auth review and lockout checks by store, IP, email, and lockout timestamp
+
+### `20260628213000_create_sports_dashboard_tables.sql`
+
+Creates:
+
+- `account_sports_favorites`
+- `sports_data_sources`
+- `sports_event_snapshots`
+- `sports_news_snapshots`
+- `sports_odds_snapshots`
+- `account_market_watchlist_items`
+- `market_data_sources`
+- `market_price_snapshots`
+- `market_news_snapshots`
+- indexes for account dashboards, provider snapshots, odds snapshots, and market pricing/news lookup
 
 ## Operational SQL
 

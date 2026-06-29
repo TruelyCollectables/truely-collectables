@@ -131,24 +131,23 @@ export async function createOrUpdateAccountProfile(params: {
 }): Promise<AccountProfile | null> {
   const supabase = getSupabaseClient();
   const tosAccepted = params.tosAccepted ?? false;
+  const profilePayload: Record<string, unknown> = {
+    id: params.accountId,
+    email: cleanEmail(params.email),
+    display_name: cleanText(params.displayName),
+    default_account_type: params.defaultAccountType || "buyer",
+    updated_at: new Date().toISOString(),
+  };
+
+  if (tosAccepted) {
+    profilePayload.tos_accepted = true;
+    profilePayload.tos_version = params.tosVersion || TERMS_OF_SERVICE_VERSION;
+    profilePayload.tos_accepted_at = new Date().toISOString();
+  }
 
   const { data, error } = await supabase
     .from("account_profiles")
-    .upsert(
-      {
-        id: params.accountId,
-        email: cleanEmail(params.email),
-        display_name: cleanText(params.displayName),
-        default_account_type: params.defaultAccountType || "buyer",
-        tos_accepted: tosAccepted,
-        tos_version: tosAccepted
-          ? params.tosVersion || TERMS_OF_SERVICE_VERSION
-          : null,
-        tos_accepted_at: tosAccepted ? new Date().toISOString() : null,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "id" },
-    )
+    .upsert(profilePayload, { onConflict: "id" })
     .select("*")
     .single();
 

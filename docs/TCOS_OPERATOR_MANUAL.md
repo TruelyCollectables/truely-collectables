@@ -284,6 +284,7 @@ Most day-to-day work starts at:
 | `/api/account/signup` | Creates customer account through Supabase Auth |
 | `/api/account/login` | Logs customer account in through Supabase Auth |
 | `/api/account/orders` | Returns logged-in customer order history for the active store |
+| `/api/account/dashboard/preferences` | Saves account sports/team and market watchlist preferences |
 | `/api/checkout` | Creates Stripe checkout session |
 | `/api/webhook` | Main Stripe webhook handler |
 | `/api/stripe/webhook` | Alternate Stripe webhook handler |
@@ -1251,6 +1252,7 @@ Current account foundation:
 /api/account/login
 /api/account/signup
 /api/account/orders
+/api/account/dashboard/preferences
 ```
 
 Current behavior:
@@ -1269,6 +1271,9 @@ Current behavior:
 - completed Stripe webhooks save `orders.account_id` when account metadata is present
 - customer-created offers save `offers.account_id` when the customer is logged in
 - `/account` shows recent linked orders for the logged-in customer
+- `/account` lets customers save favorite teams/sports and market watchlist items
+- sports dashboard preferences are stored locally first; live news, scores, schedules, and odds require approved data providers later
+- market watchlist preferences support stocks, ETFs, indexes, crypto, NFTs, commodities, collectable indexes, and other assets
 - `/admin/accounts` shows customer accounts, linked order counts, offer counts, TOS status, and linked revenue
 - `/admin/orders` and `/admin/orders/[id]` show whether an order is linked to a TCOS account or was a guest checkout
 - `/admin/offers` shows whether an offer is linked to a TCOS account or was a guest offer
@@ -1282,6 +1287,39 @@ Migration:
 supabase/migrations/20260628190000_create_tcos_accounts.sql
 supabase/migrations/20260628193000_link_accounts_to_orders_offers.sql
 supabase/migrations/20260628201500_add_account_auth_lockouts.sql
+supabase/migrations/20260628213000_create_sports_dashboard_tables.sql
+```
+
+### Future: Sports, Scores, Schedules, Odds, And Market Watchlists
+
+The account dashboard now has the data foundation for favorite teams and market watchlists.
+
+Sports dashboard goals:
+
+- users can save favorite teams, leagues, and sports
+- future provider jobs can populate news, scores, schedules, league links, and official-team references
+- odds data must be provider-backed, jurisdiction-aware, age-gated where required, and display-only unless a future legal/compliance review approves anything more
+- TCOS should prefer official league/team sites or licensed sports data providers instead of scraping
+
+Market dashboard goals:
+
+- users can save stocks, ETFs, indexes, crypto, NFTs, commodities, collectable indexes, and other assets
+- future provider jobs can populate quotes, price history, news, NFT floor pricing, and alerts
+- market data must be informational only and must not be presented as financial advice
+- provider terms, licensing, freshness, and attribution must be reviewed before live display
+
+Foundation tables:
+
+```text
+account_sports_favorites
+sports_data_sources
+sports_event_snapshots
+sports_news_snapshots
+sports_odds_snapshots
+account_market_watchlist_items
+market_data_sources
+market_price_snapshots
+market_news_snapshots
 ```
 
 Current seller legal page:
@@ -2258,6 +2296,7 @@ supabase/migrations
 Current migration:
 
 ```text
+20260628213000_create_sports_dashboard_tables.sql
 20260628201500_add_account_auth_lockouts.sql
 20260628193000_link_accounts_to_orders_offers.sql
 20260628190000_create_tcos_accounts.sql
@@ -2437,6 +2476,7 @@ src/app/account
 src/app/api/account
 src/lib/account-auth.ts
 src/lib/account-profiles.ts
+supabase/migrations/20260628213000_create_sports_dashboard_tables.sql
 ```
 
 Orders:

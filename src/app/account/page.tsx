@@ -20,6 +20,29 @@ type AccountOrder = {
   item_count: number | null;
 };
 
+type SportsFavorite = {
+  id: string;
+  sport_key: string;
+  league_key: string;
+  team_name: string;
+  team_abbreviation: string | null;
+  include_news: boolean;
+  include_scores: boolean;
+  include_schedule: boolean;
+  include_odds: boolean;
+};
+
+type MarketWatchlistItem = {
+  id: string;
+  asset_type: string;
+  symbol: string;
+  display_name: string | null;
+  exchange_key: string | null;
+  include_price: boolean;
+  include_news: boolean;
+  include_alerts: boolean;
+};
+
 export default function AccountPage() {
   const [session, setSession] = useState<StoredAccountSession | null>(() =>
     typeof window === "undefined" ? null : getAccountSession(),
@@ -27,6 +50,22 @@ export default function AccountPage() {
   const [orders, setOrders] = useState<AccountOrder[]>([]);
   const [ordersError, setOrdersError] = useState("");
   const [isLoadingOrders, setIsLoadingOrders] = useState(false);
+  const [sportsFavorites, setSportsFavorites] = useState<SportsFavorite[]>([]);
+  const [marketWatchlist, setMarketWatchlist] = useState<MarketWatchlistItem[]>(
+    [],
+  );
+  const [dashboardError, setDashboardError] = useState("");
+  const [isLoadingDashboard, setIsLoadingDashboard] = useState(false);
+  const [teamName, setTeamName] = useState("");
+  const [sportKey, setSportKey] = useState("football");
+  const [leagueKey, setLeagueKey] = useState("nfl");
+  const [teamAbbreviation, setTeamAbbreviation] = useState("");
+  const [includeOdds, setIncludeOdds] = useState(false);
+  const [assetType, setAssetType] = useState("stock");
+  const [symbol, setSymbol] = useState("");
+  const [assetName, setAssetName] = useState("");
+  const [exchangeKey, setExchangeKey] = useState("");
+  const [isSavingPreference, setIsSavingPreference] = useState(false);
   const accessToken = session?.access_token || "";
 
   useEffect(() => {
@@ -72,11 +111,144 @@ export default function AccountPage() {
     };
   }, [accessToken]);
 
+  useEffect(() => {
+    if (!accessToken) return;
+
+    let isCancelled = false;
+
+    async function loadDashboardPreferences() {
+      setIsLoadingDashboard(true);
+      setDashboardError("");
+
+      try {
+        const response = await fetch("/api/account/dashboard/preferences", {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || "Could not load dashboard preferences");
+        }
+
+        if (!isCancelled) {
+          setSportsFavorites(
+            Array.isArray(data.sportsFavorites) ? data.sportsFavorites : [],
+          );
+          setMarketWatchlist(
+            Array.isArray(data.marketWatchlist) ? data.marketWatchlist : [],
+          );
+        }
+      } catch (error: any) {
+        if (!isCancelled) {
+          setDashboardError(
+            error.message || "Could not load dashboard preferences",
+          );
+          setSportsFavorites([]);
+          setMarketWatchlist([]);
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsLoadingDashboard(false);
+        }
+      }
+    }
+
+    loadDashboardPreferences();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [accessToken]);
+
   function logout() {
     clearAccountSession();
     setSession(null);
     setOrders([]);
     setOrdersError("");
+    setSportsFavorites([]);
+    setMarketWatchlist([]);
+    setDashboardError("");
+  }
+
+  async function saveDashboardPreference(payload: Record<string, unknown>) {
+    if (!accessToken) return;
+
+    setIsSavingPreference(true);
+    setDashboardError("");
+
+    try {
+      const response = await fetch("/api/account/dashboard/preferences", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Could not save preference");
+      }
+
+      if (payload.kind === "sports_favorite" && data.sportsFavorite) {
+        setSportsFavorites((current) => [
+          data.sportsFavorite as SportsFavorite,
+          ...current,
+        ]);
+        setTeamName("");
+        setTeamAbbreviation("");
+        setIncludeOdds(false);
+      }
+
+      if (payload.kind === "market_watchlist" && data.marketWatchlistItem) {
+        setMarketWatchlist((current) => [
+          data.marketWatchlistItem as MarketWatchlistItem,
+          ...current,
+        ]);
+        setSymbol("");
+        setAssetName("");
+        setExchangeKey("");
+      }
+    } catch (error: any) {
+      setDashboardError(error.message || "Could not save preference");
+    } finally {
+      setIsSavingPreference(false);
+    }
+  }
+
+  async function removeDashboardPreference(kind: string, id: string) {
+    if (!accessToken) return;
+
+    setDashboardError("");
+
+    try {
+      const response = await fetch("/api/account/dashboard/preferences", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ kind, id }),
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(data.error || "Could not remove preference");
+      }
+
+      if (kind === "sports_favorite") {
+        setSportsFavorites((current) => current.filter((item) => item.id !== id));
+      }
+
+      if (kind === "market_watchlist") {
+        setMarketWatchlist((current) => current.filter((item) => item.id !== id));
+      }
+    } catch (error: any) {
+      setDashboardError(error.message || "Could not remove preference");
+    }
   }
 
   return (
@@ -140,13 +312,250 @@ export default function AccountPage() {
           <aside className="rounded-md border border-neutral-200 bg-white p-6">
             <h2 className="text-xl font-black">Coming Next</h2>
             <ul className="mt-4 space-y-2 text-sm text-neutral-600">
-              <li>Order history</li>
               <li>Saved collection items</li>
               <li>Wishlists and want ads</li>
               <li>Seller account separation</li>
               <li>Optional MFA path</li>
             </ul>
           </aside>
+
+          <div className="lg:col-span-2">
+            <div className="flex flex-wrap items-center justify-between gap-3 pb-4">
+              <div>
+                <h2 className="text-2xl font-black">Dashboard Watchlist</h2>
+                <p className="mt-1 text-sm text-neutral-600">
+                  Teams, markets, and collector signals saved to this account.
+                </p>
+              </div>
+              {isLoadingDashboard ? (
+                <span className="rounded bg-neutral-100 px-3 py-1 text-xs font-bold uppercase text-neutral-600">
+                  Loading
+                </span>
+              ) : null}
+            </div>
+
+            {dashboardError ? (
+              <p className="mt-5 rounded border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+                {dashboardError}
+              </p>
+            ) : null}
+
+            <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-2">
+              <section className="rounded border border-neutral-200 bg-neutral-50 p-4">
+                <h3 className="text-lg font-black">Favorite Teams</h3>
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    saveDashboardPreference({
+                      kind: "sports_favorite",
+                      sportKey,
+                      leagueKey,
+                      teamName,
+                      teamAbbreviation,
+                      includeOdds,
+                    });
+                  }}
+                  className="mt-4 grid grid-cols-1 gap-3"
+                >
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <label className="text-sm font-bold text-neutral-700">
+                      Sport
+                      <input
+                        value={sportKey}
+                        onChange={(event) => setSportKey(event.target.value)}
+                        className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
+                        placeholder="football"
+                        required
+                      />
+                    </label>
+                    <label className="text-sm font-bold text-neutral-700">
+                      League
+                      <input
+                        value={leagueKey}
+                        onChange={(event) => setLeagueKey(event.target.value)}
+                        className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
+                        placeholder="nfl"
+                        required
+                      />
+                    </label>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_110px]">
+                    <label className="text-sm font-bold text-neutral-700">
+                      Team
+                      <input
+                        value={teamName}
+                        onChange={(event) => setTeamName(event.target.value)}
+                        className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
+                        placeholder="Denver Broncos"
+                        required
+                      />
+                    </label>
+                    <label className="text-sm font-bold text-neutral-700">
+                      Code
+                      <input
+                        value={teamAbbreviation}
+                        onChange={(event) =>
+                          setTeamAbbreviation(event.target.value.toUpperCase())
+                        }
+                        className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
+                        placeholder="DEN"
+                      />
+                    </label>
+                  </div>
+                  <label className="flex items-center gap-2 text-sm font-semibold text-neutral-700">
+                    <input
+                      type="checkbox"
+                      checked={includeOdds}
+                      onChange={(event) => setIncludeOdds(event.target.checked)}
+                    />
+                    Include odds when legal/provider data is enabled
+                  </label>
+                  <button
+                    type="submit"
+                    disabled={isSavingPreference}
+                    className="rounded bg-neutral-950 px-4 py-2 text-sm font-bold text-white disabled:bg-neutral-500"
+                  >
+                    Add Team
+                  </button>
+                </form>
+
+                <div className="mt-5 space-y-2">
+                  {sportsFavorites.length === 0 ? (
+                    <p className="text-sm text-neutral-500">
+                      No favorite teams saved.
+                    </p>
+                  ) : (
+                    sportsFavorites.map((favorite) => (
+                      <WatchlistRow
+                        key={favorite.id}
+                        title={favorite.team_name}
+                        detail={`${favorite.league_key.toUpperCase()} / ${favorite.sport_key}`}
+                        badges={[
+                          favorite.include_news ? "News" : "",
+                          favorite.include_scores ? "Scores" : "",
+                          favorite.include_schedule ? "Schedule" : "",
+                          favorite.include_odds ? "Odds" : "",
+                        ]}
+                        onRemove={() =>
+                          removeDashboardPreference(
+                            "sports_favorite",
+                            favorite.id,
+                          )
+                        }
+                      />
+                    ))
+                  )}
+                </div>
+              </section>
+
+              <section className="rounded border border-neutral-200 bg-neutral-50 p-4">
+                <h3 className="text-lg font-black">Market Watchlist</h3>
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    saveDashboardPreference({
+                      kind: "market_watchlist",
+                      assetType,
+                      symbol,
+                      displayName: assetName,
+                      exchangeKey,
+                    });
+                  }}
+                  className="mt-4 grid grid-cols-1 gap-3"
+                >
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <label className="text-sm font-bold text-neutral-700">
+                      Type
+                      <select
+                        value={assetType}
+                        onChange={(event) => setAssetType(event.target.value)}
+                        className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
+                      >
+                        <option value="stock">Stock</option>
+                        <option value="etf">ETF</option>
+                        <option value="index">Index</option>
+                        <option value="crypto">Crypto</option>
+                        <option value="nft">NFT</option>
+                        <option value="commodity">Commodity</option>
+                        <option value="collectable_index">Collectable Index</option>
+                        <option value="other">Other</option>
+                      </select>
+                    </label>
+                    <label className="text-sm font-bold text-neutral-700">
+                      Symbol
+                      <input
+                        value={symbol}
+                        onChange={(event) =>
+                          setSymbol(event.target.value.toUpperCase())
+                        }
+                        className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
+                        placeholder="AAPL, BTC, ETH"
+                        required
+                      />
+                    </label>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    <label className="text-sm font-bold text-neutral-700">
+                      Name
+                      <input
+                        value={assetName}
+                        onChange={(event) => setAssetName(event.target.value)}
+                        className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
+                        placeholder="Apple"
+                      />
+                    </label>
+                    <label className="text-sm font-bold text-neutral-700">
+                      Exchange
+                      <input
+                        value={exchangeKey}
+                        onChange={(event) =>
+                          setExchangeKey(event.target.value.toUpperCase())
+                        }
+                        className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
+                        placeholder="NASDAQ"
+                      />
+                    </label>
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={isSavingPreference}
+                    className="rounded bg-neutral-950 px-4 py-2 text-sm font-bold text-white disabled:bg-neutral-500"
+                  >
+                    Add Asset
+                  </button>
+                </form>
+
+                <div className="mt-5 space-y-2">
+                  {marketWatchlist.length === 0 ? (
+                    <p className="text-sm text-neutral-500">
+                      No market assets saved.
+                    </p>
+                  ) : (
+                    marketWatchlist.map((item) => (
+                      <WatchlistRow
+                        key={item.id}
+                        title={item.display_name || item.symbol}
+                        detail={`${item.asset_type.toUpperCase()} / ${item.symbol}${
+                          item.exchange_key ? ` / ${item.exchange_key}` : ""
+                        }`}
+                        badges={[
+                          item.include_price ? "Price" : "",
+                          item.include_news ? "News" : "",
+                          item.include_alerts ? "Alerts" : "",
+                        ]}
+                        onRemove={() =>
+                          removeDashboardPreference(
+                            "market_watchlist",
+                            item.id,
+                          )
+                        }
+                      />
+                    ))
+                  )}
+                </div>
+              </section>
+            </div>
+          </div>
 
           <div className="rounded-md border border-neutral-200 bg-white p-6 lg:col-span-2">
             <div className="flex flex-wrap items-center justify-between gap-3">
@@ -242,6 +651,46 @@ function Info({ label, value }: { label: string; value: string }) {
     <div className="grid grid-cols-[100px_1fr] gap-3">
       <dt className="font-bold text-neutral-500">{label}</dt>
       <dd className="break-words font-semibold text-neutral-950">{value}</dd>
+    </div>
+  );
+}
+
+function WatchlistRow({
+  title,
+  detail,
+  badges,
+  onRemove,
+}: {
+  title: string;
+  detail: string;
+  badges: string[];
+  onRemove: () => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded border border-neutral-200 bg-white p-3">
+      <div className="min-w-0">
+        <p className="break-words font-black">{title}</p>
+        <p className="mt-1 text-xs font-semibold uppercase text-neutral-500">
+          {detail}
+        </p>
+        <div className="mt-2 flex flex-wrap gap-1">
+          {badges.filter(Boolean).map((badge) => (
+            <span
+              key={badge}
+              className="rounded bg-neutral-100 px-2 py-1 text-[11px] font-bold uppercase text-neutral-600"
+            >
+              {badge}
+            </span>
+          ))}
+        </div>
+      </div>
+      <button
+        type="button"
+        onClick={onRemove}
+        className="rounded border border-neutral-300 px-3 py-2 text-xs font-bold hover:bg-neutral-50"
+      >
+        Remove
+      </button>
     </div>
   );
 }

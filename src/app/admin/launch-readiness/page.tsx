@@ -19,6 +19,14 @@ type ReadinessItem = {
   action: string;
 };
 
+type DatabaseCapability = {
+  label: string;
+  table: string;
+  select: string;
+  migration: string;
+  readyDetail: string;
+};
+
 function isConfigured(value: string | undefined): boolean {
   return Boolean(value && value.trim().length > 0);
 }
@@ -200,65 +208,198 @@ function summarize(items: ReadinessItem[]) {
   };
 }
 
-async function checkAdminLoginAuditTable(): Promise<ReadinessItem> {
+function getSupabaseClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
 
-  if (!supabaseUrl || !supabaseKey) {
+  if (!supabaseUrl || !supabaseKey) return null;
+
+  return createClient(supabaseUrl, supabaseKey);
+}
+
+async function checkDatabaseCapability(
+  capability: DatabaseCapability,
+): Promise<ReadinessItem> {
+  const supabase = getSupabaseClient();
+
+  if (!supabase) {
     return {
-      label: "Admin Login Audit",
+      label: capability.label,
       status: "blocked",
-      detail: "Supabase is not configured, so admin login audit storage cannot be checked.",
-      action:
-        "Set Supabase environment variables and apply the admin login attempts migration.",
+      detail: "Supabase is not configured, so this database capability cannot be checked.",
+      action: "Set Supabase environment variables before checking database readiness.",
     };
   }
 
-  const supabase = createClient(supabaseUrl, supabaseKey);
   const { error } = await supabase
-    .from("admin_login_attempts")
-    .select("id")
+    .from(capability.table)
+    .select(capability.select)
     .limit(1);
 
   if (!error) {
     return {
-      label: "Admin Login Audit",
+      label: capability.label,
       status: "ready",
-      detail: "admin_login_attempts is available for login audit and lockout storage.",
-      action: "Review recent activity in /admin/security before launch.",
+      detail: capability.readyDetail,
+      action: "No action needed for this database capability.",
     };
   }
 
   return {
-    label: "Admin Login Audit",
+    label: capability.label,
     status: "blocked",
-    detail: `Admin login audit storage is unavailable: ${error.message}`,
-    action:
-      "Apply supabase/migrations/20260628180000_create_admin_login_attempts.sql before launch.",
+    detail: `${capability.label} is unavailable: ${error.message}`,
+    action: `Apply supabase/migrations/${capability.migration} before relying on this feature.`,
   };
 }
 
-async function loadStoreSettings(): Promise<StoreOperationalSettings> {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+async function checkDatabaseReadiness(): Promise<ReadinessItem[]> {
+  const capabilities: DatabaseCapability[] = [
+    {
+      label: "Stores Platform Layer",
+      table: "stores",
+      select: "id,slug,display_name,legal_name,store_type,status,platform_owner,primary_domain",
+      migration: "20260628110000_create_tcos_stores.sql",
+      readyDetail: "stores is available for Store #1 and future storefront separation.",
+    },
+    {
+      label: "Store Settings",
+      table: "store_settings",
+      select:
+        "store_id,support_email,sales_email,offers_email,evidence_email,stripe_mode,ebay_environment,seller_commission_rate,metadata",
+      migration: "20260628113000_create_store_settings.sql",
+      readyDetail: "store_settings is available for per-store operations.",
+    },
+    {
+      label: "Inventory V2 Tables",
+      table: "inventory_items",
+      select: "id,store_id,legacy_product_id,sku,title,status,quantity,price",
+      migration: "20260628114000_create_inventory_tables.sql",
+      readyDetail: "inventory_items is available for the Universal Inventory Engine.",
+    },
+    {
+      label: "Sales Comp Snapshots",
+      table: "sales_comp_snapshots",
+      select: "id,store_id,legacy_product_id,query,suggested_price,comps,created_at",
+      migration: "20260627160000_create_sales_comp_snapshots.sql",
+      readyDetail: "sales_comp_snapshots is available for pricing evidence.",
+    },
+    {
+      label: "TOS Identity Evidence",
+      table: "tos_acceptance_events",
+      select: "id,store_id,context_type,tos_kind,tos_version,ip_address,ip_risk,created_at",
+      migration: "20260627173000_add_tos_identity_evidence.sql",
+      readyDetail: "tos_acceptance_events is available for TOS/IP audit evidence.",
+    },
+    {
+      label: "Transaction Evidence Reports",
+      table: "transaction_evidence_reports",
+      select: "id,store_id,order_id,stripe_session_id,status,report_json,created_at",
+      migration: "20260627180000_create_transaction_evidence_reports.sql",
+      readyDetail: "transaction_evidence_reports is available for chargeback evidence PDFs.",
+    },
+    {
+      label: "Admin Login Audit",
+      table: "admin_login_attempts",
+      select: "id,store_id,ip_address,success,failure_reason,lockout_until,created_at",
+      migration: "20260628180000_create_admin_login_attempts.sql",
+      readyDetail: "admin_login_attempts is available for admin audit and lockout storage.",
+    },
+    {
+      label: "Customer Account Profiles",
+      table: "account_profiles",
+      select: "id,email,display_name,account_status,default_account_type,tos_accepted,created_at",
+      migration: "20260628190000_create_tcos_accounts.sql",
+      readyDetail: "account_profiles is available for customer accounts.",
+    },
+    {
+      label: "Account Store Memberships",
+      table: "account_store_memberships",
+      select: "id,account_id,store_id,role,status,created_at",
+      migration: "20260628190000_create_tcos_accounts.sql",
+      readyDetail: "account_store_memberships is available for buyer/seller/store role separation.",
+    },
+    {
+      label: "Account Auth Lockouts",
+      table: "account_auth_events",
+      select: "id,account_id,store_id,email,event_type,success,failure_reason,lockout_until,created_at",
+      migration: "20260628201500_add_account_auth_lockouts.sql",
+      readyDetail: "account_auth_events supports failure reasons and customer auth lockouts.",
+    },
+    {
+      label: "Order Account Links",
+      table: "orders",
+      select: "id,store_id,account_id,customer_email,total,status,created_at",
+      migration: "20260628193000_link_accounts_to_orders_offers.sql",
+      readyDetail: "orders has account_id for linked customer order history.",
+    },
+    {
+      label: "Offer Account Links",
+      table: "offers",
+      select: "id,store_id,account_id,customer_email,offer_amount,status,created_at",
+      migration: "20260628193000_link_accounts_to_orders_offers.sql",
+      readyDetail: "offers has account_id for linked customer offer history.",
+    },
+    {
+      label: "Sports Favorites",
+      table: "account_sports_favorites",
+      select:
+        "id,account_id,store_id,sport_key,league_key,team_name,include_news,include_scores,include_schedule,include_odds",
+      migration: "20260628213000_create_sports_dashboard_tables.sql",
+      readyDetail: "account_sports_favorites is available for team dashboard preferences.",
+    },
+    {
+      label: "Sports Data Snapshots",
+      table: "sports_event_snapshots",
+      select: "id,store_id,sport_key,league_key,external_event_id,event_status,event_start_at",
+      migration: "20260628213000_create_sports_dashboard_tables.sql",
+      readyDetail: "sports_event_snapshots is available for scores and schedules.",
+    },
+    {
+      label: "Sports Odds Snapshots",
+      table: "sports_odds_snapshots",
+      select: "id,store_id,sport_key,league_key,source_key,bookmaker,market_type,fetched_at",
+      migration: "20260628213000_create_sports_dashboard_tables.sql",
+      readyDetail: "sports_odds_snapshots is available for provider-backed odds display.",
+    },
+    {
+      label: "Market Watchlists",
+      table: "account_market_watchlist_items",
+      select: "id,account_id,store_id,asset_type,symbol,display_name,include_price,include_news",
+      migration: "20260628213000_create_sports_dashboard_tables.sql",
+      readyDetail: "account_market_watchlist_items is available for stocks, crypto, NFTs, and other assets.",
+    },
+    {
+      label: "Market Price Snapshots",
+      table: "market_price_snapshots",
+      select: "id,store_id,asset_type,symbol,price,currency,fetched_at",
+      migration: "20260628213000_create_sports_dashboard_tables.sql",
+      readyDetail: "market_price_snapshots is available for provider-backed market pricing.",
+    },
+  ];
 
-  if (!supabaseUrl || !supabaseKey) {
+  return Promise.all(capabilities.map(checkDatabaseCapability));
+}
+
+async function loadStoreSettings(): Promise<StoreOperationalSettings> {
+  const supabase = getSupabaseClient();
+
+  if (!supabase) {
     return resolveStoreSettings({ source: "fallback" });
   }
-
-  const supabase = createClient(supabaseUrl, supabaseKey);
 
   return getStoreSettings(supabase, getActiveStoreId());
 }
 
 export default async function LaunchReadinessPage() {
   const baseItems = buildReadinessItems();
-  const [storeSettings, adminLoginAuditItem] = await Promise.all([
+  const [storeSettings, databaseItems] = await Promise.all([
     loadStoreSettings(),
-    checkAdminLoginAuditTable(),
+    checkDatabaseReadiness(),
   ]);
-  const items = [...baseItems, adminLoginAuditItem];
+  const items = [...baseItems, ...databaseItems];
   const summary = summarize(items);
+  const databaseSummary = summarize(databaseItems);
   const paymentMode = getPaymentMode();
   const canAcceptLivePayment = paymentMode === "live" && summary.blocked === 0;
 
@@ -286,6 +427,9 @@ export default async function LaunchReadinessPage() {
           <Link href="/admin/security" className="rounded border bg-white px-4 py-2">
             Security
           </Link>
+          <a href="#database-readiness" className="rounded border bg-white px-4 py-2">
+            Database
+          </a>
         </div>
       </div>
 
@@ -318,6 +462,55 @@ export default async function LaunchReadinessPage() {
             confirm the evidence PDF, confirm eBay quantity sync, then refund
             that transaction in Stripe.
           </p>
+        </div>
+      </section>
+
+      <section
+        id="database-readiness"
+        className="mb-8 rounded border bg-white p-6"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-bold">Database Readiness</h2>
+            <p className="mt-1 max-w-3xl text-sm text-neutral-600">
+              Live Supabase capability checks for TCOS tables and columns. If a
+              row is blocked, the feature may compile but fail at runtime until
+              its migration is applied.
+            </p>
+          </div>
+          <div className="grid grid-cols-3 gap-2 text-center text-sm">
+            <MiniCount label="Ready" value={databaseSummary.ready} tone="green" />
+            <MiniCount label="Review" value={databaseSummary.warning} tone="yellow" />
+            <MiniCount label="Blocked" value={databaseSummary.blocked} tone="red" />
+          </div>
+        </div>
+
+        <div className="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-2">
+          {databaseItems.map((item) => (
+            <section
+              key={item.label}
+              className="rounded border border-neutral-200 bg-neutral-50 p-4"
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="font-bold">{item.label}</h3>
+                  <p className="mt-1 text-sm text-neutral-600">{item.detail}</p>
+                </div>
+                <span
+                  className={`shrink-0 rounded border px-2 py-1 text-xs font-bold ${statusClass(
+                    item.status,
+                  )}`}
+                >
+                  {statusLabel(item.status)}
+                </span>
+              </div>
+              {item.status !== "ready" ? (
+                <p className="mt-3 text-sm font-semibold text-neutral-700">
+                  {item.action}
+                </p>
+              ) : null}
+            </section>
+          ))}
         </div>
       </section>
 
@@ -417,6 +610,30 @@ function SummaryCard({
     <div className="rounded border bg-neutral-50 p-4">
       <p className="text-sm font-medium text-neutral-500">{label}</p>
       <p className={`mt-2 text-3xl font-bold ${toneClass}`}>{value}</p>
+    </div>
+  );
+}
+
+function MiniCount({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: "green" | "yellow" | "red";
+}) {
+  const toneClass =
+    tone === "green"
+      ? "text-green-700"
+      : tone === "yellow"
+      ? "text-yellow-700"
+      : "text-red-700";
+
+  return (
+    <div className="rounded border bg-white px-3 py-2">
+      <p className={`text-xl font-black ${toneClass}`}>{value}</p>
+      <p className="text-xs font-bold uppercase text-neutral-500">{label}</p>
     </div>
   );
 }

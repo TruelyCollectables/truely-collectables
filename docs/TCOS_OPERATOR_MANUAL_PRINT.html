@@ -462,6 +462,10 @@
 <td>Returns logged-in customer order history for the active store</td>
 </tr>
 <tr>
+<td><code>/api/account/dashboard/preferences</code></td>
+<td>Saves account sports/team and market watchlist preferences</td>
+</tr>
+<tr>
 <td><code>/api/checkout</code></td>
 <td>Creates Stripe checkout session</td>
 </tr>
@@ -1265,7 +1269,8 @@ src/app/api/admin/files/[id]/download/route.ts</code></pre>
 /account/signup
 /api/account/login
 /api/account/signup
-/api/account/orders</code></pre>
+/api/account/orders
+/api/account/dashboard/preferences</code></pre>
 <p>Current behavior:</p>
 <ul>
 <li>customer accounts use Supabase Auth email/password</li>
@@ -1282,6 +1287,9 @@ src/app/api/admin/files/[id]/download/route.ts</code></pre>
 <li>completed Stripe webhooks save <code>orders.account_id</code> when account metadata is present</li>
 <li>customer-created offers save <code>offers.account_id</code> when the customer is logged in</li>
 <li><code>/account</code> shows recent linked orders for the logged-in customer</li>
+<li><code>/account</code> lets customers save favorite teams/sports and market watchlist items</li>
+<li>sports dashboard preferences are stored locally first; live news, scores, schedules, and odds require approved data providers later</li>
+<li>market watchlist preferences support stocks, ETFs, indexes, crypto, NFTs, commodities, collectable indexes, and other assets</li>
 <li><code>/admin/accounts</code> shows customer accounts, linked order counts, offer counts, TOS status, and linked revenue</li>
 <li><code>/admin/orders</code> and <code>/admin/orders/[id]</code> show whether an order is linked to a TCOS account or was a guest checkout</li>
 <li><code>/admin/offers</code> shows whether an offer is linked to a TCOS account or was a guest offer</li>
@@ -1292,7 +1300,34 @@ src/app/api/admin/files/[id]/download/route.ts</code></pre>
 <p>Migration:</p>
 <pre><code>supabase/migrations/20260628190000_create_tcos_accounts.sql
 supabase/migrations/20260628193000_link_accounts_to_orders_offers.sql
-supabase/migrations/20260628201500_add_account_auth_lockouts.sql</code></pre>
+supabase/migrations/20260628201500_add_account_auth_lockouts.sql
+supabase/migrations/20260628213000_create_sports_dashboard_tables.sql</code></pre>
+<h3>Future: Sports, Scores, Schedules, Odds, And Market Watchlists</h3>
+<p>The account dashboard now has the data foundation for favorite teams and market watchlists.</p>
+<p>Sports dashboard goals:</p>
+<ul>
+<li>users can save favorite teams, leagues, and sports</li>
+<li>future provider jobs can populate news, scores, schedules, league links, and official-team references</li>
+<li>odds data must be provider-backed, jurisdiction-aware, age-gated where required, and display-only unless a future legal/compliance review approves anything more</li>
+<li>TCOS should prefer official league/team sites or licensed sports data providers instead of scraping</li>
+</ul>
+<p>Market dashboard goals:</p>
+<ul>
+<li>users can save stocks, ETFs, indexes, crypto, NFTs, commodities, collectable indexes, and other assets</li>
+<li>future provider jobs can populate quotes, price history, news, NFT floor pricing, and alerts</li>
+<li>market data must be informational only and must not be presented as financial advice</li>
+<li>provider terms, licensing, freshness, and attribution must be reviewed before live display</li>
+</ul>
+<p>Foundation tables:</p>
+<pre><code>account_sports_favorites
+sports_data_sources
+sports_event_snapshots
+sports_news_snapshots
+sports_odds_snapshots
+account_market_watchlist_items
+market_data_sources
+market_price_snapshots
+market_news_snapshots</code></pre>
 <p>Current seller legal page:</p>
 <pre><code>/seller-terms</code></pre>
 <p>Seller-account requirements:</p>
@@ -2172,7 +2207,8 @@ IP_INTELLIGENCE_REQUIRED=true</code></pre>
 <p>Migration directory:</p>
 <pre><code>supabase/migrations</code></pre>
 <p>Current migration:</p>
-<pre><code>20260628201500_add_account_auth_lockouts.sql
+<pre><code>20260628213000_create_sports_dashboard_tables.sql
+20260628201500_add_account_auth_lockouts.sql
 20260628193000_link_accounts_to_orders_offers.sql
 20260628190000_create_tcos_accounts.sql
 20260628180000_create_admin_login_attempts.sql
@@ -2282,7 +2318,8 @@ src/app/admin/products/[id]/page.tsx</code></pre>
 src/app/account
 src/app/api/account
 src/lib/account-auth.ts
-src/lib/account-profiles.ts</code></pre>
+src/lib/account-profiles.ts
+supabase/migrations/20260628213000_create_sports_dashboard_tables.sql</code></pre>
 <p>Orders:</p>
 <pre><code>src/app/admin/orders
 src/app/api/orders</code></pre>
