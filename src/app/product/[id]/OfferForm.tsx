@@ -5,6 +5,7 @@ import {
   TERMS_OF_SERVICE_PATH,
   TERMS_OF_SERVICE_VERSION,
 } from "../../../lib/legal";
+import { getAccountSession } from "../../account/account-session";
 
 export default function OfferForm({
   productId,
@@ -21,11 +22,15 @@ export default function OfferForm({
 
     const form = e.currentTarget;
     const formData = new FormData(form);
+    const accountSession = getAccountSession();
 
     const res = await fetch("/api/offers/create", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        ...(accountSession?.access_token
+          ? { Authorization: `Bearer ${accountSession.access_token}` }
+          : {}),
       },
       body: JSON.stringify({
         productId,

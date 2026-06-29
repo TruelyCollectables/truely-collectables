@@ -6,7 +6,7 @@ Authored by David Bakanas.
 
 Software ownership: Dag Danky Holdings LLC.
 
-Last updated: 2026-06-27
+Last updated: 2026-06-28
 
 This document records the database shape TCOS expects.
 
@@ -138,9 +138,14 @@ Runtime behavior:
 - account helpers live in `src/lib/account-auth.ts`
 - buyer signup route is `/api/account/signup`
 - buyer login route is `/api/account/login`
+- logged-in order history route is `/api/account/orders`
 - public account pages live under `/account`
 - current account session storage is browser-local and separate from admin auth
 - admin login remains separate from customer/buyer account login
+- logged-in checkout and offer flows pass the account token as a bearer token
+- checkout and accepted/countered offer Stripe sessions include `account_id` metadata when available
+- Stripe webhooks persist `orders.account_id` when account metadata is present
+- guest checkout and guest offers remain supported with a null account link
 
 ## Multi-Store Platform Tables
 
@@ -256,6 +261,7 @@ Fields used by current code:
 | --- | --- |
 | `id` | Order ID |
 | `store_id` | TCOS store ID, defaults to Store #1 |
+| `account_id` | Optional linked customer account |
 | `created_at` | Order creation timestamp |
 | `customer_email` | Customer email |
 | `customer_name` | Customer name |
@@ -316,6 +322,7 @@ Fields used by current code:
 | --- | --- |
 | `id` | Offer ID |
 | `store_id` | TCOS store ID, defaults to Store #1 |
+| `account_id` | Optional linked customer account |
 | `product_id` | Legacy product ID |
 | `customer_name` | Customer name |
 | `customer_email` | Customer email |
@@ -702,6 +709,30 @@ Creates:
 - `transaction_evidence_reports`
 - unique index through `stripe_session_id`
 - indexes for order and report date lookup
+
+### `20260628180000_create_admin_login_attempts.sql`
+
+Creates:
+
+- `admin_login_attempts`
+- indexes for store, IP, lockout, and recent attempt review
+
+### `20260628190000_create_tcos_accounts.sql`
+
+Creates:
+
+- `account_profiles`
+- `account_store_memberships`
+- `account_auth_events`
+- buyer account signup/login audit indexes
+
+### `20260628193000_link_accounts_to_orders_offers.sql`
+
+Adds:
+
+- `orders.account_id`
+- `offers.account_id`
+- indexes for account-scoped Store #1 order and offer history
 
 ## Operational SQL
 

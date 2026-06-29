@@ -454,6 +454,10 @@
 <td>Logs customer account in through Supabase Auth</td>
 </tr>
 <tr>
+<td><code>/api/account/orders</code></td>
+<td>Returns logged-in customer order history for the active store</td>
+</tr>
+<tr>
 <td><code>/api/checkout</code></td>
 <td>Creates Stripe checkout session</td>
 </tr>
@@ -1253,7 +1257,8 @@ src/app/api/admin/files/[id]/download/route.ts</code></pre>
 /account/login
 /account/signup
 /api/account/login
-/api/account/signup</code></pre>
+/api/account/signup
+/api/account/orders</code></pre>
 <p>Current behavior:</p>
 <ul>
 <li>customer accounts use Supabase Auth email/password</li>
@@ -1262,11 +1267,17 @@ src/app/api/admin/files/[id]/download/route.ts</code></pre>
 <li>signup creates or updates <code>account_profiles</code></li>
 <li>signup assigns a Store #1 buyer membership in <code>account_store_memberships</code></li>
 <li>signup/login writes <code>account_auth_events</code> when the migration exists</li>
+<li>logged-in checkout and offer flows attach the account ID to Stripe metadata</li>
+<li>completed Stripe webhooks save <code>orders.account_id</code> when account metadata is present</li>
+<li>customer-created offers save <code>offers.account_id</code> when the customer is logged in</li>
+<li><code>/account</code> shows recent linked orders for the logged-in customer</li>
+<li>guest checkout still works and leaves <code>account_id</code> empty</li>
 <li>account sessions are browser-local and separate from admin login cookies</li>
 <li>admin login still uses <code>/admin/login</code> and <code>admin_auth</code></li>
 </ul>
 <p>Migration:</p>
-<pre><code>supabase/migrations/20260628190000_create_tcos_accounts.sql</code></pre>
+<pre><code>supabase/migrations/20260628190000_create_tcos_accounts.sql
+supabase/migrations/20260628193000_link_accounts_to_orders_offers.sql</code></pre>
 <p>Current seller legal page:</p>
 <pre><code>/seller-terms</code></pre>
 <p>Seller-account requirements:</p>
@@ -1486,6 +1497,13 @@ src/app/api/admin/files/[id]/download/route.ts</code></pre>
 </ul>
 <h3>Future: Brag Session And Collection Board</h3>
 <p>This is a future-build community feature. It should not copy eBay-style transactional feedback.</p>
+<p>TCOS community ratings should use collector-style tiers:</p>
+<ul>
+<li><code>Gold</code></li>
+<li><code>Silver</code></li>
+<li><code>Bronze</code></li>
+</ul>
+<p>These tiers should represent post-purchase collector satisfaction, community trust, and brag-session quality after moderation rules exist. They should not be implemented as a direct eBay positive/neutral/negative clone.</p>
 <p>Goal:</p>
 <ul>
 <li>give buyers a fun way to show off what they received</li>
@@ -2137,7 +2155,10 @@ IP_INTELLIGENCE_REQUIRED=true</code></pre>
 <p>Migration directory:</p>
 <pre><code>supabase/migrations</code></pre>
 <p>Current migration:</p>
-<pre><code>20260628114000_create_inventory_tables.sql
+<pre><code>20260628193000_link_accounts_to_orders_offers.sql
+20260628190000_create_tcos_accounts.sql
+20260628180000_create_admin_login_attempts.sql
+20260628114000_create_inventory_tables.sql
 20260628113000_create_store_settings.sql
 20260628110000_create_tcos_stores.sql
 20260627160000_create_sales_comp_snapshots.sql

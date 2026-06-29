@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { ShippingMethod } from "../../lib/shipping";
 import { TERMS_OF_SERVICE_VERSION } from "../../lib/legal";
+import { getAccountSession } from "../account/account-session";
 
 export default function CheckoutButton({
   shippingMethod = "GROUND_ADVANTAGE",
@@ -23,11 +24,15 @@ export default function CheckoutButton({
       setLoading(true);
 
       const cart = JSON.parse(localStorage.getItem("cart") || "[]");
+      const accountSession = getAccountSession();
 
       const response = await fetch("/api/checkout", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          ...(accountSession?.access_token
+            ? { Authorization: `Bearer ${accountSession.access_token}` }
+            : {}),
         },
         body: JSON.stringify({
           cart,

@@ -18,6 +18,11 @@ export type AccountProfile = {
   updated_at: string;
 };
 
+export type AuthenticatedAccount = {
+  id: string;
+  email: string | null;
+};
+
 function getSupabaseClient(): SupabaseClient {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
@@ -36,6 +41,15 @@ function cleanEmail(value: unknown) {
 function cleanText(value: unknown) {
   const text = String(value || "").trim();
   return text.length > 0 ? text : null;
+}
+
+function bearerToken(request: Request) {
+  const authorization = request.headers.get("authorization") || "";
+  const [scheme, token] = authorization.split(" ");
+
+  if (scheme.toLowerCase() !== "bearer" || !token) return null;
+
+  return token.trim();
 }
 
 function isMissingAccountTableError(error: { code?: string; message?: string }) {
@@ -133,4 +147,42 @@ export async function ensureAccountStoreMembership(params: {
     if (isMissingAccountTableError(error)) return;
     throw error;
   }
+}
+
+export async function getAuthenticatedAccountFromRequest(
+  request: Request,
+): Promise<AuthenticatedAccount | null> {
+  const token = bearerToken(request);
+
+  if (!token) return null;
+
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase.auth.getUser(token);
+
+  if (error || !data.user) return null;
+
+  const email =
+    typeof data.user.email === "string" && data.user.email.length > 0
+      ? data.user.email.toLowerCase()
+      : null;
+
+  await createOrUpdateAccountProfile({
+    accountId: data.user.id,
+    email: email || "",
+    displayName:
+      typeof data.user.user_metadata?.display_name === "string"
+        ? data.user.user_metadata.display_name
+        : null,
+    defaultAccountType: "buyer",
+  });
+
+  await ensureAccountStoreMembership({
+    accountId: data.user.id,
+    role: "buyer",
+  });
+
+  return {
+    id: data.user.id,
+    email,
+  };
 }

@@ -96,6 +96,7 @@ export async function POST(req: Request) {
       ],
       metadata: {
         store_id: storeId,
+        account_id: offer.account_id || "",
         offer_id: String(offer.id),
         product_id: String(offer.products.id),
         ebay_item_id: offer.products.ebay_item_id || "",

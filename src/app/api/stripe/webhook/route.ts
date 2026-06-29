@@ -73,6 +73,7 @@ export async function POST(req: Request) {
       const tosUserAgent = session.metadata?.tos_user_agent || null;
       const tosIpRisk = session.metadata?.tos_ip_risk || null;
       const tosIpBlockReason = session.metadata?.tos_ip_block_reason || null;
+      const accountId = session.metadata?.account_id || null;
 
       const customerEmail =
         session.customer_details?.email ||
@@ -110,6 +111,7 @@ export async function POST(req: Request) {
 
       const orderPayload = {
         store_id: storeId,
+        account_id: accountId,
         customer_email: customerEmail,
         total,
         status: "paid",

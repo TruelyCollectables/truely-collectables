@@ -282,6 +282,7 @@ Most day-to-day work starts at:
 | `/api/admin/files/[id]/download` | Downloads transaction evidence PDF |
 | `/api/account/signup` | Creates customer account through Supabase Auth |
 | `/api/account/login` | Logs customer account in through Supabase Auth |
+| `/api/account/orders` | Returns logged-in customer order history for the active store |
 | `/api/checkout` | Creates Stripe checkout session |
 | `/api/webhook` | Main Stripe webhook handler |
 | `/api/stripe/webhook` | Alternate Stripe webhook handler |
@@ -1243,6 +1244,7 @@ Current account foundation:
 /account/signup
 /api/account/login
 /api/account/signup
+/api/account/orders
 ```
 
 Current behavior:
@@ -1253,6 +1255,11 @@ Current behavior:
 - signup creates or updates `account_profiles`
 - signup assigns a Store #1 buyer membership in `account_store_memberships`
 - signup/login writes `account_auth_events` when the migration exists
+- logged-in checkout and offer flows attach the account ID to Stripe metadata
+- completed Stripe webhooks save `orders.account_id` when account metadata is present
+- customer-created offers save `offers.account_id` when the customer is logged in
+- `/account` shows recent linked orders for the logged-in customer
+- guest checkout still works and leaves `account_id` empty
 - account sessions are browser-local and separate from admin login cookies
 - admin login still uses `/admin/login` and `admin_auth`
 
@@ -1260,6 +1267,7 @@ Migration:
 
 ```text
 supabase/migrations/20260628190000_create_tcos_accounts.sql
+supabase/migrations/20260628193000_link_accounts_to_orders_offers.sql
 ```
 
 Current seller legal page:
@@ -1500,6 +1508,14 @@ Future data tables should store:
 ### Future: Brag Session And Collection Board
 
 This is a future-build community feature. It should not copy eBay-style transactional feedback.
+
+TCOS community ratings should use collector-style tiers:
+
+- `Gold`
+- `Silver`
+- `Bronze`
+
+These tiers should represent post-purchase collector satisfaction, community trust, and brag-session quality after moderation rules exist. They should not be implemented as a direct eBay positive/neutral/negative clone.
 
 Goal:
 
@@ -2226,6 +2242,9 @@ supabase/migrations
 Current migration:
 
 ```text
+20260628193000_link_accounts_to_orders_offers.sql
+20260628190000_create_tcos_accounts.sql
+20260628180000_create_admin_login_attempts.sql
 20260628114000_create_inventory_tables.sql
 20260628113000_create_store_settings.sql
 20260628110000_create_tcos_stores.sql

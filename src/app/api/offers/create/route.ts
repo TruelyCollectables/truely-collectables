@@ -9,6 +9,7 @@ import { getClientIdentity } from "../../../../lib/client-identity";
 import { recordTermsAcceptance } from "../../../../lib/tos-acceptance";
 import { getStoreSettings } from "../../../../lib/store-settings";
 import { getActiveStoreId } from "../../../../lib/stores";
+import { getAuthenticatedAccountFromRequest } from "../../../../lib/account-auth";
 
 export async function POST(req: Request) {
   try {
@@ -26,6 +27,7 @@ export async function POST(req: Request) {
     const supabase = createClient(supabaseUrl, supabaseKey);
     const storeId = getActiveStoreId();
     const storeSettings = await getStoreSettings(supabase, storeId);
+    const account = await getAuthenticatedAccountFromRequest(req);
 
     const body = await req.json();
     const { productId, name, email, offerAmount } = body;
@@ -62,6 +64,7 @@ export async function POST(req: Request) {
 
     const offerPayload = {
       store_id: storeId,
+      account_id: account?.id || null,
       product_id: productId,
       customer_name: name,
       customer_email: email,

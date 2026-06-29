@@ -130,6 +130,7 @@ export async function POST(req: Request) {
       ],
       metadata: {
         store_id: storeId,
+        account_id: offer.account_id || "",
         type: "accepted_offer",
         offer_id: String(offer.id),
         product_id: String(offer.products.id),

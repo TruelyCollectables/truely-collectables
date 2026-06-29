@@ -97,6 +97,7 @@ export async function POST(req: Request) {
     const tosUserAgent = metadata.tos_user_agent || null;
     const tosIpRisk = metadata.tos_ip_risk || null;
     const tosIpBlockReason = metadata.tos_ip_block_reason || null;
+    const accountId = metadata.account_id || null;
 
     const offerId = metadata.offer_id;
     const checkoutType = metadata.type || "cart";
@@ -134,6 +135,7 @@ export async function POST(req: Request) {
 
     const orderPayload = {
       store_id: storeId,
+      account_id: accountId,
       customer_email: customerEmail,
       customer_name: customerName,
       total,

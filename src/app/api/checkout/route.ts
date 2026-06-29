@@ -20,6 +20,7 @@ import {
 } from "../../../lib/client-identity";
 import { recordTermsAcceptance } from "../../../lib/tos-acceptance";
 import { getActiveStoreId } from "../../../lib/stores";
+import { getAuthenticatedAccountFromRequest } from "../../../lib/account-auth";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +54,7 @@ export async function POST(request: Request) {
     const storeId = getActiveStoreId();
 
     const body = await request.json();
+    const account = await getAuthenticatedAccountFromRequest(request);
 
     const cart = body.cart as CartItem[];
     const shippingMethod = body.shippingMethod as ShippingMethod;
@@ -169,6 +171,7 @@ export async function POST(request: Request) {
       line_items: lineItems,
       metadata: {
         store_id: storeId,
+        account_id: account?.id || "",
         cart: JSON.stringify(cart),
         shipping_method: shippingMethod,
         shipping_name: shippingName,
