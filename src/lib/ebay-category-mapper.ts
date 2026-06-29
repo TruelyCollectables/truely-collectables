@@ -165,6 +165,52 @@ function scoreRule(rule: CategoryRule, text: string) {
   };
 }
 
+function aspectSearchText(aspects: EbayAspectMap) {
+  return Object.entries(aspects)
+    .flatMap(([key, value]) => [key, textValue(value) ?? ""])
+    .join(" ")
+    .toLowerCase();
+}
+
+function getAspectValue(aspects: EbayAspectMap, name: string) {
+  return textValue(aspects[name])?.toLowerCase() || "";
+}
+
+function hasStrongAutographEvidence(title: string, aspects: EbayAspectMap) {
+  const focused = [
+    title,
+    getAspectValue(aspects, "Features"),
+    getAspectValue(aspects, "Signed By"),
+    getAspectValue(aspects, "Autographed"),
+    getAspectValue(aspects, "Parallel/Variety"),
+  ]
+    .join(" ")
+    .toLowerCase();
+
+  return (
+    hasTerm(focused, "autograph") ||
+    hasTerm(focused, "autographed") ||
+    hasTerm(focused, "signed") ||
+    /\bauto\b/i.test(focused) ||
+    /\bau\b/i.test(focused)
+  );
+}
+
+function preferSportsCardOverDescriptionNoise(params: {
+  title: string;
+  aspects: EbayAspectMap;
+  currentCategory: string;
+}) {
+  if (params.currentCategory !== "autographs") return false;
+  if (hasStrongAutographEvidence(params.title, params.aspects)) return false;
+
+  const focused = `${params.title} ${aspectSearchText(params.aspects)}`;
+  const sportsCardScore =
+    scoreRule(CATEGORY_RULES[0], focused.toLowerCase()).score;
+
+  return sportsCardScore >= 3;
+}
+
 function confidence(score: number): EbayCategoryMapping["confidence"] {
   if (score >= 3) return "high";
   if (score >= 2) return "medium";
@@ -191,23 +237,34 @@ export function mapEbayInventoryCategory(input: {
   aspects?: EbayAspectMap | null;
 }): EbayCategoryMapping {
   const aspects = input.aspects ?? {};
-  const searchable = [
-    input.title,
+  const focusedSearchable = `${input.title} ${aspectSearchText(aspects)}`.toLowerCase();
+  const fallbackSearchable = [
+    focusedSearchable,
     input.description ?? "",
-    ...Object.entries(aspects).flatMap(([key, value]) => [
-      key,
-      textValue(value) ?? "",
-    ]),
-  ]
-    .join(" ")
-    .toLowerCase();
+  ].join(" ").toLowerCase();
 
-  const results = CATEGORY_RULES.map((rule) => ({
-    ...scoreRule(rule, searchable),
+  const focusedResults = CATEGORY_RULES.map((rule) => ({
+    ...scoreRule(rule, focusedSearchable),
+    category: rule.category,
+  })).sort((left, right) => right.score - left.score);
+  const fallbackResults = CATEGORY_RULES.map((rule) => ({
+    ...scoreRule(rule, fallbackSearchable),
     category: rule.category,
   })).sort((left, right) => right.score - left.score);
 
-  const best = results[0];
+  let best = focusedResults[0]?.score > 0 ? focusedResults[0] : fallbackResults[0];
+
+  if (
+    best &&
+    preferSportsCardOverDescriptionNoise({
+      title: input.title,
+      aspects,
+      currentCategory: best.category,
+    })
+  ) {
+    best = focusedResults.find((result) => result.category === "sports_cards") ?? best;
+  }
+
   const mappingConfidence = confidence(best?.score ?? 0);
   const category =
     best && best.score > 0 ? best.category : "other_collectable";
