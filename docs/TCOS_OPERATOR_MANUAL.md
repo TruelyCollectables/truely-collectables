@@ -1403,7 +1403,7 @@ account_wish_list_items
 account_wish_list_matches
 ```
 
-### Current: Collector Bio, Messaging, Binding Offers, And Backups
+### Current: Collector Bio, Social, Messaging, Binding Offers, And Backups
 
 Collector profiles support:
 
@@ -1415,6 +1415,35 @@ Collector profiles support:
 - social marketplace URLs for Instagram, Facebook, X, TikTok, YouTube, Whatnot, and eBay
 - profile visibility
 - message opt-in flag
+
+Collector social supports:
+
+- discovering public/community collector profiles
+- following collectors
+- sending friend requests
+- accepting incoming friend requests
+- showing a following/friends brag feed on the account dashboard
+- posting a purchase brag directly from order history
+- one-click default brag posting with an optional customize path
+- brag visibility of private, friends, followers, community, or public
+- generated share links under `/brag/[slug]`
+- brag-link click tracking through `account_brag_post_clicks`
+- weekly brag performance report foundation through `/api/admin/brag-weekly-report`
+
+Brag post share links:
+
+- redirect to `/shop?brag=[slug]`
+- increment `account_brag_posts.click_count`
+- save click audit data with referrer, user agent, observed IP, and timestamp
+- display the TCOS/TotallyCollectibles.com link in the brag feed so shared posts can bring customers back to the marketplace
+
+Weekly brag stats:
+
+- configured by `BRAG_REPORT_EMAIL`
+- uses `RESEND_API_KEY` when available
+- falls back to saving the weekly report row if email is not configured or email fails
+- stores report history in `account_brag_weekly_reports`
+- should be scheduled once per week by the deployment scheduler or admin automation
 
 Collection exports:
 
@@ -1441,11 +1470,44 @@ Foundation tables:
 
 ```text
 account_collector_profiles
+account_social_connections
+account_brag_posts
+account_brag_post_clicks
+account_brag_weekly_reports
 account_conversations
 account_conversation_messages
 account_binding_offers
 account_collection_export_jobs
 ```
+
+### Future: One Or Two Click Inventory Imports From Other Sales Outlets
+
+Collectors and seller accounts should eventually import inventory from other sales outlets with as few steps as possible.
+
+Goal:
+
+- connect or upload from an outside sales outlet
+- preview detected items
+- import into TCOS inventory or the collector's private collection
+- preserve source IDs, source marketplace, listing URLs, images, descriptions, prices, condition, quantity, and category evidence
+- map items through the same Universal Inventory Engine category and attribute system
+- prevent duplicate imports by source listing ID, SKU, and normalized title
+
+Candidate outlets:
+
+- eBay seller inventory
+- COMC
+- CollX
+- Sportlots
+- Whatnot
+- Shopify or CSV export
+- future shoe/collectable marketplaces where terms allow import
+
+Implementation rule:
+
+- use official APIs, OAuth, account export files, or user-uploaded CSV/templates where available
+- do not scrape accounts or bypass marketplace terms
+- each outlet needs its own connector status, last sync time, import job log, and duplicate-detection report
 
 ### Future: Sports, Scores, Schedules, Odds, And Market Watchlists
 

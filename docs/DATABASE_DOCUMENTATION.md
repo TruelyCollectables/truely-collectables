@@ -383,6 +383,68 @@ Fields:
 | `allow_messages` | Whether community messaging can target this profile |
 | `metadata` | Future structured profile metadata |
 
+### `account_social_connections`
+
+Stores collector follows and friend requests.
+
+Created by migration:
+
+```text
+supabase/migrations/20260629150000_create_collector_social_tables.sql
+```
+
+Fields:
+
+| Field | Purpose |
+| --- | --- |
+| `id` | Connection ID |
+| `store_id` | Store context |
+| `requester_account_id` | Account that started the follow or friend request |
+| `target_account_id` | Account being followed or friended |
+| `connection_type` | follow or friend |
+| `status` | active, pending, accepted, declined, or blocked |
+| `requested_at` | Request timestamp |
+| `responded_at` | Friend response timestamp |
+| `metadata` | Future moderation or source metadata |
+
+### `account_brag_posts`
+
+Stores collector brag posts tied to orders, collection items, or future social activity.
+
+Fields:
+
+| Field | Purpose |
+| --- | --- |
+| `id` | Brag post ID |
+| `store_id` | Store context |
+| `account_id` | Posting account |
+| `order_id` | Optional source order |
+| `collection_item_id` | Optional collection item |
+| `product_id` | Optional product |
+| `title` | Brag headline |
+| `body` | Brag text |
+| `image_url` | Future image URL |
+| `share_slug` | Public tracked share slug |
+| `share_url` | Public tracked share URL |
+| `visibility` | private, friends, followers, community, or public |
+| `reaction_count` | Future reactions |
+| `comment_count` | Future comments |
+| `click_count` | Tracked share-link visits |
+| `last_click_at` | Latest share-link visit |
+| `metadata` | Order snapshot and future social metadata |
+
+### `account_brag_post_clicks`
+
+Stores tracked visits from brag share links.
+
+Fields include brag post ID, store ID, share slug, referrer, user agent, observed IP/header value, and timestamp.
+
+### `account_brag_weekly_reports`
+
+Stores weekly brag-link performance reports.
+
+Fields include store ID, report period, email recipient, post count, click count, report JSON, email timestamp, email error, and creation timestamp.
+
 ### `account_conversations`
 
 Stores account-to-account collector message threads.

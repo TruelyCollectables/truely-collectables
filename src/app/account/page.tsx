@@ -107,6 +107,40 @@ type CollectorProfile = {
   allow_messages: boolean;
 };
 
+type CollectorSocialProfile = {
+  account_id: string;
+  collector_handle: string | null;
+  bio: string | null;
+  collecting_focus: string | null;
+  location_label: string | null;
+  visibility: string;
+  relationship?: string | null;
+};
+
+type CollectorSocialConnection = {
+  id: string;
+  otherAccountId: string;
+  type: "follow" | "friend";
+  status: string;
+  direction: "incoming" | "outgoing";
+  profile: CollectorSocialProfile | null;
+};
+
+type BragPost = {
+  id: string;
+  account_id: string;
+  order_id: number | null;
+  title: string;
+  body: string | null;
+  share_url: string | null;
+  visibility: string;
+  reaction_count: number;
+  comment_count: number;
+  click_count: number;
+  created_at: string;
+  authorLabel: string;
+};
+
 export default function AccountPage() {
   const [session, setSession] = useState<StoredAccountSession | null>(() =>
     typeof window === "undefined" ? null : getAccountSession(),
@@ -129,6 +163,23 @@ export default function AccountPage() {
   const [isSavingCollector, setIsSavingCollector] = useState(false);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isExportingCollection, setIsExportingCollection] = useState(false);
+  const [collectors, setCollectors] = useState<CollectorSocialProfile[]>([]);
+  const [following, setFollowing] = useState<CollectorSocialConnection[]>([]);
+  const [friends, setFriends] = useState<CollectorSocialConnection[]>([]);
+  const [incomingFriendRequests, setIncomingFriendRequests] = useState<
+    CollectorSocialConnection[]
+  >([]);
+  const [outgoingFriendRequests, setOutgoingFriendRequests] = useState<
+    CollectorSocialConnection[]
+  >([]);
+  const [bragFeed, setBragFeed] = useState<BragPost[]>([]);
+  const [socialError, setSocialError] = useState("");
+  const [isLoadingSocial, setIsLoadingSocial] = useState(false);
+  const [isSavingSocial, setIsSavingSocial] = useState(false);
+  const [bragOrderId, setBragOrderId] = useState("");
+  const [bragTitle, setBragTitle] = useState("");
+  const [bragBody, setBragBody] = useState("");
+  const [bragVisibility, setBragVisibility] = useState("friends");
   const [teamName, setTeamName] = useState("");
   const [sportKey, setSportKey] = useState("football");
   const [leagueKey, setLeagueKey] = useState("nfl");
@@ -364,6 +415,67 @@ export default function AccountPage() {
     };
   }, [accessToken]);
 
+  useEffect(() => {
+    if (!accessToken) return;
+
+    let isCancelled = false;
+
+    async function loadSocial() {
+      setIsLoadingSocial(true);
+      setSocialError("");
+
+      try {
+        const response = await fetch("/api/account/collector/social", {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || "Could not load collector social");
+        }
+
+        if (!isCancelled) {
+          setCollectors(Array.isArray(data.collectors) ? data.collectors : []);
+          setFollowing(Array.isArray(data.following) ? data.following : []);
+          setFriends(Array.isArray(data.friends) ? data.friends : []);
+          setIncomingFriendRequests(
+            Array.isArray(data.incomingFriendRequests)
+              ? data.incomingFriendRequests
+              : [],
+          );
+          setOutgoingFriendRequests(
+            Array.isArray(data.outgoingFriendRequests)
+              ? data.outgoingFriendRequests
+              : [],
+          );
+          setBragFeed(Array.isArray(data.feed) ? data.feed : []);
+        }
+      } catch (error: any) {
+        if (!isCancelled) {
+          setSocialError(error.message || "Could not load collector social");
+          setCollectors([]);
+          setFollowing([]);
+          setFriends([]);
+          setIncomingFriendRequests([]);
+          setOutgoingFriendRequests([]);
+          setBragFeed([]);
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsLoadingSocial(false);
+        }
+      }
+    }
+
+    loadSocial();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [accessToken]);
+
   function logout() {
     clearAccountSession();
     setSession(null);
@@ -376,6 +488,113 @@ export default function AccountPage() {
     setWishListItems([]);
     setCollectorProfile(null);
     setCollectorError("");
+    setCollectors([]);
+    setFollowing([]);
+    setFriends([]);
+    setIncomingFriendRequests([]);
+    setOutgoingFriendRequests([]);
+    setBragFeed([]);
+    setSocialError("");
+  }
+
+  async function refreshSocial() {
+    if (!accessToken) return;
+
+    setIsLoadingSocial(true);
+    setSocialError("");
+
+    try {
+      const response = await fetch("/api/account/collector/social", {
+        headers: {
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Could not load collector social");
+      }
+
+      setCollectors(Array.isArray(data.collectors) ? data.collectors : []);
+      setFollowing(Array.isArray(data.following) ? data.following : []);
+      setFriends(Array.isArray(data.friends) ? data.friends : []);
+      setIncomingFriendRequests(
+        Array.isArray(data.incomingFriendRequests)
+          ? data.incomingFriendRequests
+          : [],
+      );
+      setOutgoingFriendRequests(
+        Array.isArray(data.outgoingFriendRequests)
+          ? data.outgoingFriendRequests
+          : [],
+      );
+      setBragFeed(Array.isArray(data.feed) ? data.feed : []);
+    } catch (error: any) {
+      setSocialError(error.message || "Could not load collector social");
+    } finally {
+      setIsLoadingSocial(false);
+    }
+  }
+
+  async function saveSocialAction(payload: Record<string, unknown>) {
+    if (!accessToken) return;
+
+    setIsSavingSocial(true);
+    setSocialError("");
+
+    try {
+      const response = await fetch("/api/account/collector/social", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Could not update collector social");
+      }
+
+      await refreshSocial();
+    } catch (error: any) {
+      setSocialError(error.message || "Could not update collector social");
+    } finally {
+      setIsSavingSocial(false);
+    }
+  }
+
+  async function removeSocialConnection(
+    targetAccountId: string,
+    connectionType: "follow" | "friend",
+  ) {
+    if (!accessToken) return;
+
+    setIsSavingSocial(true);
+    setSocialError("");
+
+    try {
+      const response = await fetch("/api/account/collector/social", {
+        method: "DELETE",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({ targetAccountId, connectionType }),
+      });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        throw new Error(data.error || "Could not remove collector connection");
+      }
+
+      await refreshSocial();
+    } catch (error: any) {
+      setSocialError(error.message || "Could not remove collector connection");
+    } finally {
+      setIsSavingSocial(false);
+    }
   }
 
   async function saveDashboardPreference(payload: Record<string, unknown>) {
@@ -630,6 +849,51 @@ export default function AccountPage() {
     }
   }
 
+  async function postOrderBrag(order: AccountOrder) {
+    if (!accessToken) return;
+
+    setIsSavingSocial(true);
+    setSocialError("");
+
+    try {
+      const response = await fetch("/api/account/collector/social", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          action: "create_brag",
+          orderId: order.id,
+          title:
+            bragOrderId === order.id
+              ? bragTitle
+              : `Made it mine from order #${order.id}`,
+          body:
+            bragOrderId === order.id
+              ? bragBody
+              : "New pickup just landed in the collection.",
+          visibility: bragVisibility,
+        }),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Could not post brag");
+      }
+
+      setBragOrderId("");
+      setBragTitle("");
+      setBragBody("");
+      setBragVisibility("friends");
+      await refreshSocial();
+    } catch (error: any) {
+      setSocialError(error.message || "Could not post brag");
+    } finally {
+      setIsSavingSocial(false);
+    }
+  }
+
   return (
     <main className="mx-auto max-w-5xl px-6 py-10">
       <section className="border-b border-neutral-200 pb-6">
@@ -873,6 +1137,220 @@ export default function AccountPage() {
                 Save Collector Bio
               </button>
             </form>
+          </div>
+
+          <div className="rounded-md border border-neutral-200 bg-white p-6 lg:col-span-2">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-2xl font-black">Friends And Brag Feed</h2>
+                <p className="mt-1 text-sm text-neutral-600">
+                  Follow collectors, send friend requests, and share pickups
+                  from your order history.
+                </p>
+              </div>
+              {isLoadingSocial ? (
+                <span className="rounded bg-neutral-100 px-3 py-1 text-xs font-bold uppercase text-neutral-600">
+                  Loading
+                </span>
+              ) : null}
+            </div>
+
+            {socialError ? (
+              <p className="mt-5 rounded border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-800">
+                {socialError}
+              </p>
+            ) : null}
+
+            <div className="mt-5 grid grid-cols-1 gap-5 lg:grid-cols-[0.6fr_0.4fr]">
+              <section className="rounded border border-neutral-200 bg-neutral-50 p-4">
+                <h3 className="text-lg font-black">Brag Feed</h3>
+                <div className="mt-4 space-y-3">
+                  {bragFeed.length === 0 ? (
+                    <p className="text-sm text-neutral-500">
+                      No brag posts yet. Post one from an order when a pickup
+                      deserves the spotlight.
+                    </p>
+                  ) : (
+                    bragFeed.map((post) => (
+                      <div
+                        key={post.id}
+                        className="rounded border border-neutral-200 bg-white p-4"
+                      >
+                        <div className="flex flex-wrap items-start justify-between gap-3">
+                          <div>
+                            <p className="text-xs font-bold uppercase text-neutral-500">
+                              {post.authorLabel} / {post.visibility}
+                            </p>
+                            <h4 className="mt-1 break-words text-lg font-black">
+                              {post.title}
+                            </h4>
+                          </div>
+                          <span className="rounded bg-neutral-100 px-2 py-1 text-[11px] font-bold uppercase text-neutral-600">
+                            {formatDate(post.created_at)}
+                          </span>
+                        </div>
+                        {post.body ? (
+                          <p className="mt-3 text-sm leading-6 text-neutral-700">
+                            {post.body}
+                          </p>
+                        ) : null}
+                        <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold uppercase text-neutral-500">
+                          {post.order_id ? <span>Order #{post.order_id}</span> : null}
+                          <span>{post.reaction_count} reactions</span>
+                          <span>{post.comment_count} comments</span>
+                          <span>{post.click_count} visits</span>
+                        </div>
+                        {post.share_url ? (
+                          <div className="mt-3 rounded border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs font-semibold text-neutral-600">
+                            <span>Find more at </span>
+                            <a
+                              href={post.share_url}
+                              className="font-black text-neutral-950 underline"
+                            >
+                              TotallyCollectibles.com
+                            </a>
+                          </div>
+                        ) : null}
+                      </div>
+                    ))
+                  )}
+                </div>
+              </section>
+
+              <div className="space-y-5">
+                <section className="rounded border border-neutral-200 bg-neutral-50 p-4">
+                  <h3 className="text-lg font-black">Find Collectors</h3>
+                  <div className="mt-4 space-y-2">
+                    {collectors.length === 0 ? (
+                      <p className="text-sm text-neutral-500">
+                        No public collector profiles found yet.
+                      </p>
+                    ) : (
+                      collectors.slice(0, 8).map((collector) => (
+                        <SocialCollectorRow
+                          key={collector.account_id}
+                          profile={collector}
+                          relationship={collector.relationship || ""}
+                          isSaving={isSavingSocial}
+                          onFollow={() =>
+                            saveSocialAction({
+                              action: "follow",
+                              targetAccountId: collector.account_id,
+                            })
+                          }
+                          onFriend={() =>
+                            saveSocialAction({
+                              action: "friend_request",
+                              targetAccountId: collector.account_id,
+                            })
+                          }
+                        />
+                      ))
+                    )}
+                  </div>
+                </section>
+
+                <section className="rounded border border-neutral-200 bg-neutral-50 p-4">
+                  <h3 className="text-lg font-black">Friends</h3>
+                  <div className="mt-4 space-y-2">
+                    {incomingFriendRequests.map((connection) => (
+                      <SocialConnectionRow
+                        key={connection.id}
+                        connection={connection}
+                        actionLabel="Accept"
+                        isSaving={isSavingSocial}
+                        onAction={() =>
+                          saveSocialAction({
+                            action: "accept_friend",
+                            connectionId: connection.id,
+                          })
+                        }
+                        onRemove={() =>
+                          removeSocialConnection(
+                            connection.otherAccountId,
+                            "friend",
+                          )
+                        }
+                      />
+                    ))}
+
+                    {friends.length === 0 && incomingFriendRequests.length === 0 ? (
+                      <p className="text-sm text-neutral-500">
+                        No friends connected yet.
+                      </p>
+                    ) : null}
+
+                    {friends.map((connection) => (
+                      <SocialConnectionRow
+                        key={connection.id}
+                        connection={connection}
+                        actionLabel="Message Later"
+                        isSaving={isSavingSocial}
+                        onAction={undefined}
+                        onRemove={() =>
+                          removeSocialConnection(
+                            connection.otherAccountId,
+                            "friend",
+                          )
+                        }
+                      />
+                    ))}
+                  </div>
+                </section>
+
+                <section className="rounded border border-neutral-200 bg-neutral-50 p-4">
+                  <h3 className="text-lg font-black">Following</h3>
+                  <div className="mt-4 space-y-2">
+                    {following.length === 0 ? (
+                      <p className="text-sm text-neutral-500">
+                        Not following anyone yet.
+                      </p>
+                    ) : (
+                      following.map((connection) => (
+                        <SocialConnectionRow
+                          key={connection.id}
+                          connection={connection}
+                          actionLabel="Following"
+                          isSaving={isSavingSocial}
+                          onAction={undefined}
+                          onRemove={() =>
+                            removeSocialConnection(
+                              connection.otherAccountId,
+                              "follow",
+                            )
+                          }
+                        />
+                      ))
+                    )}
+                  </div>
+
+                  {outgoingFriendRequests.length > 0 ? (
+                    <div className="mt-5 border-t border-neutral-200 pt-4">
+                      <p className="text-xs font-bold uppercase text-neutral-500">
+                        Pending Friend Requests
+                      </p>
+                      <div className="mt-3 space-y-2">
+                        {outgoingFriendRequests.map((connection) => (
+                          <SocialConnectionRow
+                            key={connection.id}
+                            connection={connection}
+                            actionLabel="Pending"
+                            isSaving={isSavingSocial}
+                            onAction={undefined}
+                            onRemove={() =>
+                              removeSocialConnection(
+                                connection.otherAccountId,
+                                "friend",
+                              )
+                            }
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+                </section>
+              </div>
+            </div>
           </div>
 
           <div className="lg:col-span-2">
@@ -1495,6 +1973,7 @@ export default function AccountPage() {
                       <th className="py-3 pr-4">Total</th>
                       <th className="py-3 pr-4">Status</th>
                       <th className="py-3 pr-4">Tracking</th>
+                      <th className="py-3 pr-4">Brag</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-neutral-100">
@@ -1527,6 +2006,86 @@ export default function AccountPage() {
                             <span className="text-neutral-400">Pending</span>
                           )}
                         </td>
+                        <td className="min-w-[260px] py-3 pr-4">
+                          {bragOrderId === order.id ? (
+                            <form
+                              onSubmit={(event) => {
+                                event.preventDefault();
+                                postOrderBrag(order);
+                              }}
+                              className="grid gap-2"
+                            >
+                              <input
+                                value={bragTitle}
+                                onChange={(event) =>
+                                  setBragTitle(event.target.value)
+                                }
+                                className="w-full rounded border border-neutral-300 px-2 py-1 text-xs"
+                                placeholder={`Made it mine from order #${order.id}`}
+                              />
+                              <input
+                                value={bragBody}
+                                onChange={(event) =>
+                                  setBragBody(event.target.value)
+                                }
+                                className="w-full rounded border border-neutral-300 px-2 py-1 text-xs"
+                                placeholder="Why this pickup belongs in the collection"
+                              />
+                              <div className="flex flex-wrap gap-2">
+                                <select
+                                  value={bragVisibility}
+                                  onChange={(event) =>
+                                    setBragVisibility(event.target.value)
+                                  }
+                                  className="rounded border border-neutral-300 px-2 py-1 text-xs font-semibold"
+                                >
+                                  <option value="friends">Friends</option>
+                                  <option value="followers">Followers</option>
+                                  <option value="community">Community</option>
+                                  <option value="private">Private</option>
+                                </select>
+                                <button
+                                  type="submit"
+                                  disabled={isSavingSocial}
+                                  className="rounded bg-neutral-950 px-3 py-1 text-xs font-bold text-white disabled:bg-neutral-500"
+                                >
+                                  Post
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setBragOrderId("")}
+                                  className="rounded border border-neutral-300 px-3 py-1 text-xs font-bold"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            </form>
+                          ) : (
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                onClick={() => postOrderBrag(order)}
+                                disabled={isSavingSocial}
+                                className="rounded bg-neutral-950 px-3 py-2 text-xs font-bold text-white disabled:bg-neutral-500"
+                              >
+                                Brag Now
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setBragOrderId(order.id);
+                                  setBragTitle(
+                                    `Made it mine from order #${order.id}`,
+                                  );
+                                  setBragBody("");
+                                }}
+                                className="rounded border border-neutral-300 px-3 py-2 text-xs font-bold hover:bg-neutral-50"
+                              >
+                                Customize
+                              </button>
+                            </div>
+                          )}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
@@ -1545,6 +2104,118 @@ function Info({ label, value }: { label: string; value: string }) {
     <div className="grid grid-cols-[100px_1fr] gap-3">
       <dt className="font-bold text-neutral-500">{label}</dt>
       <dd className="break-words font-semibold text-neutral-950">{value}</dd>
+    </div>
+  );
+}
+
+function SocialCollectorRow({
+  profile,
+  relationship,
+  isSaving,
+  onFollow,
+  onFriend,
+}: {
+  profile: CollectorSocialProfile;
+  relationship: string;
+  isSaving: boolean;
+  onFollow: () => void;
+  onFriend: () => void;
+}) {
+  const isFollowing = relationship.startsWith("follow:active");
+  const isFriend =
+    relationship.startsWith("friend:accepted") ||
+    relationship.startsWith("friend:pending");
+
+  return (
+    <div className="rounded border border-neutral-200 bg-white p-3">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="break-words font-black">
+            {profile.collector_handle || "Collector"}
+          </p>
+          <p className="mt-1 text-xs font-semibold uppercase text-neutral-500">
+            {profile.location_label || profile.visibility}
+          </p>
+          {profile.collecting_focus ? (
+            <p className="mt-2 text-sm text-neutral-600">
+              {profile.collecting_focus}
+            </p>
+          ) : null}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={onFollow}
+            disabled={isSaving || isFollowing}
+            className="rounded border border-neutral-300 px-3 py-2 text-xs font-bold hover:bg-neutral-50 disabled:text-neutral-400"
+          >
+            {isFollowing ? "Following" : "Follow"}
+          </button>
+          <button
+            type="button"
+            onClick={onFriend}
+            disabled={isSaving || isFriend}
+            className="rounded bg-neutral-950 px-3 py-2 text-xs font-bold text-white disabled:bg-neutral-500"
+          >
+            {relationship.startsWith("friend:accepted")
+              ? "Friends"
+              : relationship.startsWith("friend:pending")
+                ? "Pending"
+                : "Add Friend"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SocialConnectionRow({
+  connection,
+  actionLabel,
+  isSaving,
+  onAction,
+  onRemove,
+}: {
+  connection: CollectorSocialConnection;
+  actionLabel: string;
+  isSaving: boolean;
+  onAction?: () => void;
+  onRemove: () => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded border border-neutral-200 bg-white p-3">
+      <div className="min-w-0">
+        <p className="break-words font-black">
+          {connection.profile?.collector_handle || "Collector"}
+        </p>
+        <p className="mt-1 text-xs font-semibold uppercase text-neutral-500">
+          {connection.type} / {connection.status} / {connection.direction}
+        </p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {onAction ? (
+          <button
+            type="button"
+            onClick={onAction}
+            disabled={isSaving}
+            className="rounded bg-neutral-950 px-3 py-2 text-xs font-bold text-white disabled:bg-neutral-500"
+          >
+            {actionLabel}
+          </button>
+        ) : (
+          <span className="rounded bg-neutral-100 px-3 py-2 text-xs font-bold uppercase text-neutral-600">
+            {actionLabel}
+          </span>
+        )}
+        <button
+          type="button"
+          onClick={onRemove}
+          disabled={isSaving}
+          className="rounded border border-neutral-300 px-3 py-2 text-xs font-bold hover:bg-neutral-50 disabled:text-neutral-400"
+        >
+          Remove
+        </button>
+      </div>
     </div>
   );
 }
