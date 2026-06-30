@@ -12,7 +12,15 @@ export default function AccountSignupPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [tosAccepted, setTosAccepted] = useState(false);
-  const [error, setError] = useState("");
+  const [error, setError] = useState(() => {
+    if (typeof window === "undefined") return "";
+
+    const params = new URLSearchParams(window.location.search);
+
+    return params.get("card_verification") === "canceled"
+      ? "Card and billing address verification was canceled. Account activation cannot finish until verification is completed."
+      : "";
+  });
   const [message, setMessage] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -43,6 +51,12 @@ export default function AccountSignupPage() {
         return;
       }
 
+      if (data.cardVerificationUrl) {
+        setMessage("Account started. Opening secure card verification...");
+        window.location.href = data.cardVerificationUrl;
+        return;
+      }
+
       if (data.session) {
         saveAccountSession(data.session);
         router.push("/account");
@@ -65,8 +79,8 @@ export default function AccountSignupPage() {
         </p>
         <h1 className="mt-2 text-3xl font-black">Create Account</h1>
         <p className="mt-2 text-sm leading-6 text-neutral-600">
-          Buyer accounts use email and password. Seller and platform-admin
-          access stay separate.
+          Buyer accounts use email, password, Terms acceptance, and secure card
+          verification. Seller and platform-admin access stay separate.
         </p>
 
         <form onSubmit={handleSubmit} className="mt-6 space-y-4">
@@ -129,9 +143,14 @@ export default function AccountSignupPage() {
             disabled={isSubmitting}
             className="w-full rounded bg-neutral-950 px-4 py-3 font-bold text-white hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-500"
           >
-            {isSubmitting ? "Creating..." : "Create Account"}
+            {isSubmitting ? "Creating..." : "Create Account And Verify Card"}
           </button>
         </form>
+
+        <p className="mt-3 text-xs leading-5 text-neutral-500">
+          Card verification is handled by Stripe. TCOS does not store raw card
+          numbers or CVV.
+        </p>
 
         {error ? (
           <p className="mt-4 rounded border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-bold text-rose-800">

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
+import Stripe from "stripe";
 import {
   createOrUpdateAccountProfile,
   ensureAccountStoreMembership,
@@ -13,8 +14,14 @@ import {
   TERMS_OF_SERVICE_VERSION,
   hasAcceptedTerms,
 } from "../../../../lib/legal";
+import { getActiveStoreId } from "../../../../lib/stores";
+import { trustedRequestOrigin } from "../../../../lib/site-origin";
 
 export const dynamic = "force-dynamic";
+
+function accountCardVerificationRequired() {
+  return process.env.ACCOUNT_CARD_VERIFICATION_REQUIRED !== "false";
+}
 
 function getSupabaseClient() {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -37,6 +44,8 @@ export async function POST(request: Request) {
     const displayName = String(body.displayName || "").trim();
     const tosAccepted = hasAcceptedTerms(body.tosAccepted);
     const tosVersion = String(body.tosVersion || TERMS_OF_SERVICE_VERSION);
+    const cardVerificationRequired = accountCardVerificationRequired();
+    const stripeKey = process.env.STRIPE_SECRET_KEY;
 
     if (!email || !password) {
       return NextResponse.json(
@@ -56,6 +65,16 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: "Terms of Service must be accepted before creating an account" },
         { status: 400 },
+      );
+    }
+
+    if (cardVerificationRequired && !stripeKey) {
+      return NextResponse.json(
+        {
+          error:
+            "Account card verification is required but Stripe is not configured",
+        },
+        { status: 500 },
       );
     }
 
@@ -83,6 +102,7 @@ export async function POST(request: Request) {
     }
 
     const supabase = getSupabaseClient();
+    const storeId = getActiveStoreId();
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -110,18 +130,28 @@ export async function POST(request: Request) {
       );
     }
 
+    const accountStatus = cardVerificationRequired
+      ? "payment_verification_required"
+      : "active";
+
     await createOrUpdateAccountProfile({
       accountId: data.user.id,
       email,
       displayName,
       defaultAccountType: "buyer",
+      accountStatus,
       tosAccepted,
       tosVersion,
+      cardVerified: !cardVerificationRequired,
+      cardVerifiedAt: cardVerificationRequired ? null : new Date().toISOString(),
     });
 
     await ensureAccountStoreMembership({
       accountId: data.user.id,
       role: "buyer",
+      status: cardVerificationRequired
+        ? "payment_verification_required"
+        : "active",
     });
 
     await recordAccountAuthEvent({
@@ -132,12 +162,46 @@ export async function POST(request: Request) {
       success: true,
     });
 
+    let cardVerificationUrl: string | null = null;
+    let stripeSessionId: string | null = null;
+
+    if (cardVerificationRequired && stripeKey) {
+      const stripe = new Stripe(stripeKey);
+      const origin = trustedRequestOrigin(request);
+      const metadata = {
+        type: "account_card_verification_setup",
+        account_id: data.user.id,
+        store_id: storeId,
+        email,
+      };
+      const session = await stripe.checkout.sessions.create({
+        mode: "setup",
+        payment_method_types: ["card"],
+        customer_email: email,
+        client_reference_id: data.user.id,
+        billing_address_collection: "required",
+        metadata,
+        setup_intent_data: {
+          metadata,
+        },
+        success_url: `${origin}/account/login?card_verified=1`,
+        cancel_url: `${origin}/account/signup?card_verification=canceled`,
+      });
+
+      stripeSessionId = session.id;
+      cardVerificationUrl = session.url;
+    }
+
     return NextResponse.json({
       success: true,
       userId: data.user.id,
       email,
       emailConfirmationRequired: !data.session,
-      session: data.session,
+      accountStatus,
+      cardVerificationRequired,
+      stripeSessionId,
+      cardVerificationUrl,
+      session: cardVerificationRequired ? null : data.session,
     });
   } catch (error: any) {
     await recordAccountAuthEvent({

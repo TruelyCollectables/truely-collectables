@@ -14,6 +14,11 @@ export type AccountProfile = {
   tos_accepted: boolean;
   tos_version: string | null;
   tos_accepted_at: string | null;
+  card_verified?: boolean | null;
+  card_verified_at?: string | null;
+  stripe_customer_id?: string | null;
+  stripe_setup_intent_id?: string | null;
+  stripe_payment_method_id?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -126,8 +131,14 @@ export async function createOrUpdateAccountProfile(params: {
   email: string;
   displayName?: string | null;
   defaultAccountType?: "buyer" | "seller";
+  accountStatus?: string | null;
   tosAccepted?: boolean;
   tosVersion?: string;
+  cardVerified?: boolean;
+  cardVerifiedAt?: string | null;
+  stripeCustomerId?: string | null;
+  stripeSetupIntentId?: string | null;
+  stripePaymentMethodId?: string | null;
 }): Promise<AccountProfile | null> {
   const supabase = getSupabaseClient();
   const tosAccepted = params.tosAccepted ?? false;
@@ -143,6 +154,30 @@ export async function createOrUpdateAccountProfile(params: {
     profilePayload.tos_accepted = true;
     profilePayload.tos_version = params.tosVersion || TERMS_OF_SERVICE_VERSION;
     profilePayload.tos_accepted_at = new Date().toISOString();
+  }
+
+  if (params.accountStatus) {
+    profilePayload.account_status = params.accountStatus;
+  }
+
+  if (params.cardVerified !== undefined) {
+    profilePayload.card_verified = params.cardVerified;
+  }
+
+  if (params.cardVerifiedAt !== undefined) {
+    profilePayload.card_verified_at = params.cardVerifiedAt;
+  }
+
+  if (params.stripeCustomerId !== undefined) {
+    profilePayload.stripe_customer_id = params.stripeCustomerId;
+  }
+
+  if (params.stripeSetupIntentId !== undefined) {
+    profilePayload.stripe_setup_intent_id = params.stripeSetupIntentId;
+  }
+
+  if (params.stripePaymentMethodId !== undefined) {
+    profilePayload.stripe_payment_method_id = params.stripePaymentMethodId;
   }
 
   const { data, error } = await supabase
@@ -162,6 +197,7 @@ export async function createOrUpdateAccountProfile(params: {
 export async function ensureAccountStoreMembership(params: {
   accountId: string;
   role: AccountRole;
+  status?: string;
 }) {
   const supabase = getSupabaseClient();
 
@@ -170,7 +206,7 @@ export async function ensureAccountStoreMembership(params: {
       account_id: params.accountId,
       store_id: getActiveStoreId(),
       role: params.role,
-      status: "active",
+      status: params.status || "active",
       updated_at: new Date().toISOString(),
     },
     { onConflict: "account_id,store_id,role" },
@@ -199,7 +235,7 @@ export async function getAuthenticatedAccountFromRequest(
       ? data.user.email.toLowerCase()
       : null;
 
-  await createOrUpdateAccountProfile({
+  const profile = await createOrUpdateAccountProfile({
     accountId: data.user.id,
     email: email || "",
     displayName:
@@ -208,6 +244,10 @@ export async function getAuthenticatedAccountFromRequest(
         : null,
     defaultAccountType: "buyer",
   });
+
+  const accountStatus = profile?.account_status || "active";
+
+  if (accountStatus !== "active") return null;
 
   await ensureAccountStoreMembership({
     accountId: data.user.id,

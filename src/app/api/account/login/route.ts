@@ -82,7 +82,7 @@ export async function POST(request: Request) {
       );
     }
 
-    await createOrUpdateAccountProfile({
+    const profile = await createOrUpdateAccountProfile({
       accountId: data.user.id,
       email,
       displayName:
@@ -91,6 +91,41 @@ export async function POST(request: Request) {
           : null,
       defaultAccountType: "buyer",
     });
+
+    if (profile?.account_status === "payment_verification_required") {
+      await recordAccountAuthEvent({
+        request,
+        accountId: data.user.id,
+        email,
+        eventType: "login",
+        success: false,
+        failureReason: "payment_verification_required",
+      });
+
+      return NextResponse.json(
+        {
+          error:
+            "Card and billing address verification must be completed before this account can log in.",
+        },
+        { status: 403 },
+      );
+    }
+
+    if (profile?.account_status && profile.account_status !== "active") {
+      await recordAccountAuthEvent({
+        request,
+        accountId: data.user.id,
+        email,
+        eventType: "login",
+        success: false,
+        failureReason: profile.account_status,
+      });
+
+      return NextResponse.json(
+        { error: "This account is not active." },
+        { status: 403 },
+      );
+    }
 
     await ensureAccountStoreMembership({
       accountId: data.user.id,

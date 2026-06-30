@@ -94,6 +94,19 @@ Fields:
 | `tos_accepted` | Whether customer TOS was accepted at signup |
 | `tos_version` | Accepted TOS version |
 | `tos_accepted_at` | Accepted timestamp |
+| `card_verified` | Whether Stripe card/billing verification completed |
+| `card_verified_at` | Card verification completion timestamp |
+| `stripe_customer_id` | Stripe customer ID from verification |
+| `stripe_setup_intent_id` | Stripe setup intent ID from verification |
+| `stripe_payment_method_id` | Stripe payment method ID from verification |
+| `card_brand` | Stripe-safe card brand label |
+| `card_last4` | Stripe-safe card last 4 digits |
+| `card_exp_month` | Stripe-safe card expiration month |
+| `card_exp_year` | Stripe-safe card expiration year |
+| `card_funding` | Stripe-safe funding type |
+| `billing_name` | Billing name returned by Stripe |
+| `billing_country` | Billing country returned by Stripe |
+| `billing_postal_code` | Billing postal code returned by Stripe |
 | `created_at` | Created timestamp |
 | `updated_at` | Updated timestamp |
 
@@ -141,6 +154,10 @@ Runtime behavior:
 - buyer signup route is `/api/account/signup`
 - buyer login route is `/api/account/login`
 - signup/login security helper lives in `src/lib/account-login-security.ts`
+- card verification is required by default unless `ACCOUNT_CARD_VERIFICATION_REQUIRED=false`
+- pending card-verification accounts use `account_status = payment_verification_required`
+- Stripe webhook completion activates the account and stores Stripe-safe card/billing proof
+- TCOS does not store raw card numbers, CVV, or full payment credentials
 - logged-in order history route is `/api/account/orders`
 - public account pages live under `/account`
 - current account session storage is browser-local and separate from admin auth
@@ -1139,6 +1156,15 @@ Adds:
 - `account_auth_events.failure_reason`
 - `account_auth_events.lockout_until`
 - indexes for account auth review and lockout checks by store, IP, email, and lockout timestamp
+
+### `20260630100000_add_account_card_verification.sql`
+
+Adds:
+
+- card-verification status fields to `account_profiles`
+- Stripe-safe customer, setup intent, and payment method references
+- Stripe-safe card brand, last 4, expiration, funding, and billing address proof
+- indexes for account status/card verification review and Stripe customer lookup
 
 ### `20260628213000_create_sports_dashboard_tables.sql`
 

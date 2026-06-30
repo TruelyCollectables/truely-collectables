@@ -1318,9 +1318,11 @@ Current behavior:
 
 - customer accounts use Supabase Auth email/password
 - signup requires buyer Terms of Service acceptance
+- signup requires Stripe card and billing address verification unless `ACCOUNT_CARD_VERIFICATION_REQUIRED=false`
 - password must be at least 10 characters
-- signup creates or updates `account_profiles`
-- signup assigns a Store #1 buyer membership in `account_store_memberships`
+- signup creates or updates `account_profiles` with `payment_verification_required` until Stripe setup verification completes
+- signup assigns a Store #1 buyer membership in `account_store_memberships`; pending accounts use `payment_verification_required`
+- pending card-verification accounts cannot log in or use authenticated account APIs as active customers
 - signup/login writes `account_auth_events` when the migration exists
 - signup/login blocks masked identity when IP intelligence marks the request as VPN, proxy, Tor, relay, hosting, or anonymous
 - signup/login checks recent failed attempts by IP and email before calling Supabase Auth
@@ -1344,12 +1346,12 @@ Current behavior:
 - account sessions are browser-local and separate from admin login cookies
 - admin login still uses `/admin/login` and `admin_auth`
 
-Future anti-fraud signup requirement:
+Anti-fraud signup requirement:
 
-- before public launch, buyer/customer account creation should require a valid payment card and billing/address evidence through Stripe or another approved payment provider
-- the card should be authorized or saved through a setup flow before the account becomes fully active
+- buyer/customer account creation requires a valid payment card and billing/address evidence through Stripe unless disabled by environment override
+- the card is saved through a Stripe setup flow before the account becomes fully active
 - TCOS must not store raw card numbers, CVV, or payment credentials
-- failed authorization should prevent account activation and should be logged as an account security event
+- failed or canceled verification prevents account activation and login
 - this requirement is intended to reduce scam accounts, chargeback risk, fake offers, and abusive collector/social activity
 
 Migration:
@@ -1361,6 +1363,7 @@ supabase/migrations/20260628201500_add_account_auth_lockouts.sql
 supabase/migrations/20260628213000_create_sports_dashboard_tables.sql
 supabase/migrations/20260628220000_create_collector_dashboard_tables.sql
 supabase/migrations/20260628223000_create_collector_profiles_messaging_exports.sql
+supabase/migrations/20260630100000_add_account_card_verification.sql
 ```
 
 ### Current: Collection Shelf, Wish List, And Want Ads
@@ -2371,14 +2374,18 @@ Current implemented protections:
 - completed transactions create `transaction_evidence_reports` for chargeback/legal packets
 - offer submission stores TOS/IP evidence before the offer is accepted
 - public offer submission validates product ID, customer name, customer email, offer amount, and current inventory availability before saving the offer
+- buyer account signup starts accounts in `payment_verification_required` status when card verification is required
+- Stripe Checkout setup mode collects the buyer card and billing address before TCOS activates the account
+- signed Stripe webhook completion marks the account active and stores Stripe-safe card proof, such as customer ID, setup intent ID, payment method ID, card brand, last 4, expiry, funding type, billing name, billing country, and billing postal code
+- pending card-verification accounts cannot log in or use authenticated account APIs as active customers
 - buyer account signup/login blocks masked identity when configured identity checks detect VPN, proxy, Tor, relay, hosting, or anonymous IP use
 - buyer account signup/login locks out repeated failures after six failed attempts inside 15 minutes
 - bank credentials are not stored in TCOS
 
-Future buyer-account anti-fraud requirement:
+Buyer-account anti-fraud requirement:
 
-- buyer/customer account signup should require a valid payment card and billing/address evidence through Stripe or another approved payment provider before the account becomes fully active
-- failed card authorization should prevent account activation and write an account security/audit event
+- buyer/customer account signup requires a valid payment card and billing/address evidence through Stripe unless `ACCOUNT_CARD_VERIFICATION_REQUIRED=false`
+- failed or canceled card verification prevents account activation and login
 - TCOS must never store raw card numbers, CVV, or payment credentials
 
 Important IP rule:

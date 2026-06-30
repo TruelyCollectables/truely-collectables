@@ -62,6 +62,76 @@ export async function POST(req: Request) {
     const session = event.data.object as Stripe.Checkout.Session;
     const metadata = session.metadata || {};
 
+    if (metadata.type === "account_card_verification_setup") {
+      const accountId = metadata.account_id;
+      const setupIntentId =
+        typeof session.setup_intent === "string" ? session.setup_intent : null;
+      const setupIntent = setupIntentId
+        ? await stripe.setupIntents.retrieve(setupIntentId)
+        : null;
+      const paymentMethodId =
+        typeof setupIntent?.payment_method === "string"
+          ? setupIntent.payment_method
+          : null;
+      const paymentMethod = paymentMethodId
+        ? await stripe.paymentMethods.retrieve(paymentMethodId)
+        : null;
+      const card =
+        paymentMethod && "card" in paymentMethod ? paymentMethod.card : null;
+      const billingDetails =
+        paymentMethod && "billing_details" in paymentMethod
+          ? paymentMethod.billing_details
+          : null;
+      const customerId =
+        typeof session.customer === "string"
+          ? session.customer
+          : typeof paymentMethod?.customer === "string"
+            ? paymentMethod.customer
+            : null;
+
+      if (!accountId || !paymentMethodId) {
+        return NextResponse.json(
+          { error: "Account card verification metadata is incomplete" },
+          { status: 400 },
+        );
+      }
+
+      const verifiedAt = new Date().toISOString();
+
+      await supabase
+        .from("account_profiles")
+        .update({
+          account_status: "active",
+          card_verified: true,
+          card_verified_at: verifiedAt,
+          stripe_customer_id: customerId,
+          stripe_setup_intent_id: setupIntentId,
+          stripe_payment_method_id: paymentMethodId,
+          card_brand: card?.brand ?? null,
+          card_last4: card?.last4 ?? null,
+          card_exp_month: card?.exp_month ?? null,
+          card_exp_year: card?.exp_year ?? null,
+          card_funding: card?.funding ?? null,
+          billing_name: billingDetails?.name ?? null,
+          billing_country: billingDetails?.address?.country ?? null,
+          billing_postal_code: billingDetails?.address?.postal_code ?? null,
+          updated_at: verifiedAt,
+        })
+        .eq("id", accountId);
+
+      await supabase
+        .from("account_store_memberships")
+        .update({
+          status: "active",
+          updated_at: verifiedAt,
+        })
+        .eq("account_id", accountId)
+        .eq("store_id", storeId)
+        .eq("role", "buyer");
+
+      return NextResponse.json({ received: true });
+    }
+
     if (metadata.type === "collector_binding_offer_setup") {
       const bindingOfferId = metadata.binding_offer_id;
       const conversationId = metadata.conversation_id;

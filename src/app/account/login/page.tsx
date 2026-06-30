@@ -10,11 +10,21 @@ export default function AccountLoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [message, setMessage] = useState(() => {
+    if (typeof window === "undefined") return "";
+
+    const params = new URLSearchParams(window.location.search);
+
+    return params.get("card_verified") === "1"
+      ? "Card verification is complete. You can log in now."
+      : "";
+  });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   async function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     setError("");
+    setMessage("");
     setIsSubmitting(true);
 
     try {
@@ -92,6 +102,12 @@ export default function AccountLoginPage() {
         {error ? (
           <p className="mt-4 rounded border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-bold text-rose-800">
             {error}
+          </p>
+        ) : null}
+
+        {message ? (
+          <p className="mt-4 rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-800">
+            {message}
           </p>
         ) : null}
 
