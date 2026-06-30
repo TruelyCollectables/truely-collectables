@@ -60,6 +60,63 @@ function unavailableResponse() {
   );
 }
 
+async function requireConversationAccess(params: {
+  supabase: ReturnType<typeof getSupabaseClient>;
+  conversationId: string;
+  accountId: string;
+  storeId: string;
+}) {
+  const { data: conversation, error } = await params.supabase
+    .from("account_conversations")
+    .select("id,created_by_account_id,recipient_account_id,status")
+    .eq("id", params.conversationId)
+    .eq("store_id", params.storeId)
+    .maybeSingle();
+
+  if (error) {
+    if (isMissingBindingOfferTables(error)) {
+      return { error: unavailableResponse() };
+    }
+
+    return {
+      error: NextResponse.json({ error: error.message }, { status: 400 }),
+    };
+  }
+
+  if (!conversation) {
+    return {
+      error: NextResponse.json(
+        { error: "Conversation not found" },
+        { status: 404 },
+      ),
+    };
+  }
+
+  const isParticipant =
+    conversation.created_by_account_id === params.accountId ||
+    conversation.recipient_account_id === params.accountId;
+
+  if (!isParticipant) {
+    return {
+      error: NextResponse.json(
+        { error: "You do not have access to this conversation" },
+        { status: 403 },
+      ),
+    };
+  }
+
+  if (conversation.status === "blocked" || conversation.status === "closed") {
+    return {
+      error: NextResponse.json(
+        { error: "This conversation is not open for binding offers" },
+        { status: 400 },
+      ),
+    };
+  }
+
+  return { conversation };
+}
+
 export async function POST(request: Request) {
   try {
     const stripeKey = process.env.STRIPE_SECRET_KEY;
@@ -128,7 +185,16 @@ export async function POST(request: Request) {
 
     let conversationId = cleanText(body.conversationId, 80);
 
-    if (!conversationId) {
+    if (conversationId) {
+      const access = await requireConversationAccess({
+        supabase,
+        conversationId,
+        accountId: account.id,
+        storeId,
+      });
+
+      if (access.error) return access.error;
+    } else {
       const { data: conversation, error: conversationError } = await supabase
         .from("account_conversations")
         .insert({
