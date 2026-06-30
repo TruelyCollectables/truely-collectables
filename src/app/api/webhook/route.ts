@@ -5,6 +5,7 @@ import { syncEbayQuantityAfterSale } from "../../../lib/ebay";
 import { inventoryEngine } from "../../../modules/inventory";
 import { createTransactionEvidenceReport } from "../../../lib/transaction-evidence";
 import { getActiveStoreId } from "../../../lib/stores";
+import { updateSellerPayoutAccountFromStripe } from "../../../lib/seller-payouts";
 
 export const dynamic = "force-dynamic";
 
@@ -53,6 +54,18 @@ export async function POST(req: Request) {
         { error: `Webhook signature failed: ${err.message}` },
         { status: 400 }
       );
+    }
+
+    if (event.type === "account.updated") {
+      const account = event.data.object as Stripe.Account;
+
+      await updateSellerPayoutAccountFromStripe({
+        supabase,
+        account,
+        storeId,
+      });
+
+      return NextResponse.json({ received: true });
     }
 
     if (event.type !== "checkout.session.completed") {

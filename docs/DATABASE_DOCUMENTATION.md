@@ -126,6 +126,24 @@ Fields:
 | `created_at` | Created timestamp |
 | `updated_at` | Updated timestamp |
 
+### `seller_payout_accounts`
+
+Stores seller payout verification status from an approved third-party provider.
+
+Created by migration:
+
+```text
+supabase/migrations/20260630103000_create_seller_payout_accounts.sql
+```
+
+Important:
+
+- TCOS does not store raw bank account numbers, routing numbers, SSNs, tax IDs, or payout credentials.
+- Stripe-hosted onboarding collects and verifies bank/payout details.
+- TCOS stores only provider IDs, status fields, requirements, TOS evidence, and non-sensitive metadata.
+
+Fields include account/store IDs, provider, provider account ID, onboarding status, charges/payouts/details flags, current and past-due provider requirements, disabled reason, seller TOS acceptance fields, TOS acceptance event ID, metadata, and timestamps.
+
 ### `account_auth_events`
 
 Account signup/login audit trail.
@@ -1165,6 +1183,14 @@ Adds:
 - Stripe-safe customer, setup intent, and payment method references
 - Stripe-safe card brand, last 4, expiration, funding, and billing address proof
 - indexes for account status/card verification review and Stripe customer lookup
+
+### `20260630103000_create_seller_payout_accounts.sql`
+
+Creates:
+
+- `seller_payout_accounts`
+- Stripe Connect payout verification status tracking
+- indexes for account/store payout lookup and seller verification review
 
 ### `20260628213000_create_sports_dashboard_tables.sql`
 

@@ -494,6 +494,10 @@
 <td>Starts a card-required binding offer through Stripe setup checkout</td>
 </tr>
 <tr>
+<td><code>/api/account/seller/payout-onboarding</code></td>
+<td>Starts or checks Stripe-hosted seller payout/bank verification</td>
+</tr>
+<tr>
 <td><code>/api/checkout</code></td>
 <td>Creates Stripe checkout session</td>
 </tr>
@@ -1585,6 +1589,17 @@ market_news_snapshots</code></pre>
 <li>Dag Danky Holdings LLC charges a 5% seller commission/rake on third-party seller transactions</li>
 <li>the 5% commission is calculated from total sale amount, including item sale price plus buyer-paid shipping</li>
 <li>seller acceptance should be stored with seller TOS version and timestamp when seller accounts are implemented</li>
+</ul>
+<p>Current seller payout verification foundation:</p>
+<ul>
+<li><code>/account</code> includes a Seller Verification panel for logged-in, active accounts</li>
+<li><code>/api/account/seller/payout-onboarding</code> starts or resumes Stripe-hosted Express onboarding</li>
+<li>the seller must accept Seller Terms before payout onboarding starts</li>
+<li>seller TOS acceptance is recorded through <code>tos_acceptance_events</code></li>
+<li>Stripe collects and verifies bank/payout details; TCOS does not collect raw checking account or routing numbers</li>
+<li><code>seller_payout_accounts</code> stores Stripe Connect account ID, onboarding status, payout flags, due requirements, disabled reason, and seller TOS evidence</li>
+<li>Stripe <code>account.updated</code> webhooks refresh seller payout status</li>
+<li><code>account_store_memberships</code> gets a <code>seller</code> role with <code>payout_verification_required</code> until Stripe reports the seller payout account active</li>
 </ul>
 <p>Seller constants live in:</p>
 <pre><code>src/lib/legal.ts</code></pre>

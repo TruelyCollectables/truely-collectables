@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { SELLER_TERMS_OF_SERVICE_VERSION } from "../../lib/legal";
 import {
   clearAccountSession,
   getAccountSession,
@@ -148,6 +149,18 @@ type CollectionImportSummary = {
   errors: number;
 };
 
+type SellerPayout = {
+  provider: string;
+  onboardingStatus: string;
+  payoutsEnabled: boolean;
+  detailsSubmitted: boolean;
+  sellerTosAccepted: boolean;
+  disabledReason?: string | null;
+  requirementsCurrentlyDue?: string[];
+  requirementsPastDue?: string[];
+  updatedAt: string | null;
+};
+
 export default function AccountPage() {
   const [session, setSession] = useState<StoredAccountSession | null>(() =>
     typeof window === "undefined" ? null : getAccountSession(),
@@ -161,6 +174,11 @@ export default function AccountPage() {
   );
   const [dashboardError, setDashboardError] = useState("");
   const [isLoadingDashboard, setIsLoadingDashboard] = useState(false);
+  const [sellerPayout, setSellerPayout] = useState<SellerPayout | null>(null);
+  const [sellerPayoutError, setSellerPayoutError] = useState("");
+  const [isLoadingSellerPayout, setIsLoadingSellerPayout] = useState(false);
+  const [isStartingSellerPayout, setIsStartingSellerPayout] = useState(false);
+  const [sellerTosAccepted, setSellerTosAccepted] = useState(false);
   const [collectionItems, setCollectionItems] = useState<CollectionItem[]>([]);
   const [wishListItems, setWishListItems] = useState<WishListItem[]>([]);
   const [collectorProfile, setCollectorProfile] =
@@ -276,6 +294,52 @@ export default function AccountPage() {
     }
 
     loadOrders();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [accessToken]);
+
+  useEffect(() => {
+    if (!accessToken) return;
+
+    let isCancelled = false;
+
+    async function loadSellerPayout() {
+      setIsLoadingSellerPayout(true);
+      setSellerPayoutError("");
+
+      try {
+        const response = await fetch("/api/account/seller/payout-onboarding", {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || "Could not load seller payout status");
+        }
+
+        if (!isCancelled) {
+          setSellerPayout(data.sellerPayout || null);
+          setSellerTosAccepted(data.sellerPayout?.sellerTosAccepted === true);
+        }
+      } catch (error: any) {
+        if (!isCancelled) {
+          setSellerPayoutError(
+            error.message || "Could not load seller payout status",
+          );
+          setSellerPayout(null);
+        }
+      } finally {
+        if (!isCancelled) {
+          setIsLoadingSellerPayout(false);
+        }
+      }
+    }
+
+    loadSellerPayout();
 
     return () => {
       isCancelled = true;
@@ -501,6 +565,9 @@ export default function AccountPage() {
     setSportsFavorites([]);
     setMarketWatchlist([]);
     setDashboardError("");
+    setSellerPayout(null);
+    setSellerPayoutError("");
+    setSellerTosAccepted(false);
     setCollectionItems([]);
     setWishListItems([]);
     setCollectorProfile(null);
@@ -690,6 +757,43 @@ export default function AccountPage() {
       }
     } catch (error: any) {
       setDashboardError(error.message || "Could not remove preference");
+    }
+  }
+
+  async function startSellerPayoutOnboarding() {
+    if (!accessToken) return;
+
+    setIsStartingSellerPayout(true);
+    setSellerPayoutError("");
+
+    try {
+      const response = await fetch("/api/account/seller/payout-onboarding", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          sellerTosAccepted,
+          sellerTosVersion: SELLER_TERMS_OF_SERVICE_VERSION,
+        }),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Could not start seller verification");
+      }
+
+      if (data.onboardingUrl) {
+        window.location.href = data.onboardingUrl;
+        return;
+      }
+
+      throw new Error("Seller verification link was not returned");
+    } catch (error: any) {
+      setSellerPayoutError(error.message || "Could not start seller verification");
+    } finally {
+      setIsStartingSellerPayout(false);
     }
   }
 
@@ -1026,15 +1130,74 @@ export default function AccountPage() {
           </div>
 
           <aside className="rounded-md border border-neutral-200 bg-white p-6">
-            <h2 className="text-xl font-black">Coming Next</h2>
-            <ul className="mt-4 space-y-2 text-sm text-neutral-600">
-              <li>Image uploads</li>
-              <li>AI item matching</li>
-              <li>Collector alerts</li>
-              <li>Messaging inbox UI</li>
-              <li>Binding offer charge-on-accept</li>
-              <li>Optional MFA path</li>
-            </ul>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h2 className="text-xl font-black">Seller Verification</h2>
+                <p className="mt-1 text-sm leading-6 text-neutral-600">
+                  Bank and payout verification is handled by Stripe. TCOS does
+                  not store raw bank account or routing numbers.
+                </p>
+              </div>
+              {isLoadingSellerPayout ? (
+                <span className="rounded bg-neutral-100 px-3 py-1 text-xs font-bold uppercase text-neutral-600">
+                  Loading
+                </span>
+              ) : null}
+            </div>
+
+            <dl className="mt-4 space-y-2 text-sm">
+              <Info
+                label="Status"
+                value={sellerPayoutLabel(
+                  sellerPayout?.onboardingStatus || "not_started",
+                )}
+              />
+              <Info
+                label="Payouts"
+                value={sellerPayout?.payoutsEnabled ? "Enabled" : "Not enabled"}
+              />
+              <Info
+                label="Details"
+                value={
+                  sellerPayout?.detailsSubmitted ? "Submitted" : "Not submitted"
+                }
+              />
+            </dl>
+
+            {sellerPayoutError ? (
+              <p className="mt-4 rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-bold text-amber-800">
+                {sellerPayoutError}
+              </p>
+            ) : null}
+
+            <label className="mt-4 flex items-start gap-3 rounded border border-neutral-200 bg-neutral-50 p-3 text-xs leading-5 text-neutral-700">
+              <input
+                type="checkbox"
+                checked={sellerTosAccepted}
+                onChange={(event) => setSellerTosAccepted(event.target.checked)}
+                className="mt-1 h-4 w-4"
+              />
+              <span>
+                I accept the{" "}
+                <Link href="/seller-terms" className="font-bold underline">
+                  Seller Terms
+                </Link>{" "}
+                version {SELLER_TERMS_OF_SERVICE_VERSION}.
+              </span>
+            </label>
+
+            <button
+              type="button"
+              onClick={startSellerPayoutOnboarding}
+              disabled={isStartingSellerPayout || !sellerTosAccepted}
+              className="mt-4 w-full rounded bg-neutral-950 px-4 py-2 text-sm font-bold text-white hover:bg-neutral-800 disabled:bg-neutral-500"
+            >
+              {sellerPayout?.onboardingStatus === "active"
+                ? "Refresh Stripe Verification"
+                : isStartingSellerPayout
+                  ? "Opening Stripe..."
+                  : "Verify Seller Payouts"}
+            </button>
           </aside>
 
           <div className="rounded-md border border-neutral-200 bg-white p-6 lg:col-span-2">
@@ -2450,6 +2613,10 @@ function formatCurrency(value: number | null) {
     style: "currency",
     currency: "USD",
   }).format(Number(value || 0));
+}
+
+function sellerPayoutLabel(value: string) {
+  return value.replaceAll("_", " ").toUpperCase();
 }
 
 function withShareSource(shareUrl: string, source: string) {

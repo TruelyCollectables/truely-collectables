@@ -292,6 +292,7 @@ Most day-to-day work starts at:
 | `/api/account/collector/exports` | Downloads the logged-in collector collection as CSV or full catalog JSON |
 | `/api/account/collector/messages` | Creates and lists collector conversation records |
 | `/api/account/collector/binding-offers` | Starts a card-required binding offer through Stripe setup checkout |
+| `/api/account/seller/payout-onboarding` | Starts or checks Stripe-hosted seller payout/bank verification |
 | `/api/checkout` | Creates Stripe checkout session |
 | `/api/webhook` | Main Stripe webhook handler |
 | `/api/stripe/webhook` | Alternate Stripe webhook handler |
@@ -1587,6 +1588,17 @@ Seller-account requirements:
 - Dag Danky Holdings LLC charges a 5% seller commission/rake on third-party seller transactions
 - the 5% commission is calculated from total sale amount, including item sale price plus buyer-paid shipping
 - seller acceptance should be stored with seller TOS version and timestamp when seller accounts are implemented
+
+Current seller payout verification foundation:
+
+- `/account` includes a Seller Verification panel for logged-in, active accounts
+- `/api/account/seller/payout-onboarding` starts or resumes Stripe-hosted Express onboarding
+- the seller must accept Seller Terms before payout onboarding starts
+- seller TOS acceptance is recorded through `tos_acceptance_events`
+- Stripe collects and verifies bank/payout details; TCOS does not collect raw checking account or routing numbers
+- `seller_payout_accounts` stores Stripe Connect account ID, onboarding status, payout flags, due requirements, disabled reason, and seller TOS evidence
+- Stripe `account.updated` webhooks refresh seller payout status
+- `account_store_memberships` gets a `seller` role with `payout_verification_required` until Stripe reports the seller payout account active
 
 Seller constants live in:
 
