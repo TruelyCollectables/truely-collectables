@@ -894,6 +894,16 @@ export default function AccountPage() {
     }
   }
 
+  async function copyShareUrl(shareUrl: string) {
+    const trackedUrl = withShareSource(shareUrl, "copy");
+
+    try {
+      await navigator.clipboard.writeText(trackedUrl);
+    } catch {
+      window.prompt("Copy brag link", trackedUrl);
+    }
+  }
+
   return (
     <main className="mx-auto max-w-5xl px-6 py-10">
       <section className="border-b border-neutral-200 pb-6">
@@ -1201,14 +1211,49 @@ export default function AccountPage() {
                           <span>{post.click_count} visits</span>
                         </div>
                         {post.share_url ? (
-                          <div className="mt-3 rounded border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs font-semibold text-neutral-600">
-                            <span>Find more at </span>
-                            <a
-                              href={post.share_url}
-                              className="font-black text-neutral-950 underline"
-                            >
-                              TotallyCollectibles.com
-                            </a>
+                          <div className="mt-3 rounded border border-neutral-200 bg-neutral-50 p-3 text-xs font-semibold text-neutral-600">
+                            <p>
+                              <span>Find more at </span>
+                              <a
+                                href={withShareSource(post.share_url, "feed")}
+                                className="font-black text-neutral-950 underline"
+                              >
+                                TotallyCollectibles.com
+                              </a>
+                            </p>
+                            <div className="mt-3 flex flex-wrap gap-2">
+                              <a
+                                href={`https://twitter.com/intent/tweet?text=${encodeURIComponent(
+                                  `${post.title} - TotallyCollectibles.com`,
+                                )}&url=${encodeURIComponent(
+                                  withShareSource(post.share_url, "x"),
+                                )}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="rounded border border-neutral-300 bg-white px-3 py-2 text-xs font-bold text-neutral-800 hover:bg-neutral-100"
+                              >
+                                Share X
+                              </a>
+                              <a
+                                href={`https://www.facebook.com/sharer/sharer.php?u=${encodeURIComponent(
+                                  withShareSource(post.share_url, "facebook"),
+                                )}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="rounded border border-neutral-300 bg-white px-3 py-2 text-xs font-bold text-neutral-800 hover:bg-neutral-100"
+                              >
+                                Facebook
+                              </a>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  post.share_url ? copyShareUrl(post.share_url) : null
+                                }
+                                className="rounded border border-neutral-300 bg-white px-3 py-2 text-xs font-bold text-neutral-800 hover:bg-neutral-100"
+                              >
+                                Copy Link
+                              </button>
+                            </div>
                           </div>
                         ) : null}
                       </div>
@@ -2275,4 +2320,15 @@ function formatCurrency(value: number | null) {
     style: "currency",
     currency: "USD",
   }).format(Number(value || 0));
+}
+
+function withShareSource(shareUrl: string, source: string) {
+  try {
+    const url = new URL(shareUrl);
+    url.searchParams.set("src", source);
+    return url.toString();
+  } catch {
+    const separator = shareUrl.includes("?") ? "&" : "?";
+    return `${shareUrl}${separator}src=${encodeURIComponent(source)}`;
+  }
 }

@@ -439,11 +439,15 @@ Stores tracked visits from brag share links.
 
 Fields include brag post ID, store ID, share slug, referrer, user agent, observed IP/header value, and timestamp.
 
+`source` stores the explicit share channel when present, such as `feed`, `x`, `facebook`, `copy`, `direct`, or a future campaign/source key.
+
 ### `account_brag_weekly_reports`
 
 Stores weekly brag-link performance reports.
 
 Fields include store ID, report period, email recipient, post count, click count, report JSON, email timestamp, email error, and creation timestamp.
+
+`report_json` includes top brag posts, top referrers, and top sources so weekly emails can show how many visitors each brag/social link brought into TCOS.
 
 ### `account_conversations`
 

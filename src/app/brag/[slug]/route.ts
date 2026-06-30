@@ -19,6 +19,16 @@ function cleanSlug(value: string) {
   return value.replace(/[^a-z0-9]/gi, "").slice(0, 32).toLowerCase();
 }
 
+function cleanSource(value: string | null) {
+  const source = String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, "")
+    .slice(0, 40);
+
+  return source || "direct";
+}
+
 function firstHeaderIp(headers: Headers) {
   const forwarded =
     headers.get("cf-connecting-ip") ||
@@ -38,9 +48,11 @@ export async function GET(
   const slug = cleanSlug(rawSlug || "");
   const requestUrl = new URL(request.url);
   const redirectUrl = new URL("/shop", requestUrl.origin);
+  const source = cleanSource(requestUrl.searchParams.get("src"));
 
   if (slug) {
     redirectUrl.searchParams.set("brag", slug);
+    redirectUrl.searchParams.set("src", source);
   }
 
   if (!slug) {
@@ -65,6 +77,7 @@ export async function GET(
           brag_post_id: post.id,
           store_id: storeId,
           share_slug: slug,
+          source,
           referrer: request.headers.get("referer")?.slice(0, 500) || null,
           user_agent: request.headers.get("user-agent")?.slice(0, 500) || null,
           ip_address: firstHeaderIp(request.headers),

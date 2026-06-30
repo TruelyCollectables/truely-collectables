@@ -1443,13 +1443,15 @@ account_wish_list_matches</code></pre>
 <li>brag visibility of private, friends, followers, community, or public</li>
 <li>generated share links under <code>/brag/[slug]</code></li>
 <li>brag-link click tracking through <code>account_brag_post_clicks</code></li>
+<li>source-tagged share actions for feed links, X, Facebook, and copied links</li>
 <li>weekly brag performance report foundation through <code>/api/admin/brag-weekly-report</code></li>
 </ul>
 <p>Brag post share links:</p>
 <ul>
 <li>redirect to <code>/shop?brag=[slug]</code></li>
+<li>preserve <code>src</code> so traffic can be attributed to feed, X, Facebook, copied links, direct links, or future channels</li>
 <li>increment <code>account_brag_posts.click_count</code></li>
-<li>save click audit data with referrer, user agent, observed IP, and timestamp</li>
+<li>save click audit data with source, referrer, user agent, observed IP, and timestamp</li>
 <li>display the TCOS/TotallyCollectibles.com link in the brag feed so shared posts can bring customers back to the marketplace</li>
 </ul>
 <p>Weekly brag stats:</p>
@@ -1458,6 +1460,7 @@ account_wish_list_matches</code></pre>
 <li>uses <code>RESEND_API_KEY</code> when available</li>
 <li>falls back to saving the weekly report row if email is not configured or email fails</li>
 <li>stores report history in <code>account_brag_weekly_reports</code></li>
+<li>includes tracked traffic by source so weekly email can show which social/link channel brought visitors back</li>
 <li>should be scheduled once per week by the deployment scheduler or admin automation</li>
 </ul>
 <p>Collection exports:</p>

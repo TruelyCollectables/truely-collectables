@@ -75,6 +75,7 @@ create table if not exists public.account_brag_post_clicks (
     default '00000000-0000-4000-8000-000000000001'
     references public.stores(id) on delete cascade,
   share_slug text,
+  source text,
   referrer text,
   user_agent text,
   ip_address text,

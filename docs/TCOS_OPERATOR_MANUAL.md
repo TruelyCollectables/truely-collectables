@@ -1428,13 +1428,15 @@ Collector social supports:
 - brag visibility of private, friends, followers, community, or public
 - generated share links under `/brag/[slug]`
 - brag-link click tracking through `account_brag_post_clicks`
+- source-tagged share actions for feed links, X, Facebook, and copied links
 - weekly brag performance report foundation through `/api/admin/brag-weekly-report`
 
 Brag post share links:
 
 - redirect to `/shop?brag=[slug]`
+- preserve `src` so traffic can be attributed to feed, X, Facebook, copied links, direct links, or future channels
 - increment `account_brag_posts.click_count`
-- save click audit data with referrer, user agent, observed IP, and timestamp
+- save click audit data with source, referrer, user agent, observed IP, and timestamp
 - display the TCOS/TotallyCollectibles.com link in the brag feed so shared posts can bring customers back to the marketplace
 
 Weekly brag stats:
@@ -1443,6 +1445,7 @@ Weekly brag stats:
 - uses `RESEND_API_KEY` when available
 - falls back to saving the weekly report row if email is not configured or email fails
 - stores report history in `account_brag_weekly_reports`
+- includes tracked traffic by source so weekly email can show which social/link channel brought visitors back
 - should be scheduled once per week by the deployment scheduler or admin automation
 
 Collection exports:

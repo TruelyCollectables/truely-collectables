@@ -63,7 +63,7 @@ export async function GET() {
           .order("created_at", { ascending: false }),
         supabase
           .from("account_brag_post_clicks")
-          .select("id,brag_post_id,share_slug,referrer,created_at")
+          .select("id,brag_post_id,share_slug,source,referrer,created_at")
           .eq("store_id", storeId)
           .gte("created_at", periodStart)
           .lte("created_at", periodEnd)
@@ -105,6 +105,16 @@ export async function GET() {
       postCount: posts?.length ?? 0,
       clickCount: clickRows.length,
       topPosts,
+      topSources: Object.entries(
+        clickRows.reduce<Record<string, number>>((acc, click) => {
+          const source = click.source || "direct";
+          acc[source] = (acc[source] || 0) + 1;
+          return acc;
+        }, {}),
+      )
+        .sort((left, right) => right[1] - left[1])
+        .slice(0, 10)
+        .map(([source, count]) => ({ source, count })),
       topReferrers: Object.entries(
         clickRows.reduce<Record<string, number>>((acc, click) => {
           const referrer = click.referrer || "direct";
@@ -136,6 +146,14 @@ export async function GET() {
 </tr>`,
           )
           .join("");
+        const sourceRows = reportJson.topSources
+          .map(
+            (source) => `<tr>
+  <td>${escapeHtml(source.source)}</td>
+  <td>${escapeHtml(source.count)}</td>
+</tr>`,
+          )
+          .join("");
 
         await resend.emails.send({
           from:
@@ -147,6 +165,12 @@ export async function GET() {
 <p>Period: ${escapeHtml(dateOnly(periodStart))} through ${escapeHtml(dateOnly(periodEnd))}</p>
 <p>Brag posts: ${reportJson.postCount}</p>
 <p>Tracked brag-link visits: ${reportJson.clickCount}</p>
+<h2>Traffic by source</h2>
+<table border="1" cellpadding="6" cellspacing="0">
+  <thead><tr><th>Source</th><th>Visits</th></tr></thead>
+  <tbody>${sourceRows || "<tr><td colspan=\"2\">No tracked visits.</td></tr>"}</tbody>
+</table>
+<h2>Top brag posts</h2>
 <table border="1" cellpadding="6" cellspacing="0">
   <thead><tr><th>Post</th><th>Clicks</th><th>Share URL</th></tr></thead>
   <tbody>${htmlRows || "<tr><td colspan=\"3\">No brag activity.</td></tr>"}</tbody>
