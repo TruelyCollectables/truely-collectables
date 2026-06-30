@@ -1454,6 +1454,16 @@ Collection exports:
 - `/api/account/collector/exports?format=catalog_json` downloads profile, collection items, wish list items, pricing fields, descriptions/notes, image URLs, and a media manifest
 - each export writes an `account_collection_export_jobs` audit row when the migration is available
 
+Collection imports:
+
+- `/api/account/collector/imports` imports CSV rows into the logged-in collector's private collection shelf
+- the account dashboard supports source-labeled CSV uploads for eBay, COMC, CollX, Sportlots, Whatnot, Shopify, generic CSV, and other outlets
+- CSV import accepts common headers such as title, category, condition, grader, grade, certification number, image URL, listing URL, price/value, price paid/cost, source ID, SKU, and notes
+- imports write only to `account_collection_items`
+- imports do not create storefront products, sellable TCOS inventory, eBay listings, orders, offers, checkout rows, or Stripe activity
+- duplicate checks use source marketplace plus source item ID when available, then title/category/certification fallback matching
+- `account_collection_import_jobs` stores row, import, skip, and error counts when the migration is available
+
 Messaging foundation:
 
 - `account_conversations` stores account-to-account collector threads
@@ -1483,9 +1493,11 @@ account_binding_offers
 account_collection_export_jobs
 ```
 
-### Future: One Or Two Click Inventory Imports From Other Sales Outlets
+### One Or Two Click Inventory Imports From Other Sales Outlets
 
 Collectors and seller accounts should eventually import inventory from other sales outlets with as few steps as possible.
+
+The first collector CSV import path is implemented for private collection shelves. Future connector work should extend this foundation to official APIs, OAuth flows, provider exports, and seller inventory import jobs.
 
 Goal:
 

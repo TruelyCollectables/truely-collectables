@@ -491,6 +491,20 @@ Export types:
 
 Current exports are generated inline by `/api/account/collector/exports`; future media archives can use queued jobs and object storage.
 
+### `account_collection_import_jobs`
+
+Stores collector collection import audit rows.
+
+Import types:
+
+- `csv`
+- `catalog_json`
+- `provider`
+
+Current imports are generated inline by `/api/account/collector/imports`. CSV uploads import into `account_collection_items` only. They do not create storefront products, sellable inventory, eBay listings, orders, offers, or checkout rows.
+
+Fields include account/store IDs, source marketplace, file name, row/import/skip/error counts, status, metadata, creation time, and completion time.
+
 ## Multi-Store Platform Tables
 
 ### `stores`
@@ -1160,6 +1174,13 @@ Creates:
 - `account_binding_offers`
 - `account_collection_export_jobs`
 - indexes for collector profiles, conversations, binding offers, and export audit lookup
+
+### `20260629162000_create_collector_import_jobs.sql`
+
+Creates:
+
+- `account_collection_import_jobs`
+- indexes for account/store import history and source marketplace lookup
 
 ## Operational SQL
 

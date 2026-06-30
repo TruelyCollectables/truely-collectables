@@ -141,6 +141,13 @@ type BragPost = {
   authorLabel: string;
 };
 
+type CollectionImportSummary = {
+  rows: number;
+  imported: number;
+  skipped: number;
+  errors: number;
+};
+
 export default function AccountPage() {
   const [session, setSession] = useState<StoredAccountSession | null>(() =>
     typeof window === "undefined" ? null : getAccountSession(),
@@ -163,6 +170,16 @@ export default function AccountPage() {
   const [isSavingCollector, setIsSavingCollector] = useState(false);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
   const [isExportingCollection, setIsExportingCollection] = useState(false);
+  const [isImportingCollection, setIsImportingCollection] = useState(false);
+  const [collectionImportSource, setCollectionImportSource] = useState("csv_upload");
+  const [collectionImportFile, setCollectionImportFile] = useState<File | null>(
+    null,
+  );
+  const [collectionImportSummary, setCollectionImportSummary] =
+    useState<CollectionImportSummary | null>(null);
+  const [collectionImportDetails, setCollectionImportDetails] = useState<
+    string[]
+  >([]);
   const [collectors, setCollectors] = useState<CollectorSocialProfile[]>([]);
   const [following, setFollowing] = useState<CollectorSocialConnection[]>([]);
   const [friends, setFriends] = useState<CollectorSocialConnection[]>([]);
@@ -849,6 +866,52 @@ export default function AccountPage() {
     }
   }
 
+  async function importCollectionCsv() {
+    if (!accessToken || !collectionImportFile) return;
+
+    setIsImportingCollection(true);
+    setCollectorError("");
+    setCollectionImportSummary(null);
+    setCollectionImportDetails([]);
+
+    try {
+      const csvText = await collectionImportFile.text();
+      const response = await fetch("/api/account/collector/imports", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          csvText,
+          sourceMarketplace: collectionImportSource,
+          fileName: collectionImportFile.name,
+        }),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Could not import collection CSV");
+      }
+
+      const importedItems = Array.isArray(data.importedItems)
+        ? (data.importedItems as CollectionItem[])
+        : [];
+
+      setCollectionItems((current) => [...importedItems, ...current]);
+      setCollectionImportSummary(data.summary as CollectionImportSummary);
+      setCollectionImportDetails([
+        ...(Array.isArray(data.skipped) ? data.skipped : []),
+        ...(Array.isArray(data.errors) ? data.errors : []),
+      ]);
+      setCollectionImportFile(null);
+    } catch (error: any) {
+      setCollectorError(error.message || "Could not import collection CSV");
+    } finally {
+      setIsImportingCollection(false);
+    }
+  }
+
   async function postOrderBrag(order: AccountOrder) {
     if (!accessToken) return;
 
@@ -1440,6 +1503,73 @@ export default function AccountPage() {
             <div className="grid grid-cols-1 gap-5 lg:grid-cols-2">
               <section className="rounded border border-neutral-200 bg-neutral-50 p-4">
                 <h3 className="text-lg font-black">Collection Shelf</h3>
+                <form
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    importCollectionCsv();
+                  }}
+                  className="mt-4 rounded border border-neutral-200 bg-white p-3"
+                >
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-[1fr_1.4fr_auto]">
+                    <label className="text-sm font-bold text-neutral-700">
+                      Source
+                      <select
+                        value={collectionImportSource}
+                        onChange={(event) =>
+                          setCollectionImportSource(event.target.value)
+                        }
+                        className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
+                      >
+                        <option value="csv_upload">CSV Upload</option>
+                        <option value="ebay">eBay</option>
+                        <option value="comc">COMC</option>
+                        <option value="collx">CollX</option>
+                        <option value="sportlots">Sportlots</option>
+                        <option value="whatnot">Whatnot</option>
+                        <option value="shopify">Shopify</option>
+                        <option value="other">Other</option>
+                      </select>
+                    </label>
+                    <label className="text-sm font-bold text-neutral-700">
+                      CSV File
+                      <input
+                        key={collectionImportFile?.name || "empty-import-file"}
+                        type="file"
+                        accept=".csv,text/csv"
+                        onChange={(event) =>
+                          setCollectionImportFile(event.target.files?.[0] || null)
+                        }
+                        className="mt-1 w-full rounded border border-neutral-300 bg-white px-3 py-2 text-sm"
+                      />
+                    </label>
+                    <div className="flex items-end">
+                      <button
+                        type="submit"
+                        disabled={isImportingCollection || !collectionImportFile}
+                        className="w-full rounded bg-neutral-950 px-4 py-2 text-sm font-bold text-white disabled:bg-neutral-500"
+                      >
+                        {isImportingCollection ? "Importing" : "Import CSV"}
+                      </button>
+                    </div>
+                  </div>
+
+                  {collectionImportSummary ? (
+                    <div className="mt-3 rounded bg-neutral-50 px-3 py-2 text-xs font-semibold text-neutral-700">
+                      Imported {collectionImportSummary.imported} of{" "}
+                      {collectionImportSummary.rows} rows. Skipped{" "}
+                      {collectionImportSummary.skipped}. Errors{" "}
+                      {collectionImportSummary.errors}.
+                    </div>
+                  ) : null}
+
+                  {collectionImportDetails.length > 0 ? (
+                    <div className="mt-2 max-h-28 overflow-auto rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800">
+                      {collectionImportDetails.slice(0, 8).map((detail) => (
+                        <p key={detail}>{detail}</p>
+                      ))}
+                    </div>
+                  ) : null}
+                </form>
                 <form
                   onSubmit={(event) => {
                     event.preventDefault();
