@@ -21,6 +21,7 @@ import {
 import { recordTermsAcceptance } from "../../../lib/tos-acceptance";
 import { getActiveStoreId } from "../../../lib/stores";
 import { getAuthenticatedAccountFromRequest } from "../../../lib/account-auth";
+import { trustedRequestOrigin } from "../../../lib/site-origin";
 
 export const dynamic = "force-dynamic";
 
@@ -162,9 +163,7 @@ export async function POST(request: Request) {
       quantity: 1,
     });
 
-    const origin =
-      request.headers.get("origin") ||
-      "https://truely-collectables.vercel.app";
+    const origin = trustedRequestOrigin(request);
 
     const session = await stripe.checkout.sessions.create({
       mode: "payment",

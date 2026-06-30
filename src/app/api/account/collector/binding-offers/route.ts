@@ -9,6 +9,7 @@ import {
 } from "../../../../../lib/legal";
 import { recordTermsAcceptance } from "../../../../../lib/tos-acceptance";
 import { getActiveStoreId } from "../../../../../lib/stores";
+import { trustedRequestOrigin } from "../../../../../lib/site-origin";
 
 export const dynamic = "force-dynamic";
 
@@ -278,9 +279,7 @@ export async function POST(request: Request) {
       },
     });
 
-    const origin =
-      request.headers.get("origin") ||
-      "https://truely-collectables.vercel.app";
+    const origin = trustedRequestOrigin(request);
     const metadata = {
       type: "collector_binding_offer_setup",
       binding_offer_id: bindingOffer.id,

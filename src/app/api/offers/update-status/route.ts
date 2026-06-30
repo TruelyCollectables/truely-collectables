@@ -8,6 +8,7 @@ import {
 } from "../../../../modules/inventory";
 import { getStoreSettings } from "../../../../lib/store-settings";
 import { getActiveStoreId } from "../../../../lib/stores";
+import { trustedRequestOrigin } from "../../../../lib/site-origin";
 
 export const dynamic = "force-dynamic";
 
@@ -106,9 +107,7 @@ export async function POST(req: Request) {
       { id: Number(offer.products.id), quantity: 1 },
     ]);
 
-    const origin =
-      req.headers.get("origin") ||
-      "https://truely-collectables-tt3b.vercel.app";
+    const origin = trustedRequestOrigin(req);
 
     const amount = Number(offer.offer_amount);
 
