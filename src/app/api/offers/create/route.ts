@@ -10,6 +10,47 @@ import { recordTermsAcceptance } from "../../../../lib/tos-acceptance";
 import { getStoreSettings } from "../../../../lib/store-settings";
 import { getActiveStoreId } from "../../../../lib/stores";
 import { getAuthenticatedAccountFromRequest } from "../../../../lib/account-auth";
+import {
+  InventoryEngineError,
+  inventoryEngine,
+} from "../../../../modules/inventory";
+import { configuredSiteOrigin } from "../../../../lib/site-origin";
+
+const MAX_NAME_LENGTH = 120;
+const MAX_EMAIL_LENGTH = 254;
+const MIN_OFFER_AMOUNT = 1;
+const MAX_OFFER_AMOUNT = 100_000;
+
+function cleanText(value: unknown, maxLength: number) {
+  const text = String(value || "").trim();
+  return text.length > 0 ? text.slice(0, maxLength) : "";
+}
+
+function cleanEmail(value: unknown) {
+  return cleanText(value, MAX_EMAIL_LENGTH).toLowerCase();
+}
+
+function isValidEmail(value: string) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
+
+function cleanMoney(value: unknown) {
+  const text = String(value || "").replace(/[$,]/g, "").trim();
+  const amount = Number(text);
+
+  if (!Number.isFinite(amount)) return null;
+
+  return Math.round(amount * 100) / 100;
+}
+
+function escapeHtml(value: unknown) {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
 
 export async function POST(req: Request) {
   try {
@@ -30,9 +71,44 @@ export async function POST(req: Request) {
     const account = await getAuthenticatedAccountFromRequest(req);
 
     const body = await req.json();
-    const { productId, name, email, offerAmount } = body;
+    const productId = Number(body.productId);
+    const name = cleanText(body.name, MAX_NAME_LENGTH);
+    const email = cleanEmail(body.email);
+    const offerAmount = cleanMoney(body.offerAmount);
     const tosAccepted = hasAcceptedTerms(body.tosAccepted);
     const tosVersion = String(body.tosVersion || TERMS_OF_SERVICE_VERSION);
+
+    if (!Number.isInteger(productId) || productId <= 0) {
+      return NextResponse.json(
+        { error: "A valid product is required" },
+        { status: 400 }
+      );
+    }
+
+    if (!name) {
+      return NextResponse.json(
+        { error: "Customer name is required" },
+        { status: 400 }
+      );
+    }
+
+    if (!isValidEmail(email)) {
+      return NextResponse.json(
+        { error: "A valid customer email is required" },
+        { status: 400 }
+      );
+    }
+
+    if (
+      offerAmount === null ||
+      offerAmount < MIN_OFFER_AMOUNT ||
+      offerAmount > MAX_OFFER_AMOUNT
+    ) {
+      return NextResponse.json(
+        { error: "Offer amount must be between $1 and $100,000" },
+        { status: 400 }
+      );
+    }
 
     if (!tosAccepted) {
       return NextResponse.json(
@@ -53,6 +129,10 @@ export async function POST(req: Request) {
         { status: 403 }
       );
     }
+
+    const [product] = await inventoryEngine.requireAvailableCartItems([
+      { id: productId, quantity: 1 },
+    ]);
 
     const tosAcceptanceEventId = await recordTermsAcceptance(supabase, {
       contextType: "offer",
@@ -92,6 +172,7 @@ export async function POST(req: Request) {
 
     if (resendApiKey) {
       const resend = new Resend(resendApiKey);
+      const adminOffersUrl = `${configuredSiteOrigin()}/admin/offers`;
 
       await resend.emails.send({
         from: `${storeSettings.displayName} Offers <${storeSettings.offersEmail}>`,
@@ -100,17 +181,17 @@ export async function POST(req: Request) {
         html: `
           <h2>New Best Offer Received</h2>
 
-          <p><strong>Product:</strong> ${offer.products?.title || "Unknown product"}</p>
-          <p><strong>Asking Price:</strong> $${Number(offer.products?.price || 0).toFixed(2)}</p>
+          <p><strong>Product:</strong> ${escapeHtml(offer.products?.title || product.title)}</p>
+          <p><strong>Asking Price:</strong> $${Number(offer.products?.price || product.price || 0).toFixed(2)}</p>
           <p><strong>Offer Amount:</strong> $${Number(offer.offer_amount).toFixed(2)}</p>
 
           <hr />
 
-          <p><strong>Customer Name:</strong> ${offer.customer_name}</p>
-          <p><strong>Customer Email:</strong> ${offer.customer_email}</p>
+          <p><strong>Customer Name:</strong> ${escapeHtml(offer.customer_name)}</p>
+          <p><strong>Customer Email:</strong> ${escapeHtml(offer.customer_email)}</p>
 
           <p>
-            <a href="https://truely-collectables-tt3b.vercel.app/admin/offers">
+            <a href="${escapeHtml(adminOffersUrl)}">
               Review this offer
             </a>
           </p>
@@ -122,8 +203,15 @@ export async function POST(req: Request) {
       success: true,
       offer,
     });
-  } catch (err) {
+  } catch (err: any) {
     console.error("Offer create error:", err);
+
+    if (err instanceof InventoryEngineError) {
+      return NextResponse.json(
+        { error: err.message },
+        { status: err.statusCode }
+      );
+    }
 
     return NextResponse.json(
       { error: "Failed to create offer" },

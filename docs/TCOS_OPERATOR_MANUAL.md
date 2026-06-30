@@ -1344,6 +1344,14 @@ Current behavior:
 - account sessions are browser-local and separate from admin login cookies
 - admin login still uses `/admin/login` and `admin_auth`
 
+Future anti-fraud signup requirement:
+
+- before public launch, buyer/customer account creation should require a valid payment card and billing/address evidence through Stripe or another approved payment provider
+- the card should be authorized or saved through a setup flow before the account becomes fully active
+- TCOS must not store raw card numbers, CVV, or payment credentials
+- failed authorization should prevent account activation and should be logged as an account security event
+- this requirement is intended to reduce scam accounts, chargeback risk, fake offers, and abusive collector/social activity
+
 Migration:
 
 ```text
@@ -2362,9 +2370,16 @@ Current implemented protections:
 - checkout creates a `tos_acceptance_events` audit row before Stripe checkout is created
 - completed transactions create `transaction_evidence_reports` for chargeback/legal packets
 - offer submission stores TOS/IP evidence before the offer is accepted
+- public offer submission validates product ID, customer name, customer email, offer amount, and current inventory availability before saving the offer
 - buyer account signup/login blocks masked identity when configured identity checks detect VPN, proxy, Tor, relay, hosting, or anonymous IP use
 - buyer account signup/login locks out repeated failures after six failed attempts inside 15 minutes
 - bank credentials are not stored in TCOS
+
+Future buyer-account anti-fraud requirement:
+
+- buyer/customer account signup should require a valid payment card and billing/address evidence through Stripe or another approved payment provider before the account becomes fully active
+- failed card authorization should prevent account activation and write an account security/audit event
+- TCOS must never store raw card numbers, CVV, or payment credentials
 
 Important IP rule:
 

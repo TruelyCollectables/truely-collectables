@@ -1370,6 +1370,14 @@ src/app/api/admin/files/[id]/download/route.ts</code></pre>
 <li>account sessions are browser-local and separate from admin login cookies</li>
 <li>admin login still uses <code>/admin/login</code> and <code>admin_auth</code></li>
 </ul>
+<p>Future anti-fraud signup requirement:</p>
+<ul>
+<li>before public launch, buyer/customer account creation should require a valid payment card and billing/address evidence through Stripe or another approved payment provider</li>
+<li>the card should be authorized or saved through a setup flow before the account becomes fully active</li>
+<li>TCOS must not store raw card numbers, CVV, or payment credentials</li>
+<li>failed authorization should prevent account activation and should be logged as an account security event</li>
+<li>this requirement is intended to reduce scam accounts, chargeback risk, fake offers, and abusive collector/social activity</li>
+</ul>
 <p>Migration:</p>
 <pre><code>supabase/migrations/20260628190000_create_tcos_accounts.sql
 supabase/migrations/20260628193000_link_accounts_to_orders_offers.sql
@@ -2330,9 +2338,16 @@ market_news_snapshots</code></pre>
 <li>checkout creates a <code>tos_acceptance_events</code> audit row before Stripe checkout is created</li>
 <li>completed transactions create <code>transaction_evidence_reports</code> for chargeback/legal packets</li>
 <li>offer submission stores TOS/IP evidence before the offer is accepted</li>
+<li>public offer submission validates product ID, customer name, customer email, offer amount, and current inventory availability before saving the offer</li>
 <li>buyer account signup/login blocks masked identity when configured identity checks detect VPN, proxy, Tor, relay, hosting, or anonymous IP use</li>
 <li>buyer account signup/login locks out repeated failures after six failed attempts inside 15 minutes</li>
 <li>bank credentials are not stored in TCOS</li>
+</ul>
+<p>Future buyer-account anti-fraud requirement:</p>
+<ul>
+<li>buyer/customer account signup should require a valid payment card and billing/address evidence through Stripe or another approved payment provider before the account becomes fully active</li>
+<li>failed card authorization should prevent account activation and write an account security/audit event</li>
+<li>TCOS must never store raw card numbers, CVV, or payment credentials</li>
 </ul>
 <p>Important IP rule:</p>
 <p>TCOS can log and enforce the server-observed public client IP. If a customer hides behind a VPN, proxy, Tor, relay, or hosting network, TCOS cannot discover the hidden residential IP by itself. Production masking detection requires a third-party IP intelligence provider configured through environment variables.</p>
