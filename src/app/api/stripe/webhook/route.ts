@@ -9,11 +9,6 @@ import { updateSellerPayoutAccountFromStripe } from "../../../../lib/seller-payo
 
 export const dynamic = "force-dynamic";
 
-type CartItem = {
-  id: number;
-  quantity: number;
-};
-
 export async function POST(req: Request) {
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -233,21 +228,33 @@ export async function POST(req: Request) {
         return NextResponse.json({ received: true });
       }
 
-      let cart: CartItem[] = [];
+      let rawCart: unknown = [];
 
       try {
-        cart = JSON.parse(cartMetadata);
+        const parsed = JSON.parse(cartMetadata);
+        rawCart = Array.isArray(parsed) ? parsed : parsed?.items || [];
       } catch {
-        cart = [];
+        rawCart = [];
       }
 
-      if (cart.length === 0 && checkoutType === "accepted_offer") {
+      if (
+        Array.isArray(rawCart) &&
+        rawCart.length === 0 &&
+        checkoutType === "accepted_offer"
+      ) {
         const productId = Number(session.metadata?.product_id);
 
         if (productId) {
-          cart = [{ id: productId, quantity: 1 }];
+          rawCart = [{ id: productId, quantity: 1 }];
         }
       }
+
+      const cart = inventoryEngine.normalizeCartItems(rawCart);
+      const inventoryItems = await inventoryEngine.requireAvailableCartItems(cart);
+      const normalizedItemCount = cart.reduce(
+        (total, cartItem) => total + cartItem.quantity,
+        0
+      );
 
       const orderPayload = {
         store_id: storeId,
@@ -260,7 +267,7 @@ export async function POST(req: Request) {
         shipping_name: shippingName,
         shipping_amount: shippingAmount,
         subtotal,
-        item_count: itemCount,
+        item_count: itemCount || normalizedItemCount,
         fulfillment_status: "ready_to_ship",
       };
 
@@ -291,7 +298,9 @@ export async function POST(req: Request) {
       }
 
       for (const cartItem of cart) {
-        const product = await inventoryEngine.getByLegacyProductId(cartItem.id);
+        const product = inventoryItems.find(
+          (item) => item.legacyProductId === cartItem.id
+        );
 
         if (!product) continue;
 
@@ -309,11 +318,26 @@ export async function POST(req: Request) {
           continue;
         }
 
-        const mutation = await inventoryEngine.decrementAfterSale({
-          legacyProductId: product.legacyProductId,
-          quantity: cartItem.quantity,
-          source: "stripe-webhook",
-        });
+        let mutation;
+
+        try {
+          mutation = await inventoryEngine.decrementAfterSale({
+            legacyProductId: product.legacyProductId,
+            quantity: cartItem.quantity,
+            source: "stripe-webhook",
+          });
+        } catch (inventoryError: any) {
+          await supabase
+            .from("orders")
+            .update({
+              fulfillment_status: "inventory_review",
+              status: "paid_inventory_review",
+            })
+            .eq("id", order.id)
+            .eq("store_id", storeId);
+
+          throw inventoryError;
+        }
 
         if (!mutation) continue;
 

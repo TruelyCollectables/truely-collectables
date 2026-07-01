@@ -878,10 +878,21 @@ Backfill behavior:
 Checkout availability behavior:
 
 - `inventoryEngine.requireAvailableCartItems()` requires the product to exist
+- cart rows are normalized before checkout and webhook processing
+- duplicate product rows are combined before quantity checks
+- product IDs and quantities must be positive whole numbers
 - item status must be `active`
 - requested quantity must be available
 - checkout price must be greater than zero
 - offer accept/counter checkout creation uses this same gate
+
+Sale decrement behavior:
+
+- `inventoryEngine.decrementAfterSale()` calls the Supabase RPC `tcos_decrement_inventory_after_sale`
+- the RPC locks the active-store product row before decrementing quantity
+- insufficient stock raises an error instead of clamping quantity to zero
+- successful decrements update `products.quantity` and mirror the result into `inventory_items`
+- Stripe webhooks mark paid orders as `paid_inventory_review` / `inventory_review` if inventory disappears before webhook completion
 
 Bridge labels returned by the engine:
 
@@ -1111,6 +1122,15 @@ Creates RLS policies for active application roles on:
 - `inventory_attributes`
 
 The grant migration gives table privileges, but Row Level Security can still block reads and writes. This migration adds the matching policies required by the current server-side Supabase anon-key architecture.
+
+### `20260630110000_create_inventory_sale_decrement_rpc.sql`
+
+Creates:
+
+- `tcos_decrement_inventory_after_sale(store_id, legacy_product_id, quantity)`
+- execute grants for `anon` and `authenticated`
+
+The function locks the Store #1 product row, refuses invalid or insufficient sale quantities, decrements `products.quantity`, mirrors the quantity/status into `inventory_items`, and returns the previous/new quantity for webhook eBay sync and inventory event publishing.
 
 ### `20260627160000_create_sales_comp_snapshots.sql`
 

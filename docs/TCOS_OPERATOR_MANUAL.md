@@ -977,6 +977,8 @@ Current TOS version:
 Checkout validates:
 
 - cart is not empty
+- duplicate cart lines are combined by product before quantity checks
+- product IDs and quantities must be positive whole numbers
 - shipping method is valid
 - shipping is currently limited to United States addresses
 - Terms of Service was accepted
@@ -1040,7 +1042,9 @@ Accepted-offer sessions use `product_id` metadata if cart metadata is missing.
 
 Safety rule:
 
-Inventory is decremented only after the order item row is successfully recorded. If order item insertion fails, the webhook logs the failure and does not reduce stock for that line.
+Webhook cart metadata is normalized the same way checkout cart input is normalized. Duplicate product lines are combined before availability checks.
+
+Inventory decrements run through the Supabase RPC `tcos_decrement_inventory_after_sale`, which locks the product row, refuses insufficient quantity, updates `products.quantity`, mirrors the result into `inventory_items`, and returns the before/after quantity. If inventory disappears between checkout creation and Stripe webhook completion, TCOS marks the paid order as `paid_inventory_review` / `inventory_review` instead of silently overselling the item.
 
 Order webhooks store TOS/IP acceptance fields and create a transaction evidence report. The evidence report is intended for chargeback defense, fraud review, and legal dispute support.
 
@@ -2585,6 +2589,7 @@ supabase/migrations
 Current migration:
 
 ```text
+20260630110000_create_inventory_sale_decrement_rpc.sql
 20260629083000_create_inventory_v2_app_policies.sql
 20260629080000_grant_inventory_v2_table_access.sql
 20260628223000_create_collector_profiles_messaging_exports.sql

@@ -121,7 +121,7 @@
   </style>
 </head>
 <body>
-  <div class="print-meta">Generated 2026-06-30 from docs/TCOS_OPERATOR_MANUAL.md</div>
+  <div class="print-meta">Generated 2026-07-01 from docs/TCOS_OPERATOR_MANUAL.md</div>
   <h1>Totally Collectibles OS Operator Manual</h1>
 <p>Copyright 2026 Dag Danky Holdings LLC. All rights reserved.</p>
 <p>Authored by David Bakanas.</p>
@@ -1098,6 +1098,8 @@ src/lib/ebay-category-mapper.ts</code></pre>
 <p>Checkout validates:</p>
 <ul>
 <li>cart is not empty</li>
+<li>duplicate cart lines are combined by product before quantity checks</li>
+<li>product IDs and quantities must be positive whole numbers</li>
 <li>shipping method is valid</li>
 <li>shipping is currently limited to United States addresses</li>
 <li>Terms of Service was accepted</li>
@@ -1144,7 +1146,8 @@ src/lib/ebay-category-mapper.ts</code></pre>
 </ol>
 <p>Accepted-offer sessions use <code>product_id</code> metadata if cart metadata is missing.</p>
 <p>Safety rule:</p>
-<p>Inventory is decremented only after the order item row is successfully recorded. If order item insertion fails, the webhook logs the failure and does not reduce stock for that line.</p>
+<p>Webhook cart metadata is normalized the same way checkout cart input is normalized. Duplicate product lines are combined before availability checks.</p>
+<p>Inventory decrements run through the Supabase RPC <code>tcos_decrement_inventory_after_sale</code>, which locks the product row, refuses insufficient quantity, updates <code>products.quantity</code>, mirrors the result into <code>inventory_items</code>, and returns the before/after quantity. If inventory disappears between checkout creation and Stripe webhook completion, TCOS marks the paid order as <code>paid_inventory_review</code> / <code>inventory_review</code> instead of silently overselling the item.</p>
 <p>Order webhooks store TOS/IP acceptance fields and create a transaction evidence report. The evidence report is intended for chargeback defense, fraud review, and legal dispute support.</p>
 <p>Offer and counter-offer Stripe success URLs send buyers to:</p>
 <pre><code>/success?type=offer&amp;session_id={CHECKOUT_SESSION_ID}
@@ -2495,7 +2498,8 @@ IP_INTELLIGENCE_REQUIRED=true</code></pre>
 <p>Migration directory:</p>
 <pre><code>supabase/migrations</code></pre>
 <p>Current migration:</p>
-<pre><code>20260629083000_create_inventory_v2_app_policies.sql
+<pre><code>20260630110000_create_inventory_sale_decrement_rpc.sql
+20260629083000_create_inventory_v2_app_policies.sql
 20260629080000_grant_inventory_v2_table_access.sql
 20260628223000_create_collector_profiles_messaging_exports.sql
 20260628220000_create_collector_dashboard_tables.sql

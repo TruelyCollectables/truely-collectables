@@ -9,14 +9,6 @@ import { updateSellerPayoutAccountFromStripe } from "../../../lib/seller-payouts
 
 export const dynamic = "force-dynamic";
 
-type CartItem = {
-  id?: number;
-  product_id?: number;
-  productId?: number;
-  quantity?: number;
-  qty?: number;
-};
-
 export async function POST(req: Request) {
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
@@ -243,23 +235,34 @@ export async function POST(req: Request) {
     const offerId = metadata.offer_id;
     const checkoutType = metadata.type || "cart";
 
-    let cart: CartItem[] = [];
+    let rawCart: unknown = [];
 
     try {
       const parsed = JSON.parse(metadata.cart || "[]");
-      cart = Array.isArray(parsed) ? parsed : parsed.items || [];
+      rawCart = Array.isArray(parsed) ? parsed : parsed.items || [];
     } catch (err: any) {
       console.error("Cart metadata parse failed:", err.message);
-      cart = [];
+      rawCart = [];
     }
 
-    if (cart.length === 0 && checkoutType === "accepted_offer") {
+    if (
+      Array.isArray(rawCart) &&
+      rawCart.length === 0 &&
+      checkoutType === "accepted_offer"
+    ) {
       const productId = Number(metadata.product_id);
 
       if (productId) {
-        cart = [{ id: productId, quantity: 1 }];
+        rawCart = [{ id: productId, quantity: 1 }];
       }
     }
+
+    const cart = inventoryEngine.normalizeCartItems(rawCart);
+    const inventoryItems = await inventoryEngine.requireAvailableCartItems(cart);
+    const normalizedItemCount = cart.reduce(
+      (total, cartItem) => total + cartItem.quantity,
+      0
+    );
 
     const { data: existingOrder, error: existingOrderError } = await supabase
       .from("orders")
@@ -285,7 +288,7 @@ export async function POST(req: Request) {
       shipping_name: shippingName,
       shipping_amount: shippingAmount,
       subtotal,
-      item_count: itemCount || cart.length,
+      item_count: itemCount || normalizedItemCount,
       fulfillment_status: "ready_to_ship",
       shipping_address_line1: shippingAddressLine1,
       shipping_address_line2: shippingAddressLine2,
@@ -348,22 +351,14 @@ export async function POST(req: Request) {
 
     if (!existingItems || existingItems.length === 0) {
       for (const cartItem of cart) {
-        const productId = Number(
-          cartItem.id || cartItem.product_id || cartItem.productId
+        const product = inventoryItems.find(
+          (item) => item.legacyProductId === cartItem.id
         );
-        const quantityPurchased = Number(cartItem.quantity || cartItem.qty || 1);
-
-        if (!productId || quantityPurchased <= 0) {
-          console.error("Invalid cart item:", cartItem);
-          continue;
-        }
-
-        const product = await inventoryEngine.getByLegacyProductId(productId);
 
         if (!product) {
           console.error(
             "Product lookup failed:",
-            productId
+            cartItem.id
           );
           continue;
         }
@@ -374,7 +369,7 @@ export async function POST(req: Request) {
           product_id: product.legacyProductId,
           title: product.title,
           price: Number(product.price),
-          quantity: quantityPurchased,
+          quantity: cartItem.quantity,
         });
 
         if (itemError) {
@@ -382,11 +377,26 @@ export async function POST(req: Request) {
           continue;
         }
 
-        const mutation = await inventoryEngine.decrementAfterSale({
-          legacyProductId: product.legacyProductId,
-          quantity: quantityPurchased,
-          source: "stripe-webhook",
-        });
+        let mutation;
+
+        try {
+          mutation = await inventoryEngine.decrementAfterSale({
+            legacyProductId: product.legacyProductId,
+            quantity: cartItem.quantity,
+            source: "stripe-webhook",
+          });
+        } catch (inventoryError: any) {
+          await supabase
+            .from("orders")
+            .update({
+              fulfillment_status: "inventory_review",
+              status: "paid_inventory_review",
+            })
+            .eq("id", orderId)
+            .eq("store_id", storeId);
+
+          throw inventoryError;
+        }
 
         if (!mutation) {
           console.error(

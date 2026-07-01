@@ -22,6 +22,14 @@ type CartRequestItem = {
   quantity: number;
 };
 
+type RawCartRequestItem = {
+  id?: unknown;
+  product_id?: unknown;
+  productId?: unknown;
+  quantity?: unknown;
+  qty?: unknown;
+};
+
 type EbayImportInput = {
   sku: string;
   title: string;
@@ -153,6 +161,12 @@ function hoursSince(value: string | null) {
 
 function cleanText(value: string | null | undefined) {
   return value?.trim() || null;
+}
+
+function positiveInteger(value: unknown) {
+  const parsed = Number(value);
+
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 function getOpenAIModel() {
@@ -634,11 +648,14 @@ export class InventoryEngine {
   }
 
   async requireAvailableCartItems(
-    cart: CartRequestItem[]
+    cart: RawCartRequestItem[]
   ): Promise<UniversalInventoryItem[]> {
-    const items = await this.getByLegacyProductIds(cart.map((item) => item.id));
+    const normalizedCart = this.normalizeCartItems(cart);
+    const items = await this.getByLegacyProductIds(
+      normalizedCart.map((item) => item.id)
+    );
 
-    for (const cartItem of cart) {
+    for (const cartItem of normalizedCart) {
       const inventoryItem = items.find(
         (item) => item.legacyProductId === cartItem.id
       );
@@ -672,23 +689,114 @@ export class InventoryEngine {
     return items;
   }
 
+  normalizeCartItems(cart: unknown): CartRequestItem[] {
+    if (!Array.isArray(cart) || cart.length === 0) {
+      throw new InventoryEngineError("Cart is empty", 400);
+    }
+
+    if (cart.length > 100) {
+      throw new InventoryEngineError("Cart has too many line items", 400);
+    }
+
+    const quantitiesByProduct = new Map<number, number>();
+
+    for (const rawItem of cart as RawCartRequestItem[]) {
+      const productId = positiveInteger(
+        rawItem.id ?? rawItem.product_id ?? rawItem.productId
+      );
+      const quantity = positiveInteger(rawItem.quantity ?? rawItem.qty ?? 1);
+
+      if (!productId) {
+        throw new InventoryEngineError("Cart contains an invalid product", 400);
+      }
+
+      if (!quantity) {
+        throw new InventoryEngineError(
+          `Cart quantity for product ${productId} is invalid`,
+          400
+        );
+      }
+
+      const nextQuantity = (quantitiesByProduct.get(productId) ?? 0) + quantity;
+
+      if (nextQuantity > 1_000) {
+        throw new InventoryEngineError(
+          `Cart quantity for product ${productId} is too large`,
+          400
+        );
+      }
+
+      quantitiesByProduct.set(productId, nextQuantity);
+    }
+
+    return Array.from(quantitiesByProduct.entries()).map(([id, quantity]) => ({
+      id,
+      quantity,
+    }));
+  }
+
   async decrementAfterSale(params: {
     legacyProductId: number;
     quantity: number;
     source: string;
   }): Promise<InventoryMutationResult | null> {
+    const quantity = positiveInteger(params.quantity);
+
+    if (!quantity) {
+      throw new InventoryEngineError("Sale quantity is invalid", 400);
+    }
+
     const item = await this.getByLegacyProductId(params.legacyProductId);
 
     if (!item) return null;
 
-    const previousQuantity = item.quantity;
-    const newQuantity = Math.max(previousQuantity - params.quantity, 0);
+    const { data, error } = await supabase.rpc(
+      "tcos_decrement_inventory_after_sale",
+      {
+        p_legacy_product_id: item.legacyProductId,
+        p_quantity: quantity,
+        p_store_id: this.storeId,
+      }
+    );
 
-    await this.setQuantity({
-      item,
-      quantity: newQuantity,
-      source: params.source,
-    });
+    if (error) {
+      const message = error.message || "Inventory decrement failed";
+
+      if (message.includes("insufficient_inventory")) {
+        throw new InventoryEngineError(
+          `${item.title} does not have enough inventory`,
+          409
+        );
+      }
+
+      if (message.includes("inventory_product_not_found")) {
+        throw new InventoryEngineError(
+          `Product ${params.legacyProductId} not found`,
+          404
+        );
+      }
+
+      throw error;
+    }
+
+    const decrementRow = Array.isArray(data) ? data[0] : data;
+    const previousQuantity = toNumber(
+      decrementRow?.previous_quantity ?? item.quantity
+    );
+    const newQuantity = toNumber(
+      decrementRow?.new_quantity ?? Math.max(previousQuantity - quantity, 0)
+    );
+
+    await eventBus.publish(
+      "inventory.quantity_changed",
+      {
+        legacyProductId: item.legacyProductId,
+        inventoryItemId: decrementRow?.inventory_item_id ?? item.inventoryItemId,
+        sku: item.sku,
+        quantity: newQuantity,
+      },
+      params.source
+    );
 
     return {
       item: {

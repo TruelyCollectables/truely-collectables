@@ -25,11 +25,6 @@ import { trustedRequestOrigin } from "../../../lib/site-origin";
 
 export const dynamic = "force-dynamic";
 
-type CartItem = {
-  id: number;
-  quantity: number;
-};
-
 export async function POST(request: Request) {
   try {
     const stripeKey = process.env.STRIPE_SECRET_KEY;
@@ -57,14 +52,10 @@ export async function POST(request: Request) {
     const body = await request.json();
     const account = await getAuthenticatedAccountFromRequest(request);
 
-    const cart = body.cart as CartItem[];
+    const cart = inventoryEngine.normalizeCartItems(body.cart);
     const shippingMethod = body.shippingMethod as ShippingMethod;
     const tosAccepted = hasAcceptedTerms(body.tosAccepted);
     const tosVersion = String(body.tosVersion || TERMS_OF_SERVICE_VERSION);
-
-    if (!cart || cart.length === 0) {
-      return NextResponse.json({ error: "Cart is empty" }, { status: 400 });
-    }
 
     if (!tosAccepted) {
       return NextResponse.json(
