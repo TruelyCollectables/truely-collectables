@@ -15,13 +15,17 @@ import {
   hasAcceptedTerms,
 } from "../../../lib/legal";
 import {
-  getClientIdentity,
   metadataSafeIdentity,
 } from "../../../lib/client-identity";
 import { recordTermsAcceptance } from "../../../lib/tos-acceptance";
 import { getActiveStoreId } from "../../../lib/stores";
 import { getAuthenticatedAccountFromRequest } from "../../../lib/account-auth";
 import { trustedRequestOrigin } from "../../../lib/site-origin";
+import {
+  checkPublicEndpointRateLimit,
+  publicEndpointRateLimitPolicies,
+  publicEndpointRateLimitResponse,
+} from "../../../lib/public-endpoint-rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -64,18 +68,21 @@ export async function POST(request: Request) {
       );
     }
 
-    const clientIdentity = await getClientIdentity(request);
+    const rateLimit = await checkPublicEndpointRateLimit({
+      request,
+      ...publicEndpointRateLimitPolicies.checkout,
+      subjectKey: account?.id || null,
+    });
 
-    if (clientIdentity.blocked) {
+    if (!rateLimit.allowed) {
+      const blocked = publicEndpointRateLimitResponse(rateLimit);
       return NextResponse.json(
-        {
-          error:
-            "Terms of Service cannot be accepted while client identity is masked or missing a public IP address",
-          reason: clientIdentity.blockReason,
-        },
-        { status: 403 }
+        blocked.body,
+        { status: blocked.status }
       );
     }
+
+    const clientIdentity = rateLimit.identity;
 
     const tosAcceptanceEventId = await recordTermsAcceptance(supabase, {
       contextType: "checkout",

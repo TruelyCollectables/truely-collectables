@@ -1,7 +1,6 @@
 import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
 import { getAuthenticatedAccountFromRequest } from "../../../../../lib/account-auth";
-import { getClientIdentity } from "../../../../../lib/client-identity";
 import {
   SELLER_TERMS_OF_SERVICE_VERSION,
   hasAcceptedTerms,
@@ -10,6 +9,11 @@ import { recordTermsAcceptance } from "../../../../../lib/tos-acceptance";
 import { getActiveStoreId } from "../../../../../lib/stores";
 import { trustedRequestOrigin } from "../../../../../lib/site-origin";
 import { updateSellerPayoutAccountFromStripe } from "../../../../../lib/seller-payouts";
+import {
+  checkPublicEndpointRateLimit,
+  publicEndpointRateLimitPolicies,
+  publicEndpointRateLimitResponse,
+} from "../../../../../lib/public-endpoint-rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -140,18 +144,21 @@ export async function POST(request: Request) {
       );
     }
 
-    const identity = await getClientIdentity(request);
+    const rateLimit = await checkPublicEndpointRateLimit({
+      request,
+      ...publicEndpointRateLimitPolicies.sellerPayoutOnboarding,
+      subjectKey: account.id,
+    });
 
-    if (identity.blocked) {
+    if (!rateLimit.allowed) {
+      const blocked = publicEndpointRateLimitResponse(rateLimit);
       return Response.json(
-        {
-          error:
-            "Seller payout verification cannot start while client identity is masked or missing a public IP address",
-          reason: identity.blockReason,
-        },
-        { status: 403 },
+        blocked.body,
+        { status: blocked.status },
       );
     }
+
+    const identity = rateLimit.identity;
 
     const supabase = getSupabaseClient();
     const stripe = new Stripe(stripeKey);

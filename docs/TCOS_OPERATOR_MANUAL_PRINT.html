@@ -2360,6 +2360,10 @@ market_news_snapshots</code></pre>
 <li>completed transactions create <code>transaction_evidence_reports</code> for chargeback/legal packets</li>
 <li>offer submission stores TOS/IP evidence before the offer is accepted</li>
 <li>public offer submission validates product ID, customer name, customer email, offer amount, and current inventory availability before saving the offer</li>
+<li>public checkout is rate-limited to 12 attempts per 10 minutes per IP/account subject when <code>public_endpoint_rate_limit_events</code> is migrated</li>
+<li>public offer creation is rate-limited to 8 attempts per 15 minutes per IP/customer/product subject</li>
+<li>collector binding-offer payment setup is rate-limited to 6 attempts per hour per IP/account subject</li>
+<li>seller payout onboarding is rate-limited to 5 attempts per hour per IP/account subject</li>
 <li>buyer account signup starts accounts in <code>payment_verification_required</code> status when card verification is required</li>
 <li>Stripe Checkout setup mode collects the buyer card and billing address before TCOS activates the account</li>
 <li>signed Stripe webhook completion marks the account active and stores Stripe-safe card proof, such as customer ID, setup intent ID, payment method ID, card brand, last 4, expiry, funding type, billing name, billing country, and billing postal code</li>
@@ -2395,6 +2399,8 @@ market_news_snapshots</code></pre>
 <li><code>/seller-terms</code></li>
 <li><code>/api/checkout</code></li>
 <li><code>/api/offers/create</code></li>
+<li><code>/api/account/collector/binding-offers</code></li>
+<li><code>/api/account/seller/payout-onboarding</code></li>
 <li><code>/api/webhook</code></li>
 <li><code>/api/stripe/webhook</code></li>
 </ul>
@@ -2410,12 +2416,12 @@ market_news_snapshots</code></pre>
 <li>encrypt sensitive internal notes or documents if they are ever added</li>
 <li>restrict seller data so one seller cannot read another seller's account, payout, auction, or customer data</li>
 <li>audit seller-account changes, payout changes, bank verification changes, and admin overrides</li>
-<li>rate-limit login, checkout, offer, and seller onboarding endpoints before public launch</li>
 <li>add fraud review and payout hold controls before seller payouts go live</li>
 </ul>
 <p>Security files:</p>
 <pre><code>src/lib/admin-session.ts
 src/lib/client-identity.ts
+src/lib/public-endpoint-rate-limit.ts
 src/lib/tos-acceptance.ts
 src/proxy.ts</code></pre>
 <h2>24. Clean Fake Orders</h2>
@@ -2498,7 +2504,8 @@ IP_INTELLIGENCE_REQUIRED=true</code></pre>
 <p>Migration directory:</p>
 <pre><code>supabase/migrations</code></pre>
 <p>Current migration:</p>
-<pre><code>20260630110000_create_inventory_sale_decrement_rpc.sql
+<pre><code>20260630113000_create_public_endpoint_rate_limit_events.sql
+20260630110000_create_inventory_sale_decrement_rpc.sql
 20260629083000_create_inventory_v2_app_policies.sql
 20260629080000_grant_inventory_v2_table_access.sql
 20260628223000_create_collector_profiles_messaging_exports.sql

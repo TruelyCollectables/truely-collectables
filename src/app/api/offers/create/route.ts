@@ -5,7 +5,6 @@ import {
   TERMS_OF_SERVICE_VERSION,
   hasAcceptedTerms,
 } from "../../../../lib/legal";
-import { getClientIdentity } from "../../../../lib/client-identity";
 import { recordTermsAcceptance } from "../../../../lib/tos-acceptance";
 import { getStoreSettings } from "../../../../lib/store-settings";
 import { getActiveStoreId } from "../../../../lib/stores";
@@ -15,6 +14,11 @@ import {
   inventoryEngine,
 } from "../../../../modules/inventory";
 import { configuredSiteOrigin } from "../../../../lib/site-origin";
+import {
+  checkPublicEndpointRateLimit,
+  publicEndpointRateLimitPolicies,
+  publicEndpointRateLimitResponse,
+} from "../../../../lib/public-endpoint-rate-limit";
 
 const MAX_NAME_LENGTH = 120;
 const MAX_EMAIL_LENGTH = 254;
@@ -117,18 +121,21 @@ export async function POST(req: Request) {
       );
     }
 
-    const clientIdentity = await getClientIdentity(req);
+    const rateLimit = await checkPublicEndpointRateLimit({
+      request: req,
+      ...publicEndpointRateLimitPolicies.publicOfferCreate,
+      subjectKey: account?.id || `${email}:${productId}`,
+    });
 
-    if (clientIdentity.blocked) {
+    if (!rateLimit.allowed) {
+      const blocked = publicEndpointRateLimitResponse(rateLimit);
       return NextResponse.json(
-        {
-          error:
-            "Terms of Service cannot be accepted while client identity is masked or missing a public IP address",
-          reason: clientIdentity.blockReason,
-        },
-        { status: 403 }
+        blocked.body,
+        { status: blocked.status }
       );
     }
+
+    const clientIdentity = rateLimit.identity;
 
     const [product] = await inventoryEngine.requireAvailableCartItems([
       { id: productId, quantity: 1 },

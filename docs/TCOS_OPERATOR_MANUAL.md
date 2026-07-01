@@ -2390,6 +2390,10 @@ Current implemented protections:
 - completed transactions create `transaction_evidence_reports` for chargeback/legal packets
 - offer submission stores TOS/IP evidence before the offer is accepted
 - public offer submission validates product ID, customer name, customer email, offer amount, and current inventory availability before saving the offer
+- public checkout is rate-limited to 12 attempts per 10 minutes per IP/account subject when `public_endpoint_rate_limit_events` is migrated
+- public offer creation is rate-limited to 8 attempts per 15 minutes per IP/customer/product subject
+- collector binding-offer payment setup is rate-limited to 6 attempts per hour per IP/account subject
+- seller payout onboarding is rate-limited to 5 attempts per hour per IP/account subject
 - buyer account signup starts accounts in `payment_verification_required` status when card verification is required
 - Stripe Checkout setup mode collects the buyer card and billing address before TCOS activates the account
 - signed Stripe webhook completion marks the account active and stores Stripe-safe card proof, such as customer ID, setup intent ID, payment method ID, card brand, last 4, expiry, funding type, billing name, billing country, and billing postal code
@@ -2427,6 +2431,8 @@ Public routes that must remain public:
 - `/seller-terms`
 - `/api/checkout`
 - `/api/offers/create`
+- `/api/account/collector/binding-offers`
+- `/api/account/seller/payout-onboarding`
 - `/api/webhook`
 - `/api/stripe/webhook`
 
@@ -2443,7 +2449,6 @@ Required future seller-account protections:
 - encrypt sensitive internal notes or documents if they are ever added
 - restrict seller data so one seller cannot read another seller's account, payout, auction, or customer data
 - audit seller-account changes, payout changes, bank verification changes, and admin overrides
-- rate-limit login, checkout, offer, and seller onboarding endpoints before public launch
 - add fraud review and payout hold controls before seller payouts go live
 
 Security files:
@@ -2451,6 +2456,7 @@ Security files:
 ```text
 src/lib/admin-session.ts
 src/lib/client-identity.ts
+src/lib/public-endpoint-rate-limit.ts
 src/lib/tos-acceptance.ts
 src/proxy.ts
 ```
@@ -2589,6 +2595,7 @@ supabase/migrations
 Current migration:
 
 ```text
+20260630113000_create_public_endpoint_rate_limit_events.sql
 20260630110000_create_inventory_sale_decrement_rpc.sql
 20260629083000_create_inventory_v2_app_policies.sql
 20260629080000_grant_inventory_v2_table_access.sql

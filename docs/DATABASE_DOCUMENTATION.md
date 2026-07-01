@@ -196,6 +196,51 @@ Runtime behavior:
 - collector dashboard route is `/api/account/collector/items`
 - collector dashboard stores owned collection items, wish list items, want ads, set needs, trade targets, and future match records
 
+### `public_endpoint_rate_limit_events`
+
+Audit and rate-limit table for public money-path endpoints.
+
+Created by migration:
+
+```text
+supabase/migrations/20260630113000_create_public_endpoint_rate_limit_events.sql
+```
+
+Protected endpoints:
+
+- `/api/checkout`
+- `/api/offers/create`
+- `/api/account/collector/binding-offers`
+- `/api/account/seller/payout-onboarding`
+
+Runtime behavior:
+
+- helper lives in `src/lib/public-endpoint-rate-limit.ts`
+- checkout is limited to 12 attempts per 10 minutes per IP/account subject
+- public offer creation is limited to 8 attempts per 15 minutes per IP/customer/product subject
+- collector binding-offer payment setup is limited to 6 attempts per hour per IP/account subject
+- seller payout onboarding is limited to 5 attempts per hour per IP/account subject
+- blocked identity requests are logged when the table is available
+- if the table is not migrated yet, routes fail open so production does not hard-stop before the migration is applied
+
+Fields:
+
+| Field | Purpose |
+| --- | --- |
+| `id` | Event ID |
+| `store_id` | Store context |
+| `endpoint_key` | Protected endpoint key |
+| `subject_key` | Optional account/email/product subject key |
+| `ip_address` | Server-observed client IP |
+| `user_agent` | User agent |
+| `blocked` | Whether the request was blocked |
+| `block_reason` | Reason such as `too_many_attempts` or masked identity |
+| `window_seconds` | Policy window used for the decision |
+| `max_attempts` | Policy max used for the decision |
+| `identity_risk` | Identity risk value |
+| `identity_evidence` | Request header evidence JSON |
+| `created_at` | Event timestamp |
+
 ## Account Dashboard Intelligence Tables
 
 Created by migration:
@@ -1211,6 +1256,16 @@ Creates:
 - `seller_payout_accounts`
 - Stripe Connect payout verification status tracking
 - indexes for account/store payout lookup and seller verification review
+
+### `20260630113000_create_public_endpoint_rate_limit_events.sql`
+
+Creates:
+
+- `public_endpoint_rate_limit_events`
+- indexes for store/endpoint/IP recent-attempt checks
+- indexes for optional subject-specific rate-limit checks
+
+This table backs public money-path throttling for checkout, public offer creation, collector binding offers, and seller payout onboarding.
 
 ### `20260628213000_create_sports_dashboard_tables.sql`
 

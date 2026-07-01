@@ -2,7 +2,6 @@ import { NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
 import { getAuthenticatedAccountFromRequest } from "../../../../../lib/account-auth";
-import { getClientIdentity } from "../../../../../lib/client-identity";
 import {
   TERMS_OF_SERVICE_VERSION,
   hasAcceptedTerms,
@@ -10,6 +9,11 @@ import {
 import { recordTermsAcceptance } from "../../../../../lib/tos-acceptance";
 import { getActiveStoreId } from "../../../../../lib/stores";
 import { trustedRequestOrigin } from "../../../../../lib/site-origin";
+import {
+  checkPublicEndpointRateLimit,
+  publicEndpointRateLimitPolicies,
+  publicEndpointRateLimitResponse,
+} from "../../../../../lib/public-endpoint-rate-limit";
 
 export const dynamic = "force-dynamic";
 
@@ -160,18 +164,21 @@ export async function POST(request: Request) {
       );
     }
 
-    const identity = await getClientIdentity(request);
+    const rateLimit = await checkPublicEndpointRateLimit({
+      request,
+      ...publicEndpointRateLimitPolicies.bindingOffer,
+      subjectKey: account.id,
+    });
 
-    if (identity.blocked) {
+    if (!rateLimit.allowed) {
+      const blocked = publicEndpointRateLimitResponse(rateLimit);
       return NextResponse.json(
-        {
-          error:
-            "Binding offers cannot be submitted while client identity is masked or missing a public IP address",
-          reason: identity.blockReason,
-        },
-        { status: 403 },
+        blocked.body,
+        { status: blocked.status },
       );
     }
+
+    const identity = rateLimit.identity;
 
     const supabase = getSupabaseClient();
     const stripe = new Stripe(stripeKey);
