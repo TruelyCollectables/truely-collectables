@@ -261,6 +261,7 @@ Most day-to-day work starts at:
 | `/success` | Purchase confirmation page with rotating collector sayings |
 | `/terms` | Customer Terms of Service |
 | `/seller-terms` | Seller Terms of Service for future auction/seller accounts |
+| `/seller/marketplaces` | Seller marketplace connection dashboard for Store #1 sync foundation and future seller-safe connectors |
 
 ### Admin
 
@@ -1685,6 +1686,7 @@ Seller-account requirements:
 Current seller payout verification foundation:
 
 - `/account` includes a Seller Verification panel for logged-in, active accounts
+- `/seller/marketplaces` shows the seller marketplace connection dashboard with live Store #1 inventory/eBay stats and the seller-safe connector build queue
 - `/api/account/seller/payout-onboarding` starts or resumes Stripe-hosted Express onboarding
 - the seller must accept Seller Terms before payout onboarding starts
 - seller TOS acceptance is recorded through `tos_acceptance_events`

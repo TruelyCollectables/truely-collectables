@@ -1198,6 +1198,13 @@ export default function AccountPage() {
                   ? "Opening Stripe..."
                   : "Verify Seller Payouts"}
             </button>
+
+            <Link
+              href="/seller/marketplaces"
+              className="mt-3 block rounded border border-neutral-300 px-4 py-2 text-center text-sm font-bold hover:bg-neutral-50"
+            >
+              Marketplace Connections
+            </Link>
           </aside>
 
           <div className="rounded-md border border-neutral-200 bg-white p-6 lg:col-span-2">
