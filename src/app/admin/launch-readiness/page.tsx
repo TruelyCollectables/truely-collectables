@@ -340,6 +340,15 @@ async function checkDatabaseReadiness(): Promise<ReadinessItem[]> {
       readyDetail: "account_profiles is available for customer accounts.",
     },
     {
+      label: "Account Billing Evidence",
+      table: "account_profiles",
+      select:
+        "id,card_verified,card_verified_at,billing_line1,billing_city,billing_state,billing_country,billing_postal_code,card_verification_failure_reason,card_verification_checked_at",
+      migration: "20260701074500_add_account_billing_address_evidence.sql",
+      readyDetail:
+        "account_profiles can store Stripe-safe US billing evidence and card-verification failure reasons.",
+    },
+    {
       label: "Account Store Memberships",
       table: "account_store_memberships",
       select: "id,account_id,store_id,role,status,created_at",

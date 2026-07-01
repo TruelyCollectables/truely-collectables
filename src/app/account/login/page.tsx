@@ -15,8 +15,8 @@ export default function AccountLoginPage() {
 
     const params = new URLSearchParams(window.location.search);
 
-    return params.get("card_verified") === "1"
-      ? "Card verification is complete. You can log in now."
+    return params.get("card_verification") === "submitted"
+      ? "Card verification was submitted. You can log in after Stripe confirms the card and US billing address."
       : "";
   });
   const [isSubmitting, setIsSubmitting] = useState(false);

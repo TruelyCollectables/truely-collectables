@@ -14,6 +14,13 @@ type AccountProfile = {
   tos_accepted: boolean | null;
   tos_version: string | null;
   tos_accepted_at: string | null;
+  card_verified: boolean | null;
+  card_verified_at: string | null;
+  card_brand: string | null;
+  card_last4: string | null;
+  billing_country: string | null;
+  billing_postal_code: string | null;
+  card_verification_failure_reason: string | null;
   created_at: string;
   updated_at: string | null;
 };
@@ -119,7 +126,7 @@ export default async function AdminAccountsPage() {
   const { data: profiles, error: profilesError } = await supabase
     .from("account_profiles")
     .select(
-      "id,email,display_name,account_status,default_account_type,tos_accepted,tos_version,tos_accepted_at,created_at,updated_at",
+      "id,email,display_name,account_status,default_account_type,tos_accepted,tos_version,tos_accepted_at,card_verified,card_verified_at,card_brand,card_last4,billing_country,billing_postal_code,card_verification_failure_reason,created_at,updated_at",
     )
     .order("created_at", { ascending: false })
     .limit(100);
@@ -181,6 +188,7 @@ export default async function AdminAccountsPage() {
     (profile) => profile.account_status === "active",
   );
   const tosAccepted = typedProfiles.filter((profile) => profile.tos_accepted);
+  const cardVerified = typedProfiles.filter((profile) => profile.card_verified);
   const linkedRevenue = Array.from(statsByAccount.values()).reduce(
     (sum, stats) => sum + stats.revenue,
     0,
@@ -224,7 +232,15 @@ export default async function AdminAccountsPage() {
           <Metric label="Total Accounts" value={String(typedProfiles.length)} />
           <Metric label="Active Accounts" value={String(activeAccounts.length)} />
           <Metric label="TOS Accepted" value={String(tosAccepted.length)} />
+          <Metric label="Card Verified" value={String(cardVerified.length)} />
+        </section>
+
+        <section className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <Metric label="Linked Revenue" value={money(linkedRevenue)} />
+          <Metric
+            label="Verification Pending"
+            value={String(typedProfiles.length - cardVerified.length)}
+          />
         </section>
 
         <section className="rounded-md border border-neutral-200 bg-white">
@@ -248,6 +264,7 @@ export default async function AdminAccountsPage() {
                     <th className="px-5 py-3">Account</th>
                     <th className="px-5 py-3">Status</th>
                     <th className="px-5 py-3">TOS</th>
+                    <th className="px-5 py-3">Card/Billing</th>
                     <th className="px-5 py-3">Orders</th>
                     <th className="px-5 py-3">Offers</th>
                     <th className="px-5 py-3">Revenue</th>
@@ -283,6 +300,26 @@ export default async function AdminAccountsPage() {
                           <p className="text-xs text-neutral-500">
                             {profile.tos_version || "No version"}
                           </p>
+                        </td>
+                        <td className="px-5 py-4">
+                          <p className="font-bold">
+                            {profile.card_verified ? "Verified" : "Pending"}
+                          </p>
+                          <p className="text-xs text-neutral-500">
+                            {profile.card_brand && profile.card_last4
+                              ? `${profile.card_brand.toUpperCase()} ${profile.card_last4}`
+                              : "No card proof"}
+                          </p>
+                          <p className="text-xs text-neutral-500">
+                            {[profile.billing_country, profile.billing_postal_code]
+                              .filter(Boolean)
+                              .join(" ") || "No billing proof"}
+                          </p>
+                          {profile.card_verification_failure_reason ? (
+                            <p className="mt-1 text-xs font-bold text-rose-700">
+                              {label(profile.card_verification_failure_reason)}
+                            </p>
+                          ) : null}
                         </td>
                         <td className="px-5 py-4">
                           <p className="font-black">{stats.orders}</p>

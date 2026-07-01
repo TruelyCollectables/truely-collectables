@@ -85,13 +85,14 @@ export async function checkAccountAuthAllowed(params: {
   request: Request;
   email?: string | null;
   eventType: "login" | "signup";
+  allowBlockedIdentity?: boolean;
 }): Promise<AccountAuthSecurityCheck> {
   const identity = await getClientIdentity(params.request);
   const supabase = getSupabaseClient();
   const storeId = getActiveStoreId();
   const email = cleanEmail(params.email);
 
-  if (identity.blocked) {
+  if (identity.blocked && !params.allowBlockedIdentity) {
     return {
       allowed: false,
       auditAvailable: Boolean(supabase),

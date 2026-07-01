@@ -82,6 +82,7 @@ export async function POST(request: Request) {
       request,
       email,
       eventType: "signup",
+      allowBlockedIdentity: cardVerificationRequired,
     });
 
     if (!securityCheck.allowed) {
@@ -184,7 +185,7 @@ export async function POST(request: Request) {
         setup_intent_data: {
           metadata,
         },
-        success_url: `${origin}/account/login?card_verified=1`,
+        success_url: `${origin}/account/login?card_verification=submitted`,
         cancel_url: `${origin}/account/signup?card_verification=canceled`,
       });
 

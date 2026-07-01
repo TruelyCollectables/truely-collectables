@@ -105,8 +105,14 @@ Fields:
 | `card_exp_year` | Stripe-safe card expiration year |
 | `card_funding` | Stripe-safe funding type |
 | `billing_name` | Billing name returned by Stripe |
+| `billing_line1` | Stripe-safe billing address line 1 returned by Stripe |
+| `billing_line2` | Stripe-safe billing address line 2 returned by Stripe |
+| `billing_city` | Billing city returned by Stripe |
+| `billing_state` | Billing state returned by Stripe |
 | `billing_country` | Billing country returned by Stripe |
 | `billing_postal_code` | Billing postal code returned by Stripe |
+| `card_verification_failure_reason` | TCOS policy reason if verification did not activate the account |
+| `card_verification_checked_at` | Latest Stripe setup verification evaluation timestamp |
 | `created_at` | Created timestamp |
 | `updated_at` | Updated timestamp |
 
@@ -1352,6 +1358,15 @@ Adds:
 - Stripe-safe customer, setup intent, and payment method references
 - Stripe-safe card brand, last 4, expiration, funding, and billing address proof
 - indexes for account status/card verification review and Stripe customer lookup
+
+### `20260701074500_add_account_billing_address_evidence.sql`
+
+Adds:
+
+- Stripe-safe billing line, city, state, and verification check fields to `account_profiles`
+- index for account card-verification failure review
+
+This migration lets TCOS keep buyer signup pending unless Stripe returns a card payment method with complete United States billing address evidence.
 
 ### `20260630103000_create_seller_payout_accounts.sql`
 

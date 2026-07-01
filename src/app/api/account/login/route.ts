@@ -105,7 +105,9 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error:
-            "Card and billing address verification must be completed before this account can log in.",
+            profile.card_verification_failure_reason
+              ? "Card verification did not meet TCOS policy. Use a valid payment card with a complete US billing address before logging in."
+              : "Card and US billing address verification must be completed before this account can log in.",
         },
         { status: 403 },
       );

@@ -19,6 +19,8 @@ export type AccountProfile = {
   stripe_customer_id?: string | null;
   stripe_setup_intent_id?: string | null;
   stripe_payment_method_id?: string | null;
+  card_verification_failure_reason?: string | null;
+  card_verification_checked_at?: string | null;
   created_at: string;
   updated_at: string;
 };

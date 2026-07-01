@@ -1444,7 +1444,7 @@ src/app/api/admin/files/[id]/download/route.ts</code></pre>
 <li>signup assigns a Store #1 buyer membership in <code>account_store_memberships</code>; pending accounts use <code>payment_verification_required</code></li>
 <li>pending card-verification accounts cannot log in or use authenticated account APIs as active customers</li>
 <li>signup/login writes <code>account_auth_events</code> when the migration exists</li>
-<li>signup/login blocks masked identity when IP intelligence marks the request as VPN, proxy, Tor, relay, hosting, or anonymous</li>
+<li>signup may proceed through Stripe card and US billing address verification even when IP intelligence marks the request as VPN, proxy, Tor, relay, hosting, or anonymous; login and money-path activity remain subject to identity controls</li>
 <li>signup/login checks recent failed attempts by IP and email before calling Supabase Auth</li>
 <li>six failed signup or login attempts inside 15 minutes triggers a 15-minute account auth lockout</li>
 <li>account auth failures store <code>failure_reason</code> and <code>lockout_until</code> when the lockout migration exists</li>
@@ -1470,6 +1470,7 @@ src/app/api/admin/files/[id]/download/route.ts</code></pre>
 <ul>
 <li>buyer/customer account creation requires a valid payment card and billing/address evidence through Stripe unless disabled by environment override</li>
 <li>the card is saved through a Stripe setup flow before the account becomes fully active</li>
+<li>TCOS activates the buyer account only when Stripe returns a card payment method with complete United States billing address evidence</li>
 <li>TCOS must not store raw card numbers, CVV, or payment credentials</li>
 <li>failed or canceled verification prevents account activation and login</li>
 <li>this requirement is intended to reduce scam accounts, chargeback risk, fake offers, and abusive collector/social activity</li>
@@ -1481,7 +1482,8 @@ supabase/migrations/20260628201500_add_account_auth_lockouts.sql
 supabase/migrations/20260628213000_create_sports_dashboard_tables.sql
 supabase/migrations/20260628220000_create_collector_dashboard_tables.sql
 supabase/migrations/20260628223000_create_collector_profiles_messaging_exports.sql
-supabase/migrations/20260630100000_add_account_card_verification.sql</code></pre>
+supabase/migrations/20260630100000_add_account_card_verification.sql
+supabase/migrations/20260701074500_add_account_billing_address_evidence.sql</code></pre>
 <h3>Current: Collection Shelf, Wish List, And Want Ads</h3>
 <p>The collector dashboard now has the foundation for owned collections and hunting targets.</p>
 <p>Collection Shelf supports:</p>
@@ -2461,15 +2463,17 @@ market_news_snapshots</code></pre>
 <li><code>/admin/launch-readiness</code> checks whether the security IP investigation table is available</li>
 <li>buyer account signup starts accounts in <code>payment_verification_required</code> status when card verification is required</li>
 <li>Stripe Checkout setup mode collects the buyer card and billing address before TCOS activates the account</li>
-<li>signed Stripe webhook completion marks the account active and stores Stripe-safe card proof, such as customer ID, setup intent ID, payment method ID, card brand, last 4, expiry, funding type, billing name, billing country, and billing postal code</li>
+<li>signed Stripe webhook completion marks the account active only when Stripe returns a card payment method with complete United States billing address evidence; otherwise the account stays pending</li>
+<li>TCOS stores Stripe-safe card proof, such as customer ID, setup intent ID, payment method ID, card brand, last 4, expiry, funding type, billing name, billing address fields, billing country, billing postal code, verification check timestamp, and failure reason when applicable</li>
 <li>pending card-verification accounts cannot log in or use authenticated account APIs as active customers</li>
-<li>buyer account signup/login blocks masked identity when configured identity checks detect VPN, proxy, Tor, relay, hosting, or anonymous IP use</li>
+<li>buyer account signup can proceed to Stripe verification when configured identity checks detect VPN, proxy, Tor, relay, hosting, or anonymous IP use; buyer login and money-path routes remain subject to identity controls</li>
 <li>buyer account signup/login locks out repeated failures after six failed attempts inside 15 minutes</li>
 <li>bank credentials are not stored in TCOS</li>
 </ul>
 <p>Buyer-account anti-fraud requirement:</p>
 <ul>
 <li>buyer/customer account signup requires a valid payment card and billing/address evidence through Stripe unless <code>ACCOUNT_CARD_VERIFICATION_REQUIRED=false</code></li>
+<li>card verification requires complete United States billing address evidence before account activation</li>
 <li>failed or canceled card verification prevents account activation and login</li>
 <li>TCOS must never store raw card numbers, CVV, or payment credentials</li>
 </ul>
@@ -2601,7 +2605,8 @@ IP_INTELLIGENCE_REQUIRED=true</code></pre>
 <p>Migration directory:</p>
 <pre><code>supabase/migrations</code></pre>
 <p>Current migration:</p>
-<pre><code>20260630123000_create_ebay_sync_decision_events.sql
+<pre><code>20260701074500_add_account_billing_address_evidence.sql
+20260630123000_create_ebay_sync_decision_events.sql
 20260630120000_create_security_ip_investigations.sql
 20260630113000_create_public_endpoint_rate_limit_events.sql
 20260630110000_create_inventory_sale_decrement_rpc.sql

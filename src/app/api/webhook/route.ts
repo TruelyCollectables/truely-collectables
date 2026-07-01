@@ -6,6 +6,7 @@ import { inventoryEngine } from "../../../modules/inventory";
 import { createTransactionEvidenceReport } from "../../../lib/transaction-evidence";
 import { getActiveStoreId } from "../../../lib/stores";
 import { updateSellerPayoutAccountFromStripe } from "../../../lib/seller-payouts";
+import { evaluateAccountCardVerification } from "../../../lib/account-card-verification";
 
 export const dynamic = "force-dynamic";
 
@@ -81,12 +82,7 @@ export async function POST(req: Request) {
       const paymentMethod = paymentMethodId
         ? await stripe.paymentMethods.retrieve(paymentMethodId)
         : null;
-      const card =
-        paymentMethod && "card" in paymentMethod ? paymentMethod.card : null;
-      const billingDetails =
-        paymentMethod && "billing_details" in paymentMethod
-          ? paymentMethod.billing_details
-          : null;
+      const cardEvidence = evaluateAccountCardVerification(paymentMethod);
       const customerId =
         typeof session.customer === "string"
           ? session.customer
@@ -102,24 +98,33 @@ export async function POST(req: Request) {
       }
 
       const verifiedAt = new Date().toISOString();
+      const accountStatus = cardEvidence.allowed
+        ? "active"
+        : "payment_verification_required";
 
       await supabase
         .from("account_profiles")
         .update({
-          account_status: "active",
-          card_verified: true,
-          card_verified_at: verifiedAt,
+          account_status: accountStatus,
+          card_verified: cardEvidence.allowed,
+          card_verified_at: cardEvidence.allowed ? verifiedAt : null,
           stripe_customer_id: customerId,
           stripe_setup_intent_id: setupIntentId,
           stripe_payment_method_id: paymentMethodId,
-          card_brand: card?.brand ?? null,
-          card_last4: card?.last4 ?? null,
-          card_exp_month: card?.exp_month ?? null,
-          card_exp_year: card?.exp_year ?? null,
-          card_funding: card?.funding ?? null,
-          billing_name: billingDetails?.name ?? null,
-          billing_country: billingDetails?.address?.country ?? null,
-          billing_postal_code: billingDetails?.address?.postal_code ?? null,
+          card_brand: cardEvidence.cardBrand,
+          card_last4: cardEvidence.cardLast4,
+          card_exp_month: cardEvidence.cardExpMonth,
+          card_exp_year: cardEvidence.cardExpYear,
+          card_funding: cardEvidence.cardFunding,
+          billing_name: cardEvidence.billingName,
+          billing_line1: cardEvidence.billingLine1,
+          billing_line2: cardEvidence.billingLine2,
+          billing_city: cardEvidence.billingCity,
+          billing_state: cardEvidence.billingState,
+          billing_country: cardEvidence.billingCountry,
+          billing_postal_code: cardEvidence.billingPostalCode,
+          card_verification_failure_reason: cardEvidence.failureReason,
+          card_verification_checked_at: verifiedAt,
           updated_at: verifiedAt,
         })
         .eq("id", accountId);
@@ -127,7 +132,7 @@ export async function POST(req: Request) {
       await supabase
         .from("account_store_memberships")
         .update({
-          status: "active",
+          status: accountStatus,
           updated_at: verifiedAt,
         })
         .eq("account_id", accountId)
