@@ -8,6 +8,7 @@ import { getActiveStoreId } from "../../../../lib/stores";
 import { updateSellerPayoutAccountFromStripe } from "../../../../lib/seller-payouts";
 import { evaluateAccountCardVerification } from "../../../../lib/account-card-verification";
 import { parseCartMetadata } from "../../../../lib/checkout-cart-metadata";
+import { isAllowedShippingCountry } from "../../../../lib/shipping-policy";
 
 export const dynamic = "force-dynamic";
 
@@ -215,11 +216,27 @@ export async function POST(req: Request) {
       const tosIpRisk = session.metadata?.tos_ip_risk || null;
       const tosIpBlockReason = session.metadata?.tos_ip_block_reason || null;
       const accountId = session.metadata?.account_id || null;
+      const collectedInfo = session.collected_information as any;
 
       const customerEmail =
         session.customer_details?.email ||
         session.customer_email ||
         "unknown";
+
+      const customerName =
+        session.customer_details?.name ||
+        collectedInfo?.shipping_details?.name ||
+        null;
+
+      const shipping = collectedInfo?.shipping_details?.address;
+
+      const shippingAddressLine1 = shipping?.line1 || null;
+      const shippingAddressLine2 = shipping?.line2 || null;
+      const shippingCity = shipping?.city || null;
+      const shippingState = shipping?.state || null;
+      const shippingPostalCode = shipping?.postal_code || null;
+      const shippingCountry = shipping?.country || null;
+      const shippingAllowed = isAllowedShippingCountry(shippingCountry);
 
       const total = Number(session.amount_total || 0) / 100;
 
@@ -259,15 +276,22 @@ export async function POST(req: Request) {
         store_id: storeId,
         account_id: accountId,
         customer_email: customerEmail,
+        customer_name: customerName,
         total,
-        status: "paid",
+        status: shippingAllowed ? "paid" : "paid_shipping_review",
         stripe_session_id: session.id,
         shipping_method: shippingMethod,
         shipping_name: shippingName,
         shipping_amount: shippingAmount,
         subtotal,
         item_count: itemCount || normalizedItemCount,
-        fulfillment_status: "ready_to_ship",
+        fulfillment_status: shippingAllowed ? "ready_to_ship" : "shipping_review",
+        shipping_address_line1: shippingAddressLine1,
+        shipping_address_line2: shippingAddressLine2,
+        shipping_city: shippingCity,
+        shipping_state: shippingState,
+        shipping_postal_code: shippingPostalCode,
+        shipping_country: shippingCountry,
       };
 
       const orderPayloadWithTerms = {

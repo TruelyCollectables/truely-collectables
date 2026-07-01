@@ -8,6 +8,7 @@ import { getActiveStoreId } from "../../../lib/stores";
 import { updateSellerPayoutAccountFromStripe } from "../../../lib/seller-payouts";
 import { evaluateAccountCardVerification } from "../../../lib/account-card-verification";
 import { parseCartMetadata } from "../../../lib/checkout-cart-metadata";
+import { isAllowedShippingCountry } from "../../../lib/shipping-policy";
 
 export const dynamic = "force-dynamic";
 
@@ -220,6 +221,7 @@ export async function POST(req: Request) {
     const shippingState = shipping?.state || null;
     const shippingPostalCode = shipping?.postal_code || null;
     const shippingCountry = shipping?.country || null;
+    const shippingAllowed = isAllowedShippingCountry(shippingCountry);
 
     const total = Number(session.amount_total || 0) / 100;
 
@@ -281,13 +283,13 @@ export async function POST(req: Request) {
       customer_email: customerEmail,
       customer_name: customerName,
       total,
-      status: "paid",
+      status: shippingAllowed ? "paid" : "paid_shipping_review",
       shipping_method: shippingMethod,
       shipping_name: shippingName,
       shipping_amount: shippingAmount,
       subtotal,
       item_count: itemCount || normalizedItemCount,
-      fulfillment_status: "ready_to_ship",
+      fulfillment_status: shippingAllowed ? "ready_to_ship" : "shipping_review",
       shipping_address_line1: shippingAddressLine1,
       shipping_address_line2: shippingAddressLine2,
       shipping_city: shippingCity,

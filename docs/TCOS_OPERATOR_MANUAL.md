@@ -1071,7 +1071,7 @@ Checkout validates:
 
 Then it creates a Stripe checkout session.
 
-Stripe checkout is configured with `shipping_address_collection.allowed_countries = ["US"]` for cart checkout, accepted offer checkout, and counter-offer checkout. Truely Collectables does not currently accept shipments outside the United States.
+Stripe checkout is configured with `shipping_address_collection.allowed_countries = ["US"]` for cart checkout, accepted offer checkout, and counter-offer checkout. Truely Collectables does not currently accept shipments outside the United States. Stripe webhooks also verify the collected shipping country before marking an order ready to ship; missing or non-US shipping evidence is stored as `paid_shipping_review` / `shipping_review`.
 
 Successful cart checkout sends the buyer to:
 
@@ -1125,6 +1125,8 @@ Accepted-offer sessions use `product_id` metadata if cart metadata is missing.
 Safety rule:
 
 Webhook cart metadata is normalized the same way checkout cart input is normalized. Duplicate product lines are combined before availability checks. Current cart checkout stores compact cart metadata in Stripe so large cart JSON cannot break checkout; webhooks still accept older JSON cart metadata for existing sessions.
+
+Webhook order fulfillment status is also shipping-policy aware. If Stripe does not provide a US shipping country, TCOS still records the paid order and transaction evidence, but the order is held as `paid_shipping_review` / `shipping_review` instead of being released as `ready_to_ship`.
 
 Inventory decrements run through the Supabase RPC `tcos_decrement_inventory_after_sale`, which locks the product row, refuses insufficient quantity, updates `products.quantity`, mirrors the result into `inventory_items`, and returns the before/after quantity. If inventory disappears between checkout creation and Stripe webhook completion, TCOS marks the paid order as `paid_inventory_review` / `inventory_review` instead of silently overselling the item.
 
