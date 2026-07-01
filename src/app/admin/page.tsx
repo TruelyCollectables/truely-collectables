@@ -49,6 +49,30 @@ type EvidenceRow = {
   created_at: string;
 };
 
+type SyncDecisionRow = {
+  decision: string | null;
+  action: string | null;
+  reason: string | null;
+  product_title: string | null;
+  sku: string | null;
+  created_at: string;
+};
+
+type BlockedSyncSummaryRow = {
+  reason: string | null;
+  decision_count: number | null;
+  latest_decision_at: string | null;
+};
+
+type PublicInventoryStatsRow = {
+  total_products: number | null;
+  in_stock_products: number | null;
+  sold_out_products: number | null;
+  ebay_linked_products: number | null;
+  missing_sku_products: number | null;
+  latest_ebay_seen_at: string | null;
+};
+
 function money(value: number | null | undefined) {
   return `$${Number(value || 0).toFixed(2)}`;
 }
@@ -114,8 +138,15 @@ export default async function AdminDashboard() {
   today.setHours(0, 0, 0, 0);
   const monthStart = new Date(today.getFullYear(), today.getMonth(), 1);
 
-  const [productsResult, offersResult, ordersResult, evidenceResult] =
-    await Promise.all([
+  const [
+    productsResult,
+    offersResult,
+    ordersResult,
+    evidenceResult,
+    syncDecisionsResult,
+    blockedSyncResult,
+    inventoryStatsResult,
+  ] = await Promise.all([
       supabase
         .from("products")
         .select("id,title,price,quantity,sport,ebay_item_id,last_seen_at,created_at")
@@ -141,12 +172,39 @@ export default async function AdminDashboard() {
         .eq("store_id", storeId)
         .order("created_at", { ascending: false })
         .limit(6),
+      supabase
+        .from("ebay_sync_decision_events")
+        .select("decision,action,reason,product_title,sku,created_at")
+        .eq("store_id", storeId)
+        .order("created_at", { ascending: false })
+        .limit(8),
+      supabase
+        .from("tcos_ebay_missing_sync_decision_summary")
+        .select("reason,decision_count,latest_decision_at")
+        .eq("store_id", storeId)
+        .order("decision_count", { ascending: false })
+        .limit(5),
+      supabase
+        .from("tcos_public_inventory_stats")
+        .select(
+          "total_products,in_stock_products,sold_out_products,ebay_linked_products,missing_sku_products,latest_ebay_seen_at",
+        )
+        .eq("store_id", storeId)
+        .maybeSingle(),
     ]);
 
   const products = (productsResult.data || []) as ProductRow[];
   const offers = (offersResult.data || []) as OfferRow[];
   const orders = (ordersResult.data || []) as OrderRow[];
   const evidenceReports = (evidenceResult.data || []) as EvidenceRow[];
+  const syncDecisions = (syncDecisionsResult.data || []) as SyncDecisionRow[];
+  const blockedSyncRows = (blockedSyncResult.data || []) as BlockedSyncSummaryRow[];
+  const inventoryStats =
+    (inventoryStatsResult.data as PublicInventoryStatsRow | null) ?? null;
+  const syncPolicyAvailable =
+    !syncDecisionsResult.error &&
+    !blockedSyncResult.error &&
+    !inventoryStatsResult.error;
 
   const paidOrders = orders.filter(isPaid);
   const readyOrders = orders.filter(isReadyToShip);
@@ -160,6 +218,16 @@ export default async function AdminDashboard() {
   );
   const ebayLinked = products.filter((product) => product.ebay_item_id);
   const evidenceErrors = evidenceReports.filter((report) => report.email_error);
+  const recentPolicyBlocked = syncDecisions.filter(
+    (decision) => decision.decision === "blocked_by_tcos_policy",
+  );
+  const recentNeedsReview = syncDecisions.filter(
+    (decision) => decision.decision === "needs_review",
+  );
+  const blockedSyncTotal = blockedSyncRows.reduce(
+    (sum, row) => sum + Number(row.decision_count || 0),
+    0,
+  );
 
   const revenueToday = paidOrders
     .filter((order) => new Date(order.created_at) >= today)
@@ -198,6 +266,11 @@ export default async function AdminDashboard() {
     evidenceErrors.length > 0
       ? `${evidenceErrors.length} evidence email issue${evidenceErrors.length === 1 ? "" : "s"}`
       : "Evidence packet emails show no recent errors",
+    !syncPolicyAvailable
+      ? "eBay sync policy summary is not available"
+      : blockedSyncTotal > 0
+      ? `${blockedSyncTotal} eBay sync policy block${blockedSyncTotal === 1 ? "" : "s"} need review`
+      : "eBay sync policy blocks are clear",
   ];
 
   return (
@@ -225,7 +298,7 @@ export default async function AdminDashboard() {
             <CommandButton href="/admin/ebay" label="eBay Health" />
             <CommandButton href="/admin/settings" label="Settings" />
             <CommandButton href="/admin/security" label="Security" />
-            <CommandButton href="/api/ebay/import-listings?offset=0&limit=50" label="Sync eBay" />
+            <CommandButton href="/admin/ebay/sync-control" label="Sync Control" />
             <CommandButton href="/admin/launch-readiness" label="Readiness" />
             <CommandButton href="/admin/logout" label="Logout" danger />
           </div>
@@ -342,7 +415,7 @@ export default async function AdminDashboard() {
           </aside>
         </section>
 
-        <section className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+        <section className="grid grid-cols-1 gap-6 xl:grid-cols-4">
           <StatusPanel
             title="Sales Pulse"
             rows={[
@@ -355,10 +428,25 @@ export default async function AdminDashboard() {
           <StatusPanel
             title="Inventory Pulse"
             rows={[
-              ["Active products", String(activeProducts.length)],
-              ["Sold out / zero", String(soldOutProducts.length)],
-              ["eBay linked", `${ebayLinked.length} (${percent(ebayLinked.length, products.length)})`],
-              ["Last eBay seen", shortDate(latestEbaySeen || null)],
+              ["Active products", String(inventoryStats?.in_stock_products ?? activeProducts.length)],
+              ["Sold out / zero", String(inventoryStats?.sold_out_products ?? soldOutProducts.length)],
+              [
+                "eBay linked",
+                `${inventoryStats?.ebay_linked_products ?? ebayLinked.length} (${percent(
+                  inventoryStats?.ebay_linked_products ?? ebayLinked.length,
+                  inventoryStats?.total_products ?? products.length,
+                )})`,
+              ],
+              ["Last eBay seen", shortDate(inventoryStats?.latest_ebay_seen_at || latestEbaySeen || null)],
+            ]}
+          />
+          <StatusPanel
+            title="eBay Sync Policy"
+            rows={[
+              ["Status", syncPolicyAvailable ? "Available" : "Not available"],
+              ["Missing SKU", String(inventoryStats?.missing_sku_products ?? 0)],
+              ["Recent blocked", String(recentPolicyBlocked.length)],
+              ["Recent needs review", String(recentNeedsReview.length)],
             ]}
           />
           <StatusPanel
@@ -412,6 +500,89 @@ export default async function AdminDashboard() {
                     </span>
                     <p className="font-black">{money(order.total)}</p>
                   </Link>
+                ))
+              )}
+            </div>
+          </div>
+        </section>
+
+        <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1.05fr_0.95fr]">
+          <div className="rounded-md border border-neutral-200 bg-white">
+            <div className="flex flex-wrap items-start justify-between gap-3 border-b border-neutral-200 p-5">
+              <div>
+                <h2 className="text-xl font-black">Recent eBay Policy Decisions</h2>
+                <p className="mt-1 text-sm text-neutral-600">
+                  Latest local TCOS import decisions from the eBay sync guard.
+                </p>
+              </div>
+              <Link
+                href="/admin/ebay/sync-control"
+                className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm font-bold hover:bg-white"
+              >
+                Open Sync Control
+              </Link>
+            </div>
+            <div className="divide-y divide-neutral-200">
+              {!syncPolicyAvailable ? (
+                <p className="p-5 text-sm font-semibold text-amber-800">
+                  Apply the eBay sync decision migration to enable policy
+                  decision history.
+                </p>
+              ) : syncDecisions.length === 0 ? (
+                <p className="p-5 text-sm text-neutral-600">
+                  No eBay sync policy decisions recorded yet.
+                </p>
+              ) : (
+                syncDecisions.map((decision) => (
+                  <div
+                    key={`${decision.created_at}-${decision.sku || decision.reason}`}
+                    className="grid gap-3 p-4 text-sm md:grid-cols-[1fr_auto]"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate font-bold">
+                        {decision.product_title || decision.sku || "Unknown listing"}
+                      </p>
+                      <p className="mt-1 text-xs text-neutral-600">
+                        {label(decision.action)} / {label(decision.reason)} /{" "}
+                        {shortDate(decision.created_at)}
+                      </p>
+                    </div>
+                    <span className={`h-fit w-fit rounded border px-2 py-1 text-xs font-black ${statusTone(decision.decision)}`}>
+                      {label(decision.decision)}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-md border border-neutral-200 bg-white p-5">
+            <h2 className="text-xl font-black">Blocked Sync Reasons</h2>
+            <div className="mt-4 space-y-3">
+              {!syncPolicyAvailable ? (
+                <p className="text-sm font-semibold text-amber-800">
+                  Policy summary view is not available yet.
+                </p>
+              ) : blockedSyncRows.length === 0 ? (
+                <p className="text-sm text-neutral-600">
+                  No blocked eBay sync reasons recorded.
+                </p>
+              ) : (
+                blockedSyncRows.map((row) => (
+                  <div
+                    key={row.reason || "blocked_reason"}
+                    className="rounded-md border border-neutral-200 bg-neutral-50 p-3"
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="font-bold">{label(row.reason)}</p>
+                      <p className="text-lg font-black">
+                        {Number(row.decision_count || 0)}
+                      </p>
+                    </div>
+                    <p className="mt-1 text-xs text-neutral-600">
+                      Latest: {shortDate(row.latest_decision_at)}
+                    </p>
+                  </div>
                 ))
               )}
             </div>

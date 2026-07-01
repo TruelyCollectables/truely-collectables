@@ -226,7 +226,7 @@ Current UI baseline includes:
 - product detail pages styled as collector research pages
 - cart page with a structured order summary, shipping selector, TOS acceptance, and secure checkout action
 - consistent neutral/off-white storefront background
-- `/admin` now renders as a live TCOS command center with revenue metrics, fulfillment queues, offer desk, inventory watch, store settings status, evidence health, operator alerts, and fast links
+- `/admin` now renders as a live TCOS command center with revenue metrics, fulfillment queues, offer desk, inventory watch, eBay sync policy decisions, blocked sync reasons, store settings status, evidence health, operator alerts, and fast links
 
 ## 1. Quick Start
 
