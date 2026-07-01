@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import {
   getAccountProfilesByIds,
   type AccountProfileSummary,
@@ -103,10 +104,13 @@ function OfferCard({
 }) {
   return (
     <div className="border rounded-lg p-4 grid grid-cols-1 md:grid-cols-5 gap-4">
-      <img
+      <Image
         src={offer.products?.image_url || "/placeholder.png"}
         alt={offer.products?.title || "Product"}
-        className="w-32 rounded border"
+        width={128}
+        height={128}
+        unoptimized
+        className="h-32 w-32 rounded border object-cover"
       />
 
       <div className="md:col-span-2">

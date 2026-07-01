@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import { useState } from "react";
 import CheckoutButton from "../components/CheckoutButton";
 import {
@@ -129,9 +130,12 @@ export default function CartPage() {
                 className="flex flex-col gap-4 rounded border bg-white p-4 sm:flex-row sm:items-center"
               >
                 {item.image_url ? (
-                  <img
+                  <Image
                     src={item.image_url}
                     alt={item.title}
+                    width={112}
+                    height={112}
+                    unoptimized
                     className="h-28 w-28 rounded object-cover"
                   />
                 ) : null}

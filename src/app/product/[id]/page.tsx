@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import OfferForm from "./OfferForm";
 import ProductActions from "./ProductActions";
 import { buildCollectorIntelligence } from "../../../lib/collector-intelligence";
@@ -60,11 +61,14 @@ export default async function ProductPage({
 
       <section className="mt-6 grid grid-cols-1 gap-10 lg:grid-cols-[minmax(0,1fr)_420px]">
         <div>
-          <div className="overflow-hidden rounded border bg-neutral-50">
-            <img
+          <div className="relative min-h-[320px] overflow-hidden rounded border bg-neutral-50 lg:min-h-[620px]">
+            <Image
               src={product.imageUrl || "/placeholder.png"}
               alt={product.title}
-              className="h-full max-h-[760px] w-full object-contain"
+              fill
+              sizes="(min-width: 1024px) calc(100vw - 540px), 100vw"
+              unoptimized
+              className="object-contain"
             />
           </div>
         </div>

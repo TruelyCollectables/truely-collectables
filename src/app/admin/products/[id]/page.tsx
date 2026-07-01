@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { redirect } from "next/navigation";
 import { inventoryEngine } from "../../../../modules/inventory";
 import type { InventoryStatus } from "../../../../modules/inventory";
@@ -309,10 +310,13 @@ export default async function AdminProductEditPage({
           {product.imageUrl && (
             <section className="border rounded p-4">
               <h2 className="font-bold text-xl mb-3">Image</h2>
-              <img
+              <Image
                 src={product.imageUrl}
                 alt={product.title}
-                className="w-full rounded border"
+                width={800}
+                height={800}
+                unoptimized
+                className="h-auto w-full rounded border"
               />
             </section>
           )}

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import ClearCartOnSuccess from "../../components/ClearCartOnSuccess";
 import { inventoryEngine } from "../../modules/inventory";
 import type { UniversalInventoryItem } from "../../modules/inventory";
@@ -100,11 +101,14 @@ export default async function Shop({
             key={product.legacyProductId}
             className="overflow-hidden rounded border bg-white"
           >
-            <div className="aspect-[4/5] bg-neutral-100">
-              <img
+            <div className="relative aspect-[4/5] bg-neutral-100">
+              <Image
                 src={product.imageUrl || "/placeholder.png"}
                 alt={product.title}
-                className="h-full w-full object-cover"
+                fill
+                sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
+                unoptimized
+                className="object-cover"
               />
             </div>
 

@@ -1,5 +1,6 @@
 import Stripe from "stripe";
 import Link from "next/link";
+import Image from "next/image";
 import ClearCartOnSuccess from "../../components/ClearCartOnSuccess";
 import { supabase } from "../../lib/supabase";
 import { getActiveStoreId } from "../../lib/stores";
@@ -160,11 +161,14 @@ export default async function SuccessPage({
             className="grid grid-cols-1 gap-5 rounded border p-5 text-left md:grid-cols-[220px_1fr]"
             style={panelStyle}
           >
-            <div className="overflow-hidden rounded border border-white/15 bg-black/30">
-              <img
+            <div className="relative min-h-72 overflow-hidden rounded border border-white/15 bg-black/30">
+              <Image
                 src={featuredProduct.image_url || "/placeholder.png"}
                 alt={featuredProduct.title}
-                className="h-72 w-full object-cover md:h-full"
+                fill
+                sizes="(min-width: 768px) 220px, 100vw"
+                unoptimized
+                className="object-cover"
               />
             </div>
 
