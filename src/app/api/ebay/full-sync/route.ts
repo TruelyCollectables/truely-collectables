@@ -32,6 +32,9 @@ export async function GET(request: Request) {
       imported: 0,
       markedSold: 0,
       skipped: 0,
+      policyAllowed: 0,
+      policyNeedsReview: 0,
+      policyBlocked: 0,
     };
 
     for (let batch = 1; batch <= maxBatches; batch++) {
@@ -46,6 +49,10 @@ export async function GET(request: Request) {
         imported: totals.imported + result.imported,
         markedSold: totals.markedSold + result.markedSold,
         skipped: totals.skipped + result.skipped,
+        policyAllowed: totals.policyAllowed + result.policyAllowed,
+        policyNeedsReview:
+          totals.policyNeedsReview + result.policyNeedsReview,
+        policyBlocked: totals.policyBlocked + result.policyBlocked,
       };
 
       results.push({
@@ -57,6 +64,9 @@ export async function GET(request: Request) {
         imported: result.imported,
         markedSold: result.markedSold,
         skipped: result.skipped,
+        policyAllowed: result.policyAllowed,
+        policyNeedsReview: result.policyNeedsReview,
+        policyBlocked: result.policyBlocked,
         nextOffset: result.nextOffset,
         debugSamples: result.debugSamples,
       });

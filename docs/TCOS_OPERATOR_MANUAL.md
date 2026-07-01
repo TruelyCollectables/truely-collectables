@@ -879,6 +879,63 @@ src/lib/ebay-category-mapper.ts
 
 Both single-page import and full sync use this shared server-side importer. Full sync calls the importer directly instead of calling TCOS through its own protected HTTP route, so it does not depend on an admin browser cookie or `NEXT_PUBLIC_SITE_URL` to keep running. This keeps Truely Collectables eBay sync more reliable when the toggle is enabled.
 
+### eBay Sync Policy Decisions
+
+Open:
+
+```text
+/admin/ebay/sync-control
+```
+
+The controlled sync page now shows public inventory totals, the last batch result, current-run policy decisions, and blocked policy summaries.
+
+Inventory stats shown:
+
+- public products
+- in-stock products
+- sold-out products
+- eBay-linked products
+- missing SKU products
+
+Decision labels:
+
+| Decision | Meaning |
+| --- | --- |
+| `ALLOWED` | TCOS allowed the sync action |
+| `NEEDS REVIEW` | TCOS imported the listing but flagged it for admin category/title review |
+| `BLOCKED BY TCOS POLICY` | TCOS refused the local import/update because required listing evidence was unsafe or incomplete |
+
+Current blocked reasons:
+
+- missing SKU
+- missing eBay listing ID
+- invalid listing price
+- invalid listing quantity
+
+Current review reasons:
+
+- missing product title
+- category review required
+- low category confidence
+
+Important rule:
+
+Blocked sync decisions only protect TCOS local inventory. They do not delete, revise, or end eBay-side inventory.
+
+Decision events are stored in:
+
+```text
+ebay_sync_decision_events
+```
+
+Summary views:
+
+```text
+tcos_ebay_snapshot_import_decision_summary
+tcos_ebay_missing_sync_decision_summary
+tcos_public_inventory_stats
+```
+
 ### eBay Health
 
 Open:
@@ -2597,6 +2654,7 @@ TCOS V2:
 - `inventory_items`
 - `inventory_images`
 - `inventory_attributes`
+- `ebay_sync_decision_events`
 - `sales_comp_snapshots`
 - `tos_acceptance_events`
 - `transaction_evidence_reports`
@@ -2619,6 +2677,7 @@ supabase/migrations
 Current migration:
 
 ```text
+20260630123000_create_ebay_sync_decision_events.sql
 20260630120000_create_security_ip_investigations.sql
 20260630113000_create_public_endpoint_rate_limit_events.sql
 20260630110000_create_inventory_sale_decrement_rpc.sql

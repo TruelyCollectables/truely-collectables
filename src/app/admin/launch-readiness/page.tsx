@@ -278,6 +278,15 @@ async function checkDatabaseReadiness(): Promise<ReadinessItem[]> {
       readyDetail: "inventory_items is available for the Universal Inventory Engine.",
     },
     {
+      label: "eBay Sync Decisions",
+      table: "ebay_sync_decision_events",
+      select:
+        "id,store_id,run_id,action,decision,reason,sku,ebay_item_id,created_at",
+      migration: "20260630123000_create_ebay_sync_decision_events.sql",
+      readyDetail:
+        "ebay_sync_decision_events is available for TCOS policy decisions and sync-control summaries.",
+    },
+    {
       label: "Sales Comp Snapshots",
       table: "sales_comp_snapshots",
       select: "id,store_id,legacy_product_id,query,suggested_price,comps,created_at",

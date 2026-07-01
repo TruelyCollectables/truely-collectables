@@ -1062,6 +1062,69 @@ When the toggle is false, TCOS blocks or skips:
 - `/api/ebay/callback`
 - post-sale `syncEbayQuantityAfterSale()`
 
+### `ebay_sync_decision_events`
+
+Stores the TCOS policy decision made for each eBay sync candidate.
+
+Created by migration:
+
+```text
+supabase/migrations/20260630123000_create_ebay_sync_decision_events.sql
+```
+
+Runtime source:
+
+```text
+src/lib/ebay-sync.ts
+```
+
+Admin summary:
+
+```text
+src/app/admin/ebay/sync-control/page.tsx
+```
+
+Fields:
+
+| Field | Purpose |
+| --- | --- |
+| `id` | Decision event ID |
+| `store_id` | TCOS store ID, defaults to Store #1 |
+| `run_id` | Sync run identifier |
+| `source` | Source process, currently eBay inventory import |
+| `action` | `import_listing`, `mark_inactive`, or `skip` |
+| `decision` | `allowed`, `needs_review`, or `blocked_by_tcos_policy` |
+| `reason` | Machine-readable policy reason |
+| `sku` | eBay inventory SKU |
+| `ebay_item_id` | eBay listing ID when available |
+| `product_title` | Listing title snapshot |
+| `quantity` | Listing quantity snapshot |
+| `price` | Listing price snapshot |
+| `category` | TCOS category mapping |
+| `category_confidence` | Category mapper confidence |
+| `review_required` | Whether admin review is required |
+| `policy_metadata` | Structured policy evidence |
+| `created_at` | Event timestamp |
+
+Current policy behavior:
+
+- missing SKU is blocked before import
+- missing eBay listing ID is blocked before import
+- invalid listing price is blocked before import
+- invalid listing quantity is blocked before import
+- missing title imports as `needs_review`
+- category review or low confidence imports as `needs_review`
+- inactive or unavailable eBay offers are allowed to mark the local TCOS item inactive
+- blocked decisions skip local upsert but do not delete or modify eBay-side inventory
+
+Summary views:
+
+| View | Purpose |
+| --- | --- |
+| `tcos_ebay_snapshot_import_decision_summary` | Groups decision counts by store, run, decision, action, and reason |
+| `tcos_ebay_missing_sync_decision_summary` | Shows blocked policy reasons needing operator review |
+| `tcos_public_inventory_stats` | Shows public product totals, in-stock count, sold-out count, eBay-linked count, missing SKU count, and latest import timestamp |
+
 ### `sales_comp_snapshots`
 
 Stores pricing comp history.
@@ -1314,6 +1377,18 @@ Creates:
 - index for store/status/updated review queues
 
 This table turns suspicious IP dossiers into persistent admin case files with status, severity, internal notes, review timestamp, and resolution timestamp.
+
+### `20260630123000_create_ebay_sync_decision_events.sql`
+
+Creates:
+
+- `ebay_sync_decision_events`
+- policy indexes for store/run/decision review
+- `tcos_ebay_snapshot_import_decision_summary`
+- `tcos_ebay_missing_sync_decision_summary`
+- `tcos_public_inventory_stats`
+
+This table and its views back `/admin/ebay/sync-control` policy reporting for allowed imports, needs-review imports, and imports blocked by TCOS safety policy.
 
 ### `20260628213000_create_sports_dashboard_tables.sql`
 

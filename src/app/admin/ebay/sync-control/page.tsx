@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import { createClient } from "@supabase/supabase-js";
 import { importEbayListingsPage } from "../../../../lib/ebay-sync";
+import { getActiveStoreId } from "../../../../lib/stores";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -14,11 +16,38 @@ type SyncSearchParams = {
   markedSold?: string;
   skipped?: string;
   received?: string;
+  policyAllowed?: string;
+  policyNeedsReview?: string;
+  policyBlocked?: string;
   nextOffset?: string;
   error?: string;
 };
 
 const LIMIT_OPTIONS = [10, 25, 50, 100];
+
+type DecisionSummaryRow = {
+  decision: string;
+  action: string;
+  reason: string;
+  decision_count: number;
+  latest_decision_at: string | null;
+};
+
+type MissingDecisionSummaryRow = {
+  decision: string;
+  reason: string;
+  decision_count: number;
+  latest_decision_at: string | null;
+};
+
+type PublicInventoryStatsRow = {
+  total_products: number;
+  in_stock_products: number;
+  sold_out_products: number;
+  ebay_linked_products: number;
+  missing_sku_products: number;
+  latest_ebay_seen_at: string | null;
+};
 
 function safeLimit(value: FormDataEntryValue | string | undefined) {
   const parsed = Number(value || 25);
@@ -66,6 +95,9 @@ async function runBatch(formData: FormData) {
         markedSold: result.markedSold,
         skipped: result.skipped,
         received: result.received,
+        policyAllowed: result.policyAllowed,
+        policyNeedsReview: result.policyNeedsReview,
+        policyBlocked: result.policyBlocked,
         nextOffset: result.nextOffset,
       }),
     );
@@ -86,6 +118,36 @@ function intValue(value: string | undefined) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function getSupabaseClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseKey) return null;
+
+  return createClient(supabaseUrl, supabaseKey);
+}
+
+function shortDate(value: string | null) {
+  if (!value) return "Never";
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  }).format(new Date(value));
+}
+
+function decisionLabel(value: string) {
+  return value.replaceAll("_", " ").toUpperCase();
+}
+
+function decisionTone(value: string) {
+  if (value === "allowed") return "border-emerald-200 bg-emerald-50 text-emerald-800";
+  if (value === "needs_review") return "border-amber-200 bg-amber-50 text-amber-800";
+  return "border-rose-200 bg-rose-50 text-rose-800";
+}
+
 export default async function EbaySyncControlPage({
   searchParams,
 }: {
@@ -95,10 +157,50 @@ export default async function EbaySyncControlPage({
   const currentOffset = safeOffset(params.nextOffset ?? params.offset ?? "0");
   const currentLimit = safeLimit(params.limit ?? "25");
   const runId = params.runId || new Date().toISOString();
+  const storeId = getActiveStoreId();
+  const supabase = getSupabaseClient();
+  const [snapshotSummaryResult, blockedSummaryResult, inventoryStatsResult] =
+    supabase
+      ? await Promise.all([
+          supabase
+            .from("tcos_ebay_snapshot_import_decision_summary")
+            .select("decision,action,reason,decision_count,latest_decision_at")
+            .eq("store_id", storeId)
+            .eq("run_id", runId)
+            .order("decision_count", { ascending: false })
+            .limit(20),
+          supabase
+            .from("tcos_ebay_missing_sync_decision_summary")
+            .select("decision,reason,decision_count,latest_decision_at")
+            .eq("store_id", storeId)
+            .order("decision_count", { ascending: false })
+            .limit(10),
+          supabase
+            .from("tcos_public_inventory_stats")
+            .select(
+              "total_products,in_stock_products,sold_out_products,ebay_linked_products,missing_sku_products,latest_ebay_seen_at",
+            )
+            .eq("store_id", storeId)
+            .maybeSingle(),
+        ])
+      : [
+          { data: [], error: null },
+          { data: [], error: null },
+          { data: null, error: null },
+        ];
+  const decisionSummary =
+    (snapshotSummaryResult.data ?? []) as DecisionSummaryRow[];
+  const blockedSummary =
+    (blockedSummaryResult.data ?? []) as MissingDecisionSummaryRow[];
+  const inventoryStats =
+    (inventoryStatsResult.data as PublicInventoryStatsRow | null) ?? null;
   const hasResult =
     params.imported !== undefined ||
     params.markedSold !== undefined ||
     params.skipped !== undefined ||
+    params.policyAllowed !== undefined ||
+    params.policyNeedsReview !== undefined ||
+    params.policyBlocked !== undefined ||
     params.error !== undefined;
 
   return (
@@ -126,7 +228,41 @@ export default async function EbaySyncControlPage({
         </div>
       </section>
 
-      <div className="mx-auto grid max-w-7xl grid-cols-1 gap-6 px-6 py-6 lg:grid-cols-[0.45fr_0.55fr]">
+      <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
+        {snapshotSummaryResult.error ||
+        blockedSummaryResult.error ||
+        inventoryStatsResult.error ? (
+          <section className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-900">
+            eBay sync policy summaries are not available yet. Apply
+            `20260630123000_create_ebay_sync_decision_events.sql` to enable
+            the TCOS sync decision views.
+          </section>
+        ) : null}
+
+        <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
+          <Metric
+            label="Public Products"
+            value={String(inventoryStats?.total_products ?? 0)}
+          />
+          <Metric
+            label="In Stock"
+            value={String(inventoryStats?.in_stock_products ?? 0)}
+          />
+          <Metric
+            label="Sold Out"
+            value={String(inventoryStats?.sold_out_products ?? 0)}
+          />
+          <Metric
+            label="eBay Linked"
+            value={String(inventoryStats?.ebay_linked_products ?? 0)}
+          />
+          <Metric
+            label="Missing SKU"
+            value={String(inventoryStats?.missing_sku_products ?? 0)}
+          />
+        </section>
+
+        <section className="grid grid-cols-1 gap-6 lg:grid-cols-[0.45fr_0.55fr]">
         <section className="rounded-md border border-neutral-200 bg-white p-5">
           <h2 className="text-2xl font-black">Run Batch</h2>
           <p className="mt-2 text-sm leading-6 text-neutral-600">
@@ -205,6 +341,21 @@ export default async function EbaySyncControlPage({
                 <Metric label="Skipped" value={String(intValue(params.skipped))} />
               </section>
 
+              <section className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <Metric
+                  label="Policy Allowed"
+                  value={String(intValue(params.policyAllowed))}
+                />
+                <Metric
+                  label="Needs Review"
+                  value={String(intValue(params.policyNeedsReview))}
+                />
+                <Metric
+                  label="Blocked By TCOS"
+                  value={String(intValue(params.policyBlocked))}
+                />
+              </section>
+
               <dl className="grid grid-cols-1 gap-3 text-sm md:grid-cols-3">
                 <Info label="Current Offset" value={String(safeOffset(params.offset))} />
                 <Info label="Next Offset" value={params.nextOffset || "Complete"} />
@@ -251,6 +402,20 @@ export default async function EbaySyncControlPage({
             </div>
           )}
         </section>
+        </section>
+
+        <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
+          <DecisionTable
+            title="Current Run Policy Decisions"
+            rows={decisionSummary}
+            emptyText="No policy decisions recorded for this run ID yet."
+          />
+          <BlockedDecisionTable
+            title="Blocked Policy Summary"
+            rows={blockedSummary}
+            emptyText="No blocked TCOS policy decisions recorded yet."
+          />
+        </section>
       </div>
     </main>
   );
@@ -271,6 +436,120 @@ function Info({ label, value }: { label: string; value: string }) {
       <dt className="text-xs font-bold uppercase text-neutral-500">{label}</dt>
       <dd className="mt-1 font-black">{value}</dd>
     </div>
+  );
+}
+
+function DecisionTable({
+  title,
+  rows,
+  emptyText,
+}: {
+  title: string;
+  rows: DecisionSummaryRow[];
+  emptyText: string;
+}) {
+  return (
+    <section className="rounded-md border border-neutral-200 bg-white">
+      <div className="border-b border-neutral-200 p-5">
+        <h2 className="text-2xl font-black">{title}</h2>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[640px] text-left text-sm">
+          <thead className="bg-neutral-50 text-xs uppercase text-neutral-500">
+            <tr>
+              <th className="px-4 py-3">Decision</th>
+              <th className="px-4 py-3">Action</th>
+              <th className="px-4 py-3">Reason</th>
+              <th className="px-4 py-3">Count</th>
+              <th className="px-4 py-3">Latest</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-neutral-200">
+            {rows.length === 0 ? (
+              <tr>
+                <td className="px-4 py-6 text-neutral-600" colSpan={5}>
+                  {emptyText}
+                </td>
+              </tr>
+            ) : (
+              rows.map((row) => (
+                <tr key={`${row.decision}-${row.action}-${row.reason}`}>
+                  <td className="px-4 py-4">
+                    <span
+                      className={`rounded border px-2 py-1 text-xs font-black ${decisionTone(
+                        row.decision,
+                      )}`}
+                    >
+                      {decisionLabel(row.decision)}
+                    </span>
+                  </td>
+                  <td className="px-4 py-4">{decisionLabel(row.action)}</td>
+                  <td className="px-4 py-4">{decisionLabel(row.reason)}</td>
+                  <td className="px-4 py-4 font-black">{row.decision_count}</td>
+                  <td className="px-4 py-4">{shortDate(row.latest_decision_at)}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  );
+}
+
+function BlockedDecisionTable({
+  title,
+  rows,
+  emptyText,
+}: {
+  title: string;
+  rows: MissingDecisionSummaryRow[];
+  emptyText: string;
+}) {
+  return (
+    <section className="rounded-md border border-neutral-200 bg-white">
+      <div className="border-b border-neutral-200 p-5">
+        <h2 className="text-2xl font-black">{title}</h2>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full min-w-[520px] text-left text-sm">
+          <thead className="bg-neutral-50 text-xs uppercase text-neutral-500">
+            <tr>
+              <th className="px-4 py-3">Decision</th>
+              <th className="px-4 py-3">Reason</th>
+              <th className="px-4 py-3">Count</th>
+              <th className="px-4 py-3">Latest</th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-neutral-200">
+            {rows.length === 0 ? (
+              <tr>
+                <td className="px-4 py-6 text-neutral-600" colSpan={4}>
+                  {emptyText}
+                </td>
+              </tr>
+            ) : (
+              rows.map((row) => (
+                <tr key={`${row.decision}-${row.reason}`}>
+                  <td className="px-4 py-4">
+                    <span
+                      className={`rounded border px-2 py-1 text-xs font-black ${decisionTone(
+                        row.decision,
+                      )}`}
+                    >
+                      {decisionLabel(row.decision)}
+                    </span>
+                  </td>
+                  <td className="px-4 py-4">{decisionLabel(row.reason)}</td>
+                  <td className="px-4 py-4 font-black">{row.decision_count}</td>
+                  <td className="px-4 py-4">{shortDate(row.latest_decision_at)}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
   );
 }
 

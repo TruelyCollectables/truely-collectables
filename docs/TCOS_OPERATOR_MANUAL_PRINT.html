@@ -995,6 +995,59 @@ src/lib/collector-intelligence.ts</code></pre>
 <pre><code>src/lib/ebay-sync.ts
 src/lib/ebay-category-mapper.ts</code></pre>
 <p>Both single-page import and full sync use this shared server-side importer. Full sync calls the importer directly instead of calling TCOS through its own protected HTTP route, so it does not depend on an admin browser cookie or <code>NEXT_PUBLIC_SITE_URL</code> to keep running. This keeps Truely Collectables eBay sync more reliable when the toggle is enabled.</p>
+<h3>eBay Sync Policy Decisions</h3>
+<p>Open:</p>
+<pre><code>/admin/ebay/sync-control</code></pre>
+<p>The controlled sync page now shows public inventory totals, the last batch result, current-run policy decisions, and blocked policy summaries.</p>
+<p>Inventory stats shown:</p>
+<ul>
+<li>public products</li>
+<li>in-stock products</li>
+<li>sold-out products</li>
+<li>eBay-linked products</li>
+<li>missing SKU products</li>
+</ul>
+<p>Decision labels:</p>
+<table>
+<thead><tr>
+<th>Decision</th>
+<th>Meaning</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><code>ALLOWED</code></td>
+<td>TCOS allowed the sync action</td>
+</tr>
+<tr>
+<td><code>NEEDS REVIEW</code></td>
+<td>TCOS imported the listing but flagged it for admin category/title review</td>
+</tr>
+<tr>
+<td><code>BLOCKED BY TCOS POLICY</code></td>
+<td>TCOS refused the local import/update because required listing evidence was unsafe or incomplete</td>
+</tr>
+</tbody></table>
+<p>Current blocked reasons:</p>
+<ul>
+<li>missing SKU</li>
+<li>missing eBay listing ID</li>
+<li>invalid listing price</li>
+<li>invalid listing quantity</li>
+</ul>
+<p>Current review reasons:</p>
+<ul>
+<li>missing product title</li>
+<li>category review required</li>
+<li>low category confidence</li>
+</ul>
+<p>Important rule:</p>
+<p>Blocked sync decisions only protect TCOS local inventory. They do not delete, revise, or end eBay-side inventory.</p>
+<p>Decision events are stored in:</p>
+<pre><code>ebay_sync_decision_events</code></pre>
+<p>Summary views:</p>
+<pre><code>tcos_ebay_snapshot_import_decision_summary
+tcos_ebay_missing_sync_decision_summary
+tcos_public_inventory_stats</code></pre>
 <h3>eBay Health</h3>
 <p>Open:</p>
 <pre><code>/admin/ebay</code></pre>
@@ -2507,6 +2560,7 @@ IP_INTELLIGENCE_REQUIRED=true</code></pre>
 <li><code>inventory_items</code></li>
 <li><code>inventory_images</code></li>
 <li><code>inventory_attributes</code></li>
+<li><code>ebay_sync_decision_events</code></li>
 <li><code>sales_comp_snapshots</code></li>
 <li><code>tos_acceptance_events</code></li>
 <li><code>transaction_evidence_reports</code></li>
@@ -2518,7 +2572,8 @@ IP_INTELLIGENCE_REQUIRED=true</code></pre>
 <p>Migration directory:</p>
 <pre><code>supabase/migrations</code></pre>
 <p>Current migration:</p>
-<pre><code>20260630120000_create_security_ip_investigations.sql
+<pre><code>20260630123000_create_ebay_sync_decision_events.sql
+20260630120000_create_security_ip_investigations.sql
 20260630113000_create_public_endpoint_rate_limit_events.sql
 20260630110000_create_inventory_sale_decrement_rpc.sql
 20260629083000_create_inventory_v2_app_policies.sql
