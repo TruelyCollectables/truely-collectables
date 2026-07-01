@@ -261,6 +261,7 @@ Most day-to-day work starts at:
 | `/success` | Purchase confirmation page with rotating collector sayings |
 | `/terms` | Customer Terms of Service |
 | `/seller-terms` | Seller Terms of Service for future auction/seller accounts |
+| `/seller` | Seller home redirect to marketplace connections |
 | `/seller/marketplaces` | Seller marketplace connection dashboard for Store #1 sync foundation and future seller-safe connectors |
 
 ### Admin
