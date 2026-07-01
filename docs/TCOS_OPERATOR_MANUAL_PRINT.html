@@ -118,9 +118,29 @@
       font-size: 8.5pt;
       margin-bottom: 0.18in;
     }
+
+    .page-watermark {
+      color: rgba(17, 24, 39, 0.08);
+      font-size: 42pt;
+      font-weight: 700;
+      left: 50%;
+      letter-spacing: 0.08em;
+      line-height: 1.1;
+      pointer-events: none;
+      position: fixed;
+      text-align: center;
+      text-transform: uppercase;
+      top: 50%;
+      transform: translate(-50%, -50%) rotate(-52deg) scaleX(1.18);
+      transform-origin: center;
+      white-space: nowrap;
+      width: 14in;
+      z-index: 0;
+    }
   </style>
 </head>
 <body>
+  <div class="page-watermark">Property of Dag Danky Holdings LLC.</div>
   <div class="print-meta">Generated 2026-07-01 from docs/TCOS_OPERATOR_MANUAL.md</div>
   <h1>Totally Collectibles OS Operator Manual</h1>
 <p>Copyright 2026 Dag Danky Holdings LLC. All rights reserved.</p>
@@ -292,6 +312,12 @@
 </ul>
 <p>Downloadable PDF copy:</p>
 <pre><code>docs/TCOS_OPERATOR_MANUAL.pdf</code></pre>
+<p>Future mobile app manual:</p>
+<ul>
+<li>the mobile app must have its own separate operator manual and downloadable PDF</li>
+<li>shared TCOS rules, store policies, security requirements, checkout behavior, and account requirements must stay consistent with this main site manual</li>
+<li>mobile-only screens, app-store release steps, push notification behavior, device permissions, and mobile troubleshooting must live in the mobile manual instead of being mixed into the web manual</li>
+</ul>
 <p>The PDF is regenerated with:</p>
 <pre><code>npm run manual:pdf</code></pre>
 <p>Links in this manual are clickable in both Markdown and PDF form. Use them for direct lookup, examples, API docs, and troubleshooting references.</p>
@@ -1653,6 +1679,9 @@ market_news_snapshots</code></pre>
 <li>Dag Danky Holdings LLC charges a 5% seller commission/rake on third-party seller transactions</li>
 <li>the 5% commission is calculated from total sale amount, including item sale price plus buyer-paid shipping</li>
 <li>seller acceptance should be stored with seller TOS version and timestamp when seller accounts are implemented</li>
+<li>seller payouts must follow the approved payment processor's timing, reserve, debit, chargeback, instant payout, bank-transfer, and recovery rules unless Dag Danky Holdings LLC approves a different processor or payout method</li>
+<li>when a return, dispute, chargeback, authenticity case, or item-not-as-described claim is opened against a seller item, related seller funds must be held until the case and all available appeals are finally decided</li>
+<li>if the case is decided against the seller, TCOS policy should support recovery from held funds, future payouts, or the seller's verified payout/bank method according to payment processor rules, including recovery within three business days when supported by the provider and allowed by law</li>
 </ul>
 <p>Current seller payout verification foundation:</p>
 <ul>
@@ -2702,12 +2731,15 @@ src/app/api/offers</code></pre>
 <h2>32. Maintenance Rule</h2>
 <p>When a feature changes, update this manual in the same work session.</p>
 <p>PDF generation can wait until the end of a completed module or lane so development can move faster. Keep the Markdown manual current during implementation, then run <code>npm run manual:pdf</code> at the module checkpoint.</p>
+<p>Every generated manual PDF, including the future separate mobile app manual PDF, must watermark each page with <code>Property of Dag Danky Holdings LLC.</code>.</p>
 <p>Checklist for future changes:</p>
 <ol>
 <li>Update feature behavior section.</li>
 <li>Update route list if routes changed.</li>
 <li>Update environment variables if new keys are added.</li>
 <li>Update database docs if tables/fields change.</li>
+<li>Update the mobile app manual when the change affects the mobile app.</li>
+<li>Regenerate the correct PDF manual at the module checkpoint.</li>
 <li>Run <code>npm run build</code>.</li>
 </ol>
 <p>The app should not get ahead of the documentation.</p>

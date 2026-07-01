@@ -198,6 +198,12 @@ Downloadable PDF copy:
 docs/TCOS_OPERATOR_MANUAL.pdf
 ```
 
+Future mobile app manual:
+
+- the mobile app must have its own separate operator manual and downloadable PDF
+- shared TCOS rules, store policies, security requirements, checkout behavior, and account requirements must stay consistent with this main site manual
+- mobile-only screens, app-store release steps, push notification behavior, device permissions, and mobile troubleshooting must live in the mobile manual instead of being mixed into the web manual
+
 The PDF is regenerated with:
 
 ```bash
@@ -1667,6 +1673,9 @@ Seller-account requirements:
 - Dag Danky Holdings LLC charges a 5% seller commission/rake on third-party seller transactions
 - the 5% commission is calculated from total sale amount, including item sale price plus buyer-paid shipping
 - seller acceptance should be stored with seller TOS version and timestamp when seller accounts are implemented
+- seller payouts must follow the approved payment processor's timing, reserve, debit, chargeback, instant payout, bank-transfer, and recovery rules unless Dag Danky Holdings LLC approves a different processor or payout method
+- when a return, dispute, chargeback, authenticity case, or item-not-as-described claim is opened against a seller item, related seller funds must be held until the case and all available appeals are finally decided
+- if the case is decided against the seller, TCOS policy should support recovery from held funds, future payouts, or the seller's verified payout/bank method according to payment processor rules, including recovery within three business days when supported by the provider and allowed by law
 
 Current seller payout verification foundation:
 
@@ -2888,12 +2897,16 @@ When a feature changes, update this manual in the same work session.
 
 PDF generation can wait until the end of a completed module or lane so development can move faster. Keep the Markdown manual current during implementation, then run `npm run manual:pdf` at the module checkpoint.
 
+Every generated manual PDF, including the future separate mobile app manual PDF, must watermark each page with `Property of Dag Danky Holdings LLC.`.
+
 Checklist for future changes:
 
 1. Update feature behavior section.
 2. Update route list if routes changed.
 3. Update environment variables if new keys are added.
 4. Update database docs if tables/fields change.
-5. Run `npm run build`.
+5. Update the mobile app manual when the change affects the mobile app.
+6. Regenerate the correct PDF manual at the module checkpoint.
+7. Run `npm run build`.
 
 The app should not get ahead of the documentation.

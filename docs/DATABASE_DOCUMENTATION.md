@@ -141,6 +141,9 @@ Important:
 - TCOS does not store raw bank account numbers, routing numbers, SSNs, tax IDs, or payout credentials.
 - Stripe-hosted onboarding collects and verifies bank/payout details.
 - TCOS stores only provider IDs, status fields, requirements, TOS evidence, and non-sensitive metadata.
+- Seller payout holds, reserves, instant payouts, bank debits, chargeback recovery, and dispute recovery must follow the approved payment processor's rules.
+- Future dispute automation should hold related seller funds when a return, dispute, chargeback, authenticity case, or item-not-as-described claim opens, then release or recover funds only after the case and all available appeals are finally decided.
+- If a case is decided against the seller, recovery should support held funds, future payout offsets, or the seller's verified payout/bank method according to provider rules, including recovery within three business days when supported and legally allowed.
 
 Fields include account/store IDs, provider, provider account ID, onboarding status, charges/payouts/details flags, current and past-due provider requirements, disabled reason, seller TOS acceptance fields, TOS acceptance event ID, metadata, and timestamps.
 

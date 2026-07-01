@@ -15,6 +15,8 @@ Start with the operator manual:
 
 The manual explains daily store operation, inventory, orders, offers, eBay sync, AI descriptions, sales comps, suggested pricing, and required environment variables.
 
+When the mobile app is built, maintain its operator manual and downloadable PDF separately from the main TCOS web manual while keeping shared policies consistent.
+
 Customer legal page:
 
 - [Terms of Service](src/app/terms/page.tsx)

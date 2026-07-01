@@ -99,6 +99,12 @@ export default function SellerTermsPage() {
             withhold payout when fraud, authenticity, payment, shipping,
             dispute, or legal concerns exist.
           </p>
+          <p className="mt-2">
+            Seller payouts are processed through the approved payment processing
+            provider. Provider payout timing, reserve, debit, chargeback,
+            instant payout, and bank-transfer rules apply unless Truely
+            Collectables approves another processor or payout method in writing.
+          </p>
         </section>
 
         <section>
@@ -118,6 +124,17 @@ export default function SellerTermsPage() {
             item-not-as-described claims may reduce or reverse seller payout.
             Sellers must cooperate with requests for documents, photos,
             shipment proof, provenance, or item details.
+          </p>
+          <p className="mt-2">
+            When a return, dispute, chargeback, authenticity case, or
+            item-not-as-described claim is opened against a seller item, related
+            seller funds may be held until the case and all available appeals
+            are finally decided. If the case is decided against the seller,
+            Truely Collectables may recover the owed amount from held funds,
+            future payouts, or the seller&apos;s verified payout or bank method
+            according to the payment processor&apos;s rules, including recovery
+            within three business days when supported by the provider and
+            allowed by applicable law.
           </p>
         </section>
 

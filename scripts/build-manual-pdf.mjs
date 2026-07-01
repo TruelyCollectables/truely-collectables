@@ -172,6 +172,7 @@ const browserCandidates = [
 const browserPath = browserCandidates.find((candidate) => fs.existsSync(candidate));
 const body = renderMarkdown(markdown);
 const generatedAt = new Date().toISOString().slice(0, 10);
+const watermarkText = "Property of Dag Danky Holdings LLC.";
 
 const html = `<!doctype html>
 <html lang="en">
@@ -293,9 +294,29 @@ const html = `<!doctype html>
       font-size: 8.5pt;
       margin-bottom: 0.18in;
     }
+
+    .page-watermark {
+      color: rgba(17, 24, 39, 0.08);
+      font-size: 42pt;
+      font-weight: 700;
+      left: 50%;
+      letter-spacing: 0.08em;
+      line-height: 1.1;
+      pointer-events: none;
+      position: fixed;
+      text-align: center;
+      text-transform: uppercase;
+      top: 50%;
+      transform: translate(-50%, -50%) rotate(-52deg) scaleX(1.18);
+      transform-origin: center;
+      white-space: nowrap;
+      width: 14in;
+      z-index: 0;
+    }
   </style>
 </head>
 <body>
+  <div class="page-watermark">${escapeHtml(watermarkText)}</div>
   <div class="print-meta">Generated ${generatedAt} from docs/TCOS_OPERATOR_MANUAL.md</div>
   ${body}
 </body>
