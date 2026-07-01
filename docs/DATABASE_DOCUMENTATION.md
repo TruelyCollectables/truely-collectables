@@ -221,6 +221,8 @@ Runtime behavior:
 - collector binding-offer payment setup is limited to 6 attempts per hour per IP/account subject
 - seller payout onboarding is limited to 5 attempts per hour per IP/account subject
 - blocked identity requests are logged when the table is available
+- `/admin/security` reads this table for public money-path security review
+- `/admin/launch-readiness` checks this table as Public Endpoint Rate Limits
 - if the table is not migrated yet, routes fail open so production does not hard-stop before the migration is applied
 
 Fields:

@@ -306,6 +306,15 @@ async function checkDatabaseReadiness(): Promise<ReadinessItem[]> {
       readyDetail: "admin_login_attempts is available for admin audit and lockout storage.",
     },
     {
+      label: "Public Endpoint Rate Limits",
+      table: "public_endpoint_rate_limit_events",
+      select:
+        "id,store_id,endpoint_key,subject_key,ip_address,blocked,block_reason,created_at",
+      migration: "20260630113000_create_public_endpoint_rate_limit_events.sql",
+      readyDetail:
+        "public_endpoint_rate_limit_events is available for checkout, offer, binding-offer, and seller-onboarding throttling.",
+    },
+    {
       label: "Customer Account Profiles",
       table: "account_profiles",
       select: "id,email,display_name,account_status,default_account_type,tos_accepted,created_at",

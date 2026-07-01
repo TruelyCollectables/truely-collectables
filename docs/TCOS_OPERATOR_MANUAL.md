@@ -360,6 +360,10 @@ This page shows recent admin login attempts, successful logins, failed logins, a
 
 Launch readiness also checks whether `admin_login_attempts` is available. If the table is missing or unavailable, `/admin/launch-readiness` marks Admin Login Audit as blocked.
 
+The same `/admin/security` page also shows public money-path rate-limit events from `public_endpoint_rate_limit_events`, including checkout attempts, public offer attempts, collector binding-offer setup, seller payout onboarding, blocked status, endpoint, IP address, subject key, identity risk, block reason, policy window, and header evidence summary.
+
+Launch readiness checks whether `public_endpoint_rate_limit_events` is available. If the table is missing or unavailable, `/admin/launch-readiness` marks Public Endpoint Rate Limits as blocked.
+
 ## 4. Product And Inventory Basics
 
 TCOS currently keeps two inventory layers in sync:
@@ -2394,6 +2398,8 @@ Current implemented protections:
 - public offer creation is rate-limited to 8 attempts per 15 minutes per IP/customer/product subject
 - collector binding-offer payment setup is rate-limited to 6 attempts per hour per IP/account subject
 - seller payout onboarding is rate-limited to 5 attempts per hour per IP/account subject
+- `/admin/security` shows recent public money-path events, blocked events, watch events, unique IPs, endpoint counts, identity risk, and header evidence summary
+- `/admin/launch-readiness` checks whether the public endpoint rate-limit audit table is available
 - buyer account signup starts accounts in `payment_verification_required` status when card verification is required
 - Stripe Checkout setup mode collects the buyer card and billing address before TCOS activates the account
 - signed Stripe webhook completion marks the account active and stores Stripe-safe card proof, such as customer ID, setup intent ID, payment method ID, card brand, last 4, expiry, funding type, billing name, billing country, and billing postal code
