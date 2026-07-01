@@ -2,6 +2,11 @@ import Link from "next/link";
 import { supabase } from "../../lib/supabase";
 import { getStoreSettings } from "../../lib/store-settings";
 import { getActiveStoreId } from "../../lib/stores";
+import {
+  isOrderReviewStatus,
+  isPaidOrderStatus,
+  isReadyToShipStatus,
+} from "../../lib/order-status";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -99,14 +104,15 @@ function percent(part: number, whole: number) {
 }
 
 function isPaid(order: OrderRow) {
-  return order.status === "paid";
+  return isPaidOrderStatus(order.status);
 }
 
 function isReadyToShip(order: OrderRow) {
-  return (
-    order.status === "paid" &&
-    (order.fulfillment_status === "ready_to_ship" || !order.fulfillment_status)
-  );
+  return isReadyToShipStatus(order.status, order.fulfillment_status);
+}
+
+function isReview(order: OrderRow) {
+  return isOrderReviewStatus(order.status, order.fulfillment_status);
 }
 
 function isShipped(order: OrderRow) {
@@ -118,7 +124,15 @@ function statusTone(status: string | null | undefined) {
     return "border-emerald-200 bg-emerald-50 text-emerald-800";
   }
 
-  if (status === "pending" || status === "countered" || status === "ready_to_ship") {
+  if (
+    status === "pending" ||
+    status === "countered" ||
+    status === "ready_to_ship" ||
+    status === "shipping_review" ||
+    status === "paid_shipping_review" ||
+    status === "inventory_review" ||
+    status === "paid_inventory_review"
+  ) {
     return "border-amber-200 bg-amber-50 text-amber-800";
   }
 
@@ -208,6 +222,7 @@ export default async function AdminDashboard() {
 
   const paidOrders = orders.filter(isPaid);
   const readyOrders = orders.filter(isReadyToShip);
+  const reviewOrders = orders.filter(isReview);
   const shippedOrders = orders.filter(isShipped);
   const pendingOffers = offers.filter((offer) => offer.status === "pending");
   const counteredOffers = offers.filter((offer) => offer.status === "countered");
@@ -257,6 +272,9 @@ export default async function AdminDashboard() {
     readyOrders.length > 0
       ? `${readyOrders.length} paid order${readyOrders.length === 1 ? "" : "s"} ready to ship`
       : "No paid orders waiting on fulfillment",
+    reviewOrders.length > 0
+      ? `${reviewOrders.length} paid order${reviewOrders.length === 1 ? "" : "s"} held for review`
+      : "No paid orders held for review",
     pendingOffers.length > 0
       ? `${pendingOffers.length} offer${pendingOffers.length === 1 ? "" : "s"} need review`
       : "Offer queue is clear",
@@ -325,12 +343,13 @@ export default async function AdminDashboard() {
               </div>
               <div className="flex flex-wrap gap-2 text-sm">
                 <Pill label={`${readyOrders.length} ready`} tone="amber" />
+                <Pill label={`${reviewOrders.length} review`} tone="amber" />
                 <Pill label={`${pendingOffers.length} offers`} tone="amber" />
                 <Pill label={`${lowInventory.length} low stock`} tone="rose" />
               </div>
             </div>
 
-            <div className="grid grid-cols-1 divide-y divide-neutral-200 lg:grid-cols-3 lg:divide-x lg:divide-y-0">
+            <div className="grid grid-cols-1 divide-y divide-neutral-200 lg:grid-cols-4 lg:divide-x lg:divide-y-0">
               <QueuePanel
                 title="Fulfillment"
                 href="/admin/orders"
@@ -339,6 +358,18 @@ export default async function AdminDashboard() {
                   key: String(order.id),
                   title: `Order #${order.id}`,
                   meta: order.customer_email || "No customer email",
+                  value: money(order.total),
+                  href: `/admin/orders/${order.id}`,
+                }))}
+              />
+              <QueuePanel
+                title="Order Review"
+                href="/admin/orders?tab=review"
+                empty="No paid orders held for review."
+                rows={reviewOrders.slice(0, 5).map((order) => ({
+                  key: String(order.id),
+                  title: `Order #${order.id}`,
+                  meta: label(order.fulfillment_status || order.status),
                   value: money(order.total),
                   href: `/admin/orders/${order.id}`,
                 }))}
@@ -421,6 +452,7 @@ export default async function AdminDashboard() {
             rows={[
               ["Paid orders", String(paidOrders.length)],
               ["Ready to ship", String(readyOrders.length)],
+              ["Needs review", String(reviewOrders.length)],
               ["Shipped", String(shippedOrders.length)],
               ["Fulfillment rate", percent(shippedOrders.length, paidOrders.length)],
             ]}

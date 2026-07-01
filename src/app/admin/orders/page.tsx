@@ -5,6 +5,11 @@ import {
 } from "../../../lib/account-profiles";
 import { supabase } from "../../../lib/supabase";
 import { getActiveStoreId } from "../../../lib/stores";
+import {
+  isOrderReviewStatus,
+  isPaidOrderStatus,
+  isReadyToShipStatus,
+} from "../../../lib/order-status";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -44,10 +49,11 @@ function statusLabel(status: string | null | undefined) {
 }
 
 function isReadyToShip(order: Order) {
-  return (
-    order.status === "paid" &&
-    (order.fulfillment_status === "ready_to_ship" || !order.fulfillment_status)
-  );
+  return isReadyToShipStatus(order.status, order.fulfillment_status);
+}
+
+function isReview(order: Order) {
+  return isOrderReviewStatus(order.status, order.fulfillment_status);
 }
 
 function isShipped(order: Order) {
@@ -94,12 +100,15 @@ export default async function AdminOrdersPage({
   );
 
   const readyToShip = typedOrders.filter(isReadyToShip);
+  const reviewOrders = typedOrders.filter(isReview);
   const shipped = typedOrders.filter(isShipped);
   const allOrders = typedOrders;
 
   const visibleOrders =
     activeTab === "shipped"
       ? shipped
+      : activeTab === "review"
+      ? reviewOrders
       : activeTab === "all"
       ? allOrders
       : readyToShip;
@@ -133,15 +142,16 @@ export default async function AdminOrdersPage({
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
         <DashboardCard label="Total Orders" value={String(typedOrders.length)} />
         <DashboardCard label="Ready to Ship" value={String(readyToShip.length)} />
+        <DashboardCard label="Needs Review" value={String(reviewOrders.length)} />
         <DashboardCard label="Shipped" value={String(shipped.length)} />
         <DashboardCard
           label="Revenue"
           value={money(
             typedOrders
-              .filter((order) => order.status === "paid")
+              .filter((order) => isPaidOrderStatus(order.status))
               .reduce((sum, order) => sum + Number(order.total || 0), 0)
           )}
         />
@@ -161,6 +171,12 @@ export default async function AdminOrdersPage({
         />
 
         <TabLink
+          href="/admin/orders?tab=review"
+          active={activeTab === "review"}
+          label={`Needs Review (${reviewOrders.length})`}
+        />
+
+        <TabLink
           href="/admin/orders?tab=all"
           active={activeTab === "all"}
           label={`All Orders (${allOrders.length})`}
@@ -171,6 +187,8 @@ export default async function AdminOrdersPage({
         <h2 className="text-2xl font-bold mb-4">
           {activeTab === "shipped"
             ? `Shipped (${shipped.length})`
+            : activeTab === "review"
+            ? `Needs Review (${reviewOrders.length})`
             : activeTab === "all"
             ? `All Orders (${allOrders.length})`
             : `Ready to Ship (${readyToShip.length})`}
@@ -237,8 +255,17 @@ function OrderCard({
   order: Order;
   accountProfile?: AccountProfileSummary;
 }) {
+  const needsReview = isReview(order);
+
   return (
     <div className="border rounded-lg p-5 bg-white">
+      {needsReview ? (
+        <div className="mb-4 rounded border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-900">
+          Review hold: verify the order, inventory, and shipping evidence before
+          printing a packing slip or marking shipped.
+        </div>
+      ) : null}
+
       <div className="flex flex-wrap justify-between gap-4 border-b pb-4 mb-4">
         <div>
           <h3 className="text-xl font-bold">Order #{order.id}</h3>
@@ -334,12 +361,14 @@ function OrderCard({
               View Order
             </a>
 
-            <a
-              href={`/admin/orders/${order.id}/packing-slip`}
-              className="border rounded px-4 py-2 text-center"
-            >
-              Print Packing Slip
-            </a>
+            {!needsReview ? (
+              <a
+                href={`/admin/orders/${order.id}/packing-slip`}
+                className="border rounded px-4 py-2 text-center"
+              >
+                Print Packing Slip
+              </a>
+            ) : null}
 
             <a
               href={`/admin/orders/${order.id}`}

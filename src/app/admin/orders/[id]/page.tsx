@@ -1,6 +1,7 @@
 import { supabase } from "../../../../lib/supabase";
 import { getActiveStoreId } from "../../../../lib/stores";
 import { getAccountProfilesByIds } from "../../../../lib/account-profiles";
+import { isOrderReviewStatus } from "../../../../lib/order-status";
 import Link from "next/link";
 import TrackingForm from "./TrackingForm";
 
@@ -138,6 +139,12 @@ export default async function AdminOrderDetailPage({
   const discountAmount = Number(typedOrder.discount_amount || 0);
   const shippingPaid = Number(typedOrder.shipping_amount || 0);
   const totalPaid = Number(typedOrder.total || 0);
+  const needsReview = isOrderReviewStatus(
+    typedOrder.status,
+    typedOrder.fulfillment_status,
+  );
+  const reviewMessage =
+    "Review hold: verify shipping evidence, inventory, and payment details before marking this order shipped.";
 
   return (
     <main className="p-8 max-w-5xl mx-auto">
@@ -152,6 +159,13 @@ export default async function AdminOrderDetailPage({
           Created {new Date(typedOrder.created_at).toLocaleString()}
         </p>
       </div>
+
+      {needsReview ? (
+        <section className="mb-6 rounded border border-amber-200 bg-amber-50 p-5 text-amber-950">
+          <h2 className="text-xl font-bold">Order Needs Review</h2>
+          <p className="mt-2 text-sm font-semibold">{reviewMessage}</p>
+        </section>
+      ) : null}
 
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
         <div className="border rounded-lg p-4">
@@ -395,6 +409,8 @@ export default async function AdminOrderDetailPage({
           orderId={typedOrder.id}
           currentCarrier={typedOrder.carrier || ""}
           currentTrackingNumber={typedOrder.tracking_number || ""}
+          canMarkShipped={!needsReview}
+          reviewMessage={needsReview ? reviewMessage : undefined}
         />
       </section>
 

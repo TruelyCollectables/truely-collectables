@@ -3,6 +3,7 @@ import { createClient } from "@supabase/supabase-js";
 import { refreshTransactionEvidenceReportForOrder } from "../../../../lib/transaction-evidence";
 import { getStoreSettings } from "../../../../lib/store-settings";
 import { getActiveStoreId } from "../../../../lib/stores";
+import { isOrderReviewStatus } from "../../../../lib/order-status";
 
 export const dynamic = "force-dynamic";
 
@@ -60,6 +61,7 @@ export async function POST(req: Request) {
         customer_name,
         tracking_number,
         carrier,
+        status,
         fulfillment_status
       `
       )
@@ -71,6 +73,16 @@ export async function POST(req: Request) {
       return NextResponse.json(
         { error: "Order not found" },
         { status: 404 }
+      );
+    }
+
+    if (isOrderReviewStatus(order.status, order.fulfillment_status)) {
+      return NextResponse.json(
+        {
+          error:
+            "This paid order is on a review hold. Resolve the review status before marking it shipped.",
+        },
+        { status: 409 }
       );
     }
 

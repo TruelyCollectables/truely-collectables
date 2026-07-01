@@ -6,10 +6,14 @@ export default function TrackingForm({
   orderId,
   currentCarrier,
   currentTrackingNumber,
+  canMarkShipped = true,
+  reviewMessage,
 }: {
   orderId: number;
   currentCarrier: string;
   currentTrackingNumber: string;
+  canMarkShipped?: boolean;
+  reviewMessage?: string;
 }) {
   const [carrier, setCarrier] = useState(currentCarrier || "USPS");
   const [trackingNumber, setTrackingNumber] = useState(
@@ -52,6 +56,14 @@ export default function TrackingForm({
   }
 
   async function markShipped() {
+    if (!canMarkShipped) {
+      setMessage(
+        reviewMessage ||
+          "This order is on a review hold and cannot be marked shipped yet."
+      );
+      return;
+    }
+
     setShipping(true);
     setMessage("");
 
@@ -144,12 +156,18 @@ export default function TrackingForm({
 
         <button
           onClick={markShipped}
-          disabled={shipping}
+          disabled={shipping || !canMarkShipped}
           className="bg-green-600 text-white px-5 py-2 rounded disabled:opacity-50"
         >
           {shipping ? "Shipping..." : "Mark Shipped"}
         </button>
       </div>
+
+      {!canMarkShipped && reviewMessage ? (
+        <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-900">
+          {reviewMessage}
+        </div>
+      ) : null}
 
       {message && <div className="border rounded bg-gray-50 p-3">{message}</div>}
     </div>
