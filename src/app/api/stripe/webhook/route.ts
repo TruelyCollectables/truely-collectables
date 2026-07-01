@@ -7,6 +7,7 @@ import { createTransactionEvidenceReport } from "../../../../lib/transaction-evi
 import { getActiveStoreId } from "../../../../lib/stores";
 import { updateSellerPayoutAccountFromStripe } from "../../../../lib/seller-payouts";
 import { evaluateAccountCardVerification } from "../../../../lib/account-card-verification";
+import { parseCartMetadata } from "../../../../lib/checkout-cart-metadata";
 
 export const dynamic = "force-dynamic";
 
@@ -197,7 +198,7 @@ export async function POST(req: Request) {
 
       const offerId = session.metadata?.offer_id;
       const checkoutType = session.metadata?.type || "cart";
-      const cartMetadata = session.metadata?.cart || "[]";
+      const cartMetadata = session.metadata?.cart || "";
 
       const shippingMethod = session.metadata?.shipping_method || "";
       const shippingName = session.metadata?.shipping_name || "";
@@ -233,14 +234,7 @@ export async function POST(req: Request) {
         return NextResponse.json({ received: true });
       }
 
-      let rawCart: unknown = [];
-
-      try {
-        const parsed = JSON.parse(cartMetadata);
-        rawCart = Array.isArray(parsed) ? parsed : parsed?.items || [];
-      } catch {
-        rawCart = [];
-      }
+      let rawCart: unknown = parseCartMetadata(cartMetadata);
 
       if (
         Array.isArray(rawCart) &&

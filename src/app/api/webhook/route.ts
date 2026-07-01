@@ -7,6 +7,7 @@ import { createTransactionEvidenceReport } from "../../../lib/transaction-eviden
 import { getActiveStoreId } from "../../../lib/stores";
 import { updateSellerPayoutAccountFromStripe } from "../../../lib/seller-payouts";
 import { evaluateAccountCardVerification } from "../../../lib/account-card-verification";
+import { parseCartMetadata } from "../../../lib/checkout-cart-metadata";
 
 export const dynamic = "force-dynamic";
 
@@ -240,15 +241,7 @@ export async function POST(req: Request) {
     const offerId = metadata.offer_id;
     const checkoutType = metadata.type || "cart";
 
-    let rawCart: unknown = [];
-
-    try {
-      const parsed = JSON.parse(metadata.cart || "[]");
-      rawCart = Array.isArray(parsed) ? parsed : parsed.items || [];
-    } catch (err: any) {
-      console.error("Cart metadata parse failed:", err.message);
-      rawCart = [];
-    }
+    let rawCart: unknown = parseCartMetadata(metadata.cart);
 
     if (
       Array.isArray(rawCart) &&

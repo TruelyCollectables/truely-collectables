@@ -26,6 +26,10 @@ import {
   publicEndpointRateLimitPolicies,
   publicEndpointRateLimitResponse,
 } from "../../../lib/public-endpoint-rate-limit";
+import {
+  encodeCartMetadata,
+  STRIPE_CART_METADATA_MAX_LENGTH,
+} from "../../../lib/checkout-cart-metadata";
 
 export const dynamic = "force-dynamic";
 
@@ -57,6 +61,7 @@ export async function POST(request: Request) {
     const account = await getAuthenticatedAccountFromRequest(request);
 
     const cart = inventoryEngine.normalizeCartItems(body.cart);
+    const cartMetadata = encodeCartMetadata(cart);
     const shippingMethod = body.shippingMethod as ShippingMethod;
     const tosAccepted = hasAcceptedTerms(body.tosAccepted);
     const tosVersion = String(body.tosVersion || TERMS_OF_SERVICE_VERSION);
@@ -65,6 +70,16 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: "Terms of Service must be accepted before checkout" },
         { status: 400 }
+      );
+    }
+
+    if (cartMetadata.length > STRIPE_CART_METADATA_MAX_LENGTH) {
+      return NextResponse.json(
+        {
+          error:
+            "Cart has too many unique items for checkout. Please split this into smaller orders.",
+        },
+        { status: 400 },
       );
     }
 
@@ -172,7 +187,7 @@ export async function POST(request: Request) {
       metadata: {
         store_id: storeId,
         account_id: account?.id || "",
-        cart: JSON.stringify(cart),
+        cart: cartMetadata,
         shipping_method: shippingMethod,
         shipping_name: shippingName,
         shipping_amount: shippingAmount.toFixed(2),

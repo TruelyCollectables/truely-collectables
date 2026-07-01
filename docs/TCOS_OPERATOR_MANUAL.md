@@ -1063,6 +1063,7 @@ Checkout validates:
 - shipping method is valid
 - shipping is currently limited to United States addresses
 - Terms of Service was accepted
+- cart metadata fits inside Stripe metadata limits
 - each product exists
 - each product is `active`
 - each product has enough quantity
@@ -1080,7 +1081,7 @@ Successful cart checkout sends the buyer to:
 
 Stripe metadata includes:
 
-- cart
+- compact cart item/quantity metadata
 - shipping method
 - shipping name
 - shipping amount
@@ -1123,7 +1124,7 @@ Accepted-offer sessions use `product_id` metadata if cart metadata is missing.
 
 Safety rule:
 
-Webhook cart metadata is normalized the same way checkout cart input is normalized. Duplicate product lines are combined before availability checks.
+Webhook cart metadata is normalized the same way checkout cart input is normalized. Duplicate product lines are combined before availability checks. Current cart checkout stores compact cart metadata in Stripe so large cart JSON cannot break checkout; webhooks still accept older JSON cart metadata for existing sessions.
 
 Inventory decrements run through the Supabase RPC `tcos_decrement_inventory_after_sale`, which locks the product row, refuses insufficient quantity, updates `products.quantity`, mirrors the result into `inventory_items`, and returns the before/after quantity. If inventory disappears between checkout creation and Stripe webhook completion, TCOS marks the paid order as `paid_inventory_review` / `inventory_review` instead of silently overselling the item.
 
