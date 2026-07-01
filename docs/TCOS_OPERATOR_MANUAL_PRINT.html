@@ -597,6 +597,9 @@
 <p>Launch readiness also checks whether <code>admin_login_attempts</code> is available. If the table is missing or unavailable, <code>/admin/launch-readiness</code> marks Admin Login Audit as blocked.</p>
 <p>The same <code>/admin/security</code> page also shows public money-path rate-limit events from <code>public_endpoint_rate_limit_events</code>, including checkout attempts, public offer attempts, collector binding-offer setup, seller payout onboarding, blocked status, endpoint, IP address, subject key, identity risk, block reason, policy window, and header evidence summary.</p>
 <p>Launch readiness checks whether <code>public_endpoint_rate_limit_events</code> is available. If the table is missing or unavailable, <code>/admin/launch-readiness</code> marks Public Endpoint Rate Limits as blocked.</p>
+<p>Suspicious IP drilldown:</p>
+<pre><code>/admin/security/ip/[ip]</code></pre>
+<p>IP addresses on <code>/admin/security</code> link to a focused IP dossier. The dossier combines admin login attempts, public money-path rate-limit events, TOS acceptance evidence, orders, offers, and transaction evidence reports tied to that server-observed IP. Use it when reviewing blocked checkout attempts, offer spam, suspicious account behavior, chargebacks, or repeat abuse.</p>
 <h2>4. Product And Inventory Basics</h2>
 <p>TCOS currently keeps two inventory layers in sync:</p>
 <ol>
@@ -2367,6 +2370,7 @@ market_news_snapshots</code></pre>
 <li>collector binding-offer payment setup is rate-limited to 6 attempts per hour per IP/account subject</li>
 <li>seller payout onboarding is rate-limited to 5 attempts per hour per IP/account subject</li>
 <li><code>/admin/security</code> shows recent public money-path events, blocked events, watch events, unique IPs, endpoint counts, identity risk, and header evidence summary</li>
+<li><code>/admin/security/ip/[ip]</code> shows a focused dossier for one IP across login attempts, money-path attempts, TOS events, orders, offers, and transaction evidence reports</li>
 <li><code>/admin/launch-readiness</code> checks whether the public endpoint rate-limit audit table is available</li>
 <li>buyer account signup starts accounts in <code>payment_verification_required</code> status when card verification is required</li>
 <li>Stripe Checkout setup mode collects the buyer card and billing address before TCOS activates the account</li>

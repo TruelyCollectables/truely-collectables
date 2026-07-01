@@ -112,6 +112,24 @@ function evidenceSummary(event: PublicRateLimitEvent) {
   return values.length > 0 ? values.join(" | ") : "No header evidence";
 }
 
+function ipHref(ipAddress: string | null) {
+  return ipAddress
+    ? `/admin/security/ip/${encodeURIComponent(ipAddress)}`
+    : null;
+}
+
+function IpLink({ ipAddress }: { ipAddress: string | null }) {
+  const href = ipHref(ipAddress);
+
+  if (!href) return <>Unknown</>;
+
+  return (
+    <Link className="font-black text-amber-700 underline" href={href}>
+      {ipAddress}
+    </Link>
+  );
+}
+
 export default async function AdminSecurityPage() {
   const storeId = getActiveStoreId();
   const [loginResult, rateLimitResult] = await Promise.all([
@@ -292,7 +310,7 @@ export default async function AdminSecurityPage() {
                         {endpointLabel(event.endpoint_key)}
                       </td>
                       <td className="px-4 py-4 font-semibold">
-                        {event.ip_address || "Unknown"}
+                        <IpLink ipAddress={event.ip_address} />
                       </td>
                       <td className="max-w-[180px] px-4 py-4 text-xs text-neutral-600">
                         <span className="line-clamp-3 break-words">
@@ -389,7 +407,7 @@ export default async function AdminSecurityPage() {
                         </span>
                       </td>
                       <td className="px-4 py-4 font-semibold">
-                        {attempt.ip_address || "Unknown"}
+                        <IpLink ipAddress={attempt.ip_address} />
                       </td>
                       <td className="px-4 py-4">
                         {normalizeReason(attempt.identity_risk)}

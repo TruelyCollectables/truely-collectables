@@ -364,6 +364,14 @@ The same `/admin/security` page also shows public money-path rate-limit events f
 
 Launch readiness checks whether `public_endpoint_rate_limit_events` is available. If the table is missing or unavailable, `/admin/launch-readiness` marks Public Endpoint Rate Limits as blocked.
 
+Suspicious IP drilldown:
+
+```text
+/admin/security/ip/[ip]
+```
+
+IP addresses on `/admin/security` link to a focused IP dossier. The dossier combines admin login attempts, public money-path rate-limit events, TOS acceptance evidence, orders, offers, and transaction evidence reports tied to that server-observed IP. Use it when reviewing blocked checkout attempts, offer spam, suspicious account behavior, chargebacks, or repeat abuse.
+
 ## 4. Product And Inventory Basics
 
 TCOS currently keeps two inventory layers in sync:
@@ -2399,6 +2407,7 @@ Current implemented protections:
 - collector binding-offer payment setup is rate-limited to 6 attempts per hour per IP/account subject
 - seller payout onboarding is rate-limited to 5 attempts per hour per IP/account subject
 - `/admin/security` shows recent public money-path events, blocked events, watch events, unique IPs, endpoint counts, identity risk, and header evidence summary
+- `/admin/security/ip/[ip]` shows a focused dossier for one IP across login attempts, money-path attempts, TOS events, orders, offers, and transaction evidence reports
 - `/admin/launch-readiness` checks whether the public endpoint rate-limit audit table is available
 - buyer account signup starts accounts in `payment_verification_required` status when card verification is required
 - Stripe Checkout setup mode collects the buyer card and billing address before TCOS activates the account
