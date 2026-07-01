@@ -244,6 +244,41 @@ Fields:
 | `identity_evidence` | Request header evidence JSON |
 | `created_at` | Event timestamp |
 
+### `security_ip_investigations`
+
+Operator workflow table for suspicious IP cases.
+
+Created by migration:
+
+```text
+supabase/migrations/20260630120000_create_security_ip_investigations.sql
+```
+
+Runtime behavior:
+
+- `/admin/security` lists saved IP investigations with status, severity, review timestamps, and notes
+- `/admin/security/ip/[ip]` can create or update the case for one IP
+- valid statuses are `watch`, `review`, and `resolved`
+- valid severities are `low`, `medium`, `high`, and `critical`
+- resolving a case stores `resolved_at`; later moving it back to watch or review clears `resolved_at`
+- `last_reviewed_at` updates every time the case form is saved
+- notes are internal admin notes and should not be exposed publicly
+
+Fields:
+
+| Field | Purpose |
+| --- | --- |
+| `id` | Investigation ID |
+| `store_id` | Store context |
+| `ip_address` | Server-observed IP under review |
+| `status` | watch, review, or resolved |
+| `severity` | low, medium, high, or critical |
+| `notes` | Internal admin notes |
+| `created_at` | Created timestamp |
+| `updated_at` | Updated timestamp |
+| `last_reviewed_at` | Last admin review timestamp |
+| `resolved_at` | Resolution timestamp |
+
 ## Account Dashboard Intelligence Tables
 
 Created by migration:
@@ -1269,6 +1304,16 @@ Creates:
 - indexes for optional subject-specific rate-limit checks
 
 This table backs public money-path throttling for checkout, public offer creation, collector binding offers, and seller payout onboarding.
+
+### `20260630120000_create_security_ip_investigations.sql`
+
+Creates:
+
+- `security_ip_investigations`
+- unique index on `(store_id, ip_address)`
+- index for store/status/updated review queues
+
+This table turns suspicious IP dossiers into persistent admin case files with status, severity, internal notes, review timestamp, and resolution timestamp.
 
 ### `20260628213000_create_sports_dashboard_tables.sql`
 

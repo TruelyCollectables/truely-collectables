@@ -364,6 +364,10 @@ The same `/admin/security` page also shows public money-path rate-limit events f
 
 Launch readiness checks whether `public_endpoint_rate_limit_events` is available. If the table is missing or unavailable, `/admin/launch-readiness` marks Public Endpoint Rate Limits as blocked.
 
+The same `/admin/security` page also lists saved IP investigations from `security_ip_investigations`. These cases show the IP address, status, severity, updated/reviewed/resolved timestamps, and internal notes.
+
+Launch readiness checks whether `security_ip_investigations` is available. If the table is missing or unavailable, `/admin/launch-readiness` marks Security IP Investigations as blocked.
+
 Suspicious IP drilldown:
 
 ```text
@@ -371,6 +375,8 @@ Suspicious IP drilldown:
 ```
 
 IP addresses on `/admin/security` link to a focused IP dossier. The dossier combines admin login attempts, public money-path rate-limit events, TOS acceptance evidence, orders, offers, and transaction evidence reports tied to that server-observed IP. Use it when reviewing blocked checkout attempts, offer spam, suspicious account behavior, chargebacks, or repeat abuse.
+
+The IP dossier includes an investigation form. Admins can mark the IP as `watch`, `review`, or `resolved`, set severity as `low`, `medium`, `high`, or `critical`, and save internal notes. Saving the form updates `last_reviewed_at`; resolving the case stores `resolved_at`.
 
 ## 4. Product And Inventory Basics
 
@@ -2408,7 +2414,9 @@ Current implemented protections:
 - seller payout onboarding is rate-limited to 5 attempts per hour per IP/account subject
 - `/admin/security` shows recent public money-path events, blocked events, watch events, unique IPs, endpoint counts, identity risk, and header evidence summary
 - `/admin/security/ip/[ip]` shows a focused dossier for one IP across login attempts, money-path attempts, TOS events, orders, offers, and transaction evidence reports
+- `/admin/security/ip/[ip]` lets admins save a persistent investigation status, severity, and internal notes
 - `/admin/launch-readiness` checks whether the public endpoint rate-limit audit table is available
+- `/admin/launch-readiness` checks whether the security IP investigation table is available
 - buyer account signup starts accounts in `payment_verification_required` status when card verification is required
 - Stripe Checkout setup mode collects the buyer card and billing address before TCOS activates the account
 - signed Stripe webhook completion marks the account active and stores Stripe-safe card proof, such as customer ID, setup intent ID, payment method ID, card brand, last 4, expiry, funding type, billing name, billing country, and billing postal code
@@ -2592,6 +2600,7 @@ TCOS V2:
 - `sales_comp_snapshots`
 - `tos_acceptance_events`
 - `transaction_evidence_reports`
+- `security_ip_investigations`
 
 See:
 
@@ -2610,6 +2619,7 @@ supabase/migrations
 Current migration:
 
 ```text
+20260630120000_create_security_ip_investigations.sql
 20260630113000_create_public_endpoint_rate_limit_events.sql
 20260630110000_create_inventory_sale_decrement_rpc.sql
 20260629083000_create_inventory_v2_app_policies.sql

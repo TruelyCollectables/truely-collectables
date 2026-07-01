@@ -32,6 +32,17 @@ type PublicRateLimitEvent = {
   created_at: string;
 };
 
+type SecurityIpInvestigation = {
+  id: string;
+  ip_address: string;
+  status: "watch" | "review" | "resolved";
+  severity: "low" | "medium" | "high" | "critical";
+  notes: string | null;
+  updated_at: string;
+  last_reviewed_at: string | null;
+  resolved_at: string | null;
+};
+
 function shortDate(value: string | null) {
   if (!value) return "Not set";
 
@@ -99,6 +110,18 @@ function rateLimitLabel(event: PublicRateLimitEvent) {
   return "ALLOWED";
 }
 
+function investigationTone(value: string | null | undefined) {
+  if (value === "critical" || value === "review") {
+    return "border-rose-200 bg-rose-50 text-rose-800";
+  }
+
+  if (value === "high" || value === "watch" || value === "medium") {
+    return "border-amber-200 bg-amber-50 text-amber-800";
+  }
+
+  return "border-emerald-200 bg-emerald-50 text-emerald-800";
+}
+
 function evidenceSummary(event: PublicRateLimitEvent) {
   const evidence = event.identity_evidence || {};
   const values = [
@@ -132,7 +155,7 @@ function IpLink({ ipAddress }: { ipAddress: string | null }) {
 
 export default async function AdminSecurityPage() {
   const storeId = getActiveStoreId();
-  const [loginResult, rateLimitResult] = await Promise.all([
+  const [loginResult, rateLimitResult, investigationResult] = await Promise.all([
     supabase
     .from("admin_login_attempts")
     .select(
@@ -149,10 +172,20 @@ export default async function AdminSecurityPage() {
       .eq("store_id", storeId)
       .order("created_at", { ascending: false })
       .limit(150),
+    supabase
+      .from("security_ip_investigations")
+      .select(
+        "id,ip_address,status,severity,notes,updated_at,last_reviewed_at,resolved_at",
+      )
+      .eq("store_id", storeId)
+      .order("updated_at", { ascending: false })
+      .limit(50),
   ]);
 
   const attempts = (loginResult.data ?? []) as AdminLoginAttempt[];
   const rateLimitEvents = (rateLimitResult.data ?? []) as PublicRateLimitEvent[];
+  const investigations =
+    (investigationResult.data ?? []) as SecurityIpInvestigation[];
   const failedAttempts = attempts.filter((attempt) => !attempt.success);
   const successfulAttempts = attempts.filter((attempt) => attempt.success);
   const activeLockouts = attempts.filter((attempt) =>
@@ -229,6 +262,95 @@ export default async function AdminSecurityPage() {
             </p>
           </section>
         ) : null}
+
+        {investigationResult.error ? (
+          <section className="rounded-md border border-rose-200 bg-rose-50 p-5 text-rose-800">
+            <h2 className="text-xl font-black">Investigation Cases Unavailable</h2>
+            <p className="mt-2 text-sm font-semibold">
+              {investigationResult.error.message}
+            </p>
+            <p className="mt-2 text-sm">
+              Apply the
+              `20260630120000_create_security_ip_investigations.sql`
+              migration to enable watched IP cases, review status, severity,
+              and internal notes.
+            </p>
+          </section>
+        ) : null}
+
+        <section className="rounded-md border border-neutral-200 bg-white">
+          <div className="border-b border-neutral-200 p-5">
+            <h2 className="text-2xl font-black">Active IP Investigations</h2>
+            <p className="mt-1 text-sm text-neutral-600">
+              Watched, review, and resolved IP cases saved from IP dossiers.
+            </p>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[900px] text-left text-sm">
+              <thead className="bg-neutral-50 text-xs uppercase text-neutral-500">
+                <tr>
+                  <th className="px-4 py-3">IP</th>
+                  <th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3">Severity</th>
+                  <th className="px-4 py-3">Updated</th>
+                  <th className="px-4 py-3">Reviewed</th>
+                  <th className="px-4 py-3">Resolved</th>
+                  <th className="px-4 py-3">Notes</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-neutral-200">
+                {investigations.length === 0 ? (
+                  <tr>
+                    <td className="px-4 py-6 text-neutral-600" colSpan={7}>
+                      No IP investigations saved yet.
+                    </td>
+                  </tr>
+                ) : (
+                  investigations.map((investigation) => (
+                    <tr key={investigation.id} className="align-top">
+                      <td className="px-4 py-4">
+                        <IpLink ipAddress={investigation.ip_address} />
+                      </td>
+                      <td className="px-4 py-4">
+                        <span
+                          className={`rounded border px-2 py-1 text-xs font-black ${investigationTone(
+                            investigation.status,
+                          )}`}
+                        >
+                          {normalizeReason(investigation.status)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-4">
+                        <span
+                          className={`rounded border px-2 py-1 text-xs font-black ${investigationTone(
+                            investigation.severity,
+                          )}`}
+                        >
+                          {normalizeReason(investigation.severity)}
+                        </span>
+                      </td>
+                      <td className="px-4 py-4">
+                        {shortDate(investigation.updated_at)}
+                      </td>
+                      <td className="px-4 py-4">
+                        {shortDate(investigation.last_reviewed_at)}
+                      </td>
+                      <td className="px-4 py-4">
+                        {shortDate(investigation.resolved_at)}
+                      </td>
+                      <td className="max-w-[340px] px-4 py-4 text-xs text-neutral-600">
+                        <span className="line-clamp-3 break-words">
+                          {investigation.notes || "No notes"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
 
         <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
           <Metric label="Money Events" value={String(rateLimitEvents.length)} />

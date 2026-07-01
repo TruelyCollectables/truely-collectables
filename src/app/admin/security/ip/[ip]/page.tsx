@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { supabase } from "../../../../../lib/supabase";
 import { getActiveStoreId } from "../../../../../lib/stores";
 
@@ -83,6 +84,63 @@ type EvidenceReport = {
   created_at: string;
 };
 
+type SecurityIpInvestigation = {
+  id: string;
+  ip_address: string;
+  status: "watch" | "review" | "resolved";
+  severity: "low" | "medium" | "high" | "critical";
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+  last_reviewed_at: string | null;
+  resolved_at: string | null;
+};
+
+const INVESTIGATION_STATUSES = ["watch", "review", "resolved"] as const;
+const INVESTIGATION_SEVERITIES = ["low", "medium", "high", "critical"] as const;
+
+async function saveIpInvestigation(formData: FormData) {
+  "use server";
+
+  const ipAddress = String(formData.get("ip_address") || "").trim();
+  const status = String(formData.get("status") || "watch").trim();
+  const severity = String(formData.get("severity") || "medium").trim();
+  const notes = String(formData.get("notes") || "").trim();
+
+  if (!ipAddress) {
+    redirect("/admin/security?case=missing-ip");
+  }
+
+  if (
+    !INVESTIGATION_STATUSES.includes(status as SecurityIpInvestigation["status"]) ||
+    !INVESTIGATION_SEVERITIES.includes(
+      severity as SecurityIpInvestigation["severity"],
+    )
+  ) {
+    redirect(`/admin/security/ip/${encodeURIComponent(ipAddress)}?case=invalid`);
+  }
+
+  const now = new Date().toISOString();
+
+  await supabase.from("security_ip_investigations").upsert(
+    {
+      store_id: getActiveStoreId(),
+      ip_address: ipAddress,
+      status,
+      severity,
+      notes: notes || null,
+      updated_at: now,
+      last_reviewed_at: now,
+      resolved_at: status === "resolved" ? now : null,
+    },
+    {
+      onConflict: "store_id,ip_address",
+    },
+  );
+
+  redirect(`/admin/security/ip/${encodeURIComponent(ipAddress)}?case=saved`);
+}
+
 function shortDate(value: string | null) {
   if (!value) return "Not set";
 
@@ -142,6 +200,18 @@ function statusTone(value: string | null | undefined) {
   return "border-emerald-200 bg-emerald-50 text-emerald-800";
 }
 
+function investigationTone(value: string | null | undefined) {
+  if (value === "critical" || value === "review") {
+    return "border-rose-200 bg-rose-50 text-rose-800";
+  }
+
+  if (value === "high" || value === "watch" || value === "medium") {
+    return "border-amber-200 bg-amber-50 text-amber-800";
+  }
+
+  return "border-emerald-200 bg-emerald-50 text-emerald-800";
+}
+
 function evidenceSummary(
   evidence: Record<string, string | null> | null | undefined,
 ) {
@@ -179,6 +249,7 @@ export default async function AdminSecurityIpDetailPage({
     tosResult,
     ordersResult,
     offersResult,
+    investigationResult,
   ] = await Promise.all([
     supabase
       .from("admin_login_attempts")
@@ -225,6 +296,14 @@ export default async function AdminSecurityIpDetailPage({
       .eq("tos_ip_address", ipAddress)
       .order("created_at", { ascending: false })
       .limit(100),
+    supabase
+      .from("security_ip_investigations")
+      .select(
+        "id,ip_address,status,severity,notes,created_at,updated_at,last_reviewed_at,resolved_at",
+      )
+      .eq("store_id", storeId)
+      .eq("ip_address", ipAddress)
+      .maybeSingle(),
   ]);
 
   const loginAttempts = (loginResult.data ?? []) as AdminLoginAttempt[];
@@ -232,6 +311,8 @@ export default async function AdminSecurityIpDetailPage({
   const tosEvents = (tosResult.data ?? []) as TosEvent[];
   const orders = (ordersResult.data ?? []) as Order[];
   const offers = (offersResult.data ?? []) as Offer[];
+  const investigation =
+    (investigationResult.data as SecurityIpInvestigation | null) ?? null;
   const orderIds = orders.map((order) => order.id);
   const evidenceResult =
     orderIds.length > 0
@@ -261,6 +342,7 @@ export default async function AdminSecurityIpDetailPage({
     tosResult.error,
     ordersResult.error,
     offersResult.error,
+    investigationResult.error,
     evidenceResult.error,
   ].filter(Boolean);
 
@@ -351,6 +433,98 @@ export default async function AdminSecurityIpDetailPage({
               ].sort().at(-1) ?? null,
             )}
           />
+        </section>
+
+        <section className="rounded-md border border-neutral-200 bg-white">
+          <div className="grid grid-cols-1 gap-0 lg:grid-cols-[1fr_1.2fr]">
+            <div className="border-b border-neutral-200 p-5 lg:border-b-0 lg:border-r">
+              <h2 className="text-2xl font-black">Investigation Status</h2>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Pill
+                  label={label(investigation?.status || "untracked")}
+                  className={investigationTone(investigation?.status)}
+                />
+                <Pill
+                  label={label(investigation?.severity || "medium")}
+                  className={investigationTone(investigation?.severity)}
+                />
+              </div>
+              <dl className="mt-5 space-y-3 text-sm">
+                <div>
+                  <dt className="font-bold uppercase text-neutral-500">Updated</dt>
+                  <dd>{shortDate(investigation?.updated_at || null)}</dd>
+                </div>
+                <div>
+                  <dt className="font-bold uppercase text-neutral-500">Last Reviewed</dt>
+                  <dd>{shortDate(investigation?.last_reviewed_at || null)}</dd>
+                </div>
+                <div>
+                  <dt className="font-bold uppercase text-neutral-500">Resolved</dt>
+                  <dd>{shortDate(investigation?.resolved_at || null)}</dd>
+                </div>
+              </dl>
+              <div className="mt-5 rounded border border-neutral-200 bg-neutral-50 p-4 text-sm text-neutral-700">
+                {investigation?.notes || "No internal notes yet."}
+              </div>
+            </div>
+
+            <form action={saveIpInvestigation} className="space-y-5 p-5">
+              <input type="hidden" name="ip_address" value={ipAddress} />
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <label className="space-y-2">
+                  <span className="text-sm font-bold uppercase text-neutral-500">
+                    Status
+                  </span>
+                  <select
+                    name="status"
+                    defaultValue={investigation?.status || "watch"}
+                    className="w-full rounded border border-neutral-300 px-3 py-2"
+                  >
+                    <option value="watch">Watch</option>
+                    <option value="review">Review</option>
+                    <option value="resolved">Resolved</option>
+                  </select>
+                </label>
+
+                <label className="space-y-2">
+                  <span className="text-sm font-bold uppercase text-neutral-500">
+                    Severity
+                  </span>
+                  <select
+                    name="severity"
+                    defaultValue={investigation?.severity || "medium"}
+                    className="w-full rounded border border-neutral-300 px-3 py-2"
+                  >
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                    <option value="critical">Critical</option>
+                  </select>
+                </label>
+              </div>
+
+              <label className="space-y-2">
+                <span className="text-sm font-bold uppercase text-neutral-500">
+                  Internal Notes
+                </span>
+                <textarea
+                  name="notes"
+                  defaultValue={investigation?.notes || ""}
+                  rows={7}
+                  maxLength={5000}
+                  className="w-full rounded border border-neutral-300 px-3 py-2 text-sm"
+                  placeholder="Summarize why this IP is being watched, what evidence matters, and what action was taken."
+                />
+              </label>
+
+              <button
+                type="submit"
+                className="rounded-md bg-neutral-950 px-5 py-2 text-sm font-black text-white hover:bg-neutral-800"
+              >
+                Save Investigation
+              </button>
+            </form>
+          </div>
         </section>
 
         <EvidenceBlock

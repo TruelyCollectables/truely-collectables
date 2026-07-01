@@ -315,6 +315,15 @@ async function checkDatabaseReadiness(): Promise<ReadinessItem[]> {
         "public_endpoint_rate_limit_events is available for checkout, offer, binding-offer, and seller-onboarding throttling.",
     },
     {
+      label: "Security IP Investigations",
+      table: "security_ip_investigations",
+      select:
+        "id,store_id,ip_address,status,severity,notes,updated_at,last_reviewed_at,resolved_at",
+      migration: "20260630120000_create_security_ip_investigations.sql",
+      readyDetail:
+        "security_ip_investigations is available for watched IP cases, review status, severity, and internal notes.",
+    },
+    {
       label: "Customer Account Profiles",
       table: "account_profiles",
       select: "id,email,display_name,account_status,default_account_type,tos_accepted,created_at",
