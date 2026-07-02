@@ -179,6 +179,38 @@ export default function SellerConnectionsPanel() {
     }
   }
 
+  async function refreshEbayStatus() {
+    if (!session?.access_token) return;
+
+    setIsSavingProvider("ebay-status");
+    setMessage("");
+
+    try {
+      const response = await fetch(
+        "/api/account/seller/marketplace-connections/ebay/status",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        },
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Could not refresh seller eBay status.");
+      }
+
+      setMessage("Seller eBay status refreshed.");
+      const nextConnections = await fetchSellerConnections(session.access_token);
+      setConnections(nextConnections);
+    } catch (error: any) {
+      setMessage(error.message || "Could not refresh seller eBay status.");
+    } finally {
+      setIsSavingProvider("");
+    }
+  }
+
   if (!session) {
     return (
       <section className="rounded-md border border-neutral-200 bg-white p-5">
@@ -245,6 +277,7 @@ export default function SellerConnectionsPanel() {
                 <th className="px-4 py-3">Sync</th>
                 <th className="px-4 py-3">Last Sync</th>
                 <th className="px-4 py-3">Token Rotation</th>
+                <th className="px-4 py-3">Action</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-200">
@@ -289,6 +322,32 @@ export default function SellerConnectionsPanel() {
                     <p className="mt-1 text-xs text-neutral-500">
                       Access expires {shortDate(connection.accessTokenExpiresAt)}
                     </p>
+                  </td>
+                  <td className="px-4 py-4">
+                    {connection.provider === "ebay" &&
+                    connection.connectionStatus === "connected" ? (
+                      <button
+                        type="button"
+                        onClick={() => refreshEbayStatus()}
+                        disabled={isSavingProvider.length > 0}
+                        className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-bold hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        Refresh Status
+                      </button>
+                    ) : connection.provider === "ebay" ? (
+                      <button
+                        type="button"
+                        onClick={() => requestConnection("ebay")}
+                        disabled={isSavingProvider.length > 0}
+                        className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-bold hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        Reconnect eBay
+                      </button>
+                    ) : (
+                      <span className="text-xs font-semibold text-neutral-500">
+                        Pending provider build
+                      </span>
+                    )}
                   </td>
                 </tr>
               ))}

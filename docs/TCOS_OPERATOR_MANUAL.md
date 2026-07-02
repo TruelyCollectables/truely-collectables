@@ -303,6 +303,7 @@ Most day-to-day work starts at:
 | `/api/account/seller/payout-onboarding` | Starts or checks Stripe-hosted seller payout/bank verification |
 | `/api/account/seller/marketplace-connections` | Loads or saves logged-in seller marketplace connection records for the active store |
 | `/api/account/seller/marketplace-connections/ebay/auth` | Starts seller-safe eBay OAuth and returns the authorization URL |
+| `/api/account/seller/marketplace-connections/ebay/status` | Refreshes the logged-in seller's eBay token status and updates connection health |
 | `/api/checkout` | Creates Stripe checkout session |
 | `/api/webhook` | Main Stripe webhook handler |
 | `/api/stripe/webhook` | Alternate Stripe webhook handler |
@@ -1693,6 +1694,7 @@ Current seller payout verification foundation:
 - `/api/account/seller/payout-onboarding` starts or resumes Stripe-hosted Express onboarding
 - `/api/account/seller/marketplace-connections` returns seller-scoped marketplace connection records and saves seller connection requests for the logged-in account
 - `/api/account/seller/marketplace-connections/ebay/auth` starts seller-safe eBay OAuth for the logged-in account
+- `/api/account/seller/marketplace-connections/ebay/status` refreshes the seller eBay token and updates connection health without touching the Store #1 `ebay_tokens` path
 - the seller must accept Seller Terms before payout onboarding starts
 - seller TOS acceptance is recorded through `tos_acceptance_events`
 - Stripe collects and verifies bank/payout details; TCOS does not collect raw checking account or routing numbers
