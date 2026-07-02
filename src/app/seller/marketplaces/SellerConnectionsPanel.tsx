@@ -5,7 +5,27 @@ import {
   getAccountSession,
   type StoredAccountSession,
 } from "../../account/account-session";
-import type { PublicSellerMarketplaceConnection } from "../../../lib/seller-marketplace-connections";
+import type {
+  PublicSellerMarketplaceConnection,
+  SellerMarketplaceProvider,
+} from "../../../lib/seller-marketplace-connections";
+
+const requestableProviders: Array<{
+  provider: SellerMarketplaceProvider;
+  label: string;
+  note: string;
+}> = [
+  {
+    provider: "ebay",
+    label: "Request eBay Connection",
+    note: "Queue seller-safe eBay account linking for this store account.",
+  },
+  {
+    provider: "shopify",
+    label: "Queue Shopify",
+    note: "Save interest for future TCOS to Shopify seller sync.",
+  },
+];
 
 function label(value: string | null | undefined) {
   if (!value) return "Not set";
@@ -45,6 +65,23 @@ function statusTone(value: string | null | undefined) {
   return "border-neutral-200 bg-neutral-100 text-neutral-700";
 }
 
+async function fetchSellerConnections(accessToken: string) {
+  const response = await fetch("/api/account/seller/marketplace-connections", {
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+    },
+  });
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(
+      data.error || "Could not load seller marketplace connections.",
+    );
+  }
+
+  return (data.connections || []) as PublicSellerMarketplaceConnection[];
+}
+
 export default function SellerConnectionsPanel() {
   const [session] = useState<StoredAccountSession | null>(() =>
     typeof window === "undefined" ? null : getAccountSession(),
@@ -52,48 +89,71 @@ export default function SellerConnectionsPanel() {
   const [connections, setConnections] = useState<
     PublicSellerMarketplaceConnection[]
   >([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(() => Boolean(session?.access_token));
+  const [isSavingProvider, setIsSavingProvider] = useState("");
   const [message, setMessage] = useState("");
 
   useEffect(() => {
     if (!session?.access_token) return;
 
-    async function loadConnections() {
-      setIsLoading(true);
-      setMessage("");
-
-      try {
-        const response = await fetch(
-          "/api/account/seller/marketplace-connections",
-          {
-            headers: {
-              Authorization: `Bearer ${session?.access_token}`,
-            },
-          },
-        );
-        const data = await response.json();
-
-        if (!response.ok) {
+    const timeout = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const nextConnections = await fetchSellerConnections(
+            session.access_token,
+          );
+          setConnections(nextConnections);
+          setMessage("");
+        } catch (error: any) {
           setMessage(
-            data.error || "Could not load seller marketplace connections.",
+            error.message || "Could not load seller marketplace connections.",
           );
           setConnections([]);
-          return;
+        } finally {
+          setIsLoading(false);
         }
+      })();
+    }, 0);
 
-        setConnections(data.connections || []);
-      } catch (error: any) {
-        setMessage(
-          error.message || "Could not load seller marketplace connections.",
-        );
-        setConnections([]);
-      } finally {
-        setIsLoading(false);
-      }
-    }
-
-    loadConnections();
+    return () => window.clearTimeout(timeout);
   }, [session?.access_token]);
+
+  async function requestConnection(provider: SellerMarketplaceProvider) {
+    if (!session?.access_token) return;
+
+    setIsSavingProvider(provider);
+    setMessage("");
+
+    try {
+      const response = await fetch("/api/account/seller/marketplace-connections", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+        },
+        body: JSON.stringify({
+          provider,
+        }),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          data.error || "Could not save seller marketplace connection.",
+        );
+      }
+
+      setMessage(`${label(provider)} connection request saved.`);
+      const nextConnections = await fetchSellerConnections(session.access_token);
+      setConnections(nextConnections);
+    } catch (error: any) {
+      setMessage(
+        error.message || "Could not save seller marketplace connection.",
+      );
+    } finally {
+      setIsSavingProvider("");
+    }
+  }
 
   if (!session) {
     return (
@@ -124,6 +184,21 @@ export default function SellerConnectionsPanel() {
         ) : null}
       </div>
 
+      <div className="grid gap-3 border-b border-neutral-200 bg-neutral-50 p-5 md:grid-cols-2">
+        {requestableProviders.map((provider) => (
+          <button
+            key={provider.provider}
+            type="button"
+            onClick={() => requestConnection(provider.provider)}
+            disabled={isSavingProvider.length > 0}
+            className="rounded-md border border-neutral-300 bg-white px-4 py-3 text-left hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <p className="font-black">{provider.label}</p>
+            <p className="mt-1 text-sm text-neutral-600">{provider.note}</p>
+          </button>
+        ))}
+      </div>
+
       {message ? (
         <div className="border-b border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-900">
           {message}
@@ -132,8 +207,8 @@ export default function SellerConnectionsPanel() {
 
       {connections.length === 0 ? (
         <div className="p-5 text-sm leading-6 text-neutral-600">
-          No seller marketplace connections are saved yet. The next build slice
-          will add seller eBay OAuth so this table can be populated without
+          No seller marketplace connections are saved yet. Use the request
+          actions above to create seller-scoped connection records without
           touching the Store #1 eBay sync token.
         </div>
       ) : (

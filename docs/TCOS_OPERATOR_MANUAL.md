@@ -301,7 +301,7 @@ Most day-to-day work starts at:
 | `/api/account/collector/messages` | Creates and lists collector conversation records |
 | `/api/account/collector/binding-offers` | Starts a card-required binding offer through Stripe setup checkout |
 | `/api/account/seller/payout-onboarding` | Starts or checks Stripe-hosted seller payout/bank verification |
-| `/api/account/seller/marketplace-connections` | Returns logged-in seller marketplace connection records for the active store |
+| `/api/account/seller/marketplace-connections` | Loads or saves logged-in seller marketplace connection records for the active store |
 | `/api/checkout` | Creates Stripe checkout session |
 | `/api/webhook` | Main Stripe webhook handler |
 | `/api/stripe/webhook` | Alternate Stripe webhook handler |
@@ -1690,7 +1690,7 @@ Current seller payout verification foundation:
 - `/account` includes a Seller Verification panel for logged-in, active accounts
 - `/seller/marketplaces` shows the seller marketplace connection dashboard with live Store #1 inventory/eBay stats and the seller-safe connector build queue
 - `/api/account/seller/payout-onboarding` starts or resumes Stripe-hosted Express onboarding
-- `/api/account/seller/marketplace-connections` returns seller-scoped marketplace connection records for the logged-in account
+- `/api/account/seller/marketplace-connections` returns seller-scoped marketplace connection records and saves seller connection requests for the logged-in account
 - the seller must accept Seller Terms before payout onboarding starts
 - seller TOS acceptance is recorded through `tos_acceptance_events`
 - Stripe collects and verifies bank/payout details; TCOS does not collect raw checking account or routing numbers
