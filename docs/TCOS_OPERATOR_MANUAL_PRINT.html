@@ -161,7 +161,7 @@
 <p>David Bakanas is also the admin/operator of the Truely Collectables LLC account.</p>
 <p>Dag Danky Holdings LLC platform revenue should come from:</p>
 <ul>
-<li>platform commission/rake from third-party seller transactions</li>
+<li>platform commission/rake from purchases completed through the TCOS website checkout</li>
 <li>the commission/rake is calculated from total sale amount, including item sale price plus buyer-paid shipping</li>
 <li>advertising revenue</li>
 <li>sponsorship revenue</li>
@@ -1700,10 +1700,19 @@ market_news_snapshots</code></pre>
 <li>seller bank and payout information must be verified by an approved third-party payment, banking, or identity provider</li>
 <li>TCOS must not store raw bank credentials directly</li>
 <li>seller payout status must be gated by third-party verification status</li>
-<li>Dag Danky Holdings LLC charges a 5% seller commission/rake on third-party seller transactions</li>
+<li>Dag Danky Holdings LLC charges an 8% platform commission/rake on purchases completed through the TCOS website checkout</li>
+<li>Dag Danky Holdings LLC does not earn the 8% platform commission/rake when an item uploaded from TCOS sells on eBay or another outside marketplace; outside marketplace sales follow that marketplace's own fees, payout rules, and seller obligations</li>
 <li>the 5% commission is calculated from total sale amount, including item sale price plus buyer-paid shipping</li>
 <li>seller acceptance should be stored with seller TOS version and timestamp when seller accounts are implemented</li>
 <li>seller payouts must follow the approved payment processor's timing, reserve, debit, chargeback, instant payout, bank-transfer, and recovery rules unless Dag Danky Holdings LLC approves a different processor or payout method</li>
+<li>seller cash-out requests can only be made against payout ledger amounts marked eligible; held funds remain unavailable until fulfillment, dispute, fraud, and review rules release them</li>
+<li>seller payout ledger rows can be manually released to eligible, placed back on fulfillment hold, placed on dispute/review hold, reversed, or cancelled by admin review</li>
+<li>seller payout ledger rows tied to an active or paid cash-out request must not be destructively changed without resolving the cash-out request first</li>
+<li>admin payout review can mark seller cash-out requests requested, approved, processing, paid, rejected, or cancelled for audit tracking</li>
+<li>every admin payout ledger or cash-out request status change must write an append-only audit event with previous status, new status, admin note, IP, user agent evidence, and timestamp</li>
+<li>marking a cash-out request paid records TCOS status only; actual payout movement must be completed through the approved payout processor until automated transfers are explicitly built and tested</li>
+<li>marking a cash-out request paid must record the provider payout reference plus final processor fee and final seller net amount so TCOS can reconcile the cash-out against the payment processor</li>
+<li>seller cash-out or payout processor fees are separate from the Dag Danky Holdings LLC 8% platform rake and may reduce the seller's final net payout according to the payout provider's rules</li>
 <li>when a return, dispute, chargeback, authenticity case, or item-not-as-described claim is opened against a seller item, related seller funds must be held until the case and all available appeals are finally decided</li>
 <li>if the case is decided against the seller, TCOS policy should support recovery from held funds, future payouts, or the seller's verified payout/bank method according to payment processor rules, including recovery within three business days when supported by the provider and allowed by law</li>
 </ul>

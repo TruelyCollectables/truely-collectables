@@ -77,7 +77,7 @@ export default function SellerTermsPage() {
         <section>
           <h2 className="text-2xl font-bold">6. Seller Commission</h2>
           <p className="mt-2">
-            Truely Collectables charges a seller commission equal to{" "}
+            {SOFTWARE_OWNER_NAME} charges a seller commission equal to{" "}
             <strong>{commissionPercent}</strong> of the total sale amount for
             the seller item. The total sale amount includes the item sale price
             plus shipping paid by the buyer.

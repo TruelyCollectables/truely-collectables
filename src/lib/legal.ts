@@ -9,7 +9,7 @@ export const TERMS_OF_SERVICE_VERSION = "2026-06-28";
 export const TERMS_OF_SERVICE_PATH = "/terms";
 export const SELLER_TERMS_OF_SERVICE_VERSION = "2026-06-27";
 export const SELLER_TERMS_OF_SERVICE_PATH = "/seller-terms";
-export const SELLER_COMMISSION_RATE = 0.05;
+export const SELLER_COMMISSION_RATE = 0.08;
 
 export function hasAcceptedTerms(value: unknown): boolean {
   return value === true || value === "true" || value === "on";

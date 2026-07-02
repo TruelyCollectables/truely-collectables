@@ -34,7 +34,7 @@ David Bakanas is also the admin/operator of the Truely Collectables LLC account.
 
 Dag Danky Holdings LLC platform revenue should come from:
 
-- platform commission/rake from third-party seller transactions
+- platform commission/rake from purchases completed through the TCOS website checkout
 - the commission/rake is calculated from total sale amount, including item sale price plus buyer-paid shipping
 - advertising revenue
 - sponsorship revenue
@@ -1680,21 +1680,37 @@ Seller-account requirements:
 - seller bank and payout information must be verified by an approved third-party payment, banking, or identity provider
 - TCOS must not store raw bank credentials directly
 - seller payout status must be gated by third-party verification status
-- Dag Danky Holdings LLC charges a 5% seller commission/rake on third-party seller transactions
-- the 5% commission is calculated from total sale amount, including item sale price plus buyer-paid shipping
+- Dag Danky Holdings LLC charges an 8% platform commission/rake on purchases completed through the TCOS website checkout
+- Dag Danky Holdings LLC does not earn the 8% platform commission/rake when an item uploaded from TCOS sells on eBay or another outside marketplace; outside marketplace sales follow that marketplace's own fees, payout rules, and seller obligations
+- the 8% commission is calculated from total sale amount, including item sale price plus buyer-paid shipping
 - seller acceptance should be stored with seller TOS version and timestamp when seller accounts are implemented
 - seller payouts must follow the approved payment processor's timing, reserve, debit, chargeback, instant payout, bank-transfer, and recovery rules unless Dag Danky Holdings LLC approves a different processor or payout method
+- seller cash-out requests can only be made against payout ledger amounts marked eligible; held funds remain unavailable until fulfillment, dispute, fraud, and review rules release them
+- seller payout ledger rows can be manually released to eligible, placed back on fulfillment hold, placed on dispute/review hold, reversed, or cancelled by admin review
+- seller payout ledger rows tied to an active or paid cash-out request must not be destructively changed without resolving the cash-out request first
+- admin payout review can mark seller cash-out requests requested, approved, processing, paid, rejected, or cancelled for audit tracking
+- every admin payout ledger or cash-out request status change must write an append-only audit event with previous status, new status, admin note, IP, user agent evidence, and timestamp
+- marking a cash-out request paid records TCOS status only; actual payout movement must be completed through the approved payout processor until automated transfers are explicitly built and tested
+- marking a cash-out request paid must record the provider payout reference plus final processor fee and final seller net amount so TCOS can reconcile the cash-out against the payment processor
+- seller cash-out or payout processor fees are separate from the Dag Danky Holdings LLC 8% platform rake and may reduce the seller's final net payout according to the payout provider's rules
 - when a return, dispute, chargeback, authenticity case, or item-not-as-described claim is opened against a seller item, related seller funds must be held until the case and all available appeals are finally decided
 - if the case is decided against the seller, TCOS policy should support recovery from held funds, future payouts, or the seller's verified payout/bank method according to payment processor rules, including recovery within three business days when supported by the provider and allowed by law
+- order review cases live on the admin order detail page and cover chargebacks, returns, authenticity issues, item-not-as-described claims, payment risk, shipping issues, seller disputes, and other order problems
+- opening an order review case can automatically move related seller payout ledger rows into `hold_dispute_or_review`
+- opening an order review case can optionally move an unshipped order into `shipping_review`
+- order review case updates write append-only case events with previous status, new status, admin note, IP, user agent evidence, and timestamp
+- closing a case records the outcome summary, but seller payout release or recovery must still follow the payout ledger controls and the approved payout processor's rules
 
 Current seller payout verification foundation:
 
 - `/account` includes a Seller Verification panel for logged-in, active accounts
 - `/seller/marketplaces` shows the seller marketplace connection dashboard with live Store #1 inventory/eBay stats and the seller-safe connector build queue
+- `/admin/orders/[id]` shows order review cases and can open chargeback, return, authenticity, payment-risk, shipping, and seller-dispute case files against an order
 - `/api/account/seller/payout-onboarding` starts or resumes Stripe-hosted Express onboarding
 - `/api/account/seller/marketplace-connections` returns seller-scoped marketplace connection records and saves seller connection requests for the logged-in account
 - `/api/account/seller/marketplace-connections/ebay/auth` starts seller-safe eBay OAuth for the logged-in account
 - `/api/account/seller/marketplace-connections/ebay/status` refreshes the seller eBay token and updates connection health without touching the Store #1 `ebay_tokens` path
+- `/api/admin/order-review-cases` opens and updates admin order review cases, logs identity evidence, and can hold related seller payout rows
 - the seller must accept Seller Terms before payout onboarding starts
 - seller TOS acceptance is recorded through `tos_acceptance_events`
 - Stripe collects and verifies bank/payout details; TCOS does not collect raw checking account or routing numbers

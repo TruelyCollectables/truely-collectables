@@ -97,6 +97,7 @@ export class InventoryRepository {
       .from("inventory_items")
       .insert({
         store_id: this.storeId,
+        seller_account_id: input.seller_account_id ?? null,
         legacy_product_id: input.legacy_product_id ?? null,
         sku: input.sku ?? null,
         title: input.title,
@@ -126,6 +127,7 @@ export class InventoryRepository {
 
     const existing = await this.getBySku(input.sku);
     const payload = {
+      seller_account_id: input.seller_account_id ?? null,
       legacy_product_id: input.legacy_product_id ?? null,
       sku: input.sku,
       title: input.title,

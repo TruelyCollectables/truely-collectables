@@ -29,7 +29,7 @@ export async function GET(request: Request) {
     const { data, error } = await supabase
       .from("orders")
       .select(
-        "id,created_at,total,status,fulfillment_status,shipping_name,tracking_number,carrier,item_count",
+        "id,created_at,total,status,fulfillment_status,shipping_name,tracking_number,carrier,item_count,contains_seller_items,seller_item_count,store_item_count",
       )
       .eq("store_id", storeId)
       .eq("account_id", account.id)

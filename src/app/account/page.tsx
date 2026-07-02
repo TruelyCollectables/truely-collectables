@@ -161,6 +161,32 @@ type SellerPayout = {
   updatedAt: string | null;
 };
 
+type SellerPayoutBalance = {
+  heldAmount: number;
+  eligibleAmount: number;
+  openRequestAmount: number;
+  availableToRequestAmount: number;
+  paidAmount: number;
+  requestCount: number;
+};
+
+type SellerPayoutRequest = {
+  id: string;
+  requestedAmount: number;
+  estimatedProcessorFeeRate: number;
+  estimatedProcessorFeeAmount: number;
+  estimatedNetAmount: number;
+  finalProcessorFeeAmount: number;
+  finalNetAmount: number;
+  providerPayoutReference: string | null;
+  providerPayoutStatus: string | null;
+  status: string;
+  requestNote: string | null;
+  adminNote: string | null;
+  requestedAt: string | null;
+  createdAt: string | null;
+};
+
 export default function AccountPage() {
   const [session, setSession] = useState<StoredAccountSession | null>(() =>
     typeof window === "undefined" ? null : getAccountSession(),
@@ -179,6 +205,14 @@ export default function AccountPage() {
   const [isLoadingSellerPayout, setIsLoadingSellerPayout] = useState(false);
   const [isStartingSellerPayout, setIsStartingSellerPayout] = useState(false);
   const [sellerTosAccepted, setSellerTosAccepted] = useState(false);
+  const [sellerPayoutBalance, setSellerPayoutBalance] =
+    useState<SellerPayoutBalance | null>(null);
+  const [sellerPayoutRequests, setSellerPayoutRequests] = useState<
+    SellerPayoutRequest[]
+  >([]);
+  const [cashOutAmount, setCashOutAmount] = useState("");
+  const [cashOutNote, setCashOutNote] = useState("");
+  const [isRequestingCashOut, setIsRequestingCashOut] = useState(false);
   const [collectionItems, setCollectionItems] = useState<CollectionItem[]>([]);
   const [wishListItems, setWishListItems] = useState<WishListItem[]>([]);
   const [collectorProfile, setCollectorProfile] =
@@ -294,6 +328,46 @@ export default function AccountPage() {
     }
 
     loadOrders();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [accessToken]);
+
+  useEffect(() => {
+    if (!accessToken) return;
+
+    let isCancelled = false;
+
+    async function loadSellerPayoutRequests() {
+      try {
+        const response = await fetch("/api/account/seller/payout-requests", {
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+          },
+        });
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(data.error || "Could not load seller balance");
+        }
+
+        if (!isCancelled) {
+          setSellerPayoutBalance(data.balance || null);
+          setSellerPayoutRequests(
+            Array.isArray(data.requests) ? data.requests : [],
+          );
+        }
+      } catch (error: any) {
+        if (!isCancelled) {
+          setSellerPayoutError(error.message || "Could not load seller balance");
+          setSellerPayoutBalance(null);
+          setSellerPayoutRequests([]);
+        }
+      }
+    }
+
+    loadSellerPayoutRequests();
 
     return () => {
       isCancelled = true;
@@ -568,6 +642,10 @@ export default function AccountPage() {
     setSellerPayout(null);
     setSellerPayoutError("");
     setSellerTosAccepted(false);
+    setSellerPayoutBalance(null);
+    setSellerPayoutRequests([]);
+    setCashOutAmount("");
+    setCashOutNote("");
     setCollectionItems([]);
     setWishListItems([]);
     setCollectorProfile(null);
@@ -794,6 +872,58 @@ export default function AccountPage() {
       setSellerPayoutError(error.message || "Could not start seller verification");
     } finally {
       setIsStartingSellerPayout(false);
+    }
+  }
+
+  async function refreshSellerPayoutRequests() {
+    if (!accessToken) return;
+
+    const response = await fetch("/api/account/seller/payout-requests", {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    });
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data.error || "Could not refresh seller balance");
+    }
+
+    setSellerPayoutBalance(data.balance || null);
+    setSellerPayoutRequests(Array.isArray(data.requests) ? data.requests : []);
+  }
+
+  async function requestSellerCashOut() {
+    if (!accessToken) return;
+
+    setIsRequestingCashOut(true);
+    setSellerPayoutError("");
+
+    try {
+      const response = await fetch("/api/account/seller/payout-requests", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          amount: cashOutAmount,
+          note: cashOutNote,
+        }),
+      });
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Could not request cash-out");
+      }
+
+      setCashOutAmount("");
+      setCashOutNote("");
+      await refreshSellerPayoutRequests();
+    } catch (error: any) {
+      setSellerPayoutError(error.message || "Could not request cash-out");
+    } finally {
+      setIsRequestingCashOut(false);
     }
   }
 
@@ -1079,8 +1209,8 @@ export default function AccountPage() {
         </p>
         <h1 className="mt-2 text-4xl font-black">Collector Account</h1>
         <p className="mt-3 max-w-3xl text-neutral-600">
-          Customer accounts are the foundation for future collections,
-          wishlists, want ads, trades, brag sessions, and order history.
+          Customer accounts are the foundation for future collections, The
+          Shelf, want ads, trades, brag sessions, and order history.
         </p>
       </section>
 
@@ -1205,6 +1335,113 @@ export default function AccountPage() {
             >
               Marketplace Connections
             </Link>
+
+            <div className="mt-5 rounded border border-neutral-200 bg-neutral-50 p-4">
+              <h3 className="font-black">Seller Cash-Out</h3>
+              <p className="mt-1 text-xs leading-5 text-neutral-600">
+                Only funds marked eligible can be requested. Cash-out provider
+                fees are separate from the Dag Danky Holdings LLC platform rake
+                and may reduce the final payout.
+              </p>
+
+              <dl className="mt-4 space-y-2 text-sm">
+                <Info
+                  label="Held"
+                  value={formatCurrency(sellerPayoutBalance?.heldAmount || 0)}
+                />
+                <Info
+                  label="Eligible"
+                  value={formatCurrency(
+                    sellerPayoutBalance?.eligibleAmount || 0,
+                  )}
+                />
+                <Info
+                  label="Requested"
+                  value={formatCurrency(
+                    sellerPayoutBalance?.openRequestAmount || 0,
+                  )}
+                />
+                <Info
+                  label="Available"
+                  value={formatCurrency(
+                    sellerPayoutBalance?.availableToRequestAmount || 0,
+                  )}
+                />
+              </dl>
+
+              <form
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  requestSellerCashOut();
+                }}
+                className="mt-4 grid gap-3"
+              >
+                <label className="text-xs font-bold uppercase text-neutral-600">
+                  Amount
+                  <input
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    value={cashOutAmount}
+                    onChange={(event) => setCashOutAmount(event.target.value)}
+                    className="mt-1 w-full rounded border border-neutral-300 px-3 py-2 text-sm"
+                    placeholder="0.00"
+                  />
+                </label>
+                <label className="text-xs font-bold uppercase text-neutral-600">
+                  Note
+                  <input
+                    value={cashOutNote}
+                    onChange={(event) => setCashOutNote(event.target.value)}
+                    className="mt-1 w-full rounded border border-neutral-300 px-3 py-2 text-sm"
+                    placeholder="Optional payout note"
+                  />
+                </label>
+                <button
+                  type="submit"
+                  disabled={
+                    isRequestingCashOut ||
+                    Number(cashOutAmount || 0) <= 0 ||
+                    Number(cashOutAmount || 0) >
+                      Number(
+                        sellerPayoutBalance?.availableToRequestAmount || 0,
+                      )
+                  }
+                  className="rounded bg-neutral-950 px-4 py-2 text-sm font-bold text-white hover:bg-neutral-800 disabled:bg-neutral-500"
+                >
+                  {isRequestingCashOut ? "Requesting..." : "Request Cash-Out"}
+                </button>
+              </form>
+
+              {sellerPayoutRequests.length > 0 ? (
+                <div className="mt-4 space-y-2">
+                  {sellerPayoutRequests.slice(0, 3).map((request) => (
+                    <div
+                      key={request.id}
+                      className="rounded border border-neutral-200 bg-white p-3 text-xs"
+                    >
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <span className="font-black">
+                          {formatCurrency(request.requestedAmount)}
+                        </span>
+                        <span className="rounded bg-neutral-100 px-2 py-1 font-bold uppercase text-neutral-600">
+                          {sellerPayoutLabel(request.status)}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-neutral-500">
+                        Requested {formatDate(request.requestedAt)}
+                      </p>
+                      {request.status === "paid" ? (
+                        <p className="mt-1 text-neutral-600">
+                          Net {formatCurrency(request.finalNetAmount)} / Fee{" "}
+                          {formatCurrency(request.finalProcessorFeeAmount)}
+                        </p>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
           </aside>
 
           <div className="rounded-md border border-neutral-200 bg-white p-6 lg:col-span-2">
@@ -1877,7 +2114,7 @@ export default function AccountPage() {
               </section>
 
               <section className="rounded border border-neutral-200 bg-neutral-50 p-4">
-                <h3 className="text-lg font-black">Wish List And Want Ads</h3>
+                <h3 className="text-lg font-black">The Shelf And Want Ads</h3>
                 <form
                   onSubmit={(event) => {
                     event.preventDefault();
@@ -1914,7 +2151,7 @@ export default function AccountPage() {
                         onChange={(event) => setWishType(event.target.value)}
                         className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
                       >
-                        <option value="wish_list">Wish List</option>
+                        <option value="wish_list">The Shelf</option>
                         <option value="want_ad">Want Ad</option>
                         <option value="set_need">Set Need</option>
                         <option value="trade_target">Trade Target</option>
@@ -2006,14 +2243,14 @@ export default function AccountPage() {
                 <div className="mt-5 space-y-2">
                   {wishListItems.length === 0 ? (
                     <p className="text-sm text-neutral-500">
-                      No wish list items saved.
+                      Nothing on The Shelf yet.
                     </p>
                   ) : (
                     wishListItems.map((item) => (
                       <WatchlistRow
                         key={item.id}
                         title={item.title}
-                        detail={`${item.wish_type.replaceAll("_", " ")} / ${
+                        detail={`${shelfItemTypeLabel(item.wish_type)} / ${
                           item.category || "collectable"
                         }`}
                         badges={[
@@ -2603,6 +2840,14 @@ function WatchlistRow({
       </button>
     </div>
   );
+}
+
+function shelfItemTypeLabel(value: string) {
+  if (value === "wish_list") {
+    return "The Shelf";
+  }
+
+  return value.replaceAll("_", " ");
 }
 
 function formatDate(value: string | null) {

@@ -304,6 +304,7 @@ export default async function AdminProductEditPage({
             <p>Quantity: {product.quantity}</p>
             <p>SKU: {product.sku || "Not set"}</p>
             <p>eBay Listing: {product.ebayItemId || "Not linked"}</p>
+            <p>Seller Owner: {product.sellerAccountId || "Store inventory"}</p>
             <p>V2 Item: {product.inventoryItemId || "Not created yet"}</p>
           </section>
 

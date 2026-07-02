@@ -3,10 +3,16 @@ import { getActiveStoreId } from "../../../../lib/stores";
 import { getAccountProfilesByIds } from "../../../../lib/account-profiles";
 import { isOrderReviewStatus } from "../../../../lib/order-status";
 import Link from "next/link";
+import PayoutLedgerActions from "../../seller-payouts/PayoutLedgerActions";
+import OrderReviewCasesPanel, {
+  type AdminOrderReviewCase,
+  type SellerCaseOption,
+} from "./OrderReviewCasesPanel";
 import TrackingForm from "./TrackingForm";
 
 type OrderItem = {
   id: number;
+  seller_account_id?: string | null;
   title: string;
   quantity: number;
   price: number;
@@ -25,6 +31,9 @@ type Order = {
   shipping_amount: number | null;
   subtotal: number | null;
   item_count: number | null;
+  contains_seller_items?: boolean | null;
+  seller_item_count?: number | null;
+  store_item_count?: number | null;
   fulfillment_status: string | null;
   tracking_number: string | null;
   carrier: string | null;
@@ -59,6 +68,33 @@ type EvidenceReport = {
   updated_at: string | null;
 };
 
+type SellerPayoutLedgerEntry = {
+  id: string;
+  seller_account_id: string;
+  order_item_id: number;
+  gross_item_amount: number | string | null;
+  shipping_allocated_amount: number | string | null;
+  total_basis_amount: number | string | null;
+  platform_fee_rate: number | string | null;
+  platform_fee_amount: number | string | null;
+  seller_payable_amount: number | string | null;
+  payout_status: string | null;
+  created_at: string;
+};
+
+type PlatformFeeLedgerEntry = {
+  id: string;
+  order_item_id: number;
+  seller_account_id: string | null;
+  gross_item_amount: number | string | null;
+  shipping_allocated_amount: number | string | null;
+  total_basis_amount: number | string | null;
+  platform_fee_rate: number | string | null;
+  platform_fee_amount: number | string | null;
+  fee_status: string | null;
+  created_at: string;
+};
+
 function money(value: number | null | undefined) {
   return `$${Number(value || 0).toFixed(2)}`;
 }
@@ -83,6 +119,7 @@ export default async function AdminOrderDetailPage({
       *,
       order_items (
         id,
+        seller_account_id,
         title,
         quantity,
         price
@@ -106,12 +143,54 @@ export default async function AdminOrderDetailPage({
   }
 
   const typedOrder = order as Order;
+  const sellerAccountIds = Array.from(
+    new Set(
+      (typedOrder.order_items || [])
+        .map((item) => item.seller_account_id)
+        .filter((value): value is string => Boolean(value)),
+    ),
+  );
   const accountProfiles = await getAccountProfilesByIds([
     typedOrder.account_id,
+    ...sellerAccountIds,
   ]);
   const accountProfile = typedOrder.account_id
     ? accountProfiles.get(typedOrder.account_id)
     : undefined;
+  const sellerOptions: SellerCaseOption[] = sellerAccountIds.map((sellerId) => {
+    const profile = accountProfiles.get(sellerId);
+
+    return {
+      id: sellerId,
+      label: profile?.email || profile?.display_name || sellerId,
+    };
+  });
+  const { data: orderReviewCasesData, error: orderReviewCasesError } =
+    await supabase
+      .from("order_review_cases")
+      .select(
+        `
+        id,
+        seller_account_id,
+        case_type,
+        status,
+        severity,
+        title,
+        description,
+        hold_seller_payouts,
+        hold_order_fulfillment,
+        outcome_summary,
+        opened_at,
+        closed_at,
+        updated_at
+      `,
+      )
+      .eq("order_id", typedOrder.id)
+      .eq("store_id", storeId)
+      .order("created_at", { ascending: false });
+  const orderReviewCases = orderReviewCasesError
+    ? []
+    : ((orderReviewCasesData || []) as AdminOrderReviewCase[]);
   const { data: evidenceReports, error: evidenceError } = await supabase
     .from("transaction_evidence_reports")
     .select(
@@ -129,6 +208,61 @@ export default async function AdminOrderDetailPage({
     .eq("store_id", storeId)
     .order("created_at", { ascending: false });
   const latestEvidence = ((evidenceReports || []) as EvidenceReport[])[0];
+  const { data: payoutLedgerEntries, error: payoutLedgerError } = await supabase
+    .from("seller_payout_ledger_entries")
+    .select(
+      `
+      id,
+      seller_account_id,
+      order_item_id,
+      gross_item_amount,
+      shipping_allocated_amount,
+      total_basis_amount,
+      platform_fee_rate,
+      platform_fee_amount,
+      seller_payable_amount,
+      payout_status,
+      created_at
+    `,
+    )
+    .eq("order_id", typedOrder.id)
+    .eq("store_id", storeId)
+    .order("created_at", { ascending: true });
+  const sellerPayoutLedger =
+    (payoutLedgerEntries || []) as SellerPayoutLedgerEntry[];
+  const sellerPayoutTotal = sellerPayoutLedger.reduce(
+    (sum, entry) => sum + Number(entry.seller_payable_amount || 0),
+    0,
+  );
+  const platformFeeTotal = sellerPayoutLedger.reduce(
+    (sum, entry) => sum + Number(entry.platform_fee_amount || 0),
+    0,
+  );
+  const { data: platformFeeLedgerEntries } = await supabase
+    .from("platform_fee_ledger_entries")
+    .select(
+      `
+      id,
+      order_item_id,
+      seller_account_id,
+      gross_item_amount,
+      shipping_allocated_amount,
+      total_basis_amount,
+      platform_fee_rate,
+      platform_fee_amount,
+      fee_status,
+      created_at
+    `,
+    )
+    .eq("order_id", typedOrder.id)
+    .eq("store_id", storeId)
+    .order("created_at", { ascending: true });
+  const platformFeeLedger =
+    (platformFeeLedgerEntries || []) as PlatformFeeLedgerEntry[];
+  const allSiteRakeTotal = platformFeeLedger.reduce(
+    (sum, entry) => sum + Number(entry.platform_fee_amount || 0),
+    0,
+  );
 
   const itemsTotal =
     typedOrder.order_items?.reduce(
@@ -190,6 +324,189 @@ export default async function AdminOrderDetailPage({
           <p className="text-2xl font-bold">{money(totalPaid)}</p>
         </div>
       </div>
+
+      {platformFeeLedger.length > 0 ? (
+        <section className="border rounded-lg p-6 mb-6">
+          <h2 className="text-2xl font-bold mb-4">
+            Dag Danky Holdings LLC Rake
+          </h2>
+
+          <div className="rounded border border-gray-200 bg-gray-50 p-4">
+            <p className="text-sm font-semibold text-gray-500">
+              8% Platform Rake Total
+            </p>
+            <p className="text-2xl font-bold">{money(allSiteRakeTotal)}</p>
+            <p className="mt-1 text-sm text-gray-600">
+              Calculated from this TCOS website checkout order only, using each
+              order item plus allocated buyer-paid shipping.
+            </p>
+          </div>
+
+          <div className="mt-4 space-y-3">
+            {platformFeeLedger.map((entry) => (
+              <div key={entry.id} className="rounded border p-4">
+                <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <p className="font-bold">
+                      Order Item #{entry.order_item_id}
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      {entry.seller_account_id
+                        ? `Outside seller ${entry.seller_account_id}`
+                        : "Store inventory"}
+                    </p>
+                  </div>
+
+                  <p className="text-sm font-bold">
+                    Rate{" "}
+                    {(Number(entry.platform_fee_rate || 0) * 100).toFixed(2)}%
+                  </p>
+                </div>
+
+                <dl className="mt-3 grid grid-cols-1 gap-3 text-sm md:grid-cols-4">
+                  <div>
+                    <dt className="font-semibold text-gray-500">Gross</dt>
+                    <dd>{money(Number(entry.gross_item_amount || 0))}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-semibold text-gray-500">
+                      Shipping Basis
+                    </dt>
+                    <dd>
+                      {money(Number(entry.shipping_allocated_amount || 0))}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="font-semibold text-gray-500">
+                      Total Basis
+                    </dt>
+                    <dd>{money(Number(entry.total_basis_amount || 0))}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-semibold text-gray-500">
+                      Dag Danky Holdings LLC Fee
+                    </dt>
+                    <dd>{money(Number(entry.platform_fee_amount || 0))}</dd>
+                  </div>
+                </dl>
+              </div>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {typedOrder.contains_seller_items ? (
+        <section className="border rounded-lg p-4 mb-6 bg-amber-50 border-amber-200">
+          <h2 className="text-lg font-bold">Seller Routing</h2>
+          <p className="mt-2 text-sm font-semibold text-amber-900">
+            This order contains {typedOrder.seller_item_count || 0} seller-routed item(s) and {typedOrder.store_item_count || 0} store-owned item(s).
+          </p>
+        </section>
+      ) : null}
+
+      {typedOrder.contains_seller_items ? (
+        <section className="border rounded-lg p-6 mb-6">
+          <h2 className="text-2xl font-bold mb-4">Seller Payout Ledger</h2>
+
+          {payoutLedgerError ? (
+            <p className="text-red-600">
+              Payout ledger unavailable: {payoutLedgerError.message}
+            </p>
+          ) : sellerPayoutLedger.length === 0 ? (
+            <p className="text-gray-600">
+              No seller payout ledger entries have been created for this order yet.
+            </p>
+          ) : (
+            <>
+              <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                <div className="rounded border border-gray-200 bg-gray-50 p-4">
+                  <p className="text-sm font-semibold text-gray-500">
+                    Dag Danky Holdings LLC Fee Total
+                  </p>
+                  <p className="text-2xl font-bold">
+                    {money(platformFeeTotal)}
+                  </p>
+                </div>
+
+                <div className="rounded border border-gray-200 bg-gray-50 p-4">
+                  <p className="text-sm font-semibold text-gray-500">
+                    Seller Payable Total
+                  </p>
+                  <p className="text-2xl font-bold">
+                    {money(sellerPayoutTotal)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-4 space-y-3">
+                {sellerPayoutLedger.map((entry) => (
+                  <div key={entry.id} className="rounded border p-4">
+                    <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+                      <div>
+                        <p className="font-bold">
+                          Seller {entry.seller_account_id}
+                        </p>
+                        <p className="text-sm text-gray-600">
+                          Order Item #{entry.order_item_id} -{" "}
+                          {label(entry.payout_status)}
+                        </p>
+                      </div>
+
+                      <p className="text-sm font-bold">
+                        Rate{" "}
+                        {(Number(entry.platform_fee_rate || 0) * 100).toFixed(2)}
+                        %
+                      </p>
+                    </div>
+
+                    <dl className="mt-3 grid grid-cols-1 gap-3 text-sm md:grid-cols-4">
+                      <div>
+                        <dt className="font-semibold text-gray-500">Gross</dt>
+                        <dd>{money(Number(entry.gross_item_amount || 0))}</dd>
+                      </div>
+                      <div>
+                        <dt className="font-semibold text-gray-500">
+                          Shipping Basis
+                        </dt>
+                        <dd>
+                          {money(Number(entry.shipping_allocated_amount || 0))}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="font-semibold text-gray-500">
+                          Dag Danky Holdings LLC Fee
+                        </dt>
+                        <dd>{money(Number(entry.platform_fee_amount || 0))}</dd>
+                      </div>
+                      <div>
+                        <dt className="font-semibold text-gray-500">
+                          Seller Payable
+                        </dt>
+                        <dd>
+                          {money(Number(entry.seller_payable_amount || 0))}
+                        </dd>
+                      </div>
+                    </dl>
+                    <div className="mt-4 max-w-xs">
+                      <PayoutLedgerActions
+                        ledgerEntryId={entry.id}
+                        status={entry.payout_status}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+        </section>
+      ) : null}
+
+      <OrderReviewCasesPanel
+        orderId={typedOrder.id}
+        cases={orderReviewCases}
+        sellerOptions={sellerOptions}
+        tableError={orderReviewCasesError?.message || null}
+      />
 
       <section className="border rounded-lg p-6 mb-6">
         <h2 className="text-2xl font-bold mb-4">Customer</h2>
@@ -272,6 +589,9 @@ export default async function AdminOrderDetailPage({
               <div key={item.id} className="flex justify-between border-b pb-3">
                 <div>
                   <p className="font-bold">{item.title}</p>
+                  <p className="text-xs font-semibold text-gray-500">
+                    Owner: {item.seller_account_id || "Store inventory"}
+                  </p>
                   <p className="text-sm text-gray-600">
                     Quantity: {item.quantity} × {money(item.price)}
                   </p>

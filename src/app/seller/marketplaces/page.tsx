@@ -15,6 +15,12 @@ type Connector = {
   actionLabel: string;
 };
 
+type BuildQueueStep = {
+  name: string;
+  status: "completed" | "current" | "planned";
+  detail: string;
+};
+
 type CountResult = {
   count: number | null;
   error?: { message?: string } | null;
@@ -22,7 +28,7 @@ type CountResult = {
 
 const connectors: Connector[] = [
   {
-    name: "eBay",
+    name: "Store #1 eBay Engine",
     status: "active_foundation",
     description:
       "Store #1 eBay import, reconciliation, post-sale quantity sync, and sync policy controls are already live for Truely Collectables.",
@@ -30,11 +36,18 @@ const connectors: Connector[] = [
     actionLabel: "Open eBay Health",
   },
   {
-    name: "Seller eBay OAuth",
+    name: "Seller eBay Connection",
+    status: "active_foundation",
+    description:
+      "Seller-safe eBay OAuth, encrypted token storage, and connection health refresh are live for seller accounts on the active store.",
+    actionLabel: "Live In Your Connections",
+  },
+  {
+    name: "Seller eBay Importer",
     status: "next_to_connect",
     description:
-      "Next seller-safe layer: save each seller's eBay connection separately before importing third-party seller inventory.",
-    actionLabel: "Seller OAuth Next",
+      "Next seller layer: first-sync import, duplicate review, and seller-scoped listing intake using the new connection records.",
+    actionLabel: "Next In Queue",
   },
   {
     name: "Shopify",
@@ -66,6 +79,54 @@ const connectors: Connector[] = [
   },
 ];
 
+const buildQueue: BuildQueueStep[] = [
+  {
+    name: "Seller eBay auth route",
+    status: "completed",
+    detail: "Seller accounts can start eBay OAuth without touching the Store #1 token.",
+  },
+  {
+    name: "Seller token storage",
+    status: "completed",
+    detail: "Seller marketplace tokens are encrypted and stored separately from global eBay sync credentials.",
+  },
+  {
+    name: "Seller connection health refresh",
+    status: "completed",
+    detail: "Connected seller accounts can refresh token health and expiry status from the marketplace page.",
+  },
+  {
+    name: "Seller import preview",
+    status: "completed",
+    detail: "Connected sellers can now preview live eBay inventory samples without writing into shared store inventory.",
+  },
+  {
+    name: "Seller staging lane",
+    status: "completed",
+    detail: "Seller-private staging now captures remote eBay listings for review without touching shared store inventory.",
+  },
+  {
+    name: "Inventory ownership mapping",
+    status: "completed",
+    detail: "Products and inventory items now support optional seller ownership without breaking store-owned inventory.",
+  },
+  {
+    name: "Seller draft promotion",
+    status: "completed",
+    detail: "Reviewed staged seller listings can now be promoted into seller-owned draft inventory instead of going live immediately.",
+  },
+  {
+    name: "Seller order and payout routing",
+    status: "current",
+    detail: "Next build is tying seller-owned inventory into order ownership, payout routing, and live activation rules.",
+  },
+  {
+    name: "Conflict review dashboard",
+    status: "planned",
+    detail: "After importer intake, sellers need review tools for duplicates, category mismatches, and inventory conflicts.",
+  },
+];
+
 function label(value: string | null | undefined) {
   if (!value) return "Not set";
   return value.replaceAll("_", " ").toUpperCase();
@@ -91,6 +152,24 @@ function statusTone(status: Connector["status"]) {
   }
 
   return "border-neutral-200 bg-neutral-100 text-neutral-700";
+}
+
+function queueTone(status: BuildQueueStep["status"]) {
+  if (status === "completed") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-800";
+  }
+
+  if (status === "current") {
+    return "border-amber-200 bg-amber-50 text-amber-800";
+  }
+
+  return "border-neutral-200 bg-neutral-100 text-neutral-700";
+}
+
+function queueLabel(status: BuildQueueStep["status"]) {
+  if (status === "completed") return "Completed";
+  if (status === "current") return "Current";
+  return "Planned";
 }
 
 async function safeCount(query: PromiseLike<CountResult>) {
@@ -182,6 +261,37 @@ export default async function SellerMarketplacesPage() {
           </div>
         </section>
 
+        <section
+          className={`rounded-md border p-5 ${
+            storeSettings.ebaySyncEnabled
+              ? "border-emerald-200 bg-emerald-50"
+              : "border-rose-200 bg-rose-50"
+          }`}
+        >
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-black uppercase tracking-[0.16em] text-neutral-700">
+                Store Sync Guardrail
+              </p>
+              <h2 className="mt-2 text-2xl font-black">
+                {storeSettings.ebaySyncEnabled
+                  ? "Seller eBay connections are enabled for this store."
+                  : "Seller eBay connections are blocked because store sync is off."}
+              </h2>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-neutral-700">
+                {storeSettings.ebaySyncEnabled
+                  ? "Sellers can connect eBay, refresh token health, and prepare for seller-scoped imports while the live Store #1 sync remains protected."
+                  : "The seller OAuth route follows the same store sync policy as the live eBay engine. A store admin must enable eBay sync before sellers can connect marketplace accounts."}
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <CommandLink href="/admin/settings" label="Store Settings" primary />
+              <CommandLink href="/admin/ebay" label="Sync Rules" />
+            </div>
+          </div>
+        </section>
+
         <section className="rounded-md border border-neutral-200 bg-white">
           <div className="flex flex-wrap items-start justify-between gap-4 border-b border-neutral-200 p-5">
             <div>
@@ -204,26 +314,32 @@ export default async function SellerMarketplacesPage() {
           </div>
         </section>
 
-        <SellerConnectionsPanel />
+        <SellerConnectionsPanel ebaySyncEnabled={storeSettings.ebaySyncEnabled} />
 
         <section className="rounded-md border border-neutral-200 bg-white p-5">
           <h2 className="text-2xl font-black">Seller-Safe Build Queue</h2>
-          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-            {[
-              "Seller eBay auth route",
-              "Seller token storage",
-              "Seller-scoped importer",
-              "First-sync wizard",
-              "Conflict review dashboard",
-            ].map((step, index) => (
+          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+            {buildQueue.map((step, index) => (
               <div
-                key={step}
+                key={step.name}
                 className="rounded-md border border-neutral-200 bg-neutral-50 p-4"
               >
-                <p className="text-xs font-black uppercase text-neutral-500">
-                  Step {index + 1}
+                <div className="flex items-start justify-between gap-3">
+                  <p className="text-xs font-black uppercase text-neutral-500">
+                    Step {index + 1}
+                  </p>
+                  <span
+                    className={`rounded border px-2 py-1 text-[11px] font-black uppercase ${queueTone(
+                      step.status,
+                    )}`}
+                  >
+                    {queueLabel(step.status)}
+                  </span>
+                </div>
+                <p className="mt-2 font-bold">{step.name}</p>
+                <p className="mt-2 text-sm leading-6 text-neutral-600">
+                  {step.detail}
                 </p>
-                <p className="mt-2 font-bold">{step}</p>
               </div>
             ))}
           </div>

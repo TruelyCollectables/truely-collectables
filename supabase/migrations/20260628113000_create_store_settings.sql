@@ -10,7 +10,7 @@ create table if not exists public.store_settings (
   stripe_account_id text,
   ebay_environment text not null default 'production',
   ebay_account_label text,
-  seller_commission_rate numeric(6, 5) not null default 0.05,
+  seller_commission_rate numeric(6, 5) not null default 0.08,
   metadata jsonb not null default '{}'::jsonb,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now()
@@ -40,7 +40,7 @@ values (
   'env',
   'production',
   'Truely Collectables eBay',
-  0.05
+  0.08
 )
 on conflict (store_id) do update set
   support_email = coalesce(public.store_settings.support_email, excluded.support_email),

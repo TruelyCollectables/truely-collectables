@@ -6,6 +6,11 @@ import { inventoryEngine } from "../../../modules/inventory";
 import { createTransactionEvidenceReport } from "../../../lib/transaction-evidence";
 import { getActiveStoreId } from "../../../lib/stores";
 import { updateSellerPayoutAccountFromStripe } from "../../../lib/seller-payouts";
+import {
+  createPlatformFeeLedgerForOrder,
+  createSellerPayoutLedgerForOrder,
+} from "../../../lib/seller-payout-ledger";
+import { getStoreSettings } from "../../../lib/store-settings";
 import { evaluateAccountCardVerification } from "../../../lib/account-card-verification";
 import { parseCartMetadata } from "../../../lib/checkout-cart-metadata";
 import { isAllowedShippingCountry } from "../../../lib/shipping-policy";
@@ -296,6 +301,9 @@ export async function POST(req: Request) {
       shipping_state: shippingState,
       shipping_postal_code: shippingPostalCode,
       shipping_country: shippingCountry,
+      contains_seller_items: false,
+      seller_item_count: 0,
+      store_item_count: 0,
     };
 
     const orderPayloadWithTerms = {
@@ -349,6 +357,23 @@ export async function POST(req: Request) {
       .eq("store_id", storeId)
       .limit(1);
 
+    let sellerItemCount = 0;
+    let storeItemCount = 0;
+
+    for (const cartItem of cart) {
+      const product = inventoryItems.find(
+        (item) => item.legacyProductId === cartItem.id
+      );
+
+      if (!product) continue;
+
+      if (product.sellerAccountId) {
+        sellerItemCount += cartItem.quantity;
+      } else {
+        storeItemCount += cartItem.quantity;
+      }
+    }
+
     if (!existingItems || existingItems.length === 0) {
       for (const cartItem of cart) {
         const product = inventoryItems.find(
@@ -367,6 +392,7 @@ export async function POST(req: Request) {
           store_id: storeId,
           order_id: orderId,
           product_id: product.legacyProductId,
+          seller_account_id: product.sellerAccountId,
           title: product.title,
           price: Number(product.price),
           quantity: cartItem.quantity,
@@ -415,6 +441,53 @@ export async function POST(req: Request) {
         } catch (ebayError: any) {
           console.error("eBay sync after sale failed:", ebayError.message);
         }
+      }
+    }
+
+    await supabase
+      .from("orders")
+      .update({
+        contains_seller_items: sellerItemCount > 0,
+        seller_item_count: sellerItemCount,
+        store_item_count: storeItemCount,
+      })
+      .eq("id", orderId)
+      .eq("store_id", storeId);
+
+    const { data: ledgerOrderItems } = await supabase
+      .from("order_items")
+      .select("id,product_id,seller_account_id,title,price,quantity")
+      .eq("order_id", orderId)
+      .eq("store_id", storeId);
+
+    if (ledgerOrderItems && ledgerOrderItems.length > 0) {
+      try {
+        const storeSettings = await getStoreSettings(supabase, storeId);
+
+        await createPlatformFeeLedgerForOrder({
+          supabase,
+          storeId,
+          orderId,
+          orderItems: ledgerOrderItems,
+          shippingAmount,
+          platformFeeRate: storeSettings.sellerCommissionRate,
+          stripeSession: session,
+        });
+
+        await createSellerPayoutLedgerForOrder({
+          supabase,
+          storeId,
+          orderId,
+          orderItems: ledgerOrderItems,
+          shippingAmount,
+          platformFeeRate: storeSettings.sellerCommissionRate,
+          stripeSession: session,
+        });
+      } catch (ledgerError: any) {
+        console.error(
+          "Seller payout ledger update failed:",
+          ledgerError.message || ledgerError,
+        );
       }
     }
 

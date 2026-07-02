@@ -196,7 +196,7 @@ export default async function ProductPage({
         </div>
 
         <section className="mt-6 rounded border bg-white p-4">
-          <h3 className="font-bold">Watch List</h3>
+          <h3 className="font-bold">What To Check</h3>
           <ul className="mt-3 grid grid-cols-1 gap-2 text-sm text-neutral-700 md:grid-cols-2">
             {intelligence.whatToWatch.map((item) => (
               <li key={item} className="rounded bg-neutral-50 px-3 py-2">

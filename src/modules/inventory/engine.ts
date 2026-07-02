@@ -56,6 +56,19 @@ type ManualProductInput = {
   imageUrl: string | null;
 };
 
+type SellerDraftProductInput = {
+  sellerAccountId: string;
+  title: string;
+  description?: string | null;
+  category?: string | null;
+  condition?: string | null;
+  price: number;
+  quantity: number;
+  imageUrl: string | null;
+  sku?: string | null;
+  ebayItemId?: string | null;
+};
+
 type InventoryMutationResult = {
   item: UniversalInventoryItem;
   previousQuantity: number;
@@ -84,6 +97,7 @@ function toNumber(value: unknown): number {
 function mapLegacyProduct(product: any): LegacyProductSnapshot {
   return {
     id: Number(product.id),
+    seller_account_id: product.seller_account_id ?? null,
     sku: product.sku ?? null,
     title: String(product.title ?? "Untitled"),
     description: product.description ?? null,
@@ -105,6 +119,8 @@ function mapUniversal(
     return {
       inventoryItemId: inventoryItem.id,
       legacyProductId: product.id,
+      sellerAccountId:
+        inventoryItem.seller_account_id ?? product.seller_account_id ?? null,
       sku: inventoryItem.sku ?? product.sku,
       title: inventoryItem.title,
       description: inventoryItem.description ?? product.description,
@@ -122,6 +138,7 @@ function mapUniversal(
   return {
     inventoryItemId: null,
     legacyProductId: product.id,
+    sellerAccountId: product.seller_account_id ?? null,
     sku: product.sku,
     title: product.title,
     description: product.description,
@@ -434,6 +451,7 @@ export class InventoryEngine {
           (product.sku ? await this.repository.getBySku(product.sku) : null);
 
         const payload = {
+          seller_account_id: product.seller_account_id ?? null,
           legacy_product_id: product.id,
           sku: product.sku,
           title: product.title,
@@ -864,6 +882,7 @@ export class InventoryEngine {
       .join(" | ");
     const productData = {
       store_id: this.storeId,
+      seller_account_id: null,
       sku: input.sku,
       title: input.title,
       description: input.description ?? "",
@@ -928,6 +947,7 @@ export class InventoryEngine {
 
     const inventoryItem = await this.repository.upsertBySku({
       legacy_product_id: legacyProduct.id,
+      seller_account_id: legacyProduct.seller_account_id ?? null,
       sku: input.sku,
       title: input.title,
       description: input.description,
@@ -982,6 +1002,7 @@ export class InventoryEngine {
       .from("products")
       .insert({
         store_id: this.storeId,
+        seller_account_id: null,
         title: input.title,
         player: input.player,
         sport: input.sport,
@@ -1026,6 +1047,116 @@ export class InventoryEngine {
         quantity: legacyProduct.quantity,
       },
       "inventory-engine"
+    );
+
+    return mapUniversal(legacyProduct, inventoryItem);
+  }
+
+  async createSellerDraftProduct(
+    input: SellerDraftProductInput,
+  ): Promise<UniversalInventoryItem> {
+    const sku = cleanText(input.sku);
+    const ebayItemId = cleanText(input.ebayItemId);
+
+    let duplicateQuery = supabase
+      .from("products")
+      .select("id,title,seller_account_id")
+      .eq("store_id", this.storeId);
+
+    if (ebayItemId && sku) {
+      duplicateQuery = duplicateQuery.or(
+        `ebay_item_id.eq.${ebayItemId},sku.eq.${sku}`,
+      );
+    } else if (ebayItemId) {
+      duplicateQuery = duplicateQuery.eq("ebay_item_id", ebayItemId);
+    } else if (sku) {
+      duplicateQuery = duplicateQuery.eq("sku", sku);
+    }
+
+    if (ebayItemId || sku) {
+      const { data: duplicates, error: duplicateError } = await duplicateQuery.limit(1);
+
+      if (duplicateError) throw duplicateError;
+
+      if (duplicates && duplicates.length > 0) {
+        throw new InventoryEngineError(
+          `A store product already exists for ${duplicates[0].title}. Review the staged listing before promoting it.`,
+          409,
+        );
+      }
+    }
+
+    const generatedDescription =
+      input.description ??
+      generateInventoryDescription({
+        title: input.title,
+        player: null,
+        sport: null,
+        price: input.price,
+        quantity: input.quantity,
+        status: "draft",
+        sku: sku,
+        ebayItemId: ebayItemId,
+        imageUrl: input.imageUrl,
+      });
+
+    const { data: product, error } = await supabase
+      .from("products")
+      .insert({
+        store_id: this.storeId,
+        seller_account_id: input.sellerAccountId,
+        sku,
+        title: input.title,
+        player: null,
+        sport: null,
+        price: input.price,
+        quantity: Math.max(0, input.quantity),
+        description: generatedDescription,
+        image_url: input.imageUrl,
+        ebay_item_id: ebayItemId,
+        last_seen_at: new Date().toISOString(),
+      })
+      .select("*")
+      .single();
+
+    if (error) throw error;
+
+    const legacyProduct = mapLegacyProduct(product);
+    const inventoryItem = await this.repository.create({
+      seller_account_id: input.sellerAccountId,
+      legacy_product_id: legacyProduct.id,
+      sku: legacyProduct.sku,
+      title: legacyProduct.title,
+      description: generatedDescription,
+      category: cleanText(input.category) ?? "other_collectable",
+      condition: cleanText(input.condition) ?? "unknown",
+      status: "draft",
+      quantity: Math.max(0, input.quantity),
+      price: input.price,
+      currency: "USD",
+      notes: ebayItemId
+        ? `Seller-staged eBay listing ${ebayItemId}`
+        : "Seller-staged listing",
+    });
+
+    if (legacyProduct.image_url) {
+      await this.repository.addImage({
+        inventoryItemId: inventoryItem.id,
+        imageUrl: legacyProduct.image_url,
+        altText: legacyProduct.title,
+        isPrimary: true,
+      });
+    }
+
+    await eventBus.publish(
+      "inventory.seller_draft_created",
+      {
+        inventoryItemId: inventoryItem.id,
+        legacyProductId: legacyProduct.id,
+        sellerAccountId: input.sellerAccountId,
+        quantity: legacyProduct.quantity,
+      },
+      "inventory-engine",
     );
 
     return mapUniversal(legacyProduct, inventoryItem);

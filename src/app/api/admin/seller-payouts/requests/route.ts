@@ -1,0 +1,183 @@
+import { createClient } from "@supabase/supabase-js";
+import { getActiveStoreId } from "../../../../../lib/stores";
+import { getClientIdentity } from "../../../../../lib/client-identity";
+import { recordSellerPayoutAdminEvent } from "../../../../../lib/seller-payout-admin-events";
+
+export const dynamic = "force-dynamic";
+
+const allowedStatuses = new Set([
+  "requested",
+  "approved",
+  "processing",
+  "paid",
+  "rejected",
+  "cancelled",
+]);
+
+function getSupabaseClient() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseKey) {
+    throw new Error("Missing Supabase environment variables");
+  }
+
+  return createClient(supabaseUrl, supabaseKey);
+}
+
+function cleanAdminNote(value: unknown) {
+  const text = String(value || "").trim();
+  return text.length > 0 ? text.slice(0, 1000) : null;
+}
+
+function cleanPayoutReference(value: unknown) {
+  const text = String(value || "").trim();
+  return text.length > 0 ? text.slice(0, 250) : null;
+}
+
+function moneyNumber(value: unknown) {
+  const parsed = Number(value || 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function roundMoney(value: number) {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function timestampPatch(status: string) {
+  const now = new Date().toISOString();
+
+  if (status === "approved" || status === "rejected") {
+    return {
+      reviewed_at: now,
+      completed_at: null,
+    };
+  }
+
+  if (status === "paid" || status === "cancelled") {
+    return {
+      completed_at: now,
+    };
+  }
+
+  return {};
+}
+
+export async function POST(request: Request) {
+  try {
+    const body = await request.json().catch(() => ({}));
+    const requestId = String(body.requestId || "").trim();
+    const status = String(body.status || "").trim();
+    const adminNote = cleanAdminNote(body.adminNote);
+    const providerPayoutReference = cleanPayoutReference(
+      body.providerPayoutReference,
+    );
+    const finalProcessorFeeAmount = roundMoney(
+      Math.max(0, moneyNumber(body.finalProcessorFeeAmount)),
+    );
+
+    if (!requestId || !allowedStatuses.has(status)) {
+      return Response.json(
+        { error: "Missing payout request id or valid status." },
+        { status: 400 },
+      );
+    }
+
+    const supabase = getSupabaseClient();
+    const storeId = getActiveStoreId();
+    const { data: payoutRequest, error: lookupError } = await supabase
+      .from("seller_payout_requests")
+      .select("id,seller_account_id,requested_amount,status")
+      .eq("id", requestId)
+      .eq("store_id", storeId)
+      .single();
+
+    if (lookupError || !payoutRequest) {
+      return Response.json(
+        { error: lookupError?.message || "Payout request not found." },
+        { status: 404 },
+      );
+    }
+
+    if (payoutRequest.status === "paid") {
+      return Response.json(
+        { error: "Paid payout requests cannot be changed." },
+        { status: 409 },
+      );
+    }
+
+    const requestedAmount = moneyNumber(payoutRequest.requested_amount);
+    const finalNetAmount = roundMoney(
+      Math.max(0, requestedAmount - finalProcessorFeeAmount),
+    );
+
+    if (status === "paid" && !providerPayoutReference) {
+      return Response.json(
+        {
+          error:
+            "Provider payout reference is required before marking a cash-out request paid.",
+        },
+        { status: 400 },
+      );
+    }
+
+    const paidFields =
+      status === "paid"
+        ? {
+            final_processor_fee_amount: finalProcessorFeeAmount,
+            final_net_amount: finalNetAmount,
+            provider_payout_reference: providerPayoutReference,
+            provider_payout_status: "paid_recorded",
+          }
+        : {};
+
+    const { error: updateError } = await supabase
+      .from("seller_payout_requests")
+      .update({
+        status,
+        admin_note: adminNote,
+        updated_at: new Date().toISOString(),
+        ...timestampPatch(status),
+        ...paidFields,
+      })
+      .eq("id", requestId)
+      .eq("store_id", storeId);
+
+    if (updateError) {
+      return Response.json({ error: updateError.message }, { status: 500 });
+    }
+
+    const identity = await getClientIdentity(request);
+    await recordSellerPayoutAdminEvent({
+      supabase,
+      storeId,
+      targetType: "seller_payout_request",
+      targetId: requestId,
+      sellerAccountId: payoutRequest.seller_account_id ?? null,
+      eventType: "request_status_change",
+      previousStatus: payoutRequest.status || "requested",
+      newStatus: status,
+      adminNote,
+      identity,
+      metadata:
+        status === "paid"
+          ? {
+              provider_payout_reference: providerPayoutReference,
+              final_processor_fee_amount: finalProcessorFeeAmount,
+              final_net_amount: finalNetAmount,
+            }
+          : {},
+    });
+
+    return Response.json({
+      success: true,
+      requestId,
+      status,
+    });
+  } catch (error: any) {
+    return Response.json(
+      { error: error.message || "Could not update payout request." },
+      { status: 500 },
+    );
+  }
+}

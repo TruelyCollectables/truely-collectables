@@ -126,7 +126,7 @@ export function resolveStoreSettings(input: {
       "ebay_sync_enabled",
       true,
     ),
-    sellerCommissionRate: Number(input.settings?.seller_commission_rate ?? 0.05),
+    sellerCommissionRate: Number(input.settings?.seller_commission_rate ?? 0.08),
     metadata: input.settings?.metadata || {},
     source: input.source || (input.settings ? "database" : "fallback"),
   };

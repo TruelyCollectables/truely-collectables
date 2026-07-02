@@ -11,6 +11,7 @@ import { getActiveStoreId } from "./stores";
 type EvidenceOrderItem = {
   id: number;
   product_id: number | null;
+  seller_account_id: string | null;
   title: string | null;
   price: number | null;
   quantity: number | null;
@@ -165,6 +166,7 @@ function buildReportText(input: {
       sections.push(line("Item ID", item.id));
       sections.push(line("Product ID", item.product_id));
       sections.push(line("Title", item.title));
+      sections.push(line("Seller Owner", item.seller_account_id || "Store inventory"));
       sections.push(line("Quantity", item.quantity));
       sections.push(line("Unit Price", money(item.price)));
       sections.push(
@@ -302,6 +304,7 @@ async function getEvidenceOrder(
       order_items (
         id,
         product_id,
+        seller_account_id,
         title,
         price,
         quantity

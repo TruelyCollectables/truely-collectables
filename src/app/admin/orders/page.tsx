@@ -16,6 +16,7 @@ export const revalidate = 0;
 
 type OrderItem = {
   id: number;
+  seller_account_id?: string | null;
   title: string;
   quantity: number;
   price: number;
@@ -33,6 +34,9 @@ type Order = {
   shipping_amount: number | null;
   subtotal: number | null;
   item_count: number | null;
+  contains_seller_items?: boolean | null;
+  seller_item_count?: number | null;
+  store_item_count?: number | null;
   fulfillment_status: string | null;
   tracking_number: string | null;
   carrier: string | null;
@@ -76,6 +80,7 @@ export default async function AdminOrdersPage({
       *,
       order_items (
         id,
+        seller_account_id,
         title,
         quantity,
         price
@@ -270,6 +275,11 @@ function OrderCard({
         <div>
           <h3 className="text-xl font-bold">Order #{order.id}</h3>
           <p className="text-gray-600">{order.customer_email || "No email"}</p>
+          {order.contains_seller_items ? (
+            <p className="mt-1 text-xs font-semibold text-amber-700">
+              Seller-routed items: {order.seller_item_count || 0} seller / {order.store_item_count || 0} store
+            </p>
+          ) : null}
           <p className="mt-1 text-sm font-semibold text-gray-700">
             Account:{" "}
             {accountProfile

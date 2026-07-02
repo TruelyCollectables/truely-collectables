@@ -6,7 +6,7 @@ Authored by David Bakanas.
 
 Software ownership: Dag Danky Holdings LLC.
 
-Last updated: 2026-06-28
+Last updated: 2026-07-01
 
 This document records the database shape TCOS expects.
 
@@ -152,6 +152,96 @@ Important:
 - If a case is decided against the seller, recovery should support held funds, future payout offsets, or the seller's verified payout/bank method according to provider rules, including recovery within three business days when supported and legally allowed.
 
 Fields include account/store IDs, provider, provider account ID, onboarding status, charges/payouts/details flags, current and past-due provider requirements, disabled reason, seller TOS acceptance fields, TOS acceptance event ID, metadata, and timestamps.
+
+### `seller_payout_ledger_entries`
+
+Seller payable ledger for TCOS website checkout orders that include outside seller-owned inventory.
+
+Created by migration:
+
+```text
+supabase/migrations/20260701210000_create_seller_payout_ledger.sql
+```
+
+Important:
+
+- Dag Danky Holdings LLC takes an 8% platform rake from TCOS website checkout sales only.
+- The ledger basis includes item gross amount plus allocated buyer-paid shipping.
+- Seller payable amount is the total basis minus the Dag Danky Holdings LLC platform fee.
+- Payout statuses include fulfillment hold, dispute/review hold, eligible, paid, reversed, and cancelled.
+- Admin order review cases can move related rows into `hold_dispute_or_review`.
+- Rows tied to active or paid cash-out requests must not be destructively changed until the cash-out is resolved.
+
+### `platform_fee_ledger_entries`
+
+Dag Danky Holdings LLC platform fee ledger for TCOS website checkout order items.
+
+Created by migration:
+
+```text
+supabase/migrations/20260701211500_create_platform_fee_ledger.sql
+```
+
+Important:
+
+- The fee owner defaults to `Dag Danky Holdings LLC`.
+- The default source type is `tcos_website_checkout`.
+- Outside marketplace sales, including eBay sales of items exported from TCOS, do not create the TCOS 8% website rake.
+- Fee statuses include recognized pending settlement, settled, reversed, and cancelled.
+
+### `seller_payout_requests`
+
+Seller cash-out request ledger for eligible seller payout rows.
+
+Created by migrations:
+
+```text
+supabase/migrations/20260701213000_create_seller_payout_requests.sql
+supabase/migrations/20260701214500_add_final_fields_to_seller_payout_requests.sql
+```
+
+Important:
+
+- Requests allocate specific eligible seller payout ledger rows through `seller_payout_request_entries`.
+- Request statuses include requested, approved, processing, paid, rejected, and cancelled.
+- Marking a request paid records TCOS reconciliation only; actual money movement must happen through the approved payout processor until automated transfers are built.
+- Paid requests must record provider payout reference, final processor fee, and final seller net amount.
+- Seller cash-out or payout processor fees are separate from the Dag Danky Holdings LLC 8% platform rake.
+
+### `seller_payout_admin_events`
+
+Append-only admin audit events for seller payout ledger and cash-out request actions.
+
+Created by migration:
+
+```text
+supabase/migrations/20260701214000_create_seller_payout_admin_events.sql
+```
+
+Important:
+
+- Stores target type, target ID, seller account ID, event type, previous status, new status, admin note, actor type, IP address, user agent, identity risk, identity evidence JSON, metadata, and timestamp.
+- Used by `/admin/seller-payouts` and admin order payout controls.
+
+### `order_review_cases`
+
+Admin case files for chargebacks, returns, authenticity issues, item-not-as-described claims, payment risk, shipping issues, seller disputes, and other order problems.
+
+Created by migration:
+
+```text
+supabase/migrations/20260701215000_create_order_review_cases.sql
+```
+
+Important:
+
+- Cases are scoped by store and order.
+- A case may be scoped to one seller account or all seller-owned rows on the order.
+- Opening a case can hold related seller payout ledger rows by moving them to `hold_dispute_or_review`.
+- Opening a case can optionally move an unshipped order into `shipping_review`.
+- Statuses include open, evidence gathering, waiting on buyer, waiting on seller, under review, decided for buyer, decided for seller, appealed, and closed.
+- Final case outcomes are recorded in `outcome_summary`; payout release or recovery still happens through the payout ledger and payment processor rules.
+- `order_review_case_events` stores append-only event history with admin notes, previous/new status, IP evidence, user agent evidence, and metadata.
 
 ### `seller_marketplace_connections`
 
@@ -1412,6 +1502,59 @@ Creates:
 - `seller_payout_accounts`
 - Stripe Connect payout verification status tracking
 - indexes for account/store payout lookup and seller verification review
+
+### `20260701210000_create_seller_payout_ledger.sql`
+
+Creates:
+
+- `seller_payout_ledger_entries`
+- seller payable calculations for TCOS website checkout seller items
+- Dag Danky Holdings LLC 8% platform fee split on seller rows
+- fulfillment, dispute/review, eligible, paid, reversed, and cancelled payout statuses
+
+### `20260701211500_create_platform_fee_ledger.sql`
+
+Creates:
+
+- `platform_fee_ledger_entries`
+- Dag Danky Holdings LLC 8% platform fee recognition for TCOS website checkout order items
+- fee status tracking for settlement, reversal, and cancellation
+
+### `20260701213000_create_seller_payout_requests.sql`
+
+Creates:
+
+- `seller_payout_requests`
+- `seller_payout_request_entries`
+- seller cash-out request allocation against eligible payout ledger rows
+
+### `20260701214000_create_seller_payout_admin_events.sql`
+
+Creates:
+
+- `seller_payout_admin_events`
+- append-only admin audit events for seller payout ledger and cash-out request status changes
+- previous/new status, admin note, IP, user agent, identity risk, and evidence metadata
+
+### `20260701214500_add_final_fields_to_seller_payout_requests.sql`
+
+Adds:
+
+- final processor fee amount
+- final seller net amount
+- provider payout reference
+- provider payout status
+
+This migration lets TCOS reconcile paid seller cash-out requests against the approved payout processor.
+
+### `20260701215000_create_order_review_cases.sql`
+
+Creates:
+
+- `order_review_cases`
+- `order_review_case_events`
+- admin case files for chargebacks, returns, authenticity, payment risk, shipping issues, seller disputes, and related payout holds
+- indexes for store/order, store/status, seller/status, and case event review
 
 ### `20260701180000_create_seller_marketplace_connections.sql`
 

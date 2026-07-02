@@ -3,6 +3,7 @@ export type InventoryStatus = "draft" | "active" | "reserved" | "sold" | "archiv
 export type InventoryItem = {
   id: string;
   store_id: string;
+  seller_account_id: string | null;
   legacy_product_id: number | null;
   sku: string | null;
   title: string;
@@ -22,6 +23,7 @@ export type InventoryItem = {
 
 export type LegacyProductSnapshot = {
   id: number;
+  seller_account_id: string | null;
   sku: string | null;
   title: string;
   description: string | null;
@@ -37,6 +39,7 @@ export type LegacyProductSnapshot = {
 export type UniversalInventoryItem = {
   inventoryItemId: string | null;
   legacyProductId: number;
+  sellerAccountId: string | null;
   sku: string | null;
   title: string;
   description: string | null;
@@ -77,6 +80,7 @@ export type InventorySearchParams = {
 };
 
 export type CreateInventoryItemInput = {
+  seller_account_id?: string | null;
   legacy_product_id?: number | null;
   sku?: string | null;
   title: string;
