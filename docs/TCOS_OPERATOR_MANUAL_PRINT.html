@@ -141,7 +141,7 @@
 </head>
 <body>
   <div class="page-watermark">Property of Dag Danky Holdings LLC.</div>
-  <div class="print-meta">Generated 2026-07-01 from docs/TCOS_OPERATOR_MANUAL.md</div>
+  <div class="print-meta">Generated 2026-07-02 from docs/TCOS_OPERATOR_MANUAL.md</div>
   <h1>Totally Collectibles OS Operator Manual</h1>
 <p>Copyright 2026 Dag Danky Holdings LLC. All rights reserved.</p>
 <p>Authored by David Bakanas.</p>
@@ -530,6 +530,10 @@
 <tr>
 <td><code>/api/account/seller/payout-onboarding</code></td>
 <td>Starts or checks Stripe-hosted seller payout/bank verification</td>
+</tr>
+<tr>
+<td><code>/api/account/seller/marketplace-connections</code></td>
+<td>Returns logged-in seller marketplace connection records for the active store</td>
 </tr>
 <tr>
 <td><code>/api/checkout</code></td>
@@ -1700,10 +1704,12 @@ market_news_snapshots</code></pre>
 <li><code>/account</code> includes a Seller Verification panel for logged-in, active accounts</li>
 <li><code>/seller/marketplaces</code> shows the seller marketplace connection dashboard with live Store #1 inventory/eBay stats and the seller-safe connector build queue</li>
 <li><code>/api/account/seller/payout-onboarding</code> starts or resumes Stripe-hosted Express onboarding</li>
+<li><code>/api/account/seller/marketplace-connections</code> returns seller-scoped marketplace connection records for the logged-in account</li>
 <li>the seller must accept Seller Terms before payout onboarding starts</li>
 <li>seller TOS acceptance is recorded through <code>tos_acceptance_events</code></li>
 <li>Stripe collects and verifies bank/payout details; TCOS does not collect raw checking account or routing numbers</li>
 <li><code>seller_payout_accounts</code> stores Stripe Connect account ID, onboarding status, payout flags, due requirements, disabled reason, and seller TOS evidence</li>
+<li><code>seller_marketplace_connections</code> stores marketplace provider, seller account label, connection status, sync status, token reference/expiry metadata, last sync timing, and sync error state; it does not store raw OAuth secrets in this first foundation slice</li>
 <li>Stripe <code>account.updated</code> webhooks refresh seller payout status</li>
 <li><code>account_store_memberships</code> gets a <code>seller</code> role with <code>payout_verification_required</code> until Stripe reports the seller payout account active</li>
 </ul>
@@ -2511,6 +2517,7 @@ market_news_snapshots</code></pre>
 <li><code>/api/offers/create</code></li>
 <li><code>/api/account/collector/binding-offers</code></li>
 <li><code>/api/account/seller/payout-onboarding</code></li>
+<li><code>/api/account/seller/marketplace-connections</code></li>
 <li><code>/api/webhook</code></li>
 <li><code>/api/stripe/webhook</code></li>
 </ul>

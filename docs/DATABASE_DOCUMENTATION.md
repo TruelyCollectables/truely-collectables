@@ -153,6 +153,25 @@ Important:
 
 Fields include account/store IDs, provider, provider account ID, onboarding status, charges/payouts/details flags, current and past-due provider requirements, disabled reason, seller TOS acceptance fields, TOS acceptance event ID, metadata, and timestamps.
 
+### `seller_marketplace_connections`
+
+Stores seller-scoped marketplace connection records for eBay and future provider connectors.
+
+Created by migration:
+
+```text
+supabase/migrations/20260701180000_create_seller_marketplace_connections.sql
+```
+
+Important:
+
+- The table is scoped by `account_id` and `store_id` so each seller can have separate marketplace connections.
+- Store #1 global eBay sync remains separate in `ebay_tokens`; this table is the seller-safe connection foundation.
+- This first foundation slice stores token reference and expiry metadata only. It does not store raw OAuth access tokens or refresh tokens.
+- Future OAuth work should store secrets in a server-only encrypted/vaulted layer and reference them from `token_storage_key`.
+
+Fields include account/store IDs, provider, provider account ID/label, connection status, sync status, OAuth scope names, token reference/expiry metadata, last sync timing, last sync error, import cursor, provider metadata, and timestamps.
+
 ### `account_auth_events`
 
 Account signup/login audit trail.
@@ -1375,6 +1394,15 @@ Creates:
 - `seller_payout_accounts`
 - Stripe Connect payout verification status tracking
 - indexes for account/store payout lookup and seller verification review
+
+### `20260701180000_create_seller_marketplace_connections.sql`
+
+Creates:
+
+- `seller_marketplace_connections`
+- seller-scoped marketplace connection status tracking
+- token reference/expiry metadata without raw OAuth secret storage
+- indexes for account/store connection lookup, store/provider review, and sync status review
 
 ### `20260630113000_create_public_endpoint_rate_limit_events.sql`
 

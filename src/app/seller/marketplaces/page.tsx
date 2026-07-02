@@ -2,6 +2,7 @@ import Link from "next/link";
 import { supabase } from "../../../lib/supabase";
 import { getStoreSettings } from "../../../lib/store-settings";
 import { getActiveStoreId } from "../../../lib/stores";
+import SellerConnectionsPanel from "./SellerConnectionsPanel";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -202,6 +203,8 @@ export default async function SellerMarketplacesPage() {
             ))}
           </div>
         </section>
+
+        <SellerConnectionsPanel />
 
         <section className="rounded-md border border-neutral-200 bg-white p-5">
           <h2 className="text-2xl font-black">Seller-Safe Build Queue</h2>
