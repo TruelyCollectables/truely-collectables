@@ -302,6 +302,7 @@ Most day-to-day work starts at:
 | `/api/account/collector/binding-offers` | Starts a card-required binding offer through Stripe setup checkout |
 | `/api/account/seller/payout-onboarding` | Starts or checks Stripe-hosted seller payout/bank verification |
 | `/api/account/seller/marketplace-connections` | Loads or saves logged-in seller marketplace connection records for the active store |
+| `/api/account/seller/marketplace-connections/ebay/auth` | Starts seller-safe eBay OAuth and returns the authorization URL |
 | `/api/checkout` | Creates Stripe checkout session |
 | `/api/webhook` | Main Stripe webhook handler |
 | `/api/stripe/webhook` | Alternate Stripe webhook handler |
@@ -1691,11 +1692,14 @@ Current seller payout verification foundation:
 - `/seller/marketplaces` shows the seller marketplace connection dashboard with live Store #1 inventory/eBay stats and the seller-safe connector build queue
 - `/api/account/seller/payout-onboarding` starts or resumes Stripe-hosted Express onboarding
 - `/api/account/seller/marketplace-connections` returns seller-scoped marketplace connection records and saves seller connection requests for the logged-in account
+- `/api/account/seller/marketplace-connections/ebay/auth` starts seller-safe eBay OAuth for the logged-in account
 - the seller must accept Seller Terms before payout onboarding starts
 - seller TOS acceptance is recorded through `tos_acceptance_events`
 - Stripe collects and verifies bank/payout details; TCOS does not collect raw checking account or routing numbers
 - `seller_payout_accounts` stores Stripe Connect account ID, onboarding status, payout flags, due requirements, disabled reason, and seller TOS evidence
 - `seller_marketplace_connections` stores marketplace provider, seller account label, connection status, sync status, token reference/expiry metadata, last sync timing, and sync error state; it does not store raw OAuth secrets in this first foundation slice
+- seller eBay OAuth reuses `/api/ebay/callback` through signed state so the existing Store #1 eBay app redirect can support seller-safe connections without touching the global `ebay_tokens` path
+- encrypted seller marketplace tokens are stored separately from `ebay_tokens`
 - Stripe `account.updated` webhooks refresh seller payout status
 - `account_store_memberships` gets a `seller` role with `payout_verification_required` until Stripe reports the seller payout account active
 

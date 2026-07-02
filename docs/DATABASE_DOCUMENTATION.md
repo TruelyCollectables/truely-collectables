@@ -172,6 +172,24 @@ Important:
 
 Fields include account/store IDs, provider, provider account ID/label, connection status, sync status, OAuth scope names, token reference/expiry metadata, last sync timing, last sync error, import cursor, provider metadata, and timestamps.
 
+### `seller_marketplace_connection_tokens`
+
+Stores encrypted seller marketplace OAuth tokens separately from connection status rows.
+
+Created by migration:
+
+```text
+supabase/migrations/20260701183000_create_seller_marketplace_connection_tokens.sql
+```
+
+Important:
+
+- This table is keyed by seller account, store, provider, and connection ID.
+- It stores encrypted token payloads only. Raw refresh/access tokens should not be exposed through account APIs or UI responses.
+- Seller eBay OAuth uses this table so third-party seller tokens stay separate from Store #1 `ebay_tokens`.
+
+Fields include connection/account/store IDs, provider, encrypted refresh token, optional encrypted access token, and timestamps.
+
 ### `account_auth_events`
 
 Account signup/login audit trail.
@@ -1403,6 +1421,14 @@ Creates:
 - seller-scoped marketplace connection status tracking
 - token reference/expiry metadata without raw OAuth secret storage
 - indexes for account/store connection lookup, store/provider review, and sync status review
+
+### `20260701183000_create_seller_marketplace_connection_tokens.sql`
+
+Creates:
+
+- `seller_marketplace_connection_tokens`
+- encrypted seller marketplace token storage
+- index for seller/store/provider token lookup
 
 ### `20260630113000_create_public_endpoint_rate_limit_events.sql`
 

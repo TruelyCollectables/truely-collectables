@@ -17,8 +17,8 @@ const requestableProviders: Array<{
 }> = [
   {
     provider: "ebay",
-    label: "Request eBay Connection",
-    note: "Queue seller-safe eBay account linking for this store account.",
+    label: "Connect eBay OAuth",
+    note: "Start seller-safe eBay account linking for this store account.",
   },
   {
     provider: "shopify",
@@ -91,7 +91,18 @@ export default function SellerConnectionsPanel() {
   >([]);
   const [isLoading, setIsLoading] = useState(() => Boolean(session?.access_token));
   const [isSavingProvider, setIsSavingProvider] = useState("");
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState(() => {
+    if (typeof window === "undefined") return "";
+
+    const params = new URLSearchParams(window.location.search);
+    const ebayStatus = params.get("ebay");
+    const ebayMessage = params.get("message");
+
+    if (ebayMessage) return ebayMessage;
+    if (ebayStatus === "connected") return "eBay seller connection saved.";
+    if (ebayStatus === "error") return "eBay seller connection failed.";
+    return "";
+  });
 
   useEffect(() => {
     if (!session?.access_token) return;
@@ -125,15 +136,23 @@ export default function SellerConnectionsPanel() {
     setMessage("");
 
     try {
-      const response = await fetch("/api/account/seller/marketplace-connections", {
+      const endpoint =
+        provider === "ebay"
+          ? "/api/account/seller/marketplace-connections/ebay/auth"
+          : "/api/account/seller/marketplace-connections";
+      const payload =
+        provider === "ebay"
+          ? {}
+          : {
+              provider,
+            };
+      const response = await fetch(endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.access_token}`,
         },
-        body: JSON.stringify({
-          provider,
-        }),
+        body: JSON.stringify(payload),
       });
       const data = await response.json();
 
@@ -141,6 +160,11 @@ export default function SellerConnectionsPanel() {
         throw new Error(
           data.error || "Could not save seller marketplace connection.",
         );
+      }
+
+      if (provider === "ebay" && data.authorizationUrl) {
+        window.location.assign(data.authorizationUrl);
+        return;
       }
 
       setMessage(`${label(provider)} connection request saved.`);
@@ -208,8 +232,8 @@ export default function SellerConnectionsPanel() {
       {connections.length === 0 ? (
         <div className="p-5 text-sm leading-6 text-neutral-600">
           No seller marketplace connections are saved yet. Use the request
-          actions above to create seller-scoped connection records without
-          touching the Store #1 eBay sync token.
+          actions above to create seller-scoped connection records and start
+          seller-safe eBay OAuth without touching the Store #1 eBay sync token.
         </div>
       ) : (
         <div className="overflow-x-auto">

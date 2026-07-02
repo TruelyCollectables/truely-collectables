@@ -536,6 +536,10 @@
 <td>Loads or saves logged-in seller marketplace connection records for the active store</td>
 </tr>
 <tr>
+<td><code>/api/account/seller/marketplace-connections/ebay/auth</code></td>
+<td>Starts seller-safe eBay OAuth and returns the authorization URL</td>
+</tr>
+<tr>
 <td><code>/api/checkout</code></td>
 <td>Creates Stripe checkout session</td>
 </tr>
@@ -1705,11 +1709,14 @@ market_news_snapshots</code></pre>
 <li><code>/seller/marketplaces</code> shows the seller marketplace connection dashboard with live Store #1 inventory/eBay stats and the seller-safe connector build queue</li>
 <li><code>/api/account/seller/payout-onboarding</code> starts or resumes Stripe-hosted Express onboarding</li>
 <li><code>/api/account/seller/marketplace-connections</code> returns seller-scoped marketplace connection records and saves seller connection requests for the logged-in account</li>
+<li><code>/api/account/seller/marketplace-connections/ebay/auth</code> starts seller-safe eBay OAuth for the logged-in account</li>
 <li>the seller must accept Seller Terms before payout onboarding starts</li>
 <li>seller TOS acceptance is recorded through <code>tos_acceptance_events</code></li>
 <li>Stripe collects and verifies bank/payout details; TCOS does not collect raw checking account or routing numbers</li>
 <li><code>seller_payout_accounts</code> stores Stripe Connect account ID, onboarding status, payout flags, due requirements, disabled reason, and seller TOS evidence</li>
 <li><code>seller_marketplace_connections</code> stores marketplace provider, seller account label, connection status, sync status, token reference/expiry metadata, last sync timing, and sync error state; it does not store raw OAuth secrets in this first foundation slice</li>
+<li>seller eBay OAuth reuses <code>/api/ebay/callback</code> through signed state so the existing Store #1 eBay app redirect can support seller-safe connections without touching the global <code>ebay_tokens</code> path</li>
+<li>encrypted seller marketplace tokens are stored separately from <code>ebay_tokens</code></li>
 <li>Stripe <code>account.updated</code> webhooks refresh seller payout status</li>
 <li><code>account_store_memberships</code> gets a <code>seller</code> role with <code>payout_verification_required</code> until Stripe reports the seller payout account active</li>
 </ul>
