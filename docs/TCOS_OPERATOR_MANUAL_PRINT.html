@@ -141,7 +141,7 @@
 </head>
 <body>
   <div class="page-watermark">Property of Dag Danky Holdings LLC.</div>
-  <div class="print-meta">Generated 2026-07-02 from docs/TCOS_OPERATOR_MANUAL.md</div>
+  <div class="print-meta">Generated 2026-07-03 from docs/TCOS_OPERATOR_MANUAL.md</div>
   <h1>Totally Collectibles OS Operator Manual</h1>
 <p>Copyright 2026 Dag Danky Holdings LLC. All rights reserved.</p>
 <p>Authored by David Bakanas.</p>
@@ -334,6 +334,18 @@
 <li>cart page with a structured order summary, shipping selector, TOS acceptance, and secure checkout action</li>
 <li>consistent neutral/off-white storefront background</li>
 <li><code>/admin</code> now renders as a live TCOS command center with revenue metrics, fulfillment queues, offer desk, inventory watch, eBay sync policy decisions, blocked sync reasons, store settings status, evidence health, operator alerts, and fast links</li>
+<li><code>/admin/launch-readiness</code> now resolves the active store primary domain, evidence email, and eBay sync settings from store settings before marking launch checks ready or warning</li>
+<li><code>/admin/launch-readiness</code> now also checks <code>SUPABASE_SERVICE_ROLE_KEY</code>, and admin settings plus Stripe/order webhooks now prefer the service-role key for admin-only writes instead of relying only on anon-key access</li>
+<li>admin settings, admin eBay control surfaces, admin payout workflows, admin files downloads, order review case packet generation, brag weekly reports, and admin login audit paths now also prefer the service-role key for admin-side Supabase access</li>
+<li>checkout, offer, order-fulfillment, eBay sync, account-auth, and public rate-limit server paths now also prefer the service-role key so launch-critical writes and audits do not depend on public-key table permissions</li>
+<li>authenticated account dashboard/order APIs, collector binding offers, seller inventory/order/payout APIs, and seller marketplace connection routes now also prefer the service-role key for server-side account workflows</li>
+<li>collector profile, collection, wish-list, messaging, social, import, and export APIs now also prefer the service-role key for server-side collector workflows</li>
+<li>account login and signup now also use the shared server Supabase helper for consistency; those auth routes still use the normal anon-key auth flow because they are calling Supabase Auth directly rather than doing admin-only table writes</li>
+<li>shipment emails, offer emails, and admin packing slips now render the active store display name instead of a hardcoded storefront label</li>
+<li>shared public storefront surfaces now read brand/legal text from the centralized legal constants, including layout metadata, navbar, homepage eyebrow, buyer terms, seller terms, cart TOS copy, and success-page branding</li>
+<li>brag-share links, collector research guidance, seller marketplace messaging, and default inventory description text now also read shared store/platform branding constants instead of hardcoded storefront strings</li>
+<li>the remaining admin placeholder and explanatory copy now also read shared platform/store legal constants, including store email placeholders, eBay account label placeholder, admin platform heading, and launch-readiness platform/storefront separation text</li>
+<li>store-settings fallback contact addresses now derive from the active store primary domain when available, or from the TCOS platform domain, instead of falling back to a legacy single-store email domain</li>
 </ul>
 <h2>1. Quick Start</h2>
 <p>Daily operator path:</p>
@@ -400,6 +412,14 @@
 <td>Seller home redirect to marketplace connections</td>
 </tr>
 <tr>
+<td><code>/seller/orders</code></td>
+<td>Seller-owned order, payout, and hold activity workspace</td>
+</tr>
+<tr>
+<td><code>/seller/orders/[id]</code></td>
+<td>Seller-owned order detail drilldown</td>
+</tr>
+<tr>
 <td><code>/seller/marketplaces</code></td>
 <td>Seller marketplace connection dashboard for Store #1 sync foundation and future seller-safe connectors</td>
 </tr>
@@ -440,12 +460,20 @@
 <td>Fulfillment center</td>
 </tr>
 <tr>
+<td><code>/admin/settings</code></td>
+<td>Store operations and marketplace integration controls for the active TCOS store</td>
+</tr>
+<tr>
 <td><code>/admin/orders/[id]</code></td>
 <td>Order detail and tracking</td>
 </tr>
 <tr>
 <td><code>/admin/orders/[id]/packing-slip</code></td>
 <td>Printable packing slip</td>
+</tr>
+<tr>
+<td><code>/admin/order-review-cases</code></td>
+<td>Global chargeback, return, authenticity, shipping, payment-risk, and seller-dispute case queue</td>
 </tr>
 <tr>
 <td><code>/admin/files</code></td>
@@ -492,6 +520,18 @@
 <td>Downloads transaction evidence PDF</td>
 </tr>
 <tr>
+<td><code>/api/admin/order-review-cases</code></td>
+<td>Opens and updates order review cases and writes case audit events</td>
+</tr>
+<tr>
+<td><code>/api/admin/order-review-cases/[id]/packet</code></td>
+<td>Downloads an order review case packet PDF</td>
+</tr>
+<tr>
+<td><code>/api/admin/order-review-cases/[id]/payout-resolution</code></td>
+<td>Resolves related seller payout rows after a case decision</td>
+</tr>
+<tr>
 <td><code>/api/account/signup</code></td>
 <td>Creates customer account through Supabase Auth</td>
 </tr>
@@ -530,6 +570,42 @@
 <tr>
 <td><code>/api/account/seller/payout-onboarding</code></td>
 <td>Starts or checks Stripe-hosted seller payout/bank verification</td>
+</tr>
+<tr>
+<td><code>/api/account/seller/payout-requests</code></td>
+<td>Returns seller cash-out balance, request history, review-blocked context, and linked order routing summaries for the logged-in seller</td>
+</tr>
+<tr>
+<td><code>/api/account/seller/inventory</code></td>
+<td>Returns seller-owned inventory summary, full seller inventory workspace data, and recent promoted draft output for the active store</td>
+</tr>
+<tr>
+<td><code>/api/account/seller/inventory/bulk-status</code></td>
+<td>Runs seller-scoped bulk activation or archive actions across selected inventory rows using the same guardrails as single-item controls</td>
+</tr>
+<tr>
+<td><code>/api/account/seller/inventory/[inventoryItemId]</code></td>
+<td>Updates a seller-owned listing's title, price, quantity, and description without using the admin product screen</td>
+</tr>
+<tr>
+<td><code>/api/account/seller/inventory/[inventoryItemId]/activate</code></td>
+<td>Activates a seller-owned draft after readiness and payout verification checks pass</td>
+</tr>
+<tr>
+<td><code>/api/account/seller/inventory/[inventoryItemId]/archive</code></td>
+<td>Archives or pauses a seller-owned listing without deleting it from the active store records</td>
+</tr>
+<tr>
+<td><code>/api/account/seller/inventory/[inventoryItemId]/description</code></td>
+<td>Regenerates or AI-writes a seller-owned listing description through the shared inventory engine</td>
+</tr>
+<tr>
+<td><code>/api/account/seller/orders</code></td>
+<td>Returns seller-owned order activity, payout state, and hold context for the logged-in seller</td>
+</tr>
+<tr>
+<td><code>/api/account/seller/orders/[id]</code></td>
+<td>Returns seller-owned order detail for a single routed order</td>
 </tr>
 <tr>
 <td><code>/api/account/seller/marketplace-connections</code></td>
@@ -1172,7 +1248,10 @@ tcos_public_inventory_stats</code></pre>
 <p>Use <code>/admin/ebay</code> before and after large imports. Missing SKU and stale sync warnings should be reviewed before assuming local inventory and eBay inventory agree.</p>
 <h3>eBay Sync Toggle</h3>
 <p>Open:</p>
-<pre><code>/admin/settings</code></pre>
+<pre><code>/admin/settings
+
+- store operations now let admins update the active store primary domain, support/sales/offers/evidence emails, evidence/order sender labels, eBay environment, eBay account label, and seller commission rate
+- those settings feed launch readiness, evidence delivery, support/contact display, and marketplace environment checks for the active store</code></pre>
 <p>The <code>Enable eBay Sync</code> toggle controls whether the active store can use eBay integration.</p>
 <p>When eBay sync is enabled:</p>
 <ul>
@@ -1702,9 +1781,19 @@ market_news_snapshots</code></pre>
 <li>seller payout status must be gated by third-party verification status</li>
 <li>Dag Danky Holdings LLC charges an 8% platform commission/rake on purchases completed through the TCOS website checkout</li>
 <li>Dag Danky Holdings LLC does not earn the 8% platform commission/rake when an item uploaded from TCOS sells on eBay or another outside marketplace; outside marketplace sales follow that marketplace's own fees, payout rules, and seller obligations</li>
-<li>the 5% commission is calculated from total sale amount, including item sale price plus buyer-paid shipping</li>
+<li>the 8% commission is calculated from total sale amount, including item sale price plus buyer-paid shipping</li>
 <li>seller acceptance should be stored with seller TOS version and timestamp when seller accounts are implemented</li>
 <li>seller payouts must follow the approved payment processor's timing, reserve, debit, chargeback, instant payout, bank-transfer, and recovery rules unless Dag Danky Holdings LLC approves a different processor or payout method</li>
+<li>sellers may list unverified autographs, in-person autographs, through-the-mail autographs, fan-club returns, or other provenance-supported items only if the listing clearly discloses the true verification status</li>
+<li>autograph listings must clearly label whether they are third-party certified, seller-pass-guaranteed, provenance-supported but unverified, or sold as-is and unverified</li>
+<li>if a seller relies on provenance evidence such as envelopes, letters, postmarks, signing photos, event tickets, or correspondence, that evidence must be clearly called out in the listing description and shown in listing photos when available</li>
+<li>if a seller claims or implies that an item will pass JSA, PSA DNA, Beckett, or another named third-party authenticator, that seller claim becomes part of the transaction record and refund/dispute evidence</li>
+<li>if an autograph or authenticity-sensitive item is sold as unverified, sold as-is, and not guaranteed to pass third-party authentication, the buyer assumes that disclosed authentication risk and a later failure alone does not force a refund unless the seller made a false or misleading authenticity representation</li>
+<li>seller inventory activation now blocks autograph-sensitive drafts when the listing still lacks an explicit authenticity status, required certification provider, required pass-guarantee authenticator, or required provenance evidence</li>
+<li>seller eBay staging now carries forward title/aspect autograph clues into draft authenticity defaults when possible, so certified or autograph-sensitive imports start closer to a compliant disclosure state before activation</li>
+<li>seller marketplace preview rows and staged rows now show imported authenticity badges, cert clues, category hints, and disclosure notes directly in the seller UI before promotion into draft inventory</li>
+<li>seller marketplace staged rows now also include a review editor so the seller can correct category hint, authenticity status, autograph source, cert details, pass-guarantee names, provenance evidence, and disclosure notes before promoting the row into draft inventory</li>
+<li>seller marketplace staged rows now also show the projected draft activation outlook, including future activation blockers such as missing authenticity disclosure, missing cert provider, missing provenance evidence, missing SKU, missing image, or missing quantity before the seller promotes the row</li>
 <li>seller cash-out requests can only be made against payout ledger amounts marked eligible; held funds remain unavailable until fulfillment, dispute, fraud, and review rules release them</li>
 <li>seller payout ledger rows can be manually released to eligible, placed back on fulfillment hold, placed on dispute/review hold, reversed, or cancelled by admin review</li>
 <li>seller payout ledger rows tied to an active or paid cash-out request must not be destructively changed without resolving the cash-out request first</li>
@@ -1715,15 +1804,139 @@ market_news_snapshots</code></pre>
 <li>seller cash-out or payout processor fees are separate from the Dag Danky Holdings LLC 8% platform rake and may reduce the seller's final net payout according to the payout provider's rules</li>
 <li>when a return, dispute, chargeback, authenticity case, or item-not-as-described claim is opened against a seller item, related seller funds must be held until the case and all available appeals are finally decided</li>
 <li>if the case is decided against the seller, TCOS policy should support recovery from held funds, future payouts, or the seller's verified payout/bank method according to payment processor rules, including recovery within three business days when supported by the provider and allowed by law</li>
+<li>a first confirmed counterfeit or authenticity-breach case may require refund, formal seller warning, payout hold, and case-history logging</li>
+<li>a repeat confirmed counterfeit or authenticity-breach case may trigger seller suspension, removal, or permanent ban review</li>
+<li>order review cases live on the admin order detail page and cover chargebacks, returns, authenticity issues, item-not-as-described claims, payment risk, shipping issues, seller disputes, and other order problems</li>
+<li>opening an order review case can automatically move related seller payout ledger rows into <code>hold_dispute_or_review</code></li>
+<li>opening an order review case can optionally move an unshipped order into <code>shipping_review</code></li>
+<li>order review case updates write append-only case events with previous status, new status, admin note, IP, user agent evidence, and timestamp</li>
+<li>closing a case records the outcome summary, but seller payout release or recovery must still follow the payout ledger controls and the approved payout processor's rules</li>
 </ul>
 <p>Current seller payout verification foundation:</p>
 <ul>
 <li><code>/account</code> includes a Seller Verification panel for logged-in, active accounts</li>
-<li><code>/seller/marketplaces</code> shows the seller marketplace connection dashboard with live Store #1 inventory/eBay stats and the seller-safe connector build queue</li>
+<li><code>/api/account/seller/payout-requests</code> now returns dispute-blocked request context so sellers can see when an open cash-out request is still tied to active review cases or held payout rows</li>
+<li><code>/api/account/seller/payout-requests</code> now also returns linked order routing summaries for each request so sellers can jump straight into the exact routed orders tied to a cash-out</li>
+<li>the Seller Cash-Out panel now breaks held funds into pending-fulfillment holds, dispute holds, reserved open requests, and cancelled/reversed rows so sellers can see what is truly cash-out ready</li>
+<li>blocked seller cash-out requests now link into a seller-side Hold Context section on <code>/account</code> so the affected order numbers and hold reasons are easy to trace without admin access</li>
+<li><code>/seller/payouts</code> now gives sellers a dedicated payout workspace with Stripe verification status, cash-out readiness metrics, request history, and blocked hold context links into seller orders</li>
+<li><code>/seller/payouts</code> now also supports seller-side request filters for blocked, open, paid, and attention-needed cash-out requests plus text search across request IDs, order references, notes, provider status, and payout references</li>
+<li><code>/seller/payouts</code> now surfaces linked order cards inside each seller cash-out request, including payment status, fulfillment status, request amount by order, active case counts, held payout row counts, and direct links into seller order detail</li>
+<li><code>/seller</code> now acts as the seller command center with cross-workspace metrics for inventory readiness, payout pressure, seller order volume, recent seller signals, and operational radar panels for draft blockers, blocked cash-out requests, and action-required orders</li>
+<li>the seller command center now also deep-links each workspace card, pressure panel, and recent seller signal into the exact needs-work, blocked, action, shipping, or signal-focused view when a smarter handoff exists</li>
+<li>seller inventory, orders, and payout pages now honor incoming URL filter/search parameters so dashboard and workspace handoffs open the intended view immediately</li>
+<li>seller inventory, orders, and payout filters now also keep the browser URL in sync so the current view is refresh-safe, bookmarkable, and shareable after the seller changes filters</li>
+<li>seller order detail links now preserve originating seller order or payout context, and the detail page returns sellers to the right view instead of dumping them back into the generic order list</li>
+<li>seller order detail now also includes direct order and payout action cards plus timeline handoffs so one order can launch the seller back into the exact workflow view that needs attention</li>
+<li>seller order detail payout rows and review cases now also expose contextual order or payout links so the seller can jump straight from a specific issue into the matching workflow view</li>
+<li>seller order cash-out request links now open the payout workspace in the correct request view with the specific request pre-searched instead of relying on a loose anchor jump</li>
+<li>seller payout links into order detail now preserve the originating payout view, and order detail can return the seller back to that payout workspace instead of only the generic order list</li>
+<li>seller inventory handoff buttons now route into action-order, shipping, or blocked-payout views when the current listing state or bulk failure reason makes a more precise seller workflow jump available</li>
+<li>seller payout navigation and empty-state recovery now route into action-order, cash-out, or completed order views based on the active payout request view so sellers can jump into the matching order workspace without resetting context first</li>
+<li>seller order navigation and empty-state recovery now route into blocked, attention, open, or paid payout views based on the active order workspace so the seller can cross from order work into the matching payout view without losing workflow context</li>
+<li>the seller command-center header now routes Inventory, Payouts, and Orders into the hottest needs-work, blocked, open, action, or shipping view instead of dropping sellers at generic workspace roots</li>
+<li>the seller inventory header now routes Orders and Payouts into shipping, action, blocked, or open views based on active listing focus, draft cleanup pressure, and payout-verification fallout</li>
+<li>the seller order-detail header now routes Payouts into blocked, attention, open, paid, or general payout views based on the live payout pressure tied to that routed order</li>
+<li>blocked cash-out order chips and action-order cards on the seller command center now jump straight into seller order detail with the right order or payout return context</li>
+<li>payout-related seller signals on the command center now open the matching payout view directly, and their order-detail links return sellers back to blocked or open payout work instead of only the order workspace</li>
+<li>seller order workspace shortcut cards now include direct jumps into their matching blocked, attention, open, or paid payout view instead of making the seller open orders first and payouts second</li>
+<li>seller payout workspace shortcut cards now include direct jumps into their matching action-order, cash-out, or completed order view so sellers can pivot across workspace states without resetting context</li>
+<li>seller payout request cards and blocked-hold summaries now route directly into the matching action, shipping, cash-out, or completed order view based on the request's real order pressure instead of only linking into order detail</li>
+<li>seller order detail now routes cash-out claims into action, shipping, cash-out, or completed order views based on live request pressure, and seller-facing payout actions now use clearer cash-out wording</li>
+<li>seller home blocked cash-out cards now include direct jumps into action-order and blocked-payout request views, and seller payout summary labels now use clearer cash-out wording</li>
+<li>seller order workspace cash-out request cards now include direct jumps into action, shipping, cash-out, or completed order views based on live request pressure, and seller home payout summary labels stay aligned with the cash-out wording</li>
+<li>seller signal cards on the command center and seller order detail now label payout actions with the actual blocked or cash-out view they open instead of using generic payout wording</li>
+<li>seller marketplace import draft-output links now open the seller draft inventory workspace directly, and draft-output guidance now calls that handoff by name instead of sending sellers to a generic inventory root</li>
+<li>seller marketplace draft-output links now choose the most useful draft view, and recent promoted inventory cards can jump straight into the matching seller inventory workspace for that item</li>
+<li>seller home draft blockers now include direct seller-workspace jumps for each item, and seller-home inventory or order recovery buttons now name the exact needs-work or action view they open</li>
+<li>seller order cards now turn recent signal rows into direct order, payout, and seller-detail actions so sellers can react from the order list instead of opening the detail page first</li>
+<li>top-level seller order signals now include direct blocked-payout or cash-out-payout actions when the signal is payout-related, and their seller-detail label now matches the rest of the workspace</li>
+<li>seller cash-out request buttons inside order list and order detail now name the exact payout view they open, including blocked, cash-out, paid, or attention views</li>
+<li>seller home and top-level seller order signals now label action jumps with the exact action, shipping, cash-out, completed, or seller-order view they open, and seller-home signal detail links now use the same seller-detail wording as the rest of the workspace</li>
+<li>seller inventory order buttons now carry the current listing title into the target seller order workspace so shipping, action, or seller-order jumps land on the relevant collectible instead of a broad search</li>
+<li>remaining seller views that route into the open payout-request view now call it the cash-out payout view instead of the older generic open-payout wording</li>
+<li>seller inventory can now open marketplace review with staged-row search context from the current listing, and the marketplace workspace can initialize its filter/search state from those incoming query parameters</li>
+<li>seller inventory summary and toolbar marketplace shortcuts now carry readiness or search context into seller marketplace review so needs-work, ready-stage, and item-search jumps land in the right staged view</li>
+<li>the seller command center now reads the latest staged import summary and turns its marketplace card and header shortcut into direct blocked, needs-review, ready, mapped, or general marketplace links based on live sync pressure</li>
+<li>seller marketplace draft-output links now reuse the smart seller draft workspace target, and promotion-result controls now distinguish between showing promoted rows inside marketplace review versus opening the seller draft inventory workspace</li>
+<li>promotion-result rows now include direct seller draft-workspace links using the promoted title or SKU, so sellers can open the matching seller-owned inventory record without detouring through admin first</li>
+<li>blocked, failed, and already-promoted marketplace conflict matches now expose seller-workspace links whenever the duplicate belongs to the same seller or store-owned inventory, while keeping the admin product links for deeper review</li>
+<li>seller inventory bulk success and failure follow-up cards now include direct seller-workspace links for the affected listing, and remaining admin product links use the same open-in-admin wording as the rest of the seller workspace</li>
+<li>the seller inventory header marketplace shortcut now carries the current inventory search and readiness context into seller marketplace review, and marketplace admin-only exits now consistently use the same open-in-admin wording as the rest of the seller workspace</li>
+<li>seller orders and seller payouts now turn their inventory header shortcuts into context-aware seller inventory links, using the current order or payout filter plus usable search text to land on needs-work drafts, active inventory, or a focused seller inventory search</li>
+<li>the seller order detail header now routes its inventory shortcut into active or general seller inventory with single-item search context when available, instead of always dropping sellers at the inventory root</li>
+<li>seller orders, seller payouts, and seller order detail now turn their marketplace header shortcuts into search-aware seller marketplace links, carrying usable listing text or single-item context instead of always opening the generic marketplace root</li>
+<li>the seller order detail login gate now preserves the page's return order or payout context instead of always sending logged-out sellers back to the generic seller orders root</li>
+<li>seller command center action cards now reuse the same smart workspace routing as the header shortcuts, so idle states fall back to seller inventory, seller payouts, or seller orders instead of forcing empty ready, shipping, or cash-out views</li>
+<li>the seller marketplace page now uses its live store counts to steer inventory and payout shortcuts toward active inventory, seller drafts, or payout setup instead of treating every workspace jump as a generic root link</li>
+<li>the account page now routes seller payout entry points into blocked or cash-out payout views when pressure exists, and hold-context shortcuts now open the seller action-order workspace instead of the generic seller order root</li>
+<li>blocked payout request chips and hold-context cards on the account page now open seller order detail with the blocked-payout return view preserved, so the seller can inspect an order and still jump back into the right payout workspace</li>
+<li>seller payout request cards on the account page now include direct jumps into the matching blocked, cash-out, paid, or general payout view plus the corresponding seller order view, instead of only showing request status in place</li>
+<li>the account page seller-verification card now reads the latest staged import summary and routes its marketplace button into blocked, needs-review, ready, mapped, or general seller marketplace review instead of always opening the generic marketplace root</li>
+<li>seller orders and seller payouts now steer their marketplace header shortcut into needs-review marketplace cleanup when the seller is already working blocked or attention-heavy views, while clean views keep the broader marketplace search handoff</li>
+<li>seller order detail now uses live blocked payout and review pressure to send its marketplace shortcut into needs-review cleanup when that order is under active hold pressure, while clean order detail pages keep the broader marketplace search handoff</li>
+<li>seller command-center empty-state buttons for draft blockers, blocked cash-outs, and action orders now reuse the same smart workspace fallbacks as the header and action cards, instead of dropping sellers into views that may already be empty</li>
+<li>the account page seller payout shortcut now shows payout setup when seller verification is still incomplete, while still routing straight into blocked or cash-out payout views when live request pressure exists</li>
+<li>draft blockers on the seller command center now include direct needs-review marketplace search links for the affected collectible, so sellers can pivot from a blocked draft into marketplace cleanup without first opening seller inventory</li>
+<li>seller order detail item rows now include direct seller inventory and marketplace search links for each collectible, and blocked orders steer those marketplace item links into needs-review cleanup instead of a broad marketplace search</li>
+<li>seller order workspace item rows now include direct seller inventory and marketplace search links for each collectible, and review-heavy orders steer those marketplace item links into needs-review cleanup instead of a broad marketplace search</li>
+<li>seller order detail payout rows now include direct seller inventory and marketplace search links for the affected collectible, and blocked orders steer those marketplace row links into needs-review cleanup instead of a broad marketplace search</li>
+<li>review pressure cards on the seller order workspace now include direct action, blocked-payout, and order-detail links for each case, so sellers can jump from a live case summary into the exact workflow without opening the order first</li>
+<li>action-order cards on the seller command center now include direct order-view, payout-view, and order-detail buttons, so homepage pressure can jump straight into action, shipping, cash-out, blocked payout, or order detail without forcing a single generic click path</li>
+<li>blocked seller payout request cards now turn their affected-order list into direct action-order and order-detail handoffs, preserving blocked payout return context instead of treating those orders as detail-only chips</li>
+<li>blocked cash-out cards on the seller command center now turn their linked-order list into direct action-order and order-detail handoffs, so homepage payout pressure can jump straight into the right order workflow without a generic detour</li>
+<li>blocked hold-context cards on the seller payout page now include direct blocked-payout view links with the specific order search context preserved, so held cash-out pressure can reopen the exact payout workspace instead of only relying on local focus state</li>
+<li>top blocker rows on the seller inventory page now act as direct focus controls, jumping sellers into draft needs-work inventory with the affected listings preselected instead of leaving blocker counts as passive summary text</li>
+<li>seller inventory item cards now include direct payout workspace handoffs, sending active listings into cash-out payouts and other listings into seller payouts with item search context preserved</li>
+<li>recent seller inventory cards on the marketplace page now also include direct seller-order and seller-payout workspace handoffs, so imported listings can pivot into shipping, action, seller orders, cash-out payouts, or seller payouts without leaving the marketplace workspace first</li>
+<li>recent seller inventory cards on the marketplace page now include direct marketplace-row search links using eBay item ID, SKU, or title, with blocked drafts steering into needs-review cleanup, ready drafts steering into the ready stage, and non-draft items keeping the broader marketplace search handoff</li>
+<li>seller inventory bulk success and failure follow-up cards now include direct marketplace review links for the affected listing, and draft items with blockers steer those links into needs-review cleanup instead of a broad marketplace search</li>
+<li>main seller inventory row actions now reuse the same smart marketplace routing as the follow-up cards, so blocked drafts open needs-review cleanup, ready drafts open the ready stage, and non-draft listings keep the broader marketplace search handoff</li>
+<li>seller payout linked-order cards now include direct workspace handoffs for the specific order, steering into action, shipping, cash-out, completed, or general seller-order views based on the live payout and fulfillment pressure already shown on the card</li>
+<li><code>/seller/orders</code> now gives sellers a dedicated order and payout activity workspace scoped to their own routed items, including payout statuses, active case pressure, tracking state, open cash-out claim counts, and a fresh seller signals feed that summarizes recent order, payout, shipping, and review movement</li>
+<li><code>/seller/orders</code> now also supports seller-side order filters for action-required orders, shipping-needed orders, cash-out-linked orders, completed orders, cash-out request summaries with payout deep links, and text search across order IDs, item titles, case titles, carriers, tracking numbers, and request references</li>
+<li>the seller order workspace now also includes shortcut cards plus recent-signal focus actions that can jump straight into action-required, shipping, cash-out, or completed order views</li>
+<li>recent activity cards on seller order detail now name the exact order view they open, so shipment, cash-out, completed, and action signals match the explicit order wording already used on seller home and the order workspace</li>
+<li>the seller home payout-pressure card now reuses the same live payout workspace shortcut logic as the rest of the dashboard, so its CTA opens blocked payouts, cash-out payouts, or the general seller payout workspace based on real request pressure instead of a stale two-branch shortcut</li>
+<li>the seller home inventory-pulse card now reuses the same live inventory workspace shortcut logic as the rest of the dashboard, so its CTA opens needs-work drafts, ready drafts, or the general seller inventory workspace based on real listing pressure instead of a stale two-branch shortcut</li>
+<li>seller home and seller order signal cards now consistently label their drilldowns as order detail links, matching the rest of the seller workspace instead of mixing in older seller-detail wording</li>
+<li>draft blocker cards on the seller command center now also include direct action-order handoffs scoped by listing title, so seller cleanup can pivot from a blocked draft into the surrounding order view without stopping at inventory first</li>
+<li>seller order and seller payout shortcut cards now label their primary buttons with the exact order or payout view they open instead of generic shortcut wording, matching the explicit handoff style used everywhere else in the seller workspace</li>
+<li>blocked hold-context cards on the seller payout page now use the same Open Order Detail wording as the rest of the seller workspace instead of keeping a shorter one-off order label</li>
+<li>seller inventory bulk follow-up controls now use explicit inventory workspace labels such as Open Seller Inventory instead of vaguer fallback wording, keeping bulk recovery actions aligned with the naming used across the seller workspace</li>
+<li>seller home section footer links now use the same Open wording as the rest of the seller workspace, replacing older Review labels on needs-work drafts, blocked payouts, and action orders</li>
+<li>seller inventory and seller marketplace cleanup panels now name their failed follow-up actions directly as failed inventory or failed promotions instead of sharing vague fallback wording</li>
+<li>marketplace diagnostics now label their view buttons with explicit Open wording, so ready, review, blocked, and mapped jump actions match the rest of the seller workspace instead of using shorter stage-only labels</li>
+<li>seller payout filters and empty-state recovery buttons now refer to blocked, cash-out, paid, and attention requests directly instead of calling those request views generic buckets</li>
+<li>blocked hold-context cards on the seller payout page now refer to focusing blocked requests in the plural, matching the summary card's multi-request hold context instead of implying only one blocked request exists</li>
+<li>the seller home inventory workspace shortcut now uses the fuller Needs Work Drafts label, so dashboard calls-to-action match the rest of the seller inventory language instead of shortening that workspace name</li>
+<li>the seller inventory sidebar now uses Open Action Orders alongside its other explicit footer actions, instead of leaving the order handoff as the shorter Action Orders label</li>
+<li>failed-promotion cleanup controls now use ready, review, and conflict view wording directly, so marketplace recovery buttons match the same language used by the rest of the staging diagnostics</li>
+<li>seller home and seller payout action buttons now render with explicit Open wording for order and payout handoffs, so direct workspace jumps read like actions instead of unlabeled stage names</li>
+<li>seller order list and order detail actions now use Action Orders, Shipping Orders, Cash-Out Orders, and Completed Orders wording instead of the older workflow phrasing, so order handoffs read the same way as the rest of the seller workspace</li>
+<li>seller inventory item cards now use explicit Open Shipping Orders, Open Action Orders, Open Seller Orders, and payout handoff wording, so item-level jumps match the action language used throughout the rest of the seller workspace</li>
+<li>seller workspace header shortcuts now render inventory, payout, order, and marketplace destinations with explicit Open wording unless they are already search or return actions, so the top navigation chips read like actions across the whole seller surface</li>
+<li>seller order, payout, and marketplace handoff controls now also prefix their remaining visible workspace jump buttons with Open wording, removing the last raw Seller Orders and payout workspace labels from seller-facing controls</li>
+<li>seller marketplace inventory preview cards now use explicit Open Shipping Orders, Open Action Orders, Open Seller Orders, and Open Seller Payouts wording, so preview-card jumps match the rest of the seller workspace action language</li>
+<li>seller inventory and marketplace cards now use Open Seller Inventory and Open Admin Product wording for product-level handoffs, so item drilldowns read more clearly than the older Open In Seller Workspace and Open In Admin labels</li>
+<li>generic seller marketplace jumps now use Marketplace Rows wording across seller home, inventory, orders, payout, and order-detail surfaces, so the unscoped marketplace destination keeps one clear name while stage-specific review and ready labels stay intact</li>
+<li>the seller marketplace dashboard now uses Seller Payout Setup as its payout fallback label, so that header shortcut reads like a proper seller workspace destination instead of the shorter Open Payout Setup phrasing</li>
+<li>seller inventory and marketplace section headings now use Seller Inventory Workspace and Seller-Safe Build Progress wording, so those surface titles match the rest of the seller UI instead of keeping older workflow phrasing</li>
+<li>seller home marketplace workspace labels now use Blocked Marketplace Rows, Ready Marketplace Rows, and Mapped Marketplace Rows, so the stage-specific seller-home chips stay aligned with the broader Marketplace Rows naming</li>
+<li><code>/seller/orders/[id]</code> now gives sellers a scoped drilldown with their item rows, payout ledger rows, deduplicated cash-out request summaries, cross-order payout request links, shipping/tracking state, linked seller-visible review cases, and a recent activity timeline for that order</li>
+<li><code>/seller/marketplaces</code> shows the seller marketplace connection dashboard with live Store #1 inventory/eBay stats and the seller-safe connector build progress panel</li>
+<li><code>/admin/order-review-cases</code> shows the global admin case queue across chargebacks, returns, authenticity issues, payment risk, shipping issues, and seller disputes</li>
+<li><code>/admin/orders/[id]</code> shows order review cases and can open chargeback, return, authenticity, payment-risk, shipping, and seller-dispute case files against an order, download case packet PDFs, and apply seller payout release/reversal/appeal resolution directly from the order screen</li>
+<li>case packet PDF downloads compile order details, TOS/IP evidence, shipping evidence, order items, case notes, case event history, seller payout hold context, Dag Danky Holdings LLC fee rows, and transaction evidence report references</li>
+<li>downloading a case packet saves or refreshes an <code>order_review_case_packets</code> record so the packet appears under <code>/admin/files</code></li>
+<li><code>/api/admin/order-review-cases/[id]/payout-resolution</code> can release held seller payout rows to eligible after a seller-favorable decision, reverse/cancel held rows after a buyer-favorable decision, or keep related rows held for appeal</li>
+<li><code>/api/admin/seller-payouts/requests</code> now blocks approve, processing, and paid transitions whenever the request is tied to active order review cases or held/cancelled payout rows</li>
 <li><code>/api/account/seller/payout-onboarding</code> starts or resumes Stripe-hosted Express onboarding</li>
+<li>the seller payout workspace now also includes request-view shortcut cards, stronger empty-state recovery, and hold-context focus actions that jump straight into blocked request cleanup</li>
 <li><code>/api/account/seller/marketplace-connections</code> returns seller-scoped marketplace connection records and saves seller connection requests for the logged-in account</li>
 <li><code>/api/account/seller/marketplace-connections/ebay/auth</code> starts seller-safe eBay OAuth for the logged-in account</li>
 <li><code>/api/account/seller/marketplace-connections/ebay/status</code> refreshes the seller eBay token and updates connection health without touching the Store #1 <code>ebay_tokens</code> path</li>
+<li><code>/api/admin/order-review-cases</code> opens and updates admin order review cases, logs identity evidence, and can hold related seller payout rows</li>
 <li>the seller must accept Seller Terms before payout onboarding starts</li>
 <li>seller TOS acceptance is recorded through <code>tos_acceptance_events</code></li>
 <li>Stripe collects and verifies bank/payout details; TCOS does not collect raw checking account or routing numbers</li>
@@ -1731,6 +1944,49 @@ market_news_snapshots</code></pre>
 <li><code>seller_marketplace_connections</code> stores marketplace provider, seller account label, connection status, sync status, token reference/expiry metadata, last sync timing, and sync error state; it does not store raw OAuth secrets in this first foundation slice</li>
 <li>seller eBay OAuth reuses <code>/api/ebay/callback</code> through signed state so the existing Store #1 eBay app redirect can support seller-safe connections without touching the global <code>ebay_tokens</code> path</li>
 <li>encrypted seller marketplace tokens are stored separately from <code>ebay_tokens</code></li>
+<li>seller eBay staging now supports a seller-side review view with readiness counts, stage-status filters, staged-row search, warning badges such as missing SKU/listing ID, and direct admin links to already promoted draft products</li>
+<li>staged seller rows are loaded through <code>/api/account/seller/marketplace-connections/ebay/staged-items?limit=100</code>, keeping review work seller-scoped without writing directly into live store inventory</li>
+<li>the staged-items API and seller marketplace page now also surface recent seller import job history so the seller can review row counts, staged counts, skipped counts, error counts, and latest run timing without needing admin access</li>
+<li>recent seller import jobs now also store diagnostic metadata, including skip-reason rollups, quality-signal counts, request limits, and returned eBay totals so cleanup pressure is visible right on <code>/seller/marketplaces</code></li>
+<li>each recent import run can now also focus the staging table to that specific job, making it easier to inspect only the rows touched by that run and then clear back to all staged rows</li>
+<li>focused import-run review now reloads staged rows by <code>import_job_id</code> from the API, so large seller imports are not limited to the default staged-row fetch window during cleanup</li>
+<li>each recent seller import run now also shows a live outcome snapshot with ready, review, blocked, mapped, promoted, and skipped counts so the seller can see where that run stands after cleanup begins</li>
+<li>those run snapshots now also include one-click shortcuts into the exact ready, review, blocked, or mapped view for that specific import job</li>
+<li>those run view shortcuts now also preselect the matching rows from that import job so seller bulk actions can start without another selection pass</li>
+<li>import run outcome cards now also show cleanup state and resolved progress so sellers can scan which import batches are complete, in progress, or still waiting on work</li>
+<li>import run controls now also include a one-click remaining-work selection that gathers the unresolved rows for that exact run into the active bulk selection</li>
+<li>the staged-row bulk action bar now shows how the current selection is split across ready, review, blocked, mapped, and skipped rows before the seller runs a bulk action</li>
+<li>the staged-row bulk bar now also explains the safest next move for the current selection, especially when a run-level shortcut loads a mixed selection of ready, review, and blocked rows</li>
+<li>when that mixed-selection guidance appears, the seller can now trim the current selection down to just ready, review, or blocked rows without rebuilding the selection manually</li>
+<li>if a selection mixes active work with already completed mapped/skipped rows, the guidance panel can now reduce it to active work only or completed rows only in one click</li>
+<li>bulk action buttons now show the exact number of rows they will touch and skip rows that are already in the requested status, so the seller gets cleaner feedback on mixed queues</li>
+<li>bulk promotion now clears only the rows that actually promoted into draft inventory, leaving failed or still-needed rows selected for the next seller cleanup action</li>
+<li>if some rows fail during bulk promotion, the seller now gets a follow-up panel with error snippets and a one-click way to keep only the failed rows selected</li>
+<li>that failed-promotion follow-up panel can now also move failed rows directly into <code>needs_review</code>, making it easier to park problem rows for cleanup right away</li>
+<li>when a promotion failure is caused by an existing product conflict, the follow-up panel now shows the conflict reason and direct admin product links for faster cleanup</li>
+<li>that same follow-up panel now also summarizes how many failed rows are conflicts, review rows, or still-ready rows, and can isolate conflict-only failures in one click</li>
+<li>conflict-only failures can now jump directly into the blocked staging view with those failed rows preselected for faster duplicate cleanup</li>
+<li>failed promotion rows can now also jump directly into ready-retry or review views, so the seller can move each failure type into the right workflow without rebuilding selections</li>
+<li>if some failed rows are still clean enough to promote, the follow-up panel can now retry just those ready failures directly from the panel</li>
+<li>the same follow-up panel can now reopen the entire failed subset in the staged workspace before the seller splits it into ready, review, or conflict cleanup groups</li>
+<li>successful promotions now also surface a seller-side results panel with promoted draft links, mapped-row handoff, and a direct jump into <code>/seller/inventory</code></li>
+<li>the seller marketplace page now also includes a post-import action board with one-click focus for ready rows, needs-review rows, blocked conflicts, and promoted draft output so the seller can move straight from import results into cleanup or promotion work</li>
+<li>staged seller rows now include pre-promotion conflict guards that check for existing store products by <code>ebay_item_id</code> and <code>sku</code>, so sellers can see duplicate blockers and jump straight to the conflicting admin product before promotion</li>
+<li>seller draft promotion now requires the staged row status to be <code>staged</code>; <code>needs_review</code>, <code>mapped</code>, and <code>skipped</code> rows must be intentionally moved back into <code>staged</code> before promotion is allowed</li>
+<li>staged seller review now supports bulk selection with batch moves to <code>staged</code>, <code>needs_review</code>, or <code>skipped</code>, making large seller import cleanup faster without touching live store inventory</li>
+<li>staged seller review now also supports bulk promotion of selected ready rows, using the same single-item promotion safeguards for each row and refreshing the staged board after the batch completes</li>
+<li>the seller marketplace page now includes a conflict review dashboard that groups blocked reasons, lists recent blocked rows, and links straight to conflicting admin products for faster duplicate cleanup</li>
+<li><code>/api/account/seller/inventory</code> and the seller marketplace page now show draft-output metrics plus recent seller-owned inventory created through staged promotion, so sellers can see what the import workflow actually produced</li>
+<li><code>/seller/inventory</code> gives sellers a dedicated inventory workspace with readiness filters, blocker rollups, and quick links back to marketplace review and seller orders</li>
+<li><code>/seller/inventory</code> can now activate a ready seller draft directly into live inventory after payout verification is active and readiness blockers are clear</li>
+<li><code>/seller/inventory</code> can now also pause live listings, archive seller drafts, and reactivate archived listings without deleting the linked product record</li>
+<li><code>/seller/inventory</code> now includes a seller-safe editor for title, price, quantity, and description, plus shared regenerate and AI description tools without requiring admin access</li>
+<li><code>/seller/inventory</code> now supports bulk row selection, select-visible shortcuts, bulk activation for ready listings, and bulk archive controls for faster seller cleanup</li>
+<li>seller inventory bulk actions now keep failed rows selected after partial success, surface row-level failure details, and offer one-click follow-up into active, archived, needs-work, or seller payout views</li>
+<li>the seller inventory workspace now also summarizes mixed selections, offers one-click trimming to ready, needs-work, draft, active, or archived rows, and only sends eligible listings into each bulk action</li>
+<li>seller inventory listing editor now captures authenticity status, autograph source, certification provider/number, seller pass-guarantee authenticators, provenance evidence, and buyer-facing authenticity notes</li>
+<li>admin product editing now stores the same authenticity/provenance disclosure fields, and product pages render those disclosures as storefront trust badges plus a buyer-facing authenticity callout</li>
+<li>seller draft output now highlights draft activation readiness, including blockers such as missing SKU, missing price, missing quantity, or missing primary image before a seller tries to move a draft toward live inventory</li>
 <li>Stripe <code>account.updated</code> webhooks refresh seller payout status</li>
 <li><code>account_store_memberships</code> gets a <code>seller</code> role with <code>payout_verification_required</code> until Stripe reports the seller payout account active</li>
 </ul>
@@ -1825,6 +2081,17 @@ market_news_snapshots</code></pre>
 <li>confidence score</li>
 <li>missing information warnings</li>
 <li>recommended next action</li>
+</ul>
+<p>Autograph, certification, and provenance disclosure policy:</p>
+<ul>
+<li>use plain, buyer-facing labels such as <code>Verified Cert</code>, <code>Seller Pass Guarantee</code>, <code>Provenance Evidence Included</code>, and <code>Unverified Autograph - Sold As-Is</code></li>
+<li>require autograph source disclosure when relevant, such as in-person, through-the-mail (TTM), fan club return, private signing, inherited, estate-sourced, or acquired secondhand</li>
+<li>if a seller includes provenance evidence without third-party certification, the listing must not imply that the item is third-party authenticated</li>
+<li>if a seller has an envelope, letter, event ticket, signing photo, receipt, or other provenance support, the listing should identify that evidence near the top of the description and show it in listing photos when available</li>
+<li>if a seller offers a pass guarantee, the named authenticator(s), claim basis, and refund consequence must be stored with the listing and transaction</li>
+<li>if the listing is unverified and sold as-is, that risk warning must be shown as a badge, a seller-side required field, and a product-page warning instead of being buried in long description text</li>
+<li>provenance evidence can help the buyer make an informed decision, but provenance is not equal to third-party certification unless the listing clearly says so</li>
+<li>buyers may purchase unverified autographs at their own disclosed risk, but sellers remain responsible for false, misleading, or unsupported authenticity claims</li>
 </ul>
 <p>Variant and parallel resolver requirements:</p>
 <ul>
@@ -2752,9 +3019,12 @@ src/app/api/stripe/webhook/route.ts</code></pre>
 <p>Transaction evidence:</p>
 <pre><code>src/lib/evidence-pdf.ts
 src/lib/transaction-evidence.ts
+src/lib/order-review-case-packet.ts
 src/app/admin/files/page.tsx
 src/app/api/admin/files/[id]/download/route.ts
-supabase/migrations/20260627180000_create_transaction_evidence_reports.sql</code></pre>
+src/app/api/admin/order-review-cases/[id]/packet/route.ts
+supabase/migrations/20260627180000_create_transaction_evidence_reports.sql
+supabase/migrations/20260701220000_create_order_review_case_packets.sql</code></pre>
 <p>Admin product screens:</p>
 <pre><code>src/app/admin/products/page.tsx
 src/app/admin/products/new/page.tsx
@@ -2774,7 +3044,7 @@ src/app/api/orders</code></pre>
 src/app/api/offers</code></pre>
 <h2>32. Maintenance Rule</h2>
 <p>When a feature changes, update this manual in the same work session.</p>
-<p>PDF generation can wait until the end of a completed module or lane so development can move faster. Keep the Markdown manual current during implementation, then run <code>npm run manual:pdf</code> at the module checkpoint.</p>
+<p>PDF generation can wait until the end of a completed module or slice so development can move faster. Keep the Markdown manual current during implementation, then run <code>npm run manual:pdf</code> at the module checkpoint.</p>
 <p>Every generated manual PDF, including the future separate mobile app manual PDF, must watermark each page with <code>Property of Dag Danky Holdings LLC.</code>.</p>
 <p>Checklist for future changes:</p>
 <ol>
@@ -2787,5 +3057,32 @@ src/app/api/offers</code></pre>
 <li>Run <code>npm run build</code>.</li>
 </ol>
 <p>The app should not get ahead of the documentation.</p>
+<p>Recent seller workspace wording cleanup:</p>
+<ul>
+<li>Seller order surface labels now use <code>Seller Order Workspace</code>, <code>Search orders</code>, <code>Order views</code>, and <code>Reset Order View</code> wording instead of the older workflow phrasing.</li>
+<li>Seller dashboard order signal chips now read <code>Shipping Orders</code>, <code>Cash-Out Orders</code>, <code>Action Orders</code>, and <code>Completed Orders</code>.</li>
+<li>Seller payout shortcuts now use <code>Blocked Payouts</code>, <code>Cash-Out Payouts</code>, <code>Attention Payouts</code>, and <code>Paid Payouts</code>, and seller inventory order follow-up labels now use <code>Shipping Orders</code>.</li>
+<li>The seller home payout-pressure card now uses <code>Open Payouts</code>, <code>Blocked Payouts</code>, and <code>Paid Payouts</code> summary labels so its totals match the seller payout workspace wording.</li>
+<li>The seller order workspace summary now uses <code>Open Payouts</code> for its cash-out pressure metric so order-level payout totals match the seller payout workspace wording.</li>
+<li>Seller marketplace connector actions now use <code>Open Seller Connections</code>, and the future Shopify interest control now reads <code>Request Shopify</code>.</li>
+<li>The seller marketplace page now titles the surface <code>Seller Connections</code> so the page heading matches the <code>Open Seller Connections</code> wording used across seller shortcuts and connector cards.</li>
+<li>Seller marketplace handoff buttons now use <code>Open Review Rows</code>, <code>Search Review Rows</code>, and <code>Search Marketplace Rows</code> wording so review-stage jumps match the marketplace row language already used by import-run controls and cross-workspace links.</li>
+<li>Seller marketplace handoff buttons now use <code>Open Ready Rows</code> and <code>Search Ready Rows</code> wording instead of the older <code>Ready Stage</code> labels, so ready-state marketplace jumps match the rest of the import-run controls.</li>
+<li>Seller inventory and marketplace recovery controls now use <code>Open Active Inventory</code>, <code>Open Archived Inventory</code>, <code>Open Seller Inventory</code>, <code>Open Failed Inventory</code>, and <code>Open Failed Promotions</code>.</li>
+<li>Seller signal summaries now refer to the seller workspace, and seller order detail action cards now use <code>Return View</code>, <code>Shipping Orders</code>, and <code>Cash-Out Payouts</code>.</li>
+<li>The seller order detail cash-out section now uses <code>Cash-Out Payouts</code> wording in both its section title and empty state so the order-detail surface matches the seller payout workspace language.</li>
+<li>Seller home action-order cards now label order-linked cash-out counts as <code>Open Payouts</code> instead of <code>Open Claims</code> so those pressure summaries match the rest of the seller payout workspace wording.</li>
+<li>The seller order workspace now labels per-order cash-out sections as <code>Cash-Out Payouts</code> so order-list payout panels match the seller payout workspace wording.</li>
+<li>The seller order detail payout action card now uses <code>Cash-Out Payouts</code> wording so its order-level handoff matches the rest of the seller payout workspace language.</li>
+<li>Seller order detail return links now use <code>Return To Seller Orders</code>, <code>Return To Action Orders</code>, and matching payout return wording instead of the older <code>Back To ...</code> labels.</li>
+<li>Account-level seller payout shortcuts now use <code>Seller Payout Setup</code>, <code>Open Cash-Out Payouts</code>, and <code>Open Seller Payouts</code> wording so account dashboard handoffs match the seller workspace language.</li>
+<li>Account-level seller marketplace shortcuts now use <code>Blocked Marketplace Rows</code>, <code>Ready Marketplace Rows</code>, <code>Mapped Marketplace Rows</code>, and <code>Marketplace Rows</code> wording so account handoffs match the seller marketplace workspace language.</li>
+<li>Seller home payout signal buttons and seller payout shortcut actions now use <code>Open Cash-Out Payouts</code> wording instead of mixing request-based labels into the same payout workspace handoff.</li>
+<li>Seller inventory and marketplace bulk guidance now refer to cleanup work, current selections, seller draft inventory views, and ready, review, or conflict rows instead of older workflow and stage wording.</li>
+<li>Marketplace import-run buttons now use <code>Open Ready Rows</code>, <code>Open Review Rows</code>, <code>Open Blocked Rows</code>, and <code>Open Mapped Rows</code>.</li>
+<li>Seller signal, cash-out request, and fallback order or payout buttons now use full <code>Open Seller Payouts</code>, <code>Open Blocked Payouts</code>, <code>Open Cash-Out Payouts</code>, <code>Open Paid Payouts</code>, <code>Open Attention Payouts</code>, and <code>Open Seller Orders</code> wording.</li>
+<li>Blocked-payout order cards on seller home and seller payouts now also use <code>Open Order Detail</code> wording.</li>
+<li>Seller-home signal buttons plus seller order and payout shortcut cards now also use full <code>Open Shipping Orders</code>, <code>Open Action Orders</code>, <code>Open Cash-Out Orders</code>, <code>Open Completed Orders</code>, <code>Open Seller Orders</code>, <code>Open Attention Payouts</code>, <code>Open Blocked Payouts</code>, <code>Open Cash-Out Payouts</code>, <code>Open Paid Payouts</code>, and <code>Open Seller Payouts</code> wording when those labels render directly.</li>
+</ul>
 </body>
 </html>

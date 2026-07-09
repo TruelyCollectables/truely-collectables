@@ -204,6 +204,7 @@ Important:
 
 - Requests allocate specific eligible seller payout ledger rows through `seller_payout_request_entries`.
 - Request statuses include requested, approved, processing, paid, rejected, and cancelled.
+- Approve, processing, and paid transitions should be blocked whenever the request touches held/cancelled payout rows or active `order_review_cases`.
 - Marking a request paid records TCOS reconciliation only; actual money movement must happen through the approved payout processor until automated transfers are built.
 - Paid requests must record provider payout reference, final processor fee, and final seller net amount.
 - Seller cash-out or payout processor fees are separate from the Dag Danky Holdings LLC 8% platform rake.
@@ -227,10 +228,11 @@ Important:
 
 Admin case files for chargebacks, returns, authenticity issues, item-not-as-described claims, payment risk, shipping issues, seller disputes, and other order problems.
 
-Created by migration:
+Created by migrations:
 
 ```text
 supabase/migrations/20260701215000_create_order_review_cases.sql
+supabase/migrations/20260701220000_create_order_review_case_packets.sql
 ```
 
 Important:
@@ -242,6 +244,10 @@ Important:
 - Statuses include open, evidence gathering, waiting on buyer, waiting on seller, under review, decided for buyer, decided for seller, appealed, and closed.
 - Final case outcomes are recorded in `outcome_summary`; payout release or recovery still happens through the payout ledger and payment processor rules.
 - `order_review_case_events` stores append-only event history with admin notes, previous/new status, IP evidence, user agent evidence, and metadata.
+- Admin screens are `/admin/order-review-cases` for the global queue and `/admin/orders/[id]` for order-specific case creation and updates.
+- `/api/admin/order-review-cases/[id]/packet` generates a case packet PDF from order records, case records, case events, seller payout rows, platform fee rows, TOS/IP evidence, and transaction evidence report references.
+- `/api/admin/order-review-cases/[id]/payout-resolution` updates related `seller_payout_ledger_entries` in one admin action and writes both case and payout audit events.
+- `order_review_case_packets` stores the latest generated case packet text/html plus status, email-delivery fields, and admin file lookup metadata.
 
 ### `seller_marketplace_connections`
 
@@ -1009,6 +1015,7 @@ Fields expected by current code:
 | `currency` | Currency, usually USD |
 | `location` | Optional storage location |
 | `notes` | Internal notes |
+| `metadata` | Structured listing metadata, including authenticity/provenance disclosure JSON |
 | `created_at` | Created timestamp |
 | `updated_at` | Updated timestamp |
 
@@ -1041,6 +1048,22 @@ Fields expected:
 Structured inventory attributes.
 
 Current eBay import writes generated attributes for category confidence, review flags, and selected eBay aspects.
+
+Current `inventory_items.metadata` usage:
+
+- `authenticity.status`
+- `authenticity.autographSource`
+- `authenticity.certProvider`
+- `authenticity.certNumber`
+- `authenticity.guaranteedAuthenticators`
+- `authenticity.provenanceEvidence`
+- `authenticity.authenticityNotes`
+
+This data powers seller listing disclosure, admin review, storefront trust badges, and buyer-facing authenticity notes without changing the legacy `products` table.
+
+Current seller-activation logic also reads this metadata before a draft can go live. Autograph-sensitive listings must carry a valid disclosure state or activation returns blockers instead of publishing the item.
+
+Seller marketplace staging also seeds `inventory_items.metadata.authenticity` from eBay title/aspect signals when a staged row is promoted into a seller draft, so imported autograph-sensitive listings start with a reviewable disclosure baseline.
 
 Fields expected:
 
@@ -1385,6 +1408,14 @@ Creates:
 - `inventory_attributes`
 - indexes for SKU, status, image ordering, and attributes
 
+### `20260703113000_add_inventory_item_metadata.sql`
+
+Adds:
+
+- `inventory_items.metadata`
+
+This JSON field stores structured listing disclosure data such as certification provider, cert number, seller pass-guarantee authenticators, provenance evidence, and unverified autograph disclosure notes.
+
 ### `20260629080000_grant_inventory_v2_table_access.sql`
 
 Grants active application roles access to:
@@ -1556,6 +1587,15 @@ Creates:
 - admin case files for chargebacks, returns, authenticity, payment risk, shipping issues, seller disputes, and related payout holds
 - indexes for store/order, store/status, seller/status, and case event review
 
+### `20260701220000_create_order_review_case_packets.sql`
+
+Creates:
+
+- `order_review_case_packets`
+- saved order review case packet records for Admin Files
+- packet status, email-delivery tracking fields, report text/html, and metadata
+- indexes for store/order, status, and created-date review
+
 ### `20260701180000_create_seller_marketplace_connections.sql`
 
 Creates:
@@ -1572,6 +1612,18 @@ Creates:
 - `seller_marketplace_connection_tokens`
 - encrypted seller marketplace token storage
 - index for seller/store/provider token lookup
+
+### `20260701193000_create_seller_marketplace_staging_tables.sql`
+
+Creates:
+
+- `seller_marketplace_import_jobs`
+- `seller_marketplace_staged_items`
+- seller-side eBay staging records and import-run audit history
+- JSON metadata for request source, fetched timestamp, skip-reason summaries, quality-signal counts, and returned eBay totals
+- staged-item review can also be reloaded by `import_job_id` so seller cleanup can inspect a specific import run without relying on the default row window
+- seller import job responses can now be enriched with current per-run outcome summaries built from staged rows tied to each `import_job_id`
+- indexes for seller/store/provider job review and staged-row review
 
 ### `20260630113000_create_public_endpoint_rate_limit_events.sql`
 
