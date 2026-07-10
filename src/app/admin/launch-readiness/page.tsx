@@ -365,6 +365,15 @@ async function checkDatabaseReadiness(): Promise<ReadinessItem[]> {
         "stripe_webhook_events is available for signed receipt auditing, duplicate suppression, and retry-safe failures.",
     },
     {
+      label: "Checkout Attempt Journal",
+      table: "checkout_attempts",
+      select:
+        "id,store_id,checkout_attempt_id,request_fingerprint,stripe_idempotency_key,request_status,attempt_count,stripe_session_id,last_error",
+      migration: "20260710113000_create_checkout_attempts.sql",
+      readyDetail:
+        "checkout_attempts is available for duplicate Checkout Session prevention and ambiguous-network retry recovery.",
+    },
+    {
       label: "Admin Login Audit",
       table: "admin_login_attempts",
       select: "id,store_id,ip_address,success,failure_reason,lockout_until,created_at",
