@@ -16,10 +16,7 @@ export type InstaCompAiResult = {
   notes: string | null;
 };
 
-export type InstaCompProviderSource =
-  | "ebay_active"
-  | "comc_active"
-  | "tcos_inventory";
+export type InstaCompProviderSource = string;
 
 export type InstaCompProviderStatus =
   | "live"
@@ -35,6 +32,7 @@ export type InstaCompComp = {
   imageUrl: string | null;
   source: InstaCompProviderSource;
   sourceLabel: string;
+  sourceCategory: InstaCompSourceCategory;
   matchScore: number;
   flags: string[];
 };
@@ -46,6 +44,28 @@ export type InstaCompProviderResult = {
   message: string | null;
   results: InstaCompComp[];
   searchUrl?: string;
+  diagnostics?: {
+    externalSearch?: {
+      provider: "serpapi" | "google_cse" | null;
+      providerLabel: string | null;
+      cacheStatus:
+        | "hit"
+        | "miss"
+        | "disabled"
+        | "not_configured"
+        | "error";
+      cacheHit: boolean;
+      externalRequestAttempted: boolean;
+      paidSearchUsed: boolean;
+      requestedLimit: number;
+      returnedSearchItems: number;
+      includedCompCount: number;
+      registeredSourceCount: number;
+      cacheTtlDays: number;
+      cacheExpiresAt: string | null;
+      cacheHitCountBeforeScan: number | null;
+    };
+  };
 };
 
 export type InstaCompStats = {
@@ -54,6 +74,29 @@ export type InstaCompStats = {
   average: number | null;
   high: number | null;
   suggestedPrice: number | null;
+};
+
+export type InstaCompSourceCategory =
+  | "sold"
+  | "marketplace"
+  | "auction"
+  | "pricing"
+  | "reference"
+  | "broad";
+
+export type InstaCompSourceLink = {
+  label: string;
+  url: string;
+  category: InstaCompSourceCategory;
+};
+
+export type InstaCompSourceCoverage = {
+  label: string;
+  category: InstaCompSourceCategory;
+  status: "included" | "registered" | "not_configured" | "no_matches" | "error";
+  includedInMarketValue: boolean;
+  resultCount: number;
+  message: string | null;
 };
 
 export type InstaCompLinks = {
@@ -65,6 +108,12 @@ export type InstaCompLinks = {
   pwccUrl: string;
   goldinUrl: string;
   fanaticsUrl: string;
+  sportlotsUrl: string;
+  mercariUrl: string;
+  facebookMarketplaceUrl: string;
+  googleShoppingUrl: string;
+  broadCardMarketUrl: string;
+  sourceDirectory: InstaCompSourceLink[];
 };
 
 function cleanPart(value: string | null | undefined) {
@@ -143,16 +192,108 @@ export function buildInstaCompQueries(ai: InstaCompAiResult) {
 export function buildCompLinks(query: string): InstaCompLinks {
   const encoded = encodeURIComponent(query);
   const plusEncoded = encodeURIComponent(query).replace(/%20/g, "+");
+  const broadSiteDomains = [
+    "ebay.com",
+    "130point.com",
+    "comc.com",
+    "sportlots.com",
+    "mercari.com",
+    "facebook.com/marketplace",
+    "myslabs.com",
+    "pwccmarketplace.com",
+    "goldin.co",
+    "fanaticscollect.com",
+    "ha.com",
+    "robertedwardauctions.com",
+    "lelands.com",
+    "pristineauction.com",
+    "memorylaneinc.com",
+    "sothebys.com",
+    "christies.com",
+    "whatnot.com",
+    "alt.xyz",
+    "cardladder.com",
+    "sportscardinvestor.com",
+    "psacard.com",
+    "beckett.com",
+    "pricecharting.com",
+    "collx.app",
+    "cardbase.com",
+    "stockx.com",
+    "tcdb.com",
+    "tradingcarddb.com",
+    "cardboardconnection.com",
+  ]
+    .map((site) => `site:${site}`)
+    .join(" OR ");
+  const googleSiteUrl = (domain: string) =>
+    `https://www.google.com/search?q=${encodeURIComponent(`site:${domain} ${query}`)}`;
+
+  const ebaySoldUrl = `https://www.ebay.com/sch/i.html?_nkw=${encoded}&_sacat=0&LH_Sold=1&LH_Complete=1`;
+  const ebayActiveUrl = `https://www.ebay.com/sch/i.html?_nkw=${encoded}&_sacat=0`;
+  const one30pointUrl = `https://130point.com/sales/?search=${encoded}`;
+  const comcUrl = `https://www.comc.com/Cards,sr,i100,=${plusEncoded}`;
+  const myslabsUrl = `https://myslabs.com/search?q=${encoded}`;
+  const pwccUrl = `https://www.pwccmarketplace.com/search?q=${encoded}`;
+  const goldinUrl = `https://goldin.co/search?q=${encoded}`;
+  const fanaticsUrl = `https://www.fanaticscollect.com/search?q=${encoded}`;
+  const sportlotsUrl = googleSiteUrl("sportlots.com");
+  const mercariUrl = `https://www.mercari.com/search/?keyword=${encoded}`;
+  const facebookMarketplaceUrl = `https://www.facebook.com/marketplace/search/?query=${encoded}`;
+  const googleShoppingUrl = `https://www.google.com/search?tbm=shop&q=${encoded}`;
+  const broadCardMarketUrl = `https://www.google.com/search?q=${encodeURIComponent(`${query} (${broadSiteDomains})`)}`;
+
+  const sourceDirectory: InstaCompSourceLink[] = [
+    { label: "eBay Sold", url: ebaySoldUrl, category: "sold" },
+    { label: "130point", url: one30pointUrl, category: "sold" },
+    { label: "PSA APR", url: googleSiteUrl("psacard.com/auctionprices"), category: "sold" },
+    { label: "eBay Active", url: ebayActiveUrl, category: "marketplace" },
+    { label: "COMC", url: comcUrl, category: "marketplace" },
+    { label: "MySlabs", url: myslabsUrl, category: "marketplace" },
+    { label: "Sportlots", url: sportlotsUrl, category: "marketplace" },
+    { label: "Mercari", url: mercariUrl, category: "marketplace" },
+    { label: "Facebook Marketplace", url: facebookMarketplaceUrl, category: "marketplace" },
+    { label: "Whatnot", url: googleSiteUrl("whatnot.com"), category: "marketplace" },
+    { label: "StockX", url: googleSiteUrl("stockx.com"), category: "marketplace" },
+    { label: "Fanatics Collect", url: fanaticsUrl, category: "auction" },
+    { label: "PWCC", url: pwccUrl, category: "auction" },
+    { label: "Goldin", url: goldinUrl, category: "auction" },
+    { label: "Heritage", url: googleSiteUrl("ha.com"), category: "auction" },
+    { label: "REA", url: googleSiteUrl("robertedwardauctions.com"), category: "auction" },
+    { label: "Lelands", url: googleSiteUrl("lelands.com"), category: "auction" },
+    { label: "Pristine Auction", url: googleSiteUrl("pristineauction.com"), category: "auction" },
+    { label: "Memory Lane", url: googleSiteUrl("memorylaneinc.com"), category: "auction" },
+    { label: "Sotheby's", url: googleSiteUrl("sothebys.com"), category: "auction" },
+    { label: "Christie's", url: googleSiteUrl("christies.com"), category: "auction" },
+    { label: "Alt", url: googleSiteUrl("alt.xyz"), category: "pricing" },
+    { label: "Card Ladder", url: googleSiteUrl("cardladder.com"), category: "pricing" },
+    { label: "Market Movers", url: googleSiteUrl("sportscardinvestor.com"), category: "pricing" },
+    { label: "Beckett", url: googleSiteUrl("beckett.com"), category: "pricing" },
+    { label: "PriceCharting", url: googleSiteUrl("pricecharting.com"), category: "pricing" },
+    { label: "CollX", url: googleSiteUrl("collx.app"), category: "pricing" },
+    { label: "Cardbase", url: googleSiteUrl("cardbase.com"), category: "pricing" },
+    { label: "TCDB", url: googleSiteUrl("tcdb.com"), category: "reference" },
+    { label: "Trading Card DB", url: googleSiteUrl("tradingcarddb.com"), category: "reference" },
+    { label: "Cardboard Connection", url: googleSiteUrl("cardboardconnection.com"), category: "reference" },
+    { label: "Google Shopping", url: googleShoppingUrl, category: "broad" },
+    { label: "Broad Card Market", url: broadCardMarketUrl, category: "broad" },
+  ];
 
   return {
-    ebaySoldUrl: `https://www.ebay.com/sch/i.html?_nkw=${encoded}&_sacat=0&LH_Sold=1&LH_Complete=1`,
-    ebayActiveUrl: `https://www.ebay.com/sch/i.html?_nkw=${encoded}&_sacat=0`,
-    one30pointUrl: `https://130point.com/sales/?search=${encoded}`,
-    comcUrl: `https://www.comc.com/Cards,sr,i100,=${plusEncoded}`,
-    myslabsUrl: `https://myslabs.com/search?q=${encoded}`,
-    pwccUrl: `https://www.pwccmarketplace.com/search?q=${encoded}`,
-    goldinUrl: `https://goldin.co/search?q=${encoded}`,
-    fanaticsUrl: `https://www.fanaticscollect.com/search?q=${encoded}`,
+    ebaySoldUrl,
+    ebayActiveUrl,
+    one30pointUrl,
+    comcUrl,
+    myslabsUrl,
+    pwccUrl,
+    goldinUrl,
+    fanaticsUrl,
+    sportlotsUrl,
+    mercariUrl,
+    facebookMarketplaceUrl,
+    googleShoppingUrl,
+    broadCardMarketUrl,
+    sourceDirectory,
   };
 }
 

@@ -1,9 +1,12 @@
+import { createHash } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import {
   InstaCompAiResult,
   InstaCompComp,
   InstaCompProviderResult,
+  InstaCompSourceCategory,
+  InstaCompSourceCoverage,
   buildCompLinks,
   buildInstaCompQueries,
   calculateCompStats,
@@ -23,6 +26,21 @@ const EBAY_CLIENT_SECRET = process.env.EBAY_CLIENT_SECRET;
 const APIFY_TOKEN = process.env.APIFY_TOKEN;
 const COMC_APIFY_ACTOR_ID =
   process.env.COMC_APIFY_ACTOR_ID || "lulzasaur/comc-scraper";
+
+const GOOGLE_CSE_API_KEY =
+  process.env.GOOGLE_CSE_API_KEY || process.env.GOOGLE_CUSTOM_SEARCH_API_KEY;
+const GOOGLE_CSE_CX =
+  process.env.GOOGLE_CSE_CX || process.env.GOOGLE_CUSTOM_SEARCH_CX;
+const SERPAPI_API_KEY = process.env.SERPAPI_API_KEY;
+const requestedExternalSearchLimit = Number(
+  process.env.INSTACOMP_EXTERNAL_SEARCH_LIMIT || 15
+);
+const EXTERNAL_SEARCH_LIMIT = Number.isFinite(requestedExternalSearchLimit)
+  ? Math.max(1, Math.min(requestedExternalSearchLimit, 25))
+  : 15;
+const EXTERNAL_SEARCH_CACHE_TTL_DAYS = 7;
+
+type ExternalSearchProvider = "google_cse" | "serpapi";
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL;
 const SUPABASE_KEY =
@@ -264,9 +282,10 @@ async function getEbayProvider(
         imageUrl: item?.image?.imageUrl ? String(item.image.imageUrl) : null,
         source: "ebay_active" as const,
         sourceLabel: "eBay Active",
+        sourceCategory: "marketplace" as const,
       };
     })
-    .filter((item) => {
+    .filter((item: Omit<InstaCompComp, "matchScore" | "flags">) => {
       if (!item.title || !item.url || !item.price) return false;
       if (looksLikeBadCompTitle(item.title, ai)) return false;
 
@@ -419,6 +438,7 @@ async function getComcProvider(
           imageUrl: imageUrl ? String(imageUrl) : null,
           source: "comc_active" as const,
           sourceLabel: "COMC Active",
+          sourceCategory: "marketplace" as const,
         };
       })
       .filter((item) => {
@@ -464,6 +484,492 @@ async function getComcProvider(
       searchUrl,
     };
   }
+}
+
+function normalizeInstaCompCacheKey(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim()
+    .replace(/\s+/g, " ");
+}
+
+function buildExternalSearchCacheKey(
+  query: string,
+  provider: ExternalSearchProvider
+) {
+  const normalizedQuery = normalizeInstaCompCacheKey(query);
+  const rawKey = `${provider}:${normalizedQuery}`;
+
+  return createHash("sha256").update(rawKey).digest("hex");
+}
+
+async function getCachedExternalSearchItems(
+  cacheKey: string,
+  provider: ExternalSearchProvider
+): Promise<{
+  items: ExternalSearchItem[];
+  expiresAt: string | null;
+  hitCount: number;
+} | null> {
+  if (!SUPABASE_URL || !SUPABASE_KEY) {
+    return null;
+  }
+
+  const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+  const { data, error } = await supabase
+    .from("instacomp_search_cache")
+    .select("result_payload, hit_count, expires_at")
+    .eq("query_hash", cacheKey)
+    .eq("provider", provider)
+    .gt("expires_at", new Date().toISOString())
+    .maybeSingle();
+
+  if (error) {
+    console.error("InstaComp cache read error:", error);
+    return null;
+  }
+
+  const payload = data?.result_payload as
+    | { items?: ExternalSearchItem[]; query?: string; provider?: string }
+    | null;
+
+  if (!payload?.items || !Array.isArray(payload.items)) {
+    return null;
+  }
+
+  const hitCount = Number(data?.hit_count || 0);
+
+  void supabase
+    .from("instacomp_search_cache")
+    .update({
+      hit_count: Number.isFinite(hitCount) ? hitCount + 1 : 1,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("query_hash", cacheKey)
+    .eq("provider", provider);
+
+  return {
+    items: payload.items,
+    expiresAt: typeof data?.expires_at === "string" ? data.expires_at : null,
+    hitCount: Number.isFinite(hitCount) ? hitCount : 0,
+  };
+}
+
+async function storeCachedExternalSearchItems(
+  cacheKey: string,
+  provider: ExternalSearchProvider,
+  query: string,
+  items: ExternalSearchItem[]
+) {
+  if (!SUPABASE_URL || !SUPABASE_KEY) {
+    return;
+  }
+
+  const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+  const now = new Date();
+  const expiresAt = new Date(
+    now.getTime() + 1000 * 60 * 60 * 24 * EXTERNAL_SEARCH_CACHE_TTL_DAYS
+  ).toISOString();
+
+  const { error } = await supabase.from("instacomp_search_cache").upsert(
+    {
+      query_hash: cacheKey,
+      provider,
+      normalized_query: normalizeInstaCompCacheKey(query),
+      result_payload: {
+        query,
+        provider,
+        items,
+      },
+      updated_at: now.toISOString(),
+      expires_at: expiresAt,
+      hit_count: 0,
+    },
+    { onConflict: "query_hash" }
+  );
+
+  if (error) {
+    console.error("InstaComp cache write error:", error);
+  }
+}
+
+type ExternalSearchSource = {
+  label: string;
+  domain: string;
+  category: InstaCompSourceCategory;
+};
+
+type ExternalSearchItem = {
+  title: string;
+  url: string;
+  snippet: string;
+  imageUrl: string | null;
+};
+
+type ExternalSearchFetchResult = {
+  ok: boolean;
+  items: ExternalSearchItem[];
+  errorMessage: string | null;
+};
+
+const externalSearchSources: ExternalSearchSource[] = [
+  { label: "130point", domain: "130point.com", category: "sold" },
+  {
+    label: "PSA APR",
+    domain: "psacard.com/auctionprices",
+    category: "sold",
+  },
+  { label: "Sportlots", domain: "sportlots.com", category: "marketplace" },
+  { label: "Mercari", domain: "mercari.com", category: "marketplace" },
+  {
+    label: "Facebook Marketplace",
+    domain: "facebook.com/marketplace",
+    category: "marketplace",
+  },
+  { label: "MySlabs", domain: "myslabs.com", category: "marketplace" },
+  { label: "Whatnot", domain: "whatnot.com", category: "marketplace" },
+  { label: "StockX", domain: "stockx.com", category: "marketplace" },
+  {
+    label: "Fanatics Collect",
+    domain: "fanaticscollect.com",
+    category: "auction",
+  },
+  { label: "PWCC", domain: "pwccmarketplace.com", category: "auction" },
+  { label: "Goldin", domain: "goldin.co", category: "auction" },
+  { label: "Heritage", domain: "ha.com", category: "auction" },
+  {
+    label: "PriceCharting",
+    domain: "pricecharting.com",
+    category: "pricing",
+  },
+  { label: "CollX", domain: "collx.app", category: "pricing" },
+  { label: "Cardbase", domain: "cardbase.com", category: "pricing" },
+  { label: "Card Ladder", domain: "cardladder.com", category: "pricing" },
+  { label: "Alt", domain: "alt.xyz", category: "pricing" },
+];
+
+function slugifySource(value: string) {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function buildExternalSearchQuery(query: string) {
+  const sourceQuery = externalSearchSources
+    .map((source) => `site:${source.domain}`)
+    .join(" OR ");
+
+  return `${query} (${sourceQuery})`;
+}
+
+function identifyExternalSource(url: string): ExternalSearchSource | null {
+  try {
+    const parsed = new URL(url);
+    const hostname = parsed.hostname.replace(/^www\./, "").toLowerCase();
+    const pathname = parsed.pathname.toLowerCase();
+
+    return (
+      externalSearchSources.find((source) => {
+        const [domainHost, ...pathParts] = source.domain
+          .toLowerCase()
+          .split("/");
+        const path = pathParts.join("/");
+
+        if (!hostname.endsWith(domainHost)) return false;
+        if (!path) return true;
+
+        return pathname.includes(path);
+      }) || null
+    );
+  } catch {
+    return null;
+  }
+}
+
+function extractPriceFromSearchText(value: string) {
+  const match =
+    value.match(/\$\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})?)/) ||
+    value.match(/\bUSD\s*([0-9]{1,3}(?:,[0-9]{3})*(?:\.[0-9]{2})?)/i);
+
+  if (!match?.[1]) return 0;
+
+  const parsed = Number(match[1].replace(/,/g, ""));
+
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function externalProviderLabel(provider: ExternalSearchProvider | null) {
+  if (provider === "serpapi") return "SerpApi";
+  if (provider === "google_cse") return "Google CSE";
+  return null;
+}
+
+function externalProviderRequestedLimit(provider: ExternalSearchProvider | null) {
+  if (provider === "google_cse") return Math.min(EXTERNAL_SEARCH_LIMIT, 10);
+  if (provider === "serpapi") return EXTERNAL_SEARCH_LIMIT;
+  return 0;
+}
+
+async function fetchGoogleCseItems(
+  searchQuery: string
+): Promise<ExternalSearchFetchResult> {
+  if (!GOOGLE_CSE_API_KEY || !GOOGLE_CSE_CX) {
+    return {
+      ok: false,
+      items: [],
+      errorMessage: "Google CSE credentials were not available.",
+    };
+  }
+
+  const url = new URL("https://www.googleapis.com/customsearch/v1");
+  url.searchParams.set("key", GOOGLE_CSE_API_KEY);
+  url.searchParams.set("cx", GOOGLE_CSE_CX);
+  url.searchParams.set("q", searchQuery);
+  url.searchParams.set("num", String(Math.min(EXTERNAL_SEARCH_LIMIT, 10)));
+  url.searchParams.set("safe", "active");
+
+  try {
+    const response = await fetch(url.toString());
+
+    if (!response.ok) {
+      console.error("Google CSE InstaComp error:", await response.text());
+
+      return {
+        ok: false,
+        items: [],
+        errorMessage: "Google CSE external comp search failed.",
+      };
+    }
+
+    const data = await response.json();
+    const items = Array.isArray(data?.items) ? data.items : [];
+
+    return {
+      ok: true,
+      items: items.map((item: any) => ({
+        title: String(item?.title || ""),
+        url: String(item?.link || ""),
+        snippet: String(item?.snippet || ""),
+        imageUrl: item?.pagemap?.cse_thumbnail?.[0]?.src
+          ? String(item.pagemap.cse_thumbnail[0].src)
+          : null,
+      })),
+      errorMessage: null,
+    };
+  } catch (error) {
+    console.error("Google CSE InstaComp exception:", error);
+
+    return {
+      ok: false,
+      items: [],
+      errorMessage: "Google CSE external comp search threw an error.",
+    };
+  }
+}
+
+async function fetchSerpApiItems(
+  searchQuery: string
+): Promise<ExternalSearchFetchResult> {
+  if (!SERPAPI_API_KEY) {
+    return {
+      ok: false,
+      items: [],
+      errorMessage: "SerpApi credentials were not available.",
+    };
+  }
+
+  const url = new URL("https://serpapi.com/search.json");
+  url.searchParams.set("engine", "google");
+  url.searchParams.set("api_key", SERPAPI_API_KEY);
+  url.searchParams.set("q", searchQuery);
+  url.searchParams.set("num", String(EXTERNAL_SEARCH_LIMIT));
+  url.searchParams.set("safe", "active");
+
+  try {
+    const response = await fetch(url.toString());
+
+    if (!response.ok) {
+      console.error("SerpApi InstaComp error:", await response.text());
+
+      return {
+        ok: false,
+        items: [],
+        errorMessage: "SerpApi external comp search failed.",
+      };
+    }
+
+    const data = await response.json();
+    const items = Array.isArray(data?.organic_results)
+      ? data.organic_results
+      : [];
+
+    return {
+      ok: true,
+      items: items.map((item: any) => ({
+        title: String(item?.title || ""),
+        url: String(item?.link || ""),
+        snippet: String(item?.snippet || ""),
+        imageUrl: item?.thumbnail ? String(item.thumbnail) : null,
+      })),
+      errorMessage: null,
+    };
+  } catch (error) {
+    console.error("SerpApi InstaComp exception:", error);
+
+    return {
+      ok: false,
+      items: [],
+      errorMessage: "SerpApi external comp search threw an error.",
+    };
+  }
+}
+
+async function getExternalSearchProvider(
+  query: string,
+  ai: InstaCompAiResult,
+  searchUrl: string
+): Promise<InstaCompProviderResult> {
+  const hasGoogleCse = Boolean(GOOGLE_CSE_API_KEY && GOOGLE_CSE_CX);
+
+  if (!SERPAPI_API_KEY && !hasGoogleCse) {
+    return {
+      source: "external_comp_search",
+      label: "External Comp Search",
+      status: "not_configured",
+      message:
+        "Add GOOGLE_CSE_API_KEY + GOOGLE_CSE_CX or SERPAPI_API_KEY to ingest external comp sources.",
+      results: [],
+      searchUrl,
+      diagnostics: {
+        externalSearch: {
+          provider: null,
+          providerLabel: null,
+          cacheStatus: "not_configured",
+          cacheHit: false,
+          externalRequestAttempted: false,
+          paidSearchUsed: false,
+          requestedLimit: 0,
+          returnedSearchItems: 0,
+          includedCompCount: 0,
+          registeredSourceCount: externalSearchSources.length,
+          cacheTtlDays: EXTERNAL_SEARCH_CACHE_TTL_DAYS,
+          cacheExpiresAt: null,
+          cacheHitCountBeforeScan: null,
+        },
+      },
+    };
+  }
+
+  const searchQuery = buildExternalSearchQuery(query);
+  const provider: ExternalSearchProvider = SERPAPI_API_KEY
+    ? "serpapi"
+    : "google_cse";
+  const cacheKey = buildExternalSearchCacheKey(query, provider);
+  const cachedSearch = await getCachedExternalSearchItems(cacheKey, provider);
+  const cacheHit = Boolean(cachedSearch);
+
+  const fetched = cachedSearch
+    ? null
+    : provider === "serpapi"
+      ? await fetchSerpApiItems(searchQuery)
+      : await fetchGoogleCseItems(searchQuery);
+
+  if (fetched && !fetched.ok) {
+    return {
+      source: "external_comp_search",
+      label: "External Comp Search",
+      status: "error",
+      message: fetched.errorMessage,
+      results: [],
+      searchUrl,
+      diagnostics: {
+        externalSearch: {
+          provider,
+          providerLabel: externalProviderLabel(provider),
+          cacheStatus: "error",
+          cacheHit: false,
+          externalRequestAttempted: true,
+          paidSearchUsed: false,
+          requestedLimit: externalProviderRequestedLimit(provider),
+          returnedSearchItems: 0,
+          includedCompCount: 0,
+          registeredSourceCount: externalSearchSources.length,
+          cacheTtlDays: EXTERNAL_SEARCH_CACHE_TTL_DAYS,
+          cacheExpiresAt: null,
+          cacheHitCountBeforeScan: null,
+        },
+      },
+    };
+  }
+
+  const searchItems = cachedSearch?.items ?? fetched?.items ?? [];
+
+  if (!cacheHit && fetched?.ok) {
+    void storeCachedExternalSearchItems(cacheKey, provider, query, searchItems);
+  }
+
+  const rawComps: Omit<InstaCompComp, "matchScore" | "flags">[] = searchItems
+    .map((item) => {
+      const source = identifyExternalSource(item.url);
+      const searchText = `${item.title} ${item.snippet}`;
+      const price = extractPriceFromSearchText(searchText);
+
+      if (!source) return null;
+
+      return {
+        title: item.title,
+        price,
+        currency: "USD",
+        url: item.url,
+        imageUrl: item.imageUrl,
+        source: `external_${slugifySource(source.label)}`,
+        sourceLabel: source.label,
+        sourceCategory: source.category,
+      };
+    })
+    .filter(
+      (item): item is Omit<InstaCompComp, "matchScore" | "flags"> =>
+        Boolean(item?.title && item?.url && item?.price)
+    )
+    .filter((item) => !looksLikeBadCompTitle(item.title, ai));
+
+  const results = filterAndRankExactMatches(rawComps, ai, 12, 35);
+
+  return {
+    source: "external_comp_search",
+    label: "External Comp Search",
+    status: results.length ? "live" : "no_matches",
+    message: cacheHit
+      ? "Loaded cached external comp results for this card identity."
+      : results.length
+        ? "External search returned priced, filtered comp candidates."
+        : "External search returned no priced exact-match comp candidates.",
+    results,
+    searchUrl,
+    diagnostics: {
+      externalSearch: {
+        provider,
+        providerLabel: externalProviderLabel(provider),
+        cacheStatus: cacheHit
+          ? "hit"
+          : SUPABASE_URL && SUPABASE_KEY
+            ? "miss"
+            : "disabled",
+        cacheHit,
+        externalRequestAttempted: Boolean(fetched?.ok),
+        paidSearchUsed: Boolean(fetched?.ok),
+        requestedLimit: externalProviderRequestedLimit(provider),
+        returnedSearchItems: searchItems.length,
+        includedCompCount: results.length,
+        registeredSourceCount: externalSearchSources.length,
+        cacheTtlDays: EXTERNAL_SEARCH_CACHE_TTL_DAYS,
+        cacheExpiresAt: cachedSearch?.expiresAt || null,
+        cacheHitCountBeforeScan: cachedSearch?.hitCount ?? null,
+      },
+    },
+  };
 }
 
 async function getTcosInventoryProvider(
@@ -529,6 +1035,7 @@ async function getTcosInventoryProvider(
       imageUrl: item.image_url ? String(item.image_url) : null,
       source: "tcos_inventory" as const,
       sourceLabel: "TCOS Inventory",
+      sourceCategory: "marketplace" as const,
     }));
 
   const results = filterAndRankExactMatches(rawComps, ai, 3, 45);
@@ -550,8 +1057,13 @@ async function saveScanToSupabase(input: {
   searchQuery: string;
   backupQueries: string[];
   stats: ReturnType<typeof calculateCompStats>;
+  soldStats: ReturnType<typeof calculateCompStats>;
   links: ReturnType<typeof buildCompLinks>;
   providers: InstaCompProviderResult[];
+  sourceCoverage: InstaCompSourceCoverage[];
+  marketValueComps: InstaCompComp[];
+  soldComps: InstaCompComp[];
+  remainingCards: InstaCompComp[];
 }) {
   if (!SUPABASE_URL || !SUPABASE_KEY) {
     return null;
@@ -604,6 +1116,12 @@ async function saveScanToSupabase(input: {
       raw_comp_results: {
         providers: input.providers,
         allResults,
+        sourceCoverage: input.sourceCoverage,
+        marketValueComps: input.marketValueComps,
+        soldComps: input.soldComps,
+        soldStats: input.soldStats,
+        remainingCards: input.remainingCards,
+        sourceLinks: input.links,
       } as any,
     })
     .select("id")
@@ -615,6 +1133,114 @@ async function saveScanToSupabase(input: {
   }
 
   return data?.id || null;
+}
+
+function buildSourceCoverage(
+  links: ReturnType<typeof buildCompLinks>,
+  providers: InstaCompProviderResult[]
+): InstaCompSourceCoverage[] {
+  const resultCounts = new Map<string, number>();
+  const allResults = providers.flatMap((provider) => provider.results);
+
+  for (const result of allResults) {
+    const key = result.sourceLabel.toLowerCase();
+    resultCounts.set(key, (resultCounts.get(key) || 0) + 1);
+  }
+
+  const directProviderBySourceLabel = new Map<string, InstaCompProviderResult>();
+
+  for (const provider of providers) {
+    if (provider.label === "eBay Active") {
+      directProviderBySourceLabel.set("ebay active", provider);
+    }
+
+    if (provider.label === "COMC Active") {
+      directProviderBySourceLabel.set("comc", provider);
+    }
+  }
+
+  const externalProvider = providers.find(
+    (provider) => provider.source === "external_comp_search"
+  );
+
+  const sourceCoverage = links.sourceDirectory.map<InstaCompSourceCoverage>(
+    (source) => {
+      const count = resultCounts.get(source.label.toLowerCase()) || 0;
+      const directProvider = directProviderBySourceLabel.get(
+        source.label.toLowerCase()
+      );
+
+      let status: InstaCompSourceCoverage["status"] = "registered";
+      let message: string | null =
+        "Registered InstaComp source. Live result ingestion is ready when provider access is configured.";
+
+      if (count > 0) {
+        status = "included";
+        message = null;
+      } else if (directProvider) {
+        status =
+          directProvider.status === "live" ? "no_matches" : directProvider.status;
+        message = directProvider.message;
+      } else if (externalProvider?.status === "not_configured") {
+        status = "not_configured";
+        message = externalProvider.message;
+      } else if (externalProvider?.status === "error") {
+        status = "error";
+        message = externalProvider.message;
+      } else if (externalProvider?.status === "live") {
+        status = "no_matches";
+        message = "External provider ran, but this source had no priced match.";
+      } else if (externalProvider?.status === "no_matches") {
+        status = "no_matches";
+        message = externalProvider.message;
+      }
+
+      return {
+        label: source.label,
+        category: source.category,
+        status,
+        includedInMarketValue: count > 0 && source.category !== "reference",
+        resultCount: count,
+        message,
+      };
+    }
+  );
+
+  const tcosProvider = providers.find(
+    (provider) => provider.source === "tcos_inventory"
+  );
+
+  if (!tcosProvider) {
+    return sourceCoverage;
+  }
+
+  return [
+    {
+      label: tcosProvider.label,
+      category: "marketplace",
+      status: tcosProvider.results.length
+        ? "included"
+        : tcosProvider.status === "live"
+          ? "no_matches"
+          : tcosProvider.status,
+      includedInMarketValue: tcosProvider.results.length > 0,
+      resultCount: tcosProvider.results.length,
+      message: tcosProvider.message,
+    },
+    ...sourceCoverage,
+  ];
+}
+
+function isMarketValueComp(comp: InstaCompComp) {
+  return comp.sourceCategory !== "reference";
+}
+
+function isRemainingCardComp(comp: InstaCompComp) {
+  return (
+    comp.sourceCategory === "marketplace" ||
+    comp.sourceCategory === "auction" ||
+    comp.sourceCategory === "broad"
+  );
 }
 
 export async function POST(req: NextRequest) {
@@ -649,16 +1275,32 @@ export async function POST(req: NextRequest) {
     const queries = buildInstaCompQueries(ai);
     const links = buildCompLinks(queries.primary);
 
-    const [ebayProvider, comcProvider, tcosProvider] = await Promise.all([
-      getEbayProvider(queries.primary, ai, links.ebayActiveUrl),
-      getComcProvider(queries.primary, ai, links.comcUrl),
-      getTcosInventoryProvider(queries.primary, ai),
-    ]);
+    const [ebayProvider, comcProvider, tcosProvider, externalSearchProvider] =
+      await Promise.all([
+        getEbayProvider(queries.primary, ai, links.ebayActiveUrl),
+        getComcProvider(queries.primary, ai, links.comcUrl),
+        getTcosInventoryProvider(queries.primary, ai),
+        getExternalSearchProvider(queries.primary, ai, links.broadCardMarketUrl),
+      ]);
 
-    const providers = [ebayProvider, comcProvider, tcosProvider];
+    const providers = [
+      ebayProvider,
+      comcProvider,
+      tcosProvider,
+      externalSearchProvider,
+    ];
 
     const allLiveComps = providers.flatMap((provider) => provider.results);
-    const stats = calculateCompStats(allLiveComps);
+    const marketValueComps = allLiveComps.filter(isMarketValueComp);
+    const soldComps = allLiveComps.filter(
+      (comp) => comp.sourceCategory === "sold"
+    );
+    const remainingCards = allLiveComps
+      .filter(isRemainingCardComp)
+      .sort((left, right) => left.price - right.price);
+    const stats = calculateCompStats(marketValueComps);
+    const soldStats = calculateCompStats(soldComps);
+    const sourceCoverage = buildSourceCoverage(links, providers);
 
     const scanId = await saveScanToSupabase({
       imageFilename: frontImage.name || null,
@@ -666,8 +1308,13 @@ export async function POST(req: NextRequest) {
       searchQuery: queries.primary,
       backupQueries: queries.backupQueries,
       stats,
+      soldStats,
       links,
       providers,
+      sourceCoverage,
+      marketValueComps,
+      soldComps,
+      remainingCards,
     });
 
     return NextResponse.json({
@@ -678,10 +1325,15 @@ export async function POST(req: NextRequest) {
       backupQueries: queries.backupQueries,
       links,
       providers,
+      sourceCoverage,
       activeComps: allLiveComps,
+      marketValueComps,
+      soldComps,
+      soldStats,
+      remainingCards,
       stats,
       note:
-        "eBay, COMC, and TCOS results are active asking-price comps. Use sold-search links to verify true sold prices.",
+        "Market value, high, low, and sold ranges are calculated from included live matches only. Registered sources remain visible until provider access is configured.",
     });
   } catch (error: any) {
     console.error("InstaComp scan error:", error);

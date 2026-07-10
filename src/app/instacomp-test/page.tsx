@@ -74,12 +74,12 @@ export default async function InstaCompAdminPage() {
       <div style={{ marginBottom: 24 }}>
         <h1 style={{ marginBottom: 4 }}>InstaComp™ Scan Lab</h1>
         <p style={{ marginTop: 0, color: "#555" }}>
-          Scan a card, identify it with AI, build comp searches, and estimate a
-          market price.
+          Run deterministic scanner and draft workflows before touching live
+          inventory.
         </p>
       </div>
 
-      <InstaCompScanner />
+      <InstaCompScanner testMode />
 
       <section
         style={{
