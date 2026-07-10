@@ -15,6 +15,10 @@ function isMissingShippingInfrastructure(error: { code?: string; message?: strin
   );
 }
 
+function isDryRunTracking(value: string) {
+  return value.includes("TCOS-DRYRUN");
+}
+
 export async function POST(req: Request) {
   try {
     const supabase = createSupabaseServerClient({ admin: true });
@@ -30,6 +34,16 @@ export async function POST(req: Request) {
       return NextResponse.json(
         { error: "Missing orderId, carrier, or trackingNumber" },
         { status: 400 }
+      );
+    }
+
+    if (isDryRunTracking(trackingNumber)) {
+      return NextResponse.json(
+        {
+          error:
+            "TCOS dry-run tracking cannot be saved manually. Buy or record a real label before saving tracking.",
+        },
+        { status: 409 },
       );
     }
 
