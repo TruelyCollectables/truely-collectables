@@ -31,7 +31,19 @@ type Order = {
   shipping_state?: string | null;
   shipping_postal_code?: string | null;
   shipping_country?: string | null;
+  tracking_number?: string | null;
+  carrier?: string | null;
   order_items?: OrderItem[];
+};
+
+type ShippingLabelRow = {
+  id: string;
+  label_status: string | null;
+  metadata: Record<string, unknown> | null;
+  provider_label_id: string | null;
+  provider_shipment_id: string | null;
+  tracking_number: string | null;
+  coverage_policy_id: string | null;
 };
 
 function money(value: number | null | undefined) {
@@ -47,6 +59,43 @@ function storeMark(displayName: string) {
     .toUpperCase();
 
   return initials || "TC";
+}
+
+function metadataRecord(
+  metadata: Record<string, unknown> | null | undefined,
+  key: string,
+) {
+  const value = metadata?.[key];
+
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function nestedRecord(record: Record<string, unknown> | null, key: string) {
+  const value = record?.[key];
+
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function isDryRunShippingLabel(label: ShippingLabelRow | null | undefined) {
+  if (!label) return false;
+
+  const latestAttempt = metadataRecord(label.metadata, "latest_purchase_attempt");
+  const purchaseResult = nestedRecord(latestAttempt, "purchase_result");
+  const providerPayload = nestedRecord(purchaseResult, "rawProviderPayload");
+
+  return (
+    latestAttempt?.status === "dry_run_purchased" ||
+    purchaseResult?.mode === "dry_run" ||
+    providerPayload?.dry_run === true ||
+    label.provider_label_id?.startsWith("dryrun-") ||
+    label.provider_shipment_id?.startsWith("dryrun-") ||
+    label.coverage_policy_id?.startsWith("dryrun-") ||
+    label.tracking_number?.includes("TCOS-DRYRUN")
+  );
 }
 
 export default async function PackingSlipPage({
@@ -97,6 +146,21 @@ export default async function PackingSlipPage({
   const discountAmount = Number(typedOrder.discount_amount || 0);
   const shippingPaid = Number(typedOrder.shipping_amount || 0);
   const totalPaid = Number(typedOrder.total || 0);
+  const { data: activeLabel } = await supabase
+    .from("order_shipping_labels")
+    .select(
+      "id,label_status,metadata,provider_label_id,provider_shipment_id,tracking_number,coverage_policy_id",
+    )
+    .eq("store_id", storeId)
+    .eq("order_id", typedOrder.id)
+    .not("label_status", "in", "(voided,failed)")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const dryRunShipping = Boolean(
+    typedOrder.tracking_number?.includes("TCOS-DRYRUN") ||
+      isDryRunShippingLabel((activeLabel || null) as ShippingLabelRow | null),
+  );
 
   return (
     <main className="mx-auto max-w-4xl bg-white p-8 text-black print:p-0">
@@ -105,15 +169,32 @@ export default async function PackingSlipPage({
           {"<-"} Back to Order
         </Link>
 
-        <button
-          onClick={() => window.print()}
-          className="rounded border px-4 py-2"
-        >
-          Print Packing Slip
-        </button>
+        {dryRunShipping ? (
+          <span className="rounded border border-red-300 bg-red-50 px-4 py-2 text-sm font-black text-red-950">
+            Printing blocked: dry-run shipping
+          </span>
+        ) : (
+          <button
+            onClick={() => window.print()}
+            className="rounded border px-4 py-2"
+          >
+            Print Packing Slip
+          </button>
+        )}
       </div>
 
       <section className="rounded-lg border p-8 print:border-0">
+        {dryRunShipping ? (
+          <div className="mb-6 rounded border-4 border-red-700 bg-red-50 p-5 text-center text-red-950 print:block">
+            <p className="text-3xl font-black">DRY-RUN / DO NOT SHIP</p>
+            <p className="mt-2 text-sm font-bold">
+              This order has simulated TCOS shipping data. Do not mail this
+              package until a real external label and Coverage policy are
+              recorded.
+            </p>
+          </div>
+        ) : null}
+
         <div className="mb-6 border-b pb-6 text-center">
           <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-black text-xl font-bold text-white">
             {storeMark(storeSettings.displayName)}
@@ -202,6 +283,11 @@ export default async function PackingSlipPage({
               <li>[ ] Packing slip included</li>
               <li>[ ] Package sealed</li>
               <li>[ ] Tracking added</li>
+              {dryRunShipping ? (
+                <li className="font-black text-red-700">
+                  [ ] REAL label/Coverage required before shipment
+                </li>
+              ) : null}
             </ul>
           </div>
 
