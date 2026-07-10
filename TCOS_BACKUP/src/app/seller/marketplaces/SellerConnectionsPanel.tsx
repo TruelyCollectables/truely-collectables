@@ -227,6 +227,8 @@ function statusTone(value: string | null | undefined) {
   if (
     value === "connect_requested" ||
     value === "needs_reauth" ||
+    value === "sync_paused" ||
+    value === "paused" ||
     value === "syncing" ||
     value === "queued" ||
     value === "completed_with_errors"
@@ -1662,6 +1664,58 @@ export default function SellerConnectionsPanel({
     }
   }
 
+  async function changeSellerEbaySync(paused: boolean) {
+    if (!session?.access_token || isSavingProvider.length > 0) return;
+
+    if (
+      paused &&
+      !window.confirm(
+        "Pause seller eBay sync? TCOS will stop reading new eBay data. Stored credentials, staged listings, import history, and seller inventory will remain intact.",
+      )
+    ) {
+      return;
+    }
+
+    setIsSavingProvider(paused ? "ebay-pause" : "ebay-resume");
+    setMessage("");
+
+    try {
+      const response = await fetch(
+        "/api/account/seller/marketplace-connections/ebay/sync-control",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ action: paused ? "pause" : "resume" }),
+        },
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Could not update seller eBay sync.");
+      }
+
+      if (paused) {
+        setPreview(null);
+        setStageAllProgress(null);
+      }
+
+      setMessage(
+        paused
+          ? "Seller eBay sync paused. Credentials and imported work remain safe."
+          : "Seller eBay sync resumed and is ready for preview or staging.",
+      );
+      const nextConnections = await fetchSellerConnections(session.access_token);
+      setConnections(nextConnections);
+    } catch (error: any) {
+      setMessage(error.message || "Could not update seller eBay sync.");
+    } finally {
+      setIsSavingProvider("");
+    }
+  }
+
   async function disconnectEbay() {
     if (!session?.access_token || isSavingProvider.length > 0) return;
 
@@ -2188,16 +2242,23 @@ export default function SellerConnectionsPanel({
   const ebayConnection = connections.find(
     (connection) => connection.provider === "ebay",
   );
+  const sellerEbaySyncPaused =
+    ebayConnection?.connectionStatus === "sync_paused" ||
+    ebayConnection?.syncStatus === "paused";
+  const sellerEbayAuthorized =
+    ebayConnection?.connectionStatus === "connected" ||
+    ebayConnection?.connectionStatus === "sync_paused";
   const canUseSellerEbayTools =
     Boolean(session?.access_token) &&
     ebaySyncEnabled &&
-    ebayConnection?.connectionStatus === "connected";
+    sellerEbayAuthorized &&
+    !sellerEbaySyncPaused;
   const ebayRevocationProtectionReady =
-    ebayConnection?.connectionStatus === "connected" &&
+    sellerEbayAuthorized &&
     ebayConnection.oauthScope.includes(EBAY_IDENTITY_SCOPE) &&
     Boolean(ebayConnection.providerAccountId);
   const ebayRevocationProtectionNeedsReconnect =
-    ebayConnection?.connectionStatus === "connected" &&
+    sellerEbayAuthorized &&
     !ebayRevocationProtectionReady;
   const stagedSummary = stagedItems.reduce(
     (summary, item) => {
@@ -2899,6 +2960,12 @@ export default function SellerConnectionsPanel({
           <p className="mt-4 rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-800">
             Store sync is disabled, so seller eBay preview and staging are
             paused.
+          </p>
+        ) : sellerEbaySyncPaused ? (
+          <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
+            Seller sync is paused. Resume this connection when you want TCOS to
+            read new eBay listings again. Stored credentials, staged listings,
+            import history, and seller inventory remain intact.
           </p>
         ) : ebayConnection?.connectionStatus !== "connected" ? (
           <p className="mt-4 rounded-md border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm font-semibold text-neutral-700">
@@ -4956,7 +5023,8 @@ export default function SellerConnectionsPanel({
                       Access expires {shortDate(connection.accessTokenExpiresAt)}
                     </p>
                     {connection.provider === "ebay" &&
-                    connection.connectionStatus === "connected" ? (
+                    (connection.connectionStatus === "connected" ||
+                      connection.connectionStatus === "sync_paused") ? (
                       <span
                         className={`mt-2 inline-flex rounded border px-2 py-1 text-[11px] font-black ${
                           connection.oauthScope.includes(EBAY_IDENTITY_SCOPE) &&
@@ -4974,17 +5042,52 @@ export default function SellerConnectionsPanel({
                   </td>
                   <td className="px-4 py-4">
                     {connection.provider === "ebay" &&
-                    connection.connectionStatus === "connected" ? (
+                    (connection.connectionStatus === "connected" ||
+                      connection.connectionStatus === "sync_paused") ? (
                       <div className="flex max-w-xs flex-wrap gap-2">
                         {ebaySyncEnabled ? (
-                          <button
-                            type="button"
-                            onClick={() => refreshEbayStatus()}
-                            disabled={isSavingProvider.length > 0}
-                            className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-bold hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-60"
-                          >
-                            Refresh Status
-                          </button>
+                          <>
+                            {connection.connectionStatus !== "sync_paused" &&
+                            connection.syncStatus !== "paused" ? (
+                              <button
+                                type="button"
+                                onClick={() => refreshEbayStatus()}
+                                disabled={isSavingProvider.length > 0}
+                                className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-bold hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                Refresh Status
+                              </button>
+                            ) : null}
+                            <button
+                              type="button"
+                              onClick={() =>
+                                changeSellerEbaySync(
+                                  connection.connectionStatus !== "sync_paused" &&
+                                    connection.syncStatus !== "paused",
+                                )
+                              }
+                              disabled={
+                                isSavingProvider.length > 0 ||
+                                isStagingItems ||
+                                isLoadingPreview
+                              }
+                              className={`rounded-md border px-3 py-2 text-xs font-bold disabled:cursor-not-allowed disabled:opacity-60 ${
+                                connection.connectionStatus === "sync_paused" ||
+                                connection.syncStatus === "paused"
+                                  ? "border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100"
+                                  : "border-amber-300 bg-amber-50 text-amber-900 hover:bg-amber-100"
+                              }`}
+                            >
+                              {isSavingProvider === "ebay-pause"
+                                ? "Pausing..."
+                                : isSavingProvider === "ebay-resume"
+                                  ? "Resuming..."
+                                  : connection.connectionStatus === "sync_paused" ||
+                                      connection.syncStatus === "paused"
+                                    ? "Resume Seller Sync"
+                                    : "Pause Seller Sync"}
+                            </button>
+                          </>
                         ) : (
                           <span className="self-center text-xs font-semibold text-rose-700">
                             Store sync disabled

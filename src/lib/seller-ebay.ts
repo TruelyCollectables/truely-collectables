@@ -212,6 +212,19 @@ async function getSellerEbayBundle(params: {
   };
 }
 
+function assertSellerEbaySyncIsActive(
+  connection: SellerMarketplaceConnectionRow,
+) {
+  if (
+    connection.connection_status === "sync_paused" ||
+    connection.sync_status === "paused"
+  ) {
+    throw new Error(
+      "Seller eBay sync is paused. Resume it from the marketplace connections page before reading eBay data.",
+    );
+  }
+}
+
 export async function fetchSellerEbayIdentity(params: {
   accessToken: string;
   ebayEnvironment: string;
@@ -260,6 +273,7 @@ export async function refreshSellerEbayAccessToken(params: {
   }
 
   const bundle = await getSellerEbayBundle(params);
+  assertSellerEbaySyncIsActive(bundle.connection);
   const storeSettings = await getStoreSettings(params.supabase, params.storeId);
   const refreshToken = decryptMarketplaceToken(
     bundle.token.encrypted_refresh_token,
@@ -415,6 +429,7 @@ export async function getSellerEbayAccessToken(params: {
   }
 
   const bundle = await getSellerEbayBundle(params);
+  assertSellerEbaySyncIsActive(bundle.connection);
   const accessTokenExpiresAt = bundle.connection.access_token_expires_at
     ? new Date(bundle.connection.access_token_expires_at).getTime()
     : 0;
@@ -586,6 +601,7 @@ export async function loadSellerEbayInventoryPreview(params: {
   const startedAt = new Date().toISOString();
   const limit = Math.min(Math.max(Number(params.limit ?? 5), 1), 10);
   const bundle = await getSellerEbayBundle(params);
+  assertSellerEbaySyncIsActive(bundle.connection);
 
   await markSellerConnectionSyncState({
     supabase: params.supabase,
@@ -654,6 +670,7 @@ export async function stageSellerEbayInventoryBatch(params: {
   resetCursor?: boolean;
 }): Promise<SellerEbayStagingResult> {
   const bundle = await getSellerEbayBundle(params);
+  assertSellerEbaySyncIsActive(bundle.connection);
   const startedAt = new Date().toISOString();
   const limit = Math.min(Math.max(Number(params.limit ?? 25), 1), 50);
   const previousCursor = recordValue(bundle.connection.import_cursor);
