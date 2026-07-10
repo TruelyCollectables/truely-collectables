@@ -2,7 +2,13 @@
 
 import { useState } from "react";
 
-export default function ShippingLabelActions({ orderId }: { orderId: number }) {
+export default function ShippingLabelActions({
+  orderId,
+  activeDryRunLabel = false,
+}: {
+  orderId: number;
+  activeDryRunLabel?: boolean;
+}) {
   const [preparing, setPreparing] = useState(false);
   const [purchasing, setPurchasing] = useState(false);
   const [recording, setRecording] = useState(false);
@@ -49,6 +55,7 @@ export default function ShippingLabelActions({ orderId }: { orderId: number }) {
   }
 
   const busy = preparing || purchasing || recording || voiding || openingClaim;
+  const providerActionsBlocked = busy || activeDryRunLabel;
 
   async function prepareLabelRecord() {
     setPreparing(true);
@@ -88,6 +95,13 @@ export default function ShippingLabelActions({ orderId }: { orderId: number }) {
   }
 
   async function attemptProviderPurchase() {
+    if (activeDryRunLabel) {
+      setMessage(
+        "The active label is a dry-run simulation. Record a real manual label or void this record before trying provider/claim actions.",
+      );
+      return;
+    }
+
     setPurchasing(true);
     setMessage("");
 
@@ -137,6 +151,13 @@ export default function ShippingLabelActions({ orderId }: { orderId: number }) {
   }
 
   async function openCoverageClaimDraft() {
+    if (activeDryRunLabel) {
+      setMessage(
+        "Dry-run labels do not have real external Coverage policies. Record a real policy before opening a claim.",
+      );
+      return;
+    }
+
     setOpeningClaim(true);
     setMessage("");
 
@@ -255,6 +276,13 @@ export default function ShippingLabelActions({ orderId }: { orderId: number }) {
 
   return (
     <div className="space-y-3">
+      {activeDryRunLabel ? (
+        <div className="rounded border border-red-200 bg-red-50 p-3 text-sm font-black text-red-950">
+          Active label is dry-run only. Record a real external label + Coverage
+          policy, or void this dry-run record before claim or provider actions.
+        </div>
+      ) : null}
+
       <div className="flex flex-wrap gap-3">
         <button
           onClick={prepareLabelRecord}
@@ -266,7 +294,7 @@ export default function ShippingLabelActions({ orderId }: { orderId: number }) {
 
         <button
           onClick={attemptProviderPurchase}
-          disabled={busy}
+          disabled={providerActionsBlocked}
           className="rounded border border-neutral-950 bg-white px-4 py-2 font-bold text-neutral-950 disabled:opacity-50"
         >
           {purchasing ? "Checking..." : "Attempt Provider Purchase"}
@@ -296,7 +324,7 @@ export default function ShippingLabelActions({ orderId }: { orderId: number }) {
 
         <button
           onClick={openCoverageClaimDraft}
-          disabled={busy}
+          disabled={providerActionsBlocked}
           className="rounded border border-amber-700 bg-amber-50 px-4 py-2 font-bold text-amber-950 disabled:opacity-50"
         >
           {openingClaim ? "Opening..." : "Open Coverage Claim Draft"}

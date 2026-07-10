@@ -562,6 +562,15 @@ export default async function AdminOrderDetailPage({
   );
   const reviewMessage =
     "Review hold: verify shipping evidence, inventory, and payment details before marking this order shipped.";
+  const activeShippingLabel = shippingLabels.find(
+    (shippingLabel) =>
+      !["voided", "failed"].includes(shippingLabel.label_status || ""),
+  );
+  const activeDryRunShippingLabel = Boolean(
+    typedOrder.tracking_number?.includes("TCOS-DRYRUN") ||
+      (activeShippingLabel &&
+        isDryRunShippingLabel(activeShippingLabel, shippingTrackingEvents)),
+  );
 
   return (
     <main className="p-8 max-w-5xl mx-auto">
@@ -950,7 +959,10 @@ export default async function AdminOrderDetailPage({
             </p>
           </div>
 
-          <ShippingLabelActions orderId={typedOrder.id} />
+          <ShippingLabelActions
+            orderId={typedOrder.id}
+            activeDryRunLabel={activeDryRunShippingLabel}
+          />
         </div>
 
         {shippingLabelsError ? (
@@ -1291,6 +1303,7 @@ export default async function AdminOrderDetailPage({
           currentTrackingNumber={typedOrder.tracking_number || ""}
           canMarkShipped={!needsReview}
           reviewMessage={needsReview ? reviewMessage : undefined}
+          dryRunShippingBlocked={activeDryRunShippingLabel}
         />
       </section>
 

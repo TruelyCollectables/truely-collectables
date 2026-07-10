@@ -8,12 +8,14 @@ export default function TrackingForm({
   currentTrackingNumber,
   canMarkShipped = true,
   reviewMessage,
+  dryRunShippingBlocked = false,
 }: {
   orderId: number;
   currentCarrier: string;
   currentTrackingNumber: string;
   canMarkShipped?: boolean;
   reviewMessage?: string;
+  dryRunShippingBlocked?: boolean;
 }) {
   const [carrier, setCarrier] = useState(currentCarrier || "USPS");
   const [trackingNumber, setTrackingNumber] = useState(
@@ -24,6 +26,13 @@ export default function TrackingForm({
   const [message, setMessage] = useState("");
 
   async function saveTracking() {
+    if (dryRunShippingBlocked) {
+      setMessage(
+        "The active shipping label is a dry-run simulation. Use Record Manual Purchase to save real label, tracking, and Coverage details.",
+      );
+      return;
+    }
+
     setSaving(true);
     setMessage("");
 
@@ -56,6 +65,13 @@ export default function TrackingForm({
   }
 
   async function markShipped() {
+    if (dryRunShippingBlocked) {
+      setMessage(
+        "The active shipping label is a dry-run simulation. Record a real label before marking this order shipped.",
+      );
+      return;
+    }
+
     if (!canMarkShipped) {
       setMessage(
         reviewMessage ||
@@ -148,7 +164,7 @@ export default function TrackingForm({
       <div className="flex gap-4">
         <button
           onClick={saveTracking}
-          disabled={saving}
+          disabled={saving || dryRunShippingBlocked}
           className="bg-blue-600 text-white px-5 py-2 rounded disabled:opacity-50"
         >
           {saving ? "Saving..." : "Save Tracking"}
@@ -156,7 +172,7 @@ export default function TrackingForm({
 
         <button
           onClick={markShipped}
-          disabled={shipping || !canMarkShipped}
+          disabled={shipping || !canMarkShipped || dryRunShippingBlocked}
           className="bg-green-600 text-white px-5 py-2 rounded disabled:opacity-50"
         >
           {shipping ? "Shipping..." : "Mark Shipped"}
@@ -166,6 +182,13 @@ export default function TrackingForm({
       {!canMarkShipped && reviewMessage ? (
         <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-900">
           {reviewMessage}
+        </div>
+      ) : null}
+
+      {dryRunShippingBlocked ? (
+        <div className="rounded border border-red-200 bg-red-50 p-3 text-sm font-black text-red-950">
+          Dry-run shipping is blocking generic tracking and shipped-status
+          actions. Record a real manual label + Coverage policy first.
         </div>
       ) : null}
 
