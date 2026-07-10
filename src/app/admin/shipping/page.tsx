@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import { getShippingProviderReadiness } from "../../../lib/shipping-provider-readiness";
 import { getActiveStoreId } from "../../../lib/stores";
 import { createSupabaseServerClient } from "../../../lib/supabase-server";
+import ShippingClaimActions from "./ShippingClaimActions";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -437,6 +438,11 @@ export default async function AdminShippingPage() {
                     {claim.reason ? (
                       <p className="mt-2 text-sm">{claim.reason}</p>
                     ) : null}
+                    <ShippingClaimActions
+                      claimId={claim.id}
+                      claimStatus={claim.claim_status}
+                      providerClaimId={claim.provider_claim_id}
+                    />
                   </div>
                 ))
               )}

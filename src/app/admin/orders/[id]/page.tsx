@@ -11,6 +11,7 @@ import OrderReviewCasesPanel, {
   type SellerCaseOption,
 } from "./OrderReviewCasesPanel";
 import ShippingLabelActions from "./ShippingLabelActions";
+import ShippingClaimActions from "../../shipping/ShippingClaimActions";
 import TrackingForm from "./TrackingForm";
 
 type OrderItem = {
@@ -1042,6 +1043,11 @@ export default async function AdminOrderDetailPage({
                     {claim.reason ? (
                       <p className="mt-1 text-sm">{claim.reason}</p>
                     ) : null}
+                    <ShippingClaimActions
+                      claimId={claim.id}
+                      claimStatus={claim.claim_status}
+                      providerClaimId={claim.provider_claim_id}
+                    />
                   </div>
                 ))}
               </div>
