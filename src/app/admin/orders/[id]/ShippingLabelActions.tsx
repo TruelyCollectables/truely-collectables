@@ -5,6 +5,7 @@ import { useState } from "react";
 export default function ShippingLabelActions({ orderId }: { orderId: number }) {
   const [preparing, setPreparing] = useState(false);
   const [purchasing, setPurchasing] = useState(false);
+  const [openingClaim, setOpeningClaim] = useState(false);
   const [message, setMessage] = useState("");
 
   async function prepareLabelRecord() {
@@ -93,12 +94,49 @@ export default function ShippingLabelActions({ orderId }: { orderId: number }) {
     }
   }
 
+  async function openCoverageClaimDraft() {
+    setOpeningClaim(true);
+    setMessage("");
+
+    try {
+      const response = await fetch(
+        `/api/admin/orders/${orderId}/shipping-claims`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+        },
+      );
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        setMessage(data.error || "Could not open coverage claim draft.");
+        return;
+      }
+
+      setMessage(
+        data.reused
+          ? "Existing open coverage claim draft found."
+          : "Coverage claim draft opened. Provider submission still required.",
+      );
+
+      setTimeout(() => {
+        window.location.reload();
+      }, 700);
+    } catch (error: any) {
+      setMessage(error.message || "Could not open coverage claim draft.");
+    } finally {
+      setOpeningClaim(false);
+    }
+  }
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-3">
         <button
           onClick={prepareLabelRecord}
-          disabled={preparing || purchasing}
+          disabled={preparing || purchasing || openingClaim}
           className="rounded bg-neutral-950 px-4 py-2 font-bold text-white disabled:opacity-50"
         >
           {preparing ? "Preparing..." : "Prepare Label + Coverage Record"}
@@ -106,10 +144,18 @@ export default function ShippingLabelActions({ orderId }: { orderId: number }) {
 
         <button
           onClick={attemptProviderPurchase}
-          disabled={preparing || purchasing}
+          disabled={preparing || purchasing || openingClaim}
           className="rounded border border-neutral-950 bg-white px-4 py-2 font-bold text-neutral-950 disabled:opacity-50"
         >
           {purchasing ? "Checking..." : "Attempt Provider Purchase"}
+        </button>
+
+        <button
+          onClick={openCoverageClaimDraft}
+          disabled={preparing || purchasing || openingClaim}
+          className="rounded border border-amber-700 bg-amber-50 px-4 py-2 font-bold text-amber-950 disabled:opacity-50"
+        >
+          {openingClaim ? "Opening..." : "Open Coverage Claim Draft"}
         </button>
       </div>
 
