@@ -199,6 +199,7 @@ export default async function AdminShippingPage() {
   const purchasedLabels = labels.filter((row) =>
     ["purchased", "printed"].includes(row.label_status || ""),
   );
+  const voidedLabels = labels.filter((row) => row.label_status === "voided");
   const coveragePending = labels.filter((row) =>
     ["required_at_label_purchase", "purchase_pending"].includes(
       row.coverage_status || "",
@@ -207,6 +208,22 @@ export default async function AdminShippingPage() {
   const blockedEvents = events.filter(
     (event) => event.event_type === "provider_purchase_blocked",
   );
+  const manualRecordEvents = events.filter((event) =>
+    ["manual_label_purchase_recorded", "manual_label_void_recorded"].includes(
+      event.event_type || "",
+    ),
+  );
+  const replacementNeededLabels = voidedLabels.filter((row) => {
+    const hasNewerActiveLabel = labels.some(
+      (candidate) =>
+        candidate.order_id === row.order_id &&
+        candidate.id !== row.id &&
+        candidate.created_at > row.created_at &&
+        !["voided", "failed"].includes(candidate.label_status || ""),
+    );
+
+    return !hasNewerActiveLabel;
+  });
   const openClaims = claims.filter(
     (claim) =>
       !["paid", "denied", "cancelled"].includes(claim.claim_status || "draft"),
@@ -244,10 +261,11 @@ export default async function AdminShippingPage() {
           </div>
         </div>
 
-        <section className="grid grid-cols-1 gap-3 md:grid-cols-5">
+        <section className="grid grid-cols-1 gap-3 md:grid-cols-6">
           <Metric label="Planned Labels" value={plannedLabels.length} />
           <Metric label="Purchase Pending" value={pendingPurchases.length} />
           <Metric label="Purchased / Printed" value={purchasedLabels.length} />
+          <Metric label="Voided Labels" value={voidedLabels.length} />
           <Metric label="Coverage Pending" value={coveragePending.length} />
           <Metric label="Open Claims" value={openClaims.length} />
         </section>
@@ -411,6 +429,51 @@ export default async function AdminShippingPage() {
               )}
             </Panel>
 
+            <Panel title="Manual Shipping Records">
+              {manualRecordEvents.length === 0 ? (
+                <p className="text-sm text-neutral-600">
+                  No manual label purchases or external voids recorded.
+                </p>
+              ) : (
+                manualRecordEvents.slice(0, 8).map((event) => (
+                  <EventCard key={event.id} event={event} />
+                ))
+              )}
+            </Panel>
+
+            <Panel title="Replacement Needed">
+              {replacementNeededLabels.length === 0 ? (
+                <p className="text-sm text-neutral-600">
+                  No voided labels are waiting for a replacement.
+                </p>
+              ) : (
+                replacementNeededLabels.slice(0, 8).map((row) => {
+                  const order = orderFor(ordersById, row);
+
+                  return (
+                    <div key={row.id} className="border-b py-3 last:border-b-0">
+                      <Link
+                        href={`/admin/orders/${row.order_id}`}
+                        className="font-bold underline"
+                      >
+                        Order #{row.order_id}
+                      </Link>
+                      <p className="mt-1 text-sm text-neutral-600">
+                        {order?.customer_email || "No customer email"} /{" "}
+                        {row.provider_service || order?.shipping_name || "Shipping"}
+                      </p>
+                      <p className="mt-2 text-sm font-semibold text-red-900">
+                        Label was voided and no newer active label is recorded.
+                      </p>
+                      <p className="mt-1 text-xs font-bold text-neutral-500">
+                        Voided record updated {shortDate(row.updated_at || row.created_at)}
+                      </p>
+                    </div>
+                  );
+                })
+              )}
+            </Panel>
+
             <Panel title="Coverage Claims">
               {claims.length === 0 ? (
                 <p className="text-sm text-neutral-600">
@@ -470,6 +533,8 @@ export default async function AdminShippingPage() {
               <ul className="mt-3 list-disc space-y-2 pl-5 text-sm text-neutral-700">
                 <li>Find labels stuck at planned or purchase pending.</li>
                 <li>See when provider purchase is blocked by missing secrets.</li>
+                <li>Audit manually purchased labels and externally voided labels.</li>
+                <li>Spot voided shipments that still need replacement labels.</li>
                 <li>Watch Coverage claim work without opening each order.</li>
                 <li>Jump straight into the order cockpit to resolve shipping.</li>
               </ul>
