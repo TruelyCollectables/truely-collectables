@@ -1022,6 +1022,12 @@ export default async function AdminOrderDetailPage({
 
                 {shippingLabel.label_url || shippingLabel.label_pdf_url ? (
                   <div className="mt-4 flex flex-wrap gap-3">
+                    <a
+                      href={`/api/admin/shipping-labels/${shippingLabel.id}/packet`}
+                      className="rounded border px-4 py-2 font-bold"
+                    >
+                      Download Label Packet
+                    </a>
                     {shippingLabel.label_pdf_url ? (
                       <a
                         href={shippingLabel.label_pdf_url}
@@ -1040,9 +1046,17 @@ export default async function AdminOrderDetailPage({
                     ) : null}
                   </div>
                 ) : (
-                  <p className="mt-4 rounded border border-blue-200 bg-blue-50 p-3 text-sm font-semibold text-blue-950">
-                    Provider purchase required before a printable label exists.
-                  </p>
+                  <div className="mt-4 space-y-3">
+                    <a
+                      href={`/api/admin/shipping-labels/${shippingLabel.id}/packet`}
+                      className="inline-flex rounded border px-4 py-2 font-bold"
+                    >
+                      Download Label Packet
+                    </a>
+                    <p className="rounded border border-blue-200 bg-blue-50 p-3 text-sm font-semibold text-blue-950">
+                      Provider purchase required before a printable label exists.
+                    </p>
+                  </div>
                 )}
               </div>
               );

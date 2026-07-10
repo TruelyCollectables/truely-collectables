@@ -455,12 +455,20 @@ export default async function AdminShippingPage() {
                       </div>
 
                       <div className="flex items-start lg:justify-end">
-                        <Link
-                          href={`/admin/orders/${row.order_id}`}
-                          className="rounded bg-neutral-950 px-4 py-2 text-sm font-black text-white"
-                        >
-                          Open Order
-                        </Link>
+                        <div className="flex flex-wrap gap-2 lg:justify-end">
+                          <a
+                            href={`/api/admin/shipping-labels/${row.id}/packet`}
+                            className="rounded border border-neutral-300 bg-white px-4 py-2 text-sm font-black text-neutral-950"
+                          >
+                            Label Packet
+                          </a>
+                          <Link
+                            href={`/admin/orders/${row.order_id}`}
+                            className="rounded bg-neutral-950 px-4 py-2 text-sm font-black text-white"
+                          >
+                            Open Order
+                          </Link>
+                        </div>
                       </div>
                     </article>
                   );
