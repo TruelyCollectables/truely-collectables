@@ -9,6 +9,7 @@ import {
 } from "../../../lib/seller-payout-review-blocks";
 import PayoutLedgerActions from "./PayoutLedgerActions";
 import PayoutRequestActions from "./PayoutRequestActions";
+import ConnectRefreshActions from "./ConnectRefreshActions";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -499,12 +500,17 @@ export default async function AdminSellerPayoutsPage() {
         </section>
 
         <section className="rounded-md border border-neutral-200 bg-white">
-          <div className="border-b border-neutral-200 p-5">
-            <h2 className="text-2xl font-black">Seller Connect Readiness</h2>
-            <p className="mt-1 text-sm text-neutral-600">
-              Stripe-hosted seller onboarding status, payout capability, TOS
-              acceptance, and open provider requirements.
-            </p>
+          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-neutral-200 p-5">
+            <div>
+              <h2 className="text-2xl font-black">Seller Connect Readiness</h2>
+              <p className="mt-1 text-sm text-neutral-600">
+                Stripe-hosted seller onboarding status, payout capability, TOS
+                acceptance, and open provider requirements.
+              </p>
+            </div>
+            <ConnectRefreshActions
+              disabled={Boolean(payoutAccountError) || payoutAccounts.length === 0}
+            />
           </div>
 
           {payoutAccounts.length === 0 ? (
