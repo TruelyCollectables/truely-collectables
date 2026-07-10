@@ -3,6 +3,7 @@ import { getAccountProfilesByIds } from "../../../lib/account-profiles";
 import { createSupabaseServerClient } from "../../../lib/supabase-server";
 import { getActiveStoreId } from "../../../lib/stores";
 import CaseQueueActions from "./CaseQueueActions";
+import StripeEvidenceActions from "./StripeEvidenceActions";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -63,6 +64,8 @@ type OrderReviewCase = {
   hold_seller_payouts: boolean | null;
   hold_order_fulfillment: boolean | null;
   outcome_summary: string | null;
+  provider: string | null;
+  provider_case_id: string | null;
   opened_at: string | null;
   closed_at: string | null;
   created_at: string | null;
@@ -109,6 +112,15 @@ type OrderReviewCaseEvent = {
   ip_address: string | null;
   identity_risk: string | null;
   created_at: string | null;
+};
+
+type OrderReviewCasePacket = {
+  id: string;
+  case_id: string;
+  provider_dispute_id: string | null;
+  provider_evidence_status: string | null;
+  provider_evidence_due_by: string | null;
+  provider_evidence_error: string | null;
 };
 
 function label(value: string | null | undefined) {
@@ -284,6 +296,8 @@ export default async function AdminOrderReviewCasesPage({
       hold_seller_payouts,
       hold_order_fulfillment,
       outcome_summary,
+      provider,
+      provider_case_id,
       opened_at,
       closed_at,
       created_at,
@@ -324,6 +338,7 @@ export default async function AdminOrderReviewCasesPage({
     payoutLedgerResult,
     evidenceResult,
     caseEventsResult,
+    casePacketsResult,
   ] = await Promise.all([
     orderIds.length > 0
       ? supabase
@@ -365,6 +380,18 @@ export default async function AdminOrderReviewCasesPage({
           .order("created_at", { ascending: false })
           .limit(100)
       : Promise.resolve({ data: [], error: null }),
+    cases.length > 0
+      ? supabase
+          .from("order_review_case_packets")
+          .select(
+            "id,case_id,provider_dispute_id,provider_evidence_status,provider_evidence_due_by,provider_evidence_error",
+          )
+          .eq("store_id", storeId)
+          .in(
+            "case_id",
+            cases.map((reviewCase) => reviewCase.id),
+          )
+      : Promise.resolve({ data: [], error: null }),
   ]);
 
   const orders = (ordersResult.data || []) as OrderRow[];
@@ -372,9 +399,14 @@ export default async function AdminOrderReviewCasesPage({
     (payoutLedgerResult.data || []) as SellerPayoutLedgerRow[];
   const evidenceReports = (evidenceResult.data || []) as EvidenceReport[];
   const caseEvents = (caseEventsResult.data || []) as OrderReviewCaseEvent[];
+  const casePackets =
+    (casePacketsResult.data || []) as OrderReviewCasePacket[];
   const ordersById = new Map(orders.map((order) => [order.id, order]));
   const evidenceByOrder = latestByOrder(evidenceReports);
   const latestEventByCase = latestEventsByCase(caseEvents);
+  const packetsByCase = new Map(
+    casePackets.map((packet) => [packet.case_id, packet]),
+  );
   const profilesById = await getAccountProfilesByIds([
     ...cases.map((reviewCase) => reviewCase.seller_account_id),
     ...orders.map((order) => order.account_id),
@@ -441,14 +473,15 @@ export default async function AdminOrderReviewCasesPage({
       </section>
 
       <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
-        {ordersResult.error || payoutLedgerResult.error || evidenceResult.error || caseEventsResult.error ? (
+        {ordersResult.error || payoutLedgerResult.error || evidenceResult.error || caseEventsResult.error || casePacketsResult.error ? (
           <section className="rounded-md border border-amber-200 bg-amber-50 p-5 text-sm font-semibold text-amber-950">
             <h2 className="text-xl font-black">Some Case Context Is Missing</h2>
             <p className="mt-2">
               {ordersResult.error?.message ||
                 payoutLedgerResult.error?.message ||
                 evidenceResult.error?.message ||
-                caseEventsResult.error?.message}
+                caseEventsResult.error?.message ||
+                casePacketsResult.error?.message}
             </p>
           </section>
         ) : null}
@@ -534,6 +567,7 @@ export default async function AdminOrderReviewCasesPage({
                   ? profilesById.get(order.account_id)
                   : undefined;
                 const evidence = evidenceByOrder.get(reviewCase.order_id);
+                const casePacket = packetsByCase.get(reviewCase.id);
                 const latestEvent = latestEventByCase.get(reviewCase.id);
                 const payout = payoutScope(reviewCase, payoutRows);
                 const sellerLabel =
@@ -616,6 +650,16 @@ export default async function AdminOrderReviewCasesPage({
                       >
                         Download Case Packet PDF
                       </a>
+                      {reviewCase.provider === "stripe" &&
+                      reviewCase.provider_case_id ? (
+                        <StripeEvidenceActions
+                          caseId={reviewCase.id}
+                          disputeId={reviewCase.provider_case_id}
+                          status={casePacket?.provider_evidence_status || null}
+                          dueBy={casePacket?.provider_evidence_due_by || null}
+                          error={casePacket?.provider_evidence_error || null}
+                        />
+                      ) : null}
                     </div>
 
                     <div className="space-y-4 text-sm">

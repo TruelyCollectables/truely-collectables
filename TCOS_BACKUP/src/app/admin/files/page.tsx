@@ -28,6 +28,12 @@ type OrderReviewCasePacket = {
   emailed_to: string | null;
   email_sent_at: string | null;
   email_error: string | null;
+  provider_dispute_id: string | null;
+  provider_evidence_status: string | null;
+  provider_evidence_due_by: string | null;
+  provider_evidence_staged_at: string | null;
+  provider_evidence_submitted_at: string | null;
+  provider_evidence_error: string | null;
   created_at: string;
   updated_at: string | null;
 };
@@ -47,7 +53,7 @@ function dateLabel(value: string | null | undefined) {
 
 export default async function AdminFilesPage() {
   const storeId = getActiveStoreId();
-  const supabase = createSupabaseServerClient();
+  const supabase = createSupabaseServerClient({ admin: true });
   const storeSettings = await getStoreSettings(supabase, storeId);
   const [evidenceResult, casePacketResult] = await Promise.all([
     supabase
@@ -80,6 +86,12 @@ export default async function AdminFilesPage() {
         emailed_to,
         email_sent_at,
         email_error,
+        provider_dispute_id,
+        provider_evidence_status,
+        provider_evidence_due_by,
+        provider_evidence_staged_at,
+        provider_evidence_submitted_at,
+        provider_evidence_error,
         created_at,
         updated_at
       `,
@@ -258,7 +270,7 @@ export default async function AdminFilesPage() {
                   </div>
                 </div>
 
-                <div className="mt-4 grid grid-cols-1 gap-3 text-sm md:grid-cols-3">
+                <div className="mt-4 grid grid-cols-1 gap-3 text-sm md:grid-cols-4">
                   <div>
                     <p className="font-bold">Email Delivery</p>
                     {packet.email_sent_at ? (
@@ -276,6 +288,26 @@ export default async function AdminFilesPage() {
                   <div>
                     <p className="font-bold">Packet ID</p>
                     <p className="break-all text-gray-600">{packet.id}</p>
+                  </div>
+
+                  <div>
+                    <p className="font-bold">Stripe Evidence</p>
+                    <p className="text-gray-600">
+                      {label(packet.provider_evidence_status)}
+                    </p>
+                    <p className="break-all text-xs text-gray-500">
+                      {packet.provider_dispute_id || "No linked Stripe dispute"}
+                    </p>
+                    {packet.provider_evidence_due_by ? (
+                      <p className="text-xs text-gray-500">
+                        Due {dateLabel(packet.provider_evidence_due_by)}
+                      </p>
+                    ) : null}
+                    {packet.provider_evidence_error ? (
+                      <p className="text-xs font-bold text-red-700">
+                        {packet.provider_evidence_error}
+                      </p>
+                    ) : null}
                   </div>
 
                   <div className="flex flex-col gap-2 md:items-end">

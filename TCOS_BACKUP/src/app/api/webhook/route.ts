@@ -25,6 +25,7 @@ import {
   processStripeDisputeEvent,
   processStripeRefundEvent,
 } from "../../../lib/stripe-post-payment";
+import { prepareStripeDisputeEvidence } from "../../../lib/stripe-dispute-evidence";
 
 export const dynamic = "force-dynamic";
 
@@ -146,12 +147,24 @@ export async function POST(req: Request) {
     }
 
     if (DISPUTE_EVENT_TYPES.has(event.type)) {
+      const dispute = event.data.object as Stripe.Dispute;
       const result = await processStripeDisputeEvent({
         supabase,
         storeId,
         event,
-        dispute: event.data.object as Stripe.Dispute,
+        dispute,
       });
+      const evidence = result.reviewCaseId
+        ? await prepareStripeDisputeEvidence({
+            supabase,
+            stripe,
+            storeId,
+            caseId: result.reviewCaseId,
+            dispute,
+            stripeEventId: event.id,
+            stageOnStripe: event.type === "charge.dispute.created",
+          })
+        : null;
 
       await finishStripeWebhookEvent({
         ...journal,
@@ -163,6 +176,8 @@ export async function POST(req: Request) {
           adjustment_count: result.adjustmentCount,
           held_seller_rows: result.heldSellerRows,
           review_case_id: result.reviewCaseId,
+          evidence_packet_id: evidence?.packetId || null,
+          evidence_status: evidence?.status || null,
         },
       });
 

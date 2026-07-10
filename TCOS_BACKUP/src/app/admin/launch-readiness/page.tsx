@@ -503,10 +503,10 @@ async function checkDatabaseReadiness(): Promise<ReadinessItem[]> {
       label: "Order Review Case Packets",
       table: "order_review_case_packets",
       select:
-        "id,store_id,case_id,order_id,status,email_sent_at,email_error,created_at,updated_at",
-      migration: "20260701220000_create_order_review_case_packets.sql",
+        "id,store_id,case_id,order_id,status,provider_dispute_id,provider_evidence_status,provider_evidence_file_id,provider_evidence_due_by,provider_evidence_staged_at,provider_evidence_submitted_at,provider_evidence_error,created_at,updated_at",
+      migration: "20260710160000_create_dispute_evidence_workflow.sql",
       readyDetail:
-        "order_review_case_packets is available for saved case packet files in Admin Files.",
+        "order_review_case_packets is available for automatic dispute packets, editable Stripe evidence staging, explicit final submission, and Admin Files audit history.",
     },
     {
       label: "Customer Account Profiles",

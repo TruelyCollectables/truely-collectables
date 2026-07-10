@@ -26,6 +26,12 @@ type CaseOrder = {
   customer_name?: string | null;
   total: number | string | null;
   status: string | null;
+  payment_status?: string | null;
+  dispute_status?: string | null;
+  stripe_session_id?: string | null;
+  stripe_payment_intent_id?: string | null;
+  stripe_charge_id?: string | null;
+  amount_refunded?: number | string | null;
   shipping_method: string | null;
   shipping_name: string | null;
   shipping_amount: number | string | null;
@@ -68,6 +74,8 @@ type OrderReviewCase = {
   hold_seller_payouts: boolean | null;
   hold_order_fulfillment: boolean | null;
   outcome_summary: string | null;
+  provider: string | null;
+  provider_case_id: string | null;
   metadata: Record<string, unknown> | null;
   opened_at: string | null;
   closed_at: string | null;
@@ -434,6 +442,8 @@ export function buildOrderReviewCasePacketText(
   lines.push(line("Updated At", reviewCase.updated_at));
   lines.push(line("Closed At", reviewCase.closed_at));
   lines.push(line("Outcome Summary", reviewCase.outcome_summary));
+  lines.push(line("Provider", label(reviewCase.provider)));
+  lines.push(line("Provider Case ID", reviewCase.provider_case_id));
   lines.push(line("Seller Scope", profileLabel(profilesById, reviewCase.seller_account_id) || "All seller-owned rows"));
   lines.push(line("Hold Seller Payouts", reviewCase.hold_seller_payouts));
   lines.push(line("Hold Order Fulfillment", reviewCase.hold_order_fulfillment));
@@ -446,6 +456,12 @@ export function buildOrderReviewCasePacketText(
   lines.push(line("Customer Name", order.customer_name));
   lines.push(line("Customer Email", order.customer_email));
   lines.push(line("Payment Status", label(order.status)));
+  lines.push(line("Processor Payment Status", label(order.payment_status)));
+  lines.push(line("Processor Dispute Status", label(order.dispute_status)));
+  lines.push(line("Stripe Checkout Session", order.stripe_session_id));
+  lines.push(line("Stripe Payment Intent", order.stripe_payment_intent_id));
+  lines.push(line("Stripe Charge", order.stripe_charge_id));
+  lines.push(line("Amount Refunded", money(order.amount_refunded)));
   lines.push(line("Fulfillment Status", label(order.fulfillment_status)));
   lines.push(line("Total Paid", money(order.total)));
   lines.push(line("Subtotal", money(order.subtotal)));
