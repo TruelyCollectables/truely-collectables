@@ -109,6 +109,8 @@ function safeError(error: any) {
 async function stripeTestScenarios(params: {
   stripe: Stripe;
   runId: string;
+  webhookSecret?: string;
+  webhookUrl?: string;
 }) {
   const results: ScenarioResult[] = [];
   const metadata = simulationMetadata(params.runId);
@@ -279,12 +281,78 @@ async function stripeTestScenarios(params: {
     });
   }
 
+  if (params.webhookSecret && params.webhookUrl) {
+    try {
+      const payload = JSON.stringify({
+        id: `evt_tcos_sim_${params.runId.replaceAll("-", "")}`,
+        object: "event",
+        api_version: null,
+        created: Math.floor(Date.now() / 1000),
+        data: {
+          object: {
+            id: `re_tcos_sim_${params.runId.replaceAll("-", "")}`,
+            object: "refund",
+            amount: 250,
+            currency: "usd",
+            metadata,
+            status: "succeeded",
+          },
+        },
+        livemode: false,
+        pending_webhooks: 1,
+        request: { id: null, idempotency_key: null },
+        type: "refund.created",
+      });
+      const signature = params.stripe.webhooks.generateTestHeaderString({
+        payload,
+        secret: params.webhookSecret,
+      });
+      const response = await fetch(params.webhookUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "stripe-signature": signature,
+        },
+        body: payload,
+      });
+      const body = await response.json().catch(() => ({}));
+      const quarantined = response.ok && body.simulation === true;
+      results.push({
+        scenario_key: "signed_webhook_quarantine",
+        scenario_status: quarantined ? "passed" : "failed",
+        detail: quarantined
+          ? "A correctly signed tagged refund event passed through the production webhook and was quarantined from TCOS finances."
+          : `Production webhook self-test returned HTTP ${response.status}.`,
+        assertions: {
+          http_status: response.status,
+          signature_verified: response.status !== 400,
+          simulation_quarantined: body.simulation === true,
+        },
+        provider_object_ids: { stripe_event: JSON.parse(payload).id },
+      });
+    } catch (error: any) {
+      results.push({
+        scenario_key: "signed_webhook_quarantine",
+        scenario_status: "failed",
+        detail: safeError(error),
+      });
+    }
+  } else {
+    results.push({
+      scenario_key: "signed_webhook_quarantine",
+      scenario_status: "skipped",
+      detail: "Signed webhook self-test skipped because its server-only URL or signing secret is unavailable.",
+    });
+  }
+
   return results;
 }
 
 export async function runPaymentSimulationSuite(params: {
   supabase: SupabaseClient;
   stripe?: Stripe;
+  webhookSecret?: string;
+  webhookUrl?: string;
   storeId: string;
   mode: "deterministic" | "stripe_test";
 }) {
@@ -305,7 +373,14 @@ export async function runPaymentSimulationSuite(params: {
     const scenarios = buildDeterministicPaymentScenarios();
     if (params.mode === "stripe_test") {
       if (!params.stripe) throw new Error("Stripe test client is required.");
-      scenarios.push(...(await stripeTestScenarios({ stripe: params.stripe, runId })));
+      scenarios.push(
+        ...(await stripeTestScenarios({
+          stripe: params.stripe,
+          runId,
+          webhookSecret: params.webhookSecret,
+          webhookUrl: params.webhookUrl,
+        })),
+      );
     }
 
     const { error: scenarioError } = await params.supabase

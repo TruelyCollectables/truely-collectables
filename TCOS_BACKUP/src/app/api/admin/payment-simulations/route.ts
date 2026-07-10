@@ -28,6 +28,12 @@ export async function POST(request: Request) {
     const result = await runPaymentSimulationSuite({
       supabase: createSupabaseServerClient({ admin: true }),
       stripe: mode === "stripe_test" ? new Stripe(stripeKey) : undefined,
+      webhookSecret:
+        mode === "stripe_test" ? process.env.STRIPE_WEBHOOK_SECRET : undefined,
+      webhookUrl:
+        mode === "stripe_test"
+          ? `${new URL(request.url).origin}/api/webhook`
+          : undefined,
       storeId: getActiveStoreId(),
       mode: mode as "deterministic" | "stripe_test",
     });
