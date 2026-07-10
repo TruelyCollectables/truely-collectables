@@ -74,7 +74,8 @@ function paymentMode() {
 
 function productionOrigin(primaryDomain: string | null) {
   const configuredSite = process.env.NEXT_PUBLIC_SITE_URL?.trim();
-  const raw = configuredSite || primaryDomain?.trim();
+  const vercelProductionUrl = process.env.VERCEL_PROJECT_PRODUCTION_URL?.trim();
+  const raw = configuredSite || primaryDomain?.trim() || vercelProductionUrl;
   if (!raw) return null;
 
   try {
