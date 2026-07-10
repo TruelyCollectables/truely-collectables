@@ -4,7 +4,10 @@ import { getShippingProviderReadiness } from "../../../lib/shipping-provider-rea
 import { getActiveStoreId } from "../../../lib/stores";
 import { createSupabaseServerClient } from "../../../lib/supabase-server";
 import ShippingClaimActions from "./ShippingClaimActions";
-import { MarkOrderShippedButton } from "./ShippingQueueActions";
+import {
+  MarkOrderShippedButton,
+  SaveTrackingForm,
+} from "./ShippingQueueActions";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -559,6 +562,7 @@ export default async function AdminShippingPage() {
                     order={orderFor(ordersById, row)}
                     message="Label is purchased/printed, but no tracking or IMb is saved."
                     tone="text-red-900"
+                    showSaveTrackingAction
                   />
                 ))
               )}
@@ -695,12 +699,14 @@ function LabelIssueCard({
   message,
   tone,
   showMarkShippedAction = false,
+  showSaveTrackingAction = false,
 }: {
   row: ShippingLabelRow;
   order: OrderRow | null;
   message: string;
   tone: string;
   showMarkShippedAction?: boolean;
+  showSaveTrackingAction?: boolean;
 }) {
   const carrier = row.carrier || order?.carrier || "";
   const trackingNumber = row.tracking_number || order?.tracking_number || "";
@@ -732,6 +738,12 @@ function LabelIssueCard({
         <Info label="Updated" value={shortDate(row.updated_at || row.created_at)} />
       </dl>
       <div className="mt-3 flex flex-wrap gap-2">
+        {showSaveTrackingAction ? (
+          <SaveTrackingForm
+            orderId={row.order_id}
+            defaultCarrier={row.carrier || order?.carrier || "USPS"}
+          />
+        ) : null}
         {showMarkShippedAction && carrier && trackingNumber ? (
           <MarkOrderShippedButton
             orderId={row.order_id}
