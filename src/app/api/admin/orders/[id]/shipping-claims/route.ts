@@ -9,9 +9,14 @@ const openClaimStatuses = new Set(["draft", "submitted", "under_review"]);
 type ShippingLabelRow = {
   id: string;
   provider: string | null;
+  provider_label_id: string | null;
+  provider_shipment_id: string | null;
+  tracking_number: string | null;
   coverage_provider: string | null;
+  coverage_policy_id: string | null;
   coverage_amount: number | string | null;
   coverage_status: string | null;
+  metadata: Record<string, unknown> | null;
 };
 
 type CoverageClaimRow = {
@@ -26,7 +31,9 @@ async function activeLabelForOrder(params: {
 }) {
   const { data, error } = await params.supabase
     .from("order_shipping_labels")
-    .select("id,provider,coverage_provider,coverage_amount,coverage_status")
+    .select(
+      "id,provider,provider_label_id,provider_shipment_id,tracking_number,coverage_provider,coverage_policy_id,coverage_amount,coverage_status,metadata",
+    )
     .eq("store_id", params.storeId)
     .eq("order_id", params.orderId)
     .not("label_status", "in", "(voided,failed)")
@@ -37,6 +44,41 @@ async function activeLabelForOrder(params: {
   if (error) throw error;
 
   return (data || null) as ShippingLabelRow | null;
+}
+
+function metadataRecord(
+  metadata: Record<string, unknown> | null | undefined,
+  key: string,
+) {
+  const value = metadata?.[key];
+
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function nestedRecord(record: Record<string, unknown> | null, key: string) {
+  const value = record?.[key];
+
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function isDryRunLabel(label: ShippingLabelRow) {
+  const latestAttempt = metadataRecord(label.metadata, "latest_purchase_attempt");
+  const purchaseResult = nestedRecord(latestAttempt, "purchase_result");
+  const providerPayload = nestedRecord(purchaseResult, "rawProviderPayload");
+
+  return (
+    latestAttempt?.status === "dry_run_purchased" ||
+    purchaseResult?.mode === "dry_run" ||
+    providerPayload?.dry_run === true ||
+    label.provider_label_id?.startsWith("dryrun-") ||
+    label.provider_shipment_id?.startsWith("dryrun-") ||
+    label.coverage_policy_id?.startsWith("dryrun-") ||
+    label.tracking_number?.includes("TCOS-DRYRUN")
+  );
 }
 
 async function existingOpenClaim(params: {
@@ -92,6 +134,16 @@ export async function POST(
         {
           error:
             "Prepare a shipping label and coverage record before opening a coverage claim.",
+        },
+        { status: 409 },
+      );
+    }
+
+    if (isDryRunLabel(label)) {
+      return Response.json(
+        {
+          error:
+            "TCOS dry-run labels do not have real external Coverage policies. Record a real label and policy before opening a coverage claim.",
         },
         { status: 409 },
       );

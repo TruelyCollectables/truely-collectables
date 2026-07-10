@@ -43,6 +43,10 @@ type ShippingLabelRow = {
   id: string;
   coverage_status: string | null;
   coverage_policy_id: string | null;
+  provider_label_id: string | null;
+  provider_shipment_id: string | null;
+  tracking_number: string | null;
+  metadata: Record<string, unknown> | null;
 };
 
 function coverageStatusForClaimStatus(
@@ -59,6 +63,43 @@ function coverageStatusForClaimStatus(
   }
 
   return label?.coverage_status || null;
+}
+
+function metadataRecord(
+  metadata: Record<string, unknown> | null | undefined,
+  key: string,
+) {
+  const value = metadata?.[key];
+
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function nestedRecord(record: Record<string, unknown> | null, key: string) {
+  const value = record?.[key];
+
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function isDryRunLabel(label: ShippingLabelRow | null) {
+  if (!label) return false;
+
+  const latestAttempt = metadataRecord(label.metadata, "latest_purchase_attempt");
+  const purchaseResult = nestedRecord(latestAttempt, "purchase_result");
+  const providerPayload = nestedRecord(purchaseResult, "rawProviderPayload");
+
+  return (
+    latestAttempt?.status === "dry_run_purchased" ||
+    purchaseResult?.mode === "dry_run" ||
+    providerPayload?.dry_run === true ||
+    label.provider_label_id?.startsWith("dryrun-") ||
+    label.provider_shipment_id?.startsWith("dryrun-") ||
+    label.coverage_policy_id?.startsWith("dryrun-") ||
+    label.tracking_number?.includes("TCOS-DRYRUN")
+  );
 }
 
 export async function PATCH(
@@ -135,13 +176,25 @@ export async function PATCH(
     if (claim.shipping_label_id) {
       const { data: labelData, error: labelError } = await supabase
         .from("order_shipping_labels")
-        .select("id,coverage_status,coverage_policy_id")
+        .select(
+          "id,coverage_status,coverage_policy_id,provider_label_id,provider_shipment_id,tracking_number,metadata",
+        )
         .eq("store_id", storeId)
         .eq("id", claim.shipping_label_id)
         .maybeSingle();
 
       if (labelError) throw labelError;
       label = (labelData || null) as ShippingLabelRow | null;
+    }
+
+    if (isDryRunLabel(label) && nextStatus !== "cancelled") {
+      return Response.json(
+        {
+          error:
+            "Dry-run Coverage claims can only be cancelled. Record a real Coverage policy before submitting or resolving a claim.",
+        },
+        { status: 409 },
+      );
     }
 
     const now = new Date().toISOString();
