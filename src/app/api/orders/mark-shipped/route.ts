@@ -40,6 +40,57 @@ function isMissingShippingInfrastructure(error: { code?: string; message?: strin
   );
 }
 
+type ActiveShippingLabel = {
+  id: string;
+  label_status: string | null;
+  metadata?: Record<string, unknown> | null;
+  provider_label_id?: string | null;
+  provider_shipment_id?: string | null;
+  tracking_number?: string | null;
+  coverage_policy_id?: string | null;
+};
+
+function metadataRecord(
+  metadata: Record<string, unknown> | null | undefined,
+  key: string,
+) {
+  const value = metadata?.[key];
+
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function nestedRecord(record: Record<string, unknown> | null, key: string) {
+  const value = record?.[key];
+
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function isDryRunTracking(value: string | null | undefined) {
+  return Boolean(value?.includes("TCOS-DRYRUN"));
+}
+
+function isDryRunLabel(label: ActiveShippingLabel | null | undefined) {
+  if (!label) return false;
+
+  const latestAttempt = metadataRecord(label.metadata, "latest_purchase_attempt");
+  const purchaseResult = nestedRecord(latestAttempt, "purchase_result");
+  const providerPayload = nestedRecord(purchaseResult, "rawProviderPayload");
+
+  return (
+    latestAttempt?.status === "dry_run_purchased" ||
+    purchaseResult?.mode === "dry_run" ||
+    providerPayload?.dry_run === true ||
+    label.provider_label_id?.startsWith("dryrun-") ||
+    label.provider_shipment_id?.startsWith("dryrun-") ||
+    label.coverage_policy_id?.startsWith("dryrun-") ||
+    isDryRunTracking(label.tracking_number)
+  );
+}
+
 export async function POST(req: Request) {
   try {
     const resendApiKey = process.env.RESEND_API_KEY;
@@ -96,6 +147,52 @@ export async function POST(req: Request) {
       );
     }
 
+    if (isDryRunTracking(order.tracking_number)) {
+      return NextResponse.json(
+        {
+          error:
+            "This order has TCOS dry-run tracking. Buy or record a real label before marking it shipped.",
+        },
+        { status: 409 },
+      );
+    }
+
+    let activeShippingLabel: ActiveShippingLabel | null = null;
+
+    try {
+      const { data: label, error: labelLookupError } = await supabase
+        .from("order_shipping_labels")
+        .select(
+          "id,label_status,metadata,provider_label_id,provider_shipment_id,tracking_number,coverage_policy_id",
+        )
+        .eq("store_id", storeId)
+        .eq("order_id", orderId)
+        .not("label_status", "in", "(voided,failed)")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (labelLookupError && !isMissingShippingInfrastructure(labelLookupError)) {
+        throw labelLookupError;
+      }
+
+      activeShippingLabel = (label || null) as ActiveShippingLabel | null;
+    } catch (labelLookupError: any) {
+      if (!isMissingShippingInfrastructure(labelLookupError)) {
+        throw labelLookupError;
+      }
+    }
+
+    if (isDryRunLabel(activeShippingLabel)) {
+      return NextResponse.json(
+        {
+          error:
+            "The active shipping label is a TCOS dry-run simulation. Buy or record a real label before marking it shipped.",
+        },
+        { status: 409 },
+      );
+    }
+
     const shippedAt = new Date().toISOString();
 
     const { error } = await supabase
@@ -112,28 +209,23 @@ export async function POST(req: Request) {
     }
 
     try {
-      const { data: label } = await supabase
-        .from("order_shipping_labels")
-        .select("id,label_status")
-        .eq("store_id", storeId)
-        .eq("order_id", orderId)
-        .not("label_status", "in", "(voided,failed)")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (label?.id) {
+      if (activeShippingLabel?.id) {
         const { error: labelUpdateError } = await supabase
           .from("order_shipping_labels")
           .update({
             carrier: order.carrier,
             tracking_number: order.tracking_number,
             label_status:
-              label.label_status === "planned" ? "printed" : label.label_status,
-            printed_at: label.label_status === "planned" ? shippedAt : undefined,
+              activeShippingLabel.label_status === "planned"
+                ? "printed"
+                : activeShippingLabel.label_status,
+            printed_at:
+              activeShippingLabel.label_status === "planned"
+                ? shippedAt
+                : undefined,
             updated_at: shippedAt,
           })
-          .eq("id", label.id)
+          .eq("id", activeShippingLabel.id)
           .eq("store_id", storeId);
 
         if (labelUpdateError && !isMissingShippingInfrastructure(labelUpdateError)) {
@@ -146,7 +238,7 @@ export async function POST(req: Request) {
         .insert({
           store_id: storeId,
           order_id: orderId,
-          shipping_label_id: label?.id || null,
+          shipping_label_id: activeShippingLabel?.id || null,
           provider: "manual",
           carrier: order.carrier,
           tracking_number: order.tracking_number,
