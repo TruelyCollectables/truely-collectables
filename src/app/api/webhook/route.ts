@@ -21,8 +21,25 @@ import {
   finishStripeWebhookEvent,
   stripeWebhookPayloadHash,
 } from "../../../lib/stripe-webhook-events";
+import {
+  processStripeDisputeEvent,
+  processStripeRefundEvent,
+} from "../../../lib/stripe-post-payment";
 
 export const dynamic = "force-dynamic";
+
+const REFUND_EVENT_TYPES = new Set([
+  "refund.created",
+  "refund.updated",
+  "refund.failed",
+]);
+const DISPUTE_EVENT_TYPES = new Set([
+  "charge.dispute.created",
+  "charge.dispute.updated",
+  "charge.dispute.closed",
+  "charge.dispute.funds_withdrawn",
+  "charge.dispute.funds_reinstated",
+]);
 
 export async function POST(req: Request) {
   let journal:
@@ -100,6 +117,53 @@ export async function POST(req: Request) {
         ...journal,
         status: "processed",
         metadata: { outcome: "seller_payout_account_updated" },
+      });
+
+      return NextResponse.json({ received: true });
+    }
+
+    if (REFUND_EVENT_TYPES.has(event.type)) {
+      const result = await processStripeRefundEvent({
+        supabase,
+        storeId,
+        event,
+        refund: event.data.object as Stripe.Refund,
+      });
+
+      await finishStripeWebhookEvent({
+        ...journal,
+        status: "processed",
+        metadata: {
+          outcome: result.outcome,
+          order_id: result.orderId,
+          provider_object_id: result.providerObjectId,
+          adjustment_count: result.adjustmentCount,
+          held_seller_rows: result.heldSellerRows,
+        },
+      });
+
+      return NextResponse.json({ received: true });
+    }
+
+    if (DISPUTE_EVENT_TYPES.has(event.type)) {
+      const result = await processStripeDisputeEvent({
+        supabase,
+        storeId,
+        event,
+        dispute: event.data.object as Stripe.Dispute,
+      });
+
+      await finishStripeWebhookEvent({
+        ...journal,
+        status: "processed",
+        metadata: {
+          outcome: result.outcome,
+          order_id: result.orderId,
+          provider_object_id: result.providerObjectId,
+          adjustment_count: result.adjustmentCount,
+          held_seller_rows: result.heldSellerRows,
+          review_case_id: result.reviewCaseId,
+        },
       });
 
       return NextResponse.json({ received: true });
@@ -298,6 +362,16 @@ export async function POST(req: Request) {
     const tosIpRisk = metadata.tos_ip_risk || null;
     const tosIpBlockReason = metadata.tos_ip_block_reason || null;
     const accountId = metadata.account_id || null;
+    const stripePaymentIntentId =
+      typeof session.payment_intent === "string"
+        ? session.payment_intent
+        : session.payment_intent?.id || null;
+    const stripeChargeId =
+      typeof session.payment_intent === "object" && session.payment_intent
+        ? typeof session.payment_intent.latest_charge === "string"
+          ? session.payment_intent.latest_charge
+          : session.payment_intent.latest_charge?.id || null
+        : null;
 
     const offerId = metadata.offer_id;
     const checkoutType = metadata.type || "cart";
@@ -343,6 +417,10 @@ export async function POST(req: Request) {
       customer_name: customerName,
       total,
       status: shippingAllowed ? "paid" : "paid_shipping_review",
+      payment_status: session.payment_status || "paid",
+      stripe_payment_intent_id: stripePaymentIntentId,
+      stripe_charge_id: stripeChargeId,
+      last_payment_event_at: new Date().toISOString(),
       shipping_method: shippingMethod,
       shipping_name: shippingName,
       shipping_amount: shippingAmount,

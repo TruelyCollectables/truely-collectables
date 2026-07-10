@@ -111,6 +111,8 @@ function buildReadinessItems(
   const ebayCredentialsConfigured =
     isConfigured(process.env.EBAY_CLIENT_ID) &&
     isConfigured(process.env.EBAY_CLIENT_SECRET);
+  const stripeFinancialEventsVerified =
+    process.env.STRIPE_FINANCIAL_EVENTS_VERIFIED === "true";
 
   return [
     {
@@ -182,6 +184,15 @@ function buildReadinessItems(
         : "STRIPE_WEBHOOK_SECRET is missing.",
       action:
         "Create a live Stripe webhook for /api/webhook and save its signing secret.",
+    },
+    {
+      label: "Stripe Refund And Dispute Events",
+      status: stripeFinancialEventsVerified ? "ready" : "warning",
+      detail: stripeFinancialEventsVerified
+        ? "The production Stripe endpoint is operator-verified for refund and dispute lifecycle events."
+        : "TCOS cannot confirm from local configuration that Stripe is sending refund.created, refund.updated, refund.failed, and charge.dispute lifecycle events.",
+      action:
+        "Enable the required refund and charge.dispute events for /api/webhook in Stripe Workbench, test them, then set STRIPE_FINANCIAL_EVENTS_VERIFIED=true.",
     },
     {
       label: "Identity And VPN Blocking",
@@ -372,6 +383,60 @@ async function checkDatabaseReadiness(): Promise<ReadinessItem[]> {
       migration: "20260710113000_create_checkout_attempts.sql",
       readyDetail:
         "checkout_attempts is available for duplicate Checkout Session prevention and ambiguous-network retry recovery.",
+    },
+    {
+      label: "Stripe Post-Payment Objects",
+      table: "stripe_post_payment_objects",
+      select:
+        "id,store_id,object_type,provider_object_id,order_id,current_status,amount,currency,last_provider_event_id",
+      migration: "20260710130000_create_stripe_financial_adjustments.sql",
+      readyDetail:
+        "stripe_post_payment_objects is available for refund and dispute lifecycle tracking without storing raw Stripe payloads.",
+    },
+    {
+      label: "Immutable Financial Adjustments",
+      table: "financial_adjustment_ledger_entries",
+      select:
+        "id,store_id,order_id,seller_account_id,provider_event_id,provider_object_id,economic_key,entry_type,ledger_account,balance_effect,amount,currency",
+      migration: "20260710130000_create_stripe_financial_adjustments.sql",
+      readyDetail:
+        "financial_adjustment_ledger_entries is available for append-only refunds, 8% reversals, payout reversals, dispute holds, chargeback losses, and recovery requirements.",
+    },
+    {
+      label: "Seller Payout Accounts",
+      table: "seller_payout_accounts",
+      select:
+        "id,account_id,store_id,provider,provider_account_id,onboarding_status,payouts_enabled,details_submitted",
+      migration: "20260630103000_create_seller_payout_accounts.sql",
+      readyDetail:
+        "seller_payout_accounts is available for Stripe-hosted seller onboarding and payout eligibility.",
+    },
+    {
+      label: "Seller Payable Ledger",
+      table: "seller_payout_ledger_entries",
+      select:
+        "id,store_id,seller_account_id,order_id,order_item_id,source_type,platform_fee_amount,seller_payable_amount,payout_status",
+      migration: "20260701210000_create_seller_payout_ledger.sql",
+      readyDetail:
+        "seller_payout_ledger_entries is available for 8% calculation, seller payable balances, and payout holds.",
+    },
+    {
+      label: "Platform Fee Ledger",
+      table: "platform_fee_ledger_entries",
+      select:
+        "id,store_id,order_id,order_item_id,source_type,platform_fee_rate,platform_fee_amount,fee_status",
+      migration: "20260701211500_create_platform_fee_ledger.sql",
+      readyDetail:
+        "platform_fee_ledger_entries is available for Dag Danky Holdings LLC's 8% TCOS checkout fee audit trail.",
+    },
+    {
+      label: "Seller Payout Requests",
+      table: "seller_payout_requests",
+      select:
+        "id,store_id,seller_account_id,provider,requested_amount,status,final_processor_fee_amount,final_net_amount,provider_payout_reference",
+      migration: "20260701213000_create_seller_payout_requests.sql",
+      readyDetail:
+        "seller_payout_requests is available for seller cash-out review, processor fees, final net amounts, and provider references.",
     },
     {
       label: "Admin Login Audit",
