@@ -54,6 +54,9 @@ export type SellerEbayInventoryPreview = {
 export type SellerEbayStagingResult = {
   importJobId: string | null;
   connectionId: string;
+  offset: number;
+  nextOffset: number;
+  hasMore: boolean;
   stagedCount: number;
   skippedCount: number;
   totalAvailable: number | null;
@@ -83,6 +86,17 @@ function first(value: unknown) {
 function toPositiveNumber(value: unknown) {
   const number = Number(value);
   return Number.isFinite(number) && number >= 0 ? number : 0;
+}
+
+function toNonNegativeInteger(value: unknown) {
+  const number = Number(value);
+  return Number.isFinite(number) && number >= 0 ? Math.floor(number) : 0;
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 function summarizeSellerEbayImport(snapshot: {
@@ -156,6 +170,7 @@ async function getSellerEbayBundle(params: {
         "last_sync_started_at",
         "last_sync_completed_at",
         "last_sync_error",
+        "import_cursor",
         "created_at",
         "updated_at",
       ].join(","),
@@ -327,6 +342,7 @@ async function fetchSellerEbayInventoryItems(params: {
   accountId: string;
   storeId: string;
   limit: number;
+  offset?: number;
 }) {
   const storeSettings = await getStoreSettings(params.supabase, params.storeId);
 
@@ -336,10 +352,11 @@ async function fetchSellerEbayInventoryItems(params: {
 
   const bundle = await getSellerEbayBundle(params);
   const limit = Math.min(Math.max(Number(params.limit), 1), 50);
+  const offset = toNonNegativeInteger(params.offset);
   const auth = await getSellerEbayAccessToken(params);
   const ebayApi = ebayTokenBase(storeSettings.ebayEnvironment);
   const inventoryResponse = await fetch(
-    `${ebayApi}/sell/inventory/v1/inventory_item?limit=${limit}&offset=0`,
+    `${ebayApi}/sell/inventory/v1/inventory_item?limit=${limit}&offset=${offset}`,
     {
       headers: ebayHeaders(auth.accessToken),
     },
@@ -426,6 +443,7 @@ async function fetchSellerEbayInventoryItems(params: {
     connectionId: bundle.connection.id,
     ebayEnvironment: storeSettings.ebayEnvironment,
     totalAvailable,
+    offset,
     fetchedAt,
     sampleItems,
   };
@@ -491,6 +509,7 @@ export async function loadSellerEbayInventoryPreview(params: {
       completedAt: snapshot.fetchedAt,
       lastSyncError: null,
       importCursor: {
+        ...recordValue(bundle.connection.import_cursor),
         preview_limit: limit,
         preview_sampled: snapshot.sampleItems.length,
         preview_total_available: snapshot.totalAvailable,
@@ -529,10 +548,15 @@ export async function stageSellerEbayInventoryBatch(params: {
   accountId: string;
   storeId: string;
   limit?: number;
+  resetCursor?: boolean;
 }): Promise<SellerEbayStagingResult> {
   const bundle = await getSellerEbayBundle(params);
   const startedAt = new Date().toISOString();
   const limit = Math.min(Math.max(Number(params.limit ?? 25), 1), 50);
+  const previousCursor = recordValue(bundle.connection.import_cursor);
+  const offset = params.resetCursor
+    ? 0
+    : toNonNegativeInteger(previousCursor.stage_next_offset);
 
   await markSellerConnectionSyncState({
     supabase: params.supabase,
@@ -555,6 +579,8 @@ export async function stageSellerEbayInventoryBatch(params: {
       metadata: {
         request_source: "seller_marketplaces_stage_batch",
         limit,
+        offset,
+        reset_cursor: params.resetCursor === true,
       },
     })
     .select("id")
@@ -570,7 +596,13 @@ export async function stageSellerEbayInventoryBatch(params: {
     const snapshot = await fetchSellerEbayInventoryItems({
       ...params,
       limit,
+      offset,
     });
+    const nextOffset = offset + snapshot.sampleItems.length;
+    const hasMore =
+      typeof snapshot.totalAvailable === "number"
+        ? nextOffset < snapshot.totalAvailable
+        : snapshot.sampleItems.length >= limit;
     const importSummary = summarizeSellerEbayImport(snapshot);
     const stagedRows = snapshot.sampleItems
       .filter((item) => item.listingId || item.sku)
@@ -632,11 +664,16 @@ export async function stageSellerEbayInventoryBatch(params: {
         error_count: 0,
         source_cursor: {
           limit,
+          offset,
+          next_offset: nextOffset,
+          has_more: hasMore,
           total_available: snapshot.totalAvailable,
         },
         metadata: {
           request_source: "seller_marketplaces_stage_batch",
           limit,
+          offset,
+          reset_cursor: params.resetCursor === true,
           fetched_at: snapshot.fetchedAt,
           quality_summary: importSummary.qualitySummary,
           skip_reason_summary: importSummary.skipReasonSummary,
@@ -653,7 +690,12 @@ export async function stageSellerEbayInventoryBatch(params: {
       completedAt,
       lastSyncError: null,
       importCursor: {
+        ...previousCursor,
         stage_limit: limit,
+        stage_last_offset: offset,
+        stage_next_offset: nextOffset,
+        stage_has_more: hasMore,
+        stage_complete: !hasMore,
         stage_sampled: snapshot.sampleItems.length,
         stage_staged: stagedRows.length,
         stage_skipped: skippedCount,
@@ -665,6 +707,9 @@ export async function stageSellerEbayInventoryBatch(params: {
     return {
       importJobId,
       connectionId: bundle.connection.id,
+      offset,
+      nextOffset,
+      hasMore,
       stagedCount: stagedRows.length,
       skippedCount,
       totalAvailable: snapshot.totalAvailable,
@@ -681,6 +726,9 @@ export async function stageSellerEbayInventoryBatch(params: {
         error_count: 1,
         metadata: {
           request_source: "seller_marketplaces_stage_batch",
+          limit,
+          offset,
+          reset_cursor: params.resetCursor === true,
           error: error.message || "Seller eBay staging failed",
         },
         completed_at: failedAt,

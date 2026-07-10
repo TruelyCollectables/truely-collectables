@@ -1191,7 +1191,10 @@ async function fetchSellerStagedItems(
   };
 }
 
-async function stageSellerItems(accessToken: string) {
+async function stageSellerItems(
+  accessToken: string,
+  options: { resetCursor?: boolean } = {},
+) {
   const response = await fetch(
     "/api/account/seller/marketplace-connections/ebay/staged-items",
     {
@@ -1200,7 +1203,10 @@ async function stageSellerItems(accessToken: string) {
         "Content-Type": "application/json",
         Authorization: `Bearer ${accessToken}`,
       },
-      body: JSON.stringify({ limit: 25 }),
+      body: JSON.stringify({
+        limit: 25,
+        resetCursor: options.resetCursor === true,
+      }),
     },
   );
   const data = await response.json();
@@ -1211,8 +1217,13 @@ async function stageSellerItems(accessToken: string) {
 
   return data.result as {
     importJobId: string | null;
+    offset: number;
+    nextOffset: number;
+    hasMore: boolean;
     stagedCount: number;
     skippedCount: number;
+    totalAvailable: number | null;
+    fetchedAt: string;
     sampleItems: SellerEbayPreviewItem[];
   };
 }
@@ -1651,16 +1662,22 @@ export default function SellerConnectionsPanel({
     }
   }
 
-  async function stagePreviewBatch() {
+  async function stagePreviewBatch(resetCursor = false) {
     if (!session?.access_token || !ebaySyncEnabled) return;
 
     setIsStagingItems(true);
     setMessage("");
 
     try {
-      const result = await stageSellerItems(session.access_token);
+      const result = await stageSellerItems(session.access_token, {
+        resetCursor,
+      });
+      const batchRange =
+        result.nextOffset > result.offset
+          ? `Remote listings ${result.offset + 1}-${result.nextOffset}`
+          : `No remote listings found at offset ${result.offset}`;
       setMessage(
-        `Seller eBay batch staged. ${result.stagedCount} items captured, ${result.skippedCount} skipped.`,
+        `${resetCursor ? "Seller eBay import restarted. " : ""}${batchRange}. ${result.stagedCount} items captured, ${result.skippedCount} skipped.${result.hasMore ? " The next batch is ready." : " All available listings have been reached."}`,
       );
       await refreshSellerStageState(session.access_token, {
         importJobId: result.importJobId || null,
@@ -1670,6 +1687,10 @@ export default function SellerConnectionsPanel({
         setPreview({
           ...preview,
           sampleItems: result.sampleItems,
+          sampled: result.sampleItems.length,
+          totalAvailable: result.totalAvailable,
+          hasMore: result.hasMore,
+          fetchedAt: result.fetchedAt,
         });
       }
 
@@ -2287,6 +2308,14 @@ export default function SellerConnectionsPanel({
     recentImportJobs.find((job) => job.id === activeImportJobId) ??
     (latestImportJob?.id === activeImportJobId ? latestImportJob : null);
   const displayedImportJob = activeImportJob ?? latestImportJob;
+  const latestStageCursor = metadataRecord(latestImportJob?.source_cursor);
+  const latestStageNextOffset = metadataNumberValue(
+    latestStageCursor,
+    "next_offset",
+  );
+  const hasResumableStageCursor =
+    latestStageNextOffset !== null && latestStageNextOffset > 0;
+  const hasReachedEndOfEbayInventory = latestStageCursor?.has_more === false;
   const currentLaneTotalStageItemIds = stageItemIdsForFilter(stagedItems, stageFilter);
   const currentLaneVisibleStageItemIds = visibleStageItemIds;
   const emptyLaneState = stageLaneEmptyState(stageFilter, {
@@ -2580,12 +2609,34 @@ export default function SellerConnectionsPanel({
                 !canUseSellerEbayTools ||
                 isLoadingPreview ||
                 isSavingProvider.length > 0 ||
-                isStagingItems
+                isStagingItems ||
+                hasReachedEndOfEbayInventory
               }
               className="rounded-md bg-neutral-950 px-4 py-2 text-sm font-bold text-white hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {isStagingItems ? "Staging Batch..." : "Stage Seller Batch"}
+              {isStagingItems
+                ? "Staging Batch..."
+                : hasReachedEndOfEbayInventory
+                  ? "All Listings Staged"
+                  : hasResumableStageCursor
+                    ? "Stage Next 25"
+                    : "Stage First 25"}
             </button>
+            {hasResumableStageCursor ? (
+              <button
+                type="button"
+                onClick={() => stagePreviewBatch(true)}
+                disabled={
+                  !canUseSellerEbayTools ||
+                  isLoadingPreview ||
+                  isSavingProvider.length > 0 ||
+                  isStagingItems
+                }
+                className="rounded-md border border-neutral-300 px-4 py-2 text-sm font-bold hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Restart From First 25
+              </button>
+            ) : null}
           </div>
         </div>
 
@@ -4793,6 +4844,8 @@ function LatestImportDiagnostics({
   const requestLimit =
     metadataNumberValue(sourceCursor, "limit") ?? metadataNumberValue(metadata, "limit");
   const totalAvailable = metadataNumberValue(sourceCursor, "total_available");
+  const offset = metadataNumberValue(sourceCursor, "offset");
+  const nextOffset = metadataNumberValue(sourceCursor, "next_offset");
   const fetchedAt = metadataTextValue(metadata, "fetched_at");
 
   if (
@@ -4861,7 +4914,7 @@ function LatestImportDiagnostics({
         ) : null}
       </div>
 
-      <div className="mt-4 grid gap-3 md:grid-cols-3">
+      <div className="mt-4 grid gap-3 md:grid-cols-4">
         <PreviewInfo
           label="Request Limit"
           value={requestLimit === null ? "Not captured" : String(requestLimit)}
@@ -4869,6 +4922,16 @@ function LatestImportDiagnostics({
         <PreviewInfo
           label="eBay Total"
           value={totalAvailable === null ? "Not returned" : String(totalAvailable)}
+        />
+        <PreviewInfo
+          label="Batch Range"
+          value={
+            offset === null || nextOffset === null
+              ? "Not captured"
+              : nextOffset > offset
+                ? `${offset + 1}-${nextOffset}`
+                : `Offset ${offset}`
+          }
         />
         <PreviewInfo label="Fetched At" value={shortDate(fetchedAt)} />
       </div>

@@ -20,6 +20,7 @@ export type SellerMarketplaceConnectionRow = {
   last_sync_started_at: string | null;
   last_sync_completed_at: string | null;
   last_sync_error: string | null;
+  import_cursor: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
 };

@@ -520,6 +520,7 @@ export async function POST(request: Request) {
       accountId: account.id,
       storeId,
       limit,
+      resetCursor: body.resetCursor === true,
     });
 
     return Response.json({
