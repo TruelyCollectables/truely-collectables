@@ -418,12 +418,18 @@ export default async function AdminShippingPage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
-            <a
-              href="/api/admin/shipping/exceptions"
-              className="rounded bg-neutral-950 px-4 py-2 font-black text-white"
-            >
-              Export Exceptions CSV
-            </a>
+            <div className="max-w-xs">
+              <a
+                href="/api/admin/shipping/exceptions"
+                className="inline-flex rounded bg-neutral-950 px-4 py-2 font-black text-white"
+              >
+                Export Exceptions CSV
+              </a>
+              <p className="mt-1 text-xs font-semibold text-neutral-500">
+                Ordered by severity and age with stable exception keys for audit
+                follow-up.
+              </p>
+            </div>
             <Link href="/admin" className="rounded border bg-white px-4 py-2">
               Command Center
             </Link>

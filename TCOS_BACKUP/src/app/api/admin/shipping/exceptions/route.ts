@@ -59,6 +59,8 @@ type CoverageClaimRow = {
 };
 
 type ExceptionCsvRow = {
+  priority_rank: number;
+  exception_key: string;
   severity: "critical" | "warning" | "watch";
   exception_type: string;
   action_needed: string;
@@ -93,6 +95,24 @@ function money(value: number | string | null | undefined) {
   return Number(value || 0).toFixed(2);
 }
 
+function exceptionKey(params: {
+  exceptionType: string;
+  orderId: number;
+  labelId?: string | null;
+  claimId?: string | null;
+  eventId?: string | null;
+}) {
+  return [
+    params.exceptionType,
+    `order:${params.orderId}`,
+    params.labelId ? `label:${params.labelId}` : null,
+    params.claimId ? `claim:${params.claimId}` : null,
+    params.eventId ? `event:${params.eventId}` : null,
+  ]
+    .filter(Boolean)
+    .join("|");
+}
+
 function orderFor(ordersById: Map<number, OrderRow>, orderId: number) {
   return ordersById.get(orderId) || null;
 }
@@ -106,6 +126,8 @@ function labelFor(
 
 function csvResponse(rows: ExceptionCsvRow[]) {
   const headers = [
+    "priority_rank",
+    "exception_key",
     "severity",
     "exception_type",
     "action_needed",
@@ -238,6 +260,12 @@ export async function GET(request: Request) {
     }) {
       const order = orderFor(ordersById, params.label.order_id);
       rows.push({
+        priority_rank: 0,
+        exception_key: exceptionKey({
+          exceptionType: params.exceptionType,
+          orderId: params.label.order_id,
+          labelId: params.label.id,
+        }),
         severity: params.severity,
         exception_type: params.exceptionType,
         action_needed: params.actionNeeded,
@@ -271,6 +299,13 @@ export async function GET(request: Request) {
       const order = orderFor(ordersById, event.order_id);
       const label = labelFor(labelsById, event.shipping_label_id);
       rows.push({
+        priority_rank: 0,
+        exception_key: exceptionKey({
+          exceptionType: "blocked_purchase_attempt",
+          orderId: event.order_id,
+          labelId: event.shipping_label_id,
+          eventId: event.id,
+        }),
         severity: "critical",
         exception_type: "blocked_purchase_attempt",
         action_needed: "Fix provider setup or record an external label.",
@@ -375,6 +410,13 @@ export async function GET(request: Request) {
       const order = orderFor(ordersById, claim.order_id);
       const label = labelFor(labelsById, claim.shipping_label_id);
       rows.push({
+        priority_rank: 0,
+        exception_key: exceptionKey({
+          exceptionType: "open_coverage_claim",
+          orderId: claim.order_id,
+          labelId: claim.shipping_label_id,
+          claimId: claim.id,
+        }),
         severity: "watch",
         exception_type: "open_coverage_claim",
         action_needed: "Review claim evidence, status, payout, or closure.",
@@ -408,6 +450,9 @@ export async function GET(request: Request) {
       if (severityDiff !== 0) return severityDiff;
 
       return new Date(a.oldest_at).getTime() - new Date(b.oldest_at).getTime();
+    });
+    rows.forEach((row, index) => {
+      row.priority_rank = index + 1;
     });
 
     return csvResponse(rows);
