@@ -513,6 +513,7 @@ export default function SellerPayoutsPage() {
   const [loading, setLoading] = useState(() => Boolean(session?.access_token));
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState("");
+  const [providerRefreshWarning, setProviderRefreshWarning] = useState("");
   const [isStartingSellerPayout, setIsStartingSellerPayout] = useState(false);
   const [cashOutAmount, setCashOutAmount] = useState("");
   const [cashOutNote, setCashOutNote] = useState("");
@@ -761,6 +762,11 @@ export default function SellerPayoutsPage() {
             setSellerPayoutRequests(
               Array.isArray(requestData.requests) ? requestData.requests : [],
             );
+            setProviderRefreshWarning(
+              payoutData.providerRefreshError
+                ? `Stripe status refresh could not complete. Showing the latest stored payout status. ${payoutData.providerRefreshError}`
+                : "",
+            );
             setError("");
           }
         } catch (nextError: any) {
@@ -768,6 +774,7 @@ export default function SellerPayoutsPage() {
             setSellerPayout(null);
             setSellerPayoutBalance(null);
             setSellerPayoutRequests([]);
+            setProviderRefreshWarning("");
             setError(
               nextError.message ||
                 "Could not load seller payout verification and cash-out data.",
@@ -825,6 +832,11 @@ export default function SellerPayoutsPage() {
       );
       setSellerPayoutRequests(
         Array.isArray(requestData.requests) ? requestData.requests : [],
+      );
+      setProviderRefreshWarning(
+        payoutData.providerRefreshError
+          ? `Stripe status refresh could not complete. Showing the latest stored payout status. ${payoutData.providerRefreshError}`
+          : "",
       );
       setError("");
     } catch (nextError: any) {
@@ -1018,6 +1030,12 @@ export default function SellerPayoutsPage() {
         {error ? (
           <section className="rounded-md border border-amber-200 bg-amber-50 p-5 text-sm font-semibold text-amber-950">
             {error}
+          </section>
+        ) : null}
+
+        {providerRefreshWarning ? (
+          <section className="rounded-md border border-amber-200 bg-amber-50 p-5 text-sm font-semibold text-amber-950">
+            {providerRefreshWarning}
           </section>
         ) : null}
 
