@@ -6,9 +6,11 @@ export default function ShippingLabelActions({ orderId }: { orderId: number }) {
   const [preparing, setPreparing] = useState(false);
   const [purchasing, setPurchasing] = useState(false);
   const [recording, setRecording] = useState(false);
+  const [voiding, setVoiding] = useState(false);
   const [openingClaim, setOpeningClaim] = useState(false);
   const [message, setMessage] = useState("");
   const [showManualForm, setShowManualForm] = useState(false);
+  const [showVoidForm, setShowVoidForm] = useState(false);
   const [manualForm, setManualForm] = useState({
     provider: "",
     carrier: "USPS",
@@ -23,6 +25,14 @@ export default function ShippingLabelActions({ orderId }: { orderId: number }) {
     coverageAmount: "",
     note: "",
   });
+  const [voidForm, setVoidForm] = useState({
+    provider: "",
+    carrier: "USPS",
+    trackingNumber: "",
+    voidReference: "",
+    coverageCancellationReference: "",
+    note: "",
+  });
 
   function updateManualForm(field: keyof typeof manualForm, value: string) {
     setManualForm((current) => ({
@@ -30,6 +40,15 @@ export default function ShippingLabelActions({ orderId }: { orderId: number }) {
       [field]: value,
     }));
   }
+
+  function updateVoidForm(field: keyof typeof voidForm, value: string) {
+    setVoidForm((current) => ({
+      ...current,
+      [field]: value,
+    }));
+  }
+
+  const busy = preparing || purchasing || recording || voiding || openingClaim;
 
   async function prepareLabelRecord() {
     setPreparing(true);
@@ -194,12 +213,52 @@ export default function ShippingLabelActions({ orderId }: { orderId: number }) {
     }
   }
 
+  async function recordManualVoid() {
+    setVoiding(true);
+    setMessage("");
+
+    try {
+      const response = await fetch(
+        `/api/admin/orders/${orderId}/shipping-labels`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            action: "record_manual_void",
+            ...voidForm,
+          }),
+        },
+      );
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        setMessage(data.error || "Could not record external label void.");
+        return;
+      }
+
+      setMessage(
+        data.message ||
+          "External label void/cancel was recorded. You can prepare a replacement label now.",
+      );
+
+      setTimeout(() => {
+        window.location.reload();
+      }, 700);
+    } catch (error: any) {
+      setMessage(error.message || "Could not record external label void.");
+    } finally {
+      setVoiding(false);
+    }
+  }
+
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap gap-3">
         <button
           onClick={prepareLabelRecord}
-          disabled={preparing || purchasing || recording || openingClaim}
+          disabled={busy}
           className="rounded bg-neutral-950 px-4 py-2 font-bold text-white disabled:opacity-50"
         >
           {preparing ? "Preparing..." : "Prepare Label + Coverage Record"}
@@ -207,23 +266,37 @@ export default function ShippingLabelActions({ orderId }: { orderId: number }) {
 
         <button
           onClick={attemptProviderPurchase}
-          disabled={preparing || purchasing || recording || openingClaim}
+          disabled={busy}
           className="rounded border border-neutral-950 bg-white px-4 py-2 font-bold text-neutral-950 disabled:opacity-50"
         >
           {purchasing ? "Checking..." : "Attempt Provider Purchase"}
         </button>
 
         <button
-          onClick={() => setShowManualForm((value) => !value)}
-          disabled={preparing || purchasing || recording || openingClaim}
+          onClick={() => {
+            setShowManualForm((value) => !value);
+            setShowVoidForm(false);
+          }}
+          disabled={busy}
           className="rounded border border-blue-700 bg-blue-50 px-4 py-2 font-bold text-blue-950 disabled:opacity-50"
         >
           {showManualForm ? "Hide Manual Record" : "Record Manual Purchase"}
         </button>
 
         <button
+          onClick={() => {
+            setShowVoidForm((value) => !value);
+            setShowManualForm(false);
+          }}
+          disabled={busy}
+          className="rounded border border-red-700 bg-red-50 px-4 py-2 font-bold text-red-950 disabled:opacity-50"
+        >
+          {showVoidForm ? "Hide Void Record" : "Record External Void"}
+        </button>
+
+        <button
           onClick={openCoverageClaimDraft}
-          disabled={preparing || purchasing || recording || openingClaim}
+          disabled={busy}
           className="rounded border border-amber-700 bg-amber-50 px-4 py-2 font-bold text-amber-950 disabled:opacity-50"
         >
           {openingClaim ? "Opening..." : "Open Coverage Claim Draft"}
@@ -326,6 +399,72 @@ export default function ShippingLabelActions({ orderId }: { orderId: number }) {
             className="mt-4 rounded bg-blue-700 px-4 py-2 font-bold text-white disabled:opacity-50"
           >
             {recording ? "Recording..." : "Save Manual Label + Coverage"}
+          </button>
+        </div>
+      ) : null}
+
+      {showVoidForm ? (
+        <div className="rounded border border-red-200 bg-red-50 p-4">
+          <div className="mb-3">
+            <h3 className="font-black text-red-950">Record external void/cancel</h3>
+            <p className="mt-1 text-sm text-red-900">
+              Use this only after the label or Coverage policy was voided or
+              cancelled outside TCOS. This closes the TCOS label record and logs
+              the proof; it does not contact a provider.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <TextField
+              label="Provider"
+              value={voidForm.provider}
+              placeholder="USPS, Shippo, EasyPost, Coverage"
+              onChange={(value) => updateVoidForm("provider", value)}
+            />
+            <TextField
+              label="Carrier"
+              value={voidForm.carrier}
+              placeholder="USPS"
+              onChange={(value) => updateVoidForm("carrier", value)}
+            />
+            <TextField
+              label="Tracking / IMb"
+              value={voidForm.trackingNumber}
+              placeholder="Tracking number or barcode being voided"
+              onChange={(value) => updateVoidForm("trackingNumber", value)}
+            />
+            <TextField
+              label="Void Reference"
+              value={voidForm.voidReference}
+              placeholder="Provider void confirmation / receipt"
+              onChange={(value) => updateVoidForm("voidReference", value)}
+            />
+            <TextField
+              label="Coverage Cancel Reference"
+              value={voidForm.coverageCancellationReference}
+              placeholder="Coverage cancellation id, if any"
+              onChange={(value) =>
+                updateVoidForm("coverageCancellationReference", value)
+              }
+            />
+            <label className="block">
+              <span className="text-sm font-bold text-red-950">Note</span>
+              <textarea
+                value={voidForm.note}
+                onChange={(event) => updateVoidForm("note", event.target.value)}
+                rows={3}
+                className="mt-1 w-full rounded border bg-white px-3 py-2"
+                placeholder="Why it was voided, who voided it, and where the external confirmation lives."
+              />
+            </label>
+          </div>
+
+          <button
+            onClick={recordManualVoid}
+            disabled={voiding}
+            className="mt-4 rounded bg-red-700 px-4 py-2 font-bold text-white disabled:opacity-50"
+          >
+            {voiding ? "Recording..." : "Save External Void"}
           </button>
         </div>
       ) : null}

@@ -262,6 +262,16 @@ export async function PATCH(
     const typedOrder = await loadOrder({ supabase, storeId, orderId });
     let label = await activeLabelForOrder({ supabase, storeId, orderId });
 
+    if (!label && body.action === "record_manual_void") {
+      return Response.json(
+        {
+          error:
+            "No active shipping label record exists to void. Prepare or record a label first.",
+        },
+        { status: 409 },
+      );
+    }
+
     if (!label) {
       label = await createPlannedLabel({
         supabase,
@@ -388,6 +398,79 @@ export async function PATCH(
         coverageStatus,
         message:
           "Manual shipping label and Coverage policy details were recorded.",
+      });
+    }
+
+    if (body.action === "record_manual_void") {
+      const now = new Date().toISOString();
+      const provider = cleanText(body.provider) || "manual";
+      const carrier =
+        cleanText(body.carrier) ||
+        typedOrder.carrier ||
+        carrierForMethod(safeShippingMethod(label.resolved_shipping_method));
+      const trackingNumber =
+        cleanText(body.trackingNumber) || typedOrder.tracking_number || null;
+      const voidReference = cleanText(body.voidReference);
+      const coverageCancellationReference = cleanText(
+        body.coverageCancellationReference,
+      );
+      const note = cleanText(body.note);
+
+      const { error: voidError } = await supabase
+        .from("order_shipping_labels")
+        .update({
+          label_status: "voided",
+          coverage_status: "failed",
+          voided_at: now,
+          updated_at: now,
+          metadata: {
+            ...(label.metadata || {}),
+            latest_manual_void_record: {
+              recorded_at: now,
+              recorded_by_identity: identity,
+              provider,
+              carrier,
+              tracking_number: trackingNumber,
+              void_reference: voidReference,
+              coverage_cancellation_reference: coverageCancellationReference,
+              note,
+              reminder:
+                "This records an external provider void/cancel. TCOS did not submit a provider void request.",
+            },
+          },
+        })
+        .eq("id", label.id)
+        .eq("store_id", storeId);
+
+      if (voidError) throw voidError;
+
+      await supabase.from("order_shipping_tracking_events").insert({
+        store_id: storeId,
+        order_id: orderId,
+        shipping_label_id: label.id,
+        provider,
+        carrier,
+        tracking_number: trackingNumber,
+        event_type: "manual_label_void_recorded",
+        event_status: "voided",
+        message:
+          "Admin recorded an external label void and Coverage cancellation status in TCOS. No provider void was submitted by TCOS.",
+        occurred_at: now,
+        raw_payload: {
+          recorded_by_identity: identity,
+          void_reference: voidReference,
+          coverage_cancellation_reference: coverageCancellationReference,
+          note,
+        },
+      });
+
+      return Response.json({
+        success: true,
+        labelId: label.id,
+        labelStatus: "voided",
+        coverageStatus: "failed",
+        message:
+          "External label void/cancel was recorded. You can prepare a replacement label now.",
       });
     }
 
