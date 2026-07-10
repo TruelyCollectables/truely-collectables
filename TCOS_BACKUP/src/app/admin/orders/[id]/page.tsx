@@ -2,6 +2,7 @@ import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 import { getActiveStoreId } from "../../../../lib/stores";
 import { getAccountProfilesByIds } from "../../../../lib/account-profiles";
 import { isOrderReviewStatus } from "../../../../lib/order-status";
+import { getShippingProviderReadiness } from "../../../../lib/shipping-provider-readiness";
 import Link from "next/link";
 import PayoutLedgerActions from "../../seller-payouts/PayoutLedgerActions";
 import OrderReviewCasesPanel, {
@@ -351,6 +352,7 @@ export default async function AdminOrderDetailPage({
     (sum, entry) => sum + Number(entry.platform_fee_amount || 0),
     0,
   );
+  const shippingProviderReadiness = getShippingProviderReadiness();
   const { data: shippingLabelsData, error: shippingLabelsError } =
     await supabase
       .from("order_shipping_labels")
@@ -852,13 +854,39 @@ export default async function AdminOrderDetailPage({
             Shipping label tables are not available yet:{" "}
             {shippingLabelsError.message}
           </div>
-        ) : shippingLabels.length === 0 ? (
+        ) : null}
+
+        <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
+          {shippingProviderReadiness.map((item) => (
+            <div
+              key={item.key}
+              className={`rounded border p-4 ${
+                item.status === "ready"
+                  ? "border-green-200 bg-green-50 text-green-950"
+                  : item.status === "blocked"
+                    ? "border-red-200 bg-red-50 text-red-950"
+                    : "border-amber-200 bg-amber-50 text-amber-950"
+              }`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <h3 className="font-black">{item.label}</h3>
+                <span className="rounded border border-current px-2 py-1 text-xs font-black uppercase">
+                  {label(item.status)}
+                </span>
+              </div>
+              <p className="mt-2 text-sm font-semibold">{item.detail}</p>
+              <p className="mt-2 text-xs font-bold">{item.action}</p>
+            </div>
+          ))}
+        </div>
+
+        {!shippingLabelsError && shippingLabels.length === 0 ? (
           <div className="mt-4 rounded border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
             No label record has been prepared yet. Preparing one does not buy a
             live label; it creates the TCOS audit record that the provider
             adapter will later purchase against.
           </div>
-        ) : (
+        ) : !shippingLabelsError ? (
           <div className="mt-4 space-y-4">
             {shippingLabels.map((shippingLabel) => (
               <div key={shippingLabel.id} className="rounded border p-4">
@@ -950,7 +978,7 @@ export default async function AdminOrderDetailPage({
               </div>
             ))}
           </div>
-        )}
+        ) : null}
 
         <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
           <div className="rounded border p-4">

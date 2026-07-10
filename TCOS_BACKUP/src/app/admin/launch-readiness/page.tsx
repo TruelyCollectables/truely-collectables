@@ -10,6 +10,7 @@ import {
 } from "../../../lib/store-settings";
 import { getActiveStoreId } from "../../../lib/stores";
 import { createSupabaseServerClient } from "../../../lib/supabase-server";
+import { getShippingProviderReadiness } from "../../../lib/shipping-provider-readiness";
 import {
   getStripeLivePublishableKey,
   getStripeLiveSecretKey,
@@ -89,6 +90,7 @@ function configuredHttpsSiteUrl(
 function buildReadinessItems(
   storeSettings: StoreOperationalSettings,
 ): ReadinessItem[] {
+  const shippingProviderReadiness = getShippingProviderReadiness();
   const siteUrl = configuredHttpsSiteUrl(
     process.env.NEXT_PUBLIC_SITE_URL,
     storeSettings.primaryDomain || process.env.VERCEL_PROJECT_PRODUCTION_URL,
@@ -240,6 +242,12 @@ function buildReadinessItems(
       action:
         "Enable eBay sync for the active store and confirm EBAY_CLIENT_ID, EBAY_CLIENT_SECRET, and store-level production eBay environment before live inventory sync.",
     },
+    ...shippingProviderReadiness.map((item) => ({
+      label: item.label,
+      status: item.status,
+      detail: item.detail,
+      action: item.action,
+    })),
     {
       label: "AI Product Helpers",
       status: isConfigured(process.env.OPENAI_API_KEY) ? "ready" : "warning",
@@ -445,6 +453,33 @@ async function checkDatabaseReadiness(): Promise<ReadinessItem[]> {
       migration: "20260710180000_create_checkout_e2e_isolation.sql",
       readyDetail:
         "orders supports run-scoped test tagging so the disposable checkout-to-refund drill stays outside daily reconciliation and production financial totals.",
+    },
+    {
+      label: "Shipping Label Records",
+      table: "order_shipping_labels",
+      select:
+        "id,store_id,order_id,provider,provider_service,service_level,carrier,tracking_number,label_status,coverage_provider,coverage_status,coverage_amount,created_at",
+      migration: "20260710190000_create_shipping_label_infrastructure.sql",
+      readyDetail:
+        "order_shipping_labels is available for planned/purchased labels, postage, tracking, and seller coverage audit records.",
+    },
+    {
+      label: "Shipping Tracking Events",
+      table: "order_shipping_tracking_events",
+      select:
+        "id,store_id,order_id,shipping_label_id,provider,carrier,tracking_number,event_type,event_status,occurred_at",
+      migration: "20260710190000_create_shipping_label_infrastructure.sql",
+      readyDetail:
+        "order_shipping_tracking_events is available for manual and provider-fed shipment scan history.",
+    },
+    {
+      label: "Shipping Coverage Claims",
+      table: "order_shipping_coverage_claims",
+      select:
+        "id,store_id,order_id,shipping_label_id,provider,provider_claim_id,claim_status,claim_type,claim_amount,created_at",
+      migration: "20260710190000_create_shipping_label_infrastructure.sql",
+      readyDetail:
+        "order_shipping_coverage_claims is available for seller protection loss/damage claim tracking.",
     },
     {
       label: "Seller Payout Accounts",

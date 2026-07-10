@@ -4,6 +4,7 @@ import {
   isShippingMethod,
   type ShippingMethod,
 } from "../../../../../../lib/shipping";
+import { getShippingProviderReadiness } from "../../../../../../lib/shipping-provider-readiness";
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
 
@@ -57,6 +58,7 @@ export async function POST(
     const supabase = createSupabaseServerClient({ admin: true });
     const storeId = getActiveStoreId();
     const identity = await getClientIdentity(request);
+    const providerReadiness = getShippingProviderReadiness();
 
     const { data: order, error: orderError } = await supabase
       .from("orders")
@@ -101,6 +103,7 @@ export async function POST(
         reused: true,
         labelId: existingLabel.id,
         labelStatus: existingLabel.label_status,
+        providerReadiness,
       });
     }
 
@@ -131,6 +134,7 @@ export async function POST(
           planned_at: now,
           planned_by_identity: identity,
           provider_purchase_required: true,
+          provider_readiness_at_planning: providerReadiness,
         },
       })
       .select("id,label_status,coverage_status")
@@ -168,6 +172,7 @@ export async function POST(
       labelId: label.id,
       labelStatus: label.label_status,
       coverageStatus: label.coverage_status,
+      providerReadiness,
     });
   } catch (error: any) {
     return Response.json(
