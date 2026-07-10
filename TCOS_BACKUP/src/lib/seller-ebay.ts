@@ -46,7 +46,7 @@ export type SellerEbayInventoryPreview = {
   sampled: number;
   hasMore: boolean;
   fetchedAt: string;
-  writeBlocked: true;
+  writeBlocked: boolean;
   writeBlockReason: string;
   sampleItems: SellerEbayPreviewItem[];
 };
@@ -506,9 +506,9 @@ export async function loadSellerEbayInventoryPreview(params: {
       sampled: snapshot.sampleItems.length,
       hasMore,
       fetchedAt: snapshot.fetchedAt,
-      writeBlocked: true,
+      writeBlocked: false,
       writeBlockReason:
-        "Seller import preview is live, but inventory writes stay blocked until TCOS adds seller ownership mapping for store inventory.",
+        "Preview is read-only. Use Stage batch to move seller-owned listings into the review workspace before creating TCOS inventory drafts.",
       sampleItems: snapshot.sampleItems,
     };
   } catch (error: any) {

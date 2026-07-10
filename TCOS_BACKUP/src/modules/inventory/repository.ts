@@ -1,5 +1,6 @@
 import { supabase } from "../../lib/supabase";
 import { getActiveStoreId } from "../../lib/stores";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import type {
   CreateInventoryItemInput,
   InventoryAttributeInput,
@@ -10,10 +11,13 @@ import type {
 } from "./types";
 
 export class InventoryRepository {
-  constructor(private readonly storeId = getActiveStoreId()) {}
+  constructor(
+    private readonly storeId = getActiveStoreId(),
+    private readonly database: SupabaseClient = supabase,
+  ) {}
 
   async getById(id: string): Promise<InventoryItem | null> {
-    const { data, error } = await supabase
+    const { data, error } = await this.database
       .from("inventory_items")
       .select("*")
       .eq("id", id)
@@ -29,7 +33,7 @@ export class InventoryRepository {
   }
 
   async getByLegacyProductId(legacyProductId: number): Promise<InventoryItem | null> {
-    const { data, error } = await supabase
+    const { data, error } = await this.database
       .from("inventory_items")
       .select("*")
       .eq("legacy_product_id", legacyProductId)
@@ -45,7 +49,7 @@ export class InventoryRepository {
   }
 
   async getBySku(sku: string): Promise<InventoryItem | null> {
-    const { data, error } = await supabase
+    const { data, error } = await this.database
       .from("inventory_items")
       .select("*")
       .eq("sku", sku)
@@ -64,7 +68,7 @@ export class InventoryRepository {
     const limit = params.limit ?? 50;
     const offset = params.offset ?? 0;
 
-    let query = supabase
+    let query = this.database
       .from("inventory_items")
       .select("*")
       .eq("store_id", this.storeId)
@@ -93,7 +97,7 @@ export class InventoryRepository {
   }
 
   async create(input: CreateInventoryItemInput): Promise<InventoryItem> {
-    const { data, error } = await supabase
+    const { data, error } = await this.database
       .from("inventory_items")
       .insert({
         store_id: this.storeId,
@@ -156,7 +160,7 @@ export class InventoryRepository {
   }
 
   async update(id: string, input: UpdateInventoryItemInput): Promise<InventoryItem> {
-    const { data, error } = await supabase
+    const { data, error } = await this.database
       .from("inventory_items")
       .update({
         ...input,
@@ -179,7 +183,7 @@ export class InventoryRepository {
   }
 
   async getImages(inventoryItemId: string): Promise<InventoryImage[]> {
-    const { data, error } = await supabase
+    const { data, error } = await this.database
       .from("inventory_images")
       .select("*")
       .eq("inventory_item_id", inventoryItemId)
@@ -197,7 +201,7 @@ export class InventoryRepository {
     sortOrder?: number;
     isPrimary?: boolean;
   }): Promise<InventoryImage> {
-    const { data, error } = await supabase
+    const { data, error } = await this.database
       .from("inventory_images")
       .insert({
         inventory_item_id: input.inventoryItemId,
@@ -219,7 +223,7 @@ export class InventoryRepository {
     imageUrl: string;
     altText?: string | null;
   }): Promise<InventoryImage> {
-    const { error: updateError } = await supabase
+    const { error: updateError } = await this.database
       .from("inventory_images")
       .update({ is_primary: false })
       .eq("inventory_item_id", input.inventoryItemId);
@@ -239,7 +243,7 @@ export class InventoryRepository {
     inventoryItemId: string,
     attributes: InventoryAttributeInput[],
   ): Promise<void> {
-    const { error: deleteError } = await supabase
+    const { error: deleteError } = await this.database
       .from("inventory_attributes")
       .delete()
       .eq("inventory_item_id", inventoryItemId)
@@ -257,7 +261,7 @@ export class InventoryRepository {
 
     if (rows.length === 0) return;
 
-    const { error: insertError } = await supabase
+    const { error: insertError } = await this.database
       .from("inventory_attributes")
       .insert(rows);
 

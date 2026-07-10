@@ -1,4 +1,5 @@
 import { supabase } from "../../lib/supabase";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   extractAuthenticityProfile,
   authenticityStatusLabel,
@@ -286,12 +287,13 @@ export class InventoryEngine {
 
   constructor(
     private readonly storeId = getActiveStoreId(),
-    private readonly repository: InventoryRepository = inventoryRepository
+    private readonly repository: InventoryRepository = inventoryRepository,
+    private readonly database: SupabaseClient = supabase,
   ) {}
 
   private async getStoreDisplayName() {
     if (!this.storeDisplayNamePromise) {
-      this.storeDisplayNamePromise = getStoreSettings(supabase, this.storeId)
+      this.storeDisplayNamePromise = getStoreSettings(this.database, this.storeId)
         .then((settings) => settings.displayName || STORE_BRAND_NAME)
         .catch(() => STORE_BRAND_NAME);
     }
@@ -1127,7 +1129,7 @@ export class InventoryEngine {
       throw new InventoryEngineError(authenticityError, 400);
     }
 
-    let duplicateQuery = supabase
+    let duplicateQuery = this.database
       .from("products")
       .select("id,title,seller_account_id")
       .eq("store_id", this.storeId);
@@ -1170,7 +1172,7 @@ export class InventoryEngine {
         authenticity: authenticityProfile,
       }));
 
-    const { data: product, error } = await supabase
+    const { data: product, error } = await this.database
       .from("products")
       .insert({
         store_id: this.storeId,

@@ -3421,7 +3421,13 @@ export default function SellerConnectionsPanel({
               </div>
             </div>
 
-            <div className="mt-4 rounded-md border border-neutral-200 bg-white p-4">
+            <div
+              className={`mt-4 rounded-md border p-4 ${
+                activeImportJobId
+                  ? "border-amber-300 bg-amber-50/20"
+                  : "border-neutral-200 bg-white"
+              }`}
+            >
               <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                 <div className="flex flex-wrap items-center gap-3">
                   <label className="flex items-center gap-2 text-sm font-semibold text-neutral-700">
@@ -3561,7 +3567,11 @@ export default function SellerConnectionsPanel({
                       updatingStageItemId.startsWith("bulk-") ||
                       Boolean(promotingStageItemId)
                     }
-                    className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-bold hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    className={`rounded-md border px-3 py-2 text-xs font-bold disabled:cursor-not-allowed disabled:opacity-60 ${
+                      activeImportJobId
+                        ? "border-amber-300 bg-white text-amber-900 hover:bg-amber-100"
+                        : "border-neutral-300 hover:bg-neutral-50"
+                    }`}
                   >
                     {`Mark Staged (${selectedMarkStagedIds.length})`}
                   </button>
@@ -3593,7 +3603,11 @@ export default function SellerConnectionsPanel({
                     type="button"
                     onClick={() => setSelectedStageItemIds([])}
                     disabled={selectedStageItemIds.length === 0}
-                    className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-bold hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    className={`rounded-md border px-3 py-2 text-xs font-bold disabled:cursor-not-allowed disabled:opacity-60 ${
+                      activeImportJobId
+                        ? "border-amber-300 bg-white text-amber-900 hover:bg-amber-100"
+                        : "border-neutral-300 hover:bg-neutral-50"
+                    }`}
                   >
                     Clear Selection ({selectedStageItemIds.length})
                   </button>

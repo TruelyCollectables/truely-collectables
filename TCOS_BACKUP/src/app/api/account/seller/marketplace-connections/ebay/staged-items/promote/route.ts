@@ -3,7 +3,11 @@ import {
   getAuthenticatedAccountFromRequest,
 } from "../../../../../../../../lib/account-auth";
 import { sanitizeAuthenticityProfile } from "../../../../../../../../lib/authenticity";
-import { inventoryEngine, InventoryEngineError } from "../../../../../../../../modules/inventory";
+import {
+  InventoryEngine,
+  InventoryEngineError,
+  InventoryRepository,
+} from "../../../../../../../../modules/inventory";
 import { getActiveStoreId } from "../../../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../../../lib/supabase-server";
 
@@ -141,6 +145,7 @@ async function loadStagedItem(params: {
 
 async function promoteOneSellerStagedItem(params: {
   supabase: ReturnType<typeof getSupabaseClient>;
+  inventoryEngine: InventoryEngine;
   storeId: string;
   accountId: string;
   stagedItemId: string;
@@ -182,7 +187,7 @@ async function promoteOneSellerStagedItem(params: {
     );
   }
 
-  const promotedItem = await inventoryEngine.createSellerDraftProduct({
+  const promotedItem = await params.inventoryEngine.createSellerDraftProduct({
     sellerAccountId: params.accountId,
     title: String(stagedItem.title || "Untitled"),
     description: cleanText(metadata.generated_description),
@@ -264,9 +269,15 @@ export async function POST(request: Request) {
 
     const supabase = getSupabaseClient();
     const storeId = getActiveStoreId();
+    const inventoryEngine = new InventoryEngine(
+      storeId,
+      new InventoryRepository(storeId, supabase),
+      supabase,
+    );
     if (targetIds.length === 1) {
       const result = await promoteOneSellerStagedItem({
         supabase,
+        inventoryEngine,
         storeId,
         accountId: account.id,
         stagedItemId: targetIds[0],
@@ -290,6 +301,7 @@ export async function POST(request: Request) {
       try {
         const result = await promoteOneSellerStagedItem({
           supabase,
+          inventoryEngine,
           storeId,
           accountId: account.id,
           stagedItemId: targetId,
