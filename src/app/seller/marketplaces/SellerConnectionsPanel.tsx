@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AUTHENTICITY_STATUSES,
   AUTOGRAPH_SOURCES,
@@ -83,6 +83,15 @@ type SellerImportJob = {
     blocked: number;
     promoted: number;
   } | null;
+};
+
+type SellerStageAllProgress = {
+  batchesCompleted: number;
+  processedCount: number;
+  stagedCount: number;
+  skippedCount: number;
+  nextOffset: number;
+  totalAvailable: number | null;
 };
 
 type SellerInventorySummary = {
@@ -1395,6 +1404,11 @@ export default function SellerConnectionsPanel({
   const [isLoadingStaged, setIsLoadingStaged] = useState(false);
   const [isLoadingInventory, setIsLoadingInventory] = useState(false);
   const [isStagingItems, setIsStagingItems] = useState(false);
+  const [isStagingAll, setIsStagingAll] = useState(false);
+  const [stageAllStopRequested, setStageAllStopRequested] = useState(false);
+  const [stageAllProgress, setStageAllProgress] =
+    useState<SellerStageAllProgress | null>(null);
+  const stageAllStopRequestedRef = useRef(false);
   const [updatingStageItemId, setUpdatingStageItemId] = useState("");
   const [editingReviewItemId, setEditingReviewItemId] = useState("");
   const [reviewCategoryHint, setReviewCategoryHint] = useState("other_collectable");
@@ -1701,6 +1715,128 @@ export default function SellerConnectionsPanel({
     } finally {
       setIsStagingItems(false);
     }
+  }
+
+  async function stageAllRemaining() {
+    if (!session?.access_token || !ebaySyncEnabled || isStagingItems) return;
+
+    const accessToken = session.access_token;
+    let batchesCompleted = 0;
+    let processedCount = 0;
+    let stagedCount = 0;
+    let skippedCount = 0;
+    let nextOffset = latestStageNextOffset || 0;
+    let totalAvailable: number | null = null;
+    let stopped = false;
+
+    stageAllStopRequestedRef.current = false;
+    setStageAllStopRequested(false);
+    setStageAllProgress({
+      batchesCompleted,
+      processedCount,
+      stagedCount,
+      skippedCount,
+      nextOffset,
+      totalAvailable,
+    });
+    setIsStagingItems(true);
+    setIsStagingAll(true);
+    setMessage("Staging all remaining seller eBay listings...");
+
+    try {
+      let hasMore = true;
+
+      while (hasMore) {
+        if (batchesCompleted >= 400) {
+          throw new Error(
+            "The safe 10,000-listing limit was reached. Resume in a new run after reviewing the staged inventory.",
+          );
+        }
+
+        const result = await stageSellerItems(accessToken);
+
+        if (result.hasMore && result.nextOffset <= result.offset) {
+          throw new Error(
+            "eBay did not advance the import cursor. The run was paused to prevent a duplicate loop.",
+          );
+        }
+
+        batchesCompleted += 1;
+        processedCount += result.sampleItems.length;
+        stagedCount += result.stagedCount;
+        skippedCount += result.skippedCount;
+        nextOffset = result.nextOffset;
+        totalAvailable = result.totalAvailable;
+        hasMore = result.hasMore;
+
+        const progress = {
+          batchesCompleted,
+          processedCount,
+          stagedCount,
+          skippedCount,
+          nextOffset,
+          totalAvailable,
+        };
+        setStageAllProgress(progress);
+        setPreview((current) =>
+          current
+            ? {
+                ...current,
+                sampleItems: result.sampleItems,
+                sampled: result.sampleItems.length,
+                totalAvailable: result.totalAvailable,
+                hasMore: result.hasMore,
+                fetchedAt: result.fetchedAt,
+              }
+            : current,
+        );
+        setMessage(
+          `Staging seller eBay listings: ${nextOffset}${typeof totalAvailable === "number" ? ` of ${totalAvailable}` : " processed"}. ${batchesCompleted} batch${batchesCompleted === 1 ? "" : "es"} completed.`,
+        );
+
+        if (stageAllStopRequestedRef.current && hasMore) {
+          stopped = true;
+          break;
+        }
+      }
+
+      if (stopped) {
+        setMessage(
+          `Seller eBay staging stopped safely after ${processedCount} listing${processedCount === 1 ? "" : "s"} in ${batchesCompleted} completed batch${batchesCompleted === 1 ? "" : "es"}. Run Stage All Remaining to resume at listing ${nextOffset + 1}.`,
+        );
+      } else {
+        setMessage(
+          `Seller eBay staging complete. ${processedCount} listing${processedCount === 1 ? "" : "s"} processed across ${batchesCompleted} batch${batchesCompleted === 1 ? "" : "es"}; ${stagedCount} captured and ${skippedCount} skipped.`,
+        );
+      }
+    } catch (error: any) {
+      setMessage(
+        `Seller eBay staging paused safely after ${processedCount} completed listing${processedCount === 1 ? "" : "s"}. ${error.message || "The next batch could not be staged."} Run Stage All Remaining again to resume.`,
+      );
+    } finally {
+      await refreshSellerStageState(accessToken, {
+        silent: true,
+        importJobId: null,
+      });
+
+      try {
+        const nextConnections = await fetchSellerConnections(accessToken);
+        setConnections(nextConnections);
+      } catch {
+        // The completed staging cursor remains durable even if this UI refresh fails.
+      }
+
+      stageAllStopRequestedRef.current = false;
+      setStageAllStopRequested(false);
+      setIsStagingAll(false);
+      setIsStagingItems(false);
+    }
+  }
+
+  function stopStageAllAfterCurrentBatch() {
+    stageAllStopRequestedRef.current = true;
+    setStageAllStopRequested(true);
+    setMessage("Stop requested. TCOS will finish the current batch and preserve the next cursor.");
   }
 
   async function setStageStatus(
@@ -2622,7 +2758,31 @@ export default function SellerConnectionsPanel({
                     ? "Stage Next 25"
                     : "Stage First 25"}
             </button>
-            {hasResumableStageCursor ? (
+            {!hasReachedEndOfEbayInventory ? (
+              <button
+                type="button"
+                onClick={() => stageAllRemaining()}
+                disabled={
+                  !canUseSellerEbayTools ||
+                  isLoadingPreview ||
+                  isSavingProvider.length > 0 ||
+                  isStagingItems
+                }
+                className="rounded-md border border-amber-400 bg-amber-50 px-4 py-2 text-sm font-black text-amber-950 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isStagingAll ? "Staging All Remaining..." : "Stage All Remaining"}
+              </button>
+            ) : null}
+            {isStagingAll ? (
+              <button
+                type="button"
+                onClick={stopStageAllAfterCurrentBatch}
+                disabled={stageAllStopRequested}
+                className="rounded-md border border-rose-300 bg-rose-50 px-4 py-2 text-sm font-bold text-rose-800 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {stageAllStopRequested ? "Stopping After Batch..." : "Stop After Current Batch"}
+              </button>
+            ) : hasResumableStageCursor ? (
               <button
                 type="button"
                 onClick={() => stagePreviewBatch(true)}
@@ -2650,6 +2810,40 @@ export default function SellerConnectionsPanel({
             Connect a seller eBay account first, then preview and stage remote
             listings before inventory mapping is enabled.
           </p>
+        ) : null}
+
+        {stageAllProgress ? (
+          <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-sm font-black text-amber-950">
+                {isStagingAll ? "Full eBay staging in progress" : "Latest full staging run"}
+              </p>
+              <p className="text-xs font-black uppercase tracking-[0.12em] text-amber-800">
+                Cursor {stageAllProgress.nextOffset}
+                {typeof stageAllProgress.totalAvailable === "number"
+                  ? ` / ${stageAllProgress.totalAvailable}`
+                  : ""}
+              </p>
+            </div>
+            <div className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-4">
+              <PreviewInfo
+                label="Batches"
+                value={String(stageAllProgress.batchesCompleted)}
+              />
+              <PreviewInfo
+                label="Processed This Run"
+                value={String(stageAllProgress.processedCount)}
+              />
+              <PreviewInfo
+                label="Captured"
+                value={String(stageAllProgress.stagedCount)}
+              />
+              <PreviewInfo
+                label="Skipped"
+                value={String(stageAllProgress.skippedCount)}
+              />
+            </div>
+          </div>
         ) : null}
 
         {preview ? (
