@@ -14,6 +14,7 @@ import {
   publicEndpointRateLimitResponse,
 } from "../../../../../lib/public-endpoint-rate-limit";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
+import { getLivePaymentRuntimeGate } from "../../../../../lib/live-payment-launch";
 
 export const dynamic = "force-dynamic";
 
@@ -176,6 +177,17 @@ export async function POST(request: Request) {
     const supabase = getSupabaseClient();
     const stripe = new Stripe(stripeKey);
     const storeId = getActiveStoreId();
+    const livePaymentGate = await getLivePaymentRuntimeGate({
+      stripeKey,
+      storeId,
+      supabase,
+    });
+    if (!livePaymentGate.allowed) {
+      return NextResponse.json(
+        { error: livePaymentGate.reason },
+        { status: 503 },
+      );
+    }
     const tosAcceptanceEventId = await recordTermsAcceptance(supabase, {
       contextType: "binding_offer",
       tosKind: "buyer",
@@ -287,7 +299,6 @@ export async function POST(request: Request) {
       store_id: storeId,
       buyer_account_id: account.id,
     };
-
     const session = await stripe.checkout.sessions.create({
       mode: "setup",
       payment_method_types: ["card"],

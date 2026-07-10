@@ -40,6 +40,7 @@ import {
   failCheckoutAttempt,
   isCheckoutAttemptId,
 } from "../../../lib/checkout-attempts";
+import { getLivePaymentRuntimeGate } from "../../../lib/live-payment-launch";
 
 export const dynamic = "force-dynamic";
 
@@ -61,6 +62,17 @@ export async function POST(request: Request) {
     const stripe = new Stripe(stripeKey);
     const supabase = createSupabaseServerClient({ admin: true });
     const storeId = getActiveStoreId();
+    const livePaymentGate = await getLivePaymentRuntimeGate({
+      stripeKey,
+      storeId,
+      supabase,
+    });
+    if (!livePaymentGate.allowed) {
+      return NextResponse.json(
+        { error: livePaymentGate.reason },
+        { status: 503 },
+      );
+    }
     const checkoutInventoryEngine = new InventoryEngine(
       storeId,
       new InventoryRepository(storeId, supabase),

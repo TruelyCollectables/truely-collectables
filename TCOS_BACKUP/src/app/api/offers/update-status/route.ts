@@ -9,6 +9,7 @@ import { getStoreSettings } from "../../../../lib/store-settings";
 import { getActiveStoreId } from "../../../../lib/stores";
 import { trustedRequestOrigin } from "../../../../lib/site-origin";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
+import { getLivePaymentRuntimeGate } from "../../../../lib/live-payment-launch";
 
 export const dynamic = "force-dynamic";
 
@@ -110,6 +111,17 @@ export async function POST(req: Request) {
     const origin = trustedRequestOrigin(req);
 
     const amount = Number(offer.offer_amount);
+    const livePaymentGate = await getLivePaymentRuntimeGate({
+      stripeKey,
+      storeId,
+      supabase,
+    });
+    if (!livePaymentGate.allowed) {
+      return NextResponse.json(
+        { error: livePaymentGate.reason },
+        { status: 503 },
+      );
+    }
 
     const session = await stripe.checkout.sessions.create({
       mode: "payment",

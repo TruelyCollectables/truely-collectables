@@ -720,6 +720,9 @@ export default async function LaunchReadinessPage() {
           <Link href="/admin/security" className="rounded border bg-white px-4 py-2">
             Security
           </Link>
+          <Link href="/admin/live-payment-launch" className="rounded border bg-white px-4 py-2">
+            Live Payment Gate
+          </Link>
           <a href="#database-readiness" className="rounded border bg-white px-4 py-2">
             Database
           </a>

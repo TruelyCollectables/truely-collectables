@@ -16,6 +16,7 @@ import {
 import { getActiveStoreId } from "../../../../lib/stores";
 import { trustedRequestOrigin } from "../../../../lib/site-origin";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
+import { getLivePaymentRuntimeGate } from "../../../../lib/live-payment-launch";
 
 export const dynamic = "force-dynamic";
 
@@ -97,6 +98,18 @@ export async function POST(request: Request) {
 
     const supabase = getSupabaseClient();
     const storeId = getActiveStoreId();
+    if (cardVerificationRequired && stripeKey) {
+      const livePaymentGate = await getLivePaymentRuntimeGate({
+        stripeKey,
+        storeId,
+      });
+      if (!livePaymentGate.allowed) {
+        return NextResponse.json(
+          { error: livePaymentGate.reason },
+          { status: 503 },
+        );
+      }
+    }
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
