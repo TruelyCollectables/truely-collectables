@@ -198,6 +198,9 @@ const requestableProviders: Array<{
   },
 ];
 
+const EBAY_THIRD_PARTY_ACCESS_URL =
+  "https://accounts.ebay.com/acctsec/security-center/third-party-app-access";
+
 function label(value: string | null | undefined) {
   if (!value) return "Not set";
   return value.replaceAll("_", " ").toUpperCase();
@@ -1652,6 +1655,48 @@ export default function SellerConnectionsPanel({
       setConnections(nextConnections);
     } catch (error: any) {
       setMessage(error.message || "Could not refresh seller eBay status.");
+    } finally {
+      setIsSavingProvider("");
+    }
+  }
+
+  async function disconnectEbay() {
+    if (!session?.access_token || isSavingProvider.length > 0) return;
+
+    const confirmed = window.confirm(
+      "Disconnect seller eBay from TCOS? TCOS will permanently delete its stored eBay access and refresh tokens. Existing staged items and import history will remain for your records.",
+    );
+
+    if (!confirmed) return;
+
+    setIsSavingProvider("ebay-disconnect");
+    setMessage("");
+
+    try {
+      const response = await fetch(
+        "/api/account/seller/marketplace-connections/ebay/disconnect",
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${session.access_token}`,
+          },
+        },
+      );
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.error || "Could not disconnect seller eBay.");
+      }
+
+      setPreview(null);
+      setStageAllProgress(null);
+      setMessage(
+        "Seller eBay disconnected and TCOS credentials deleted. To invalidate eBay's authorization immediately, also remove TCOS under eBay Third-party app access.",
+      );
+      const nextConnections = await fetchSellerConnections(session.access_token);
+      setConnections(nextConnections);
+    } catch (error: any) {
+      setMessage(error.message || "Could not disconnect seller eBay.");
     } finally {
       setIsSavingProvider("");
     }
@@ -4862,20 +4907,46 @@ export default function SellerConnectionsPanel({
                     </p>
                   </td>
                   <td className="px-4 py-4">
-                    {connection.provider === "ebay" && !ebaySyncEnabled ? (
+                    {connection.provider === "ebay" &&
+                    connection.connectionStatus === "connected" ? (
+                      <div className="flex max-w-xs flex-wrap gap-2">
+                        {ebaySyncEnabled ? (
+                          <button
+                            type="button"
+                            onClick={() => refreshEbayStatus()}
+                            disabled={isSavingProvider.length > 0}
+                            className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-bold hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            Refresh Status
+                          </button>
+                        ) : (
+                          <span className="self-center text-xs font-semibold text-rose-700">
+                            Store sync disabled
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => disconnectEbay()}
+                          disabled={isSavingProvider.length > 0}
+                          className="rounded-md border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-800 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {isSavingProvider === "ebay-disconnect"
+                            ? "Disconnecting..."
+                            : "Disconnect eBay"}
+                        </button>
+                        <a
+                          href={EBAY_THIRD_PARTY_ACCESS_URL}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-bold hover:bg-neutral-50"
+                        >
+                          eBay App Permissions
+                        </a>
+                      </div>
+                    ) : connection.provider === "ebay" && !ebaySyncEnabled ? (
                       <span className="text-xs font-semibold text-rose-700">
                         Store sync disabled
                       </span>
-                    ) : connection.provider === "ebay" &&
-                      connection.connectionStatus === "connected" ? (
-                      <button
-                        type="button"
-                        onClick={() => refreshEbayStatus()}
-                        disabled={isSavingProvider.length > 0}
-                        className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-bold hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-60"
-                      >
-                        Refresh Status
-                      </button>
                     ) : connection.provider === "ebay" ? (
                       <button
                         type="button"
