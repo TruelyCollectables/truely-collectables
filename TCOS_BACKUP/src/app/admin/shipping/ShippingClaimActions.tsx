@@ -121,6 +121,14 @@ export default function ShippingClaimActions({
   const [message, setMessage] = useState("");
   const [note, setNote] = useState("");
   const [providerId, setProviderId] = useState(providerClaimId || "");
+  const packetLink = (
+    <a
+      href={`/api/admin/shipping-claims/${claimId}/packet`}
+      className="inline-flex rounded border border-neutral-300 bg-white px-3 py-2 text-xs font-black text-neutral-950"
+    >
+      Download Evidence Packet
+    </a>
+  );
 
   async function updateClaimStatus(status: ClaimStatus) {
     setPendingStatus(status);
@@ -158,14 +166,18 @@ export default function ShippingClaimActions({
 
   if (actions.length === 0) {
     return (
-      <p className="mt-3 rounded border bg-neutral-50 p-2 text-xs font-semibold text-neutral-600">
-        Claim is closed. Status changes are locked for audit safety.
-      </p>
+      <div className="mt-3 space-y-2 rounded border bg-neutral-50 p-3">
+        {packetLink}
+        <p className="text-xs font-semibold text-neutral-600">
+          Claim is closed. Status changes are locked for audit safety.
+        </p>
+      </div>
     );
   }
 
   return (
     <div className="mt-3 space-y-2 rounded border bg-neutral-50 p-3">
+      {packetLink}
       <input
         value={providerId}
         onChange={(event) => setProviderId(event.target.value)}
