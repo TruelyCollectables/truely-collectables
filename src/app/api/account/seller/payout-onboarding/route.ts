@@ -81,7 +81,7 @@ export async function GET(request: Request) {
     const { data, error } = await supabase
       .from("seller_payout_accounts")
       .select(
-        "provider,onboarding_status,payouts_enabled,details_submitted,seller_tos_accepted,disabled_reason,requirements_currently_due,requirements_past_due,updated_at",
+        "provider,provider_account_id,onboarding_status,payouts_enabled,details_submitted,seller_tos_accepted,disabled_reason,requirements_currently_due,requirements_past_due,updated_at",
       )
       .eq("account_id", account.id)
       .eq("store_id", storeId)
@@ -91,6 +91,44 @@ export async function GET(request: Request) {
     if (error) {
       if (isMissingSellerPayoutTables(error)) return unavailableResponse();
       throw error;
+    }
+
+    if (data?.provider_account_id) {
+      const stripeKey = getOperationalStripeSecretKey();
+
+      if (stripeKey) {
+        try {
+          const stripe = new Stripe(stripeKey);
+          const stripeAccount = await stripe.accounts.retrieve(
+            data.provider_account_id,
+          );
+          const refreshed = await updateSellerPayoutAccountFromStripe({
+            supabase,
+            account: stripeAccount,
+            accountId: account.id,
+            storeId,
+          });
+
+          return Response.json({
+            success: true,
+            sellerPayout: publicSellerStatus({
+              ...data,
+              ...refreshed,
+              seller_tos_accepted: data.seller_tos_accepted,
+            }),
+            providerRefreshed: true,
+          });
+        } catch (refreshError: any) {
+          return Response.json({
+            success: true,
+            sellerPayout: publicSellerStatus(data),
+            providerRefreshed: false,
+            providerRefreshError:
+              refreshError.message ||
+              "Could not refresh seller payout status from Stripe.",
+          });
+        }
+      }
     }
 
     return Response.json({
