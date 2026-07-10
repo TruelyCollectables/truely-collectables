@@ -315,6 +315,8 @@ export async function runPaymentSimulationSuite(params: {
           run_id: runId,
           store_id: params.storeId,
           ...scenario,
+          assertions: scenario.assertions || {},
+          provider_object_ids: scenario.provider_object_ids || {},
         })),
       );
     if (scenarioError) throw scenarioError;
