@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
 import { syncEbayQuantityAfterSale } from "../../../lib/ebay";
-import { inventoryEngine } from "../../../modules/inventory";
+import { InventoryEngine, InventoryRepository } from "../../../modules/inventory";
 import { createTransactionEvidenceReport } from "../../../lib/transaction-evidence";
 import { getActiveStoreId } from "../../../lib/stores";
 import { updateSellerPayoutAccountFromStripe } from "../../../lib/seller-payouts";
@@ -62,6 +62,11 @@ export async function POST(req: Request) {
     const stripe = new Stripe(stripeKey);
     const supabase = createSupabaseServerClient({ admin: true });
     const storeId = getActiveStoreId();
+    const webhookInventoryEngine = new InventoryEngine(
+      storeId,
+      new InventoryRepository(storeId, supabase),
+      supabase,
+    );
 
     const body = await req.text();
     const signature = req.headers.get("stripe-signature");
@@ -427,8 +432,8 @@ export async function POST(req: Request) {
       }
     }
 
-    const cart = inventoryEngine.normalizeCartItems(rawCart);
-    const inventoryItems = await inventoryEngine.requireAvailableCartItems(cart);
+    const cart = webhookInventoryEngine.normalizeCartItems(rawCart);
+    const inventoryItems = await webhookInventoryEngine.requireAvailableCartItems(cart);
     const normalizedItemCount = cart.reduce(
       (total, cartItem) => total + cartItem.quantity,
       0
@@ -576,7 +581,7 @@ export async function POST(req: Request) {
         let mutation;
 
         try {
-          mutation = await inventoryEngine.decrementAfterSale({
+          mutation = await webhookInventoryEngine.decrementAfterSale({
             legacyProductId: product.legacyProductId,
             quantity: cartItem.quantity,
             source: "stripe-webhook",
