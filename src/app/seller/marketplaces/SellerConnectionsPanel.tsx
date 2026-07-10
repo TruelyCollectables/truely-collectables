@@ -94,6 +94,54 @@ type SellerStageAllProgress = {
   totalAvailable: number | null;
 };
 
+type SellerReconciliationRun = {
+  id: string;
+  status: string;
+  cursorOffset: number;
+  scannedCount: number;
+  matchedCount: number;
+  quantityReducedCount: number;
+  soldCount: number;
+  reviewCount: number;
+  failedCount: number;
+  startedAt: string | null;
+  completedAt: string | null;
+  summary: Record<string, unknown>;
+};
+
+type SellerReconciliationStatus = {
+  linkedCount: number;
+  latestRun: SellerReconciliationRun | null;
+  recentRuns: SellerReconciliationRun[];
+};
+
+type SellerReconciliationResult = {
+  runId: string;
+  status: string;
+  offset: number;
+  nextOffset: number;
+  hasMore: boolean;
+  totalLinked: number;
+  scannedCount: number;
+  matchedCount: number;
+  quantityReducedCount: number;
+  soldCount: number;
+  reviewCount: number;
+  failedCount: number;
+};
+
+type SellerReconciliationProgress = {
+  batchesCompleted: number;
+  scannedCount: number;
+  matchedCount: number;
+  quantityReducedCount: number;
+  soldCount: number;
+  reviewCount: number;
+  failedCount: number;
+  nextOffset: number;
+  totalLinked: number;
+};
+
 type SellerInventorySummary = {
   totalItems: number;
   draftCount: number;
@@ -1262,6 +1310,54 @@ async function fetchSellerInventory(accessToken: string) {
   };
 }
 
+async function fetchSellerReconciliationStatus(accessToken: string) {
+  const response = await fetch(
+    "/api/account/seller/marketplace-connections/ebay/reconcile",
+    {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+      },
+    },
+  );
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(
+      data.error || "Could not load seller eBay reconciliation status.",
+    );
+  }
+
+  return {
+    linkedCount: Number(data.linkedCount || 0),
+    latestRun: (data.latestRun || null) as SellerReconciliationRun | null,
+    recentRuns: (data.recentRuns || []) as SellerReconciliationRun[],
+  } satisfies SellerReconciliationStatus;
+}
+
+async function runSellerReconciliationBatch(
+  accessToken: string,
+  options: { resetCursor?: boolean } = {},
+) {
+  const response = await fetch(
+    "/api/account/seller/marketplace-connections/ebay/reconcile",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ resetCursor: options.resetCursor === true }),
+    },
+  );
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error || "Could not reconcile seller eBay inventory.");
+  }
+
+  return data.result as SellerReconciliationResult;
+}
+
 async function updateSellerStagedItemStatus(params: {
   accessToken: string;
   stagedItemId?: string;
@@ -1415,6 +1511,12 @@ export default function SellerConnectionsPanel({
   const [stageAllStopRequested, setStageAllStopRequested] = useState(false);
   const [stageAllProgress, setStageAllProgress] =
     useState<SellerStageAllProgress | null>(null);
+  const [reconciliationStatus, setReconciliationStatus] =
+    useState<SellerReconciliationStatus | null>(null);
+  const [reconciliationProgress, setReconciliationProgress] =
+    useState<SellerReconciliationProgress | null>(null);
+  const [isReconciling, setIsReconciling] = useState(false);
+  const [isReconcilingAll, setIsReconcilingAll] = useState(false);
   const stageAllStopRequestedRef = useRef(false);
   const [updatingStageItemId, setUpdatingStageItemId] = useState("");
   const [editingReviewItemId, setEditingReviewItemId] = useState("");
@@ -1521,6 +1623,24 @@ export default function SellerConnectionsPanel({
     }
   }, []);
 
+  const refreshSellerReconciliationState = useCallback(async (
+    accessToken: string,
+    options?: { silent?: boolean },
+  ) => {
+    try {
+      const status = await fetchSellerReconciliationStatus(accessToken);
+      setReconciliationStatus(status);
+      return status;
+    } catch (error: any) {
+      if (!options?.silent) {
+        setMessage(
+          error.message || "Could not load seller eBay reconciliation status.",
+        );
+      }
+      return null;
+    }
+  }, []);
+
   useEffect(() => {
     if (!session?.access_token) return;
 
@@ -1534,6 +1654,9 @@ export default function SellerConnectionsPanel({
           setMessage("");
           await refreshSellerStageState(session.access_token, { silent: true });
           await refreshSellerInventoryState(session.access_token, { silent: true });
+          await refreshSellerReconciliationState(session.access_token, {
+            silent: true,
+          });
         } catch (error: any) {
           setMessage(
             error.message || "Could not load seller marketplace connections.",
@@ -1546,7 +1669,12 @@ export default function SellerConnectionsPanel({
     }, 0);
 
     return () => window.clearTimeout(timeout);
-  }, [refreshSellerInventoryState, refreshSellerStageState, session?.access_token]);
+  }, [
+    refreshSellerInventoryState,
+    refreshSellerReconciliationState,
+    refreshSellerStageState,
+    session?.access_token,
+  ]);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1940,6 +2068,111 @@ export default function SellerConnectionsPanel({
     setMessage("Stop requested. TCOS will finish the current batch and preserve the next cursor.");
   }
 
+  async function reconcileSellerInventory(options: {
+    all: boolean;
+    resetCursor?: boolean;
+  }) {
+    if (
+      !session?.access_token ||
+      !canUseSellerEbayTools ||
+      isReconciling ||
+      isStagingItems
+    ) {
+      return;
+    }
+
+    const accessToken = session.access_token;
+    let batchesCompleted = 0;
+    let scannedCount = 0;
+    let matchedCount = 0;
+    let quantityReducedCount = 0;
+    let soldCount = 0;
+    let reviewCount = 0;
+    let failedCount = 0;
+    let nextOffset = 0;
+    let totalLinked = reconciliationStatus?.linkedCount || 0;
+    let resetCursor = options.resetCursor === true;
+
+    setIsReconciling(true);
+    setIsReconcilingAll(options.all);
+    setMessage(
+      options.all
+        ? "Reconciling all linked seller eBay inventory..."
+        : "Reconciling the next linked seller eBay batch...",
+    );
+
+    try {
+      let hasMore = true;
+
+      while (hasMore) {
+        if (batchesCompleted >= 400) {
+          throw new Error(
+            "The safe 10,000-item reconciliation limit was reached. Resume from the saved cursor after reviewing the latest results.",
+          );
+        }
+
+        const result = await runSellerReconciliationBatch(accessToken, {
+          resetCursor,
+        });
+        resetCursor = false;
+
+        if (result.hasMore && result.nextOffset <= result.offset) {
+          throw new Error(
+            "The reconciliation cursor did not advance, so TCOS stopped before repeating a batch.",
+          );
+        }
+
+        batchesCompleted += 1;
+        scannedCount += result.scannedCount;
+        matchedCount += result.matchedCount;
+        quantityReducedCount += result.quantityReducedCount;
+        soldCount += result.soldCount;
+        reviewCount += result.reviewCount;
+        failedCount += result.failedCount;
+        nextOffset = result.nextOffset;
+        totalLinked = result.totalLinked;
+        hasMore = result.hasMore;
+
+        setReconciliationProgress({
+          batchesCompleted,
+          scannedCount,
+          matchedCount,
+          quantityReducedCount,
+          soldCount,
+          reviewCount,
+          failedCount,
+          nextOffset,
+          totalLinked,
+        });
+
+        if (!options.all) break;
+      }
+
+      setMessage(
+        `Seller eBay reconciliation ${hasMore ? "batch complete" : "complete"}. ${scannedCount} linked item${scannedCount === 1 ? "" : "s"} checked; ${quantityReducedCount} reduced, ${soldCount} marked sold, ${reviewCount} flagged for review, and ${failedCount} failed. No TCOS fee was created for outside sales.`,
+      );
+    } catch (error: any) {
+      setMessage(
+        `Seller eBay reconciliation stopped safely after ${scannedCount} checked item${scannedCount === 1 ? "" : "s"}. ${error.message || "The next batch could not be reconciled."}`,
+      );
+    } finally {
+      await Promise.all([
+        refreshSellerReconciliationState(accessToken, { silent: true }),
+        refreshSellerInventoryState(accessToken, { silent: true }),
+        refreshSellerStageState(accessToken, { silent: true }),
+      ]);
+
+      try {
+        setConnections(await fetchSellerConnections(accessToken));
+      } catch {
+        // Reconciliation results remain durable if this UI refresh fails.
+      }
+
+      setIsReconcilingAll(false);
+      setIsReconciling(false);
+    }
+  }
+
   async function setStageStatus(
     stagedItemId: string,
     stageStatus: "staged" | "needs_review" | "mapped" | "skipped",
@@ -2072,6 +2305,9 @@ export default function SellerConnectionsPanel({
       }
       await refreshSellerStageState(session.access_token, { silent: true });
       await refreshSellerInventoryState(session.access_token, { silent: true });
+      await refreshSellerReconciliationState(session.access_token, {
+        silent: true,
+      });
       setMessage(
         promotionMode === "draft_cleanup"
           ? `Created seller draft product #${result.promotedItem?.legacyProductId} with activation cleanup still required.`
@@ -2175,6 +2411,9 @@ export default function SellerConnectionsPanel({
 
     await refreshSellerStageState(session.access_token, { silent: true });
     await refreshSellerInventoryState(session.access_token, { silent: true });
+    await refreshSellerReconciliationState(session.access_token, {
+      silent: true,
+    });
     if (promotedStageItemIds.length > 0) {
       setSelectedStageItemIds((current) =>
         current.filter((id) => !promotedStageItemIds.includes(id)),
@@ -3041,6 +3280,120 @@ export default function SellerConnectionsPanel({
               {preview.hasMore ? " | more remote listings available" : ""}
             </p>
           </div>
+        ) : null}
+      </div>
+
+      <div className="border-b border-neutral-200 bg-white p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-black">eBay Inventory Reconciliation</h3>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-neutral-600">
+              Compare seller-owned TCOS inventory with its source eBay listing.
+              TCOS can lower availability or mark an item sold, but it never
+              raises stock automatically and never charges the 8% platform fee
+              for an outside eBay sale.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() =>
+                void reconcileSellerInventory({ all: false })
+              }
+              disabled={
+                !canUseSellerEbayTools ||
+                isReconciling ||
+                isStagingItems ||
+                (reconciliationStatus?.linkedCount || 0) === 0
+              }
+              className="rounded-md border border-neutral-300 px-4 py-2 text-sm font-bold hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isReconciling && !isReconcilingAll
+                ? "Reconciling Batch..."
+                : "Reconcile Next 25"}
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                void reconcileSellerInventory({ all: true, resetCursor: true })
+              }
+              disabled={
+                !canUseSellerEbayTools ||
+                isReconciling ||
+                isStagingItems ||
+                (reconciliationStatus?.linkedCount || 0) === 0
+              }
+              className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-black text-emerald-900 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isReconcilingAll ? "Reconciling All..." : "Reconcile All Linked"}
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4 xl:grid-cols-7">
+          <PreviewMetric
+            label="Linked Items"
+            value={String(reconciliationStatus?.linkedCount || 0)}
+          />
+          <PreviewMetric
+            label="Last Scanned"
+            value={String(reconciliationStatus?.latestRun?.scannedCount || 0)}
+          />
+          <PreviewMetric
+            label="Matched"
+            value={String(reconciliationStatus?.latestRun?.matchedCount || 0)}
+          />
+          <PreviewMetric
+            label="Quantity Reduced"
+            value={String(
+              reconciliationStatus?.latestRun?.quantityReducedCount || 0,
+            )}
+          />
+          <PreviewMetric
+            label="Marked Sold"
+            value={String(reconciliationStatus?.latestRun?.soldCount || 0)}
+          />
+          <PreviewMetric
+            label="Needs Review"
+            value={String(reconciliationStatus?.latestRun?.reviewCount || 0)}
+          />
+          <PreviewMetric
+            label="Failed"
+            value={String(reconciliationStatus?.latestRun?.failedCount || 0)}
+          />
+        </div>
+
+        {reconciliationProgress ? (
+          <div className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-950">
+            <p className="font-black">
+              {isReconciling ? "Reconciliation in progress" : "Latest reconciliation progress"}
+            </p>
+            <p className="mt-1 leading-6">
+              {reconciliationProgress.scannedCount} checked across {reconciliationProgress.batchesCompleted} batch
+              {reconciliationProgress.batchesCompleted === 1 ? "" : "es"}; {reconciliationProgress.quantityReducedCount} reduced, {reconciliationProgress.soldCount} sold, {reconciliationProgress.reviewCount} review, {reconciliationProgress.failedCount} failed.
+              {reconciliationProgress.totalLinked > 0
+                ? ` Cursor ${reconciliationProgress.nextOffset} of ${reconciliationProgress.totalLinked}.`
+                : ""}
+            </p>
+          </div>
+        ) : reconciliationStatus?.latestRun ? (
+          <p className="mt-4 text-xs font-semibold uppercase text-neutral-500">
+            Last reconciliation {shortDate(reconciliationStatus.latestRun.completedAt)} / {label(reconciliationStatus.latestRun.status)}
+          </p>
+        ) : (
+          <p className="mt-4 text-sm text-neutral-500">
+            No seller eBay reconciliation has run yet.
+          </p>
+        )}
+
+        {!ebaySyncEnabled ? (
+          <p className="mt-4 rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-semibold text-rose-800">
+            Store-wide eBay sync is disabled, so reconciliation is paused.
+          </p>
+        ) : sellerEbaySyncPaused ? (
+          <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-semibold text-amber-900">
+            Resume seller sync before reconciling linked inventory.
+          </p>
         ) : null}
       </div>
 
