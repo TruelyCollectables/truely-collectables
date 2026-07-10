@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import Stripe from "stripe";
 import { syncEbayQuantityAfterSale } from "../../../lib/ebay";
 import { inventoryEngine } from "../../../modules/inventory";
@@ -14,10 +15,20 @@ import { evaluateAccountCardVerification } from "../../../lib/account-card-verif
 import { parseCartMetadata } from "../../../lib/checkout-cart-metadata";
 import { isAllowedShippingCountry } from "../../../lib/shipping-policy";
 import { createSupabaseServerClient } from "../../../lib/supabase-server";
+import {
+  claimStripeWebhookEvent,
+  failStripeWebhookEvent,
+  finishStripeWebhookEvent,
+  stripeWebhookPayloadHash,
+} from "../../../lib/stripe-webhook-events";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
+  let journal:
+    | { supabase: SupabaseClient; webhookEventId: string }
+    | null = null;
+
   try {
     const stripeKey = process.env.STRIPE_SECRET_KEY;
     const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
@@ -54,6 +65,28 @@ export async function POST(req: Request) {
       );
     }
 
+    const claim = await claimStripeWebhookEvent({
+      supabase,
+      storeId,
+      event,
+      payloadSha256: stripeWebhookPayloadHash(body),
+      endpointPath: new URL(req.url).pathname,
+    });
+
+    if (!claim.claimed) {
+      return NextResponse.json({
+        received: true,
+        duplicate: true,
+        eventStatus: claim.eventStatus,
+        attemptCount: claim.attemptCount,
+      });
+    }
+
+    journal = {
+      supabase,
+      webhookEventId: claim.webhookEventId,
+    };
+
     if (event.type === "account.updated") {
       const account = event.data.object as Stripe.Account;
 
@@ -63,10 +96,22 @@ export async function POST(req: Request) {
         storeId,
       });
 
+      await finishStripeWebhookEvent({
+        ...journal,
+        status: "processed",
+        metadata: { outcome: "seller_payout_account_updated" },
+      });
+
       return NextResponse.json({ received: true });
     }
 
     if (event.type !== "checkout.session.completed") {
+      await finishStripeWebhookEvent({
+        ...journal,
+        status: "ignored",
+        metadata: { outcome: "event_type_not_required" },
+      });
+
       return NextResponse.json({ received: true });
     }
 
@@ -96,9 +141,8 @@ export async function POST(req: Request) {
             : null;
 
       if (!accountId || !paymentMethodId) {
-        return NextResponse.json(
-          { error: "Account card verification metadata is incomplete" },
-          { status: 400 },
+        throw new Error(
+          "Account card verification metadata is incomplete",
         );
       }
 
@@ -143,6 +187,12 @@ export async function POST(req: Request) {
         .eq("account_id", accountId)
         .eq("store_id", storeId)
         .eq("role", "buyer");
+
+      await finishStripeWebhookEvent({
+        ...journal,
+        status: "processed",
+        metadata: { outcome: "account_card_verification_updated" },
+      });
 
       return NextResponse.json({ received: true });
     }
@@ -198,8 +248,14 @@ export async function POST(req: Request) {
             updated_at: new Date().toISOString(),
           })
           .eq("id", conversationId)
-          .eq("store_id", storeId);
+            .eq("store_id", storeId);
       }
+
+      await finishStripeWebhookEvent({
+        ...journal,
+        status: "processed",
+        metadata: { outcome: "binding_offer_payment_method_confirmed" },
+      });
 
       return NextResponse.json({ received: true });
     }
@@ -339,10 +395,7 @@ export async function POST(req: Request) {
 
       if (orderError || !order) {
         console.error("Order insert failed:", orderError?.message);
-        return NextResponse.json(
-          { error: "Order insert failed" },
-          { status: 500 }
-        );
+        throw orderError || new Error("Order insert failed");
       }
 
       orderId = order.id;
@@ -515,8 +568,28 @@ export async function POST(req: Request) {
       );
     }
 
+    await finishStripeWebhookEvent({
+      ...journal,
+      status: "processed",
+      metadata: {
+        outcome: "checkout_order_processed",
+        order_id: orderId,
+      },
+    });
+
     return NextResponse.json({ received: true });
   } catch (error: any) {
+    if (journal) {
+      try {
+        await failStripeWebhookEvent({
+          ...journal,
+          error,
+        });
+      } catch {
+        console.error("Stripe webhook failure could not be journaled");
+      }
+    }
+
     console.error("Webhook failed:", error.message);
     return NextResponse.json(
       { error: error.message || "Webhook failed" },

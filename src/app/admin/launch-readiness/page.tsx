@@ -356,6 +356,15 @@ async function checkDatabaseReadiness(): Promise<ReadinessItem[]> {
       readyDetail: "transaction_evidence_reports is available for chargeback evidence PDFs.",
     },
     {
+      label: "Stripe Webhook Event Journal",
+      table: "stripe_webhook_events",
+      select:
+        "id,store_id,stripe_event_id,event_type,event_status,attempt_count,last_error,processed_at",
+      migration: "20260710103000_create_stripe_webhook_events.sql",
+      readyDetail:
+        "stripe_webhook_events is available for signed receipt auditing, duplicate suppression, and retry-safe failures.",
+    },
+    {
       label: "Admin Login Audit",
       table: "admin_login_attempts",
       select: "id,store_id,ip_address,success,failure_reason,lockout_until,created_at",
