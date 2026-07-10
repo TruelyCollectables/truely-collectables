@@ -299,6 +299,8 @@ export default async function AdminShippingPage() {
   const purchasedLabels = labels.filter((row) =>
     ["purchased", "printed"].includes(row.label_status || ""),
   );
+  const dryRunPurchasedLabels = purchasedLabels.filter(isDryRunLabel);
+  const realPurchasedLabels = purchasedLabels.filter((row) => !isDryRunLabel(row));
   const voidedLabels = labels.filter((row) => row.label_status === "voided");
   const coveragePending = labels.filter((row) =>
     ["required_at_label_purchase", "purchase_pending"].includes(
@@ -320,7 +322,7 @@ export default async function AdminShippingPage() {
     "complete",
     "completed",
   ]);
-  const readyToMarkShippedLabels = purchasedLabels.filter((row) => {
+  const readyToMarkShippedLabels = realPurchasedLabels.filter((row) => {
     const order = orderFor(ordersById, row);
     const hasTracking = Boolean(row.tracking_number || order?.tracking_number);
     const isAlreadyFulfilled = fulfilledStatuses.has(
@@ -329,12 +331,12 @@ export default async function AdminShippingPage() {
 
     return hasTracking && !isAlreadyFulfilled;
   });
-  const trackingMissingLabels = purchasedLabels.filter((row) => {
+  const trackingMissingLabels = realPurchasedLabels.filter((row) => {
     const order = orderFor(ordersById, row);
 
     return !row.tracking_number && !order?.tracking_number;
   });
-  const coveragePolicyMissingLabels = purchasedLabels.filter(
+  const coveragePolicyMissingLabels = realPurchasedLabels.filter(
     (row) => row.coverage_status !== "covered" || !row.coverage_policy_id,
   );
   const replacementNeededLabels = voidedLabels.filter((row) => {
@@ -364,6 +366,21 @@ export default async function AdminShippingPage() {
         : "/admin/shipping",
       cta: "Open first blocked order",
       oldestAt: oldestDate(blockedEvents.map((event) => event.occurred_at)),
+    },
+    {
+      key: "dry_run_labels",
+      title: "Dry-Run Labels Are Not Shippable",
+      count: dryRunPurchasedLabels.length,
+      severity: "critical" as PrioritySeverity,
+      detail:
+        "Simulated labels have no real postage or external Coverage policy. Buy or record a real label before mailing.",
+      href: dryRunPurchasedLabels[0]?.order_id
+        ? `/admin/orders/${dryRunPurchasedLabels[0].order_id}`
+        : "/admin/shipping",
+      cta: "Open dry-run order",
+      oldestAt: oldestDate(
+        dryRunPurchasedLabels.map((row) => row.updated_at || row.created_at),
+      ),
     },
     {
       key: "tracking_missing",
@@ -485,10 +502,11 @@ export default async function AdminShippingPage() {
           </div>
         </div>
 
-        <section className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-9">
+        <section className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-10">
           <Metric label="Planned Labels" value={plannedLabels.length} />
           <Metric label="Purchase Pending" value={pendingPurchases.length} />
           <Metric label="Purchased / Printed" value={purchasedLabels.length} />
+          <Metric label="Dry-Run Purchased" value={dryRunPurchasedLabels.length} />
           <Metric label="Ready To Ship" value={readyToMarkShippedLabels.length} />
           <Metric label="Tracking Missing" value={trackingMissingLabels.length} />
           <Metric label="Voided Labels" value={voidedLabels.length} />
