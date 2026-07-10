@@ -403,6 +403,24 @@ async function checkDatabaseReadiness(): Promise<ReadinessItem[]> {
         "financial_adjustment_ledger_entries is available for append-only refunds, 8% reversals, payout reversals, dispute holds, chargeback losses, and recovery requirements.",
     },
     {
+      label: "Stripe Reconciliation Runs",
+      table: "stripe_reconciliation_runs",
+      select:
+        "id,store_id,source,run_status,window_start,window_end,stripe_transaction_count,matched_count,unmatched_count,net_difference",
+      migration: "20260710143000_create_stripe_reconciliation.sql",
+      readyDetail:
+        "stripe_reconciliation_runs is available for daily Stripe-versus-TCOS closeout totals and retry-safe run history.",
+    },
+    {
+      label: "Unmatched Money Queue",
+      table: "stripe_reconciliation_items",
+      select:
+        "id,run_id,store_id,item_status,severity,mismatch_type,transaction_category,stripe_source_id,internal_record_type,internal_record_id,difference_amount,resolution_note",
+      migration: "20260710143000_create_stripe_reconciliation.sql",
+      readyDetail:
+        "stripe_reconciliation_items is available for operator-reviewed unmatched money alerts with mandatory resolution notes.",
+    },
+    {
       label: "Seller Payout Accounts",
       table: "seller_payout_accounts",
       select:

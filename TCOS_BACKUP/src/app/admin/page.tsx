@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { PLATFORM_SOFTWARE_NAME } from "../../lib/legal";
-import { supabase } from "../../lib/supabase";
+import { createSupabaseServerClient } from "../../lib/supabase-server";
 import { getStoreSettings } from "../../lib/store-settings";
 import { getActiveStoreId } from "../../lib/stores";
 import {
@@ -31,6 +31,14 @@ type OfferRow = {
   customer_email: string | null;
   created_at: string;
   products?: { title?: string | null; price?: number | null } | null;
+};
+
+type ReconciliationAlertRow = {
+  id: string;
+  title: string;
+  severity: string;
+  mismatch_type: string;
+  difference_amount: number | null;
 };
 
 type OrderRow = {
@@ -155,6 +163,7 @@ function statusTone(status: string | null | undefined) {
 }
 
 export default async function AdminDashboard() {
+  const supabase = createSupabaseServerClient({ admin: true });
   const storeId = getActiveStoreId();
   const storeSettings = await getStoreSettings(supabase, storeId);
 
@@ -172,6 +181,7 @@ export default async function AdminDashboard() {
     syncDecisionsResult,
     blockedSyncResult,
     inventoryStatsResult,
+    reconciliationAlertsResult,
   ] = await Promise.all([
       supabase
         .from("products")
@@ -223,6 +233,13 @@ export default async function AdminDashboard() {
         )
         .eq("store_id", storeId)
         .maybeSingle(),
+      supabase
+        .from("stripe_reconciliation_items")
+        .select("id,title,severity,mismatch_type,difference_amount")
+        .eq("store_id", storeId)
+        .eq("item_status", "open")
+        .order("created_at", { ascending: false })
+        .limit(5),
     ]);
 
   const products = (productsResult.data || []) as ProductRow[];
@@ -235,6 +252,8 @@ export default async function AdminDashboard() {
   const blockedSyncRows = (blockedSyncResult.data || []) as BlockedSyncSummaryRow[];
   const inventoryStats =
     (inventoryStatsResult.data as PublicInventoryStatsRow | null) ?? null;
+  const reconciliationAlerts =
+    (reconciliationAlertsResult.data || []) as ReconciliationAlertRow[];
   const syncPolicyAvailable =
     !syncDecisionsResult.error &&
     !blockedSyncResult.error &&
@@ -350,6 +369,7 @@ export default async function AdminDashboard() {
             <CommandButton href="/admin/accounts" label="Accounts" />
             <CommandButton href="/admin/order-review-cases" label="Cases" />
             <CommandButton href="/admin/seller-payouts" label="Payouts" />
+            <CommandButton href="/admin/financial-reconciliation" label="Money Audit" />
             <CommandButton href="/admin/ebay" label="eBay Health" />
             <CommandButton href="/admin/settings" label="Settings" />
             <CommandButton href="/admin/security" label="Security" />
@@ -386,7 +406,7 @@ export default async function AdminDashboard() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 divide-y divide-neutral-200 lg:grid-cols-4 lg:divide-x lg:divide-y-0">
+            <div className="grid grid-cols-1 divide-y divide-neutral-200 lg:grid-cols-5 lg:divide-x lg:divide-y-0">
               <QueuePanel
                 title="Fulfillment"
                 href="/admin/orders"
@@ -447,6 +467,18 @@ export default async function AdminDashboard() {
                   href: `/admin/products/${product.id}`,
                 }))}
               />
+              <QueuePanel
+                title="Money Audit"
+                href="/admin/financial-reconciliation"
+                empty="No unmatched Stripe money."
+                rows={reconciliationAlerts.map((alert) => ({
+                  key: alert.id,
+                  title: alert.title,
+                  meta: `${label(alert.severity)} / ${label(alert.mismatch_type)}`,
+                  value: money(alert.difference_amount),
+                  href: "/admin/financial-reconciliation",
+                }))}
+              />
             </div>
           </div>
 
@@ -488,6 +520,7 @@ export default async function AdminDashboard() {
                 <LinkButton href="/admin/accounts" label="Accounts" />
                 <LinkButton href="/admin/order-review-cases" label="Cases" />
                 <LinkButton href="/admin/seller-payouts" label="Payouts" />
+                <LinkButton href="/admin/financial-reconciliation" label="Money Audit" />
                 <LinkButton href="/admin/orders" label="Orders" />
                 <LinkButton href="/admin/offers" label="Offers" />
                 <LinkButton href="/admin/files" label="Files" />

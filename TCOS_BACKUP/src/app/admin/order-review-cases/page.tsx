@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { getAccountProfilesByIds } from "../../../lib/account-profiles";
-import { supabase } from "../../../lib/supabase";
+import { createSupabaseServerClient } from "../../../lib/supabase-server";
 import { getActiveStoreId } from "../../../lib/stores";
 import CaseQueueActions from "./CaseQueueActions";
 
@@ -261,6 +261,7 @@ export default async function AdminOrderReviewCasesPage({
 }: {
   searchParams?: Promise<SearchParams>;
 }) {
+  const supabase = createSupabaseServerClient({ admin: true });
   const resolvedParams = await searchParams;
   const activeFilters: Required<SearchParams> = {
     status: resolvedParams?.status || "active",

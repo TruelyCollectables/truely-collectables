@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { supabase } from "../../../lib/supabase";
+import { createSupabaseServerClient } from "../../../lib/supabase-server";
 import { getActiveStoreId } from "../../../lib/stores";
 import { getAccountProfilesByIds } from "../../../lib/account-profiles";
 import {
@@ -139,6 +139,7 @@ function statusTone(status: string | null | undefined) {
 }
 
 export default async function AdminSellerPayoutsPage() {
+  const supabase = createSupabaseServerClient({ admin: true });
   const storeId = getActiveStoreId();
   const { data, error } = await supabase
     .from("seller_payout_ledger_entries")
@@ -305,6 +306,12 @@ export default async function AdminSellerPayoutsPage() {
           </div>
 
           <div className="flex flex-wrap gap-2">
+            <Link
+              href="/admin/financial-reconciliation"
+              className="rounded-md border border-white/20 px-4 py-2 text-sm font-bold text-white hover:bg-white/10"
+            >
+              Money Audit
+            </Link>
             <Link
               href="/admin"
               className="rounded-md border border-white/20 px-4 py-2 text-sm font-bold text-white hover:bg-white/10"

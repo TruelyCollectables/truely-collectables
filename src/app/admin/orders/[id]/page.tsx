@@ -1,4 +1,4 @@
-import { supabase } from "../../../../lib/supabase";
+import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 import { getActiveStoreId } from "../../../../lib/stores";
 import { getAccountProfilesByIds } from "../../../../lib/account-profiles";
 import { isOrderReviewStatus } from "../../../../lib/order-status";
@@ -110,6 +110,7 @@ export default async function AdminOrderDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  const supabase = createSupabaseServerClient({ admin: true });
   const { id } = await params;
   const storeId = getActiveStoreId();
 
