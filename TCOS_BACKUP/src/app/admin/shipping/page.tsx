@@ -437,6 +437,12 @@ export default async function AdminShippingPage() {
               Fulfillment
             </Link>
             <Link
+              href="/admin/shipping/simulations"
+              className="rounded border bg-white px-4 py-2"
+            >
+              Simulations
+            </Link>
+            <Link
               href="/admin/launch-readiness"
               className="rounded border bg-white px-4 py-2"
             >
