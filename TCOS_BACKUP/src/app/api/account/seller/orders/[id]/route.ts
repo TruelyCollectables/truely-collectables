@@ -111,6 +111,10 @@ function moneyNumber(value: number | string | null | undefined) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function isDryRunTracking(value: string | null | undefined) {
+  return Boolean(value?.includes("TCOS-DRYRUN"));
+}
+
 function roundMoney(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
 }
@@ -404,13 +408,18 @@ export async function GET(
       const bTime = b.requestedAt ? new Date(b.requestedAt).getTime() : 0;
       return bTime - aTime;
     });
+    const dryRunShipping = isDryRunTracking(order.tracking_number);
+    const safeTrackingNumber = dryRunShipping
+      ? null
+      : order.tracking_number || null;
+    const safeCarrier = dryRunShipping ? null : order.carrier || null;
     const recentSignals = buildSellerOrderSignals({
       orderId,
       createdAt: order.created_at,
       paymentStatus: order.status || "unknown",
       shippedAt: order.shipped_at,
-      carrier: order.carrier || null,
-      trackingNumber: order.tracking_number || null,
+      carrier: safeCarrier,
+      trackingNumber: safeTrackingNumber,
       payoutRows: payoutRows.map((payoutRow) => ({
         id: payoutRow.id,
         payoutStatus: payoutRow.payout_status || "unknown",
@@ -437,8 +446,9 @@ export async function GET(
         fulfillmentStatus: order.fulfillment_status || "unknown",
         shippingName: order.shipping_name || null,
         shippingAmount: moneyNumber(order.shipping_amount),
-        trackingNumber: order.tracking_number || null,
-        carrier: order.carrier || null,
+        trackingNumber: safeTrackingNumber,
+        carrier: safeCarrier,
+        dryRunShippingBlocked: dryRunShipping,
         shippedAt: order.shipped_at,
         sellerItemCount: sellerOrderItems.length,
         sellerUnitCount: sellerOrderItems.reduce(

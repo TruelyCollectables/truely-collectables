@@ -9,6 +9,10 @@ function getSupabaseClient() {
   return createSupabaseServerClient({ admin: true });
 }
 
+function isDryRunTracking(value: string | null | undefined) {
+  return Boolean(value?.includes("TCOS-DRYRUN"));
+}
+
 export async function GET(request: Request) {
   try {
     const account = await getAuthenticatedAccountFromRequest(request);
@@ -35,7 +39,16 @@ export async function GET(request: Request) {
 
     return NextResponse.json({
       success: true,
-      orders: data ?? [],
+      orders: (data ?? []).map((order) => {
+        const dryRunShipping = isDryRunTracking(order.tracking_number);
+
+        return {
+          ...order,
+          tracking_number: dryRunShipping ? null : order.tracking_number,
+          carrier: dryRunShipping ? null : order.carrier,
+          dry_run_shipping_blocked: dryRunShipping,
+        };
+      }),
     });
   } catch (error: any) {
     return NextResponse.json(
