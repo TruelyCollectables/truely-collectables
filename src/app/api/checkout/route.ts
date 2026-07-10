@@ -2,6 +2,9 @@ import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import {
   calculateShipping,
+  getShippingCoverage,
+  isShippingMethod,
+  resolveShippingMethod,
   SHIPPING_RULES,
   type ShippingMethod,
 } from "../../../lib/shipping";
@@ -74,7 +77,7 @@ export async function POST(request: Request) {
 
     const cart = checkoutInventoryEngine.normalizeCartItems(body.cart);
     const cartMetadata = encodeCartMetadata(cart);
-    const shippingMethod = body.shippingMethod as ShippingMethod;
+    const requestedShippingMethod = body.shippingMethod as ShippingMethod;
     const tosAccepted = hasAcceptedTerms(body.tosAccepted);
     const tosVersion = String(body.tosVersion || TERMS_OF_SERVICE_VERSION);
     const checkoutAttemptId = String(body.checkoutAttemptId || "");
@@ -119,10 +122,7 @@ export async function POST(request: Request) {
 
     const clientIdentity = rateLimit.identity;
 
-    if (
-      shippingMethod !== "GROUND_ADVANTAGE" &&
-      shippingMethod !== "PRIORITY_MAIL"
-    ) {
+    if (!isShippingMethod(requestedShippingMethod)) {
       return NextResponse.json(
         { error: "Invalid shipping method" },
         { status: 400 }
@@ -165,6 +165,12 @@ export async function POST(request: Request) {
       });
     }
 
+    const shippingPolicy = resolveShippingMethod({
+      requestedMethod: requestedShippingMethod,
+      itemCount,
+      subtotal,
+    });
+    const shippingMethod = shippingPolicy.method;
     const shippingAmount = calculateShipping({
       itemCount,
       subtotal,
@@ -173,6 +179,10 @@ export async function POST(request: Request) {
 
     const shippingRule = SHIPPING_RULES[shippingMethod];
     const shippingName = shippingRule.name;
+    const shippingCoverage = getShippingCoverage({
+      method: shippingMethod,
+      subtotal,
+    });
 
     lineItems.push({
       price_data: {
@@ -195,9 +205,27 @@ export async function POST(request: Request) {
       account_id: account?.id || "",
       checkout_attempt_id: checkoutAttemptId,
       cart: cartMetadata,
+      requested_shipping_method: requestedShippingMethod,
       shipping_method: shippingMethod,
       shipping_name: shippingName,
       shipping_amount: shippingAmount.toFixed(2),
+      shipping_policy_reason: shippingPolicy.reason || "",
+      standard_envelope_estimated_oz: String(
+        shippingPolicy.standardEnvelope.estimatedOunces,
+      ),
+      standard_envelope_eligible: shippingPolicy.standardEnvelope.eligible
+        ? "true"
+        : "false",
+      shipping_coverage_provider: shippingCoverage.provider,
+      shipping_coverage_required: shippingCoverage.required ? "true" : "false",
+      shipping_coverage_seller_protected: shippingCoverage.sellerProtected
+        ? "true"
+        : "false",
+      shipping_coverage_status: shippingCoverage.status,
+      shipping_coverage_type: shippingCoverage.coverageType,
+      shipping_coverage_amount: shippingCoverage.coveredAmount.toFixed(2),
+      shipping_coverage_buyer_charge:
+        shippingCoverage.buyerCharge.toFixed(2),
       subtotal: subtotal.toFixed(2),
       item_count: String(itemCount),
       tos_accepted: "true",

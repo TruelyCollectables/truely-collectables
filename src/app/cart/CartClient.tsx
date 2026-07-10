@@ -7,6 +7,9 @@ import CheckoutButton from "../components/CheckoutButton";
 import {
   calculateShipping,
   getFreeShippingMessage,
+  getShippingCoverage,
+  getStandardEnvelopeEligibility,
+  resolveShippingMethod,
   SHIPPING_RULES,
   type ShippingMethod,
 } from "../../lib/shipping";
@@ -45,7 +48,7 @@ export default function CartClient(props: { storeDisplayName: string }) {
     }
   });
   const [shippingMethod, setShippingMethod] =
-    useState<ShippingMethod>("GROUND_ADVANTAGE");
+    useState<ShippingMethod>("STANDARD_ENVELOPE");
   const [termsAccepted, setTermsAccepted] = useState(false);
 
   function saveCart(updatedCart: CartItem[]) {
@@ -85,6 +88,15 @@ export default function CartClient(props: { storeDisplayName: string }) {
     0,
   );
   const itemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
+  const standardEnvelopeEligibility = getStandardEnvelopeEligibility({
+    itemCount,
+    subtotal,
+  });
+  const standardEnvelopeShipping = calculateShipping({
+    itemCount,
+    subtotal,
+    method: "STANDARD_ENVELOPE",
+  });
   const groundShipping = calculateShipping({
     itemCount,
     subtotal,
@@ -95,10 +107,20 @@ export default function CartClient(props: { storeDisplayName: string }) {
     subtotal,
     method: "PRIORITY_MAIL",
   });
+  const resolvedShipping = resolveShippingMethod({
+    requestedMethod: shippingMethod,
+    itemCount,
+    subtotal,
+  });
+  const selectedShippingMethod = resolvedShipping.method;
+  const shippingCoverage = getShippingCoverage({
+    method: selectedShippingMethod,
+    subtotal,
+  });
   const selectedShipping = calculateShipping({
     itemCount,
     subtotal,
-    method: shippingMethod,
+    method: selectedShippingMethod,
   });
   const total = subtotal + selectedShipping;
 
@@ -196,10 +218,39 @@ export default function CartClient(props: { storeDisplayName: string }) {
                 Shipping is currently available only to United States addresses.
               </p>
 
+              <label
+                className={`mt-3 block rounded border p-4 ${
+                  standardEnvelopeEligibility.eligible
+                    ? "cursor-pointer"
+                    : "cursor-not-allowed bg-neutral-50 text-neutral-500"
+                }`}
+              >
+                <input
+                  type="radio"
+                  checked={selectedShippingMethod === "STANDARD_ENVELOPE"}
+                  onChange={() => setShippingMethod("STANDARD_ENVELOPE")}
+                  disabled={!standardEnvelopeEligibility.eligible}
+                  className="mr-2"
+                />
+                {SHIPPING_RULES.STANDARD_ENVELOPE.name} -{" "}
+                <strong>${standardEnvelopeShipping.toFixed(2)}</strong>
+                <span className="mt-2 block text-xs font-semibold text-neutral-600">
+                  Raw-card envelope only. Eligible up to $20.00 and 3 estimated
+                  oz; current cart estimate:{" "}
+                  {standardEnvelopeEligibility.estimatedOunces} oz.
+                </span>
+                {!standardEnvelopeEligibility.eligible ? (
+                  <span className="mt-2 block text-xs font-bold text-amber-700">
+                    {standardEnvelopeEligibility.reason} USPS Ground Advantage
+                    is required.
+                  </span>
+                ) : null}
+              </label>
+
               <label className="mt-3 block cursor-pointer rounded border p-4">
                 <input
                   type="radio"
-                  checked={shippingMethod === "GROUND_ADVANTAGE"}
+                  checked={selectedShippingMethod === "GROUND_ADVANTAGE"}
                   onChange={() => setShippingMethod("GROUND_ADVANTAGE")}
                   className="mr-2"
                 />
@@ -214,7 +265,7 @@ export default function CartClient(props: { storeDisplayName: string }) {
               <label className="mt-3 block cursor-pointer rounded border p-4">
                 <input
                   type="radio"
-                  checked={shippingMethod === "PRIORITY_MAIL"}
+                  checked={selectedShippingMethod === "PRIORITY_MAIL"}
                   onChange={() => setShippingMethod("PRIORITY_MAIL")}
                   className="mr-2"
                 />
@@ -227,7 +278,24 @@ export default function CartClient(props: { storeDisplayName: string }) {
               </label>
 
               <div className="mt-4 rounded border border-blue-200 bg-blue-50 p-4 text-sm">
-                <p>{getFreeShippingMessage({ subtotal, method: shippingMethod })}</p>
+                <p>
+                  {getFreeShippingMessage({
+                    subtotal,
+                    method: selectedShippingMethod,
+                  })}
+                </p>
+              </div>
+
+              <div className="mt-3 rounded border border-emerald-200 bg-emerald-50 p-4 text-sm">
+                <p className="font-black text-emerald-950">
+                  Seller shipping coverage included
+                </p>
+                <p className="mt-1 font-semibold text-emerald-900">
+                  {shippingCoverage.provider} coverage is required for every
+                  TCOS shipment and protects the seller for up to $
+                  {shippingCoverage.coveredAmount.toFixed(2)} in item value.
+                  No separate buyer coverage fee is added at checkout.
+                </p>
               </div>
             </div>
 
@@ -269,7 +337,7 @@ export default function CartClient(props: { storeDisplayName: string }) {
 
             <div className="mt-6 flex flex-col gap-3">
               <CheckoutButton
-                shippingMethod={shippingMethod}
+                shippingMethod={selectedShippingMethod}
                 termsAccepted={termsAccepted}
               />
 

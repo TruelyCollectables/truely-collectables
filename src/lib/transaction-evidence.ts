@@ -201,6 +201,19 @@ function buildReportText(input: {
   sections.push(line("Offer ID", metadata.offer_id));
   sections.push("");
 
+  sections.push("SHIPPING COVERAGE");
+  sections.push("----------------------------------------------");
+  sections.push(line("Coverage Provider", metadata.shipping_coverage_provider));
+  sections.push(line("Coverage Required", metadata.shipping_coverage_required));
+  sections.push(
+    line("Seller Protected", metadata.shipping_coverage_seller_protected),
+  );
+  sections.push(line("Coverage Status", metadata.shipping_coverage_status));
+  sections.push(line("Coverage Type", metadata.shipping_coverage_type));
+  sections.push(line("Covered Amount", metadata.shipping_coverage_amount));
+  sections.push(line("Buyer Coverage Charge", metadata.shipping_coverage_buyer_charge));
+  sections.push("");
+
   sections.push("TERMS AND IDENTITY EVIDENCE");
   sections.push("----------------------------------------------");
   sections.push(line("TOS Accepted", order.tos_accepted));
