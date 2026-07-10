@@ -102,6 +102,8 @@ type PlatformFeeLedgerEntry = {
 type ShippingLabel = {
   id: string;
   provider: string | null;
+  provider_label_id: string | null;
+  provider_shipment_id: string | null;
   provider_service: string | null;
   service_level: string | null;
   carrier: string | null;
@@ -184,6 +186,53 @@ function metadataNumber(
 ) {
   const value = metadata?.[key];
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function metadataRecord(
+  metadata: Record<string, unknown> | null | undefined,
+  key: string,
+) {
+  const value = metadata?.[key];
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function nestedRecord(
+  record: Record<string, unknown> | null | undefined,
+  key: string,
+) {
+  const value = record?.[key];
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function isDryRunShippingLabel(
+  shippingLabel: ShippingLabel,
+  shippingTrackingEvents: ShippingTrackingEvent[],
+) {
+  const latestAttempt = metadataRecord(
+    shippingLabel.metadata,
+    "latest_purchase_attempt",
+  );
+  const purchaseResult = nestedRecord(latestAttempt, "purchase_result");
+  const providerPayload = nestedRecord(purchaseResult, "rawProviderPayload");
+
+  return (
+    latestAttempt?.status === "dry_run_purchased" ||
+    purchaseResult?.mode === "dry_run" ||
+    providerPayload?.dry_run === true ||
+    shippingLabel.provider_label_id?.startsWith("dryrun-") ||
+    shippingLabel.provider_shipment_id?.startsWith("dryrun-") ||
+    shippingLabel.coverage_policy_id?.startsWith("dryrun-") ||
+    Boolean(shippingLabel.tracking_number?.includes("TCOS-DRYRUN")) ||
+    shippingTrackingEvents.some(
+      (event) =>
+        event.shipping_label_id === shippingLabel.id &&
+        event.event_type === "provider_purchase_simulated",
+    )
+  );
 }
 
 function standardEnvelopePolicyNote(shippingLabel: ShippingLabel) {
@@ -412,6 +461,8 @@ export default async function AdminOrderDetailPage({
         `
         id,
         provider,
+        provider_label_id,
+        provider_shipment_id,
         provider_service,
         service_level,
         carrier,
@@ -943,20 +994,37 @@ export default async function AdminOrderDetailPage({
           <div className="mt-4 space-y-4">
             {shippingLabels.map((shippingLabel) => {
               const policyNote = standardEnvelopePolicyNote(shippingLabel);
+              const dryRun = isDryRunShippingLabel(
+                shippingLabel,
+                shippingTrackingEvents,
+              );
 
               return (
               <div key={shippingLabel.id} className="rounded border p-4">
                 <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                   <div>
-                    <p className="font-black">
-                      {shippingLabel.provider_service ||
-                        typedOrder.shipping_name ||
-                        "Shipping Label"}
-                    </p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-black">
+                        {shippingLabel.provider_service ||
+                          typedOrder.shipping_name ||
+                          "Shipping Label"}
+                      </p>
+                      {dryRun ? (
+                        <span className="rounded border border-red-300 bg-red-50 px-2 py-1 text-xs font-black text-red-900">
+                          DRY-RUN / DO NOT MAIL
+                        </span>
+                      ) : null}
+                    </div>
                     <p className="text-sm font-semibold text-gray-600">
                       Status: {label(shippingLabel.label_status)} / Coverage:{" "}
                       {label(shippingLabel.coverage_status)}
                     </p>
+                    {dryRun ? (
+                      <p className="mt-2 rounded border border-red-200 bg-red-50 p-2 text-sm font-black text-red-950">
+                        Simulated shipping record only. No real postage, USPS
+                        label, or external Coverage policy was purchased.
+                      </p>
+                    ) : null}
                     {policyNote ? (
                       <p className="mt-2 rounded border border-blue-200 bg-blue-50 p-2 text-sm font-semibold text-blue-950">
                         {policyNote}

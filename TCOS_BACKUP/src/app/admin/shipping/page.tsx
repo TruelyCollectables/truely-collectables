@@ -176,6 +176,40 @@ function metadataNumber(
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function metadataRecord(
+  metadata: Record<string, unknown> | null | undefined,
+  key: string,
+) {
+  const value = metadata?.[key];
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function nestedRecord(
+  record: Record<string, unknown> | null | undefined,
+  key: string,
+) {
+  const value = record?.[key];
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function isDryRunLabel(row: ShippingLabelRow) {
+  const latestAttempt = metadataRecord(row.metadata, "latest_purchase_attempt");
+  const purchaseResult = nestedRecord(latestAttempt, "purchase_result");
+  const providerPayload = nestedRecord(purchaseResult, "rawProviderPayload");
+
+  return (
+    latestAttempt?.status === "dry_run_purchased" ||
+    purchaseResult?.mode === "dry_run" ||
+    providerPayload?.dry_run === true ||
+    row.coverage_policy_id?.startsWith("dryrun-") ||
+    Boolean(row.tracking_number?.includes("TCOS-DRYRUN"))
+  );
+}
+
 function standardEnvelopePolicyNote(row: ShippingLabelRow) {
   const reason =
     metadataText(row.metadata, "shipping_policy_reason") ||
@@ -593,6 +627,7 @@ export default async function AdminShippingPage() {
                 labels.map((row) => {
                   const order = orderFor(ordersById, row);
                   const policyNote = standardEnvelopePolicyNote(row);
+                  const dryRun = isDryRunLabel(row);
 
                   return (
                     <article
@@ -621,11 +656,23 @@ export default async function AdminShippingPage() {
                           >
                             Coverage {label(row.coverage_status)}
                           </span>
+                          {dryRun ? (
+                            <span className="rounded border border-red-300 bg-red-50 px-2 py-1 text-xs font-black text-red-900">
+                              DRY-RUN / DO NOT MAIL
+                            </span>
+                          ) : null}
                         </div>
                         <p className="mt-2 text-sm text-neutral-600">
                           {order?.customer_email || "No customer email"} /{" "}
                           {row.provider_service || order?.shipping_name || "Shipping"}
                         </p>
+                        {dryRun ? (
+                          <p className="mt-2 rounded border border-red-200 bg-red-50 p-2 text-sm font-black text-red-950">
+                            Simulated shipping record only. No real postage,
+                            USPS label, or external Coverage policy was
+                            purchased.
+                          </p>
+                        ) : null}
                         {policyNote ? (
                           <p className="mt-2 rounded border border-blue-200 bg-blue-50 p-2 text-sm font-semibold text-blue-950">
                             {policyNote}
@@ -920,6 +967,7 @@ function LabelIssueCard({
 }) {
   const carrier = row.carrier || order?.carrier || "";
   const trackingNumber = row.tracking_number || order?.tracking_number || "";
+  const dryRun = isDryRunLabel(row);
 
   return (
     <div className="border-b py-3 last:border-b-0">
@@ -934,11 +982,22 @@ function LabelIssueCard({
         >
           {label(row.label_status)}
         </span>
+        {dryRun ? (
+          <span className="rounded border border-red-300 bg-red-50 px-2 py-1 text-xs font-black text-red-900">
+            DRY-RUN
+          </span>
+        ) : null}
       </div>
       <p className="mt-1 text-sm text-neutral-600">
         {order?.customer_email || "No customer email"} /{" "}
         {row.provider_service || order?.shipping_name || "Shipping"}
       </p>
+      {dryRun ? (
+        <p className="mt-2 rounded border border-red-200 bg-red-50 p-2 text-xs font-black text-red-950">
+          Simulated only — do not mail using this tracking, label, or Coverage
+          policy.
+        </p>
+      ) : null}
       <p className={`mt-2 text-sm font-semibold ${tone}`}>{message}</p>
       <dl className="mt-2 grid grid-cols-1 gap-1 text-xs text-neutral-600">
         <Info
