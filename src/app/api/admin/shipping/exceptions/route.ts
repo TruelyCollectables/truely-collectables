@@ -7,6 +7,8 @@ type ShippingLabelRow = {
   id: string;
   order_id: number;
   provider: string | null;
+  provider_label_id: string | null;
+  provider_shipment_id: string | null;
   provider_service: string | null;
   carrier: string | null;
   tracking_number: string | null;
@@ -16,6 +18,7 @@ type ShippingLabelRow = {
   coverage_amount: number | string | null;
   coverage_policy_id: string | null;
   postage_amount: number | string | null;
+  metadata: Record<string, unknown> | null;
   created_at: string;
   updated_at: string | null;
 };
@@ -81,6 +84,8 @@ type ExceptionCsvRow = {
   coverage_policy_id: string;
   coverage_amount: string;
   postage_amount: string;
+  dry_run_record: string;
+  dry_run_warning: string;
   issue_detail: string;
   oldest_at: string;
   admin_url: string;
@@ -93,6 +98,54 @@ function csvCell(value: unknown) {
 
 function money(value: number | string | null | undefined) {
   return Number(value || 0).toFixed(2);
+}
+
+function metadataRecord(
+  metadata: Record<string, unknown> | null | undefined,
+  key: string,
+) {
+  const value = metadata?.[key];
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function nestedRecord(
+  record: Record<string, unknown> | null | undefined,
+  key: string,
+) {
+  const value = record?.[key];
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function isDryRunLabel(
+  label: ShippingLabelRow | null | undefined,
+  simulatedLabelIds: Set<string>,
+) {
+  if (!label) return false;
+
+  const latestAttempt = metadataRecord(label.metadata, "latest_purchase_attempt");
+  const purchaseResult = nestedRecord(latestAttempt, "purchase_result");
+  const providerPayload = nestedRecord(purchaseResult, "rawProviderPayload");
+
+  return (
+    simulatedLabelIds.has(label.id) ||
+    latestAttempt?.status === "dry_run_purchased" ||
+    purchaseResult?.mode === "dry_run" ||
+    providerPayload?.dry_run === true ||
+    label.provider_label_id?.startsWith("dryrun-") ||
+    label.provider_shipment_id?.startsWith("dryrun-") ||
+    label.coverage_policy_id?.startsWith("dryrun-") ||
+    Boolean(label.tracking_number?.includes("TCOS-DRYRUN"))
+  );
+}
+
+function dryRunWarning(isDryRun: boolean) {
+  return isDryRun
+    ? "SIMULATED ONLY - no real postage, USPS label, or external Coverage policy was purchased."
+    : "";
 }
 
 function exceptionKey(params: {
@@ -148,6 +201,8 @@ function csvResponse(rows: ExceptionCsvRow[]) {
     "coverage_policy_id",
     "coverage_amount",
     "postage_amount",
+    "dry_run_record",
+    "dry_run_warning",
     "issue_detail",
     "oldest_at",
     "admin_url",
@@ -180,7 +235,7 @@ export async function GET(request: Request) {
       supabase
         .from("order_shipping_labels")
         .select(
-          "id,order_id,provider,provider_service,carrier,tracking_number,label_status,coverage_provider,coverage_status,coverage_amount,coverage_policy_id,postage_amount,created_at,updated_at",
+          "id,order_id,provider,provider_label_id,provider_shipment_id,provider_service,carrier,tracking_number,label_status,coverage_provider,coverage_status,coverage_amount,coverage_policy_id,postage_amount,metadata,created_at,updated_at",
         )
         .eq("store_id", storeId)
         .order("created_at", { ascending: false })
@@ -211,6 +266,15 @@ export async function GET(request: Request) {
     const events = (eventsResult.data || []) as TrackingEventRow[];
     const claims = (claimsResult.data || []) as CoverageClaimRow[];
     const labelsById = new Map(labels.map((label) => [label.id, label]));
+    const simulatedLabelIds = new Set(
+      events
+        .filter(
+          (event) =>
+            event.event_type === "provider_purchase_simulated" &&
+            event.shipping_label_id,
+        )
+        .map((event) => event.shipping_label_id as string),
+    );
     const orderIds = Array.from(
       new Set([
         ...labels.map((row) => row.order_id),
@@ -259,6 +323,7 @@ export async function GET(request: Request) {
       oldestAt: string;
     }) {
       const order = orderFor(ordersById, params.label.order_id);
+      const dryRun = isDryRunLabel(params.label, simulatedLabelIds);
       rows.push({
         priority_rank: 0,
         exception_key: exceptionKey({
@@ -287,6 +352,8 @@ export async function GET(request: Request) {
         coverage_policy_id: params.label.coverage_policy_id || "",
         coverage_amount: money(params.label.coverage_amount),
         postage_amount: money(params.label.postage_amount),
+        dry_run_record: dryRun ? "yes" : "no",
+        dry_run_warning: dryRunWarning(dryRun),
         issue_detail: params.issueDetail,
         oldest_at: params.oldestAt,
         admin_url: `${url.origin}/admin/orders/${params.label.order_id}`,
@@ -298,6 +365,7 @@ export async function GET(request: Request) {
     )) {
       const order = orderFor(ordersById, event.order_id);
       const label = labelFor(labelsById, event.shipping_label_id);
+      const dryRun = isDryRunLabel(label, simulatedLabelIds);
       rows.push({
         priority_rank: 0,
         exception_key: exceptionKey({
@@ -330,6 +398,8 @@ export async function GET(request: Request) {
         coverage_policy_id: label?.coverage_policy_id || "",
         coverage_amount: money(label?.coverage_amount),
         postage_amount: money(label?.postage_amount),
+        dry_run_record: dryRun ? "yes" : "no",
+        dry_run_warning: dryRunWarning(dryRun),
         issue_detail: event.message || "Provider purchase was blocked.",
         oldest_at: event.occurred_at,
         admin_url: `${url.origin}/admin/orders/${event.order_id}`,
@@ -409,6 +479,7 @@ export async function GET(request: Request) {
     )) {
       const order = orderFor(ordersById, claim.order_id);
       const label = labelFor(labelsById, claim.shipping_label_id);
+      const dryRun = isDryRunLabel(label, simulatedLabelIds);
       rows.push({
         priority_rank: 0,
         exception_key: exceptionKey({
@@ -438,6 +509,8 @@ export async function GET(request: Request) {
         coverage_policy_id: label?.coverage_policy_id || "",
         coverage_amount: money(label?.coverage_amount || claim.claim_amount),
         postage_amount: money(label?.postage_amount),
+        dry_run_record: dryRun ? "yes" : "no",
+        dry_run_warning: dryRunWarning(dryRun),
         issue_detail: claim.reason || claim.claim_type || "Coverage claim is open.",
         oldest_at: claim.created_at,
         admin_url: `${url.origin}/admin/orders/${claim.order_id}`,
