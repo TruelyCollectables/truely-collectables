@@ -9,6 +9,7 @@ import {
   getShippingProviderReadiness,
   shippingPurchaseBlockers,
 } from "../../../../../../lib/shipping-provider-readiness";
+import { purchaseShippingLabel } from "../../../../../../lib/shipping-provider-adapter";
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
 
@@ -68,6 +69,14 @@ function cleanMoney(value: unknown) {
   if (!Number.isFinite(amount) || amount < 0) return null;
 
   return Number(amount.toFixed(2));
+}
+
+function metadataNumber(
+  metadata: Record<string, unknown> | null | undefined,
+  key: string,
+) {
+  const value = metadata?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 async function loadOrder(params: {
@@ -555,53 +564,106 @@ export async function PATCH(
       );
     }
 
-    await supabase.from("order_shipping_tracking_events").insert({
-      store_id: storeId,
-      order_id: orderId,
-      shipping_label_id: label.id,
-      provider: "tcos",
-      carrier: typedOrder.carrier || carrierForMethod(
-        safeShippingMethod(label.resolved_shipping_method),
+    const purchaseResult = await purchaseShippingLabel({
+      orderId,
+      labelId: label.id,
+      method: label.resolved_shipping_method || typedOrder.shipping_method,
+      carrier: typedOrder.carrier,
+      subtotal: Number(typedOrder.subtotal || 0),
+      shippingAmount: Number(typedOrder.shipping_amount || 0),
+      itemCount: Number(typedOrder.item_count || 1),
+      standardEnvelopeEstimatedOunces: metadataNumber(
+        label.metadata,
+        "standard_envelope_estimated_oz",
       ),
-      tracking_number: typedOrder.tracking_number || null,
-      event_type: "provider_purchase_ready",
-      event_status: "ready",
-      message:
-        "Provider credentials are configured. Live purchase adapter is ready to be wired.",
-      occurred_at: now,
-      raw_payload: {
-        provider_readiness: providerReadiness,
-        attempted_by_identity: identity,
-      },
     });
 
-    await supabase
+    const { error: labelPurchaseError } = await supabase
       .from("order_shipping_labels")
       .update({
-        label_status: "purchase_pending",
-        coverage_status: "purchase_pending",
+        provider: purchaseResult.provider,
+        provider_label_id: purchaseResult.providerLabelId,
+        provider_shipment_id: purchaseResult.providerShipmentId,
+        provider_service: purchaseResult.providerService,
+        carrier: purchaseResult.carrier,
+        tracking_number: purchaseResult.trackingNumber,
+        label_url: purchaseResult.labelUrl,
+        label_pdf_url: purchaseResult.labelPdfUrl,
+        postage_amount: purchaseResult.postageAmount,
+        label_status: purchaseResult.labelStatus,
+        coverage_provider: purchaseResult.coverageProvider,
+        coverage_status: purchaseResult.coverageStatus,
+        coverage_amount: purchaseResult.coverageAmount,
+        coverage_policy_id: purchaseResult.coveragePolicyId,
+        purchased_at: now,
+        printed_at: purchaseResult.labelStatus === "printed" ? now : null,
         updated_at: now,
         metadata: {
           ...(label.metadata || {}),
           latest_purchase_attempt: {
-            status: "ready_for_adapter",
+            status: "dry_run_purchased",
             attempted_at: now,
             attempted_by_identity: identity,
             provider_readiness: providerReadiness,
+            purchase_result: purchaseResult,
           },
         },
       })
       .eq("id", label.id)
       .eq("store_id", storeId);
 
+    if (labelPurchaseError) throw labelPurchaseError;
+
+    const { error: orderTrackingError } = await supabase
+      .from("orders")
+      .update({
+        carrier: purchaseResult.carrier,
+        tracking_number: purchaseResult.trackingNumber,
+        updated_at: now,
+      })
+      .eq("id", orderId)
+      .eq("store_id", storeId);
+
+    if (orderTrackingError) throw orderTrackingError;
+
+    const { error: eventError } = await supabase.from("order_shipping_tracking_events").insert({
+      store_id: storeId,
+      order_id: orderId,
+      shipping_label_id: label.id,
+      provider: purchaseResult.provider,
+      carrier: purchaseResult.carrier,
+      tracking_number: purchaseResult.trackingNumber,
+      event_type: "provider_purchase_simulated",
+      event_status: purchaseResult.labelStatus,
+      message: purchaseResult.message,
+      occurred_at: now,
+      raw_payload: {
+        purchase_mode: purchaseResult.mode,
+        provider_label_id: purchaseResult.providerLabelId,
+        provider_shipment_id: purchaseResult.providerShipmentId,
+        coverage_policy_id: purchaseResult.coveragePolicyId,
+        postage_amount: purchaseResult.postageAmount,
+        coverage_amount: purchaseResult.coverageAmount,
+        provider_readiness: providerReadiness,
+        attempted_by_identity: identity,
+        provider_payload: purchaseResult.rawProviderPayload,
+      },
+    });
+
+    if (eventError) throw eventError;
+
     return Response.json({
       success: true,
       labelId: label.id,
-      labelStatus: "purchase_pending",
-      coverageStatus: "purchase_pending",
+      labelStatus: purchaseResult.labelStatus,
+      coverageStatus: purchaseResult.coverageStatus,
+      providerLabelId: purchaseResult.providerLabelId,
+      providerShipmentId: purchaseResult.providerShipmentId,
+      trackingNumber: purchaseResult.trackingNumber,
+      coveragePolicyId: purchaseResult.coveragePolicyId,
+      purchaseMode: purchaseResult.mode,
       providerReadiness,
-      message:
-        "Provider credentials are ready. Live purchase adapter still needs to be connected.",
+      message: purchaseResult.message,
     });
   } catch (error: any) {
     if (error instanceof Response) return error;

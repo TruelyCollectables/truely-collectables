@@ -1054,7 +1054,9 @@ export default async function AdminOrderDetailPage({
                       Download Label Packet
                     </a>
                     <p className="rounded border border-blue-200 bg-blue-50 p-3 text-sm font-semibold text-blue-950">
-                      Provider purchase required before a printable label exists.
+                      No printable label URL is stored yet. Use the label packet
+                      for the current audit trail, tracking, provider IDs, and
+                      Coverage details.
                     </p>
                   </div>
                 )}
