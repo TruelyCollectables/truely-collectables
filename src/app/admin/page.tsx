@@ -41,6 +41,18 @@ type ReconciliationAlertRow = {
   difference_amount: number | null;
 };
 
+type SellerConnectRow = {
+  id: string;
+  account_id: string;
+  provider_account_id: string;
+  onboarding_status: string | null;
+  payouts_enabled: boolean | null;
+  details_submitted: boolean | null;
+  requirements_currently_due: string[] | null;
+  requirements_past_due: string[] | null;
+  disabled_reason: string | null;
+};
+
 type OrderRow = {
   id: number;
   customer_email: string | null;
@@ -182,6 +194,7 @@ export default async function AdminDashboard() {
     blockedSyncResult,
     inventoryStatsResult,
     reconciliationAlertsResult,
+    sellerConnectResult,
   ] = await Promise.all([
       supabase
         .from("products")
@@ -240,6 +253,15 @@ export default async function AdminDashboard() {
         .eq("item_status", "open")
         .order("created_at", { ascending: false })
         .limit(5),
+      supabase
+        .from("seller_payout_accounts")
+        .select(
+          "id,account_id,provider_account_id,onboarding_status,payouts_enabled,details_submitted,requirements_currently_due,requirements_past_due,disabled_reason",
+        )
+        .eq("store_id", storeId)
+        .eq("provider", "stripe_connect")
+        .order("updated_at", { ascending: false })
+        .limit(25),
     ]);
 
   const products = (productsResult.data || []) as ProductRow[];
@@ -254,6 +276,8 @@ export default async function AdminDashboard() {
     (inventoryStatsResult.data as PublicInventoryStatsRow | null) ?? null;
   const reconciliationAlerts =
     (reconciliationAlertsResult.data || []) as ReconciliationAlertRow[];
+  const sellerConnectAccounts =
+    (sellerConnectResult.data || []) as SellerConnectRow[];
   const syncPolicyAvailable =
     !syncDecisionsResult.error &&
     !blockedSyncResult.error &&
@@ -290,6 +314,16 @@ export default async function AdminDashboard() {
   const blockedSyncTotal = blockedSyncRows.reduce(
     (sum, row) => sum + Number(row.decision_count || 0),
     0,
+  );
+  const sellerConnectUnavailable = Boolean(sellerConnectResult.error);
+  const sellerConnectNeedsAction = sellerConnectAccounts.filter(
+    (account) =>
+      account.onboarding_status !== "active" ||
+      account.payouts_enabled !== true ||
+      account.details_submitted !== true ||
+      (account.requirements_currently_due || []).length > 0 ||
+      (account.requirements_past_due || []).length > 0 ||
+      Boolean(account.disabled_reason),
   );
 
   const revenueToday = paidOrders
@@ -343,6 +377,13 @@ export default async function AdminDashboard() {
       : blockedSyncTotal > 0
       ? `${blockedSyncTotal} eBay sync policy block${blockedSyncTotal === 1 ? "" : "s"} need review`
       : "eBay sync policy blocks are clear",
+    sellerConnectUnavailable
+      ? "Seller Connect readiness is not available"
+      : sellerConnectNeedsAction.length > 0
+      ? `${sellerConnectNeedsAction.length} seller Connect account${
+          sellerConnectNeedsAction.length === 1 ? "" : "s"
+        } need onboarding action`
+      : "Seller Connect onboarding is clear",
   ];
 
   return (
@@ -407,7 +448,7 @@ export default async function AdminDashboard() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 divide-y divide-neutral-200 lg:grid-cols-5 lg:divide-x lg:divide-y-0">
+            <div className="grid grid-cols-1 divide-y divide-neutral-200 lg:grid-cols-6 lg:divide-x lg:divide-y-0">
               <QueuePanel
                 title="Fulfillment"
                 href="/admin/orders"
@@ -479,6 +520,31 @@ export default async function AdminDashboard() {
                   value: money(alert.difference_amount),
                   href: "/admin/financial-reconciliation",
                 }))}
+              />
+              <QueuePanel
+                title="Seller Connect"
+                href="/admin/seller-payouts"
+                empty={
+                  sellerConnectUnavailable
+                    ? "Connect readiness table is unavailable."
+                    : "No seller onboarding action needed."
+                }
+                rows={sellerConnectNeedsAction.slice(0, 5).map((account) => {
+                  const dueCount =
+                    (account.requirements_currently_due || []).length +
+                    (account.requirements_past_due || []).length;
+
+                  return {
+                    key: account.id,
+                    title: account.provider_account_id,
+                    meta:
+                      dueCount > 0
+                        ? `${dueCount} Stripe requirement${dueCount === 1 ? "" : "s"}`
+                        : label(account.onboarding_status),
+                    value: account.payouts_enabled ? "Review" : "Blocked",
+                    href: "/admin/seller-payouts",
+                  };
+                })}
               />
             </div>
           </div>
