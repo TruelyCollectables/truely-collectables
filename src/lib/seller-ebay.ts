@@ -8,7 +8,16 @@ import { type SellerMarketplaceConnectionRow } from "./seller-marketplace-connec
 const EBAY_SCOPE = [
   "https://api.ebay.com/oauth/api_scope/sell.inventory",
   "https://api.ebay.com/oauth/api_scope/sell.account.readonly",
+  "https://api.ebay.com/oauth/api_scope/commerce.identity.readonly",
 ];
+
+export type SellerEbayIdentity = {
+  userId: string;
+  username: string | null;
+  accountType: string | null;
+  registrationMarketplaceId: string | null;
+  status: string | null;
+};
 
 type SellerMarketplaceTokenRow = {
   connection_id: string;
@@ -171,6 +180,7 @@ async function getSellerEbayBundle(params: {
         "last_sync_completed_at",
         "last_sync_error",
         "import_cursor",
+        "provider_metadata",
         "created_at",
         "updated_at",
       ].join(","),
@@ -199,6 +209,41 @@ async function getSellerEbayBundle(params: {
   return {
     connection: connection as unknown as SellerMarketplaceConnectionRow,
     token: token as SellerMarketplaceTokenRow,
+  };
+}
+
+export async function fetchSellerEbayIdentity(params: {
+  accessToken: string;
+  ebayEnvironment: string;
+}): Promise<SellerEbayIdentity> {
+  const identityBase =
+    params.ebayEnvironment === "sandbox"
+      ? "https://apiz.sandbox.ebay.com"
+      : "https://apiz.ebay.com";
+  const response = await fetch(`${identityBase}/commerce/identity/v1/user/`, {
+    headers: {
+      Authorization: `Bearer ${params.accessToken}`,
+      "Content-Type": "application/json",
+    },
+  });
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok || !data?.userId) {
+    throw new Error(
+      data?.errors?.[0]?.message ||
+        data?.message ||
+        "Seller eBay identity lookup failed",
+    );
+  }
+
+  return {
+    userId: String(data.userId),
+    username: data.username ? String(data.username) : null,
+    accountType: data.accountType ? String(data.accountType) : null,
+    registrationMarketplaceId: data.registrationMarketplaceId
+      ? String(data.registrationMarketplaceId)
+      : null,
+    status: data.status ? String(data.status) : null,
   };
 }
 
@@ -233,7 +278,10 @@ export async function refreshSellerEbayAccessToken(params: {
     body: new URLSearchParams({
       grant_type: "refresh_token",
       refresh_token: refreshToken,
-      scope: EBAY_SCOPE.join(" "),
+      scope: (bundle.connection.oauth_scope?.length
+        ? bundle.connection.oauth_scope
+        : EBAY_SCOPE
+      ).join(" "),
     }),
   });
 
@@ -243,14 +291,44 @@ export async function refreshSellerEbayAccessToken(params: {
   if (!response.ok || !data.access_token) {
     const errorMessage =
       data.error_description || data.error || "Seller eBay token refresh failed";
-    const nextConnectionStatus =
-      data.error === "invalid_grant" ? "needs_reauth" : "error";
+    const refreshTokenInvalid = data.error === "invalid_grant";
+    const nextConnectionStatus = refreshTokenInvalid ? "needs_reauth" : "error";
+
+    if (refreshTokenInvalid) {
+      const { error: tokenDeleteError } = await params.supabase
+        .from("seller_marketplace_connection_tokens")
+        .delete()
+        .eq("connection_id", bundle.connection.id)
+        .eq("account_id", params.accountId)
+        .eq("store_id", params.storeId)
+        .eq("provider", "ebay");
+
+      if (tokenDeleteError) {
+        throw tokenDeleteError;
+      }
+    }
 
     await params.supabase
       .from("seller_marketplace_connections")
       .update({
         connection_status: nextConnectionStatus,
+        sync_status: refreshTokenInvalid ? "paused" : bundle.connection.sync_status,
+        oauth_scope: refreshTokenInvalid ? [] : bundle.connection.oauth_scope,
+        token_storage_key: refreshTokenInvalid
+          ? null
+          : `seller_marketplace_connection_tokens:${params.storeId}:${params.accountId}:ebay`,
+        access_token_expires_at: refreshTokenInvalid
+          ? null
+          : bundle.connection.access_token_expires_at,
+        refresh_token_expires_at: refreshTokenInvalid
+          ? null
+          : bundle.connection.refresh_token_expires_at,
         last_sync_error: errorMessage,
+        provider_metadata: {
+          ...recordValue(bundle.connection.provider_metadata),
+          invalid_grant_detected_at: refreshTokenInvalid ? nowIso : null,
+          local_credentials_deleted: refreshTokenInvalid ? true : undefined,
+        },
         updated_at: nowIso,
       })
       .eq("id", bundle.connection.id);
@@ -266,6 +344,18 @@ export async function refreshSellerEbayAccessToken(params: {
         Date.now() + Number(data.refresh_token_expires_in) * 1000,
       ).toISOString()
     : bundle.connection.refresh_token_expires_at;
+  let identity: SellerEbayIdentity | null = null;
+  let identityWarning: string | null = null;
+
+  try {
+    identity = await fetchSellerEbayIdentity({
+      accessToken: data.access_token,
+      ebayEnvironment: storeSettings.ebayEnvironment,
+    });
+  } catch {
+    identityWarning =
+      "eBay identity could not be verified. Reconnect once to enable automatic authorization-revocation monitoring.";
+  }
 
   await params.supabase
     .from("seller_marketplace_connection_tokens")
@@ -286,7 +376,18 @@ export async function refreshSellerEbayAccessToken(params: {
       access_token_expires_at: accessTokenExpiresAt,
       refresh_token_expires_at: refreshTokenExpiresAt,
       token_last_rotated_at: nowIso,
-      last_sync_error: null,
+      provider_account_id: identity?.userId || bundle.connection.provider_account_id,
+      provider_account_label:
+        identity?.username || bundle.connection.provider_account_label,
+      provider_metadata: {
+        ...recordValue(bundle.connection.provider_metadata),
+        ebay_identity_verified_at: identity ? nowIso : null,
+        ebay_account_type: identity?.accountType || null,
+        ebay_registration_marketplace_id:
+          identity?.registrationMarketplaceId || null,
+        ebay_account_status: identity?.status || null,
+      },
+      last_sync_error: identityWarning,
       updated_at: nowIso,
     })
     .eq("id", bundle.connection.id);
@@ -297,6 +398,8 @@ export async function refreshSellerEbayAccessToken(params: {
     accessTokenExpiresAt,
     refreshTokenExpiresAt,
     refreshedAt: nowIso,
+    identity,
+    identityWarning,
   };
 }
 

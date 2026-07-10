@@ -53,6 +53,12 @@ function isProtectedPath(pathname: string): boolean {
   }
 
   if (pathname.startsWith("/ebay")) return true;
+  if (
+    pathname === "/api/ebay/callback" ||
+    pathname === "/api/ebay/notifications"
+  ) {
+    return false;
+  }
   if (pathname.startsWith("/api/ebay")) return true;
   if (pathname.startsWith("/api/orders")) return true;
   if (pathname.startsWith("/api/admin") && pathname !== "/api/admin/login") {
@@ -68,6 +74,7 @@ function isIdentityCheckExempt(pathname: string): boolean {
   return (
     pathname === "/api/webhook" ||
     pathname === "/api/stripe/webhook" ||
+    pathname === "/api/ebay/notifications" ||
     pathname.startsWith("/_next") ||
     pathname === "/favicon.ico"
   );

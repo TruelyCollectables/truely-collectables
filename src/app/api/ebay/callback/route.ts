@@ -3,6 +3,7 @@ import {
   encryptMarketplaceToken,
   parseSellerMarketplaceOAuthState,
 } from "../../../../lib/marketplace-token-crypto";
+import { fetchSellerEbayIdentity } from "../../../../lib/seller-ebay";
 import { getActiveStoreId } from "../../../../lib/stores";
 import { getStoreSettings } from "../../../../lib/store-settings";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
@@ -13,6 +14,7 @@ const EBAY_REDIRECT_URI = "Truely_Collecta-TruelyCo-Truely-kmpcb";
 const EBAY_SCOPE = [
   "https://api.ebay.com/oauth/api_scope/sell.inventory",
   "https://api.ebay.com/oauth/api_scope/sell.account.readonly",
+  "https://api.ebay.com/oauth/api_scope/commerce.identity.readonly",
 ];
 
 function getSupabaseClient() {
@@ -155,6 +157,18 @@ export async function GET(request: Request) {
       typeof data.scope === "string"
         ? data.scope.split(" ").filter(Boolean)
         : EBAY_SCOPE;
+    let identity = null;
+    let identityWarning: string | null = null;
+
+    try {
+      identity = await fetchSellerEbayIdentity({
+        accessToken: data.access_token,
+        ebayEnvironment: storeSettings.ebayEnvironment,
+      });
+    } catch {
+      identityWarning =
+        "eBay identity could not be verified. Refresh status or reconnect to enable automatic authorization-revocation monitoring.";
+    }
 
     const { data: connection, error: connectionError } = await supabase
       .from("seller_marketplace_connections")
@@ -163,6 +177,8 @@ export async function GET(request: Request) {
           account_id: sellerState.accountId,
           store_id: sellerState.storeId,
           provider: "ebay",
+          provider_account_id: identity?.userId || null,
+          provider_account_label: identity?.username || null,
           connection_status: "connected",
           sync_status: "not_started",
           oauth_scope: oauthScope,
@@ -170,11 +186,18 @@ export async function GET(request: Request) {
           access_token_expires_at: accessTokenExpiresAt,
           refresh_token_expires_at: refreshTokenExpiresAt,
           token_last_rotated_at: new Date().toISOString(),
-          last_sync_error: null,
+          last_sync_error: identityWarning,
           updated_at: new Date().toISOString(),
           provider_metadata: {
             callback_source: "ebay_oauth_callback",
             ebay_environment: storeSettings.ebayEnvironment,
+            ebay_identity_verified_at: identity
+              ? new Date().toISOString()
+              : null,
+            ebay_account_type: identity?.accountType || null,
+            ebay_registration_marketplace_id:
+              identity?.registrationMarketplaceId || null,
+            ebay_account_status: identity?.status || null,
           },
         },
         { onConflict: "store_id,account_id,provider" },
