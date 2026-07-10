@@ -4,6 +4,7 @@ import { getShippingProviderReadiness } from "../../../lib/shipping-provider-rea
 import { getActiveStoreId } from "../../../lib/stores";
 import { createSupabaseServerClient } from "../../../lib/supabase-server";
 import ShippingClaimActions from "./ShippingClaimActions";
+import { MarkOrderShippedButton } from "./ShippingQueueActions";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -539,6 +540,7 @@ export default async function AdminShippingPage() {
                     order={orderFor(ordersById, row)}
                     message="Label has tracking, but the order is not marked shipped."
                     tone="text-amber-900"
+                    showMarkShippedAction
                   />
                 ))
               )}
@@ -692,12 +694,17 @@ function LabelIssueCard({
   order,
   message,
   tone,
+  showMarkShippedAction = false,
 }: {
   row: ShippingLabelRow;
   order: OrderRow | null;
   message: string;
   tone: string;
+  showMarkShippedAction?: boolean;
 }) {
+  const carrier = row.carrier || order?.carrier || "";
+  const trackingNumber = row.tracking_number || order?.tracking_number || "";
+
   return (
     <div className="border-b py-3 last:border-b-0">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -725,6 +732,13 @@ function LabelIssueCard({
         <Info label="Updated" value={shortDate(row.updated_at || row.created_at)} />
       </dl>
       <div className="mt-3 flex flex-wrap gap-2">
+        {showMarkShippedAction && carrier && trackingNumber ? (
+          <MarkOrderShippedButton
+            orderId={row.order_id}
+            carrier={carrier}
+            trackingNumber={trackingNumber}
+          />
+        ) : null}
         <a
           href={`/api/admin/shipping-labels/${row.id}/packet`}
           className="rounded border border-neutral-300 bg-white px-3 py-2 text-xs font-black text-neutral-950"
