@@ -27,7 +27,12 @@ function configuredProvider(value: string | undefined, fallback: string) {
   return value?.trim() || fallback;
 }
 
+function shippingPurchaseMode() {
+  return process.env.TCOS_SHIPPING_PURCHASE_MODE === "live" ? "live" : "dry_run";
+}
+
 export function getShippingProviderReadiness(): ShippingProviderReadinessItem[] {
+  const purchaseMode = shippingPurchaseMode();
   const standardEnvelopeProvider = configuredProvider(
     process.env.TCOS_STANDARD_ENVELOPE_PROVIDER,
     "IMb envelope provider",
@@ -74,6 +79,20 @@ export function getShippingProviderReadiness(): ShippingProviderReadinessItem[] 
   ].filter((value): value is string => Boolean(value));
 
   return [
+    {
+      key: "shipping_purchase_mode",
+      label: "Shipping Purchase Mode",
+      status: purchaseMode === "live" ? "blocked" : "warning",
+      detail:
+        purchaseMode === "live"
+          ? "Live shipping purchase mode is enabled, but TCOS has not approved a live postage provider adapter yet."
+          : "TCOS is in dry-run shipping purchase mode. Adapter attempts simulate label, tracking, postage, and Coverage policy records without buying postage.",
+      action:
+        purchaseMode === "live"
+          ? "Switch TCOS_SHIPPING_PURCHASE_MODE back to dry_run until a live provider adapter is approved."
+          : "Keep dry_run for testing. Move to live only after provider credentials, contracts, label voiding, and reconciliation are approved.",
+      missing: purchaseMode === "live" ? ["approved live shipping adapter"] : [],
+    },
     {
       key: "standard_envelope_provider",
       label: "Standard Envelope Provider",
@@ -139,6 +158,13 @@ export function shippingPurchaseBlockers(params: {
     neededKeys.add("standard_envelope_provider");
   } else {
     neededKeys.add("parcel_label_provider");
+  }
+
+  const purchaseMode = readiness.find(
+    (item) => item.key === "shipping_purchase_mode",
+  );
+  if (purchaseMode?.status === "blocked") {
+    neededKeys.add("shipping_purchase_mode");
   }
 
   return readiness.filter(
