@@ -2,6 +2,105 @@
 
 import { useState } from "react";
 
+export function SaveCoveragePolicyForm({
+  labelId,
+  defaultProvider = "Coverage",
+  defaultAmount = "",
+}: {
+  labelId: string;
+  defaultProvider?: string;
+  defaultAmount?: string;
+}) {
+  const [coverageProvider, setCoverageProvider] = useState(
+    defaultProvider || "Coverage",
+  );
+  const [coveragePolicyId, setCoveragePolicyId] = useState("");
+  const [coverageAmount, setCoverageAmount] = useState(defaultAmount);
+  const [note, setNote] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+
+  async function savePolicy() {
+    setSaving(true);
+    setMessage("");
+
+    try {
+      const response = await fetch(
+        `/api/admin/shipping-labels/${labelId}/coverage-policy`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            coverageProvider,
+            coveragePolicyId,
+            coverageAmount,
+            note,
+          }),
+        },
+      );
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        setMessage(data.error || "Could not save Coverage policy.");
+        return;
+      }
+
+      setMessage(data.message || "Coverage policy saved.");
+      setTimeout(() => {
+        window.location.reload();
+      }, 700);
+    } catch (error: any) {
+      setMessage(error.message || "Could not save Coverage policy.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-2 rounded border bg-neutral-50 p-2">
+      <input
+        value={coverageProvider}
+        onChange={(event) => setCoverageProvider(event.target.value)}
+        placeholder="Coverage provider"
+        className="w-full rounded border bg-white px-2 py-1 text-xs"
+      />
+      <input
+        value={coveragePolicyId}
+        onChange={(event) => setCoveragePolicyId(event.target.value)}
+        placeholder="Coverage policy ID"
+        className="w-full rounded border bg-white px-2 py-1 text-xs"
+      />
+      <input
+        value={coverageAmount}
+        onChange={(event) => setCoverageAmount(event.target.value)}
+        placeholder="Coverage amount"
+        className="w-full rounded border bg-white px-2 py-1 text-xs"
+      />
+      <textarea
+        value={note}
+        onChange={(event) => setNote(event.target.value)}
+        placeholder="Internal note"
+        rows={2}
+        className="w-full rounded border bg-white px-2 py-1 text-xs"
+      />
+      <button
+        onClick={savePolicy}
+        disabled={saving}
+        className="rounded bg-amber-700 px-3 py-2 text-xs font-black text-white disabled:opacity-50"
+      >
+        {saving ? "Saving..." : "Save Coverage Policy"}
+      </button>
+      {message ? (
+        <p className="rounded border bg-white p-2 text-xs font-semibold">
+          {message}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 export function SaveTrackingForm({
   orderId,
   defaultCarrier = "USPS",

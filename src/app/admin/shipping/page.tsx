@@ -6,6 +6,7 @@ import { createSupabaseServerClient } from "../../../lib/supabase-server";
 import ShippingClaimActions from "./ShippingClaimActions";
 import {
   MarkOrderShippedButton,
+  SaveCoveragePolicyForm,
   SaveTrackingForm,
 } from "./ShippingQueueActions";
 
@@ -277,6 +278,9 @@ export default async function AdminShippingPage() {
 
     return !row.tracking_number && !order?.tracking_number;
   });
+  const coveragePolicyMissingLabels = purchasedLabels.filter(
+    (row) => row.coverage_status !== "covered" || !row.coverage_policy_id,
+  );
   const replacementNeededLabels = voidedLabels.filter((row) => {
     const hasNewerActiveLabel = labels.some(
       (candidate) =>
@@ -325,7 +329,7 @@ export default async function AdminShippingPage() {
           </div>
         </div>
 
-        <section className="grid grid-cols-1 gap-3 md:grid-cols-4 xl:grid-cols-8">
+        <section className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-9">
           <Metric label="Planned Labels" value={plannedLabels.length} />
           <Metric label="Purchase Pending" value={pendingPurchases.length} />
           <Metric label="Purchased / Printed" value={purchasedLabels.length} />
@@ -333,6 +337,7 @@ export default async function AdminShippingPage() {
           <Metric label="Tracking Missing" value={trackingMissingLabels.length} />
           <Metric label="Voided Labels" value={voidedLabels.length} />
           <Metric label="Coverage Pending" value={coveragePending.length} />
+          <Metric label="Policy Missing" value={coveragePolicyMissingLabels.length} />
           <Metric label="Open Claims" value={openClaims.length} />
         </section>
 
@@ -568,6 +573,25 @@ export default async function AdminShippingPage() {
               )}
             </Panel>
 
+            <Panel title="Coverage Policy Missing">
+              {coveragePolicyMissingLabels.length === 0 ? (
+                <p className="text-sm text-neutral-600">
+                  No purchased/printed labels are missing Coverage policy IDs.
+                </p>
+              ) : (
+                coveragePolicyMissingLabels.slice(0, 8).map((row) => (
+                  <LabelIssueCard
+                    key={row.id}
+                    row={row}
+                    order={orderFor(ordersById, row)}
+                    message="Label is purchased/printed, but Coverage policy details are incomplete."
+                    tone="text-amber-900"
+                    showSaveCoveragePolicyAction
+                  />
+                ))
+              )}
+            </Panel>
+
             <Panel title="Replacement Needed">
               {replacementNeededLabels.length === 0 ? (
                 <p className="text-sm text-neutral-600">
@@ -647,6 +671,7 @@ export default async function AdminShippingPage() {
                 <li>See when provider purchase is blocked by missing secrets.</li>
                 <li>Audit manually purchased labels and externally voided labels.</li>
                 <li>Find purchased labels that still need tracking saved.</li>
+                <li>Find purchased labels still missing Coverage policy IDs.</li>
                 <li>Find purchased labels ready for order shipment marking.</li>
                 <li>Spot voided shipments that still need replacement labels.</li>
                 <li>Watch Coverage claim work without opening each order.</li>
@@ -700,6 +725,7 @@ function LabelIssueCard({
   tone,
   showMarkShippedAction = false,
   showSaveTrackingAction = false,
+  showSaveCoveragePolicyAction = false,
 }: {
   row: ShippingLabelRow;
   order: OrderRow | null;
@@ -707,6 +733,7 @@ function LabelIssueCard({
   tone: string;
   showMarkShippedAction?: boolean;
   showSaveTrackingAction?: boolean;
+  showSaveCoveragePolicyAction?: boolean;
 }) {
   const carrier = row.carrier || order?.carrier || "";
   const trackingNumber = row.tracking_number || order?.tracking_number || "";
@@ -735,9 +762,17 @@ function LabelIssueCard({
           label="Tracking"
           value={row.tracking_number || order?.tracking_number || "Missing"}
         />
+        <Info label="Coverage Policy" value={row.coverage_policy_id || "Missing"} />
         <Info label="Updated" value={shortDate(row.updated_at || row.created_at)} />
       </dl>
       <div className="mt-3 flex flex-wrap gap-2">
+        {showSaveCoveragePolicyAction ? (
+          <SaveCoveragePolicyForm
+            labelId={row.id}
+            defaultProvider={row.coverage_provider || "Coverage"}
+            defaultAmount={String(row.coverage_amount || order?.total || "")}
+          />
+        ) : null}
         {showSaveTrackingAction ? (
           <SaveTrackingForm
             orderId={row.order_id}
