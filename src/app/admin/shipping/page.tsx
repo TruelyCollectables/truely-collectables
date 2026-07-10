@@ -252,6 +252,27 @@ export default async function AdminShippingPage() {
       event.event_type || "",
     ),
   );
+  const fulfilledStatuses = new Set([
+    "shipped",
+    "delivered",
+    "fulfilled",
+    "complete",
+    "completed",
+  ]);
+  const readyToMarkShippedLabels = purchasedLabels.filter((row) => {
+    const order = orderFor(ordersById, row);
+    const hasTracking = Boolean(row.tracking_number || order?.tracking_number);
+    const isAlreadyFulfilled = fulfilledStatuses.has(
+      (order?.fulfillment_status || "").toLowerCase(),
+    );
+
+    return hasTracking && !isAlreadyFulfilled;
+  });
+  const trackingMissingLabels = purchasedLabels.filter((row) => {
+    const order = orderFor(ordersById, row);
+
+    return !row.tracking_number && !order?.tracking_number;
+  });
   const replacementNeededLabels = voidedLabels.filter((row) => {
     const hasNewerActiveLabel = labels.some(
       (candidate) =>
@@ -300,10 +321,12 @@ export default async function AdminShippingPage() {
           </div>
         </div>
 
-        <section className="grid grid-cols-1 gap-3 md:grid-cols-6">
+        <section className="grid grid-cols-1 gap-3 md:grid-cols-4 xl:grid-cols-8">
           <Metric label="Planned Labels" value={plannedLabels.length} />
           <Metric label="Purchase Pending" value={pendingPurchases.length} />
           <Metric label="Purchased / Printed" value={purchasedLabels.length} />
+          <Metric label="Ready To Ship" value={readyToMarkShippedLabels.length} />
+          <Metric label="Tracking Missing" value={trackingMissingLabels.length} />
           <Metric label="Voided Labels" value={voidedLabels.length} />
           <Metric label="Coverage Pending" value={coveragePending.length} />
           <Metric label="Open Claims" value={openClaims.length} />
@@ -502,36 +525,58 @@ export default async function AdminShippingPage() {
               )}
             </Panel>
 
+            <Panel title="Ready To Mark Shipped">
+              {readyToMarkShippedLabels.length === 0 ? (
+                <p className="text-sm text-neutral-600">
+                  No purchased/printed labels are waiting for the order to be
+                  marked shipped.
+                </p>
+              ) : (
+                readyToMarkShippedLabels.slice(0, 8).map((row) => (
+                  <LabelIssueCard
+                    key={row.id}
+                    row={row}
+                    order={orderFor(ordersById, row)}
+                    message="Label has tracking, but the order is not marked shipped."
+                    tone="text-amber-900"
+                  />
+                ))
+              )}
+            </Panel>
+
+            <Panel title="Tracking Missing">
+              {trackingMissingLabels.length === 0 ? (
+                <p className="text-sm text-neutral-600">
+                  No purchased/printed labels are missing tracking.
+                </p>
+              ) : (
+                trackingMissingLabels.slice(0, 8).map((row) => (
+                  <LabelIssueCard
+                    key={row.id}
+                    row={row}
+                    order={orderFor(ordersById, row)}
+                    message="Label is purchased/printed, but no tracking or IMb is saved."
+                    tone="text-red-900"
+                  />
+                ))
+              )}
+            </Panel>
+
             <Panel title="Replacement Needed">
               {replacementNeededLabels.length === 0 ? (
                 <p className="text-sm text-neutral-600">
                   No voided labels are waiting for a replacement.
                 </p>
               ) : (
-                replacementNeededLabels.slice(0, 8).map((row) => {
-                  const order = orderFor(ordersById, row);
-
-                  return (
-                    <div key={row.id} className="border-b py-3 last:border-b-0">
-                      <Link
-                        href={`/admin/orders/${row.order_id}`}
-                        className="font-bold underline"
-                      >
-                        Order #{row.order_id}
-                      </Link>
-                      <p className="mt-1 text-sm text-neutral-600">
-                        {order?.customer_email || "No customer email"} /{" "}
-                        {row.provider_service || order?.shipping_name || "Shipping"}
-                      </p>
-                      <p className="mt-2 text-sm font-semibold text-red-900">
-                        Label was voided and no newer active label is recorded.
-                      </p>
-                      <p className="mt-1 text-xs font-bold text-neutral-500">
-                        Voided record updated {shortDate(row.updated_at || row.created_at)}
-                      </p>
-                    </div>
-                  );
-                })
+                replacementNeededLabels.slice(0, 8).map((row) => (
+                  <LabelIssueCard
+                    key={row.id}
+                    row={row}
+                    order={orderFor(ordersById, row)}
+                    message="Label was voided and no newer active label is recorded."
+                    tone="text-red-900"
+                  />
+                ))
               )}
             </Panel>
 
@@ -595,6 +640,8 @@ export default async function AdminShippingPage() {
                 <li>Find labels stuck at planned or purchase pending.</li>
                 <li>See when provider purchase is blocked by missing secrets.</li>
                 <li>Audit manually purchased labels and externally voided labels.</li>
+                <li>Find purchased labels that still need tracking saved.</li>
+                <li>Find purchased labels ready for order shipment marking.</li>
                 <li>Spot voided shipments that still need replacement labels.</li>
                 <li>Watch Coverage claim work without opening each order.</li>
                 <li>Jump straight into the order cockpit to resolve shipping.</li>
@@ -637,6 +684,61 @@ function Panel({
       <h2 className="text-xl font-black">{title}</h2>
       <div className="mt-3">{children}</div>
     </section>
+  );
+}
+
+function LabelIssueCard({
+  row,
+  order,
+  message,
+  tone,
+}: {
+  row: ShippingLabelRow;
+  order: OrderRow | null;
+  message: string;
+  tone: string;
+}) {
+  return (
+    <div className="border-b py-3 last:border-b-0">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <Link href={`/admin/orders/${row.order_id}`} className="font-bold underline">
+          Order #{row.order_id}
+        </Link>
+        <span
+          className={`rounded border px-2 py-1 text-xs font-black ${statusTone(
+            row.label_status,
+          )}`}
+        >
+          {label(row.label_status)}
+        </span>
+      </div>
+      <p className="mt-1 text-sm text-neutral-600">
+        {order?.customer_email || "No customer email"} /{" "}
+        {row.provider_service || order?.shipping_name || "Shipping"}
+      </p>
+      <p className={`mt-2 text-sm font-semibold ${tone}`}>{message}</p>
+      <dl className="mt-2 grid grid-cols-1 gap-1 text-xs text-neutral-600">
+        <Info
+          label="Tracking"
+          value={row.tracking_number || order?.tracking_number || "Missing"}
+        />
+        <Info label="Updated" value={shortDate(row.updated_at || row.created_at)} />
+      </dl>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <a
+          href={`/api/admin/shipping-labels/${row.id}/packet`}
+          className="rounded border border-neutral-300 bg-white px-3 py-2 text-xs font-black text-neutral-950"
+        >
+          Label Packet
+        </a>
+        <Link
+          href={`/admin/orders/${row.order_id}`}
+          className="rounded bg-neutral-950 px-3 py-2 text-xs font-black text-white"
+        >
+          Open Order
+        </Link>
+      </div>
+    </div>
   );
 }
 
