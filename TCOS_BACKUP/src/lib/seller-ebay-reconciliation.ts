@@ -267,8 +267,10 @@ export async function reconcileSellerEbayInventoryBatch(params: {
   accountId: string;
   storeId: string;
   resetCursor?: boolean;
+  source?: "seller_manual" | "scheduled_cron";
 }): Promise<SellerEbayReconciliationResult> {
   const startedAt = new Date().toISOString();
+  const source = params.source || "seller_manual";
   const auth = await getSellerEbayAccessToken({
     supabase: params.supabase,
     accountId: params.accountId,
@@ -311,7 +313,11 @@ export async function reconcileSellerEbayInventoryBatch(params: {
       status: "processing",
       cursor_offset: offset,
       started_at: startedAt,
-      summary: { batch_size: BATCH_SIZE, reset_cursor: params.resetCursor === true },
+      summary: {
+        batch_size: BATCH_SIZE,
+        reset_cursor: params.resetCursor === true,
+        request_source: source,
+      },
     })
     .select("id")
     .single();
@@ -569,6 +575,7 @@ export async function reconcileSellerEbayInventoryBatch(params: {
       next_offset: nextOffset,
       has_more: hasMore,
       batch_size: BATCH_SIZE,
+      request_source: source,
       outside_sale_fee_applied: false,
       auto_increase_enabled: false,
     };

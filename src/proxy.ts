@@ -75,6 +75,7 @@ function isIdentityCheckExempt(pathname: string): boolean {
     pathname === "/api/webhook" ||
     pathname === "/api/stripe/webhook" ||
     pathname === "/api/ebay/notifications" ||
+    pathname.startsWith("/api/cron/") ||
     pathname.startsWith("/_next") ||
     pathname === "/favicon.ico"
   );
