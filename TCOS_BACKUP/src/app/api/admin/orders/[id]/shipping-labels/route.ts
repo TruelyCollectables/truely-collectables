@@ -2,6 +2,7 @@ import { getClientIdentity } from "../../../../../../lib/client-identity";
 import {
   getShippingCoverage,
   isShippingMethod,
+  resolveShippingMethod,
   type ShippingMethod,
 } from "../../../../../../lib/shipping";
 import {
@@ -121,7 +122,13 @@ async function createPlannedLabel(params: {
   providerReadiness: ReturnType<typeof getShippingProviderReadiness>;
   order: OrderRow;
 }) {
-  const resolvedMethod = safeShippingMethod(params.order.shipping_method);
+  const requestedMethod = safeShippingMethod(params.order.shipping_method);
+  const shippingPolicy = resolveShippingMethod({
+    requestedMethod,
+    itemCount: Number(params.order.item_count || 1),
+    subtotal: Number(params.order.subtotal || 0),
+  });
+  const resolvedMethod = shippingPolicy.method;
   const coverage = getShippingCoverage({
     method: resolvedMethod,
     subtotal: Number(params.order.subtotal || 0),
@@ -138,7 +145,7 @@ async function createPlannedLabel(params: {
       carrier: params.order.carrier || carrierForMethod(resolvedMethod),
       tracking_number: params.order.tracking_number || null,
       postage_amount: Number(params.order.shipping_amount || 0),
-      requested_shipping_method: params.order.shipping_method,
+      requested_shipping_method: requestedMethod,
       resolved_shipping_method: resolvedMethod,
       coverage_provider: coverage.provider,
       coverage_required: coverage.required,
@@ -150,6 +157,13 @@ async function createPlannedLabel(params: {
         item_count: params.order.item_count,
         coverage_type: coverage.coverageType,
         coverage_detail: coverage.detail,
+        requested_shipping_method: requestedMethod,
+        resolved_shipping_method: resolvedMethod,
+        shipping_policy_reason: shippingPolicy.reason,
+        standard_envelope_eligible: shippingPolicy.standardEnvelope.eligible,
+        standard_envelope_estimated_oz:
+          shippingPolicy.standardEnvelope.estimatedOunces,
+        standard_envelope_reason: shippingPolicy.standardEnvelope.reason,
         planned_at: now,
         planned_by_identity: params.identity,
         provider_purchase_required: true,
@@ -176,7 +190,13 @@ async function createPlannedLabel(params: {
       "Internal shipping label and seller coverage record prepared. Provider purchase is still required.",
     occurred_at: now,
     raw_payload: {
-      shipping_method: resolvedMethod,
+      requested_shipping_method: requestedMethod,
+      resolved_shipping_method: resolvedMethod,
+      shipping_policy_reason: shippingPolicy.reason,
+      standard_envelope_eligible: shippingPolicy.standardEnvelope.eligible,
+      standard_envelope_estimated_oz:
+        shippingPolicy.standardEnvelope.estimatedOunces,
+      standard_envelope_reason: shippingPolicy.standardEnvelope.reason,
       coverage_provider: coverage.provider,
       coverage_amount: coverage.coveredAmount,
     },

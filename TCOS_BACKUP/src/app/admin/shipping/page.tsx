@@ -17,11 +17,14 @@ type ShippingLabelRow = {
   carrier: string | null;
   tracking_number: string | null;
   label_status: string | null;
+  requested_shipping_method: string | null;
+  resolved_shipping_method: string | null;
   coverage_provider: string | null;
   coverage_status: string | null;
   coverage_amount: number | string | null;
   coverage_policy_id: string | null;
   postage_amount: number | string | null;
+  metadata: Record<string, unknown> | null;
   created_at: string;
   updated_at: string | null;
 };
@@ -130,6 +133,42 @@ function orderFor(
   return ordersById.get(labelRow.order_id) || null;
 }
 
+function metadataText(
+  metadata: Record<string, unknown> | null | undefined,
+  key: string,
+) {
+  const value = metadata?.[key];
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function metadataNumber(
+  metadata: Record<string, unknown> | null | undefined,
+  key: string,
+) {
+  const value = metadata?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function standardEnvelopePolicyNote(row: ShippingLabelRow) {
+  const reason =
+    metadataText(row.metadata, "shipping_policy_reason") ||
+    metadataText(row.metadata, "standard_envelope_reason");
+  const estimatedOz = metadataNumber(row.metadata, "standard_envelope_estimated_oz");
+
+  if (!reason && row.requested_shipping_method === row.resolved_shipping_method) {
+    return null;
+  }
+
+  const transition =
+    row.requested_shipping_method && row.resolved_shipping_method
+      ? `${label(row.requested_shipping_method)} -> ${label(row.resolved_shipping_method)}`
+      : null;
+
+  return [transition, estimatedOz ? `${estimatedOz} estimated oz` : null, reason]
+    .filter(Boolean)
+    .join(" / ");
+}
+
 export default async function AdminShippingPage() {
   const supabase = createSupabaseServerClient({ admin: true });
   const storeId = getActiveStoreId();
@@ -139,7 +178,7 @@ export default async function AdminShippingPage() {
     supabase
       .from("order_shipping_labels")
       .select(
-        "id,order_id,provider,provider_service,service_level,carrier,tracking_number,label_status,coverage_provider,coverage_status,coverage_amount,coverage_policy_id,postage_amount,created_at,updated_at",
+        "id,order_id,provider,provider_service,service_level,carrier,tracking_number,label_status,requested_shipping_method,resolved_shipping_method,coverage_provider,coverage_status,coverage_amount,coverage_policy_id,postage_amount,metadata,created_at,updated_at",
       )
       .eq("store_id", storeId)
       .order("created_at", { ascending: false })
@@ -338,6 +377,7 @@ export default async function AdminShippingPage() {
               ) : (
                 labels.map((row) => {
                   const order = orderFor(ordersById, row);
+                  const policyNote = standardEnvelopePolicyNote(row);
 
                   return (
                     <article
@@ -371,8 +411,21 @@ export default async function AdminShippingPage() {
                           {order?.customer_email || "No customer email"} /{" "}
                           {row.provider_service || order?.shipping_name || "Shipping"}
                         </p>
+                        {policyNote ? (
+                          <p className="mt-2 rounded border border-blue-200 bg-blue-50 p-2 text-sm font-semibold text-blue-950">
+                            {policyNote}
+                          </p>
+                        ) : null}
                         <dl className="mt-3 grid grid-cols-1 gap-2 text-sm md:grid-cols-4">
                           <Info label="Provider" value={row.provider || "Pending"} />
+                          <Info
+                            label="Requested"
+                            value={label(row.requested_shipping_method)}
+                          />
+                          <Info
+                            label="Resolved"
+                            value={label(row.resolved_shipping_method)}
+                          />
                           <Info
                             label="Carrier"
                             value={row.carrier || order?.carrier || "Pending"}

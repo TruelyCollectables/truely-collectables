@@ -123,6 +123,7 @@ type ShippingLabel = {
   purchased_at: string | null;
   printed_at: string | null;
   voided_at: string | null;
+  metadata: Record<string, unknown> | null;
   created_at: string;
   updated_at: string | null;
 };
@@ -167,6 +168,56 @@ function label(value: string | null | undefined) {
 
 function dateLabel(value: string | null | undefined) {
   return value ? new Date(value).toLocaleString() : "Not saved";
+}
+
+function metadataText(
+  metadata: Record<string, unknown> | null | undefined,
+  key: string,
+) {
+  const value = metadata?.[key];
+  return typeof value === "string" && value.trim() ? value : null;
+}
+
+function metadataNumber(
+  metadata: Record<string, unknown> | null | undefined,
+  key: string,
+) {
+  const value = metadata?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function standardEnvelopePolicyNote(shippingLabel: ShippingLabel) {
+  const reason =
+    metadataText(shippingLabel.metadata, "shipping_policy_reason") ||
+    metadataText(shippingLabel.metadata, "standard_envelope_reason");
+  const estimatedOz = metadataNumber(
+    shippingLabel.metadata,
+    "standard_envelope_estimated_oz",
+  );
+
+  if (
+    !reason &&
+    shippingLabel.requested_shipping_method ===
+      shippingLabel.resolved_shipping_method
+  ) {
+    return null;
+  }
+
+  const transition =
+    shippingLabel.requested_shipping_method &&
+    shippingLabel.resolved_shipping_method
+      ? `${label(shippingLabel.requested_shipping_method)} -> ${label(
+          shippingLabel.resolved_shipping_method,
+        )}`
+      : null;
+
+  return [
+    transition,
+    estimatedOz ? `${estimatedOz} estimated oz` : null,
+    reason,
+  ]
+    .filter(Boolean)
+    .join(" / ");
 }
 
 export default async function AdminOrderDetailPage({
@@ -382,6 +433,7 @@ export default async function AdminOrderDetailPage({
         purchased_at,
         printed_at,
         voided_at,
+        metadata,
         created_at,
         updated_at
       `,
@@ -889,7 +941,10 @@ export default async function AdminOrderDetailPage({
           </div>
         ) : !shippingLabelsError ? (
           <div className="mt-4 space-y-4">
-            {shippingLabels.map((shippingLabel) => (
+            {shippingLabels.map((shippingLabel) => {
+              const policyNote = standardEnvelopePolicyNote(shippingLabel);
+
+              return (
               <div key={shippingLabel.id} className="rounded border p-4">
                 <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                   <div>
@@ -902,6 +957,11 @@ export default async function AdminOrderDetailPage({
                       Status: {label(shippingLabel.label_status)} / Coverage:{" "}
                       {label(shippingLabel.coverage_status)}
                     </p>
+                    {policyNote ? (
+                      <p className="mt-2 rounded border border-blue-200 bg-blue-50 p-2 text-sm font-semibold text-blue-950">
+                        {policyNote}
+                      </p>
+                    ) : null}
                   </div>
 
                   <p className="rounded bg-gray-100 px-3 py-1 text-xs font-black">
@@ -912,6 +972,14 @@ export default async function AdminOrderDetailPage({
                 <dl className="mt-4 grid grid-cols-1 gap-3 text-sm md:grid-cols-4">
                   <div>
                     <dt className="font-semibold text-gray-500">Service</dt>
+                    <dd>{label(shippingLabel.resolved_shipping_method)}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-semibold text-gray-500">Requested</dt>
+                    <dd>{label(shippingLabel.requested_shipping_method)}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-semibold text-gray-500">Resolved</dt>
                     <dd>{label(shippingLabel.resolved_shipping_method)}</dd>
                   </div>
                   <div>
@@ -977,7 +1045,8 @@ export default async function AdminOrderDetailPage({
                   </p>
                 )}
               </div>
-            ))}
+              );
+            })}
           </div>
         ) : null}
 
