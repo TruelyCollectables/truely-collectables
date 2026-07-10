@@ -28,6 +28,15 @@ const allowedTransitions = new Map<string, Set<string>>([
   ["paid", new Set()],
 ]);
 
+type SellerPayoutAccountRow = {
+  onboarding_status: string | null;
+  payouts_enabled: boolean | null;
+  details_submitted: boolean | null;
+  requirements_currently_due: string[] | null;
+  requirements_past_due: string[] | null;
+  disabled_reason: string | null;
+};
+
 function getSupabaseClient() {
   return createSupabaseServerClient({ admin: true });
 }
@@ -49,6 +58,17 @@ function moneyNumber(value: unknown) {
 
 function roundMoney(value: number) {
   return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function sellerPayoutAccountReady(row: SellerPayoutAccountRow | null) {
+  return (
+    row?.onboarding_status === "active" &&
+    row.payouts_enabled === true &&
+    row.details_submitted === true &&
+    (row.requirements_currently_due || []).length === 0 &&
+    (row.requirements_past_due || []).length === 0 &&
+    !row.disabled_reason
+  );
 }
 
 function timestampPatch(status: string) {
@@ -141,6 +161,35 @@ export async function POST(request: Request) {
     }
 
     if (reviewProtectedStatuses.has(status)) {
+      const { data: payoutAccount, error: payoutAccountError } = await supabase
+        .from("seller_payout_accounts")
+        .select(
+          "onboarding_status,payouts_enabled,details_submitted,requirements_currently_due,requirements_past_due,disabled_reason",
+        )
+        .eq("store_id", storeId)
+        .eq("account_id", payoutRequest.seller_account_id)
+        .eq("provider", "stripe_connect")
+        .maybeSingle();
+
+      if (payoutAccountError) throw payoutAccountError;
+
+      if (
+        !sellerPayoutAccountReady(
+          (payoutAccount || null) as SellerPayoutAccountRow | null,
+        )
+      ) {
+        return Response.json(
+          {
+            error:
+              "Seller Stripe payout verification must be active before approving, processing, or paying this cash-out request.",
+            sellerPayoutStatus:
+              (payoutAccount as SellerPayoutAccountRow | null)?.onboarding_status ||
+              "not_started",
+          },
+          { status: 409 },
+        );
+      }
+
       const blockersByRequestId = await loadSellerPayoutRequestReviewBlockers({
         supabase,
         storeId,

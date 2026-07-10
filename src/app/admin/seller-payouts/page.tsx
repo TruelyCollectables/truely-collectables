@@ -180,6 +180,36 @@ function requirementSummary(account: SellerPayoutAccount) {
   return parts.length > 0 ? parts.join(" / ") : "No open Stripe requirements";
 }
 
+function sellerPayoutAccountReady(account: SellerPayoutAccount | undefined) {
+  return (
+    account?.onboarding_status === "active" &&
+    account.payouts_enabled === true &&
+    account.details_submitted === true &&
+    (account.requirements_currently_due || []).length === 0 &&
+    (account.requirements_past_due || []).length === 0 &&
+    !account.disabled_reason
+  );
+}
+
+function sellerPayoutAccountBlockReason(account: SellerPayoutAccount | undefined) {
+  if (!account) return "Seller has not started Stripe payout verification.";
+  if (account.disabled_reason) {
+    return `Stripe payout account disabled: ${account.disabled_reason}`;
+  }
+  if (account.onboarding_status !== "active") {
+    return `Stripe payout verification is ${label(account.onboarding_status)}.`;
+  }
+  if (account.payouts_enabled !== true) return "Stripe payouts are not enabled.";
+  if (account.details_submitted !== true) return "Stripe account details are not submitted.";
+
+  const dueCount =
+    (account.requirements_currently_due || []).length +
+    (account.requirements_past_due || []).length;
+  if (dueCount > 0) return `${dueCount} Stripe requirement(s) remain open.`;
+
+  return null;
+}
+
 export default async function AdminSellerPayoutsPage() {
   const supabase = createSupabaseServerClient({ admin: true });
   const storeId = getActiveStoreId();
@@ -367,6 +397,9 @@ export default async function AdminSellerPayoutsPage() {
       (account.requirements_currently_due || []).length > 0 ||
       (account.requirements_past_due || []).length > 0 ||
       Boolean(account.disabled_reason),
+  );
+  const payoutAccountsByAccountId = new Map(
+    payoutAccounts.map((account) => [account.account_id, account]),
   );
 
   return (
@@ -709,6 +742,11 @@ export default async function AdminSellerPayoutsPage() {
                 const profile = profilesById.get(request.seller_account_id);
                 const blocker = payoutRequestBlockers.get(request.id);
                 const blockerReason = reviewBlockReason(blocker);
+                const payoutAccount = payoutAccountsByAccountId.get(
+                  request.seller_account_id,
+                );
+                const payoutAccountReady =
+                  sellerPayoutAccountReady(payoutAccount);
 
                 return (
                   <div
@@ -814,6 +852,12 @@ export default async function AdminSellerPayoutsPage() {
                         reviewBlocked={Boolean(blocker?.isBlocked)}
                         reviewGuardUnavailable={Boolean(payoutRequestBlockerError)}
                         reviewBlockReason={blockerReason}
+                        payoutAccountReady={payoutAccountReady}
+                        payoutAccountBlockReason={
+                          payoutAccountReady
+                            ? null
+                            : sellerPayoutAccountBlockReason(payoutAccount)
+                        }
                       />
                     </div>
                   </div>

@@ -17,12 +17,16 @@ export default function PayoutRequestActions({
   reviewBlocked,
   reviewGuardUnavailable,
   reviewBlockReason,
+  payoutAccountReady,
+  payoutAccountBlockReason,
 }: {
   requestId: string;
   status: string | null;
   reviewBlocked?: boolean;
   reviewGuardUnavailable?: boolean;
   reviewBlockReason?: string | null;
+  payoutAccountReady?: boolean;
+  payoutAccountBlockReason?: string | null;
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState("");
@@ -68,7 +72,9 @@ export default function PayoutRequestActions({
 
   const currentStatus = status || "requested";
   const locked = currentStatus === "paid" || loading !== "";
-  const payoutAdvanceBlocked = Boolean(reviewBlocked || reviewGuardUnavailable);
+  const payoutAdvanceBlocked = Boolean(
+    reviewBlocked || reviewGuardUnavailable || payoutAccountReady === false,
+  );
 
   return (
     <div className="grid gap-2">
@@ -101,6 +107,13 @@ export default function PayoutRequestActions({
             placeholder="Final processor fee"
           />
         </div>
+      ) : null}
+
+      {payoutAccountReady === false ? (
+        <p className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-900">
+          {payoutAccountBlockReason ||
+            "Seller Stripe payout verification must be active before this request can advance."}
+        </p>
       ) : null}
 
       {reviewGuardUnavailable ? (
