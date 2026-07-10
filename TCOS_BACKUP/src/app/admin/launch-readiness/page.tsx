@@ -439,6 +439,15 @@ async function checkDatabaseReadiness(): Promise<ReadinessItem[]> {
         "payment_simulation_scenarios is available for scenario-level charge, decline, duplicate, refund, dispute, payout, and reconciliation assertions.",
     },
     {
+      label: "Checkout E2E Isolation",
+      table: "orders",
+      select:
+        "id,store_id,is_test,test_run_id,stripe_session_id,stripe_payment_intent_id,stripe_charge_id,payment_status,refund_status,amount_refunded",
+      migration: "20260710180000_create_checkout_e2e_isolation.sql",
+      readyDetail:
+        "orders supports run-scoped test tagging so the disposable checkout-to-refund drill stays outside daily reconciliation and production financial totals.",
+    },
+    {
       label: "Seller Payout Accounts",
       table: "seller_payout_accounts",
       select:

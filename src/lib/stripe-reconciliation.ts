@@ -86,6 +86,7 @@ async function findInternalMatch(params: {
       .from("orders")
       .select("id,total")
       .eq("store_id", params.storeId)
+      .eq("is_test", false)
       .eq("stripe_charge_id", params.sourceId)
       .limit(1)
       .maybeSingle();
@@ -100,6 +101,7 @@ async function findInternalMatch(params: {
           .from("orders")
           .select("id,total")
           .eq("store_id", params.storeId)
+          .eq("is_test", false)
           .eq("stripe_payment_intent_id", paymentIntentId)
           .limit(1)
           .maybeSingle();
@@ -171,6 +173,7 @@ async function loadInternalWindow(params: {
       .from("orders")
       .select("id,total,stripe_charge_id,stripe_payment_intent_id,created_at")
       .eq("store_id", params.storeId)
+      .eq("is_test", false)
       .gte("created_at", params.start)
       .lt("created_at", params.end),
     params.supabase

@@ -90,7 +90,8 @@ export default async function PaymentSimulationsPage() {
             <h1 className="mt-2 text-4xl font-black">Payment Simulation Lab</h1>
             <p className="mt-2 max-w-3xl text-sm text-neutral-300">
               Regression checks for 8% fee allocation, declines, idempotency,
-              refunds, disputes, payout recovery, and money reconciliation.
+              refunds, disputes, payout recovery, money reconciliation, and a
+              disposable storefront checkout-to-refund transaction.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -114,6 +115,8 @@ export default async function PaymentSimulationsPage() {
             The no-money suite never contacts Stripe. The sandbox suite is
             hard-locked to an <code>sk_test_</code> key, tags every provider
             object, and quarantines its webhook events from TCOS financial data.
+            The full checkout drill temporarily creates a non-eBay product and
+            test-tagged order, verifies the real TCOS rows, then removes them.
           </p>
           <p className="mt-2 text-sm font-bold">
             Stripe sandbox: {stripeTestEnabled ? "ENABLED" : "LOCKED"}. Subscription renewals are excluded while the monthly plan is on hold.

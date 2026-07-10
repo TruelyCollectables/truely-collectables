@@ -9,7 +9,9 @@ export default function SimulationActions({
   stripeTestEnabled: boolean;
 }) {
   const router = useRouter();
-  const [busy, setBusy] = useState<"deterministic" | "stripe_test" | null>(null);
+  const [busy, setBusy] = useState<
+    "deterministic" | "stripe_test" | "checkout_e2e" | null
+  >(null);
   const [message, setMessage] = useState("");
 
   async function run(mode: "deterministic" | "stripe_test") {
@@ -41,6 +43,32 @@ export default function SimulationActions({
     }
   }
 
+  async function runCheckoutE2E() {
+    const confirmation = window.prompt(
+      "This runs a disposable Stripe TEST storefront order and removes its TCOS fixture afterward. Type RUN CHECKOUT E2E to continue.",
+    );
+    if (confirmation !== "RUN CHECKOUT E2E") return;
+
+    setBusy("checkout_e2e");
+    setMessage("");
+    try {
+      const response = await fetch(
+        "/api/admin/payment-simulations/checkout-e2e",
+        { method: "POST" },
+      );
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(data.error || "Checkout E2E failed.");
+      setMessage(
+        `${data.status}: ${data.passed} passed, ${data.failed} failed, ${data.skipped} skipped.`,
+      );
+      router.refresh();
+    } catch (error: any) {
+      setMessage(error.message || "Checkout E2E failed.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
   return (
     <div className="flex flex-wrap items-center gap-2">
       <button
@@ -50,6 +78,14 @@ export default function SimulationActions({
         className="rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white disabled:opacity-50"
       >
         {busy === "deterministic" ? "Running..." : "Run No-Money Suite"}
+      </button>
+      <button
+        type="button"
+        onClick={runCheckoutE2E}
+        disabled={busy !== null || !stripeTestEnabled}
+        className="rounded-md border border-sky-300 bg-sky-50 px-4 py-2 text-sm font-black text-sky-950 disabled:opacity-50"
+      >
+        {busy === "checkout_e2e" ? "Running Checkout E2E..." : "Run Full Checkout E2E"}
       </button>
       <button
         type="button"

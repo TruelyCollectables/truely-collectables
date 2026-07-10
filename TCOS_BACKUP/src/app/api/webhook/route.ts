@@ -407,6 +407,11 @@ export async function POST(req: Request) {
 
     const offerId = metadata.offer_id;
     const checkoutType = metadata.type || "cart";
+    const isE2ETest =
+      !event.livemode && metadata.tcos_e2e_checkout === "true";
+    const testRunId = isE2ETest
+      ? metadata.tcos_simulation_run_id || null
+      : null;
 
     let rawCart: unknown = parseCartMetadata(metadata.cart);
 
@@ -468,6 +473,8 @@ export async function POST(req: Request) {
       contains_seller_items: false,
       seller_item_count: 0,
       store_item_count: 0,
+      is_test: isE2ETest,
+      test_run_id: testRunId,
     };
 
     const orderPayloadWithTerms = {
@@ -557,6 +564,8 @@ export async function POST(req: Request) {
           title: product.title,
           price: Number(product.price),
           quantity: cartItem.quantity,
+          is_test: isE2ETest,
+          test_run_id: testRunId,
         });
 
         if (itemError) {

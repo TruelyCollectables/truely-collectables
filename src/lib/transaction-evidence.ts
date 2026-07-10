@@ -48,6 +48,8 @@ type EvidenceOrder = {
   tos_user_agent?: string | null;
   tos_ip_risk?: string | null;
   tos_ip_block_reason?: string | null;
+  is_test?: boolean | null;
+  test_run_id?: string | null;
   order_items?: EvidenceOrderItem[];
 };
 
@@ -404,7 +406,7 @@ export async function createTransactionEvidenceReport(input: {
     reportId = String(data.id);
   }
 
-  if (!existing.data?.email_sent_at && reportId) {
+  if (!typedOrder.is_test && !existing.data?.email_sent_at && reportId) {
     const email = await sendEvidenceEmail({
       reportId,
       order: typedOrder,
