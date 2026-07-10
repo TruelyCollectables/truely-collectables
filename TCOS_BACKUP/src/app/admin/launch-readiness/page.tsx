@@ -11,6 +11,7 @@ import {
 import { getActiveStoreId } from "../../../lib/stores";
 import { createSupabaseServerClient } from "../../../lib/supabase-server";
 import { getShippingProviderReadiness } from "../../../lib/shipping-provider-readiness";
+import { SHIPPING_SIMULATION_SUITE_VERSION } from "../../../lib/shipping-simulations";
 import {
   getStripeLivePublishableKey,
   getStripeLiveSecretKey,
@@ -248,6 +249,13 @@ function buildReadinessItems(
       detail: item.detail,
       action: item.action,
     })),
+    {
+      label: "Shipping Simulation Lab",
+      status: "ready" as const,
+      detail: `Shipping simulation suite ${SHIPPING_SIMULATION_SUITE_VERSION} is available for Standard Envelope routing, Ground Advantage fallback, seller coverage, and dry-run provider purchase assertions.`,
+      action:
+        "Run /admin/shipping/simulations before enabling any live shipping provider purchase workflow.",
+    },
     {
       label: "AI Product Helpers",
       status: isConfigured(process.env.OPENAI_API_KEY) ? "ready" : "warning",
@@ -756,6 +764,9 @@ export default async function LaunchReadinessPage() {
           </Link>
           <Link href="/admin/live-payment-launch" className="rounded border bg-white px-4 py-2">
             Live Payment Gate
+          </Link>
+          <Link href="/admin/shipping/simulations" className="rounded border bg-white px-4 py-2">
+            Shipping Simulations
           </Link>
           <a href="#database-readiness" className="rounded border bg-white px-4 py-2">
             Database
