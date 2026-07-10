@@ -54,6 +54,21 @@ function carrierForMethod(method: ShippingMethod) {
   return method === "STANDARD_ENVELOPE" ? "USPS IMb" : "USPS";
 }
 
+function cleanText(value: unknown) {
+  const text = String(value || "").trim();
+  return text.length > 0 ? text.slice(0, 1000) : null;
+}
+
+function cleanMoney(value: unknown) {
+  const text = String(value || "").trim();
+  if (!text) return null;
+
+  const amount = Number(text);
+  if (!Number.isFinite(amount) || amount < 0) return null;
+
+  return Number(amount.toFixed(2));
+}
+
 async function loadOrder(params: {
   supabase: ReturnType<typeof createSupabaseServerClient>;
   storeId: string;
@@ -242,6 +257,7 @@ export async function PATCH(
     const supabase = createSupabaseServerClient({ admin: true });
     const storeId = getActiveStoreId();
     const identity = await getClientIdentity(request);
+    const body = await request.json().catch(() => ({}));
     const providerReadiness = getShippingProviderReadiness();
     const typedOrder = await loadOrder({ supabase, storeId, orderId });
     let label = await activeLabelForOrder({ supabase, storeId, orderId });
@@ -254,6 +270,124 @@ export async function PATCH(
         identity,
         providerReadiness,
         order: typedOrder,
+      });
+    }
+
+    if (body.action === "record_manual_purchase") {
+      const now = new Date().toISOString();
+      const provider =
+        cleanText(body.provider) ||
+        providerForMethod(safeShippingMethod(label.resolved_shipping_method));
+      const carrier =
+        cleanText(body.carrier) ||
+        typedOrder.carrier ||
+        carrierForMethod(safeShippingMethod(label.resolved_shipping_method));
+      const trackingNumber =
+        cleanText(body.trackingNumber) || typedOrder.tracking_number || null;
+      const postageAmount =
+        cleanMoney(body.postageAmount) ??
+        Number(typedOrder.shipping_amount || 0);
+      const coverageProvider = cleanText(body.coverageProvider) || "Coverage";
+      const coveragePolicyId = cleanText(body.coveragePolicyId);
+      const coverageAmount = cleanMoney(body.coverageAmount);
+      const labelUrl = cleanText(body.labelUrl);
+      const labelPdfUrl = cleanText(body.labelPdfUrl);
+      const providerLabelId = cleanText(body.providerLabelId);
+      const providerShipmentId = cleanText(body.providerShipmentId);
+      const note = cleanText(body.note);
+      const labelStatus = labelPdfUrl || labelUrl ? "printed" : "purchased";
+      const coverageStatus = coveragePolicyId ? "covered" : "purchase_pending";
+
+      const { error: labelUpdateError } = await supabase
+        .from("order_shipping_labels")
+        .update({
+          provider,
+          provider_label_id: providerLabelId,
+          provider_shipment_id: providerShipmentId,
+          carrier,
+          tracking_number: trackingNumber,
+          label_url: labelUrl,
+          label_pdf_url: labelPdfUrl,
+          postage_amount: postageAmount,
+          label_status: labelStatus,
+          coverage_provider: coverageProvider,
+          coverage_status: coverageStatus,
+          coverage_amount:
+            coverageAmount ?? Number(typedOrder.subtotal || 0),
+          coverage_policy_id: coveragePolicyId,
+          purchased_at: now,
+          printed_at: labelStatus === "printed" ? now : null,
+          updated_at: now,
+          metadata: {
+            ...(label.metadata || {}),
+            latest_manual_purchase_record: {
+              recorded_at: now,
+              recorded_by_identity: identity,
+              note,
+              provider,
+              carrier,
+              tracking_number: trackingNumber,
+              provider_label_id: providerLabelId,
+              provider_shipment_id: providerShipmentId,
+              coverage_policy_id: coveragePolicyId,
+              label_status: labelStatus,
+              coverage_status: coverageStatus,
+            },
+          },
+        })
+        .eq("id", label.id)
+        .eq("store_id", storeId);
+
+      if (labelUpdateError) throw labelUpdateError;
+
+      if (trackingNumber || carrier) {
+        const { error: orderUpdateError } = await supabase
+          .from("orders")
+          .update({
+            carrier,
+            tracking_number: trackingNumber,
+            updated_at: now,
+          })
+          .eq("id", orderId)
+          .eq("store_id", storeId);
+
+        if (orderUpdateError) throw orderUpdateError;
+      }
+
+      await supabase.from("order_shipping_tracking_events").insert({
+        store_id: storeId,
+        order_id: orderId,
+        shipping_label_id: label.id,
+        provider,
+        carrier,
+        tracking_number: trackingNumber,
+        event_type: "manual_label_purchase_recorded",
+        event_status: labelStatus,
+        message:
+          "Admin recorded an externally purchased shipping label and Coverage policy details in TCOS.",
+        occurred_at: now,
+        raw_payload: {
+          recorded_by_identity: identity,
+          provider_label_id: providerLabelId,
+          provider_shipment_id: providerShipmentId,
+          label_url: labelUrl,
+          label_pdf_url: labelPdfUrl,
+          postage_amount: postageAmount,
+          coverage_provider: coverageProvider,
+          coverage_policy_id: coveragePolicyId,
+          coverage_amount: coverageAmount,
+          coverage_status: coverageStatus,
+          note,
+        },
+      });
+
+      return Response.json({
+        success: true,
+        labelId: label.id,
+        labelStatus,
+        coverageStatus,
+        message:
+          "Manual shipping label and Coverage policy details were recorded.",
       });
     }
 
