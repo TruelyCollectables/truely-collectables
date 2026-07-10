@@ -153,6 +153,39 @@ function metadataLine(
   return value === null || value === undefined ? "Not saved" : value;
 }
 
+function metadataRecord(
+  metadata: Record<string, unknown> | null | undefined,
+  key: string,
+) {
+  const value = metadata?.[key];
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function nestedRecord(
+  record: Record<string, unknown> | null | undefined,
+  key: string,
+) {
+  const value = record?.[key];
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function isDryRunLabel(labelRow: ShippingLabelRow, events: TrackingEventRow[]) {
+  const latestAttempt = metadataRecord(labelRow.metadata, "latest_purchase_attempt");
+  const purchaseResult = nestedRecord(latestAttempt, "purchase_result");
+  const providerPayload = nestedRecord(purchaseResult, "rawProviderPayload");
+
+  return (
+    latestAttempt?.status === "dry_run_purchased" ||
+    purchaseResult?.mode === "dry_run" ||
+    providerPayload?.dry_run === true ||
+    events.some((event) => event.event_type === "provider_purchase_simulated")
+  );
+}
+
 function buildReport(input: {
   labelRow: ShippingLabelRow;
   order: OrderRow | null;
@@ -161,10 +194,19 @@ function buildReport(input: {
   optionalErrors: string[];
 }) {
   const { labelRow, order, events, claims, optionalErrors } = input;
+  const dryRunLabel = isDryRunLabel(labelRow, events);
   const lines: string[] = [
     "TCOS SHIPPING LABEL AUDIT PACKET",
     "Generated from TCOS order, shipping label, coverage, and tracking records.",
     "Use this packet for fulfillment review, buyer support, carrier inquiries, and claim preparation.",
+    ...(dryRunLabel
+      ? [
+          ...section("Dry-Run Safety Notice"),
+          "This label record was produced by the TCOS dry-run shipping adapter.",
+          "No real postage was purchased, no real USPS label was printed, and no external Coverage policy was purchased.",
+          "Use this packet for internal QA/audit only. Do not mail a shipment using dry-run tracking, provider IDs, or Coverage policy IDs.",
+        ]
+      : []),
     ...section("Label Summary"),
     line("Label ID", labelRow.id),
     line("Order ID", labelRow.order_id),
