@@ -691,6 +691,13 @@ export default function SellerPayoutsPage() {
     requestFilter,
     search,
   );
+  const sellerPayoutCashOutReady =
+    sellerPayout?.onboardingStatus === "active" &&
+    sellerPayout.payoutsEnabled === true &&
+    sellerPayout.detailsSubmitted === true &&
+    !sellerPayout.disabledReason &&
+    (sellerPayout.requirementsCurrentlyDue || []).length === 0 &&
+    (sellerPayout.requirementsPastDue || []).length === 0;
 
   function focusRequestView(filter: RequestFilter, nextSearch = "") {
     setPayoutRequestView({ filter, search: nextSearch });
@@ -1166,6 +1173,13 @@ export default function SellerPayoutsPage() {
               </p>
             ) : null}
 
+            {!sellerPayoutCashOutReady ? (
+              <p className="mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-semibold text-amber-900">
+                Stripe payout verification must be active before cash-out
+                requests can be submitted.
+              </p>
+            ) : null}
+
             <div className="mt-4 grid gap-3 sm:grid-cols-2">
               <BreakdownCard
                 label="Pending Fulfillment"
@@ -1261,6 +1275,7 @@ export default function SellerPayoutsPage() {
                 type="submit"
                 disabled={
                   isRequestingCashOut ||
+                  !sellerPayoutCashOutReady ||
                   Number(cashOutAmount || 0) <= 0 ||
                   Number(cashOutAmount || 0) >
                     Number(sellerPayoutBalance?.availableToRequestAmount || 0)
