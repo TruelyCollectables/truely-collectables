@@ -75,6 +75,8 @@ type CoverageClaimRow = {
   created_at: string;
 };
 
+type PrioritySeverity = "critical" | "warning" | "watch";
+
 function money(value: number | string | null | undefined) {
   return `$${Number(value || 0).toFixed(2)}`;
 }
@@ -93,6 +95,14 @@ function shortDate(value: string | null | undefined) {
     hour: "numeric",
     minute: "2-digit",
   }).format(new Date(value));
+}
+
+function oldestDate(values: Array<string | null | undefined>) {
+  const sorted = values
+    .filter((value): value is string => Boolean(value))
+    .sort((a, b) => new Date(a).getTime() - new Date(b).getTime());
+
+  return sorted[0] || null;
 }
 
 function statusTone(status: string | null | undefined) {
@@ -129,6 +139,18 @@ function statusTone(status: string | null | undefined) {
   }
 
   return "border-neutral-200 bg-neutral-100 text-neutral-800";
+}
+
+function priorityTone(severity: PrioritySeverity) {
+  if (severity === "critical") {
+    return "border-red-200 bg-red-50 text-red-950";
+  }
+
+  if (severity === "warning") {
+    return "border-amber-200 bg-amber-50 text-amber-950";
+  }
+
+  return "border-blue-200 bg-blue-50 text-blue-950";
 }
 
 function orderFor(
@@ -296,6 +318,88 @@ export default async function AdminShippingPage() {
     (claim) =>
       !["paid", "denied", "cancelled"].includes(claim.claim_status || "draft"),
   );
+  const priorityIssues = [
+    {
+      key: "blocked_purchase",
+      title: "Blocked Purchase Attempts",
+      count: blockedEvents.length,
+      severity: "critical" as PrioritySeverity,
+      detail: "Provider purchase was blocked. Fix the provider setup or record the external label.",
+      href: blockedEvents[0]?.order_id
+        ? `/admin/orders/${blockedEvents[0].order_id}`
+        : "/admin/shipping",
+      cta: "Open first blocked order",
+      oldestAt: oldestDate(blockedEvents.map((event) => event.occurred_at)),
+    },
+    {
+      key: "tracking_missing",
+      title: "Tracking Missing",
+      count: trackingMissingLabels.length,
+      severity: "critical" as PrioritySeverity,
+      detail: "Purchased labels need tracking or IMb saved before shipment can be trusted.",
+      href: trackingMissingLabels[0]?.order_id
+        ? `/admin/orders/${trackingMissingLabels[0].order_id}`
+        : "/admin/shipping",
+      cta: "Save tracking",
+      oldestAt: oldestDate(
+        trackingMissingLabels.map((row) => row.updated_at || row.created_at),
+      ),
+    },
+    {
+      key: "replacement_needed",
+      title: "Replacement Needed",
+      count: replacementNeededLabels.length,
+      severity: "critical" as PrioritySeverity,
+      detail: "Voided labels need a newer active replacement before the order can ship cleanly.",
+      href: replacementNeededLabels[0]?.order_id
+        ? `/admin/orders/${replacementNeededLabels[0].order_id}`
+        : "/admin/shipping",
+      cta: "Create replacement",
+      oldestAt: oldestDate(
+        replacementNeededLabels.map((row) => row.updated_at || row.created_at),
+      ),
+    },
+    {
+      key: "policy_missing",
+      title: "Coverage Policy Missing",
+      count: coveragePolicyMissingLabels.length,
+      severity: "warning" as PrioritySeverity,
+      detail: "Coverage was expected, but policy details are incomplete.",
+      href: coveragePolicyMissingLabels[0]?.order_id
+        ? `/admin/orders/${coveragePolicyMissingLabels[0].order_id}`
+        : "/admin/shipping",
+      cta: "Record policy",
+      oldestAt: oldestDate(
+        coveragePolicyMissingLabels.map((row) => row.updated_at || row.created_at),
+      ),
+    },
+    {
+      key: "ready_to_ship",
+      title: "Ready To Mark Shipped",
+      count: readyToMarkShippedLabels.length,
+      severity: "warning" as PrioritySeverity,
+      detail: "Tracking exists; finish the fulfillment state and customer notification.",
+      href: readyToMarkShippedLabels[0]?.order_id
+        ? `/admin/orders/${readyToMarkShippedLabels[0].order_id}`
+        : "/admin/shipping",
+      cta: "Mark shipped",
+      oldestAt: oldestDate(
+        readyToMarkShippedLabels.map((row) => row.updated_at || row.created_at),
+      ),
+    },
+    {
+      key: "open_claims",
+      title: "Open Coverage Claims",
+      count: openClaims.length,
+      severity: "watch" as PrioritySeverity,
+      detail: "Claims need evidence, status updates, payout tracking, or closure.",
+      href: openClaims[0]?.order_id
+        ? `/admin/orders/${openClaims[0].order_id}`
+        : "/admin/shipping",
+      cta: "Review claim",
+      oldestAt: oldestDate(openClaims.map((claim) => claim.created_at)),
+    },
+  ].filter((issue) => issue.count > 0);
 
   return (
     <main className="min-h-screen bg-neutral-50 p-8 text-neutral-950">
@@ -391,6 +495,67 @@ export default async function AdminShippingPage() {
             </p>
           </section>
         ) : null}
+
+        <section className="rounded border bg-white p-6">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h2 className="text-2xl font-black">Fulfillment Priority Stack</h2>
+              <p className="mt-1 text-sm text-neutral-600">
+                Work this from top to bottom. Red items can block shipment trust;
+                amber items finish the customer/admin audit trail.
+              </p>
+            </div>
+            <span
+              className={`rounded border px-3 py-1 text-sm font-black ${
+                priorityIssues.length === 0
+                  ? "border-green-200 bg-green-50 text-green-900"
+                  : "border-red-200 bg-red-50 text-red-900"
+              }`}
+            >
+              {priorityIssues.length === 0
+                ? "All clear"
+                : `${priorityIssues.length} active queues`}
+            </span>
+          </div>
+
+          {priorityIssues.length === 0 ? (
+            <p className="mt-5 rounded border border-green-200 bg-green-50 p-4 text-sm font-bold text-green-950">
+              No urgent shipping exceptions are open. Label queue is calm. Weirdly
+              beautiful.
+            </p>
+          ) : (
+            <div className="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-3">
+              {priorityIssues.map((issue, index) => (
+                <article
+                  key={issue.key}
+                  className={`rounded border p-4 ${priorityTone(issue.severity)}`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-widest opacity-75">
+                        Priority {index + 1}
+                      </p>
+                      <h3 className="mt-1 font-black">{issue.title}</h3>
+                    </div>
+                    <span className="rounded border border-current px-2 py-1 text-xs font-black">
+                      {issue.count}
+                    </span>
+                  </div>
+                  <p className="mt-3 text-sm font-semibold">{issue.detail}</p>
+                  <p className="mt-2 text-xs font-bold opacity-75">
+                    Oldest: {shortDate(issue.oldestAt)}
+                  </p>
+                  <Link
+                    href={issue.href}
+                    className="mt-3 inline-flex rounded bg-neutral-950 px-3 py-2 text-xs font-black text-white"
+                  >
+                    {issue.cta}
+                  </Link>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
 
         <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1.35fr_0.65fr]">
           <div className="rounded border bg-white">
