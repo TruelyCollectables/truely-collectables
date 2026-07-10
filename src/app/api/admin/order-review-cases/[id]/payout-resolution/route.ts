@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getClientIdentity } from "../../../../../../lib/client-identity";
+import { isOrderReviewStatus } from "../../../../../../lib/order-status";
 import { recordOrderReviewCaseEvent } from "../../../../../../lib/order-review-case-events";
 import { recordSellerPayoutAdminEvent } from "../../../../../../lib/seller-payout-admin-events";
 import { getActiveStoreId } from "../../../../../../lib/stores";
@@ -56,6 +57,13 @@ type OrderReviewCaseRow = {
   order_id: number;
   seller_account_id: string | null;
   status: string | null;
+};
+
+type OrderRow = {
+  id: number;
+  status: string | null;
+  fulfillment_status: string | null;
+  shipped_at: string | null;
 };
 
 type SellerPayoutLedgerRow = {
@@ -158,6 +166,34 @@ async function loadScopedLedgerRows(params: {
   return (data || []) as SellerPayoutLedgerRow[];
 }
 
+async function payoutReleaseBlockReason(params: {
+  supabase: SupabaseClient;
+  storeId: string;
+  orderId: number;
+}) {
+  const { data: order, error } = await params.supabase
+    .from("orders")
+    .select("id,status,fulfillment_status,shipped_at")
+    .eq("id", params.orderId)
+    .eq("store_id", params.storeId)
+    .single();
+
+  if (error || !order) {
+    return error?.message || "order_not_verified";
+  }
+
+  const typedOrder = order as OrderRow;
+  if (isOrderReviewStatus(typedOrder.status, typedOrder.fulfillment_status)) {
+    return "order_still_in_review";
+  }
+
+  if (typedOrder.fulfillment_status !== "shipped" || !typedOrder.shipped_at) {
+    return "order_not_shipped";
+  }
+
+  return null;
+}
+
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -216,6 +252,14 @@ export async function POST(
       storeId,
       reviewCase,
     });
+    const releaseBlockReason =
+      resolution.targetStatus === "eligible"
+        ? await payoutReleaseBlockReason({
+            supabase,
+            storeId,
+            orderId: reviewCase.order_id,
+          })
+        : null;
     let changedCount = 0;
     let skippedCount = 0;
     let changedAmount = 0;
@@ -236,6 +280,12 @@ export async function POST(
       ) {
         skippedCount += 1;
         skipped.push({ id: row.id, reason: `terminal_${previousStatus}` });
+        continue;
+      }
+
+      if (releaseBlockReason && resolution.targetStatus === "eligible") {
+        skippedCount += 1;
+        skipped.push({ id: row.id, reason: releaseBlockReason });
         continue;
       }
 
