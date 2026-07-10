@@ -13,9 +13,13 @@ type LedgerStatus =
 export default function PayoutLedgerActions({
   ledgerEntryId,
   status,
+  releaseBlocked,
+  releaseBlockReason,
 }: {
   ledgerEntryId: string;
   status: string | null;
+  releaseBlocked?: boolean;
+  releaseBlockReason?: string | null;
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState("");
@@ -72,7 +76,7 @@ export default function PayoutLedgerActions({
       <div className="grid grid-cols-2 gap-2">
         <button
           type="button"
-          disabled={locked || currentStatus === "eligible"}
+          disabled={locked || currentStatus === "eligible" || releaseBlocked}
           onClick={() => updateStatus("eligible")}
           className="rounded bg-emerald-700 px-2 py-1 text-xs font-bold text-white disabled:bg-neutral-400"
         >
@@ -103,6 +107,13 @@ export default function PayoutLedgerActions({
           {loading === "reversed" ? "Saving..." : "Reverse"}
         </button>
       </div>
+
+      {releaseBlocked ? (
+        <p className="rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-900">
+          {releaseBlockReason ||
+            "Order must clear fulfillment and review before payout release."}
+        </p>
+      ) : null}
 
       <button
         type="button"

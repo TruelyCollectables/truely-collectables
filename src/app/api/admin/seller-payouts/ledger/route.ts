@@ -1,5 +1,6 @@
 import { getActiveStoreId } from "../../../../../lib/stores";
 import { getClientIdentity } from "../../../../../lib/client-identity";
+import { isOrderReviewStatus } from "../../../../../lib/order-status";
 import { recordSellerPayoutAdminEvent } from "../../../../../lib/seller-payout-admin-events";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
 
@@ -23,8 +24,21 @@ const committedRequestStatuses = new Set([
 type SellerPayoutLedgerRow = {
   id: string;
   seller_account_id: string | null;
+  order_id: number;
   payout_status: string | null;
   metadata?: Record<string, unknown> | null;
+};
+
+type OrderRow = {
+  id: number;
+  status: string | null;
+  fulfillment_status: string | null;
+  shipped_at: string | null;
+};
+
+type OrderReviewCaseRow = {
+  id: string;
+  status: string | null;
 };
 
 type PayoutRequestEntryRow = {
@@ -97,6 +111,56 @@ async function hasCommittedPayoutRequest(params: {
   );
 }
 
+function isActiveReviewCase(status: string | null | undefined) {
+  return !["decided_for_buyer", "decided_for_seller", "closed"].includes(
+    status || "open",
+  );
+}
+
+async function payoutReleaseBlockReason(params: {
+  supabase: ReturnType<typeof getSupabaseClient>;
+  storeId: string;
+  orderId: number;
+}) {
+  const { data: order, error: orderError } = await params.supabase
+    .from("orders")
+    .select("id,status,fulfillment_status,shipped_at")
+    .eq("id", params.orderId)
+    .eq("store_id", params.storeId)
+    .single();
+
+  if (orderError || !order) {
+    return orderError?.message || "Order could not be verified before payout release.";
+  }
+
+  const typedOrder = order as OrderRow;
+  if (isOrderReviewStatus(typedOrder.status, typedOrder.fulfillment_status)) {
+    return "Order is still on payment, inventory, or shipping review.";
+  }
+
+  if (typedOrder.fulfillment_status !== "shipped" || !typedOrder.shipped_at) {
+    return "Order must be marked shipped before seller payout can be released.";
+  }
+
+  const { data: cases, error: caseError } = await params.supabase
+    .from("order_review_cases")
+    .select("id,status")
+    .eq("store_id", params.storeId)
+    .eq("order_id", params.orderId);
+
+  if (caseError) throw caseError;
+
+  const activeCaseCount = ((cases || []) as OrderReviewCaseRow[]).filter(
+    (reviewCase) => isActiveReviewCase(reviewCase.status),
+  ).length;
+
+  if (activeCaseCount > 0) {
+    return `${activeCaseCount} active order review case(s) must be resolved before seller payout release.`;
+  }
+
+  return null;
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json().catch(() => ({}));
@@ -115,7 +179,7 @@ export async function POST(request: Request) {
     const storeId = getActiveStoreId();
     const { data: ledgerEntry, error: lookupError } = await supabase
       .from("seller_payout_ledger_entries")
-      .select("id,seller_account_id,payout_status,metadata")
+      .select("id,seller_account_id,order_id,payout_status,metadata")
       .eq("id", ledgerEntryId)
       .eq("store_id", storeId)
       .single();
@@ -147,6 +211,24 @@ export async function POST(request: Request) {
         },
         { status: 409 },
       );
+    }
+
+    if (status === "eligible") {
+      const releaseBlockReason = await payoutReleaseBlockReason({
+        supabase,
+        storeId,
+        orderId: typedLedgerEntry.order_id,
+      });
+
+      if (releaseBlockReason) {
+        return Response.json(
+          {
+            error: releaseBlockReason,
+            orderId: typedLedgerEntry.order_id,
+          },
+          { status: 409 },
+        );
+      }
     }
 
     const now = new Date().toISOString();

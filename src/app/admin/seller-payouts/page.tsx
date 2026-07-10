@@ -33,6 +33,19 @@ type SellerPayoutLedgerEntry = {
   updated_at: string | null;
 };
 
+type LedgerOrderRow = {
+  id: number;
+  status: string | null;
+  fulfillment_status: string | null;
+  shipped_at: string | null;
+};
+
+type LedgerOrderReviewCaseRow = {
+  id: string;
+  order_id: number;
+  status: string | null;
+};
+
 type PlatformFeeLedgerEntry = {
   id: string;
   order_id: number;
@@ -210,6 +223,34 @@ function sellerPayoutAccountBlockReason(account: SellerPayoutAccount | undefined
   return null;
 }
 
+function isActiveReviewCase(status: string | null | undefined) {
+  return !["decided_for_buyer", "decided_for_seller", "closed"].includes(
+    status || "open",
+  );
+}
+
+function payoutReleaseBlockReason(
+  order: LedgerOrderRow | undefined,
+  activeCaseCount: number,
+) {
+  if (!order) return "Order could not be verified before payout release.";
+  if (
+    String(order.status || "").endsWith("_review") ||
+    ["inventory_review", "shipping_review"].includes(
+      String(order.fulfillment_status || ""),
+    )
+  ) {
+    return "Order is still on payment, inventory, or shipping review.";
+  }
+  if (order.fulfillment_status !== "shipped" || !order.shipped_at) {
+    return "Order must be marked shipped before seller payout can be released.";
+  }
+  if (activeCaseCount > 0) {
+    return `${activeCaseCount} active order review case(s) must be resolved before seller payout release.`;
+  }
+  return null;
+}
+
 export default async function AdminSellerPayoutsPage() {
   const supabase = createSupabaseServerClient({ admin: true });
   const storeId = getActiveStoreId();
@@ -332,6 +373,39 @@ export default async function AdminSellerPayoutsPage() {
   const payoutRequests = (payoutRequestData || []) as SellerPayoutRequest[];
   const payoutAccounts = (payoutAccountData || []) as SellerPayoutAccount[];
   const adminEvents = (adminEventData || []) as SellerPayoutAdminEvent[];
+  const ledgerOrderIds = Array.from(
+    new Set(entries.map((entry) => entry.order_id).filter(Boolean)),
+  );
+  const { data: ledgerOrdersData } =
+    ledgerOrderIds.length === 0
+      ? { data: [] }
+      : await supabase
+          .from("orders")
+          .select("id,status,fulfillment_status,shipped_at")
+          .eq("store_id", storeId)
+          .in("id", ledgerOrderIds);
+  const { data: ledgerCasesData } =
+    ledgerOrderIds.length === 0
+      ? { data: [] }
+      : await supabase
+          .from("order_review_cases")
+          .select("id,order_id,status")
+          .eq("store_id", storeId)
+          .in("order_id", ledgerOrderIds);
+  const ledgerOrdersById = new Map(
+    ((ledgerOrdersData || []) as LedgerOrderRow[]).map((order) => [
+      order.id,
+      order,
+    ]),
+  );
+  const activeCaseCountByOrderId = new Map<number, number>();
+  for (const reviewCase of (ledgerCasesData || []) as LedgerOrderReviewCaseRow[]) {
+    if (!isActiveReviewCase(reviewCase.status)) continue;
+    activeCaseCountByOrderId.set(
+      reviewCase.order_id,
+      (activeCaseCountByOrderId.get(reviewCase.order_id) || 0) + 1,
+    );
+  }
   let payoutRequestBlockers = new Map<string, SellerPayoutRequestReviewBlocker>();
   let payoutRequestBlockerError: string | null = null;
 
@@ -985,6 +1059,17 @@ export default async function AdminSellerPayoutsPage() {
             <div className="divide-y divide-neutral-200">
               {entries.map((entry) => {
                 const profile = profilesById.get(entry.seller_account_id);
+                const releaseBlockReason = [
+                  "eligible",
+                  "paid",
+                  "reversed",
+                  "cancelled",
+                ].includes(entry.payout_status || "")
+                  ? null
+                  : payoutReleaseBlockReason(
+                      ledgerOrdersById.get(entry.order_id),
+                      activeCaseCountByOrderId.get(entry.order_id) || 0,
+                    );
 
                 return (
                   <div
@@ -1069,6 +1154,8 @@ export default async function AdminSellerPayoutsPage() {
                       <PayoutLedgerActions
                         ledgerEntryId={entry.id}
                         status={entry.payout_status}
+                        releaseBlocked={Boolean(releaseBlockReason)}
+                        releaseBlockReason={releaseBlockReason}
                       />
                     </div>
                   </div>
