@@ -25,7 +25,7 @@ type ConnectionStateRow = {
   provider_metadata: Record<string, unknown> | null;
 };
 
-type RemoteEbayState = {
+export type SellerEbayRemoteState = {
   found: boolean;
   quantity: number | null;
   price: number | null;
@@ -132,12 +132,12 @@ function mapRun(row: any): SellerEbayReconciliationRun {
   };
 }
 
-async function fetchRemoteState(params: {
+export async function fetchSellerEbayRemoteState(params: {
   apiBase: string;
   accessToken: string;
   sku: string;
   expectedListingId: string | null;
-}): Promise<RemoteEbayState> {
+}): Promise<SellerEbayRemoteState> {
   const headers = ebayHeaders(params.accessToken);
   const itemResponse = await fetch(
     `${params.apiBase}/sell/inventory/v1/inventory_item/${encodeURIComponent(params.sku)}`,
@@ -412,7 +412,7 @@ export async function reconcileSellerEbayInventoryBatch(params: {
       }
 
       try {
-        const remote = await fetchRemoteState({
+        const remote = await fetchSellerEbayRemoteState({
           apiBase,
           accessToken: auth.accessToken,
           sku,

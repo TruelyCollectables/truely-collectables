@@ -1,11 +1,12 @@
 import { timingSafeEqual } from "node:crypto";
+import { importSellerEbayOrdersBatch } from "../../../../lib/seller-ebay-orders";
 import { reconcileSellerEbayInventoryBatch } from "../../../../lib/seller-ebay-reconciliation";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
-const MAX_CONNECTIONS_PER_INVOCATION = 2;
+const MAX_CONNECTIONS_PER_INVOCATION = 1;
 const START_ANOTHER_CONNECTION_BEFORE_MS = 45_000;
 
 type ScheduledConnectionRow = {
@@ -66,10 +67,20 @@ export async function GET(request: Request) {
   const results: Array<{
     connectionId: string;
     success: boolean;
-    runId?: string;
-    scannedCount?: number;
-    hasMore?: boolean;
-    error?: string;
+    orderImport: {
+      success: boolean;
+      importedOrderCount?: number;
+      importedItemCount?: number;
+      hasMore?: boolean;
+      error?: string;
+    };
+    reconciliation: {
+      success: boolean;
+      runId?: string;
+      scannedCount?: number;
+      hasMore?: boolean;
+      error?: string;
+    };
   }> = [];
 
   for (const connection of connections) {
@@ -80,6 +91,32 @@ export async function GET(request: Request) {
       break;
     }
 
+    const orderImport: (typeof results)[number]["orderImport"] = {
+      success: false,
+    };
+    const reconciliation: (typeof results)[number]["reconciliation"] = {
+      success: false,
+    };
+
+    try {
+      const imported = await importSellerEbayOrdersBatch({
+        supabase,
+        accountId: connection.account_id,
+        storeId: connection.store_id,
+        source: "scheduled_cron",
+      });
+      Object.assign(orderImport, {
+        success: true,
+        importedOrderCount: imported.importedOrderCount,
+        importedItemCount: imported.importedItemCount,
+        hasMore: imported.hasMore,
+      });
+    } catch (nextError: any) {
+      orderImport.error = String(
+        nextError.message || "Scheduled outside-order import failed.",
+      ).slice(0, 300);
+    }
+
     try {
       const result = await reconcileSellerEbayInventoryBatch({
         supabase,
@@ -87,22 +124,24 @@ export async function GET(request: Request) {
         storeId: connection.store_id,
         source: "scheduled_cron",
       });
-      results.push({
-        connectionId: connection.id,
+      Object.assign(reconciliation, {
         success: true,
         runId: result.runId,
         scannedCount: result.scannedCount,
         hasMore: result.hasMore,
       });
     } catch (nextError: any) {
-      results.push({
-        connectionId: connection.id,
-        success: false,
-        error: String(
+      reconciliation.error = String(
           nextError.message || "Scheduled reconciliation failed.",
-        ).slice(0, 300),
-      });
+        ).slice(0, 300);
     }
+
+    results.push({
+      connectionId: connection.id,
+      success: orderImport.success && reconciliation.success,
+      orderImport,
+      reconciliation,
+    });
   }
 
   const failureCount = results.filter((result) => !result.success).length;

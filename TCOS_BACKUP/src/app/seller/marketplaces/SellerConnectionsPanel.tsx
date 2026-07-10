@@ -142,6 +142,28 @@ type SellerReconciliationProgress = {
   totalLinked: number;
 };
 
+type SellerOutsideOrderStatus = {
+  orderCount: number;
+  paidCount: number;
+  refundedCount: number;
+  unmatchedItemCount: number;
+  latestImportedAt: string | null;
+};
+
+type SellerOutsideOrderImportResult = {
+  offset: number;
+  nextOffset: number;
+  hasMore: boolean;
+  totalAvailable: number;
+  importedOrderCount: number;
+  importedItemCount: number;
+  inventoryReducedCount: number;
+  soldCount: number;
+  unmatchedItemCount: number;
+  reviewCount: number;
+  failedItemCount: number;
+};
+
 type SellerInventorySummary = {
   totalItems: number;
   draftCount: number;
@@ -250,6 +272,8 @@ const EBAY_THIRD_PARTY_ACCESS_URL =
   "https://accounts.ebay.com/acctsec/security-center/third-party-app-access";
 const EBAY_IDENTITY_SCOPE =
   "https://api.ebay.com/oauth/api_scope/commerce.identity.readonly";
+const EBAY_FULFILLMENT_SCOPE =
+  "https://api.ebay.com/oauth/api_scope/sell.fulfillment";
 
 function label(value: string | null | undefined) {
   if (!value) return "Not set";
@@ -1358,6 +1382,50 @@ async function runSellerReconciliationBatch(
   return data.result as SellerReconciliationResult;
 }
 
+async function fetchSellerOutsideOrderStatus(accessToken: string) {
+  const response = await fetch(
+    "/api/account/seller/marketplace-connections/ebay/orders",
+    { headers: { Authorization: `Bearer ${accessToken}` } },
+  );
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error || "Could not load outside eBay orders.");
+  }
+
+  return {
+    orderCount: Number(data.orderCount || 0),
+    paidCount: Number(data.paidCount || 0),
+    refundedCount: Number(data.refundedCount || 0),
+    unmatchedItemCount: Number(data.unmatchedItemCount || 0),
+    latestImportedAt: data.latestImportedAt || null,
+  } satisfies SellerOutsideOrderStatus;
+}
+
+async function runSellerOutsideOrderImportBatch(
+  accessToken: string,
+  options: { resetCursor?: boolean } = {},
+) {
+  const response = await fetch(
+    "/api/account/seller/marketplace-connections/ebay/orders",
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${accessToken}`,
+      },
+      body: JSON.stringify({ resetCursor: options.resetCursor === true }),
+    },
+  );
+  const data = await response.json();
+
+  if (!response.ok) {
+    throw new Error(data.error || "Could not import outside eBay orders.");
+  }
+
+  return data.result as SellerOutsideOrderImportResult;
+}
+
 async function updateSellerStagedItemStatus(params: {
   accessToken: string;
   stagedItemId?: string;
@@ -1517,6 +1585,12 @@ export default function SellerConnectionsPanel({
     useState<SellerReconciliationProgress | null>(null);
   const [isReconciling, setIsReconciling] = useState(false);
   const [isReconcilingAll, setIsReconcilingAll] = useState(false);
+  const [outsideOrderStatus, setOutsideOrderStatus] =
+    useState<SellerOutsideOrderStatus | null>(null);
+  const [isImportingOutsideOrders, setIsImportingOutsideOrders] =
+    useState(false);
+  const [isImportingAllOutsideOrders, setIsImportingAllOutsideOrders] =
+    useState(false);
   const stageAllStopRequestedRef = useRef(false);
   const [updatingStageItemId, setUpdatingStageItemId] = useState("");
   const [editingReviewItemId, setEditingReviewItemId] = useState("");
@@ -1641,6 +1715,22 @@ export default function SellerConnectionsPanel({
     }
   }, []);
 
+  const refreshSellerOutsideOrderState = useCallback(async (
+    accessToken: string,
+    options?: { silent?: boolean },
+  ) => {
+    try {
+      const status = await fetchSellerOutsideOrderStatus(accessToken);
+      setOutsideOrderStatus(status);
+      return status;
+    } catch (error: any) {
+      if (!options?.silent) {
+        setMessage(error.message || "Could not load outside eBay orders.");
+      }
+      return null;
+    }
+  }, []);
+
   useEffect(() => {
     if (!session?.access_token) return;
 
@@ -1657,6 +1747,9 @@ export default function SellerConnectionsPanel({
           await refreshSellerReconciliationState(session.access_token, {
             silent: true,
           });
+          await refreshSellerOutsideOrderState(session.access_token, {
+            silent: true,
+          });
         } catch (error: any) {
           setMessage(
             error.message || "Could not load seller marketplace connections.",
@@ -1671,6 +1764,7 @@ export default function SellerConnectionsPanel({
     return () => window.clearTimeout(timeout);
   }, [
     refreshSellerInventoryState,
+    refreshSellerOutsideOrderState,
     refreshSellerReconciliationState,
     refreshSellerStageState,
     session?.access_token,
@@ -2066,6 +2160,80 @@ export default function SellerConnectionsPanel({
     stageAllStopRequestedRef.current = true;
     setStageAllStopRequested(true);
     setMessage("Stop requested. TCOS will finish the current batch and preserve the next cursor.");
+  }
+
+  async function importSellerOutsideOrders(options: {
+    all: boolean;
+    resetCursor?: boolean;
+  }) {
+    if (
+      !session?.access_token ||
+      !canUseSellerEbayTools ||
+      !ebayOrderImportReady ||
+      isImportingOutsideOrders
+    ) {
+      return;
+    }
+
+    const accessToken = session.access_token;
+    let batchesCompleted = 0;
+    let importedOrders = 0;
+    let importedItems = 0;
+    let reduced = 0;
+    let sold = 0;
+    let review = 0;
+    let failed = 0;
+    let hasMore = true;
+    let resetCursor = options.resetCursor === true;
+
+    setIsImportingOutsideOrders(true);
+    setIsImportingAllOutsideOrders(options.all);
+    setMessage(
+      options.all
+        ? "Importing all recent outside eBay orders..."
+        : "Importing the next outside eBay order batch...",
+    );
+
+    try {
+      while (hasMore) {
+        if (batchesCompleted >= 200) {
+          throw new Error(
+            "The safe 5,000-order limit was reached. Run the import again to resume from the saved cursor.",
+          );
+        }
+
+        const result = await runSellerOutsideOrderImportBatch(accessToken, {
+          resetCursor,
+        });
+        resetCursor = false;
+        batchesCompleted += 1;
+        importedOrders += result.importedOrderCount;
+        importedItems += result.importedItemCount;
+        reduced += result.inventoryReducedCount;
+        sold += result.soldCount;
+        review += result.reviewCount + result.unmatchedItemCount;
+        failed += result.failedItemCount;
+        hasMore = result.hasMore;
+
+        if (!options.all) break;
+      }
+
+      setMessage(
+        `Outside eBay order import ${hasMore ? "batch complete" : "complete"}. ${importedOrders} order${importedOrders === 1 ? "" : "s"} and ${importedItems} line item${importedItems === 1 ? "" : "s"} recorded; ${reduced} quantities reduced, ${sold} marked sold, ${review} need review, and ${failed} failed. TCOS fees and payouts were not touched.`,
+      );
+    } catch (error: any) {
+      setMessage(
+        `Outside eBay order import stopped safely after ${importedOrders} order${importedOrders === 1 ? "" : "s"}. ${error.message || "The next batch could not be imported."}`,
+      );
+    } finally {
+      await Promise.all([
+        refreshSellerOutsideOrderState(accessToken, { silent: true }),
+        refreshSellerInventoryState(accessToken, { silent: true }),
+        refreshSellerReconciliationState(accessToken, { silent: true }),
+      ]);
+      setIsImportingAllOutsideOrders(false);
+      setIsImportingOutsideOrders(false);
+    }
   }
 
   async function reconcileSellerInventory(options: {
@@ -2499,6 +2667,9 @@ export default function SellerConnectionsPanel({
   const ebayRevocationProtectionNeedsReconnect =
     sellerEbayAuthorized &&
     !ebayRevocationProtectionReady;
+  const ebayOrderImportReady =
+    sellerEbayAuthorized &&
+    Boolean(ebayConnection?.oauthScope.includes(EBAY_FULFILLMENT_SCOPE));
   const stagedSummary = stagedItems.reduce(
     (summary, item) => {
       summary.total += 1;
@@ -3109,6 +3280,111 @@ export default function SellerConnectionsPanel({
           </button>
         </div>
       ) : null}
+
+      {sellerEbayAuthorized && !ebayOrderImportReady ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-sky-200 bg-sky-50 p-4">
+          <div>
+            <p className="text-sm font-black text-sky-950">
+              Reconnect once for outside-order protection
+            </p>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-sky-900">
+              Grant eBay order-read permission so TCOS can detect sales made
+              outside TCOS and safely lower shared inventory. Existing staged
+              listings and seller inventory remain unchanged.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => requestConnection("ebay")}
+            disabled={!ebaySyncEnabled || isSavingProvider.length > 0}
+            className="rounded-md bg-sky-950 px-4 py-2 text-sm font-black text-white hover:bg-sky-900 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isSavingProvider === "ebay"
+              ? "Opening eBay..."
+              : "Reconnect for Orders"}
+          </button>
+        </div>
+      ) : null}
+
+      <div className="border-b border-neutral-200 bg-white p-5">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-black">Outside eBay Orders</h3>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-neutral-600">
+              Record eBay sales made outside TCOS in a separate audit ledger and
+              lower linked inventory from eBay&apos;s authoritative quantity. These
+              orders never enter TCOS checkout, payouts, or the 8% fee ledger.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => void importSellerOutsideOrders({ all: false })}
+              disabled={
+                !canUseSellerEbayTools ||
+                !ebayOrderImportReady ||
+                isImportingOutsideOrders
+              }
+              className="rounded-md border border-neutral-300 px-4 py-2 text-sm font-bold hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isImportingOutsideOrders && !isImportingAllOutsideOrders
+                ? "Importing Batch..."
+                : "Import Next 25"}
+            </button>
+            <button
+              type="button"
+              onClick={() =>
+                void importSellerOutsideOrders({ all: true, resetCursor: true })
+              }
+              disabled={
+                !canUseSellerEbayTools ||
+                !ebayOrderImportReady ||
+                isImportingOutsideOrders
+              }
+              className="rounded-md border border-sky-300 bg-sky-50 px-4 py-2 text-sm font-black text-sky-950 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isImportingAllOutsideOrders
+                ? "Importing All Recent..."
+                : "Import All Recent"}
+            </button>
+          </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-5">
+          <PreviewMetric
+            label="Outside Orders"
+            value={String(outsideOrderStatus?.orderCount || 0)}
+          />
+          <PreviewMetric
+            label="Paid"
+            value={String(outsideOrderStatus?.paidCount || 0)}
+          />
+          <PreviewMetric
+            label="Refunded"
+            value={String(outsideOrderStatus?.refundedCount || 0)}
+          />
+          <PreviewMetric
+            label="Unmatched Items"
+            value={String(outsideOrderStatus?.unmatchedItemCount || 0)}
+          />
+          <PreviewMetric
+            label="Last Import"
+            value={shortDate(outsideOrderStatus?.latestImportedAt)}
+          />
+        </div>
+
+        {!ebayOrderImportReady && sellerEbayAuthorized ? (
+          <p className="mt-4 rounded-md border border-sky-200 bg-sky-50 px-4 py-3 text-sm font-semibold text-sky-900">
+            Reconnect eBay once to enable outside-order imports.
+          </p>
+        ) : null}
+
+        <p className="mt-4 text-xs font-semibold uppercase leading-5 text-neutral-500">
+          Refunds and cancellations are flagged for review and never restore
+          stock automatically. Scheduled polling runs daily when seller sync is
+          active.
+        </p>
+      </div>
 
       <div className="border-b border-neutral-200 bg-white p-5">
         <div className="flex flex-wrap items-start justify-between gap-3">
