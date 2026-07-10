@@ -5,6 +5,16 @@ import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 
 export const dynamic = "force-dynamic";
 
+function isMissingShippingInfrastructure(error: { code?: string; message?: string }) {
+  const message = error.message?.toLowerCase() || "";
+
+  return (
+    error.code === "42P01" ||
+    message.includes("order_shipping_labels") ||
+    message.includes("order_shipping_tracking_events")
+  );
+}
+
 export async function POST(req: Request) {
   try {
     const supabase = createSupabaseServerClient({ admin: true });
@@ -37,6 +47,62 @@ export async function POST(req: Request) {
         { error: error.message },
         { status: 500 }
       );
+    }
+
+    try {
+      const now = new Date().toISOString();
+      const { data: label } = await supabase
+        .from("order_shipping_labels")
+        .select("id")
+        .eq("store_id", storeId)
+        .eq("order_id", orderId)
+        .not("label_status", "in", "(voided,failed)")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (label?.id) {
+        const { error: labelUpdateError } = await supabase
+          .from("order_shipping_labels")
+          .update({
+            carrier,
+            tracking_number: trackingNumber,
+            updated_at: now,
+          })
+          .eq("id", label.id)
+          .eq("store_id", storeId);
+
+        if (labelUpdateError && !isMissingShippingInfrastructure(labelUpdateError)) {
+          throw labelUpdateError;
+        }
+      }
+
+      const { error: eventError } = await supabase
+        .from("order_shipping_tracking_events")
+        .insert({
+          store_id: storeId,
+          order_id: orderId,
+          shipping_label_id: label?.id || null,
+          provider: "manual",
+          carrier,
+          tracking_number: trackingNumber,
+          event_type: "tracking_saved",
+          event_status: "tracking_saved",
+          message: "Carrier and tracking number saved in TCOS.",
+          occurred_at: now,
+          raw_payload: { carrier, tracking_number: trackingNumber },
+        });
+
+      if (eventError && !isMissingShippingInfrastructure(eventError)) {
+        throw eventError;
+      }
+    } catch (shippingEventError: any) {
+      if (!isMissingShippingInfrastructure(shippingEventError)) {
+        console.error(
+          "Shipping tracking event update failed:",
+          shippingEventError.message || shippingEventError,
+        );
+      }
     }
 
     try {

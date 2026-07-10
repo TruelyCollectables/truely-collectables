@@ -9,6 +9,7 @@ import OrderReviewCasesPanel, {
   type AdminOrderReviewCaseEvent,
   type SellerCaseOption,
 } from "./OrderReviewCasesPanel";
+import ShippingLabelActions from "./ShippingLabelActions";
 import TrackingForm from "./TrackingForm";
 
 type OrderItem = {
@@ -96,6 +97,63 @@ type PlatformFeeLedgerEntry = {
   created_at: string;
 };
 
+type ShippingLabel = {
+  id: string;
+  provider: string | null;
+  provider_service: string | null;
+  service_level: string | null;
+  carrier: string | null;
+  tracking_number: string | null;
+  label_url: string | null;
+  label_pdf_url: string | null;
+  postage_amount: number | string | null;
+  currency: string | null;
+  label_status: string | null;
+  requested_shipping_method: string | null;
+  resolved_shipping_method: string | null;
+  coverage_provider: string | null;
+  coverage_required: boolean | null;
+  coverage_status: string | null;
+  coverage_amount: number | string | null;
+  coverage_policy_id: string | null;
+  coverage_claim_id: string | null;
+  coverage_claim_status: string | null;
+  purchased_at: string | null;
+  printed_at: string | null;
+  voided_at: string | null;
+  created_at: string;
+  updated_at: string | null;
+};
+
+type ShippingTrackingEvent = {
+  id: string;
+  shipping_label_id: string | null;
+  provider: string | null;
+  carrier: string | null;
+  tracking_number: string | null;
+  event_type: string | null;
+  event_code: string | null;
+  event_status: string | null;
+  message: string | null;
+  location: string | null;
+  occurred_at: string;
+  created_at: string;
+};
+
+type ShippingCoverageClaim = {
+  id: string;
+  shipping_label_id: string | null;
+  provider: string | null;
+  provider_claim_id: string | null;
+  claim_status: string | null;
+  claim_type: string | null;
+  claim_amount: number | string | null;
+  reason: string | null;
+  submitted_at: string | null;
+  resolved_at: string | null;
+  created_at: string;
+};
+
 function money(value: number | null | undefined) {
   return `$${Number(value || 0).toFixed(2)}`;
 }
@@ -103,6 +161,10 @@ function money(value: number | null | undefined) {
 function label(value: string | null | undefined) {
   if (!value) return "Not set";
   return value.replaceAll("_", " ").toUpperCase();
+}
+
+function dateLabel(value: string | null | undefined) {
+  return value ? new Date(value).toLocaleString() : "Not saved";
 }
 
 export default async function AdminOrderDetailPage({
@@ -289,6 +351,95 @@ export default async function AdminOrderDetailPage({
     (sum, entry) => sum + Number(entry.platform_fee_amount || 0),
     0,
   );
+  const { data: shippingLabelsData, error: shippingLabelsError } =
+    await supabase
+      .from("order_shipping_labels")
+      .select(
+        `
+        id,
+        provider,
+        provider_service,
+        service_level,
+        carrier,
+        tracking_number,
+        label_url,
+        label_pdf_url,
+        postage_amount,
+        currency,
+        label_status,
+        requested_shipping_method,
+        resolved_shipping_method,
+        coverage_provider,
+        coverage_required,
+        coverage_status,
+        coverage_amount,
+        coverage_policy_id,
+        coverage_claim_id,
+        coverage_claim_status,
+        purchased_at,
+        printed_at,
+        voided_at,
+        created_at,
+        updated_at
+      `,
+      )
+      .eq("order_id", typedOrder.id)
+      .eq("store_id", storeId)
+      .order("created_at", { ascending: false });
+  const shippingLabels = shippingLabelsError
+    ? []
+    : ((shippingLabelsData || []) as ShippingLabel[]);
+  const shippingLabelIds = shippingLabels.map((row) => row.id);
+  const { data: shippingTrackingEventsData, error: shippingTrackingEventsError } =
+    await supabase
+      .from("order_shipping_tracking_events")
+      .select(
+        `
+        id,
+        shipping_label_id,
+        provider,
+        carrier,
+        tracking_number,
+        event_type,
+        event_code,
+        event_status,
+        message,
+        location,
+        occurred_at,
+        created_at
+      `,
+      )
+      .eq("order_id", typedOrder.id)
+      .eq("store_id", storeId)
+      .order("occurred_at", { ascending: false })
+      .limit(20);
+  const shippingTrackingEvents = shippingTrackingEventsError
+    ? []
+    : ((shippingTrackingEventsData || []) as ShippingTrackingEvent[]);
+  const { data: shippingCoverageClaimsData, error: shippingCoverageClaimsError } =
+    await supabase
+      .from("order_shipping_coverage_claims")
+      .select(
+        `
+        id,
+        shipping_label_id,
+        provider,
+        provider_claim_id,
+        claim_status,
+        claim_type,
+        claim_amount,
+        reason,
+        submitted_at,
+        resolved_at,
+        created_at
+      `,
+      )
+      .eq("order_id", typedOrder.id)
+      .eq("store_id", storeId)
+      .order("created_at", { ascending: false });
+  const shippingCoverageClaims = shippingCoverageClaimsError
+    ? []
+    : ((shippingCoverageClaimsData || []) as ShippingCoverageClaim[]);
 
   const itemsTotal =
     typedOrder.order_items?.reduce(
@@ -681,6 +832,199 @@ export default async function AdminOrderDetailPage({
               : "Not shipped"}
           </p>
         </div>
+      </section>
+
+      <section className="border rounded-lg p-6 mb-6">
+        <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+          <div>
+            <h2 className="text-2xl font-bold">Shipping Label + Coverage</h2>
+            <p className="mt-1 text-sm font-semibold text-gray-600">
+              Provider-ready records for label purchase, shipment tracking, and
+              seller protection coverage.
+            </p>
+          </div>
+
+          <ShippingLabelActions orderId={typedOrder.id} />
+        </div>
+
+        {shippingLabelsError ? (
+          <div className="mt-4 rounded border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-950">
+            Shipping label tables are not available yet:{" "}
+            {shippingLabelsError.message}
+          </div>
+        ) : shippingLabels.length === 0 ? (
+          <div className="mt-4 rounded border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
+            No label record has been prepared yet. Preparing one does not buy a
+            live label; it creates the TCOS audit record that the provider
+            adapter will later purchase against.
+          </div>
+        ) : (
+          <div className="mt-4 space-y-4">
+            {shippingLabels.map((shippingLabel) => (
+              <div key={shippingLabel.id} className="rounded border p-4">
+                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div>
+                    <p className="font-black">
+                      {shippingLabel.provider_service ||
+                        typedOrder.shipping_name ||
+                        "Shipping Label"}
+                    </p>
+                    <p className="text-sm font-semibold text-gray-600">
+                      Status: {label(shippingLabel.label_status)} / Coverage:{" "}
+                      {label(shippingLabel.coverage_status)}
+                    </p>
+                  </div>
+
+                  <p className="rounded bg-gray-100 px-3 py-1 text-xs font-black">
+                    {shippingLabel.provider || "Provider pending"}
+                  </p>
+                </div>
+
+                <dl className="mt-4 grid grid-cols-1 gap-3 text-sm md:grid-cols-4">
+                  <div>
+                    <dt className="font-semibold text-gray-500">Service</dt>
+                    <dd>{label(shippingLabel.resolved_shipping_method)}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-semibold text-gray-500">Carrier</dt>
+                    <dd>{shippingLabel.carrier || "Pending"}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-semibold text-gray-500">Tracking</dt>
+                    <dd className="break-all">
+                      {shippingLabel.tracking_number || "Pending"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="font-semibold text-gray-500">Postage</dt>
+                    <dd>{money(Number(shippingLabel.postage_amount || 0))}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-semibold text-gray-500">
+                      Coverage Provider
+                    </dt>
+                    <dd>{shippingLabel.coverage_provider || "Coverage"}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-semibold text-gray-500">
+                      Coverage Amount
+                    </dt>
+                    <dd>{money(Number(shippingLabel.coverage_amount || 0))}</dd>
+                  </div>
+                  <div>
+                    <dt className="font-semibold text-gray-500">Policy ID</dt>
+                    <dd className="break-all">
+                      {shippingLabel.coverage_policy_id || "Pending purchase"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="font-semibold text-gray-500">Created</dt>
+                    <dd>{dateLabel(shippingLabel.created_at)}</dd>
+                  </div>
+                </dl>
+
+                {shippingLabel.label_url || shippingLabel.label_pdf_url ? (
+                  <div className="mt-4 flex flex-wrap gap-3">
+                    {shippingLabel.label_pdf_url ? (
+                      <a
+                        href={shippingLabel.label_pdf_url}
+                        className="rounded border px-4 py-2 font-bold"
+                      >
+                        Open Label PDF
+                      </a>
+                    ) : null}
+                    {shippingLabel.label_url ? (
+                      <a
+                        href={shippingLabel.label_url}
+                        className="rounded border px-4 py-2 font-bold"
+                      >
+                        Open Label
+                      </a>
+                    ) : null}
+                  </div>
+                ) : (
+                  <p className="mt-4 rounded border border-blue-200 bg-blue-50 p-3 text-sm font-semibold text-blue-950">
+                    Provider purchase required before a printable label exists.
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="rounded border p-4">
+            <h3 className="font-black">Tracking Events</h3>
+            {shippingTrackingEventsError ? (
+              <p className="mt-2 text-sm font-semibold text-amber-700">
+                Tracking event table unavailable:{" "}
+                {shippingTrackingEventsError.message}
+              </p>
+            ) : shippingTrackingEvents.length === 0 ? (
+              <p className="mt-2 text-sm text-gray-600">
+                No tracking events have been recorded yet.
+              </p>
+            ) : (
+              <div className="mt-3 space-y-3">
+                {shippingTrackingEvents.map((event) => (
+                  <div key={event.id} className="border-b pb-3 last:border-b-0">
+                    <p className="font-bold">
+                      {label(event.event_type)} / {label(event.event_status)}
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      {event.message || event.event_code || "Tracking update"}
+                    </p>
+                    <p className="text-xs font-semibold text-gray-500">
+                      {dateLabel(event.occurred_at)}
+                      {event.location ? ` / ${event.location}` : ""}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded border p-4">
+            <h3 className="font-black">Coverage Claims</h3>
+            {shippingCoverageClaimsError ? (
+              <p className="mt-2 text-sm font-semibold text-amber-700">
+                Coverage claim table unavailable:{" "}
+                {shippingCoverageClaimsError.message}
+              </p>
+            ) : shippingCoverageClaims.length === 0 ? (
+              <p className="mt-2 text-sm text-gray-600">
+                No loss/damage coverage claims have been opened.
+              </p>
+            ) : (
+              <div className="mt-3 space-y-3">
+                {shippingCoverageClaims.map((claim) => (
+                  <div key={claim.id} className="border-b pb-3 last:border-b-0">
+                    <p className="font-bold">
+                      {claim.provider || "Coverage"} /{" "}
+                      {label(claim.claim_status)}
+                    </p>
+                    <p className="text-sm text-gray-600">
+                      {label(claim.claim_type)} for{" "}
+                      {money(Number(claim.claim_amount || 0))}
+                    </p>
+                    <p className="text-xs font-semibold text-gray-500">
+                      {claim.provider_claim_id || "Provider claim pending"} /{" "}
+                      {dateLabel(claim.created_at)}
+                    </p>
+                    {claim.reason ? (
+                      <p className="mt-1 text-sm">{claim.reason}</p>
+                    ) : null}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        <p className="mt-4 text-xs font-semibold text-gray-500">
+          Active label records for this order: {shippingLabelIds.length}. This
+          cockpit is the source of truth for future provider adapters.
+        </p>
       </section>
 
       <section className="border rounded-lg p-6 mb-6">

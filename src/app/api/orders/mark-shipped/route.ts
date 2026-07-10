@@ -30,6 +30,16 @@ function storeName(value: string) {
   return trimmed.length > 0 ? trimmed : "our store";
 }
 
+function isMissingShippingInfrastructure(error: { code?: string; message?: string }) {
+  const message = error.message?.toLowerCase() || "";
+
+  return (
+    error.code === "42P01" ||
+    message.includes("order_shipping_labels") ||
+    message.includes("order_shipping_tracking_events")
+  );
+}
+
 export async function POST(req: Request) {
   try {
     const resendApiKey = process.env.RESEND_API_KEY;
@@ -99,6 +109,67 @@ export async function POST(req: Request) {
 
     if (error) {
       return NextResponse.json({ error: error.message }, { status: 500 });
+    }
+
+    try {
+      const { data: label } = await supabase
+        .from("order_shipping_labels")
+        .select("id,label_status")
+        .eq("store_id", storeId)
+        .eq("order_id", orderId)
+        .not("label_status", "in", "(voided,failed)")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (label?.id) {
+        const { error: labelUpdateError } = await supabase
+          .from("order_shipping_labels")
+          .update({
+            carrier: order.carrier,
+            tracking_number: order.tracking_number,
+            label_status:
+              label.label_status === "planned" ? "printed" : label.label_status,
+            printed_at: label.label_status === "planned" ? shippedAt : undefined,
+            updated_at: shippedAt,
+          })
+          .eq("id", label.id)
+          .eq("store_id", storeId);
+
+        if (labelUpdateError && !isMissingShippingInfrastructure(labelUpdateError)) {
+          throw labelUpdateError;
+        }
+      }
+
+      const { error: eventError } = await supabase
+        .from("order_shipping_tracking_events")
+        .insert({
+          store_id: storeId,
+          order_id: orderId,
+          shipping_label_id: label?.id || null,
+          provider: "manual",
+          carrier: order.carrier,
+          tracking_number: order.tracking_number,
+          event_type: "order_marked_shipped",
+          event_status: "shipped",
+          message: "Order marked shipped in TCOS.",
+          occurred_at: shippedAt,
+          raw_payload: {
+            carrier: order.carrier,
+            tracking_number: order.tracking_number,
+          },
+        });
+
+      if (eventError && !isMissingShippingInfrastructure(eventError)) {
+        throw eventError;
+      }
+    } catch (shippingEventError: any) {
+      if (!isMissingShippingInfrastructure(shippingEventError)) {
+        console.error(
+          "Shipping shipment event update failed:",
+          shippingEventError.message || shippingEventError,
+        );
+      }
     }
 
     try {
