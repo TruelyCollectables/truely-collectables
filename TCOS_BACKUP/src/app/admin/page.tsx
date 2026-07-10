@@ -409,6 +409,7 @@ export default async function AdminDashboard() {
             <CommandButton href="/admin/inventory" label="Inventory V2" />
             <CommandButton href="/admin/accounts" label="Accounts" />
             <CommandButton href="/admin/order-review-cases" label="Cases" />
+            <CommandButton href="/admin/shipping" label="Shipping" />
             <CommandButton href="/admin/seller-payouts" label="Payouts" />
             <CommandButton href="/admin/financial-reconciliation" label="Money Audit" />
             <CommandButton href="/admin/payment-simulations" label="Payment Tests" />
@@ -586,6 +587,7 @@ export default async function AdminDashboard() {
                 <LinkButton href="/admin/security" label="Security" />
                 <LinkButton href="/admin/accounts" label="Accounts" />
                 <LinkButton href="/admin/order-review-cases" label="Cases" />
+                <LinkButton href="/admin/shipping" label="Shipping" />
                 <LinkButton href="/admin/seller-payouts" label="Payouts" />
                 <LinkButton href="/admin/financial-reconciliation" label="Money Audit" />
                 <LinkButton href="/admin/payment-simulations" label="Payment Tests" />
