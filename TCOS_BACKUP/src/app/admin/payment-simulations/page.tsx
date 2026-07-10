@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { getActiveStoreId } from "../../../lib/stores";
 import { createSupabaseServerClient } from "../../../lib/supabase-server";
+import { getStripeTestSecretKey } from "../../../lib/stripe-credentials";
 import SimulationActions from "./SimulationActions";
 
 export const dynamic = "force-dynamic";
@@ -47,9 +48,7 @@ function tone(status: string) {
 export default async function PaymentSimulationsPage() {
   const supabase = createSupabaseServerClient({ admin: true });
   const storeId = getActiveStoreId();
-  const stripeTestEnabled = Boolean(
-    process.env.STRIPE_SECRET_KEY?.startsWith("sk_test_"),
-  );
+  const stripeTestEnabled = Boolean(getStripeTestSecretKey());
   const runsResult = await supabase
     .from("payment_simulation_runs")
     .select("*")

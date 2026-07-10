@@ -5,12 +5,13 @@ import {
   submitStripeDisputeEvidence,
 } from "../../../../../../lib/stripe-dispute-evidence";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
+import { getOperationalStripeSecretKey } from "../../../../../../lib/stripe-credentials";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 function stripeClient() {
-  const key = process.env.STRIPE_SECRET_KEY;
+  const key = getOperationalStripeSecretKey();
   if (!key) throw new Error("Stripe is not configured.");
   return new Stripe(key);
 }

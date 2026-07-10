@@ -16,7 +16,7 @@ import {
 import { getActiveStoreId } from "../../../../lib/stores";
 import { trustedRequestOrigin } from "../../../../lib/site-origin";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
-import { getLivePaymentRuntimeGate } from "../../../../lib/live-payment-launch";
+import { getStripePaymentRuntime } from "../../../../lib/live-payment-launch";
 
 export const dynamic = "force-dynamic";
 
@@ -39,7 +39,6 @@ export async function POST(request: Request) {
     const tosAccepted = hasAcceptedTerms(body.tosAccepted);
     const tosVersion = String(body.tosVersion || TERMS_OF_SERVICE_VERSION);
     const cardVerificationRequired = accountCardVerificationRequired();
-    const stripeKey = process.env.STRIPE_SECRET_KEY;
 
     if (!email || !password) {
       return NextResponse.json(
@@ -59,16 +58,6 @@ export async function POST(request: Request) {
       return NextResponse.json(
         { error: "Terms of Service must be accepted before creating an account" },
         { status: 400 },
-      );
-    }
-
-    if (cardVerificationRequired && !stripeKey) {
-      return NextResponse.json(
-        {
-          error:
-            "Account card verification is required but Stripe is not configured",
-        },
-        { status: 500 },
       );
     }
 
@@ -98,17 +87,18 @@ export async function POST(request: Request) {
 
     const supabase = getSupabaseClient();
     const storeId = getActiveStoreId();
-    if (cardVerificationRequired && stripeKey) {
-      const livePaymentGate = await getLivePaymentRuntimeGate({
-        stripeKey,
+    let stripeKey: string | null = null;
+    if (cardVerificationRequired) {
+      const stripeRuntime = await getStripePaymentRuntime({
         storeId,
       });
-      if (!livePaymentGate.allowed) {
+      if (!stripeRuntime.allowed || !stripeRuntime.stripeKey) {
         return NextResponse.json(
-          { error: livePaymentGate.reason },
+          { error: stripeRuntime.reason },
           { status: 503 },
         );
       }
+      stripeKey = stripeRuntime.stripeKey;
     }
     const { data, error } = await supabase.auth.signUp({
       email,

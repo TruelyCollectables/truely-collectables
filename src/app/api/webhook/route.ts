@@ -27,6 +27,12 @@ import {
 } from "../../../lib/stripe-post-payment";
 import { prepareStripeDisputeEvidence } from "../../../lib/stripe-dispute-evidence";
 import { stripePaymentSimulationRunId } from "../../../lib/stripe-payment-simulation-events";
+import {
+  getStripeLiveSecretKey,
+  getStripeLiveWebhookSecret,
+  getStripeTestSecretKey,
+  getStripeTestWebhookSecret,
+} from "../../../lib/stripe-credentials";
 
 export const dynamic = "force-dynamic";
 
@@ -49,17 +55,32 @@ export async function POST(req: Request) {
     | null = null;
 
   try {
-    const stripeKey = process.env.STRIPE_SECRET_KEY;
-    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+    const credentialCandidates = [
+      {
+        livemode: false,
+        stripeKey: getStripeTestSecretKey(),
+        webhookSecret: getStripeTestWebhookSecret(),
+      },
+      {
+        livemode: true,
+        stripeKey: getStripeLiveSecretKey(),
+        webhookSecret: getStripeLiveWebhookSecret(),
+      },
+    ].filter(
+      (candidate): candidate is {
+        livemode: boolean;
+        stripeKey: string;
+        webhookSecret: string;
+      } => Boolean(candidate.stripeKey && candidate.webhookSecret),
+    );
 
-    if (!stripeKey || !webhookSecret) {
+    if (credentialCandidates.length === 0) {
       return NextResponse.json(
         { error: "Missing webhook environment variables" },
         { status: 500 }
       );
     }
 
-    const stripe = new Stripe(stripeKey);
     const supabase = createSupabaseServerClient({ admin: true });
     const storeId = getActiveStoreId();
     const webhookInventoryEngine = new InventoryEngine(
@@ -78,16 +99,37 @@ export async function POST(req: Request) {
       );
     }
 
-    let event: Stripe.Event;
+    let event: Stripe.Event | null = null;
+    let eventStripeKey: string | null = null;
+    let signatureError = "No configured signing secret accepted this event.";
 
-    try {
-      event = stripe.webhooks.constructEvent(body, signature, webhookSecret);
-    } catch (err: any) {
+    for (const candidate of credentialCandidates) {
+      try {
+        const candidateStripe = new Stripe(candidate.stripeKey);
+        const candidateEvent = candidateStripe.webhooks.constructEvent(
+          body,
+          signature,
+          candidate.webhookSecret,
+        );
+        if (candidateEvent.livemode !== candidate.livemode) {
+          signatureError = "Webhook signing secret and event mode do not match.";
+          continue;
+        }
+        event = candidateEvent;
+        eventStripeKey = candidate.stripeKey;
+        break;
+      } catch (error: any) {
+        signatureError = error.message || signatureError;
+      }
+    }
+
+    if (!event || !eventStripeKey) {
       return NextResponse.json(
-        { error: `Webhook signature failed: ${err.message}` },
+        { error: `Webhook signature failed: ${signatureError}` },
         { status: 400 }
       );
     }
+    const stripe = new Stripe(eventStripeKey);
 
     const claim = await claimStripeWebhookEvent({
       supabase,

@@ -6,6 +6,7 @@ import {
   reconcileStripeDaily,
 } from "../../../../lib/stripe-reconciliation";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
+import { getOperationalStripeSecretKey } from "../../../../lib/stripe-credentials";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -18,7 +19,7 @@ function validCronAuthorization(request: Request, secret: string) {
 
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET;
-  const stripeKey = process.env.STRIPE_SECRET_KEY;
+  const stripeKey = getOperationalStripeSecretKey();
 
   if (!secret || secret.length < 16 || !stripeKey) {
     return Response.json(

@@ -2,14 +2,18 @@ import Stripe from "stripe";
 import { runCheckoutE2ESimulation } from "../../../../../lib/checkout-e2e-simulation";
 import { getActiveStoreId } from "../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
+import {
+  getStripeTestSecretKey,
+  getStripeTestWebhookSecret,
+} from "../../../../../lib/stripe-credentials";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 export async function POST(request: Request) {
   try {
-    const stripeKey = process.env.STRIPE_SECRET_KEY || "";
-    const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET || "";
+    const stripeKey = getStripeTestSecretKey() || "";
+    const webhookSecret = getStripeTestWebhookSecret() || "";
     if (!stripeKey.startsWith("sk_test_")) {
       return Response.json(
         { error: "Checkout E2E is locked unless Stripe uses an sk_test_ key." },

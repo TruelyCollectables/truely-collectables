@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { PLATFORM_DOMAIN } from "./legal";
 import { DEFAULT_STORE, getActiveStoreId } from "./stores";
+import { configuredStripeMode } from "./stripe-credentials";
 
 type StoreRow = {
   id?: string | null;
@@ -132,11 +133,7 @@ export function resolveStoreSettings(input: {
       `${displayName} <${salesEmail}>`,
     stripeMode:
       configured(input.settings?.stripe_mode) ||
-      (process.env.STRIPE_SECRET_KEY?.startsWith("sk_live_")
-        ? "live"
-        : process.env.STRIPE_SECRET_KEY?.startsWith("sk_test_")
-        ? "test"
-        : "env"),
+      configuredStripeMode(),
     stripeAccountId: configured(input.settings?.stripe_account_id),
     ebayEnvironment:
       configured(input.settings?.ebay_environment) ||

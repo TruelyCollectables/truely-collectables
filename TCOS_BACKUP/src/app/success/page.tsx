@@ -1,4 +1,5 @@
 import Stripe from "stripe";
+import { getOperationalStripeSecretKey } from "../../lib/stripe-credentials";
 import Link from "next/link";
 import Image from "next/image";
 import ClearCartOnSuccess from "../../components/ClearCartOnSuccess";
@@ -58,7 +59,7 @@ function parseCartProductIds(value: string | null | undefined): number[] {
 }
 
 async function getCheckoutMetadata(sessionId: string | null | undefined) {
-  const stripeKey = process.env.STRIPE_SECRET_KEY;
+  const stripeKey = getOperationalStripeSecretKey();
 
   if (!stripeKey || !sessionId) return null;
 

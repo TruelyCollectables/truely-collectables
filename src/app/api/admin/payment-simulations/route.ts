@@ -2,6 +2,10 @@ import Stripe from "stripe";
 import { runPaymentSimulationSuite } from "../../../../lib/payment-simulations";
 import { getActiveStoreId } from "../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
+import {
+  getStripeTestSecretKey,
+  getStripeTestWebhookSecret,
+} from "../../../../lib/stripe-credentials";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -14,7 +18,7 @@ export async function POST(request: Request) {
       return Response.json({ error: "Invalid simulation mode." }, { status: 400 });
     }
 
-    const stripeKey = process.env.STRIPE_SECRET_KEY || "";
+    const stripeKey = getStripeTestSecretKey() || "";
     if (mode === "stripe_test" && !stripeKey.startsWith("sk_test_")) {
       return Response.json(
         {
@@ -29,7 +33,7 @@ export async function POST(request: Request) {
       supabase: createSupabaseServerClient({ admin: true }),
       stripe: mode === "stripe_test" ? new Stripe(stripeKey) : undefined,
       webhookSecret:
-        mode === "stripe_test" ? process.env.STRIPE_WEBHOOK_SECRET : undefined,
+        mode === "stripe_test" ? getStripeTestWebhookSecret() || undefined : undefined,
       webhookUrl:
         mode === "stripe_test"
           ? `${new URL(request.url).origin}/api/webhook`

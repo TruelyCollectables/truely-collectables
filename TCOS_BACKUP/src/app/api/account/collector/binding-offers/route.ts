@@ -14,7 +14,7 @@ import {
   publicEndpointRateLimitResponse,
 } from "../../../../../lib/public-endpoint-rate-limit";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
-import { getLivePaymentRuntimeGate } from "../../../../../lib/live-payment-launch";
+import { getStripePaymentRuntime } from "../../../../../lib/live-payment-launch";
 
 export const dynamic = "force-dynamic";
 
@@ -118,15 +118,6 @@ async function requireConversationAccess(params: {
 
 export async function POST(request: Request) {
   try {
-    const stripeKey = process.env.STRIPE_SECRET_KEY;
-
-    if (!stripeKey) {
-      return NextResponse.json(
-        { error: "Missing Stripe secret key" },
-        { status: 500 },
-      );
-    }
-
     const account = await getAuthenticatedAccountFromRequest(request);
 
     if (!account) {
@@ -175,19 +166,18 @@ export async function POST(request: Request) {
     const identity = rateLimit.identity;
 
     const supabase = getSupabaseClient();
-    const stripe = new Stripe(stripeKey);
     const storeId = getActiveStoreId();
-    const livePaymentGate = await getLivePaymentRuntimeGate({
-      stripeKey,
+    const stripeRuntime = await getStripePaymentRuntime({
       storeId,
       supabase,
     });
-    if (!livePaymentGate.allowed) {
+    if (!stripeRuntime.allowed || !stripeRuntime.stripeKey) {
       return NextResponse.json(
-        { error: livePaymentGate.reason },
+        { error: stripeRuntime.reason },
         { status: 503 },
       );
     }
+    const stripe = new Stripe(stripeRuntime.stripeKey);
     const tosAcceptanceEventId = await recordTermsAcceptance(supabase, {
       contextType: "binding_offer",
       tosKind: "buyer",

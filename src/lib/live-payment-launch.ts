@@ -3,6 +3,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createSupabaseServerClient } from "./supabase-server";
 import { getStoreSettings } from "./store-settings";
 import { getActiveStoreId } from "./stores";
+import {
+  getStripeLivePublishableKey,
+  getStripeLiveSecretKey,
+  getStripeLiveWebhookSecret,
+  getStripeTestSecretKey,
+} from "./stripe-credentials";
 
 export const LIVE_PAYMENT_APPROVAL_VERSION = "tcos-live-payments-v1";
 export const REQUIRED_LIVE_WEBHOOK_EVENTS = [
@@ -43,33 +49,12 @@ type GateRow = {
   approved_by?: string | null;
 };
 
-function configured(value: string | null | undefined) {
-  return Boolean(value?.trim());
-}
-
-function keyMode(
-  value: string | undefined,
-  livePrefix: string,
-  testPrefix: string,
-) {
-  if (!configured(value)) return "missing";
-  if (value!.startsWith(livePrefix)) return "live";
-  if (value!.startsWith(testPrefix)) return "test";
-  return "unknown";
-}
-
 function paymentMode() {
-  const secret = keyMode(process.env.STRIPE_SECRET_KEY, "sk_live_", "sk_test_");
-  const publishable = keyMode(
-    process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY,
-    "pk_live_",
-    "pk_test_",
-  );
-
-  if (secret === "live" && publishable === "live") return "live" as const;
-  if (secret === "test" && publishable === "test") return "test" as const;
-  if (secret === "missing" || publishable === "missing") return "missing" as const;
-  return "mixed" as const;
+  if (getStripeLiveSecretKey() && getStripeLivePublishableKey()) {
+    return "live" as const;
+  }
+  if (getStripeTestSecretKey()) return "test" as const;
+  return "missing" as const;
 }
 
 function productionOrigin(primaryDomain: string | null) {
@@ -145,6 +130,35 @@ export async function getLivePaymentRuntimeGate(params: {
       ? null
       : "Live payments require current administrator launch approval.",
   };
+}
+
+export async function getStripePaymentRuntime(params?: {
+  storeId?: string;
+  supabase?: SupabaseClient;
+}) {
+  const stripeKey =
+    process.env.TCOS_LIVE_PAYMENTS_ENABLED === "true"
+      ? getStripeLiveSecretKey()
+      : getStripeTestSecretKey();
+
+  if (!stripeKey) {
+    return {
+      allowed: false,
+      mode:
+        process.env.TCOS_LIVE_PAYMENTS_ENABLED === "true"
+          ? ("live" as const)
+          : ("test" as const),
+      reason: "The selected Stripe credential mode is not configured.",
+      stripeKey: null,
+    };
+  }
+
+  const gate = await getLivePaymentRuntimeGate({
+    stripeKey,
+    storeId: params?.storeId,
+    supabase: params?.supabase,
+  });
+  return { ...gate, stripeKey };
 }
 
 export async function evaluateLivePaymentLaunch(params?: {
@@ -308,7 +322,7 @@ export async function evaluateLivePaymentLaunch(params?: {
     ),
   );
 
-  const webhookSecretConfigured = process.env.STRIPE_WEBHOOK_SECRET?.startsWith("whsec_") === true;
+  const webhookSecretConfigured = Boolean(getStripeLiveWebhookSecret());
   checks.push(
     check(
       "webhook_secret",
@@ -333,9 +347,10 @@ export async function evaluateLivePaymentLaunch(params?: {
     ),
   );
 
-  if (mode === "live" && process.env.STRIPE_SECRET_KEY) {
+  const liveStripeKey = getStripeLiveSecretKey();
+  if (mode === "live" && liveStripeKey) {
     try {
-      const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+      const stripe = new Stripe(liveStripeKey);
       const [platformAccount, endpoints] = await Promise.all([
         stripe.accounts.retrieve(null),
         stripe.webhookEndpoints.list({ limit: 100 }),

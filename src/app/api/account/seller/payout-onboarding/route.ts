@@ -14,6 +14,7 @@ import {
   publicEndpointRateLimitResponse,
 } from "../../../../../lib/public-endpoint-rate-limit";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
+import { getOperationalStripeSecretKey } from "../../../../../lib/stripe-credentials";
 
 export const dynamic = "force-dynamic";
 
@@ -106,7 +107,7 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const stripeKey = process.env.STRIPE_SECRET_KEY;
+    const stripeKey = getOperationalStripeSecretKey();
 
     if (!stripeKey) {
       return Response.json(

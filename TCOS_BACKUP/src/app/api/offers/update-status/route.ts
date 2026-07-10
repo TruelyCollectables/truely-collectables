@@ -9,24 +9,15 @@ import { getStoreSettings } from "../../../../lib/store-settings";
 import { getActiveStoreId } from "../../../../lib/stores";
 import { trustedRequestOrigin } from "../../../../lib/site-origin";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
-import { getLivePaymentRuntimeGate } from "../../../../lib/live-payment-launch";
+import { getStripePaymentRuntime } from "../../../../lib/live-payment-launch";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   try {
-    const stripeKey = process.env.STRIPE_SECRET_KEY;
     const resendKey = process.env.RESEND_API_KEY;
 
-    if (!stripeKey) {
-      return NextResponse.json(
-        { error: "Missing environment variables" },
-        { status: 500 }
-      );
-    }
-
     const supabase = createSupabaseServerClient({ admin: true });
-    const stripe = new Stripe(stripeKey);
     const resend = resendKey ? new Resend(resendKey) : null;
     const storeId = getActiveStoreId();
     const storeSettings = await getStoreSettings(supabase, storeId);
@@ -111,17 +102,14 @@ export async function POST(req: Request) {
     const origin = trustedRequestOrigin(req);
 
     const amount = Number(offer.offer_amount);
-    const livePaymentGate = await getLivePaymentRuntimeGate({
-      stripeKey,
-      storeId,
-      supabase,
-    });
-    if (!livePaymentGate.allowed) {
+    const stripeRuntime = await getStripePaymentRuntime({ storeId, supabase });
+    if (!stripeRuntime.allowed || !stripeRuntime.stripeKey) {
       return NextResponse.json(
-        { error: livePaymentGate.reason },
+        { error: stripeRuntime.reason },
         { status: 503 },
       );
     }
+    const stripe = new Stripe(stripeRuntime.stripeKey);
 
     const session = await stripe.checkout.sessions.create({
       mode: "payment",

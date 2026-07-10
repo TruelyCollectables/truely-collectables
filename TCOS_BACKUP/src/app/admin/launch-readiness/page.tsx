@@ -10,6 +10,13 @@ import {
 } from "../../../lib/store-settings";
 import { getActiveStoreId } from "../../../lib/stores";
 import { createSupabaseServerClient } from "../../../lib/supabase-server";
+import {
+  getStripeLivePublishableKey,
+  getStripeLiveSecretKey,
+  getStripeLiveWebhookSecret,
+  getStripeTestSecretKey,
+  getStripeTestWebhookSecret,
+} from "../../../lib/stripe-credentials";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -35,13 +42,6 @@ function isConfigured(value: string | undefined): boolean {
   return Boolean(value && value.trim().length > 0);
 }
 
-function keyMode(value: string | undefined, livePrefix: string, testPrefix: string) {
-  if (!isConfigured(value)) return "missing";
-  if (value!.startsWith(livePrefix)) return "live";
-  if (value!.startsWith(testPrefix)) return "test";
-  return "unknown";
-}
-
 function statusClass(status: ReadinessStatus) {
   if (status === "ready") return "border-green-200 bg-green-50 text-green-800";
   if (status === "warning") return "border-yellow-200 bg-yellow-50 text-yellow-800";
@@ -55,17 +55,12 @@ function statusLabel(status: ReadinessStatus) {
 }
 
 function getPaymentMode() {
-  const secretMode = keyMode(process.env.STRIPE_SECRET_KEY, "sk_live_", "sk_test_");
-  const publishableMode = keyMode(
-    process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY,
-    "pk_live_",
-    "pk_test_",
-  );
-
-  if (secretMode === "live" && publishableMode === "live") return "live";
-  if (secretMode === "test" && publishableMode === "test") return "test";
-  if (secretMode === "missing" || publishableMode === "missing") return "missing";
-  return "mixed";
+  if (process.env.TCOS_LIVE_PAYMENTS_ENABLED === "true") {
+    return getStripeLiveSecretKey() && getStripeLivePublishableKey()
+      ? "live"
+      : "missing";
+  }
+  return getStripeTestSecretKey() ? "test" : "missing";
 }
 
 function configuredHttpsSiteUrl(
@@ -96,14 +91,16 @@ function buildReadinessItems(
 ): ReadinessItem[] {
   const siteUrl = configuredHttpsSiteUrl(
     process.env.NEXT_PUBLIC_SITE_URL,
-    storeSettings.primaryDomain,
+    storeSettings.primaryDomain || process.env.VERCEL_PROJECT_PRODUCTION_URL,
   );
   const paymentMode = getPaymentMode();
-  const stripeSecretMode = keyMode(process.env.STRIPE_SECRET_KEY, "sk_live_", "sk_test_");
-  const stripePublishableMode = keyMode(
-    process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY,
-    "pk_live_",
-    "pk_test_",
+  const liveCredentialsStaged = Boolean(
+    getStripeLiveSecretKey() && getStripeLivePublishableKey(),
+  );
+  const operationalWebhookConfigured = Boolean(
+    paymentMode === "live"
+      ? getStripeLiveWebhookSecret()
+      : getStripeTestWebhookSecret(),
   );
   const identityRequired = process.env.IP_INTELLIGENCE_REQUIRED === "true";
   const evidenceEmailConfigured = isConfigured(storeSettings.evidenceEmail || undefined);
@@ -112,7 +109,9 @@ function buildReadinessItems(
     isConfigured(process.env.EBAY_CLIENT_ID) &&
     isConfigured(process.env.EBAY_CLIENT_SECRET);
   const stripeFinancialEventsVerified =
-    process.env.STRIPE_FINANCIAL_EVENTS_VERIFIED === "true";
+    paymentMode === "live"
+      ? process.env.STRIPE_LIVE_FINANCIAL_EVENTS_VERIFIED === "true"
+      : process.env.STRIPE_FINANCIAL_EVENTS_VERIFIED === "true";
 
   return [
     {
@@ -167,23 +166,23 @@ function buildReadinessItems(
           : "blocked",
       detail:
         paymentMode === "live"
-          ? "Stripe secret and publishable keys are both live keys."
+          ? "The operational Stripe mode is live with a matching staged live key pair."
           : paymentMode === "test"
-          ? "Stripe keys are still in test mode."
-          : paymentMode === "mixed"
-          ? `Stripe key modes do not match. Secret: ${stripeSecretMode}. Publishable: ${stripePublishableMode}.`
-          : "One or more Stripe keys are missing.",
+          ? liveCredentialsStaged
+            ? "Stripe test mode remains operational while the live key pair is staged separately."
+            : "Stripe test mode is operational; the separate live key pair is not staged yet."
+          : "The selected Stripe credential mode is missing.",
       action:
-        "Use matching live STRIPE_SECRET_KEY and NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY only when ready for real charges.",
+        "Stage STRIPE_LIVE_SECRET_KEY and NEXT_PUBLIC_STRIPE_LIVE_PUBLISHABLE_KEY; do not replace the working test credentials.",
     },
     {
       label: "Stripe Webhook",
-      status: isConfigured(process.env.STRIPE_WEBHOOK_SECRET) ? "ready" : "blocked",
-      detail: isConfigured(process.env.STRIPE_WEBHOOK_SECRET)
-        ? "STRIPE_WEBHOOK_SECRET is configured."
-        : "STRIPE_WEBHOOK_SECRET is missing.",
+      status: operationalWebhookConfigured ? "ready" : "blocked",
+      detail: operationalWebhookConfigured
+        ? `The ${paymentMode} webhook signing secret is configured.`
+        : `The ${paymentMode} webhook signing secret is missing.`,
       action:
-        "Create a live Stripe webhook for /api/webhook and save its signing secret.",
+        "Keep the test signing secret and save the live endpoint secret separately as STRIPE_LIVE_WEBHOOK_SECRET.",
     },
     {
       label: "Stripe Refund And Dispute Events",

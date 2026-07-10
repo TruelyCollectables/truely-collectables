@@ -5,6 +5,7 @@ import {
   reconcileStripeDaily,
 } from "../../../../lib/stripe-reconciliation";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
+import { getOperationalStripeSecretKey } from "../../../../lib/stripe-credentials";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -16,7 +17,7 @@ function cleanNote(value: unknown) {
 
 export async function POST() {
   try {
-    const stripeKey = process.env.STRIPE_SECRET_KEY;
+    const stripeKey = getOperationalStripeSecretKey();
     if (!stripeKey) {
       return Response.json({ error: "Stripe is not configured." }, { status: 503 });
     }
