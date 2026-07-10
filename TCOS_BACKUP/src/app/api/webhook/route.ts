@@ -26,6 +26,7 @@ import {
   processStripeRefundEvent,
 } from "../../../lib/stripe-post-payment";
 import { prepareStripeDisputeEvidence } from "../../../lib/stripe-dispute-evidence";
+import { stripePaymentSimulationRunId } from "../../../lib/stripe-payment-simulation-events";
 
 export const dynamic = "force-dynamic";
 
@@ -104,6 +105,22 @@ export async function POST(req: Request) {
       supabase,
       webhookEventId: claim.webhookEventId,
     };
+
+    const simulationRunId = await stripePaymentSimulationRunId({
+      stripe,
+      event,
+    });
+    if (simulationRunId) {
+      await finishStripeWebhookEvent({
+        ...journal,
+        status: "ignored",
+        metadata: {
+          outcome: "stripe_test_payment_simulation",
+          simulation_run_id: simulationRunId,
+        },
+      });
+      return NextResponse.json({ received: true, simulation: true });
+    }
 
     if (event.type === "account.updated") {
       const account = event.data.object as Stripe.Account;

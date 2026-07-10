@@ -421,6 +421,24 @@ async function checkDatabaseReadiness(): Promise<ReadinessItem[]> {
         "stripe_reconciliation_items is available for operator-reviewed unmatched money alerts with mandatory resolution notes.",
     },
     {
+      label: "Payment Simulation Runs",
+      table: "payment_simulation_runs",
+      select:
+        "id,store_id,run_mode,run_status,suite_version,scenario_count,passed_count,failed_count,skipped_count,last_error,started_at,completed_at",
+      migration: "20260710170000_create_payment_simulation_runs.sql",
+      readyDetail:
+        "payment_simulation_runs is available for auditable no-money and Stripe-test payment regression runs.",
+    },
+    {
+      label: "Payment Simulation Scenarios",
+      table: "payment_simulation_scenarios",
+      select:
+        "id,run_id,store_id,scenario_key,scenario_status,detail,assertions,provider_object_ids,created_at",
+      migration: "20260710170000_create_payment_simulation_runs.sql",
+      readyDetail:
+        "payment_simulation_scenarios is available for scenario-level charge, decline, duplicate, refund, dispute, payout, and reconciliation assertions.",
+    },
+    {
       label: "Seller Payout Accounts",
       table: "seller_payout_accounts",
       select:
