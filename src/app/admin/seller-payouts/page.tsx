@@ -66,6 +66,21 @@ type SellerPayoutRequest = {
   created_at: string | null;
 };
 
+type SellerPayoutAccount = {
+  id: string;
+  account_id: string;
+  provider_account_id: string;
+  onboarding_status: string | null;
+  charges_enabled: boolean | null;
+  payouts_enabled: boolean | null;
+  details_submitted: boolean | null;
+  seller_tos_accepted: boolean | null;
+  requirements_currently_due: string[] | null;
+  requirements_past_due: string[] | null;
+  disabled_reason: string | null;
+  updated_at: string | null;
+};
+
 type SellerPayoutAdminEvent = {
   id: string;
   target_type: string | null;
@@ -136,6 +151,32 @@ function statusTone(status: string | null | undefined) {
   }
 
   return "border-neutral-200 bg-neutral-100 text-neutral-700";
+}
+
+function connectStatusTone(status: string | null | undefined) {
+  if (status === "active") return "border-emerald-200 bg-emerald-50 text-emerald-800";
+  if (status === "pending_provider_review") return "border-sky-200 bg-sky-50 text-sky-800";
+  if (
+    status === "payout_verification_required" ||
+    status === "restricted" ||
+    status === "not_started"
+  ) {
+    return "border-amber-200 bg-amber-50 text-amber-800";
+  }
+  if (status === "disabled") return "border-rose-200 bg-rose-50 text-rose-800";
+  return "border-neutral-200 bg-neutral-100 text-neutral-700";
+}
+
+function requirementSummary(account: SellerPayoutAccount) {
+  const currentlyDue = account.requirements_currently_due || [];
+  const pastDue = account.requirements_past_due || [];
+  const parts = [];
+
+  if (currentlyDue.length > 0) parts.push(`${currentlyDue.length} currently due`);
+  if (pastDue.length > 0) parts.push(`${pastDue.length} past due`);
+  if (account.disabled_reason) parts.push(account.disabled_reason);
+
+  return parts.length > 0 ? parts.join(" / ") : "No open Stripe requirements";
 }
 
 export default async function AdminSellerPayoutsPage() {
@@ -212,6 +253,28 @@ export default async function AdminSellerPayoutsPage() {
     .eq("store_id", storeId)
     .order("created_at", { ascending: false })
     .limit(100);
+  const { data: payoutAccountData, error: payoutAccountError } = await supabase
+    .from("seller_payout_accounts")
+    .select(
+      `
+      id,
+      account_id,
+      provider_account_id,
+      onboarding_status,
+      charges_enabled,
+      payouts_enabled,
+      details_submitted,
+      seller_tos_accepted,
+      requirements_currently_due,
+      requirements_past_due,
+      disabled_reason,
+      updated_at
+    `,
+    )
+    .eq("store_id", storeId)
+    .eq("provider", "stripe_connect")
+    .order("updated_at", { ascending: false })
+    .limit(100);
   const { data: adminEventData, error: adminEventError } = await supabase
     .from("seller_payout_admin_events")
     .select(
@@ -236,6 +299,7 @@ export default async function AdminSellerPayoutsPage() {
   const entries = (data || []) as SellerPayoutLedgerEntry[];
   const platformFeeEntries = (platformFeeData || []) as PlatformFeeLedgerEntry[];
   const payoutRequests = (payoutRequestData || []) as SellerPayoutRequest[];
+  const payoutAccounts = (payoutAccountData || []) as SellerPayoutAccount[];
   const adminEvents = (adminEventData || []) as SellerPayoutAdminEvent[];
   let payoutRequestBlockers = new Map<string, SellerPayoutRequestReviewBlocker>();
   let payoutRequestBlockerError: string | null = null;
@@ -257,6 +321,7 @@ export default async function AdminSellerPayoutsPage() {
       ...entries.map((entry) => entry.seller_account_id),
       ...platformFeeEntries.map((entry) => entry.seller_account_id),
       ...payoutRequests.map((request) => request.seller_account_id),
+      ...payoutAccounts.map((account) => account.account_id),
       ...adminEvents.map((event) => event.seller_account_id),
     ],
   );
@@ -286,6 +351,21 @@ export default async function AdminSellerPayoutsPage() {
   );
   const blockedOpenPayoutRequests = openPayoutRequests.filter(
     (request) => payoutRequestBlockers.get(request.id)?.isBlocked,
+  );
+  const activePayoutAccounts = payoutAccounts.filter(
+    (account) =>
+      account.onboarding_status === "active" &&
+      account.payouts_enabled === true &&
+      account.details_submitted === true,
+  );
+  const actionRequiredPayoutAccounts = payoutAccounts.filter(
+    (account) =>
+      account.onboarding_status !== "active" ||
+      account.payouts_enabled !== true ||
+      account.details_submitted !== true ||
+      (account.requirements_currently_due || []).length > 0 ||
+      (account.requirements_past_due || []).length > 0 ||
+      Boolean(account.disabled_reason),
   );
 
   return (
@@ -363,6 +443,18 @@ export default async function AdminSellerPayoutsPage() {
           </section>
         ) : null}
 
+        {payoutAccountError ? (
+          <section className="rounded-md border border-amber-200 bg-amber-50 p-5 text-amber-950">
+            <h2 className="text-xl font-black">
+              Seller Connect Accounts Not Available
+            </h2>
+            <p className="mt-2 text-sm font-semibold">
+              Apply the seller payout account migration before using Connect
+              readiness review: {payoutAccountError.message}
+            </p>
+          </section>
+        ) : null}
+
         {adminEventError ? (
           <section className="rounded-md border border-amber-200 bg-amber-50 p-5 text-amber-950">
             <h2 className="text-xl font-black">Payout Audit Not Available</h2>
@@ -373,7 +465,17 @@ export default async function AdminSellerPayoutsPage() {
           </section>
         ) : null}
 
-        <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+        <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6">
+          <MetricTile
+            label="Connect Active"
+            value={String(activePayoutAccounts.length)}
+            detail={`${payoutAccounts.length} seller Connect account(s)`}
+          />
+          <MetricTile
+            label="Connect Action"
+            value={String(actionRequiredPayoutAccounts.length)}
+            detail="Need onboarding, review, or Stripe requirement cleanup"
+          />
           <MetricTile
             label="Held Payable"
             value={money(heldPayableTotal)}
@@ -394,6 +496,113 @@ export default async function AdminSellerPayoutsPage() {
             value={String(blockedOpenPayoutRequests.length)}
             detail={`${openPayoutRequests.length} open cash-out request(s)`}
           />
+        </section>
+
+        <section className="rounded-md border border-neutral-200 bg-white">
+          <div className="border-b border-neutral-200 p-5">
+            <h2 className="text-2xl font-black">Seller Connect Readiness</h2>
+            <p className="mt-1 text-sm text-neutral-600">
+              Stripe-hosted seller onboarding status, payout capability, TOS
+              acceptance, and open provider requirements.
+            </p>
+          </div>
+
+          {payoutAccounts.length === 0 ? (
+            <p className="p-5 text-sm text-neutral-600">
+              No seller Connect accounts have started payout onboarding yet.
+            </p>
+          ) : (
+            <div className="divide-y divide-neutral-200">
+              {payoutAccounts.map((account) => {
+                const profile = profilesById.get(account.account_id);
+                const currentlyDue = account.requirements_currently_due || [];
+                const pastDue = account.requirements_past_due || [];
+
+                return (
+                  <div
+                    key={account.id}
+                    className="grid gap-4 p-5 text-sm xl:grid-cols-[1fr_1fr_1.2fr_auto]"
+                  >
+                    <div className="min-w-0">
+                      <p className="font-black">
+                        {profile?.display_name ||
+                          profile?.email ||
+                          "Seller account"}
+                      </p>
+                      <p className="mt-1 break-all text-xs text-neutral-600">
+                        {account.account_id}
+                      </p>
+                      <p className="mt-2 break-all text-xs font-semibold text-neutral-700">
+                        Stripe {account.provider_account_id}
+                      </p>
+                    </div>
+
+                    <dl className="grid grid-cols-2 gap-3">
+                      <div>
+                        <dt className="font-semibold text-neutral-500">
+                          Payouts
+                        </dt>
+                        <dd className="font-black">
+                          {account.payouts_enabled ? "Enabled" : "Blocked"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="font-semibold text-neutral-500">
+                          Charges
+                        </dt>
+                        <dd className="font-black">
+                          {account.charges_enabled ? "Enabled" : "Blocked"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="font-semibold text-neutral-500">
+                          Details
+                        </dt>
+                        <dd className="font-black">
+                          {account.details_submitted ? "Submitted" : "Needed"}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="font-semibold text-neutral-500">
+                          Seller TOS
+                        </dt>
+                        <dd className="font-black">
+                          {account.seller_tos_accepted ? "Accepted" : "Missing"}
+                        </dd>
+                      </div>
+                    </dl>
+
+                    <div>
+                      <p className="font-bold">{requirementSummary(account)}</p>
+                      {currentlyDue.length > 0 ? (
+                        <p className="mt-2 text-xs text-neutral-600">
+                          Current: {currentlyDue.slice(0, 6).join(", ")}
+                          {currentlyDue.length > 6 ? "..." : ""}
+                        </p>
+                      ) : null}
+                      {pastDue.length > 0 ? (
+                        <p className="mt-2 text-xs text-rose-700">
+                          Past due: {pastDue.slice(0, 6).join(", ")}
+                          {pastDue.length > 6 ? "..." : ""}
+                        </p>
+                      ) : null}
+                      <p className="mt-2 text-xs text-neutral-500">
+                        Updated {shortDate(account.updated_at)}
+                      </p>
+                    </div>
+
+                    <span
+                      className={`h-fit w-fit rounded border px-2 py-1 text-xs font-black ${connectStatusTone(
+                        account.onboarding_status,
+                      )}`}
+                    >
+                      {label(account.onboarding_status)}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </section>
 
         <section className="rounded-md border border-neutral-200 bg-white">
