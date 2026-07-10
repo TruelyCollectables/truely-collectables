@@ -71,6 +71,16 @@ function cleanMoney(value: unknown) {
   return Number(amount.toFixed(2));
 }
 
+function isDryRunReference(value: string | null | undefined) {
+  const normalized = String(value || "").trim().toLowerCase();
+
+  return (
+    normalized.includes("tcos-dryrun") ||
+    normalized.startsWith("dryrun-") ||
+    normalized.includes("tcos dry-run")
+  );
+}
+
 function metadataNumber(
   metadata: Record<string, unknown> | null | undefined,
   key: string,
@@ -336,6 +346,30 @@ export async function PATCH(
       const note = cleanText(body.note);
       const labelStatus = labelPdfUrl || labelUrl ? "printed" : "purchased";
       const coverageStatus = coveragePolicyId ? "covered" : "purchase_pending";
+      const dryRunFields = [
+        ["provider", provider],
+        ["carrier", carrier],
+        ["trackingNumber", trackingNumber],
+        ["providerLabelId", providerLabelId],
+        ["providerShipmentId", providerShipmentId],
+        ["coverageProvider", coverageProvider],
+        ["coveragePolicyId", coveragePolicyId],
+        ["labelUrl", labelUrl],
+        ["labelPdfUrl", labelPdfUrl],
+      ]
+        .filter(([, value]) => isDryRunReference(value))
+        .map(([field]) => field);
+
+      if (dryRunFields.length > 0) {
+        return Response.json(
+          {
+            error:
+              "Manual purchase records must use real external label and Coverage details, not TCOS dry-run references.",
+            dryRunFields,
+          },
+          { status: 409 },
+        );
+      }
 
       const { error: labelUpdateError } = await supabase
         .from("order_shipping_labels")
@@ -359,6 +393,14 @@ export async function PATCH(
           updated_at: now,
           metadata: {
             ...(label.metadata || {}),
+            latest_purchase_attempt: {
+              status: "manual_purchase_recorded",
+              attempted_at: now,
+              attempted_by_identity: identity,
+              provider_readiness: providerReadiness,
+              message:
+                "Admin recorded a real external label/Coverage purchase. This supersedes any previous TCOS dry-run purchase attempt for fulfillment gating.",
+            },
             latest_manual_purchase_record: {
               recorded_at: now,
               recorded_by_identity: identity,
