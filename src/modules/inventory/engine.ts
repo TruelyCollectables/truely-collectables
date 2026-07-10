@@ -314,7 +314,7 @@ export class InventoryEngine {
       sport?: string;
     } = {}
   ): Promise<UniversalInventoryItem[]> {
-    let query = supabase
+    let query = this.database
       .from("products")
       .select("*")
       .eq("store_id", this.storeId)
@@ -367,7 +367,7 @@ export class InventoryEngine {
   }
 
   async listAll(): Promise<UniversalInventoryItem[]> {
-    const { data: products, error } = await supabase
+    const { data: products, error } = await this.database
       .from("products")
       .select("*")
       .eq("store_id", this.storeId)
@@ -394,12 +394,12 @@ export class InventoryEngine {
   async getBridgeStatus(): Promise<InventoryBridgeStatus> {
     const [{ data: products, error: productsError }, { data: inventoryItems, error: inventoryError }] =
       await Promise.all([
-        supabase
+        this.database
           .from("products")
           .select("*")
           .eq("store_id", this.storeId)
           .order("created_at", { ascending: false }),
-        supabase
+        this.database
           .from("inventory_items")
           .select("*")
           .eq("store_id", this.storeId),
@@ -487,7 +487,7 @@ export class InventoryEngine {
   }
 
   async backfillInventoryItemsFromProducts(): Promise<InventoryBackfillResult> {
-    const { data: products, error } = await supabase
+    const { data: products, error } = await this.database
       .from("products")
       .select("*")
       .eq("store_id", this.storeId)
@@ -596,7 +596,7 @@ export class InventoryEngine {
     staleAfterHours?: number;
   } = {}): Promise<EbayReconciliationStatus> {
     const staleAfterHours = params.staleAfterHours ?? 12;
-    const { data: products, error } = await supabase
+    const { data: products, error } = await this.database
       .from("products")
       .select("*")
       .eq("store_id", this.storeId)
@@ -677,7 +677,7 @@ export class InventoryEngine {
   async getByLegacyProductId(
     legacyProductId: number
   ): Promise<UniversalInventoryItem | null> {
-    const { data: product, error } = await supabase
+    const { data: product, error } = await this.database
       .from("products")
       .select("*")
       .eq("id", legacyProductId)
@@ -704,7 +704,7 @@ export class InventoryEngine {
 
     if (ids.length === 0) return [];
 
-    const { data: products, error } = await supabase
+    const { data: products, error } = await this.database
       .from("products")
       .select("*")
       .eq("store_id", this.storeId)
@@ -831,7 +831,7 @@ export class InventoryEngine {
 
     if (!item) return null;
 
-    const { data, error } = await supabase.rpc(
+    const { data, error } = await this.database.rpc(
       "tcos_decrement_inventory_after_sale",
       {
         p_legacy_product_id: item.legacyProductId,
@@ -894,7 +894,7 @@ export class InventoryEngine {
     sku: string;
     ebayItemId: string | null;
   }): Promise<void> {
-    const { data: products, error } = await supabase
+    const { data: products, error } = await this.database
       .from("products")
       .select("*")
       .eq("store_id", this.storeId)
@@ -961,7 +961,7 @@ export class InventoryEngine {
     let legacyProduct: LegacyProductSnapshot | null = null;
 
     if (input.ebayItemId) {
-      const { data: updatedRows, error: updateError } = await supabase
+      const { data: updatedRows, error: updateError } = await this.database
         .from("products")
         .update(productData)
         .eq("ebay_item_id", input.ebayItemId)
@@ -976,7 +976,7 @@ export class InventoryEngine {
     }
 
     if (!legacyProduct) {
-      const { data: skuMatches, error: lookupError } = await supabase
+      const { data: skuMatches, error: lookupError } = await this.database
         .from("products")
         .select("*")
         .eq("sku", input.sku)
@@ -986,7 +986,7 @@ export class InventoryEngine {
       if (lookupError) throw lookupError;
 
       if (skuMatches && skuMatches.length > 0) {
-        const { data: updatedRows, error: updateError } = await supabase
+        const { data: updatedRows, error: updateError } = await this.database
           .from("products")
           .update(productData)
           .eq("id", skuMatches[0].id)
@@ -996,7 +996,7 @@ export class InventoryEngine {
         if (updateError) throw updateError;
         legacyProduct = mapLegacyProduct(updatedRows?.[0] ?? skuMatches[0]);
       } else {
-        const { data: product, error: insertError } = await supabase
+        const { data: product, error: insertError } = await this.database
           .from("products")
           .insert(productData)
           .select("*")
@@ -1063,7 +1063,7 @@ export class InventoryEngine {
         ebayItemId: null,
       }));
 
-    const { data: product, error } = await supabase
+    const { data: product, error } = await this.database
       .from("products")
       .insert({
         store_id: this.storeId,
@@ -1259,7 +1259,7 @@ export class InventoryEngine {
         authenticity: input.authenticity ?? current.authenticity,
       }));
 
-    const { data: product, error } = await supabase
+    const { data: product, error } = await this.database
       .from("products")
       .update({
         title: input.title,
@@ -1493,7 +1493,7 @@ export class InventoryEngine {
     const quantity = Math.max(0, params.quantity);
     const status = normalizeStatus(quantity);
 
-    const { error: productUpdateError } = await supabase
+    const { error: productUpdateError } = await this.database
       .from("products")
       .update({ quantity })
       .eq("id", params.item.legacyProductId)

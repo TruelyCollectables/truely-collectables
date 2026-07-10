@@ -6,8 +6,9 @@ import {
   type ShippingMethod,
 } from "../../../lib/shipping";
 import {
+  InventoryEngine,
   InventoryEngineError,
-  inventoryEngine,
+  InventoryRepository,
 } from "../../../modules/inventory";
 import {
   TERMS_OF_SERVICE_VERSION,
@@ -60,11 +61,16 @@ export async function POST(request: Request) {
     const stripe = new Stripe(stripeKey);
     const supabase = createSupabaseServerClient({ admin: true });
     const storeId = getActiveStoreId();
+    const checkoutInventoryEngine = new InventoryEngine(
+      storeId,
+      new InventoryRepository(storeId, supabase),
+      supabase,
+    );
 
     const body = await request.json();
     const account = await getAuthenticatedAccountFromRequest(request);
 
-    const cart = inventoryEngine.normalizeCartItems(body.cart);
+    const cart = checkoutInventoryEngine.normalizeCartItems(body.cart);
     const cartMetadata = encodeCartMetadata(cart);
     const shippingMethod = body.shippingMethod as ShippingMethod;
     const tosAccepted = hasAcceptedTerms(body.tosAccepted);
@@ -121,7 +127,7 @@ export async function POST(request: Request) {
       );
     }
 
-    const inventoryItems = await inventoryEngine.requireAvailableCartItems(cart);
+    const inventoryItems = await checkoutInventoryEngine.requireAvailableCartItems(cart);
 
     const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [];
     let subtotal = 0;
