@@ -126,3 +126,22 @@ export function shippingProviderSummary(items = getShippingProviderReadiness()) 
     blocked: items.filter((item) => item.status === "blocked").length,
   };
 }
+
+export function shippingPurchaseBlockers(params: {
+  method: string | null | undefined;
+  readiness?: ShippingProviderReadinessItem[];
+}) {
+  const readiness = params.readiness || getShippingProviderReadiness();
+  const method = params.method || "GROUND_ADVANTAGE";
+  const neededKeys = new Set<string>(["shipping_coverage_provider"]);
+
+  if (method === "STANDARD_ENVELOPE") {
+    neededKeys.add("standard_envelope_provider");
+  } else {
+    neededKeys.add("parcel_label_provider");
+  }
+
+  return readiness.filter(
+    (item) => neededKeys.has(item.key) && item.status !== "ready",
+  );
+}

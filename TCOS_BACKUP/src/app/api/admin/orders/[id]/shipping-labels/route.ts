@@ -4,7 +4,10 @@ import {
   isShippingMethod,
   type ShippingMethod,
 } from "../../../../../../lib/shipping";
-import { getShippingProviderReadiness } from "../../../../../../lib/shipping-provider-readiness";
+import {
+  getShippingProviderReadiness,
+  shippingPurchaseBlockers,
+} from "../../../../../../lib/shipping-provider-readiness";
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
 
@@ -19,6 +22,14 @@ type OrderRow = {
   item_count: number | null;
   tracking_number: string | null;
   carrier: string | null;
+};
+
+type ShippingLabelRow = {
+  id: string;
+  label_status: string | null;
+  coverage_status: string | null;
+  resolved_shipping_method: string | null;
+  metadata?: Record<string, unknown> | null;
 };
 
 function safeShippingMethod(value: string | null): ShippingMethod {
@@ -43,6 +54,122 @@ function carrierForMethod(method: ShippingMethod) {
   return method === "STANDARD_ENVELOPE" ? "USPS IMb" : "USPS";
 }
 
+async function loadOrder(params: {
+  supabase: ReturnType<typeof createSupabaseServerClient>;
+  storeId: string;
+  orderId: number;
+}) {
+  const { data: order, error } = await params.supabase
+    .from("orders")
+    .select(
+      "id,shipping_method,shipping_name,shipping_amount,subtotal,item_count,tracking_number,carrier",
+    )
+    .eq("id", params.orderId)
+    .eq("store_id", params.storeId)
+    .single();
+
+  if (error || !order) {
+    throw new Response(
+      JSON.stringify({ error: error?.message || "Order not found." }),
+      { status: 404, headers: { "Content-Type": "application/json" } },
+    );
+  }
+
+  return order as OrderRow;
+}
+
+async function activeLabelForOrder(params: {
+  supabase: ReturnType<typeof createSupabaseServerClient>;
+  storeId: string;
+  orderId: number;
+}) {
+  const { data, error } = await params.supabase
+    .from("order_shipping_labels")
+    .select("id,label_status,coverage_status,resolved_shipping_method,metadata")
+    .eq("store_id", params.storeId)
+    .eq("order_id", params.orderId)
+    .not("label_status", "in", "(voided,failed)")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw error;
+
+  return (data || null) as ShippingLabelRow | null;
+}
+
+async function createPlannedLabel(params: {
+  supabase: ReturnType<typeof createSupabaseServerClient>;
+  storeId: string;
+  orderId: number;
+  identity: Awaited<ReturnType<typeof getClientIdentity>>;
+  providerReadiness: ReturnType<typeof getShippingProviderReadiness>;
+  order: OrderRow;
+}) {
+  const resolvedMethod = safeShippingMethod(params.order.shipping_method);
+  const coverage = getShippingCoverage({
+    method: resolvedMethod,
+    subtotal: Number(params.order.subtotal || 0),
+  });
+  const now = new Date().toISOString();
+  const { data: label, error } = await params.supabase
+    .from("order_shipping_labels")
+    .insert({
+      store_id: params.storeId,
+      order_id: params.orderId,
+      provider: providerForMethod(resolvedMethod),
+      provider_service: serviceForMethod(resolvedMethod),
+      service_level: resolvedMethod,
+      carrier: params.order.carrier || carrierForMethod(resolvedMethod),
+      tracking_number: params.order.tracking_number || null,
+      postage_amount: Number(params.order.shipping_amount || 0),
+      requested_shipping_method: params.order.shipping_method,
+      resolved_shipping_method: resolvedMethod,
+      coverage_provider: coverage.provider,
+      coverage_required: coverage.required,
+      coverage_status: coverage.status,
+      coverage_amount: coverage.coveredAmount,
+      metadata: {
+        source: "admin_order_detail",
+        shipping_name: params.order.shipping_name,
+        item_count: params.order.item_count,
+        coverage_type: coverage.coverageType,
+        coverage_detail: coverage.detail,
+        planned_at: now,
+        planned_by_identity: params.identity,
+        provider_purchase_required: true,
+        provider_readiness_at_planning: params.providerReadiness,
+      },
+    })
+    .select("id,label_status,coverage_status,resolved_shipping_method,metadata")
+    .single();
+
+  if (error || !label) {
+    throw error || new Error("Could not create shipping label record.");
+  }
+
+  await params.supabase.from("order_shipping_tracking_events").insert({
+    store_id: params.storeId,
+    order_id: params.orderId,
+    shipping_label_id: label.id,
+    provider: "manual",
+    carrier: params.order.carrier || carrierForMethod(resolvedMethod),
+    tracking_number: params.order.tracking_number || null,
+    event_type: "label_record_planned",
+    event_status: "planned",
+    message:
+      "Internal shipping label and seller coverage record prepared. Provider purchase is still required.",
+    occurred_at: now,
+    raw_payload: {
+      shipping_method: resolvedMethod,
+      coverage_provider: coverage.provider,
+      coverage_amount: coverage.coveredAmount,
+    },
+  });
+
+  return label as ShippingLabelRow;
+}
+
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -60,42 +187,8 @@ export async function POST(
     const identity = await getClientIdentity(request);
     const providerReadiness = getShippingProviderReadiness();
 
-    const { data: order, error: orderError } = await supabase
-      .from("orders")
-      .select(
-        "id,shipping_method,shipping_name,shipping_amount,subtotal,item_count,tracking_number,carrier",
-      )
-      .eq("id", orderId)
-      .eq("store_id", storeId)
-      .single();
-
-    if (orderError || !order) {
-      return Response.json(
-        { error: orderError?.message || "Order not found." },
-        { status: 404 },
-      );
-    }
-
-    const typedOrder = order as OrderRow;
-    const resolvedMethod = safeShippingMethod(typedOrder.shipping_method);
-    const coverage = getShippingCoverage({
-      method: resolvedMethod,
-      subtotal: Number(typedOrder.subtotal || 0),
-    });
-
-    const { data: existingLabel, error: existingError } = await supabase
-      .from("order_shipping_labels")
-      .select("id,label_status")
-      .eq("store_id", storeId)
-      .eq("order_id", orderId)
-      .not("label_status", "in", "(voided,failed)")
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (existingError) {
-      return Response.json({ error: existingError.message }, { status: 500 });
-    }
+    const typedOrder = await loadOrder({ supabase, storeId, orderId });
+    const existingLabel = await activeLabelForOrder({ supabase, storeId, orderId });
 
     if (existingLabel?.id) {
       return Response.json({
@@ -107,63 +200,13 @@ export async function POST(
       });
     }
 
-    const now = new Date().toISOString();
-    const { data: label, error: insertError } = await supabase
-      .from("order_shipping_labels")
-      .insert({
-        store_id: storeId,
-        order_id: orderId,
-        provider: providerForMethod(resolvedMethod),
-        provider_service: serviceForMethod(resolvedMethod),
-        service_level: resolvedMethod,
-        carrier: typedOrder.carrier || carrierForMethod(resolvedMethod),
-        tracking_number: typedOrder.tracking_number || null,
-        postage_amount: Number(typedOrder.shipping_amount || 0),
-        requested_shipping_method: typedOrder.shipping_method,
-        resolved_shipping_method: resolvedMethod,
-        coverage_provider: coverage.provider,
-        coverage_required: coverage.required,
-        coverage_status: coverage.status,
-        coverage_amount: coverage.coveredAmount,
-        metadata: {
-          source: "admin_order_detail",
-          shipping_name: typedOrder.shipping_name,
-          item_count: typedOrder.item_count,
-          coverage_type: coverage.coverageType,
-          coverage_detail: coverage.detail,
-          planned_at: now,
-          planned_by_identity: identity,
-          provider_purchase_required: true,
-          provider_readiness_at_planning: providerReadiness,
-        },
-      })
-      .select("id,label_status,coverage_status")
-      .single();
-
-    if (insertError || !label) {
-      return Response.json(
-        { error: insertError?.message || "Could not create shipping label record." },
-        { status: 500 },
-      );
-    }
-
-    await supabase.from("order_shipping_tracking_events").insert({
-      store_id: storeId,
-      order_id: orderId,
-      shipping_label_id: label.id,
-      provider: "manual",
-      carrier: typedOrder.carrier || carrierForMethod(resolvedMethod),
-      tracking_number: typedOrder.tracking_number || null,
-      event_type: "label_record_planned",
-      event_status: "planned",
-      message:
-        "Internal shipping label and seller coverage record prepared. Provider purchase is still required.",
-      occurred_at: now,
-      raw_payload: {
-        shipping_method: resolvedMethod,
-        coverage_provider: coverage.provider,
-        coverage_amount: coverage.coveredAmount,
-      },
+    const label = await createPlannedLabel({
+      supabase,
+      storeId,
+      orderId,
+      identity,
+      providerReadiness,
+      order: typedOrder,
     });
 
     return Response.json({
@@ -175,8 +218,159 @@ export async function POST(
       providerReadiness,
     });
   } catch (error: any) {
+    if (error instanceof Response) return error;
+
     return Response.json(
       { error: error.message || "Could not prepare shipping label record." },
+      { status: 500 },
+    );
+  }
+}
+
+export async function PATCH(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  try {
+    const { id } = await params;
+    const orderId = Number(id);
+
+    if (!orderId) {
+      return Response.json({ error: "Missing order id." }, { status: 400 });
+    }
+
+    const supabase = createSupabaseServerClient({ admin: true });
+    const storeId = getActiveStoreId();
+    const identity = await getClientIdentity(request);
+    const providerReadiness = getShippingProviderReadiness();
+    const typedOrder = await loadOrder({ supabase, storeId, orderId });
+    let label = await activeLabelForOrder({ supabase, storeId, orderId });
+
+    if (!label) {
+      label = await createPlannedLabel({
+        supabase,
+        storeId,
+        orderId,
+        identity,
+        providerReadiness,
+        order: typedOrder,
+      });
+    }
+
+    const blockers = shippingPurchaseBlockers({
+      method: label.resolved_shipping_method || typedOrder.shipping_method,
+      readiness: providerReadiness,
+    });
+    const now = new Date().toISOString();
+
+    if (blockers.length > 0) {
+      await supabase.from("order_shipping_tracking_events").insert({
+        store_id: storeId,
+        order_id: orderId,
+        shipping_label_id: label.id,
+        provider: "tcos",
+        carrier: typedOrder.carrier || carrierForMethod(
+          safeShippingMethod(label.resolved_shipping_method),
+        ),
+        tracking_number: typedOrder.tracking_number || null,
+        event_type: "provider_purchase_blocked",
+        event_status: "blocked",
+        message:
+          "Provider label/coverage purchase blocked because required provider credentials are missing.",
+        occurred_at: now,
+        raw_payload: {
+          blockers,
+          attempted_by_identity: identity,
+        },
+      });
+
+      await supabase
+        .from("order_shipping_labels")
+        .update({
+          label_status: "purchase_pending",
+          coverage_status:
+            label.coverage_status === "covered"
+              ? label.coverage_status
+              : "purchase_pending",
+          updated_at: now,
+          metadata: {
+            ...(label.metadata || {}),
+            latest_purchase_attempt: {
+              status: "blocked",
+              attempted_at: now,
+              attempted_by_identity: identity,
+              blockers,
+            },
+          },
+        })
+        .eq("id", label.id)
+        .eq("store_id", storeId);
+
+      return Response.json(
+        {
+          error:
+            "Provider purchase is blocked until shipping label and coverage credentials are configured.",
+          labelId: label.id,
+          blockers,
+          providerReadiness,
+        },
+        { status: 409 },
+      );
+    }
+
+    await supabase.from("order_shipping_tracking_events").insert({
+      store_id: storeId,
+      order_id: orderId,
+      shipping_label_id: label.id,
+      provider: "tcos",
+      carrier: typedOrder.carrier || carrierForMethod(
+        safeShippingMethod(label.resolved_shipping_method),
+      ),
+      tracking_number: typedOrder.tracking_number || null,
+      event_type: "provider_purchase_ready",
+      event_status: "ready",
+      message:
+        "Provider credentials are configured. Live purchase adapter is ready to be wired.",
+      occurred_at: now,
+      raw_payload: {
+        provider_readiness: providerReadiness,
+        attempted_by_identity: identity,
+      },
+    });
+
+    await supabase
+      .from("order_shipping_labels")
+      .update({
+        label_status: "purchase_pending",
+        coverage_status: "purchase_pending",
+        updated_at: now,
+        metadata: {
+          ...(label.metadata || {}),
+          latest_purchase_attempt: {
+            status: "ready_for_adapter",
+            attempted_at: now,
+            attempted_by_identity: identity,
+            provider_readiness: providerReadiness,
+          },
+        },
+      })
+      .eq("id", label.id)
+      .eq("store_id", storeId);
+
+    return Response.json({
+      success: true,
+      labelId: label.id,
+      labelStatus: "purchase_pending",
+      coverageStatus: "purchase_pending",
+      providerReadiness,
+      message:
+        "Provider credentials are ready. Live purchase adapter still needs to be connected.",
+    });
+  } catch (error: any) {
+    if (error instanceof Response) return error;
+
+    return Response.json(
+      { error: error.message || "Could not attempt provider purchase." },
       { status: 500 },
     );
   }
