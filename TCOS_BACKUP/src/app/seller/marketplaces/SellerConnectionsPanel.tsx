@@ -200,6 +200,8 @@ const requestableProviders: Array<{
 
 const EBAY_THIRD_PARTY_ACCESS_URL =
   "https://accounts.ebay.com/acctsec/security-center/third-party-app-access";
+const EBAY_IDENTITY_SCOPE =
+  "https://api.ebay.com/oauth/api_scope/commerce.identity.readonly";
 
 function label(value: string | null | undefined) {
   if (!value) return "Not set";
@@ -2190,6 +2192,13 @@ export default function SellerConnectionsPanel({
     Boolean(session?.access_token) &&
     ebaySyncEnabled &&
     ebayConnection?.connectionStatus === "connected";
+  const ebayRevocationProtectionReady =
+    ebayConnection?.connectionStatus === "connected" &&
+    ebayConnection.oauthScope.includes(EBAY_IDENTITY_SCOPE) &&
+    Boolean(ebayConnection.providerAccountId);
+  const ebayRevocationProtectionNeedsReconnect =
+    ebayConnection?.connectionStatus === "connected" &&
+    !ebayRevocationProtectionReady;
   const stagedSummary = stagedItems.reduce(
     (summary, item) => {
       summary.total += 1;
@@ -2757,6 +2766,47 @@ export default function SellerConnectionsPanel({
       {message ? (
         <div className="border-b border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-900">
           {message}
+        </div>
+      ) : null}
+
+      {ebayRevocationProtectionReady ? (
+        <div className="border-b border-emerald-200 bg-emerald-50 p-4">
+          <p className="text-sm font-black text-emerald-900">
+            eBay revocation protection active
+          </p>
+          <p className="mt-1 text-sm leading-6 text-emerald-800">
+            This connection is mapped to eBay&apos;s immutable seller identity.
+            Signed authorization-revocation events can automatically disable the
+            connection and delete TCOS-stored credentials.
+          </p>
+        </div>
+      ) : ebayRevocationProtectionNeedsReconnect ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-amber-300 bg-amber-50 p-4">
+          <div>
+            <p className="text-sm font-black text-amber-950">
+              One security reconnect required
+            </p>
+            <p className="mt-1 max-w-3xl text-sm leading-6 text-amber-900">
+              This older eBay connection predates immutable identity mapping.
+              Reauthorize once so TCOS can match signed eBay revocation events.
+              Existing staged listings, import history, and seller inventory stay
+              unchanged.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => requestConnection("ebay")}
+            disabled={
+              !ebaySyncEnabled ||
+              isSavingProvider.length > 0 ||
+              isStagingItems
+            }
+            className="rounded-md bg-amber-950 px-4 py-2 text-sm font-black text-white hover:bg-amber-900 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {isSavingProvider === "ebay"
+              ? "Opening eBay..."
+              : "Reconnect for Security"}
+          </button>
         </div>
       ) : null}
 
@@ -4905,6 +4955,22 @@ export default function SellerConnectionsPanel({
                     <p className="mt-1 text-xs text-neutral-500">
                       Access expires {shortDate(connection.accessTokenExpiresAt)}
                     </p>
+                    {connection.provider === "ebay" &&
+                    connection.connectionStatus === "connected" ? (
+                      <span
+                        className={`mt-2 inline-flex rounded border px-2 py-1 text-[11px] font-black ${
+                          connection.oauthScope.includes(EBAY_IDENTITY_SCOPE) &&
+                          connection.providerAccountId
+                            ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                            : "border-amber-200 bg-amber-50 text-amber-800"
+                        }`}
+                      >
+                        {connection.oauthScope.includes(EBAY_IDENTITY_SCOPE) &&
+                        connection.providerAccountId
+                          ? "REVOCATION PROTECTED"
+                          : "SECURITY RECONNECT"}
+                      </span>
+                    ) : null}
                   </td>
                   <td className="px-4 py-4">
                     {connection.provider === "ebay" &&
