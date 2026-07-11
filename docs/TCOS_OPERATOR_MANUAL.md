@@ -4296,6 +4296,8 @@ The same decision appears in the `/admin/shipping` Provider Setup Checklist as t
 
 `/admin/launch-readiness` also includes the same Shipping Setup Verdict and links directly to Shipping Ops. Treat this as the production-readiness warning surface; it does not mean live postage buying is enabled.
 
+The admin command center (`/admin`) also shows the Shipping Setup verdict in the side rail and includes it in operator alerts, so blocked shipping-provider setup is visible from the first admin landing page.
+
 Never mail with references beginning:
 
 ```text
