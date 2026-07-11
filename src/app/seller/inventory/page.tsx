@@ -24,6 +24,8 @@ type SellerInventorySummary = {
   draftNeedsWorkCount: number;
   activeCount: number;
   archivedCount: number;
+  instacompDraftCount: number;
+  instacompReadyDraftCount: number;
   totalQuantity: number;
   totalDraftValue: number;
 };
@@ -44,6 +46,16 @@ type SellerInventoryItem = {
   ebayItemId: string | null;
   imageUrl: string | null;
   authenticity: AuthenticityProfile;
+  instaComp?: {
+    isInstaCompDraft: boolean;
+    source: string | null;
+    scanId: string | null;
+    serialNumber: string | null;
+    marketPrice: number | null;
+    listingPrice: number | null;
+    listingPriceSource: string | null;
+    hasBackImage: boolean;
+  };
   activationReadiness: {
     ready: boolean;
     blockers: string[];
@@ -52,6 +64,7 @@ type SellerInventoryItem = {
 
 type StatusFilter = "all" | "draft" | "active" | "archived";
 type ReadinessFilter = "all" | "ready" | "needs_work";
+type SourceFilter = "all" | "instacomp" | "manual";
 type MarketplaceStageFilter =
   | "all"
   | "needs_review"
@@ -92,6 +105,15 @@ const readinessFilters: Array<{
   { value: "needs_work", label: "Needs work" },
 ];
 
+const sourceFilters: Array<{
+  value: SourceFilter;
+  label: string;
+}> = [
+  { value: "all", label: "All sources" },
+  { value: "instacomp", label: "InstaComp" },
+  { value: "manual", label: "Manual/other" },
+];
+
 function parseStatusFilter(value: string | null): StatusFilter {
   return value === "draft" || value === "active" || value === "archived"
     ? value
@@ -102,12 +124,17 @@ function parseReadinessFilter(value: string | null): ReadinessFilter {
   return value === "ready" || value === "needs_work" ? value : "all";
 }
 
+function parseSourceFilter(value: string | null): SourceFilter {
+  return value === "instacomp" || value === "manual" ? value : "all";
+}
+
 function initialInventoryFilters() {
   if (typeof window === "undefined") {
     return {
       search: "",
       status: "all" as StatusFilter,
       readiness: "all" as ReadinessFilter,
+      source: "all" as SourceFilter,
     };
   }
 
@@ -117,6 +144,7 @@ function initialInventoryFilters() {
     search: params.get("search") || "",
     status: parseStatusFilter(params.get("status")),
     readiness: parseReadinessFilter(params.get("readiness")),
+    source: parseSourceFilter(params.get("source")),
   };
 }
 
@@ -163,6 +191,16 @@ function readinessTone(ready: boolean) {
   return ready
     ? "border-emerald-200 bg-emerald-50 text-emerald-800"
     : "border-amber-200 bg-amber-50 text-amber-900";
+}
+
+function sourceTone(item: SellerInventoryItem) {
+  return item.instaComp?.isInstaCompDraft
+    ? "border-sky-200 bg-sky-50 text-sky-900"
+    : "border-neutral-200 bg-neutral-100 text-neutral-700";
+}
+
+function inventorySourceLabel(item: SellerInventoryItem) {
+  return item.instaComp?.isInstaCompDraft ? "INSTACOMP" : "MANUAL";
 }
 
 function authenticityBadgeTone(tone: AuthenticityBadge["tone"]) {
@@ -493,15 +531,20 @@ export default function SellerInventoryPage() {
   const [readinessFilter, setReadinessFilter] = useState<ReadinessFilter>(
     initialFilters.readiness,
   );
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>(
+    initialFilters.source,
+  );
 
   function syncInventoryUrl(next: {
     search?: string;
     status?: StatusFilter;
     readiness?: ReadinessFilter;
+    source?: SourceFilter;
   }) {
     const finalSearch = next.search ?? search;
     const finalStatus = next.status ?? statusFilter;
     const finalReadiness = next.readiness ?? readinessFilter;
+    const finalSource = next.source ?? sourceFilter;
     const params = new URLSearchParams();
 
     if (finalSearch.trim()) {
@@ -516,6 +559,10 @@ export default function SellerInventoryPage() {
       params.set("readiness", finalReadiness);
     }
 
+    if (finalSource !== "all") {
+      params.set("source", finalSource);
+    }
+
     const query = params.toString();
     router.replace(query ? `${pathname}?${query}` : pathname, { scroll: false });
   }
@@ -524,18 +571,22 @@ export default function SellerInventoryPage() {
     search?: string;
     status?: StatusFilter;
     readiness?: ReadinessFilter;
+    source?: SourceFilter;
   }) {
     const finalSearch = next.search ?? search;
     const finalStatus = next.status ?? statusFilter;
     const finalReadiness = next.readiness ?? readinessFilter;
+    const finalSource = next.source ?? sourceFilter;
 
     setSearch(finalSearch);
     setStatusFilter(finalStatus);
     setReadinessFilter(finalReadiness);
+    setSourceFilter(finalSource);
     syncInventoryUrl({
       search: finalSearch,
       status: finalStatus,
       readiness: finalReadiness,
+      source: finalSource,
     });
   }
 
@@ -657,6 +708,14 @@ export default function SellerInventoryPage() {
         return false;
       }
 
+      if (sourceFilter === "instacomp" && !item.instaComp?.isInstaCompDraft) {
+        return false;
+      }
+
+      if (sourceFilter === "manual" && item.instaComp?.isInstaCompDraft) {
+        return false;
+      }
+
       if (!searchTerm) {
         return true;
       }
@@ -667,13 +726,17 @@ export default function SellerInventoryPage() {
         item.category,
         item.condition,
         item.ebayItemId || "",
+        inventorySourceLabel(item),
+        item.instaComp?.scanId || "",
+        item.instaComp?.serialNumber || "",
+        item.instaComp?.listingPriceSource || "",
       ]
         .join(" ")
         .toLowerCase();
 
       return haystack.includes(searchTerm);
     });
-  }, [items, readinessFilter, search, statusFilter]);
+  }, [items, readinessFilter, search, sourceFilter, statusFilter]);
 
   const visibleInventoryItemIds = useMemo(
     () => filteredItems.map((item) => item.inventoryItemId),
@@ -897,6 +960,7 @@ export default function SellerInventoryPage() {
       search: "",
       status,
       readiness,
+      source: "all",
     });
     setSelectedInventoryItemIds(ids);
   }
@@ -908,6 +972,7 @@ export default function SellerInventoryPage() {
       search: "",
       status: "draft",
       readiness: "needs_work",
+      source: "all",
     });
     setSelectedInventoryItemIds(ids);
   }
@@ -1281,7 +1346,7 @@ export default function SellerInventoryPage() {
       </section>
 
       <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
-        <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-7">
+        <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-8">
           <Metric
             label="Seller Items"
             value={loading ? "..." : String(summary?.totalItems || 0)}
@@ -1297,6 +1362,16 @@ export default function SellerInventoryPage() {
           <Metric
             label="Needs Work"
             value={loading ? "..." : String(summary?.draftNeedsWorkCount || 0)}
+          />
+          <Metric
+            label="InstaComp Drafts"
+            value={loading ? "..." : String(summary?.instacompDraftCount || 0)}
+          />
+          <Metric
+            label="InstaComp Ready"
+            value={
+              loading ? "..." : String(summary?.instacompReadyDraftCount || 0)
+            }
           />
           <Metric
             label="Active"
@@ -1471,7 +1546,7 @@ export default function SellerInventoryPage() {
                 />
               </label>
 
-              <div className="grid gap-3 md:grid-cols-2">
+              <div className="grid gap-3 md:grid-cols-3">
                 <div>
                   <p className="text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
                     Status
@@ -1501,6 +1576,22 @@ export default function SellerInventoryPage() {
                         onClick={() =>
                           setInventoryView({ readiness: filter.value })
                         }
+                      />
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
+                    Source
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {sourceFilters.map((filter) => (
+                      <FilterChip
+                        key={filter.value}
+                        active={sourceFilter === filter.value}
+                        label={filter.label}
+                        onClick={() => setInventoryView({ source: filter.value })}
                       />
                     ))}
                   </div>
@@ -1935,6 +2026,7 @@ export default function SellerInventoryPage() {
                       search: "",
                       status: "all",
                       readiness: "all",
+                      source: "all",
                     });
                   }}
                   className="rounded-md border border-neutral-300 px-3 py-2 text-sm font-bold hover:bg-neutral-50"
@@ -2002,6 +2094,13 @@ export default function SellerInventoryPage() {
                       >
                         {item.activationReadiness.ready ? "READY" : "NEEDS WORK"}
                       </span>
+                      <span
+                        className={`rounded border px-2 py-1 text-[11px] font-black ${sourceTone(
+                          item,
+                        )}`}
+                      >
+                        {inventorySourceLabel(item)}
+                      </span>
                     </div>
                   </div>
 
@@ -2013,6 +2112,32 @@ export default function SellerInventoryPage() {
                     <Info label="Updated" value={shortDate(item.updatedAt)} />
                     <Info label="Created" value={shortDate(item.createdAt)} />
                   </div>
+
+                  {item.instaComp?.isInstaCompDraft ? (
+                    <div className="mt-4 rounded-md border border-sky-200 bg-sky-50 px-3 py-2">
+                      <p className="text-xs font-black uppercase tracking-[0.14em] text-sky-900">
+                        InstaComp draft
+                      </p>
+                      <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-sky-950">
+                        <Info
+                          label="Scan"
+                          value={item.instaComp.scanId || "Recorded"}
+                        />
+                        <Info
+                          label="Serial"
+                          value={item.instaComp.serialNumber || "Not detected"}
+                        />
+                        <Info
+                          label="Price source"
+                          value={label(item.instaComp.listingPriceSource)}
+                        />
+                        <Info
+                          label="Back image"
+                          value={item.instaComp.hasBackImage ? "Yes" : "No"}
+                        />
+                      </div>
+                    </div>
+                  ) : null}
 
                   {buildAuthenticityBadges(item.authenticity).length > 0 ? (
                     <div className="mt-4">

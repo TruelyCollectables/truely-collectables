@@ -54,6 +54,16 @@ type SellerInventoryResponseItem = {
   ebayItemId: string | null;
   imageUrl: string | null;
   authenticity: AuthenticityProfile;
+  instaComp: {
+    isInstaCompDraft: boolean;
+    source: string | null;
+    scanId: string | null;
+    serialNumber: string | null;
+    marketPrice: number | null;
+    listingPrice: number | null;
+    listingPriceSource: string | null;
+    hasBackImage: boolean;
+  };
   activationReadiness: {
     ready: boolean;
     blockers: InventoryActivationBlocker[];
@@ -67,6 +77,42 @@ function getSupabaseClient() {
 function moneyNumber(value: number | string | null | undefined) {
   const parsed = Number(value || 0);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function textValue(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function nullableMoneyNumber(value: unknown) {
+  const parsed = Number(value);
+
+  return Number.isFinite(parsed) && parsed > 0
+    ? Math.round(parsed * 100) / 100
+    : null;
+}
+
+function instacompSummary(metadata: Record<string, unknown> | null) {
+  const instacomp = recordValue(recordValue(metadata).instacomp);
+  const ai = recordValue(instacomp.ai);
+  const source = textValue(instacomp.source);
+  const scanId = textValue(instacomp.scanId);
+
+  return {
+    isInstaCompDraft: Boolean(source || scanId),
+    source,
+    scanId,
+    serialNumber: textValue(ai.serialNumber),
+    marketPrice: nullableMoneyNumber(instacomp.marketPrice),
+    listingPrice: nullableMoneyNumber(instacomp.listingPrice),
+    listingPriceSource: textValue(instacomp.listingPriceSource),
+    hasBackImage: Boolean(instacomp.hasBackImage),
+  };
 }
 
 function isMissingSellerInventoryTables(error: { code?: string; message?: string }) {
@@ -119,6 +165,7 @@ function mapInventoryItem(
     ebayItemId: product?.ebay_item_id || null,
     imageUrl: product?.image_url || null,
     authenticity: extractAuthenticityProfile(item.metadata),
+    instaComp: instacompSummary(item.metadata),
     activationReadiness: {
       ready: shouldEvaluateReadiness
         ? blockers.length === 0
@@ -218,6 +265,34 @@ export async function GET(request: Request) {
         (sum, item) => sum + moneyNumber(item.price) * Number(item.quantity || 0),
         0,
       );
+    const instacompDraftCount = inventoryItems.filter((item) => {
+      const instaComp = instacompSummary(item.metadata);
+
+      return item.status === "draft" && instaComp.isInstaCompDraft;
+    }).length;
+    const instacompReadyDraftCount = inventoryItems.filter((item) => {
+      if (item.status !== "draft") return false;
+
+      const instaComp = instacompSummary(item.metadata);
+
+      if (!instaComp.isInstaCompDraft) return false;
+
+      const product = item.legacy_product_id
+        ? productsById.get(item.legacy_product_id)
+        : null;
+
+      return (
+        getInventoryActivationBlockers({
+          title: item.title,
+          category: item.category,
+          sku: item.sku,
+          price: moneyNumber(item.price),
+          quantity: Number(item.quantity || 0),
+          imageUrl: product?.image_url || null,
+          metadata: item.metadata,
+        }).length === 0
+      );
+    }).length;
     const draftReadyCount = inventoryItems.filter((item) => {
       if (item.status !== "draft") return false;
 
@@ -267,6 +342,8 @@ export async function GET(request: Request) {
         activeCount: inventoryItems.filter((item) => item.status === "active").length,
         archivedCount: inventoryItems.filter((item) => item.status === "archived")
           .length,
+        instacompDraftCount,
+        instacompReadyDraftCount,
         totalQuantity,
         totalDraftValue,
       },
