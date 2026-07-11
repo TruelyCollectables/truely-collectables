@@ -346,6 +346,15 @@ function canArchiveInventoryItem(item: SellerInventoryItem) {
   return item.status !== "archived" && item.status !== "sold";
 }
 
+function canRunBulkInventoryAction(
+  item: SellerInventoryItem,
+  action: BulkInventoryAction | null,
+) {
+  if (action === "activate") return canActivateInventoryItem(item);
+  if (action === "archive") return canArchiveInventoryItem(item);
+  return false;
+}
+
 function inventorySelectionGuidance(summary: {
   total: number;
   ready: number;
@@ -1089,6 +1098,19 @@ export default function SellerInventoryPage() {
     () => lastBulkInventoryFailures.map((entry) => entry.inventoryItemId),
     [lastBulkInventoryFailures],
   );
+  const bulkFailureRetryReadyItemIds = useMemo(
+    () =>
+      lastBulkInventoryFailures
+        .filter((entry) => {
+          const item = itemsById.get(entry.inventoryItemId);
+
+          return item
+            ? canRunBulkInventoryAction(item, lastBulkInventoryAction)
+            : false;
+        })
+        .map((entry) => entry.inventoryItemId),
+    [itemsById, lastBulkInventoryAction, lastBulkInventoryFailures],
+  );
   const bulkFailureBlockerItemIds = useMemo(
     () =>
       lastBulkInventoryFailures
@@ -1480,7 +1502,7 @@ export default function SellerInventoryPage() {
   }) {
     const { action, inventoryItemIds, emptyMessage } = params;
 
-    if (!session?.access_token || selectedInventoryItemIds.length === 0) return;
+    if (!session?.access_token) return;
     if (inventoryItemIds.length === 0) {
       setNotice(emptyMessage);
       setError("");
@@ -2280,6 +2302,27 @@ export default function SellerInventoryPage() {
                     </button>
                     <button
                       type="button"
+                      onClick={() => {
+                        if (!lastBulkInventoryAction) return;
+
+                        void runBulkInventoryAction({
+                          action: lastBulkInventoryAction,
+                          inventoryItemIds: bulkFailureRetryReadyItemIds,
+                          emptyMessage:
+                            "No failed seller listings are ready to retry yet.",
+                        });
+                      }}
+                      disabled={
+                        bulkAction !== null ||
+                        !lastBulkInventoryAction ||
+                        bulkFailureRetryReadyItemIds.length === 0
+                      }
+                      className="rounded-md border border-emerald-300 bg-white px-3 py-2 text-xs font-bold text-emerald-800 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      Retry Corrected ({bulkFailureRetryReadyItemIds.length})
+                    </button>
+                    <button
+                      type="button"
                       onClick={() =>
                         openBulkInventoryQueue("all", "all", bulkFailureItemIds)
                       }
@@ -2316,6 +2359,11 @@ export default function SellerInventoryPage() {
                   <span className="rounded border border-amber-200 bg-white px-2 py-1 text-[11px] font-black text-amber-900">
                     {lastBulkInventoryFailures.length} failed
                   </span>
+                  {bulkFailureRetryReadyItemIds.length > 0 ? (
+                    <span className="rounded border border-emerald-200 bg-white px-2 py-1 text-[11px] font-black text-emerald-800">
+                      {bulkFailureRetryReadyItemIds.length} retry ready
+                    </span>
+                  ) : null}
                   {bulkFailureBlockerItemIds.length > 0 ? (
                     <span className="rounded border border-amber-200 bg-white px-2 py-1 text-[11px] font-black text-amber-900">
                       {bulkFailureBlockerItemIds.length} blockers

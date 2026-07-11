@@ -3909,7 +3909,7 @@ When one or more rows are selected, the Selection Summary also shows the selecte
 
 The Selection Summary also shows a Selected Activation Check with the activatable count, draft-needs-work count, already-active count, archived count, and the top selected readiness blockers. Use it before `Activate Ready` so bulk activation only moves rows that are actually eligible.
 
-After a bulk activation or archive attempt, the Bulk Action Follow-Up card groups failed rows by blocker reason. Click a blocker group to keep only that failed subset selected for cleanup, then fix the row data and retry only the corrected rows.
+After a bulk activation or archive attempt, the Bulk Action Follow-Up card groups failed rows by blocker reason. Click a blocker group to keep only that failed subset selected for cleanup, then fix the row data. When any failed rows become eligible for the same action, use `Retry Corrected` to rerun only those corrected failed rows.
 
 Seller Inventory supports the URL-safe lane:
 
@@ -4597,6 +4597,7 @@ Recent seller workspace wording cleanup:
 - Seller Inventory rows now show the default Standard Envelope/Ground Advantage shipping plan, estimated postage, Coverage requirement, and Coverage type; selected rows now show a shipping mix summary before activation or marketplace export, and selected ready-row marketplace packets include those shipping fields.
 - Seller Inventory Selection Summary now shows a selected-row activation check with activatable, needs-work, active, archived, and top-blocker counts before `Activate Ready`.
 - Seller Inventory Bulk Action Follow-Up now groups failed rows by blocker reason and lets operators keep only a specific blocker group selected for cleanup.
+- Seller Inventory Bulk Action Follow-Up now shows `Retry Corrected` when failed rows have become eligible for the same activation/archive action.
 - Seller Inventory marketplace JSON/CSV exports now include explicit prep-only, no-external-publishing, and no-shipping-purchase guardrail fields so exported files cannot be mistaken for live marketplace or postage actions.
 - Seller Inventory Bulk Controls now show the marketplace export guardrails on-screen before copy/download actions.
 - Seller Command Center now shows `InstaComp Ready` and routes to ready InstaComp drafts when that is the safest inventory shortcut.
