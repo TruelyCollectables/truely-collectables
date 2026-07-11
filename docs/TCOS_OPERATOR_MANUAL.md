@@ -4320,14 +4320,14 @@ Scheduled seller reconciliation runs at 09:00 UTC and requires `CRON_SECRET`. Th
 
 ## 36. Local Startup, Backup Verification, And Laptop-Failure Recovery
 
-The current disaster-recovery snapshot created on 2026-07-11 exists in two independent locations:
+The current disaster-recovery snapshot created on 2026-07-11 is fully verified in the local location below. The second path is the intended Transcend target:
 
 ```text
 C:\Projects\TCOS_DISASTER_RECOVERY\TCOS_FULL_DISASTER_RECOVERY_20260711-064539
-D:\TCOS_DISASTER_RECOVERY\TCOS_FULL_DISASTER_RECOVERY_20260711-064539
+D:\TCOS_DISASTER_RECOVERY\TCOS_FULL_DISASTER_RECOVERY_20260711-064539  (copy pending)
 ```
 
-The `D:` Transcend copy is the laptop-failure copy. Do not rely only on the `C:` copy because an internal-drive failure can destroy both the working project and a same-drive backup.
+The `D:` Transcend copy is the laptop-failure copy. The 2026-07-11 external copy was blocked by the automation environment's elevated-action quota after the local folder and archive verified successfully. The earlier `20260710-230103` snapshot remains on `D:`. Do not treat the new snapshot as laptop-failure-safe until its folder, archive, and SHA-256 file have been copied to `D:` and the external verifier passes. Do not rely only on the `C:` copy because an internal-drive failure can destroy both the working project and a same-drive backup.
 
 Snapshot contents include:
 
