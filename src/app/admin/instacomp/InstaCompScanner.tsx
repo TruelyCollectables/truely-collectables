@@ -79,6 +79,7 @@ type ScanResponse = {
   scanId: string | null;
   ai: AiResult;
   ocrDiagnostics?: {
+    paddleOcrConfigured: boolean;
     googleVisionConfigured: boolean;
     provider: string | null;
     checkedImages: number;
@@ -8316,7 +8317,9 @@ function OcrDiagnosticsPanel({ result }: { result: ScanResponse }) {
 
   if (!diagnostics) return null;
 
-  const active = diagnostics.googleVisionConfigured && diagnostics.provider;
+  const providerConfigured =
+    diagnostics.paddleOcrConfigured || diagnostics.googleVisionConfigured;
+  const active = providerConfigured && diagnostics.provider;
 
   return (
     <div
@@ -8337,7 +8340,13 @@ function OcrDiagnosticsPanel({ result }: { result: ScanResponse }) {
         }}
       >
         <Info
-          label="Google Vision"
+          label="PaddleOCR"
+          value={
+            diagnostics.paddleOcrConfigured ? "Configured" : "Missing service"
+          }
+        />
+        <Info
+          label="Google fallback"
           value={diagnostics.googleVisionConfigured ? "Configured" : "Missing key"}
         />
         <Info label="Provider" value={diagnostics.provider || "None"} />
@@ -8347,10 +8356,17 @@ function OcrDiagnosticsPanel({ result }: { result: ScanResponse }) {
           value={diagnostics.extractedSerialNumber || "None found"}
         />
       </div>
-      {!diagnostics.googleVisionConfigured && (
+      {!providerConfigured && (
         <p style={{ margin: "10px 0 0", color: "#8a1f1f", fontWeight: 900 }}>
-          Real OCR is not active. Add GOOGLE_VISION_API_KEY or
-          GOOGLE_CLOUD_VISION_API_KEY, then restart the dev server.
+          Real OCR is not active. Add PADDLEOCR_API_URL, or add
+          GOOGLE_VISION_API_KEY / GOOGLE_CLOUD_VISION_API_KEY as fallback, then
+          restart the dev server.
+        </p>
+      )}
+      {providerConfigured && !diagnostics.provider && (
+        <p style={{ margin: "10px 0 0", color: "#8a1f1f", fontWeight: 900 }}>
+          OCR is configured but did not return usable text. Check the OCR service
+          logs, URL, key, and image payload size.
         </p>
       )}
       {diagnostics.textExcerpt && (
@@ -8380,10 +8396,13 @@ function OcrDiagnosticsMini({ result }: { result: ScanResponse | null }) {
 
   if (!diagnostics) return null;
 
-  if (!diagnostics.googleVisionConfigured) {
+  const providerConfigured =
+    diagnostics.paddleOcrConfigured || diagnostics.googleVisionConfigured;
+
+  if (!providerConfigured) {
     return (
       <div style={{ marginTop: 6, color: "#8a1f1f", fontSize: 12, fontWeight: 900 }}>
-        OCR: Google Vision key missing - serial reading is using fallback only
+        OCR: PaddleOCR/Google not configured - serial reading is using fallback only
       </div>
     );
   }

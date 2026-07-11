@@ -36,6 +36,16 @@ const GOOGLE_CSE_API_KEY =
   process.env.GOOGLE_CSE_API_KEY || process.env.GOOGLE_CUSTOM_SEARCH_API_KEY;
 const GOOGLE_CSE_CX =
   process.env.GOOGLE_CSE_CX || process.env.GOOGLE_CUSTOM_SEARCH_CX;
+const PADDLEOCR_API_URL =
+  process.env.PADDLEOCR_API_URL || process.env.INSTACOMP_PADDLEOCR_API_URL;
+const PADDLEOCR_API_KEY =
+  process.env.PADDLEOCR_API_KEY || process.env.INSTACOMP_PADDLEOCR_API_KEY;
+const requestedPaddleOcrTimeoutMs = Number(
+  process.env.PADDLEOCR_TIMEOUT_MS || 12000
+);
+const PADDLEOCR_TIMEOUT_MS = Number.isFinite(requestedPaddleOcrTimeoutMs)
+  ? Math.max(1000, Math.min(requestedPaddleOcrTimeoutMs, 45000))
+  : 12000;
 const GOOGLE_VISION_API_KEY =
   process.env.GOOGLE_VISION_API_KEY || process.env.GOOGLE_CLOUD_VISION_API_KEY;
 const SERPAPI_API_KEY = process.env.SERPAPI_API_KEY;
@@ -133,6 +143,118 @@ function extractSerialNumberFromText(text: string) {
   return null;
 }
 
+function collectOcrTextValues(value: unknown, depth = 0): string[] {
+  if (!value || depth > 4) return [];
+
+  if (typeof value === "string") return [value];
+
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => collectOcrTextValues(item, depth + 1));
+  }
+
+  if (typeof value !== "object") return [];
+
+  const record = value as Record<string, unknown>;
+  const directTextValues = [
+    record.text,
+    record.fullText,
+    record.full_text,
+    record.rawText,
+    record.raw_text,
+    record.description,
+    record.ocrText,
+    record.ocr_text,
+  ].filter((item): item is string => typeof item === "string");
+
+  return [
+    ...directTextValues,
+    ...collectOcrTextValues(record.results, depth + 1),
+    ...collectOcrTextValues(record.images, depth + 1),
+    ...collectOcrTextValues(record.pages, depth + 1),
+    ...collectOcrTextValues(record.detections, depth + 1),
+    ...collectOcrTextValues(record.lines, depth + 1),
+  ];
+}
+
+async function getPaddleOcr(
+  images: InstaCompDetailImage[]
+): Promise<ExternalOcrResult | null> {
+  if (!PADDLEOCR_API_URL || !images.length) return null;
+
+  const checkedImages = images.slice(0, 24);
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), PADDLEOCR_TIMEOUT_MS);
+
+  try {
+    const headers: Record<string, string> = {
+      "Content-Type": "application/json",
+    };
+
+    if (PADDLEOCR_API_KEY) {
+      headers.Authorization = `Bearer ${PADDLEOCR_API_KEY}`;
+    }
+
+    const response = await fetch(PADDLEOCR_API_URL, {
+      method: "POST",
+      headers,
+      signal: controller.signal,
+      body: JSON.stringify({
+        images: checkedImages.map((image) => ({
+          name: image.name,
+          dataUrl: image.dataUrl,
+        })),
+        hints: {
+          task: "sports_card_ocr",
+          priority: [
+            "serial_number",
+            "card_number",
+            "player",
+            "team",
+            "set",
+            "parallel",
+            "autograph",
+            "relic",
+          ],
+        },
+      }),
+    });
+
+    if (!response.ok) {
+      console.error("PaddleOCR failed:", await response.text());
+      return null;
+    }
+
+    const data = await response.json();
+    const text = normalizeOcrText(collectOcrTextValues(data).join("\n"));
+    const responseSerial =
+      typeof data?.serialNumber === "string"
+        ? data.serialNumber
+        : typeof data?.serial_number === "string"
+          ? data.serial_number
+          : null;
+    const serialNumber =
+      extractSerialNumberFromText(responseSerial || "") ||
+      extractSerialNumberFromText(text);
+
+    return {
+      provider: String(data?.provider || "paddleocr"),
+      text,
+      serialNumber,
+      checkedImages:
+        typeof data?.checkedImages === "number"
+          ? data.checkedImages
+          : typeof data?.checked_images === "number"
+            ? data.checked_images
+            : checkedImages.length,
+    };
+  } catch (error) {
+    console.error("PaddleOCR request failed:", error);
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function getGoogleVisionOcr(
   images: InstaCompDetailImage[]
 ): Promise<ExternalOcrResult | null> {
@@ -186,6 +308,37 @@ async function getGoogleVisionOcr(
     serialNumber: extractSerialNumberFromText(text),
     checkedImages: requests.length,
   };
+}
+
+async function getBestExternalOcr(
+  images: InstaCompDetailImage[]
+): Promise<ExternalOcrResult | null> {
+  const paddleOcr = await getPaddleOcr(images);
+
+  if (paddleOcr?.serialNumber) {
+    return paddleOcr;
+  }
+
+  const googleVision = await getGoogleVisionOcr(images);
+
+  if (paddleOcr && googleVision?.serialNumber) {
+    const text = normalizeOcrText(
+      [paddleOcr.text, googleVision.text].filter(Boolean).join("\n")
+    );
+
+    return {
+      provider: `${paddleOcr.provider}+${googleVision.provider}`,
+      text,
+      serialNumber: googleVision.serialNumber,
+      checkedImages: paddleOcr.checkedImages + googleVision.checkedImages,
+    };
+  }
+
+  if (paddleOcr?.text || paddleOcr?.serialNumber) {
+    return paddleOcr;
+  }
+
+  return googleVision;
 }
 
 async function identifyCardWithOpenAI(
@@ -1698,7 +1851,7 @@ export async function POST(req: NextRequest) {
       ...(backDataUrl ? [{ name: "back-full-card", dataUrl: backDataUrl }] : []),
       ...detailImages,
     ];
-    const externalOcr = await getGoogleVisionOcr(externalOcrImages);
+    const externalOcr = await getBestExternalOcr(externalOcrImages);
 
     const baseAi = await identifyCardWithOpenAI(
       frontDataUrl,
@@ -1764,6 +1917,7 @@ export async function POST(req: NextRequest) {
       scanId,
       ai,
       ocrDiagnostics: {
+        paddleOcrConfigured: Boolean(PADDLEOCR_API_URL),
         googleVisionConfigured: Boolean(GOOGLE_VISION_API_KEY),
         provider: externalOcr?.provider || null,
         checkedImages: externalOcr?.checkedImages || 0,
