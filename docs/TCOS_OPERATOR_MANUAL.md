@@ -4361,6 +4361,17 @@ D:\TCOS_DISASTER_RECOVERY\TCOS_FULL_DISASTER_RECOVERY_20260711-064539  (copy pen
 
 The `D:` Transcend copy is the laptop-failure copy. The 2026-07-11 external copy was blocked by the automation environment's elevated-action quota after the local folder and archive verified successfully. The earlier `20260710-230103` snapshot remains on `D:`. Do not treat the new snapshot as laptop-failure-safe until its folder, archive, and SHA-256 file have been copied to `D:` and the external verifier passes. Do not rely only on the `C:` copy because an internal-drive failure can destroy both the working project and a same-drive backup.
 
+Fast source checkpoint after the current InstaComp seller-handoff work:
+
+```text
+C:\Projects\TCOS_DISASTER_RECOVERY\code-snapshots\tcos-code-snapshot-20260711-122201
+C:\Projects\TCOS_DISASTER_RECOVERY\code-snapshots\tcos-code-snapshot-20260711-122201.zip
+SHA-256: 89E88D007BF401D601E1A618077516B2DCCA77F50DD2445605F85AD222505E54
+Git HEAD: 8909dc1e5caaea6acccbe6e01b547559f5fd5bff
+```
+
+This fast checkpoint preserves the current source tree plus `.git` history, including the 25 local commits ahead of GitHub at the time it was created. It intentionally excludes rebuildable/generated folders such as `node_modules`, `.next`, `.venv`, and Paddle model caches. Use it as a quick source-code recovery point, not as a complete laptop-failure restore. The full disaster-recovery snapshot still needs the Transcend copy and external verification before it is laptop-failure-safe.
+
 Snapshot contents include:
 
 - complete working repository and all untracked files
