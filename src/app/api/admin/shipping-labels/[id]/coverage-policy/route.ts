@@ -1,4 +1,8 @@
 import { getClientIdentity } from "../../../../../../lib/client-identity";
+import {
+  isDryRunShippingLabel,
+  isDryRunShippingReference,
+} from "../../../../../../lib/shipping-dry-run";
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
 
@@ -33,51 +37,6 @@ function cleanMoney(value: unknown) {
   return Number(amount.toFixed(2));
 }
 
-function metadataRecord(
-  metadata: Record<string, unknown> | null | undefined,
-  key: string,
-) {
-  const value = metadata?.[key];
-
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function nestedRecord(record: Record<string, unknown> | null, key: string) {
-  const value = record?.[key];
-
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function isDryRunReference(value: string | null | undefined) {
-  const normalized = String(value || "").trim().toLowerCase();
-
-  return (
-    normalized.includes("tcos-dryrun") ||
-    normalized.startsWith("dryrun-") ||
-    normalized.includes("tcos dry-run")
-  );
-}
-
-function isDryRunLabel(label: ShippingLabelRow) {
-  const latestAttempt = metadataRecord(label.metadata, "latest_purchase_attempt");
-  const purchaseResult = nestedRecord(latestAttempt, "purchase_result");
-  const providerPayload = nestedRecord(purchaseResult, "rawProviderPayload");
-
-  return (
-    latestAttempt?.status === "dry_run_purchased" ||
-    purchaseResult?.mode === "dry_run" ||
-    providerPayload?.dry_run === true ||
-    isDryRunReference(label.provider_label_id) ||
-    isDryRunReference(label.provider_shipment_id) ||
-    isDryRunReference(label.coverage_policy_id) ||
-    isDryRunReference(label.tracking_number)
-  );
-}
-
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -102,7 +61,7 @@ export async function PATCH(
       ["coverageProvider", coverageProvider],
       ["coveragePolicyId", coveragePolicyId],
     ]
-      .filter(([, value]) => isDryRunReference(value))
+      .filter(([, value]) => isDryRunShippingReference(value))
       .map(([field]) => field);
 
     if (!coveragePolicyId) {
@@ -147,7 +106,7 @@ export async function PATCH(
       );
     }
 
-    if (isDryRunLabel(label)) {
+    if (isDryRunShippingLabel(label)) {
       return Response.json(
         {
           error:

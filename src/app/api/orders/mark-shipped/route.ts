@@ -1,5 +1,10 @@
 import { NextResponse } from "next/server";
 import { isOrderReviewStatus } from "../../../../lib/order-status";
+import {
+  isDryRunShippingLabel,
+  isDryRunShippingReference,
+  type DryRunShippingLabelLike,
+} from "../../../../lib/shipping-dry-run";
 import { getStoreSettings } from "../../../../lib/store-settings";
 import { getActiveStoreId } from "../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
@@ -40,62 +45,10 @@ function isMissingShippingInfrastructure(error: { code?: string; message?: strin
   );
 }
 
-type ActiveShippingLabel = {
+type ActiveShippingLabel = DryRunShippingLabelLike & {
   id: string;
   label_status: string | null;
-  metadata?: Record<string, unknown> | null;
-  provider_label_id?: string | null;
-  provider_shipment_id?: string | null;
-  tracking_number?: string | null;
-  coverage_policy_id?: string | null;
 };
-
-function metadataRecord(
-  metadata: Record<string, unknown> | null | undefined,
-  key: string,
-) {
-  const value = metadata?.[key];
-
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function nestedRecord(record: Record<string, unknown> | null, key: string) {
-  const value = record?.[key];
-
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function isDryRunReference(value: string | null | undefined) {
-  const normalized = String(value || "").trim().toLowerCase();
-
-  return (
-    normalized.includes("tcos-dryrun") ||
-    normalized.startsWith("dryrun-") ||
-    normalized.includes("tcos dry-run")
-  );
-}
-
-function isDryRunLabel(label: ActiveShippingLabel | null | undefined) {
-  if (!label) return false;
-
-  const latestAttempt = metadataRecord(label.metadata, "latest_purchase_attempt");
-  const purchaseResult = nestedRecord(latestAttempt, "purchase_result");
-  const providerPayload = nestedRecord(purchaseResult, "rawProviderPayload");
-
-  return (
-    latestAttempt?.status === "dry_run_purchased" ||
-    purchaseResult?.mode === "dry_run" ||
-    providerPayload?.dry_run === true ||
-    isDryRunReference(label.provider_label_id) ||
-    isDryRunReference(label.provider_shipment_id) ||
-    isDryRunReference(label.coverage_policy_id) ||
-    isDryRunReference(label.tracking_number)
-  );
-}
 
 export async function POST(req: Request) {
   try {
@@ -153,7 +106,7 @@ export async function POST(req: Request) {
       );
     }
 
-    if (isDryRunReference(order.tracking_number)) {
+    if (isDryRunShippingReference(order.tracking_number)) {
       return NextResponse.json(
         {
           error:
@@ -189,7 +142,7 @@ export async function POST(req: Request) {
       }
     }
 
-    if (isDryRunLabel(activeShippingLabel)) {
+    if (isDryRunShippingLabel(activeShippingLabel)) {
       return NextResponse.json(
         {
           error:

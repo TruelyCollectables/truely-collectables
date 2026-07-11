@@ -4333,6 +4333,8 @@ The tracking save endpoint also rejects dry-run tracking references and refuses 
 
 The mark-shipped endpoint uses the same broad dry-run reference detection before changing fulfillment status or sending shipment email.
 
+Dry-run shipping detection for fulfillment-critical backend routes is centralized in `src/lib/shipping-dry-run.ts`. Use that helper instead of copying one-off string checks when adding new label, tracking, Coverage, claim, or shipment actions.
+
 ### Real shipment runbook
 
 1. Open `/admin/orders/[id]`.

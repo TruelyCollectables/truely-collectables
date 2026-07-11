@@ -13,6 +13,7 @@ import {
   getShippingProviderAdapterProfile,
   purchaseShippingLabel,
 } from "../../../../../../lib/shipping-provider-adapter";
+import { isDryRunShippingReference } from "../../../../../../lib/shipping-dry-run";
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
 
@@ -58,16 +59,6 @@ function cleanMoney(value: unknown) {
   if (!Number.isFinite(amount) || amount < 0) return null;
 
   return Number(amount.toFixed(2));
-}
-
-function isDryRunReference(value: string | null | undefined) {
-  const normalized = String(value || "").trim().toLowerCase();
-
-  return (
-    normalized.includes("tcos-dryrun") ||
-    normalized.startsWith("dryrun-") ||
-    normalized.includes("tcos dry-run")
-  );
 }
 
 function metadataNumber(
@@ -349,7 +340,7 @@ export async function PATCH(
         ["labelUrl", labelUrl],
         ["labelPdfUrl", labelPdfUrl],
       ]
-        .filter(([, value]) => isDryRunReference(value))
+        .filter(([, value]) => isDryRunShippingReference(value))
         .map(([field]) => field);
 
       if (dryRunFields.length > 0) {

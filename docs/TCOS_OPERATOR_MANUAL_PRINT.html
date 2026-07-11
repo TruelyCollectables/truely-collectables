@@ -4105,6 +4105,7 @@ dryrun-</code></pre>
 <p>The shipping Coverage policy save endpoint also rejects dry-run policy IDs and refuses to mark a dry-run label as covered. To attach a real Coverage policy, first record a real external label/manual purchase or void the dry-run record and create the correct fulfillment record.</p>
 <p>The tracking save endpoint also rejects dry-run tracking references and refuses to save tracking while the active shipping label is still a dry-run simulation. Save tracking only after a real external label has been recorded or the dry-run record has been voided.</p>
 <p>The mark-shipped endpoint uses the same broad dry-run reference detection before changing fulfillment status or sending shipment email.</p>
+<p>Dry-run shipping detection for fulfillment-critical backend routes is centralized in <code>src/lib/shipping-dry-run.ts</code>. Use that helper instead of copying one-off string checks when adding new label, tracking, Coverage, claim, or shipment actions.</p>
 <h3>Real shipment runbook</h3>
 <ol>
 <li>Open <code>/admin/orders/[id]</code>.</li>
