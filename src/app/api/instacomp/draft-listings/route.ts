@@ -1,11 +1,15 @@
-import { createHash } from "crypto";
-import {
-  ensureAccountStoreMembership,
-  getAuthenticatedAccountFromRequest,
-} from "../../../../lib/account-auth";
+import { createHash, randomUUID } from "crypto";
 import { sanitizeAuthenticityProfile } from "../../../../lib/authenticity";
 import { getActiveStoreId } from "../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
+import {
+  INSTACOMP_JOB_IMAGE_BUCKET,
+  INSTACOMP_JOB_ITEM_TABLE,
+  INSTACOMP_JOB_TABLE,
+  instaCompJobErrorResponse,
+  requireInstaCompJobActor,
+  throwInstaCompRpcError,
+} from "../../../../lib/instacomp-job-server";
 import {
   inventoryEngine,
   InventoryEngineError,
@@ -52,6 +56,8 @@ type InstaCompDraftRequestItem = {
   soldStats?: unknown;
   sourceCoverage?: unknown;
   externalSearch?: unknown;
+  persistentJobId?: unknown;
+  persistentItemId?: unknown;
 };
 
 type ParsedDraftRequestItem = InstaCompDraftRequestItem & {
@@ -84,6 +90,12 @@ type ExistingInstaCompDraftRow = {
 
 function getSupabaseClient() {
   return createSupabaseServerClient({ admin: true });
+}
+
+function scopeSellerAccount<T>(query: T, sellerAccountId: string | null): T {
+  return (sellerAccountId
+    ? (query as any).eq("seller_account_id", sellerAccountId)
+    : (query as any).is("seller_account_id", null)) as T;
 }
 
 async function parseDraftRequest(request: Request) {
@@ -236,6 +248,278 @@ async function uploadDraftImage(params: {
     .getPublicUrl(storagePath);
 
   return data.publicUrl || null;
+}
+
+function cleanUuid(value: unknown) {
+  const text = cleanText(value, 64);
+
+  return text &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      text,
+    )
+    ? text
+    : null;
+}
+
+async function persistentDraftImageFiles(params: {
+  supabase: ReturnType<typeof getSupabaseClient>;
+  storeId: string;
+  sellerAccountId: string | null;
+  jobId: string | null;
+  itemId: string | null;
+}) {
+  if (!params.jobId && !params.itemId) {
+    return {
+      frontFile: null,
+      backFile: null,
+      item: null,
+    };
+  }
+
+  if (!params.jobId || !params.itemId) {
+    throw new InventoryEngineError(
+      "A persistent InstaComp draft requires both its job ID and item ID.",
+      400,
+    );
+  }
+
+  let jobQuery = params.supabase
+    .from(INSTACOMP_JOB_TABLE)
+    .select("id,status")
+    .eq("id", params.jobId)
+    .eq("store_id", params.storeId);
+  jobQuery = scopeSellerAccount(jobQuery, params.sellerAccountId);
+  const { data: job, error: jobError } = await jobQuery.maybeSingle();
+
+  if (jobError) throw jobError;
+
+  if (!job) {
+    throw new InventoryEngineError(
+      "The persistent InstaComp job was not found for this seller.",
+      404,
+    );
+  }
+
+  if (["cancelling", "cancelled", "failed"].includes(String(job.status))) {
+    throw new InventoryEngineError(
+      "A cancelling, cancelled, or failed InstaComp job cannot create drafts.",
+      409,
+    );
+  }
+
+  const { data: item, error: itemError } = await params.supabase
+    .from(INSTACOMP_JOB_ITEM_TABLE)
+    .select(
+      "id,job_id,status,front_storage_path,back_storage_path,front_original_filename,back_original_filename,front_content_type,back_content_type,front_size_bytes,back_size_bytes,front_image_sha256,back_image_sha256,draft_inventory_item_id,result_payload",
+    )
+    .eq("id", params.itemId)
+    .eq("job_id", params.jobId)
+    .maybeSingle();
+
+  if (itemError) throw itemError;
+
+  if (!item?.front_storage_path) {
+    throw new InventoryEngineError(
+      "The persistent InstaComp row is missing its front image.",
+      409,
+    );
+  }
+
+  if (!["completed", "review_required"].includes(String(item.status))) {
+    throw new InventoryEngineError(
+      "Finish or review the InstaComp scan before creating its draft.",
+      409,
+    );
+  }
+
+  if (item.draft_inventory_item_id) {
+    return { frontFile: null, backFile: null, item };
+  }
+
+  async function download(
+    path: string | null,
+    fileName: string | null,
+    contentType: string | null,
+    expectedSizeBytes: number | null,
+    expectedSha256: string | null,
+  ) {
+    if (!path) return null;
+
+    const { data, error } = await params.supabase.storage
+      .from(INSTACOMP_JOB_IMAGE_BUCKET)
+      .download(path);
+
+    if (error || !data) {
+      throw new InventoryEngineError(
+        error?.message || "Could not load the persistent InstaComp image.",
+        500,
+      );
+    }
+
+    const bytes = await data.arrayBuffer();
+
+    if (
+      expectedSizeBytes !== null &&
+      bytes.byteLength !== expectedSizeBytes
+    ) {
+      throw new InventoryEngineError(
+        "A persistent InstaComp image changed size after it was scanned.",
+        409,
+      );
+    }
+
+    if (!expectedSha256) {
+      throw new InventoryEngineError(
+        "A persistent InstaComp image is missing its required integrity digest.",
+        409,
+      );
+    }
+
+    const actualSha256 = createHash("sha256")
+      .update(Buffer.from(bytes))
+      .digest("hex");
+
+    if (actualSha256 !== expectedSha256.toLowerCase()) {
+      throw new InventoryEngineError(
+        "A persistent InstaComp image changed after it was scanned. Cancel this row and upload it again.",
+        409,
+      );
+    }
+
+    return new File([bytes], fileName || "instacomp-card.jpg", {
+      type: contentType || data.type || "image/jpeg",
+    });
+  }
+
+  const [frontFile, backFile] = await Promise.all([
+    download(
+      item.front_storage_path,
+      item.front_original_filename,
+      item.front_content_type,
+      Number(item.front_size_bytes),
+      item.front_image_sha256 || null,
+    ),
+    download(
+      item.back_storage_path,
+      item.back_original_filename,
+      item.back_content_type,
+      item.back_size_bytes === null || item.back_size_bytes === undefined
+        ? null
+        : Number(item.back_size_bytes),
+      item.back_image_sha256 || null,
+    ),
+  ]);
+
+  return { frontFile, backFile, item };
+}
+
+async function markPersistentItemDrafted(params: {
+  supabase: ReturnType<typeof getSupabaseClient>;
+  storeId: string;
+  sellerAccountId: string | null;
+  jobId: string | null;
+  itemId: string | null;
+  inventoryItemId: string | null;
+  reservationToken: string | null;
+}) {
+  if (!params.jobId || !params.itemId || !params.inventoryItemId) return;
+
+  let ownedJobQuery = params.supabase
+    .from(INSTACOMP_JOB_TABLE)
+    .select("id")
+    .eq("id", params.jobId)
+    .eq("store_id", params.storeId);
+  ownedJobQuery = scopeSellerAccount(
+    ownedJobQuery,
+    params.sellerAccountId,
+  );
+  const { data: ownedJob, error: ownedJobError } =
+    await ownedJobQuery.maybeSingle();
+
+  if (ownedJobError) throw ownedJobError;
+
+  if (!ownedJob) {
+    throw new InventoryEngineError(
+      "The persistent InstaComp job was not found for this seller.",
+      404,
+    );
+  }
+
+  if (!params.reservationToken) {
+    throw new InventoryEngineError(
+      "The persistent InstaComp row does not have an active draft reservation.",
+      409,
+    );
+  }
+
+  const { data, error } = await params.supabase.rpc(
+    "tcos_finish_instacomp_scan_item_draft",
+    {
+      p_item_id: params.itemId,
+      p_reservation_token: params.reservationToken,
+      p_draft_inventory_item_id: params.inventoryItemId,
+    },
+  );
+
+  if (error) throwInstaCompRpcError(error);
+
+  const draftedItem = Array.isArray(data) ? data[0] : data;
+
+  if (
+    !draftedItem ||
+    draftedItem.draft_inventory_item_id !== params.inventoryItemId
+  ) {
+    throw new InventoryEngineError(
+      "The InstaComp row could not be linked to its reserved draft.",
+      409,
+    );
+  }
+}
+
+async function reservePersistentItemDraft(params: {
+  supabase: ReturnType<typeof getSupabaseClient>;
+  itemId: string | null;
+}) {
+  if (!params.itemId) {
+    return { reservationToken: null, item: null };
+  }
+
+  const reservationToken = randomUUID();
+  const { data, error } = await params.supabase.rpc(
+    "tcos_reserve_instacomp_scan_item_draft",
+    {
+      p_item_id: params.itemId,
+      p_reservation_token: reservationToken,
+      p_lease_seconds: 900,
+    },
+  );
+
+  if (error) throwInstaCompRpcError(error);
+
+  return {
+    reservationToken,
+    item: (Array.isArray(data) ? data[0] : data) as Record<string, any> | null,
+  };
+}
+
+async function releasePersistentItemDraftReservation(params: {
+  supabase: ReturnType<typeof getSupabaseClient>;
+  itemId: string | null;
+  reservationToken: string | null;
+}) {
+  if (!params.itemId || !params.reservationToken) return;
+
+  const { error } = await params.supabase.rpc(
+    "tcos_release_instacomp_scan_item_draft",
+    {
+      p_item_id: params.itemId,
+      p_reservation_token: params.reservationToken,
+    },
+  );
+
+  if (error) {
+    console.error("InstaComp draft reservation release error:", error);
+  }
 }
 
 function titleFromAi(ai: InstaCompDraftAi | null | undefined, fallback: string) {
@@ -396,7 +680,7 @@ function existingDraftSuccessItem(params: {
 async function findExistingInstaCompDraft(params: {
   supabase: ReturnType<typeof getSupabaseClient>;
   storeId: string;
-  accountId: string;
+  sellerAccountId: string | null;
   sku: string;
   clientId: string | null;
   scanId: string | null;
@@ -404,13 +688,13 @@ async function findExistingInstaCompDraft(params: {
   async function findBy(
     applyFilter: (query: any) => any,
   ) {
-    const baseQuery = params.supabase
+    let baseQuery = params.supabase
       .from("inventory_items")
       .select("id,legacy_product_id,title,sku,price,metadata")
       .eq("store_id", params.storeId)
-      .eq("seller_account_id", params.accountId)
       .order("created_at", { ascending: false })
       .limit(1);
+    baseQuery = scopeSellerAccount(baseQuery, params.sellerAccountId);
     const { data, error } = await applyFilter(baseQuery);
 
     if (error) throw error;
@@ -447,6 +731,25 @@ async function findExistingInstaCompDraft(params: {
   return null;
 }
 
+async function findOwnedInventoryItemById(params: {
+  supabase: ReturnType<typeof getSupabaseClient>;
+  storeId: string;
+  sellerAccountId: string | null;
+  inventoryItemId: string;
+}) {
+  let query = params.supabase
+    .from("inventory_items")
+    .select("id,legacy_product_id,title,sku,price,metadata")
+    .eq("id", params.inventoryItemId)
+    .eq("store_id", params.storeId);
+  query = scopeSellerAccount(query, params.sellerAccountId);
+  const { data, error } = await query.maybeSingle();
+
+  if (error) throw error;
+
+  return (data as ExistingInstaCompDraftRow | null) || null;
+}
+
 function isMissingInventoryTables(error: { code?: string; message?: string }) {
   const message = error.message?.toLowerCase() || "";
 
@@ -470,17 +773,9 @@ function unavailableResponse() {
 
 export async function POST(request: Request) {
   try {
-    const account = await getAuthenticatedAccountFromRequest(request);
-
-    if (!account) {
-      return Response.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    await ensureAccountStoreMembership({
-      accountId: account.id,
-      role: "seller",
-      status: "active",
-    });
+    const actor = await requireInstaCompJobActor(request);
+    const sellerAccountId = actor.sellerAccountId;
+    const ownerKey = sellerAccountId || "admin-store-inventory";
 
     const items = (await parseDraftRequest(request)).slice(0, 500);
 
@@ -488,6 +783,22 @@ export async function POST(request: Request) {
       return Response.json(
         { error: "At least one scanned InstaComp row is required." },
         { status: 400 },
+      );
+    }
+
+    if (
+      process.env.NODE_ENV === "production" &&
+      items.some(
+        (item) => !cleanUuid(item.persistentJobId) || !cleanUuid(item.persistentItemId),
+      )
+    ) {
+      return Response.json(
+        {
+          error:
+            "Production InstaComp drafts require a completed persistent queue row.",
+          code: "INSTACOMP_PERSISTENT_DRAFT_REQUIRED",
+        },
+        { status: 409 },
       );
     }
 
@@ -516,7 +827,32 @@ export async function POST(request: Request) {
       const marketPrice = moneyNumber(item.marketPrice);
       const quantity = quantityNumber(item.quantity);
       const searchQuery = cleanText(item.searchQuery, 500);
+      const persistentJobId = cleanUuid(item.persistentJobId);
+      const persistentItemId = cleanUuid(item.persistentItemId);
       const validationErrors: string[] = [];
+
+      if (item.persistentJobId && !persistentJobId) {
+        validationErrors.push("Persistent InstaComp job ID is invalid.");
+      }
+
+      if (item.persistentItemId && !persistentItemId) {
+        validationErrors.push("Persistent InstaComp item ID is invalid.");
+      }
+
+      if (Boolean(persistentJobId) !== Boolean(persistentItemId)) {
+        validationErrors.push(
+          "Persistent InstaComp job and item IDs must be provided together.",
+        );
+      }
+
+      if (
+        persistentItemId &&
+        (item.frontImageFile || item.backImageFile)
+      ) {
+        validationErrors.push(
+          "Persistent InstaComp drafts must use their verified private images; do not attach replacement files.",
+        );
+      }
 
       if (!title) {
         validationErrors.push("Draft title is required.");
@@ -541,25 +877,111 @@ export async function POST(request: Request) {
       }
 
       const sku = buildSku({
-        accountId: account.id,
-        scanId,
-        clientId,
+        accountId: ownerKey,
+        scanId: persistentItemId || scanId,
+        clientId: persistentItemId ? null : clientId,
         title,
-        index,
+        index: persistentItemId ? 0 : index,
       });
-      const authenticity = buildAuthenticity(ai);
+
+      let draftReservationToken: string | null = null;
 
       try {
+        const persistentImages = await persistentDraftImageFiles({
+          supabase,
+          storeId,
+          sellerAccountId,
+          jobId: persistentJobId,
+          itemId: persistentItemId,
+        });
+        const linkedInventoryItemId = cleanUuid(
+          persistentImages.item?.draft_inventory_item_id,
+        );
+
+        if (linkedInventoryItemId) {
+          const linkedInventoryItem = await findOwnedInventoryItemById({
+            supabase,
+            storeId,
+            sellerAccountId,
+            inventoryItemId: linkedInventoryItemId,
+          });
+
+          if (!linkedInventoryItem) {
+            throw new InventoryEngineError(
+              "This InstaComp row is linked to an inventory item that is no longer available. An operator must repair the link before retrying.",
+              409,
+            );
+          }
+
+          existingCount += 1;
+          createdItems.push(
+            existingDraftSuccessItem({
+              row: linkedInventoryItem,
+              clientId,
+              scanId,
+            }),
+          );
+          continue;
+        }
+
+        if (persistentItemId) {
+          const reservation = await reservePersistentItemDraft({
+            supabase,
+            itemId: persistentItemId,
+          });
+          const reservationLinkedInventoryItemId = cleanUuid(
+            reservation.item?.draft_inventory_item_id,
+          );
+
+          if (reservationLinkedInventoryItemId) {
+            const linkedInventoryItem = await findOwnedInventoryItemById({
+              supabase,
+              storeId,
+              sellerAccountId,
+              inventoryItemId: reservationLinkedInventoryItemId,
+            });
+
+            if (!linkedInventoryItem) {
+              throw new InventoryEngineError(
+                "This InstaComp row is linked to an inventory item that is no longer available. An operator must repair the link before retrying.",
+                409,
+              );
+            }
+
+            existingCount += 1;
+            createdItems.push(
+              existingDraftSuccessItem({
+                row: linkedInventoryItem,
+                clientId,
+                scanId,
+              }),
+            );
+            continue;
+          }
+
+          draftReservationToken = reservation.reservationToken;
+        }
+
         const existingDraft = await findExistingInstaCompDraft({
           supabase,
           storeId,
-          accountId: account.id,
+          sellerAccountId,
           sku,
-          clientId,
-          scanId,
+          clientId: persistentItemId ? null : clientId,
+          scanId: persistentItemId ? null : scanId,
         });
 
         if (existingDraft) {
+          await markPersistentItemDrafted({
+            supabase,
+            storeId,
+            sellerAccountId,
+            jobId: persistentJobId,
+            itemId: persistentItemId,
+            inventoryItemId: existingDraft.id,
+            reservationToken: draftReservationToken,
+          });
+          draftReservationToken = null;
           existingCount += 1;
           createdItems.push(
             existingDraftSuccessItem({
@@ -571,34 +993,76 @@ export async function POST(request: Request) {
           continue;
         }
 
+        const persistedResult = compactRecord(
+          persistentImages.item?.result_payload,
+        );
+        const effectiveAi =
+          persistentItemId && Object.keys(compactRecord(persistedResult.ai)).length
+            ? (compactRecord(persistedResult.ai) as InstaCompDraftAi)
+            : ai;
+        const effectiveSearchQuery =
+          persistentItemId
+            ? cleanText(persistedResult.searchQuery, 500) || searchQuery
+            : searchQuery;
+        const effectiveStats = persistentItemId
+          ? compactRecord(persistedResult.stats)
+          : compactRecord(item.stats);
+        const effectiveSoldStats = persistentItemId
+          ? compactRecord(persistedResult.soldStats)
+          : compactRecord(item.soldStats);
+        const effectiveSourceCoverage = persistentItemId
+          ? cleanSourceCoverage(persistedResult.sourceCoverage)
+          : cleanSourceCoverage(item.sourceCoverage);
+        const effectiveExternalSearch = persistentItemId
+          ? compactRecord(
+              compactRecord(
+                (Array.isArray(persistedResult.providers)
+                  ? persistedResult.providers
+                  : []
+                ).find(
+                  (provider: any) =>
+                    provider?.source === "external_comp_search",
+                )?.diagnostics,
+              ).externalSearch,
+            )
+          : compactRecord(item.externalSearch);
+        const authenticity = buildAuthenticity(effectiveAi);
+        const effectiveHasBackImage = persistentItemId
+          ? Boolean(persistentImages.backFile)
+          : hasBackImage;
+
         const frontImageUrl = await uploadDraftImage({
           supabase,
           storeId,
-          accountId: account.id,
-          file: item.frontImageFile,
+          accountId: ownerKey,
+          file: persistentItemId
+            ? persistentImages.frontFile
+            : item.frontImageFile,
           side: "front",
           sku,
         });
         const backImageUrl = await uploadDraftImage({
           supabase,
           storeId,
-          accountId: account.id,
-          file: item.backImageFile,
+          accountId: ownerKey,
+          file: persistentItemId
+            ? persistentImages.backFile
+            : item.backImageFile,
           side: "back",
           sku,
         });
         const promotedItem = await inventoryEngine.createSellerDraftProduct({
-          sellerAccountId: account.id,
+          sellerAccountId,
           title,
           description: buildDescription({
             title,
-            ai,
+            ai: effectiveAi,
             scanId,
-            searchQuery,
-            hasBackImage,
+            searchQuery: effectiveSearchQuery,
+            hasBackImage: effectiveHasBackImage,
           }),
-          category: categoryFromAi(ai),
-          condition: conditionFromAi(ai),
+          category: categoryFromAi(effectiveAi),
+          condition: conditionFromAi(effectiveAi),
           price,
           quantity,
           imageUrl: frontImageUrl,
@@ -626,29 +1090,31 @@ export async function POST(request: Request) {
             }
           }
 
-          const { error: metadataError } = await supabase
+          let metadataQuery = supabase
             .from("inventory_items")
             .update({
               metadata: {
                 authenticity,
                 instacomp: {
                   source: "batch_scan",
+                  persistentJobId,
+                  persistentItemId,
                   dedupeKey: sku,
                   scanId,
                   clientId,
                   fileName: cleanText(item.fileName, 240),
                   backFileName,
-                  hasBackImage,
+                  hasBackImage: effectiveHasBackImage,
                   frontImageUrl,
                   backImageUrl,
-                  searchQuery,
-                  ai,
+                  searchQuery: effectiveSearchQuery,
+                  ai: effectiveAi,
                   marketPrice,
                   listingPrice: price,
-                  stats: compactRecord(item.stats),
-                  soldStats: compactRecord(item.soldStats),
-                  sourceCoverage: cleanSourceCoverage(item.sourceCoverage),
-                  externalSearch: compactRecord(item.externalSearch),
+                  stats: effectiveStats,
+                  soldStats: effectiveSoldStats,
+                  sourceCoverage: effectiveSourceCoverage,
+                  externalSearch: effectiveExternalSearch,
                   createdAt: new Date().toISOString(),
                 },
               },
@@ -657,8 +1123,12 @@ export async function POST(request: Request) {
               updated_at: new Date().toISOString(),
             })
             .eq("id", promotedItem.inventoryItemId)
-            .eq("store_id", storeId)
-            .eq("seller_account_id", account.id);
+            .eq("store_id", storeId);
+          metadataQuery = scopeSellerAccount(
+            metadataQuery,
+            sellerAccountId,
+          );
+          const { error: metadataError } = await metadataQuery;
 
           if (metadataError) {
             console.error("InstaComp draft metadata update error:", metadataError);
@@ -681,40 +1151,81 @@ export async function POST(request: Request) {
           alreadyExisted: false,
           metadataWarning,
         });
+        await markPersistentItemDrafted({
+          supabase,
+          storeId,
+          sellerAccountId,
+          jobId: persistentJobId,
+          itemId: persistentItemId,
+          inventoryItemId: promotedItem.inventoryItemId,
+          reservationToken: draftReservationToken,
+        });
+        draftReservationToken = null;
         createdCount += 1;
       } catch (error: any) {
+        let actualError = error;
+
         if (isMissingInventoryTables(error)) {
+          await releasePersistentItemDraftReservation({
+            supabase,
+            itemId: persistentItemId,
+            reservationToken: draftReservationToken,
+          });
           return unavailableResponse();
         }
 
         if (error instanceof InventoryEngineError && error.statusCode === 409) {
-          const existingDraft = await findExistingInstaCompDraft({
-            supabase,
-            storeId,
-            accountId: account.id,
-            sku,
-            clientId,
-            scanId,
-          });
+          try {
+            const existingDraft = await findExistingInstaCompDraft({
+              supabase,
+              storeId,
+              sellerAccountId,
+              sku,
+              clientId: persistentItemId ? null : clientId,
+              scanId: persistentItemId ? null : scanId,
+            });
 
-          if (existingDraft) {
-            existingCount += 1;
-            createdItems.push(
-              existingDraftSuccessItem({
-                row: existingDraft,
-                clientId,
-                scanId,
-              }),
-            );
-            continue;
+            if (existingDraft) {
+              await markPersistentItemDrafted({
+                supabase,
+                storeId,
+                sellerAccountId,
+                jobId: persistentJobId,
+                itemId: persistentItemId,
+                inventoryItemId: existingDraft.id,
+                reservationToken: draftReservationToken,
+              });
+              draftReservationToken = null;
+              existingCount += 1;
+              createdItems.push(
+                existingDraftSuccessItem({
+                  row: existingDraft,
+                  clientId,
+                  scanId,
+                }),
+              );
+              continue;
+            }
+          } catch (recoveryError: any) {
+            actualError = recoveryError;
           }
+        }
+
+        await releasePersistentItemDraftReservation({
+          supabase,
+          itemId: persistentItemId,
+          reservationToken: draftReservationToken,
+        });
+
+        if (actualError?.code === "INSTACOMP_JOB_MIGRATION_REQUIRED") {
+          throw actualError;
         }
 
         errors.push({
           clientId,
           scanId,
           title,
-          error: error.message || "Could not create draft listing.",
+          error: actualError.message || "Could not create draft listing.",
         });
       }
     }
@@ -730,6 +1241,13 @@ export async function POST(request: Request) {
   } catch (error: any) {
     if (isMissingInventoryTables(error)) {
       return unavailableResponse();
+    }
+
+    if (
+      error?.name === "InstaCompJobServerError" ||
+      String(error?.code || "").startsWith("INSTACOMP_")
+    ) {
+      return instaCompJobErrorResponse(error);
     }
 
     if (error instanceof InventoryEngineError) {

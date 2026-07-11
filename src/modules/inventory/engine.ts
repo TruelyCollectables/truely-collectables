@@ -66,7 +66,7 @@ type ManualProductInput = {
 };
 
 type SellerDraftProductInput = {
-  sellerAccountId: string;
+  sellerAccountId: string | null;
   title: string;
   description?: string | null;
   category?: string | null;

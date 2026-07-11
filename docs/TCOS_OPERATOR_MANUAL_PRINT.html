@@ -149,9 +149,9 @@
 <p>Software platform: Totally Collectibles OS (TCOS).</p>
 <p>Main TCOS website/domain: TotallyCollectibles.com.</p>
 <p>Flagship store / Store #1: Truely Collectables.</p>
-<p>Last updated: 2026-07-10</p>
+<p>Last updated: 2026-07-11</p>
 <p>This is the working manual for Totally Collectibles OS (TCOS). It must stay current as features are added.</p>
-<p>This revision includes the current InstaComp batch scanner and PaddleOCR worker, seller eBay staging and reconciliation, Stripe payment reliability controls, seller payout guards, shipping/coverage operations, and complete laptop-failure disaster recovery. Procedures labeled <code>dry run</code>, <code>draft</code>, <code>review</code>, or <code>not configured</code> are not production completion claims.</p>
+<p>This revision includes the durable InstaComp batch queue and PaddleOCR worker, seller eBay staging and reconciliation, Stripe payment reliability controls, seller payout guards, shipping/coverage operations, and complete laptop-failure disaster recovery. Procedures labeled <code>dry run</code>, <code>draft</code>, <code>review</code>, or <code>not configured</code> are not production completion claims.</p>
 <p>TCOS means Totally Collectibles OS. It is the multi-store software platform, admin system, order system, inventory engine, marketplace layer, and pricing/helper system. Truely Collectables is the flagship store inside TCOS, not a separate rebuild.</p>
 <h2>Ownership And Account Separation</h2>
 <p>David Bakanas is the owner of Dag Danky Holdings LLC.</p>
@@ -2173,21 +2173,26 @@ market_news_snapshots</code></pre>
 <p>The sports-card scanning foundation is implemented as InstaComp. The dedicated scanner is at <code>/admin/instacomp</code>, and the same production scanner is embedded at <code>/admin/products/new</code>.</p>
 <p>Current behavior:</p>
 <ul>
-<li>accepts up to 500 card rows in one browser batch</li>
+<li>accepts up to 500 card rows in one durable batch job</li>
 <li>accepts front-only cards but performs better with front/back pairs</li>
 <li>pairs files by explicit front/back filename signals when available; otherwise it pairs upload 1 with 2, 3 with 4, and so on</li>
-<li>creates targeted contrast, inverted, edge, band, and serial-stamp crops in the browser</li>
-<li>sends up to 24 full/crop images through the configured OCR path</li>
+<li>registers and confirms rows in chunks of at most 25 and uploads original images directly to private Supabase Storage</li>
+<li>can recover a saved server job after a page reload or browser restart and resume eligible unfinished rows</li>
+<li>creates targeted contrast, inverted, edge, band, and serial-stamp crops in the browser for the multipart fallback path; the local PaddleOCR service creates its own targeted serial crops for durable jobs that supply only the original card sides</li>
+<li>sends no more than the configured OCR image limit through the PaddleOCR path</li>
 <li>uses PaddleOCR first when <code>PADDLEOCR_API_URL</code> is configured</li>
 <li>can use Google Vision as an optional OCR fallback</li>
 <li>uses OpenAI vision for structured card identification and a dedicated serial-number pass</li>
 <li>prefers printed back evidence for year, set, card number, and manufacturer when front/back evidence conflicts</li>
 <li>searches configured TCOS, eBay, COMC, and broader comp providers</li>
 <li>displays player, year, brand, set, card number, parallel, serial number, team, sport, condition clue, confidence, comps, and OCR diagnostics</li>
-<li>creates seller-owned TCOS drafts only after title, positive price, and quantity readiness checks pass</li>
+<li>creates seller-owned drafts when a valid seller session owns the job, or store-owned drafts when an admin session owns the job</li>
+<li>refreshes a stored seller session before long-running authenticated queue and draft requests when the token is close to expiration</li>
 <li>never activates or publicly publishes those drafts automatically</li>
-<li>preserves uncertain, failed, no-price, weak-comp, low-confidence, and front-only warnings for operator review</li>
+<li>keeps low-confidence, incomplete identity, uncertain-parallel, front-only, weak-pairing, and missing-comp rows in <code>review_required</code>; Auto-Pilot does not silently create drafts from those rows</li>
+<li>uses item leases and bounded retry attempts so an interrupted row can be reclaimed without two workers completing the same attempt</li>
 </ul>
+<p>The browser currently acts as the queue worker. Uploaded jobs and results survive a reload, but OCR and AI work do not continue while every InstaComp browser tab is closed. This is a durable, resumable browser-driven queue, not a detached background worker.</p>
 <p>The complete operator procedure, local PaddleOCR startup, diagnostics, and failure recovery are in <code>Section 32: InstaComp Production Operation</code>.</p>
 <p>The system must not rely on AI guessing alone. AI and OCR propose facts; the operator must compare those facts with both card images and trusted references before activation, pricing, or cross-listing. A displayed confidence score is evidence for triage, not a guarantee of exact identity.</p>
 <p>Future category expansion must support all collectables, not only sports cards.</p>
@@ -3082,14 +3087,17 @@ INSTACOMP_OPENAI_FALLBACK_MODEL=</code></pre>
 <p>InstaComp OCR:</p>
 <pre><code>PADDLEOCR_API_URL=http://127.0.0.1:8008/ocr
 PADDLEOCR_API_KEY=
-PADDLEOCR_TIMEOUT_MS=45000
+PADDLEOCR_TIMEOUT_MS=120000
 PADDLEOCR_DEVICE=cpu
 PADDLEOCR_CPU_THREADS=8
 PADDLEOCR_ENABLE_MKLDNN=false
+PADDLEOCR_MAX_CONCURRENCY=1
+PADDLEOCR_MAX_PREDICTION_IMAGES=14
+PADDLEOCR_MAX_DECODED_PIXELS=40000000
 
 GOOGLE_VISION_API_KEY=
 GOOGLE_CLOUD_VISION_API_KEY=</code></pre>
-<p>Only one Google Vision key name is required. PaddleOCR is the primary local provider when its URL is configured.</p>
+<p>Only one Google Vision key name is required. PaddleOCR is the primary local provider when its URL is configured. The web route accepts a Paddle timeout from <code>1000</code> through <code>180000</code> milliseconds; <code>120000</code> is the current local reliability setting for CPU inference.</p>
 <p>Optional comps:</p>
 <pre><code>GOOGLE_SEARCH_API_KEY=
 GOOGLE_SEARCH_ENGINE_ID=
@@ -3209,8 +3217,12 @@ IP_INTELLIGENCE_REQUIRED=true</code></pre>
 20260710183000_restore_orders_account_link.sql
 20260710184000_restore_order_seller_routing.sql
 20260710185000_create_live_payment_launch_gate.sql
-20260710190000_create_shipping_label_infrastructure.sql</code></pre>
+20260710190000_create_shipping_label_infrastructure.sql
+20260711010000_create_instacomp_scan_job_queue.sql</code></pre>
 <p>The authoritative list is the complete <code>supabase/migrations</code> directory, including all earlier account, inventory, evidence, security, seller, and payout migrations. Apply migrations before using features that depend on new tables. A missing migration can appear as an unavailable page, <code>503</code>, failed draft creation, missing reconciliation data, or an unsafe launch-readiness blocker.</p>
+<p>The durable InstaComp queue is unavailable until this migration has been applied to the target Supabase project:</p>
+<pre><code>supabase/migrations/20260711010000_create_instacomp_scan_job_queue.sql</code></pre>
+<p>It creates the job/item tables, private <code>instacomp-job-images</code> bucket, row-level-security policies, service-role grants, and claim/finish/fail/retry database functions. Applying the file locally does not update the hosted project. Use the Supabase CLI with authenticated database access or paste the complete migration into the target project's SQL Editor, then verify that it completed without errors.</p>
 <p>Reference:</p>
 <ul>
 <li><a href="https://supabase.com/docs/guides/deployment/database-migrations">Supabase database migrations</a></li>
@@ -3219,6 +3231,7 @@ IP_INTELLIGENCE_REQUIRED=true</code></pre>
 <p>Run:</p>
 <pre><code>npm run lint
 npm run build
+npm run simulate:instacomp-jobs
 npm run manual:pdf</code></pre>
 <p>Expected:</p>
 <ul>
@@ -3226,6 +3239,7 @@ npm run manual:pdf</code></pre>
 <li>compile succeeds</li>
 <li>TypeScript succeeds</li>
 <li>route generation succeeds</li>
+<li>all InstaComp queue state simulations succeed</li>
 <li><code>docs/TCOS_OPERATOR_MANUAL_PRINT.html</code> is regenerated</li>
 <li><code>docs/TCOS_OPERATOR_MANUAL.pdf</code> is regenerated with the ownership watermark</li>
 </ul>
@@ -3233,6 +3247,10 @@ npm run manual:pdf</code></pre>
 <pre><code>cd C:\Projects\truely-collectables\services\paddleocr-service
 .\.venv\Scripts\python.exe -m py_compile app.py
 Invoke-RestMethod http://127.0.0.1:8008/health</code></pre>
+<p>For an InstaComp queue change, also run the direct TypeScript check and verify formatting:</p>
+<pre><code>npx tsc --noEmit
+git diff --check</code></pre>
+<p>The queue simulation verifies state transitions, leases, idempotency, retries, and completion calculations in the local model. It is not a substitute for applying the migration and running one authenticated upload/scan/recovery test against the target Supabase project.</p>
 <p>Use these checks before deploy or after feature changes. Run the relevant payment and shipping simulations after changing money, webhook, reconciliation, seller payout, shipping-policy, provider-adapter, or claim code.</p>
 <p>Reference:</p>
 <ul>
@@ -3311,18 +3329,31 @@ OPENAI_DESCRIPTION_MODEL=</code></pre>
 </ul>
 <p>Restart both TCOS and PaddleOCR after environment changes.</p>
 <h3>InstaComp says request body exceeded 10 MB</h3>
-<p>Compress or resize the original images. Scan large lots with <code>Run Batch InstaComp</code>, then create drafts in smaller selected groups.</p>
+<p>This normally indicates the older multipart fallback path, not the durable queue path. Confirm the queue migration is installed. The browser fallback optimizes each full image to approximately <code>900 KB</code>, each crop to approximately <code>180 KB</code>, and targets a request below <code>3.75 MB</code>; still reshoot or resize an unusually large source and retry only the affected row.</p>
+<h3>InstaComp reports <code>INSTACOMP_JOB_MIGRATION_REQUIRED</code></h3>
+<p>The web code can reach Supabase, but the durable queue schema is not installed in that project. Apply the entire file below to the same Supabase project used by the running app:</p>
+<pre><code>supabase/migrations/20260711010000_create_instacomp_scan_job_queue.sql</code></pre>
+<p>The migration also creates the private image bucket and queue functions. Reload InstaComp after the SQL succeeds. Do not work around this error by making the image bucket public.</p>
+<h3>InstaComp reports <code>INSTACOMP_JOB_STORAGE_REQUIRED</code></h3>
+<p>Confirm the migration completed through its Storage statements and that the private bucket named <code>instacomp-job-images</code> exists. Confirm <code>SUPABASE_SERVICE_ROLE_KEY</code> belongs to the same project as <code>NEXT_PUBLIC_SUPABASE_URL</code>, then restart the web app. Never place the service-role key in a browser-exposed <code>NEXT_PUBLIC_</code> variable.</p>
+<h3>A saved InstaComp lot does not continue after closing the browser</h3>
+<p>This is expected in the current architecture. Supabase preserves the job, uploaded originals, per-row state, results, and retry information, but the open browser tab currently claims and processes work. Reopen <code>/admin/products/new</code> or <code>/admin/instacomp</code> in the same ownership context and use the recovered job. A detached server worker has not been deployed yet.</p>
+<h3>InstaComp recovery shows an incomplete upload</h3>
+<p>Keep the original files until registration and upload finish. InstaComp can confirm objects that finished uploading before a page interruption and can resume registered rows. If the interruption occurred before every row was registered, clear/cancel that partial job and reselect the original lot; do not assume unregistered local files were copied to Supabase.</p>
+<h3>An InstaComp job stays <code>cancelling</code></h3>
+<p>An already-processing row may hold a worker lease. Keep the page open briefly and retry <code>Clear Batch</code> after the lease is released or expires. Do not delete queue rows or private Storage objects manually; the queue cancellation functions preserve consistent job counts.</p>
 <h3>InstaComp scans but cannot create drafts</h3>
 <p>Check:</p>
 <ul>
-<li>seller login exists at <code>/account/login</code></li>
-<li>InstaComp was refreshed after seller login</li>
+<li>the current job is owned by either the admin/store session or the intended active seller session</li>
+<li>the seller session can refresh; if it expired and refresh failed, log in again at <code>/account/login</code></li>
 <li>title is not blank</li>
 <li>price is positive</li>
 <li>quantity is at least one</li>
 <li>inventory migrations are applied</li>
-<li>combined draft request is below the observed 10 MB body ceiling</li>
+<li>the persistent row is <code>completed</code> or <code>review_required</code></li>
 </ul>
+<p>Admin-owned queue jobs create store-owned drafts with no seller account ID. Seller-owned jobs create drafts scoped to that seller. Do not switch ownership context midway through recovery or draft creation.</p>
 <h3>Serial number is visible but missing</h3>
 <p>Confirm pairing, inspect OCR diagnostics, reshoot without glare, retry the row, and check final AI serial data/exports. Leave the field blank when the complete fraction cannot be proven.</p>
 <h3>Live payment checkout remains blocked</h3>
@@ -3453,7 +3484,15 @@ C:\Projects\TCOS_DISASTER_RECOVERY\TCOS_FULL_DISASTER_RECOVERY_20260710-230103\s
 <pre><code>/admin/products/new
 /admin/instacomp
 /api/instacomp/scan
-/api/instacomp/draft-listings</code></pre>
+/api/instacomp/draft-listings
+/api/instacomp/jobs
+/api/instacomp/jobs/[id]
+/api/instacomp/jobs/[id]/claim
+/api/instacomp/jobs/[id]/items
+/api/instacomp/jobs/[id]/items/[itemId]
+/api/instacomp/jobs/[id]/items/[itemId]/complete
+/api/instacomp/jobs/[id]/items/[itemId]/fail
+/api/instacomp/jobs/[id]/items/[itemId]/retry</code></pre>
 <p>Use <code>/admin/products/new</code> for normal lot intake. Use <code>/admin/instacomp</code> when a dedicated scan-lab view or recent-scan history is easier.</p>
 <h3>Start InstaComp locally</h3>
 <p>The local scanner requires two running services:</p>
@@ -3475,14 +3514,14 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3000/admin/login</code></pre
 %TEMP%\tcos-paddleocr.stdout.log
 %TEMP%\tcos-next.stderr.log
 %TEMP%\tcos-next.stdout.log</code></pre>
-<h3>Required browser sessions</h3>
-<p>Draft creation requires both kinds of access in the same browser:</p>
-<ol>
-<li>Log in as admin at <code>http://localhost:3000/admin/login</code>.</li>
-<li>Log in to the correct seller account at <code>http://localhost:3000/account/login</code>.</li>
-<li>If the seller login happened after InstaComp was already open, refresh the InstaComp page.</li>
-</ol>
-<p>Admin authentication permits the protected page. Seller authentication supplies the bearer token and ownership context required to create seller-owned drafts. A scan can work while draft creation still fails with <code>Sign in to a seller account before creating drafts</code>.</p>
+<h3>Required browser sessions and ownership</h3>
+<p>The admin pages require the admin login at <code>http://localhost:3000/admin/login</code>. The queue API then uses one of two ownership contexts:</p>
+<ul>
+<li>if the browser has a valid active seller session and membership, that seller owns the queue job and drafts created from it;</li>
+<li>otherwise, a valid admin cookie owns the queue job on behalf of the active store, and drafts are store-owned with <code>seller_account_id</code> left null.</li>
+</ul>
+<p>Log in to <code>http://localhost:3000/account/login</code> before uploading when the lot must belong to a particular seller. If seller login happened after InstaComp was already open, refresh the page before creating the job. Do not change seller accounts midway through a saved job.</p>
+<p>For long-running seller jobs, the browser refreshes the stored Supabase session when it is within five minutes of expiration before authenticated queue, scan, and draft calls. If refresh fails after the token is expired, the stored session is cleared and the operator must log in again. The admin cookie and seller token remain separate credentials.</p>
 <h3>Prepare images</h3>
 <p>Best filename pattern:</p>
 <pre><code>001-front.jpg
@@ -3513,25 +3552,67 @@ rear</code></pre>
 </ul>
 <p>The limit is 500 card rows, not 500 image files. A 500-card front/back lot can contain up to 1,000 original images.</p>
 <p>Front-only cards scan, but the back frequently contains the strongest year, set, card-number, manufacturer, copyright, and authenticity evidence. Use both sides whenever possible.</p>
-<h3>Safest batch workflow</h3>
-<p>For important cards and the current 10 MB request-size limitation, use this controlled workflow:</p>
+<h3>Durable queue prerequisite</h3>
+<p>Apply this migration to the Supabase project used by TCOS before using the saved queue:</p>
+<pre><code>supabase/migrations/20260711010000_create_instacomp_scan_job_queue.sql</code></pre>
+<p>The queue requires <code>NEXT_PUBLIC_SUPABASE_URL</code>, <code>NEXT_PUBLIC_SUPABASE_ANON_KEY</code>, and the server-only <code>SUPABASE_SERVICE_ROLE_KEY</code>. The migration creates:</p>
+<ul>
+<li><code>instacomp_scan_jobs</code> and <code>instacomp_scan_items</code>;</li>
+<li>a private <code>instacomp-job-images</code> Storage bucket;</li>
+<li>seller-scoped read policies plus service-role access used by authenticated admin/seller server routes;</li>
+<li>atomic claim, completion, failure, retry, cancellation, and counter-refresh functions.</li>
+</ul>
+<p>If the migration is missing, the API intentionally returns <code>503</code> with <code>INSTACOMP_JOB_MIGRATION_REQUIRED</code>. A service-role key cannot create the database schema by itself through the normal data API.</p>
+<h3>Safest durable batch workflow</h3>
+<p>Use this controlled workflow:</p>
 <ol>
 <li>Open <code>/admin/products/new</code>.</li>
 <li>Drop the front/back images into the batch area.</li>
 <li>Confirm the displayed pairing before scanning.</li>
 <li>Leave <code>Parallel Scans</code> at the default <code>3</code>. The allowed range is <code>1</code> through <code>6</code>; use <code>1</code> or <code>2</code> if the laptop becomes unstable.</li>
 <li>Click <code>Run Batch InstaComp</code>.</li>
-<li>Let active scans finish. <code>Pause</code> stops new work only after current requests finish.</li>
-<li>Inspect every completed row.</li>
-<li>Correct the title, positive listing price, and quantity.</li>
+<li>Wait while the browser creates an idempotent job, registers no more than 25 rows at a time, creates bounded high-resolution derivatives, uploads them to private Storage, confirms each registered chunk, and queues the job.</li>
+<li>Keep the InstaComp tab open while it claims and scans rows. <code>Pause</code> stops new work only after current requests finish.</li>
+<li>Inspect every <code>completed</code> and <code>review_required</code> row. A completed request is not a promise that the card identity is exact.</li>
+<li>Correct the title, positive listing price, quantity, identity fields, and price evidence.</li>
 <li>Filter to <code>Clean Ready</code> when possible.</li>
 <li>Select only cards whose photos and printed facts you personally verified.</li>
-<li>Create drafts in small groups.</li>
-<li>Open <code>/seller/inventory</code> and inspect every draft before activation.</li>
+<li>Create drafts; the browser sends persistent draft requests one card at a time with limited parallelism instead of one oversized lot request.</li>
+<li>Open seller inventory for a seller-owned job or the admin inventory view for a store-owned job and inspect every draft before activation.</li>
 </ol>
-<p><code>Run InstaComp Auto-Pilot</code> scans unfinished rows and attempts draft creation for rows that pass technical draft readiness. It never publishes a live listing. For large image lots, the controlled batch workflow is safer because the operator can review and split draft requests into smaller groups.</p>
+<p><code>Run InstaComp Auto-Pilot</code> scans unfinished rows and attempts draft creation only for rows that pass both technical draft readiness and the queue review gate. A row marked <code>review_required</code> is not automatically drafted. Auto-Pilot never publishes a live listing.</p>
 <p>If Auto-Pilot is paused, it finishes current scan requests but does not run its draft-creation phase.</p>
 <p>Failed rows can be retried individually, all at once, or through the current visible filter.</p>
+<h3>Registration, upload, recovery, and resume</h3>
+<p>The durable flow separates image transfer from expensive OCR/AI work:</p>
+<ol>
+<li>The browser creates a job with a stable client batch ID so an identical create request can be replayed safely.</li>
+<li>It registers rows in chunks of at most 25.</li>
+<li>Supabase returns short-lived signed upload targets for the private bucket.</li>
+<li>The browser uploads the bounded card-side derivatives and bulk-confirms no more than 25 registered rows per request.</li>
+<li>The browser marks the complete job <code>queued</code>, claims rows with leases, and calls the JSON scan path using job/item IDs instead of resending image bytes.</li>
+<li>The server downloads the private derivatives, verifies their registered size and SHA-256 digest, performs OCR/AI/comp work, and atomically records either <code>completed</code>, <code>review_required</code>, a retry, or a terminal failure.</li>
+</ol>
+<p>The current browser stores the active job reference locally and also checks the server for the newest recoverable job. Reloading or reopening InstaComp can restore registered rows, signed image previews, saved results, counts, and retry state. If an object uploaded immediately before a crash but its confirmation did not finish, recovery can confirm the existing object. If the browser crashed before later files were registered or uploaded, those local file bytes do not exist on the server; cancel/clear the partial job and reselect the original files.</p>
+<p>Important limitation: the browser is still the worker. Closing all InstaComp tabs stops new claims and therefore stops scanning. The job remains durable and resumable in Supabase, but it does not continue autonomously until a detached worker is deployed.</p>
+<p>Queue job statuses:</p>
+<ul>
+<li><code>uploading</code>: rows and private image derivatives are still being registered/confirmed;</li>
+<li><code>queued</code>: uploads are complete and rows are ready to claim;</li>
+<li><code>processing</code>: one or more rows have active work or retries;</li>
+<li><code>completed</code>: every row completed without a review/failure/cancellation outcome;</li>
+<li><code>completed_with_errors</code>: all rows are terminal, but one or more need review, failed, or were cancelled;</li>
+<li><code>failed</code>: the job could not reach a normal terminal result;</li>
+<li><code>cancelling</code>: new work is stopped while an active lease is released or expires;</li>
+<li><code>cancelled</code>: cancellation is complete.</li>
+</ul>
+<p>Queue item statuses:</p>
+<ul>
+<li><code>awaiting_upload</code>, <code>queued</code>, <code>processing</code>, <code>retry_wait</code>;</li>
+<li><code>completed</code>, <code>review_required</code>, <code>failed</code>, <code>cancelled</code>.</li>
+</ul>
+<p>Rows default to at most three attempts. Claims use expiring leases and the database selects available rows with row locks, which prevents two workers from owning the same live attempt. A retryable failure enters <code>retry_wait</code>; an expired lease can be reclaimed until attempts are exhausted. Manual retry returns an eligible terminal row to the queue. Cancellation immediately cancels unclaimed work and waits for any still-valid processing lease before finalizing the job.</p>
+<p>Queue creation guardrails currently allow no more than three active jobs and 1,500 submitted card rows in a rolling 24-hour period for the same ownership context. Finish or cancel an existing lot instead of repeatedly creating replacements. Each individual job still has the 500-row maximum and configured scan concurrency from 1 through 6.</p>
 <h3>What InstaComp reads</h3>
 <p>Per card, InstaComp can display:</p>
 <ul>
@@ -3550,7 +3631,7 @@ rear</code></pre>
 <li>OCR provider, checked-image count, OCR text excerpt, and OCR serial</li>
 <li>comp-provider status, included comps, suggested price, and research links</li>
 </ul>
-<p>The browser creates targeted serial-stamp, edge, band, contrast, and inverted crops. It creates up to 11 serial-detail crops per side and sends no more than 24 detail crops.</p>
+<p>The multipart fallback creates targeted serial-stamp, edge, band, contrast, and inverted crops in the browser. Durable jobs normally send only the stored front/back derivatives to the scan route. When PaddleOCR receives no more than two card-side images, its worker creates five grayscale, auto-contrast serial regions per image (top-right, top-left, middle-right, bottom-right, and bottom-left) until the configured prediction-image cap is reached.</p>
 <p>Provider order:</p>
 <ol>
 <li>PaddleOCR when <code>PADDLEOCR_API_URL</code> or <code>INSTACOMP_PADDLEOCR_API_URL</code> is configured.</li>
@@ -3560,24 +3641,40 @@ rear</code></pre>
 </ol>
 <p>Limits per card:</p>
 <ul>
-<li>PaddleOCR checks at most 24 total original/crop images</li>
+<li>the persistent queue accepts JPEG, PNG, and WebP inputs and stores a bounded high-resolution derivative up to <code>3600</code> pixels on the longest side and <code>3 MB</code> per image</li>
+<li>each registered derivative includes a SHA-256 digest; Storage size/type is checked before queueing and the digest is verified before OCR</li>
+<li>the scan route accepts detail crops up to <code>512 KB</code> each and at most <code>20 MB</code> total source-plus-detail input</li>
+<li>the multipart browser fallback targets about <code>900 KB</code> per full image and <code>180 KB</code> per crop, with a request target below <code>3.75 MB</code></li>
+<li>PaddleOCR defaults to at most 14 prediction images and can be configured from 2 through 24</li>
 <li>Google Vision checks at most 16 images</li>
 <li>main OpenAI identification sees front/back plus the first eight detail crops</li>
 <li>dedicated OpenAI serial inspection sees front/back plus all submitted detail crops</li>
-<li>Paddle timeout defaults to 12 seconds and is clamped between 1 and 45 seconds</li>
+<li>Paddle timeout defaults to 120 seconds in code and is clamped between 1 and 180 seconds</li>
+<li>saved queue results are compacted before persistence and may omit oversized diagnostic detail; the displayed identity and recovery state remain the operational record</li>
 </ul>
 <p>When front and back disagree, the prompt tells the identifier to prefer printed back evidence for card number, year, set, and manufacturer and to explain the conflict.</p>
 <h3>Windows PaddleOCR requirements</h3>
 <p>The working local environment uses Python 3.12, PaddleOCR 3.7, PaddlePaddle 3.3, and PP-OCRv6 models. Keep these Windows CPU settings:</p>
 <pre><code>PADDLEOCR_DEVICE=cpu
 PADDLEOCR_CPU_THREADS=8
-PADDLEOCR_ENABLE_MKLDNN=false</code></pre>
+PADDLEOCR_ENABLE_MKLDNN=false
+PADDLEOCR_MAX_CONCURRENCY=1
+PADDLEOCR_MAX_PREDICTION_IMAGES=14
+PADDLEOCR_MAX_DECODED_PIXELS=40000000</code></pre>
 <p><code>PADDLEOCR_ENABLE_MKLDNN=false</code> avoids the released PaddlePaddle Windows oneDNN/PIR inference crash. The recovery start script also sets:</p>
 <pre><code>PADDLE_PDX_CACHE_HOME=&lt;project&gt;\services\paddleocr-service\.paddlex-cache
 PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK=True</code></pre>
 <p>The service contract and manual startup commands live in:</p>
 <pre><code>docs/INSTACOMP_PADDLEOCR_SERVICE.md
 services/paddleocr-service/README.md</code></pre>
+<p>Paddle worker safety and capacity defaults:</p>
+<ul>
+<li>one OCR prediction request runs at a time; <code>PADDLEOCR_MAX_CONCURRENCY</code> is bounded from 1 through 4;</li>
+<li>model initialization is locked so concurrent first requests cannot load multiple model instances;</li>
+<li>at most 14 original/generated prediction images are processed by default; the configured value is bounded from 2 through 24;</li>
+<li>each decoded image is limited to 40,000,000 pixels by default; the configured value is bounded from 1,000,000 through 100,000,000 pixels;</li>
+<li>the Next scan route enforces the byte limits before PaddleOCR; the local worker should remain bound to <code>127.0.0.1</code> because it does not replace the upstream aggregate-byte controls.</li>
+</ul>
 <h3>Draft readiness and review warnings</h3>
 <p>A row is technically draft-ready when it has:</p>
 <ul>
@@ -3588,38 +3685,44 @@ services/paddleocr-service/README.md</code></pre>
 <p>Review warnings include:</p>
 <ul>
 <li>front only</li>
-<li>confidence below 65%</li>
+<li>confidence below 85%</li>
+<li>missing player/subject, year, brand/set, or card number</li>
+<li>uncertain parallel</li>
+<li>weak adjacency-only pairing</li>
 <li>no listing price</li>
 <li>no market price</li>
 <li>no usable comps</li>
 <li>scan failure</li>
 <li>draft failure</li>
 </ul>
-<p>Important: Auto-Pilot uses the three technical readiness requirements. A front-only, low-confidence, missing-serial, uncertain-parallel, or weak-comp row can still become a non-public draft if it has a title, positive price, and quantity. Therefore every draft requires manual verification before activation.</p>
+<p>Important: technical draft readiness and automatic drafting are separate decisions. Auto-Pilot excludes a queue row marked <code>review_required</code>, even if that row has a title, positive price, and quantity. An operator may review/correct such a row and deliberately create a non-public draft, but every draft still requires manual verification before activation.</p>
 <p>Draft creation facts:</p>
 <ul>
-<li>requires an authenticated seller account</li>
+<li>requires an authenticated active seller or admin/store job owner</li>
+<li>creates a seller-owned draft for a seller job and a store-owned draft for an admin job</li>
 <li>accepts at most 500 items server-side</li>
-<li>requires original images to be image files</li>
-<li>advertises a 12 MB per-original-image limit</li>
-<li>processes draft rows sequentially</li>
+<li>requires the persistent job row to be <code>completed</code> or <code>review_required</code></li>
+<li>reads the persistent AI/comp result from the server job record rather than accepting client-supplied persistent identity evidence</li>
+<li>copies the saved high-resolution derivatives from private job Storage into inventory media</li>
+<li>enforces a 3 MB per-saved-image limit after high-resolution browser normalization</li>
+<li>sends persistent draft rows individually with browser concurrency limited to two</li>
 <li>checks SKU, dedupe key, client ID, and scan ID before reusing an existing draft</li>
 <li>can report a metadata/back-image warning after the base draft succeeds</li>
-<li>returns <code>503</code> when required inventory migrations are missing</li>
+<li>returns <code>503</code> when required inventory or InstaComp queue migrations are missing</li>
 </ul>
 <p>A new browser re-upload/rescan can produce new client and scan IDs. Do not assume cross-session duplicate prevention is perfect; check Seller Inventory before retrying a large draft operation.</p>
-<h3>Current 10 MB request ceiling</h3>
-<p>The current Next.js runtime has an observed 10 MB total request-body ceiling for these multipart requests. A high-resolution front/back pair plus generated crops can exceed that limit. A large multi-card draft request can also exceed it even when each original image is under 12 MB.</p>
+<h3>Multipart fallback request limits</h3>
+<p>The durable job path avoids relaying original images through a large browser-to-Next multipart request: originals upload directly to private Storage, and the scan request carries job/item/lease identifiers as JSON. The older fallback path still uses multipart form data and can hit a platform body limit.</p>
 <p>Failure text:</p>
 <pre><code>Request body exceeded 10MB
 Failed to parse body as FormData</code></pre>
 <p>Workaround:</p>
 <ol>
-<li>Resize or compress original images before upload.</li>
+<li>Confirm <code>20260711010000_create_instacomp_scan_job_queue.sql</code> is applied so the durable path can start.</li>
 <li>Use <code>Run Batch InstaComp</code> for large lots.</li>
-<li>Create drafts in small selected groups.</li>
-<li>Keep each combined request comfortably below 10 MB.</li>
-<li>If parsing fails, reduce resolution/group size and retry only the affected rows.</li>
+<li>Let the browser optimize a fallback full image to about <code>900 KB</code> and a detail crop to about <code>180 KB</code>.</li>
+<li>If parsing still fails, reduce the affected source resolution and retry only that row.</li>
+<li>Never increase platform request limits as a substitute for the private direct-upload queue.</li>
 </ol>
 <h3>Serial-number troubleshooting</h3>
 <p>If a serial is visible but missing:</p>
@@ -3670,11 +3773,23 @@ Failed to parse body as FormData</code></pre>
 </ul>
 <p><code>Sign in to a seller account before creating drafts</code>:</p>
 <ul>
-<li>log in at <code>/account/login</code>, then refresh InstaComp</li>
+<li>this message belongs to the older seller-only flow; for a seller-owned durable job, log in at <code>/account/login</code> and refresh InstaComp; for a store-owned job, confirm the admin cookie is valid</li>
 </ul>
 <p><code>Unauthorized</code>:</p>
 <ul>
-<li>the seller token is missing or expired</li>
+<li>the seller token and admin cookie are both missing/invalid, or the seller session could not refresh; log in again in the intended ownership context</li>
+</ul>
+<p><code>INSTACOMP_JOB_MIGRATION_REQUIRED</code>:</p>
+<ul>
+<li>apply <code>supabase/migrations/20260711010000_create_instacomp_scan_job_queue.sql</code> to the hosted Supabase project and reload the scanner</li>
+</ul>
+<p>Job remains <code>uploading</code> after recovery:</p>
+<ul>
+<li>inspect which registered rows still lack confirmed front/back objects; if local files were never uploaded, cancel/clear the partial job and reselect the originals</li>
+</ul>
+<p>Job remains <code>cancelling</code>:</p>
+<ul>
+<li>an active worker lease may still exist; wait for the request/lease to finish, then retry clear instead of manually deleting rows</li>
 </ul>
 <p>Unexpected pairing:</p>
 <ul>

@@ -2,10 +2,12 @@ import base64
 import os
 import re
 import tempfile
+import threading
 from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI, Header, HTTPException
+from PIL import Image, ImageOps
 from pydantic import BaseModel, Field
 
 
@@ -21,6 +23,35 @@ class OcrRequest(BaseModel):
 
 app = FastAPI(title="TCOS InstaComp PaddleOCR Service")
 _ocr: Any | None = None
+
+
+def bounded_env_int(name: str, default: int, minimum: int, maximum: int) -> int:
+    try:
+        value = int(os.getenv(name, str(default)))
+    except (TypeError, ValueError):
+        value = default
+
+    return max(minimum, min(maximum, value))
+
+
+_ocr_concurrency = bounded_env_int("PADDLEOCR_MAX_CONCURRENCY", 1, 1, 4)
+_ocr_semaphore = threading.BoundedSemaphore(_ocr_concurrency)
+_ocr_init_lock = threading.Lock()
+_max_prediction_images = bounded_env_int(
+    "PADDLEOCR_MAX_PREDICTION_IMAGES", 14, 2, 24
+)
+_max_decoded_pixels = bounded_env_int(
+    "PADDLEOCR_MAX_DECODED_PIXELS", 40_000_000, 1_000_000, 100_000_000
+)
+Image.MAX_IMAGE_PIXELS = _max_decoded_pixels
+
+SERIAL_CROP_SPECS: tuple[tuple[str, float, float, float, float], ...] = (
+    ("top-right", 0.45, 0.00, 1.00, 0.30),
+    ("top-left", 0.00, 0.00, 0.55, 0.30),
+    ("middle-right", 0.45, 0.20, 1.00, 0.75),
+    ("bottom-right", 0.45, 0.60, 1.00, 1.00),
+    ("bottom-left", 0.00, 0.60, 0.55, 1.00),
+)
 
 
 def normalize_text(value: str | None) -> str:
@@ -133,10 +164,99 @@ def decode_data_url(image: OcrImage) -> bytes:
         ) from exc
 
 
+def build_serial_crops(
+    image_path: Path,
+    image_name: str,
+    temp_dir: Path,
+    available_slots: int,
+) -> list[tuple[str, Path]]:
+    if available_slots <= 0:
+        return []
+
+    crops: list[tuple[str, Path]] = []
+
+    try:
+        with Image.open(image_path) as source:
+            source = ImageOps.exif_transpose(source).convert("RGB")
+            source_width, source_height = source.size
+
+            if not source_width or not source_height:
+                return crops
+
+            for label, left, top, right, bottom in SERIAL_CROP_SPECS:
+                if len(crops) >= available_slots:
+                    break
+
+                box = (
+                    max(0, round(source_width * left)),
+                    max(0, round(source_height * top)),
+                    min(source_width, round(source_width * right)),
+                    min(source_height, round(source_height * bottom)),
+                )
+                crop = source.crop(box)
+                crop_width, crop_height = crop.size
+
+                if not crop_width or not crop_height:
+                    continue
+
+                target_width = min(1800, max(1200, crop_width * 2))
+                target_height = max(1, round(target_width * crop_height / crop_width))
+                crop = crop.resize(
+                    (target_width, target_height),
+                    Image.Resampling.LANCZOS,
+                )
+                # Foil serial stamps are frequently low contrast. A grayscale
+                # auto-contrast view is materially easier for OCR than the
+                # glossy color source while preserving the actual digits.
+                crop = ImageOps.autocontrast(ImageOps.grayscale(crop)).convert("RGB")
+                crop_path = temp_dir / (
+                    f"serial-{len(crops) + 1:02d}-{Path(image_name).stem}-{label}.jpg"
+                )
+                crop.save(crop_path, format="JPEG", quality=88, optimize=True)
+                crops.append((f"{image_name}-serial-{label}", crop_path))
+    except Exception:
+        # The full image is still OCR'd even when a damaged image cannot be
+        # opened for targeted serial crops.
+        return []
+
+    return crops
+
+
+def validate_decoded_image(image_path: Path, image_name: str) -> None:
+    try:
+        with Image.open(image_path) as image:
+            width, height = image.size
+            pixels = width * height
+
+            if width < 1 or height < 1 or pixels > _max_decoded_pixels:
+                raise HTTPException(
+                    status_code=413,
+                    detail=(
+                        f"{image_name} exceeds the OCR decoded-pixel limit "
+                        f"({_max_decoded_pixels})"
+                    ),
+                )
+
+            image.verify()
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{image_name} is not a readable image",
+        ) from exc
+
+
 def get_ocr() -> Any:
     global _ocr
 
-    if _ocr is None:
+    if _ocr is not None:
+        return _ocr
+
+    with _ocr_init_lock:
+        if _ocr is not None:
+            return _ocr
+
         from paddleocr import PaddleOCR
 
         kwargs: dict[str, Any] = {
@@ -190,29 +310,60 @@ def ocr_endpoint(
     if not request.images:
         raise HTTPException(status_code=400, detail="No images provided")
 
-    ocr = get_ocr()
     all_texts: list[str] = []
     image_results: list[dict[str, Any]] = []
 
     with tempfile.TemporaryDirectory(prefix="tcos-paddleocr-") as temp_dir:
-        for index, image in enumerate(request.images[:24], start=1):
+        temp_path = Path(temp_dir)
+        prediction_images: list[tuple[str, Path]] = []
+
+        for index, image in enumerate(
+            request.images[:_max_prediction_images], start=1
+        ):
             suffix = Path(image.name).suffix or ".jpg"
-            image_path = Path(temp_dir) / f"{index:02d}{suffix}"
+            image_path = temp_path / f"input-{index:02d}{suffix}"
             image_path.write_bytes(decode_data_url(image))
+            validate_decoded_image(image_path, image.name)
+            prediction_images.append((image.name, image_path))
 
-            prediction = ocr.predict(str(image_path))
-            texts = [normalize_text(text) for text in collect_text_values(prediction)]
-            texts = [text for text in texts if text]
-            image_text = normalize_text("\n".join(texts))
+        # Persistent scan jobs upload only the two full card-side derivatives. Build
+        # targeted OCR views inside the OCR service so image bytes never need
+        # to be relayed through a large Next.js multipart request.
+        if len(prediction_images) <= 2:
+            originals = list(prediction_images)
 
-            all_texts.append(image_text)
-            image_results.append(
-                {
-                    "name": image.name,
-                    "text": image_text,
-                    "serialNumber": extract_serial_number(image_text),
-                }
-            )
+            for image_name, image_path in originals:
+                prediction_images.extend(
+                    build_serial_crops(
+                        image_path,
+                        image_name,
+                        temp_path,
+                        _max_prediction_images - len(prediction_images),
+                    )
+                )
+
+                if len(prediction_images) >= _max_prediction_images:
+                    break
+
+        with _ocr_semaphore:
+            ocr = get_ocr()
+
+            for image_name, image_path in prediction_images:
+                prediction = ocr.predict(str(image_path))
+                texts = [
+                    normalize_text(text) for text in collect_text_values(prediction)
+                ]
+                texts = [text for text in texts if text]
+                image_text = normalize_text("\n".join(texts))
+
+                all_texts.append(image_text)
+                image_results.append(
+                    {
+                        "name": image_name,
+                        "text": image_text,
+                        "serialNumber": extract_serial_number(image_text),
+                    }
+                )
 
     full_text = normalize_text("\n".join(all_texts))
 
@@ -220,6 +371,6 @@ def ocr_endpoint(
         "provider": "paddleocr",
         "text": full_text,
         "serialNumber": extract_serial_number(full_text),
-        "checkedImages": min(len(request.images), 24),
+        "checkedImages": len(prediction_images),
         "images": image_results,
     }

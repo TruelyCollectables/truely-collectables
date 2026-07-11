@@ -13,9 +13,25 @@ import {
   filterAndRankExactMatches,
   looksLikeBadCompTitle,
 } from "../../../../lib/instacomp";
+import {
+  INSTACOMP_JOB_IMAGE_BUCKET,
+  INSTACOMP_JOB_ITEM_TABLE,
+  InstaCompJobServerError,
+  getAccessibleInstaCompJob,
+  instaCompJobErrorResponse,
+  requireInstaCompJobActor,
+  requireInstaCompJobSupabase,
+  requireUuid,
+  throwInstaCompDatabaseError,
+} from "../../../../lib/instacomp-job-server";
+import {
+  checkPublicEndpointRateLimit,
+  publicEndpointRateLimitResponse,
+} from "../../../../lib/public-endpoint-rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const INSTACOMP_OPENAI_MODEL =
@@ -27,6 +43,8 @@ const INSTACOMP_OPENAI_FALLBACK_MODEL =
 
 const EBAY_CLIENT_ID = process.env.EBAY_CLIENT_ID;
 const EBAY_CLIENT_SECRET = process.env.EBAY_CLIENT_SECRET;
+let ebayAppTokenCache: { token: string; expiresAt: number } | null = null;
+let ebayAppTokenRequest: Promise<string | null> | null = null;
 
 const APIFY_TOKEN = process.env.APIFY_TOKEN;
 const COMC_APIFY_ACTOR_ID =
@@ -41,11 +59,20 @@ const PADDLEOCR_API_URL =
 const PADDLEOCR_API_KEY =
   process.env.PADDLEOCR_API_KEY || process.env.INSTACOMP_PADDLEOCR_API_KEY;
 const requestedPaddleOcrTimeoutMs = Number(
-  process.env.PADDLEOCR_TIMEOUT_MS || 12000
+  process.env.PADDLEOCR_TIMEOUT_MS || 120000
 );
 const PADDLEOCR_TIMEOUT_MS = Number.isFinite(requestedPaddleOcrTimeoutMs)
-  ? Math.max(1000, Math.min(requestedPaddleOcrTimeoutMs, 45000))
-  : 12000;
+  ? Math.max(1000, Math.min(requestedPaddleOcrTimeoutMs, 180000))
+  : 120000;
+const MAX_SCAN_SOURCE_IMAGE_BYTES = 12 * 1024 * 1024;
+const MAX_SCAN_DETAIL_IMAGE_BYTES = 512 * 1024;
+const MAX_SCAN_INPUT_BYTES = 20 * 1024 * 1024;
+const MAX_PERSISTED_SCAN_RESULT_BYTES = 250_000;
+const ALLOWED_SCAN_IMAGE_TYPES = new Set([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+]);
 const GOOGLE_VISION_API_KEY =
   process.env.GOOGLE_VISION_API_KEY || process.env.GOOGLE_CLOUD_VISION_API_KEY;
 const SERPAPI_API_KEY = process.env.SERPAPI_API_KEY;
@@ -561,7 +588,7 @@ async function detectSerialNumberWithOpenAI(
     };
   }
 
-  if (!OPENAI_API_KEY || !detailImages.length) return null;
+  if (!OPENAI_API_KEY) return null;
 
   const content: any[] = [
     {
@@ -614,7 +641,9 @@ Rules:
 
   content.push({
     type: "text",
-    text: "FULL FRONT IMAGE for context only. Prefer close-up crops for OCR.",
+    text: detailImages.length
+      ? "FULL FRONT IMAGE for context only. Prefer close-up crops for OCR."
+      : "FULL FRONT IMAGE. Inspect every edge and corner for a serial stamp.",
   });
   content.push({
     type: "image_url",
@@ -627,7 +656,9 @@ Rules:
   if (backDataUrl) {
     content.push({
       type: "text",
-      text: "FULL BACK IMAGE for context only. Prefer close-up crops for OCR.",
+      text: detailImages.length
+        ? "FULL BACK IMAGE for context only. Prefer close-up crops for OCR."
+        : "FULL BACK IMAGE. Inspect every edge and corner for a serial stamp.",
     });
     content.push({
       type: "image_url",
@@ -713,7 +744,7 @@ Rules:
     checkedImages:
       typeof parsed.checkedImages === "number"
         ? Math.max(0, Math.floor(parsed.checkedImages))
-        : detailImages.length,
+        : detailImages.length + 1 + (backDataUrl ? 1 : 0),
   };
 }
 
@@ -755,6 +786,24 @@ async function getEbayAppToken() {
     return null;
   }
 
+  if (ebayAppTokenCache && ebayAppTokenCache.expiresAt > Date.now()) {
+    return ebayAppTokenCache.token;
+  }
+
+  if (ebayAppTokenRequest) return ebayAppTokenRequest;
+
+  ebayAppTokenRequest = requestEbayAppToken();
+
+  try {
+    return await ebayAppTokenRequest;
+  } finally {
+    ebayAppTokenRequest = null;
+  }
+}
+
+async function requestEbayAppToken() {
+  if (!EBAY_CLIENT_ID || !EBAY_CLIENT_SECRET) return null;
+
   const auth = Buffer.from(`${EBAY_CLIENT_ID}:${EBAY_CLIENT_SECRET}`).toString(
     "base64"
   );
@@ -777,8 +826,21 @@ async function getEbayAppToken() {
   }
 
   const data = await response.json();
+  const token = typeof data?.access_token === "string" ? data.access_token : null;
 
-  return data?.access_token || null;
+  if (token) {
+    const expiresInSeconds = Number(data?.expires_in);
+    const safeLifetimeSeconds = Number.isFinite(expiresInSeconds)
+      ? Math.max(60, expiresInSeconds - 90)
+      : 60 * 60;
+
+    ebayAppTokenCache = {
+      token,
+      expiresAt: Date.now() + safeLifetimeSeconds * 1000,
+    };
+  }
+
+  return token;
 }
 
 async function getEbayProvider(
@@ -1802,23 +1864,387 @@ function isRemainingCardComp(comp: InstaCompComp) {
   );
 }
 
-export async function POST(req: NextRequest) {
-  try {
-    const formData = await req.formData();
+type PersistentJobScanContext = {
+  supabase: ReturnType<typeof requireInstaCompJobSupabase>;
+  jobId: string;
+  itemId: string;
+  leaseToken: string;
+  pairingConfidence: number | null;
+};
 
-    const frontImage = formData.get("frontImage");
-    const backImage = formData.get("backImage");
-    const detailImageFiles = formData
-      .getAll("detailImages")
-      .filter((file): file is File => file instanceof File && file.size > 0)
-      .slice(0, 24);
+async function downloadInstaCompJobImage(params: {
+  supabase: PersistentJobScanContext["supabase"];
+  path: string | null;
+  fileName: string | null;
+  contentType: string | null;
+  expectedSizeBytes: number | null;
+  expectedSha256: string | null;
+  required: boolean;
+  side: "front" | "back";
+}) {
+  if (!params.path) {
+    if (params.required) {
+      throw new InstaCompJobServerError(
+        `The queued card is missing its ${params.side} image.`,
+        409,
+        "INSTACOMP_JOB_IMAGE_MISSING"
+      );
+    }
+
+    return null;
+  }
+
+  const { data, error } = await params.supabase.storage
+    .from(INSTACOMP_JOB_IMAGE_BUCKET)
+    .download(params.path);
+
+  if (error || !data) {
+    throw new InstaCompJobServerError(
+      error?.message || `Could not load the queued ${params.side} image.`,
+      500,
+      "INSTACOMP_JOB_IMAGE_DOWNLOAD_FAILED"
+    );
+  }
+
+  const bytes = await data.arrayBuffer();
+
+  if (
+    params.expectedSizeBytes !== null &&
+    bytes.byteLength !== params.expectedSizeBytes
+  ) {
+    throw new InstaCompJobServerError(
+      `The queued ${params.side} image size does not match its registration.`,
+      409,
+      "INSTACOMP_JOB_IMAGE_SIZE_MISMATCH",
+    );
+  }
+
+  if (params.expectedSha256) {
+    const actualSha256 = createHash("sha256")
+      .update(Buffer.from(bytes))
+      .digest("hex");
+
+    if (actualSha256 !== params.expectedSha256.toLowerCase()) {
+      throw new InstaCompJobServerError(
+        `The queued ${params.side} image failed its integrity check.`,
+        409,
+        "INSTACOMP_JOB_IMAGE_HASH_MISMATCH",
+      );
+    }
+  }
+
+  return new File(
+    [bytes],
+    params.fileName || `${params.side}-card.jpg`,
+    { type: params.contentType || data.type || "image/jpeg" }
+  );
+}
+
+async function loadPersistentJobScan(
+  req: NextRequest,
+  actor: Awaited<ReturnType<typeof requireInstaCompJobActor>>
+) {
+  const body = await req.json().catch(() => ({}));
+  const jobId = requireUuid(body?.jobId, "Job ID");
+  const itemId = requireUuid(body?.itemId, "Item ID");
+  const leaseToken = requireUuid(body?.leaseToken, "Lease token");
+  const supabase = requireInstaCompJobSupabase();
+
+  await getAccessibleInstaCompJob({ supabase, actor, jobId });
+
+  const { data: itemData, error } = await supabase
+    .from(INSTACOMP_JOB_ITEM_TABLE)
+    .select(
+      [
+        "id",
+        "job_id",
+        "status",
+        "lease_token",
+        "lease_expires_at",
+        "front_storage_path",
+        "back_storage_path",
+        "front_original_filename",
+        "back_original_filename",
+        "front_content_type",
+        "back_content_type",
+        "front_size_bytes",
+        "back_size_bytes",
+        "front_image_sha256",
+        "back_image_sha256",
+        "pairing_confidence",
+      ].join(",")
+    )
+    .eq("id", itemId)
+    .eq("job_id", jobId)
+    .maybeSingle();
+
+  if (error) throwInstaCompDatabaseError(error);
+
+  const item = itemData as Record<string, any> | null;
+
+  if (!item) {
+    throw new InstaCompJobServerError(
+      "The queued InstaComp card was not found.",
+      404,
+      "INSTACOMP_JOB_ITEM_NOT_FOUND"
+    );
+  }
+
+  if (
+    item.status !== "processing" ||
+    item.lease_token !== leaseToken ||
+    !item.lease_expires_at ||
+    Date.parse(item.lease_expires_at) <= Date.now()
+  ) {
+    throw new InstaCompJobServerError(
+      "The queued card lease is missing, stale, or expired.",
+      409,
+      "INSTACOMP_JOB_LEASE_INVALID"
+    );
+  }
+
+  const [frontImage, backImage] = await Promise.all([
+    downloadInstaCompJobImage({
+      supabase,
+      path: item.front_storage_path,
+      fileName: item.front_original_filename,
+      contentType: item.front_content_type,
+      expectedSizeBytes: Number(item.front_size_bytes),
+      expectedSha256: item.front_image_sha256 || null,
+      required: true,
+      side: "front",
+    }),
+    downloadInstaCompJobImage({
+      supabase,
+      path: item.back_storage_path,
+      fileName: item.back_original_filename,
+      contentType: item.back_content_type,
+      expectedSizeBytes:
+        item.back_size_bytes === null || item.back_size_bytes === undefined
+          ? null
+          : Number(item.back_size_bytes),
+      expectedSha256: item.back_image_sha256 || null,
+      required: false,
+      side: "back",
+    }),
+  ]);
+
+  return {
+    frontImage: frontImage!,
+    backImage,
+    detailImageFiles: [] as File[],
+    context: {
+      supabase,
+      jobId,
+      itemId,
+      leaseToken,
+      pairingConfidence:
+        item.pairing_confidence === null || item.pairing_confidence === undefined
+          ? null
+          : Number(item.pairing_confidence),
+    } satisfies PersistentJobScanContext,
+  };
+}
+
+function persistentScanReviewReasons(payload: {
+  ai: InstaCompAiResult;
+  stats: ReturnType<typeof calculateCompStats>;
+  marketValueComps: InstaCompComp[];
+  hasBackImage: boolean;
+  pairingConfidence: number | null;
+}) {
+  const reasons: string[] = [];
+  const ai = payload.ai;
+
+  if ((ai.confidence || 0) < 0.85) reasons.push("low_identification_confidence");
+  if (!ai.player) reasons.push("missing_player_or_subject");
+  if (!ai.year) reasons.push("missing_year");
+  if (!ai.brand && !ai.setName) reasons.push("missing_brand_and_set");
+  if (!ai.cardNumber) reasons.push("missing_card_number");
+  if (!ai.parallel || /uncertain|unknown/i.test(ai.parallel)) {
+    reasons.push("parallel_needs_review");
+  }
+  if (!payload.hasBackImage) reasons.push("front_only_scan");
+  if (
+    payload.hasBackImage &&
+    payload.pairingConfidence !== null &&
+    payload.pairingConfidence < 0.9
+  ) {
+    reasons.push("front_back_pairing_needs_review");
+  }
+  if (!payload.marketValueComps.length || !payload.stats.suggestedPrice) {
+    reasons.push("missing_usable_comps");
+  }
+
+  return Array.from(new Set(reasons));
+}
+
+async function finishPersistentJobScan(params: {
+  context: PersistentJobScanContext;
+  payload: Record<string, unknown>;
+  reviewReasons: string[];
+}) {
+  const payload = compactPersistentScanPayload(params.payload);
+  const { error } = await params.context.supabase.rpc(
+    "tcos_finish_instacomp_scan_item",
+    {
+      p_item_id: params.context.itemId,
+      p_lease_token: params.context.leaseToken,
+      p_result_status: params.reviewReasons.length
+        ? "review_required"
+        : "completed",
+      p_result_payload: payload,
+      p_review_reasons: params.reviewReasons,
+      p_draft_inventory_item_id: null,
+    }
+  );
+
+  if (error) throwInstaCompDatabaseError(error);
+}
+
+function compactPersistentScanPayload(payload: Record<string, unknown>) {
+  if (Buffer.byteLength(JSON.stringify(payload), "utf8") <= MAX_PERSISTED_SCAN_RESULT_BYTES) {
+    return payload;
+  }
+
+  const record = payload as Record<string, any>;
+  const compact = {
+    ...record,
+    providers: Array.isArray(record.providers)
+      ? record.providers.map((provider: any) => ({
+          ...provider,
+          results: Array.isArray(provider?.results)
+            ? provider.results.slice(0, 10)
+            : [],
+        }))
+      : [],
+    activeComps: Array.isArray(record.activeComps)
+      ? record.activeComps.slice(0, 25)
+      : [],
+    marketValueComps: Array.isArray(record.marketValueComps)
+      ? record.marketValueComps.slice(0, 25)
+      : [],
+    soldComps: Array.isArray(record.soldComps)
+      ? record.soldComps.slice(0, 25)
+      : [],
+    remainingCards: Array.isArray(record.remainingCards)
+      ? record.remainingCards.slice(0, 25)
+      : [],
+    persistedResultCompacted: true,
+  };
+
+  if (Buffer.byteLength(JSON.stringify(compact), "utf8") <= MAX_PERSISTED_SCAN_RESULT_BYTES) {
+    return compact;
+  }
+
+  return {
+    ok: record.ok,
+    scanId: record.scanId,
+    ai: record.ai,
+    ocrDiagnostics: record.ocrDiagnostics,
+    searchQuery: record.searchQuery,
+    backupQueries: record.backupQueries,
+    links: record.links,
+    sourceCoverage: record.sourceCoverage,
+    stats: record.stats,
+    soldStats: record.soldStats,
+    queue: record.queue,
+    note: record.note,
+    providers: [],
+    activeComps: [],
+    marketValueComps: [],
+    soldComps: [],
+    remainingCards: [],
+    persistedResultCompacted: true,
+  };
+}
+
+async function failPersistentJobScan(
+  context: PersistentJobScanContext,
+  error: unknown
+) {
+  const message = error instanceof Error ? error.message : "InstaComp scan failed.";
+  const { error: persistenceError } = await context.supabase.rpc(
+    "tcos_fail_instacomp_scan_item",
+    {
+      p_item_id: context.itemId,
+      p_lease_token: context.leaseToken,
+      p_error_code: "scan_failed",
+      p_error_message: message.slice(0, 4000),
+      p_retryable: true,
+      p_retry_delay_seconds: 5,
+    }
+  );
+
+  if (persistenceError) {
+    console.error("Could not persist InstaComp queued scan failure:", persistenceError);
+  }
+}
+
+export async function POST(req: NextRequest) {
+  let persistentContext: PersistentJobScanContext | null = null;
+
+  try {
+    const actor = await requireInstaCompJobActor(req);
+    const rateLimit = await checkPublicEndpointRateLimit({
+      request: req,
+      endpointKey: "instacomp_scan",
+      subjectKey:
+        actor.type === "seller"
+          ? `seller:${actor.sellerAccountId}`
+          : `admin:${actor.storeId}`,
+      maxAttempts: 1200,
+      windowSeconds: 24 * 60 * 60,
+    });
+
+    if (!rateLimit.allowed) {
+      const blocked = publicEndpointRateLimitResponse(rateLimit);
+      return NextResponse.json(blocked.body, { status: blocked.status });
+    }
+    const isJsonRequest = (req.headers.get("content-type") || "")
+      .toLowerCase()
+      .includes("application/json");
+    let frontImage: File | null = null;
+    let backImage: File | null = null;
+    let detailImageFiles: File[] = [];
+
+    if (isJsonRequest) {
+      const queuedScan = await loadPersistentJobScan(req, actor);
+      frontImage = queuedScan.frontImage;
+      backImage = queuedScan.backImage;
+      detailImageFiles = queuedScan.detailImageFiles;
+      persistentContext = queuedScan.context;
+    } else {
+      const formData = await req.formData();
+      const submittedFront = formData.get("frontImage");
+      const submittedBack = formData.get("backImage");
+
+      frontImage = submittedFront instanceof File ? submittedFront : null;
+      backImage = submittedBack instanceof File ? submittedBack : null;
+      detailImageFiles = formData
+        .getAll("detailImages")
+        .filter((file): file is File => file instanceof File && file.size > 0)
+        .slice(0, 24);
+    }
 
     if (!(frontImage instanceof File)) {
       return jsonError("Upload a front card image.", 400);
     }
 
-    if (!frontImage.type.startsWith("image/")) {
-      return jsonError("Front file must be an image.", 400);
+    if (!ALLOWED_SCAN_IMAGE_TYPES.has(frontImage.type.toLowerCase())) {
+      throw new InstaCompJobServerError(
+        "Front file must be a JPEG, PNG, or WebP image.",
+        400,
+        "INSTACOMP_SCAN_IMAGE_TYPE_INVALID"
+      );
+    }
+
+    if (frontImage.size > MAX_SCAN_SOURCE_IMAGE_BYTES) {
+      throw new InstaCompJobServerError(
+        "Front card image must be 12MB or smaller.",
+        413,
+        "INSTACOMP_SCAN_IMAGE_TOO_LARGE"
+      );
     }
 
     const frontDataUrl = await fileToDataUrl(frontImage);
@@ -1826,8 +2252,20 @@ export async function POST(req: NextRequest) {
     let backDataUrl: string | undefined;
 
     if (backImage instanceof File && backImage.size > 0) {
-      if (!backImage.type.startsWith("image/")) {
-        return jsonError("Back file must be an image.", 400);
+      if (!ALLOWED_SCAN_IMAGE_TYPES.has(backImage.type.toLowerCase())) {
+        throw new InstaCompJobServerError(
+          "Back file must be a JPEG, PNG, or WebP image.",
+          400,
+          "INSTACOMP_SCAN_IMAGE_TYPE_INVALID"
+        );
+      }
+
+      if (backImage.size > MAX_SCAN_SOURCE_IMAGE_BYTES) {
+        throw new InstaCompJobServerError(
+          "Back card image must be 12MB or smaller.",
+          413,
+          "INSTACOMP_SCAN_IMAGE_TOO_LARGE"
+        );
       }
 
       backDataUrl = await fileToDataUrl(backImage);
@@ -1836,14 +2274,39 @@ export async function POST(req: NextRequest) {
     const detailImages: InstaCompDetailImage[] = [];
 
     for (const detailImage of detailImageFiles) {
-      if (!detailImage.type.startsWith("image/")) {
-        return jsonError("Detail crop files must be images.", 400);
+      if (!ALLOWED_SCAN_IMAGE_TYPES.has(detailImage.type.toLowerCase())) {
+        throw new InstaCompJobServerError(
+          "Detail crops must be JPEG, PNG, or WebP images.",
+          400,
+          "INSTACOMP_SCAN_IMAGE_TYPE_INVALID"
+        );
+      }
+
+      if (detailImage.size > MAX_SCAN_DETAIL_IMAGE_BYTES) {
+        throw new InstaCompJobServerError(
+          "Each InstaComp detail crop must be 512KB or smaller.",
+          413,
+          "INSTACOMP_SCAN_DETAIL_TOO_LARGE"
+        );
       }
 
       detailImages.push({
         name: detailImage.name || "detail-crop.jpg",
         dataUrl: await fileToDataUrl(detailImage),
       });
+    }
+
+    const totalInputBytes =
+      frontImage.size +
+      (backImage?.size || 0) +
+      detailImageFiles.reduce((total, file) => total + file.size, 0);
+
+    if (totalInputBytes > MAX_SCAN_INPUT_BYTES) {
+      throw new InstaCompJobServerError(
+        "One InstaComp card scan may contain at most 20MB of image data.",
+        413,
+        "INSTACOMP_SCAN_INPUT_TOO_LARGE"
+      );
     }
 
     const externalOcrImages: InstaCompDetailImage[] = [
@@ -1912,7 +2375,14 @@ export async function POST(req: NextRequest) {
       remainingCards,
     });
 
-    return NextResponse.json({
+    const reviewReasons = persistentScanReviewReasons({
+      ai,
+      stats,
+      marketValueComps,
+      hasBackImage: Boolean(backDataUrl),
+      pairingConfidence: persistentContext?.pairingConfidence ?? null,
+    });
+    const responsePayload = {
       ok: true,
       scanId,
       ai,
@@ -1937,9 +2407,40 @@ export async function POST(req: NextRequest) {
       stats,
       note:
         "Market value, high, low, and sold ranges are calculated from included live matches only. Registered sources remain visible until provider access is configured.",
-    });
+      ...(persistentContext
+        ? {
+            queue: {
+              jobId: persistentContext.jobId,
+              itemId: persistentContext.itemId,
+              status: reviewReasons.length ? "review_required" : "completed",
+              reviewReasons,
+            },
+          }
+        : {}),
+    };
+
+    if (persistentContext) {
+      await finishPersistentJobScan({
+        context: persistentContext,
+        payload: responsePayload,
+        reviewReasons,
+      });
+    }
+
+    return NextResponse.json(responsePayload);
   } catch (error: any) {
     console.error("InstaComp scan error:", error);
+
+    if (persistentContext) {
+      await failPersistentJobScan(persistentContext, error);
+    }
+
+    if (
+      error?.name === "InstaCompJobServerError" ||
+      String(error?.code || "").startsWith("INSTACOMP_")
+    ) {
+      return instaCompJobErrorResponse(error);
+    }
 
     return jsonError(
       error?.message || "InstaComp scan failed.",

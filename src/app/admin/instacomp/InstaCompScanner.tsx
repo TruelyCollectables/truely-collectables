@@ -1,10 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  getAccountSession,
-  type StoredAccountSession,
-} from "@/src/app/account/account-session";
+import { createClient, type SupabaseClient } from "@supabase/supabase-js";
+import { getFreshAccountSession } from "@/src/app/account/account-session";
 
 type AiResult = {
   player: string | null;
@@ -124,6 +122,12 @@ type ScanResponse = {
     suggestedPrice: number | null;
   };
   note: string;
+  queue?: {
+    jobId: string;
+    itemId: string;
+    status: "completed" | "review_required";
+    reviewReasons: string[];
+  };
 };
 
 type BatchCardStatus = "queued" | "scanning" | "done" | "error";
@@ -173,6 +177,42 @@ type BatchCard = {
   draftInventoryItemId: string | null;
   draftLegacyProductId: number | null;
   draftSku: string | null;
+  persistentClientId?: string;
+  persistentJobId?: string | null;
+  persistentItemId?: string | null;
+  frontStoragePath?: string | null;
+  backStoragePath?: string | null;
+  pairingConfidence?: number | null;
+  pairingMethod?: "filename" | "upload_order" | "front_only";
+};
+
+type PersistentJobBinding = {
+  jobId: string;
+  itemId: string;
+  clientItemId: string;
+  frontStoragePath: string;
+  backStoragePath: string | null;
+};
+
+type PersistentJobSummary = {
+  id: string;
+  client_batch_id?: string;
+  status: string;
+  total_items: number;
+  uploaded_items: number;
+  processed_items: number;
+  completed_items: number;
+  review_required_items: number;
+  failed_items: number;
+  drafted_items: number;
+};
+
+type PersistentClaimedItem = {
+  id: string;
+  job_id: string;
+  client_item_id: string;
+  lease_token: string;
+  leaseToken?: string;
 };
 
 type BatchCardViewItem = {
@@ -219,6 +259,8 @@ type BatchPair = {
   front: BatchImageCandidate;
   back: BatchImageCandidate | null;
   sortIndex: number;
+  pairingConfidence: number | null;
+  pairingMethod: "filename" | "upload_order" | "front_only";
 };
 
 type InstaCompScannerProps = {
@@ -271,6 +313,18 @@ type TestModelRunRecord = {
 };
 
 const MAX_BATCH_CARDS = 500;
+const MAX_SCAN_IMAGE_BYTES = 900_000;
+const MAX_PERSISTENT_SOURCE_IMAGE_BYTES = 3_000_000;
+const MAX_SCAN_IMAGE_DIMENSION = 2600;
+const MAX_PERSISTENT_IMAGE_DIMENSION = 3600;
+const MAX_DETAIL_CROP_BYTES = 180_000;
+const MAX_SCAN_REQUEST_BYTES = 3_750_000;
+const DRAFT_UPLOAD_CONCURRENCY = 2;
+const INSTACOMP_JOB_ITEM_CHUNK_SIZE = 25;
+const INSTACOMP_JOB_UPLOAD_CONCURRENCY = 3;
+const INSTACOMP_LAST_JOB_STORAGE_KEY = "tcos-instacomp-last-job-v1";
+const EMPTY_CARD_PREVIEW =
+  "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='560' viewBox='0 0 400 560'%3E%3Crect width='400' height='560' fill='%23e5e7eb'/%3E%3Ctext x='200' y='280' text-anchor='middle' fill='%236b7280' font-family='Arial' font-size='24'%3ERecovered card%3C/text%3E%3C/svg%3E";
 const TEST_MODEL_LATENCY_MS = 120;
 const TEST_MODEL_RUN_LEDGER_STORAGE_KEY = "instacomp-test-run-ledger-v1";
 const PRICE_BUTTONS = [
@@ -282,6 +336,35 @@ const PRICE_BUTTONS = [
   { label: "-10%", multiplier: 0.9 },
 ];
 const LOW_CONFIDENCE_THRESHOLD = 0.65;
+
+async function fetchWithFreshAccountSession(
+  input: RequestInfo | URL,
+  init: RequestInit = {},
+) {
+  async function send(forceRefresh: boolean) {
+    const session = await getFreshAccountSession(5 * 60, forceRefresh);
+    const headers = new Headers(init.headers);
+
+    if (session?.access_token) {
+      headers.set("Authorization", `Bearer ${session.access_token}`);
+    } else {
+      headers.delete("Authorization");
+    }
+
+    return {
+      response: await fetch(input, { ...init, headers }),
+      canRefresh: Boolean(session?.refresh_token),
+    };
+  }
+
+  let attempt = await send(false);
+
+  if (attempt.response.status === 401 && attempt.canRefresh) {
+    attempt = await send(true);
+  }
+
+  return attempt.response;
+}
 const BATCH_FILTER_LABELS: Record<BatchCardFilter, string> = {
   all: "All",
   selected: "Selected",
@@ -1324,7 +1407,9 @@ function exportBatchJson(items: BatchCardViewItem[], fileScope: "all" | "view") 
 function draftListingItemsForCards(cards: BatchCard[]) {
   return cards.map((card, index) => ({
     uploadIndex: String(index),
-    clientId: card.id,
+    clientId: card.persistentClientId || card.id,
+    persistentJobId: card.persistentJobId || null,
+    persistentItemId: card.persistentItemId || null,
     scanId: card.result?.scanId || null,
     fileName: card.file.name,
     backFileName: card.backFile?.name || null,
@@ -1438,12 +1523,29 @@ function batchCardReviewWarnings(card: BatchCard) {
     warnings.push("Front only");
   }
 
+  if (
+    card.backFile &&
+    card.pairingConfidence !== null &&
+    card.pairingConfidence !== undefined &&
+    card.pairingConfidence < 0.9
+  ) {
+    warnings.push("Front/back pairing needs review");
+  }
+
   if (card.status !== "done" || !card.result) {
     return warnings;
   }
 
   if (card.result.ai.confidence < LOW_CONFIDENCE_THRESHOLD) {
     warnings.push(`Low confidence ${confidenceLabel(card.result.ai.confidence)}`);
+  }
+
+  if (card.result.queue?.status === "review_required") {
+    warnings.push(
+      ...card.result.queue.reviewReasons.map((reason) =>
+        `Queue review: ${reason.replaceAll("_", " ")}`
+      )
+    );
   }
 
   if (draftListingPriceForCard(card) === null) {
@@ -1738,6 +1840,8 @@ function buildBatchPairs(files: File[]) {
         front,
         back,
         sortIndex: Math.min(front.originalIndex, back?.originalIndex ?? front.originalIndex),
+        pairingConfidence: back ? 1 : null,
+        pairingMethod: back ? "filename" : "front_only",
       });
     });
 
@@ -1758,6 +1862,8 @@ function buildBatchPairs(files: File[]) {
       front,
       back,
       sortIndex: front.originalIndex,
+      pairingConfidence: back ? 0.65 : null,
+      pairingMethod: back ? "upload_order" : "front_only",
     });
   }
 
@@ -1854,11 +1960,20 @@ function loadImageElement(file: File): Promise<HTMLImageElement> {
 
 async function canvasToJpegFile(
   canvas: HTMLCanvasElement,
-  fileName: string
+  fileName: string,
+  options: { initialQuality?: number; maxBytes?: number } = {}
 ): Promise<File> {
-  const blob = await new Promise<Blob | null>((resolve) =>
-    canvas.toBlob(resolve, "image/jpeg", 0.94)
-  );
+  let quality = options.initialQuality ?? 0.86;
+  let blob: Blob | null = null;
+
+  do {
+    blob = await new Promise<Blob | null>((resolve) =>
+      canvas.toBlob(resolve, "image/jpeg", quality)
+    );
+
+    if (!blob || !options.maxBytes || blob.size <= options.maxBytes) break;
+    quality -= 0.08;
+  } while (quality >= 0.5);
 
   if (!blob) {
     throw new Error(`Could not create detail crop ${fileName}.`);
@@ -1911,7 +2026,7 @@ async function createSerialDetailCrops(file: File, side: "front" | "back") {
       const sourceY = Math.round(sourceHeight * spec.y);
       const cropWidth = Math.max(1, Math.round(sourceWidth * spec.width));
       const cropHeight = Math.max(1, Math.round(sourceHeight * spec.height));
-      const outputWidth = Math.min(2600, Math.max(cropWidth * 2, 1800));
+      const outputWidth = Math.min(1800, Math.max(cropWidth * 1.75, 1200));
       const outputHeight = Math.round(outputWidth * (cropHeight / cropWidth));
       const canvas = document.createElement("canvas");
       const context = canvas.getContext("2d");
@@ -1938,7 +2053,11 @@ async function createSerialDetailCrops(file: File, side: "front" | "back") {
       crops.push(
         await canvasToJpegFile(
           canvas,
-          `${side}-serial-detail-${spec.label}-${file.name || "card"}.jpg`
+          `${side}-serial-detail-${spec.label}-${file.name || "card"}.jpg`,
+          {
+            initialQuality: spec.enhance ? 0.8 : 0.84,
+            maxBytes: MAX_DETAIL_CROP_BYTES,
+          }
         )
       );
     }
@@ -1950,12 +2069,186 @@ async function createSerialDetailCrops(file: File, side: "front" | "back") {
   }
 }
 
+const optimizedScanImageCache = new WeakMap<File, Promise<File>>();
+const optimizedPersistentImageCache = new WeakMap<File, Promise<File>>();
+
+function optimizedImageName(file: File) {
+  const baseName = file.name.replace(/\.[^.]+$/, "") || "card";
+  return `${baseName}-instacomp.jpg`;
+}
+
+async function optimizeScanImageUncached(file: File) {
+  const image = await loadImageElement(file);
+  const sourceWidth = image.naturalWidth || image.width;
+  const sourceHeight = image.naturalHeight || image.height;
+
+  if (!sourceWidth || !sourceHeight) return file;
+
+  const scale = Math.min(
+    1,
+    MAX_SCAN_IMAGE_DIMENSION / Math.max(sourceWidth, sourceHeight)
+  );
+  let outputWidth = Math.max(1, Math.round(sourceWidth * scale));
+  let outputHeight = Math.max(1, Math.round(sourceHeight * scale));
+  let quality = 0.9;
+  let optimized: File | null = null;
+
+  for (let attempt = 0; attempt < 8; attempt += 1) {
+    const canvas = document.createElement("canvas");
+    const context = canvas.getContext("2d");
+
+    if (!context) return file;
+
+    canvas.width = outputWidth;
+    canvas.height = outputHeight;
+    context.fillStyle = "#fff";
+    context.fillRect(0, 0, outputWidth, outputHeight);
+    context.imageSmoothingEnabled = true;
+    context.imageSmoothingQuality = "high";
+    context.drawImage(image, 0, 0, outputWidth, outputHeight);
+
+    optimized = await canvasToJpegFile(canvas, optimizedImageName(file), {
+      initialQuality: quality,
+      maxBytes: MAX_SCAN_IMAGE_BYTES,
+    });
+
+    if (optimized.size <= MAX_SCAN_IMAGE_BYTES) break;
+
+    const reducedScale = Math.max(
+      0.55,
+      Math.min(0.86, 1400 / Math.max(outputWidth, outputHeight))
+    );
+    outputWidth = Math.max(1, Math.round(outputWidth * reducedScale));
+    outputHeight = Math.max(1, Math.round(outputHeight * reducedScale));
+    quality = Math.max(0.58, quality - 0.06);
+  }
+
+  return optimized || file;
+}
+
+async function optimizeScanImage(file: File) {
+  const cached = optimizedScanImageCache.get(file);
+
+  if (cached) return cached;
+
+  const pending = optimizeScanImageUncached(file).catch((error) => {
+    console.warn("InstaComp image optimization failed:", error);
+    return file;
+  });
+
+  optimizedScanImageCache.set(file, pending);
+  return pending;
+}
+
+async function preparePersistentStorageImage(file: File) {
+  const cached = optimizedPersistentImageCache.get(file);
+
+  if (cached) return cached;
+
+  const pending = (async () => {
+    const supportedType = ["image/jpeg", "image/png", "image/webp"].includes(
+      file.type.toLowerCase(),
+    );
+    const image = await loadImageElement(file);
+    const sourceWidth = image.naturalWidth || image.width;
+    const sourceHeight = image.naturalHeight || image.height;
+
+    if (
+      supportedType &&
+      file.size <= MAX_PERSISTENT_SOURCE_IMAGE_BYTES &&
+      Math.max(sourceWidth, sourceHeight) <= MAX_PERSISTENT_IMAGE_DIMENSION
+    ) {
+      return file;
+    }
+
+    if (!sourceWidth || !sourceHeight) {
+      throw new Error(`Could not read ${file.name} before private upload.`);
+    }
+
+    const scale = Math.min(
+      1,
+      MAX_PERSISTENT_IMAGE_DIMENSION / Math.max(sourceWidth, sourceHeight),
+    );
+    let outputWidth = Math.max(1, Math.round(sourceWidth * scale));
+    let outputHeight = Math.max(1, Math.round(sourceHeight * scale));
+    let quality = 0.94;
+
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      const canvas = document.createElement("canvas");
+      const context = canvas.getContext("2d");
+
+      if (!context) {
+        throw new Error(`Could not prepare ${file.name} for private upload.`);
+      }
+
+      canvas.width = outputWidth;
+      canvas.height = outputHeight;
+      context.fillStyle = "#fff";
+      context.fillRect(0, 0, outputWidth, outputHeight);
+      context.imageSmoothingEnabled = true;
+      context.imageSmoothingQuality = "high";
+      context.drawImage(image, 0, 0, outputWidth, outputHeight);
+
+      const optimized = await canvasToJpegFile(
+        canvas,
+        optimizedImageName(file),
+        {
+          initialQuality: quality,
+          maxBytes: MAX_PERSISTENT_SOURCE_IMAGE_BYTES,
+        },
+      );
+
+      if (optimized.size <= MAX_PERSISTENT_SOURCE_IMAGE_BYTES) {
+        return optimized;
+      }
+
+      outputWidth = Math.max(1, Math.round(outputWidth * 0.84));
+      outputHeight = Math.max(1, Math.round(outputHeight * 0.84));
+      quality = Math.max(0.58, quality - 0.05);
+    }
+
+    throw new Error(
+      `${file.name} could not be reduced below the 3MB private-upload limit.`,
+    );
+  })();
+
+  optimizedPersistentImageCache.set(file, pending);
+  return pending;
+}
+
+async function sha256File(file: File) {
+  const digest = await crypto.subtle.digest("SHA-256", await file.arrayBuffer());
+
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
+}
+
+let instaCompUploadClient: SupabaseClient | null = null;
+
+function getInstaCompUploadClient() {
+  if (instaCompUploadClient) return instaCompUploadClient;
+
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!url || !anonKey) {
+    throw new Error("Supabase browser upload settings are missing.");
+  }
+
+  instaCompUploadClient = createClient(url, anonKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
+
+  return instaCompUploadClient;
+}
+
 export default function InstaCompScanner({
   testMode = false,
 }: InstaCompScannerProps) {
-  const [accountSession] = useState<StoredAccountSession | null>(() =>
-    typeof window === "undefined" ? null : getAccountSession()
-  );
   const [frontImage, setFrontImage] = useState<File | null>(null);
   const [backImage, setBackImage] = useState<File | null>(null);
   const [frontPreview, setFrontPreview] = useState<string | null>(null);
@@ -1976,6 +2269,13 @@ export default function InstaCompScanner({
   const [batchPauseRequested, setBatchPauseRequested] = useState(false);
   const [batchError, setBatchError] = useState<string | null>(null);
   const [batchDraftMessage, setBatchDraftMessage] = useState<string | null>(null);
+  const [persistentJob, setPersistentJob] =
+    useState<PersistentJobSummary | null>(null);
+  const [persistentJobPreparing, setPersistentJobPreparing] = useState(false);
+  const [persistentUploadProgress, setPersistentUploadProgress] = useState<{
+    completed: number;
+    total: number;
+  } | null>(null);
   const [testModelChecks, setTestModelChecks] = useState<TestModelCheck[]>([]);
   const [testModelCheckScenario, setTestModelCheckScenario] =
     useState<TestModelCheckScenario>("completed_matrix");
@@ -1986,6 +2286,10 @@ export default function InstaCompScanner({
     useState(!testMode);
   const batchPauseRequestedRef = useRef(false);
   const batchPreviewUrlsRef = useRef<string[]>([]);
+  const persistentBindingsRef = useRef<Map<string, PersistentJobBinding>>(
+    new Map()
+  );
+  const persistentClientBatchIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     const previewUrls = batchPreviewUrlsRef.current;
@@ -1994,6 +2298,293 @@ export default function InstaCompScanner({
       previewUrls.forEach((url) => URL.revokeObjectURL(url));
     };
   }, []);
+
+  useEffect(() => {
+    if (testMode) return;
+
+    let cancelled = false;
+
+    async function recoverLastPersistentJob() {
+      let jobId: string | null = null;
+
+      try {
+        jobId = window.localStorage.getItem(INSTACOMP_LAST_JOB_STORAGE_KEY);
+      } catch {
+        return;
+      }
+
+      try {
+        async function newestRecoverableJobId() {
+          const listResponse = await fetchWithFreshAccountSession(
+            "/api/instacomp/jobs?limit=25",
+          );
+          const listData = await listResponse.json().catch(() => ({}));
+
+          if (!listResponse.ok) return null;
+
+          const recoverable = (Array.isArray(listData.jobs)
+            ? listData.jobs
+            : []
+          ).find((job: any) =>
+            [
+              "uploading",
+              "queued",
+              "processing",
+              "cancelling",
+              "completed_with_errors",
+              "failed",
+            ].includes(String(job.status))
+          );
+
+          return recoverable?.id || null;
+        }
+
+        if (!jobId) {
+          jobId = await newestRecoverableJobId();
+        }
+
+        if (!jobId) return;
+
+        async function loadPersistentJob(targetJobId: string) {
+          const items: any[] = [];
+          let afterPosition = -1;
+          let jobData: any = null;
+
+          for (let page = 0; page < 20; page += 1) {
+            const pageResponse = await fetchWithFreshAccountSession(
+              `/api/instacomp/jobs/${targetJobId}?limit=25&afterPosition=${afterPosition}&includeRecovery=true`,
+            );
+            const pageData = await pageResponse.json().catch(() => ({}));
+
+            if (!pageResponse.ok) {
+              return {
+                ok: false,
+                status: pageResponse.status,
+                data: pageData,
+              };
+            }
+
+            jobData = pageData.job;
+            items.push(...(Array.isArray(pageData.items) ? pageData.items : []));
+
+            if (!pageData.hasMore || pageData.nextPosition === null) break;
+            afterPosition = Number(pageData.nextPosition);
+          }
+
+          return {
+            ok: true,
+            status: 200,
+            data: { job: jobData, items },
+          };
+        }
+
+        let loaded = await loadPersistentJob(jobId!);
+
+        if (!loaded.ok && loaded.status === 404) {
+          const fallbackJobId = await newestRecoverableJobId();
+
+          if (fallbackJobId && fallbackJobId !== jobId) {
+            jobId = fallbackJobId;
+            loaded = await loadPersistentJob(jobId!);
+          }
+        }
+
+        if (!loaded.ok) {
+          throw new Error(
+            loaded.data?.error || "Could not recover the last scan job."
+          );
+        }
+
+        const data = loaded.data;
+
+        if (cancelled) return;
+
+        let job = data.job as PersistentJobSummary;
+        window.localStorage.setItem(INSTACOMP_LAST_JOB_STORAGE_KEY, job.id);
+        const recoveredItems = Array.isArray(data.items) ? data.items : [];
+
+        if (
+          job.status === "uploading" &&
+          recoveredItems.length === Number(job.total_items)
+        ) {
+          try {
+            for (
+              let start = 0;
+              start < recoveredItems.length;
+              start += INSTACOMP_JOB_ITEM_CHUNK_SIZE
+            ) {
+              const chunk = recoveredItems.slice(
+                start,
+                start + INSTACOMP_JOB_ITEM_CHUNK_SIZE
+              );
+              const confirmResponse = await fetchWithFreshAccountSession(
+                `/api/instacomp/jobs/${job.id}/items`,
+                {
+                  method: "PATCH",
+                  headers: {
+                    "Content-Type": "application/json",
+                  },
+                  body: JSON.stringify({
+                    itemIds: chunk.map((item: any) => item.id),
+                  }),
+                }
+              );
+
+              if (!confirmResponse.ok) {
+                throw new Error(
+                  "One or more card images did not finish uploading before the interruption."
+                );
+              }
+            }
+
+            const queueResponse = await fetchWithFreshAccountSession(
+              `/api/instacomp/jobs/${job.id}`,
+              {
+                method: "PATCH",
+                headers: {
+                  "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ status: "queued" }),
+              }
+            );
+            const queueData = await queueResponse.json().catch(() => ({}));
+
+            if (!queueResponse.ok) {
+              throw new Error(
+                queueData?.error || "Could not resume the uploaded scan job."
+              );
+            }
+
+            job = queueData.job as PersistentJobSummary;
+          } catch (error: any) {
+            setBatchError(
+              `${error?.message || "Upload recovery is incomplete"} Clear this saved lot and reselect the original images to start a clean replacement job.`
+            );
+          }
+        } else if (
+          job.status === "uploading" &&
+          recoveredItems.length < Number(job.total_items)
+        ) {
+          setBatchError(
+            `Recovered ${recoveredItems.length}/${job.total_items} registered rows. The interruption happened before every row was registered; clear this saved lot and reselect the original images.`
+          );
+        }
+
+        const bindings = new Map<string, PersistentJobBinding>();
+        const recoveredCards = recoveredItems.map(
+          (item: any): BatchCard => {
+            const cardId = `persistent-${item.id}`;
+            const storedResult =
+              item.result_payload &&
+              typeof item.result_payload === "object" &&
+              item.result_payload.ok
+                ? (item.result_payload as ScanResponse)
+                : null;
+            const isDone = ["completed", "review_required"].includes(
+              String(item.status)
+            );
+            const isFailed = ["failed", "retry_wait"].includes(
+              String(item.status)
+            );
+            const frontFile = new File(
+              [],
+              item.front_original_filename || "recovered-front.jpg",
+              { type: item.front_content_type || "image/jpeg" }
+            );
+            const backFile = item.back_storage_path
+              ? new File(
+                  [],
+                  item.back_original_filename || "recovered-back.jpg",
+                  { type: item.back_content_type || "image/jpeg" }
+                )
+              : null;
+            const frontUrl =
+              item.recovery?.front?.downloadUrl || EMPTY_CARD_PREVIEW;
+            const backUrl = item.recovery?.back?.downloadUrl || null;
+
+            bindings.set(cardId, {
+              jobId: job.id,
+              itemId: item.id,
+              clientItemId: item.client_item_id,
+              frontStoragePath: item.front_storage_path,
+              backStoragePath: item.back_storage_path || null,
+            });
+
+            return {
+              id: cardId,
+              file: frontFile,
+              backFile,
+              previewUrl: frontUrl,
+              backPreviewUrl: backUrl,
+              status: isDone && storedResult ? "done" : isFailed ? "error" : "queued",
+              selected: !item.draft_inventory_item_id,
+              result: storedResult,
+              marketPrice:
+                storedResult?.stats?.suggestedPrice ??
+                (Number.isFinite(Number(item.suggested_price))
+                  ? Number(item.suggested_price)
+                  : null),
+              customTitle: storedResult
+                ? cardResultTitle(
+                    storedResult,
+                    item.front_original_filename || "Recovered card"
+                  )
+                : "",
+              customQuantity: "1",
+              customPrice:
+                storedResult?.stats?.suggestedPrice != null
+                  ? Number(storedResult.stats.suggestedPrice).toFixed(2)
+                  : "",
+              error: isFailed
+                ? item.last_error || "Queued scan needs another attempt."
+                : null,
+              draftStatus: item.draft_inventory_item_id ? "created" : "idle",
+              draftError: null,
+              draftInventoryItemId: item.draft_inventory_item_id || null,
+              draftLegacyProductId: null,
+              draftSku: null,
+              persistentClientId: item.client_item_id,
+              persistentJobId: job.id,
+              persistentItemId: item.id,
+              frontStoragePath: item.front_storage_path,
+              backStoragePath: item.back_storage_path || null,
+              pairingConfidence:
+                item.pairing_confidence === null ||
+                item.pairing_confidence === undefined
+                  ? null
+                  : Number(item.pairing_confidence),
+              pairingMethod:
+                item.back_storage_path && Number(item.pairing_confidence) < 0.9
+                  ? "upload_order"
+                  : item.back_storage_path
+                    ? "filename"
+                    : "front_only",
+            };
+          }
+        );
+
+        persistentBindingsRef.current = bindings;
+        persistentClientBatchIdRef.current = job.client_batch_id || null;
+        setPersistentJob(job);
+        setBatchCards(recoveredCards);
+        setBatchDraftMessage(
+          `Recovered InstaComp job ${job.id.slice(0, 8)} with ${recoveredCards.length} card row${
+            recoveredCards.length === 1 ? "" : "s"
+          }.`
+        );
+      } catch (error: any) {
+        if (!cancelled) {
+          setBatchError(error?.message || "Could not recover the last scan job.");
+        }
+      }
+    }
+
+    void recoverLastPersistentJob();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [testMode]);
 
   useEffect(() => {
     if (!testMode) return;
@@ -2350,28 +2941,362 @@ export default function InstaCompScanner({
     setBackPreview(file ? URL.createObjectURL(file) : null);
   }
 
-  async function runInstaCompScan(front: File, back?: File | null) {
+  async function persistentJobJson(
+    url: string,
+    options: { method?: string; body?: unknown } = {}
+  ) {
+    const response = await fetchWithFreshAccountSession(url, {
+      method: options.method || "GET",
+      headers:
+        options.body === undefined
+          ? undefined
+          : { "Content-Type": "application/json" },
+      body:
+        options.body === undefined ? undefined : JSON.stringify(options.body),
+    });
+    const data = await response.json().catch(() => ({}));
+
+    if (!response.ok) {
+      const error = new Error(data?.error || "InstaComp job request failed.") as Error & {
+        code?: string;
+        status?: number;
+      };
+      error.code = data?.code;
+      error.status = response.status;
+      throw error;
+    }
+
+    return data;
+  }
+
+  function bindPersistentCard(cardId: string, binding: PersistentJobBinding) {
+    persistentBindingsRef.current.set(cardId, binding);
+    setBatchCards((current) =>
+      current.map((card) =>
+        card.id === cardId
+          ? {
+              ...card,
+              persistentClientId: binding.clientItemId,
+              persistentJobId: binding.jobId,
+              persistentItemId: binding.itemId,
+              frontStoragePath: binding.frontStoragePath,
+              backStoragePath: binding.backStoragePath,
+            }
+          : card
+      )
+    );
+  }
+
+  async function uploadPersistentJobFile(params: {
+    bucket: string;
+    path: string;
+    token: string;
+    file: File;
+  }) {
+    const { error } = await getInstaCompUploadClient().storage
+      .from(params.bucket)
+      .uploadToSignedUrl(params.path, params.token, params.file, {
+        contentType: params.file.type || "image/jpeg",
+      });
+
+    if (error) throw error;
+  }
+
+  async function ensurePersistentJob(
+    cards: BatchCard[],
+    autoCreateDrafts: boolean
+  ) {
+    if (testMode || !cards.length) return null;
+
+    const existingJobId = persistentJob?.id;
+    const allCardsBound = cards.every((card) =>
+      persistentBindingsRef.current.has(card.id)
+    );
+
+    if (
+      existingJobId &&
+      allCardsBound &&
+      ["queued", "processing"].includes(String(persistentJob?.status))
+    ) {
+      return existingJobId;
+    }
+
+    setPersistentJobPreparing(true);
+    setPersistentUploadProgress({ completed: 0, total: 0 });
+
+    try {
+      const clientIds = new Map(
+        cards.map((card) => [
+          card.id,
+          card.persistentClientId || crypto.randomUUID(),
+        ])
+      );
+      const clientBatchId =
+        persistentClientBatchIdRef.current || crypto.randomUUID();
+      persistentClientBatchIdRef.current = clientBatchId;
+      const created = await persistentJobJson("/api/instacomp/jobs", {
+        method: "POST",
+        body: {
+          clientBatchId,
+          name: `InstaComp lot ${new Date().toLocaleString()}`,
+          totalItems: cards.length,
+          requestedConcurrency: batchConcurrency,
+          autoCreateDrafts,
+          options: {
+            transport: "signed_private_uploads",
+            imageOptimization: "bounded_v1",
+          },
+        },
+      });
+      const job = created.job as PersistentJobSummary;
+      let completedUploads = 0;
+      const totalUploads = cards.reduce(
+        (total, card) => total + 1 + (card.backFile ? 1 : 0),
+        0
+      );
+
+      setPersistentJob(job);
+      setPersistentUploadProgress({ completed: 0, total: totalUploads });
+      window.localStorage.setItem(INSTACOMP_LAST_JOB_STORAGE_KEY, job.id);
+
+      for (
+        let chunkStart = 0;
+        chunkStart < cards.length;
+        chunkStart += INSTACOMP_JOB_ITEM_CHUNK_SIZE
+      ) {
+        const chunk = cards.slice(
+          chunkStart,
+          chunkStart + INSTACOMP_JOB_ITEM_CHUNK_SIZE
+        );
+        const optimizedByCardId = new Map<
+          string,
+          {
+            front: File;
+            back: File | null;
+            frontSha256: string;
+            backSha256: string | null;
+          }
+        >();
+        let optimizeCursor = 0;
+
+        async function runOptimizeWorker() {
+          while (optimizeCursor < chunk.length) {
+            const card = chunk[optimizeCursor];
+            optimizeCursor += 1;
+            const [front, back] = await Promise.all([
+              preparePersistentStorageImage(card.file),
+              card.backFile
+                ? preparePersistentStorageImage(card.backFile)
+                : Promise.resolve(null),
+            ]);
+            const [frontSha256, backSha256] = await Promise.all([
+              sha256File(front),
+              back ? sha256File(back) : Promise.resolve(null),
+            ]);
+            optimizedByCardId.set(card.id, {
+              front,
+              back,
+              frontSha256,
+              backSha256,
+            });
+          }
+        }
+
+        await Promise.all(
+          Array.from(
+            {
+              length: Math.min(INSTACOMP_JOB_UPLOAD_CONCURRENCY, chunk.length),
+            },
+            () => runOptimizeWorker()
+          )
+        );
+
+        const registered = await persistentJobJson(
+          `/api/instacomp/jobs/${job.id}/items`,
+          {
+            method: "POST",
+            body: {
+              items: chunk.map((card, index) => {
+                const optimized = optimizedByCardId.get(card.id)!;
+
+                return {
+                  clientItemId: clientIds.get(card.id),
+                  position: chunkStart + index,
+                  frontName: optimized.front.name,
+                  frontType: optimized.front.type || "image/jpeg",
+                  frontSize: optimized.front.size,
+                  frontSha256: optimized.frontSha256,
+                  ...(optimized.back
+                    ? {
+                        backName: optimized.back.name,
+                        backType: optimized.back.type || "image/jpeg",
+                        backSize: optimized.back.size,
+                        backSha256: optimized.backSha256,
+                        pairingConfidence: card.pairingConfidence ?? 0.65,
+                      }
+                    : {}),
+                };
+              }),
+            },
+          }
+        );
+        const cardByClientId = new Map(
+          chunk.map((card) => [clientIds.get(card.id), card])
+        );
+        let uploadCursor = 0;
+
+        async function runUploadWorker() {
+          while (uploadCursor < registered.items.length) {
+            const registration = registered.items[uploadCursor];
+            uploadCursor += 1;
+            const card = cardByClientId.get(registration.item.client_item_id);
+
+            if (!card) throw new Error("Could not match a registered card row.");
+
+            const optimized = optimizedByCardId.get(card.id)!;
+
+            bindPersistentCard(card.id, {
+              jobId: job.id,
+              itemId: registration.item.id,
+              clientItemId: registration.item.client_item_id,
+              frontStoragePath: registration.item.front_storage_path,
+              backStoragePath: registration.item.back_storage_path,
+            });
+
+            if (registration.frontUpload) {
+              await uploadPersistentJobFile({
+                bucket: registered.bucket,
+                ...registration.frontUpload,
+                file: optimized.front,
+              });
+              completedUploads += 1;
+              setPersistentUploadProgress({
+                completed: completedUploads,
+                total: totalUploads,
+              });
+            }
+
+            if (registration.backUpload && optimized.back) {
+              await uploadPersistentJobFile({
+                bucket: registered.bucket,
+                ...registration.backUpload,
+                file: optimized.back,
+              });
+              completedUploads += 1;
+              setPersistentUploadProgress({
+                completed: completedUploads,
+                total: totalUploads,
+              });
+            }
+
+          }
+        }
+
+        await Promise.all(
+          Array.from(
+            {
+              length: Math.min(
+                INSTACOMP_JOB_UPLOAD_CONCURRENCY,
+                registered.items.length
+              ),
+            },
+            () => runUploadWorker()
+          )
+        );
+
+        await persistentJobJson(`/api/instacomp/jobs/${job.id}/items`, {
+          method: "PATCH",
+          body: {
+            itemIds: registered.items.map(
+              (registration: any) => registration.item.id
+            ),
+          },
+        });
+      }
+
+      const queued = await persistentJobJson(
+        `/api/instacomp/jobs/${job.id}`,
+        {
+          method: "PATCH",
+          body: { status: "queued" },
+        }
+      );
+
+      setPersistentJob(queued.job as PersistentJobSummary);
+      setPersistentUploadProgress({
+        completed: totalUploads,
+        total: totalUploads,
+      });
+      return job.id;
+    } finally {
+      setPersistentJobPreparing(false);
+    }
+  }
+
+  async function runInstaCompScan(
+    front: File,
+    back?: File | null,
+    claimedItem?: PersistentClaimedItem
+  ) {
     if (testMode) {
       return runTestInstaCompScan(front, back);
     }
 
-    const formData = new FormData();
-    formData.append("frontImage", front);
+    if (claimedItem) {
+      const response = await fetchWithFreshAccountSession("/api/instacomp/scan", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          jobId: claimedItem.job_id,
+          itemId: claimedItem.id,
+          leaseToken: claimedItem.leaseToken || claimedItem.lease_token,
+        }),
+      });
+      const data = await response.json();
 
-    if (back) {
-      formData.append("backImage", back);
+      if (!response.ok || !data.ok) {
+        throw new Error(data?.error || "Queued scan failed.");
+      }
+
+      return data as ScanResponse;
     }
 
-    const detailCrops = [
-      ...(await createSerialDetailCrops(front, "front")),
-      ...(back ? await createSerialDetailCrops(back, "back") : []),
-    ].slice(0, 24);
+    const [optimizedFront, optimizedBack] = await Promise.all([
+      optimizeScanImage(front),
+      back ? optimizeScanImage(back) : Promise.resolve(null),
+    ]);
+    const formData = new FormData();
+    formData.append("frontImage", optimizedFront);
+
+    if (optimizedBack) {
+      formData.append("backImage", optimizedBack);
+    }
+
+    const [frontDetailCrops, backDetailCrops] = await Promise.all([
+      createSerialDetailCrops(optimizedFront, "front"),
+      optimizedBack
+        ? createSerialDetailCrops(optimizedBack, "back")
+        : Promise.resolve([]),
+    ]);
+    const detailCrops = Array.from({
+      length: Math.max(frontDetailCrops.length, backDetailCrops.length),
+    })
+      .flatMap((_, index) => [
+        frontDetailCrops[index],
+        backDetailCrops[index],
+      ])
+      .filter((crop): crop is File => Boolean(crop))
+      .slice(0, 24);
+    let requestBytes = optimizedFront.size + (optimizedBack?.size || 0);
 
     detailCrops.forEach((crop) => {
+      if (requestBytes + crop.size > MAX_SCAN_REQUEST_BYTES) return;
+
       formData.append("detailImages", crop);
+      requestBytes += crop.size;
     });
 
-    const response = await fetch("/api/instacomp/scan", {
+    const response = await fetchWithFreshAccountSession("/api/instacomp/scan", {
       method: "POST",
       body: formData,
     });
@@ -3964,6 +4889,13 @@ export default function InstaCompScanner({
   }
 
   function addBatchFiles(fileList: FileList | File[]) {
+    if (persistentJob) {
+      setBatchError(
+        "This lot already has a durable scan job. Clear the finished lot before adding different cards."
+      );
+      return;
+    }
+
     const files = Array.from(fileList).filter((file) =>
       file.type.startsWith("image/")
     );
@@ -4022,6 +4954,8 @@ export default function InstaCompScanner({
         draftInventoryItemId: null,
         draftLegacyProductId: null,
         draftSku: null,
+        pairingConfidence: pair.pairingConfidence,
+        pairingMethod: pair.pairingMethod,
       }));
       const pairedCount = acceptedPairs.filter((pair) => pair.back).length;
 
@@ -4092,7 +5026,7 @@ export default function InstaCompScanner({
   }
 
   function removeBatchCard(cardId: string) {
-    if (batchRunning || batchDrafting) return;
+    if (batchRunning || batchDrafting || persistentJob) return;
 
     const card = batchCards.find((row) => row.id === cardId);
 
@@ -4109,7 +5043,7 @@ export default function InstaCompScanner({
     emptyMessage: string,
     removedMessage: string
   ) {
-    if (batchRunning || batchDrafting) return;
+    if (batchRunning || batchDrafting || persistentJob) return;
 
     if (!count) {
       setBatchError(emptyMessage);
@@ -4244,7 +5178,40 @@ export default function InstaCompScanner({
     );
   }
 
-  function clearBatch() {
+  async function clearBatch() {
+    if (
+      persistentJob &&
+      ![
+        "completed",
+        "completed_with_errors",
+        "failed",
+        "cancelled",
+      ].includes(persistentJob.status)
+    ) {
+      try {
+        const cancelled = await persistentJobJson(
+          `/api/instacomp/jobs/${persistentJob.id}`,
+          {
+            method: "PATCH",
+            body: { status: "cancelling", cancelRequested: true },
+          }
+        );
+        setPersistentJob(cancelled.job as PersistentJobSummary);
+
+        if (cancelled.job?.status === "cancelling") {
+          setBatchError(
+            "Cancellation is waiting for an existing worker lease to expire. The saved lot is still recoverable; try Clear Batch again shortly."
+          );
+          return;
+        }
+      } catch (error: any) {
+        setBatchError(
+          error?.message || "Could not cancel the saved InstaComp job."
+        );
+        return;
+      }
+    }
+
     batchCards.forEach(revokeBatchCardPreviewUrls);
     setBatchCards([]);
     resetBatchView();
@@ -4253,6 +5220,16 @@ export default function InstaCompScanner({
     setBatchError(null);
     setBatchDraftMessage(null);
     setTestModelChecks([]);
+    setPersistentJob(null);
+    setPersistentUploadProgress(null);
+    setPersistentJobPreparing(false);
+    persistentBindingsRef.current.clear();
+    persistentClientBatchIdRef.current = null;
+    try {
+      window.localStorage.removeItem(INSTACOMP_LAST_JOB_STORAGE_KEY);
+    } catch {
+      // Local recovery is optional; clearing the visible batch must still work.
+    }
     batchPauseRequestedRef.current = false;
     setBatchPauseRequested(false);
   }
@@ -4260,7 +5237,7 @@ export default function InstaCompScanner({
   function resetTestLab() {
     if (!testMode || loading || batchRunning || batchDrafting) return;
 
-    clearBatch();
+    void clearBatch();
 
     if (frontPreview) URL.revokeObjectURL(frontPreview);
     if (backPreview) URL.revokeObjectURL(backPreview);
@@ -4799,7 +5776,11 @@ export default function InstaCompScanner({
     );
   }
 
-  async function scanOneBatchCard(card: BatchCard) {
+  async function scanOneBatchCard(
+    card: BatchCard,
+    claimedItem?: PersistentClaimedItem
+  ) {
+    const persistentBinding = persistentBindingsRef.current.get(card.id);
     updateBatchCard(card.id, (current) => ({
       ...current,
       status: "scanning",
@@ -4807,7 +5788,11 @@ export default function InstaCompScanner({
     }));
 
     try {
-      const scanResult = await runInstaCompScan(card.file, card.backFile);
+      const scanResult = await runInstaCompScan(
+        card.file,
+        card.backFile,
+        claimedItem
+      );
       const marketPrice = scanResult.stats.suggestedPrice;
       const nextCard = (current: BatchCard): BatchCard => ({
         ...current,
@@ -4818,6 +5803,15 @@ export default function InstaCompScanner({
           current.customTitle || cardResultTitle(scanResult, current.file.name),
         customPrice: marketPrice ? marketPrice.toFixed(2) : current.customPrice,
         error: null,
+        ...(persistentBinding
+          ? {
+              persistentClientId: persistentBinding.clientItemId,
+              persistentJobId: persistentBinding.jobId,
+              persistentItemId: persistentBinding.itemId,
+              frontStoragePath: persistentBinding.frontStoragePath,
+              backStoragePath: persistentBinding.backStoragePath,
+            }
+          : {}),
       });
 
       updateBatchCard(card.id, nextCard);
@@ -4827,11 +5821,126 @@ export default function InstaCompScanner({
         ...current,
         status: "error",
         error: err?.message || "Scan failed.",
+        ...(persistentBinding
+          ? {
+              persistentClientId: persistentBinding.clientItemId,
+              persistentJobId: persistentBinding.jobId,
+              persistentItemId: persistentBinding.itemId,
+              frontStoragePath: persistentBinding.frontStoragePath,
+              backStoragePath: persistentBinding.backStoragePath,
+            }
+          : {}),
       });
 
       updateBatchCard(card.id, nextCard);
       return nextCard(card);
     }
+  }
+
+  async function scanPersistentJob(jobId: string, cards: BatchCard[]) {
+    const cardsByClientId = new Map(
+      cards.map((card) => [
+        persistentBindingsRef.current.get(card.id)?.clientItemId ||
+          card.persistentClientId,
+        card,
+      ])
+    );
+    const completedCards: BatchCard[] = [];
+    const workerCount = Math.min(batchConcurrency, Math.max(1, cards.length));
+
+    async function runPersistentWorker(workerIndex: number) {
+      const workerId = `browser-${crypto.randomUUID()}-${workerIndex}`;
+      let emptyClaimCount = 0;
+
+      while (!batchPauseRequestedRef.current) {
+        const claimed = await persistentJobJson(
+          `/api/instacomp/jobs/${jobId}/claim`,
+          {
+            method: "POST",
+            body: {
+              workerId,
+              limit: 1,
+              leaseSeconds: 900,
+            },
+          }
+        );
+
+        if (claimed.job) {
+          setPersistentJob(claimed.job as PersistentJobSummary);
+        }
+
+        const item = claimed.items?.[0] as PersistentClaimedItem | undefined;
+
+        if (!item) {
+          const jobStatus = String(claimed.job?.status || "");
+          const totalItems = Number(claimed.job?.total_items || 0);
+          const processedItems = Number(claimed.job?.processed_items || 0);
+          const terminal = [
+            "completed",
+            "completed_with_errors",
+            "failed",
+            "cancelled",
+          ].includes(jobStatus);
+
+          if (terminal || (totalItems > 0 && processedItems >= totalItems)) {
+            return;
+          }
+
+          if (["uploading", "cancelling"].includes(jobStatus)) {
+            throw new Error(
+              `InstaComp job is ${jobStatus}; finish recovery or cancellation before scanning.`
+            );
+          }
+
+          emptyClaimCount += 1;
+
+          if (emptyClaimCount >= 120) {
+            throw new Error(
+              "InstaComp queue made no progress for several minutes. The job is still saved; use Resume to try again."
+            );
+          }
+          await new Promise((resolve) =>
+            window.setTimeout(
+              resolve,
+              Math.min(3000, 500 + emptyClaimCount * 250)
+            )
+          );
+          continue;
+        }
+
+        emptyClaimCount = 0;
+
+        const card = cardsByClientId.get(item.client_item_id);
+
+        if (!card) {
+          await persistentJobJson(
+            `/api/instacomp/jobs/${jobId}/items/${item.id}/fail`,
+            {
+              method: "POST",
+              body: {
+                leaseToken: item.leaseToken || item.lease_token,
+                errorCode: "browser_row_missing",
+                errorMessage:
+                  "The browser could not match the claimed card to its uploaded row.",
+                retryable: true,
+                retryDelaySeconds: 5,
+              },
+            }
+          );
+          continue;
+        }
+
+        completedCards.push(await scanOneBatchCard(card, item));
+      }
+    }
+
+    await Promise.all(
+      Array.from({ length: workerCount }, (_, index) =>
+        runPersistentWorker(index)
+      )
+    );
+
+    return completedCards;
   }
 
   async function retryBatchCard(cardId: string) {
@@ -4843,12 +5952,86 @@ export default function InstaCompScanner({
 
     setBatchError(null);
     setBatchDraftMessage(null);
-    await scanOneBatchCard(card);
+    const binding = persistentBindingsRef.current.get(card.id);
+
+    if (!binding) {
+      await scanOneBatchCard(card);
+      return;
+    }
+
+    try {
+      await persistentJobJson(
+        `/api/instacomp/jobs/${binding.jobId}/items/${binding.itemId}/retry`,
+        {
+          method: "POST",
+          body: { reason: "Seller requested a retry from InstaComp." },
+        }
+      );
+    } catch (error: any) {
+      if (error?.status !== 409) {
+        setBatchError(error?.message || "Could not requeue this card.");
+        return;
+      }
+    }
+
+    batchPauseRequestedRef.current = false;
+    setBatchRunning(true);
+
+    try {
+      await scanPersistentJob(binding.jobId, batchCards);
+    } catch (error: any) {
+      setBatchError(error?.message || "Could not retry this queued card.");
+    } finally {
+      setBatchRunning(false);
+    }
+  }
+
+  async function requeuePersistentCards(cards: BatchCard[]) {
+    let cursor = 0;
+
+    async function runRequeueWorker() {
+      while (cursor < cards.length) {
+        const card = cards[cursor];
+        cursor += 1;
+        const binding = persistentBindingsRef.current.get(card.id);
+
+        if (!binding) continue;
+
+        try {
+          await persistentJobJson(
+            `/api/instacomp/jobs/${binding.jobId}/items/${binding.itemId}/retry`,
+            {
+              method: "POST",
+              body: { reason: "Seller requested a batch retry from InstaComp." },
+            }
+          );
+        } catch (error: any) {
+          // retry_wait rows are already scheduled and will be claimed after
+          // their short backoff. Other conflicts need operator attention.
+          if (error?.status !== 409) throw error;
+        }
+
+        updateBatchCard(card.id, (current) => ({
+          ...current,
+          status: "queued",
+          error: null,
+        }));
+      }
+    }
+
+    await Promise.all(
+      Array.from(
+        { length: Math.min(INSTACOMP_JOB_UPLOAD_CONCURRENCY, cards.length) },
+        () => runRequeueWorker()
+      )
+    );
   }
 
   async function scanBatch(
     options: { retryOnly?: boolean; onlyCardIds?: Set<string> } = {}
   ) {
+    if (batchRunning || batchDrafting || persistentJobPreparing) return;
+
     if (!batchCards.length) {
       setBatchError("Add up to 500 card images first.");
       return;
@@ -4875,6 +6058,39 @@ export default function InstaCompScanner({
       return;
     }
 
+    let persistentJobId: string | null = persistentJob?.id || null;
+    const persistentBindingsComplete = batchCards.every((card) =>
+      persistentBindingsRef.current.has(card.id)
+    );
+
+    if (
+      !options.retryOnly &&
+      !options.onlyCardIds &&
+      (!persistentJobId ||
+        persistentJob?.status === "uploading" ||
+        !persistentBindingsComplete)
+    ) {
+      try {
+        persistentJobId = await ensurePersistentJob(batchCards, false);
+      } catch (error: any) {
+        const durableQueueUnavailable =
+          error?.status === 503 ||
+          [
+            "INSTACOMP_JOB_MIGRATION_REQUIRED",
+            "INSTACOMP_JOB_STORAGE_REQUIRED",
+          ].includes(String(error?.code || ""));
+
+        if (durableQueueUnavailable) {
+          setBatchDraftMessage(
+            "Durable queue setup is not applied yet. Running the bounded per-card fallback without the old oversized requests."
+          );
+        } else {
+          setBatchError(error?.message || "Could not prepare the persistent scan job.");
+          return;
+        }
+      }
+    }
+
     batchPauseRequestedRef.current = false;
     setBatchRunning(true);
     setBatchPauseRequested(false);
@@ -4898,9 +6114,21 @@ export default function InstaCompScanner({
     }
 
     try {
-      await Promise.all(
-        Array.from({ length: workerCount }, () => runWorker())
-      );
+      if (persistentJobId) {
+        if (options.retryOnly) {
+          await requeuePersistentCards(cardsToScan);
+        }
+
+        const persistentResults = await scanPersistentJob(
+          persistentJobId,
+          batchCards
+        );
+        completedThisRun = persistentResults.length;
+      } else {
+        await Promise.all(
+          Array.from({ length: workerCount }, () => runWorker())
+        );
+      }
 
       if (batchPauseRequestedRef.current) {
         const remaining = cardsToScan.length - completedThisRun;
@@ -4911,6 +6139,8 @@ export default function InstaCompScanner({
           } still need scanning.`
         );
       }
+    } catch (error: any) {
+      setBatchError(error?.message || "The persistent scan job stopped.");
     } finally {
       setBatchRunning(false);
     }
@@ -4922,7 +6152,7 @@ export default function InstaCompScanner({
       return;
     }
 
-    if (batchRunning || batchDrafting) return;
+    if (batchRunning || batchDrafting || persistentJobPreparing) return;
 
     batchPauseRequestedRef.current = false;
     setBatchRunning(true);
@@ -4932,6 +6162,40 @@ export default function InstaCompScanner({
       "InstaComp Auto-Pilot is scanning the lot, reading OCR text, finding comps, and preparing ready draft listings."
     );
 
+    let persistentJobId: string | null = persistentJob?.id || null;
+    const persistentBindingsComplete = batchCards.every((card) =>
+      persistentBindingsRef.current.has(card.id)
+    );
+
+    if (
+      !persistentJobId ||
+      persistentJob?.status === "uploading" ||
+      !persistentBindingsComplete
+    ) {
+      try {
+        persistentJobId = await ensurePersistentJob(batchCards, true);
+      } catch (error: any) {
+        const durableQueueUnavailable =
+          error?.status === 503 ||
+          [
+            "INSTACOMP_JOB_MIGRATION_REQUIRED",
+            "INSTACOMP_JOB_STORAGE_REQUIRED",
+          ].includes(String(error?.code || ""));
+
+        if (durableQueueUnavailable) {
+          setBatchDraftMessage(
+            "Durable queue setup is not applied yet. Auto-Pilot is using the bounded per-card fallback."
+          );
+        } else {
+          setBatchRunning(false);
+          setBatchError(
+            error?.message || "Could not prepare the persistent scan job."
+          );
+          return;
+        }
+      }
+    }
+
     const alreadyDoneCards = batchCards.filter(
       (card) => card.status === "done" && card.result
     );
@@ -4939,6 +6203,7 @@ export default function InstaCompScanner({
     const completedCards: BatchCard[] = [];
     let cursor = 0;
     const workerCount = Math.min(batchConcurrency, cardsToScan.length);
+    let scanProcessingFailed = false;
 
     async function runWorker() {
       while (
@@ -4955,13 +6220,24 @@ export default function InstaCompScanner({
 
     try {
       if (cardsToScan.length) {
-        await Promise.all(
-          Array.from({ length: workerCount }, () => runWorker())
-        );
+        if (persistentJobId) {
+          completedCards.push(
+            ...(await scanPersistentJob(persistentJobId, batchCards))
+          );
+        } else {
+          await Promise.all(
+            Array.from({ length: workerCount }, () => runWorker())
+          );
+        }
       }
+    } catch (error: any) {
+      scanProcessingFailed = true;
+      setBatchError(error?.message || "Auto-Pilot scan processing stopped.");
     } finally {
       setBatchRunning(false);
     }
+
+    if (scanProcessingFailed) return;
 
     if (batchPauseRequestedRef.current) {
       setBatchError("Auto-Pilot paused after current scans. Draft creation did not run.");
@@ -4970,6 +6246,10 @@ export default function InstaCompScanner({
 
     const readyCards = [...alreadyDoneCards, ...completedCards]
       .filter(isDraftableBatchCard)
+      .filter(
+        (card) =>
+          !card.result?.queue || card.result.queue.status === "completed"
+      )
       .filter((card) => draftReadinessErrors(card).length === 0);
 
     if (!readyCards.length) {
@@ -5394,11 +6674,6 @@ export default function InstaCompScanner({
       return;
     }
 
-    if (!accountSession?.access_token) {
-      setBatchError("Sign in to a seller account before creating drafts.");
-      return;
-    }
-
     setBatchDrafting(true);
     setBatchError(null);
     setBatchDraftMessage(null);
@@ -5418,33 +6693,104 @@ export default function InstaCompScanner({
     );
 
     try {
-      const draftItems = draftListingItemsForCards(targetCards);
-      const formData = new FormData();
+      const createdItems: DraftListingResponse["createdItems"] = [];
+      const draftErrors: DraftListingResponse["errors"] = [];
+      let createdCount = 0;
+      let existingCount = 0;
+      let cursor = 0;
+      let finishedCount = 0;
 
-      formData.append("items", JSON.stringify(draftItems));
+      async function createOneDraft(card: BatchCard) {
+        try {
+          const draftItems = draftListingItemsForCards([card]);
+          let response: Response;
 
-      targetCards.forEach((card, index) => {
-        formData.append(`frontImage-${index}`, card.file);
+          if (card.persistentJobId && card.persistentItemId) {
+            response = await fetchWithFreshAccountSession(
+              "/api/instacomp/draft-listings",
+              {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ items: draftItems }),
+              },
+            );
+          } else {
+            const [frontFile, backFile] = await Promise.all([
+              optimizeScanImage(card.file),
+              card.backFile
+                ? optimizeScanImage(card.backFile)
+                : Promise.resolve(null),
+            ]);
+            const formData = new FormData();
 
-        if (card.backFile) {
-          formData.append(`backImage-${index}`, card.backFile);
+            formData.append("items", JSON.stringify(draftItems));
+            formData.append("frontImage-0", frontFile);
+
+            if (backFile) {
+              formData.append("backImage-0", backFile);
+            }
+
+            response = await fetchWithFreshAccountSession(
+              "/api/instacomp/draft-listings",
+              {
+                method: "POST",
+                body: formData,
+              },
+            );
+          }
+          const data = await response.json();
+
+          if (!response.ok) {
+            throw new Error(data?.error || "Could not create draft listing.");
+          }
+
+          const itemResult = data as DraftListingResponse;
+          createdItems.push(...itemResult.createdItems);
+          draftErrors.push(...itemResult.errors);
+          createdCount += itemResult.createdCount;
+          existingCount += itemResult.existingCount || 0;
+        } catch (error: any) {
+          draftErrors.push({
+            clientId: card.persistentClientId || card.id,
+            scanId: card.result?.scanId || null,
+            title: card.customTitle || card.file.name,
+            error: error?.message || "Draft was not created.",
+          });
+        } finally {
+          finishedCount += 1;
+          setBatchDraftMessage(
+            `Creating drafts ${finishedCount}/${targetCards.length}...`
+          );
         }
-      });
-
-      const response = await fetch("/api/instacomp/draft-listings", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${accountSession.access_token}`,
-        },
-        body: formData,
-      });
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data?.error || "Could not create draft listings.");
       }
 
-      const result = data as DraftListingResponse;
+      async function runDraftWorker() {
+        while (cursor < targetCards.length) {
+          const card = targetCards[cursor];
+          cursor += 1;
+          await createOneDraft(card);
+        }
+      }
+
+      await Promise.all(
+        Array.from(
+          {
+            length: Math.min(DRAFT_UPLOAD_CONCURRENCY, targetCards.length),
+          },
+          () => runDraftWorker()
+        )
+      );
+
+      const result: DraftListingResponse = {
+        success: draftErrors.length === 0,
+        createdCount,
+        existingCount,
+        errorCount: draftErrors.length,
+        createdItems,
+        errors: draftErrors,
+      };
       const createdByClientId = new Map(
         result.createdItems.map((item) => [item.clientId, item])
       );
@@ -5456,8 +6802,9 @@ export default function InstaCompScanner({
         current.map((card) => {
           if (!targetIds.has(card.id)) return card;
 
-          const created = createdByClientId.get(card.id);
-          const failed = errorsByClientId.get(card.id);
+          const responseClientId = card.persistentClientId || card.id;
+          const created = createdByClientId.get(responseClientId);
+          const failed = errorsByClientId.get(responseClientId);
 
           if (created) {
             return {
@@ -6302,7 +7649,9 @@ export default function InstaCompScanner({
         <div
           onDrop={(event) => {
             event.preventDefault();
-            if (!batchRunning && !batchDrafting) addBatchFiles(event.dataTransfer.files);
+            if (!batchRunning && !batchDrafting && !persistentJobPreparing) {
+              addBatchFiles(event.dataTransfer.files);
+            }
           }}
           onDragOver={(event) => event.preventDefault()}
           style={{
@@ -6326,7 +7675,12 @@ export default function InstaCompScanner({
             type="file"
             accept="image/*"
             multiple
-            disabled={batchRunning || batchDrafting || batchCards.length >= MAX_BATCH_CARDS}
+            disabled={
+              batchRunning ||
+              batchDrafting ||
+              persistentJobPreparing ||
+              batchCards.length >= MAX_BATCH_CARDS
+            }
             onChange={(event) => {
               if (event.target.files) addBatchFiles(event.target.files);
               event.currentTarget.value = "";
@@ -6368,29 +7722,45 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={() => void autoScanAndDraftBatch()}
-              disabled={batchRunning || batchDrafting || !batchCards.length}
+              disabled={
+                batchRunning ||
+                batchDrafting ||
+                persistentJobPreparing ||
+                !batchCards.length
+              }
               style={{
                 border: "1px solid #facc15",
                 borderRadius: 999,
                 background:
-                  batchRunning || batchDrafting || !batchCards.length
+                  batchRunning ||
+                  batchDrafting ||
+                  persistentJobPreparing ||
+                  !batchCards.length
                     ? "#999"
                     : "#facc15",
                 color: "#111",
                 cursor:
-                  batchRunning || batchDrafting || !batchCards.length
+                  batchRunning ||
+                  batchDrafting ||
+                  persistentJobPreparing ||
+                  !batchCards.length
                     ? "not-allowed"
                     : "pointer",
                 fontSize: 18,
                 fontWeight: 1000,
                 padding: "14px 22px",
                 boxShadow:
-                  batchRunning || batchDrafting || !batchCards.length
+                  batchRunning ||
+                  batchDrafting ||
+                  persistentJobPreparing ||
+                  !batchCards.length
                     ? "none"
                     : "0 12px 30px rgba(250, 204, 21, 0.28)",
               }}
             >
-              {batchRunning
+              {persistentJobPreparing
+                ? "Securing Uploads..."
+                : batchRunning
                 ? "Scanning..."
                 : batchDrafting
                   ? "Creating Drafts..."
@@ -6402,6 +7772,27 @@ export default function InstaCompScanner({
             card IDs, missing serials, missing prices, or weak comps do not go
             live pretending to be 100%.
           </small>
+          {persistentUploadProgress ? (
+            <div
+              style={{
+                display: "grid",
+                gap: 6,
+                borderTop: "1px solid rgba(255,255,255,0.2)",
+                paddingTop: 10,
+              }}
+            >
+              <progress
+                max={Math.max(1, persistentUploadProgress.total)}
+                value={persistentUploadProgress.completed}
+                style={{ width: "100%" }}
+              />
+              <small style={{ color: "#d1fae5", fontWeight: 900 }}>
+                Private intake uploads: {persistentUploadProgress.completed}/
+                {persistentUploadProgress.total}
+                {persistentJob ? ` - queue ${persistentJob.status}` : ""}
+              </small>
+            </div>
+          ) : null}
         </div>
 
         <div
@@ -6428,7 +7819,7 @@ export default function InstaCompScanner({
               min="1"
               max="6"
               value={batchConcurrency}
-              disabled={batchRunning || batchDrafting}
+              disabled={batchRunning || batchDrafting || persistentJobPreparing}
               onChange={(event) =>
                 handleBatchConcurrencyChange(event.target.value)
               }
@@ -6444,19 +7835,33 @@ export default function InstaCompScanner({
 
           <button
             onClick={() => void scanBatch()}
-            disabled={batchRunning || batchDrafting || !batchCards.length}
+            disabled={
+              batchRunning ||
+              batchDrafting ||
+              persistentJobPreparing ||
+              !batchCards.length
+            }
             style={{
               ...buttonStyle,
               background:
-                batchRunning || batchDrafting || !batchCards.length
+                batchRunning ||
+                batchDrafting ||
+                persistentJobPreparing ||
+                !batchCards.length
                   ? "#999"
                   : "#111",
               borderColor:
-                batchRunning || batchDrafting || !batchCards.length
+                batchRunning ||
+                batchDrafting ||
+                persistentJobPreparing ||
+                !batchCards.length
                   ? "#999"
                   : "#111",
               cursor:
-                batchRunning || batchDrafting || !batchCards.length
+                batchRunning ||
+                batchDrafting ||
+                persistentJobPreparing ||
+                !batchCards.length
                   ? "not-allowed"
                   : "pointer",
             }}

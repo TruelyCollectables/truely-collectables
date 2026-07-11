@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "manual:pdf": "node scripts/build-manual-pdf.mjs",
+    "simulate:instacomp-jobs": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-instacomp-job-simulations.mjs",
     "lint": "eslint"
   },
   "dependencies": {
