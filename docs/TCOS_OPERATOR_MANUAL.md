@@ -16,7 +16,7 @@ Last updated: 2026-07-11
 
 This is the working manual for Totally Collectibles OS (TCOS). It must stay current as features are added.
 
-This revision includes the durable InstaComp batch queue and PaddleOCR worker, seller eBay staging and reconciliation, Stripe payment reliability controls, seller payout guards, shipping/coverage operations, and complete laptop-failure disaster recovery. Procedures labeled `dry run`, `draft`, `review`, or `not configured` are not production completion claims.
+This revision includes the durable InstaComp batch queue and PaddleOCR worker, InstaComp-to-seller-draft handoff, seller inventory InstaComp lane, seller marketplace export packets, seller eBay staging and reconciliation, Stripe payment reliability controls, seller payout guards, shipping/coverage operations, and complete laptop-failure disaster recovery. Procedures labeled `dry run`, `draft`, `review`, `export`, or `not configured` are not production completion claims.
 
 TCOS means Totally Collectibles OS. It is the multi-store software platform, admin system, order system, inventory engine, marketplace layer, and pricing/helper system. Truely Collectables is the flagship store inside TCOS, not a separate rebuild.
 
@@ -2991,7 +2991,7 @@ PADDLEOCR_DEVICE=cpu
 PADDLEOCR_CPU_THREADS=8
 PADDLEOCR_ENABLE_MKLDNN=false
 PADDLEOCR_MAX_CONCURRENCY=1
-PADDLEOCR_MAX_PREDICTION_IMAGES=14
+PADDLEOCR_MAX_PREDICTION_IMAGES=10
 PADDLEOCR_MAX_DECODED_PIXELS=40000000
 
 GOOGLE_VISION_API_KEY=
@@ -3717,7 +3717,10 @@ Use this controlled workflow:
 10. Filter to `Clean Ready` when possible.
 11. Select only cards whose photos and printed facts you personally verified.
 12. Create drafts; the browser sends persistent draft requests one card at a time with limited parallelism instead of one oversized lot request.
-13. Open seller inventory for a seller-owned job or the admin inventory view for a store-owned job and inspect every draft before activation.
+13. Use `Open InstaComp Drafts` from the success message, or `Open in InstaComp drafts` on an individual row, to open `/seller/inventory?status=draft&source=instacomp` with the relevant search/filter already applied.
+14. In Seller Inventory, keep the `Source` filter on `InstaComp`, inspect each draft, and fix any remaining readiness blockers before activation.
+15. For cross-listing prep only, select verified ready drafts and use `Copy Marketplace Packet` or `Download Marketplace CSV`. These files do not publish to eBay, Whatnot, or another external storefront.
+16. Activate only after the seller inventory readiness check, photos, title, price, shipping, authenticity, and platform-specific requirements are verified.
 
 `Run InstaComp Auto-Pilot` scans unfinished rows and attempts draft creation only for rows that pass both technical draft readiness and the queue review gate. A row marked `review_required` is not automatically drafted. Auto-Pilot never publishes a live listing.
 
@@ -3778,6 +3781,7 @@ Per card, InstaComp can display:
 - AI notes
 - OCR provider, checked-image count, OCR text excerpt, and OCR serial
 - comp-provider status, included comps, suggested price, and research links
+- market price basis, including active listings, sold comps when available, same-run guidance, and serial-adjusted guidance
 
 The multipart fallback creates targeted serial-stamp, edge, band, contrast, and inverted crops in the browser. Durable jobs normally send only the stored front/back derivatives to the scan route. When PaddleOCR receives no more than two card-side images, its worker creates five grayscale, auto-contrast serial regions per image (top-right, top-left, middle-right, bottom-right, and bottom-left) until the configured prediction-image cap is reached.
 
@@ -3794,7 +3798,7 @@ Limits per card:
 - each registered derivative includes a SHA-256 digest; Storage size/type is checked before queueing and the digest is verified before OCR
 - the scan route accepts detail crops up to `512 KB` each and at most `20 MB` total source-plus-detail input
 - the multipart browser fallback targets about `900 KB` per full image and `180 KB` per crop, with a request target below `3.75 MB`
-- PaddleOCR defaults to at most 14 prediction images and can be configured from 2 through 24
+- PaddleOCR defaults to at most 10 prediction images and can be configured from 2 through 24
 - Google Vision checks at most 16 images
 - main OpenAI identification sees front/back plus the first eight detail crops
 - dedicated OpenAI serial inspection sees front/back plus all submitted detail crops
@@ -3812,7 +3816,7 @@ PADDLEOCR_DEVICE=cpu
 PADDLEOCR_CPU_THREADS=8
 PADDLEOCR_ENABLE_MKLDNN=false
 PADDLEOCR_MAX_CONCURRENCY=1
-PADDLEOCR_MAX_PREDICTION_IMAGES=14
+PADDLEOCR_MAX_PREDICTION_IMAGES=10
 PADDLEOCR_MAX_DECODED_PIXELS=40000000
 ```
 
@@ -3834,7 +3838,7 @@ Paddle worker safety and capacity defaults:
 
 - one OCR prediction request runs at a time; `PADDLEOCR_MAX_CONCURRENCY` is bounded from 1 through 4;
 - model initialization is locked so concurrent first requests cannot load multiple model instances;
-- at most 14 original/generated prediction images are processed by default; the configured value is bounded from 2 through 24;
+- at most 10 original/generated prediction images are processed by default; the configured value is bounded from 2 through 24;
 - each decoded image is limited to 40,000,000 pixels by default; the configured value is bounded from 1,000,000 through 100,000,000 pixels;
 - the Next scan route enforces the byte limits before PaddleOCR; the local worker should remain bound to `127.0.0.1` because it does not replace the upstream aggregate-byte controls.
 
@@ -3878,6 +3882,34 @@ Draft creation facts:
 - returns `503` when required inventory or InstaComp queue migrations are missing
 
 A new browser re-upload/rescan can produce new client and scan IDs. Do not assume cross-session duplicate prevention is perfect; check Seller Inventory before retrying a large draft operation.
+
+### Seller Inventory InstaComp lane and marketplace export packets
+
+Seller-created InstaComp drafts appear in Seller Inventory with:
+
+- `Source = InstaComp`
+- an InstaComp badge on the item card
+- scan ID
+- detected serial number when present
+- listing price source such as `instacomp_market` or `manual`
+- front/back image indicator
+
+Seller Inventory supports the URL-safe lane:
+
+```text
+/seller/inventory?status=draft&source=instacomp
+```
+
+Use the `Readiness` filter to separate `Ready` drafts from `Needs work` drafts. The Seller Command Center shows `InstaComp Ready` and routes to ready InstaComp drafts when no higher-priority needs-work draft pressure exists.
+
+Marketplace packet controls in Seller Inventory:
+
+- `Copy Marketplace Packet` copies a JSON packet for selected ready rows
+- `Download Marketplace CSV` downloads selected ready rows in spreadsheet form
+- only activation-ready selected rows are included
+- the export contains TCOS inventory ID, SKU, title, price, quantity, category, condition, description, image URL, InstaComp scan ID, serial number, market/listing price evidence, and readiness blockers
+
+These packet controls are outbound preparation only. They do not publish to eBay, Whatnot, Shopify, COMC, or another external storefront. Before any real external publishing connector is enabled, implement and test platform-specific listing rules, seller authorization, idempotency, duplicate prevention, fee/shipping mapping, image upload rules, and external-listing reconciliation.
 
 ### Multipart fallback request limits
 
@@ -4499,6 +4531,9 @@ The app should not get ahead of the documentation.
 
 Recent seller workspace wording cleanup:
 
+- InstaComp draft success links now open the Seller Inventory InstaComp lane directly through `Open InstaComp Drafts` and `Open in InstaComp drafts`.
+- Seller Inventory now has a `Source` filter with an `InstaComp` lane, InstaComp item badges, scan/serial/price-source details, and ready-row marketplace packet export controls.
+- Seller Command Center now shows `InstaComp Ready` and routes to ready InstaComp drafts when that is the safest inventory shortcut.
 - Seller order surface labels now use `Seller Order Workspace`, `Search orders`, `Order views`, and `Reset Order View` wording instead of the older workflow phrasing.
 - Seller dashboard order signal chips now read `Shipping Orders`, `Cash-Out Orders`, `Action Orders`, and `Completed Orders`.
 - Seller payout shortcuts now use `Blocked Payouts`, `Cash-Out Payouts`, `Attention Payouts`, and `Paid Payouts`, and seller inventory order follow-up labels now use `Shipping Orders`.
