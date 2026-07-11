@@ -4359,6 +4359,8 @@ Admin Shipping and the ranked shipping exception CSV now use the shared detector
 
 Shipping label packets, Coverage claim evidence packets, and Coverage claim create/update routes also use the shared detector, with packets still preserving event-based simulated-purchase detection for audit evidence and dry-run safety notices.
 
+Shipping label audit packets also flag dry-run evidence when the order snapshot or tracking events contain dry-run references, not only when the label row itself was created by the simulated adapter.
+
 ### Real shipment runbook
 
 1. Open `/admin/orders/[id]`.

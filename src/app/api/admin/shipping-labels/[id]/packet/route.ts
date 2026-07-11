@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
 import { createEvidencePdf } from "../../../../../../lib/evidence-pdf";
-import { isDryRunShippingLabel } from "../../../../../../lib/shipping-dry-run";
+import {
+  isDryRunShippingLabel,
+  isDryRunShippingReference,
+} from "../../../../../../lib/shipping-dry-run";
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
 
@@ -157,7 +160,11 @@ function metadataLine(
 function isDryRunLabel(labelRow: ShippingLabelRow, events: TrackingEventRow[]) {
   return (
     isDryRunShippingLabel(labelRow) ||
-    events.some((event) => event.event_type === "provider_purchase_simulated")
+    events.some(
+      (event) =>
+        event.event_type === "provider_purchase_simulated" ||
+        isDryRunShippingReference(event.tracking_number),
+    )
   );
 }
 
@@ -169,7 +176,9 @@ function buildReport(input: {
   optionalErrors: string[];
 }) {
   const { labelRow, order, events, claims, optionalErrors } = input;
-  const dryRunLabel = isDryRunLabel(labelRow, events);
+  const dryRunLabel =
+    isDryRunLabel(labelRow, events) ||
+    isDryRunShippingReference(order?.tracking_number);
   const lines: string[] = [
     "TCOS SHIPPING LABEL AUDIT PACKET",
     "Generated from TCOS order, shipping label, coverage, and tracking records.",
@@ -177,7 +186,7 @@ function buildReport(input: {
     ...(dryRunLabel
       ? [
           ...section("Dry-Run Safety Notice"),
-          "This label record was produced by the TCOS dry-run shipping adapter.",
+          "This packet includes TCOS dry-run shipping references.",
           "No real postage was purchased, no real USPS label was printed, and no external Coverage policy was purchased.",
           "Use this packet for internal QA/audit only. Do not mail a shipment using dry-run tracking, provider IDs, or Coverage policy IDs.",
         ]
