@@ -1,4 +1,5 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
 
@@ -169,7 +170,6 @@ const browserCandidates = [
   "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
 ];
 
-const browserPath = browserCandidates.find((candidate) => fs.existsSync(candidate));
 const body = renderMarkdown(markdown);
 const generatedAt = new Date().toISOString().slice(0, 10);
 const watermarkText = "Property of Dag Danky Holdings LLC.";
@@ -326,21 +326,68 @@ const html = `<!doctype html>
 fs.writeFileSync(htmlPath, html);
 console.log(`Manual HTML written: ${htmlPath}`);
 
-if (!browserPath) {
+const availableBrowsers = browserCandidates.filter((candidate) => fs.existsSync(candidate));
+
+if (availableBrowsers.length === 0) {
   console.warn("No supported browser was found. PDF was not generated.");
   process.exit(0);
 }
 
 const fileUrl = `file:///${htmlPath.replaceAll("\\", "/")}`;
-const result = spawnSync(
-  browserPath,
-  ["--headless", "--disable-gpu", "--no-pdf-header-footer", `--print-to-pdf=${pdfPath}`, fileUrl],
-  { stdio: "inherit" },
-);
+let lastStatus = 1;
 
-if (result.status !== 0) {
-  console.error(`PDF generation failed with exit code ${result.status}.`);
-  process.exit(result.status ?? 1);
+for (const browserPath of availableBrowsers) {
+  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "tcos-manual-browser-"));
+  const result = spawnSync(
+    browserPath,
+    [
+      "--headless",
+      "--disable-gpu",
+      "--disable-gpu-compositing",
+      "--disable-software-rasterizer",
+      "--disable-accelerated-2d-canvas",
+      "--disable-dev-shm-usage",
+      "--disable-features=UseSkiaRenderer,VizDisplayCompositor",
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--no-pdf-header-footer",
+      `--user-data-dir=${userDataDir}`,
+      `--print-to-pdf=${pdfPath}`,
+      fileUrl,
+    ],
+    { stdio: "inherit" },
+  );
+
+  try {
+    fs.rmSync(userDataDir, { force: true, recursive: true });
+  } catch {
+    // Temporary browser profiles are best-effort cleanup only.
+  }
+
+  if (result.status === 0) {
+    lastStatus = 0;
+    break;
+  }
+
+  lastStatus = result.status ?? 1;
+  console.warn(
+    `PDF generation failed with ${browserPath} exit code ${lastStatus}; trying next browser if available.`,
+  );
+}
+
+if (lastStatus !== 0) {
+  const existingPdfNote = fs.existsSync(pdfPath)
+    ? ` Existing PDF may be stale: ${pdfPath}`
+    : "";
+  const message = `PDF generation failed with exit code ${lastStatus}. Manual HTML is current at ${htmlPath}.${existingPdfNote}`;
+
+  if (process.env.TCOS_MANUAL_PDF_REQUIRED === "1") {
+    console.error(message);
+    process.exit(lastStatus);
+  }
+
+  console.warn(message);
+  process.exit(0);
 }
 
 console.log(`Manual PDF written: ${pdfPath}`);

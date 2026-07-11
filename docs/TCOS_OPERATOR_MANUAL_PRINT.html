@@ -151,7 +151,7 @@
 <p>Flagship store / Store #1: Truely Collectables.</p>
 <p>Last updated: 2026-07-11</p>
 <p>This is the working manual for Totally Collectibles OS (TCOS). It must stay current as features are added.</p>
-<p>This revision includes the durable InstaComp batch queue and PaddleOCR worker, seller eBay staging and reconciliation, Stripe payment reliability controls, seller payout guards, shipping/coverage operations, and complete laptop-failure disaster recovery. Procedures labeled <code>dry run</code>, <code>draft</code>, <code>review</code>, or <code>not configured</code> are not production completion claims.</p>
+<p>This revision includes the durable InstaComp batch queue and PaddleOCR worker, InstaComp-to-seller-draft handoff, seller inventory InstaComp lane, seller marketplace export packets, seller eBay staging and reconciliation, Stripe payment reliability controls, seller payout guards, shipping/coverage operations, and complete laptop-failure disaster recovery. Procedures labeled <code>dry run</code>, <code>draft</code>, <code>review</code>, <code>export</code>, or <code>not configured</code> are not production completion claims.</p>
 <p>TCOS means Totally Collectibles OS. It is the multi-store software platform, admin system, order system, inventory engine, marketplace layer, and pricing/helper system. Truely Collectables is the flagship store inside TCOS, not a separate rebuild.</p>
 <h2>Ownership And Account Separation</h2>
 <p>David Bakanas is the owner of Dag Danky Holdings LLC.</p>
@@ -3092,7 +3092,7 @@ PADDLEOCR_DEVICE=cpu
 PADDLEOCR_CPU_THREADS=8
 PADDLEOCR_ENABLE_MKLDNN=false
 PADDLEOCR_MAX_CONCURRENCY=1
-PADDLEOCR_MAX_PREDICTION_IMAGES=14
+PADDLEOCR_MAX_PREDICTION_IMAGES=10
 PADDLEOCR_MAX_DECODED_PIXELS=40000000
 
 GOOGLE_VISION_API_KEY=
@@ -3476,8 +3476,8 @@ src/app/seller/marketplaces
 src/app/api/account/seller/marketplace-connections/ebay
 src/app/api/cron/seller-ebay-reconciliation</code></pre>
 <p>Disaster-recovery snapshot tools:</p>
-<pre><code>C:\Projects\TCOS_DISASTER_RECOVERY\TCOS_FULL_DISASTER_RECOVERY_20260710-230103\RESTORE_GUIDE.md
-C:\Projects\TCOS_DISASTER_RECOVERY\TCOS_FULL_DISASTER_RECOVERY_20260710-230103\scripts</code></pre>
+<pre><code>C:\Projects\TCOS_DISASTER_RECOVERY\TCOS_FULL_DISASTER_RECOVERY_20260711-064539\RESTORE_GUIDE.md
+C:\Projects\TCOS_DISASTER_RECOVERY\TCOS_FULL_DISASTER_RECOVERY_20260711-064539\scripts</code></pre>
 <h2>32. InstaComp Production Operation</h2>
 <p>InstaComp is the current TCOS sports-card image intake, identification, comp-assist, and draft-listing system.</p>
 <p>Primary routes:</p>
@@ -3502,7 +3502,7 @@ C:\Projects\TCOS_DISASTER_RECOVERY\TCOS_FULL_DISASTER_RECOVERY_20260710-230103\s
 </ul>
 <p>The easiest start procedure uses the newest disaster-recovery snapshot:</p>
 <pre><code>Set-ExecutionPolicy -Scope Process Bypass
-&amp; &quot;C:\Projects\TCOS_DISASTER_RECOVERY\TCOS_FULL_DISASTER_RECOVERY_20260710-230103\scripts\START_TCOS.ps1&quot;</code></pre>
+&amp; &quot;C:\Projects\TCOS_DISASTER_RECOVERY\TCOS_FULL_DISASTER_RECOVERY_20260711-064539\scripts\START_TCOS.ps1&quot;</code></pre>
 <p>The script starts both services, waits up to 45 seconds, and uses the restored local model cache. Verify both services:</p>
 <pre><code>Invoke-RestMethod http://127.0.0.1:8008/health
 Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3000/admin/login</code></pre>
@@ -3578,7 +3578,10 @@ rear</code></pre>
 <li>Filter to <code>Clean Ready</code> when possible.</li>
 <li>Select only cards whose photos and printed facts you personally verified.</li>
 <li>Create drafts; the browser sends persistent draft requests one card at a time with limited parallelism instead of one oversized lot request.</li>
-<li>Open seller inventory for a seller-owned job or the admin inventory view for a store-owned job and inspect every draft before activation.</li>
+<li>Use <code>Open InstaComp Drafts</code> from the success message, or <code>Open in InstaComp drafts</code> on an individual row, to open <code>/seller/inventory?status=draft&amp;source=instacomp</code> with the relevant search/filter already applied.</li>
+<li>In Seller Inventory, keep the <code>Source</code> filter on <code>InstaComp</code>, inspect each draft, and fix any remaining readiness blockers before activation.</li>
+<li>For cross-listing prep only, select verified ready drafts and use <code>Copy Marketplace Packet</code> or <code>Download Marketplace CSV</code>. These files do not publish to eBay, Whatnot, or another external storefront.</li>
+<li>Activate only after the seller inventory readiness check, photos, title, price, shipping, authenticity, and platform-specific requirements are verified.</li>
 </ol>
 <p><code>Run InstaComp Auto-Pilot</code> scans unfinished rows and attempts draft creation only for rows that pass both technical draft readiness and the queue review gate. A row marked <code>review_required</code> is not automatically drafted. Auto-Pilot never publishes a live listing.</p>
 <p>If Auto-Pilot is paused, it finishes current scan requests but does not run its draft-creation phase.</p>
@@ -3588,7 +3591,7 @@ rear</code></pre>
 <ol>
 <li>The browser creates a job with a stable client batch ID so an identical create request can be replayed safely.</li>
 <li>It registers rows in chunks of at most 25.</li>
-<li>Supabase returns short-lived signed upload targets for the private bucket.</li>
+<li>Supabase returns short-lived, non-overwriting signed upload targets for the private bucket. Every registered image requires a browser-computed SHA-256 digest.</li>
 <li>The browser uploads the bounded card-side derivatives and bulk-confirms no more than 25 registered rows per request.</li>
 <li>The browser marks the complete job <code>queued</code>, claims rows with leases, and calls the JSON scan path using job/item IDs instead of resending image bytes.</li>
 <li>The server downloads the private derivatives, verifies their registered size and SHA-256 digest, performs OCR/AI/comp work, and atomically records either <code>completed</code>, <code>review_required</code>, a retry, or a terminal failure.</li>
@@ -3630,6 +3633,7 @@ rear</code></pre>
 <li>AI notes</li>
 <li>OCR provider, checked-image count, OCR text excerpt, and OCR serial</li>
 <li>comp-provider status, included comps, suggested price, and research links</li>
+<li>market price basis, including active listings, sold comps when available, same-run guidance, and serial-adjusted guidance</li>
 </ul>
 <p>The multipart fallback creates targeted serial-stamp, edge, band, contrast, and inverted crops in the browser. Durable jobs normally send only the stored front/back derivatives to the scan route. When PaddleOCR receives no more than two card-side images, its worker creates five grayscale, auto-contrast serial regions per image (top-right, top-left, middle-right, bottom-right, and bottom-left) until the configured prediction-image cap is reached.</p>
 <p>Provider order:</p>
@@ -3645,7 +3649,7 @@ rear</code></pre>
 <li>each registered derivative includes a SHA-256 digest; Storage size/type is checked before queueing and the digest is verified before OCR</li>
 <li>the scan route accepts detail crops up to <code>512 KB</code> each and at most <code>20 MB</code> total source-plus-detail input</li>
 <li>the multipart browser fallback targets about <code>900 KB</code> per full image and <code>180 KB</code> per crop, with a request target below <code>3.75 MB</code></li>
-<li>PaddleOCR defaults to at most 14 prediction images and can be configured from 2 through 24</li>
+<li>PaddleOCR defaults to at most 10 prediction images and can be configured from 2 through 24</li>
 <li>Google Vision checks at most 16 images</li>
 <li>main OpenAI identification sees front/back plus the first eight detail crops</li>
 <li>dedicated OpenAI serial inspection sees front/back plus all submitted detail crops</li>
@@ -3659,7 +3663,7 @@ rear</code></pre>
 PADDLEOCR_CPU_THREADS=8
 PADDLEOCR_ENABLE_MKLDNN=false
 PADDLEOCR_MAX_CONCURRENCY=1
-PADDLEOCR_MAX_PREDICTION_IMAGES=14
+PADDLEOCR_MAX_PREDICTION_IMAGES=10
 PADDLEOCR_MAX_DECODED_PIXELS=40000000</code></pre>
 <p><code>PADDLEOCR_ENABLE_MKLDNN=false</code> avoids the released PaddlePaddle Windows oneDNN/PIR inference crash. The recovery start script also sets:</p>
 <pre><code>PADDLE_PDX_CACHE_HOME=&lt;project&gt;\services\paddleocr-service\.paddlex-cache
@@ -3671,7 +3675,7 @@ services/paddleocr-service/README.md</code></pre>
 <ul>
 <li>one OCR prediction request runs at a time; <code>PADDLEOCR_MAX_CONCURRENCY</code> is bounded from 1 through 4;</li>
 <li>model initialization is locked so concurrent first requests cannot load multiple model instances;</li>
-<li>at most 14 original/generated prediction images are processed by default; the configured value is bounded from 2 through 24;</li>
+<li>at most 10 original/generated prediction images are processed by default; the configured value is bounded from 2 through 24;</li>
 <li>each decoded image is limited to 40,000,000 pixels by default; the configured value is bounded from 1,000,000 through 100,000,000 pixels;</li>
 <li>the Next scan route enforces the byte limits before PaddleOCR; the local worker should remain bound to <code>127.0.0.1</code> because it does not replace the upstream aggregate-byte controls.</li>
 </ul>
@@ -3703,7 +3707,9 @@ services/paddleocr-service/README.md</code></pre>
 <li>accepts at most 500 items server-side</li>
 <li>requires the persistent job row to be <code>completed</code> or <code>review_required</code></li>
 <li>reads the persistent AI/comp result from the server job record rather than accepting client-supplied persistent identity evidence</li>
+<li>reserves each persistent queue row in the database before creating inventory, so simultaneous draft clicks cannot create two listings for the same saved row</li>
 <li>copies the saved high-resolution derivatives from private job Storage into inventory media</li>
+<li>rechecks saved image size and SHA-256 immediately before draft promotion, so listing photos cannot silently differ from the analyzed photos</li>
 <li>enforces a 3 MB per-saved-image limit after high-resolution browser normalization</li>
 <li>sends persistent draft rows individually with browser concurrency limited to two</li>
 <li>checks SKU, dedupe key, client ID, and scan ID before reusing an existing draft</li>
@@ -3711,8 +3717,29 @@ services/paddleocr-service/README.md</code></pre>
 <li>returns <code>503</code> when required inventory or InstaComp queue migrations are missing</li>
 </ul>
 <p>A new browser re-upload/rescan can produce new client and scan IDs. Do not assume cross-session duplicate prevention is perfect; check Seller Inventory before retrying a large draft operation.</p>
+<h3>Seller Inventory InstaComp lane and marketplace export packets</h3>
+<p>Seller-created InstaComp drafts appear in Seller Inventory with:</p>
+<ul>
+<li><code>Source = InstaComp</code></li>
+<li>an InstaComp badge on the item card</li>
+<li>scan ID</li>
+<li>detected serial number when present</li>
+<li>listing price source such as <code>instacomp_market</code> or <code>manual</code></li>
+<li>front/back image indicator</li>
+</ul>
+<p>Seller Inventory supports the URL-safe lane:</p>
+<pre><code>/seller/inventory?status=draft&amp;source=instacomp</code></pre>
+<p>Use the <code>Readiness</code> filter to separate <code>Ready</code> drafts from <code>Needs work</code> drafts. The Seller Command Center shows <code>InstaComp Ready</code> and routes to ready InstaComp drafts when no higher-priority needs-work draft pressure exists.</p>
+<p>Marketplace packet controls in Seller Inventory:</p>
+<ul>
+<li><code>Copy Marketplace Packet</code> copies a JSON packet for selected ready rows</li>
+<li><code>Download Marketplace CSV</code> downloads selected ready rows in spreadsheet form</li>
+<li>only activation-ready selected rows are included</li>
+<li>the export contains TCOS inventory ID, SKU, title, price, quantity, category, condition, description, image URL, InstaComp scan ID, serial number, market/listing price evidence, and readiness blockers</li>
+</ul>
+<p>These packet controls are outbound preparation only. They do not publish to eBay, Whatnot, Shopify, COMC, or another external storefront. Before any real external publishing connector is enabled, implement and test platform-specific listing rules, seller authorization, idempotency, duplicate prevention, fee/shipping mapping, image upload rules, and external-listing reconciliation.</p>
 <h3>Multipart fallback request limits</h3>
-<p>The durable job path avoids relaying original images through a large browser-to-Next multipart request: originals upload directly to private Storage, and the scan request carries job/item/lease identifiers as JSON. The older fallback path still uses multipart form data and can hit a platform body limit.</p>
+<p>The durable job path avoids relaying original images through a large browser-to-Next multipart request: derivatives upload directly to private Storage, and the scan request carries job/item/lease identifiers as JSON. The older fallback path still uses multipart form data and can hit a platform body limit. Multipart fallback draft creation is development-only; production draft creation requires a completed persistent queue row so database reservation and image-integrity guarantees cannot be bypassed.</p>
 <p>Failure text:</p>
 <pre><code>Request body exceeded 10MB
 Failed to parse body as FormData</code></pre>
@@ -4105,10 +4132,16 @@ dryrun-</code></pre>
 </ul>
 <p>Scheduled seller reconciliation runs at 09:00 UTC and requires <code>CRON_SECRET</code>. The current cron processes one connected seller per invocation and one reconciliation/import batch. Multiple connected sellers may require a more frequent schedule or a future scaling change.</p>
 <h2>36. Local Startup, Backup Verification, And Laptop-Failure Recovery</h2>
-<p>The verified disaster-recovery snapshot created on 2026-07-10 exists in two independent locations:</p>
-<pre><code>C:\Projects\TCOS_DISASTER_RECOVERY\TCOS_FULL_DISASTER_RECOVERY_20260710-230103
-D:\TCOS_DISASTER_RECOVERY\TCOS_FULL_DISASTER_RECOVERY_20260710-230103</code></pre>
-<p>The <code>D:</code> Transcend copy is the laptop-failure copy. Do not rely only on the <code>C:</code> copy because an internal-drive failure can destroy both the working project and a same-drive backup.</p>
+<p>The current disaster-recovery snapshot created on 2026-07-11 is fully verified in the local location below. The second path is the intended Transcend target:</p>
+<pre><code>C:\Projects\TCOS_DISASTER_RECOVERY\TCOS_FULL_DISASTER_RECOVERY_20260711-064539
+D:\TCOS_DISASTER_RECOVERY\TCOS_FULL_DISASTER_RECOVERY_20260711-064539  (copy pending)</code></pre>
+<p>The <code>D:</code> Transcend copy is the laptop-failure copy. The 2026-07-11 external copy was blocked by the automation environment's elevated-action quota after the local folder and archive verified successfully. The earlier <code>20260710-230103</code> snapshot remains on <code>D:</code>. Do not treat the new snapshot as laptop-failure-safe until its folder, archive, and SHA-256 file have been copied to <code>D:</code> and the external verifier passes. Do not rely only on the <code>C:</code> copy because an internal-drive failure can destroy both the working project and a same-drive backup.</p>
+<p>Fast source checkpoint after the current InstaComp seller-handoff work:</p>
+<pre><code>C:\Projects\TCOS_DISASTER_RECOVERY\code-snapshots\tcos-code-snapshot-20260711-122201
+C:\Projects\TCOS_DISASTER_RECOVERY\code-snapshots\tcos-code-snapshot-20260711-122201.zip
+SHA-256: 89E88D007BF401D601E1A618077516B2DCCA77F50DD2445605F85AD222505E54
+Git HEAD: 8909dc1e5caaea6acccbe6e01b547559f5fd5bff</code></pre>
+<p>This fast checkpoint preserves the current source tree plus <code>.git</code> history, including the 25 local commits ahead of GitHub at the time it was created. It intentionally excludes rebuildable/generated folders such as <code>node_modules</code>, <code>.next</code>, <code>.venv</code>, and Paddle model caches. Use it as a quick source-code recovery point, not as a complete laptop-failure restore. The full disaster-recovery snapshot still needs the Transcend copy and external verification before it is laptop-failure-safe.</p>
 <p>Snapshot contents include:</p>
 <ul>
 <li>complete working repository and all untracked files</li>
@@ -4123,15 +4156,7 @@ D:\TCOS_DISASTER_RECOVERY\TCOS_FULL_DISASTER_RECOVERY_20260710-230103</code></pr
 <li>critical-file checksum manifest</li>
 <li>full <code>tar.gz</code> archive and SHA-256 file</li>
 </ul>
-<p>Verified snapshot facts at creation:</p>
-<ul>
-<li>76,517 files in the paste-ready folder</li>
-<li>approximately 3.081 GiB folder size</li>
-<li>approximately 1.656 GiB compressed archive</li>
-<li>2,430 critical checksum records</li>
-<li>zero missing and zero mismatched critical files</li>
-<li>external archive SHA-256 matched the local archive</li>
-</ul>
+<p>Authoritative file counts, byte totals, Git head, cloud-export status, and component sizes are stored inside <code>manifest\backup-manifest.json</code>. Every snapshot file except the checksum CSV itself is recorded in <code>manifest\critical-files.sha256.csv</code>. Both local and external verification must report zero missing and zero mismatched files, and the external archive SHA-256 must match the local archive. Do not copy older numeric totals into this manual; always read the manifest belonging to the snapshot being restored.</p>
 <h3>Verify the Transcend backup</h3>
 <ol>
 <li>Connect the Transcend drive.</li>
@@ -4140,7 +4165,7 @@ D:\TCOS_DISASTER_RECOVERY\TCOS_FULL_DISASTER_RECOVERY_20260710-230103</code></pr
 </ol>
 <p>   ```powershell</p>
 <p>   Set-ExecutionPolicy -Scope Process Bypass</p>
-<p>   &amp; &quot;D:\TCOS_DISASTER_RECOVERY\TCOS_FULL_DISASTER_RECOVERY_20260710-230103\scripts\VERIFY_BACKUP.ps1&quot;</p>
+<p>   &amp; &quot;D:\TCOS_DISASTER_RECOVERY\TCOS_FULL_DISASTER_RECOVERY_20260711-064539\scripts\VERIFY_BACKUP.ps1&quot;</p>
 <p>   ```</p>
 <ol>
 <li>Require:</li>
@@ -4259,6 +4284,9 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3000/admin/login</code></pre
 <p>The app should not get ahead of the documentation.</p>
 <p>Recent seller workspace wording cleanup:</p>
 <ul>
+<li>InstaComp draft success links now open the Seller Inventory InstaComp lane directly through <code>Open InstaComp Drafts</code> and <code>Open in InstaComp drafts</code>.</li>
+<li>Seller Inventory now has a <code>Source</code> filter with an <code>InstaComp</code> lane, InstaComp item badges, scan/serial/price-source details, and ready-row marketplace packet export controls.</li>
+<li>Seller Command Center now shows <code>InstaComp Ready</code> and routes to ready InstaComp drafts when that is the safest inventory shortcut.</li>
 <li>Seller order surface labels now use <code>Seller Order Workspace</code>, <code>Search orders</code>, <code>Order views</code>, and <code>Reset Order View</code> wording instead of the older workflow phrasing.</li>
 <li>Seller dashboard order signal chips now read <code>Shipping Orders</code>, <code>Cash-Out Orders</code>, <code>Action Orders</code>, and <code>Completed Orders</code>.</li>
 <li>Seller payout shortcuts now use <code>Blocked Payouts</code>, <code>Cash-Out Payouts</code>, <code>Attention Payouts</code>, and <code>Paid Payouts</code>, and seller inventory order follow-up labels now use <code>Shipping Orders</code>.</li>
