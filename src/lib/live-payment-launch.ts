@@ -4,6 +4,10 @@ import { createSupabaseServerClient } from "./supabase-server";
 import { getStoreSettings } from "./store-settings";
 import { getActiveStoreId } from "./stores";
 import {
+  isDryRunShippingLabel,
+  isDryRunShippingReference,
+} from "./shipping-dry-run";
+import {
   getStripeLivePublishableKey,
   getStripeLiveSecretKey,
   getStripeLiveWebhookSecret,
@@ -47,6 +51,26 @@ type GateRow = {
   approval_version?: string | null;
   approved_at?: string | null;
   approved_by?: string | null;
+};
+
+type DryRunShippingLabelCheckRow = {
+  id: string;
+  metadata: Record<string, unknown> | null;
+  provider_label_id: string | null;
+  provider_shipment_id: string | null;
+  tracking_number: string | null;
+  coverage_policy_id: string | null;
+};
+
+type DryRunShippingEventCheckRow = {
+  id: string;
+  event_type: string | null;
+  tracking_number: string | null;
+};
+
+type DryRunShippingOrderCheckRow = {
+  id: number;
+  tracking_number: string | null;
 };
 
 function paymentMode() {
@@ -173,7 +197,17 @@ export async function evaluateLivePaymentLaunch(params?: {
   const origin = productionOrigin(storeSettings.primaryDomain);
   const checks: LivePaymentCheck[] = [];
 
-  const [gateResult, latestE2EResult, openMoneyResult, testOrdersResult, testProductsResult, sellerAccountsResult] =
+  const [
+    gateResult,
+    latestE2EResult,
+    openMoneyResult,
+    testOrdersResult,
+    testProductsResult,
+    sellerAccountsResult,
+    shippingLabelResult,
+    shippingEventResult,
+    shippingOrderResult,
+  ] =
     await Promise.all([
       supabase
         .from("live_payment_launch_gates")
@@ -208,6 +242,23 @@ export async function evaluateLivePaymentLaunch(params?: {
         .select("provider_account_id,onboarding_status,payouts_enabled,details_submitted,disabled_reason")
         .eq("store_id", storeId)
         .eq("provider", "stripe_connect"),
+      supabase
+        .from("order_shipping_labels")
+        .select(
+          "id,metadata,provider_label_id,provider_shipment_id,tracking_number,coverage_policy_id",
+        )
+        .eq("store_id", storeId)
+        .limit(1000),
+      supabase
+        .from("order_shipping_tracking_events")
+        .select("id,event_type,tracking_number")
+        .eq("store_id", storeId)
+        .limit(1000),
+      supabase
+        .from("orders")
+        .select("id,tracking_number")
+        .eq("store_id", storeId)
+        .limit(1000),
     ]);
 
   const gate = (gateResult.data || null) as GateRow | null;
@@ -308,6 +359,37 @@ export async function evaluateLivePaymentLaunch(params?: {
         ? "passed"
         : "blocked",
       `${testOrders} test order(s) and ${testProducts} disposable product(s) remain.`,
+    ),
+  );
+
+  const dryRunShippingError =
+    shippingLabelResult.error ||
+    shippingEventResult.error ||
+    shippingOrderResult.error ||
+    null;
+  const dryRunLabelCount = (
+    (shippingLabelResult.data || []) as DryRunShippingLabelCheckRow[]
+  ).filter((row) => isDryRunShippingLabel(row)).length;
+  const dryRunEventCount = (
+    (shippingEventResult.data || []) as DryRunShippingEventCheckRow[]
+  ).filter(
+    (row) =>
+      row.event_type === "provider_purchase_simulated" ||
+      isDryRunShippingReference(row.tracking_number),
+  ).length;
+  const dryRunOrderCount = (
+    (shippingOrderResult.data || []) as DryRunShippingOrderCheckRow[]
+  ).filter((row) => isDryRunShippingReference(row.tracking_number)).length;
+  const dryRunShippingCount =
+    dryRunLabelCount + dryRunEventCount + dryRunOrderCount;
+  checks.push(
+    check(
+      "dry_run_shipping_cleanup",
+      "Dry-Run Shipping Cleanup",
+      !dryRunShippingError && dryRunShippingCount === 0 ? "passed" : "blocked",
+      dryRunShippingError
+        ? `Dry-run shipping cleanup could not be checked: ${dryRunShippingError.message}`
+        : `${dryRunShippingCount} dry-run shipping reference(s) found across sampled label, tracking-event, and order rows (${dryRunLabelCount} label, ${dryRunEventCount} event, ${dryRunOrderCount} order).`,
     ),
   );
 

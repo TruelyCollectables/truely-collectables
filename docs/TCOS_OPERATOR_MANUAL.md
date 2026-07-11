@@ -4363,6 +4363,8 @@ Shipping label audit packets also flag dry-run evidence when the order snapshot 
 
 Launch Readiness now includes a fail-closed dry-run shipping cleanup gate. Live buyer payments stay blocked when recent label, tracking-event, or order rows still contain TCOS dry-run shipping references or when the cleanup check cannot run.
 
+The Live Payment Launch Gate uses the same dry-run shipping cleanup check inside the approval report, so `/api/admin/live-payment-launch` cannot record a new live-payment approval while sampled shipping, tracking-event, or order rows still contain TCOS dry-run references.
+
 ### Real shipment runbook
 
 1. Open `/admin/orders/[id]`.

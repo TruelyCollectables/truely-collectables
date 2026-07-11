@@ -4120,6 +4120,7 @@ dryrun-</code></pre>
 <p>Shipping label packets, Coverage claim evidence packets, and Coverage claim create/update routes also use the shared detector, with packets still preserving event-based simulated-purchase detection for audit evidence and dry-run safety notices.</p>
 <p>Shipping label audit packets also flag dry-run evidence when the order snapshot or tracking events contain dry-run references, not only when the label row itself was created by the simulated adapter.</p>
 <p>Launch Readiness now includes a fail-closed dry-run shipping cleanup gate. Live buyer payments stay blocked when recent label, tracking-event, or order rows still contain TCOS dry-run shipping references or when the cleanup check cannot run.</p>
+<p>The Live Payment Launch Gate uses the same dry-run shipping cleanup check inside the approval report, so <code>/api/admin/live-payment-launch</code> cannot record a new live-payment approval while sampled shipping, tracking-event, or order rows still contain TCOS dry-run references.</p>
 <h3>Real shipment runbook</h3>
 <ol>
 <li>Open <code>/admin/orders/[id]</code>.</li>
