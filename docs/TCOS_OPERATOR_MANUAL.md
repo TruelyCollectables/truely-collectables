@@ -3927,7 +3927,7 @@ Marketplace packet controls in Seller Inventory:
 - the Bulk Controls panel displays visible guardrails before export: cross-list prep only, no external publishing, no postage purchase, and the ready-row export count
 - only activation-ready selected rows are included
 - the export contains TCOS inventory ID, SKU, title, price, quantity, category, condition, description, image URL, shipping method, postage estimate, Coverage fields, shipping-purchase guardrail fields, InstaComp scan ID, serial number, market/listing price evidence, and readiness blockers
-- copied JSON packets also include packet-level `crosslist_prep_only`, `externalPublishingApproved = false`, `shippingPurchaseIncluded = false`, and shipping warning metadata
+- copied/downloaded JSON packets also include packet-level `crosslist_prep_only`, `externalPublishingApproved = false`, `shippingPurchaseIncluded = false`, shipping warning metadata, and export context with selected count, ready count, visible count, active filters, and search text
 - downloaded marketplace packet/CSV filenames include ready-row count plus current status, readiness, source, and search context so saved files can be matched back to the seller inventory view that produced them
 
 These packet controls are outbound preparation only. They do not publish to eBay, Whatnot, Shopify, COMC, or another external storefront. Before any real external publishing connector is enabled, implement and test platform-specific listing rules, seller authorization, idempotency, duplicate prevention, fee/shipping mapping, image upload rules, and external-listing reconciliation.
@@ -4602,7 +4602,7 @@ Recent seller workspace wording cleanup:
 - Seller Inventory Bulk Action Follow-Up now shows `Retry Corrected` when failed rows have become eligible for the same activation/archive action.
 - Seller Inventory bulk action result cards now include `Copy Bulk Report` and `Download Bulk Report` for a JSON audit/debug handoff with success, failure, blocker, and retry-ready details.
 - Seller Inventory bulk action result cards now include `Clear Bulk Report` so old result/follow-up cards can be intentionally dismissed after audit handoff.
-- Seller Inventory marketplace JSON/CSV exports now include explicit prep-only, no-external-publishing, and no-shipping-purchase guardrail fields so exported files cannot be mistaken for live marketplace or postage actions; selected ready rows can now download the JSON marketplace packet directly instead of relying on clipboard copy, and downloaded marketplace filenames include row count plus active filter context.
+- Seller Inventory marketplace JSON/CSV exports now include explicit prep-only, no-external-publishing, and no-shipping-purchase guardrail fields so exported files cannot be mistaken for live marketplace or postage actions; selected ready rows can now download the JSON marketplace packet directly instead of relying on clipboard copy, downloaded marketplace filenames include row count plus active filter context, and JSON packets embed the active export context.
 - Seller Inventory Bulk Controls now show the marketplace export guardrails on-screen before copy/download actions.
 - Seller Command Center now shows `InstaComp Ready` and routes to ready InstaComp drafts when that is the safest inventory shortcut.
 - Seller order surface labels now use `Seller Order Workspace`, `Search orders`, `Order views`, and `Reset Order View` wording instead of the older workflow phrasing.

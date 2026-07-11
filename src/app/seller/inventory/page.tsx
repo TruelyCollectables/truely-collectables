@@ -299,12 +299,26 @@ function marketplaceExportRows(items: SellerInventoryItem[]) {
   }));
 }
 
-function marketplaceExportPacket(items: SellerInventoryItem[]) {
+type MarketplaceExportContext = {
+  selectedCount: number;
+  selectedReadyCount: number;
+  visibleCount: number;
+  statusFilter: StatusFilter;
+  readinessFilter: ReadinessFilter;
+  sourceFilter: SourceFilter;
+  search: string;
+};
+
+function marketplaceExportPacket(
+  items: SellerInventoryItem[],
+  exportContext?: MarketplaceExportContext,
+) {
   return {
     exportedAt: new Date().toISOString(),
     scope: "selected_ready_seller_inventory_marketplace_packet",
     packetPurpose: "crosslist_prep_only",
     itemCount: items.length,
+    exportContext: exportContext || null,
     externalPublishingApproved: false,
     shippingPurchaseIncluded: false,
     warning: marketplaceExportWarning,
@@ -1528,6 +1542,18 @@ export default function SellerInventoryPage() {
     return `${parts.join("-")}-${exportTimestamp()}.${extension}`;
   }
 
+  function marketplaceExportContext(): MarketplaceExportContext {
+    return {
+      selectedCount: selectedInventoryItemIds.length,
+      selectedReadyCount: selectedMarketplaceReadyItems.length,
+      visibleCount: selectedVisibleCount,
+      statusFilter,
+      readinessFilter,
+      sourceFilter,
+      search: search.trim(),
+    };
+  }
+
   async function copySelectedMarketplacePacket() {
     if (!selectedMarketplaceReadyItems.length) {
       setNotice("Select at least one ready listing before copying a marketplace packet.");
@@ -1535,7 +1561,10 @@ export default function SellerInventoryPage() {
       return;
     }
 
-    const payload = marketplaceExportPacket(selectedMarketplaceReadyItems);
+    const payload = marketplaceExportPacket(
+      selectedMarketplaceReadyItems,
+      marketplaceExportContext(),
+    );
 
     try {
       await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
@@ -1561,7 +1590,14 @@ export default function SellerInventoryPage() {
 
     downloadTextFile(
       marketplaceExportFileName("json"),
-      JSON.stringify(marketplaceExportPacket(selectedMarketplaceReadyItems), null, 2),
+      JSON.stringify(
+        marketplaceExportPacket(
+          selectedMarketplaceReadyItems,
+          marketplaceExportContext(),
+        ),
+        null,
+        2,
+      ),
       "application/json;charset=utf-8",
     );
     setNotice(
