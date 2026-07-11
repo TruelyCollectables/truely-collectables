@@ -323,6 +323,90 @@ function ProviderSetupDecisionPanel({
   );
 }
 
+function ProviderGoLiveRunway({
+  decision,
+}: {
+  decision: ProviderSetupDecision;
+}) {
+  const credentialsReady =
+    decision.status === "dry_run_only" ||
+    decision.status === "ready_for_live_adapter_build";
+  const liveModeBlocked = decision.status === "live_blocked";
+
+  const runway = [
+    {
+      title: "Operate safely today",
+      status: "Allowed now",
+      detail:
+        "Use dry-run plans, export provider packets, buy labels externally, and record real tracking/Coverage references manually.",
+      tone: "border-green-200 bg-green-50 text-green-950",
+    },
+    {
+      title: "Finish provider credentials",
+      status: credentialsReady ? "Staged" : "Needs setup",
+      detail: credentialsReady
+        ? "Required secret groups appear staged; keep values out of exports and logs."
+        : "Add the missing Standard Envelope, parcel-label, and Coverage provider secret groups before live adapter work.",
+      tone: credentialsReady
+        ? "border-green-200 bg-green-50 text-green-950"
+        : "border-amber-200 bg-amber-50 text-amber-950",
+    },
+    {
+      title: "Build the live adapter",
+      status:
+        decision.status === "ready_for_live_adapter_build"
+          ? "Ready to build"
+          : "Not approved",
+      detail:
+        "Live code must quote, buy, void, purchase Coverage, reconcile webhooks, and produce audit packets before money-moving use.",
+      tone:
+        decision.status === "ready_for_live_adapter_build"
+          ? "border-blue-200 bg-blue-50 text-blue-950"
+          : "border-neutral-200 bg-neutral-50 text-neutral-950",
+    },
+    {
+      title: "Do not cross this line",
+      status: liveModeBlocked ? "Blocked now" : "Guardrail",
+      detail:
+        "Do not mail dry-run labels, mark dry-run tracking as shipped, or switch live mode on until launch-readiness and simulations are clean.",
+      tone: liveModeBlocked
+        ? "border-red-200 bg-red-50 text-red-950"
+        : "border-red-100 bg-red-50 text-red-950",
+    },
+  ];
+
+  return (
+    <div className="mt-4 rounded border border-neutral-200 bg-white p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h4 className="text-lg font-black">Live Shipping Runway</h4>
+          <p className="mt-1 max-w-3xl text-sm text-neutral-600">
+            This is the operator handoff between planning labels and actually
+            buying postage or seller Coverage.
+          </p>
+        </div>
+        <span className="rounded border border-neutral-300 px-2 py-1 text-xs font-black uppercase text-neutral-700">
+          Manual approval required
+        </span>
+      </div>
+
+      <div className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-4">
+        {runway.map((item) => (
+          <article key={item.title} className={`rounded border p-3 ${item.tone}`}>
+            <div className="flex items-start justify-between gap-2">
+              <h5 className="font-black">{item.title}</h5>
+              <span className="rounded border border-current px-2 py-1 text-[10px] font-black uppercase">
+                {item.status}
+              </span>
+            </div>
+            <p className="mt-2 text-xs font-bold">{item.detail}</p>
+          </article>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ProviderSetupCard({
   title,
   profile,
@@ -770,6 +854,8 @@ export default async function AdminShippingPage() {
             <ProviderSetupDecisionPanel
               decision={providerSetupPacket.decision}
             />
+
+            <ProviderGoLiveRunway decision={providerSetupPacket.decision} />
 
             <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-3">
               <ProviderSetupCard

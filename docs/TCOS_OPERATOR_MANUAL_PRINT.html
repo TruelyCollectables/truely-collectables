@@ -4088,6 +4088,13 @@ charge.dispute.funds_reinstated</code></pre>
 <li><code>ready_for_live_adapter_build</code> means the setup packet is clear enough to begin live-adapter implementation work, but not to buy postage yet.</li>
 </ul>
 <p>The same decision appears in the <code>/admin/shipping</code> Provider Setup Checklist as the Shipping setup verdict, so an operator can see the current go/no-go state without opening the export.</p>
+<p><code>/admin/shipping</code> now also shows a Live Shipping Runway under the setup verdict. This board separates:</p>
+<ul>
+<li>what is allowed now: dry-run planning, setup exports, external label purchase, and manual recording of real tracking/Coverage references</li>
+<li>what must be finished next: missing provider credential groups</li>
+<li>what must be built before TCOS can buy postage: quote, buy, void, Coverage purchase, webhook reconciliation, and audit-packet proof</li>
+<li>what must not happen: mailing dry-run labels, marking dry-run tracking as shipped, or enabling live mode before launch readiness and simulations are clean</li>
+</ul>
 <p><code>/admin/launch-readiness</code> also includes the same Shipping Setup Verdict and links directly to Shipping Ops. Treat this as the production-readiness warning surface; it does not mean live postage buying is enabled.</p>
 <p>The admin command center (<code>/admin</code>) also shows the Shipping Setup verdict in the side rail and includes it in operator alerts, so blocked shipping-provider setup is visible from the first admin landing page.</p>
 <p>Never mail with references beginning:</p>

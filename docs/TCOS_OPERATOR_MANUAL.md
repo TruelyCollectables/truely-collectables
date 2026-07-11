@@ -4306,6 +4306,13 @@ The provider setup packet includes an operator decision:
 
 The same decision appears in the `/admin/shipping` Provider Setup Checklist as the Shipping setup verdict, so an operator can see the current go/no-go state without opening the export.
 
+`/admin/shipping` now also shows a Live Shipping Runway under the setup verdict. This board separates:
+
+- what is allowed now: dry-run planning, setup exports, external label purchase, and manual recording of real tracking/Coverage references
+- what must be finished next: missing provider credential groups
+- what must be built before TCOS can buy postage: quote, buy, void, Coverage purchase, webhook reconciliation, and audit-packet proof
+- what must not happen: mailing dry-run labels, marking dry-run tracking as shipped, or enabling live mode before launch readiness and simulations are clean
+
 `/admin/launch-readiness` also includes the same Shipping Setup Verdict and links directly to Shipping Ops. Treat this as the production-readiness warning surface; it does not mean live postage buying is enabled.
 
 The admin command center (`/admin`) also shows the Shipping Setup verdict in the side rail and includes it in operator alerts, so blocked shipping-provider setup is visible from the first admin landing page.
