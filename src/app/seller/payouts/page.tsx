@@ -69,6 +69,7 @@ type SellerPayoutRequest = {
     orderTotal: number;
     paymentStatus: string;
     fulfillmentStatus: string;
+    dryRunShippingBlocked: boolean;
     amountRequested: number;
     activeCaseCount: number;
     blockedLedgerRowCount: number;
@@ -362,7 +363,10 @@ function payoutRequestOrderWorkspaceLink(request: SellerPayoutRequest) {
   }
 
   const hasShippingPressure = Boolean(
-    request.orderSummaries?.some((order) => order.fulfillmentStatus !== "shipped"),
+    request.orderSummaries?.some(
+      (order) =>
+        order.fulfillmentStatus !== "shipped" || order.dryRunShippingBlocked,
+    ),
   );
 
   if (hasShippingPressure) {
@@ -441,7 +445,7 @@ function payoutLinkedOrderWorkspaceLink(
     };
   }
 
-  if (order.fulfillmentStatus !== "shipped") {
+  if (order.fulfillmentStatus !== "shipped" || order.dryRunShippingBlocked) {
     return {
       href: sellerOrdersQueueHref("shipping", orderSearch),
       label: "Shipping Orders",
@@ -625,6 +629,7 @@ export default function SellerPayoutsPage() {
           `order ${order.orderId}`,
           order.paymentStatus,
           order.fulfillmentStatus,
+          order.dryRunShippingBlocked ? "dry-run shipping hidden" : "",
         ]),
       ]
         .join(" ")
@@ -1588,6 +1593,12 @@ export default function SellerPayoutsPage() {
                                     Created {shortDate(order.createdAt)} / Shipped{" "}
                                     {shortDate(order.shippedAt)}
                                   </p>
+                                  {order.dryRunShippingBlocked ? (
+                                    <p className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-950">
+                                      Dry-run shipping hidden. Not payout-ready
+                                      fulfillment proof.
+                                    </p>
+                                  ) : null}
                                 </div>
                                 <div className="flex flex-wrap gap-2">
                                   <span

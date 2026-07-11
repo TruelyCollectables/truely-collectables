@@ -1,4 +1,5 @@
 import { getAuthenticatedAccountFromRequest } from "../../../../../lib/account-auth";
+import { isDryRunShippingReference } from "../../../../../lib/shipping-dry-run";
 import { getActiveStoreId } from "../../../../../lib/stores";
 import {
   isMissingPayoutReviewGuardTable,
@@ -61,6 +62,7 @@ type OrderSummaryRow = {
   fulfillment_status: string | null;
   created_at: string | null;
   shipped_at: string | null;
+  tracking_number: string | null;
 };
 
 function getSupabaseClient() {
@@ -308,7 +310,7 @@ async function loadSellerPayoutBalance(params: {
       ? { data: [], error: null }
       : await params.supabase
           .from("orders")
-          .select("id,total,status,fulfillment_status,created_at,shipped_at")
+          .select("id,total,status,fulfillment_status,created_at,shipped_at,tracking_number")
           .eq("store_id", params.storeId)
           .in("id", requestOrderIds);
 
@@ -329,6 +331,7 @@ async function loadSellerPayoutBalance(params: {
         orderTotal: number;
         paymentStatus: string;
         fulfillmentStatus: string;
+        dryRunShippingBlocked: boolean;
         amountRequested: number;
         activeCaseCount: number;
         blockedLedgerRowCount: number;
@@ -350,6 +353,9 @@ async function loadSellerPayoutBalance(params: {
         orderTotal: moneyNumber(orderRow?.total),
         paymentStatus: label(orderRow?.status),
         fulfillmentStatus: label(orderRow?.fulfillment_status),
+        dryRunShippingBlocked: isDryRunShippingReference(
+          orderRow?.tracking_number || null,
+        ),
         amountRequested: 0,
         activeCaseCount: 0,
         blockedLedgerRowCount: 0,
