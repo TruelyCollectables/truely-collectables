@@ -36,6 +36,8 @@ const GOOGLE_CSE_API_KEY =
   process.env.GOOGLE_CSE_API_KEY || process.env.GOOGLE_CUSTOM_SEARCH_API_KEY;
 const GOOGLE_CSE_CX =
   process.env.GOOGLE_CSE_CX || process.env.GOOGLE_CUSTOM_SEARCH_CX;
+const GOOGLE_VISION_API_KEY =
+  process.env.GOOGLE_VISION_API_KEY || process.env.GOOGLE_CLOUD_VISION_API_KEY;
 const SERPAPI_API_KEY = process.env.SERPAPI_API_KEY;
 const requestedExternalSearchLimit = Number(
   process.env.INSTACOMP_EXTERNAL_SEARCH_LIMIT || 15
@@ -82,10 +84,115 @@ type InstaCompSerialOcrResult = {
   checkedImages: number;
 };
 
+type ExternalOcrResult = {
+  provider: string;
+  text: string;
+  serialNumber: string | null;
+  checkedImages: number;
+};
+
+function dataUrlToBase64(dataUrl: string) {
+  return dataUrl.replace(/^data:[^;]+;base64,/, "");
+}
+
+function normalizeOcrText(value: string | null | undefined) {
+  return String(value || "")
+    .replace(/\r/g, "\n")
+    .replace(/[|｜]/g, "/")
+    .replace(/\s+\/\s+/g, "/")
+    .replace(/\bO(?=\/\d)/gi, "0")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function extractSerialNumberFromText(text: string) {
+  const normalized = normalizeOcrText(text);
+  const candidates = [
+    ...normalized.matchAll(
+      /\b(?:serial\s*(?:no\.?|number)?\s*)?([0-9O]{1,4})\s*(?:\/|of)\s*([0-9O]{1,4})\b/gi
+    ),
+  ];
+
+  for (const candidate of candidates) {
+    const numerator = candidate[1].replace(/O/gi, "0");
+    const denominator = candidate[2].replace(/O/gi, "0");
+
+    if (!Number.isFinite(Number(numerator)) || !Number.isFinite(Number(denominator))) {
+      continue;
+    }
+
+    if (Number(denominator) <= 1 && Number(numerator) !== 1) continue;
+
+    return `${numerator}/${denominator}`;
+  }
+
+  if (/\b(?:one\s+of\s+one|1\s+of\s+1|1\/1)\b/i.test(normalized)) {
+    return "1/1";
+  }
+
+  return null;
+}
+
+async function getGoogleVisionOcr(
+  images: InstaCompDetailImage[]
+): Promise<ExternalOcrResult | null> {
+  if (!GOOGLE_VISION_API_KEY || !images.length) return null;
+
+  const requests = images.slice(0, 16).map((image) => ({
+    image: {
+      content: dataUrlToBase64(image.dataUrl),
+    },
+    features: [
+      {
+        type: "TEXT_DETECTION",
+      },
+    ],
+    imageContext: {
+      languageHints: ["en"],
+    },
+  }));
+
+  const response = await fetch(
+    `https://vision.googleapis.com/v1/images:annotate?key=${encodeURIComponent(
+      GOOGLE_VISION_API_KEY
+    )}`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ requests }),
+    }
+  );
+
+  if (!response.ok) {
+    console.error("Google Vision OCR failed:", await response.text());
+    return null;
+  }
+
+  const data = await response.json();
+  const texts = (data?.responses || [])
+    .map((item: any) => {
+      const fullText = item?.fullTextAnnotation?.text;
+      const annotationText = item?.textAnnotations?.[0]?.description;
+      return normalizeOcrText(fullText || annotationText || "");
+    })
+    .filter(Boolean);
+  const text = normalizeOcrText(texts.join("\n"));
+
+  return {
+    provider: "google_vision",
+    text,
+    serialNumber: extractSerialNumberFromText(text),
+    checkedImages: requests.length,
+  };
+}
+
 async function identifyCardWithOpenAI(
   frontDataUrl: string,
   backDataUrl?: string,
-  detailImages: InstaCompDetailImage[] = []
+  detailImages: InstaCompDetailImage[] = [],
+  externalOcr: ExternalOcrResult | null = null
 ) {
   if (!OPENAI_API_KEY) {
     throw new Error("Missing OPENAI_API_KEY.");
@@ -133,6 +240,14 @@ Rules:
 - If the image is not a sports card, still describe what it appears to be and lower confidence.
       */
     },
+    ...(externalOcr?.text
+      ? [
+          {
+            type: "text",
+            text: `OCR TEXT EXTRACTED FROM FRONT/BACK/CROPS (${externalOcr.provider}, ${externalOcr.checkedImages} image(s)): ${externalOcr.text.slice(0, 6000)} Use this text heavily for exact player, set, card number, copyright year, manufacturer, parallel wording, and serial number.`,
+          },
+        ]
+      : []),
     {
       type: "text",
       text: "FRONT IMAGE: inspect player, product line, rookie logo, color/foil/refractor/prizm/parallel cues, autograph/relic cues, and visible serial stamp.",
@@ -281,8 +396,18 @@ Rules:
 async function detectSerialNumberWithOpenAI(
   frontDataUrl: string,
   backDataUrl?: string,
-  detailImages: InstaCompDetailImage[] = []
+  detailImages: InstaCompDetailImage[] = [],
+  externalOcr: ExternalOcrResult | null = null
 ): Promise<InstaCompSerialOcrResult | null> {
+  if (externalOcr?.serialNumber) {
+    return {
+      serialNumber: externalOcr.serialNumber,
+      confidence: 0.99,
+      evidence: `${externalOcr.provider} OCR text contained ${externalOcr.serialNumber}. Text: ${externalOcr.text.slice(0, 500)}`,
+      checkedImages: externalOcr.checkedImages,
+    };
+  }
+
   if (!OPENAI_API_KEY || !detailImages.length) return null;
 
   const content: any[] = [
@@ -312,6 +437,13 @@ Rules:
       `.trim(),
     },
   ];
+
+  if (externalOcr?.text) {
+    content.push({
+      type: "text",
+      text: `EXTERNAL OCR TEXT (${externalOcr.provider}, ${externalOcr.checkedImages} image(s)): ${externalOcr.text.slice(0, 4000)} If this text includes a full serial number like 087/250, return it exactly. If it only includes partial text, inspect the images.`,
+    });
+  }
 
   detailImages.forEach((image, index) => {
     content.push({
@@ -1561,15 +1693,24 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    const externalOcrImages: InstaCompDetailImage[] = [
+      { name: "front-full-card", dataUrl: frontDataUrl },
+      ...(backDataUrl ? [{ name: "back-full-card", dataUrl: backDataUrl }] : []),
+      ...detailImages,
+    ];
+    const externalOcr = await getGoogleVisionOcr(externalOcrImages);
+
     const baseAi = await identifyCardWithOpenAI(
       frontDataUrl,
       backDataUrl,
-      detailImages.slice(0, 8)
+      detailImages.slice(0, 8),
+      externalOcr
     );
     const serialOcr = await detectSerialNumberWithOpenAI(
       frontDataUrl,
       backDataUrl,
-      detailImages
+      detailImages,
+      externalOcr
     );
     const ai = mergeSerialOcrResult(baseAi, serialOcr);
 
