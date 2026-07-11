@@ -46,6 +46,16 @@ type SellerInventoryItem = {
   ebayItemId: string | null;
   imageUrl: string | null;
   authenticity: AuthenticityProfile;
+  shippingPlan: {
+    method: "STANDARD_ENVELOPE" | "GROUND_ADVANTAGE" | "PRIORITY_MAIL";
+    label: string;
+    estimatedOunces: number;
+    postageEstimate: number;
+    coverageProvider: string;
+    coverageRequired: boolean;
+    coverageType: string;
+    reason: string | null;
+  };
   instaComp?: {
     isInstaCompDraft: boolean;
     source: string | null;
@@ -248,6 +258,13 @@ function marketplaceExportRows(items: SellerInventoryItem[]) {
     description: item.description || "",
     imageUrl: item.imageUrl || "",
     ebayItemId: item.ebayItemId || "",
+    shippingMethod: item.shippingPlan.label,
+    shippingEstimatedOunces: item.shippingPlan.estimatedOunces,
+    shippingPostageEstimate: item.shippingPlan.postageEstimate,
+    shippingCoverageProvider: item.shippingPlan.coverageProvider,
+    shippingCoverageRequired: item.shippingPlan.coverageRequired,
+    shippingCoverageType: item.shippingPlan.coverageType,
+    shippingPlanNote: item.shippingPlan.reason || "",
     instacompScanId: item.instaComp?.scanId || "",
     serialNumber: item.instaComp?.serialNumber || "",
     instacompMarketPrice: item.instaComp?.marketPrice || "",
@@ -803,6 +820,9 @@ export default function SellerInventoryPage() {
         item.instaComp?.scanId || "",
         item.instaComp?.serialNumber || "",
         item.instaComp?.listingPriceSource || "",
+        item.shippingPlan.label,
+        item.shippingPlan.coverageProvider,
+        item.shippingPlan.coverageType,
       ]
         .join(" ")
         .toLowerCase();
@@ -2262,8 +2282,43 @@ export default function SellerInventoryPage() {
                     <Info label="Condition" value={label(item.condition)} />
                     <Info label="Quantity" value={String(item.quantity)} />
                     <Info label="Price" value={formatCurrency(item.price)} />
+                    <Info label="Shipping" value={item.shippingPlan.label} />
+                    <Info
+                      label="Est. postage"
+                      value={formatCurrency(item.shippingPlan.postageEstimate)}
+                    />
                     <Info label="Updated" value={shortDate(item.updatedAt)} />
                     <Info label="Created" value={shortDate(item.createdAt)} />
+                  </div>
+
+                  <div className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2">
+                    <p className="text-xs font-black uppercase tracking-[0.14em] text-emerald-900">
+                      Shipping plan
+                    </p>
+                    <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-emerald-950">
+                      <Info label="Method" value={item.shippingPlan.label} />
+                      <Info
+                        label="Est. weight"
+                        value={`${item.shippingPlan.estimatedOunces} oz`}
+                      />
+                      <Info
+                        label="Coverage"
+                        value={
+                          item.shippingPlan.coverageRequired
+                            ? `${item.shippingPlan.coverageProvider} required`
+                            : item.shippingPlan.coverageProvider
+                        }
+                      />
+                      <Info
+                        label="Coverage type"
+                        value={label(item.shippingPlan.coverageType)}
+                      />
+                    </div>
+                    {item.shippingPlan.reason ? (
+                      <p className="mt-2 text-xs font-semibold text-emerald-950">
+                        {item.shippingPlan.reason}
+                      </p>
+                    ) : null}
                   </div>
 
                   {item.instaComp?.isInstaCompDraft ? (

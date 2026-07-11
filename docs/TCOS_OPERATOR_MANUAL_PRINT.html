@@ -3727,6 +3727,14 @@ services/paddleocr-service/README.md</code></pre>
 <li>listing price source such as <code>instacomp_market</code> or <code>manual</code></li>
 <li>front/back image indicator</li>
 </ul>
+<p>Every Seller Inventory row also shows a default single-unit shipping plan derived from the listing price:</p>
+<ul>
+<li>cards at <code>$20.00</code> or less default to Standard Envelope</li>
+<li>cards at <code>$20.01</code> or higher default to Ground Advantage</li>
+<li>the row shows the estimated postage, estimated ounces, Coverage provider, Coverage requirement, and Coverage type</li>
+<li>if the rules force a method change, the reason appears under the shipping plan</li>
+</ul>
+<p>This Seller Inventory plan is a listing handoff aid. Final checkout/order shipping can still recalculate for multi-card carts or operator-entered package details.</p>
 <p>Seller Inventory supports the URL-safe lane:</p>
 <pre><code>/seller/inventory?status=draft&amp;source=instacomp</code></pre>
 <p>Use the <code>Readiness</code> filter to separate <code>Ready</code> drafts from <code>Needs work</code> drafts. The Seller Command Center shows <code>InstaComp Ready</code> and routes to ready InstaComp drafts when no higher-priority needs-work draft pressure exists.</p>
@@ -3735,7 +3743,7 @@ services/paddleocr-service/README.md</code></pre>
 <li><code>Copy Marketplace Packet</code> copies a JSON packet for selected ready rows</li>
 <li><code>Download Marketplace CSV</code> downloads selected ready rows in spreadsheet form</li>
 <li>only activation-ready selected rows are included</li>
-<li>the export contains TCOS inventory ID, SKU, title, price, quantity, category, condition, description, image URL, InstaComp scan ID, serial number, market/listing price evidence, and readiness blockers</li>
+<li>the export contains TCOS inventory ID, SKU, title, price, quantity, category, condition, description, image URL, shipping method, postage estimate, Coverage fields, InstaComp scan ID, serial number, market/listing price evidence, and readiness blockers</li>
 </ul>
 <p>These packet controls are outbound preparation only. They do not publish to eBay, Whatnot, Shopify, COMC, or another external storefront. Before any real external publishing connector is enabled, implement and test platform-specific listing rules, seller authorization, idempotency, duplicate prevention, fee/shipping mapping, image upload rules, and external-listing reconciliation.</p>
 <h3>Multipart fallback request limits</h3>
@@ -4137,11 +4145,11 @@ dryrun-</code></pre>
 D:\TCOS_DISASTER_RECOVERY\TCOS_FULL_DISASTER_RECOVERY_20260711-064539  (copy pending)</code></pre>
 <p>The <code>D:</code> Transcend copy is the laptop-failure copy. The 2026-07-11 external copy was blocked by the automation environment's elevated-action quota after the local folder and archive verified successfully. The earlier <code>20260710-230103</code> snapshot remains on <code>D:</code>. Do not treat the new snapshot as laptop-failure-safe until its folder, archive, and SHA-256 file have been copied to <code>D:</code> and the external verifier passes. Do not rely only on the <code>C:</code> copy because an internal-drive failure can destroy both the working project and a same-drive backup.</p>
 <p>Fast source checkpoint after the current InstaComp seller-handoff and manual-generator work:</p>
-<pre><code>C:\Projects\TCOS_DISASTER_RECOVERY\code-snapshots\tcos-code-snapshot-20260711-122624
-C:\Projects\TCOS_DISASTER_RECOVERY\code-snapshots\tcos-code-snapshot-20260711-122624.zip
-SHA-256: 51DA75BFF8C07C81A693B6B01BC040502727574A4AB94A0AC5A6F9F8724A727E
-Git HEAD: f6b15279f9e60f62d8a3e15781b7e0bed5aa0c80</code></pre>
-<p>This fast checkpoint preserves the current source tree plus <code>.git</code> history, including the 27 local commits ahead of GitHub at the time it was created. It intentionally excludes rebuildable/generated folders such as <code>node_modules</code>, <code>.next</code>, <code>.venv</code>, and Paddle model caches. Use it as a quick source-code recovery point, not as a complete laptop-failure restore. The full disaster-recovery snapshot still needs the Transcend copy and external verification before it is laptop-failure-safe.</p>
+<pre><code>C:\Projects\TCOS_DISASTER_RECOVERY\code-snapshots\tcos-code-snapshot-20260711-122902
+C:\Projects\TCOS_DISASTER_RECOVERY\code-snapshots\tcos-code-snapshot-20260711-122902.zip
+SHA-256: 9B90065D38D32E3AD43F6428ECF87E3C0369CB56CF22A03FF99C68129059DD2D
+Git HEAD: e697fc98a61cc89a745a6f4fa1140b295e495d10</code></pre>
+<p>This fast checkpoint preserves the current source tree plus <code>.git</code> history, including the 29 local commits ahead of GitHub at the time it was created. It intentionally excludes rebuildable/generated folders such as <code>node_modules</code>, <code>.next</code>, <code>.venv</code>, and Paddle model caches. Use it as a quick source-code recovery point, not as a complete laptop-failure restore. The full disaster-recovery snapshot still needs the Transcend copy and external verification before it is laptop-failure-safe.</p>
 <p>Snapshot contents include:</p>
 <ul>
 <li>complete working repository and all untracked files</li>
@@ -4286,6 +4294,7 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3000/admin/login</code></pre
 <ul>
 <li>InstaComp draft success links now open the Seller Inventory InstaComp lane directly through <code>Open InstaComp Drafts</code> and <code>Open in InstaComp drafts</code>.</li>
 <li>Seller Inventory now has a <code>Source</code> filter with an <code>InstaComp</code> lane, InstaComp item badges, scan/serial/price-source details, and ready-row marketplace packet export controls.</li>
+<li>Seller Inventory rows now show the default Standard Envelope/Ground Advantage shipping plan, estimated postage, Coverage requirement, and Coverage type, and selected ready-row marketplace packets include those shipping fields.</li>
 <li>Seller Command Center now shows <code>InstaComp Ready</code> and routes to ready InstaComp drafts when that is the safest inventory shortcut.</li>
 <li>Seller order surface labels now use <code>Seller Order Workspace</code>, <code>Search orders</code>, <code>Order views</code>, and <code>Reset Order View</code> wording instead of the older workflow phrasing.</li>
 <li>Seller dashboard order signal chips now read <code>Shipping Orders</code>, <code>Cash-Out Orders</code>, <code>Action Orders</code>, and <code>Completed Orders</code>.</li>

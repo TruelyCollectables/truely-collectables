@@ -3894,6 +3894,15 @@ Seller-created InstaComp drafts appear in Seller Inventory with:
 - listing price source such as `instacomp_market` or `manual`
 - front/back image indicator
 
+Every Seller Inventory row also shows a default single-unit shipping plan derived from the listing price:
+
+- cards at `$20.00` or less default to Standard Envelope
+- cards at `$20.01` or higher default to Ground Advantage
+- the row shows the estimated postage, estimated ounces, Coverage provider, Coverage requirement, and Coverage type
+- if the rules force a method change, the reason appears under the shipping plan
+
+This Seller Inventory plan is a listing handoff aid. Final checkout/order shipping can still recalculate for multi-card carts or operator-entered package details.
+
 Seller Inventory supports the URL-safe lane:
 
 ```text
@@ -3907,7 +3916,7 @@ Marketplace packet controls in Seller Inventory:
 - `Copy Marketplace Packet` copies a JSON packet for selected ready rows
 - `Download Marketplace CSV` downloads selected ready rows in spreadsheet form
 - only activation-ready selected rows are included
-- the export contains TCOS inventory ID, SKU, title, price, quantity, category, condition, description, image URL, InstaComp scan ID, serial number, market/listing price evidence, and readiness blockers
+- the export contains TCOS inventory ID, SKU, title, price, quantity, category, condition, description, image URL, shipping method, postage estimate, Coverage fields, InstaComp scan ID, serial number, market/listing price evidence, and readiness blockers
 
 These packet controls are outbound preparation only. They do not publish to eBay, Whatnot, Shopify, COMC, or another external storefront. Before any real external publishing connector is enabled, implement and test platform-specific listing rules, seller authorization, idempotency, duplicate prevention, fee/shipping mapping, image upload rules, and external-listing reconciliation.
 
@@ -4544,6 +4553,7 @@ Recent seller workspace wording cleanup:
 
 - InstaComp draft success links now open the Seller Inventory InstaComp lane directly through `Open InstaComp Drafts` and `Open in InstaComp drafts`.
 - Seller Inventory now has a `Source` filter with an `InstaComp` lane, InstaComp item badges, scan/serial/price-source details, and ready-row marketplace packet export controls.
+- Seller Inventory rows now show the default Standard Envelope/Ground Advantage shipping plan, estimated postage, Coverage requirement, and Coverage type, and selected ready-row marketplace packets include those shipping fields.
 - Seller Command Center now shows `InstaComp Ready` and routes to ready InstaComp drafts when that is the safest inventory shortcut.
 - Seller order surface labels now use `Seller Order Workspace`, `Search orders`, `Order views`, and `Reset Order View` wording instead of the older workflow phrasing.
 - Seller dashboard order signal chips now read `Shipping Orders`, `Cash-Out Orders`, `Action Orders`, and `Completed Orders`.

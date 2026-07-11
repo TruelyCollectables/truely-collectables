@@ -10,6 +10,14 @@ import {
   getInventoryActivationBlockers,
   type InventoryActivationBlocker,
 } from "../../../../../lib/inventory-activation";
+import {
+  calculateShipping,
+  getShippingCoverage,
+  resolveShippingMethod,
+  SHIPPING_RULES,
+  STANDARD_ENVELOPE_MAX_SUBTOTAL,
+  type ShippingMethod,
+} from "../../../../../lib/shipping";
 import { getActiveStoreId } from "../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
 
@@ -54,6 +62,16 @@ type SellerInventoryResponseItem = {
   ebayItemId: string | null;
   imageUrl: string | null;
   authenticity: AuthenticityProfile;
+  shippingPlan: {
+    method: ShippingMethod;
+    label: string;
+    estimatedOunces: number;
+    postageEstimate: number;
+    coverageProvider: string;
+    coverageRequired: boolean;
+    coverageType: string;
+    reason: string | null;
+  };
   instaComp: {
     isInstaCompDraft: boolean;
     source: string | null;
@@ -115,6 +133,39 @@ function instacompSummary(metadata: Record<string, unknown> | null) {
   };
 }
 
+function sellerInventoryShippingPlan(price: number) {
+  const subtotal = Math.max(0, Math.round(Number(price || 0) * 100) / 100);
+  const itemCount = 1;
+  const requestedMethod: ShippingMethod =
+    subtotal > STANDARD_ENVELOPE_MAX_SUBTOTAL
+      ? "GROUND_ADVANTAGE"
+      : "STANDARD_ENVELOPE";
+  const resolved = resolveShippingMethod({
+    requestedMethod,
+    itemCount,
+    subtotal,
+  });
+  const coverage = getShippingCoverage({
+    method: resolved.method,
+    subtotal,
+  });
+
+  return {
+    method: resolved.method,
+    label: SHIPPING_RULES[resolved.method].shortName,
+    estimatedOunces: resolved.standardEnvelope.estimatedOunces,
+    postageEstimate: calculateShipping({
+      itemCount,
+      subtotal,
+      method: resolved.method,
+    }),
+    coverageProvider: coverage.provider,
+    coverageRequired: coverage.required,
+    coverageType: coverage.coverageType,
+    reason: resolved.reason,
+  };
+}
+
 function isMissingSellerInventoryTables(error: { code?: string; message?: string }) {
   const message = error.message?.toLowerCase() || "";
 
@@ -165,6 +216,7 @@ function mapInventoryItem(
     ebayItemId: product?.ebay_item_id || null,
     imageUrl: product?.image_url || null,
     authenticity: extractAuthenticityProfile(item.metadata),
+    shippingPlan: sellerInventoryShippingPlan(moneyNumber(item.price)),
     instaComp: instacompSummary(item.metadata),
     activationReadiness: {
       ready: shouldEvaluateReadiness
