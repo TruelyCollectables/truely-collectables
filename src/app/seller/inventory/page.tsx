@@ -199,6 +199,12 @@ function downloadTextFile(fileName: string, content: string, type: string) {
   URL.revokeObjectURL(url);
 }
 
+const marketplaceExportWarning =
+  "Outbound marketplace packet only. Verify platform category, shipping, item specifics, and final listing rules before publishing externally.";
+
+const marketplaceExportShippingWarning =
+  "Shipping values are planning estimates only. This export does not buy postage, create Coverage policies, or publish to an external marketplace.";
+
 function shortDate(value: string | null | undefined) {
   if (!value) return "Not recorded";
 
@@ -249,6 +255,8 @@ function marketplaceExportRows(items: SellerInventoryItem[]) {
     legacyProductId: item.legacyProductId || "",
     source: inventorySourceLabel(item),
     marketplaceStatus: "ready_to_crosslist",
+    marketplaceExportPurpose: "crosslist_prep_only",
+    externalPublishingApproved: false,
     title: item.title,
     sku: item.sku || "",
     price: item.price,
@@ -265,6 +273,9 @@ function marketplaceExportRows(items: SellerInventoryItem[]) {
     shippingCoverageRequired: item.shippingPlan.coverageRequired,
     shippingCoverageType: item.shippingPlan.coverageType,
     shippingPlanNote: item.shippingPlan.reason || "",
+    shippingPurchaseIncluded: false,
+    shippingPurchaseMode: "not_included_in_marketplace_export",
+    shippingWarning: marketplaceExportShippingWarning,
     instacompScanId: item.instaComp?.scanId || "",
     serialNumber: item.instaComp?.serialNumber || "",
     instacompMarketPrice: item.instaComp?.marketPrice || "",
@@ -1350,9 +1361,12 @@ export default function SellerInventoryPage() {
     const payload = {
       exportedAt: new Date().toISOString(),
       scope: "selected_ready_seller_inventory_marketplace_packet",
+      packetPurpose: "crosslist_prep_only",
       itemCount: selectedMarketplaceReadyItems.length,
-      warning:
-        "Outbound marketplace packet only. Verify platform category, shipping, item specifics, and final listing rules before publishing externally.",
+      externalPublishingApproved: false,
+      shippingPurchaseIncluded: false,
+      warning: marketplaceExportWarning,
+      shippingWarning: marketplaceExportShippingWarning,
       rows: marketplaceExportRows(selectedMarketplaceReadyItems),
     };
 
