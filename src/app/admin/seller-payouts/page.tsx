@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createSupabaseServerClient } from "../../../lib/supabase-server";
 import { getActiveStoreId } from "../../../lib/stores";
 import { getAccountProfilesByIds } from "../../../lib/account-profiles";
+import { isDryRunShippingReference } from "../../../lib/shipping-dry-run";
 import {
   isMissingPayoutReviewGuardTable,
   loadSellerPayoutRequestReviewBlockers,
@@ -38,6 +39,8 @@ type LedgerOrderRow = {
   status: string | null;
   fulfillment_status: string | null;
   shipped_at: string | null;
+  tracking_number: string | null;
+  carrier: string | null;
 };
 
 type LedgerOrderReviewCaseRow = {
@@ -245,6 +248,9 @@ function payoutReleaseBlockReason(
   if (order.fulfillment_status !== "shipped" || !order.shipped_at) {
     return "Order must be marked shipped before seller payout can be released.";
   }
+  if (isDryRunShippingReference(order.tracking_number)) {
+    return "Order only has TCOS dry-run shipping. Add real carrier proof before seller payout can be released.";
+  }
   if (activeCaseCount > 0) {
     return `${activeCaseCount} active order review case(s) must be resolved before seller payout release.`;
   }
@@ -381,7 +387,7 @@ export default async function AdminSellerPayoutsPage() {
       ? { data: [] }
       : await supabase
           .from("orders")
-          .select("id,status,fulfillment_status,shipped_at")
+          .select("id,status,fulfillment_status,shipped_at,tracking_number,carrier")
           .eq("store_id", storeId)
           .in("id", ledgerOrderIds);
   const { data: ledgerCasesData } =

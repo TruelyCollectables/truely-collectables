@@ -4349,6 +4349,8 @@ Seller payout request summaries include a dry-run shipping flag without exposing
 
 Seller Home consumes the same dry-run shipping flag for payout pressure and order workspace cards, keeping dry-run shipped rows in shipping follow-through until real fulfillment proof is recorded.
 
+Admin Seller Payout Review also checks the shared dry-run shipping detector before releasing ledger rows. A row cannot be moved to eligible while the order only has TCOS dry-run tracking, even if the order status says shipped.
+
 Admin Shipping and the ranked shipping exception CSV now use the shared detector for dry-run label, tracking, shipment, and Coverage references while preserving event-based simulated-purchase detection.
 
 Shipping label packets, Coverage claim evidence packets, and Coverage claim create/update routes also use the shared detector, with packets still preserving event-based simulated-purchase detection for audit evidence and dry-run safety notices.

@@ -2,6 +2,7 @@ import { getActiveStoreId } from "../../../../../lib/stores";
 import { getClientIdentity } from "../../../../../lib/client-identity";
 import { isOrderReviewStatus } from "../../../../../lib/order-status";
 import { recordSellerPayoutAdminEvent } from "../../../../../lib/seller-payout-admin-events";
+import { isDryRunShippingReference } from "../../../../../lib/shipping-dry-run";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
 
 export const dynamic = "force-dynamic";
@@ -34,6 +35,7 @@ type OrderRow = {
   status: string | null;
   fulfillment_status: string | null;
   shipped_at: string | null;
+  tracking_number: string | null;
 };
 
 type OrderReviewCaseRow = {
@@ -124,7 +126,7 @@ async function payoutReleaseBlockReason(params: {
 }) {
   const { data: order, error: orderError } = await params.supabase
     .from("orders")
-    .select("id,status,fulfillment_status,shipped_at")
+    .select("id,status,fulfillment_status,shipped_at,tracking_number")
     .eq("id", params.orderId)
     .eq("store_id", params.storeId)
     .single();
@@ -140,6 +142,10 @@ async function payoutReleaseBlockReason(params: {
 
   if (typedOrder.fulfillment_status !== "shipped" || !typedOrder.shipped_at) {
     return "Order must be marked shipped before seller payout can be released.";
+  }
+
+  if (isDryRunShippingReference(typedOrder.tracking_number)) {
+    return "Order only has TCOS dry-run shipping. Add real carrier proof before seller payout can be released.";
   }
 
   const { data: cases, error: caseError } = await params.supabase
