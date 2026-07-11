@@ -1,4 +1,5 @@
 import { getClientIdentity } from "../../../../../lib/client-identity";
+import { isDryRunShippingLabel } from "../../../../../lib/shipping-dry-run";
 import { getActiveStoreId } from "../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
 
@@ -63,43 +64,6 @@ function coverageStatusForClaimStatus(
   }
 
   return label?.coverage_status || null;
-}
-
-function metadataRecord(
-  metadata: Record<string, unknown> | null | undefined,
-  key: string,
-) {
-  const value = metadata?.[key];
-
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function nestedRecord(record: Record<string, unknown> | null, key: string) {
-  const value = record?.[key];
-
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function isDryRunLabel(label: ShippingLabelRow | null) {
-  if (!label) return false;
-
-  const latestAttempt = metadataRecord(label.metadata, "latest_purchase_attempt");
-  const purchaseResult = nestedRecord(latestAttempt, "purchase_result");
-  const providerPayload = nestedRecord(purchaseResult, "rawProviderPayload");
-
-  return (
-    latestAttempt?.status === "dry_run_purchased" ||
-    purchaseResult?.mode === "dry_run" ||
-    providerPayload?.dry_run === true ||
-    label.provider_label_id?.startsWith("dryrun-") ||
-    label.provider_shipment_id?.startsWith("dryrun-") ||
-    label.coverage_policy_id?.startsWith("dryrun-") ||
-    label.tracking_number?.includes("TCOS-DRYRUN")
-  );
 }
 
 export async function PATCH(
@@ -187,7 +151,7 @@ export async function PATCH(
       label = (labelData || null) as ShippingLabelRow | null;
     }
 
-    if (isDryRunLabel(label) && nextStatus !== "cancelled") {
+    if (isDryRunShippingLabel(label) && nextStatus !== "cancelled") {
       return Response.json(
         {
           error:

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { createEvidencePdf } from "../../../../../../lib/evidence-pdf";
+import { isDryRunShippingLabel } from "../../../../../../lib/shipping-dry-run";
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
 
@@ -153,35 +154,9 @@ function metadataLine(
   return value === null || value === undefined ? "Not saved" : value;
 }
 
-function metadataRecord(
-  metadata: Record<string, unknown> | null | undefined,
-  key: string,
-) {
-  const value = metadata?.[key];
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function nestedRecord(
-  record: Record<string, unknown> | null | undefined,
-  key: string,
-) {
-  const value = record?.[key];
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
 function isDryRunLabel(labelRow: ShippingLabelRow, events: TrackingEventRow[]) {
-  const latestAttempt = metadataRecord(labelRow.metadata, "latest_purchase_attempt");
-  const purchaseResult = nestedRecord(latestAttempt, "purchase_result");
-  const providerPayload = nestedRecord(purchaseResult, "rawProviderPayload");
-
   return (
-    latestAttempt?.status === "dry_run_purchased" ||
-    purchaseResult?.mode === "dry_run" ||
-    providerPayload?.dry_run === true ||
+    isDryRunShippingLabel(labelRow) ||
     events.some((event) => event.event_type === "provider_purchase_simulated")
   );
 }
