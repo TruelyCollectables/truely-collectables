@@ -4,7 +4,10 @@ import {
   getShippingProviderAdapterProfile,
   type ShippingProviderAdapterProfile,
 } from "../../../lib/shipping-provider-adapter";
-import { getShippingProviderReadiness } from "../../../lib/shipping-provider-readiness";
+import {
+  buildShippingProviderSetupPacket,
+  type ProviderSetupDecision,
+} from "../../../lib/shipping-provider-setup";
 import { getActiveStoreId } from "../../../lib/stores";
 import { createSupabaseServerClient } from "../../../lib/supabase-server";
 import ShippingClaimActions from "./ShippingClaimActions";
@@ -268,6 +271,58 @@ function credentialSummary(missing: string[]) {
     : "Credential groups staged";
 }
 
+function setupDecisionTone(status: ProviderSetupDecision["status"]) {
+  if (status === "live_blocked") {
+    return "border-red-200 bg-red-50 text-red-950";
+  }
+
+  if (status === "needs_provider_setup") {
+    return "border-amber-200 bg-amber-50 text-amber-950";
+  }
+
+  if (status === "ready_for_live_adapter_build") {
+    return "border-blue-200 bg-blue-50 text-blue-950";
+  }
+
+  return "border-neutral-200 bg-neutral-50 text-neutral-950";
+}
+
+function ProviderSetupDecisionPanel({
+  decision,
+}: {
+  decision: ProviderSetupDecision;
+}) {
+  return (
+    <div className={`mt-4 rounded border p-4 ${setupDecisionTone(decision.status)}`}>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-black uppercase tracking-widest opacity-75">
+            Shipping setup verdict
+          </p>
+          <h4 className="mt-1 text-lg font-black">{label(decision.status)}</h4>
+        </div>
+        <span className="rounded border border-current px-2 py-1 text-xs font-black uppercase">
+          Go / no-go
+        </span>
+      </div>
+      <p className="mt-2 text-sm font-semibold">{decision.summary}</p>
+      <p className="mt-2 text-xs font-bold">{decision.nextAction}</p>
+      {decision.blockers.length > 0 ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          {decision.blockers.map((blocker) => (
+            <span
+              key={blocker}
+              className="rounded border border-current px-2 py-1 text-[11px] font-black"
+            >
+              {blocker}
+            </span>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function ProviderSetupCard({
   title,
   profile,
@@ -351,7 +406,8 @@ function ProviderSetupCard({
 export default async function AdminShippingPage() {
   const supabase = createSupabaseServerClient({ admin: true });
   const storeId = getActiveStoreId();
-  const providerReadiness = getShippingProviderReadiness();
+  const providerSetupPacket = buildShippingProviderSetupPacket();
+  const providerReadiness = providerSetupPacket.readiness;
   const standardEnvelopeProfile =
     getShippingProviderAdapterProfile("STANDARD_ENVELOPE");
   const groundAdvantageProfile =
@@ -710,6 +766,10 @@ export default async function AdminShippingPage() {
                 No live API calls
               </span>
             </div>
+
+            <ProviderSetupDecisionPanel
+              decision={providerSetupPacket.decision}
+            />
 
             <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-3">
               <ProviderSetupCard

@@ -4292,6 +4292,8 @@ The provider setup packet includes an operator decision:
 - `live_blocked` means live purchase mode is enabled while TCOS still has no approved live adapter.
 - `ready_for_live_adapter_build` means the setup packet is clear enough to begin live-adapter implementation work, but not to buy postage yet.
 
+The same decision appears in the `/admin/shipping` Provider Setup Checklist as the Shipping setup verdict, so an operator can see the current go/no-go state without opening the export.
+
 Never mail with references beginning:
 
 ```text
