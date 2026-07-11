@@ -48,6 +48,7 @@ type InstaCompDraftRequestItem = {
   hasBackImage?: unknown;
   title?: unknown;
   price?: unknown;
+  priceSource?: unknown;
   marketPrice?: unknown;
   quantity?: unknown;
   searchQuery?: unknown;
@@ -824,6 +825,7 @@ export async function POST(request: Request) {
       const hasBackImage = Boolean(item.hasBackImage || backFileName);
       const title = cleanText(item.title, 200) || titleFromAi(ai, fallbackTitle);
       const price = moneyNumber(item.price);
+      const priceSource = cleanText(item.priceSource, 80);
       const marketPrice = moneyNumber(item.marketPrice);
       const quantity = quantityNumber(item.quantity);
       const searchQuery = cleanText(item.searchQuery, 500);
@@ -1111,6 +1113,7 @@ export async function POST(request: Request) {
                   ai: effectiveAi,
                   marketPrice,
                   listingPrice: price,
+                  listingPriceSource: priceSource || null,
                   stats: effectiveStats,
                   soldStats: effectiveSoldStats,
                   sourceCoverage: effectiveSourceCoverage,

@@ -1383,7 +1383,8 @@ function batchExportRows(items: BatchCardViewItem[]) {
       soldAverage: result?.soldStats?.average ?? "",
       soldHigh: result?.soldStats?.high ?? "",
       quantity: draftQuantityForCard(card),
-      listingPrice: card.customPrice || "",
+      listingPrice: draftListingPriceForCard(card) ?? "",
+      listingPriceSource: draftPriceHandoffForCard(card).source,
       draftStatus: card.draftStatus,
       draftSku: card.draftSku || "",
       draftInventoryItemId: card.draftInventoryItemId || "",
@@ -1474,26 +1475,31 @@ function exportBatchJson(items: BatchCardViewItem[], fileScope: "all" | "view") 
 }
 
 function draftListingItemsForCards(cards: BatchCard[]) {
-  return cards.map((card, index) => ({
-    uploadIndex: String(index),
-    clientId: card.persistentClientId || card.id,
-    persistentJobId: card.persistentJobId || null,
-    persistentItemId: card.persistentItemId || null,
-    scanId: card.result?.scanId || null,
-    fileName: card.file.name,
-    backFileName: card.backFile?.name || null,
-    hasBackImage: Boolean(card.backFile),
-    title: draftTitleForCard(card),
-    price: draftListingPriceForCard(card) ?? 0,
-    marketPrice: card.marketPrice,
-    quantity: draftQuantityForCard(card),
-    searchQuery: card.result?.searchQuery || null,
-    ai: card.result?.ai || null,
-    stats: card.result?.stats || null,
-    soldStats: card.result?.soldStats || null,
-    sourceCoverage: card.result?.sourceCoverage || [],
-    externalSearch: externalSearchDiagnostics(card.result),
-  }));
+  return cards.map((card, index) => {
+    const draftPrice = draftPriceHandoffForCard(card);
+
+    return {
+      uploadIndex: String(index),
+      clientId: card.persistentClientId || card.id,
+      persistentJobId: card.persistentJobId || null,
+      persistentItemId: card.persistentItemId || null,
+      scanId: card.result?.scanId || null,
+      fileName: card.file.name,
+      backFileName: card.backFile?.name || null,
+      hasBackImage: Boolean(card.backFile),
+      title: draftTitleForCard(card),
+      price: draftPrice.price ?? 0,
+      priceSource: draftPrice.source,
+      marketPrice: marketPriceForCard(card),
+      quantity: draftQuantityForCard(card),
+      searchQuery: card.result?.searchQuery || null,
+      ai: card.result?.ai || null,
+      stats: card.result?.stats || null,
+      soldStats: card.result?.soldStats || null,
+      sourceCoverage: card.result?.sourceCoverage || [],
+      externalSearch: externalSearchDiagnostics(card.result),
+    };
+  });
 }
 
 function shortDateTime(value: string | null | undefined) {
@@ -1552,25 +1558,58 @@ function draftQuantityForCard(card: BatchCard) {
   return Number.isFinite(parsed) ? Math.max(1, Math.floor(parsed)) : 1;
 }
 
-function draftListingPriceForCard(card: BatchCard) {
-  const rawPrice = card.customPrice.trim();
-  const parsed = rawPrice ? Number(rawPrice) : card.marketPrice;
+function roundedPositiveMoney(value: number | null | undefined) {
+  if (value === null || value === undefined) return null;
 
-  if (parsed === null || parsed === undefined) return null;
-
-  const price = Number(parsed);
+  const price = Number(value);
 
   if (!Number.isFinite(price) || price <= 0) return null;
 
   return Math.round(price * 100) / 100;
 }
 
+function marketPriceForCard(card: BatchCard) {
+  return (
+    roundedPositiveMoney(card.marketPrice) ??
+    roundedPositiveMoney(card.result?.stats.suggestedPrice) ??
+    roundedPositiveMoney(card.result?.soldStats.suggestedPrice)
+  );
+}
+
+function draftPriceHandoffForCard(card: BatchCard) {
+  const rawPrice = card.customPrice.trim();
+
+  if (rawPrice) {
+    return {
+      price: roundedPositiveMoney(Number(rawPrice)),
+      source: "manual" as const,
+    };
+  }
+
+  const marketPrice = marketPriceForCard(card);
+
+  return {
+    price: marketPrice,
+    source: marketPrice === null ? "missing" : ("instacomp_market" as const),
+  };
+}
+
+function draftListingPriceForCard(card: BatchCard) {
+  const handoff = draftPriceHandoffForCard(card);
+
+  if (handoff.price === null) return null;
+
+  return handoff.price;
+}
+
 function resetDraftEditsForCard(card: BatchCard) {
+  const marketPrice = marketPriceForCard(card);
+
   return {
     ...card,
     customTitle: cardResultTitle(card.result, card.file.name),
     customQuantity: "1",
-    customPrice: card.marketPrice ? card.marketPrice.toFixed(2) : "",
+    customPrice: marketPrice ? marketPrice.toFixed(2) : "",
     draftStatus: card.draftStatus === "error" ? "idle" : card.draftStatus,
     draftError: card.draftStatus === "error" ? null : card.draftError,
   };
@@ -1648,11 +1687,13 @@ function batchCardReviewWarnings(card: BatchCard) {
     warnings.push("No listing price");
   }
 
-  if (usableCompCount > 0 && (!card.marketPrice || card.marketPrice <= 0)) {
+  const marketPrice = marketPriceForCard(card);
+
+  if (usableCompCount > 0 && !marketPrice) {
     warnings.push("No market price");
   }
 
-  if (!usableCompCount) {
+  if (!usableCompCount && !marketPrice) {
     warnings.push("No usable comps");
   }
 
@@ -1839,9 +1880,17 @@ function compareBatchCards(
   } else if (sort === "title") {
     result = draftTitleForCard(left.card).localeCompare(draftTitleForCard(right.card));
   } else if (sort === "market_high") {
-    result = compareNullableNumbers(left.card.marketPrice, right.card.marketPrice, "desc");
+    result = compareNullableNumbers(
+      marketPriceForCard(left.card),
+      marketPriceForCard(right.card),
+      "desc",
+    );
   } else if (sort === "market_low") {
-    result = compareNullableNumbers(left.card.marketPrice, right.card.marketPrice, "asc");
+    result = compareNullableNumbers(
+      marketPriceForCard(left.card),
+      marketPriceForCard(right.card),
+      "asc",
+    );
   } else if (sort === "confidence_low") {
     result = compareNullableNumbers(
       left.card.result?.ai.confidence,
@@ -2753,7 +2802,7 @@ export default function InstaCompScanner({
     (card) => card.selected && isDraftableBatchCard(card)
   );
   const selectedPriceableBatchCards = selectedDoneBatchCards.filter(
-    (card) => card.marketPrice
+    (card) => marketPriceForCard(card)
   );
   const batchDraftableCount = batchCards.filter(isDraftableBatchCard).length;
   const batchDraftCreatedCount = batchCards.filter(
@@ -5370,9 +5419,11 @@ export default function InstaCompScanner({
 
   function applyBatchPrice(cardId: string, multiplier: number) {
     updateBatchCard(cardId, (card) => {
-      if (!card.marketPrice) return card;
+      const marketPrice = marketPriceForCard(card);
 
-      const price = Math.round(card.marketPrice * multiplier * 100) / 100;
+      if (!marketPrice) return card;
+
+      const price = Math.round(marketPrice * multiplier * 100) / 100;
 
       return {
         ...card,
@@ -5390,11 +5441,13 @@ export default function InstaCompScanner({
     setBatchError(null);
     setBatchCards((current) =>
       current.map((card) => {
-        if (!card.selected || !isDraftableBatchCard(card) || !card.marketPrice) {
+        const marketPrice = marketPriceForCard(card);
+
+        if (!card.selected || !isDraftableBatchCard(card) || !marketPrice) {
           return card;
         }
 
-        const price = Math.round(card.marketPrice * multiplier * 100) / 100;
+        const price = Math.round(marketPrice * multiplier * 100) / 100;
 
         return {
           ...card,
@@ -10126,6 +10179,9 @@ function BatchCardRow({
   const reviewWarnings = batchCardReviewWarnings(card);
   const draftErrors = isDraftableBatchCard(card) ? draftReadinessErrors(card) : [];
   const missingPriceDraftError = draftErrors.includes("Missing positive listing price");
+  const marketPrice = marketPriceForCard(card);
+  const draftPrice = draftPriceHandoffForCard(card);
+  const priceButtonsDisabled = !marketPrice || card.status !== "done";
   const displayReviewWarnings = reviewWarnings.filter(
     (warning) => !(warning === "No listing price" && missingPriceDraftError)
   );
@@ -10292,8 +10348,21 @@ function BatchCardRow({
               Market
             </div>
             <div style={{ fontWeight: 900, fontSize: 20 }}>
-              {money(card.marketPrice)}
+              {money(marketPrice)}
             </div>
+            {draftPrice.price ? (
+              <div style={{ color: "#555", fontSize: 12, fontWeight: 800 }}>
+                Draft price: {money(draftPrice.price)}
+                {draftPrice.source === "instacomp_market"
+                  ? " - InstaComp market"
+                  : " - manual"}
+              </div>
+            ) : null}
+            {!card.customPrice.trim() && marketPrice ? (
+              <div style={{ color: "#0f5132", fontSize: 12, fontWeight: 800 }}>
+                Blank price will use market.
+              </div>
+            ) : null}
             <div
               style={{
                 display: "flex",
@@ -10478,7 +10547,7 @@ function BatchCardRow({
                 step="0.01"
                 value={card.customPrice}
                 onChange={(event) => onPriceChange(card.id, event.target.value)}
-                placeholder="0.00"
+                placeholder={marketPrice ? marketPrice.toFixed(2) : "0.00"}
                 style={{
                   border: "1px solid #ccc",
                   borderRadius: 8,
@@ -10494,15 +10563,12 @@ function BatchCardRow({
                   key={`${card.id}-${button.label}`}
                   type="button"
                   onClick={() => onApplyPrice(card.id, button.multiplier)}
-                  disabled={!card.marketPrice || card.status !== "done"}
+                  disabled={priceButtonsDisabled}
                   style={{
                     ...secondaryButtonStyle,
                     padding: "8px 10px",
-                    opacity: !card.marketPrice || card.status !== "done" ? 0.5 : 1,
-                    cursor:
-                      !card.marketPrice || card.status !== "done"
-                        ? "not-allowed"
-                        : "pointer",
+                    opacity: priceButtonsDisabled ? 0.5 : 1,
+                    cursor: priceButtonsDisabled ? "not-allowed" : "pointer",
                   }}
                 >
                   {button.label}
