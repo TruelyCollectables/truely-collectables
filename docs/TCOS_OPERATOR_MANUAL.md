@@ -4365,6 +4365,8 @@ Launch Readiness now includes a fail-closed dry-run shipping cleanup gate. Live 
 
 The Live Payment Launch Gate uses the same dry-run shipping cleanup check inside the approval report, so `/api/admin/live-payment-launch` cannot record a new live-payment approval while sampled shipping, tracking-event, or order rows still contain TCOS dry-run references.
 
+Live Checkout runtime also rechecks dry-run shipping cleanup after the environment switch and database approval pass, so an older approval cannot keep live Checkout open if new dry-run shipping residue appears later.
+
 ### Real shipment runbook
 
 1. Open `/admin/orders/[id]`.

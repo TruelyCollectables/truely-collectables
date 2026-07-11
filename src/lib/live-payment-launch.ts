@@ -108,6 +108,61 @@ function safeCount(value: number | null) {
   return Number.isFinite(value) ? Number(value) : 0;
 }
 
+async function getDryRunShippingCleanupSummary(params: {
+  supabase: SupabaseClient;
+  storeId: string;
+}) {
+  const [shippingLabelResult, shippingEventResult, shippingOrderResult] =
+    await Promise.all([
+      params.supabase
+        .from("order_shipping_labels")
+        .select(
+          "id,metadata,provider_label_id,provider_shipment_id,tracking_number,coverage_policy_id",
+        )
+        .eq("store_id", params.storeId)
+        .limit(1000),
+      params.supabase
+        .from("order_shipping_tracking_events")
+        .select("id,event_type,tracking_number")
+        .eq("store_id", params.storeId)
+        .limit(1000),
+      params.supabase
+        .from("orders")
+        .select("id,tracking_number")
+        .eq("store_id", params.storeId)
+        .limit(1000),
+    ]);
+
+  const error =
+    shippingLabelResult.error ||
+    shippingEventResult.error ||
+    shippingOrderResult.error ||
+    null;
+  const dryRunLabelCount = (
+    (shippingLabelResult.data || []) as DryRunShippingLabelCheckRow[]
+  ).filter((row) => isDryRunShippingLabel(row)).length;
+  const dryRunEventCount = (
+    (shippingEventResult.data || []) as DryRunShippingEventCheckRow[]
+  ).filter(
+    (row) =>
+      row.event_type === "provider_purchase_simulated" ||
+      isDryRunShippingReference(row.tracking_number),
+  ).length;
+  const dryRunOrderCount = (
+    (shippingOrderResult.data || []) as DryRunShippingOrderCheckRow[]
+  ).filter((row) => isDryRunShippingReference(row.tracking_number)).length;
+  const total = dryRunLabelCount + dryRunEventCount + dryRunOrderCount;
+
+  return {
+    error,
+    total,
+    dryRunLabelCount,
+    dryRunEventCount,
+    dryRunOrderCount,
+    detail: `${total} dry-run shipping reference(s) found across sampled label, tracking-event, and order rows (${dryRunLabelCount} label, ${dryRunEventCount} event, ${dryRunOrderCount} order).`,
+  };
+}
+
 export async function getLivePaymentRuntimeGate(params: {
   stripeKey: string;
   storeId?: string;
@@ -147,12 +202,33 @@ export async function getLivePaymentRuntimeGate(params: {
     data?.gate_status === "approved" &&
     data?.approval_version === LIVE_PAYMENT_APPROVAL_VERSION;
 
+  if (!approved) {
+    return {
+      allowed: false,
+      mode: "live" as const,
+      reason: "Live payments require current administrator launch approval.",
+    };
+  }
+
+  const dryRunShippingCleanup = await getDryRunShippingCleanupSummary({
+    supabase,
+    storeId,
+  });
+
+  if (dryRunShippingCleanup.error || dryRunShippingCleanup.total > 0) {
+    return {
+      allowed: false,
+      mode: "live" as const,
+      reason: dryRunShippingCleanup.error
+        ? `Live payments are blocked because dry-run shipping cleanup could not be verified: ${dryRunShippingCleanup.error.message}`
+        : `Live payments are blocked until dry-run shipping cleanup is complete. ${dryRunShippingCleanup.detail}`,
+    };
+  }
+
   return {
-    allowed: approved,
+    allowed: true,
     mode: "live" as const,
-    reason: approved
-      ? null
-      : "Live payments require current administrator launch approval.",
+    reason: null,
   };
 }
 
