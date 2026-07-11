@@ -3932,6 +3932,8 @@ Marketplace packet controls in Seller Inventory:
 
 These packet controls are outbound preparation only. They do not publish to eBay, Whatnot, Shopify, COMC, or another external storefront. Before any real external publishing connector is enabled, implement and test platform-specific listing rules, seller authorization, idempotency, duplicate prevention, fee/shipping mapping, image upload rules, and external-listing reconciliation.
 
+`/seller/marketplaces` now includes a Marketplace Packet Intake card that repeats those guardrails and routes sellers back to ready or needs-work Seller Inventory rows. Use it as the receiving-side explanation for packet files created in Seller Inventory.
+
 ### Multipart fallback request limits
 
 The durable job path avoids relaying original images through a large browser-to-Next multipart request: derivatives upload directly to private Storage, and the scan request carries job/item/lease identifiers as JSON. The older fallback path still uses multipart form data and can hit a platform body limit. Multipart fallback draft creation is development-only; production draft creation requires a completed persistent queue row so database reservation and image-integrity guarantees cannot be bypassed.
@@ -4605,6 +4607,7 @@ Recent seller workspace wording cleanup:
 - Seller Inventory bulk action result cards now include `Clear Bulk Report` so old result/follow-up cards can be intentionally dismissed after audit handoff.
 - Seller Inventory marketplace JSON/CSV exports now include explicit prep-only, no-external-publishing, and no-shipping-purchase guardrail fields so exported files cannot be mistaken for live marketplace or postage actions; selected ready rows can now download the JSON marketplace packet directly instead of relying on clipboard copy, downloaded marketplace filenames include row count plus active filter context, and JSON packets embed the active export context.
 - Seller Inventory Bulk Controls now show the marketplace export guardrails on-screen before copy/download actions.
+- Seller Connections now includes a Marketplace Packet Intake card explaining that Seller Inventory marketplace packets are cross-list prep only and do not publish externally, buy postage, or create Coverage policies.
 - Seller Command Center now shows `InstaComp Ready` and routes to ready InstaComp drafts when that is the safest inventory shortcut.
 - Seller order surface labels now use `Seller Order Workspace`, `Search orders`, `Order views`, and `Reset Order View` wording instead of the older workflow phrasing.
 - Seller dashboard order signal chips now read `Shipping Orders`, `Cash-Out Orders`, `Action Orders`, and `Completed Orders`.

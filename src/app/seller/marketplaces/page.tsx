@@ -83,6 +83,11 @@ function buildConnectors(storeDisplayName: string): Connector[] {
 
 const buildQueue: BuildQueueStep[] = [
   {
+    name: "Seller marketplace packet intake guidance",
+    status: "completed",
+    detail: "Seller Connections now explains that Seller Inventory marketplace packets are prep-only JSON/CSV handoffs with no external publishing, no postage purchase, and no Coverage policy creation until platform-specific connectors are approved.",
+  },
+  {
     name: "Shipping provider setup go/no-go",
     status: "completed",
     detail: "Admin Shipping now exposes a no-secret provider setup checklist, JSON/CSV setup packet, and go/no-go verdict for Standard Envelope, Ground Advantage/Priority, and Coverage before any live adapter work can proceed.",
@@ -1130,6 +1135,52 @@ export default async function SellerMarketplacesPage() {
             <div className="flex flex-wrap gap-2">
               <CommandLink href="/admin/settings" label="Store Settings" primary />
               <CommandLink href="/admin/ebay" label="Sync Rules" />
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-md border border-sky-200 bg-sky-50 p-5 text-sky-950">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-black uppercase tracking-[0.16em]">
+                Marketplace Packet Intake
+              </p>
+              <h2 className="mt-2 text-2xl font-black">
+                Seller Inventory exports are prep files, not live publishing.
+              </h2>
+              <p className="mt-2 max-w-3xl text-sm font-semibold leading-6">
+                Use `Copy Marketplace Packet`, `Download Marketplace Packet`, or
+                `Download Marketplace CSV` from Seller Inventory after rows are
+                activation-ready. Those files carry TCOS row IDs, pricing,
+                shipping-plan estimates, Coverage fields, readiness evidence, and
+                export context for outside-storefront prep.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <span className="rounded border border-sky-300 bg-white px-2 py-1 text-[11px] font-black uppercase">
+                  Cross-list prep only
+                </span>
+                <span className="rounded border border-sky-300 bg-white px-2 py-1 text-[11px] font-black uppercase">
+                  No external publishing
+                </span>
+                <span className="rounded border border-sky-300 bg-white px-2 py-1 text-[11px] font-black uppercase">
+                  No postage purchase
+                </span>
+                <span className="rounded border border-sky-300 bg-white px-2 py-1 text-[11px] font-black uppercase">
+                  No Coverage policy creation
+                </span>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <CommandLink
+                href="/seller/inventory?status=draft&readiness=ready"
+                label="Open Ready Inventory"
+                primary
+              />
+              <CommandLink
+                href="/seller/inventory?status=draft&readiness=needs_work"
+                label="Open Needs-Work Inventory"
+              />
             </div>
           </div>
         </section>
