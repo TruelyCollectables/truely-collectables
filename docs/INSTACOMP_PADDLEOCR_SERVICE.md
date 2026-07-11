@@ -4,6 +4,8 @@ InstaComp can use PaddleOCR as its first real OCR provider for tiny serial-numbe
 
 The Next app does not run PaddleOCR directly. PaddleOCR should run as a separate HTTP service so the web app stays fast, deployable, and easy to restart.
 
+A local service scaffold lives in `services/paddleocr-service`.
+
 ## Environment variables
 
 Add these to the app environment and restart the server:
@@ -86,4 +88,3 @@ The InstaComp scan result displays OCR diagnostics:
 - how many images were OCR'd;
 - serial number found by OCR, if any;
 - OCR text excerpt for debugging.
-
