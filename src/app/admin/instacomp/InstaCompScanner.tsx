@@ -6058,8 +6058,10 @@ export default function InstaCompScanner({
             Drag card images here or choose files
           </div>
           <p style={{ margin: "8px 0 14px", color: "#555" }}>
-            Name pairs like 001-front.jpg and 001-back.jpg. Front-only cards
-            still scan, but paired backs improve identification.
+            Drop photos in front/back order for each card. If filenames include
+            front/back, InstaComp uses them; otherwise it pairs image 1 with 2,
+            image 3 with 4, and so on. Front-only cards still scan, but paired
+            backs improve identification.
           </p>
           <input
             type="file"
