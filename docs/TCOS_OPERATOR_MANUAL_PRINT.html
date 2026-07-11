@@ -4109,7 +4109,7 @@ dryrun-</code></pre>
 <p>Buyer and seller account order APIs also use the shared dry-run detector before showing tracking or carrier values, so dry-run references stay hidden from account-facing order views.</p>
 <p>Admin order detail and packing-slip printing also use the shared detector before treating label, tracking, shipment, or Coverage references as printable fulfillment data.</p>
 <p>Admin Shipping and the ranked shipping exception CSV now use the shared detector for dry-run label, tracking, shipment, and Coverage references while preserving event-based simulated-purchase detection.</p>
-<p>Shipping label packets and Coverage claim create/update routes also use the shared detector, with label packets still preserving event-based simulated-purchase detection for audit evidence.</p>
+<p>Shipping label packets, Coverage claim evidence packets, and Coverage claim create/update routes also use the shared detector, with packets still preserving event-based simulated-purchase detection for audit evidence and dry-run safety notices.</p>
 <h3>Real shipment runbook</h3>
 <ol>
 <li>Open <code>/admin/orders/[id]</code>.</li>

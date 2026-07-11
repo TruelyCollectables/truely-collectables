@@ -1,5 +1,9 @@
 import { NextResponse } from "next/server";
 import { createEvidencePdf } from "../../../../../../lib/evidence-pdf";
+import {
+  isDryRunShippingLabel,
+  isDryRunShippingReference,
+} from "../../../../../../lib/shipping-dry-run";
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
 
@@ -84,6 +88,7 @@ type ShippingLabelRow = {
   coverage_claim_status: string | null;
   purchased_at: string | null;
   printed_at: string | null;
+  metadata: Record<string, unknown> | null;
   created_at: string | null;
   updated_at: string | null;
 };
@@ -151,10 +156,22 @@ function buildReport(input: {
   optionalErrors: string[];
 }) {
   const { claim, order, label: shippingLabel, events, optionalErrors } = input;
+  const dryRunEvidence =
+    isDryRunShippingLabel(shippingLabel) ||
+    isDryRunShippingReference(order?.tracking_number) ||
+    events.some((event) => event.event_type === "provider_purchase_simulated");
   const lines: string[] = [
     "TCOS SHIPPING COVERAGE CLAIM PACKET",
     "Generated from TCOS order, shipping label, tracking, and coverage claim records.",
     "Use this packet with carrier scans, buyer messages, photos, and provider-specific forms.",
+    ...(dryRunEvidence
+      ? [
+          ...section("Dry-Run Safety Notice"),
+          "This claim packet includes TCOS dry-run shipping evidence.",
+          "No real postage was purchased, no real USPS label was printed, and no external Coverage policy or claim should be submitted from dry-run references.",
+          "Use this packet for internal QA/audit only. Replace dry-run label, tracking, shipment, and Coverage references before filing with a provider.",
+        ]
+      : []),
     ...section("Claim Summary"),
     line("Claim ID", claim.id),
     line("Provider", claim.provider || "Coverage"),
@@ -370,7 +387,7 @@ export async function GET(
         ? supabase
             .from("order_shipping_labels")
             .select(
-              "id,provider,provider_label_id,provider_shipment_id,provider_rate_id,provider_service,service_level,carrier,tracking_number,label_status,postage_amount,currency,requested_shipping_method,resolved_shipping_method,coverage_provider,coverage_required,coverage_status,coverage_amount,coverage_policy_id,coverage_claim_id,coverage_claim_status,purchased_at,printed_at,created_at,updated_at",
+              "id,provider,provider_label_id,provider_shipment_id,provider_rate_id,provider_service,service_level,carrier,tracking_number,label_status,postage_amount,currency,requested_shipping_method,resolved_shipping_method,coverage_provider,coverage_required,coverage_status,coverage_amount,coverage_policy_id,coverage_claim_id,coverage_claim_status,purchased_at,printed_at,metadata,created_at,updated_at",
             )
             .eq("store_id", storeId)
             .eq("id", claim.shipping_label_id)
