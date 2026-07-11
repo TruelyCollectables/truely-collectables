@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedAccountFromRequest } from "../../../../lib/account-auth";
+import { isDryRunShippingReference } from "../../../../lib/shipping-dry-run";
 import { getActiveStoreId } from "../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 
@@ -7,10 +8,6 @@ export const dynamic = "force-dynamic";
 
 function getSupabaseClient() {
   return createSupabaseServerClient({ admin: true });
-}
-
-function isDryRunTracking(value: string | null | undefined) {
-  return Boolean(value?.includes("TCOS-DRYRUN"));
 }
 
 export async function GET(request: Request) {
@@ -40,7 +37,7 @@ export async function GET(request: Request) {
     return NextResponse.json({
       success: true,
       orders: (data ?? []).map((order) => {
-        const dryRunShipping = isDryRunTracking(order.tracking_number);
+        const dryRunShipping = isDryRunShippingReference(order.tracking_number);
 
         return {
           ...order,

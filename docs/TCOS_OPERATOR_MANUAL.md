@@ -4335,6 +4335,8 @@ The mark-shipped endpoint uses the same broad dry-run reference detection before
 
 Dry-run shipping detection for fulfillment-critical backend routes is centralized in `src/lib/shipping-dry-run.ts`. Use that helper instead of copying one-off string checks when adding new label, tracking, Coverage, claim, or shipment actions.
 
+Buyer and seller account order APIs also use the shared dry-run detector before showing tracking or carrier values, so dry-run references stay hidden from account-facing order views.
+
 ### Real shipment runbook
 
 1. Open `/admin/orders/[id]`.

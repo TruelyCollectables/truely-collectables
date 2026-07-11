@@ -9,6 +9,7 @@ import {
   loadSellerPayoutRequestReviewBlockers,
   type SellerPayoutRequestReviewBlocker,
 } from "../../../../../lib/seller-payout-review-blocks";
+import { isDryRunShippingReference } from "../../../../../lib/shipping-dry-run";
 import { getActiveStoreId } from "../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
 
@@ -100,10 +101,6 @@ function getSupabaseClient() {
 function moneyNumber(value: number | string | null | undefined) {
   const parsed = Number(value || 0);
   return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function isDryRunTracking(value: string | null | undefined) {
-  return Boolean(value?.includes("TCOS-DRYRUN"));
 }
 
 function roundMoney(value: number) {
@@ -453,7 +450,9 @@ export async function GET(request: Request) {
           requestedAt: request.requestedAt,
           completedAt: request.completedAt,
         })) satisfies SellerCashOutRequestSignalRow[];
-        const dryRunShipping = isDryRunTracking(order?.tracking_number || null);
+        const dryRunShipping = isDryRunShippingReference(
+          order?.tracking_number || null,
+        );
         const safeTrackingNumber = dryRunShipping
           ? null
           : order?.tracking_number || null;

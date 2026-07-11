@@ -4106,6 +4106,7 @@ dryrun-</code></pre>
 <p>The tracking save endpoint also rejects dry-run tracking references and refuses to save tracking while the active shipping label is still a dry-run simulation. Save tracking only after a real external label has been recorded or the dry-run record has been voided.</p>
 <p>The mark-shipped endpoint uses the same broad dry-run reference detection before changing fulfillment status or sending shipment email.</p>
 <p>Dry-run shipping detection for fulfillment-critical backend routes is centralized in <code>src/lib/shipping-dry-run.ts</code>. Use that helper instead of copying one-off string checks when adding new label, tracking, Coverage, claim, or shipment actions.</p>
+<p>Buyer and seller account order APIs also use the shared dry-run detector before showing tracking or carrier values, so dry-run references stay hidden from account-facing order views.</p>
 <h3>Real shipment runbook</h3>
 <ol>
 <li>Open <code>/admin/orders/[id]</code>.</li>
