@@ -73,6 +73,25 @@ function resolutionOptionsForStatus(status: string | null | undefined) {
   );
 }
 
+function payoutResolutionSkipLabel(reason: string | null | undefined) {
+  if (reason === "order_has_dry_run_shipping_only") {
+    return "dry-run shipping only";
+  }
+
+  if (reason === "order_not_shipped") return "order not shipped";
+  if (reason === "order_still_in_review") return "order still in review";
+  if (reason === "order_not_verified") return "order not verified";
+  if (reason === "already_target_status") return "already target status";
+  if (reason === "active_or_paid_cash_out_request") {
+    return "active or paid cash-out request";
+  }
+  if (reason?.startsWith("terminal_")) {
+    return `terminal ${reason.replace("terminal_", "").replaceAll("_", " ")}`;
+  }
+
+  return reason?.replaceAll("_", " ") || "skipped";
+}
+
 export default function CaseQueueActions({
   caseId,
   status,
@@ -166,8 +185,22 @@ export default function CaseQueueActions({
         throw new Error(data.error || "Could not resolve case payout rows.");
       }
 
+      const skippedReasons = Array.isArray(data.skipped)
+        ? Array.from(
+            new Set(
+              data.skipped.map((row: { reason?: string | null }) =>
+                payoutResolutionSkipLabel(row.reason),
+              ),
+            ),
+          )
+        : [];
+
       setResolutionMessage(
-        `${data.changedCount || 0} row(s) updated, ${data.skippedCount || 0} skipped.`,
+        `${data.changedCount || 0} row(s) updated, ${
+          data.skippedCount || 0
+        } skipped${
+          skippedReasons.length > 0 ? `: ${skippedReasons.join(", ")}` : ""
+        }.`,
       );
       setResolutionNote("");
       router.refresh();

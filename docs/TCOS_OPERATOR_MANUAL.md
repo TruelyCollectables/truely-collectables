@@ -1928,8 +1928,8 @@ Current seller payout verification foundation:
 - `/admin/orders/[id]` shows order review cases and can open chargeback, return, authenticity, payment-risk, shipping, and seller-dispute case files against an order, download case packet PDFs, and apply seller payout release/reversal/appeal resolution directly from the order screen
 - case packet PDF downloads compile order details, TOS/IP evidence, shipping evidence, order items, case notes, case event history, seller payout hold context, Dag Danky Holdings LLC fee rows, and transaction evidence report references
 - downloading a case packet saves or refreshes an `order_review_case_packets` record so the packet appears under `/admin/files`
-- `/api/admin/order-review-cases/[id]/payout-resolution` can release held seller payout rows to eligible after a seller-favorable decision, reverse/cancel held rows after a buyer-favorable decision, or keep related rows held for appeal
-- `/api/admin/seller-payouts/requests` now blocks approve, processing, and paid transitions whenever the request is tied to active order review cases or held/cancelled payout rows
+- `/api/admin/order-review-cases/[id]/payout-resolution` can release held seller payout rows to eligible after a seller-favorable decision, reverse/cancel held rows after a buyer-favorable decision, or keep related rows held for appeal; release skips rows whose order only has dry-run shipping proof
+- `/api/admin/seller-payouts/requests` now blocks approve, processing, and paid transitions whenever the request is tied to active order review cases, held/cancelled payout rows, or dry-run shipping rows
 - `/api/account/seller/payout-onboarding` starts or resumes Stripe-hosted Express onboarding
 - the seller payout workspace now also includes request-view shortcut cards, stronger empty-state recovery, and hold-context focus actions that jump straight into blocked request cleanup
 - `/api/account/seller/marketplace-connections` returns seller-scoped marketplace connection records and saves seller connection requests for the logged-in account
@@ -4352,6 +4352,8 @@ Seller Home consumes the same dry-run shipping flag for payout pressure and orde
 Admin Seller Payout Review also checks the shared dry-run shipping detector before releasing ledger rows. A row cannot be moved to eligible while the order only has TCOS dry-run tracking, even if the order status says shipped.
 
 Seller cash-out request review blockers now include dry-run shipping rows, so requests cannot move to approved, processing, or paid while any linked payout row only has simulated TCOS tracking.
+
+Order review case payout resolution uses the same detector before releasing held rows to seller eligibility, and the admin case UI lists dry-run shipping as the skipped-row reason.
 
 Admin Shipping and the ranked shipping exception CSV now use the shared detector for dry-run label, tracking, shipment, and Coverage references while preserving event-based simulated-purchase detection.
 
