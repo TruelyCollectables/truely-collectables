@@ -4364,13 +4364,13 @@ The `D:` Transcend copy is the laptop-failure copy. The 2026-07-11 external copy
 Fast source checkpoint after the current InstaComp seller-handoff and manual-generator work:
 
 ```text
-C:\Projects\TCOS_DISASTER_RECOVERY\code-snapshots\tcos-code-snapshot-20260711-122624
-C:\Projects\TCOS_DISASTER_RECOVERY\code-snapshots\tcos-code-snapshot-20260711-122624.zip
-SHA-256: 51DA75BFF8C07C81A693B6B01BC040502727574A4AB94A0AC5A6F9F8724A727E
-Git HEAD: f6b15279f9e60f62d8a3e15781b7e0bed5aa0c80
+C:\Projects\TCOS_DISASTER_RECOVERY\code-snapshots\tcos-code-snapshot-20260711-122902
+C:\Projects\TCOS_DISASTER_RECOVERY\code-snapshots\tcos-code-snapshot-20260711-122902.zip
+SHA-256: 9B90065D38D32E3AD43F6428ECF87E3C0369CB56CF22A03FF99C68129059DD2D
+Git HEAD: e697fc98a61cc89a745a6f4fa1140b295e495d10
 ```
 
-This fast checkpoint preserves the current source tree plus `.git` history, including the 27 local commits ahead of GitHub at the time it was created. It intentionally excludes rebuildable/generated folders such as `node_modules`, `.next`, `.venv`, and Paddle model caches. Use it as a quick source-code recovery point, not as a complete laptop-failure restore. The full disaster-recovery snapshot still needs the Transcend copy and external verification before it is laptop-failure-safe.
+This fast checkpoint preserves the current source tree plus `.git` history, including the 29 local commits ahead of GitHub at the time it was created. It intentionally excludes rebuildable/generated folders such as `node_modules`, `.next`, `.venv`, and Paddle model caches. Use it as a quick source-code recovery point, not as a complete laptop-failure restore. The full disaster-recovery snapshot still needs the Transcend copy and external verification before it is laptop-failure-safe.
 
 Snapshot contents include:
 
