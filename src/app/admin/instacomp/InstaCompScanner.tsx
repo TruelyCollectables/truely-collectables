@@ -582,8 +582,55 @@ function testFixtureForFile(file: File) {
 
   return (
     TEST_SCAN_FIXTURES.find((fixture) => fileName.includes(fixture.slug)) ||
-    TEST_SCAN_FIXTURES[0]
+    testFallbackFixtureForFile(file)
   );
+}
+
+function titleCaseFromFileName(fileName: string) {
+  return batchFileBaseName(fileName)
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
+function testFallbackFixtureForFile(file: File): TestScanFixture {
+  const label = titleCaseFromFileName(file.name) || "Uploaded Test Card";
+  const slug =
+    batchFileBaseName(file.name)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 40) || "uploaded-test-card";
+
+  return {
+    slug: `upload-${slug}`,
+    label,
+    color: "#64748b",
+    marketPrice: null,
+    noComps: true,
+    ai: {
+      player: label,
+      year: null,
+      brand: "Test Upload",
+      setName: "Filename Placeholder",
+      cardNumber: null,
+      parallel: null,
+      serialNumber: null,
+      team: null,
+      sport: null,
+      isRookie: false,
+      isAuto: false,
+      isRelic: false,
+      conditionGuess: "Review Needed",
+      confidence: 0.1,
+      notes:
+        "Test mode does not identify arbitrary real cards. Use /admin/instacomp for live OpenAI recognition.",
+    },
+  };
 }
 
 function testComp(
@@ -1648,18 +1695,16 @@ function buildBatchPairs(files: File[]) {
     string,
     { fronts: BatchImageCandidate[]; backs: BatchImageCandidate[] }
   >();
+  const unknownCandidates: BatchImageCandidate[] = [];
   const pairs: BatchPair[] = [];
   let skippedBackOnly = 0;
+  let orderPairedCount = 0;
 
   files.forEach((file, originalIndex) => {
     const candidate = batchImageCandidate(file, originalIndex);
 
     if (candidate.side === "unknown") {
-      pairs.push({
-        front: candidate,
-        back: null,
-        sortIndex: candidate.originalIndex,
-      });
+      unknownCandidates.push(candidate);
       return;
     }
 
@@ -1691,9 +1736,27 @@ function buildBatchPairs(files: File[]) {
     skippedBackOnly += Math.max(0, backs.length - fronts.length);
   });
 
+  const unknownByOrder = unknownCandidates.sort(
+    (left, right) => left.originalIndex - right.originalIndex,
+  );
+
+  for (let index = 0; index < unknownByOrder.length; index += 2) {
+    const front = unknownByOrder[index];
+    const back = unknownByOrder[index + 1] || null;
+
+    if (back) orderPairedCount += 1;
+
+    pairs.push({
+      front,
+      back,
+      sortIndex: front.originalIndex,
+    });
+  }
+
   return {
     pairs: pairs.sort((left, right) => left.sortIndex - right.sortIndex),
     skippedBackOnly,
+    orderPairedCount,
   };
 }
 
@@ -3730,7 +3793,8 @@ export default function InstaCompScanner({
         return current;
       }
 
-      const { pairs, skippedBackOnly } = buildBatchPairs(files);
+      const { pairs, skippedBackOnly, orderPairedCount } =
+        buildBatchPairs(files);
       const existingSignatures = new Set(current.map(batchCardSignature));
       const newSignatures = new Set<string>();
       const uniquePairs: BatchPair[] = [];
@@ -3774,11 +3838,17 @@ export default function InstaCompScanner({
       if (
         uniquePairs.length > acceptedPairs.length ||
         skippedBackOnly > 0 ||
-        skippedDuplicates > 0
+        skippedDuplicates > 0 ||
+        orderPairedCount > 0
       ) {
         const messages = [
           uniquePairs.length > acceptedPairs.length
             ? `Added ${acceptedPairs.length} cards. Batch limit is ${MAX_BATCH_CARDS}.`
+            : null,
+          orderPairedCount
+            ? `Paired ${orderPairedCount} card${
+                orderPairedCount === 1 ? "" : "s"
+              } by upload order because filenames did not say front/back.`
             : null,
           skippedBackOnly
             ? `Skipped ${skippedBackOnly} back images without matching front images.`
