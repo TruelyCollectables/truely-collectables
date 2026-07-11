@@ -40,6 +40,7 @@ PADDLEOCR_LANG=en
 PADDLEOCR_VERSION=PP-OCRv6
 PADDLEOCR_DEVICE=cpu
 PADDLEOCR_CPU_THREADS=8
+PADDLEOCR_ENABLE_MKLDNN=false
 PADDLEOCR_TEXT_DET_LIMIT_SIDE_LEN=2200
 PADDLEOCR_TEXT_DET_LIMIT_TYPE=min
 ```
@@ -52,4 +53,3 @@ If you have a supported GPU setup, use the PaddlePaddle GPU package that matches
 - `POST /ocr`
 
 The `/ocr` request/response shape is documented in [docs/INSTACOMP_PADDLEOCR_SERVICE.md](../../docs/INSTACOMP_PADDLEOCR_SERVICE.md).
-

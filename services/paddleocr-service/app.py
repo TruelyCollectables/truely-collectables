@@ -143,6 +143,13 @@ def get_ocr() -> Any:
             "use_doc_orientation_classify": False,
             "use_doc_unwarping": False,
             "use_textline_orientation": False,
+            # PaddlePaddle 3.3's Windows oneDNN/PIR path crashes on PP-OCRv6
+            # models. Keep it disabled by default on Windows; it can still be
+            # explicitly enabled where the runtime is known to support it.
+            "enable_mkldnn": os.getenv(
+                "PADDLEOCR_ENABLE_MKLDNN", "false" if os.name == "nt" else "true"
+            ).lower()
+            in {"1", "true", "yes", "on"},
         }
 
         if os.getenv("PADDLEOCR_LANG"):

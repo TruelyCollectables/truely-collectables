@@ -34,6 +34,11 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# Local PaddleOCR runtime and downloaded models
+/services/paddleocr-service/.venv/
+/services/paddleocr-service/.paddlex-cache/
+__pycache__/
+
 # vercel
 .vercel
 

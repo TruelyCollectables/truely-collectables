@@ -16,6 +16,9 @@ PADDLEOCR_API_KEY=optional-shared-secret
 PADDLEOCR_TIMEOUT_MS=12000
 ```
 
+On Windows CPU installs, leave `PADDLEOCR_ENABLE_MKLDNN=false` (the service
+does this automatically) to avoid PaddlePaddle's unsupported oneDNN/PIR path.
+
 `PADDLEOCR_API_URL` enables PaddleOCR. `PADDLEOCR_API_KEY` is optional; when set, TCOS sends it as a bearer token. Google Vision can stay configured as a fallback with `GOOGLE_VISION_API_KEY` or `GOOGLE_CLOUD_VISION_API_KEY`.
 
 ## Request
