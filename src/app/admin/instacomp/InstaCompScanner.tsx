@@ -1769,6 +1769,99 @@ const sourceCategoryLabels: Record<SourceCoverageItem["category"], string> = {
   broad: "Broad Web",
 };
 
+const SERIAL_DETAIL_CROP_SPECS = [
+  { label: "top-left", x: 0, y: 0, width: 0.56, height: 0.4 },
+  { label: "top-right", x: 0.44, y: 0, width: 0.56, height: 0.4 },
+  { label: "center", x: 0.2, y: 0.22, width: 0.6, height: 0.56 },
+  { label: "bottom-left", x: 0, y: 0.6, width: 0.56, height: 0.4 },
+  { label: "bottom-right", x: 0.44, y: 0.6, width: 0.56, height: 0.4 },
+  { label: "bottom-band", x: 0, y: 0.64, width: 1, height: 0.36 },
+];
+
+function loadImageElement(file: File): Promise<HTMLImageElement> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const image = new Image();
+
+    image.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(image);
+    };
+    image.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error(`Could not load ${file.name} for detail crops.`));
+    };
+    image.src = url;
+  });
+}
+
+async function canvasToJpegFile(
+  canvas: HTMLCanvasElement,
+  fileName: string
+): Promise<File> {
+  const blob = await new Promise<Blob | null>((resolve) =>
+    canvas.toBlob(resolve, "image/jpeg", 0.94)
+  );
+
+  if (!blob) {
+    throw new Error(`Could not create detail crop ${fileName}.`);
+  }
+
+  return new File([blob], fileName, { type: "image/jpeg" });
+}
+
+async function createSerialDetailCrops(file: File, side: "front" | "back") {
+  try {
+    const image = await loadImageElement(file);
+    const crops: File[] = [];
+    const sourceWidth = image.naturalWidth || image.width;
+    const sourceHeight = image.naturalHeight || image.height;
+
+    if (!sourceWidth || !sourceHeight) return crops;
+
+    for (const spec of SERIAL_DETAIL_CROP_SPECS) {
+      const sourceX = Math.round(sourceWidth * spec.x);
+      const sourceY = Math.round(sourceHeight * spec.y);
+      const cropWidth = Math.max(1, Math.round(sourceWidth * spec.width));
+      const cropHeight = Math.max(1, Math.round(sourceHeight * spec.height));
+      const outputWidth = Math.min(1800, Math.max(cropWidth, 900));
+      const outputHeight = Math.round(outputWidth * (cropHeight / cropWidth));
+      const canvas = document.createElement("canvas");
+      const context = canvas.getContext("2d");
+
+      if (!context) continue;
+
+      canvas.width = outputWidth;
+      canvas.height = outputHeight;
+      context.imageSmoothingEnabled = true;
+      context.imageSmoothingQuality = "high";
+      context.drawImage(
+        image,
+        sourceX,
+        sourceY,
+        cropWidth,
+        cropHeight,
+        0,
+        0,
+        outputWidth,
+        outputHeight
+      );
+
+      crops.push(
+        await canvasToJpegFile(
+          canvas,
+          `${side}-serial-detail-${spec.label}-${file.name || "card"}.jpg`
+        )
+      );
+    }
+
+    return crops;
+  } catch (error) {
+    console.warn("InstaComp detail crop generation failed:", error);
+    return [];
+  }
+}
+
 export default function InstaCompScanner({
   testMode = false,
 }: InstaCompScannerProps) {
@@ -2180,6 +2273,15 @@ export default function InstaCompScanner({
     if (back) {
       formData.append("backImage", back);
     }
+
+    const detailCrops = [
+      ...(await createSerialDetailCrops(front, "front")),
+      ...(back ? await createSerialDetailCrops(back, "back") : []),
+    ].slice(0, 12);
+
+    detailCrops.forEach((crop) => {
+      formData.append("detailImages", crop);
+    });
 
     const response = await fetch("/api/instacomp/scan", {
       method: "POST",

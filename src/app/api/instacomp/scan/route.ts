@@ -70,7 +70,16 @@ async function fileToDataUrl(file: File) {
   return `data:${mime};base64,${buffer.toString("base64")}`;
 }
 
-async function identifyCardWithOpenAI(frontDataUrl: string, backDataUrl?: string) {
+type InstaCompDetailImage = {
+  name: string;
+  dataUrl: string;
+};
+
+async function identifyCardWithOpenAI(
+  frontDataUrl: string,
+  backDataUrl?: string,
+  detailImages: InstaCompDetailImage[] = []
+) {
   if (!OPENAI_API_KEY) {
     throw new Error("Missing OPENAI_API_KEY.");
   }
@@ -141,6 +150,27 @@ Rules:
         url: backDataUrl,
         detail: "high",
       },
+    });
+  }
+
+  if (detailImages.length) {
+    content.push({
+      type: "text",
+      text: "ZOOM DETAIL IMAGES: these are cropped closeups from the same card images. Prioritize these for serial-number OCR, foil stamps, color/parallel names, and tiny printed identifiers. If a serial number is visible in any crop, return it exactly.",
+    });
+
+    detailImages.forEach((image, index) => {
+      content.push({
+        type: "text",
+        text: `ZOOM DETAIL IMAGE ${index + 1}: ${image.name}`,
+      });
+      content.push({
+        type: "image_url",
+        image_url: {
+          url: image.dataUrl,
+          detail: "high",
+        },
+      });
     });
   }
 
@@ -1299,6 +1329,10 @@ export async function POST(req: NextRequest) {
 
     const frontImage = formData.get("frontImage");
     const backImage = formData.get("backImage");
+    const detailImageFiles = formData
+      .getAll("detailImages")
+      .filter((file): file is File => file instanceof File && file.size > 0)
+      .slice(0, 12);
 
     if (!(frontImage instanceof File)) {
       return jsonError("Upload a front card image.", 400);
@@ -1320,7 +1354,24 @@ export async function POST(req: NextRequest) {
       backDataUrl = await fileToDataUrl(backImage);
     }
 
-    const ai = await identifyCardWithOpenAI(frontDataUrl, backDataUrl);
+    const detailImages: InstaCompDetailImage[] = [];
+
+    for (const detailImage of detailImageFiles) {
+      if (!detailImage.type.startsWith("image/")) {
+        return jsonError("Detail crop files must be images.", 400);
+      }
+
+      detailImages.push({
+        name: detailImage.name || "detail-crop.jpg",
+        dataUrl: await fileToDataUrl(detailImage),
+      });
+    }
+
+    const ai = await identifyCardWithOpenAI(
+      frontDataUrl,
+      backDataUrl,
+      detailImages
+    );
 
     const queries = buildInstaCompQueries(ai);
     const links = buildCompLinks(queries.primary);
