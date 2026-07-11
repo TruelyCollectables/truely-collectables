@@ -4285,6 +4285,13 @@ Provider setup packets are available from `/admin/shipping`:
 
 These exports are safe to use for operator setup review because they include secret names and configuration status only, not secret values.
 
+The provider setup packet includes an operator decision:
+
+- `dry_run_only` means provider credential groups appear staged, but TCOS will still only simulate purchases.
+- `needs_provider_setup` means at least one Standard Envelope, parcel-label, or Coverage credential group is missing.
+- `live_blocked` means live purchase mode is enabled while TCOS still has no approved live adapter.
+- `ready_for_live_adapter_build` means the setup packet is clear enough to begin live-adapter implementation work, but not to buy postage yet.
+
 Never mail with references beginning:
 
 ```text

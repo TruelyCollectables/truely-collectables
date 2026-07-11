@@ -4072,6 +4072,13 @@ charge.dispute.funds_reinstated</code></pre>
 <li><code>Setup CSV</code> opens <code>/api/admin/shipping/provider-setup?format=csv</code></li>
 </ul>
 <p>These exports are safe to use for operator setup review because they include secret names and configuration status only, not secret values.</p>
+<p>The provider setup packet includes an operator decision:</p>
+<ul>
+<li><code>dry_run_only</code> means provider credential groups appear staged, but TCOS will still only simulate purchases.</li>
+<li><code>needs_provider_setup</code> means at least one Standard Envelope, parcel-label, or Coverage credential group is missing.</li>
+<li><code>live_blocked</code> means live purchase mode is enabled while TCOS still has no approved live adapter.</li>
+<li><code>ready_for_live_adapter_build</code> means the setup packet is clear enough to begin live-adapter implementation work, but not to buy postage yet.</li>
+</ul>
 <p>Never mail with references beginning:</p>
 <pre><code>IMB-TCOS-DRYRUN-
 USPS-TCOS-DRYRUN-
