@@ -14,6 +14,8 @@ type SellerInventorySummary = {
   draftNeedsWorkCount: number;
   activeCount: number;
   archivedCount: number;
+  instacompDraftCount: number;
+  instacompReadyDraftCount: number;
   totalQuantity: number;
   totalDraftValue: number;
 };
@@ -550,6 +552,8 @@ export default function SellerPage() {
   const [error, setError] = useState("");
   const inventoryNeedsWorkHref = "/seller/inventory?status=draft&readiness=needs_work";
   const inventoryReadyHref = "/seller/inventory?readiness=ready";
+  const inventoryInstaCompHref =
+    "/seller/inventory?status=draft&readiness=ready&source=instacomp";
   const payoutBlockedHref = "/seller/payouts?request=blocked";
   const payoutOpenHref = "/seller/payouts?request=open";
   const ordersActionHref = "/seller/orders?queue=action_required";
@@ -818,6 +822,11 @@ export default function SellerPage() {
           href: inventoryNeedsWorkHref,
           label: "Needs Work Drafts",
         }
+      : (dashboard.inventorySummary?.instacompReadyDraftCount || 0) > 0
+        ? {
+            href: inventoryInstaCompHref,
+            label: "Ready InstaComp Drafts",
+          }
       : (dashboard.inventorySummary?.draftReadyCount || 0) > 0
         ? {
             href: inventoryReadyHref,
@@ -864,7 +873,7 @@ export default function SellerPage() {
       {
         title: "Inventory Workspace",
         detail: dashboard.inventorySummary
-          ? `${dashboard.inventorySummary.draftReadyCount} ready draft(s), ${dashboard.inventorySummary.activeCount} active listing(s).`
+          ? `${dashboard.inventorySummary.draftReadyCount} ready draft(s), ${dashboard.inventorySummary.instacompReadyDraftCount || 0} ready from InstaComp, ${dashboard.inventorySummary.activeCount} active listing(s).`
           : "Manage seller drafts, live listings, and description updates.",
         href: inventoryWorkspaceLink.href,
         label: `Open ${inventoryWorkspaceLink.label}`,
@@ -977,13 +986,21 @@ export default function SellerPage() {
       </section>
 
       <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
-        <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6">
+        <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-7">
           <Metric
             label="Draft Ready"
             value={
               loading
                 ? "..."
                 : String(dashboard.inventorySummary?.draftReadyCount || 0)
+            }
+          />
+          <Metric
+            label="InstaComp Ready"
+            value={
+              loading
+                ? "..."
+                : String(dashboard.inventorySummary?.instacompReadyDraftCount || 0)
             }
           />
           <Metric
@@ -1445,6 +1462,18 @@ export default function SellerPage() {
                 <Info
                   label="Drafts"
                   value={String(dashboard.inventorySummary?.draftCount || 0)}
+                />
+                <Info
+                  label="InstaComp Drafts"
+                  value={String(
+                    dashboard.inventorySummary?.instacompDraftCount || 0,
+                  )}
+                />
+                <Info
+                  label="InstaComp Ready"
+                  value={String(
+                    dashboard.inventorySummary?.instacompReadyDraftCount || 0,
+                  )}
                 />
                 <Info
                   label="Needs Work"
