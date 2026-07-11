@@ -1786,7 +1786,7 @@ export default function InstaCompScanner({
   const [batchCards, setBatchCards] = useState<BatchCard[]>([]);
   const [batchRunning, setBatchRunning] = useState(false);
   const [batchDrafting, setBatchDrafting] = useState(false);
-  const [batchConcurrency, setBatchConcurrency] = useState(1);
+  const [batchConcurrency, setBatchConcurrency] = useState(3);
   const [batchFilter, setBatchFilter] = useState<BatchCardFilter>("all");
   const [batchSort, setBatchSort] = useState<BatchCardSort>("original");
   const [batchSearch, setBatchSearch] = useState("");
@@ -4226,8 +4226,8 @@ export default function InstaCompScanner({
   function handleBatchConcurrencyChange(value: string) {
     const parsed = Number(value);
     const nextConcurrency = Number.isFinite(parsed)
-      ? Math.max(1, Math.min(4, Math.floor(parsed)))
-      : 1;
+      ? Math.max(1, Math.min(6, Math.floor(parsed)))
+      : 3;
 
     setBatchConcurrency(nextConcurrency);
   }
@@ -6097,7 +6097,7 @@ export default function InstaCompScanner({
             <input
               type="number"
               min="1"
-              max="4"
+              max="6"
               value={batchConcurrency}
               disabled={batchRunning || batchDrafting}
               onChange={(event) =>

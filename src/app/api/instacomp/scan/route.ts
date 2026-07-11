@@ -18,7 +18,12 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const OPENAI_MODEL = process.env.OPENAI_MODEL || "gpt-4.1-mini";
+const INSTACOMP_OPENAI_MODEL =
+  process.env.INSTACOMP_OPENAI_MODEL || "gpt-4.1";
+const INSTACOMP_OPENAI_FALLBACK_MODEL =
+  process.env.INSTACOMP_OPENAI_FALLBACK_MODEL ||
+  process.env.OPENAI_MODEL ||
+  "gpt-4.1-mini";
 
 const EBAY_CLIENT_ID = process.env.EBAY_CLIENT_ID;
 const EBAY_CLIENT_SECRET = process.env.EBAY_CLIENT_SECRET;
@@ -113,6 +118,10 @@ Rules:
       */
     },
     {
+      type: "text",
+      text: "FRONT IMAGE: inspect player, product line, rookie logo, color/foil/refractor/prizm/parallel cues, autograph/relic cues, and visible serial stamp.",
+    },
+    {
       type: "image_url",
       image_url: {
         url: frontDataUrl,
@@ -123,6 +132,10 @@ Rules:
 
   if (backDataUrl) {
     content.push({
+      type: "text",
+      text: "BACK IMAGE: inspect copyright year, manufacturer text, set/subset, printed card number, team, odds text, and tiny foil serial-number stamps.",
+    });
+    content.push({
       type: "image_url",
       image_url: {
         url: backDataUrl,
@@ -131,15 +144,22 @@ Rules:
     });
   }
 
-  const response = await fetch("https://api.openai.com/v1/chat/completions", {
+  const scanModels = Array.from(
+    new Set([INSTACOMP_OPENAI_MODEL, INSTACOMP_OPENAI_FALLBACK_MODEL].filter(Boolean))
+  );
+  let response: Response | null = null;
+  let errorText = "";
+
+  for (const model of scanModels) {
+    response = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
     headers: {
       Authorization: `Bearer ${OPENAI_API_KEY}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({
-      model: OPENAI_MODEL,
-      temperature: 0.1,
+      model,
+      temperature: 0,
       response_format: {
         type: "json_schema",
         json_schema: {
@@ -192,10 +212,14 @@ Rules:
         },
       ],
     }),
-  });
+    });
 
-  if (!response.ok) {
-    const errorText = await response.text();
+    if (response.ok) break;
+
+    errorText = await response.text();
+  }
+
+  if (!response?.ok) {
     throw new Error(`OpenAI scan failed: ${errorText}`);
   }
 
