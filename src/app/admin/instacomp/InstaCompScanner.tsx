@@ -1552,6 +1552,19 @@ function draftTitleForCard(card: BatchCard) {
   return card.customTitle.trim() || cardResultTitle(card.result, card.file.name);
 }
 
+function sellerInventoryInstaCompDraftHref(search?: string | null) {
+  const params = new URLSearchParams({
+    status: "draft",
+    source: "instacomp",
+  });
+
+  if (search?.trim()) {
+    params.set("search", search.trim());
+  }
+
+  return `/seller/inventory?${params.toString()}`;
+}
+
 function draftQuantityForCard(card: BatchCard) {
   const parsed = Number(card.customQuantity);
 
@@ -2808,6 +2821,9 @@ export default function InstaCompScanner({
   const batchDraftCreatedCount = batchCards.filter(
     (card) => card.draftStatus === "created"
   ).length;
+  const batchCreatedInstaCompDraftHref = batchDraftCreatedCount
+    ? sellerInventoryInstaCompDraftHref()
+    : null;
   const batchDraftErrorCount = batchCards.filter(
     (card) => card.draftStatus === "error"
   ).length;
@@ -8704,9 +8720,32 @@ export default function InstaCompScanner({
         )}
 
         {batchDraftMessage && (
-          <p style={{ color: "#0f5132", fontWeight: 800 }}>
-            {batchDraftMessage}
-          </p>
+          <div
+            style={{
+              display: "flex",
+              flexWrap: "wrap",
+              gap: 10,
+              alignItems: "center",
+              color: "#0f5132",
+              fontWeight: 800,
+            }}
+          >
+            <span>{batchDraftMessage}</span>
+            {batchCreatedInstaCompDraftHref ? (
+              <a
+                href={batchCreatedInstaCompDraftHref}
+                style={{
+                  ...secondaryButtonStyle,
+                  padding: "8px 10px",
+                  borderColor: "#0f5132",
+                  color: "#0f5132",
+                  textDecoration: "none",
+                }}
+              >
+                Open InstaComp Drafts
+              </a>
+            ) : null}
+          </div>
         )}
 
         {batchCards.length > 0 && (
@@ -10185,7 +10224,7 @@ function BatchCardRow({
   const displayReviewWarnings = reviewWarnings.filter(
     (warning) => !(warning === "No listing price" && missingPriceDraftError)
   );
-  const draftSearch = encodeURIComponent(card.draftSku || title);
+  const draftHref = sellerInventoryInstaCompDraftHref(card.draftSku || title);
   const canSelectForDraft = isDraftableBatchCard(card);
   const canCopyDraftPayload = Boolean(onCopyDraftPayload) && canSelectForDraft;
   const canRetry =
@@ -10469,8 +10508,8 @@ function BatchCardRow({
                 Draft created
                 {card.draftSku ? ` - ${card.draftSku}` : ""}
                 {" - "}
-                <a href={`/seller/inventory?search=${draftSearch}`}>
-                  Open in seller inventory
+                <a href={draftHref}>
+                  Open in InstaComp drafts
                 </a>
               </>
             )}
