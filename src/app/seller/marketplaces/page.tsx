@@ -83,6 +83,11 @@ function buildConnectors(storeDisplayName: string): Connector[] {
 
 const buildQueue: BuildQueueStep[] = [
   {
+    name: "Shipping provider setup go/no-go",
+    status: "completed",
+    detail: "Admin Shipping now exposes a no-secret provider setup checklist, JSON/CSV setup packet, and go/no-go verdict for Standard Envelope, Ground Advantage/Priority, and Coverage before any live adapter work can proceed.",
+  },
+  {
     name: "Seller inventory shipping handoff",
     status: "completed",
     detail: "Seller Inventory now shows the default Standard Envelope or Ground Advantage plan, estimated postage, Coverage requirement, and Coverage type, and ready-row marketplace packets carry those shipping fields for external storefront prep.",
