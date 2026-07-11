@@ -56,6 +56,7 @@ type SellerOrderActivity = {
   fulfillmentStatus: string;
   trackingNumber: string | null;
   carrier: string | null;
+  dryRunShippingBlocked: boolean;
   shippedAt: string | null;
   sellerItemCount: number;
   sellerUnitCount: number;
@@ -766,6 +767,7 @@ export default function SellerOrdersPage() {
         order.fulfillmentStatus,
         order.trackingNumber || "",
         order.carrier || "",
+        order.dryRunShippingBlocked ? "dry-run shipping hidden" : "",
         ...order.items.map((item) => item.title),
         ...order.cashOutRequests.flatMap((request) => [
           request.id,
@@ -1549,16 +1551,24 @@ export default function SellerOrdersPage() {
 
                     <section className="rounded-md border border-neutral-200 bg-neutral-50 p-4">
                       <h4 className="font-black">Shipping</h4>
-                      <p className="mt-2 text-neutral-700">
-                        {order.trackingNumber ? (
+                      {order.dryRunShippingBlocked ? (
+                        <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-950">
+                          TCOS dry-run shipping reference hidden. This is not
+                          seller-visible carrier proof; wait for real
+                          tracking/Coverage before treating fulfillment as final.
+                        </p>
+                      ) : (
+                        <p className="mt-2 text-neutral-700">
+                          {order.trackingNumber ? (
                           <>
                             {order.carrier ? `${order.carrier} ` : ""}
                             {order.trackingNumber}
                           </>
-                        ) : (
-                          "Tracking not saved yet."
-                        )}
-                      </p>
+                          ) : (
+                            "Tracking not saved yet."
+                          )}
+                        </p>
+                      )}
                     </section>
                   </div>
 

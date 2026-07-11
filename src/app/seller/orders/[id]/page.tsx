@@ -18,6 +18,7 @@ type SellerOrderDetail = {
   shippingAmount: number;
   trackingNumber: string | null;
   carrier: string | null;
+  dryRunShippingBlocked: boolean;
   shippedAt: string | null;
   sellerItemCount: number;
   sellerUnitCount: number;
@@ -816,6 +817,15 @@ export default function SellerOrderDetailPage() {
                 </div>
               </div>
 
+              {order.dryRunShippingBlocked ? (
+                <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-950">
+                  TCOS dry-run shipping is hidden on this seller order. It is
+                  not carrier proof, payout proof, or Coverage proof; real
+                  tracking must be recorded before fulfillment is treated as
+                  final.
+                </div>
+              ) : null}
+
               <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
                 <Metric label="Your Items" value={String(order.sellerItemCount)} />
                 <Metric label="Units" value={String(order.sellerUnitCount)} />
@@ -1094,6 +1104,12 @@ export default function SellerOrderDetailPage() {
               <div className="space-y-6">
                 <section className="rounded-md border border-neutral-200 bg-white p-5">
                   <h2 className="text-2xl font-black">Shipping State</h2>
+                  {order.dryRunShippingBlocked ? (
+                    <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-950">
+                      Dry-run shipping reference hidden. Seller view will not
+                      expose simulated tracking/carrier as shipment proof.
+                    </p>
+                  ) : null}
                   <dl className="mt-4 grid grid-cols-1 gap-3 text-sm">
                     <Info
                       label="Method"
@@ -1105,11 +1121,19 @@ export default function SellerOrderDetailPage() {
                     />
                     <Info
                       label="Carrier"
-                      value={order.carrier || "Not saved"}
+                      value={
+                        order.dryRunShippingBlocked
+                          ? "Hidden because shipping is dry-run"
+                          : order.carrier || "Not saved"
+                      }
                     />
                     <Info
                       label="Tracking"
-                      value={order.trackingNumber || "Not saved"}
+                      value={
+                        order.dryRunShippingBlocked
+                          ? "Hidden because shipping is dry-run"
+                          : order.trackingNumber || "Not saved"
+                      }
                     />
                   </dl>
                 </section>
