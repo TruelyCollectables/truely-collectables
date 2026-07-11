@@ -1096,6 +1096,28 @@ export default function SellerInventoryPage() {
         .map((entry) => entry.inventoryItemId),
     [lastBulkInventoryFailures],
   );
+  const bulkFailureBlockerSummary = useMemo(() => {
+    const entries = new Map<string, { count: number; itemIds: string[] }>();
+
+    lastBulkInventoryFailures.forEach((entry) => {
+      (entry.blockers || []).forEach((blocker) => {
+        const label = readinessBlockerLabel(blocker);
+        const current = entries.get(label) || { count: 0, itemIds: [] };
+
+        current.count += 1;
+        current.itemIds.push(entry.inventoryItemId);
+        entries.set(label, current);
+      });
+    });
+
+    return Array.from(entries.entries())
+      .map(([blocker, summary]) => ({
+        blocker,
+        count: summary.count,
+        itemIds: summary.itemIds,
+      }))
+      .sort((left, right) => right.count - left.count);
+  }, [lastBulkInventoryFailures]);
   const bulkPayoutFailureCount = useMemo(
     () =>
       lastBulkInventoryFailures.filter((entry) =>
@@ -2305,6 +2327,30 @@ export default function SellerInventoryPage() {
                     </span>
                   ) : null}
                 </div>
+
+                {bulkFailureBlockerSummary.length > 0 ? (
+                  <div className="mt-3 rounded-md border border-amber-200 bg-white px-3 py-3">
+                    <p className="text-xs font-black uppercase tracking-[0.14em] text-amber-900">
+                      Failure blocker groups
+                    </p>
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {bulkFailureBlockerSummary.slice(0, 5).map((entry) => (
+                        <button
+                          key={entry.blocker}
+                          type="button"
+                          onClick={() => keepBulkInventorySelection(entry.itemIds)}
+                          className="rounded border border-amber-300 bg-amber-50 px-2 py-1 text-[11px] font-black text-amber-900 hover:bg-amber-100"
+                        >
+                          {entry.blocker}: {entry.count}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="mt-2 text-xs font-semibold text-amber-900">
+                      Click a blocker group to keep only those failed rows selected
+                      for cleanup.
+                    </p>
+                  </div>
+                ) : null}
 
                 <div className="mt-3 space-y-2">
                   {lastBulkInventoryFailures.slice(0, 3).map((entry) => {
