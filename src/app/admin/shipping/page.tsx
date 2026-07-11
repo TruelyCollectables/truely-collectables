@@ -1,5 +1,9 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
+import {
+  getShippingProviderAdapterProfile,
+  type ShippingProviderAdapterProfile,
+} from "../../../lib/shipping-provider-adapter";
 import { getShippingProviderReadiness } from "../../../lib/shipping-provider-readiness";
 import { getActiveStoreId } from "../../../lib/stores";
 import { createSupabaseServerClient } from "../../../lib/supabase-server";
@@ -258,10 +262,100 @@ function shippingAdapterProfileDetails(
   };
 }
 
+function credentialSummary(missing: string[]) {
+  return missing.length > 0
+    ? `Missing: ${missing.join(", ")}`
+    : "Credential groups staged";
+}
+
+function ProviderSetupCard({
+  title,
+  profile,
+  mode = "method",
+}: {
+  title: string;
+  profile: ShippingProviderAdapterProfile;
+  mode?: "method" | "coverage";
+}) {
+  const missing =
+    mode === "coverage"
+      ? profile.missingCoverageCredentialKeys
+      : profile.missingCredentialKeys;
+  const configured =
+    mode === "coverage"
+      ? profile.configuredCoverageCredentialKeys
+      : profile.configuredCredentialKeys;
+  const allKeys =
+    mode === "coverage" ? profile.coverageCredentialKeys : profile.credentialKeys;
+
+  return (
+    <article
+      className={`rounded border p-4 ${
+        missing.length === 0
+          ? "border-green-200 bg-green-50 text-green-950"
+          : "border-amber-200 bg-amber-50 text-amber-950"
+      }`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="font-black">{title}</h3>
+          <p className="mt-1 text-xs font-bold uppercase tracking-widest opacity-75">
+            {mode === "coverage" ? "Coverage adapter" : label(profile.adapterKey)}
+          </p>
+        </div>
+        <span className="rounded border border-current px-2 py-1 text-xs font-black uppercase">
+          {missing.length === 0 ? "Ready keys" : "Needs keys"}
+        </span>
+      </div>
+
+      <dl className="mt-3 grid grid-cols-1 gap-2 text-sm">
+        <Info
+          label="Provider"
+          value={mode === "coverage" ? profile.coverageProvider : profile.provider}
+        />
+        {mode === "method" ? (
+          <>
+            <Info label="Service" value={profile.providerService} />
+            <Info label="Carrier" value={profile.carrier} />
+          </>
+        ) : null}
+        <Info label="Purchase mode" value={label(profile.purchaseMode)} />
+        <Info
+          label="Live purchase"
+          value={
+            profile.livePurchaseSupported
+              ? "Supported"
+              : "Blocked until adapter approval"
+          }
+        />
+      </dl>
+
+      <div className="mt-3 rounded border border-current/20 bg-white/60 p-3">
+        <p className="text-xs font-black uppercase tracking-widest">
+          Required secret groups
+        </p>
+        <ul className="mt-2 list-inside list-disc space-y-1 text-xs font-bold">
+          {allKeys.map((key) => (
+            <li key={`${title}-${key}`}>
+              {key}
+              {configured.includes(key) ? " configured" : ""}
+            </li>
+          ))}
+        </ul>
+        <p className="mt-2 text-xs font-black">{credentialSummary(missing)}</p>
+      </div>
+    </article>
+  );
+}
+
 export default async function AdminShippingPage() {
   const supabase = createSupabaseServerClient({ admin: true });
   const storeId = getActiveStoreId();
   const providerReadiness = getShippingProviderReadiness();
+  const standardEnvelopeProfile =
+    getShippingProviderAdapterProfile("STANDARD_ENVELOPE");
+  const groundAdvantageProfile =
+    getShippingProviderAdapterProfile("GROUND_ADVANTAGE");
 
   const [labelsResult, eventsResult, claimsResult] = await Promise.all([
     supabase
@@ -580,6 +674,38 @@ export default async function AdminShippingPage() {
                 <p className="mt-2 text-xs font-bold">{item.action}</p>
               </article>
             ))}
+          </div>
+
+          <div className="mt-6 rounded border border-neutral-200 bg-neutral-50 p-4">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <h3 className="text-xl font-black">Provider Setup Checklist</h3>
+                <p className="mt-1 max-w-3xl text-sm text-neutral-600">
+                  This names the exact provider lanes TCOS can plan today. It
+                  shows secret names only, never secret values. Live purchase
+                  stays blocked until a real provider adapter is approved.
+                </p>
+              </div>
+              <span className="rounded border border-neutral-300 bg-white px-2 py-1 text-xs font-black uppercase text-neutral-700">
+                No live API calls
+              </span>
+            </div>
+
+            <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-3">
+              <ProviderSetupCard
+                title="Standard Envelope / IMb"
+                profile={standardEnvelopeProfile}
+              />
+              <ProviderSetupCard
+                title="Ground Advantage / Priority"
+                profile={groundAdvantageProfile}
+              />
+              <ProviderSetupCard
+                title="Shipment Coverage"
+                profile={standardEnvelopeProfile}
+                mode="coverage"
+              />
+            </div>
           </div>
         </section>
 

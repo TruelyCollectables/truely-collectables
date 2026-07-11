@@ -4059,6 +4059,13 @@ charge.dispute.funds_reinstated</code></pre>
 <h3>Critical live-postage warning</h3>
 <p>TCOS currently has only a dry-run shipping provider adapter. No live postage-provider adapter is approved. Setting <code>TCOS_SHIPPING_PURCHASE_MODE=live</code> deliberately blocks/throws instead of buying postage.</p>
 <p><code>Prepare Label + Coverage Record</code> now saves a shipping adapter profile on the label metadata. <code>/admin/orders/[id]</code> and <code>/admin/shipping</code> display that adapter profile so the operator can see the configured provider, service, carrier, purchase mode, missing credentials, and live-block reason without opening raw metadata.</p>
+<p><code>/admin/shipping</code> also includes a Provider Setup Checklist. Use it to inspect the three setup lanes before any shipping launch decision:</p>
+<ul>
+<li>Standard Envelope / IMb</li>
+<li>Ground Advantage / Priority</li>
+<li>Shipment Coverage</li>
+</ul>
+<p>The checklist displays provider names, service/carrier labels, purchase mode, live-purchase support state, and required secret names. It does not display secret values and it does not call any live provider.</p>
 <p>Never mail with references beginning:</p>
 <pre><code>IMB-TCOS-DRYRUN-
 USPS-TCOS-DRYRUN-

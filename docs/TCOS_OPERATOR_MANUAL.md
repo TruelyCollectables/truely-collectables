@@ -4270,6 +4270,14 @@ TCOS currently has only a dry-run shipping provider adapter. No live postage-pro
 
 `Prepare Label + Coverage Record` now saves a shipping adapter profile on the label metadata. `/admin/orders/[id]` and `/admin/shipping` display that adapter profile so the operator can see the configured provider, service, carrier, purchase mode, missing credentials, and live-block reason without opening raw metadata.
 
+`/admin/shipping` also includes a Provider Setup Checklist. Use it to inspect the three setup lanes before any shipping launch decision:
+
+- Standard Envelope / IMb
+- Ground Advantage / Priority
+- Shipment Coverage
+
+The checklist displays provider names, service/carrier labels, purchase mode, live-purchase support state, and required secret names. It does not display secret values and it does not call any live provider.
+
 Never mail with references beginning:
 
 ```text
