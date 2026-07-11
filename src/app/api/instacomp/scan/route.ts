@@ -1763,6 +1763,13 @@ export async function POST(req: NextRequest) {
       ok: true,
       scanId,
       ai,
+      ocrDiagnostics: {
+        googleVisionConfigured: Boolean(GOOGLE_VISION_API_KEY),
+        provider: externalOcr?.provider || null,
+        checkedImages: externalOcr?.checkedImages || 0,
+        extractedSerialNumber: externalOcr?.serialNumber || null,
+        textExcerpt: externalOcr?.text ? externalOcr.text.slice(0, 1200) : null,
+      },
       searchQuery: queries.primary,
       backupQueries: queries.backupQueries,
       links,

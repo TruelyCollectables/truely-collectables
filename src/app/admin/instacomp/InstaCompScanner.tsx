@@ -78,6 +78,13 @@ type ScanResponse = {
   ok: boolean;
   scanId: string | null;
   ai: AiResult;
+  ocrDiagnostics?: {
+    googleVisionConfigured: boolean;
+    provider: string | null;
+    checkedImages: number;
+    extractedSerialNumber: string | null;
+    textExcerpt: string | null;
+  };
   searchQuery: string;
   backupQueries: string[];
   links: {
@@ -8015,6 +8022,8 @@ export default function InstaCompScanner({
               </p>
             )}
 
+            <OcrDiagnosticsPanel result={result} />
+
             <div
               style={{
                 marginTop: 18,
@@ -8302,6 +8311,92 @@ function ExternalSearchMini({ result }: { result: ScanResponse | null }) {
   );
 }
 
+function OcrDiagnosticsPanel({ result }: { result: ScanResponse }) {
+  const diagnostics = result.ocrDiagnostics;
+
+  if (!diagnostics) return null;
+
+  const active = diagnostics.googleVisionConfigured && diagnostics.provider;
+
+  return (
+    <div
+      style={{
+        marginTop: 14,
+        padding: 14,
+        borderRadius: 10,
+        border: active ? "1px solid #9bd6ac" : "1px solid #e3a2a2",
+        background: active ? "#f0fff4" : "#fff5f5",
+      }}
+    >
+      <h3 style={{ margin: "0 0 10px" }}>OCR Diagnostics</h3>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+          gap: 10,
+        }}
+      >
+        <Info
+          label="Google Vision"
+          value={diagnostics.googleVisionConfigured ? "Configured" : "Missing key"}
+        />
+        <Info label="Provider" value={diagnostics.provider || "None"} />
+        <Info label="Images OCR'd" value={String(diagnostics.checkedImages || 0)} />
+        <Info
+          label="OCR Serial"
+          value={diagnostics.extractedSerialNumber || "None found"}
+        />
+      </div>
+      {!diagnostics.googleVisionConfigured && (
+        <p style={{ margin: "10px 0 0", color: "#8a1f1f", fontWeight: 900 }}>
+          Real OCR is not active. Add GOOGLE_VISION_API_KEY or
+          GOOGLE_CLOUD_VISION_API_KEY, then restart the dev server.
+        </p>
+      )}
+      {diagnostics.textExcerpt && (
+        <pre
+          style={{
+            margin: "12px 0 0",
+            whiteSpace: "pre-wrap",
+            fontSize: 12,
+            lineHeight: 1.45,
+            maxHeight: 180,
+            overflow: "auto",
+            background: "white",
+            border: "1px solid #ddd",
+            borderRadius: 8,
+            padding: 10,
+          }}
+        >
+          {diagnostics.textExcerpt}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+function OcrDiagnosticsMini({ result }: { result: ScanResponse | null }) {
+  const diagnostics = result?.ocrDiagnostics;
+
+  if (!diagnostics) return null;
+
+  if (!diagnostics.googleVisionConfigured) {
+    return (
+      <div style={{ marginTop: 6, color: "#8a1f1f", fontSize: 12, fontWeight: 900 }}>
+        OCR: Google Vision key missing - serial reading is using fallback only
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ marginTop: 6, color: "#0f5132", fontSize: 12, fontWeight: 900 }}>
+      OCR: {diagnostics.provider || "none"} - {diagnostics.checkedImages || 0} image
+      {diagnostics.checkedImages === 1 ? "" : "s"} - serial{" "}
+      {diagnostics.extractedSerialNumber || "not found"}
+    </div>
+  );
+}
+
 function PriceBox({
   label,
   value,
@@ -8495,6 +8590,7 @@ function BatchCardRow({
                 AI title: {aiTitle}
               </div>
             )}
+            <OcrDiagnosticsMini result={card.result} />
             <ExternalSearchMini result={card.result} />
           </div>
 
