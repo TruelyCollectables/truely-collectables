@@ -1769,14 +1769,62 @@ const sourceCategoryLabels: Record<SourceCoverageItem["category"], string> = {
   broad: "Broad Web",
 };
 
-const SERIAL_DETAIL_CROP_SPECS = [
-  { label: "full-card", x: 0, y: 0, width: 1, height: 1 },
-  { label: "top-left", x: 0, y: 0, width: 0.56, height: 0.4 },
-  { label: "top-right", x: 0.44, y: 0, width: 0.56, height: 0.4 },
-  { label: "center", x: 0.2, y: 0.22, width: 0.6, height: 0.56 },
-  { label: "bottom-left", x: 0, y: 0.6, width: 0.56, height: 0.4 },
-  { label: "bottom-right", x: 0.44, y: 0.6, width: 0.56, height: 0.4 },
+type SerialDetailCropSpec = {
+  label: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  enhance?: "contrast" | "invert";
+};
+
+const SERIAL_DETAIL_CROP_SPECS: SerialDetailCropSpec[] = [
+  { label: "top-right-stamp", x: 0.52, y: 0, width: 0.48, height: 0.24 },
+  {
+    label: "top-right-stamp-contrast",
+    x: 0.52,
+    y: 0,
+    width: 0.48,
+    height: 0.24,
+    enhance: "contrast",
+  },
+  {
+    label: "top-right-stamp-inverted",
+    x: 0.52,
+    y: 0,
+    width: 0.48,
+    height: 0.24,
+    enhance: "invert",
+  },
+  { label: "top-band", x: 0, y: 0, width: 1, height: 0.28 },
+  {
+    label: "top-band-contrast",
+    x: 0,
+    y: 0,
+    width: 1,
+    height: 0.28,
+    enhance: "contrast",
+  },
+  { label: "right-edge", x: 0.6, y: 0, width: 0.4, height: 0.58 },
+  {
+    label: "right-edge-contrast",
+    x: 0.6,
+    y: 0,
+    width: 0.4,
+    height: 0.58,
+    enhance: "contrast",
+  },
+  { label: "bottom-right-stamp", x: 0.5, y: 0.58, width: 0.5, height: 0.42 },
+  {
+    label: "bottom-right-stamp-contrast",
+    x: 0.5,
+    y: 0.58,
+    width: 0.5,
+    height: 0.42,
+    enhance: "contrast",
+  },
   { label: "bottom-band", x: 0, y: 0.64, width: 1, height: 0.36 },
+  { label: "full-card", x: 0, y: 0, width: 1, height: 1 },
 ];
 
 function loadImageElement(file: File): Promise<HTMLImageElement> {
@@ -1811,6 +1859,36 @@ async function canvasToJpegFile(
   return new File([blob], fileName, { type: "image/jpeg" });
 }
 
+function enhanceSerialCrop(
+  context: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+  mode: SerialDetailCropSpec["enhance"]
+) {
+  if (!mode) return;
+
+  const imageData = context.getImageData(0, 0, width, height);
+  const data = imageData.data;
+  const contrast = 2.35;
+
+  for (let index = 0; index < data.length; index += 4) {
+    const gray = Math.round(
+      data[index] * 0.299 + data[index + 1] * 0.587 + data[index + 2] * 0.114
+    );
+    const contrasted = Math.max(
+      0,
+      Math.min(255, Math.round((gray - 128) * contrast + 128))
+    );
+    const value = mode === "invert" ? 255 - contrasted : contrasted;
+
+    data[index] = value;
+    data[index + 1] = value;
+    data[index + 2] = value;
+  }
+
+  context.putImageData(imageData, 0, 0);
+}
+
 async function createSerialDetailCrops(file: File, side: "front" | "back") {
   try {
     const image = await loadImageElement(file);
@@ -1825,7 +1903,7 @@ async function createSerialDetailCrops(file: File, side: "front" | "back") {
       const sourceY = Math.round(sourceHeight * spec.y);
       const cropWidth = Math.max(1, Math.round(sourceWidth * spec.width));
       const cropHeight = Math.max(1, Math.round(sourceHeight * spec.height));
-      const outputWidth = Math.min(1800, Math.max(cropWidth, 900));
+      const outputWidth = Math.min(2600, Math.max(cropWidth * 2, 1800));
       const outputHeight = Math.round(outputWidth * (cropHeight / cropWidth));
       const canvas = document.createElement("canvas");
       const context = canvas.getContext("2d");
@@ -1847,6 +1925,7 @@ async function createSerialDetailCrops(file: File, side: "front" | "back") {
         outputWidth,
         outputHeight
       );
+      enhanceSerialCrop(context, outputWidth, outputHeight, spec.enhance);
 
       crops.push(
         await canvasToJpegFile(
@@ -2278,7 +2357,7 @@ export default function InstaCompScanner({
     const detailCrops = [
       ...(await createSerialDetailCrops(front, "front")),
       ...(back ? await createSerialDetailCrops(back, "back") : []),
-    ].slice(0, 14);
+    ].slice(0, 24);
 
     detailCrops.forEach((crop) => {
       formData.append("detailImages", crop);

@@ -299,6 +299,8 @@ What counts:
 - Serial numbering such as 7/25, 07/50, 007/199, 1/1, 1 of 1, one of one.
 - Foil-stamped, embossed, printed, or tiny numbered stamps.
 - Partial denominator-only evidence like /50 should be reported in evidence, but serialNumber must stay null unless the full visible stamp can be read.
+- Many cards place the serial stamp near the front top-right edge. Pay special attention to crops named top-right-stamp, top-band, and right-edge.
+- Enhanced contrast and inverted crops are alternate views of the same stamp area. Use them to read faint silver, gold, or black foil on glossy backgrounds.
 
 Rules:
 - Do not identify the card.
@@ -1524,7 +1526,7 @@ export async function POST(req: NextRequest) {
     const detailImageFiles = formData
       .getAll("detailImages")
       .filter((file): file is File => file instanceof File && file.size > 0)
-      .slice(0, 14);
+      .slice(0, 24);
 
     if (!(frontImage instanceof File)) {
       return jsonError("Upload a front card image.", 400);
@@ -1562,7 +1564,7 @@ export async function POST(req: NextRequest) {
     const baseAi = await identifyCardWithOpenAI(
       frontDataUrl,
       backDataUrl,
-      detailImages
+      detailImages.slice(0, 8)
     );
     const serialOcr = await detectSerialNumberWithOpenAI(
       frontDataUrl,
