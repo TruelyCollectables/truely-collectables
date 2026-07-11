@@ -11,6 +11,7 @@ import {
   buildInstaCompQueries,
   calculateCompStats,
   filterAndRankExactMatches,
+  filterAndRankGuidanceMatches,
   looksLikeBadCompTitle,
 } from "../../../../lib/instacomp";
 import {
@@ -913,18 +914,77 @@ async function getEbayProvider(
       return true;
     });
 
-  const results = filterAndRankExactMatches(rawComps, ai, 3, 55);
+  let results = filterAndRankExactMatches(rawComps, ai, 3, 55);
+  let reviewOnly = false;
+
+  const guidanceResults = filterAndRankGuidanceMatches(rawComps, ai, 5, 30);
+
+  if (results.length) {
+    const exactUrls = new Set(results.map((result) => result.url));
+    results = [
+      ...results,
+      ...guidanceResults.filter((result) => !exactUrls.has(result.url)),
+    ].slice(0, 6);
+  } else {
+    results = guidanceResults;
+    reviewOnly = results.length > 0;
+  }
 
   return {
     source: "ebay_active",
     label: "eBay Active",
     status: results.length ? "live" : "no_matches",
-    message: results.length
+    message: reviewOnly
+      ? "eBay returned review-needed candidates. They are shown but not used for auto-pricing."
+      : results.length
       ? null
       : "No exact raw matches passed the InstaComp™ filter.",
     results,
     searchUrl,
   };
+}
+
+async function getBestEbayProvider(
+  queries: string[],
+  ai: InstaCompAiResult,
+  searchUrl: string
+) {
+  const uniqueQueries = Array.from(
+    new Set(queries.map((item) => item.trim()).filter(Boolean))
+  ).slice(0, 4);
+  let best: InstaCompProviderResult | null = null;
+
+  for (const query of uniqueQueries) {
+    const provider = await getEbayProvider(query, ai, searchUrl);
+
+    if (!best || provider.results.length > best.results.length) {
+      best = {
+        ...provider,
+        message:
+          provider.message ||
+          (query !== uniqueQueries[0] ? `Matched backup query: ${query}` : null),
+      };
+    }
+
+    if (
+      provider.results.some(
+        (result) => !result.flags.includes("not used for pricing")
+      )
+    ) {
+      return provider;
+    }
+  }
+
+  return (
+    best || {
+      source: "ebay_active",
+      label: "eBay Active",
+      status: "no_matches",
+      message: "No eBay query returned usable comps.",
+      results: [],
+      searchUrl,
+    }
+  );
 }
 
 function extractComcPrice(item: any) {
@@ -1070,17 +1130,16 @@ async function getComcProvider(
       });
 
     let results = filterAndRankExactMatches(rawComps, ai, 3, 25);
+    const guidanceResults = filterAndRankGuidanceMatches(rawComps, ai, 5, 25);
 
-    if (!results.length) {
-      results = rawComps
-        .map((comp) => ({
-          ...comp,
-          matchScore: 1,
-          flags: ["review needed", "COMC returned but filter rejected"],
-        }))
-        .filter((comp) => comp.price > 0)
-        .sort((a, b) => a.price - b.price)
-        .slice(0, 3);
+    if (results.length) {
+      const exactUrls = new Set(results.map((result) => result.url));
+      results = [
+        ...results,
+        ...guidanceResults.filter((result) => !exactUrls.has(result.url)),
+      ].slice(0, 6);
+    } else {
+      results = guidanceResults;
     }
 
     return {
@@ -1105,6 +1164,49 @@ async function getComcProvider(
       searchUrl,
     };
   }
+}
+
+async function getBestComcProvider(
+  queries: string[],
+  ai: InstaCompAiResult,
+  searchUrl: string
+) {
+  const uniqueQueries = Array.from(
+    new Set(queries.map((item) => item.trim()).filter(Boolean))
+  ).slice(0, 3);
+  let best: InstaCompProviderResult | null = null;
+
+  for (const query of uniqueQueries) {
+    const provider = await getComcProvider(query, ai, searchUrl);
+
+    if (!best || provider.results.length > best.results.length) {
+      best = {
+        ...provider,
+        message:
+          provider.message ||
+          (query !== uniqueQueries[0] ? `Matched backup query: ${query}` : null),
+      };
+    }
+
+    if (
+      provider.results.some(
+        (result) => !result.flags.includes("not used for pricing")
+      )
+    ) {
+      return provider;
+    }
+  }
+
+  return (
+    best || {
+      source: "comc_active",
+      label: "COMC Active",
+      status: "no_matches",
+      message: "No COMC query returned usable comps.",
+      results: [],
+      searchUrl,
+    }
+  );
 }
 
 function normalizeInstaCompCacheKey(value: string) {
@@ -1860,7 +1962,8 @@ function isRemainingCardComp(comp: InstaCompComp) {
   return (
     comp.sourceCategory === "marketplace" ||
     comp.sourceCategory === "auction" ||
-    comp.sourceCategory === "broad"
+    comp.sourceCategory === "broad" ||
+    comp.sourceCategory === "reference"
   );
 }
 
@@ -2068,7 +2171,7 @@ function persistentScanReviewReasons(payload: {
   if (
     payload.hasBackImage &&
     payload.pairingConfidence !== null &&
-    payload.pairingConfidence < 0.9
+    payload.pairingConfidence < 0.6
   ) {
     reasons.push("front_back_pairing_needs_review");
   }
@@ -2332,11 +2435,12 @@ export async function POST(req: NextRequest) {
 
     const queries = buildInstaCompQueries(ai);
     const links = buildCompLinks(queries.primary);
+    const compQueries = [queries.primary, ...queries.backupQueries];
 
     const [ebayProvider, comcProvider, tcosProvider, externalSearchProvider] =
       await Promise.all([
-        getEbayProvider(queries.primary, ai, links.ebayActiveUrl),
-        getComcProvider(queries.primary, ai, links.comcUrl),
+        getBestEbayProvider(compQueries, ai, links.ebayActiveUrl),
+        getBestComcProvider(compQueries, ai, links.comcUrl),
         getTcosInventoryProvider(queries.primary, ai),
         getExternalSearchProvider(queries.primary, ai, links.broadCardMarketUrl),
       ]);
@@ -2392,6 +2496,9 @@ export async function POST(req: NextRequest) {
         provider: externalOcr?.provider || null,
         checkedImages: externalOcr?.checkedImages || 0,
         extractedSerialNumber: externalOcr?.serialNumber || null,
+        serialVisionCheckedImages: serialOcr?.checkedImages || 0,
+        serialVisionSerialNumber: serialOcr?.serialNumber || ai.serialNumber || null,
+        serialVisionEvidence: serialOcr?.evidence || null,
         textExcerpt: externalOcr?.text ? externalOcr.text.slice(0, 1200) : null,
       },
       searchQuery: queries.primary,

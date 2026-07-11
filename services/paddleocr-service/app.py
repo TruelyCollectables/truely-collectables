@@ -38,11 +38,12 @@ _ocr_concurrency = bounded_env_int("PADDLEOCR_MAX_CONCURRENCY", 1, 1, 4)
 _ocr_semaphore = threading.BoundedSemaphore(_ocr_concurrency)
 _ocr_init_lock = threading.Lock()
 _max_prediction_images = bounded_env_int(
-    "PADDLEOCR_MAX_PREDICTION_IMAGES", 14, 2, 24
+    "PADDLEOCR_MAX_PREDICTION_IMAGES", 10, 2, 24
 )
 _max_decoded_pixels = bounded_env_int(
     "PADDLEOCR_MAX_DECODED_PIXELS", 40_000_000, 1_000_000, 100_000_000
 )
+_max_full_ocr_side = bounded_env_int("PADDLEOCR_MAX_FULL_OCR_SIDE", 1800, 800, 3600)
 Image.MAX_IMAGE_PIXELS = _max_decoded_pixels
 
 SERIAL_CROP_SPECS: tuple[tuple[str, float, float, float, float], ...] = (
@@ -169,6 +170,7 @@ def build_serial_crops(
     image_name: str,
     temp_dir: Path,
     available_slots: int,
+    crop_specs: tuple[tuple[str, float, float, float, float], ...] = SERIAL_CROP_SPECS,
 ) -> list[tuple[str, Path]]:
     if available_slots <= 0:
         return []
@@ -183,7 +185,7 @@ def build_serial_crops(
             if not source_width or not source_height:
                 return crops
 
-            for label, left, top, right, bottom in SERIAL_CROP_SPECS:
+            for label, left, top, right, bottom in crop_specs:
                 if len(crops) >= available_slots:
                     break
 
@@ -220,6 +222,29 @@ def build_serial_crops(
         return []
 
     return crops
+
+
+def build_full_ocr_image(image_path: Path, image_name: str, temp_dir: Path) -> Path:
+    output_path = temp_dir / f"full-ocr-{Path(image_name).stem or 'card'}.jpg"
+
+    with Image.open(image_path) as source:
+        source = ImageOps.exif_transpose(source).convert("RGB")
+        width, height = source.size
+        longest_side = max(width, height)
+
+        if longest_side > _max_full_ocr_side:
+            scale = _max_full_ocr_side / longest_side
+            source = source.resize(
+                (
+                    max(1, round(width * scale)),
+                    max(1, round(height * scale)),
+                ),
+                Image.Resampling.LANCZOS,
+            )
+
+        source.save(output_path, format="JPEG", quality=90, optimize=True)
+
+    return output_path
 
 
 def validate_decoded_image(image_path: Path, image_name: str) -> None:
@@ -315,7 +340,8 @@ def ocr_endpoint(
 
     with tempfile.TemporaryDirectory(prefix="tcos-paddleocr-") as temp_dir:
         temp_path = Path(temp_dir)
-        prediction_images: list[tuple[str, Path]] = []
+        source_images: list[tuple[str, Path]] = []
+        prediction_images: list[tuple[str, Path, str]] = []
 
         for index, image in enumerate(
             request.images[:_max_prediction_images], start=1
@@ -324,53 +350,80 @@ def ocr_endpoint(
             image_path = temp_path / f"input-{index:02d}{suffix}"
             image_path.write_bytes(decode_data_url(image))
             validate_decoded_image(image_path, image.name)
-            prediction_images.append((image.name, image_path))
+            source_images.append((image.name, image_path))
+            prediction_images.append(
+                (
+                    image.name,
+                    build_full_ocr_image(image_path, image.name, temp_path),
+                    "full",
+                )
+            )
 
         # Persistent scan jobs upload only the two full card-side derivatives. Build
         # targeted OCR views inside the OCR service so image bytes never need
         # to be relayed through a large Next.js multipart request.
-        if len(prediction_images) <= 2:
-            originals = list(prediction_images)
+        if len(source_images) <= 2:
+            for crop_spec in SERIAL_CROP_SPECS:
+                for image_name, image_path in source_images:
+                    if len(prediction_images) >= _max_prediction_images:
+                        break
 
-            for image_name, image_path in originals:
-                prediction_images.extend(
-                    build_serial_crops(
-                        image_path,
-                        image_name,
-                        temp_path,
-                        _max_prediction_images - len(prediction_images),
+                    prediction_images.extend(
+                        (
+                            crop_name,
+                            crop_path,
+                            "serial_crop",
+                        )
+                        for crop_name, crop_path in build_serial_crops(
+                            image_path,
+                            image_name,
+                            temp_path,
+                            1,
+                            (crop_spec,),
+                        )
                     )
-                )
 
                 if len(prediction_images) >= _max_prediction_images:
                     break
 
         with _ocr_semaphore:
             ocr = get_ocr()
+            serial_number: str | None = None
 
-            for image_name, image_path in prediction_images:
+            for index, (image_name, image_path, image_kind) in enumerate(
+                prediction_images
+            ):
                 prediction = ocr.predict(str(image_path))
                 texts = [
                     normalize_text(text) for text in collect_text_values(prediction)
                 ]
                 texts = [text for text in texts if text]
                 image_text = normalize_text("\n".join(texts))
+                image_serial_number = extract_serial_number(image_text)
+                if image_serial_number and serial_number is None:
+                    serial_number = image_serial_number
 
                 all_texts.append(image_text)
                 image_results.append(
                     {
                         "name": image_name,
                         "text": image_text,
-                        "serialNumber": extract_serial_number(image_text),
+                        "serialNumber": image_serial_number,
                     }
                 )
+
+                remaining_full_images = any(
+                    kind == "full" for _, _, kind in prediction_images[index + 1 :]
+                )
+                if serial_number and not remaining_full_images:
+                    break
 
     full_text = normalize_text("\n".join(all_texts))
 
     return {
         "provider": "paddleocr",
         "text": full_text,
-        "serialNumber": extract_serial_number(full_text),
-        "checkedImages": len(prediction_images),
+        "serialNumber": serial_number or extract_serial_number(full_text),
+        "checkedImages": len(image_results),
         "images": image_results,
     }

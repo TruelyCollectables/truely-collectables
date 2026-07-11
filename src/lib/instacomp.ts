@@ -178,6 +178,42 @@ function serialNumberParts(value: string | null | undefined) {
   };
 }
 
+function serialRunSearchToken(value: string | null | undefined) {
+  const serial = serialNumberParts(value);
+
+  if (serial.numerator === "1" && serial.denominator === "1") return "1/1";
+  if (serial.denominator) return `/${serial.denominator}`;
+
+  return "";
+}
+
+function serialRunDenominator(value: string | null | undefined) {
+  const serial = serialNumberParts(value);
+  const denominator = Number(serial.denominator);
+
+  return Number.isFinite(denominator) && denominator > 0 ? denominator : null;
+}
+
+function serialRunDenominatorFromTitle(title: string) {
+  const normalized = normalizeText(title)
+    .replace(/\bone\s+of\s+one\b/g, "1/1")
+    .replace(/\b1\s+of\s+1\b/g, "1/1");
+  const match =
+    normalized.match(/(?:\d+\s*\/\s*|\/\s*|of\s+)(\d{1,4})(?!\d)/i) ||
+    normalized.match(/numbered\s*(?:to|\/)\s*(\d{1,4})(?!\d)/i);
+  const denominator = match ? Number(match[1]) : NaN;
+
+  return Number.isFinite(denominator) && denominator > 0 ? denominator : null;
+}
+
+function serialRunAdjustmentFactor(targetDenominator: number, compDenominator: number) {
+  if (targetDenominator <= 0 || compDenominator <= 0) return 1;
+
+  const raw = Math.sqrt(compDenominator / targetDenominator);
+
+  return Math.max(0.4, Math.min(3, raw));
+}
+
 function isBaseParallel(value: string | null | undefined) {
   const normalized = normalizeText(value);
   return normalized === "base" || normalized === "base card";
@@ -206,8 +242,7 @@ function parallelTokens(value: string | null | undefined) {
 }
 
 export function buildInstaCompQueries(ai: InstaCompAiResult) {
-  const serial = serialNumberParts(ai.serialNumber);
-  const serialDenominator = serial.denominator ? `/${serial.denominator}` : "";
+  const serialRun = serialRunSearchToken(ai.serialNumber);
 
   const primaryParts = [
     cleanPart(ai.year),
@@ -217,7 +252,7 @@ export function buildInstaCompQueries(ai: InstaCompAiResult) {
     ai.isRookie ? "rookie" : "",
     cleanPart(ai.parallel),
     ai.cardNumber ? `#${cleanPart(ai.cardNumber).replace(/^#/, "")}` : "",
-    cleanPart(ai.serialNumber),
+    serialRun,
   ].filter(Boolean);
 
   const primary = primaryParts.join(" ").replace(/\s+/g, " ").trim();
@@ -236,7 +271,7 @@ export function buildInstaCompQueries(ai: InstaCompAiResult) {
     [
       cleanPart(ai.player),
       cleanPart(ai.parallel),
-      serialDenominator,
+      serialRun,
       ai.cardNumber ? `#${cleanPart(ai.cardNumber).replace(/^#/, "")}` : "",
     ]
       .filter(Boolean)
@@ -248,7 +283,7 @@ export function buildInstaCompQueries(ai: InstaCompAiResult) {
       cleanPart(ai.year),
       cleanPart(ai.brand),
       cleanPart(ai.parallel),
-      serialDenominator,
+      serialRun,
     ]
       .filter(Boolean)
       .join(" ")
@@ -545,6 +580,8 @@ export function filterAndRankExactMatches(
   limit = 3,
   minScore = 45
 ): InstaCompComp[] {
+  const targetDenominator = serialRunDenominator(ai.serialNumber);
+
   return comps
     .map((comp) => {
       const scored = scoreCompMatch(comp.title, ai);
@@ -553,6 +590,63 @@ export function filterAndRankExactMatches(
         ...comp,
         matchScore: scored.score,
         flags: scored.flags,
+      };
+    })
+    .filter((comp) => comp.price > 0)
+    .filter((comp) => !comp.flags.includes("excluded"))
+    .filter((comp) => {
+      if (!targetDenominator) return true;
+
+      return serialRunDenominatorFromTitle(comp.title) === targetDenominator;
+    })
+    .filter((comp) => comp.matchScore >= minScore)
+    .sort((a, b) => {
+      if (b.matchScore !== a.matchScore) return b.matchScore - a.matchScore;
+      return a.price - b.price;
+    })
+    .slice(0, limit);
+}
+
+export function filterAndRankGuidanceMatches(
+  comps: Omit<InstaCompComp, "matchScore" | "flags">[],
+  ai: InstaCompAiResult,
+  limit = 8,
+  minScore = 30
+): InstaCompComp[] {
+  const targetDenominator = serialRunDenominator(ai.serialNumber);
+
+  return comps
+    .map((comp) => {
+      const scored = scoreCompMatch(comp.title, ai);
+      const flags = new Set(scored.flags);
+      flags.add("guidance comp");
+      const compDenominator = serialRunDenominatorFromTitle(comp.title);
+      const canAdjustForPricing = Boolean(targetDenominator && compDenominator);
+      let price = comp.price;
+      let sourceCategory: InstaCompSourceCategory = "reference";
+
+      if (canAdjustForPricing && targetDenominator && compDenominator) {
+        const factor = serialRunAdjustmentFactor(
+          targetDenominator,
+          compDenominator
+        );
+        price = roundMoney(comp.price * factor) || comp.price;
+        sourceCategory = "pricing";
+        flags.add(
+          compDenominator === targetDenominator
+            ? `same print run /${targetDenominator}`
+            : `serial adjusted from /${compDenominator} to /${targetDenominator}`
+        );
+      } else {
+        flags.add("not used for pricing");
+      }
+
+      return {
+        ...comp,
+        price,
+        sourceCategory,
+        matchScore: scored.score,
+        flags: Array.from(flags),
       };
     })
     .filter((comp) => comp.price > 0)

@@ -82,6 +82,9 @@ type ScanResponse = {
     provider: string | null;
     checkedImages: number;
     extractedSerialNumber: string | null;
+    serialVisionCheckedImages?: number | null;
+    serialVisionSerialNumber?: string | null;
+    serialVisionEvidence?: string | null;
     textExcerpt: string | null;
   };
   searchQuery: string;
@@ -1264,6 +1267,20 @@ function topRemainingMatches(result: ScanResponse | null) {
   );
 }
 
+function visibleMarketplaceMatches(result: ScanResponse) {
+  return result.remainingCards?.length
+    ? result.remainingCards
+    : result.activeComps || [];
+}
+
+function compGuidanceLabel(comp: ActiveComp) {
+  return comp.flags?.find(
+    (flag) =>
+      flag.startsWith("serial adjusted") ||
+      flag.startsWith("same print run")
+  );
+}
+
 function batchExportRows(items: BatchCardViewItem[]) {
   return items.map(({ card, index }, exportIndex) => {
     const result = card.result;
@@ -1440,6 +1457,7 @@ function shortDateTime(value: string | null | undefined) {
 
 function cardResultTitle(result: ScanResponse | null, fallback: string) {
   if (!result) return fallback;
+  const serialRun = serialRunLabel(result.ai.serialNumber);
 
   return (
     [
@@ -1449,10 +1467,27 @@ function cardResultTitle(result: ScanResponse | null, fallback: string) {
       result.ai.player,
       result.ai.parallel,
       result.ai.cardNumber ? `#${result.ai.cardNumber}` : null,
+      serialRun,
     ]
       .filter(Boolean)
       .join(" ") || fallback
   );
+}
+
+function serialRunLabel(value: string | null | undefined) {
+  const match = String(value || "").match(/(\d+)\s*\/\s*(\d+)/);
+  if (!match) return null;
+
+  const numerator = Number(match[1]);
+  const denominator = Number(match[2]);
+
+  if (!Number.isFinite(numerator) || !Number.isFinite(denominator)) {
+    return null;
+  }
+
+  if (numerator === 1 && denominator === 1) return "1/1";
+
+  return `/${denominator}`;
 }
 
 function draftTitleForCard(card: BatchCard) {
@@ -1510,6 +1545,11 @@ function draftReadinessErrors(card: BatchCard) {
 
 function batchCardReviewWarnings(card: BatchCard) {
   const warnings: string[] = [];
+  const hasPairingReview =
+    card.backFile &&
+    card.pairingConfidence !== null &&
+    card.pairingConfidence !== undefined &&
+    card.pairingConfidence < 0.6;
 
   if (card.status === "error") {
     warnings.push("Scan failed");
@@ -1523,12 +1563,7 @@ function batchCardReviewWarnings(card: BatchCard) {
     warnings.push("Front only");
   }
 
-  if (
-    card.backFile &&
-    card.pairingConfidence !== null &&
-    card.pairingConfidence !== undefined &&
-    card.pairingConfidence < 0.9
-  ) {
+  if (hasPairingReview) {
     warnings.push("Front/back pairing needs review");
   }
 
@@ -1540,11 +1575,20 @@ function batchCardReviewWarnings(card: BatchCard) {
     warnings.push(`Low confidence ${confidenceLabel(card.result.ai.confidence)}`);
   }
 
+  const usableCompCount =
+    (card.result.marketValueComps?.length || 0) +
+    (card.result.soldComps?.length || 0);
+
   if (card.result.queue?.status === "review_required") {
     warnings.push(
-      ...card.result.queue.reviewReasons.map((reason) =>
-        `Queue review: ${reason.replaceAll("_", " ")}`
-      )
+      ...card.result.queue.reviewReasons
+        .filter(
+          (reason) =>
+            (reason !== "front_back_pairing_needs_review" ||
+              hasPairingReview) &&
+            reason !== "missing_usable_comps"
+        )
+        .map((reason) => queueReviewReasonLabel(reason))
     );
   }
 
@@ -1552,19 +1596,31 @@ function batchCardReviewWarnings(card: BatchCard) {
     warnings.push("No listing price");
   }
 
-  if (!card.marketPrice || card.marketPrice <= 0) {
+  if (usableCompCount > 0 && (!card.marketPrice || card.marketPrice <= 0)) {
     warnings.push("No market price");
   }
-
-  const usableCompCount =
-    (card.result.marketValueComps?.length || 0) +
-    (card.result.soldComps?.length || 0);
 
   if (!usableCompCount) {
     warnings.push("No usable comps");
   }
 
-  return warnings;
+  return Array.from(new Set(warnings));
+}
+
+function queueReviewReasonLabel(reason: string) {
+  const labels: Record<string, string> = {
+    low_identification_confidence: "Low identification confidence",
+    missing_player_or_subject: "Missing player or subject",
+    missing_year: "Missing year",
+    missing_brand_and_set: "Missing brand/set",
+    missing_card_number: "Missing card number",
+    parallel_needs_review: "Parallel needs review",
+    front_only_scan: "Front only",
+    front_back_pairing_needs_review: "Front/back pairing needs review",
+    missing_usable_comps: "Missing usable comps",
+  };
+
+  return labels[reason] || reason.replaceAll("_", " ");
 }
 
 function isDraftableBatchCard(card: BatchCard) {
@@ -1878,7 +1934,7 @@ const sourceCategoryLabels: Record<SourceCoverageItem["category"], string> = {
   sold: "Sold Comps",
   marketplace: "Marketplaces",
   auction: "Auction Houses",
-  pricing: "Pricing Tools",
+  pricing: "Pricing Guidance",
   reference: "Checklist / Reference",
   broad: "Broad Web",
 };
@@ -3132,7 +3188,7 @@ export default function InstaCompScanner({
                         backType: optimized.back.type || "image/jpeg",
                         backSize: optimized.back.size,
                         backSha256: optimized.backSha256,
-                        pairingConfidence: card.pairingConfidence ?? 0.65,
+                        pairingConfidence: card.pairingConfidence ?? 1,
                       }
                     : {}),
                 };
@@ -5948,7 +6004,7 @@ export default function InstaCompScanner({
 
     const card = batchCards.find((row) => row.id === cardId);
 
-    if (!card || card.status !== "error") return;
+    if (!card || (card.status !== "error" && card.status !== "done")) return;
 
     setBatchError(null);
     setBatchDraftMessage(null);
@@ -5973,6 +6029,15 @@ export default function InstaCompScanner({
         return;
       }
     }
+
+    updateBatchCard(card.id, (current) => ({
+      ...current,
+      status: "queued",
+      error: null,
+      result: null,
+      marketPrice: null,
+      customPrice: "",
+    }));
 
     batchPauseRequestedRef.current = false;
     setBatchRunning(true);
@@ -9564,13 +9629,13 @@ export default function InstaCompScanner({
               background: "white",
             }}
           >
-            <h2 style={{ marginTop: 0 }}>Best Remaining Marketplace Matches</h2>
+            <h2 style={{ marginTop: 0 }}>Comps and Price Guidance</h2>
 
-            {!(result.remainingCards || result.activeComps).length ? (
-              <p>No live marketplace matches returned yet.</p>
+            {!visibleMarketplaceMatches(result).length ? (
+              <p>No live comps or guidance matches returned yet.</p>
             ) : (
               <div style={{ display: "grid", gap: 12 }}>
-                {(result.remainingCards || result.activeComps).map((comp, index) => (
+                {visibleMarketplaceMatches(result).map((comp, index) => (
                   <a
                     key={`${comp.url}-${index}`}
                     href={comp.url}
@@ -9617,6 +9682,14 @@ export default function InstaCompScanner({
                         {comp.sourceLabel || comp.source} Â·{" "}
                         {sourceCategoryLabels[comp.sourceCategory]} Â· Match{" "}
                         {comp.matchScore}
+                        {comp.flags?.includes("guidance comp")
+                          ? comp.sourceCategory === "reference"
+                            ? " - guidance only"
+                            : " - pricing guidance"
+                          : ""}
+                        {compGuidanceLabel(comp)
+                          ? ` - ${compGuidanceLabel(comp)}`
+                          : ""}
                       </small>
                     </div>
 
@@ -9725,6 +9798,9 @@ function OcrDiagnosticsPanel({ result }: { result: ScanResponse }) {
   const providerConfigured =
     diagnostics.paddleOcrConfigured || diagnostics.googleVisionConfigured;
   const active = providerConfigured && diagnostics.provider;
+  const serialVisionSerial =
+    diagnostics.serialVisionSerialNumber || result.ai.serialNumber || null;
+  const serialVisionImages = diagnostics.serialVisionCheckedImages || 0;
 
   return (
     <div
@@ -9760,6 +9836,16 @@ function OcrDiagnosticsPanel({ result }: { result: ScanResponse }) {
           label="OCR Serial"
           value={diagnostics.extractedSerialNumber || "None found"}
         />
+        <Info
+          label="Vision Serial"
+          value={
+            serialVisionSerial
+              ? `${serialVisionSerial}${
+                  serialVisionImages ? ` (${serialVisionImages} checked)` : ""
+                }`
+              : "None found"
+          }
+        />
       </div>
       {!providerConfigured && (
         <p style={{ margin: "10px 0 0", color: "#8a1f1f", fontWeight: 900 }}>
@@ -9769,9 +9855,14 @@ function OcrDiagnosticsPanel({ result }: { result: ScanResponse }) {
         </p>
       )}
       {providerConfigured && !diagnostics.provider && (
-        <p style={{ margin: "10px 0 0", color: "#8a1f1f", fontWeight: 900 }}>
-          OCR is configured but did not return usable text. Check the OCR service
-          logs, URL, key, and image payload size.
+        <p style={{ margin: "10px 0 0", color: "#7a4f00", fontWeight: 900 }}>
+          Paddle/Google OCR did not return usable text for this saved scan.
+          Serial vision is tracked separately above.
+        </p>
+      )}
+      {diagnostics.serialVisionEvidence && (
+        <p style={{ margin: "10px 0 0", color: "#555", fontWeight: 800 }}>
+          Serial evidence: {diagnostics.serialVisionEvidence}
         </p>
       )}
       {diagnostics.textExcerpt && (
@@ -9799,15 +9890,37 @@ function OcrDiagnosticsPanel({ result }: { result: ScanResponse }) {
 function OcrDiagnosticsMini({ result }: { result: ScanResponse | null }) {
   const diagnostics = result?.ocrDiagnostics;
 
-  if (!diagnostics) return null;
+  if (!diagnostics) {
+    if (result?.ai.serialNumber) {
+      return (
+        <div style={{ marginTop: 6, color: "#0f5132", fontSize: 12, fontWeight: 900 }}>
+          Serial vision: found {result.ai.serialNumber}
+        </div>
+      );
+    }
+
+    return null;
+  }
 
   const providerConfigured =
     diagnostics.paddleOcrConfigured || diagnostics.googleVisionConfigured;
+  const serialVisionSerial =
+    diagnostics.serialVisionSerialNumber || result?.ai.serialNumber || null;
 
   if (!providerConfigured) {
     return (
       <div style={{ marginTop: 6, color: "#8a1f1f", fontSize: 12, fontWeight: 900 }}>
-        OCR: PaddleOCR/Google not configured - serial reading is using fallback only
+        OCR: PaddleOCR/Google not configured - serial vision{" "}
+        {serialVisionSerial ? `found ${serialVisionSerial}` : "did not find a serial"}
+      </div>
+    );
+  }
+
+  if (!diagnostics.provider) {
+    return (
+      <div style={{ marginTop: 6, color: "#7a4f00", fontSize: 12, fontWeight: 900 }}>
+        OCR: no Paddle/Google text - serial vision{" "}
+        {serialVisionSerial ? `found ${serialVisionSerial}` : "did not find a serial"}
       </div>
     );
   }
@@ -9816,7 +9929,10 @@ function OcrDiagnosticsMini({ result }: { result: ScanResponse | null }) {
     <div style={{ marginTop: 6, color: "#0f5132", fontSize: 12, fontWeight: 900 }}>
       OCR: {diagnostics.provider || "none"} - {diagnostics.checkedImages || 0} image
       {diagnostics.checkedImages === 1 ? "" : "s"} - serial{" "}
-      {diagnostics.extractedSerialNumber || "not found"}
+      {diagnostics.extractedSerialNumber || serialVisionSerial || "not found"}
+      {!diagnostics.extractedSerialNumber && serialVisionSerial
+        ? " by vision"
+        : ""}
     </div>
   );
 }
@@ -9878,6 +9994,7 @@ function BatchCardRow({
 }) {
   const title = draftTitleForCard(card);
   const aiTitle = cardResultTitle(card.result, card.file.name);
+  const serialNumber = card.result?.ai.serialNumber || null;
   const confidence = card.result
     ? confidenceLabel(card.result.ai.confidence)
     : "Pending";
@@ -9890,7 +10007,8 @@ function BatchCardRow({
   const draftSearch = encodeURIComponent(card.draftSku || title);
   const canSelectForDraft = isDraftableBatchCard(card);
   const canCopyDraftPayload = Boolean(onCopyDraftPayload) && canSelectForDraft;
-  const canRetry = card.status === "error" && !batchBusy;
+  const canRetry =
+    (card.status === "error" || card.status === "done") && !batchBusy;
   const canRemove = !batchBusy && card.draftStatus !== "drafting";
   const rowBorder = draftErrors.length
     ? "1px solid #e3a2a2"
@@ -9966,6 +10084,32 @@ function BatchCardRow({
                 ? ` - #${card.result.ai.cardNumber}`
                 : ""}
             </small>
+            {card.result ? (
+              <div
+                style={{
+                  display: "flex",
+                  flexWrap: "wrap",
+                  gap: 6,
+                  marginTop: 8,
+                }}
+              >
+                <span
+                  style={{
+                    border: serialNumber
+                      ? "1px solid #047857"
+                      : "1px solid #d1d5db",
+                    borderRadius: 999,
+                    background: serialNumber ? "#ecfdf5" : "white",
+                    color: serialNumber ? "#065f46" : "#6b7280",
+                    fontSize: 12,
+                    fontWeight: 900,
+                    padding: "3px 8px",
+                  }}
+                >
+                  Serial #: {serialNumber || "none detected"}
+                </span>
+              </div>
+            ) : null}
             {(draftErrors.length > 0 || displayReviewWarnings.length > 0) && (
               <div
                 style={{
