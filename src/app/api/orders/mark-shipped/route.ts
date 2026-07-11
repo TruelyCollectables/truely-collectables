@@ -69,8 +69,14 @@ function nestedRecord(record: Record<string, unknown> | null, key: string) {
     : null;
 }
 
-function isDryRunTracking(value: string | null | undefined) {
-  return Boolean(value?.includes("TCOS-DRYRUN"));
+function isDryRunReference(value: string | null | undefined) {
+  const normalized = String(value || "").trim().toLowerCase();
+
+  return (
+    normalized.includes("tcos-dryrun") ||
+    normalized.startsWith("dryrun-") ||
+    normalized.includes("tcos dry-run")
+  );
 }
 
 function isDryRunLabel(label: ActiveShippingLabel | null | undefined) {
@@ -84,10 +90,10 @@ function isDryRunLabel(label: ActiveShippingLabel | null | undefined) {
     latestAttempt?.status === "dry_run_purchased" ||
     purchaseResult?.mode === "dry_run" ||
     providerPayload?.dry_run === true ||
-    label.provider_label_id?.startsWith("dryrun-") ||
-    label.provider_shipment_id?.startsWith("dryrun-") ||
-    label.coverage_policy_id?.startsWith("dryrun-") ||
-    isDryRunTracking(label.tracking_number)
+    isDryRunReference(label.provider_label_id) ||
+    isDryRunReference(label.provider_shipment_id) ||
+    isDryRunReference(label.coverage_policy_id) ||
+    isDryRunReference(label.tracking_number)
   );
 }
 
@@ -147,7 +153,7 @@ export async function POST(req: Request) {
       );
     }
 
-    if (isDryRunTracking(order.tracking_number)) {
+    if (isDryRunReference(order.tracking_number)) {
       return NextResponse.json(
         {
           error:

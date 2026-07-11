@@ -4331,6 +4331,8 @@ The shipping Coverage policy save endpoint also rejects dry-run policy IDs and r
 
 The tracking save endpoint also rejects dry-run tracking references and refuses to save tracking while the active shipping label is still a dry-run simulation. Save tracking only after a real external label has been recorded or the dry-run record has been voided.
 
+The mark-shipped endpoint uses the same broad dry-run reference detection before changing fulfillment status or sending shipment email.
+
 ### Real shipment runbook
 
 1. Open `/admin/orders/[id]`.
