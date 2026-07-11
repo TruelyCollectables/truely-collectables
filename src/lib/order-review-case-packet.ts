@@ -8,6 +8,7 @@ import {
   getStoreSettings,
   type StoreOperationalSettings,
 } from "./store-settings";
+import { isDryRunShippingReference } from "./shipping-dry-run";
 
 type CaseOrderItem = {
   id: number;
@@ -416,6 +417,7 @@ export function buildOrderReviewCasePacketText(
     (sum, row) => sum + Number(row.platform_fee_amount || 0),
     0,
   );
+  const dryRunShipping = isDryRunShippingReference(order.tracking_number);
   const lines: string[] = [];
 
   lines.push("ORDER REVIEW CASE PACKET");
@@ -480,9 +482,21 @@ export function buildOrderReviewCasePacketText(
   lines.push(line("Postal Code", order.shipping_postal_code));
   lines.push(line("Country", order.shipping_country));
   lines.push(line("Shipping Method", order.shipping_name || order.shipping_method));
-  lines.push(line("Carrier", order.carrier));
-  lines.push(line("Tracking Number", order.tracking_number));
-  lines.push(line("Shipped At", order.shipped_at));
+  if (dryRunShipping) {
+    lines.push(
+      line(
+        "Shipping Evidence Warning",
+        "TCOS dry-run tracking reference hidden; do not use as carrier, dispute, or Coverage proof.",
+      ),
+    );
+    lines.push(line("Carrier", "Hidden because tracking is dry-run"));
+    lines.push(line("Tracking Number", "Hidden because tracking is dry-run"));
+    lines.push(line("Shipped At", "Not used as evidence while tracking is dry-run"));
+  } else {
+    lines.push(line("Carrier", order.carrier));
+    lines.push(line("Tracking Number", order.tracking_number));
+    lines.push(line("Shipped At", order.shipped_at));
+  }
   lines.push("");
 
   lines.push(...section("TERMS AND IDENTITY"));

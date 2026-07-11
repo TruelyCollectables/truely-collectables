@@ -5,6 +5,7 @@ import {
   buildAndSaveOrderReviewCasePacket,
   orderReviewCasePacketFilename,
 } from "./order-review-case-packet";
+import { isDryRunShippingReference } from "./shipping-dry-run";
 
 type ProviderEvidenceStatus =
   | "not_staged"
@@ -46,6 +47,7 @@ function evidencePayload(
   stripeFileId: string,
 ): Stripe.DisputeUpdateParams.Evidence {
   const { order, reviewCase } = packet.packetData;
+  const dryRunShipping = isDryRunShippingReference(order.tracking_number);
   const itemDescription = (order.order_items || [])
     .map((item) => `${item.quantity || 0} x ${item.title || `Item ${item.id}`}`)
     .join("; ");
@@ -65,7 +67,9 @@ function evidencePayload(
     `Order placed ${order.created_at || "date not saved"}.`,
     `Total ${Number(order.total || 0).toFixed(2)}.`,
     itemDescription ? `Products: ${itemDescription}.` : "Products are documented in the attached packet.",
-    order.tracking_number
+    dryRunShipping
+      ? "The saved order tracking reference is a TCOS dry-run simulation and is not being submitted as shipment evidence."
+      : order.tracking_number
       ? `Shipment tracking ${order.tracking_number} via ${order.carrier || "saved carrier"}.`
       : "Tracking was not saved when this packet was generated.",
     `Terms acceptance: ${order.tos_accepted ? "recorded" : "not recorded"}.`,
@@ -78,9 +82,11 @@ function evidencePayload(
     customer_purchase_ip: compact(order.tos_ip_address),
     product_description: compact(itemDescription, 2000),
     shipping_address: compact(shippingAddress, 2000),
-    shipping_carrier: compact(order.carrier),
-    shipping_date: compact(order.shipped_at),
-    shipping_tracking_number: compact(order.tracking_number),
+    shipping_carrier: dryRunShipping ? undefined : compact(order.carrier),
+    shipping_date: dryRunShipping ? undefined : compact(order.shipped_at),
+    shipping_tracking_number: dryRunShipping
+      ? undefined
+      : compact(order.tracking_number),
     uncategorized_file: stripeFileId,
     uncategorized_text: compact(summary, 19000),
   };

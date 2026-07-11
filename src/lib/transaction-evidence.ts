@@ -6,6 +6,7 @@ import {
   getStoreSettings,
   type StoreOperationalSettings,
 } from "./store-settings";
+import { isDryRunShippingReference } from "./shipping-dry-run";
 import { getActiveStoreId } from "./stores";
 
 type EvidenceOrderItem = {
@@ -112,6 +113,7 @@ function buildReportText(input: {
 }) {
   const { order, stripeSession, stripeEvent, settings } = input;
   const metadata = stripeSession.metadata || {};
+  const dryRunShipping = isDryRunShippingReference(order.tracking_number);
   const paymentIntent =
     typeof stripeSession.payment_intent === "string"
       ? stripeSession.payment_intent
@@ -157,9 +159,21 @@ function buildReportText(input: {
   sections.push(line("Postal Code", order.shipping_postal_code));
   sections.push(line("Country", order.shipping_country));
   sections.push(line("Shipping Method", order.shipping_name || order.shipping_method));
-  sections.push(line("Carrier", order.carrier));
-  sections.push(line("Tracking Number", order.tracking_number));
-  sections.push(line("Shipped At", order.shipped_at));
+  if (dryRunShipping) {
+    sections.push(
+      line(
+        "Shipping Evidence Warning",
+        "TCOS dry-run tracking reference hidden; do not use as carrier proof.",
+      ),
+    );
+    sections.push(line("Carrier", "Hidden because tracking is dry-run"));
+    sections.push(line("Tracking Number", "Hidden because tracking is dry-run"));
+    sections.push(line("Shipped At", "Not used as evidence while tracking is dry-run"));
+  } else {
+    sections.push(line("Carrier", order.carrier));
+    sections.push(line("Tracking Number", order.tracking_number));
+    sections.push(line("Shipped At", order.shipped_at));
+  }
   sections.push("");
 
   sections.push("ITEMS PURCHASED");

@@ -4341,6 +4341,8 @@ Admin order detail and packing-slip printing also use the shared detector before
 
 Admin Fulfillment Center hides dry-run order tracking/carrier values behind an operator warning, and Command Center alerts if any order rows still carry dry-run shipping references.
 
+Transaction evidence reports, order review case packets, and Stripe dispute evidence staging suppress dry-run tracking/carrier values as shipment proof and add dry-run evidence warnings where applicable.
+
 Admin Shipping and the ranked shipping exception CSV now use the shared detector for dry-run label, tracking, shipment, and Coverage references while preserving event-based simulated-purchase detection.
 
 Shipping label packets, Coverage claim evidence packets, and Coverage claim create/update routes also use the shared detector, with packets still preserving event-based simulated-purchase detection for audit evidence and dry-run safety notices.
