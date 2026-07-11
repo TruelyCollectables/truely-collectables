@@ -4278,6 +4278,13 @@ TCOS currently has only a dry-run shipping provider adapter. No live postage-pro
 
 The checklist displays provider names, service/carrier labels, purchase mode, live-purchase support state, and required secret names. It does not display secret values and it does not call any live provider.
 
+Provider setup packets are available from `/admin/shipping`:
+
+- `Setup JSON` opens `/api/admin/shipping/provider-setup`
+- `Setup CSV` opens `/api/admin/shipping/provider-setup?format=csv`
+
+These exports are safe to use for operator setup review because they include secret names and configuration status only, not secret values.
+
 Never mail with references beginning:
 
 ```text

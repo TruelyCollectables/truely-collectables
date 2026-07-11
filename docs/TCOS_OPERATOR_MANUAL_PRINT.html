@@ -4066,6 +4066,12 @@ charge.dispute.funds_reinstated</code></pre>
 <li>Shipment Coverage</li>
 </ul>
 <p>The checklist displays provider names, service/carrier labels, purchase mode, live-purchase support state, and required secret names. It does not display secret values and it does not call any live provider.</p>
+<p>Provider setup packets are available from <code>/admin/shipping</code>:</p>
+<ul>
+<li><code>Setup JSON</code> opens <code>/api/admin/shipping/provider-setup</code></li>
+<li><code>Setup CSV</code> opens <code>/api/admin/shipping/provider-setup?format=csv</code></li>
+</ul>
+<p>These exports are safe to use for operator setup review because they include secret names and configuration status only, not secret values.</p>
 <p>Never mail with references beginning:</p>
 <pre><code>IMB-TCOS-DRYRUN-
 USPS-TCOS-DRYRUN-

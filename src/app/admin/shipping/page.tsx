@@ -603,6 +603,26 @@ export default async function AdminShippingPage() {
                 follow-up.
               </p>
             </div>
+            <div className="max-w-xs">
+              <div className="flex flex-wrap gap-2">
+                <a
+                  href="/api/admin/shipping/provider-setup"
+                  className="inline-flex rounded border border-neutral-300 bg-white px-4 py-2 font-black text-neutral-950"
+                >
+                  Setup JSON
+                </a>
+                <a
+                  href="/api/admin/shipping/provider-setup?format=csv"
+                  className="inline-flex rounded border border-neutral-300 bg-white px-4 py-2 font-black text-neutral-950"
+                >
+                  Setup CSV
+                </a>
+              </div>
+              <p className="mt-1 text-xs font-semibold text-neutral-500">
+                No-secret provider checklist for Standard Envelope, parcels,
+                and Coverage.
+              </p>
+            </div>
             <Link href="/admin" className="rounded border bg-white px-4 py-2">
               Command Center
             </Link>
