@@ -3919,6 +3919,7 @@ Marketplace packet controls in Seller Inventory:
 
 - `Copy Marketplace Packet` copies a JSON packet for selected ready rows
 - `Download Marketplace CSV` downloads selected ready rows in spreadsheet form
+- the Bulk Controls panel displays visible guardrails before export: cross-list prep only, no external publishing, no postage purchase, and the ready-row export count
 - only activation-ready selected rows are included
 - the export contains TCOS inventory ID, SKU, title, price, quantity, category, condition, description, image URL, shipping method, postage estimate, Coverage fields, shipping-purchase guardrail fields, InstaComp scan ID, serial number, market/listing price evidence, and readiness blockers
 - copied JSON packets also include packet-level `crosslist_prep_only`, `externalPublishingApproved = false`, `shippingPurchaseIncluded = false`, and shipping warning metadata
@@ -4591,6 +4592,7 @@ Recent seller workspace wording cleanup:
 - Seller Inventory now has a `Source` filter with an `InstaComp` lane, InstaComp item badges, scan/serial/price-source details, and ready-row marketplace packet export controls.
 - Seller Inventory rows now show the default Standard Envelope/Ground Advantage shipping plan, estimated postage, Coverage requirement, and Coverage type; selected rows now show a shipping mix summary before activation or marketplace export, and selected ready-row marketplace packets include those shipping fields.
 - Seller Inventory marketplace JSON/CSV exports now include explicit prep-only, no-external-publishing, and no-shipping-purchase guardrail fields so exported files cannot be mistaken for live marketplace or postage actions.
+- Seller Inventory Bulk Controls now show the marketplace export guardrails on-screen before copy/download actions.
 - Seller Command Center now shows `InstaComp Ready` and routes to ready InstaComp drafts when that is the safest inventory shortcut.
 - Seller order surface labels now use `Seller Order Workspace`, `Search orders`, `Order views`, and `Reset Order View` wording instead of the older workflow phrasing.
 - Seller dashboard order signal chips now read `Shipping Orders`, `Cash-Out Orders`, `Action Orders`, and `Completed Orders`.

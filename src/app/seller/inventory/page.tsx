@@ -1800,98 +1800,123 @@ export default function SellerInventoryPage() {
               </div>
             </div>
 
-            <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-md border border-neutral-200 bg-neutral-50 px-4 py-3">
-              <div>
-                <p className="text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
-                  Bulk controls
-                </p>
-                <p className="mt-1 text-sm text-neutral-700">
-                  {selectedInventoryItemIds.length} selected across the workspace,{" "}
-                  {selectedVisibleCount} visible in the current filter view.
-                </p>
+            <div className="mt-4 rounded-md border border-neutral-200 bg-neutral-50 px-4 py-3">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
+                    Bulk controls
+                  </p>
+                  <p className="mt-1 text-sm text-neutral-700">
+                    {selectedInventoryItemIds.length} selected across the workspace,{" "}
+                    {selectedVisibleCount} visible in the current filter view.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={selectVisibleInventoryItems}
+                    disabled={visibleInventoryItemIds.length === 0}
+                    className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-bold hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Select Visible
+                  </button>
+                  <button
+                    type="button"
+                    onClick={selectReadyVisibleInventoryItems}
+                    disabled={readyVisibleInventoryItemIds.length === 0}
+                    className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-bold hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Select Ready Visible
+                  </button>
+                  <button
+                    type="button"
+                    onClick={clearInventorySelection}
+                    disabled={selectedInventoryItemIds.length === 0}
+                    className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-bold hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Clear Selection
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void copySelectedMarketplacePacket()}
+                    disabled={selectedMarketplaceReadyItems.length === 0}
+                    className="rounded-md border border-sky-300 bg-white px-3 py-2 text-xs font-bold text-sky-900 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Copy Marketplace Packet ({selectedMarketplaceReadyItems.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={downloadSelectedMarketplaceCsv}
+                    disabled={selectedMarketplaceReadyItems.length === 0}
+                    className="rounded-md border border-sky-300 bg-white px-3 py-2 text-xs font-bold text-sky-900 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Download Marketplace CSV ({selectedMarketplaceReadyItems.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void runBulkInventoryAction({
+                        action: "activate",
+                        inventoryItemIds: selectedActivatableInventoryItemIds,
+                        emptyMessage:
+                          "No selected seller listings are currently ready to activate.",
+                      })
+                    }
+                    disabled={
+                      bulkAction !== null ||
+                      selectedActivatableInventoryItemIds.length === 0
+                    }
+                    className="rounded-md bg-neutral-950 px-3 py-2 text-xs font-bold text-white hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-500"
+                  >
+                    {bulkAction === "activate"
+                      ? "Activating..."
+                      : `Activate Ready (${selectedActivatableInventoryItemIds.length})`}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void runBulkInventoryAction({
+                        action: "archive",
+                        inventoryItemIds: selectedArchivableInventoryItemIds,
+                        emptyMessage:
+                          "No selected seller listings can be archived right now.",
+                      })
+                    }
+                    disabled={
+                      bulkAction !== null ||
+                      selectedArchivableInventoryItemIds.length === 0
+                    }
+                    className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-bold hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {bulkAction === "archive"
+                      ? "Archiving..."
+                      : `Archive Eligible (${selectedArchivableInventoryItemIds.length})`}
+                  </button>
+                </div>
               </div>
 
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={selectVisibleInventoryItems}
-                  disabled={visibleInventoryItemIds.length === 0}
-                  className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-bold hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  Select Visible
-                </button>
-                <button
-                  type="button"
-                  onClick={selectReadyVisibleInventoryItems}
-                  disabled={readyVisibleInventoryItemIds.length === 0}
-                  className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-bold hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  Select Ready Visible
-                </button>
-                <button
-                  type="button"
-                  onClick={clearInventorySelection}
-                  disabled={selectedInventoryItemIds.length === 0}
-                  className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-bold hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  Clear Selection
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void copySelectedMarketplacePacket()}
-                  disabled={selectedMarketplaceReadyItems.length === 0}
-                  className="rounded-md border border-sky-300 bg-white px-3 py-2 text-xs font-bold text-sky-900 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  Copy Marketplace Packet ({selectedMarketplaceReadyItems.length})
-                </button>
-                <button
-                  type="button"
-                  onClick={downloadSelectedMarketplaceCsv}
-                  disabled={selectedMarketplaceReadyItems.length === 0}
-                  className="rounded-md border border-sky-300 bg-white px-3 py-2 text-xs font-bold text-sky-900 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  Download Marketplace CSV ({selectedMarketplaceReadyItems.length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    void runBulkInventoryAction({
-                      action: "activate",
-                      inventoryItemIds: selectedActivatableInventoryItemIds,
-                      emptyMessage:
-                        "No selected seller listings are currently ready to activate.",
-                    })
-                  }
-                  disabled={
-                    bulkAction !== null ||
-                    selectedActivatableInventoryItemIds.length === 0
-                  }
-                  className="rounded-md bg-neutral-950 px-3 py-2 text-xs font-bold text-white hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-500"
-                >
-                  {bulkAction === "activate"
-                    ? "Activating..."
-                    : `Activate Ready (${selectedActivatableInventoryItemIds.length})`}
-                </button>
-                <button
-                  type="button"
-                  onClick={() =>
-                    void runBulkInventoryAction({
-                      action: "archive",
-                      inventoryItemIds: selectedArchivableInventoryItemIds,
-                      emptyMessage:
-                        "No selected seller listings can be archived right now.",
-                    })
-                  }
-                  disabled={
-                    bulkAction !== null ||
-                    selectedArchivableInventoryItemIds.length === 0
-                  }
-                  className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-bold hover:bg-white disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {bulkAction === "archive"
-                    ? "Archiving..."
-                    : `Archive Eligible (${selectedArchivableInventoryItemIds.length})`}
-                </button>
+              <div className="mt-3 rounded-md border border-sky-200 bg-white px-3 py-2 text-sky-950">
+                <p className="text-xs font-black uppercase tracking-[0.14em]">
+                  Marketplace export guardrails
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <span className="rounded border border-sky-200 bg-sky-50 px-2 py-1 text-[11px] font-black">
+                    Cross-list prep only
+                  </span>
+                  <span className="rounded border border-sky-200 bg-sky-50 px-2 py-1 text-[11px] font-black">
+                    No external publishing
+                  </span>
+                  <span className="rounded border border-sky-200 bg-sky-50 px-2 py-1 text-[11px] font-black">
+                    No postage purchase
+                  </span>
+                  <span className="rounded border border-sky-200 bg-sky-50 px-2 py-1 text-[11px] font-black">
+                    Ready rows only: {selectedMarketplaceReadyItems.length}
+                  </span>
+                </div>
+                <p className="mt-2 text-xs font-semibold">
+                  {marketplaceExportWarning} {marketplaceExportShippingWarning}
+                </p>
               </div>
             </div>
 
