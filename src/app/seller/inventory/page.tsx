@@ -1140,6 +1140,55 @@ export default function SellerInventoryPage() {
       }))
       .sort((left, right) => right.count - left.count);
   }, [lastBulkInventoryFailures]);
+  const bulkActionReport = useMemo(() => {
+    const successRows = lastBulkInventorySuccesses.map((entry) => {
+      const item = itemsById.get(entry.inventoryItemId);
+
+      return {
+        inventoryItemId: entry.inventoryItemId,
+        title: item?.title || "",
+        sku: item?.sku || "",
+        status: item?.status || "",
+        message: entry.message,
+      };
+    });
+    const failureRows = lastBulkInventoryFailures.map((entry) => {
+      const item = itemsById.get(entry.inventoryItemId);
+
+      return {
+        inventoryItemId: entry.inventoryItemId,
+        title: item?.title || "",
+        sku: item?.sku || "",
+        status: item?.status || "",
+        message: entry.message,
+        blockers: (entry.blockers || []).map(readinessBlockerLabel),
+        retryReady: bulkFailureRetryReadyItemIds.includes(entry.inventoryItemId),
+      };
+    });
+
+    return {
+      exportedAt: new Date().toISOString(),
+      scope: "seller_inventory_bulk_action_report",
+      action: lastBulkInventoryAction,
+      successCount: lastBulkInventorySuccesses.length,
+      failureCount: lastBulkInventoryFailures.length,
+      retryReadyCount: bulkFailureRetryReadyItemIds.length,
+      blockerGroups: bulkFailureBlockerSummary.map((entry) => ({
+        blocker: entry.blocker,
+        count: entry.count,
+        itemIds: entry.itemIds,
+      })),
+      successes: successRows,
+      failures: failureRows,
+    };
+  }, [
+    bulkFailureBlockerSummary,
+    bulkFailureRetryReadyItemIds,
+    itemsById,
+    lastBulkInventoryAction,
+    lastBulkInventoryFailures,
+    lastBulkInventorySuccesses,
+  ]);
   const bulkPayoutFailureCount = useMemo(
     () =>
       lastBulkInventoryFailures.filter((entry) =>
@@ -1470,6 +1519,28 @@ export default function SellerInventoryPage() {
       setError("");
     } catch {
       setError("Could not copy the marketplace packet.");
+    }
+  }
+
+  async function copyBulkActionReport() {
+    if (
+      !lastBulkInventoryAction ||
+      (lastBulkInventorySuccesses.length === 0 &&
+        lastBulkInventoryFailures.length === 0)
+    ) {
+      setNotice("Run a bulk inventory action before copying a report.");
+      setError("");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(
+        JSON.stringify(bulkActionReport, null, 2),
+      );
+      setNotice("Copied the latest seller inventory bulk action report.");
+      setError("");
+    } catch {
+      setError("Could not copy the bulk action report.");
     }
   }
 
@@ -2189,6 +2260,13 @@ export default function SellerInventoryPage() {
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
+                      onClick={() => void copyBulkActionReport()}
+                      className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-xs font-bold text-neutral-800 hover:bg-neutral-100"
+                    >
+                      Copy Bulk Report
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => keepBulkInventorySelection(bulkSuccessItemIds)}
                       className="rounded-md border border-emerald-300 bg-white px-3 py-2 text-xs font-bold text-emerald-800 hover:bg-emerald-100"
                     >
@@ -2293,6 +2371,13 @@ export default function SellerInventoryPage() {
                   </div>
 
                   <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void copyBulkActionReport()}
+                      className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-xs font-bold text-neutral-800 hover:bg-neutral-100"
+                    >
+                      Copy Bulk Report
+                    </button>
                     <button
                       type="button"
                       onClick={() => keepBulkInventorySelection(bulkFailureItemIds)}
