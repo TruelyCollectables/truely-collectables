@@ -4908,6 +4908,75 @@ export default function InstaCompScanner({
     }
   }
 
+  async function autoScanAndDraftBatch() {
+    if (!batchCards.length) {
+      setBatchError("Add up to 500 card images first.");
+      return;
+    }
+
+    if (batchRunning || batchDrafting) return;
+
+    batchPauseRequestedRef.current = false;
+    setBatchRunning(true);
+    setBatchPauseRequested(false);
+    setBatchError(null);
+    setBatchDraftMessage(
+      "InstaComp Auto-Pilot is scanning the lot, reading OCR text, finding comps, and preparing ready draft listings."
+    );
+
+    const alreadyDoneCards = batchCards.filter(
+      (card) => card.status === "done" && card.result
+    );
+    const cardsToScan = batchCards.filter((card) => card.status !== "done");
+    const completedCards: BatchCard[] = [];
+    let cursor = 0;
+    const workerCount = Math.min(batchConcurrency, cardsToScan.length);
+
+    async function runWorker() {
+      while (
+        cursor < cardsToScan.length &&
+        !batchPauseRequestedRef.current
+      ) {
+        const card = cardsToScan[cursor];
+        cursor += 1;
+
+        const scannedCard = await scanOneBatchCard(card);
+        completedCards.push(scannedCard);
+      }
+    }
+
+    try {
+      if (cardsToScan.length) {
+        await Promise.all(
+          Array.from({ length: workerCount }, () => runWorker())
+        );
+      }
+    } finally {
+      setBatchRunning(false);
+    }
+
+    if (batchPauseRequestedRef.current) {
+      setBatchError("Auto-Pilot paused after current scans. Draft creation did not run.");
+      return;
+    }
+
+    const readyCards = [...alreadyDoneCards, ...completedCards]
+      .filter(isDraftableBatchCard)
+      .filter((card) => draftReadinessErrors(card).length === 0);
+
+    if (!readyCards.length) {
+      setBatchDraftMessage(
+        "Auto-Pilot finished scanning. No rows were safe to draft yet; review rows marked Fix or Review."
+      );
+      return;
+    }
+
+    await createDraftListingsForCards(readyCards, {
+      emptyMessage: "No ready rows were safe to draft after Auto-Pilot scanning.",
+      blockedScopeLabel: "auto-pilot ready",
+    });
+  }
+
   async function retryVisibleFailedBatchCards() {
     if (!visibleFailedCount) {
       setBatchError("No visible failed cards are waiting for retry.");
@@ -6255,6 +6324,76 @@ export default function InstaCompScanner({
               event.currentTarget.value = "";
             }}
           />
+        </div>
+
+        <div
+          style={{
+            marginTop: 18,
+            border: "1px solid #111",
+            borderRadius: 16,
+            padding: 18,
+            background:
+              "linear-gradient(135deg, #111 0%, #1f2937 52%, #064e3b 100%)",
+            color: "white",
+            display: "grid",
+            gap: 12,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              gap: 12,
+              flexWrap: "wrap",
+            }}
+          >
+            <div>
+              <h3 style={{ margin: "0 0 4px", fontSize: 24 }}>
+                InstaComp Auto-Pilot
+              </h3>
+              <p style={{ margin: 0, color: "#d1fae5", fontWeight: 800 }}>
+                One button after upload: scan the lot, read card text, pull comps,
+                and create TCOS draft listings for rows that are safe to list.
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void autoScanAndDraftBatch()}
+              disabled={batchRunning || batchDrafting || !batchCards.length}
+              style={{
+                border: "1px solid #facc15",
+                borderRadius: 999,
+                background:
+                  batchRunning || batchDrafting || !batchCards.length
+                    ? "#999"
+                    : "#facc15",
+                color: "#111",
+                cursor:
+                  batchRunning || batchDrafting || !batchCards.length
+                    ? "not-allowed"
+                    : "pointer",
+                fontSize: 18,
+                fontWeight: 1000,
+                padding: "14px 22px",
+                boxShadow:
+                  batchRunning || batchDrafting || !batchCards.length
+                    ? "none"
+                    : "0 12px 30px rgba(250, 204, 21, 0.28)",
+              }}
+            >
+              {batchRunning
+                ? "Scanning..."
+                : batchDrafting
+                  ? "Creating Drafts..."
+                  : "Run InstaComp Auto-Pilot"}
+            </button>
+          </div>
+          <small style={{ color: "#e5e7eb", fontWeight: 800 }}>
+            Safe rows become TCOS drafts. Uncertain rows stay in review so bad
+            card IDs, missing serials, missing prices, or weak comps do not go
+            live pretending to be 100%.
+          </small>
         </div>
 
         <div
