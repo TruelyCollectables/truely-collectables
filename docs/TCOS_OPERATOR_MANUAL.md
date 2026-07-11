@@ -12,9 +12,11 @@ Main TCOS website/domain: TotallyCollectibles.com.
 
 Flagship store / Store #1: Truely Collectables.
 
-Last updated: 2026-06-28
+Last updated: 2026-07-10
 
 This is the working manual for Totally Collectibles OS (TCOS). It must stay current as features are added.
+
+This revision includes the current InstaComp batch scanner and PaddleOCR worker, seller eBay staging and reconciliation, Stripe payment reliability controls, seller payout guards, shipping/coverage operations, and complete laptop-failure disaster recovery. Procedures labeled `dry run`, `draft`, `review`, or `not configured` are not production completion claims.
 
 TCOS means Totally Collectibles OS. It is the multi-store software platform, admin system, order system, inventory engine, marketplace layer, and pricing/helper system. Truely Collectables is the flagship store inside TCOS, not a separate rebuild.
 
@@ -246,16 +248,30 @@ Daily operator path:
 
 1. Open `/admin/login`.
 2. Log in with the admin password.
-3. Open `/admin/products` to manage cards.
-4. Open `/admin/orders` to ship paid orders.
-5. Open `/admin/offers` to handle customer offers.
-6. Use product edit pages to check comps, apply suggested prices, update descriptions, and change inventory status.
+3. Open `/admin/products/new` to scan a card lot with InstaComp or add one product manually.
+4. Open `/admin/products` to review drafts, pricing, descriptions, status, and listing readiness.
+5. Open `/admin/orders` and `/admin/shipping` to handle paid orders, labels, coverage, tracking, and exceptions.
+6. Open `/admin/offers` to handle customer offers.
+7. Open `/admin/financial-reconciliation`, `/admin/seller-payouts`, and `/admin/order-review-cases` to handle money exceptions, holds, disputes, and cash-out work.
+8. Open `/admin/launch-readiness` before enabling any production payment or shipping change.
 
 Most day-to-day work starts at:
 
 ```text
 /admin
 ```
+
+Daily production safety order:
+
+1. `/admin/launch-readiness` - inspect missing migrations, secrets, and provider blockers.
+2. `/admin/financial-reconciliation` - verify the previous UTC day and clear unmatched-money alerts only after correction.
+3. `/admin/order-review-cases` - handle disputes, returns, authenticity, shipping, payment, and payout holds.
+4. `/admin/seller-payouts` - refresh Connect, release only eligible rows, and process cash-out work.
+5. `/admin/shipping` - clear blocked purchases, dry-run records, missing tracking, missing Coverage policy IDs, and claims.
+6. `/admin/orders` - pack, record real labels/coverage, save tracking, and mark shipped.
+7. `/seller/marketplaces` and `/admin/ebay` - inspect stale connections, failed staging, outside orders, and reconciliation.
+8. Run `/admin/payment-simulations` and `/admin/shipping/simulations` before changing payment or shipping behavior.
+9. Use `/admin/live-payment-launch` only for controlled launch approval or emergency revocation.
 
 ## 2. Routes
 
@@ -272,11 +288,13 @@ Most day-to-day work starts at:
 | `/account/signup` | Customer email/password signup |
 | `/success` | Purchase confirmation page with rotating collector sayings |
 | `/terms` | Customer Terms of Service |
-| `/seller-terms` | Seller Terms of Service for future auction/seller accounts |
+| `/seller-terms` | Seller Terms of Service required before seller payout onboarding |
 | `/seller` | Seller home redirect to marketplace connections |
 | `/seller/orders` | Seller-owned order, payout, and hold activity workspace |
 | `/seller/orders/[id]` | Seller-owned order detail drilldown |
 | `/seller/marketplaces` | Seller marketplace connection dashboard for Store #1 sync foundation and future seller-safe connectors |
+| `/seller/inventory` | Seller-owned draft, active, paused, and archived inventory workspace |
+| `/seller/payouts` | Seller cash-out requests, holds, Connect readiness, and payout history |
 
 ### Admin
 
@@ -286,8 +304,10 @@ Most day-to-day work starts at:
 | `/admin` | Admin dashboard |
 | `/admin/accounts` | Customer account lookup and linked order/offer activity |
 | `/admin/products` | Product list |
-| `/admin/products/new` | Add product |
+| `/admin/products/new` | InstaComp lot scanner plus manual product entry |
 | `/admin/products/[id]` | Edit product and pricing tools |
+| `/admin/instacomp` | Dedicated InstaComp scan lab and batch workflow |
+| `/admin/inventory` | Inventory operations workspace |
 | `/admin/orders` | Fulfillment center |
 | `/admin/settings` | Store operations and marketplace integration controls for the active TCOS store |
 | `/admin/orders/[id]` | Order detail and tracking |
@@ -295,7 +315,14 @@ Most day-to-day work starts at:
 | `/admin/order-review-cases` | Global chargeback, return, authenticity, shipping, payment-risk, and seller-dispute case queue |
 | `/admin/files` | Transaction evidence files |
 | `/admin/launch-readiness` | Live payment and production readiness checklist |
+| `/admin/live-payment-launch` | Auditable dual-lock live payment approval/revocation gate |
+| `/admin/payment-simulations` | Payment reliability, webhook, refund, dispute, and checkout drill lab |
+| `/admin/financial-reconciliation` | Stripe-versus-TCOS reconciliation queue and resolution controls |
+| `/admin/seller-payouts` | Seller Connect readiness, ledger holds, and cash-out administration |
+| `/admin/shipping` | Label, tracking, coverage, claim, exception, and shipping priority queue |
+| `/admin/shipping/simulations` | Shipping-policy and dry-run provider simulation lab |
 | `/admin/inventory/category-review` | eBay import category confidence and review queue |
+| `/admin/ebay` | Store eBay connection and import operations |
 | `/admin/ebay/sync-control` | Controlled eBay batch sync launcher |
 | `/admin/offers` | Offer review |
 | `/admin/security` | Admin login audit and lockout review |
@@ -310,6 +337,22 @@ Most day-to-day work starts at:
 | `/api/admin/order-review-cases` | Opens and updates order review cases and writes case audit events |
 | `/api/admin/order-review-cases/[id]/packet` | Downloads an order review case packet PDF |
 | `/api/admin/order-review-cases/[id]/payout-resolution` | Resolves related seller payout rows after a case decision |
+| `/api/admin/order-review-cases/[id]/stripe-evidence` | Stages or submits the case evidence supported by Stripe |
+| `/api/admin/live-payment-launch` | Approves or revokes the database half of the live payment gate |
+| `/api/admin/payment-simulations` | Runs signed webhook, refund, dispute, idempotency, and related payment simulations |
+| `/api/admin/payment-simulations/checkout-e2e` | Runs the isolated storefront checkout end-to-end drill |
+| `/api/admin/financial-reconciliation` | Loads and resolves Stripe-versus-TCOS financial exceptions |
+| `/api/admin/seller-payouts/connect-refresh` | Refreshes seller Stripe Connect readiness |
+| `/api/admin/seller-payouts/ledger` | Applies payout ledger review and hold actions |
+| `/api/admin/seller-payouts/requests` | Reviews and resolves seller cash-out requests |
+| `/api/admin/orders/[id]/shipping-labels` | Plans, purchases in approved mode, records, or voids shipping labels |
+| `/api/admin/orders/[id]/shipping-claims` | Creates a shipping coverage claim draft for an order |
+| `/api/admin/shipping-labels/[id]/coverage-policy` | Records or updates a Coverage policy reference |
+| `/api/admin/shipping-labels/[id]/packet` | Downloads a shipping label audit packet |
+| `/api/admin/shipping-claims/[id]` | Updates shipping claim status and provider references |
+| `/api/admin/shipping-claims/[id]/packet` | Downloads a shipping claim evidence packet |
+| `/api/admin/shipping/exceptions` | Exports the ranked shipping exception queue as CSV |
+| `/api/admin/shipping/simulations` | Runs shipping eligibility and dry-run adapter simulations |
 | `/api/account/signup` | Creates customer account through Supabase Auth |
 | `/api/account/login` | Logs customer account in through Supabase Auth |
 | `/api/account/orders` | Returns logged-in customer order history for the active store |
@@ -332,6 +375,15 @@ Most day-to-day work starts at:
 | `/api/account/seller/marketplace-connections` | Loads or saves logged-in seller marketplace connection records for the active store |
 | `/api/account/seller/marketplace-connections/ebay/auth` | Starts seller-safe eBay OAuth and returns the authorization URL |
 | `/api/account/seller/marketplace-connections/ebay/status` | Refreshes the logged-in seller's eBay token status and updates connection health |
+| `/api/account/seller/marketplace-connections/ebay/disconnect` | Securely revokes and disconnects a seller eBay account |
+| `/api/account/seller/marketplace-connections/ebay/import-preview` | Builds a resumable seller eBay staging preview |
+| `/api/account/seller/marketplace-connections/ebay/staged-items` | Reviews and updates staged seller eBay rows |
+| `/api/account/seller/marketplace-connections/ebay/staged-items/promote` | Promotes approved staged rows into seller-owned TCOS drafts |
+| `/api/account/seller/marketplace-connections/ebay/sync-control` | Pauses or resumes seller eBay sync activity |
+| `/api/account/seller/marketplace-connections/ebay/reconcile` | Reconciles seller eBay quantities and listing state |
+| `/api/account/seller/marketplace-connections/ebay/orders` | Imports outside eBay order effects for inventory reconciliation |
+| `/api/instacomp/scan` | Runs OCR, AI identification, comp lookup, and scan persistence |
+| `/api/instacomp/draft-listings` | Creates seller-owned TCOS draft listings from reviewed scan rows |
 | `/api/checkout` | Creates Stripe checkout session |
 | `/api/webhook` | Main Stripe webhook handler |
 | `/api/stripe/webhook` | Alternate Stripe webhook handler |
@@ -344,6 +396,9 @@ Most day-to-day work starts at:
 | `/api/ebay/callback` | Store eBay refresh token |
 | `/api/ebay/import-listings` | Import one eBay inventory page |
 | `/api/ebay/full-sync` | Batch import eBay inventory |
+| `/api/ebay/notifications` | Receives and verifies eBay account-deletion/revocation notifications |
+| `/api/cron/seller-ebay-reconciliation` | Scheduled seller eBay reconciliation endpoint |
+| `/api/cron/stripe-reconciliation` | Scheduled daily Stripe financial reconciliation endpoint |
 
 ## 3. Admin Login
 
@@ -553,6 +608,18 @@ Open:
 /admin/products/new
 ```
 
+The page has two paths.
+
+### InstaComp lot scanner
+
+Use the scanner at the top for card images and card lots. It accepts up to 500 card rows, pairs fronts and backs, performs OCR and AI identification, searches configured comp sources, and can create non-public TCOS draft listings. The exact operating procedure is in `Section 32: InstaComp Production Operation`.
+
+Nothing from InstaComp should be treated as publicly verified merely because a scan completed. Review the player, year, set, card number, parallel, serial number, autograph/relic signals, condition, comps, title, price, and photos before activation or cross-listing.
+
+### Manual product entry
+
+Use the form below the scanner when one product is already fully known.
+
 Fields:
 
 - Title
@@ -565,7 +632,7 @@ Fields:
 
 Description can be left blank. If blank, TCOS generates a description from product data.
 
-When saved, TCOS:
+When `Add Manual Product` is saved, TCOS:
 
 1. Creates a row in `products`.
 2. Creates a row in `inventory_items`.
@@ -1412,7 +1479,7 @@ Accepted and counter offer Stripe sessions are also limited to United States shi
 
 ## 22. Seller Accounts And Auctions
 
-Seller accounts and auctions are future-build features. Do not create placeholder seller tables or fake seller account workflows before the real account model is designed.
+The seller account, seller inventory, seller marketplace connection, Stripe Connect readiness, seller order, and cash-out foundations are current. Auctions remain a future-build feature. Do not create fake auction workflows or bypass the existing seller ownership, payout, inventory, and audit controls.
 
 Account signup direction:
 
@@ -1928,20 +1995,32 @@ Seller constants live in:
 src/lib/legal.ts
 ```
 
-### Future: AI Collectable Scan Assist
+### Current: InstaComp AI Collectable Scan Assist
 
-This is a future-build feature. It must support all collectables, not only sports cards.
+The sports-card scanning foundation is implemented as InstaComp. The dedicated scanner is at `/admin/instacomp`, and the same production scanner is embedded at `/admin/products/new`.
 
-Goal:
+Current behavior:
 
-- scan or upload front/back images
-- use AI to identify visible details
-- match the item against outside catalog/reference sources
-- show confidence and possible matches
-- help estimate rarity, demand, and value
-- create an educated product draft only after admin approval
+- accepts up to 500 card rows in one browser batch
+- accepts front-only cards but performs better with front/back pairs
+- pairs files by explicit front/back filename signals when available; otherwise it pairs upload 1 with 2, 3 with 4, and so on
+- creates targeted contrast, inverted, edge, band, and serial-stamp crops in the browser
+- sends up to 24 full/crop images through the configured OCR path
+- uses PaddleOCR first when `PADDLEOCR_API_URL` is configured
+- can use Google Vision as an optional OCR fallback
+- uses OpenAI vision for structured card identification and a dedicated serial-number pass
+- prefers printed back evidence for year, set, card number, and manufacturer when front/back evidence conflicts
+- searches configured TCOS, eBay, COMC, and broader comp providers
+- displays player, year, brand, set, card number, parallel, serial number, team, sport, condition clue, confidence, comps, and OCR diagnostics
+- creates seller-owned TCOS drafts only after title, positive price, and quantity readiness checks pass
+- never activates or publicly publishes those drafts automatically
+- preserves uncertain, failed, no-price, weak-comp, low-confidence, and front-only warnings for operator review
 
-The system must not rely on AI guessing alone. AI detection should propose candidates, then TCOS should compare those candidates against trusted reference and marketplace sources.
+The complete operator procedure, local PaddleOCR startup, diagnostics, and failure recovery are in `Section 32: InstaComp Production Operation`.
+
+The system must not rely on AI guessing alone. AI and OCR propose facts; the operator must compare those facts with both card images and trusted references before activation, pricing, or cross-listing. A displayed confidence score is evidence for triage, not a guarantee of exact identity.
+
+Future category expansion must support all collectables, not only sports cards.
 
 Collectable categories to support over time:
 
@@ -2826,8 +2905,11 @@ Core:
 ```env
 NEXT_PUBLIC_SUPABASE_URL=
 NEXT_PUBLIC_SUPABASE_ANON_KEY=
+SUPABASE_SERVICE_ROLE_KEY=
 NEXT_PUBLIC_SITE_URL=
 ```
+
+`SUPABASE_SERVICE_ROLE_KEY` is server-only and can bypass Row Level Security. Never expose it through a `NEXT_PUBLIC_` name, browser code, screenshots, or public logs.
 
 Admin:
 
@@ -2840,8 +2922,24 @@ Stripe:
 
 ```env
 STRIPE_SECRET_KEY=
+NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY=
 STRIPE_WEBHOOK_SECRET=
+
+STRIPE_TEST_SECRET_KEY=
+NEXT_PUBLIC_STRIPE_TEST_PUBLISHABLE_KEY=
+STRIPE_TEST_WEBHOOK_SECRET=
+
+STRIPE_LIVE_SECRET_KEY=
+NEXT_PUBLIC_STRIPE_LIVE_PUBLISHABLE_KEY=
+STRIPE_LIVE_WEBHOOK_SECRET=
+
+TCOS_LIVE_PAYMENTS_ENABLED=false
+TCOS_MONTHLY_SUBSCRIPTION_ENABLED=false
+STRIPE_FINANCIAL_EVENTS_VERIFIED=false
+STRIPE_LIVE_FINANCIAL_EVENTS_VERIFIED=false
 ```
+
+The unsuffixed Stripe variables are compatibility fallbacks. Keep test and live credentials separate. Never enable the monthly subscription flag merely because live website payments are approved.
 
 eBay:
 
@@ -2849,6 +2947,11 @@ eBay:
 EBAY_CLIENT_ID=
 EBAY_CLIENT_SECRET=
 EBAY_ENVIRONMENT=production
+MARKETPLACE_TOKEN_ENCRYPTION_KEY=
+MARKETPLACE_OAUTH_STATE_SECRET=
+EBAY_NOTIFICATION_ENDPOINT_URL=
+EBAY_NOTIFICATION_VERIFICATION_TOKEN=
+EBAY_NOTIFICATION_ENVIRONMENT=production
 ```
 
 Email:
@@ -2867,7 +2970,26 @@ AI descriptions:
 ```env
 OPENAI_API_KEY=
 OPENAI_DESCRIPTION_MODEL=
+OPENAI_MODEL=
+INSTACOMP_OPENAI_MODEL=
+INSTACOMP_OPENAI_FALLBACK_MODEL=
 ```
+
+InstaComp OCR:
+
+```env
+PADDLEOCR_API_URL=http://127.0.0.1:8008/ocr
+PADDLEOCR_API_KEY=
+PADDLEOCR_TIMEOUT_MS=45000
+PADDLEOCR_DEVICE=cpu
+PADDLEOCR_CPU_THREADS=8
+PADDLEOCR_ENABLE_MKLDNN=false
+
+GOOGLE_VISION_API_KEY=
+GOOGLE_CLOUD_VISION_API_KEY=
+```
+
+Only one Google Vision key name is required. PaddleOCR is the primary local provider when its URL is configured.
 
 Optional comps:
 
@@ -2875,7 +2997,36 @@ Optional comps:
 GOOGLE_SEARCH_API_KEY=
 GOOGLE_SEARCH_ENGINE_ID=
 PRICECHARTING_API_TOKEN=
+APIFY_TOKEN=
+COMC_APIFY_ACTOR_ID=
+SERPAPI_API_KEY=
 ```
+
+Shipping provider readiness:
+
+```env
+TCOS_SHIPPING_PURCHASE_MODE=dry_run
+TCOS_SHIPPING_PROVIDERS_REQUIRED=false
+TCOS_STANDARD_ENVELOPE_PROVIDER=
+TCOS_STANDARD_ENVELOPE_API_KEY=
+IMB_PROVIDER_API_KEY=
+TCOS_PARCEL_LABEL_PROVIDER=
+EASYPOST_API_KEY=
+SHIPPO_API_TOKEN=
+TCOS_SHIPPING_COVERAGE_PROVIDER=
+TCOS_SHIPPING_COVERAGE_API_KEY=
+COVERAGE_API_KEY=
+```
+
+Keep `TCOS_SHIPPING_PURCHASE_MODE=dry_run`. The current code deliberately blocks live provider purchase because no live adapter has been approved.
+
+Scheduled operations:
+
+```env
+CRON_SECRET=
+```
+
+Use the same protected secret for configured Vercel cron calls to Stripe reconciliation and seller eBay reconciliation. Never put the cron secret in a public URL.
 
 IP intelligence and masked-identity blocking:
 
@@ -2908,6 +3059,10 @@ Legacy compatibility:
 
 TCOS V2:
 
+- `stores`
+- `store_settings`
+- `account_profiles`
+- `account_store_memberships`
 - `inventory_items`
 - `inventory_images`
 - `inventory_attributes`
@@ -2916,6 +3071,40 @@ TCOS V2:
 - `tos_acceptance_events`
 - `transaction_evidence_reports`
 - `security_ip_investigations`
+- `seller_marketplace_connections`
+- `seller_marketplace_connection_tokens`
+- `seller_marketplace_import_jobs`
+- `seller_marketplace_staged_items`
+- `seller_marketplace_webhook_events`
+- `seller_marketplace_orders`
+- `seller_marketplace_order_items`
+- `seller_marketplace_order_events`
+- `seller_marketplace_reconciliation_runs`
+- `seller_marketplace_reconciliation_events`
+- `seller_payout_accounts`
+- `seller_payout_ledger_entries`
+- `platform_fee_ledger_entries`
+- `seller_payout_requests`
+- `seller_payout_request_entries`
+- `seller_payout_admin_events`
+- `order_review_cases`
+- `order_review_case_events`
+- `order_review_case_packets`
+- `instacomp_scans`
+- `instacomp_search_cache`
+- `checkout_attempts`
+- `stripe_webhook_events`
+- `stripe_post_payment_objects`
+- `financial_adjustment_ledger_entries`
+- `stripe_reconciliation_runs`
+- `stripe_reconciliation_items`
+- `payment_simulation_runs`
+- `payment_simulation_scenarios`
+- `live_payment_launch_gates`
+- `live_payment_launch_events`
+- `order_shipping_labels`
+- `order_shipping_tracking_events`
+- `order_shipping_coverage_claims`
 
 See:
 
@@ -2931,33 +3120,31 @@ Migration directory:
 supabase/migrations
 ```
 
-Current migration:
+Apply every migration in timestamp order. Do not rely on a hand-selected subset. The current production-critical migration tail includes:
 
 ```text
-20260701074500_add_account_billing_address_evidence.sql
-20260630123000_create_ebay_sync_decision_events.sql
-20260630120000_create_security_ip_investigations.sql
-20260630113000_create_public_endpoint_rate_limit_events.sql
-20260630110000_create_inventory_sale_decrement_rpc.sql
-20260629083000_create_inventory_v2_app_policies.sql
-20260629080000_grant_inventory_v2_table_access.sql
-20260628223000_create_collector_profiles_messaging_exports.sql
-20260628220000_create_collector_dashboard_tables.sql
-20260628213000_create_sports_dashboard_tables.sql
-20260628201500_add_account_auth_lockouts.sql
-20260628193000_link_accounts_to_orders_offers.sql
-20260628190000_create_tcos_accounts.sql
-20260628180000_create_admin_login_attempts.sql
-20260628114000_create_inventory_tables.sql
-20260628113000_create_store_settings.sql
-20260628110000_create_tcos_stores.sql
-20260627160000_create_sales_comp_snapshots.sql
-20260627170000_add_tos_acceptance_to_orders_offers.sql
-20260627173000_add_tos_identity_evidence.sql
-20260627180000_create_transaction_evidence_reports.sql
+20260709000000_add_instacomp_search_cache.sql
+20260709010000_restore_service_role_database_access.sql
+20260710000000_create_secure_seller_marketplace_workflow.sql
+20260710030000_create_seller_marketplace_webhook_events.sql
+20260710070000_create_seller_ebay_reconciliation.sql
+20260710090000_create_seller_ebay_outside_orders.sql
+20260710103000_create_stripe_webhook_events.sql
+20260710113000_create_checkout_attempts.sql
+20260710130000_create_stripe_financial_adjustments.sql
+20260710143000_create_stripe_reconciliation.sql
+20260710160000_create_dispute_evidence_workflow.sql
+20260710170000_create_payment_simulation_runs.sql
+20260710180000_create_checkout_e2e_isolation.sql
+20260710181000_grant_checkout_audit_access.sql
+20260710182000_fix_checkout_e2e_cleanup_uuid.sql
+20260710183000_restore_orders_account_link.sql
+20260710184000_restore_order_seller_routing.sql
+20260710185000_create_live_payment_launch_gate.sql
+20260710190000_create_shipping_label_infrastructure.sql
 ```
 
-Apply migrations before using features that depend on new tables.
+The authoritative list is the complete `supabase/migrations` directory, including all earlier account, inventory, evidence, security, seller, and payout migrations. Apply migrations before using features that depend on new tables. A missing migration can appear as an unavailable page, `503`, failed draft creation, missing reconciliation data, or an unsafe launch-readiness blocker.
 
 Reference:
 
@@ -2968,16 +3155,29 @@ Reference:
 Run:
 
 ```bash
+npm run lint
 npm run build
+npm run manual:pdf
 ```
 
 Expected:
 
+- lint succeeds
 - compile succeeds
 - TypeScript succeeds
 - route generation succeeds
+- `docs/TCOS_OPERATOR_MANUAL_PRINT.html` is regenerated
+- `docs/TCOS_OPERATOR_MANUAL.pdf` is regenerated with the ownership watermark
 
-Use this before deploy or after feature changes.
+For PaddleOCR service changes, also run:
+
+```powershell
+cd C:\Projects\truely-collectables\services\paddleocr-service
+.\.venv\Scripts\python.exe -m py_compile app.py
+Invoke-RestMethod http://127.0.0.1:8008/health
+```
+
+Use these checks before deploy or after feature changes. Run the relevant payment and shipping simulations after changing money, webhook, reconciliation, seller payout, shipping-policy, provider-adapter, or claim code.
 
 Reference:
 
@@ -2992,6 +3192,10 @@ Do:
 - check comps before repricing important cards
 - apply suggested price only after reviewing comps
 - update tracking before marking shipped
+- verify every InstaComp draft against front/back images before activation
+- use only real provider references when recording postage, Coverage, claims, or seller payouts
+- run reconciliation before live-payment approval
+- verify the Transcend backup after material changes
 
 Do not:
 
@@ -3000,6 +3204,12 @@ Do not:
 - assume clearing orders restores quantity
 - assume AI descriptions know card facts not entered in TCOS
 - scrape pricing sites without permission/API
+- claim 100% scan confidence when evidence is incomplete
+- mail with a dry-run label or tracking reference
+- treat `Mark Paid` as money movement
+- restore stock automatically from an outside eBay cancellation or refund
+- enable live payments or live shipping by changing only one environment variable
+- expose service-role, Stripe, PaddleOCR, provider, cron, or marketplace encryption secrets
 
 ## 30. Troubleshooting
 
@@ -3061,6 +3271,86 @@ Check:
 OPENAI_API_KEY=
 OPENAI_DESCRIPTION_MODEL=
 ```
+
+### PaddleOCR health works but scans fail
+
+The health endpoint is not an inference test. Check:
+
+- `%TEMP%\tcos-paddleocr.stderr.log`
+- `PADDLEOCR_API_URL`
+- matching `PADDLEOCR_API_KEY` values in TCOS and the worker
+- restored `.paddlex-cache`
+- `PADDLEOCR_ENABLE_MKLDNN=false` on Windows
+- original image/request size
+
+Restart both TCOS and PaddleOCR after environment changes.
+
+### InstaComp says request body exceeded 10 MB
+
+Compress or resize the original images. Scan large lots with `Run Batch InstaComp`, then create drafts in smaller selected groups.
+
+### InstaComp scans but cannot create drafts
+
+Check:
+
+- seller login exists at `/account/login`
+- InstaComp was refreshed after seller login
+- title is not blank
+- price is positive
+- quantity is at least one
+- inventory migrations are applied
+- combined draft request is below the observed 10 MB body ceiling
+
+### Serial number is visible but missing
+
+Confirm pairing, inspect OCR diagnostics, reshoot without glare, retry the row, and check final AI serial data/exports. Leave the field blank when the complete fraction cannot be proven.
+
+### Live payment checkout remains blocked
+
+Check both locks:
+
+- current database approval at `/admin/live-payment-launch`
+- `TCOS_LIVE_PAYMENTS_ENABLED=true` in the running deployment
+
+Then inspect live keys, webhook secret/events, production origin, simulations, reconciliation alerts, test residue, commission percentage, subscription flag, and connected-seller readiness.
+
+### Stripe reconciliation has unmatched money
+
+Open `/admin/financial-reconciliation`, compare source IDs and amounts, correct the underlying record, and resolve or ignore only with a specific note. Never hide an alert merely to pass the live gate.
+
+### Seller payout cannot be released
+
+Confirm:
+
+- Stripe Connect onboarding is active
+- payouts are enabled
+- requirements and disabled reason are clear
+- order is shipped
+- no payment/inventory/shipping review remains
+- no active case or appeal hold remains
+- a real provider reference exists before marking paid
+
+### eBay seller connection is stale or revoked
+
+Open `/seller/marketplaces`, refresh status, reconnect when scopes are missing, and inspect revocation status. Do not reuse Store #1 global tokens for a seller connection.
+
+### Shipping purchase is blocked
+
+This is expected when live mode is selected because no live adapter is approved. Return to:
+
+```env
+TCOS_SHIPPING_PURCHASE_MODE=dry_run
+```
+
+For real fulfillment, purchase externally and use `Record Manual Purchase` with real, non-dry-run references.
+
+### Dry-run label cannot be marked shipped
+
+This is intentional. Create or record a real label, tracking/IMb, and Coverage policy before saving tracking or marking shipped.
+
+### Disaster backup verification fails
+
+Do not restore from an unverified copy. Reconnect the Transcend drive, retry `VERIFY_BACKUP.ps1`, and require zero missing/mismatched files plus the full archive SHA-256 pass. If only the folder is damaged but the archive hash passes, restore from the archive.
 
 ## 31. Developer Map
 
@@ -3143,7 +3433,898 @@ src/app/admin/offers
 src/app/api/offers
 ```
 
-## 32. Maintenance Rule
+InstaComp and OCR:
+
+```text
+src/app/admin/instacomp
+src/app/admin/products/new/page.tsx
+src/app/api/instacomp
+src/lib/instacomp.ts
+services/paddleocr-service
+docs/INSTACOMP_PADDLEOCR_SERVICE.md
+```
+
+Payment reliability and live launch:
+
+```text
+src/lib/stripe-credentials.ts
+src/lib/stripe-webhook-events.ts
+src/lib/stripe-post-payment.ts
+src/lib/stripe-reconciliation.ts
+src/lib/stripe-dispute-evidence.ts
+src/lib/payment-simulations.ts
+src/lib/checkout-e2e-simulation.ts
+src/lib/live-payment-launch.ts
+src/app/admin/payment-simulations
+src/app/admin/financial-reconciliation
+src/app/admin/live-payment-launch
+src/app/api/admin/payment-simulations
+src/app/api/admin/financial-reconciliation
+src/app/api/admin/live-payment-launch
+```
+
+Seller payouts:
+
+```text
+src/lib/seller-payouts.ts
+src/lib/seller-payout-ledger.ts
+src/lib/seller-payout-review-blocks.ts
+src/app/seller/payouts
+src/app/admin/seller-payouts
+src/app/api/admin/seller-payouts
+```
+
+Shipping and Coverage:
+
+```text
+src/lib/shipping.ts
+src/lib/shipping-policy.ts
+src/lib/shipping-provider-readiness.ts
+src/lib/shipping-provider-adapter.ts
+src/lib/shipping-simulations.ts
+src/app/admin/shipping
+src/app/api/admin/orders/[id]/shipping-labels
+src/app/api/admin/orders/[id]/shipping-claims
+src/app/api/admin/shipping-labels
+src/app/api/admin/shipping-claims
+```
+
+Seller eBay workflow:
+
+```text
+src/lib/seller-ebay.ts
+src/lib/seller-ebay-orders.ts
+src/lib/seller-ebay-reconciliation.ts
+src/lib/seller-marketplace-connections.ts
+src/lib/marketplace-token-crypto.ts
+src/app/seller/marketplaces
+src/app/api/account/seller/marketplace-connections/ebay
+src/app/api/cron/seller-ebay-reconciliation
+```
+
+Disaster-recovery snapshot tools:
+
+```text
+C:\Projects\TCOS_DISASTER_RECOVERY\TCOS_FULL_DISASTER_RECOVERY_20260710-230103\RESTORE_GUIDE.md
+C:\Projects\TCOS_DISASTER_RECOVERY\TCOS_FULL_DISASTER_RECOVERY_20260710-230103\scripts
+```
+
+## 32. InstaComp Production Operation
+
+InstaComp is the current TCOS sports-card image intake, identification, comp-assist, and draft-listing system.
+
+Primary routes:
+
+```text
+/admin/products/new
+/admin/instacomp
+/api/instacomp/scan
+/api/instacomp/draft-listings
+```
+
+Use `/admin/products/new` for normal lot intake. Use `/admin/instacomp` when a dedicated scan-lab view or recent-scan history is easier.
+
+### Start InstaComp locally
+
+The local scanner requires two running services:
+
+- TCOS/Next.js on port `3000`
+- PaddleOCR on port `8008`
+
+The easiest start procedure uses the newest disaster-recovery snapshot:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+& "C:\Projects\TCOS_DISASTER_RECOVERY\TCOS_FULL_DISASTER_RECOVERY_20260710-230103\scripts\START_TCOS.ps1"
+```
+
+The script starts both services, waits up to 45 seconds, and uses the restored local model cache. Verify both services:
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8008/health
+Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3000/admin/login
+```
+
+Expected PaddleOCR health result:
+
+```json
+{"ok":"true","provider":"paddleocr"}
+```
+
+Important: the health endpoint does not load or run the OCR model. A successful health check proves that the HTTP worker is listening, but the first real scan is the inference test.
+
+Failure logs:
+
+```text
+%TEMP%\tcos-paddleocr.stderr.log
+%TEMP%\tcos-paddleocr.stdout.log
+%TEMP%\tcos-next.stderr.log
+%TEMP%\tcos-next.stdout.log
+```
+
+### Required browser sessions
+
+Draft creation requires both kinds of access in the same browser:
+
+1. Log in as admin at `http://localhost:3000/admin/login`.
+2. Log in to the correct seller account at `http://localhost:3000/account/login`.
+3. If the seller login happened after InstaComp was already open, refresh the InstaComp page.
+
+Admin authentication permits the protected page. Seller authentication supplies the bearer token and ownership context required to create seller-owned drafts. A scan can work while draft creation still fails with `Sign in to a seller account before creating drafts`.
+
+### Prepare images
+
+Best filename pattern:
+
+```text
+001-front.jpg
+001-back.jpg
+002-front.jpg
+002-back.jpg
+```
+
+Recognized front tokens:
+
+```text
+front
+fr
+f
+obverse
+```
+
+Recognized back tokens:
+
+```text
+back
+bk
+b
+reverse
+rear
+```
+
+The side word must be the final filename token before the extension and separated by a space, period, underscore, or dash.
+
+Pairing rules:
+
+- explicit front/back filenames are paired by normalized base name
+- multiple fronts/backs with the same base name pair in upload order
+- files without a side token pair strictly by upload order: `1+2`, `3+4`, and so on
+- an odd final unknown image becomes front-only
+- explicitly named extra back-only images are skipped
+- explicit-name groups and unknown-name groups are paired independently
+- exact duplicate front/back pairs are rejected using filename, byte size, and last-modified signatures
+
+The limit is 500 card rows, not 500 image files. A 500-card front/back lot can contain up to 1,000 original images.
+
+Front-only cards scan, but the back frequently contains the strongest year, set, card-number, manufacturer, copyright, and authenticity evidence. Use both sides whenever possible.
+
+### Safest batch workflow
+
+For important cards and the current 10 MB request-size limitation, use this controlled workflow:
+
+1. Open `/admin/products/new`.
+2. Drop the front/back images into the batch area.
+3. Confirm the displayed pairing before scanning.
+4. Leave `Parallel Scans` at the default `3`. The allowed range is `1` through `6`; use `1` or `2` if the laptop becomes unstable.
+5. Click `Run Batch InstaComp`.
+6. Let active scans finish. `Pause` stops new work only after current requests finish.
+7. Inspect every completed row.
+8. Correct the title, positive listing price, and quantity.
+9. Filter to `Clean Ready` when possible.
+10. Select only cards whose photos and printed facts you personally verified.
+11. Create drafts in small groups.
+12. Open `/seller/inventory` and inspect every draft before activation.
+
+`Run InstaComp Auto-Pilot` scans unfinished rows and attempts draft creation for rows that pass technical draft readiness. It never publishes a live listing. For large image lots, the controlled batch workflow is safer because the operator can review and split draft requests into smaller groups.
+
+If Auto-Pilot is paused, it finishes current scan requests but does not run its draft-creation phase.
+
+Failed rows can be retried individually, all at once, or through the current visible filter.
+
+### What InstaComp reads
+
+Per card, InstaComp can display:
+
+- player or subject
+- year
+- brand/manufacturer
+- set and subset
+- card number
+- parallel or finish
+- serial number such as `087/250`
+- autograph and relic/patch signals
+- team and sport
+- condition clue
+- confidence
+- AI notes
+- OCR provider, checked-image count, OCR text excerpt, and OCR serial
+- comp-provider status, included comps, suggested price, and research links
+
+The browser creates targeted serial-stamp, edge, band, contrast, and inverted crops. It creates up to 11 serial-detail crops per side and sends no more than 24 detail crops.
+
+Provider order:
+
+1. PaddleOCR when `PADDLEOCR_API_URL` or `INSTACOMP_PADDLEOCR_API_URL` is configured.
+2. Google Vision fallback when `GOOGLE_VISION_API_KEY` or `GOOGLE_CLOUD_VISION_API_KEY` is configured.
+3. OpenAI vision structured card identification.
+4. Dedicated OpenAI serial-number inspection when external OCR did not prove the serial.
+
+Limits per card:
+
+- PaddleOCR checks at most 24 total original/crop images
+- Google Vision checks at most 16 images
+- main OpenAI identification sees front/back plus the first eight detail crops
+- dedicated OpenAI serial inspection sees front/back plus all submitted detail crops
+- Paddle timeout defaults to 12 seconds and is clamped between 1 and 45 seconds
+
+When front and back disagree, the prompt tells the identifier to prefer printed back evidence for card number, year, set, and manufacturer and to explain the conflict.
+
+### Windows PaddleOCR requirements
+
+The working local environment uses Python 3.12, PaddleOCR 3.7, PaddlePaddle 3.3, and PP-OCRv6 models. Keep these Windows CPU settings:
+
+```env
+PADDLEOCR_DEVICE=cpu
+PADDLEOCR_CPU_THREADS=8
+PADDLEOCR_ENABLE_MKLDNN=false
+```
+
+`PADDLEOCR_ENABLE_MKLDNN=false` avoids the released PaddlePaddle Windows oneDNN/PIR inference crash. The recovery start script also sets:
+
+```text
+PADDLE_PDX_CACHE_HOME=<project>\services\paddleocr-service\.paddlex-cache
+PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK=True
+```
+
+The service contract and manual startup commands live in:
+
+```text
+docs/INSTACOMP_PADDLEOCR_SERVICE.md
+services/paddleocr-service/README.md
+```
+
+### Draft readiness and review warnings
+
+A row is technically draft-ready when it has:
+
+- a nonblank title
+- a positive listing price
+- quantity of at least `1`
+
+Review warnings include:
+
+- front only
+- confidence below 65%
+- no listing price
+- no market price
+- no usable comps
+- scan failure
+- draft failure
+
+Important: Auto-Pilot uses the three technical readiness requirements. A front-only, low-confidence, missing-serial, uncertain-parallel, or weak-comp row can still become a non-public draft if it has a title, positive price, and quantity. Therefore every draft requires manual verification before activation.
+
+Draft creation facts:
+
+- requires an authenticated seller account
+- accepts at most 500 items server-side
+- requires original images to be image files
+- advertises a 12 MB per-original-image limit
+- processes draft rows sequentially
+- checks SKU, dedupe key, client ID, and scan ID before reusing an existing draft
+- can report a metadata/back-image warning after the base draft succeeds
+- returns `503` when required inventory migrations are missing
+
+A new browser re-upload/rescan can produce new client and scan IDs. Do not assume cross-session duplicate prevention is perfect; check Seller Inventory before retrying a large draft operation.
+
+### Current 10 MB request ceiling
+
+The current Next.js runtime has an observed 10 MB total request-body ceiling for these multipart requests. A high-resolution front/back pair plus generated crops can exceed that limit. A large multi-card draft request can also exceed it even when each original image is under 12 MB.
+
+Failure text:
+
+```text
+Request body exceeded 10MB
+Failed to parse body as FormData
+```
+
+Workaround:
+
+1. Resize or compress original images before upload.
+2. Use `Run Batch InstaComp` for large lots.
+3. Create drafts in small selected groups.
+4. Keep each combined request comfortably below 10 MB.
+5. If parsing fails, reduce resolution/group size and retry only the affected rows.
+
+### Serial-number troubleshooting
+
+If a serial is visible but missing:
+
+1. Confirm both front and back were paired correctly.
+2. Inspect the original photo at full size; glare, sleeve reflections, tilt, blur, or aggressive compression can erase thin foil numbers.
+3. Confirm OCR diagnostics says `paddleocr` and shows checked images/text.
+4. Confirm the PaddleOCR worker token matches `PADDLEOCR_API_KEY` in `.env.development.local`.
+5. Check the Paddle stderr log for lazy model-load or Windows inference errors.
+6. Crop or reshoot the serial area with even lighting and the stamp square to the camera.
+7. Retry the row.
+8. Check final `Serial #` and the batch CSV/JSON export. External OCR can report no serial while the dedicated OpenAI pass finds one in final AI data.
+9. If no source proves the complete fraction, leave it blank and keep the draft in review. Never invent a denominator.
+
+### Comp limitations
+
+- suggested price is the median of included live matches
+- the configured eBay Browse provider returns active asking prices, not completed-sales proof
+- registered sold-data sources may appear as research links without live ingestion
+- COMC ingestion depends on configured Apify actor access and credits
+- provider failure can leave the identification result usable while comps remain incomplete
+- Supabase scan-save failure can leave `scanId` empty even when the browser displays the result
+
+Never describe a suggested price as verified sold value unless the included comp set actually contains verified sold transactions.
+
+### InstaComp failure lookup
+
+`OCR configured but did not return usable text`:
+
+- verify the OCR URL and matching token
+- restart Next after environment changes
+- inspect the Paddle logs
+- reduce request size
+
+`401 Invalid OCR service token`:
+
+- the Paddle worker token and TCOS `PADDLEOCR_API_KEY` do not match
+
+Health works but first scan fails:
+
+- the lazy model load or model cache failed; inspect Paddle stderr
+
+`Missing OPENAI_API_KEY`:
+
+- restore `.env.local` and restart Next
+
+`No market price` or `No usable comps`:
+
+- verify the card manually and enter a positive listing price only when the operator can support it
+
+`Sign in to a seller account before creating drafts`:
+
+- log in at `/account/login`, then refresh InstaComp
+
+`Unauthorized`:
+
+- the seller token is missing or expired
+
+Unexpected pairing:
+
+- rename each file with final `-front` or `-back` tokens and reload the batch
+
+## 33. Payment Reliability, Reconciliation, Disputes, And Seller Payouts
+
+TCOS payment policy remains an 8% platform commission on the total website sale amount, including item price plus allocated buyer-paid shipping. The proposed `$5` monthly subscription is disabled and must stay disabled until separately approved, implemented, disclosed, and tested.
+
+### Payment safety architecture
+
+Current payment controls include:
+
+- Stripe-hosted checkout and seller onboarding
+- no raw card or bank numbers stored by TCOS
+- signed webhook verification
+- idempotent webhook journal and duplicate-event protection
+- duplicate-checkout prevention
+- immutable transaction and financial-adjustment ledgers
+- refund, dispute, reversal, and negative-balance accounting support
+- seller payout holds during unresolved cases or shipment review
+- daily Stripe-versus-TCOS reconciliation
+- admin alerts for unmatched money
+- Stripe dispute evidence staging and final submission controls
+- isolated test-mode simulations
+
+### Daily money checklist
+
+1. Open `/admin/launch-readiness` and inspect blocked database/configuration checks.
+2. Open `/admin/financial-reconciliation` and verify the previous UTC day.
+3. Resolve every unmatched-money alert with a required note after correcting the underlying record.
+4. Open `/admin/order-review-cases` and handle payment, dispute, return, authenticity, shipping, and seller holds.
+5. Open `/admin/seller-payouts`, refresh Stripe Connect state, and handle only eligible cash-out rows.
+6. Do not approve live payments while reconciliation alerts, simulation failures, test residue, missing webhook events, or seller payout blockers remain.
+
+### Payment simulation runbook
+
+Open:
+
+```text
+/admin/payment-simulations
+```
+
+Run in this order:
+
+1. Run `No-Money Suite`.
+2. Confirm a real Stripe `sk_test_` key and test webhook signing secret are configured.
+3. Run `Stripe Sandbox Suite`.
+4. Type exactly:
+
+   ```text
+   RUN STRIPE TEST
+   ```
+
+5. Run `Full Checkout E2E`.
+6. Type exactly:
+
+   ```text
+   RUN CHECKOUT E2E
+   ```
+
+7. Require zero failed scenarios.
+8. Inspect every skipped scenario; skipped is not the same as passed.
+9. Confirm no `[TCOS TEST]` product, test order, or test inventory remains.
+
+The sandbox suite creates tagged Stripe test objects. The checkout E2E drill creates a disposable product/order, exercises checkout through refund, and removes the fixture. Tagged simulation webhooks are quarantined from production financial ledgers. Subscription renewal simulation is intentionally excluded while the monthly fee is disabled.
+
+### Live payment dual-lock runbook
+
+Open:
+
+```text
+/admin/live-payment-launch
+```
+
+Live checkout requires both independent locks:
+
+1. Current database approval for `tcos-live-payments-v1`.
+2. `TCOS_LIVE_PAYMENTS_ENABLED=true` in the deployed runtime.
+
+Approval:
+
+1. Enter the real operator name.
+2. Review every launch gate.
+3. Type exactly:
+
+   ```text
+   APPROVE LIVE PAYMENTS
+   ```
+
+4. Confirm the immutable approval event appears.
+5. Set the environment switch only after database approval and deploy/restart the runtime.
+
+Emergency revocation:
+
+1. Enter the operator name and reason.
+2. Type exactly:
+
+   ```text
+   REVOKE LIVE PAYMENTS
+   ```
+
+3. Confirm the revocation event. Database revocation blocks live checkout even if the environment switch is still true.
+
+Required live conditions include:
+
+- matching live secret/publishable key pair
+- live webhook secret
+- HTTPS production origin
+- exactly 8% configured store commission
+- latest full checkout E2E with at least eight scenarios and zero failures
+- zero open reconciliation alerts
+- zero test-order/test-product residue
+- monthly subscription flag disabled
+- verified live refund/dispute event delivery
+- valid Stripe platform business details
+- enabled live webhook at `{production origin}/api/webhook`
+- live and payout-enabled connected sellers where seller routing applies
+
+Required Stripe events:
+
+```text
+account.updated
+checkout.session.completed
+refund.created
+refund.updated
+refund.failed
+charge.dispute.created
+charge.dispute.updated
+charge.dispute.closed
+charge.dispute.funds_withdrawn
+charge.dispute.funds_reinstated
+```
+
+`/admin/launch-readiness` is a broad advisory configuration/database report. `/admin/live-payment-launch` is the actual database half of the two-lock checkout control. Neither page proves that live postage purchasing works.
+
+### Financial reconciliation runbook
+
+Open:
+
+```text
+/admin/financial-reconciliation
+```
+
+1. Click `Run Previous UTC Day`.
+2. Inspect critical and high alerts first.
+3. Compare Stripe source ID, TCOS record ID, Stripe amount, TCOS amount, and difference.
+4. Correct the underlying Stripe or TCOS record before closing the alert.
+5. Click `Resolve` or `Ignore With Note`.
+6. Enter a specific note; a note is mandatory.
+7. Rerun or confirm the window after correction.
+
+Rules:
+
+- tolerance is one cent
+- a run processes at most 1,000 Stripe balance transactions
+- reaching that limit opens a critical alert
+- rerunning a completed window replays the stored run
+- scheduled reconciliation runs daily at 18:00 UTC
+- cron requires `Authorization: Bearer {CRON_SECRET}`
+- matching covers charges, refunds, disputes, transfers/payouts, Stripe fees, seller payables, and the 8% platform ledger
+
+### Dispute and chargeback runbook
+
+1. Open `/admin/order-review-cases` or the case from `/admin/orders/[id]`.
+2. Confirm case type, severity, Stripe dispute ID, evidence deadline, order, and seller scope.
+3. Download the case packet.
+4. Add evidence notes and move through the appropriate states: `open`, `evidence_gathering`, `waiting_on_buyer`, `waiting_on_seller`, and `under_review`.
+5. Click `Generate And Stage`. Staging remains editable.
+6. Review every evidence field against the order, tracking, policies, buyer communication, and Stripe record.
+7. For final submission, click `Final Submit To Stripe` and type exactly:
+
+   ```text
+   SUBMIT TO STRIPE
+   ```
+
+8. Final Stripe submission cannot be amended.
+9. Record the Stripe outcome and TCOS outcome summary.
+10. Apply payout resolution separately.
+
+Payout-resolution choices:
+
+- seller favorable: `release_to_seller`
+- buyer favorable: `reverse_for_buyer` or `cancel_no_payout`
+- appeal/continued review: `hold_for_appeal`
+
+Seller release still requires shipment and clearance of payment, inventory, shipping, and case holds. Active or paid cash-out requests can block destructive payout-row changes.
+
+### Seller payout runbook
+
+Seller surface:
+
+```text
+/seller/payouts
+```
+
+Admin surface:
+
+```text
+/admin/seller-payouts
+```
+
+1. Seller accepts `/seller-terms`.
+2. Seller starts Stripe-hosted Express onboarding from `/account` or `/seller/payouts`.
+3. Stripe—not TCOS—collects bank, identity, and payout credentials.
+4. Admin opens `/admin/seller-payouts` and clicks `Refresh Stripe Status`.
+5. Treat the account as ready only when onboarding is active, payouts are enabled, details are submitted, no current/past-due requirements remain, and no disabled reason exists.
+6. Website checkout creates the 8% platform-fee row and seller-payable row using item price plus allocated buyer-paid shipping.
+7. Seller payable starts at `hold_pending_fulfillment`.
+8. Release only after shipment and after all cases/reviews clear.
+9. Seller requests cash-out only against remaining `eligible` rows.
+10. Admin advances `requested -> approved -> processing -> paid`.
+11. Complete the real money movement in the approved provider first.
+12. While `processing`, record the real provider payout reference and final processor fee.
+13. Only then click `Mark Paid`.
+14. Reconcile the provider reference in `/admin/financial-reconciliation`.
+
+Critical warning: `Mark Paid` records TCOS state. It does not send money. Current TCOS payout movement is not automated.
+
+## 34. Shipping, Postage, Coverage, Tracking, And Claims
+
+Primary routes:
+
+```text
+/admin/orders/[id]
+/admin/shipping
+/admin/shipping/simulations
+```
+
+### Shipping policy
+
+Standard Envelope is eligible when:
+
+- merchandise subtotal is at most `$20.00`
+- estimated weight is at most `3 oz`
+- current estimate is one ounce per card
+
+TCOS automatically resolves to Ground Advantage at `$20.01` or more or above three estimated ounces.
+
+Standard Envelope rate table:
+
+| Weight | Before 2026-07-12 07:00 UTC | At/after 2026-07-12 07:00 UTC |
+| --- | --- | --- |
+| 1 oz | $0.74 | $0.78 |
+| 2 oz | $1.03 | $1.07 |
+| 3 oz | $1.32 | $1.36 |
+
+Parcel rules currently embedded in TCOS:
+
+- Ground Advantage: `$6.99` for the first five cards, then `$0.25` per additional card; free at `$149`
+- Priority: `$12.99` for the first five cards, then `$0.25` per additional card; free at `$500`
+- Coverage is required for every shipment
+- current buyer charge for Coverage is zero
+
+### Critical live-postage warning
+
+TCOS currently has only a dry-run shipping provider adapter. No live postage-provider adapter is approved. Setting `TCOS_SHIPPING_PURCHASE_MODE=live` deliberately blocks/throws instead of buying postage.
+
+Never mail with references beginning:
+
+```text
+IMB-TCOS-DRYRUN-
+USPS-TCOS-DRYRUN-
+dryrun-
+```
+
+Dry-run labels cannot be mailed, marked shipped, saved as real tracking, entered as manual purchases, or used for real Coverage claims.
+
+### Real shipment runbook
+
+1. Open `/admin/orders/[id]`.
+2. Click `Prepare Label + Coverage Record`.
+3. Confirm the resolved method is correct under the value/weight rules.
+4. Buy the real label and real Coverage policy externally.
+5. Click `Record Manual Purchase`.
+6. Enter the real provider, carrier, tracking or IMb, postage, provider label/shipment ID, label/PDF URL where available, Coverage provider, policy ID, and covered amount.
+7. Confirm no dry-run reference is present.
+8. Open `/admin/shipping`.
+9. Clear missing-tracking, missing-policy, blocked-purchase, and other priority exceptions.
+10. Download the label/coverage audit packet when needed.
+11. Save tracking.
+12. Mark shipped only after the real label, real tracking, and real policy are recorded.
+
+The shipping queue also supports priority sorting, external void records, claim status, label/coverage packets, manual label records, and ranked exception CSV export.
+
+### Coverage claim runbook
+
+1. Confirm a real, non-dry-run label and Coverage policy exist.
+2. Open a Coverage claim draft from the order.
+3. Download the claim evidence packet.
+4. Submit the claim to the external provider. TCOS does not submit it.
+5. Record the external provider claim ID and note.
+6. Advance only through valid states:
+
+   ```text
+   draft -> submitted
+   submitted -> under_review / approved / denied / cancelled
+   under_review -> approved / denied / cancelled
+   approved -> paid / denied / cancelled
+   ```
+
+7. Treat paid, denied, and cancelled claims as audit-locked.
+
+### Shipping simulation runbook
+
+Open `/admin/shipping/simulations` and run the suite. Require all six assertions:
+
+- `$19.99` and 3 oz stays Standard Envelope
+- `$20.01` forces Ground Advantage
+- more than 3 oz forces Ground Advantage
+- Coverage is required for Standard Envelope
+- Coverage is required for parcel shipping
+- dry-run Standard Envelope and Ground Advantage adapter purchases behave as dry runs
+
+This page does not contact USPS or Coverage and does not buy postage.
+
+## 35. Seller eBay Connection, Staging, Outside Orders, And Reconciliation
+
+Seller-scoped eBay tokens and workflows are separate from the Store #1 global `ebay_tokens` connection.
+
+### Connect and stage inventory
+
+1. Admin enables the correct store-wide eBay environment and sync policy in `/admin/settings`.
+2. Seller opens `/seller/marketplaces`.
+3. Seller connects eBay through OAuth.
+4. Reconnect old accounts when identity or fulfillment scopes are missing.
+5. Run preview first; preview performs no inventory write.
+6. Stage the first/next 25 rows or all remaining rows.
+7. Review ready rows, needs-review rows, blocked conflicts, missing SKU/listing ID, authenticity fields, and activation blockers.
+8. Promote only reviewed rows into seller-owned TCOS drafts.
+9. Open `/seller/inventory` and activate separately after payout verification and listing readiness pass.
+
+### Reconcile and import outside orders
+
+1. Import outside eBay orders from `/seller/marketplaces`.
+2. Run reconciliation for linked inventory.
+3. Review quantity reductions, sold rows, price mismatches, missing remote items, and failed rows.
+4. Resolve conflicts instead of forcing promotion or quantity changes.
+
+Safety rules:
+
+- reconciliation may lower TCOS quantity or mark sold
+- reconciliation never raises local quantity automatically
+- outside eBay sales do not enter TCOS checkout, seller payout, or 8% platform-fee ledgers
+- eBay refunds/cancellations are review-only and never restore stock automatically
+- pausing retains credentials, staging, history, and inventory
+- disconnecting deletes stored seller eBay tokens but retains staging/history/inventory
+- eBay revocation or account-deletion notifications must disable future access without deleting audit history
+
+Scheduled seller reconciliation runs at 09:00 UTC and requires `CRON_SECRET`. The current cron processes one connected seller per invocation and one reconciliation/import batch. Multiple connected sellers may require a more frequent schedule or a future scaling change.
+
+## 36. Local Startup, Backup Verification, And Laptop-Failure Recovery
+
+The verified disaster-recovery snapshot created on 2026-07-10 exists in two independent locations:
+
+```text
+C:\Projects\TCOS_DISASTER_RECOVERY\TCOS_FULL_DISASTER_RECOVERY_20260710-230103
+D:\TCOS_DISASTER_RECOVERY\TCOS_FULL_DISASTER_RECOVERY_20260710-230103
+```
+
+The `D:` Transcend copy is the laptop-failure copy. Do not rely only on the `C:` copy because an internal-drive failure can destroy both the working project and a same-drive backup.
+
+Snapshot contents include:
+
+- complete working repository and all untracked files
+- `.git` history and an independent Git bundle
+- ignored `.env*` files and production-capable secrets
+- `node_modules` and `.next`
+- portable Node/npm and Python runtimes
+- PaddleOCR virtual environment and downloaded PP-OCRv6 models
+- Supabase API-level table/schema/Auth/Storage export available to the service-role key
+- older local backups
+- restore, start, and verification scripts
+- critical-file checksum manifest
+- full `tar.gz` archive and SHA-256 file
+
+Verified snapshot facts at creation:
+
+- 76,517 files in the paste-ready folder
+- approximately 3.081 GiB folder size
+- approximately 1.656 GiB compressed archive
+- 2,430 critical checksum records
+- zero missing and zero mismatched critical files
+- external archive SHA-256 matched the local archive
+
+### Verify the Transcend backup
+
+1. Connect the Transcend drive.
+2. Open PowerShell.
+3. Run:
+
+   ```powershell
+   Set-ExecutionPolicy -Scope Process Bypass
+   & "D:\TCOS_DISASTER_RECOVERY\TCOS_FULL_DISASTER_RECOVERY_20260710-230103\scripts\VERIFY_BACKUP.ps1"
+   ```
+
+4. Require:
+
+   ```text
+   Missing: 0
+   Mismatched: 0
+   Backup verification passed.
+   Complete archive SHA256 passed.
+   ```
+
+Do not erase the working laptop until the external verification passes.
+
+### Restore on a replacement Windows laptop
+
+1. Copy the entire snapshot folder from `D:` onto the replacement computer.
+2. Open PowerShell inside the copied snapshot folder.
+3. Run verification first:
+
+   ```powershell
+   Set-ExecutionPolicy -Scope Process Bypass
+   .\scripts\VERIFY_BACKUP.ps1
+   ```
+
+4. Confirm no critical file is missing or mismatched.
+5. Confirm `C:\Projects\truely-collectables` does not already contain a different working project. Rename an existing folder first.
+6. Restore:
+
+   ```powershell
+   .\scripts\RESTORE_TCOS.ps1
+   ```
+
+7. The default restore targets are:
+
+   ```text
+   C:\Projects\truely-collectables
+   C:\Projects\Python312
+   C:\Projects\NodeRuntime
+   ```
+
+8. Start both services:
+
+   ```powershell
+   .\scripts\START_TCOS.ps1
+   ```
+
+9. Open:
+
+   ```text
+   http://localhost:3000/admin/login
+   ```
+
+10. Log in and run a known-card InstaComp test before doing new production work.
+
+The restore script refuses to merge into an existing app folder unless `-Force` is supplied. Avoid `-Force` unless an intentional merge is required and the old folder has already been preserved.
+
+### Manual service verification after restore
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:8008/health
+Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3000/admin/login
+```
+
+If startup fails, inspect:
+
+```text
+%TEMP%\tcos-paddleocr.stderr.log
+%TEMP%\tcos-next.stderr.log
+```
+
+### Git-only fallback
+
+If the paste-ready app copy is damaged but the independent Git bundle is good:
+
+```powershell
+git clone .\git\truely-collectables.bundle C:\Projects\truely-collectables
+```
+
+The Git bundle restores committed history only. It does not replace the paste-ready copy because Git does not contain ignored `.env*`, dependencies, model caches, or untracked work.
+
+### Cloud recovery boundary
+
+The snapshot is sufficient to continue TCOS after a laptop failure while the existing provider accounts remain active. It is not a complete independent backup of every provider.
+
+Current gaps:
+
+- Supabase export is service-role API level, not a PostgreSQL `pg_dump`
+- a full database dump still requires the Supabase database password/direct connection and must preserve private schemas, roles, grants, extensions, Auth password hashes, and remote-only schema drift
+- Vercel Development, Preview, and Production environment sets were not exported because no Vercel personal access token/project link was available
+- Stripe, eBay, Resend, OpenAI, Coverage, and other provider-side account state remains with those providers
+
+Local credentials are preserved inside `.env*`, so the restored app can reconnect to the existing provider accounts. Add a PostgreSQL dump and Vercel environment exports to a future snapshot when those credentials are available.
+
+### Backup security
+
+The snapshot contains production-capable secrets in plaintext so it can be paste-ready. Treat the Transcend drive like a password vault:
+
+- keep it physically secure
+- encrypt the drive where possible
+- do not upload the unencrypted snapshot to public cloud storage
+- do not email or share `.env*`
+- rotate provider keys immediately if the drive is lost or stolen
+
+### Refresh the disaster backup after material changes
+
+After code, migrations, environment variables, OCR models, or this manual changes:
+
+1. Commit the intended project changes locally.
+2. Stop TCOS and PaddleOCR for a consistent snapshot.
+3. Refresh the paste-ready local snapshot without omitting hidden/ignored files.
+4. Regenerate the Git bundle.
+5. Regenerate the manual HTML and PDF.
+6. Regenerate checksum manifests and the full archive.
+7. Copy the refreshed folder, archive, and SHA-256 file to the Transcend drive.
+8. Run the external `VERIFY_BACKUP.ps1`.
+9. Restart TCOS and PaddleOCR.
+10. Record the new snapshot timestamp and hash in this manual.
+
+## 37. Maintenance Rule
 
 When a feature changes, update this manual in the same work session.
 
@@ -3158,8 +4339,13 @@ Checklist for future changes:
 3. Update environment variables if new keys are added.
 4. Update database docs if tables/fields change.
 5. Update the mobile app manual when the change affects the mobile app.
-6. Regenerate the correct PDF manual at the module checkpoint.
-7. Run `npm run build`.
+6. Run `npm run lint` and `npm run build`.
+7. Run affected payment, shipping, marketplace, OCR, and recovery checks.
+8. Regenerate the correct HTML/PDF manual with `npm run manual:pdf`.
+9. Commit the manual with the feature changes.
+10. Refresh the paste-ready local disaster snapshot.
+11. Refresh the Transcend folder, archive, and SHA-256 file.
+12. Run the external `VERIFY_BACKUP.ps1` and require a clean result.
 
 The app should not get ahead of the documentation.
 
