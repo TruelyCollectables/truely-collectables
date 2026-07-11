@@ -174,6 +174,14 @@ function exportTimestamp() {
   return new Date().toISOString().replace(/[:.]/g, "-");
 }
 
+function exportSlug(value: string | null | undefined) {
+  return String(value || "all")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48) || "all";
+}
+
 function exportCell(value: unknown) {
   if (value === null || value === undefined) return "";
   if (typeof value === "boolean") return value ? "yes" : "no";
@@ -1504,6 +1512,22 @@ export default function SellerInventoryPage() {
     setSelectedInventoryItemIds([]);
   }
 
+  function marketplaceExportFileName(extension: "csv" | "json") {
+    const parts = [
+      "tcos-marketplace-ready",
+      `${selectedMarketplaceReadyItems.length}-rows`,
+      `status-${statusFilter}`,
+      `readiness-${readinessFilter}`,
+      `source-${sourceFilter}`,
+    ];
+
+    if (search.trim()) {
+      parts.push(`search-${exportSlug(search)}`);
+    }
+
+    return `${parts.join("-")}-${exportTimestamp()}.${extension}`;
+  }
+
   async function copySelectedMarketplacePacket() {
     if (!selectedMarketplaceReadyItems.length) {
       setNotice("Select at least one ready listing before copying a marketplace packet.");
@@ -1536,7 +1560,7 @@ export default function SellerInventoryPage() {
     }
 
     downloadTextFile(
-      `tcos-marketplace-ready-packet-${exportTimestamp()}.json`,
+      marketplaceExportFileName("json"),
       JSON.stringify(marketplaceExportPacket(selectedMarketplaceReadyItems), null, 2),
       "application/json;charset=utf-8",
     );
@@ -1600,7 +1624,7 @@ export default function SellerInventoryPage() {
     }
 
     downloadTextFile(
-      `tcos-marketplace-ready-listings-${exportTimestamp()}.csv`,
+      marketplaceExportFileName("csv"),
       marketplaceExportCsv(selectedMarketplaceReadyItems),
       "text/csv;charset=utf-8",
     );
