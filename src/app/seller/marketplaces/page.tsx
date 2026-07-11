@@ -83,6 +83,11 @@ function buildConnectors(storeDisplayName: string): Connector[] {
 
 const buildQueue: BuildQueueStep[] = [
   {
+    name: "Seller inventory shipping handoff",
+    status: "completed",
+    detail: "Seller Inventory now shows the default Standard Envelope or Ground Advantage plan, estimated postage, Coverage requirement, and Coverage type, and ready-row marketplace packets carry those shipping fields for external storefront prep.",
+  },
+  {
     name: "Seller marketplace ready-row label alignment",
     status: "completed",
     detail: "Seller marketplace handoff buttons now use Open Ready Rows and Search Ready Rows wording instead of the older Ready Stage labels, so ready-state marketplace jumps match the rest of the import-run controls.",
