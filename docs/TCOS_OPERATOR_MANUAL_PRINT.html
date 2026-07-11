@@ -3745,6 +3745,7 @@ services/paddleocr-service/README.md</code></pre>
 <p>Marketplace packet controls in Seller Inventory:</p>
 <ul>
 <li><code>Copy Marketplace Packet</code> copies a JSON packet for selected ready rows</li>
+<li><code>Download Marketplace Packet</code> downloads the same JSON packet for selected ready rows</li>
 <li><code>Download Marketplace CSV</code> downloads selected ready rows in spreadsheet form</li>
 <li>the Bulk Controls panel displays visible guardrails before export: cross-list prep only, no external publishing, no postage purchase, and the ready-row export count</li>
 <li>only activation-ready selected rows are included</li>
@@ -4331,7 +4332,7 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3000/admin/login</code></pre
 <li>Seller Inventory Bulk Action Follow-Up now shows <code>Retry Corrected</code> when failed rows have become eligible for the same activation/archive action.</li>
 <li>Seller Inventory bulk action result cards now include <code>Copy Bulk Report</code> and <code>Download Bulk Report</code> for a JSON audit/debug handoff with success, failure, blocker, and retry-ready details.</li>
 <li>Seller Inventory bulk action result cards now include <code>Clear Bulk Report</code> so old result/follow-up cards can be intentionally dismissed after audit handoff.</li>
-<li>Seller Inventory marketplace JSON/CSV exports now include explicit prep-only, no-external-publishing, and no-shipping-purchase guardrail fields so exported files cannot be mistaken for live marketplace or postage actions.</li>
+<li>Seller Inventory marketplace JSON/CSV exports now include explicit prep-only, no-external-publishing, and no-shipping-purchase guardrail fields so exported files cannot be mistaken for live marketplace or postage actions, and selected ready rows can now download the JSON marketplace packet directly instead of relying on clipboard copy.</li>
 <li>Seller Inventory Bulk Controls now show the marketplace export guardrails on-screen before copy/download actions.</li>
 <li>Seller Command Center now shows <code>InstaComp Ready</code> and routes to ready InstaComp drafts when that is the safest inventory shortcut.</li>
 <li>Seller order surface labels now use <code>Seller Order Workspace</code>, <code>Search orders</code>, <code>Order views</code>, and <code>Reset Order View</code> wording instead of the older workflow phrasing.</li>

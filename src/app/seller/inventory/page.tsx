@@ -291,6 +291,20 @@ function marketplaceExportRows(items: SellerInventoryItem[]) {
   }));
 }
 
+function marketplaceExportPacket(items: SellerInventoryItem[]) {
+  return {
+    exportedAt: new Date().toISOString(),
+    scope: "selected_ready_seller_inventory_marketplace_packet",
+    packetPurpose: "crosslist_prep_only",
+    itemCount: items.length,
+    externalPublishingApproved: false,
+    shippingPurchaseIncluded: false,
+    warning: marketplaceExportWarning,
+    shippingWarning: marketplaceExportShippingWarning,
+    rows: marketplaceExportRows(items),
+  };
+}
+
 function marketplaceExportCsv(items: SellerInventoryItem[]) {
   const rows = marketplaceExportRows(items);
 
@@ -1497,17 +1511,7 @@ export default function SellerInventoryPage() {
       return;
     }
 
-    const payload = {
-      exportedAt: new Date().toISOString(),
-      scope: "selected_ready_seller_inventory_marketplace_packet",
-      packetPurpose: "crosslist_prep_only",
-      itemCount: selectedMarketplaceReadyItems.length,
-      externalPublishingApproved: false,
-      shippingPurchaseIncluded: false,
-      warning: marketplaceExportWarning,
-      shippingWarning: marketplaceExportShippingWarning,
-      rows: marketplaceExportRows(selectedMarketplaceReadyItems),
-    };
+    const payload = marketplaceExportPacket(selectedMarketplaceReadyItems);
 
     try {
       await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
@@ -1520,6 +1524,28 @@ export default function SellerInventoryPage() {
     } catch {
       setError("Could not copy the marketplace packet.");
     }
+  }
+
+  function downloadSelectedMarketplacePacket() {
+    if (!selectedMarketplaceReadyItems.length) {
+      setNotice(
+        "Select at least one ready listing before downloading a marketplace packet.",
+      );
+      setError("");
+      return;
+    }
+
+    downloadTextFile(
+      `tcos-marketplace-ready-packet-${exportTimestamp()}.json`,
+      JSON.stringify(marketplaceExportPacket(selectedMarketplaceReadyItems), null, 2),
+      "application/json;charset=utf-8",
+    );
+    setNotice(
+      `Downloaded ${selectedMarketplaceReadyItems.length} ready listing${
+        selectedMarketplaceReadyItems.length === 1 ? "" : "s"
+      } as a marketplace packet.`,
+    );
+    setError("");
   }
 
   async function copyBulkActionReport() {
@@ -2025,6 +2051,14 @@ export default function SellerInventoryPage() {
                     className="rounded-md border border-sky-300 bg-white px-3 py-2 text-xs font-bold text-sky-900 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     Copy Marketplace Packet ({selectedMarketplaceReadyItems.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={downloadSelectedMarketplacePacket}
+                    disabled={selectedMarketplaceReadyItems.length === 0}
+                    className="rounded-md border border-sky-300 bg-white px-3 py-2 text-xs font-bold text-sky-900 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Download Marketplace Packet ({selectedMarketplaceReadyItems.length})
                   </button>
                   <button
                     type="button"

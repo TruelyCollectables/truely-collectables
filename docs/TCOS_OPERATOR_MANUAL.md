@@ -3922,6 +3922,7 @@ Use the `Readiness` filter to separate `Ready` drafts from `Needs work` drafts. 
 Marketplace packet controls in Seller Inventory:
 
 - `Copy Marketplace Packet` copies a JSON packet for selected ready rows
+- `Download Marketplace Packet` downloads the same JSON packet for selected ready rows
 - `Download Marketplace CSV` downloads selected ready rows in spreadsheet form
 - the Bulk Controls panel displays visible guardrails before export: cross-list prep only, no external publishing, no postage purchase, and the ready-row export count
 - only activation-ready selected rows are included
@@ -4600,7 +4601,7 @@ Recent seller workspace wording cleanup:
 - Seller Inventory Bulk Action Follow-Up now shows `Retry Corrected` when failed rows have become eligible for the same activation/archive action.
 - Seller Inventory bulk action result cards now include `Copy Bulk Report` and `Download Bulk Report` for a JSON audit/debug handoff with success, failure, blocker, and retry-ready details.
 - Seller Inventory bulk action result cards now include `Clear Bulk Report` so old result/follow-up cards can be intentionally dismissed after audit handoff.
-- Seller Inventory marketplace JSON/CSV exports now include explicit prep-only, no-external-publishing, and no-shipping-purchase guardrail fields so exported files cannot be mistaken for live marketplace or postage actions.
+- Seller Inventory marketplace JSON/CSV exports now include explicit prep-only, no-external-publishing, and no-shipping-purchase guardrail fields so exported files cannot be mistaken for live marketplace or postage actions, and selected ready rows can now download the JSON marketplace packet directly instead of relying on clipboard copy.
 - Seller Inventory Bulk Controls now show the marketplace export guardrails on-screen before copy/download actions.
 - Seller Command Center now shows `InstaComp Ready` and routes to ready InstaComp drafts when that is the safest inventory shortcut.
 - Seller order surface labels now use `Seller Order Workspace`, `Search orders`, `Order views`, and `Reset Order View` wording instead of the older workflow phrasing.
