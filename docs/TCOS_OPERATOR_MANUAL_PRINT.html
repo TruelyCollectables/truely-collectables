@@ -4108,6 +4108,7 @@ dryrun-</code></pre>
 <p>Dry-run shipping detection for fulfillment-critical backend routes is centralized in <code>src/lib/shipping-dry-run.ts</code>. Use that helper instead of copying one-off string checks when adding new label, tracking, Coverage, claim, or shipment actions.</p>
 <p>Buyer and seller account order APIs also use the shared dry-run detector before showing tracking or carrier values, so dry-run references stay hidden from account-facing order views.</p>
 <p>Admin order detail and packing-slip printing also use the shared detector before treating label, tracking, shipment, or Coverage references as printable fulfillment data.</p>
+<p>Admin Shipping and the ranked shipping exception CSV now use the shared detector for dry-run label, tracking, shipment, and Coverage references while preserving event-based simulated-purchase detection.</p>
 <h3>Real shipment runbook</h3>
 <ol>
 <li>Open <code>/admin/orders/[id]</code>.</li>

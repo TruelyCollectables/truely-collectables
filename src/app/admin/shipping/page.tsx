@@ -8,6 +8,7 @@ import {
   buildShippingProviderSetupPacket,
   type ProviderSetupDecision,
 } from "../../../lib/shipping-provider-setup";
+import { isDryRunShippingLabel as isDryRunShippingLabelRecord } from "../../../lib/shipping-dry-run";
 import { getActiveStoreId } from "../../../lib/stores";
 import { createSupabaseServerClient } from "../../../lib/supabase-server";
 import ShippingClaimActions from "./ShippingClaimActions";
@@ -24,6 +25,8 @@ type ShippingLabelRow = {
   id: string;
   order_id: number;
   provider: string | null;
+  provider_label_id: string | null;
+  provider_shipment_id: string | null;
   provider_service: string | null;
   service_level: string | null;
   carrier: string | null;
@@ -193,28 +196,8 @@ function metadataRecord(
     : null;
 }
 
-function nestedRecord(
-  record: Record<string, unknown> | null | undefined,
-  key: string,
-) {
-  const value = record?.[key];
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
 function isDryRunLabel(row: ShippingLabelRow) {
-  const latestAttempt = metadataRecord(row.metadata, "latest_purchase_attempt");
-  const purchaseResult = nestedRecord(latestAttempt, "purchase_result");
-  const providerPayload = nestedRecord(purchaseResult, "rawProviderPayload");
-
-  return (
-    latestAttempt?.status === "dry_run_purchased" ||
-    purchaseResult?.mode === "dry_run" ||
-    providerPayload?.dry_run === true ||
-    row.coverage_policy_id?.startsWith("dryrun-") ||
-    Boolean(row.tracking_number?.includes("TCOS-DRYRUN"))
-  );
+  return isDryRunShippingLabelRecord(row);
 }
 
 function standardEnvelopePolicyNote(row: ShippingLabelRow) {
@@ -501,7 +484,7 @@ export default async function AdminShippingPage() {
     supabase
       .from("order_shipping_labels")
       .select(
-        "id,order_id,provider,provider_service,service_level,carrier,tracking_number,label_status,requested_shipping_method,resolved_shipping_method,coverage_provider,coverage_status,coverage_amount,coverage_policy_id,postage_amount,metadata,created_at,updated_at",
+        "id,order_id,provider,provider_label_id,provider_shipment_id,provider_service,service_level,carrier,tracking_number,label_status,requested_shipping_method,resolved_shipping_method,coverage_provider,coverage_status,coverage_amount,coverage_policy_id,postage_amount,metadata,created_at,updated_at",
       )
       .eq("store_id", storeId)
       .order("created_at", { ascending: false })

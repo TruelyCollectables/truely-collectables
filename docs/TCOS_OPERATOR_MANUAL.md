@@ -4339,6 +4339,8 @@ Buyer and seller account order APIs also use the shared dry-run detector before 
 
 Admin order detail and packing-slip printing also use the shared detector before treating label, tracking, shipment, or Coverage references as printable fulfillment data.
 
+Admin Shipping and the ranked shipping exception CSV now use the shared detector for dry-run label, tracking, shipment, and Coverage references while preserving event-based simulated-purchase detection.
+
 ### Real shipment runbook
 
 1. Open `/admin/orders/[id]`.
