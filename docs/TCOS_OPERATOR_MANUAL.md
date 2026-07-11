@@ -4294,6 +4294,8 @@ The provider setup packet includes an operator decision:
 
 The same decision appears in the `/admin/shipping` Provider Setup Checklist as the Shipping setup verdict, so an operator can see the current go/no-go state without opening the export.
 
+`/admin/launch-readiness` also includes the same Shipping Setup Verdict and links directly to Shipping Ops. Treat this as the production-readiness warning surface; it does not mean live postage buying is enabled.
+
 Never mail with references beginning:
 
 ```text

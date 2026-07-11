@@ -10,7 +10,10 @@ import {
 } from "../../../lib/store-settings";
 import { getActiveStoreId } from "../../../lib/stores";
 import { createSupabaseServerClient } from "../../../lib/supabase-server";
-import { getShippingProviderReadiness } from "../../../lib/shipping-provider-readiness";
+import {
+  buildShippingProviderSetupPacket,
+  type ProviderSetupDecision,
+} from "../../../lib/shipping-provider-setup";
 import { SHIPPING_SIMULATION_SUITE_VERSION } from "../../../lib/shipping-simulations";
 import {
   getStripeLivePublishableKey,
@@ -65,6 +68,14 @@ function getPaymentMode() {
   return getStripeTestSecretKey() ? "test" : "missing";
 }
 
+function shippingDecisionStatus(
+  status: ProviderSetupDecision["status"],
+): ReadinessStatus {
+  if (status === "live_blocked") return "blocked";
+
+  return "warning";
+}
+
 function configuredHttpsSiteUrl(
   siteUrl: string | undefined,
   primaryDomain: string | null | undefined,
@@ -91,7 +102,8 @@ function configuredHttpsSiteUrl(
 function buildReadinessItems(
   storeSettings: StoreOperationalSettings,
 ): ReadinessItem[] {
-  const shippingProviderReadiness = getShippingProviderReadiness();
+  const shippingProviderSetup = buildShippingProviderSetupPacket();
+  const shippingProviderReadiness = shippingProviderSetup.readiness;
   const siteUrl = configuredHttpsSiteUrl(
     process.env.NEXT_PUBLIC_SITE_URL,
     storeSettings.primaryDomain || process.env.VERCEL_PROJECT_PRODUCTION_URL,
@@ -242,6 +254,12 @@ function buildReadinessItems(
           : `The active store resolves to eBay environment ${storeSettings.ebayEnvironment}.`,
       action:
         "Enable eBay sync for the active store and confirm EBAY_CLIENT_ID, EBAY_CLIENT_SECRET, and store-level production eBay environment before live inventory sync.",
+    },
+    {
+      label: "Shipping Setup Verdict",
+      status: shippingDecisionStatus(shippingProviderSetup.decision.status),
+      detail: shippingProviderSetup.decision.summary,
+      action: `${shippingProviderSetup.decision.nextAction} Review /admin/shipping or export /api/admin/shipping/provider-setup before changing shipping mode.`,
     },
     ...shippingProviderReadiness.map((item) => ({
       label: item.label,
@@ -764,6 +782,9 @@ export default async function LaunchReadinessPage() {
           </Link>
           <Link href="/admin/live-payment-launch" className="rounded border bg-white px-4 py-2">
             Live Payment Gate
+          </Link>
+          <Link href="/admin/shipping" className="rounded border bg-white px-4 py-2">
+            Shipping Ops
           </Link>
           <Link href="/admin/shipping/simulations" className="rounded border bg-white px-4 py-2">
             Shipping Simulations
