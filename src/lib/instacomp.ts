@@ -143,7 +143,72 @@ function normalizeCardNumber(value: string | null | undefined) {
   return String(value).toLowerCase().replace("#", "").trim();
 }
 
+function normalizeSerialNumber(value: string | null | undefined) {
+  if (!value) return "";
+
+  return String(value)
+    .toLowerCase()
+    .replace(/\bone\s+of\s+one\b/g, "1/1")
+    .replace(/\b1\s+of\s+1\b/g, "1/1")
+    .replace(/\s+/g, "")
+    .trim();
+}
+
+function serialNumberParts(value: string | null | undefined) {
+  const normalized = normalizeSerialNumber(value);
+  const match = normalized.match(/(\d+)\/(\d+)/);
+
+  if (!match) {
+    return {
+      normalized,
+      numerator: "",
+      denominator: "",
+      unpadded: normalized,
+    };
+  }
+
+  const numerator = String(Number(match[1]));
+  const denominator = String(Number(match[2]));
+
+  return {
+    normalized,
+    numerator,
+    denominator,
+    unpadded: `${numerator}/${denominator}`,
+  };
+}
+
+function isBaseParallel(value: string | null | undefined) {
+  const normalized = normalizeText(value);
+  return normalized === "base" || normalized === "base card";
+}
+
+function parallelTokens(value: string | null | undefined) {
+  const normalized = normalizeText(value);
+
+  if (!normalized || isBaseParallel(value)) return [];
+
+  return normalized
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean)
+    .filter(
+      (token) =>
+        ![
+          "parallel",
+          "exact",
+          "type",
+          "uncertain",
+          "version",
+          "card",
+        ].includes(token)
+    );
+}
+
 export function buildInstaCompQueries(ai: InstaCompAiResult) {
+  const serial = serialNumberParts(ai.serialNumber);
+  const serialDenominator = serial.denominator ? `/${serial.denominator}` : "";
+
   const primaryParts = [
     cleanPart(ai.year),
     cleanPart(ai.brand),
@@ -171,7 +236,19 @@ export function buildInstaCompQueries(ai: InstaCompAiResult) {
     [
       cleanPart(ai.player),
       cleanPart(ai.parallel),
+      serialDenominator,
       ai.cardNumber ? `#${cleanPart(ai.cardNumber).replace(/^#/, "")}` : "",
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .trim(),
+
+    [
+      cleanPart(ai.player),
+      cleanPart(ai.year),
+      cleanPart(ai.brand),
+      cleanPart(ai.parallel),
+      serialDenominator,
     ]
       .filter(Boolean)
       .join(" ")
@@ -361,7 +438,9 @@ export function scoreCompMatch(title: string, ai: InstaCompAiResult) {
   const brand = normalizeText(ai.brand);
   const setName = normalizeText(ai.setName);
   const parallel = normalizeText(ai.parallel);
+  const parallelTokenList = parallelTokens(ai.parallel);
   const cardNumber = normalizeCardNumber(ai.cardNumber);
+  const serial = serialNumberParts(ai.serialNumber);
 
   if (player && t.includes(player)) {
     score += 30;
@@ -402,9 +481,46 @@ export function scoreCompMatch(title: string, ai: InstaCompAiResult) {
     }
   }
 
-  if (parallel && t.includes(parallel)) {
-    score += 15;
-    flags.push("parallel");
+  if (parallel && !isBaseParallel(ai.parallel)) {
+    if (t.includes(parallel)) {
+      score += 22;
+      flags.push("parallel");
+    } else if (parallelTokenList.length) {
+      const matchedTokens = parallelTokenList.filter((token) =>
+        containsAny(` ${t} `, [` ${token} `, `-${token} `, `/${token} `])
+      );
+
+      if (matchedTokens.length >= Math.min(2, parallelTokenList.length)) {
+        score += Math.min(18, matchedTokens.length * 6);
+        flags.push("parallel partial");
+      }
+    }
+  }
+
+  if (serial.normalized) {
+    const compactTitle = t.replace(/\s+/g, "");
+    const exactSerialPatterns = [
+      serial.normalized,
+      serial.unpadded,
+      serial.normalized.replace("/", "of"),
+      serial.unpadded.replace("/", "of"),
+    ].filter(Boolean);
+
+    if (exactSerialPatterns.some((pattern) => compactTitle.includes(pattern))) {
+      score += 30;
+      flags.push("serial #");
+    } else if (
+      serial.denominator &&
+      containsAny(compactTitle, [
+        `/${serial.denominator}`,
+        `of${serial.denominator}`,
+        `numberedto${serial.denominator}`,
+        `numbered/${serial.denominator}`,
+      ])
+    ) {
+      score += 14;
+      flags.push("numbered run");
+    }
   }
 
   if (ai.isRookie && containsAny(` ${t} `, [" rookie ", " rc "])) {
