@@ -2,6 +2,7 @@ import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 import { getActiveStoreId } from "../../../../lib/stores";
 import { getAccountProfilesByIds } from "../../../../lib/account-profiles";
 import { isOrderReviewStatus } from "../../../../lib/order-status";
+import { isDryRunShippingLabel as isDryRunShippingLabelRecord } from "../../../../lib/shipping-dry-run";
 import { getShippingProviderReadiness } from "../../../../lib/shipping-provider-readiness";
 import Link from "next/link";
 import PayoutLedgerActions from "../../seller-payouts/PayoutLedgerActions";
@@ -198,35 +199,12 @@ function metadataRecord(
     : null;
 }
 
-function nestedRecord(
-  record: Record<string, unknown> | null | undefined,
-  key: string,
-) {
-  const value = record?.[key];
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
 function isDryRunShippingLabel(
   shippingLabel: ShippingLabel,
   shippingTrackingEvents: ShippingTrackingEvent[],
 ) {
-  const latestAttempt = metadataRecord(
-    shippingLabel.metadata,
-    "latest_purchase_attempt",
-  );
-  const purchaseResult = nestedRecord(latestAttempt, "purchase_result");
-  const providerPayload = nestedRecord(purchaseResult, "rawProviderPayload");
-
   return (
-    latestAttempt?.status === "dry_run_purchased" ||
-    purchaseResult?.mode === "dry_run" ||
-    providerPayload?.dry_run === true ||
-    shippingLabel.provider_label_id?.startsWith("dryrun-") ||
-    shippingLabel.provider_shipment_id?.startsWith("dryrun-") ||
-    shippingLabel.coverage_policy_id?.startsWith("dryrun-") ||
-    Boolean(shippingLabel.tracking_number?.includes("TCOS-DRYRUN")) ||
+    isDryRunShippingLabelRecord(shippingLabel) ||
     shippingTrackingEvents.some(
       (event) =>
         event.shipping_label_id === shippingLabel.id &&

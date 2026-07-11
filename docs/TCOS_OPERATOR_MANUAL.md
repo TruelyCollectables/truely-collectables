@@ -4337,6 +4337,8 @@ Dry-run shipping detection for fulfillment-critical backend routes is centralize
 
 Buyer and seller account order APIs also use the shared dry-run detector before showing tracking or carrier values, so dry-run references stay hidden from account-facing order views.
 
+Admin order detail and packing-slip printing also use the shared detector before treating label, tracking, shipment, or Coverage references as printable fulfillment data.
+
 ### Real shipment runbook
 
 1. Open `/admin/orders/[id]`.

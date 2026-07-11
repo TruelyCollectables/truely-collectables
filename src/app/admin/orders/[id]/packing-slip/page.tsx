@@ -1,4 +1,8 @@
 import Link from "next/link";
+import {
+  isDryRunShippingLabel,
+  isDryRunShippingReference,
+} from "../../../../../lib/shipping-dry-run";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
 import { getStoreSettings } from "../../../../../lib/store-settings";
 import { getActiveStoreId } from "../../../../../lib/stores";
@@ -61,43 +65,6 @@ function storeMark(displayName: string) {
   return initials || "TC";
 }
 
-function metadataRecord(
-  metadata: Record<string, unknown> | null | undefined,
-  key: string,
-) {
-  const value = metadata?.[key];
-
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function nestedRecord(record: Record<string, unknown> | null, key: string) {
-  const value = record?.[key];
-
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, unknown>)
-    : null;
-}
-
-function isDryRunShippingLabel(label: ShippingLabelRow | null | undefined) {
-  if (!label) return false;
-
-  const latestAttempt = metadataRecord(label.metadata, "latest_purchase_attempt");
-  const purchaseResult = nestedRecord(latestAttempt, "purchase_result");
-  const providerPayload = nestedRecord(purchaseResult, "rawProviderPayload");
-
-  return (
-    latestAttempt?.status === "dry_run_purchased" ||
-    purchaseResult?.mode === "dry_run" ||
-    providerPayload?.dry_run === true ||
-    label.provider_label_id?.startsWith("dryrun-") ||
-    label.provider_shipment_id?.startsWith("dryrun-") ||
-    label.coverage_policy_id?.startsWith("dryrun-") ||
-    label.tracking_number?.includes("TCOS-DRYRUN")
-  );
-}
-
 export default async function PackingSlipPage({
   params,
 }: {
@@ -158,7 +125,7 @@ export default async function PackingSlipPage({
     .limit(1)
     .maybeSingle();
   const dryRunShipping = Boolean(
-    typedOrder.tracking_number?.includes("TCOS-DRYRUN") ||
+    isDryRunShippingReference(typedOrder.tracking_number) ||
       isDryRunShippingLabel((activeLabel || null) as ShippingLabelRow | null),
   );
 
