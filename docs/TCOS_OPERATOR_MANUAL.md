@@ -4361,6 +4361,8 @@ Shipping label packets, Coverage claim evidence packets, and Coverage claim crea
 
 Shipping label audit packets also flag dry-run evidence when the order snapshot or tracking events contain dry-run references, not only when the label row itself was created by the simulated adapter.
 
+Launch Readiness now includes a fail-closed dry-run shipping cleanup gate. Live buyer payments stay blocked when recent label, tracking-event, or order rows still contain TCOS dry-run shipping references or when the cleanup check cannot run.
+
 ### Real shipment runbook
 
 1. Open `/admin/orders/[id]`.

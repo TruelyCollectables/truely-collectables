@@ -4119,6 +4119,7 @@ dryrun-</code></pre>
 <p>Admin Shipping and the ranked shipping exception CSV now use the shared detector for dry-run label, tracking, shipment, and Coverage references while preserving event-based simulated-purchase detection.</p>
 <p>Shipping label packets, Coverage claim evidence packets, and Coverage claim create/update routes also use the shared detector, with packets still preserving event-based simulated-purchase detection for audit evidence and dry-run safety notices.</p>
 <p>Shipping label audit packets also flag dry-run evidence when the order snapshot or tracking events contain dry-run references, not only when the label row itself was created by the simulated adapter.</p>
+<p>Launch Readiness now includes a fail-closed dry-run shipping cleanup gate. Live buyer payments stay blocked when recent label, tracking-event, or order rows still contain TCOS dry-run shipping references or when the cleanup check cannot run.</p>
 <h3>Real shipment runbook</h3>
 <ol>
 <li>Open <code>/admin/orders/[id]</code>.</li>

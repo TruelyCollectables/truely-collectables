@@ -14,6 +14,10 @@ import {
   buildShippingProviderSetupPacket,
   type ProviderSetupDecision,
 } from "../../../lib/shipping-provider-setup";
+import {
+  isDryRunShippingLabel,
+  isDryRunShippingReference,
+} from "../../../lib/shipping-dry-run";
 import { SHIPPING_SIMULATION_SUITE_VERSION } from "../../../lib/shipping-simulations";
 import {
   getStripeLivePublishableKey,
@@ -41,6 +45,26 @@ type DatabaseCapability = {
   select: string;
   migration: string;
   readyDetail: string;
+};
+
+type DryRunShippingLabelCheckRow = {
+  id: string;
+  metadata: Record<string, unknown> | null;
+  provider_label_id: string | null;
+  provider_shipment_id: string | null;
+  tracking_number: string | null;
+  coverage_policy_id: string | null;
+};
+
+type DryRunShippingEventCheckRow = {
+  id: string;
+  event_type: string | null;
+  tracking_number: string | null;
+};
+
+type DryRunShippingOrderCheckRow = {
+  id: number;
+  tracking_number: string | null;
 };
 
 function isConfigured(value: string | undefined): boolean {
@@ -734,6 +758,90 @@ async function checkDatabaseReadiness(): Promise<ReadinessItem[]> {
   return Promise.all(capabilities.map(checkDatabaseCapability));
 }
 
+async function checkDryRunShippingReadiness(): Promise<ReadinessItem> {
+  const supabase = getSupabaseClient();
+
+  if (!supabase) {
+    return {
+      label: "Dry-Run Shipping Cleanup",
+      status: "blocked",
+      detail:
+        "Supabase is not configured, so launch readiness cannot verify dry-run shipping rows.",
+      action:
+        "Set Supabase environment variables and confirm no dry-run labels, tracking events, or order tracking rows remain before launch.",
+    };
+  }
+
+  const storeId = getActiveStoreId();
+  const [labelResult, eventResult, orderResult] = await Promise.all([
+    supabase
+      .from("order_shipping_labels")
+      .select(
+        "id,metadata,provider_label_id,provider_shipment_id,tracking_number,coverage_policy_id",
+      )
+      .eq("store_id", storeId)
+      .limit(500),
+    supabase
+      .from("order_shipping_tracking_events")
+      .select("id,event_type,tracking_number")
+      .eq("store_id", storeId)
+      .limit(500),
+    supabase
+      .from("orders")
+      .select("id,tracking_number")
+      .eq("store_id", storeId)
+      .limit(500),
+  ]);
+
+  const firstError =
+    labelResult.error || eventResult.error || orderResult.error || null;
+
+  if (firstError) {
+    return {
+      label: "Dry-Run Shipping Cleanup",
+      status: "blocked",
+      detail: `Launch readiness could not verify dry-run shipping cleanup: ${firstError.message}`,
+      action:
+        "Apply shipping/order migrations and rerun readiness before enabling live buyer payments.",
+    };
+  }
+
+  const dryRunLabelCount = (
+    (labelResult.data || []) as DryRunShippingLabelCheckRow[]
+  ).filter((row) => isDryRunShippingLabel(row)).length;
+  const dryRunEventCount = (
+    (eventResult.data || []) as DryRunShippingEventCheckRow[]
+  ).filter(
+    (row) =>
+      row.event_type === "provider_purchase_simulated" ||
+      isDryRunShippingReference(row.tracking_number),
+  ).length;
+  const dryRunOrderCount = (
+    (orderResult.data || []) as DryRunShippingOrderCheckRow[]
+  ).filter((row) => isDryRunShippingReference(row.tracking_number)).length;
+  const totalDryRunRows =
+    dryRunLabelCount + dryRunEventCount + dryRunOrderCount;
+
+  if (totalDryRunRows > 0) {
+    return {
+      label: "Dry-Run Shipping Cleanup",
+      status: "blocked",
+      detail: `${totalDryRunRows} dry-run shipping reference(s) found across recent label, tracking-event, and order rows (${dryRunLabelCount} label, ${dryRunEventCount} event, ${dryRunOrderCount} order).`,
+      action:
+        "Open /admin/shipping, void or replace dry-run labels, record real carrier proof, and rerun launch readiness before live buyer payments.",
+    };
+  }
+
+  return {
+    label: "Dry-Run Shipping Cleanup",
+    status: "ready",
+    detail:
+      "No dry-run shipping references were found in the latest label, tracking-event, or order tracking rows.",
+    action:
+      "Keep using /admin/shipping and shipping simulations to prevent simulated shipping proof from reaching live launch.",
+  };
+}
+
 async function loadStoreSettings(): Promise<StoreOperationalSettings> {
   const supabase = getSupabaseClient();
 
@@ -745,12 +853,13 @@ async function loadStoreSettings(): Promise<StoreOperationalSettings> {
 }
 
 export default async function LaunchReadinessPage() {
-  const [storeSettings, databaseItems] = await Promise.all([
+  const [storeSettings, databaseItems, dryRunShippingItem] = await Promise.all([
     loadStoreSettings(),
     checkDatabaseReadiness(),
+    checkDryRunShippingReadiness(),
   ]);
   const baseItems = buildReadinessItems(storeSettings);
-  const items = [...baseItems, ...databaseItems];
+  const items = [...baseItems, dryRunShippingItem, ...databaseItems];
   const summary = summarize(items);
   const databaseSummary = summarize(databaseItems);
   const paymentMode = getPaymentMode();
