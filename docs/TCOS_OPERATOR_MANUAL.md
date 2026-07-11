@@ -4327,6 +4327,8 @@ dryrun-
 
 Dry-run labels cannot be mailed, marked shipped, saved as real tracking, entered as manual purchases, or used for real Coverage claims.
 
+The shipping Coverage policy save endpoint also rejects dry-run policy IDs and refuses to mark a dry-run label as covered. To attach a real Coverage policy, first record a real external label/manual purchase or void the dry-run record and create the correct fulfillment record.
+
 ### Real shipment runbook
 
 1. Open `/admin/orders/[id]`.

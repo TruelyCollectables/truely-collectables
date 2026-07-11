@@ -8,6 +8,8 @@ type ShippingLabelRow = {
   id: string;
   order_id: number;
   provider: string | null;
+  provider_label_id: string | null;
+  provider_shipment_id: string | null;
   carrier: string | null;
   tracking_number: string | null;
   coverage_provider: string | null;
@@ -31,6 +33,51 @@ function cleanMoney(value: unknown) {
   return Number(amount.toFixed(2));
 }
 
+function metadataRecord(
+  metadata: Record<string, unknown> | null | undefined,
+  key: string,
+) {
+  const value = metadata?.[key];
+
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function nestedRecord(record: Record<string, unknown> | null, key: string) {
+  const value = record?.[key];
+
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function isDryRunReference(value: string | null | undefined) {
+  const normalized = String(value || "").trim().toLowerCase();
+
+  return (
+    normalized.includes("tcos-dryrun") ||
+    normalized.startsWith("dryrun-") ||
+    normalized.includes("tcos dry-run")
+  );
+}
+
+function isDryRunLabel(label: ShippingLabelRow) {
+  const latestAttempt = metadataRecord(label.metadata, "latest_purchase_attempt");
+  const purchaseResult = nestedRecord(latestAttempt, "purchase_result");
+  const providerPayload = nestedRecord(purchaseResult, "rawProviderPayload");
+
+  return (
+    latestAttempt?.status === "dry_run_purchased" ||
+    purchaseResult?.mode === "dry_run" ||
+    providerPayload?.dry_run === true ||
+    isDryRunReference(label.provider_label_id) ||
+    isDryRunReference(label.provider_shipment_id) ||
+    isDryRunReference(label.coverage_policy_id) ||
+    isDryRunReference(label.tracking_number)
+  );
+}
+
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -51,11 +98,28 @@ export async function PATCH(
     const coverageProvider = cleanText(body.coverageProvider) || "Coverage";
     const coverageAmount = cleanMoney(body.coverageAmount);
     const note = cleanText(body.note);
+    const dryRunFields = [
+      ["coverageProvider", coverageProvider],
+      ["coveragePolicyId", coveragePolicyId],
+    ]
+      .filter(([, value]) => isDryRunReference(value))
+      .map(([field]) => field);
 
     if (!coveragePolicyId) {
       return Response.json(
         { error: "Coverage policy ID is required." },
         { status: 400 },
+      );
+    }
+
+    if (dryRunFields.length > 0) {
+      return Response.json(
+        {
+          error:
+            "Coverage policy records must use a real external policy ID, not TCOS dry-run references.",
+          dryRunFields,
+        },
+        { status: 409 },
       );
     }
 
@@ -66,7 +130,7 @@ export async function PATCH(
     const { data: labelData, error: labelError } = await supabase
       .from("order_shipping_labels")
       .select(
-        "id,order_id,provider,carrier,tracking_number,coverage_provider,coverage_amount,coverage_policy_id,metadata",
+        "id,order_id,provider,provider_label_id,provider_shipment_id,carrier,tracking_number,coverage_provider,coverage_amount,coverage_policy_id,metadata",
       )
       .eq("store_id", storeId)
       .eq("id", labelId)
@@ -80,6 +144,16 @@ export async function PATCH(
       return Response.json(
         { error: "Shipping label was not found." },
         { status: 404 },
+      );
+    }
+
+    if (isDryRunLabel(label)) {
+      return Response.json(
+        {
+          error:
+            "This shipping label is a TCOS dry-run simulation. Record a real external label before saving a Coverage policy.",
+        },
+        { status: 409 },
       );
     }
 
