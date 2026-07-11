@@ -1544,6 +1544,26 @@ export default function SellerInventoryPage() {
     }
   }
 
+  function downloadBulkActionReport() {
+    if (
+      !lastBulkInventoryAction ||
+      (lastBulkInventorySuccesses.length === 0 &&
+        lastBulkInventoryFailures.length === 0)
+    ) {
+      setNotice("Run a bulk inventory action before downloading a report.");
+      setError("");
+      return;
+    }
+
+    downloadTextFile(
+      `tcos-seller-bulk-${lastBulkInventoryAction}-report-${exportTimestamp()}.json`,
+      JSON.stringify(bulkActionReport, null, 2),
+      "application/json;charset=utf-8",
+    );
+    setNotice("Downloaded the latest seller inventory bulk action report.");
+    setError("");
+  }
+
   function downloadSelectedMarketplaceCsv() {
     if (!selectedMarketplaceReadyItems.length) {
       setNotice(
@@ -2267,6 +2287,13 @@ export default function SellerInventoryPage() {
                     </button>
                     <button
                       type="button"
+                      onClick={downloadBulkActionReport}
+                      className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-xs font-bold text-neutral-800 hover:bg-neutral-100"
+                    >
+                      Download Bulk Report
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => keepBulkInventorySelection(bulkSuccessItemIds)}
                       className="rounded-md border border-emerald-300 bg-white px-3 py-2 text-xs font-bold text-emerald-800 hover:bg-emerald-100"
                     >
@@ -2377,6 +2404,13 @@ export default function SellerInventoryPage() {
                       className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-xs font-bold text-neutral-800 hover:bg-neutral-100"
                     >
                       Copy Bulk Report
+                    </button>
+                    <button
+                      type="button"
+                      onClick={downloadBulkActionReport}
+                      className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-xs font-bold text-neutral-800 hover:bg-neutral-100"
+                    >
+                      Download Bulk Report
                     </button>
                     <button
                       type="button"
