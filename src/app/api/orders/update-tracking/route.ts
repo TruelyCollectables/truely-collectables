@@ -15,8 +15,60 @@ function isMissingShippingInfrastructure(error: { code?: string; message?: strin
   );
 }
 
-function isDryRunTracking(value: string) {
-  return value.includes("TCOS-DRYRUN");
+type ActiveShippingLabel = {
+  id: string;
+  metadata?: Record<string, unknown> | null;
+  provider_label_id?: string | null;
+  provider_shipment_id?: string | null;
+  tracking_number?: string | null;
+  coverage_policy_id?: string | null;
+};
+
+function metadataRecord(
+  metadata: Record<string, unknown> | null | undefined,
+  key: string,
+) {
+  const value = metadata?.[key];
+
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function nestedRecord(record: Record<string, unknown> | null, key: string) {
+  const value = record?.[key];
+
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function isDryRunReference(value: string | null | undefined) {
+  const normalized = String(value || "").trim().toLowerCase();
+
+  return (
+    normalized.includes("tcos-dryrun") ||
+    normalized.startsWith("dryrun-") ||
+    normalized.includes("tcos dry-run")
+  );
+}
+
+function isDryRunLabel(label: ActiveShippingLabel | null | undefined) {
+  if (!label) return false;
+
+  const latestAttempt = metadataRecord(label.metadata, "latest_purchase_attempt");
+  const purchaseResult = nestedRecord(latestAttempt, "purchase_result");
+  const providerPayload = nestedRecord(purchaseResult, "rawProviderPayload");
+
+  return (
+    latestAttempt?.status === "dry_run_purchased" ||
+    purchaseResult?.mode === "dry_run" ||
+    providerPayload?.dry_run === true ||
+    isDryRunReference(label.provider_label_id) ||
+    isDryRunReference(label.provider_shipment_id) ||
+    isDryRunReference(label.coverage_policy_id) ||
+    isDryRunReference(label.tracking_number)
+  );
 }
 
 export async function POST(req: Request) {
@@ -37,11 +89,47 @@ export async function POST(req: Request) {
       );
     }
 
-    if (isDryRunTracking(trackingNumber)) {
+    if (isDryRunReference(trackingNumber)) {
       return NextResponse.json(
         {
           error:
             "TCOS dry-run tracking cannot be saved manually. Buy or record a real label before saving tracking.",
+        },
+        { status: 409 },
+      );
+    }
+
+    let activeShippingLabel: ActiveShippingLabel | null = null;
+
+    try {
+      const { data: label, error: labelLookupError } = await supabase
+        .from("order_shipping_labels")
+        .select(
+          "id,metadata,provider_label_id,provider_shipment_id,tracking_number,coverage_policy_id",
+        )
+        .eq("store_id", storeId)
+        .eq("order_id", orderId)
+        .not("label_status", "in", "(voided,failed)")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (labelLookupError && !isMissingShippingInfrastructure(labelLookupError)) {
+        throw labelLookupError;
+      }
+
+      activeShippingLabel = (label || null) as ActiveShippingLabel | null;
+    } catch (labelLookupError: any) {
+      if (!isMissingShippingInfrastructure(labelLookupError)) {
+        throw labelLookupError;
+      }
+    }
+
+    if (isDryRunLabel(activeShippingLabel)) {
+      return NextResponse.json(
+        {
+          error:
+            "The active shipping label is a TCOS dry-run simulation. Record a real external label before saving tracking.",
         },
         { status: 409 },
       );
@@ -65,15 +153,7 @@ export async function POST(req: Request) {
 
     try {
       const now = new Date().toISOString();
-      const { data: label } = await supabase
-        .from("order_shipping_labels")
-        .select("id")
-        .eq("store_id", storeId)
-        .eq("order_id", orderId)
-        .not("label_status", "in", "(voided,failed)")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      const label = activeShippingLabel;
 
       if (label?.id) {
         const { error: labelUpdateError } = await supabase

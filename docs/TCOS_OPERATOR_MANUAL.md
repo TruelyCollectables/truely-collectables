@@ -4329,6 +4329,8 @@ Dry-run labels cannot be mailed, marked shipped, saved as real tracking, entered
 
 The shipping Coverage policy save endpoint also rejects dry-run policy IDs and refuses to mark a dry-run label as covered. To attach a real Coverage policy, first record a real external label/manual purchase or void the dry-run record and create the correct fulfillment record.
 
+The tracking save endpoint also rejects dry-run tracking references and refuses to save tracking while the active shipping label is still a dry-run simulation. Save tracking only after a real external label has been recorded or the dry-run record has been voided.
+
 ### Real shipment runbook
 
 1. Open `/admin/orders/[id]`.
