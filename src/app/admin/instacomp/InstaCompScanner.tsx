@@ -1770,6 +1770,7 @@ const sourceCategoryLabels: Record<SourceCoverageItem["category"], string> = {
 };
 
 const SERIAL_DETAIL_CROP_SPECS = [
+  { label: "full-card", x: 0, y: 0, width: 1, height: 1 },
   { label: "top-left", x: 0, y: 0, width: 0.56, height: 0.4 },
   { label: "top-right", x: 0.44, y: 0, width: 0.56, height: 0.4 },
   { label: "center", x: 0.2, y: 0.22, width: 0.6, height: 0.56 },
@@ -2277,7 +2278,7 @@ export default function InstaCompScanner({
     const detailCrops = [
       ...(await createSerialDetailCrops(front, "front")),
       ...(back ? await createSerialDetailCrops(back, "back") : []),
-    ].slice(0, 12);
+    ].slice(0, 14);
 
     detailCrops.forEach((crop) => {
       formData.append("detailImages", crop);

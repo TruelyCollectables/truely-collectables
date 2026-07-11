@@ -75,6 +75,13 @@ type InstaCompDetailImage = {
   dataUrl: string;
 };
 
+type InstaCompSerialOcrResult = {
+  serialNumber: string | null;
+  confidence: number;
+  evidence: string | null;
+  checkedImages: number;
+};
+
 async function identifyCardWithOpenAI(
   frontDataUrl: string,
   backDataUrl?: string,
@@ -268,6 +275,191 @@ Rules:
       typeof parsed.confidence === "number"
         ? Math.max(0, Math.min(1, parsed.confidence))
         : 0,
+  };
+}
+
+async function detectSerialNumberWithOpenAI(
+  frontDataUrl: string,
+  backDataUrl?: string,
+  detailImages: InstaCompDetailImage[] = []
+): Promise<InstaCompSerialOcrResult | null> {
+  if (!OPENAI_API_KEY || !detailImages.length) return null;
+
+  const content: any[] = [
+    {
+      type: "text",
+      text: `
+You are a strict OCR reader for sports-card serial-number stamps.
+
+Your only job is to find a visible serial-number stamp on the provided card images and close-up crops.
+
+Return JSON only.
+
+What counts:
+- Serial numbering such as 7/25, 07/50, 007/199, 1/1, 1 of 1, one of one.
+- Foil-stamped, embossed, printed, or tiny numbered stamps.
+- Partial denominator-only evidence like /50 should be reported in evidence, but serialNumber must stay null unless the full visible stamp can be read.
+
+Rules:
+- Do not identify the card.
+- Do not price the card.
+- Do not infer a serial number from the parallel color.
+- Do not invent missing digits.
+- If no full serial number is visible, return serialNumber null.
+- If visible, return the exact visible format, preserving leading zeroes when visible.
+      `.trim(),
+    },
+  ];
+
+  detailImages.forEach((image, index) => {
+    content.push({
+      type: "text",
+      text: `CLOSE-UP OCR CROP ${index + 1}: ${image.name}`,
+    });
+    content.push({
+      type: "image_url",
+      image_url: {
+        url: image.dataUrl,
+        detail: "high",
+      },
+    });
+  });
+
+  content.push({
+    type: "text",
+    text: "FULL FRONT IMAGE for context only. Prefer close-up crops for OCR.",
+  });
+  content.push({
+    type: "image_url",
+    image_url: {
+      url: frontDataUrl,
+      detail: "high",
+    },
+  });
+
+  if (backDataUrl) {
+    content.push({
+      type: "text",
+      text: "FULL BACK IMAGE for context only. Prefer close-up crops for OCR.",
+    });
+    content.push({
+      type: "image_url",
+      image_url: {
+        url: backDataUrl,
+        detail: "high",
+      },
+    });
+  }
+
+  const scanModels = Array.from(
+    new Set([INSTACOMP_OPENAI_MODEL, INSTACOMP_OPENAI_FALLBACK_MODEL].filter(Boolean))
+  );
+  let response: Response | null = null;
+  let errorText = "";
+
+  for (const model of scanModels) {
+    response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model,
+        temperature: 0,
+        response_format: {
+          type: "json_schema",
+          json_schema: {
+            name: "instacomp_serial_ocr",
+            strict: true,
+            schema: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                serialNumber: { type: ["string", "null"] },
+                confidence: { type: "number" },
+                evidence: { type: ["string", "null"] },
+                checkedImages: { type: "number" },
+              },
+              required: [
+                "serialNumber",
+                "confidence",
+                "evidence",
+                "checkedImages",
+              ],
+            },
+          },
+        },
+        messages: [
+          {
+            role: "user",
+            content,
+          },
+        ],
+      }),
+    });
+
+    if (response.ok) break;
+
+    errorText = await response.text();
+  }
+
+  if (!response?.ok) {
+    console.error("InstaComp serial OCR failed:", errorText);
+    return null;
+  }
+
+  const data = await response.json();
+  const text = data?.choices?.[0]?.message?.content;
+
+  if (!text) return null;
+
+  const parsed = JSON.parse(text) as InstaCompSerialOcrResult;
+
+  return {
+    serialNumber: parsed.serialNumber,
+    confidence:
+      typeof parsed.confidence === "number"
+        ? Math.max(0, Math.min(1, parsed.confidence))
+        : 0,
+    evidence: parsed.evidence,
+    checkedImages:
+      typeof parsed.checkedImages === "number"
+        ? Math.max(0, Math.floor(parsed.checkedImages))
+        : detailImages.length,
+  };
+}
+
+function mergeSerialOcrResult(
+  ai: InstaCompAiResult,
+  serialOcr: InstaCompSerialOcrResult | null
+): InstaCompAiResult {
+  if (!serialOcr?.serialNumber) {
+    return {
+      ...ai,
+      notes: [
+        ai.notes,
+        serialOcr
+          ? `Serial OCR checked ${serialOcr.checkedImages} crop(s): ${serialOcr.evidence || "no full serial number found"}`
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" "),
+    };
+  }
+
+  return {
+    ...ai,
+    serialNumber: serialOcr.serialNumber,
+    confidence: Math.max(ai.confidence || 0, serialOcr.confidence),
+    notes: [
+      ai.notes,
+      `Serial OCR override: ${serialOcr.serialNumber}. Evidence: ${
+        serialOcr.evidence || "visible serial number in detail crop"
+      }`,
+    ]
+      .filter(Boolean)
+      .join(" "),
   };
 }
 
@@ -1332,7 +1524,7 @@ export async function POST(req: NextRequest) {
     const detailImageFiles = formData
       .getAll("detailImages")
       .filter((file): file is File => file instanceof File && file.size > 0)
-      .slice(0, 12);
+      .slice(0, 14);
 
     if (!(frontImage instanceof File)) {
       return jsonError("Upload a front card image.", 400);
@@ -1367,11 +1559,17 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    const ai = await identifyCardWithOpenAI(
+    const baseAi = await identifyCardWithOpenAI(
       frontDataUrl,
       backDataUrl,
       detailImages
     );
+    const serialOcr = await detectSerialNumberWithOpenAI(
+      frontDataUrl,
+      backDataUrl,
+      detailImages
+    );
+    const ai = mergeSerialOcrResult(baseAi, serialOcr);
 
     const queries = buildInstaCompQueries(ai);
     const links = buildCompLinks(queries.primary);
