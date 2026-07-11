@@ -3907,6 +3907,8 @@ This Seller Inventory plan is a listing handoff aid. Final checkout/order shippi
 
 When one or more rows are selected, the Selection Summary also shows the selected shipping mix: Standard Envelope count, Ground Advantage count, Priority Mail count, Coverage-required count, forced-method count, and estimated total postage for the selected rows. Use this before activation or marketplace packet export to catch obvious shipping-policy surprises.
 
+The Selection Summary also shows a Selected Activation Check with the activatable count, draft-needs-work count, already-active count, archived count, and the top selected readiness blockers. Use it before `Activate Ready` so bulk activation only moves rows that are actually eligible.
+
 Seller Inventory supports the URL-safe lane:
 
 ```text
@@ -4591,6 +4593,7 @@ Recent seller workspace wording cleanup:
 - InstaComp draft success links now open the Seller Inventory InstaComp lane directly through `Open InstaComp Drafts` and `Open in InstaComp drafts`.
 - Seller Inventory now has a `Source` filter with an `InstaComp` lane, InstaComp item badges, scan/serial/price-source details, and ready-row marketplace packet export controls.
 - Seller Inventory rows now show the default Standard Envelope/Ground Advantage shipping plan, estimated postage, Coverage requirement, and Coverage type; selected rows now show a shipping mix summary before activation or marketplace export, and selected ready-row marketplace packets include those shipping fields.
+- Seller Inventory Selection Summary now shows a selected-row activation check with activatable, needs-work, active, archived, and top-blocker counts before `Activate Ready`.
 - Seller Inventory marketplace JSON/CSV exports now include explicit prep-only, no-external-publishing, and no-shipping-purchase guardrail fields so exported files cannot be mistaken for live marketplace or postage actions.
 - Seller Inventory Bulk Controls now show the marketplace export guardrails on-screen before copy/download actions.
 - Seller Command Center now shows `InstaComp Ready` and routes to ready InstaComp drafts when that is the safest inventory shortcut.
