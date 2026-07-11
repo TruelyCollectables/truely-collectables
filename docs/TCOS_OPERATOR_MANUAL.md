@@ -4347,6 +4347,8 @@ Seller order list/detail APIs already suppress dry-run tracking/carrier values, 
 
 Seller payout request summaries include a dry-run shipping flag without exposing simulated tracking, and payout-linked order cards keep dry-run shipped rows routed to Shipping Orders instead of completed/cash-out-only flows.
 
+Seller Home consumes the same dry-run shipping flag for payout pressure and order workspace cards, keeping dry-run shipped rows in shipping follow-through until real fulfillment proof is recorded.
+
 Admin Shipping and the ranked shipping exception CSV now use the shared detector for dry-run label, tracking, shipment, and Coverage references while preserving event-based simulated-purchase detection.
 
 Shipping label packets, Coverage claim evidence packets, and Coverage claim create/update routes also use the shared detector, with packets still preserving event-based simulated-purchase detection for audit evidence and dry-run safety notices.

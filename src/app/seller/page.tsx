@@ -52,6 +52,7 @@ type SellerPayoutRequest = {
     amountRequested: number;
     activeCaseCount: number;
     blockedLedgerRowCount: number;
+    dryRunShippingBlocked: boolean;
   }>;
 };
 
@@ -68,6 +69,7 @@ type SellerOrderActivity = {
   createdAt: string | null;
   paymentStatus: string;
   fulfillmentStatus: string;
+  dryRunShippingBlocked: boolean;
   heldPayoutRowCount: number;
   openCashOutRequestCount: number;
   activeCaseCount: number;
@@ -459,7 +461,7 @@ function sellerActionOrderWorkspaceLink(order: SellerOrderActivity) {
     };
   }
 
-  if (order.fulfillmentStatus !== "shipped") {
+  if (order.fulfillmentStatus !== "shipped" || order.dryRunShippingBlocked) {
     return {
       href: sellerOrdersQueueHref("shipping", orderSearch),
       label: "Shipping Orders",
@@ -858,7 +860,9 @@ export default function SellerPage() {
           label: "Action Orders",
         }
       : dashboard.orders.some(
-            (order) => order.fulfillmentStatus !== "shipped",
+            (order) =>
+              order.fulfillmentStatus !== "shipped" ||
+              order.dryRunShippingBlocked,
           )
         ? {
             href: ordersShippingHref,
@@ -1227,25 +1231,42 @@ export default function SellerPage() {
                         {request.orderSummaries.slice(0, 3).map((order) => (
                           <div
                             key={`${request.id}-order-${order.orderId}`}
-                            className="flex flex-wrap gap-2"
+                            className="rounded-md border border-neutral-200 bg-white px-3 py-2"
                           >
-                            <Link
-                              href={sellerBlockedPayoutOrderWorkspaceHref(
-                                order.orderId,
-                              )}
-                              className="rounded-md border border-neutral-300 bg-white px-2 py-1 text-xs font-black hover:bg-neutral-100"
-                            >
-                              Open Action Order #{order.orderId}
-                            </Link>
-                            <Link
-                              href={sellerBlockedPayoutOrderDetailHref(
-                                order.orderId,
-                                request.id,
-                              )}
-                              className="rounded-md border border-neutral-300 bg-white px-2 py-1 text-xs font-black hover:bg-neutral-100"
-                            >
-                              Open Order Detail
-                            </Link>
+                            {order.dryRunShippingBlocked ? (
+                              <p className="mb-2 text-xs font-semibold text-amber-900">
+                                Order #{order.orderId} has dry-run shipping hidden;
+                                this is not payout-ready fulfillment proof.
+                              </p>
+                            ) : null}
+                            <div className="flex flex-wrap gap-2">
+                              <Link
+                                href={
+                                  order.dryRunShippingBlocked
+                                    ? sellerOrdersQueueHref(
+                                        "shipping",
+                                        `order ${order.orderId}`,
+                                      )
+                                    : sellerBlockedPayoutOrderWorkspaceHref(
+                                        order.orderId,
+                                      )
+                                }
+                                className="rounded-md border border-neutral-300 bg-white px-2 py-1 text-xs font-black hover:bg-neutral-100"
+                              >
+                                {order.dryRunShippingBlocked
+                                  ? `Open Shipping Order #${order.orderId}`
+                                  : `Open Action Order #${order.orderId}`}
+                              </Link>
+                              <Link
+                                href={sellerBlockedPayoutOrderDetailHref(
+                                  order.orderId,
+                                  request.id,
+                                )}
+                                className="rounded-md border border-neutral-300 bg-white px-2 py-1 text-xs font-black hover:bg-neutral-100"
+                              >
+                                Open Order Detail
+                              </Link>
+                            </div>
                           </div>
                         ))}
                       </div>
@@ -1337,6 +1358,13 @@ export default function SellerPage() {
                           value={String(order.openCashOutRequestCount)}
                         />
                       </div>
+
+                      {order.dryRunShippingBlocked ? (
+                        <p className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-950">
+                          Dry-run shipping hidden. This order stays in shipping
+                          follow-through until real tracking/Coverage is recorded.
+                        </p>
+                      ) : null}
 
                       <div className="mt-3 flex flex-wrap gap-2">
                         <Link
