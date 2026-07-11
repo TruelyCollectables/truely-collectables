@@ -160,6 +160,35 @@ function formatCurrency(value: number | null | undefined) {
   }).format(Number(value || 0));
 }
 
+function exportTimestamp() {
+  return new Date().toISOString().replace(/[:.]/g, "-");
+}
+
+function exportCell(value: unknown) {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "boolean") return value ? "yes" : "no";
+  if (typeof value === "number") return Number.isFinite(value) ? String(value) : "";
+
+  return String(value).replace(/\s+/g, " ").trim();
+}
+
+function csvCell(value: unknown) {
+  return `"${exportCell(value).replace(/"/g, '""')}"`;
+}
+
+function downloadTextFile(fileName: string, content: string, type: string) {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 function shortDate(value: string | null | undefined) {
   if (!value) return "Not recorded";
 
@@ -201,6 +230,50 @@ function sourceTone(item: SellerInventoryItem) {
 
 function inventorySourceLabel(item: SellerInventoryItem) {
   return item.instaComp?.isInstaCompDraft ? "INSTACOMP" : "MANUAL";
+}
+
+function marketplaceExportRows(items: SellerInventoryItem[]) {
+  return items.map((item, index) => ({
+    row: index + 1,
+    tcosInventoryItemId: item.inventoryItemId,
+    legacyProductId: item.legacyProductId || "",
+    source: inventorySourceLabel(item),
+    marketplaceStatus: "ready_to_crosslist",
+    title: item.title,
+    sku: item.sku || "",
+    price: item.price,
+    quantity: item.quantity,
+    category: label(item.category),
+    condition: label(item.condition),
+    description: item.description || "",
+    imageUrl: item.imageUrl || "",
+    ebayItemId: item.ebayItemId || "",
+    instacompScanId: item.instaComp?.scanId || "",
+    serialNumber: item.instaComp?.serialNumber || "",
+    instacompMarketPrice: item.instaComp?.marketPrice || "",
+    listingPriceSource: item.instaComp?.listingPriceSource || "",
+    hasBackImage: item.instaComp?.hasBackImage || false,
+    activationReady: item.activationReadiness.ready,
+    activationBlockers: item.activationReadiness.blockers
+      .map(readinessBlockerLabel)
+      .join("; "),
+    tcosSellerInventoryUrl: `/seller/inventory?search=${encodeURIComponent(
+      item.sku || item.title,
+    )}`,
+  }));
+}
+
+function marketplaceExportCsv(items: SellerInventoryItem[]) {
+  const rows = marketplaceExportRows(items);
+
+  if (!rows.length) return "";
+
+  const headers = Object.keys(rows[0]) as Array<keyof (typeof rows)[number]>;
+
+  return [
+    headers.map(csvCell).join(","),
+    ...rows.map((row) => headers.map((header) => csvCell(row[header])).join(",")),
+  ].join("\n");
 }
 
 function authenticityBadgeTone(tone: AuthenticityBadge["tone"]) {
@@ -803,6 +876,10 @@ export default function SellerInventoryPage() {
         .map((item) => item.inventoryItemId),
     [selectedItems],
   );
+  const selectedMarketplaceReadyItems = useMemo(
+    () => selectedItems.filter((item) => item.activationReadiness.ready),
+    [selectedItems],
+  );
   const selectedNeedsWorkInventoryItemIds = useMemo(
     () =>
       selectedItems
@@ -1202,6 +1279,57 @@ export default function SellerInventoryPage() {
 
   function clearInventorySelection() {
     setSelectedInventoryItemIds([]);
+  }
+
+  async function copySelectedMarketplacePacket() {
+    if (!selectedMarketplaceReadyItems.length) {
+      setNotice("Select at least one ready listing before copying a marketplace packet.");
+      setError("");
+      return;
+    }
+
+    const payload = {
+      exportedAt: new Date().toISOString(),
+      scope: "selected_ready_seller_inventory_marketplace_packet",
+      itemCount: selectedMarketplaceReadyItems.length,
+      warning:
+        "Outbound marketplace packet only. Verify platform category, shipping, item specifics, and final listing rules before publishing externally.",
+      rows: marketplaceExportRows(selectedMarketplaceReadyItems),
+    };
+
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+      setNotice(
+        `Copied ${selectedMarketplaceReadyItems.length} ready listing${
+          selectedMarketplaceReadyItems.length === 1 ? "" : "s"
+        } as a marketplace packet.`,
+      );
+      setError("");
+    } catch {
+      setError("Could not copy the marketplace packet.");
+    }
+  }
+
+  function downloadSelectedMarketplaceCsv() {
+    if (!selectedMarketplaceReadyItems.length) {
+      setNotice(
+        "Select at least one ready listing before downloading a marketplace CSV.",
+      );
+      setError("");
+      return;
+    }
+
+    downloadTextFile(
+      `tcos-marketplace-ready-listings-${exportTimestamp()}.csv`,
+      marketplaceExportCsv(selectedMarketplaceReadyItems),
+      "text/csv;charset=utf-8",
+    );
+    setNotice(
+      `Downloaded ${selectedMarketplaceReadyItems.length} ready listing${
+        selectedMarketplaceReadyItems.length === 1 ? "" : "s"
+      } for marketplace cross-listing.`,
+    );
+    setError("");
   }
 
   async function runBulkInventoryAction(params: {
@@ -1637,6 +1765,22 @@ export default function SellerInventoryPage() {
                 </button>
                 <button
                   type="button"
+                  onClick={() => void copySelectedMarketplacePacket()}
+                  disabled={selectedMarketplaceReadyItems.length === 0}
+                  className="rounded-md border border-sky-300 bg-white px-3 py-2 text-xs font-bold text-sky-900 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Copy Marketplace Packet ({selectedMarketplaceReadyItems.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={downloadSelectedMarketplaceCsv}
+                  disabled={selectedMarketplaceReadyItems.length === 0}
+                  className="rounded-md border border-sky-300 bg-white px-3 py-2 text-xs font-bold text-sky-900 hover:bg-sky-50 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Download Marketplace CSV ({selectedMarketplaceReadyItems.length})
+                </button>
+                <button
+                  type="button"
                   onClick={() =>
                     void runBulkInventoryAction({
                       action: "activate",
@@ -1705,8 +1849,17 @@ export default function SellerInventoryPage() {
                     <span className="rounded border border-neutral-200 bg-white px-2 py-1 text-[11px] font-black text-neutral-700">
                       {selectedSummary.archived} archived
                     </span>
+                    <span className="rounded border border-sky-200 bg-white px-2 py-1 text-[11px] font-black text-sky-900">
+                      {selectedMarketplaceReadyItems.length} export ready
+                    </span>
                   </div>
                 </div>
+
+                <p className="mt-3 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-950">
+                  Marketplace packets are outbound prep files only. They do not publish
+                  to eBay, Whatnot, or any external storefront until a connected
+                  publishing flow is approved and wired.
+                </p>
 
                 {selectionGuidance ? (
                   <div className="mt-3 rounded-md border border-sky-200 bg-sky-50 px-3 py-3 text-sky-950">
