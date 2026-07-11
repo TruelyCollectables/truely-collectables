@@ -900,6 +900,45 @@ export default function SellerInventoryPage() {
     () => selectedItems.filter((item) => item.activationReadiness.ready),
     [selectedItems],
   );
+  const selectedShippingSummary = useMemo(
+    () =>
+      selectedItems.reduce(
+        (summary, item) => {
+          summary.totalPostage += item.shippingPlan.postageEstimate || 0;
+
+          if (item.shippingPlan.method === "STANDARD_ENVELOPE") {
+            summary.standardEnvelope += 1;
+          }
+
+          if (item.shippingPlan.method === "GROUND_ADVANTAGE") {
+            summary.groundAdvantage += 1;
+          }
+
+          if (item.shippingPlan.method === "PRIORITY_MAIL") {
+            summary.priorityMail += 1;
+          }
+
+          if (item.shippingPlan.coverageRequired) {
+            summary.coverageRequired += 1;
+          }
+
+          if (item.shippingPlan.reason) {
+            summary.forcedMethod += 1;
+          }
+
+          return summary;
+        },
+        {
+          standardEnvelope: 0,
+          groundAdvantage: 0,
+          priorityMail: 0,
+          coverageRequired: 0,
+          forcedMethod: 0,
+          totalPostage: 0,
+        },
+      ),
+    [selectedItems],
+  );
   const selectedNeedsWorkInventoryItemIds = useMemo(
     () =>
       selectedItems
@@ -1873,6 +1912,39 @@ export default function SellerInventoryPage() {
                       {selectedMarketplaceReadyItems.length} export ready
                     </span>
                   </div>
+                </div>
+
+                <div className="mt-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-3 text-emerald-950">
+                  <p className="text-xs font-black uppercase tracking-[0.14em]">
+                    Selected Shipping Mix
+                  </p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <span className="rounded border border-emerald-300 bg-white px-2 py-1 text-[11px] font-black">
+                      Standard Envelope {selectedShippingSummary.standardEnvelope}
+                    </span>
+                    <span className="rounded border border-emerald-300 bg-white px-2 py-1 text-[11px] font-black">
+                      Ground Advantage {selectedShippingSummary.groundAdvantage}
+                    </span>
+                    <span className="rounded border border-emerald-300 bg-white px-2 py-1 text-[11px] font-black">
+                      Priority Mail {selectedShippingSummary.priorityMail}
+                    </span>
+                    <span className="rounded border border-emerald-300 bg-white px-2 py-1 text-[11px] font-black">
+                      Coverage Required {selectedShippingSummary.coverageRequired}
+                    </span>
+                    <span className="rounded border border-emerald-300 bg-white px-2 py-1 text-[11px] font-black">
+                      Est. Postage {formatCurrency(selectedShippingSummary.totalPostage)}
+                    </span>
+                    {selectedShippingSummary.forcedMethod > 0 ? (
+                      <span className="rounded border border-amber-300 bg-white px-2 py-1 text-[11px] font-black text-amber-900">
+                        Forced Method {selectedShippingSummary.forcedMethod}
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="mt-2 text-xs font-semibold">
+                    This is the selected-row shipping estimate before external
+                    marketplace export or TCOS activation; exact purchase remains
+                    blocked until a live shipping adapter is approved.
+                  </p>
                 </div>
 
                 <p className="mt-3 rounded-md border border-sky-200 bg-sky-50 px-3 py-2 text-sm font-semibold text-sky-950">

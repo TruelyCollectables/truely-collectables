@@ -3905,6 +3905,8 @@ Every Seller Inventory row also shows a default single-unit shipping plan derive
 
 This Seller Inventory plan is a listing handoff aid. Final checkout/order shipping can still recalculate for multi-card carts or operator-entered package details.
 
+When one or more rows are selected, the Selection Summary also shows the selected shipping mix: Standard Envelope count, Ground Advantage count, Priority Mail count, Coverage-required count, forced-method count, and estimated total postage for the selected rows. Use this before activation or marketplace packet export to catch obvious shipping-policy surprises.
+
 Seller Inventory supports the URL-safe lane:
 
 ```text
@@ -4586,7 +4588,7 @@ Recent seller workspace wording cleanup:
 
 - InstaComp draft success links now open the Seller Inventory InstaComp lane directly through `Open InstaComp Drafts` and `Open in InstaComp drafts`.
 - Seller Inventory now has a `Source` filter with an `InstaComp` lane, InstaComp item badges, scan/serial/price-source details, and ready-row marketplace packet export controls.
-- Seller Inventory rows now show the default Standard Envelope/Ground Advantage shipping plan, estimated postage, Coverage requirement, and Coverage type, and selected ready-row marketplace packets include those shipping fields.
+- Seller Inventory rows now show the default Standard Envelope/Ground Advantage shipping plan, estimated postage, Coverage requirement, and Coverage type; selected rows now show a shipping mix summary before activation or marketplace export, and selected ready-row marketplace packets include those shipping fields.
 - Seller Command Center now shows `InstaComp Ready` and routes to ready InstaComp drafts when that is the safest inventory shortcut.
 - Seller order surface labels now use `Seller Order Workspace`, `Search orders`, `Order views`, and `Reset Order View` wording instead of the older workflow phrasing.
 - Seller dashboard order signal chips now read `Shipping Orders`, `Cash-Out Orders`, `Action Orders`, and `Completed Orders`.
