@@ -10,6 +10,7 @@ import {
   isPaidOrderStatus,
   isReadyToShipStatus,
 } from "../../../lib/order-status";
+import { isDryRunShippingReference } from "../../../lib/shipping-dry-run";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -261,6 +262,7 @@ function OrderCard({
   accountProfile?: AccountProfileSummary;
 }) {
   const needsReview = isReview(order);
+  const dryRunShipping = isDryRunShippingReference(order.tracking_number);
 
   return (
     <div className="border rounded-lg p-5 bg-white">
@@ -340,16 +342,25 @@ function OrderCard({
           <p className="text-sm">Subtotal: {money(order.subtotal)}</p>
           <p className="text-sm">Items: {order.item_count || 0}</p>
 
-          {order.tracking_number && (
-            <p className="text-sm mt-2">
-              Tracking: <strong>{order.tracking_number}</strong>
-            </p>
-          )}
+          {dryRunShipping ? (
+            <div className="mt-2 rounded border border-amber-200 bg-amber-50 p-2 text-xs font-semibold text-amber-900">
+              Dry-run shipping reference hidden. Record a real label/tracking
+              before treating this order as shipped.
+            </div>
+          ) : (
+            <>
+              {order.tracking_number && (
+                <p className="text-sm mt-2">
+                  Tracking: <strong>{order.tracking_number}</strong>
+                </p>
+              )}
 
-          {order.carrier && (
-            <p className="text-sm">
-              Carrier: <strong>{order.carrier}</strong>
-            </p>
+              {order.carrier && (
+                <p className="text-sm">
+                  Carrier: <strong>{order.carrier}</strong>
+                </p>
+              )}
+            </>
           )}
         </div>
 

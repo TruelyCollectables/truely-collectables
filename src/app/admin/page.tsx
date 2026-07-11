@@ -4,6 +4,7 @@ import { buildShippingProviderSetupPacket } from "../../lib/shipping-provider-se
 import { createSupabaseServerClient } from "../../lib/supabase-server";
 import { getStoreSettings } from "../../lib/store-settings";
 import { getActiveStoreId } from "../../lib/stores";
+import { isDryRunShippingReference } from "../../lib/shipping-dry-run";
 import {
   isOrderReviewStatus,
   isPaidOrderStatus,
@@ -305,6 +306,9 @@ export default async function AdminDashboard() {
     (reviewCase) => reviewCase.severity === "critical",
   );
   const shippedOrders = orders.filter(isShipped);
+  const dryRunShippingOrders = orders.filter((order) =>
+    isDryRunShippingReference(order.tracking_number),
+  );
   const pendingOffers = offers.filter((offer) => offer.status === "pending");
   const counteredOffers = offers.filter((offer) => offer.status === "countered");
   const activeProducts = products.filter((product) => Number(product.quantity || 0) > 0);
@@ -366,6 +370,11 @@ export default async function AdminDashboard() {
     reviewOrders.length > 0
       ? `${reviewOrders.length} paid order${reviewOrders.length === 1 ? "" : "s"} held for review`
       : "No paid orders held for review",
+    dryRunShippingOrders.length > 0
+      ? `${dryRunShippingOrders.length} order${
+          dryRunShippingOrders.length === 1 ? "" : "s"
+        } still have dry-run shipping references`
+      : "No dry-run tracking references visible on orders",
     activeOrderReviewCases.length > 0
       ? `${activeOrderReviewCases.length} order case${activeOrderReviewCases.length === 1 ? "" : "s"} open in the case queue`
       : "Order case queue is clear",
@@ -454,6 +463,9 @@ export default async function AdminDashboard() {
               <div className="flex flex-wrap gap-2 text-sm">
                 <Pill label={`${readyOrders.length} ready`} tone="amber" />
                 <Pill label={`${reviewOrders.length} review`} tone="amber" />
+                {dryRunShippingOrders.length > 0 ? (
+                  <Pill label={`${dryRunShippingOrders.length} dry-run ship`} tone="rose" />
+                ) : null}
                 <Pill label={`${pendingOffers.length} offers`} tone="amber" />
                 <Pill label={`${lowInventory.length} low stock`} tone="rose" />
               </div>
