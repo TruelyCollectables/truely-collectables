@@ -1281,6 +1281,58 @@ function compGuidanceLabel(comp: ActiveComp) {
   );
 }
 
+function compPriceBasisLabel(comp: ActiveComp) {
+  if (comp.sourceCategory === "sold") return "sold comp";
+  if (comp.flags?.includes("serial #")) return "exact serial";
+  if (comp.flags?.includes("numbered run")) return "same print run";
+  if (compGuidanceLabel(comp)?.startsWith("serial adjusted")) {
+    return "serial-adjusted guidance";
+  }
+  if (comp.sourceCategory === "marketplace") return "active listing";
+  if (comp.sourceCategory === "pricing") return "pricing guidance";
+
+  return sourceCategoryLabels[comp.sourceCategory] || "reference";
+}
+
+function marketPricingExplanation(result: ScanResponse) {
+  const marketComps = result.marketValueComps || [];
+  const soldComps = result.soldComps || [];
+  const activeComps = marketComps.filter(
+    (comp) => comp.sourceCategory === "marketplace"
+  );
+  const adjustedComps = marketComps.filter(
+    (comp) =>
+      comp.sourceCategory === "pricing" &&
+      compGuidanceLabel(comp)?.startsWith("serial adjusted")
+  );
+  const sameRunGuidance = marketComps.filter(
+    (comp) =>
+      comp.sourceCategory === "pricing" &&
+      compGuidanceLabel(comp)?.startsWith("same print run")
+  );
+  const basis =
+    soldComps.length > 0
+      ? "sold comps"
+      : activeComps.length > 0
+        ? "active listings"
+        : adjustedComps.length > 0
+          ? "serial-adjusted guidance"
+          : sameRunGuidance.length > 0
+            ? "same-run pricing guidance"
+            : marketComps.length > 0
+              ? "market guidance"
+              : "no usable comps";
+
+  return {
+    basis,
+    marketComps,
+    soldComps,
+    activeComps,
+    adjustedComps,
+    sameRunGuidance,
+  };
+}
+
 function batchExportRows(items: BatchCardViewItem[]) {
   return items.map(({ card, index }, exportIndex) => {
     const result = card.result;
@@ -9546,6 +9598,8 @@ export default function InstaCompScanner({
               />
             </div>
 
+            <MarketPricingExplanation result={result} />
+
             <h3 style={{ margin: "18px 0 10px" }}>Sold Value Range</h3>
 
             <div
@@ -9933,6 +9987,77 @@ function OcrDiagnosticsMini({ result }: { result: ScanResponse | null }) {
       {!diagnostics.extractedSerialNumber && serialVisionSerial
         ? " by vision"
         : ""}
+    </div>
+  );
+}
+
+function MarketPricingExplanation({ result }: { result: ScanResponse }) {
+  const explanation = marketPricingExplanation(result);
+  const topComps = explanation.marketComps.slice(0, 5);
+
+  return (
+    <div
+      style={{
+        marginTop: 14,
+        border: "1px solid #e5e5e5",
+        borderRadius: 10,
+        padding: 14,
+        background: explanation.marketComps.length ? "#f6fffa" : "#fffaf0",
+      }}
+    >
+      <div style={{ fontWeight: 900 }}>
+        Price basis: {explanation.basis}
+      </div>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(130px, 1fr))",
+          gap: 8,
+          marginTop: 10,
+        }}
+      >
+        <Info label="Usable comps" value={String(explanation.marketComps.length)} />
+        <Info label="Sold comps" value={String(explanation.soldComps.length)} />
+        <Info label="Active listings" value={String(explanation.activeComps.length)} />
+        <Info label="Adjusted runs" value={String(explanation.adjustedComps.length)} />
+      </div>
+
+      {!topComps.length ? (
+        <p style={{ margin: "10px 0 0", color: "#7a4f00", fontWeight: 800 }}>
+          No active, sold, or serial-adjusted comps were usable for market price.
+        </p>
+      ) : (
+        <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
+          {topComps.map((comp, index) => (
+            <a
+              key={`${comp.url}-${index}`}
+              href={comp.url}
+              target="_blank"
+              style={{
+                display: "grid",
+                gridTemplateColumns: "1fr auto",
+                gap: 10,
+                alignItems: "center",
+                border: "1px solid #eee",
+                borderRadius: 8,
+                padding: 10,
+                color: "inherit",
+                textDecoration: "none",
+                background: "white",
+              }}
+            >
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 800 }}>{comp.title}</div>
+                <small style={{ color: "#666" }}>
+                  {comp.sourceLabel || comp.source} - {compPriceBasisLabel(comp)}
+                  {compGuidanceLabel(comp) ? ` - ${compGuidanceLabel(comp)}` : ""}
+                </small>
+              </div>
+              <strong>{money(comp.price)}</strong>
+            </a>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
