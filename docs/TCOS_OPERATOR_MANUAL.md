@@ -4413,16 +4413,17 @@ D:\TCOS_DISASTER_RECOVERY\TCOS_FULL_DISASTER_RECOVERY_20260711-064539  (copy pen
 
 The `D:` Transcend copy is the laptop-failure copy. The 2026-07-11 external copy was blocked by the automation environment's elevated-action quota after the local folder and archive verified successfully. The earlier `20260710-230103` snapshot remains on `D:`. Do not treat the new snapshot as laptop-failure-safe until its folder, archive, and SHA-256 file have been copied to `D:` and the external verifier passes. Do not rely only on the `C:` copy because an internal-drive failure can destroy both the working project and a same-drive backup.
 
-Fast source checkpoint after the current InstaComp seller-handoff and manual-generator work:
+Fast source checkpoint after the GitHub `main` sync, Vercel production deploy verification, and seller inventory export/activation hardening:
 
 ```text
-C:\Projects\TCOS_DISASTER_RECOVERY\code-snapshots\tcos-code-snapshot-20260711-122902
-C:\Projects\TCOS_DISASTER_RECOVERY\code-snapshots\tcos-code-snapshot-20260711-122902.zip
-SHA-256: 9B90065D38D32E3AD43F6428ECF87E3C0369CB56CF22A03FF99C68129059DD2D
-Git HEAD: e697fc98a61cc89a745a6f4fa1140b295e495d10
+C:\Projects\TCOS_DISASTER_RECOVERY\code-snapshots\tcos-code-snapshot-20260711-152107
+C:\Projects\TCOS_DISASTER_RECOVERY\code-snapshots\tcos-code-snapshot-20260711-152107.zip
+C:\Projects\TCOS_DISASTER_RECOVERY\code-snapshots\tcos-code-snapshot-20260711-152107.zip.sha256
+SHA-256: DA4851DC757CC2A9A2A95E7FEB165BB6AA9D4277B4063B68EC56481388BBCD01
+Git HEAD: 4a3645c4c8e8741b69b0cb5472ac81f2d39712a0
 ```
 
-This fast checkpoint preserves the current source tree plus `.git` history, including the 29 local commits ahead of GitHub at the time it was created. It intentionally excludes rebuildable/generated folders such as `node_modules`, `.next`, `.venv`, and Paddle model caches. Use it as a quick source-code recovery point, not as a complete laptop-failure restore. The full disaster-recovery snapshot still needs the Transcend copy and external verification before it is laptop-failure-safe.
+This fast checkpoint preserves the current source tree, `.env*` files, and `.git` history at the same commit deployed by Vercel production. It intentionally excludes rebuildable/generated folders such as `node_modules`, `.next`, `.codex-run`, `.venv`, `TCOS_BACKUP`, `tsconfig.tsbuildinfo`, and Paddle model caches. Use it as a quick source-code recovery point, not as a complete laptop-failure restore. The full disaster-recovery snapshot still needs the Transcend copy and external verification before it is laptop-failure-safe.
 
 Snapshot contents include:
 
