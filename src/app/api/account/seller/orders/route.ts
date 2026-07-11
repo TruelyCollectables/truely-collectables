@@ -120,6 +120,10 @@ function reviewBlockReason(blocker: SellerPayoutRequestReviewBlocker | undefined
     parts.push(`${blocker.blockedLedgerRowCount} held or cancelled payout row`);
   }
 
+  if (blocker.dryRunShippingRowCount > 0) {
+    parts.push(`${blocker.dryRunShippingRowCount} dry-run shipping row`);
+  }
+
   return `${parts.join(" and ")} currently blocking this cash-out request.`;
 }
 
@@ -398,6 +402,7 @@ export async function GET(request: Request) {
             linkedOrderIds: number[];
             activeCaseCount: number;
             blockedLedgerRowCount: number;
+            dryRunShippingRowCount: number;
           }
         >();
 
@@ -430,6 +435,7 @@ export async function GET(request: Request) {
             ),
             activeCaseCount: blocker?.activeCaseCount || 0,
             blockedLedgerRowCount: blocker?.blockedLedgerRowCount || 0,
+            dryRunShippingRowCount: blocker?.dryRunShippingRowCount || 0,
           });
         }
 

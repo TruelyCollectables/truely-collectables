@@ -125,6 +125,10 @@ function reviewBlockReason(blocker: SellerPayoutRequestReviewBlocker | undefined
     parts.push(`${blocker.blockedLedgerRowCount} held or cancelled row`);
   }
 
+  if (blocker.dryRunShippingRowCount > 0) {
+    parts.push(`${blocker.dryRunShippingRowCount} dry-run shipping row`);
+  }
+
   return `${parts.join(" and ")} blocking payout release.`;
 }
 

@@ -201,12 +201,14 @@ export async function POST(request: Request) {
         return Response.json(
           {
             error:
-              "This payout request is blocked by active review cases or held payout rows. Resolve the case queue before approving or paying this request.",
+              "This payout request is blocked by active review cases, held payout rows, or dry-run shipping rows. Resolve the case queue and record real fulfillment proof before approving or paying this request.",
             blockingCaseCount: blocker.activeCaseCount,
             blockedLedgerRowCount: blocker.blockedLedgerRowCount,
+            dryRunShippingRowCount: blocker.dryRunShippingRowCount,
             affectedOrderIds: blocker.affectedOrderIds,
             blockingCases: blocker.blockingCases,
             blockingLedgerRows: blocker.blockingLedgerRows,
+            dryRunShippingRows: blocker.dryRunShippingRows,
           },
           { status: 409 },
         );

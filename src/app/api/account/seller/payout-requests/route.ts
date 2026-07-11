@@ -141,6 +141,10 @@ function reviewBlockReason(blocker: SellerPayoutRequestReviewBlocker | undefined
     parts.push(`${blocker.blockedLedgerRowCount} held or cancelled payout row`);
   }
 
+  if (blocker.dryRunShippingRowCount > 0) {
+    parts.push(`${blocker.dryRunShippingRowCount} dry-run shipping row`);
+  }
+
   return `${parts.join(" and ")} currently blocking this cash-out request.`;
 }
 
@@ -335,6 +339,7 @@ async function loadSellerPayoutBalance(params: {
         amountRequested: number;
         activeCaseCount: number;
         blockedLedgerRowCount: number;
+        dryRunShippingRowCount: number;
       }
     >();
 
@@ -359,6 +364,7 @@ async function loadSellerPayoutBalance(params: {
         amountRequested: 0,
         activeCaseCount: 0,
         blockedLedgerRowCount: 0,
+        dryRunShippingRowCount: 0,
       };
 
       existing.amountRequested = roundMoney(
@@ -381,6 +387,13 @@ async function loadSellerPayoutBalance(params: {
       }
     }
 
+    for (const dryRunShippingRow of blocker?.dryRunShippingRows || []) {
+      const existing = orderSummaryById.get(dryRunShippingRow.orderId);
+      if (existing) {
+        existing.dryRunShippingRowCount += 1;
+      }
+    }
+
     return {
       ...publicRequest(row),
       reviewBlocked: blocker?.isBlocked === true,
@@ -388,6 +401,7 @@ async function loadSellerPayoutBalance(params: {
       affectedOrderIds: blocker?.affectedOrderIds || [],
       activeCaseCount: blocker?.activeCaseCount || 0,
       blockedLedgerRowCount: blocker?.blockedLedgerRowCount || 0,
+      dryRunShippingRowCount: blocker?.dryRunShippingRowCount || 0,
       orderSummaries: Array.from(orderSummaryById.values()).sort(
         (left, right) => right.orderId - left.orderId,
       ),

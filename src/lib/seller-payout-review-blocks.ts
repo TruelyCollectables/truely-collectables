@@ -1,4 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
+import { isDryRunShippingReference } from "./shipping-dry-run";
 
 const finalCaseStatuses = new Set([
   "decided_for_buyer",
@@ -30,6 +31,11 @@ type OrderReviewCaseScopeRow = {
   updated_at: string | null;
 };
 
+type OrderShippingScopeRow = {
+  id: number;
+  tracking_number: string | null;
+};
+
 export type SellerPayoutRequestReviewBlocker = {
   requestId: string;
   blockingCases: Array<{
@@ -47,9 +53,16 @@ export type SellerPayoutRequestReviewBlocker = {
     sellerAccountId: string | null;
     payoutStatus: string | null;
   }>;
+  dryRunShippingRows: Array<{
+    id: string;
+    orderId: number;
+    sellerAccountId: string | null;
+    payoutStatus: string | null;
+  }>;
   affectedOrderIds: number[];
   activeCaseCount: number;
   blockedLedgerRowCount: number;
+  dryRunShippingRowCount: number;
   isBlocked: boolean;
 };
 
@@ -121,6 +134,8 @@ export async function loadSellerPayoutRequestReviewBlockers(params: {
           affectedOrderIds: [],
           activeCaseCount: 0,
           blockedLedgerRowCount: 0,
+          dryRunShippingRows: [],
+          dryRunShippingRowCount: 0,
           isBlocked: false,
         } satisfies SellerPayoutRequestReviewBlocker,
       ]),
@@ -154,6 +169,22 @@ export async function loadSellerPayoutRequestReviewBlockers(params: {
   const activeCases = ((reviewCasesData || []) as OrderReviewCaseScopeRow[]).filter(
     (reviewCase) => !finalCaseStatuses.has(reviewCase.status || "open"),
   );
+  const { data: orderShippingData, error: orderShippingError } =
+    orderIds.length === 0
+      ? { data: [], error: null }
+      : await params.supabase
+          .from("orders")
+          .select("id,tracking_number")
+          .eq("store_id", params.storeId)
+          .in("id", orderIds);
+
+  if (orderShippingError) throw orderShippingError;
+
+  const dryRunShippingOrderIds = new Set(
+    ((orderShippingData || []) as OrderShippingScopeRow[])
+      .filter((order) => isDryRunShippingReference(order.tracking_number))
+      .map((order) => order.id),
+  );
   const blockersByRequestId = new Map<string, SellerPayoutRequestReviewBlocker>();
 
   for (const requestId of requestIds) {
@@ -167,6 +198,9 @@ export async function loadSellerPayoutRequestReviewBlockers(params: {
         payoutStatus.startsWith("hold_") || terminalLedgerStatuses.has(payoutStatus)
       );
     });
+    const dryRunShippingRows = scopedLedgerRows.filter((row) =>
+      dryRunShippingOrderIds.has(row.order_id),
+    );
     const blockingCases = activeCases.filter((reviewCase) =>
       scopedLedgerRows.some((ledgerRow) => appliesToLedgerRow(reviewCase, ledgerRow)),
     );
@@ -188,10 +222,20 @@ export async function loadSellerPayoutRequestReviewBlockers(params: {
         sellerAccountId: row.seller_account_id,
         payoutStatus: row.payout_status,
       })),
+      dryRunShippingRows: dryRunShippingRows.map((row) => ({
+        id: row.id,
+        orderId: row.order_id,
+        sellerAccountId: row.seller_account_id,
+        payoutStatus: row.payout_status,
+      })),
       affectedOrderIds: uniqueNumbers(scopedLedgerRows.map((row) => row.order_id)),
       activeCaseCount: blockingCases.length,
       blockedLedgerRowCount: blockingLedgerRows.length,
-      isBlocked: blockingCases.length > 0 || blockingLedgerRows.length > 0,
+      dryRunShippingRowCount: dryRunShippingRows.length,
+      isBlocked:
+        blockingCases.length > 0 ||
+        blockingLedgerRows.length > 0 ||
+        dryRunShippingRows.length > 0,
     });
   }
 
