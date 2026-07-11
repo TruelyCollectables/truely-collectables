@@ -3029,6 +3029,8 @@ COVERAGE_API_KEY=
 
 Keep `TCOS_SHIPPING_PURCHASE_MODE=dry_run`. The current code deliberately blocks live provider purchase because no live adapter has been approved.
 
+The shipping adapter contract records provider state for each planned label. A planned label captures the method-specific adapter key, provider, service, carrier, purchase mode, missing provider credential groups, missing Coverage credential groups, live-support status, and manual-purchase fallback requirement. This is an audit snapshot only; it does not contact USPS, Coverage, EasyPost, Shippo, or any IMb provider.
+
 Scheduled operations:
 
 ```env
@@ -4266,6 +4268,8 @@ Parcel rules currently embedded in TCOS:
 
 TCOS currently has only a dry-run shipping provider adapter. No live postage-provider adapter is approved. Setting `TCOS_SHIPPING_PURCHASE_MODE=live` deliberately blocks/throws instead of buying postage.
 
+`Prepare Label + Coverage Record` now saves a shipping adapter profile on the label metadata. `/admin/orders/[id]` and `/admin/shipping` display that adapter profile so the operator can see the configured provider, service, carrier, purchase mode, missing credentials, and live-block reason without opening raw metadata.
+
 Never mail with references beginning:
 
 ```text
@@ -4313,13 +4317,14 @@ The shipping queue also supports priority sorting, external void records, claim 
 
 ### Shipping simulation runbook
 
-Open `/admin/shipping/simulations` and run the suite. Require all six assertions:
+Open `/admin/shipping/simulations` and run the suite. Require all seven assertions:
 
 - `$19.99` and 3 oz stays Standard Envelope
 - `$20.01` forces Ground Advantage
 - more than 3 oz forces Ground Advantage
 - Coverage is required for Standard Envelope
 - Coverage is required for parcel shipping
+- shipping adapter profiles expose provider, carrier, credential, Coverage, live-support, and manual-fallback state
 - dry-run Standard Envelope and Ground Advantage adapter purchases behave as dry runs
 
 This page does not contact USPS or Coverage and does not buy postage.

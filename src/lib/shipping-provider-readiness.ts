@@ -1,3 +1,5 @@
+import { getShippingProviderAdapterProfile } from "./shipping-provider-adapter";
+
 export type ShippingProviderReadinessStatus = "ready" | "warning" | "blocked";
 
 export type ShippingProviderReadinessItem = {
@@ -9,10 +11,6 @@ export type ShippingProviderReadinessItem = {
   missing: string[];
 };
 
-function configured(value: string | undefined) {
-  return Boolean(value && value.trim().length > 0);
-}
-
 function providerRequired() {
   return process.env.TCOS_SHIPPING_PROVIDERS_REQUIRED === "true";
 }
@@ -23,60 +21,16 @@ function missingStatus(missing: string[]) {
   return providerRequired() ? ("blocked" as const) : ("warning" as const);
 }
 
-function configuredProvider(value: string | undefined, fallback: string) {
-  return value?.trim() || fallback;
-}
-
 function shippingPurchaseMode() {
   return process.env.TCOS_SHIPPING_PURCHASE_MODE === "live" ? "live" : "dry_run";
 }
 
 export function getShippingProviderReadiness(): ShippingProviderReadinessItem[] {
   const purchaseMode = shippingPurchaseMode();
-  const standardEnvelopeProvider = configuredProvider(
-    process.env.TCOS_STANDARD_ENVELOPE_PROVIDER,
-    "IMb envelope provider",
-  );
-  const parcelProvider = configuredProvider(
-    process.env.TCOS_PARCEL_LABEL_PROVIDER,
-    configured(process.env.EASYPOST_API_KEY)
-      ? "EasyPost"
-      : configured(process.env.SHIPPO_API_TOKEN)
-        ? "Shippo"
-        : "parcel label provider",
-  );
-  const coverageProvider = configuredProvider(
-    process.env.TCOS_SHIPPING_COVERAGE_PROVIDER,
-    "Coverage",
-  );
-
-  const standardEnvelopeMissing = [
-    !configured(process.env.TCOS_STANDARD_ENVELOPE_PROVIDER)
-      ? "TCOS_STANDARD_ENVELOPE_PROVIDER"
-      : null,
-    !configured(process.env.TCOS_STANDARD_ENVELOPE_API_KEY) &&
-    !configured(process.env.IMB_PROVIDER_API_KEY)
-      ? "TCOS_STANDARD_ENVELOPE_API_KEY or IMB_PROVIDER_API_KEY"
-      : null,
-  ].filter((value): value is string => Boolean(value));
-
-  const parcelMissing = [
-    !configured(process.env.TCOS_PARCEL_LABEL_PROVIDER) &&
-    !configured(process.env.EASYPOST_API_KEY) &&
-    !configured(process.env.SHIPPO_API_TOKEN)
-      ? "TCOS_PARCEL_LABEL_PROVIDER plus EASYPOST_API_KEY or SHIPPO_API_TOKEN"
-      : null,
-  ].filter((value): value is string => Boolean(value));
-
-  const coverageMissing = [
-    !configured(process.env.TCOS_SHIPPING_COVERAGE_PROVIDER)
-      ? "TCOS_SHIPPING_COVERAGE_PROVIDER"
-      : null,
-    !configured(process.env.TCOS_SHIPPING_COVERAGE_API_KEY) &&
-    !configured(process.env.COVERAGE_API_KEY)
-      ? "TCOS_SHIPPING_COVERAGE_API_KEY or COVERAGE_API_KEY"
-      : null,
-  ].filter((value): value is string => Boolean(value));
+  const standardEnvelopeProfile =
+    getShippingProviderAdapterProfile("STANDARD_ENVELOPE");
+  const parcelProfile = getShippingProviderAdapterProfile("GROUND_ADVANTAGE");
+  const coverageMissing = standardEnvelopeProfile.missingCoverageCredentialKeys;
 
   return [
     {
@@ -94,32 +48,44 @@ export function getShippingProviderReadiness(): ShippingProviderReadinessItem[] 
       missing: purchaseMode === "live" ? ["approved live shipping adapter"] : [],
     },
     {
+      key: "shipping_adapter_contract",
+      label: "Shipping Adapter Contract",
+      status: purchaseMode === "live" ? "blocked" : "warning",
+      detail:
+        purchaseMode === "live"
+          ? "TCOS has an auditable adapter contract, but live provider execution is intentionally blocked until a real adapter is implemented and approved."
+          : "TCOS currently exposes a dry-run adapter contract and manual external-purchase recording. No live postage or Coverage API is called from TCOS.",
+      action:
+        "Keep live purchase disabled until the chosen provider adapter supports quotes, buys, voids, Coverage purchase, webhook reconciliation, and audit packets end-to-end.",
+      missing: purchaseMode === "live" ? ["approved live adapter implementation"] : [],
+    },
+    {
       key: "standard_envelope_provider",
       label: "Standard Envelope Provider",
-      status: missingStatus(standardEnvelopeMissing),
+      status: missingStatus(standardEnvelopeProfile.missingCredentialKeys),
       detail:
-        standardEnvelopeMissing.length === 0
-          ? `${standardEnvelopeProvider} is configured for TCOS Standard Envelope / IMb shipping.`
+        standardEnvelopeProfile.missingCredentialKeys.length === 0
+          ? `${standardEnvelopeProfile.provider} is configured for TCOS Standard Envelope / IMb shipping.`
           : "TCOS can price and audit Standard Envelope orders, but cannot buy real IMb envelope labels until the provider account is configured.",
       action:
-        standardEnvelopeMissing.length === 0
+        standardEnvelopeProfile.missingCredentialKeys.length === 0
           ? "Wire the provider purchase adapter into the order shipping cockpit."
-          : `Set ${standardEnvelopeMissing.join(", ")} in production secrets.`,
-      missing: standardEnvelopeMissing,
+          : `Set ${standardEnvelopeProfile.missingCredentialKeys.join(", ")} in production secrets.`,
+      missing: standardEnvelopeProfile.missingCredentialKeys,
     },
     {
       key: "parcel_label_provider",
       label: "Ground Advantage / Priority Label Provider",
-      status: missingStatus(parcelMissing),
+      status: missingStatus(parcelProfile.missingCredentialKeys),
       detail:
-        parcelMissing.length === 0
-          ? `${parcelProvider} is configured for USPS parcel label purchase.`
+        parcelProfile.missingCredentialKeys.length === 0
+          ? `${parcelProfile.provider} is configured for USPS parcel label purchase.`
           : "TCOS can require Ground Advantage/Priority and record tracking, but cannot buy parcel labels until a provider key is configured.",
       action:
-        parcelMissing.length === 0
+        parcelProfile.missingCredentialKeys.length === 0
           ? "Wire the parcel-label purchase adapter into the order shipping cockpit."
-          : `Set ${parcelMissing.join(", ")} in production secrets.`,
-      missing: parcelMissing,
+          : `Set ${parcelProfile.missingCredentialKeys.join(", ")} in production secrets.`,
+      missing: parcelProfile.missingCredentialKeys,
     },
     {
       key: "shipping_coverage_provider",
@@ -127,7 +93,7 @@ export function getShippingProviderReadiness(): ShippingProviderReadinessItem[] 
       status: missingStatus(coverageMissing),
       detail:
         coverageMissing.length === 0
-          ? `${coverageProvider} is configured for seller shipment coverage purchase.`
+          ? `${standardEnvelopeProfile.coverageProvider} is configured for seller shipment coverage purchase.`
           : "TCOS marks every shipment as coverage-required, but cannot purchase external seller protection until the coverage provider account is configured.",
       action:
         coverageMissing.length === 0

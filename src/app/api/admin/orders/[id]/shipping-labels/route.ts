@@ -9,7 +9,10 @@ import {
   getShippingProviderReadiness,
   shippingPurchaseBlockers,
 } from "../../../../../../lib/shipping-provider-readiness";
-import { purchaseShippingLabel } from "../../../../../../lib/shipping-provider-adapter";
+import {
+  getShippingProviderAdapterProfile,
+  purchaseShippingLabel,
+} from "../../../../../../lib/shipping-provider-adapter";
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
 
@@ -36,20 +39,6 @@ type ShippingLabelRow = {
 
 function safeShippingMethod(value: string | null): ShippingMethod {
   return isShippingMethod(value) ? value : "GROUND_ADVANTAGE";
-}
-
-function providerForMethod(method: ShippingMethod) {
-  if (method === "STANDARD_ENVELOPE") {
-    return "pending_imb_envelope_provider";
-  }
-
-  return "pending_parcel_label_provider";
-}
-
-function serviceForMethod(method: ShippingMethod) {
-  if (method === "STANDARD_ENVELOPE") return "TCOS Standard Envelope";
-  if (method === "PRIORITY_MAIL") return "USPS Priority Mail";
-  return "USPS Ground Advantage";
 }
 
 function carrierForMethod(method: ShippingMethod) {
@@ -148,6 +137,7 @@ async function createPlannedLabel(params: {
     subtotal: Number(params.order.subtotal || 0),
   });
   const resolvedMethod = shippingPolicy.method;
+  const adapterProfile = getShippingProviderAdapterProfile(resolvedMethod);
   const coverage = getShippingCoverage({
     method: resolvedMethod,
     subtotal: Number(params.order.subtotal || 0),
@@ -158,10 +148,10 @@ async function createPlannedLabel(params: {
     .insert({
       store_id: params.storeId,
       order_id: params.orderId,
-      provider: providerForMethod(resolvedMethod),
-      provider_service: serviceForMethod(resolvedMethod),
+      provider: adapterProfile.provider,
+      provider_service: adapterProfile.providerService,
       service_level: resolvedMethod,
-      carrier: params.order.carrier || carrierForMethod(resolvedMethod),
+      carrier: params.order.carrier || adapterProfile.carrier,
       tracking_number: params.order.tracking_number || null,
       postage_amount: Number(params.order.shipping_amount || 0),
       requested_shipping_method: requestedMethod,
@@ -186,6 +176,7 @@ async function createPlannedLabel(params: {
         planned_at: now,
         planned_by_identity: params.identity,
         provider_purchase_required: true,
+        shipping_adapter_profile: adapterProfile,
         provider_readiness_at_planning: params.providerReadiness,
       },
     })
@@ -201,7 +192,7 @@ async function createPlannedLabel(params: {
     order_id: params.orderId,
     shipping_label_id: label.id,
     provider: "manual",
-    carrier: params.order.carrier || carrierForMethod(resolvedMethod),
+    carrier: params.order.carrier || adapterProfile.carrier,
     tracking_number: params.order.tracking_number || null,
     event_type: "label_record_planned",
     event_status: "planned",
@@ -218,6 +209,7 @@ async function createPlannedLabel(params: {
       standard_envelope_reason: shippingPolicy.standardEnvelope.reason,
       coverage_provider: coverage.provider,
       coverage_amount: coverage.coveredAmount,
+      shipping_adapter_profile: adapterProfile,
     },
   });
 
@@ -326,11 +318,11 @@ export async function PATCH(
       const now = new Date().toISOString();
       const provider =
         cleanText(body.provider) ||
-        providerForMethod(safeShippingMethod(label.resolved_shipping_method));
+        getShippingProviderAdapterProfile(label.resolved_shipping_method).provider;
       const carrier =
         cleanText(body.carrier) ||
         typedOrder.carrier ||
-        carrierForMethod(safeShippingMethod(label.resolved_shipping_method));
+        getShippingProviderAdapterProfile(label.resolved_shipping_method).carrier;
       const trackingNumber =
         cleanText(body.trackingNumber) || typedOrder.tracking_number || null;
       const postageAmount =
@@ -549,6 +541,9 @@ export async function PATCH(
       method: label.resolved_shipping_method || typedOrder.shipping_method,
       readiness: providerReadiness,
     });
+    const adapterProfile = getShippingProviderAdapterProfile(
+      label.resolved_shipping_method || typedOrder.shipping_method,
+    );
     const now = new Date().toISOString();
 
     if (blockers.length > 0) {
@@ -568,6 +563,7 @@ export async function PATCH(
         occurred_at: now,
         raw_payload: {
           blockers,
+          shipping_adapter_profile: adapterProfile,
           attempted_by_identity: identity,
         },
       });
@@ -588,6 +584,7 @@ export async function PATCH(
               attempted_at: now,
               attempted_by_identity: identity,
               blockers,
+              shipping_adapter_profile: adapterProfile,
             },
           },
         })

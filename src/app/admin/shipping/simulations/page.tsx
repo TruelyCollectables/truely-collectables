@@ -27,8 +27,8 @@ export default async function ShippingSimulationsPage() {
             <h1 className="mt-2 text-4xl font-black">Shipping Simulation Lab</h1>
             <p className="mt-2 max-w-3xl text-neutral-600">
               Deterministic no-postage checks for Standard Envelope routing,
-              Ground Advantage fallback, seller coverage, and dry-run provider
-              purchase plumbing.
+              Ground Advantage fallback, seller coverage, adapter profiles, and
+              dry-run provider purchase plumbing.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">

@@ -3118,6 +3118,7 @@ TCOS_SHIPPING_COVERAGE_PROVIDER=
 TCOS_SHIPPING_COVERAGE_API_KEY=
 COVERAGE_API_KEY=</code></pre>
 <p>Keep <code>TCOS_SHIPPING_PURCHASE_MODE=dry_run</code>. The current code deliberately blocks live provider purchase because no live adapter has been approved.</p>
+<p>The shipping adapter contract records provider state for each planned label. A planned label captures the method-specific adapter key, provider, service, carrier, purchase mode, missing provider credential groups, missing Coverage credential groups, live-support status, and manual-purchase fallback requirement. This is an audit snapshot only; it does not contact USPS, Coverage, EasyPost, Shippo, or any IMb provider.</p>
 <p>Scheduled operations:</p>
 <pre><code>CRON_SECRET=</code></pre>
 <p>Use the same protected secret for configured Vercel cron calls to Stripe reconciliation and seller eBay reconciliation. Never put the cron secret in a public URL.</p>
@@ -4057,6 +4058,7 @@ charge.dispute.funds_reinstated</code></pre>
 </ul>
 <h3>Critical live-postage warning</h3>
 <p>TCOS currently has only a dry-run shipping provider adapter. No live postage-provider adapter is approved. Setting <code>TCOS_SHIPPING_PURCHASE_MODE=live</code> deliberately blocks/throws instead of buying postage.</p>
+<p><code>Prepare Label + Coverage Record</code> now saves a shipping adapter profile on the label metadata. <code>/admin/orders/[id]</code> and <code>/admin/shipping</code> display that adapter profile so the operator can see the configured provider, service, carrier, purchase mode, missing credentials, and live-block reason without opening raw metadata.</p>
 <p>Never mail with references beginning:</p>
 <pre><code>IMB-TCOS-DRYRUN-
 USPS-TCOS-DRYRUN-
@@ -4097,13 +4099,14 @@ dryrun-</code></pre>
 <li>Treat paid, denied, and cancelled claims as audit-locked.</li>
 </ol>
 <h3>Shipping simulation runbook</h3>
-<p>Open <code>/admin/shipping/simulations</code> and run the suite. Require all six assertions:</p>
+<p>Open <code>/admin/shipping/simulations</code> and run the suite. Require all seven assertions:</p>
 <ul>
 <li><code>$19.99</code> and 3 oz stays Standard Envelope</li>
 <li><code>$20.01</code> forces Ground Advantage</li>
 <li>more than 3 oz forces Ground Advantage</li>
 <li>Coverage is required for Standard Envelope</li>
 <li>Coverage is required for parcel shipping</li>
+<li>shipping adapter profiles expose provider, carrier, credential, Coverage, live-support, and manual-fallback state</li>
 <li>dry-run Standard Envelope and Ground Advantage adapter purchases behave as dry runs</li>
 </ul>
 <p>This page does not contact USPS or Coverage and does not buy postage.</p>

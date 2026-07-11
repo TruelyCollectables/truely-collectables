@@ -3,9 +3,12 @@ import {
   resolveShippingMethod,
   standardEnvelopeRateForEstimatedOunces,
 } from "./shipping";
-import { purchaseShippingLabel } from "./shipping-provider-adapter";
+import {
+  getShippingProviderAdapterProfile,
+  purchaseShippingLabel,
+} from "./shipping-provider-adapter";
 
-export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-10.1";
+export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-11.1";
 
 export type ShippingSimulationScenario = {
   scenario_key: string;
@@ -112,6 +115,27 @@ export async function runShippingSimulationSuite() {
     assertions: {
       standard_envelope: standardEnvelopeCoverage,
       ground_advantage: groundCoverage,
+    },
+  });
+
+  const standardEnvelopeProfile =
+    getShippingProviderAdapterProfile("STANDARD_ENVELOPE");
+  const groundAdapterProfile =
+    getShippingProviderAdapterProfile("GROUND_ADVANTAGE");
+  scenarios.push({
+    scenario_key: "shipping_adapter_profiles_are_auditable",
+    scenario_status: pass(
+      standardEnvelopeProfile.adapterKey === "standard_envelope_imb" &&
+        groundAdapterProfile.adapterKey === "usps_parcel_label" &&
+        standardEnvelopeProfile.livePurchaseSupported === false &&
+        groundAdapterProfile.manualPurchaseRequired === true &&
+        standardEnvelopeProfile.coverageProvider.length > 0,
+    ),
+    detail:
+      "Shipping adapter profiles expose provider, carrier, credential, Coverage, live-support, and manual-fallback state without calling a live provider.",
+    assertions: {
+      standard_envelope: standardEnvelopeProfile,
+      ground_advantage: groundAdapterProfile,
     },
   });
 

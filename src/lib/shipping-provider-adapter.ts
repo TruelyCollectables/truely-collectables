@@ -7,6 +7,30 @@ import {
 
 export type ShippingProviderPurchaseMode = "dry_run" | "live";
 
+export type ShippingProviderCredentialStatus = "configured" | "missing";
+
+export type ShippingProviderAdapterProfile = {
+  method: ShippingMethod;
+  purchaseMode: ShippingProviderPurchaseMode;
+  provider: string;
+  providerService: string;
+  carrier: string;
+  adapterKey: string;
+  adapterStatus: "dry_run_only" | "live_blocked";
+  livePurchaseSupported: boolean;
+  liveBlockReason: string | null;
+  credentialKeys: string[];
+  configuredCredentialKeys: string[];
+  missingCredentialKeys: string[];
+  credentialStatus: ShippingProviderCredentialStatus;
+  coverageProvider: string;
+  coverageCredentialKeys: string[];
+  configuredCoverageCredentialKeys: string[];
+  missingCoverageCredentialKeys: string[];
+  coverageCredentialStatus: ShippingProviderCredentialStatus;
+  manualPurchaseRequired: boolean;
+};
+
 export type ShippingProviderPurchaseRequest = {
   orderId: number;
   labelId: string;
@@ -76,6 +100,86 @@ function carrierForMethod(method: ShippingMethod, fallback?: string | null) {
   return method === "STANDARD_ENVELOPE" ? "USPS IMb" : "USPS";
 }
 
+function configured(value: string | undefined) {
+  return Boolean(value && value.trim().length > 0);
+}
+
+function configuredKeys(keys: string[]) {
+  return keys.filter((key) => configured(process.env[key]));
+}
+
+function flattenGroups(groups: string[][]) {
+  return Array.from(new Set(groups.flat()));
+}
+
+function missingCredentialGroups(groups: string[][]) {
+  return groups
+    .filter((group) => !group.some((key) => configured(process.env[key])))
+    .map((group) => group.join(" or "));
+}
+
+export function getShippingProviderAdapterProfile(
+  methodInput: string | null | undefined,
+): ShippingProviderAdapterProfile {
+  const method = safeMethod(methodInput);
+  const mode = purchaseMode();
+  const standardEnvelopeCredentialGroups = [
+    ["TCOS_STANDARD_ENVELOPE_PROVIDER"],
+    ["TCOS_STANDARD_ENVELOPE_API_KEY", "IMB_PROVIDER_API_KEY"],
+  ];
+  const parcelCredentialGroups = [
+    ["TCOS_PARCEL_LABEL_PROVIDER", "EASYPOST_API_KEY", "SHIPPO_API_TOKEN"],
+  ];
+  const coverageCredentialGroups = [
+    ["TCOS_SHIPPING_COVERAGE_PROVIDER"],
+    ["TCOS_SHIPPING_COVERAGE_API_KEY", "COVERAGE_API_KEY"],
+  ];
+  const methodCredentialGroups =
+    method === "STANDARD_ENVELOPE"
+      ? standardEnvelopeCredentialGroups
+      : parcelCredentialGroups;
+  const credentialKeys = flattenGroups(methodCredentialGroups);
+  const coverageCredentialKeys = flattenGroups(coverageCredentialGroups);
+  const missingCredentialKeys = missingCredentialGroups(methodCredentialGroups);
+  const missingCoverageCredentialKeys =
+    missingCredentialGroups(coverageCredentialGroups);
+  const liveBlockReason =
+    mode === "live"
+      ? "Live shipping purchase mode is enabled, but TCOS has no approved live provider adapter wired behind this contract yet."
+      : null;
+
+  return {
+    method,
+    purchaseMode: mode,
+    provider: providerForMethod(method),
+    providerService: serviceForMethod(method),
+    carrier: carrierForMethod(method),
+    adapterKey:
+      method === "STANDARD_ENVELOPE"
+        ? "standard_envelope_imb"
+        : "usps_parcel_label",
+    adapterStatus: mode === "live" ? "live_blocked" : "dry_run_only",
+    livePurchaseSupported: false,
+    liveBlockReason,
+    credentialKeys,
+    configuredCredentialKeys: configuredKeys(credentialKeys),
+    missingCredentialKeys,
+    credentialStatus: missingCredentialKeys.length === 0
+      ? "configured"
+      : "missing",
+    coverageProvider:
+      process.env.TCOS_SHIPPING_COVERAGE_PROVIDER ||
+      getShippingCoverage({ method, subtotal: 0 }).provider,
+    coverageCredentialKeys,
+    configuredCoverageCredentialKeys: configuredKeys(coverageCredentialKeys),
+    missingCoverageCredentialKeys,
+    coverageCredentialStatus: missingCoverageCredentialKeys.length === 0
+      ? "configured"
+      : "missing",
+    manualPurchaseRequired: true,
+  };
+}
+
 function postageForRequest(params: {
   method: ShippingMethod;
   shippingAmount: number;
@@ -95,6 +199,7 @@ export async function purchaseShippingLabel(
 ): Promise<ShippingProviderPurchaseResult> {
   const mode = purchaseMode();
   const method = safeMethod(request.method);
+  const adapterProfile = getShippingProviderAdapterProfile(method);
 
   if (mode === "live") {
     throw new Error(
@@ -142,6 +247,7 @@ export async function purchaseShippingLabel(
     rawProviderPayload: {
       dry_run: true,
       adapter: "tcos_dry_run_shipping_provider",
+      adapter_profile: adapterProfile,
       method,
       item_count: request.itemCount,
       standard_envelope_estimated_ounces:

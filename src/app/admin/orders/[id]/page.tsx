@@ -269,6 +269,34 @@ function standardEnvelopePolicyNote(shippingLabel: ShippingLabel) {
     .join(" / ");
 }
 
+function stringList(value: unknown) {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
+function shippingAdapterProfileDetails(
+  metadata: Record<string, unknown> | null | undefined,
+) {
+  const profile = metadataRecord(metadata, "shipping_adapter_profile");
+
+  if (!profile) return null;
+
+  return {
+    adapter: metadataText(profile, "adapterKey") || "adapter",
+    status: metadataText(profile, "adapterStatus") || "unknown",
+    provider: metadataText(profile, "provider") || "Provider pending",
+    service: metadataText(profile, "providerService") || "Service pending",
+    carrier: metadataText(profile, "carrier") || "Carrier pending",
+    purchaseMode: metadataText(profile, "purchaseMode") || "dry_run",
+    missingCredentials: [
+      ...stringList(profile.missingCredentialKeys),
+      ...stringList(profile.missingCoverageCredentialKeys),
+    ],
+    liveBlockReason: metadataText(profile, "liveBlockReason"),
+  };
+}
+
 export default async function AdminOrderDetailPage({
   params,
 }: {
@@ -1010,6 +1038,8 @@ export default async function AdminOrderDetailPage({
                 shippingLabel,
                 shippingTrackingEvents,
               );
+              const adapterProfile =
+                shippingAdapterProfileDetails(shippingLabel.metadata);
 
               return (
               <div key={shippingLabel.id} className="rounded border p-4">
@@ -1041,6 +1071,31 @@ export default async function AdminOrderDetailPage({
                       <p className="mt-2 rounded border border-blue-200 bg-blue-50 p-2 text-sm font-semibold text-blue-950">
                         {policyNote}
                       </p>
+                    ) : null}
+                    {adapterProfile ? (
+                      <div className="mt-2 rounded border border-purple-200 bg-purple-50 p-2 text-sm text-purple-950">
+                        <p className="font-black">
+                          Adapter: {label(adapterProfile.adapter)} /{" "}
+                          {label(adapterProfile.status)}
+                        </p>
+                        <p className="mt-1 font-semibold">
+                          {adapterProfile.provider} - {adapterProfile.service} -{" "}
+                          {adapterProfile.carrier}
+                        </p>
+                        <p className="mt-1 text-xs font-bold">
+                          Purchase mode: {label(adapterProfile.purchaseMode)}
+                          {adapterProfile.missingCredentials.length > 0
+                            ? ` / Missing: ${adapterProfile.missingCredentials.join(
+                                ", ",
+                              )}`
+                            : " / Provider credentials staged"}
+                        </p>
+                        {adapterProfile.liveBlockReason ? (
+                          <p className="mt-1 text-xs font-bold">
+                            {adapterProfile.liveBlockReason}
+                          </p>
+                        ) : null}
+                      </div>
                     ) : null}
                   </div>
 
