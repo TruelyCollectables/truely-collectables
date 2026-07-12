@@ -692,6 +692,11 @@ export default async function AdminDashboard() {
                 <LinkButton href="/admin/launch-readiness" label="Readiness" />
                 <LinkButton href="/admin/live-payment-launch" label="Pay Gate" />
                 <LinkButton href="/admin/live-shipping-launch" label="Ship Gate" />
+                <LinkButton href="/api/admin/launch-readiness" label="Brief JSON" />
+                <LinkButton
+                  href="/api/admin/launch-readiness?format=markdown"
+                  label="Brief MD"
+                />
               </div>
             </section>
 

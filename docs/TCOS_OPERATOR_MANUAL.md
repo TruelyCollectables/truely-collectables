@@ -4354,7 +4354,7 @@ The same `/admin/launch-gate-drill` report also checks the live-shipping runtime
 
 The drill's Shipping Launch Posture card lists the blocked live-shipping checks and next actions, such as configuring provider credentials, building the live quote/buy/void adapter, proving Coverage purchase, and wiring provider webhook reconciliation. Keep shipping in `Locked Safe` until those items are actually ready.
 
-The admin command center (`/admin`) also shows a Launch Locks card in the side rail with the current no-money gate drill result, payment posture, shipping posture, and direct links to Gate Drill, Launch Readiness, Live Payment Gate, and Live Shipping Gate. It also shows the Shipping Setup verdict and includes that verdict in operator alerts, so blocked shipping-provider setup is visible from the first admin landing page.
+The admin command center (`/admin`) also shows a Launch Locks card in the side rail with the current no-money gate drill result, payment posture, shipping posture, and direct links to Gate Drill, Launch Readiness, Live Payment Gate, Live Shipping Gate, and the launch brief JSON/Markdown exports. It also shows the Shipping Setup verdict and includes that verdict in operator alerts, so blocked shipping-provider setup is visible from the first admin landing page.
 
 Never mail with references beginning:
 
