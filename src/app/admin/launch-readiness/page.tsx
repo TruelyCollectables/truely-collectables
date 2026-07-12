@@ -960,6 +960,17 @@ export default async function LaunchReadinessPage() {
   const livePaymentGateOpen = livePaymentLaunchItem.status === "ready";
   const fullLaunchHasBlockers = summary.blocked > 0;
   const fullLaunchNeedsReview = summary.warning > 0;
+  const attentionItems = items
+    .filter((item) => item.status !== "ready")
+    .sort((a, b) => {
+      const rank: Record<ReadinessStatus, number> = {
+        blocked: 0,
+        warning: 1,
+        ready: 2,
+      };
+
+      return rank[a.status] - rank[b.status];
+    });
 
   return (
     <main className="min-h-screen bg-neutral-50 p-8 text-neutral-950">
@@ -1075,6 +1086,60 @@ export default async function LaunchReadinessPage() {
           </p>
         </div>
       </section>
+
+      {attentionItems.length > 0 ? (
+        <section className="mb-8 rounded border bg-white p-6">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h2 className="text-2xl font-bold">Launch Attention Board</h2>
+              <p className="mt-1 max-w-3xl text-sm text-neutral-600">
+                The highest-priority blocked and review items from the full
+                readiness checklist, pulled to the top so operators do not have
+                to hunt through every database capability row.
+              </p>
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-center text-sm">
+              <MiniCount label="Blocked" value={summary.blocked} tone="red" />
+              <MiniCount label="Review" value={summary.warning} tone="yellow" />
+            </div>
+          </div>
+
+          <div className="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-2">
+            {attentionItems.slice(0, 10).map((item) => (
+              <section
+                key={`attention-${item.label}`}
+                className="rounded border border-neutral-200 bg-neutral-50 p-4"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <h3 className="font-bold">{item.label}</h3>
+                    <p className="mt-1 text-sm text-neutral-600">
+                      {item.detail}
+                    </p>
+                  </div>
+                  <span
+                    className={`shrink-0 rounded border px-2 py-1 text-xs font-bold ${statusClass(
+                      item.status,
+                    )}`}
+                  >
+                    {statusLabel(item.status)}
+                  </span>
+                </div>
+                <p className="mt-3 text-sm font-semibold text-neutral-700">
+                  {item.action}
+                </p>
+              </section>
+            ))}
+          </div>
+
+          {attentionItems.length > 10 ? (
+            <p className="mt-4 text-sm font-semibold text-neutral-600">
+              Showing the first 10 of {attentionItems.length} blocked/review
+              items. The full checklist remains below.
+            </p>
+          ) : null}
+        </section>
+      ) : null}
 
       <section
         id="database-readiness"
