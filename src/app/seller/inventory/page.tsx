@@ -272,6 +272,7 @@ function marketplaceExportRows(items: SellerInventoryItem[]) {
     marketplaceStatus: "ready_to_crosslist",
     marketplaceExportPurpose: "crosslist_prep_only",
     externalPublishingApproved: false,
+    externalPublishingProhibited: true,
     title: item.title,
     sku: item.sku || "",
     price: item.price,
@@ -290,7 +291,12 @@ function marketplaceExportRows(items: SellerInventoryItem[]) {
     shippingPlanNote: item.shippingPlan.reason || "",
     shippingPurchaseIncluded: false,
     shippingPurchaseMode: "not_included_in_marketplace_export",
+    postagePurchaseProhibited: true,
+    coveragePolicyCreationProhibited: true,
+    sellerPayoutReleaseProhibited: true,
+    orderFulfillmentProhibited: true,
     shippingWarning: marketplaceExportShippingWarning,
+    operatorChecklist: marketplaceExportChecklist.join(" | "),
     instacompScanId: item.instaComp?.scanId || "",
     serialNumber: item.instaComp?.serialNumber || "",
     instacompMarketPrice: item.instaComp?.marketPrice || "",
@@ -2209,8 +2215,9 @@ export default function SellerInventoryPage() {
                 </p>
                 <p className="mt-2 text-xs font-semibold">
                   JSON packets include an operator checklist and prohibited-action
-                  manifest so saved files cannot be mistaken for publishing,
-                  postage, Coverage, payout, or fulfillment approval.
+                  manifest. CSV rows carry matching prohibited-action columns so
+                  saved files cannot be mistaken for publishing, postage,
+                  Coverage, payout, or fulfillment approval.
                 </p>
               </div>
             </div>

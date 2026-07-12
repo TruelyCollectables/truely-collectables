@@ -1155,7 +1155,8 @@ export default async function SellerMarketplacesPage() {
                 shipping-plan estimates, Coverage fields, readiness evidence, and
                 export context for outside-storefront prep.
                 JSON packets also carry an operator checklist and
-                prohibited-action manifest so downloaded files stay clearly
+                prohibited-action manifest, and CSV rows carry matching
+                prohibited-action columns so downloaded files stay clearly
                 separated from publishing, postage, Coverage, payout, or order
                 fulfillment approval.
               </p>

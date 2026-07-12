@@ -3937,6 +3937,7 @@ Marketplace packet controls in Seller Inventory:
 - only activation-ready selected rows are included
 - the export contains TCOS inventory ID, SKU, title, price, quantity, category, condition, description, image URL, shipping method, postage estimate, Coverage fields, shipping-purchase guardrail fields, InstaComp scan ID, serial number, market/listing price evidence, and readiness blockers
 - copied/downloaded JSON packets also include packet-level `crosslist_prep_only`, `externalPublishingApproved = false`, `shippingPurchaseIncluded = false`, shipping warning metadata, an operator checklist, a prohibited-action manifest, and export context with selected count, ready count, visible count, active filters, and search text
+- downloaded marketplace CSV rows include matching prohibited-action columns for external publishing, postage purchase, Coverage policy creation, seller payout release, and order fulfillment
 - downloaded marketplace packet/CSV filenames include ready-row count plus current status, readiness, source, and search context so saved files can be matched back to the seller inventory view that produced them
 
 These packet controls are outbound preparation only. They do not publish to eBay, Whatnot, Shopify, COMC, or another external storefront. Before any real external publishing connector is enabled, implement and test platform-specific listing rules, seller authorization, idempotency, duplicate prevention, fee/shipping mapping, image upload rules, and external-listing reconciliation.
