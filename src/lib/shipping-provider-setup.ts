@@ -39,11 +39,21 @@ export type ProviderSetupDecision = {
   blockers: string[];
 };
 
+export type LiveShippingRequirement = {
+  key: string;
+  label: string;
+  status: "ready" | "blocked";
+  detail: string;
+  action: string;
+  evidence: string[];
+};
+
 export type ProviderSetupPacket = {
   exportedAt: string;
   scope: "tcos_shipping_provider_setup_no_secret_values";
   warning: string;
   decision: ProviderSetupDecision;
+  liveRequirements: LiveShippingRequirement[];
   readinessSummary: ReturnType<typeof shippingProviderSummary>;
   readiness: ReturnType<typeof getShippingProviderReadiness>;
   lanes: ProviderSetupLane[];
@@ -78,10 +88,14 @@ function laneFromProfile(
 function providerSetupDecision(params: {
   lanes: ProviderSetupLane[];
   readiness: ReturnType<typeof getShippingProviderReadiness>;
+  liveRequirements: LiveShippingRequirement[];
 }): ProviderSetupDecision {
   const missing = Array.from(
     new Set(params.lanes.flatMap((lane) => lane.missingCredentialKeys)),
   );
+  const liveRequirementBlockers = params.liveRequirements
+    .filter((requirement) => requirement.status !== "ready")
+    .map((requirement) => requirement.label);
   const liveBlocked = params.readiness.some(
     (item) =>
       item.status === "blocked" &&
@@ -100,7 +114,8 @@ function providerSetupDecision(params: {
         .filter((item) => item.status === "blocked")
         .flatMap((item) =>
           item.missing.length > 0 ? item.missing : [item.label],
-        ),
+        )
+        .concat(liveRequirementBlockers),
     };
   }
 
@@ -122,7 +137,7 @@ function providerSetupDecision(params: {
         "All provider credential groups appear staged, but TCOS remains in dry-run purchase mode and will not buy postage.",
       nextAction:
         "Keep dry_run until the live provider adapter is implemented, approved, and covered by simulations/reconciliation.",
-      blockers: ["approved live adapter implementation"],
+      blockers: liveRequirementBlockers,
     };
   }
 
@@ -132,8 +147,129 @@ function providerSetupDecision(params: {
       "Provider credential groups appear staged, but TCOS still requires an approved live adapter implementation before money-moving shipping calls are allowed.",
     nextAction:
       "Implement the live adapter behind the existing contract with quote, buy, void, Coverage purchase, webhook reconciliation, and audit-packet proof.",
-    blockers: ["approved live adapter implementation"],
+    blockers: liveRequirementBlockers,
   };
+}
+
+function flagEnabled(key: string) {
+  return process.env[key] === "true";
+}
+
+function secretConfigured(key: string) {
+  return Boolean(process.env[key]?.trim());
+}
+
+function liveShippingRequirements(params: {
+  lanes: ProviderSetupLane[];
+}): LiveShippingRequirement[] {
+  const liveAdapterSupported = params.lanes.some(
+    (lane) =>
+      lane.adapterKey !== "shipment_coverage" && lane.livePurchaseSupported,
+  );
+  const allProviderCredentialsConfigured = params.lanes.every(
+    (lane) => lane.missingCredentialKeys.length === 0,
+  );
+  const webhookConfigured =
+    secretConfigured("TCOS_SHIPPING_PROVIDER_WEBHOOK_SECRET") ||
+    secretConfigured("EASYPOST_WEBHOOK_SECRET") ||
+    secretConfigured("SHIPPO_WEBHOOK_SECRET");
+
+  return [
+    {
+      key: "provider_credentials",
+      label: "Provider Credentials",
+      status: allProviderCredentialsConfigured ? "ready" : "blocked",
+      detail: allProviderCredentialsConfigured
+        ? "All Standard Envelope, parcel-label, and Coverage credential groups are staged by secret name."
+        : "One or more Standard Envelope, parcel-label, or Coverage credential groups are missing.",
+      action:
+        "Finish provider secret setup before live adapter approval. Do not export secret values.",
+      evidence: params.lanes.flatMap((lane) => [
+        `${lane.lane}: ${lane.missingCredentialKeys.length === 0 ? "credential groups staged" : `missing ${lane.missingCredentialKeys.join(", ")}`}`,
+      ]),
+    },
+    {
+      key: "live_adapter_implementation",
+      label: "Live Adapter Implementation",
+      status:
+        liveAdapterSupported && flagEnabled("TCOS_LIVE_SHIPPING_ADAPTER_APPROVED")
+          ? "ready"
+          : "blocked",
+      detail:
+        "The live adapter must quote, buy, void, purchase Coverage, store provider IDs, and fail closed without using dry-run references.",
+      action:
+        "Implement and approve the live adapter before setting TCOS_SHIPPING_PURCHASE_MODE=live.",
+      evidence: [
+        "TCOS_LIVE_SHIPPING_ADAPTER_APPROVED=true",
+        `adapter livePurchaseSupported=${liveAdapterSupported}`,
+      ],
+    },
+    {
+      key: "quote_buy_void_tests",
+      label: "Quote / Buy / Void Tests",
+      status: flagEnabled("TCOS_LIVE_SHIPPING_LABEL_TESTS_PASSED")
+        ? "ready"
+        : "blocked",
+      detail:
+        "Standard Envelope and parcel labels need test-mode quote, buy, print/download, void, duplicate prevention, and idempotency evidence.",
+      action:
+        "Run provider test-mode label scenarios and set TCOS_LIVE_SHIPPING_LABEL_TESTS_PASSED only after evidence is saved.",
+      evidence: ["TCOS_LIVE_SHIPPING_LABEL_TESTS_PASSED=true"],
+    },
+    {
+      key: "coverage_purchase_tests",
+      label: "Coverage Purchase Tests",
+      status: flagEnabled("TCOS_LIVE_SHIPPING_COVERAGE_TESTS_PASSED")
+        ? "ready"
+        : "blocked",
+      detail:
+        "Coverage purchase, cancellation/void handoff, claim packet evidence, and seller-protection status updates need test evidence.",
+      action:
+        "Run Coverage provider test-mode scenarios and save evidence before live shipping approval.",
+      evidence: ["TCOS_LIVE_SHIPPING_COVERAGE_TESTS_PASSED=true"],
+    },
+    {
+      key: "webhook_reconciliation",
+      label: "Webhook + Reconciliation",
+      status:
+        webhookConfigured &&
+        flagEnabled("TCOS_LIVE_SHIPPING_RECONCILIATION_APPROVED")
+          ? "ready"
+          : "blocked",
+      detail:
+        "Provider webhook signing, event ingestion, tracking/void reconciliation, and unmatched-money/admin alerts must be configured.",
+      action:
+        "Configure shipping provider webhook secrets and approve daily shipping reconciliation before live mode.",
+      evidence: [
+        "TCOS_SHIPPING_PROVIDER_WEBHOOK_SECRET or provider webhook secret configured",
+        "TCOS_LIVE_SHIPPING_RECONCILIATION_APPROVED=true",
+      ],
+    },
+    {
+      key: "simulation_suite",
+      label: "Simulation Suite",
+      status: flagEnabled("TCOS_LIVE_SHIPPING_SIMULATIONS_PASSED")
+        ? "ready"
+        : "blocked",
+      detail:
+        "TCOS shipping simulations must pass for Standard Envelope routing, Ground Advantage fallback, Coverage requirement, and dry-run guardrails.",
+      action:
+        "Run /admin/shipping/simulations after adapter work and save the pass evidence.",
+      evidence: ["TCOS_LIVE_SHIPPING_SIMULATIONS_PASSED=true"],
+    },
+    {
+      key: "admin_approval",
+      label: "Admin Live Shipping Approval",
+      status: flagEnabled("TCOS_LIVE_SHIPPING_ADMIN_APPROVED")
+        ? "ready"
+        : "blocked",
+      detail:
+        "A human admin approval must confirm provider terms, pricing, refunds/voids, Coverage behavior, and operational support before live labels.",
+      action:
+        "Set TCOS_LIVE_SHIPPING_ADMIN_APPROVED only after the live-shipping launch checklist is signed off.",
+      evidence: ["TCOS_LIVE_SHIPPING_ADMIN_APPROVED=true"],
+    },
+  ];
 }
 
 export function buildShippingProviderSetupPacket(): ProviderSetupPacket {
@@ -159,7 +295,12 @@ export function buildShippingProviderSetupPacket(): ProviderSetupPacket {
         standardEnvelopeProfile.missingCoverageCredentialKeys,
     },
   ];
-  const decision = providerSetupDecision({ lanes, readiness });
+  const liveRequirements = liveShippingRequirements({ lanes });
+  const decision = providerSetupDecision({
+    lanes,
+    readiness,
+    liveRequirements,
+  });
 
   return {
     exportedAt: new Date().toISOString(),
@@ -167,6 +308,7 @@ export function buildShippingProviderSetupPacket(): ProviderSetupPacket {
     warning:
       "This packet includes secret names and configuration status only. It does not include secret values and does not contact live providers.",
     decision,
+    liveRequirements,
     readinessSummary: shippingProviderSummary(readiness),
     readiness,
     lanes,

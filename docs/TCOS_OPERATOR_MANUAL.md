@@ -4313,6 +4313,8 @@ The same decision appears in the `/admin/shipping` Provider Setup Checklist as t
 - what must be built before TCOS can buy postage: quote, buy, void, Coverage purchase, webhook reconciliation, and audit-packet proof
 - what must not happen: mailing dry-run labels, marking dry-run tracking as shipped, or enabling live mode before launch readiness and simulations are clean
 
+The Live Shipping Runway now includes a Live Adapter Approval Checklist. The provider setup packet and `/admin/shipping` must show all of these gates ready before TCOS treats live postage or Coverage purchase as approved: provider credentials, live adapter implementation, quote/buy/void tests, Coverage purchase tests, provider webhook plus reconciliation approval, shipping simulation pass evidence, and explicit admin live-shipping approval. Secret presence alone is not enough to enable live postage.
+
 `/admin/launch-readiness` also includes the same Shipping Setup Verdict and links directly to Shipping Ops. Treat this as the production-readiness warning surface; it does not mean live postage buying is enabled.
 
 The admin command center (`/admin`) also shows the Shipping Setup verdict in the side rail and includes it in operator alerts, so blocked shipping-provider setup is visible from the first admin landing page.

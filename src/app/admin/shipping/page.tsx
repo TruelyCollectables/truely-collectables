@@ -6,6 +6,7 @@ import {
 } from "../../../lib/shipping-provider-adapter";
 import {
   buildShippingProviderSetupPacket,
+  type LiveShippingRequirement,
   type ProviderSetupDecision,
 } from "../../../lib/shipping-provider-setup";
 import { isDryRunShippingLabel as isDryRunShippingLabelRecord } from "../../../lib/shipping-dry-run";
@@ -311,8 +312,10 @@ function ProviderSetupDecisionPanel({
 
 function ProviderGoLiveRunway({
   decision,
+  liveRequirements,
 }: {
   decision: ProviderSetupDecision;
+  liveRequirements: LiveShippingRequirement[];
 }) {
   const credentialsReady =
     decision.status === "dry_run_only" ||
@@ -388,6 +391,56 @@ function ProviderGoLiveRunway({
             <p className="mt-2 text-xs font-bold">{item.detail}</p>
           </article>
         ))}
+      </div>
+
+      <div className="mt-4 rounded border border-neutral-200 bg-neutral-50 p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h5 className="font-black">Live Adapter Approval Checklist</h5>
+            <p className="mt-1 max-w-3xl text-xs font-semibold text-neutral-600">
+              Secrets are not enough. These gates must all be ready before TCOS
+              treats live postage, Coverage purchase, voiding, webhooks, or
+              reconciliation as approved.
+            </p>
+          </div>
+          <span
+            className={`rounded border px-2 py-1 text-xs font-black uppercase ${
+              liveRequirements.every((requirement) => requirement.status === "ready")
+                ? "border-green-300 bg-green-50 text-green-950"
+                : "border-red-300 bg-red-50 text-red-950"
+            }`}
+          >
+            {liveRequirements.filter((requirement) => requirement.status === "ready").length}
+            /{liveRequirements.length} ready
+          </span>
+        </div>
+
+        <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {liveRequirements.map((requirement) => (
+            <article
+              key={requirement.key}
+              className={`rounded border p-3 ${
+                requirement.status === "ready"
+                  ? "border-green-200 bg-green-50 text-green-950"
+                  : "border-red-200 bg-white text-red-950"
+              }`}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <h6 className="font-black">{requirement.label}</h6>
+                <span className="rounded border border-current px-2 py-1 text-[10px] font-black uppercase">
+                  {requirement.status}
+                </span>
+              </div>
+              <p className="mt-2 text-xs font-semibold">{requirement.detail}</p>
+              <p className="mt-2 text-xs font-black">{requirement.action}</p>
+              <ul className="mt-2 list-disc space-y-1 pl-4 text-[11px] font-bold opacity-80">
+                {requirement.evidence.map((evidence) => (
+                  <li key={evidence}>{evidence}</li>
+                ))}
+              </ul>
+            </article>
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -867,7 +920,10 @@ export default async function AdminShippingPage() {
               decision={providerSetupPacket.decision}
             />
 
-            <ProviderGoLiveRunway decision={providerSetupPacket.decision} />
+            <ProviderGoLiveRunway
+              decision={providerSetupPacket.decision}
+              liveRequirements={providerSetupPacket.liveRequirements}
+            />
 
             <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-3">
               <ProviderSetupCard

@@ -1,5 +1,6 @@
 import {
   buildShippingProviderSetupPacket,
+  type LiveShippingRequirement,
   type ProviderSetupDecision,
   type ProviderSetupLane,
 } from "../../../../../lib/shipping-provider-setup";
@@ -14,12 +15,14 @@ function csvCell(value: unknown) {
 function csvResponse(params: {
   lanes: ProviderSetupLane[];
   decision: ProviderSetupDecision;
+  liveRequirements: LiveShippingRequirement[];
 }) {
   const headers = [
     "decisionStatus",
     "decisionSummary",
     "decisionNextAction",
     "decisionBlockers",
+    "liveRequirementBlockers",
     "lane",
     "adapterKey",
     "method",
@@ -44,6 +47,9 @@ function csvResponse(params: {
     decisionSummary: params.decision.summary,
     decisionNextAction: params.decision.nextAction,
     decisionBlockers: params.decision.blockers,
+    liveRequirementBlockers: params.liveRequirements
+      .filter((requirement) => requirement.status !== "ready")
+      .map((requirement) => requirement.label),
   };
   const body = [
     headers.join(","),
@@ -80,6 +86,7 @@ export async function GET(request: Request) {
       return csvResponse({
         lanes: packet.lanes,
         decision: packet.decision,
+        liveRequirements: packet.liveRequirements,
       });
     }
 
