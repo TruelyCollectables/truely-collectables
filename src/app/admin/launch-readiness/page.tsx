@@ -541,7 +541,7 @@ async function checkDatabaseReadiness(): Promise<ReadinessItem[]> {
       label: "Live Shipping Launch Events",
       table: "live_shipping_launch_events",
       select:
-        "id,store_id,event_type,approval_version,actor,reason,created_at",
+        "id,store_id,event_type,approval_version,actor,note,created_at",
       migration: "20260711185500_create_live_shipping_launch_gate.sql",
       readyDetail:
         "live_shipping_launch_events is available for immutable live-shipping approval history.",
