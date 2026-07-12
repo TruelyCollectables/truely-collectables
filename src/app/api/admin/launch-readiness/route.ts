@@ -20,6 +20,10 @@ type BriefItem = {
 
 const SHIPPING_PROVIDER_ENV_TEMPLATE_HREF =
   "/api/admin/shipping/provider-setup?format=env-template";
+const SHIPPING_PROVIDER_VERCEL_COMMANDS_HREF =
+  "/api/admin/shipping/provider-setup?format=vercel-commands";
+const SHIPPING_PROVIDER_OPERATOR_CHECKLIST_HREF =
+  "/api/admin/shipping/provider-setup?format=operator-checklist";
 
 function statusFromCheck(status: "passed" | "warning" | "blocked") {
   if (status === "passed") return "ready" as const;
@@ -144,6 +148,8 @@ function markdownForBrief(brief: Awaited<ReturnType<typeof buildBrief>>) {
     `- Posture: ${brief.shipping.posture}`,
     `- Dry-run cleanup: ${brief.shipping.dryRunCleanup}`,
     `- Provider env template: ${brief.shipping.providerSetupEnvTemplateUrl || brief.shipping.providerSetupEnvTemplateHref}`,
+    `- Provider Vercel commands: ${brief.shipping.providerSetupVercelCommandsUrl || brief.shipping.providerSetupVercelCommandsHref}`,
+    `- Provider operator checklist: ${brief.shipping.providerSetupOperatorChecklistUrl || brief.shipping.providerSetupOperatorChecklistHref}`,
     "",
     "## Attention Items",
     "",
@@ -364,6 +370,17 @@ async function buildBrief(origin: string | null = null) {
       providerSetupEnvTemplateUrl: absoluteUrl(
         origin,
         SHIPPING_PROVIDER_ENV_TEMPLATE_HREF,
+      ),
+      providerSetupVercelCommandsHref: SHIPPING_PROVIDER_VERCEL_COMMANDS_HREF,
+      providerSetupVercelCommandsUrl: absoluteUrl(
+        origin,
+        SHIPPING_PROVIDER_VERCEL_COMMANDS_HREF,
+      ),
+      providerSetupOperatorChecklistHref:
+        SHIPPING_PROVIDER_OPERATOR_CHECKLIST_HREF,
+      providerSetupOperatorChecklistUrl: absoluteUrl(
+        origin,
+        SHIPPING_PROVIDER_OPERATOR_CHECKLIST_HREF,
       ),
     },
     drill: {
