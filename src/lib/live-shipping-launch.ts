@@ -112,6 +112,20 @@ export async function getLiveShippingRuntimeGate(params?: {
     };
   }
 
+  const { error: approvalEventsError } = await supabase
+    .from("live_shipping_launch_events")
+    .select("id")
+    .eq("store_id", storeId)
+    .limit(1);
+
+  if (approvalEventsError) {
+    return {
+      allowed: false,
+      mode: "live" as const,
+      reason: getLiveShippingGateErrorDetail(approvalEventsError),
+    };
+  }
+
   const providerSetup = buildShippingProviderSetupPacket();
   const requirementBlockers = providerSetup.liveRequirements
     .filter((requirement) => requirement.status !== "ready")

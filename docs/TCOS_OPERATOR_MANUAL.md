@@ -4167,6 +4167,8 @@ If the live-payment approval migration is missing, the runtime gate fails closed
 
 `/admin/launch-readiness` now also includes a first-class Live Payment Launch Gate row plus database checks for `live_payment_launch_gates` and `live_payment_launch_events`. Live buyer payments are not configuration-ready when the live-payment audit tables are unavailable or when Stripe live mode is staged but the approval report still has blockers.
 
+Live Checkout runtime also probes the immutable live-payment event table after approval is verified. If the audit table becomes unavailable after an approval was recorded, live Checkout fails closed until the migration/table problem is fixed.
+
 ### Financial reconciliation runbook
 
 Open:
@@ -4330,7 +4332,7 @@ If the live-shipping approval migration is missing, the runtime gate fails close
 
 The live-shipping approval button is disabled when the approval database check cannot run, and `/api/admin/live-shipping-launch` returns a blocked `409` response instead of recording approval or surfacing an unclear write error. Missing approval tables are a migration problem, not an operator override problem.
 
-Provider purchase attempts in `/api/admin/orders/[id]/shipping-labels` now check the live-shipping runtime gate before calling the provider adapter. Manual external label purchase/void recording remains available, but live provider purchase is blocked unless the database gate, `TCOS_LIVE_SHIPPING_ENABLED`, `TCOS_SHIPPING_PURCHASE_MODE`, live requirements, and dry-run cleanup checks all pass.
+Provider purchase attempts in `/api/admin/orders/[id]/shipping-labels` now check the live-shipping runtime gate before calling the provider adapter. Manual external label purchase/void recording remains available, but live provider purchase is blocked unless the database gate, immutable event table, `TCOS_LIVE_SHIPPING_ENABLED`, `TCOS_SHIPPING_PURCHASE_MODE`, live requirements, and dry-run cleanup checks all pass.
 
 `/admin/launch-readiness` also includes the same Shipping Setup Verdict, the live-shipping launch gate status, and database checks for `live_shipping_launch_gates` plus `live_shipping_launch_events`. Treat this as the production-readiness warning surface; it does not mean live postage buying is enabled.
 

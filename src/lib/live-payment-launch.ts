@@ -153,6 +153,20 @@ export async function getLivePaymentRuntimeGate(params: {
     };
   }
 
+  const { error: approvalEventsError } = await supabase
+    .from("live_payment_launch_events")
+    .select("id")
+    .eq("store_id", storeId)
+    .limit(1);
+
+  if (approvalEventsError) {
+    return {
+      allowed: false,
+      mode: "live" as const,
+      reason: getLivePaymentGateErrorDetail(approvalEventsError),
+    };
+  }
+
   const dryRunShippingCleanup = await getDryRunShippingCleanupSummary({
     supabase,
     storeId,
