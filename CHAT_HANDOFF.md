@@ -7,8 +7,8 @@ Generated for the next Codex session during the production launch stacking pass.
 - Workspace: `C:\Projects\truely-collectables`
 - Branch: `main`
 - GitHub remote: `https://github.com/TruelyCollectables/truely-collectables.git`
-- Latest pushed commit before this handoff refresh: `c59092e Add quota-safe production verify command`
-- Local `HEAD` and `origin/main` matched at `c59092e` after the last push.
+- Latest pushed commit before this validation note: `03fe1e0 Refresh handoff for production verify flow`
+- Local `HEAD` and `origin/main` matched at `03fe1e0` after the last push.
 - Local working tree was clean except for untracked `.codex-run/`.
   - Leave `.codex-run/` alone unless the user explicitly says to delete it.
 
@@ -76,9 +76,13 @@ The smoke helper:
 Recent pushed work passed:
 
 ```powershell
+npm run verify:production
 npm run lint
 npm run build
+npm run preflight:production
 ```
+
+`npm run verify:production` was run after commit `03fe1e0` and passed end-to-end. It ran lint, build, and the production preflight. The preflight fetched `origin/main`, confirmed local `HEAD` matched GitHub, ignored only `.codex-run/`, and did not start a Vercel deployment.
 
 Manual generation status from the earlier handoff still applies:
 
@@ -98,6 +102,7 @@ npm run manual:pdf
 Most recent commits, newest first:
 
 ```text
+03fe1e0 Refresh handoff for production verify flow
 c59092e Add quota-safe production verify command
 b42d353 Report slowest production smoke checks
 01ac4d4 Report production smoke total duration
