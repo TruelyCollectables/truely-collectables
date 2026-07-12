@@ -245,6 +245,80 @@ function vercelCommandsResponse(params: {
   });
 }
 
+function operatorChecklistResponse(params: {
+  lanes: ProviderSetupLane[];
+  decision: ProviderSetupDecision;
+  liveRequirements: LiveShippingRequirement[];
+}) {
+  const missingCredentialGroups = unique(
+    params.lanes.flatMap((lane) => [
+      ...lane.missingCredentialKeys,
+      ...lane.missingCoverageCredentialKeys,
+    ]),
+  );
+  const blockedRequirements = params.liveRequirements.filter(
+    (requirement) => requirement.status !== "ready",
+  );
+  const lines = [
+    "# TCOS Shipping Provider Operator Checklist",
+    "",
+    "This checklist contains names, decisions, and evidence requirements only. It must not include provider secret values.",
+    "",
+    "## Current Verdict",
+    "",
+    `- Status: ${params.decision.status}`,
+    `- Summary: ${params.decision.summary}`,
+    `- Next action: ${params.decision.nextAction}`,
+    "",
+    "## Provider Credentials To Gather",
+    "",
+    ...providerCredentialGroups.flatMap((group) => [
+      `### ${group.title}`,
+      "",
+      `- ${group.note}`,
+      group.keys.length > 1
+        ? `- Choose one of: ${group.keys.join(" or ")}`
+        : "- Required.",
+      "- Confirm the provider account is production/live-capable before storing the key.",
+      "",
+    ]),
+    "## Missing Credential Groups Right Now",
+    "",
+    ...(missingCredentialGroups.length > 0
+      ? missingCredentialGroups.map((group) => `- ${group}`)
+      : ["- None"]),
+    "",
+    "## Live Adapter Evidence Still Required",
+    "",
+    ...(blockedRequirements.length > 0
+      ? blockedRequirements.flatMap((requirement) => [
+          `### ${requirement.label}`,
+          "",
+          `- Detail: ${requirement.detail}`,
+          `- Action: ${requirement.action}`,
+          ...requirement.evidence.map((evidence) => `- Evidence: ${evidence}`),
+          "",
+        ])
+      : ["- All live adapter requirements are marked ready.", ""]),
+    "## Keep Locked Until Approved",
+    "",
+    "- Keep TCOS_SHIPPING_PURCHASE_MODE=dry_run while gathering credentials.",
+    "- Keep TCOS_LIVE_SHIPPING_ENABLED=false until provider credentials, adapter implementation, simulations, webhooks, reconciliation, and admin approval are complete.",
+    "- Do not paste secret values into Git, chat, screenshots, tickets, or exported packets.",
+    "",
+  ];
+  const exportedAt = new Date().toISOString().slice(0, 10);
+
+  return new Response(lines.join("\n"), {
+    status: 200,
+    headers: {
+      "Content-Type": "text/markdown; charset=utf-8",
+      "Content-Disposition": `attachment; filename="tcos-shipping-provider-operator-checklist-${exportedAt}.md"`,
+      "Cache-Control": "no-store",
+    },
+  });
+}
+
 export async function GET(request: Request) {
   try {
     const packet = buildShippingProviderSetupPacket();
@@ -268,6 +342,14 @@ export async function GET(request: Request) {
 
     if (url.searchParams.get("format") === "vercel-commands") {
       return vercelCommandsResponse({
+        lanes: packet.lanes,
+        decision: packet.decision,
+        liveRequirements: packet.liveRequirements,
+      });
+    }
+
+    if (url.searchParams.get("format") === "operator-checklist") {
+      return operatorChecklistResponse({
         lanes: packet.lanes,
         decision: packet.decision,
         liveRequirements: packet.liveRequirements,

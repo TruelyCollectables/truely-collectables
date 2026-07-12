@@ -1051,6 +1051,12 @@ export default async function LaunchReadinessPage() {
           >
             Shipping Vercel Commands
           </a>
+          <a
+            href="/api/admin/shipping/provider-setup?format=operator-checklist"
+            className="rounded border border-amber-200 bg-amber-50 px-4 py-2 font-bold text-amber-950"
+          >
+            Shipping Checklist
+          </a>
           <Link
             href="/admin/live-shipping-launch"
             className="rounded border border-red-200 bg-red-50 px-4 py-2 font-bold text-red-950"

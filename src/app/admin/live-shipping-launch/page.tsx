@@ -168,6 +168,12 @@ export default async function LiveShippingLaunchPage() {
               >
                 Vercel Commands
               </Link>
+              <Link
+                href="/api/admin/shipping/provider-setup?format=operator-checklist"
+                className="rounded border border-amber-300 bg-white px-4 py-2 font-black text-amber-950"
+              >
+                Operator Checklist
+              </Link>
             </div>
           </div>
 
