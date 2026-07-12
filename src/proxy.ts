@@ -163,7 +163,10 @@ function unauthorized(req: NextRequest) {
   }
 
   const url = req.nextUrl.clone();
+  const nextPath = `${req.nextUrl.pathname}${req.nextUrl.search}`;
   url.pathname = "/admin/login";
+  url.search = "";
+  url.searchParams.set("next", nextPath);
   return NextResponse.redirect(url);
 }
 

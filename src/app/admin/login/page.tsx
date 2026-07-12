@@ -43,7 +43,13 @@ export default function AdminLoginPage() {
         return;
       }
 
-      router.push("/admin/products");
+      const nextPath = new URLSearchParams(window.location.search).get("next");
+      const destination =
+        nextPath && nextPath.startsWith("/") && !nextPath.startsWith("//")
+          ? nextPath
+          : "/admin/products";
+
+      router.push(destination);
     } finally {
       setIsSubmitting(false);
     }
