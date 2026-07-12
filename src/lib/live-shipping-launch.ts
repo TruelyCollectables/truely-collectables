@@ -20,6 +20,7 @@ export type LiveShippingLaunchReport = {
   approvalVersion: string;
   generatedAt: string;
   purchaseMode: "dry_run" | "live";
+  approvalDatabaseReady: boolean;
   approvalReady: boolean;
   liveShippingEnabled: boolean;
   checks: LiveShippingLaunchCheck[];
@@ -47,7 +48,7 @@ function shippingPurchaseMode() {
     : ("dry_run" as const);
 }
 
-function liveShippingGateErrorDetail(error: {
+export function getLiveShippingGateErrorDetail(error: {
   code?: string;
   message?: string;
 }): string {
@@ -106,7 +107,7 @@ export async function getLiveShippingRuntimeGate(params?: {
       allowed: false,
       mode: "live" as const,
       reason: error
-        ? liveShippingGateErrorDetail(error)
+        ? getLiveShippingGateErrorDetail(error)
         : "Live shipping requires current administrator launch approval.",
     };
   }
@@ -177,6 +178,7 @@ export async function evaluateLiveShippingLaunch(params?: {
     !gateResult.error &&
     gate?.gate_status === "approved" &&
     gate?.approval_version === LIVE_SHIPPING_APPROVAL_VERSION;
+  const approvalDatabaseReady = !gateResult.error;
 
   checks.push(
     check(
@@ -186,7 +188,7 @@ export async function evaluateLiveShippingLaunch(params?: {
       databaseApproved
         ? `Approved by ${gate?.approved_by || "TCOS admin"} at ${gate?.approved_at || "an unknown time"}.`
         : gateResult.error
-          ? liveShippingGateErrorDetail(gateResult.error)
+          ? getLiveShippingGateErrorDetail(gateResult.error)
           : "The auditable database launch approval is locked or stale.",
     ),
   );
@@ -293,6 +295,7 @@ export async function evaluateLiveShippingLaunch(params?: {
     approvalVersion: LIVE_SHIPPING_APPROVAL_VERSION,
     generatedAt: new Date().toISOString(),
     purchaseMode,
+    approvalDatabaseReady,
     approvalReady,
     liveShippingEnabled,
     checks,

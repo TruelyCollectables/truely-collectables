@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   evaluateLiveShippingLaunch,
+  getLiveShippingGateErrorDetail,
   LIVE_SHIPPING_APPROVAL_VERSION,
 } from "../../../../lib/live-shipping-launch";
 import { getActiveStoreId } from "../../../../lib/stores";
@@ -59,6 +60,17 @@ export async function POST(request: Request) {
     const supabase = createSupabaseServerClient({ admin: true });
     const storeId = getActiveStoreId();
     const report = await evaluateLiveShippingLaunch({ supabase, storeId });
+
+    if (action === "approve" && !report.approvalDatabaseReady) {
+      return NextResponse.json(
+        {
+          error:
+            "Live shipping approval tables are unavailable. Apply the live-shipping launch gate migration before approving live postage.",
+          report,
+        },
+        { status: 409 },
+      );
+    }
 
     if (action === "approve" && !report.approvalReady) {
       return NextResponse.json(
@@ -123,9 +135,18 @@ export async function POST(request: Request) {
       purchaseMode: report.purchaseMode,
     });
   } catch (error: any) {
+    const detail =
+      error?.message || "Could not change the live shipping gate.";
+    const status =
+      /live_shipping_launch_|schema cache|does not exist|relation .* not found/i.test(
+        detail,
+      )
+        ? 409
+        : 500;
+
     return NextResponse.json(
-      { error: error.message || "Could not change the live shipping gate." },
-      { status: 500 },
+      { error: getLiveShippingGateErrorDetail(error || { message: detail }) },
+      { status },
     );
   }
 }

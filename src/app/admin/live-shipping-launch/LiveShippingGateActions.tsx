@@ -5,8 +5,10 @@ import { useState } from "react";
 
 export default function LiveShippingGateActions({
   approvalReady,
+  approvalDatabaseReady,
 }: {
   approvalReady: boolean;
+  approvalDatabaseReady: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<"approve" | "revoke" | null>(null);
@@ -46,7 +48,7 @@ export default function LiveShippingGateActions({
     <div className="flex flex-wrap gap-3">
       <button
         type="button"
-        disabled={!approvalReady || busy !== null}
+        disabled={!approvalReady || !approvalDatabaseReady || busy !== null}
         onClick={() => submit("approve")}
         className="rounded bg-green-700 px-4 py-2 font-bold text-white disabled:cursor-not-allowed disabled:opacity-40"
       >
@@ -60,6 +62,12 @@ export default function LiveShippingGateActions({
       >
         {busy === "revoke" ? "Revoking..." : "Emergency Revoke"}
       </button>
+      {!approvalDatabaseReady ? (
+        <p className="w-full text-sm font-bold text-red-800">
+          Approval is disabled until the live-shipping launch gate migration is
+          applied.
+        </p>
+      ) : null}
     </div>
   );
 }

@@ -105,7 +105,10 @@ export default async function LiveShippingLaunchPage() {
             generated {report.generatedAt}.
           </p>
           <div className="mt-5">
-            <LiveShippingGateActions approvalReady={report.approvalReady} />
+            <LiveShippingGateActions
+              approvalDatabaseReady={report.approvalDatabaseReady}
+              approvalReady={report.approvalReady}
+            />
           </div>
         </section>
 
