@@ -80,6 +80,7 @@ The smoke helper:
 
 The launch handoff bundle:
 
+- includes a Git Tip Verification section with `git status --short`, `git rev-parse --short HEAD`, `git rev-parse --short origin/main`, and `git log -5 --oneline`;
 - includes a Production Deploy Commands section with `npm run verify:production`, `npm run launch:production`, split deploy/smoke fallback commands, the clean production domain, and the unwanted `tt3b` alias reminder.
 
 ## Validation state
