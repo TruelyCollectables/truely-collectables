@@ -27,6 +27,14 @@ npm run preflight:production
 
 This refreshes `origin/main`, blocks uncommitted deploy-relevant changes, and confirms local `HEAD` matches GitHub without starting a deployment.
 
+To run the full quota-safe production readiness check:
+
+```bash
+npm run verify:production
+```
+
+This runs lint, build, and the production preflight without starting a Vercel deployment.
+
 ## Deploy
 
 For the normal launch path, run the one-shot command:
@@ -76,6 +84,7 @@ If the smoke says queued launch features are not visible, production is still be
 git status --short
 git rev-parse --short HEAD
 git rev-parse --short origin/main
+npm run verify:production
 npm run launch:production
 ```
 

@@ -1177,13 +1177,15 @@ export default async function LaunchReadinessPage() {
               {`git status --short
 git rev-parse --short HEAD
 git rev-parse --short origin/main
+npm run verify:production
 npm run preflight:production`}
             </pre>
             <p className="mt-3 text-sm font-semibold">
               Local <code>HEAD</code> and <code>origin/main</code> should match
               before production deploy. The deploy helper also blocks
               uncommitted deploy-relevant files, and the preflight command
-              checks that without starting a Vercel deployment.
+              checks that without starting a Vercel deployment. Use verify to
+              run lint, build, and preflight together.
             </p>
           </div>
 
