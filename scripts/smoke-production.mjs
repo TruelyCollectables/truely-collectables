@@ -96,7 +96,13 @@ const checks = [
   {
     name: "launch readiness page",
     path: "/admin/launch-readiness",
-    expect: (result) => result.text.includes("Launch Readiness"),
+    expect: (result) =>
+      result.text.includes("Launch Readiness") &&
+      result.text.includes("Production Deploy Queue") &&
+      result.text.includes("npm run deploy:production") &&
+      result.text.includes("npm run smoke:production") &&
+      result.text.includes("truely-collectables.vercel.app") &&
+      result.text.includes("tt3b"),
   },
   {
     name: "launch readiness json",
@@ -182,6 +188,7 @@ const failed = results.filter((result) => !result.passed);
 const queuedFeatureFailures = failed.filter((result) =>
   [
     "launch handoff bundle",
+    "launch readiness page",
     "shipping provider setup json",
     "shipping provider env template",
     "shipping provider vercel commands",
