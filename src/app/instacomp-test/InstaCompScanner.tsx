@@ -5,6 +5,7 @@ import {
   getAccountSession,
   type StoredAccountSession,
 } from "@/src/app/account/account-session";
+import { serialRunDisplayLabel } from "@/src/lib/instacomp-serial";
 
 type AiResult = {
   player: string | null;
@@ -1347,7 +1348,7 @@ function shortDateTime(value: string | null | undefined) {
 
 function cardResultTitle(result: ScanResponse | null, fallback: string) {
   if (!result) return fallback;
-  const serialRun = serialRunLabel(result.ai.serialNumber);
+  const serialRun = serialRunDisplayLabel(result.ai.serialNumber);
 
   return (
     [
@@ -1362,22 +1363,6 @@ function cardResultTitle(result: ScanResponse | null, fallback: string) {
       .filter(Boolean)
       .join(" ") || fallback
   );
-}
-
-function serialRunLabel(value: string | null | undefined) {
-  const match = String(value || "").match(/(\d+)\s*\/\s*(\d+)/);
-  if (!match) return null;
-
-  const numerator = Number(match[1]);
-  const denominator = Number(match[2]);
-
-  if (!Number.isFinite(numerator) || !Number.isFinite(denominator)) {
-    return null;
-  }
-
-  if (numerator === 1 && denominator === 1) return "1/1";
-
-  return `/${denominator}`;
 }
 
 function draftTitleForCard(card: BatchCard) {

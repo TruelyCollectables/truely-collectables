@@ -1,3 +1,5 @@
+import { serialRunDisplayLabel } from "./instacomp-serial";
+
 export type InstaCompAiResult = {
   player: string | null;
   year: string | null;
@@ -179,12 +181,7 @@ function serialNumberParts(value: string | null | undefined) {
 }
 
 function serialRunSearchToken(value: string | null | undefined) {
-  const serial = serialNumberParts(value);
-
-  if (serial.numerator === "1" && serial.denominator === "1") return "1/1";
-  if (serial.denominator) return `/${serial.denominator}`;
-
-  return "";
+  return serialRunDisplayLabel(value) || "";
 }
 
 function serialRunDenominator(value: string | null | undefined) {
