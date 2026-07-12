@@ -22,7 +22,7 @@ function runExpectedFailure(name, args, env, expectedText) {
     );
   }
 
-  console.log(`✓ ${name}`);
+  console.log(`PASS ${name}`);
 }
 
 runExpectedFailure(

@@ -7,8 +7,8 @@ Generated for the next Codex session during the production launch stacking pass.
 - Workspace: `C:\Projects\truely-collectables`
 - Branch: `main`
 - GitHub remote: `https://github.com/TruelyCollectables/truely-collectables.git`
-- Latest pushed commit before this guardrail-check note: `43238f2 Normalize production domain guardrails`
-- Local `HEAD` and `origin/main` matched at `43238f2` after the last push.
+- Latest pushed commit before this output cleanup: `6ea91db Add production guardrail verification`
+- Local `HEAD` and `origin/main` matched at `6ea91db` after the last verify pass.
 - Local working tree was clean.
 - `.codex-run/` is ignored in `.gitignore`; leave the folder contents alone unless the user explicitly says to delete them.
 
@@ -88,6 +88,8 @@ npm run build
 npm run preflight:production
 ```
 
+`npm run verify:production` was rerun after commit `6ea91db` and passed end-to-end. It ran lint, build, production guardrail checks, and production preflight; the preflight fetched `origin/main`, confirmed local `HEAD` matched GitHub, reported a clean worktree, and did not start a Vercel deployment.
+
 `npm run check:production-guardrails` was added and passed. It confirms the deploy helper refuses a clean domain that normalizes to the unwanted alias, and the smoke helper refuses the unwanted alias before admin auth.
 
 `npm run lint` was run after the production domain normalization changes and passed. `node --check` passed for the deploy and smoke helpers. Local refusal-path checks confirmed:
@@ -117,6 +119,7 @@ npm run manual:pdf
 Most recent commits, newest first:
 
 ```text
+6ea91db Add production guardrail verification
 43238f2 Normalize production domain guardrails
 c5ba964 Document unwanted alias guardrails
 348bac6 Refuse production checks on unwanted alias
