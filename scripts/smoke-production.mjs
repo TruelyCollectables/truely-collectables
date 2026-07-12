@@ -50,7 +50,7 @@ const adminPassword =
 
 function hostFor(url) {
   try {
-    return new URL(url).host;
+    return new URL(url).host.toLowerCase();
   } catch {
     return "";
   }

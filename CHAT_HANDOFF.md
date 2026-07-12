@@ -7,8 +7,8 @@ Generated for the next Codex session during the production launch stacking pass.
 - Workspace: `C:\Projects\truely-collectables`
 - Branch: `main`
 - GitHub remote: `https://github.com/TruelyCollectables/truely-collectables.git`
-- Latest pushed commit before this documentation note: `348bac6 Refuse production checks on unwanted alias`
-- Local `HEAD` and `origin/main` matched at `348bac6` after the last push.
+- Latest pushed commit before this normalization note: `c5ba964 Document unwanted alias guardrails`
+- Local `HEAD` and `origin/main` matched at `c5ba964` after the last push.
 - Local working tree was clean.
 - `.codex-run/` is ignored in `.gitignore`; leave the folder contents alone unless the user explicitly says to delete them.
 
@@ -45,6 +45,7 @@ The deploy helper:
 - refreshes `origin/main`;
 - blocks uncommitted deploy-relevant local changes;
 - checks local Git state against `origin/main`;
+- normalizes `VERCEL_CLEAN_DOMAIN` and `VERCEL_UNWANTED_ALIAS` from hostnames or URLs;
 - deploys production through Vercel;
 - fails clearly if Vercel quota is still capped;
 - removes the unwanted `truely-collectables-tt3b.vercel.app` alias if present;
@@ -87,6 +88,11 @@ npm run build
 npm run preflight:production
 ```
 
+`npm run lint` was run after the production domain normalization changes and passed. `node --check` passed for the deploy and smoke helpers. Local refusal-path checks confirmed:
+
+- `VERCEL_CLEAN_DOMAIN=https://truely-collectables-tt3b.vercel.app/ VERCEL_UNWANTED_ALIAS=truely-collectables-tt3b.vercel.app node scripts/deploy-production.mjs --preflight-only` exits before Git/Vercel work.
+- `SMOKE_BASE_URL=https://TRUELY-COLLECTABLES-TT3B.vercel.app/ node scripts/smoke-production.mjs` exits before making smoke requests.
+
 `npm run lint` and `npm run build` were run after commit `348bac6` and passed. A local refusal-path check also confirmed `SMOKE_BASE_URL=https://truely-collectables-tt3b.vercel.app node scripts/smoke-production.mjs` exits before making smoke requests.
 
 `npm run verify:production` was run after commit `6a362b8` and passed end-to-end. It ran lint, build, and the production preflight. The preflight fetched `origin/main`, confirmed local `HEAD` matched GitHub, reported a clean worktree, and did not start a Vercel deployment.
@@ -109,6 +115,7 @@ npm run manual:pdf
 Most recent commits, newest first:
 
 ```text
+c5ba964 Document unwanted alias guardrails
 348bac6 Refuse production checks on unwanted alias
 91b7b0e Replace generic README setup guidance
 6a362b8 Record clean verified production tip

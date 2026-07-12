@@ -7,7 +7,7 @@ Use this when the queued launch work is ready to ship to production.
 - Clean production URL: `https://truely-collectables.vercel.app`
 - Unwanted preview-style alias that must not return: `truely-collectables-tt3b.vercel.app`
 
-Do not point production deploy or smoke overrides at the unwanted alias. The deploy helper refuses a clean-domain configuration that equals the unwanted alias, and the smoke helper refuses `SMOKE_BASE_URL` when it resolves to that alias.
+Do not point production deploy or smoke overrides at the unwanted alias. The deploy helper normalizes `VERCEL_CLEAN_DOMAIN` and `VERCEL_UNWANTED_ALIAS` from either hostnames or URLs, refuses a clean-domain configuration that equals the unwanted alias, and the smoke helper refuses `SMOKE_BASE_URL` when it resolves to that alias.
 
 ## Before deploying
 

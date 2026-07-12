@@ -2,12 +2,32 @@ import { spawnSync } from "node:child_process";
 
 const scope = process.env.VERCEL_SCOPE || "truelycollectables-projects";
 const cleanDomain =
-  process.env.VERCEL_CLEAN_DOMAIN || "truely-collectables.vercel.app";
+  normalizeVercelHost(
+    process.env.VERCEL_CLEAN_DOMAIN || "truely-collectables.vercel.app",
+    "VERCEL_CLEAN_DOMAIN",
+  );
 const unwantedAlias =
-  process.env.VERCEL_UNWANTED_ALIAS || "truely-collectables-tt3b.vercel.app";
+  normalizeVercelHost(
+    process.env.VERCEL_UNWANTED_ALIAS || "truely-collectables-tt3b.vercel.app",
+    "VERCEL_UNWANTED_ALIAS",
+  );
 const preflightOnly =
   process.argv.includes("--preflight-only") ||
   process.env.TCOS_PRODUCTION_PREFLIGHT_ONLY === "true";
+
+function normalizeVercelHost(value, label) {
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    throw new Error(`${label} cannot be empty.`);
+  }
+
+  try {
+    return new URL(trimmed).host.toLowerCase();
+  } catch {
+    return trimmed.replace(/^https?:\/\//i, "").split("/")[0].toLowerCase();
+  }
+}
 
 if (cleanDomain === unwantedAlias) {
   throw new Error(
