@@ -81,6 +81,19 @@ function unique(values: string[]) {
   return Array.from(new Set(values.filter(Boolean)));
 }
 
+function exportLinks(requestUrl: string) {
+  const url = new URL(requestUrl);
+  const base = `${url.origin}${url.pathname}`;
+
+  return {
+    json: base,
+    csv: `${base}?format=csv`,
+    envTemplate: `${base}?format=env-template`,
+    vercelCommands: `${base}?format=vercel-commands`,
+    operatorChecklist: `${base}?format=operator-checklist`,
+  };
+}
+
 const providerCredentialGroups = [
   {
     title: "Standard Envelope / IMb provider name",
@@ -356,11 +369,17 @@ export async function GET(request: Request) {
       });
     }
 
-    return Response.json(packet, {
-      headers: {
-        "Cache-Control": "no-store",
+    return Response.json(
+      {
+        ...packet,
+        exports: exportLinks(request.url),
       },
-    });
+      {
+        headers: {
+          "Cache-Control": "no-store",
+        },
+      },
+    );
   } catch (error: any) {
     return Response.json(
       { error: error.message || "Could not build shipping provider setup." },
