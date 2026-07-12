@@ -16,15 +16,24 @@ const requestTimeoutMs = Math.max(
 );
 const redactionSelfTest = process.argv.includes("--self-test-redaction");
 
-function optionalRun(command, args) {
+function optionalRunResult(command, args) {
   const result = spawnSync(command, args, {
     encoding: "utf8",
     shell: process.platform === "win32",
   });
 
-  if (result.status !== 0) return "";
+  return {
+    ok: result.status === 0,
+    output: `${result.stdout || ""}${result.stderr || ""}`.trim(),
+  };
+}
 
-  return `${result.stdout || ""}${result.stderr || ""}`.trim();
+function optionalRun(command, args) {
+  const result = optionalRunResult(command, args);
+
+  if (!result.ok) return "";
+
+  return result.output;
 }
 
 function normalizeSmokeOrigin(value, label) {
@@ -88,10 +97,18 @@ if (!adminPassword && !redactionSelfTest) {
   process.exit(1);
 }
 
+const originRefresh = redactionSelfTest
+  ? { ok: true, output: "" }
+  : optionalRunResult("git", ["fetch", "origin", "main"]);
 const localHead = optionalRun("git", ["rev-parse", "--short", "HEAD"]);
 const remoteHead = optionalRun("git", ["rev-parse", "--short", "origin/main"]);
 
 console.log(`Production smoke target: ${baseUrl}`);
+if (!redactionSelfTest) {
+  console.log(
+    `origin/main refresh: ${originRefresh.ok ? "ok" : "failed; continuing with local ref"}`,
+  );
+}
 console.log(`Local HEAD: ${localHead || "unknown"}`);
 console.log(`origin/main: ${remoteHead || "unknown"}`);
 console.log(`Request timeout: ${requestTimeoutMs}ms`);

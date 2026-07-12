@@ -75,7 +75,7 @@ The smoke helper:
 - fails if the unwanted `truely-collectables-tt3b.vercel.app` alias returns a successful response;
 - prints failed-check HTTP status, content type, request duration, and short response/error snippets redacted for Stripe, webhook, JWT, Resend, auth-header, query-token, and JSON secret values;
 - prints per-check, slowest-check, and total request timing;
-- prints local/remote commit context;
+- refreshes `origin/main` before printing local/remote commit context;
 - clearly calls out queued feature failures when production is simply behind GitHub.
 
 The launch handoff bundle:
