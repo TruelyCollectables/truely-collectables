@@ -563,6 +563,22 @@ export function scoreCompMatch(title: string, ai: InstaCompAiResult) {
     flags.push("rookie");
   }
 
+  if (
+    ai.isAuto &&
+    containsAny(` ${t} `, [" auto ", " autograph ", " autographed ", " signed "])
+  ) {
+    score += 12;
+    flags.push("autograph");
+  }
+
+  if (
+    ai.isRelic &&
+    containsAny(` ${t} `, [" relic ", " patch ", " jersey ", " memorabilia "])
+  ) {
+    score += 12;
+    flags.push("relic");
+  }
+
   if (looksLikeBadCompTitle(title, ai)) {
     score -= 100;
     flags.push("excluded");
@@ -586,6 +602,8 @@ export function filterAndRankExactMatches(
   const requiresCardNumberEvidence = Boolean(normalizeCardNumber(ai.cardNumber));
   const requiresYearEvidence = Boolean(normalizeText(ai.year));
   const requiresBrandEvidence = Boolean(normalizeText(ai.brand));
+  const requiresAutographEvidence = ai.isAuto;
+  const requiresRelicEvidence = ai.isRelic;
 
   return comps
     .map((comp) => {
@@ -604,7 +622,9 @@ export function filterAndRankExactMatches(
         (!requiresPlayerEvidence || comp.flags.includes("player")) &&
         (!requiresCardNumberEvidence || comp.flags.includes("card #")) &&
         (!requiresYearEvidence || comp.flags.includes("year")) &&
-        (!requiresBrandEvidence || comp.flags.includes("brand"))
+        (!requiresBrandEvidence || comp.flags.includes("brand")) &&
+        (!requiresAutographEvidence || comp.flags.includes("autograph")) &&
+        (!requiresRelicEvidence || comp.flags.includes("relic"))
     )
     .filter(
       (comp) =>

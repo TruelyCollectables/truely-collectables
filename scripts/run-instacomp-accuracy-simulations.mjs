@@ -116,6 +116,34 @@ check(
   `${exactMatches.length} match(es)`
 );
 
+const autographMatches = filterAndRankExactMatches(
+  [
+    comp("2023 Topps Chrome Update Shohei Ohtani Gold Refractor Auto #USC17 07/50", 400),
+    comp("2023 Topps Chrome Update Shohei Ohtani Gold Refractor #USC17 07/50", 120),
+  ],
+  { ...target, isAuto: true },
+  10
+);
+check(
+  "autograph targets require autograph evidence",
+  autographMatches.length === 1 && autographMatches[0].price === 400,
+  `${autographMatches.length} match(es)`
+);
+
+const relicMatches = filterAndRankExactMatches(
+  [
+    comp("2023 Topps Chrome Update Shohei Ohtani Gold Refractor Patch #USC17 07/50", 300),
+    comp("2023 Topps Chrome Update Shohei Ohtani Gold Refractor #USC17 07/50", 120),
+  ],
+  { ...target, isRelic: true },
+  10
+);
+check(
+  "relic targets require relic evidence",
+  relicMatches.length === 1 && relicMatches[0].price === 300,
+  `${relicMatches.length} match(es)`
+);
+
 const guidanceMatches = filterAndRankGuidanceMatches(
   [comp("2023 Topps Chrome Update Shohei Ohtani Gold Refractor #USC17 12/100", 40)],
   target,
