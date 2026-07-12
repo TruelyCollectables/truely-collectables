@@ -34,11 +34,10 @@ npm run manual:pdf
 Use the production runbook when shipping queued launch work:
 
 ```bash
-npm run deploy:production
-npm run smoke:production
+npm run launch:production
 ```
 
-The deploy helper verifies Git state, handles the clean Vercel production alias, removes the unwanted `tt3b` alias if it appears, and reports Vercel quota blocks clearly.
+The launch helper deploys production and then runs the production smoke if the deploy succeeds. The deploy step verifies Git state, handles the clean Vercel production alias, removes the unwanted `tt3b` alias if it appears, and reports Vercel quota blocks clearly.
 
 ## Getting Started
 
