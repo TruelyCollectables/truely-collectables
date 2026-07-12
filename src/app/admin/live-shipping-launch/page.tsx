@@ -3,6 +3,7 @@ import {
   evaluateLiveShippingLaunch,
   type LiveShippingCheckStatus,
 } from "../../../lib/live-shipping-launch";
+import { buildShippingProviderSetupPacket } from "../../../lib/shipping-provider-setup";
 import { getActiveStoreId } from "../../../lib/stores";
 import { createSupabaseServerClient } from "../../../lib/supabase-server";
 import LiveShippingGateActions from "./LiveShippingGateActions";
@@ -37,6 +38,18 @@ export default async function LiveShippingLaunchPage() {
   const blocked = report.checks.filter((item) => item.status === "blocked").length;
   const passed = report.checks.filter((item) => item.status === "passed").length;
   const warning = report.checks.filter((item) => item.status === "warning").length;
+  const providerSetupPacket = buildShippingProviderSetupPacket();
+  const missingProviderSecretKeys = Array.from(
+    new Set(providerSetupPacket.lanes.flatMap((lane) => lane.missingCredentialKeys)),
+  );
+  const stagedProviderSecretKeys = Array.from(
+    new Set(
+      providerSetupPacket.lanes.flatMap((lane) => lane.configuredCredentialKeys),
+    ),
+  );
+  const readyRequirements = providerSetupPacket.liveRequirements.filter(
+    (requirement) => requirement.status === "ready",
+  ).length;
 
   return (
     <main className="min-h-screen bg-neutral-50 p-8 text-neutral-950">
@@ -112,6 +125,89 @@ export default async function LiveShippingLaunchPage() {
               approvalDatabaseReady={report.approvalDatabaseReady}
               approvalReady={report.approvalReady}
             />
+          </div>
+        </section>
+
+        <section className="mb-8 rounded border border-amber-200 bg-amber-50 p-6 text-amber-950">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-black uppercase tracking-widest">
+                Next shipping unlock
+              </p>
+              <h2 className="mt-1 text-2xl font-black">
+                Provider secrets and live-adapter evidence
+              </h2>
+              <p className="mt-2 max-w-4xl text-sm leading-6">
+                Live payments are open, so the remaining launch work is shipping.
+                This panel lists secret names only. It never prints secret values
+                and does not contact live providers.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <Link
+                href="/api/admin/shipping/provider-setup"
+                className="rounded border border-amber-300 bg-white px-4 py-2 font-black text-amber-950"
+              >
+                Setup JSON
+              </Link>
+              <Link
+                href="/api/admin/shipping/provider-setup?format=csv"
+                className="rounded border border-amber-300 bg-white px-4 py-2 font-black text-amber-950"
+              >
+                Setup CSV
+              </Link>
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-4 md:grid-cols-3">
+            <article className="rounded border border-amber-300 bg-white p-4">
+              <p className="text-xs font-black uppercase text-neutral-500">
+                Provider verdict
+              </p>
+              <p className="mt-2 font-black">{providerSetupPacket.decision.status}</p>
+              <p className="mt-2 text-sm leading-6">
+                {providerSetupPacket.decision.summary}
+              </p>
+              <p className="mt-2 text-xs font-bold">
+                {providerSetupPacket.decision.nextAction}
+              </p>
+            </article>
+
+            <article className="rounded border border-amber-300 bg-white p-4">
+              <p className="text-xs font-black uppercase text-neutral-500">
+                Required secrets
+              </p>
+              <p className="mt-2 text-2xl font-black">
+                {missingProviderSecretKeys.length} missing
+              </p>
+              <p className="mt-2 text-sm leading-6">
+                {missingProviderSecretKeys.length > 0
+                  ? missingProviderSecretKeys.join(", ")
+                  : "All required provider secret groups appear staged."}
+              </p>
+              {stagedProviderSecretKeys.length > 0 ? (
+                <p className="mt-2 text-xs font-bold text-green-800">
+                  Staged: {stagedProviderSecretKeys.join(", ")}
+                </p>
+              ) : null}
+            </article>
+
+            <article className="rounded border border-amber-300 bg-white p-4">
+              <p className="text-xs font-black uppercase text-neutral-500">
+                Live requirements
+              </p>
+              <p className="mt-2 text-2xl font-black">
+                {readyRequirements}/{providerSetupPacket.liveRequirements.length} ready
+              </p>
+              <ul className="mt-2 space-y-1 text-sm leading-6">
+                {providerSetupPacket.liveRequirements
+                  .filter((requirement) => requirement.status !== "ready")
+                  .slice(0, 4)
+                  .map((requirement) => (
+                    <li key={requirement.key}>- {requirement.label}</li>
+                  ))}
+              </ul>
+            </article>
           </div>
         </section>
 
