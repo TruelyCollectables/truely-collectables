@@ -143,6 +143,7 @@ const checks = [
     expect: (result) =>
       result.text.includes("Launch Readiness") &&
       result.text.includes("Production Deploy Queue") &&
+      result.text.includes("npm run launch:production") &&
       result.text.includes("npm run deploy:production") &&
       result.text.includes("npm run smoke:production") &&
       result.text.includes("truely-collectables.vercel.app") &&
