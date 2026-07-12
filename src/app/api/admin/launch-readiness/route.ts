@@ -220,6 +220,7 @@ function markdownForHandoffBundle(
     "- Before deployment, confirm the local worktree is clean and the local commit matches GitHub:",
     "",
     "```powershell",
+    "git fetch origin main",
     "git status --short",
     "git rev-parse --short HEAD",
     "git rev-parse --short origin/main",

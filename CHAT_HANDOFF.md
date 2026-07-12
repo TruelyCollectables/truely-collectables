@@ -8,7 +8,7 @@ Generated for the next Codex session during the production launch stacking pass.
 - Branch: `main`
 - GitHub remote: `https://github.com/TruelyCollectables/truely-collectables.git`
 - Last launch-code commit covered by this handoff: `bdead99 Separate launch handoff deploy commands`
-- Handoff-only commits may appear after that commit. Treat `git log -5 --oneline` plus `git rev-parse --short HEAD` / `git rev-parse --short origin/main` as the source of truth for the current Git tip.
+- Handoff-only commits may appear after that commit. Run `git fetch origin main`, then treat `git log -5 --oneline` plus `git rev-parse --short HEAD` / `git rev-parse --short origin/main` as the source of truth for the current Git tip.
 - Local `HEAD` and `origin/main` matched after the previous handoff refresh, and the local working tree was clean before this handoff note was edited.
 - `.codex-run/` is ignored in `.gitignore`; leave the folder contents alone unless the user explicitly says to delete them.
 
@@ -80,7 +80,7 @@ The smoke helper:
 
 The launch handoff bundle:
 
-- includes a Git Tip Verification section with `git status --short`, `git rev-parse --short HEAD`, `git rev-parse --short origin/main`, and `git log -5 --oneline`;
+- includes a Git Tip Verification section with `git fetch origin main`, `git status --short`, `git rev-parse --short HEAD`, `git rev-parse --short origin/main`, and `git log -5 --oneline`;
 - includes a Production Deploy Commands section with `npm run verify:production`, `npm run launch:production`, split deploy/smoke fallback commands, the clean production domain, and the unwanted `tt3b` alias reminder.
 
 ## Validation state

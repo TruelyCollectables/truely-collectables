@@ -1174,9 +1174,11 @@ export default async function LaunchReadinessPage() {
           <div className="rounded border border-blue-200 bg-white p-4">
             <h3 className="font-bold">1. Confirm GitHub has the stack</h3>
             <pre className="mt-3 overflow-x-auto rounded bg-neutral-950 p-3 text-xs text-neutral-50">
-              {`git status --short
+              {`git fetch origin main
+git status --short
 git rev-parse --short HEAD
 git rev-parse --short origin/main
+git log -5 --oneline
 npm run verify:production
 npm run check:production-guardrails
 npm run preflight:production`}

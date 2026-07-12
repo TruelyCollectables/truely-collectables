@@ -263,6 +263,10 @@ const checks = [
       result.text.includes("Launch Readiness") &&
       result.text.includes("Production Deploy Queue") &&
       result.text.includes("npm run verify:production") &&
+      result.text.includes("git fetch origin main") &&
+      result.text.includes("git rev-parse --short HEAD") &&
+      result.text.includes("git rev-parse --short origin/main") &&
+      result.text.includes("git log -5 --oneline") &&
       result.text.includes("npm run check:production-guardrails") &&
       result.text.includes("npm run preflight:production") &&
       result.text.includes("npm run launch:production") &&
@@ -290,6 +294,7 @@ const checks = [
     expect: (result) =>
       result.text.includes("# TCOS Launch Hand-off Bundle") &&
       result.text.includes("## Git Tip Verification") &&
+      result.text.includes("git fetch origin main") &&
       result.text.includes("git rev-parse --short HEAD") &&
       result.text.includes("git rev-parse --short origin/main") &&
       result.text.includes("git log -5 --oneline") &&
