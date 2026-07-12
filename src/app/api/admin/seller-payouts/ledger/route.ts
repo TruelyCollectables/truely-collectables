@@ -2,7 +2,7 @@ import { getActiveStoreId } from "../../../../../lib/stores";
 import { getClientIdentity } from "../../../../../lib/client-identity";
 import { isOrderReviewStatus } from "../../../../../lib/order-status";
 import { recordSellerPayoutAdminEvent } from "../../../../../lib/seller-payout-admin-events";
-import { isDryRunShippingReference } from "../../../../../lib/shipping-dry-run";
+import { getDryRunShippingProofForOrder } from "../../../../../lib/shipping-dry-run-cleanup";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
 
 export const dynamic = "force-dynamic";
@@ -144,8 +144,14 @@ async function payoutReleaseBlockReason(params: {
     return "Order must be marked shipped before seller payout can be released.";
   }
 
-  if (isDryRunShippingReference(typedOrder.tracking_number)) {
-    return "Order only has TCOS dry-run shipping. Add real carrier proof before seller payout can be released.";
+  const dryRunShippingProof = await getDryRunShippingProofForOrder({
+    supabase: params.supabase,
+    storeId: params.storeId,
+    orderId: typedOrder.id,
+  });
+
+  if (dryRunShippingProof.hasDryRun) {
+    return `Order only has TCOS dry-run shipping proof. Add real carrier proof before seller payout can be released. ${dryRunShippingProof.detail}`;
   }
 
   const { data: cases, error: caseError } = await params.supabase

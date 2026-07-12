@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { isDryRunShippingReference } from "./shipping-dry-run";
+import { getDryRunShippingProofByOrder } from "./shipping-dry-run-cleanup";
 
 const finalCaseStatuses = new Set([
   "decided_for_buyer",
@@ -29,11 +29,6 @@ type OrderReviewCaseScopeRow = {
   title: string | null;
   severity: string | null;
   updated_at: string | null;
-};
-
-type OrderShippingScopeRow = {
-  id: number;
-  tracking_number: string | null;
 };
 
 export type SellerPayoutRequestReviewBlocker = {
@@ -169,21 +164,15 @@ export async function loadSellerPayoutRequestReviewBlockers(params: {
   const activeCases = ((reviewCasesData || []) as OrderReviewCaseScopeRow[]).filter(
     (reviewCase) => !finalCaseStatuses.has(reviewCase.status || "open"),
   );
-  const { data: orderShippingData, error: orderShippingError } =
-    orderIds.length === 0
-      ? { data: [], error: null }
-      : await params.supabase
-          .from("orders")
-          .select("id,tracking_number")
-          .eq("store_id", params.storeId)
-          .in("id", orderIds);
-
-  if (orderShippingError) throw orderShippingError;
-
+  const dryRunShippingProofByOrder = await getDryRunShippingProofByOrder({
+    supabase: params.supabase,
+    storeId: params.storeId,
+    orderIds,
+  });
   const dryRunShippingOrderIds = new Set(
-    ((orderShippingData || []) as OrderShippingScopeRow[])
-      .filter((order) => isDryRunShippingReference(order.tracking_number))
-      .map((order) => order.id),
+    Array.from(dryRunShippingProofByOrder.values())
+      .filter((proof) => proof.hasDryRun)
+      .map((proof) => proof.orderId),
   );
   const blockersByRequestId = new Map<string, SellerPayoutRequestReviewBlocker>();
 

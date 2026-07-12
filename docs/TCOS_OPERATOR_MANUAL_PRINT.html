@@ -4114,6 +4114,7 @@ dryrun-</code></pre>
 <p>Seller payout request summaries include a dry-run shipping flag without exposing simulated tracking, and payout-linked order cards keep dry-run shipped rows routed to Shipping Orders instead of completed/cash-out-only flows.</p>
 <p>Seller Home consumes the same dry-run shipping flag for payout pressure and order workspace cards, keeping dry-run shipped rows in shipping follow-through until real fulfillment proof is recorded.</p>
 <p>Admin Seller Payout Review also checks the shared dry-run shipping detector before releasing ledger rows. A row cannot be moved to eligible while the order only has TCOS dry-run tracking, even if the order status says shipped.</p>
+<p>Seller payout release guards now use the order-level dry-run shipping proof helper in <code>src/lib/shipping-dry-run-cleanup.ts</code>, so release checks inspect the order row, shipping label rows, and tracking-event rows before treating fulfillment proof as real.</p>
 <p>Seller cash-out request review blockers now include dry-run shipping rows, so requests cannot move to approved, processing, or paid while any linked payout row only has simulated TCOS tracking.</p>
 <p>Order review case payout resolution uses the same detector before releasing held rows to seller eligibility, and the admin case UI lists dry-run shipping as the skipped-row reason.</p>
 <p>Admin Shipping and the ranked shipping exception CSV now use the shared detector for dry-run label, tracking, shipment, and Coverage references while preserving event-based simulated-purchase detection.</p>

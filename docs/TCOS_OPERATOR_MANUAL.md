@@ -4351,6 +4351,8 @@ Seller Home consumes the same dry-run shipping flag for payout pressure and orde
 
 Admin Seller Payout Review also checks the shared dry-run shipping detector before releasing ledger rows. A row cannot be moved to eligible while the order only has TCOS dry-run tracking, even if the order status says shipped.
 
+Seller payout release guards now use the order-level dry-run shipping proof helper in `src/lib/shipping-dry-run-cleanup.ts`, so release checks inspect the order row, shipping label rows, and tracking-event rows before treating fulfillment proof as real.
+
 Seller cash-out request review blockers now include dry-run shipping rows, so requests cannot move to approved, processing, or paid while any linked payout row only has simulated TCOS tracking.
 
 Order review case payout resolution uses the same detector before releasing held rows to seller eligibility, and the admin case UI lists dry-run shipping as the skipped-row reason.

@@ -3,7 +3,7 @@ import { getClientIdentity } from "../../../../../../lib/client-identity";
 import { isOrderReviewStatus } from "../../../../../../lib/order-status";
 import { recordOrderReviewCaseEvent } from "../../../../../../lib/order-review-case-events";
 import { recordSellerPayoutAdminEvent } from "../../../../../../lib/seller-payout-admin-events";
-import { isDryRunShippingReference } from "../../../../../../lib/shipping-dry-run";
+import { getDryRunShippingProofForOrder } from "../../../../../../lib/shipping-dry-run-cleanup";
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
 
@@ -193,7 +193,13 @@ async function payoutReleaseBlockReason(params: {
     return "order_not_shipped";
   }
 
-  if (isDryRunShippingReference(typedOrder.tracking_number)) {
+  const dryRunShippingProof = await getDryRunShippingProofForOrder({
+    supabase: params.supabase,
+    storeId: params.storeId,
+    orderId: typedOrder.id,
+  });
+
+  if (dryRunShippingProof.hasDryRun) {
     return "order_has_dry_run_shipping_only";
   }
 
