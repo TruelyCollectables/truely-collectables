@@ -2,6 +2,7 @@ import { getClientIdentity } from "../../../../../lib/client-identity";
 import { isDryRunShippingLabel } from "../../../../../lib/shipping-dry-run";
 import { getActiveStoreId } from "../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
+import { under20ProtectionFromMetadata } from "../../../../../lib/under20-seller-protection-claims";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +36,7 @@ type CoverageClaimRow = {
   provider: string | null;
   provider_claim_id: string | null;
   claim_status: string | null;
+  claim_amount: number | string | null;
   submitted_at: string | null;
   resolved_at: string | null;
   metadata: Record<string, unknown> | null;
@@ -50,6 +52,34 @@ type ShippingLabelRow = {
   metadata: Record<string, unknown> | null;
 };
 
+type SellerProtectionLedgerRow = {
+  id: string;
+  order_item_id: number | null;
+  seller_account_id: string | null;
+  gross_item_amount: number | string | null;
+  shipping_allocated_amount: number | string | null;
+  metadata: Record<string, unknown> | null;
+};
+
+function moneyNumber(value: unknown) {
+  const parsed = Number(value || 0);
+  return Number.isFinite(parsed) ? Math.round(parsed * 100) / 100 : 0;
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function stringList(value: unknown) {
+  return Array.isArray(value)
+    ? value
+        .map((entry) => String(entry || "").trim())
+        .filter((entry) => entry.length > 0)
+    : [];
+}
+
 function coverageStatusForClaimStatus(
   status: string,
   label: ShippingLabelRow | null,
@@ -64,6 +94,126 @@ function coverageStatusForClaimStatus(
   }
 
   return label?.coverage_status || null;
+}
+
+async function createSellerProtectionReimbursement(params: {
+  supabase: ReturnType<typeof createSupabaseServerClient>;
+  storeId: string;
+  claim: CoverageClaimRow;
+  now: string;
+  identity: Awaited<ReturnType<typeof getClientIdentity>>;
+}) {
+  const under20Claim = recordValue(
+    recordValue(params.claim.metadata).under_20_seller_protection_claim,
+  );
+  const protectedLedgerEntryIds = stringList(
+    under20Claim.protectedLedgerEntryIds,
+  );
+  const reimbursableAmount = moneyNumber(
+    under20Claim.reimbursableItemAmount || params.claim.claim_amount,
+  );
+
+  if (under20Claim.eligible !== true || reimbursableAmount <= 0) {
+    return {
+      required: false,
+      insertedCount: 0,
+      reimbursedAmount: 0,
+      detail:
+        "No TCOS seller-protection reimbursement was created because this claim is not eligible or the reimbursable item amount is $0.",
+    };
+  }
+
+  if (protectedLedgerEntryIds.length === 0) {
+    throw new Error(
+      "Cannot mark seller-protection claim paid because no protected seller payout ledger rows were recorded.",
+    );
+  }
+
+  const { data, error } = await params.supabase
+    .from("seller_payout_ledger_entries")
+    .select(
+      "id,order_item_id,seller_account_id,gross_item_amount,shipping_allocated_amount,metadata",
+    )
+    .eq("store_id", params.storeId)
+    .eq("order_id", params.claim.order_id)
+    .in("id", protectedLedgerEntryIds);
+
+  if (error) throw error;
+
+  const rows = (data || []) as SellerProtectionLedgerRow[];
+
+  if (rows.length === 0) {
+    throw new Error(
+      "Cannot mark seller-protection claim paid because the protected seller payout rows could not be loaded.",
+    );
+  }
+
+  let remaining = reimbursableAmount;
+  let insertedCount = 0;
+  let reimbursedAmount = 0;
+
+  for (const row of rows) {
+    if (remaining <= 0) break;
+
+    const protection = under20ProtectionFromMetadata(row.metadata);
+    const rowAmount = Math.min(
+      moneyNumber(protection.coveredAmount),
+      remaining,
+    );
+
+    if (rowAmount <= 0 || !row.seller_account_id) continue;
+
+    const { data: inserted, error: insertError } = await params.supabase
+      .from("financial_adjustment_ledger_entries")
+      .upsert(
+        {
+          store_id: params.storeId,
+          order_id: params.claim.order_id,
+          order_item_id: row.order_item_id,
+          seller_account_id: row.seller_account_id,
+          provider: "tcos_internal",
+          provider_event_id: `coverage_claim:${params.claim.id}:paid`,
+          provider_object_id:
+            params.claim.provider_claim_id || params.claim.id,
+          economic_key: `seller_protection:${params.claim.id}:${row.id}`,
+          entry_type: "seller_protection_reimbursement",
+          ledger_account: "seller_payable",
+          balance_effect: "credit",
+          amount: rowAmount,
+          currency: "USD",
+          metadata: {
+            claim_id: params.claim.id,
+            base_seller_payout_row_id: row.id,
+            coverage_basis: "item_sale_amount_excluding_shipping",
+            reimburses_shipping: false,
+            shipping_excluded_amount: moneyNumber(
+              row.shipping_allocated_amount,
+            ),
+            created_by_identity: params.identity,
+            created_at: params.now,
+          },
+        },
+        { onConflict: "store_id,economic_key", ignoreDuplicates: true },
+      )
+      .select("id")
+      .maybeSingle();
+
+    if (insertError) throw insertError;
+
+    if (inserted?.id) insertedCount += 1;
+    reimbursedAmount += rowAmount;
+    remaining = moneyNumber(remaining - rowAmount);
+  }
+
+  return {
+    required: true,
+    insertedCount,
+    reimbursedAmount: moneyNumber(reimbursedAmount),
+    detail:
+      insertedCount > 0
+        ? "TCOS seller-protection reimbursement adjustment was created for protected item amount only. Shipping was excluded."
+        : "TCOS seller-protection reimbursement adjustment already existed; no duplicate credit was created.",
+  };
 }
 
 export async function PATCH(
@@ -97,7 +247,7 @@ export async function PATCH(
     const { data: claimData, error: claimError } = await supabase
       .from("order_shipping_coverage_claims")
       .select(
-        "id,store_id,order_id,shipping_label_id,provider,provider_claim_id,claim_status,submitted_at,resolved_at,metadata",
+        "id,store_id,order_id,shipping_label_id,provider,provider_claim_id,claim_status,claim_amount,submitted_at,resolved_at,metadata",
       )
       .eq("store_id", storeId)
       .eq("id", claimId)
@@ -162,6 +312,16 @@ export async function PATCH(
     }
 
     const now = new Date().toISOString();
+    const sellerProtectionReimbursement =
+      nextStatus === "paid"
+        ? await createSellerProtectionReimbursement({
+            supabase,
+            storeId,
+            claim,
+            now,
+            identity,
+          })
+        : null;
     const metadata = {
       ...(claim.metadata || {}),
       latest_admin_status_change: {
@@ -173,6 +333,12 @@ export async function PATCH(
         changed_at: now,
         changed_by_identity: identity,
       },
+      ...(sellerProtectionReimbursement
+        ? {
+            latest_seller_protection_reimbursement:
+              sellerProtectionReimbursement,
+          }
+        : {}),
     };
 
     const claimUpdate: Record<string, unknown> = {
@@ -244,6 +410,7 @@ export async function PATCH(
         new_status: nextStatus,
         provider_claim_id: providerClaimId || claim.provider_claim_id || null,
         note: note || null,
+        seller_protection_reimbursement: sellerProtectionReimbursement,
         changed_by_identity: identity,
       },
     });
@@ -253,6 +420,7 @@ export async function PATCH(
       claimId: claim.id,
       previousStatus,
       claimStatus: nextStatus,
+      sellerProtectionReimbursement,
       message:
         nextStatus === previousStatus
           ? "Coverage claim status reaffirmed and logged."

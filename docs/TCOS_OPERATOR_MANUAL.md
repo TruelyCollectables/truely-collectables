@@ -3163,6 +3163,7 @@ Apply every migration in timestamp order. Do not rely on a hand-selected subset.
 20260710190000_create_shipping_label_infrastructure.sql
 20260711010000_create_instacomp_scan_job_queue.sql
 20260711185500_create_live_shipping_launch_gate.sql
+20260712174000_add_seller_protection_financial_adjustments.sql
 ```
 
 The authoritative list is the complete `supabase/migrations` directory, including all earlier account, inventory, evidence, security, seller, and payout migrations. Apply migrations before using features that depend on new tables. A missing migration can appear as an unavailable page, `503`, failed draft creation, missing reconciliation data, or an unsafe launch-readiness blocker.
@@ -4315,6 +4316,7 @@ Parcel rules currently embedded in TCOS:
 - TCOS Under-$20 Seller Protection is the optional internal Standard Envelope program; it is not third-party insurance and depends on IMb delivery evidence such as Out for Delivery / Delivered in Mailbox when USPS data is available
 - when a seller opts in for a Standard Envelope shipment, TCOS withholds a 2% seller-protection reserve from the seller payout row and caps reimbursement exposure at `$20.00` of item sale amount
 - if an opted-in under-$20 Standard Envelope shipment requires a buyer refund because delivery evidence does not show delivered under TCOS claim rules, TCOS reimburses the seller for the protected item sale amount up to `$20.00`; shipping is excluded and is not reimbursed
+- when an eligible TCOS Under-$20 Seller Protection claim is marked `paid`, TCOS records an idempotent `seller_protection_reimbursement` financial adjustment that credits seller payable for the protected item amount only
 - when a seller does not opt in for a Standard Envelope shipment, no 2% reserve is withheld and the seller is responsible for refunding the buyer in full if the shipment is lost or cannot satisfy TCOS delivery-evidence rules
 - parcel Coverage is required for Ground Advantage and Priority shipments
 - current buyer charge for Coverage is zero
