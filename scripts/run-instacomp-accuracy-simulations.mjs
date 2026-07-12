@@ -100,6 +100,7 @@ const exactMatches = filterAndRankExactMatches(
   [
     comp("2023 Topps Chrome Update Shohei Ohtani Gold Refractor #USC17 07/50", 120),
     comp("2023 Topps Chrome Update Shohei Ohtani Gold Refractor #USC17 12/99", 70),
+    comp("2023 Topps Chrome Update Shohei Ohtani Blue Refractor #USC17 22/50", 90),
     comp("2023 Topps Chrome Update Shohei Ohtani Gold Refractor #USC17 PSA 10 22/50", 250),
     comp("Lot of 3 2023 Topps Chrome Update Shohei Ohtani Gold Refractor #USC17 18/50", 180),
   ],
@@ -107,7 +108,7 @@ const exactMatches = filterAndRankExactMatches(
   10
 );
 check(
-  "exact ranking keeps only the valid raw same-run comp",
+  "exact ranking keeps only the valid raw same-run same-parallel comp",
   exactMatches.length === 1 && exactMatches[0].price === 120,
   `${exactMatches.length} match(es)`
 );

@@ -581,6 +581,7 @@ export function filterAndRankExactMatches(
   minScore = 45
 ): InstaCompComp[] {
   const targetDenominator = serialRunDenominator(ai.serialNumber);
+  const requiresParallelEvidence = parallelTokens(ai.parallel).length > 0;
 
   return comps
     .map((comp) => {
@@ -594,6 +595,12 @@ export function filterAndRankExactMatches(
     })
     .filter((comp) => comp.price > 0)
     .filter((comp) => !comp.flags.includes("excluded"))
+    .filter(
+      (comp) =>
+        !requiresParallelEvidence ||
+        comp.flags.includes("parallel") ||
+        comp.flags.includes("parallel partial")
+    )
     .filter((comp) => {
       if (!targetDenominator) return true;
 
