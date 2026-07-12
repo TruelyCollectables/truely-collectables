@@ -15,6 +15,7 @@ type BriefItem = {
   detail: string;
   action: string;
   href?: string;
+  url?: string;
 };
 
 function statusFromCheck(status: "passed" | "warning" | "blocked") {
@@ -84,7 +85,11 @@ function markdownListWithLinks(items: BriefItem[]) {
   return markdownList(
     items.map((item) => ({
       ...item,
-      action: item.href ? `${item.action} Link: ${item.href}` : item.action,
+      action: item.url
+        ? `${item.action} Link: ${item.url}`
+        : item.href
+          ? `${item.action} Link: ${item.href}`
+          : item.action,
     })),
   );
 }
@@ -130,7 +135,17 @@ function markdownForBrief(brief: Awaited<ReturnType<typeof buildBrief>>) {
   ].join("\n");
 }
 
-async function buildBrief() {
+function absoluteUrl(origin: string | null, href: string | undefined) {
+  if (!origin || !href) return undefined;
+
+  try {
+    return new URL(href, origin).toString();
+  } catch {
+    return undefined;
+  }
+}
+
+async function buildBrief(origin: string | null = null) {
   const supabase = createSupabaseServerClient({ admin: true });
   const storeId = getActiveStoreId();
 
@@ -213,6 +228,10 @@ async function buildBrief() {
     .map((item) => ({
       ...item,
       href: item.href || hrefForBriefItem(item),
+    }))
+    .map((item) => ({
+      ...item,
+      url: absoluteUrl(origin, item.href),
     }));
 
   return {
@@ -247,8 +266,9 @@ async function buildBrief() {
 
 export async function GET(request: Request) {
   try {
-    const brief = await buildBrief();
-    const format = new URL(request.url).searchParams.get("format");
+    const requestUrl = new URL(request.url);
+    const brief = await buildBrief(requestUrl.origin);
+    const format = requestUrl.searchParams.get("format");
 
     if (format === "markdown" || format === "md") {
       return new Response(markdownForBrief(brief), {
