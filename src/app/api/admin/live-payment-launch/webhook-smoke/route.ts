@@ -55,27 +55,58 @@ export async function POST(request: Request) {
 
   const markerValue = randomUUID();
   const startedAt = Math.floor(Date.now() / 1000) - 2;
-  let account: any = null;
-  let previousValue: string | undefined;
-  let markerApplied = false;
+  const origin = (
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    "https://truely-collectables.vercel.app"
+  ).replace(/\/$/, "");
+  const endpointUrl = `${origin}/api/webhook`;
+  let endpoint: any = null;
+  let originalEvents: string[] = [];
+  let endpointExpanded = false;
+  let customer: any = null;
 
   try {
-    account = await stripeRequest(stripeKey, "/v1/account");
-    previousValue = account.metadata?.[MARKER_KEY];
-
-    const applyMarker = new URLSearchParams();
-    applyMarker.set(`metadata[${MARKER_KEY}]`, markerValue);
-    await stripeRequest(
+    const endpoints = await stripeRequest(
       stripeKey,
-      `/v1/accounts/${encodeURIComponent(account.id)}`,
-      { method: "POST", body: applyMarker },
+      "/v1/webhook_endpoints?limit=100",
     );
-    markerApplied = true;
+    endpoint = endpoints.data.find(
+      (candidate: any) =>
+        candidate.status === "enabled" && candidate.url === endpointUrl,
+    );
+    if (!endpoint) {
+      throw new Error(`No enabled live webhook endpoint exists at ${endpointUrl}.`);
+    }
+
+    originalEvents = [...endpoint.enabled_events];
+    if (
+      !originalEvents.includes("*") &&
+      !originalEvents.includes("customer.created")
+    ) {
+      const expandedEvents = new URLSearchParams();
+      for (const eventType of [...originalEvents, "customer.created"]) {
+        expandedEvents.append("enabled_events[]", eventType);
+      }
+      await stripeRequest(
+        stripeKey,
+        `/v1/webhook_endpoints/${encodeURIComponent(endpoint.id)}`,
+        { method: "POST", body: expandedEvents },
+      );
+      endpointExpanded = true;
+    }
+
+    const customerBody = new URLSearchParams();
+    customerBody.set("description", "TCOS live webhook smoke (temporary)");
+    customerBody.set(`metadata[${MARKER_KEY}]`, markerValue);
+    customer = await stripeRequest(stripeKey, "/v1/customers", {
+      method: "POST",
+      body: customerBody,
+    });
 
     let matchingEvent: any = null;
     for (let attempt = 0; attempt < 12; attempt += 1) {
       const params = new URLSearchParams({
-        type: "account.updated",
+        type: "customer.created",
         limit: "10",
       });
       params.set("created[gte]", String(startedAt));
@@ -85,6 +116,7 @@ export async function POST(request: Request) {
       );
       matchingEvent = events.data.find(
         (event: any) =>
+          event.data?.object?.id === customer.id &&
           event.data?.object?.metadata?.[MARKER_KEY] === markerValue,
       );
       if (matchingEvent?.pending_webhooks === 0) break;
@@ -92,7 +124,7 @@ export async function POST(request: Request) {
     }
 
     if (!matchingEvent) {
-      throw new Error("Stripe did not create the account.updated smoke event.");
+      throw new Error("Stripe did not create the customer.created smoke event.");
     }
     if (matchingEvent.pending_webhooks !== 0) {
       throw new Error(
@@ -112,18 +144,32 @@ export async function POST(request: Request) {
       { status: 502 },
     );
   } finally {
-    if (markerApplied && account?.id) {
-      const restore = new URLSearchParams();
-      restore.set(`metadata[${MARKER_KEY}]`, previousValue || "");
+    if (endpointExpanded && endpoint?.id) {
+      const restoreEvents = new URLSearchParams();
+      for (const eventType of originalEvents) {
+        restoreEvents.append("enabled_events[]", eventType);
+      }
       try {
         await stripeRequest(
           stripeKey,
-          `/v1/accounts/${encodeURIComponent(account.id)}`,
-          { method: "POST", body: restore },
+          `/v1/webhook_endpoints/${encodeURIComponent(endpoint.id)}`,
+          { method: "POST", body: restoreEvents },
         );
       } catch {
-        // The smoke response already captures delivery status. A failed metadata
-        // restore remains visible in Stripe and can be safely cleared manually.
+        // The extra customer.created subscription is harmless and remains
+        // visible in Stripe if restoring the exact event set fails.
+      }
+    }
+    if (customer?.id) {
+      try {
+        await stripeRequest(
+          stripeKey,
+          `/v1/customers/${encodeURIComponent(customer.id)}`,
+          { method: "DELETE" },
+        );
+      } catch {
+        // The temporary customer contains no payment method or personal data and
+        // remains easy to identify by its description if deletion fails.
       }
     }
   }
