@@ -957,7 +957,8 @@ export default async function LaunchReadinessPage() {
   const summary = summarize(items);
   const databaseSummary = summarize(databaseItems);
   const paymentMode = getPaymentMode();
-  const canAcceptLivePayment = paymentMode === "live" && summary.blocked === 0;
+  const livePaymentGateOpen = livePaymentLaunchItem.status === "ready";
+  const fullLaunchHasBlockers = summary.blocked > 0;
 
   return (
     <main className="min-h-screen bg-neutral-50 p-8 text-neutral-950">
@@ -1027,20 +1028,39 @@ export default async function LaunchReadinessPage() {
 
         <div
           className={`mt-6 rounded border p-4 ${
-            canAcceptLivePayment
+            livePaymentGateOpen
               ? "border-green-200 bg-green-50 text-green-800"
               : "border-red-200 bg-red-50 text-red-800"
           }`}
         >
           <p className="font-bold">
-            {canAcceptLivePayment
-              ? "Live buyer payments are configuration-ready."
+            {livePaymentGateOpen
+              ? "Live buyer payments are open through the dedicated live-payment gate."
               : "Do not open live buyer payments yet."}
           </p>
           <p className="mt-1 text-sm">
-            Before launch, run a real low-dollar purchase, confirm the order,
-            confirm the evidence PDF, confirm eBay quantity sync, then refund
-            that transaction in Stripe.
+            {livePaymentGateOpen
+              ? "Keep monitoring Stripe webhook smoke, reconciliation, evidence PDFs, order capture, and refund/dispute handling. Full launch can still have separate shipping, provider, identity, email, or marketplace blockers."
+              : "Open /admin/live-payment-launch and clear the dedicated payment checks before accepting live Checkout."}
+          </p>
+        </div>
+
+        <div
+          className={`mt-3 rounded border p-4 ${
+            fullLaunchHasBlockers
+              ? "border-yellow-200 bg-yellow-50 text-yellow-900"
+              : "border-green-200 bg-green-50 text-green-800"
+          }`}
+        >
+          <p className="font-bold">
+            {fullLaunchHasBlockers
+              ? "Full launch still has blockers or review items."
+              : "Full launch checklist has no blocked items."}
+          </p>
+          <p className="mt-1 text-sm">
+            Use the checklist below for non-payment launch work. Shipping can be
+            intentionally locked in dry-run mode even when live buyer payments
+            are already open.
           </p>
         </div>
       </section>

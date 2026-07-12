@@ -4171,6 +4171,8 @@ If the live-payment approval migration is missing, the runtime gate fails closed
 
 `/admin/launch-readiness` now also includes a first-class Live Payment Launch Gate row plus database checks for `live_payment_launch_gates` and `live_payment_launch_events`. Live buyer payments are not configuration-ready when the live-payment audit tables are unavailable or when Stripe live mode is staged but the approval report still has blockers.
 
+The top Launch Readiness payment banner follows the dedicated Live Payment Launch Gate, not the whole-page blocked count. This prevents unrelated shipping-provider, marketplace, identity, email, or future-feature blockers from making an already-open payment runtime look closed. Use the separate full-launch banner and checklist for those broader launch blockers.
+
 `/admin/launch-gate-drill` runs a no-money runtime smoke over the payment and shipping launch locks. For payments, it verifies that test-mode Checkout remains available for simulations, invalid Stripe secrets fail closed, and the current live runtime state matches the live-payment launch report. It uses synthetic key strings and does not create Checkout Sessions, Customers, PaymentIntents, refunds, or disputes.
 
 The Launch Gate Drill also shows Payment Launch Posture and Shipping Launch Posture cards. These cards separate runtime-smoke safety from operator launch readiness: the drill can pass while shipping remains `Locked Safe` because TCOS is still in dry-run postage mode or provider setup is incomplete. Treat `Locked Safe` as an intentional hold, not permission to buy postage.
