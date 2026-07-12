@@ -94,6 +94,19 @@ function markdownListWithLinks(items: BriefItem[]) {
   );
 }
 
+function cleanMarkdownListWithLinks(items: BriefItem[]) {
+  if (items.length === 0) return markdownListWithLinks(items);
+
+  return items
+    .map((item) => {
+      const link = item.url || item.href;
+      const action = link ? `${item.action} Link: ${link}` : item.action;
+
+      return `- **${item.status.toUpperCase()} - ${item.label}:** ${item.detail} Next: ${action}`;
+    })
+    .join("\n");
+}
+
 function markdownForBrief(brief: Awaited<ReturnType<typeof buildBrief>>) {
   return [
     "# TCOS Launch Readiness Brief",
@@ -130,7 +143,7 @@ function markdownForBrief(brief: Awaited<ReturnType<typeof buildBrief>>) {
     "",
     "## Attention Items",
     "",
-    markdownListWithLinks(brief.attentionItems),
+    cleanMarkdownListWithLinks(brief.attentionItems),
     "",
     "## Launch Drill",
     "",
