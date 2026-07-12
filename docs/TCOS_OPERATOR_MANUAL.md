@@ -4173,6 +4173,8 @@ If the live-payment approval migration is missing, the runtime gate fails closed
 
 `/admin/launch-gate-drill` runs a no-money runtime smoke over the payment and shipping launch locks. For payments, it verifies that test-mode Checkout remains available for simulations, invalid Stripe secrets fail closed, and the current live runtime state matches the live-payment launch report. It uses synthetic key strings and does not create Checkout Sessions, Customers, PaymentIntents, refunds, or disputes.
 
+The Launch Gate Drill also shows Payment Launch Posture and Shipping Launch Posture cards. These cards separate runtime-smoke safety from operator launch readiness: the drill can pass while shipping remains `Locked Safe` because TCOS is still in dry-run postage mode or provider setup is incomplete. Treat `Locked Safe` as an intentional hold, not permission to buy postage.
+
 Live Checkout runtime also probes the immutable live-payment event table after approval is verified. If the audit table becomes unavailable after an approval was recorded, live Checkout fails closed until the migration/table problem is fixed.
 
 ### Financial reconciliation runbook
@@ -4343,6 +4345,8 @@ Provider purchase attempts in `/api/admin/orders/[id]/shipping-labels` now check
 `/admin/launch-readiness` also includes the same Shipping Setup Verdict, the live-shipping launch gate status, and database checks for `live_shipping_launch_gates` plus `live_shipping_launch_events`. Treat this as the production-readiness warning surface; it does not mean live postage buying is enabled.
 
 The same `/admin/launch-gate-drill` report also checks the live-shipping runtime lock without quoting, buying, voiding, or recording a provider label. In dry-run mode, the expected safe result is that the dry-run shipping path remains available while live postage remains locked. In live mode, the drill expects the runtime gate to match the live-shipping launch report.
+
+The drill's Shipping Launch Posture card lists the blocked live-shipping checks and next actions, such as configuring provider credentials, building the live quote/buy/void adapter, proving Coverage purchase, and wiring provider webhook reconciliation. Keep shipping in `Locked Safe` until those items are actually ready.
 
 The admin command center (`/admin`) also shows the Shipping Setup verdict in the side rail and includes it in operator alerts, so blocked shipping-provider setup is visible from the first admin landing page.
 

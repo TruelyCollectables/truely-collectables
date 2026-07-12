@@ -11,6 +11,7 @@ import { getActiveStoreId } from "./stores";
 import { createSupabaseServerClient } from "./supabase-server";
 
 export type LaunchGateDrillStatus = "passed" | "warning" | "failed";
+export type LaunchGatePostureStatus = "ready" | "locked" | "blocked" | "review";
 
 export type LaunchGateDrillCheck = {
   key: string;
@@ -35,7 +36,20 @@ export type LaunchGateDrillReport = {
     liveShippingEnabled: boolean;
     purchaseMode: string;
   };
+  posture: {
+    payment: LaunchGatePosture;
+    shipping: LaunchGatePosture;
+  };
   checks: LaunchGateDrillCheck[];
+};
+
+export type LaunchGatePosture = {
+  status: LaunchGatePostureStatus;
+  label: string;
+  detail: string;
+  blockedChecks: string[];
+  warningChecks: string[];
+  nextActions: string[];
 };
 
 function drillCheck(
@@ -55,6 +69,150 @@ function runtimeDetail(result: {
   return result.allowed
     ? `Runtime allowed in ${result.mode} mode.`
     : `Runtime blocked in ${result.mode} mode: ${result.reason || "no reason recorded"}`;
+}
+
+function checkLabels(
+  checks: Array<{ label: string; status: "passed" | "warning" | "blocked" }>,
+  status: "warning" | "blocked",
+) {
+  return checks
+    .filter((check) => check.status === status)
+    .map((check) => check.label);
+}
+
+function buildPaymentPosture(params: {
+  approvalDatabaseReady: boolean;
+  approvalReady: boolean;
+  livePaymentsEnabled: boolean;
+  paymentMode: string;
+  blockedChecks: string[];
+  warningChecks: string[];
+}): LaunchGatePosture {
+  if (!params.approvalDatabaseReady) {
+    return {
+      status: "blocked",
+      label: "Payment Gate Missing Tables",
+      detail:
+        "Live payment runtime checks are fail-closed because the approval audit tables are not fully available.",
+      blockedChecks: params.blockedChecks,
+      warningChecks: params.warningChecks,
+      nextActions: [
+        "Apply the live-payment launch gate migration.",
+        "Rerun the Launch Gate Drill and Live Payment Launch report.",
+      ],
+    };
+  }
+
+  if (params.approvalReady && params.livePaymentsEnabled) {
+    return {
+      status: "ready",
+      label: "Live Payments Open",
+      detail:
+        "The live-payment runtime lock is open and the no-money drill matches the live-payment launch report.",
+      blockedChecks: params.blockedChecks,
+      warningChecks: params.warningChecks,
+      nextActions: [
+        "Keep Stripe webhook smoke, reconciliation, evidence, and dispute/refund checks green.",
+        "Monitor new live orders and Stripe events from the payment launch page.",
+      ],
+    };
+  }
+
+  if (params.approvalReady) {
+    return {
+      status: "locked",
+      label: "Payments Ready But Locked",
+      detail:
+        "The payment gate is ready for approval, but the live-payment environment switch is not open.",
+      blockedChecks: params.blockedChecks,
+      warningChecks: params.warningChecks,
+      nextActions: [
+        "Only enable the live-payment switch when intentionally accepting live Checkout.",
+        "Rerun the no-money drill immediately after changing payment environment switches.",
+      ],
+    };
+  }
+
+  return {
+    status: "blocked",
+    label: "Payment Gate Blocked",
+    detail:
+      "The live-payment launch report still has required checks that must be cleared before live Checkout is safe.",
+    blockedChecks: params.blockedChecks,
+    warningChecks: params.warningChecks,
+    nextActions: [
+      "Open Live Payment Launch and clear every blocked check.",
+      "Rerun payment simulations, webhook smoke, and reconciliation before approval.",
+    ],
+  };
+}
+
+function buildShippingPosture(params: {
+  approvalDatabaseReady: boolean;
+  approvalReady: boolean;
+  liveShippingEnabled: boolean;
+  purchaseMode: string;
+  blockedChecks: string[];
+  warningChecks: string[];
+}): LaunchGatePosture {
+  if (!params.approvalDatabaseReady) {
+    return {
+      status: "blocked",
+      label: "Shipping Gate Missing Tables",
+      detail:
+        "Live shipping runtime checks are fail-closed because the approval audit tables are not fully available.",
+      blockedChecks: params.blockedChecks,
+      warningChecks: params.warningChecks,
+      nextActions: [
+        "Apply the live-shipping launch gate migration.",
+        "Rerun the Launch Gate Drill and Live Shipping Launch report.",
+      ],
+    };
+  }
+
+  if (params.approvalReady && params.liveShippingEnabled && params.purchaseMode === "live") {
+    return {
+      status: "ready",
+      label: "Live Shipping Open",
+      detail:
+        "The live-shipping runtime lock is open and the no-postage drill matches the live-shipping launch report.",
+      blockedChecks: params.blockedChecks,
+      warningChecks: params.warningChecks,
+      nextActions: [
+        "Monitor provider quote, buy, void, Coverage, webhook, and reconciliation events.",
+        "Keep dry-run cleanup clear before releasing seller payouts.",
+      ],
+    };
+  }
+
+  if (params.purchaseMode === "dry_run" && !params.liveShippingEnabled) {
+    return {
+      status: "locked",
+      label: "Shipping Safely Locked",
+      detail:
+        "Shipping is intentionally limited to dry-run planning and manual external label records. TCOS is not allowed to buy live postage.",
+      blockedChecks: params.blockedChecks,
+      warningChecks: params.warningChecks,
+      nextActions: [
+        "Configure Standard Envelope, parcel-label, and Coverage provider credentials.",
+        "Build and approve the live adapter quote/buy/void, Coverage purchase, webhook, and reconciliation workflow.",
+        "Keep TCOS_SHIPPING_PURCHASE_MODE=dry_run until those external-provider checks are complete.",
+      ],
+    };
+  }
+
+  return {
+    status: "blocked",
+    label: "Shipping Gate Blocked",
+    detail:
+      "Live shipping is not ready. The runtime should remain closed until provider setup, simulations, live requirements, and admin approval all pass.",
+    blockedChecks: params.blockedChecks,
+    warningChecks: params.warningChecks,
+    nextActions: [
+      "Open Live Shipping Launch and clear every blocked check.",
+      "Do not enable live postage while any provider, simulation, Coverage, webhook, or admin approval blocker remains.",
+    ],
+  };
 }
 
 export async function runLaunchGateDrill(params?: {
@@ -181,6 +339,10 @@ export async function runLaunchGateDrill(params?: {
     warning: checks.filter((check) => check.status === "warning").length,
     failed: checks.filter((check) => check.status === "failed").length,
   };
+  const paymentBlockedChecks = checkLabels(paymentReport.checks, "blocked");
+  const paymentWarningChecks = checkLabels(paymentReport.checks, "warning");
+  const shippingBlockedChecks = checkLabels(shippingReport.checks, "blocked");
+  const shippingWarningChecks = checkLabels(shippingReport.checks, "warning");
 
   return {
     generatedAt: new Date().toISOString(),
@@ -193,6 +355,24 @@ export async function runLaunchGateDrill(params?: {
     shipping: {
       liveShippingEnabled: shippingReport.liveShippingEnabled,
       purchaseMode: shippingReport.purchaseMode,
+    },
+    posture: {
+      payment: buildPaymentPosture({
+        approvalDatabaseReady: paymentReport.approvalDatabaseReady,
+        approvalReady: paymentReport.approvalReady,
+        livePaymentsEnabled: paymentReport.livePaymentsEnabled,
+        paymentMode: paymentReport.paymentMode,
+        blockedChecks: paymentBlockedChecks,
+        warningChecks: paymentWarningChecks,
+      }),
+      shipping: buildShippingPosture({
+        approvalDatabaseReady: shippingReport.approvalDatabaseReady,
+        approvalReady: shippingReport.approvalReady,
+        liveShippingEnabled: shippingReport.liveShippingEnabled,
+        purchaseMode: shippingReport.purchaseMode,
+        blockedChecks: shippingBlockedChecks,
+        warningChecks: shippingWarningChecks,
+      }),
     },
     checks,
   };

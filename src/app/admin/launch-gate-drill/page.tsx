@@ -1,6 +1,8 @@
 import Link from "next/link";
 import {
   runLaunchGateDrill,
+  type LaunchGatePosture,
+  type LaunchGatePostureStatus,
   type LaunchGateDrillStatus,
 } from "../../../lib/launch-gate-drill";
 import { getActiveStoreId } from "../../../lib/stores";
@@ -19,6 +21,20 @@ function label(status: LaunchGateDrillStatus) {
   if (status === "passed") return "Passed";
   if (status === "warning") return "Review";
   return "Failed";
+}
+
+function postureTone(status: LaunchGatePostureStatus) {
+  if (status === "ready") return "border-green-300 bg-green-50 text-green-950";
+  if (status === "locked") return "border-blue-300 bg-blue-50 text-blue-950";
+  if (status === "review") return "border-yellow-300 bg-yellow-50 text-yellow-950";
+  return "border-red-300 bg-red-50 text-red-950";
+}
+
+function postureLabel(status: LaunchGatePostureStatus) {
+  if (status === "ready") return "Ready";
+  if (status === "locked") return "Locked Safe";
+  if (status === "review") return "Review";
+  return "Blocked";
 }
 
 export default async function LaunchGateDrillPage() {
@@ -104,6 +120,11 @@ export default async function LaunchGateDrillPage() {
           <p className="mt-5 text-sm">Report generated {report.generatedAt}.</p>
         </section>
 
+        <section className="mb-8 grid gap-4 md:grid-cols-2">
+          <PostureCard title="Payment Launch Posture" posture={report.posture.payment} />
+          <PostureCard title="Shipping Launch Posture" posture={report.posture.shipping} />
+        </section>
+
         <section className="grid gap-4 md:grid-cols-2">
           {report.checks.map((item) => (
             <article key={item.key} className={`rounded border p-5 ${tone(item.status)}`}>
@@ -137,5 +158,68 @@ export default async function LaunchGateDrillPage() {
         </section>
       </div>
     </main>
+  );
+}
+
+function PostureCard({
+  title,
+  posture,
+}: {
+  title: string;
+  posture: LaunchGatePosture;
+}) {
+  const visibleBlockedChecks = posture.blockedChecks.slice(0, 5);
+  const hiddenBlockedCount = Math.max(
+    posture.blockedChecks.length - visibleBlockedChecks.length,
+    0,
+  );
+
+  return (
+    <article className={`rounded border p-5 ${postureTone(posture.status)}`}>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-xs font-black uppercase tracking-widest opacity-70">
+            {title}
+          </p>
+          <h2 className="mt-1 text-xl font-black">{posture.label}</h2>
+        </div>
+        <span className="rounded border border-current px-2 py-1 text-xs font-black uppercase">
+          {postureLabel(posture.status)}
+        </span>
+      </div>
+      <p className="mt-3 text-sm leading-6">{posture.detail}</p>
+
+      {visibleBlockedChecks.length > 0 ? (
+        <div className="mt-4">
+          <p className="text-xs font-black uppercase opacity-70">
+            Blocking launch checks
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {visibleBlockedChecks.map((check) => (
+              <span
+                key={check}
+                className="rounded border border-current px-2 py-1 text-xs font-bold"
+              >
+                {check}
+              </span>
+            ))}
+            {hiddenBlockedCount > 0 ? (
+              <span className="rounded border border-current px-2 py-1 text-xs font-bold">
+                +{hiddenBlockedCount} more
+              </span>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      <div className="mt-4">
+        <p className="text-xs font-black uppercase opacity-70">Next actions</p>
+        <ul className="mt-2 list-disc space-y-1 pl-5 text-sm leading-6">
+          {posture.nextActions.map((action) => (
+            <li key={action}>{action}</li>
+          ))}
+        </ul>
+      </div>
+    </article>
   );
 }
