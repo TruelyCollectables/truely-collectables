@@ -122,6 +122,35 @@ const providerCredentialGroups = [
   },
 ] as const;
 
+function providerCredentialGroupStatus(lanes: ProviderSetupLane[]) {
+  const configuredKeys = unique(
+    lanes.flatMap((lane) => [
+      ...lane.configuredCredentialKeys,
+      ...lane.configuredCoverageCredentialKeys,
+    ]),
+  );
+
+  return providerCredentialGroups.map((group) => {
+    const configuredGroupKeys = group.keys.filter((key) =>
+      configuredKeys.includes(key),
+    );
+
+    return {
+      title: group.title,
+      note: group.note,
+      keys: [...group.keys],
+      requirement:
+        group.keys.length > 1
+          ? `Choose one of: ${group.keys.join(" or ")}`
+          : "Required",
+      status: configuredGroupKeys.length > 0 ? "ready" : "missing",
+      configuredKeys: configuredGroupKeys,
+      missingKeys:
+        configuredGroupKeys.length > 0 ? [] : [...group.keys],
+    };
+  });
+}
+
 function envTemplateResponse(params: {
   lanes: ProviderSetupLane[];
   decision: ProviderSetupDecision;
@@ -373,6 +402,7 @@ export async function GET(request: Request) {
       {
         ...packet,
         exports: exportLinks(request.url),
+        credentialGroups: providerCredentialGroupStatus(packet.lanes),
       },
       {
         headers: {
