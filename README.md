@@ -38,7 +38,7 @@ npm run verify:production
 npm run launch:production
 ```
 
-The verify helper runs lint, build, and GitHub/clean-worktree preflight without starting a Vercel deploy. The launch helper runs that same verification first, then deploys production and runs the production smoke if the deploy succeeds. The deploy step verifies Git state, handles the clean Vercel production alias, removes the unwanted `tt3b` alias if it appears, and reports Vercel quota blocks clearly.
+The verify helper runs lint, build, production guardrail checks, and GitHub/clean-worktree preflight without starting a Vercel deploy. The launch helper runs that same verification first, then deploys production and runs the production smoke if the deploy succeeds. The deploy step verifies Git state, handles the clean Vercel production alias, removes the unwanted `tt3b` alias if it appears, and reports Vercel quota blocks clearly.
 
 ## Local development
 
@@ -58,7 +58,7 @@ Before stacking production-bound work, run:
 npm run verify:production
 ```
 
-That command is deploy-safe: it runs lint, build, and production Git preflight without consuming a Vercel deployment.
+That command is deploy-safe: it runs lint, build, production guardrail checks, and production Git preflight without consuming a Vercel deployment.
 
 ## Production safety rules
 
@@ -78,6 +78,6 @@ Use the checked production launch helper:
 npm run launch:production
 ```
 
-That command runs lint, build, GitHub/clean-worktree preflight, production deploy, clean-domain aliasing, unwanted `tt3b` alias removal, and production smoke in order.
+That command runs lint, build, production guardrail checks, GitHub/clean-worktree preflight, production deploy, clean-domain aliasing, unwanted `tt3b` alias removal, and production smoke in order.
 
 See [Production Deploy Runbook](docs/PRODUCTION_DEPLOY_RUNBOOK.md) for details.

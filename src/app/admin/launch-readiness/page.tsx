@@ -1178,6 +1178,7 @@ export default async function LaunchReadinessPage() {
 git rev-parse --short HEAD
 git rev-parse --short origin/main
 npm run verify:production
+npm run check:production-guardrails
 npm run preflight:production`}
             </pre>
             <p className="mt-3 text-sm font-semibold">
@@ -1185,7 +1186,8 @@ npm run preflight:production`}
               before production deploy. The deploy helper also blocks
               uncommitted deploy-relevant files, and the preflight command
               checks that without starting a Vercel deployment. Use verify to
-              run lint, build, and preflight together.
+              run lint, build, production guardrail checks, and production
+              preflight together.
             </p>
           </div>
 
@@ -1195,8 +1197,9 @@ npm run preflight:production`}
               {`npm run launch:production`}
             </pre>
             <p className="mt-3 text-sm font-semibold">
-              One command runs lint, build, production preflight, production
-              deploy, and smoke. Separate fallback:
+              One command runs lint, build, production guardrail checks,
+              production preflight, production deploy, and smoke. Separate
+              fallback:
             </p>
             <pre className="mt-3 overflow-x-auto rounded bg-neutral-950 p-3 text-xs text-neutral-50">
               {`npm run deploy:production

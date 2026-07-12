@@ -56,16 +56,16 @@ function hostFor(url) {
   }
 }
 
-if (!adminPassword) {
+if (hostFor(baseUrl) && hostFor(baseUrl) === hostFor(unwantedAliasUrl)) {
   console.error(
-    "Missing admin password. Set SMOKE_ADMIN_PASSWORD or keep ADMIN_PASSWORD in .env.local.",
+    `Refusing to smoke test the unwanted production alias: ${baseUrl}. Use the clean production domain instead.`,
   );
   process.exit(1);
 }
 
-if (hostFor(baseUrl) && hostFor(baseUrl) === hostFor(unwantedAliasUrl)) {
+if (!adminPassword) {
   console.error(
-    `Refusing to smoke test the unwanted production alias: ${baseUrl}. Use the clean production domain instead.`,
+    "Missing admin password. Set SMOKE_ADMIN_PASSWORD or keep ADMIN_PASSWORD in .env.local.",
   );
   process.exit(1);
 }
@@ -193,9 +193,10 @@ const checks = [
       result.text.includes("Launch Readiness") &&
       result.text.includes("Production Deploy Queue") &&
       result.text.includes("npm run verify:production") &&
+      result.text.includes("npm run check:production-guardrails") &&
       result.text.includes("npm run preflight:production") &&
       result.text.includes("npm run launch:production") &&
-      result.text.includes("lint, build, production preflight") &&
+      result.text.includes("lint, build, production guardrail checks") &&
       result.text.includes("npm run deploy:production") &&
       result.text.includes("npm run smoke:production") &&
       result.text.includes("truely-collectables.vercel.app") &&

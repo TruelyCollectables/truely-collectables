@@ -7,8 +7,8 @@ Generated for the next Codex session during the production launch stacking pass.
 - Workspace: `C:\Projects\truely-collectables`
 - Branch: `main`
 - GitHub remote: `https://github.com/TruelyCollectables/truely-collectables.git`
-- Latest pushed commit before this normalization note: `c5ba964 Document unwanted alias guardrails`
-- Local `HEAD` and `origin/main` matched at `c5ba964` after the last push.
+- Latest pushed commit before this guardrail-check note: `43238f2 Normalize production domain guardrails`
+- Local `HEAD` and `origin/main` matched at `43238f2` after the last push.
 - Local working tree was clean.
 - `.codex-run/` is ignored in `.gitignore`; leave the folder contents alone unless the user explicitly says to delete them.
 
@@ -58,7 +58,7 @@ The preflight helper:
 
 The verify helper:
 
-- runs `npm run lint`, `npm run build`, and `npm run preflight:production`;
+- runs `npm run lint`, `npm run build`, `npm run check:production-guardrails`, and `npm run preflight:production`;
 - is quota-safe because it does not start a Vercel deployment.
 
 The launch helper:
@@ -88,6 +88,8 @@ npm run build
 npm run preflight:production
 ```
 
+`npm run check:production-guardrails` was added and passed. It confirms the deploy helper refuses a clean domain that normalizes to the unwanted alias, and the smoke helper refuses the unwanted alias before admin auth.
+
 `npm run lint` was run after the production domain normalization changes and passed. `node --check` passed for the deploy and smoke helpers. Local refusal-path checks confirmed:
 
 - `VERCEL_CLEAN_DOMAIN=https://truely-collectables-tt3b.vercel.app/ VERCEL_UNWANTED_ALIAS=truely-collectables-tt3b.vercel.app node scripts/deploy-production.mjs --preflight-only` exits before Git/Vercel work.
@@ -115,6 +117,7 @@ npm run manual:pdf
 Most recent commits, newest first:
 
 ```text
+43238f2 Normalize production domain guardrails
 c5ba964 Document unwanted alias guardrails
 348bac6 Refuse production checks on unwanted alias
 91b7b0e Replace generic README setup guidance
