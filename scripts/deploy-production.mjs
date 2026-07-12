@@ -5,8 +5,6 @@ const cleanDomain =
   process.env.VERCEL_CLEAN_DOMAIN || "truely-collectables.vercel.app";
 const unwantedAlias =
   process.env.VERCEL_UNWANTED_ALIAS || "truely-collectables-tt3b.vercel.app";
-const deploymentPattern =
-  /https:\/\/truely-collectables-[a-z0-9]+-truelycollectables-projects\.vercel\.app/;
 const preflightOnly =
   process.argv.includes("--preflight-only") ||
   process.env.TCOS_PRODUCTION_PREFLIGHT_ONLY === "true";
@@ -54,6 +52,19 @@ function deployRelevantStatus(status) {
       return path !== ".codex-run/" && !path.startsWith(".codex-run/");
     })
     .join("\n");
+}
+
+function parseDeploymentUrl(output) {
+  const urls = output.match(/https:\/\/[^\s"'<>]+\.vercel\.app\b/g) || [];
+  const blockedHosts = new Set([cleanDomain, unwantedAlias]);
+
+  return urls.find((url) => {
+    try {
+      return !blockedHosts.has(new URL(url).host);
+    } catch {
+      return false;
+    }
+  });
 }
 
 function gitPreflight() {
@@ -114,11 +125,11 @@ if (deployOutput.includes("api-deployments-free-per-day")) {
   );
 }
 
-const deploymentUrl = deployOutput.match(deploymentPattern)?.[0];
+const deploymentUrl = parseDeploymentUrl(deployOutput);
 
 if (!deploymentUrl) {
   throw new Error(
-    `Could not parse Vercel deployment URL. If quota is capped, wait and retry.\n${deployOutput}`,
+    `Could not parse a Vercel deployment URL that is not the clean production domain or unwanted alias. If quota is capped, wait and retry.\n${deployOutput}`,
   );
 }
 
