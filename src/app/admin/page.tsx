@@ -758,6 +758,22 @@ export default async function AdminDashboard() {
                 <LinkButton href="/admin/shipping" label="Shipping Ops" />
                 <LinkButton href="/admin/launch-readiness" label="Readiness" />
                 <LinkButton href="/admin/launch-gate-drill" label="Gate Drill" />
+                <LinkButton
+                  href="/api/admin/shipping/provider-setup"
+                  label="Setup JSON"
+                />
+                <LinkButton
+                  href="/api/admin/shipping/provider-setup?format=env-template"
+                  label="Env Template"
+                />
+                <LinkButton
+                  href="/api/admin/shipping/provider-setup?format=vercel-commands"
+                  label="Vercel Commands"
+                />
+                <LinkButton
+                  href="/api/admin/shipping/provider-setup?format=operator-checklist"
+                  label="Checklist"
+                />
               </div>
             </section>
           </aside>
