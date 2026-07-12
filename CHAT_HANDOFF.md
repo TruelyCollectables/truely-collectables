@@ -1,41 +1,75 @@
 # TCOS Chat Handoff
 
-Generated for the next Codex session after the live payment/shipping launch-gate hardening pass.
+Generated for the next Codex session during the production launch stacking pass.
 
 ## Current repo state
 
 - Workspace: `C:\Projects\truely-collectables`
 - Branch: `main`
 - GitHub remote: `https://github.com/TruelyCollectables/truely-collectables.git`
-- Latest pushed commit: `b812bf9 Guard live runtime audit tables`
-- Production Vercel deployment verified Ready:
-  - `https://truely-collectables-nzx0vpaha-truelycollectables-projects.vercel.app`
-- Vercel production alias also points at the latest Ready deployment:
-  - `https://truely-collectables.vercel.app`
-  - `https://truely-collectables-truelycollectables-projects.vercel.app`
-  - `https://truely-collectables-git-main-truelycollectables-projects.vercel.app`
+- Latest pushed commit: `9319d4b Document production deploy runbook`
+- Local `HEAD` and `origin/main` matched at `9319d4b` after the last push.
 - Local working tree was clean except for untracked `.codex-run/`.
   - Leave `.codex-run/` alone unless the user explicitly says to delete it.
 
-## Validation state
+## Production/Vercel state
 
-The latest pushed work passed:
+- Clean production URL: `https://truely-collectables.vercel.app`
+- The unwanted preview-style alias `truely-collectables-tt3b.vercel.app` must not return.
+- Vercel production deploys were blocked by the free deployment quota:
+  - `api-deployments-free-per-day`
+- The latest GitHub commits are queued and pushed, but production may not include them until the quota window resets and `npm run deploy:production` succeeds.
+- Do not treat missing queued launch exports on production as code loss. They are expected until the next successful Vercel production deploy.
+
+## Production deploy flow
+
+Use the runbook:
+
+- `docs/PRODUCTION_DEPLOY_RUNBOOK.md`
+
+Expected command sequence once Vercel accepts deployments:
 
 ```powershell
-npx tsc --noEmit
+git status --short
+git rev-parse --short HEAD
+git rev-parse --short origin/main
+npm run deploy:production
+npm run smoke:production
+```
+
+The deploy helper:
+
+- checks local Git state against `origin/main`;
+- deploys production through Vercel;
+- fails clearly if Vercel quota is still capped;
+- removes the unwanted `truely-collectables-tt3b.vercel.app` alias if present;
+- points `https://truely-collectables.vercel.app` at the new production deployment.
+
+The smoke helper:
+
+- logs in using `SMOKE_ADMIN_PASSWORD`, `ADMIN_PASSWORD`, or `.env.local` `ADMIN_PASSWORD`;
+- checks admin, launch readiness, live payment/shipping gates, and shipping provider export surfaces;
+- prints local/remote commit context;
+- clearly calls out queued feature failures when production is simply behind GitHub.
+
+## Validation state
+
+Recent pushed work passed:
+
+```powershell
 npm run lint
 npm run build
 ```
 
-Manual generation status:
+Manual generation status from the earlier handoff still applies:
 
 ```powershell
 npm run manual:pdf
 ```
 
-- The manual HTML is current:
+- The manual HTML existed:
   - `docs/TCOS_OPERATOR_MANUAL_PRINT.html`
-- The local PDF export keeps failing because local Chrome/Edge GPU processes crash.
+- Local PDF export had been failing because local Chrome/Edge GPU processes crash.
 - Existing PDF may be stale:
   - `docs/TCOS_OPERATOR_MANUAL.pdf`
 - This PDF issue has been recurring and is not caused by the latest app code.
@@ -45,25 +79,59 @@ npm run manual:pdf
 Most recent commits, newest first:
 
 ```text
-b812bf9 Guard live runtime audit tables
-0b50adc Add live payment launch readiness checks
-7321df8 Preflight launch gate audit tables
-8e26c35 Harden live payment gate approval
-8d81751 Harden live shipping gate approval
-e8dc06e Add live shipping readiness checks
-849ece9 Enforce live shipping runtime gate
-e115314 Add live shipping launch gate
-00e109e Add live shipping simulation approval report
-8372275 Add live shipping approval checklist
-f7fcce8 Guide dry-run cleanup into real shipping proof
-a8f6b08 Add dry-run shipping cleanup center
+9319d4b Document production deploy runbook
+0928f64 Clarify queued feature smoke failures
+0cbcc3b Harden production deploy preflight
+abcebae Add one-shot production deploy helper
+cd21fab Add production launch smoke script
+d6670fa Link launch handoff bundle from dashboard
+bd623ee Add launch handoff bundle export
+54d7361 Show credential groups on shipping gate
+0cb7e18 Move provider credential groups into setup packet
+6d7a792 Add provider credential groups to setup JSON
+d7a549d Advertise shipping provider setup exports
+992b99e Link shipping setup exports from dashboard
+102d083 Add shipping setup links to launch brief
+759de58 Add shipping provider operator checklist export
+da12dd3 Add shipping Vercel env command export
 ```
 
 ## What was just completed
 
+### Launch deployment/runbook stack
+
+Added and pushed:
+
+- `scripts/deploy-production.mjs`
+- `scripts/smoke-production.mjs`
+- `docs/PRODUCTION_DEPLOY_RUNBOOK.md`
+- README link to the production deploy runbook
+
+Package scripts:
+
+```json
+{
+  "deploy:production": "node scripts/deploy-production.mjs",
+  "smoke:production": "node scripts/smoke-production.mjs"
+}
+```
+
+### Launch handoff and shipping provider exports
+
+Recent queued work also added admin/export surfaces for:
+
+- launch handoff bundle;
+- shipping provider setup JSON;
+- shipping provider env template;
+- shipping provider Vercel env command export;
+- shipping provider operator checklist;
+- provider credential groups displayed in the shipping gate/setup flow.
+
+These may fail production smoke until a successful Vercel deploy lands the queued commits.
+
 ### Live shipping launch gate
 
-Live shipping now has a dual-lock control plane:
+Live shipping has a dual-lock control plane:
 
 - Admin page:
   - `/admin/live-shipping-launch`
@@ -89,14 +157,12 @@ Important behavior:
   - dry-run shipping cleanup is clean
   - shipping simulations/live approval report pass
 - Manual external label recording still works.
-- Runtime now probes `live_shipping_launch_events` after approval is verified. If the audit table disappears after approval, live shipping fails closed.
-- Approval API now refuses approval when either the gate table or event table is unavailable.
-- Missing migration errors tell the operator to apply:
-  - `supabase/migrations/20260711185500_create_live_shipping_launch_gate.sql`
+- Runtime probes `live_shipping_launch_events` after approval is verified. If the audit table disappears after approval, live shipping fails closed.
+- Approval API refuses approval when either the gate table or event table is unavailable.
 
 ### Live payment launch gate
 
-Live payments now have matching hardening:
+Live payments have matching hardening:
 
 - Admin page:
   - `/admin/live-payment-launch`
@@ -120,27 +186,25 @@ Important behavior:
   - dry-run shipping cleanup is clean
   - reconciliation/test residue/payment simulation checks pass
   - live webhook/refund/dispute verification checks pass
-- Runtime now probes `live_payment_launch_events` after approval is verified. If the audit table disappears after approval, live Checkout fails closed.
-- Approval API now refuses approval when either the gate table or event table is unavailable.
-- Missing migration errors tell the operator to apply:
-  - `supabase/migrations/20260710185000_create_live_payment_launch_gate.sql`
+- Runtime probes `live_payment_launch_events` after approval is verified. If the audit table disappears after approval, live Checkout fails closed.
+- Approval API refuses approval when either the gate table or event table is unavailable.
 
 ### Launch readiness
 
-`/admin/launch-readiness` now includes:
+`/admin/launch-readiness` includes:
 
-- first-class Live Payment Launch Gate row
-- first-class Live Shipping Launch Gate row
+- first-class Live Payment Launch Gate row;
+- first-class Live Shipping Launch Gate row;
 - database checks for:
   - `live_payment_launch_gates`
   - `live_payment_launch_events`
   - `live_shipping_launch_gates`
   - `live_shipping_launch_events`
-- dry-run shipping cleanup gate
-- shipping setup/provider readiness
-- Stripe, Supabase, webhook, admin, reconciliation, evidence, eBay, and other existing readiness checks
+- dry-run shipping cleanup gate;
+- shipping setup/provider readiness;
+- Stripe, Supabase, webhook, admin, reconciliation, evidence, eBay, and other existing readiness checks.
 
-This page is still advisory/readiness surface. The actual runtime gates are in the API/lib code above.
+This page is advisory/readiness surface. The runtime gates live in the API/lib code above.
 
 ### Dry-run shipping safety
 
@@ -189,23 +253,16 @@ InstaComp has been improved, but the user wants to test later. Current remembere
 - User wants rapid forward motion. If they say `next`, pick the next high-value roadmap/safety item and execute.
 - User has already approved pushing commits to GitHub main when needed.
 - User expects pushed commits to deploy on Vercel and be verified.
+- While Vercel quota is capped, keep stacking safe commits on GitHub.
 - Keep `.codex-run/` untracked and untouched.
 - Use `apply_patch` for file edits.
 - Use `rg` first for searching.
 - Do not use destructive git commands.
 - Do not delete local/user files unless the user explicitly approves.
-- Keep the manual updated when operational behavior changes.
+- Keep the manual/docs updated when operational behavior changes.
 - The user likes direct, plain language and does not need sugarcoating.
 
-## Current production URLs to know
-
-Latest verified Ready deployment:
-
-```text
-https://truely-collectables-nzx0vpaha-truelycollectables-projects.vercel.app
-```
-
-Useful admin routes:
+## Useful admin routes
 
 ```text
 /admin
@@ -226,42 +283,30 @@ Useful admin routes:
 
 Best next steps, in order:
 
-1. Verify Supabase migrations are applied in the production Supabase project.
-   - Critical migrations:
-     - `20260710185000_create_live_payment_launch_gate.sql`
-     - `20260711185500_create_live_shipping_launch_gate.sql`
-   - Then open `/admin/launch-readiness` in production and confirm the four launch-gate tables are Ready.
-
-2. Do a production admin smoke test without enabling live money/postage:
+1. Keep stacking Vercel-ready launch improvements in small commits while quota is capped.
+2. When quota opens, run:
+   - `npm run deploy:production`
+   - `npm run smoke:production`
+3. If smoke passes, verify production admin manually:
    - `/admin/launch-readiness`
    - `/admin/live-payment-launch`
    - `/admin/live-shipping-launch`
    - `/admin/shipping#dry-run-cleanup`
-   - `/admin/shipping/simulations`
-   - `/admin/payment-simulations`
-
-3. Keep live payment and shipping switches locked unless intentionally testing:
-   - `TCOS_LIVE_PAYMENTS_ENABLED` should remain off unless intentionally approving live Checkout.
-   - `TCOS_SHIPPING_PURCHASE_MODE` should remain `dry_run` unless live postage is intentionally approved.
-   - `TCOS_LIVE_SHIPPING_ENABLED` should remain off unless live postage is intentionally approved.
-
-4. Next build direction after launch-gate hardening:
-   - Build/verify admin-facing smoke-test report for launch gates and runtime locks.
-   - Add a no-money “gate drill” that proves approval blocked/unblocked behavior without charging or buying postage.
-   - Then return to marketplace/seller inventory export or InstaComp testing, depending on user priority.
-
-5. InstaComp later:
-   - User needs to test real batches.
-   - Focus next pass on speed, OCR accuracy, serial/parallel detection, and comps quality.
-   - eBay sold/listed comps are important because TCOS internal comps are not enough yet.
+4. Keep live shipping locked unless intentionally testing:
+   - `TCOS_SHIPPING_PURCHASE_MODE=dry_run`
+   - `TCOS_LIVE_SHIPPING_ENABLED=false`
+5. If continuing feature work before deploy, good targets are:
+   - admin-facing production smoke report page;
+   - no-money/no-postage gate drill;
+   - marketplace/seller inventory export;
+   - InstaComp real-batch testing and accuracy pass.
 
 ## Last known local status
 
-Before creating this handoff:
+Before this handoff rewrite:
 
 ```text
 git status --short
 ?? .codex-run/
 ```
 
-After this handoff is created, commit/push it if the user wants the handoff preserved in GitHub main.
