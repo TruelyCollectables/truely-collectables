@@ -299,9 +299,19 @@ const totalDurationMs = results.reduce(
   (sum, result) => sum + (result.durationMs || 0),
   0,
 );
+const slowestResults = [...results]
+  .sort((a, b) => (b.durationMs || 0) - (a.durationMs || 0))
+  .slice(0, 3)
+  .map((result) => ({
+    name: result.name,
+    path: result.path,
+    durationMs: result.durationMs || 0,
+  }));
 
 console.table(results);
 console.log(`Production smoke total request time: ${totalDurationMs}ms`);
+console.log("Slowest production smoke checks:");
+console.table(slowestResults);
 
 if (failed.length > 0) {
   console.error("Failed production smoke details:");
