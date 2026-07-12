@@ -697,6 +697,10 @@ export default async function AdminDashboard() {
                   href="/api/admin/launch-readiness?format=markdown"
                   label="Brief MD"
                 />
+                <LinkButton
+                  href="/api/admin/launch-readiness?format=handoff-bundle"
+                  label="Hand-off Bundle"
+                />
               </div>
             </section>
 
