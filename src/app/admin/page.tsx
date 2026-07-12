@@ -1,6 +1,10 @@
 import Link from "next/link";
 import { PLATFORM_SOFTWARE_NAME } from "../../lib/legal";
 import { buildShippingProviderSetupPacket } from "../../lib/shipping-provider-setup";
+import {
+  runLaunchGateDrill,
+  type LaunchGatePostureStatus,
+} from "../../lib/launch-gate-drill";
 import { createSupabaseServerClient } from "../../lib/supabase-server";
 import { getStoreSettings } from "../../lib/store-settings";
 import { getActiveStoreId } from "../../lib/stores";
@@ -182,10 +186,19 @@ function shippingSetupTone(status: string): "green" | "amber" | "rose" {
   return "amber";
 }
 
+function launchPostureTone(status: LaunchGatePostureStatus): "green" | "amber" | "rose" {
+  if (status === "ready") return "green";
+  if (status === "locked") return "amber";
+  return "rose";
+}
+
 export default async function AdminDashboard() {
   const supabase = createSupabaseServerClient({ admin: true });
   const storeId = getActiveStoreId();
-  const storeSettings = await getStoreSettings(supabase, storeId);
+  const [storeSettings, launchGateDrill] = await Promise.all([
+    getStoreSettings(supabase, storeId),
+    runLaunchGateDrill({ supabase, storeId }),
+  ]);
   const shippingProviderSetup = buildShippingProviderSetupPacket();
   const shippingDecision = shippingProviderSetup.decision;
 
@@ -598,6 +611,88 @@ export default async function AdminDashboard() {
                   value={`${(storeSettings.sellerCommissionRate * 100).toFixed(2)}%`}
                 />
               </dl>
+            </section>
+
+            <section className="rounded-md border border-neutral-200 bg-white p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-xl font-black">Launch Locks</h2>
+                  <p className="mt-1 text-sm text-neutral-600">
+                    Runtime posture from the no-money gate drill.
+                  </p>
+                </div>
+                <Pill
+                  label={
+                    launchGateDrill.summary.failed === 0
+                      ? "DRILL PASS"
+                      : "DRILL FAIL"
+                  }
+                  tone={launchGateDrill.summary.failed === 0 ? "green" : "rose"}
+                />
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 gap-3">
+                <div className="rounded border border-neutral-200 bg-neutral-50 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-black uppercase text-neutral-500">
+                        Payment
+                      </p>
+                      <p className="mt-1 font-black">
+                        {launchGateDrill.posture.payment.label}
+                      </p>
+                    </div>
+                    <Pill
+                      label={launchGateDrill.posture.payment.status.toUpperCase()}
+                      tone={launchPostureTone(
+                        launchGateDrill.posture.payment.status,
+                      )}
+                    />
+                  </div>
+                  <p className="mt-2 text-xs font-semibold text-neutral-600">
+                    {launchGateDrill.payment.paymentMode.toUpperCase()} mode,
+                    live payments{" "}
+                    {launchGateDrill.payment.livePaymentsEnabled
+                      ? "enabled"
+                      : "locked"}
+                    .
+                  </p>
+                </div>
+
+                <div className="rounded border border-neutral-200 bg-neutral-50 p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-xs font-black uppercase text-neutral-500">
+                        Shipping
+                      </p>
+                      <p className="mt-1 font-black">
+                        {launchGateDrill.posture.shipping.label}
+                      </p>
+                    </div>
+                    <Pill
+                      label={launchGateDrill.posture.shipping.status.toUpperCase()}
+                      tone={launchPostureTone(
+                        launchGateDrill.posture.shipping.status,
+                      )}
+                    />
+                  </div>
+                  <p className="mt-2 text-xs font-semibold text-neutral-600">
+                    {launchGateDrill.shipping.purchaseMode.toUpperCase()} mode,
+                    live shipping{" "}
+                    {launchGateDrill.shipping.liveShippingEnabled
+                      ? "enabled"
+                      : "locked"}
+                    .
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
+                <LinkButton href="/admin/launch-gate-drill" label="Gate Drill" />
+                <LinkButton href="/admin/launch-readiness" label="Readiness" />
+                <LinkButton href="/admin/live-payment-launch" label="Pay Gate" />
+                <LinkButton href="/admin/live-shipping-launch" label="Ship Gate" />
+              </div>
             </section>
 
             <section className="rounded-md border border-neutral-200 bg-white p-5">
