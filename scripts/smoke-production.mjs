@@ -9,6 +9,10 @@ const unwantedAliasUrl = (
   process.env.SMOKE_UNWANTED_ALIAS_URL ||
   "https://truely-collectables-tt3b.vercel.app"
 ).replace(/\/$/, "");
+const requestTimeoutMs = Math.max(
+  1000,
+  Number(process.env.SMOKE_REQUEST_TIMEOUT_MS || 15000) || 15000,
+);
 
 function optionalRun(command, args) {
   const result = spawnSync(command, args, {
@@ -57,8 +61,11 @@ const remoteHead = optionalRun("git", ["rev-parse", "--short", "origin/main"]);
 console.log(`Production smoke target: ${baseUrl}`);
 console.log(`Local HEAD: ${localHead || "unknown"}`);
 console.log(`origin/main: ${remoteHead || "unknown"}`);
+console.log(`Request timeout: ${requestTimeoutMs}ms`);
 
 function setCookieHeaderValue(response) {
+  if (!response) return "";
+
   if (typeof response.headers.getSetCookie === "function") {
     return response.headers.getSetCookie().join("; ");
   }
@@ -67,20 +74,34 @@ function setCookieHeaderValue(response) {
 }
 
 async function request(path, options = {}) {
-  const response = await fetch(`${baseUrl}${path}`, {
-    redirect: "manual",
-    ...options,
-  });
-  const text = await response.text();
+  try {
+    const response = await fetch(`${baseUrl}${path}`, {
+      redirect: "manual",
+      ...options,
+      signal: options.signal || AbortSignal.timeout(requestTimeoutMs),
+    });
+    const text = await response.text();
 
-  return {
-    path,
-    status: response.status,
-    ok: response.status >= 200 && response.status < 400,
-    contentType: response.headers.get("content-type") || "",
-    text,
-    response,
-  };
+    return {
+      path,
+      status: response.status,
+      ok: response.status >= 200 && response.status < 400,
+      contentType: response.headers.get("content-type") || "",
+      text,
+      response,
+      error: "",
+    };
+  } catch (error) {
+    return {
+      path,
+      status: 0,
+      ok: false,
+      contentType: "",
+      text: "",
+      response: null,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 async function requestUrl(url, options = {}) {
@@ -88,6 +109,7 @@ async function requestUrl(url, options = {}) {
     const response = await fetch(url, {
       redirect: "manual",
       ...options,
+      signal: options.signal || AbortSignal.timeout(requestTimeoutMs),
     });
     const text = await response.text();
 
@@ -217,7 +239,7 @@ const results = [
     path: "/api/admin/login",
     status: login.status,
     contentType: login.contentType,
-    snippet: diagnosticSnippet(login.text),
+    snippet: diagnosticSnippet(login.text) || login.error,
     passed: login.ok && Boolean(cookie),
   },
 ];
@@ -229,7 +251,7 @@ for (const check of checks) {
     path: check.path,
     status: result.status,
     contentType: result.contentType,
-    snippet: diagnosticSnippet(result.text),
+    snippet: diagnosticSnippet(result.text) || result.error,
     passed: result.ok && check.expect(result),
   });
 }

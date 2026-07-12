@@ -66,6 +66,8 @@ npm run smoke:production
 
 The smoke helper logs in with `SMOKE_ADMIN_PASSWORD`, `ADMIN_PASSWORD`, or the local `.env.local` `ADMIN_PASSWORD`, then checks the production admin/readiness/shipping launch surfaces.
 
+Smoke requests default to a 15-second timeout. Override with `SMOKE_REQUEST_TIMEOUT_MS` if production is slow but still healthy.
+
 If the smoke says queued launch features are not visible, production is still behind the GitHub stack. Rerun the production deploy once Vercel accepts deployments, then run the smoke again.
 
 ## Expected success path
