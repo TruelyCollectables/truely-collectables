@@ -213,6 +213,13 @@ const marketplaceExportWarning =
 const marketplaceExportShippingWarning =
   "Shipping values are planning estimates only. This export does not buy postage, create Coverage policies, or publish to an external marketplace.";
 
+const marketplaceExportChecklist = [
+  "Verify the external marketplace category and item specifics before publishing.",
+  "Recheck title, description, condition, authenticity, image, price, and quantity on the destination platform.",
+  "Recalculate shipping on the destination platform or in TCOS checkout before any buyer purchase.",
+  "Do not treat this packet as permission to publish externally, buy postage, create Coverage, or release payouts.",
+];
+
 function shortDate(value: string | null | undefined) {
   if (!value) return "Not recorded";
 
@@ -323,6 +330,14 @@ function marketplaceExportPacket(
     shippingPurchaseIncluded: false,
     warning: marketplaceExportWarning,
     shippingWarning: marketplaceExportShippingWarning,
+    operatorChecklist: marketplaceExportChecklist,
+    prohibitedActions: [
+      "external_marketplace_publish",
+      "postage_purchase",
+      "coverage_policy_creation",
+      "seller_payout_release",
+      "order_fulfillment",
+    ],
     rows: marketplaceExportRows(items),
   };
 }
@@ -2191,6 +2206,11 @@ export default function SellerInventoryPage() {
                 </div>
                 <p className="mt-2 text-xs font-semibold">
                   {marketplaceExportWarning} {marketplaceExportShippingWarning}
+                </p>
+                <p className="mt-2 text-xs font-semibold">
+                  JSON packets include an operator checklist and prohibited-action
+                  manifest so saved files cannot be mistaken for publishing,
+                  postage, Coverage, payout, or fulfillment approval.
                 </p>
               </div>
             </div>
