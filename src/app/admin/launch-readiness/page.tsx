@@ -62,6 +62,31 @@ function statusLabel(status: ReadinessStatus) {
   return "Blocked";
 }
 
+function attentionHref(item: ReadinessItem) {
+  const label = item.label.toLowerCase();
+  const action = item.action.toLowerCase();
+
+  if (label.includes("live payment")) return "/admin/live-payment-launch";
+  if (label.includes("live shipping")) return "/admin/live-shipping-launch";
+  if (label.includes("dry-run shipping cleanup")) {
+    return "/admin/shipping#dry-run-cleanup";
+  }
+  if (label.includes("shipping simulation")) return "/admin/shipping/simulations";
+  if (label.includes("shipping") || action.includes("/admin/shipping")) {
+    return "/admin/shipping";
+  }
+  if (label.includes("payment simulation")) return "/admin/payment-simulations";
+  if (label.includes("stripe reconciliation") || label.includes("unmatched money")) {
+    return "/admin/financial-reconciliation";
+  }
+  if (label.includes("admin") || label.includes("security")) return "/admin/security";
+  if (label.includes("ebay")) return "/admin/ebay";
+  if (label.includes("evidence")) return "/admin/files";
+  if (action.includes("supabase/migrations/")) return "#database-readiness";
+
+  return null;
+}
+
 function getPaymentMode() {
   if (process.env.TCOS_LIVE_PAYMENTS_ENABLED === "true") {
     return getStripeLiveSecretKey() && getStripeLivePublishableKey()
@@ -1105,31 +1130,43 @@ export default async function LaunchReadinessPage() {
           </div>
 
           <div className="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-2">
-            {attentionItems.slice(0, 10).map((item) => (
-              <section
-                key={`attention-${item.label}`}
-                className="rounded border border-neutral-200 bg-neutral-50 p-4"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h3 className="font-bold">{item.label}</h3>
-                    <p className="mt-1 text-sm text-neutral-600">
-                      {item.detail}
-                    </p>
+            {attentionItems.slice(0, 10).map((item) => {
+              const href = attentionHref(item);
+
+              return (
+                <section
+                  key={`attention-${item.label}`}
+                  className="rounded border border-neutral-200 bg-neutral-50 p-4"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h3 className="font-bold">{item.label}</h3>
+                      <p className="mt-1 text-sm text-neutral-600">
+                        {item.detail}
+                      </p>
+                    </div>
+                    <span
+                      className={`shrink-0 rounded border px-2 py-1 text-xs font-bold ${statusClass(
+                        item.status,
+                      )}`}
+                    >
+                      {statusLabel(item.status)}
+                    </span>
                   </div>
-                  <span
-                    className={`shrink-0 rounded border px-2 py-1 text-xs font-bold ${statusClass(
-                      item.status,
-                    )}`}
-                  >
-                    {statusLabel(item.status)}
-                  </span>
-                </div>
-                <p className="mt-3 text-sm font-semibold text-neutral-700">
-                  {item.action}
-                </p>
-              </section>
-            ))}
+                  <p className="mt-3 text-sm font-semibold text-neutral-700">
+                    {item.action}
+                  </p>
+                  {href ? (
+                    <Link
+                      href={href}
+                      className="mt-3 inline-flex rounded border border-neutral-300 bg-white px-3 py-2 text-sm font-bold text-neutral-950 hover:bg-neutral-100"
+                    >
+                      Open related page
+                    </Link>
+                  ) : null}
+                </section>
+              );
+            })}
           </div>
 
           {attentionItems.length > 10 ? (

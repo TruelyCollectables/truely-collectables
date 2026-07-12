@@ -4173,7 +4173,7 @@ If the live-payment approval migration is missing, the runtime gate fails closed
 
 The top Launch Readiness payment banner follows the dedicated Live Payment Launch Gate, not the whole-page blocked count. This prevents unrelated shipping-provider, marketplace, identity, email, or future-feature blockers from making an already-open payment runtime look closed. Use the separate full-launch banner and checklist for those broader launch blockers and review items; that banner reports blocked and review counts separately.
 
-The Launch Attention Board near the top of `/admin/launch-readiness` pulls the current blocked and review items out of the full checklist and shows the first ten by severity. It is a triage shortcut over the same readiness data, not a separate approval gate.
+The Launch Attention Board near the top of `/admin/launch-readiness` pulls the current blocked and review items out of the full checklist and shows the first ten by severity. It is a triage shortcut over the same readiness data, not a separate approval gate. When TCOS can infer the right admin surface, each attention card includes an `Open related page` shortcut.
 
 `/admin/launch-gate-drill` runs a no-money runtime smoke over the payment and shipping launch locks. For payments, it verifies that test-mode Checkout remains available for simulations, invalid Stripe secrets fail closed, and the current live runtime state matches the live-payment launch report. It uses synthetic key strings and does not create Checkout Sessions, Customers, PaymentIntents, refunds, or disputes.
 
