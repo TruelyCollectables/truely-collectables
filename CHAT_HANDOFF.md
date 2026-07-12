@@ -7,8 +7,8 @@ Generated for the next Codex session during the production launch stacking pass.
 - Workspace: `C:\Projects\truely-collectables`
 - Branch: `main`
 - GitHub remote: `https://github.com/TruelyCollectables/truely-collectables.git`
-- Latest pushed commit: `9319d4b Document production deploy runbook`
-- Local `HEAD` and `origin/main` matched at `9319d4b` after the last push.
+- Latest pushed commit before this handoff refresh: `dcb3bf4 Smoke one-shot launch command visibility`
+- Local `HEAD` and `origin/main` matched at `dcb3bf4` after the last push.
 - Local working tree was clean except for untracked `.codex-run/`.
   - Leave `.codex-run/` alone unless the user explicitly says to delete it.
 
@@ -18,7 +18,7 @@ Generated for the next Codex session during the production launch stacking pass.
 - The unwanted preview-style alias `truely-collectables-tt3b.vercel.app` must not return.
 - Vercel production deploys were blocked by the free deployment quota:
   - `api-deployments-free-per-day`
-- The latest GitHub commits are queued and pushed, but production may not include them until the quota window resets and `npm run deploy:production` succeeds.
+- The latest GitHub commits are queued and pushed, but production may not include them until the quota window resets and `npm run launch:production` succeeds.
 - Do not treat missing queued launch exports on production as code loss. They are expected until the next successful Vercel production deploy.
 
 ## Production deploy flow
@@ -37,6 +37,12 @@ npm run deploy:production
 npm run smoke:production
 ```
 
+Preferred one-shot command:
+
+```powershell
+npm run launch:production
+```
+
 The deploy helper:
 
 - checks local Git state against `origin/main`;
@@ -48,7 +54,9 @@ The deploy helper:
 The smoke helper:
 
 - logs in using `SMOKE_ADMIN_PASSWORD`, `ADMIN_PASSWORD`, or `.env.local` `ADMIN_PASSWORD`;
-- checks admin, launch readiness, live payment/shipping gates, and shipping provider export surfaces;
+- checks admin, launch readiness, the one-shot launch command visibility, live payment/shipping gates, and shipping provider export surfaces;
+- fails if the unwanted `truely-collectables-tt3b.vercel.app` alias returns a successful response;
+- prints failed-check HTTP status, content type, and a short safe response snippet;
 - prints local/remote commit context;
 - clearly calls out queued feature failures when production is simply behind GitHub.
 
@@ -79,6 +87,13 @@ npm run manual:pdf
 Most recent commits, newest first:
 
 ```text
+dcb3bf4 Smoke one-shot launch command visibility
+79955ce Add one-shot production launch script
+be20fcb Guard unwanted Vercel alias in production smoke
+ccf27ba Add production smoke failure diagnostics
+a0cbb78 Smoke production deploy queue surface
+5e2de83 Surface production deploy queue in readiness
+d33c6f5 Refresh launch handoff for queued deploy
 9319d4b Document production deploy runbook
 0928f64 Clarify queued feature smoke failures
 0cbcc3b Harden production deploy preflight
@@ -87,13 +102,6 @@ cd21fab Add production launch smoke script
 d6670fa Link launch handoff bundle from dashboard
 bd623ee Add launch handoff bundle export
 54d7361 Show credential groups on shipping gate
-0cb7e18 Move provider credential groups into setup packet
-6d7a792 Add provider credential groups to setup JSON
-d7a549d Advertise shipping provider setup exports
-992b99e Link shipping setup exports from dashboard
-102d083 Add shipping setup links to launch brief
-759de58 Add shipping provider operator checklist export
-da12dd3 Add shipping Vercel env command export
 ```
 
 ## What was just completed
@@ -112,7 +120,8 @@ Package scripts:
 ```json
 {
   "deploy:production": "node scripts/deploy-production.mjs",
-  "smoke:production": "node scripts/smoke-production.mjs"
+  "smoke:production": "node scripts/smoke-production.mjs",
+  "launch:production": "npm run deploy:production && npm run smoke:production"
 }
 ```
 
@@ -285,8 +294,10 @@ Best next steps, in order:
 
 1. Keep stacking Vercel-ready launch improvements in small commits while quota is capped.
 2. When quota opens, run:
-   - `npm run deploy:production`
-   - `npm run smoke:production`
+   - `npm run launch:production`
+   - If needed, run the fallback pair manually:
+     - `npm run deploy:production`
+     - `npm run smoke:production`
 3. If smoke passes, verify production admin manually:
    - `/admin/launch-readiness`
    - `/admin/live-payment-launch`
@@ -309,4 +320,3 @@ Before this handoff rewrite:
 git status --short
 ?? .codex-run/
 ```
-
