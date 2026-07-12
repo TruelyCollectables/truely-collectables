@@ -74,6 +74,8 @@ function setCookieHeaderValue(response) {
 }
 
 async function request(path, options = {}) {
+  const startedAt = Date.now();
+
   try {
     const response = await fetch(`${baseUrl}${path}`, {
       redirect: "manual",
@@ -90,6 +92,7 @@ async function request(path, options = {}) {
       text,
       response,
       error: "",
+      durationMs: Date.now() - startedAt,
     };
   } catch (error) {
     return {
@@ -100,11 +103,14 @@ async function request(path, options = {}) {
       text: "",
       response: null,
       error: error instanceof Error ? error.message : String(error),
+      durationMs: Date.now() - startedAt,
     };
   }
 }
 
 async function requestUrl(url, options = {}) {
+  const startedAt = Date.now();
+
   try {
     const response = await fetch(url, {
       redirect: "manual",
@@ -121,6 +127,7 @@ async function requestUrl(url, options = {}) {
       text,
       response,
       error: "",
+      durationMs: Date.now() - startedAt,
     };
   } catch (error) {
     return {
@@ -131,6 +138,7 @@ async function requestUrl(url, options = {}) {
       text: "",
       response: null,
       error: error instanceof Error ? error.message : String(error),
+      durationMs: Date.now() - startedAt,
     };
   }
 }
@@ -242,6 +250,7 @@ const results = [
     name: "admin login",
     path: "/api/admin/login",
     status: login.status,
+    durationMs: login.durationMs,
     contentType: login.contentType,
     snippet: diagnosticSnippet(login.text) || login.error,
     passed: login.ok && Boolean(cookie),
@@ -254,6 +263,7 @@ for (const check of checks) {
     name: check.name,
     path: check.path,
     status: result.status,
+    durationMs: result.durationMs,
     contentType: result.contentType,
     snippet: diagnosticSnippet(result.text) || result.error,
     passed: result.ok && check.expect(result),
@@ -265,6 +275,7 @@ results.push({
   name: "unwanted tt3b alias absent",
   path: unwantedAlias.path,
   status: unwantedAlias.status,
+  durationMs: unwantedAlias.durationMs,
   contentType: unwantedAlias.contentType,
   snippet:
     diagnosticSnippet(unwantedAlias.text) ||
@@ -294,6 +305,7 @@ if (failed.length > 0) {
       name: result.name,
       path: result.path,
       status: result.status,
+      durationMs: result.durationMs,
       contentType: result.contentType || "none",
       snippet: result.snippet || "empty response",
     })),
