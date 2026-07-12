@@ -836,6 +836,12 @@ export default async function AdminShippingPage() {
                 >
                   Setup CSV
                 </a>
+                <a
+                  href="/api/admin/shipping/provider-setup?format=env-template"
+                  className="inline-flex rounded border border-neutral-300 bg-white px-4 py-2 font-black text-neutral-950"
+                >
+                  Env Template
+                </a>
               </div>
               <p className="mt-1 text-xs font-semibold text-neutral-500">
                 No-secret provider checklist for Standard Envelope, parcels,

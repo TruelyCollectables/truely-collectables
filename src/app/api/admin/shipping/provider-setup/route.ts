@@ -77,6 +77,69 @@ function csvResponse(params: {
   });
 }
 
+function unique(values: string[]) {
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
+function envTemplateResponse(params: {
+  lanes: ProviderSetupLane[];
+  decision: ProviderSetupDecision;
+  liveRequirements: LiveShippingRequirement[];
+}) {
+  const requiredCredentialKeys = unique(
+    params.lanes.flatMap((lane) => [
+      ...lane.credentialKeys,
+      ...lane.coverageCredentialKeys,
+    ]),
+  );
+  const missingCredentialGroups = unique(
+    params.lanes.flatMap((lane) => [
+      ...lane.missingCredentialKeys,
+      ...lane.missingCoverageCredentialKeys,
+    ]),
+  );
+  const liveRequirementKeys = unique(
+    params.liveRequirements.flatMap((requirement) => requirement.evidence),
+  ).filter((evidence) => /^[A-Z0-9_]+=(true|false)$/i.test(evidence));
+  const webhookKeys = [
+    "TCOS_SHIPPING_PROVIDER_WEBHOOK_SECRET",
+    "EASYPOST_WEBHOOK_SECRET",
+    "SHIPPO_WEBHOOK_SECRET",
+  ];
+  const lines = [
+    "# TCOS shipping provider setup template",
+    "# Paste these keys into Vercel production/preview environment variables.",
+    "# Do not commit real secret values to git. This export contains names only.",
+    `# Provider decision: ${params.decision.status}`,
+    `# Next action: ${params.decision.nextAction}`,
+    "",
+    "# Required provider credential names",
+    ...requiredCredentialKeys.map((key) => `${key}=`),
+    "",
+    "# Provider webhook signing secret names; configure the one your provider uses",
+    ...webhookKeys.map((key) => `${key}=`),
+    "",
+    "# Live adapter approval flags; keep false until evidence is saved",
+    ...liveRequirementKeys.map((evidence) => evidence.replace("=true", "=false")),
+    "",
+    "# Missing credential groups right now",
+    ...(missingCredentialGroups.length > 0
+      ? missingCredentialGroups.map((group) => `# - ${group}`)
+      : ["# - none"]),
+    "",
+  ];
+  const exportedAt = new Date().toISOString().slice(0, 10);
+
+  return new Response(lines.join("\n"), {
+    status: 200,
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Content-Disposition": `attachment; filename="tcos-shipping-provider-env-template-${exportedAt}.env"`,
+      "Cache-Control": "no-store",
+    },
+  });
+}
+
 export async function GET(request: Request) {
   try {
     const packet = buildShippingProviderSetupPacket();
@@ -84,6 +147,14 @@ export async function GET(request: Request) {
 
     if (url.searchParams.get("format") === "csv") {
       return csvResponse({
+        lanes: packet.lanes,
+        decision: packet.decision,
+        liveRequirements: packet.liveRequirements,
+      });
+    }
+
+    if (url.searchParams.get("format") === "env-template") {
+      return envTemplateResponse({
         lanes: packet.lanes,
         decision: packet.decision,
         liveRequirements: packet.liveRequirements,

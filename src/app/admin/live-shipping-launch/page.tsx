@@ -156,6 +156,12 @@ export default async function LiveShippingLaunchPage() {
               >
                 Setup CSV
               </Link>
+              <Link
+                href="/api/admin/shipping/provider-setup?format=env-template"
+                className="rounded border border-amber-300 bg-white px-4 py-2 font-black text-amber-950"
+              >
+                Env Template
+              </Link>
             </div>
           </div>
 
