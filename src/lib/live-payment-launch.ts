@@ -9,6 +9,7 @@ import {
   getStripeLiveSecretKey,
   getStripeLiveWebhookSecret,
   getStripeTestSecretKey,
+  stripeCredentialShape,
 } from "./stripe-credentials";
 
 export const LIVE_PAYMENT_APPROVAL_VERSION = "tcos-live-payments-v1";
@@ -40,7 +41,9 @@ export type LivePaymentLaunchReport = {
   paymentMode: "live" | "test" | "mixed" | "missing";
   credentialDiagnostics: {
     liveSecretKeyRecognized: boolean;
+    liveSecretKeyShape: string;
     livePublishableKeyRecognized: boolean;
+    livePublishableKeyShape: string;
     liveWebhookSecretRecognized: boolean;
     testSecretKeyRecognized: boolean;
     livePaymentsSwitchEnabled: boolean;
@@ -551,7 +554,15 @@ export async function evaluateLivePaymentLaunch(params?: {
     paymentMode: mode,
     credentialDiagnostics: {
       liveSecretKeyRecognized: Boolean(getStripeLiveSecretKey()),
+      liveSecretKeyShape: stripeCredentialShape(
+        process.env.STRIPE_LIVE_SECRET_KEY,
+        "sk_live_",
+      ),
       livePublishableKeyRecognized: Boolean(getStripeLivePublishableKey()),
+      livePublishableKeyShape: stripeCredentialShape(
+        process.env.NEXT_PUBLIC_STRIPE_LIVE_PUBLISHABLE_KEY,
+        "pk_live_",
+      ),
       liveWebhookSecretRecognized: Boolean(getStripeLiveWebhookSecret()),
       testSecretKeyRecognized: Boolean(getStripeTestSecretKey()),
       livePaymentsSwitchEnabled:

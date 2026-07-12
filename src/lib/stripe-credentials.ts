@@ -1,6 +1,40 @@
 function configured(value: string | undefined) {
   const trimmed = value?.trim();
-  return trimmed && trimmed.length > 0 ? trimmed : null;
+  if (!trimmed) return null;
+
+  const quote = trimmed[0];
+  if (
+    (quote === '"' || quote === "'") &&
+    trimmed.length >= 2 &&
+    trimmed[trimmed.length - 1] === quote
+  ) {
+    return trimmed.slice(1, -1).trim() || null;
+  }
+
+  return trimmed;
+}
+
+export function stripeCredentialShape(
+  value: string | undefined,
+  expectedPrefix: string,
+) {
+  const raw = value?.trim();
+  if (!raw) return "missing" as const;
+  if (raw.startsWith(expectedPrefix)) return "valid" as const;
+
+  const quote = raw[0];
+  if (
+    (quote === '"' || quote === "'") &&
+    raw[raw.length - 1] === quote &&
+    raw.slice(1, -1).trim().startsWith(expectedPrefix)
+  ) {
+    return "quoted" as const;
+  }
+
+  if (raw.includes(expectedPrefix)) return "embedded" as const;
+  if (/^(sk|pk)_test_/.test(raw)) return "test_key" as const;
+  if (raw.startsWith("rk_live_")) return "restricted_key" as const;
+  return "unrecognized" as const;
 }
 
 function matching(value: string | undefined, prefix: string) {
