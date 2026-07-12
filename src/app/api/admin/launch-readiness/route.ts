@@ -101,6 +101,12 @@ function markdownForBrief(brief: Awaited<ReturnType<typeof buildBrief>>) {
     `Generated: ${brief.generatedAt}`,
     `Store: ${brief.storeId}`,
     "",
+    "## Operator Next Step",
+    "",
+    `- Overall: ${brief.status.overall}`,
+    `- Next: ${brief.status.nextStep}`,
+    `- Link: ${brief.status.url || brief.status.href}`,
+    "",
     "## Summary",
     "",
     `- Ready: ${brief.summary.ready}`,
@@ -143,6 +149,69 @@ function absoluteUrl(origin: string | null, href: string | undefined) {
   } catch {
     return undefined;
   }
+}
+
+function buildOperatorStatus(params: {
+  summary: ReturnType<typeof summarize>;
+  paymentLiveEnabled: boolean;
+  shippingLiveEnabled: boolean;
+  shippingMode: string;
+  drillFailed: number;
+  firstAttentionItem: BriefItem | undefined;
+}) {
+  if (params.drillFailed > 0) {
+    return {
+      overall: "blocked",
+      nextStep:
+        "Open the Launch Gate Drill and fix failing runtime-lock checks before changing any launch switches.",
+      href: "/admin/launch-gate-drill",
+    };
+  }
+
+  if (params.summary.blocked > 0) {
+    return {
+      overall: "blocked",
+      nextStep: params.firstAttentionItem
+        ? `Clear the top blocked launch item: ${params.firstAttentionItem.label}.`
+        : "Clear blocked launch readiness items before continuing launch work.",
+      href: params.firstAttentionItem?.href || "/admin/launch-readiness",
+    };
+  }
+
+  if (!params.paymentLiveEnabled) {
+    return {
+      overall: "review",
+      nextStep:
+        "Payment is not open; review the Live Payment Launch gate before accepting live Checkout.",
+      href: "/admin/live-payment-launch",
+    };
+  }
+
+  if (!params.shippingLiveEnabled || params.shippingMode !== "live") {
+    return {
+      overall: "review",
+      nextStep:
+        "Live payments are open; keep shipping safely locked while provider credentials, live adapter, Coverage, webhook, and reconciliation work is completed.",
+      href: "/admin/live-shipping-launch",
+    };
+  }
+
+  if (params.summary.review > 0) {
+    return {
+      overall: "review",
+      nextStep: params.firstAttentionItem
+        ? `Review the top launch attention item: ${params.firstAttentionItem.label}.`
+        : "Review remaining launch attention items.",
+      href: params.firstAttentionItem?.href || "/admin/launch-readiness",
+    };
+  }
+
+  return {
+    overall: "ready",
+    nextStep:
+      "Launch gates are clear. Continue monitoring orders, Stripe webhooks, reconciliation, shipping proof, and seller payout holds.",
+    href: "/admin",
+  };
 }
 
 async function buildBrief(origin: string | null = null) {
@@ -233,11 +302,24 @@ async function buildBrief(origin: string | null = null) {
       ...item,
       url: absoluteUrl(origin, item.href),
     }));
+  const summary = summarize(items);
+  const operatorStatus = buildOperatorStatus({
+    summary,
+    paymentLiveEnabled: paymentReport.livePaymentsEnabled,
+    shippingLiveEnabled: shippingReport.liveShippingEnabled,
+    shippingMode: shippingReport.purchaseMode,
+    drillFailed: drillReport.summary.failed,
+    firstAttentionItem: attentionItems[0],
+  });
 
   return {
     generatedAt: new Date().toISOString(),
     storeId,
-    summary: summarize(items),
+    status: {
+      ...operatorStatus,
+      url: absoluteUrl(origin, operatorStatus.href),
+    },
+    summary,
     payment: {
       mode: paymentReport.paymentMode,
       livePaymentsEnabled: paymentReport.livePaymentsEnabled,
