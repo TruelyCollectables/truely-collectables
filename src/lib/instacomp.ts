@@ -582,6 +582,8 @@ export function filterAndRankExactMatches(
 ): InstaCompComp[] {
   const targetDenominator = serialRunDenominator(ai.serialNumber);
   const requiresParallelEvidence = parallelTokens(ai.parallel).length > 0;
+  const requiresPlayerEvidence = Boolean(normalizeText(ai.player));
+  const requiresCardNumberEvidence = Boolean(normalizeCardNumber(ai.cardNumber));
 
   return comps
     .map((comp) => {
@@ -595,6 +597,11 @@ export function filterAndRankExactMatches(
     })
     .filter((comp) => comp.price > 0)
     .filter((comp) => !comp.flags.includes("excluded"))
+    .filter(
+      (comp) =>
+        (!requiresPlayerEvidence || comp.flags.includes("player")) &&
+        (!requiresCardNumberEvidence || comp.flags.includes("card #"))
+    )
     .filter(
       (comp) =>
         !requiresParallelEvidence ||
