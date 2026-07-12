@@ -333,6 +333,15 @@ const checks = [
       result.text.includes("### Forbidden Operations"),
   },
   {
+    name: "production smoke report page",
+    path: "/admin/production-smoke",
+    expect: (result) =>
+      result.text.includes("Production Smoke Report") &&
+      result.text.includes("Smoke coverage") &&
+      result.text.includes("Unwanted tt3b alias absence") &&
+      result.text.includes("npm run launch:production"),
+  },
+  {
     name: "launch handoff bundle",
     path: "/api/admin/launch-readiness?format=handoff-bundle",
     expect: (result) =>

@@ -4183,6 +4183,8 @@ When shipping is intentionally in `dry_run` mode with live shipping disabled and
 
 The drill report now includes a Side-effect Guardrails section, the JSON API returns `sideEffectPolicy`, and `/api/admin/launch-gate-drill?format=markdown` downloads a Markdown operator report. This explicitly lists the read/evaluate operations the drill may perform and the forbidden operations it must not perform: Stripe money-object creation, postage quote/buy/void/record actions, seller Coverage purchase, external claim/policy creation, seller payout release, or marking orders shipped.
 
+`/admin/production-smoke` is the admin-facing production smoke report map. It does not run Vercel or external provider actions; it shows the launch command, clean production target, smoke coverage, common failure meanings, and the manual follow-up links operators should check after `npm run launch:production` succeeds.
+
 The Launch Gate Drill also shows Payment Launch Posture and Shipping Launch Posture cards. These cards separate runtime-smoke safety from operator launch readiness: the drill can pass while shipping remains `Locked Safe` because TCOS is still in dry-run postage mode or provider setup is incomplete. Treat `Locked Safe` as an intentional hold, not permission to buy postage.
 
 Live Checkout runtime also probes the immutable live-payment event table after approval is verified. If the audit table becomes unavailable after an approval was recorded, live Checkout fails closed until the migration/table problem is fixed.

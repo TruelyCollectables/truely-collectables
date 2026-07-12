@@ -1,0 +1,131 @@
+import Link from "next/link";
+
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
+const smokeChecks = [
+  "Admin login and dashboard render",
+  "Launch readiness page, JSON brief, Markdown brief, and handoff bundle",
+  "Launch Gate Drill page, JSON report, and Markdown operator report",
+  "Live Payment Launch Gate",
+  "Live Shipping Launch Gate",
+  "Shipping provider setup JSON and export packets",
+  "Clean production domain",
+  "Unwanted tt3b alias absence",
+];
+
+const failureMeanings = [
+  {
+    label: "Vercel quota capped",
+    detail:
+      "If deploy reports api-deployments-free-per-day, wait for the rolling quota window and rerun npm run launch:production.",
+  },
+  {
+    label: "Queued feature missing",
+    detail:
+      "If smoke says queued launch features are not visible, production is behind GitHub. Deploy the pushed stack again when Vercel accepts it.",
+  },
+  {
+    label: "tt3b responds",
+    detail:
+      "If the unwanted alias returns successfully, remove the alias before treating production as clean.",
+  },
+  {
+    label: "Admin/auth failure",
+    detail:
+      "If admin login fails, confirm ADMIN_PASSWORD / SMOKE_ADMIN_PASSWORD shape and redeploy after secret changes.",
+  },
+];
+
+export default function ProductionSmokePage() {
+  return (
+    <main className="min-h-screen bg-neutral-50 p-8 text-neutral-950">
+      <div className="mx-auto max-w-6xl">
+        <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-sm font-black uppercase tracking-widest text-neutral-500">
+              Production verification
+            </p>
+            <h1 className="mt-2 text-4xl font-black">Production Smoke Report</h1>
+            <p className="mt-2 max-w-3xl text-neutral-600">
+              Operator-facing map for the production smoke suite. This page does
+              not run Vercel, charge cards, buy postage, or contact providers;
+              it shows exactly what the launch smoke is expected to prove after
+              a successful production deployment.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-3">
+            <Link href="/admin/launch-readiness" className="rounded border bg-white px-4 py-2">
+              Launch Readiness
+            </Link>
+            <Link href="/admin/launch-gate-drill" className="rounded border bg-white px-4 py-2">
+              Gate Drill
+            </Link>
+            <Link href="/api/admin/launch-readiness?format=handoff-bundle" className="rounded border bg-white px-4 py-2">
+              Hand-off Bundle
+            </Link>
+          </div>
+        </div>
+
+        <section className="mb-8 rounded border border-blue-200 bg-blue-50 p-6 text-blue-950">
+          <h2 className="text-2xl font-black">Launch command</h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6">
+            Use the one-shot launch command when Vercel accepts production
+            deployments. It verifies the pushed GitHub stack, deploys
+            production, then runs the smoke.
+          </p>
+          <pre className="mt-4 overflow-x-auto rounded bg-neutral-950 p-4 text-sm text-neutral-50">
+            {`npm run launch:production`}
+          </pre>
+          <p className="mt-3 text-sm font-bold">
+            Clean target: <code>https://truely-collectables.vercel.app</code>.
+            The smoke refuses the unwanted <code>tt3b</code> alias as a target.
+          </p>
+        </section>
+
+        <section className="mb-8 grid gap-4 lg:grid-cols-2">
+          <article className="rounded border bg-white p-6">
+            <h2 className="text-xl font-black">Smoke coverage</h2>
+            <ul className="mt-4 list-disc space-y-2 pl-5 text-sm leading-6">
+              {smokeChecks.map((check) => (
+                <li key={check}>{check}</li>
+              ))}
+            </ul>
+          </article>
+
+          <article className="rounded border bg-white p-6">
+            <h2 className="text-xl font-black">Failure meanings</h2>
+            <div className="mt-4 space-y-3">
+              {failureMeanings.map((item) => (
+                <div key={item.label} className="rounded border border-neutral-200 bg-neutral-50 p-3">
+                  <h3 className="font-black">{item.label}</h3>
+                  <p className="mt-1 text-sm leading-6 text-neutral-700">{item.detail}</p>
+                </div>
+              ))}
+            </div>
+          </article>
+        </section>
+
+        <section className="rounded border bg-white p-6">
+          <h2 className="text-xl font-black">Manual follow-up after smoke passes</h2>
+          <div className="mt-4 grid gap-3 text-sm md:grid-cols-2">
+            <SmokeLink href="/admin/launch-readiness" label="Launch Readiness" />
+            <SmokeLink href="/admin/live-payment-launch" label="Live Payment Launch" />
+            <SmokeLink href="/admin/live-shipping-launch" label="Live Shipping Launch" />
+            <SmokeLink href="/admin/shipping#dry-run-cleanup" label="Dry-run Cleanup" />
+            <SmokeLink href="/api/admin/launch-gate-drill?format=markdown" label="Gate Drill Report" />
+            <SmokeLink href="/api/admin/shipping/provider-setup?format=operator-checklist" label="Shipping Checklist" />
+          </div>
+        </section>
+      </div>
+    </main>
+  );
+}
+
+function SmokeLink({ href, label }: { href: string; label: string }) {
+  return (
+    <Link href={href} className="rounded border border-neutral-200 bg-neutral-50 px-4 py-3 font-bold">
+      {label}
+    </Link>
+  );
+}

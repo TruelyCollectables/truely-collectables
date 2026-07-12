@@ -701,6 +701,7 @@ export default async function AdminDashboard() {
                   href="/api/admin/launch-readiness?format=handoff-bundle"
                   label="Hand-off Bundle"
                 />
+                <LinkButton href="/admin/production-smoke" label="Smoke Report" />
               </div>
             </section>
 
@@ -718,6 +719,7 @@ export default async function AdminDashboard() {
                 <LinkButton href="/admin/seller-payouts" label="Payouts" />
                 <LinkButton href="/admin/financial-reconciliation" label="Money Audit" />
                 <LinkButton href="/admin/payment-simulations" label="Payment Tests" />
+                <LinkButton href="/admin/production-smoke" label="Prod Smoke" />
                 <LinkButton href="/admin/orders" label="Orders" />
                 <LinkButton href="/admin/offers" label="Offers" />
                 <LinkButton href="/admin/files" label="Files" />

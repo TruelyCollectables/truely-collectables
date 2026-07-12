@@ -1168,6 +1168,12 @@ export default async function LaunchReadinessPage() {
           >
             Download Hand-off Bundle
           </a>
+          <a
+            href="/admin/production-smoke"
+            className="rounded border border-blue-300 bg-white px-4 py-2 text-sm font-bold"
+          >
+            Production Smoke Report
+          </a>
         </div>
 
         <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
