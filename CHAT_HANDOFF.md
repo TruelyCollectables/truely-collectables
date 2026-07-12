@@ -7,8 +7,8 @@ Generated for the next Codex session during the production launch stacking pass.
 - Workspace: `C:\Projects\truely-collectables`
 - Branch: `main`
 - GitHub remote: `https://github.com/TruelyCollectables/truely-collectables.git`
-- Latest pushed commit before this handoff refresh: `dcb3bf4 Smoke one-shot launch command visibility`
-- Local `HEAD` and `origin/main` matched at `dcb3bf4` after the last push.
+- Latest pushed commit before this handoff refresh: `fb5c53d Smoke production preflight command visibility`
+- Local `HEAD` and `origin/main` matched at `fb5c53d` after the last push.
 - Local working tree was clean except for untracked `.codex-run/`.
   - Leave `.codex-run/` alone unless the user explicitly says to delete it.
 
@@ -30,31 +30,36 @@ Use the runbook:
 Expected command sequence once Vercel accepts deployments:
 
 ```powershell
-git status --short
-git rev-parse --short HEAD
-git rev-parse --short origin/main
+npm run preflight:production
+npm run launch:production
+```
+
+Separate fallback commands:
+
+```powershell
 npm run deploy:production
 npm run smoke:production
 ```
 
-Preferred one-shot command:
-
-```powershell
-npm run launch:production
-```
-
 The deploy helper:
 
+- refreshes `origin/main`;
+- blocks uncommitted deploy-relevant local changes;
 - checks local Git state against `origin/main`;
 - deploys production through Vercel;
 - fails clearly if Vercel quota is still capped;
 - removes the unwanted `truely-collectables-tt3b.vercel.app` alias if present;
 - points `https://truely-collectables.vercel.app` at the new production deployment.
 
+The preflight helper:
+
+- runs the same Git/clean-worktree checks through `npm run preflight:production`;
+- exits before starting any Vercel deployment.
+
 The smoke helper:
 
 - logs in using `SMOKE_ADMIN_PASSWORD`, `ADMIN_PASSWORD`, or `.env.local` `ADMIN_PASSWORD`;
-- checks admin, launch readiness, the one-shot launch command visibility, live payment/shipping gates, and shipping provider export surfaces;
+- checks admin, launch readiness, preflight/one-shot launch command visibility, live payment/shipping gates, and shipping provider export surfaces;
 - fails if the unwanted `truely-collectables-tt3b.vercel.app` alias returns a successful response;
 - prints failed-check HTTP status, content type, and a short safe response snippet;
 - prints local/remote commit context;
@@ -87,21 +92,19 @@ npm run manual:pdf
 Most recent commits, newest first:
 
 ```text
+fb5c53d Smoke production preflight command visibility
+a9f2415 Add production deploy preflight script
+c433adb Block dirty production deploys
+4d920e8 Refresh remote before production deploy preflight
+debe1fb Align production launch script guidance
+86363c9 Lead README with one-shot production launch
+8986a08 Refresh handoff for one-shot launch flow
 dcb3bf4 Smoke one-shot launch command visibility
 79955ce Add one-shot production launch script
 be20fcb Guard unwanted Vercel alias in production smoke
 ccf27ba Add production smoke failure diagnostics
 a0cbb78 Smoke production deploy queue surface
 5e2de83 Surface production deploy queue in readiness
-d33c6f5 Refresh launch handoff for queued deploy
-9319d4b Document production deploy runbook
-0928f64 Clarify queued feature smoke failures
-0cbcc3b Harden production deploy preflight
-abcebae Add one-shot production deploy helper
-cd21fab Add production launch smoke script
-d6670fa Link launch handoff bundle from dashboard
-bd623ee Add launch handoff bundle export
-54d7361 Show credential groups on shipping gate
 ```
 
 ## What was just completed
@@ -119,6 +122,7 @@ Package scripts:
 
 ```json
 {
+  "preflight:production": "node scripts/deploy-production.mjs --preflight-only",
   "deploy:production": "node scripts/deploy-production.mjs",
   "smoke:production": "node scripts/smoke-production.mjs",
   "launch:production": "npm run deploy:production && npm run smoke:production"
@@ -294,6 +298,7 @@ Best next steps, in order:
 
 1. Keep stacking Vercel-ready launch improvements in small commits while quota is capped.
 2. When quota opens, run:
+   - `npm run preflight:production`
    - `npm run launch:production`
    - If needed, run the fallback pair manually:
      - `npm run deploy:production`
