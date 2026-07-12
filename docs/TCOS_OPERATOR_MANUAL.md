@@ -3789,6 +3789,7 @@ Per card, InstaComp can display:
 - the production InstaComp accuracy gate also verifies that invalid serials cannot constrain comp searches, exact results keep the same print run, excluded lots/graded cards stay out of raw-card results, and guidance prices identify serial-run adjustments
 - exact comps for a named non-base parallel must also contain full or strong partial parallel evidence, preventing a same-card/same-print-run listing in the wrong color from entering exact market value
 - exact comps must contain the detected player and card number whenever those identifiers are available, preventing another card from the same set/parallel/print run from clearing the score threshold
+- exact comps must also contain the detected year and brand when available, preventing strong but wrong-year or wrong-brand listings from entering exact market value
 - autograph and relic/patch signals
 - team and sport
 - condition clue

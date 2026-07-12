@@ -584,6 +584,8 @@ export function filterAndRankExactMatches(
   const requiresParallelEvidence = parallelTokens(ai.parallel).length > 0;
   const requiresPlayerEvidence = Boolean(normalizeText(ai.player));
   const requiresCardNumberEvidence = Boolean(normalizeCardNumber(ai.cardNumber));
+  const requiresYearEvidence = Boolean(normalizeText(ai.year));
+  const requiresBrandEvidence = Boolean(normalizeText(ai.brand));
 
   return comps
     .map((comp) => {
@@ -600,7 +602,9 @@ export function filterAndRankExactMatches(
     .filter(
       (comp) =>
         (!requiresPlayerEvidence || comp.flags.includes("player")) &&
-        (!requiresCardNumberEvidence || comp.flags.includes("card #"))
+        (!requiresCardNumberEvidence || comp.flags.includes("card #")) &&
+        (!requiresYearEvidence || comp.flags.includes("year")) &&
+        (!requiresBrandEvidence || comp.flags.includes("brand"))
     )
     .filter(
       (comp) =>
