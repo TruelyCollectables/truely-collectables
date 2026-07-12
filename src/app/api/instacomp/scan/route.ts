@@ -14,6 +14,7 @@ import {
   filterAndRankGuidanceMatches,
   looksLikeBadCompTitle,
 } from "../../../../lib/instacomp";
+import { extractInstaCompSerialNumber } from "../../../../lib/instacomp-serial";
 import {
   INSTACOMP_JOB_IMAGE_BUCKET,
   INSTACOMP_JOB_ITEM_TABLE,
@@ -144,31 +145,7 @@ function normalizeOcrText(value: string | null | undefined) {
 }
 
 function extractSerialNumberFromText(text: string) {
-  const normalized = normalizeOcrText(text);
-  const candidates = [
-    ...normalized.matchAll(
-      /\b(?:serial\s*(?:no\.?|number)?\s*)?([0-9O]{1,4})\s*(?:\/|of)\s*([0-9O]{1,4})\b/gi
-    ),
-  ];
-
-  for (const candidate of candidates) {
-    const numerator = candidate[1].replace(/O/gi, "0");
-    const denominator = candidate[2].replace(/O/gi, "0");
-
-    if (!Number.isFinite(Number(numerator)) || !Number.isFinite(Number(denominator))) {
-      continue;
-    }
-
-    if (Number(denominator) <= 1 && Number(numerator) !== 1) continue;
-
-    return `${numerator}/${denominator}`;
-  }
-
-  if (/\b(?:one\s+of\s+one|1\s+of\s+1|1\/1)\b/i.test(normalized)) {
-    return "1/1";
-  }
-
-  return null;
+  return extractInstaCompSerialNumber(normalizeOcrText(text))?.exact || null;
 }
 
 function collectOcrTextValues(value: unknown, depth = 0): string[] {

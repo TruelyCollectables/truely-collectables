@@ -3785,6 +3785,7 @@ Per card, InstaComp can display:
 - card number
 - parallel or finish
 - serial number such as `087/250`
+- serial OCR rejects impossible fractions such as `0/25` or `99/25`; valid listing and search labels use the print run (`/25`) while preserving `1/1`
 - autograph and relic/patch signals
 - team and sport
 - condition clue

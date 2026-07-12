@@ -8,6 +8,7 @@
     "start": "next start",
     "manual:pdf": "node scripts/build-manual-pdf.mjs",
     "simulate:instacomp-jobs": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-instacomp-job-simulations.mjs",
+    "simulate:instacomp-accuracy": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-instacomp-accuracy-simulations.mjs",
     "check:production-guardrails": "node scripts/check-production-guardrails.mjs",
     "preflight:production": "node scripts/deploy-production.mjs --preflight-only",
     "verify:production": "npm run lint && npm run build && npm run check:production-guardrails && npm run preflight:production",
