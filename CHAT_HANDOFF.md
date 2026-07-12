@@ -7,8 +7,8 @@ Generated for the next Codex session during the production launch stacking pass.
 - Workspace: `C:\Projects\truely-collectables`
 - Branch: `main`
 - GitHub remote: `https://github.com/TruelyCollectables/truely-collectables.git`
-- Latest verified commit before this handoff note: `5622761 Include deploy commands in launch handoff bundle`
-- Local `HEAD` and `origin/main` matched at `5622761` after the latest verify pass.
+- Latest pushed commit before this bundle-section cleanup: `1083d3d Record verified launch handoff bundle tip`
+- Local `HEAD` and `origin/main` matched at `1083d3d` after the last push.
 - Local working tree was clean.
 - `.codex-run/` is ignored in `.gitignore`; leave the folder contents alone unless the user explicitly says to delete them.
 
@@ -80,7 +80,7 @@ The smoke helper:
 
 The launch handoff bundle:
 
-- includes `npm run verify:production`, `npm run launch:production`, split deploy/smoke fallback commands, the clean production domain, and the unwanted `tt3b` alias reminder.
+- includes a Production Deploy Commands section with `npm run verify:production`, `npm run launch:production`, split deploy/smoke fallback commands, the clean production domain, and the unwanted `tt3b` alias reminder.
 
 ## Validation state
 
@@ -138,6 +138,7 @@ npm run manual:pdf
 Most recent commits, newest first:
 
 ```text
+1083d3d Record verified launch handoff bundle tip
 5622761 Include deploy commands in launch handoff bundle
 625cd50 Record verified smoke error redaction tip
 0bc64a3 Redact production smoke error snippets

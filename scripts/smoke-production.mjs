@@ -289,8 +289,11 @@ const checks = [
     path: "/api/admin/launch-readiness?format=handoff-bundle",
     expect: (result) =>
       result.text.includes("# TCOS Launch Hand-off Bundle") &&
+      result.text.includes("## Production Deploy Commands") &&
       result.text.includes("npm run verify:production") &&
       result.text.includes("npm run launch:production") &&
+      result.text.includes("npm run deploy:production") &&
+      result.text.includes("npm run smoke:production") &&
       result.text.includes("truely-collectables-tt3b.vercel.app"),
   },
   {
