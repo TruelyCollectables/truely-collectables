@@ -14,6 +14,7 @@ const requestTimeoutMs = Math.max(
   1000,
   Number(process.env.SMOKE_REQUEST_TIMEOUT_MS || 15000) || 15000,
 );
+const redactionSelfTest = process.argv.includes("--self-test-redaction");
 
 function optionalRun(command, args) {
   const result = spawnSync(command, args, {
@@ -80,7 +81,7 @@ if (hostFor(baseUrl) && hostFor(baseUrl) === hostFor(unwantedAliasUrl)) {
   process.exit(1);
 }
 
-if (!adminPassword) {
+if (!adminPassword && !redactionSelfTest) {
   console.error(
     "Missing admin password. Set SMOKE_ADMIN_PASSWORD or keep ADMIN_PASSWORD in .env.local.",
   );
@@ -197,6 +198,43 @@ function diagnosticSnippet(text) {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 240);
+}
+
+function runRedactionSelfTest() {
+  const sample = [
+    "sk_live_fakeSecret123456789",
+    "pk_live_fakePublishable123456789",
+    "whsec_fakeWebhook123456789",
+    "re_fakeResend123456789",
+    "Bearer abcdefghijklmnopqrstuvwxyz123456",
+    "access_token=abc123456789",
+    '"refresh_token":"refresh123456789"',
+    "eyJabcdefghijklmnopqrstuv.eyJabcdefghijklmnopqrstuv.signatureabcdefghijklmnopqrstuv",
+  ].join(" ");
+  const snippet = diagnosticSnippet(sample);
+  const leakedMarkers = [
+    "sk_live_",
+    "pk_live_",
+    "whsec_",
+    "re_fake",
+    "Bearer ",
+    "abc123456789",
+    "refresh123456789",
+    "eyJabcdefghijklmnopqrstuv",
+  ].filter((marker) => snippet.includes(marker));
+
+  if (leakedMarkers.length > 0) {
+    throw new Error(
+      `Production smoke redaction self-test leaked marker(s): ${leakedMarkers.join(", ")}`,
+    );
+  }
+
+  console.log("Production smoke redaction self-test passed.");
+}
+
+if (redactionSelfTest) {
+  runRedactionSelfTest();
+  process.exit(0);
 }
 
 const login = await request("/api/admin/login", {

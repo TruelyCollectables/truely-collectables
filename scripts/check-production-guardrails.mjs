@@ -2,10 +2,13 @@ import { spawnSync } from "node:child_process";
 
 const node = process.execPath;
 
-function runExpectedSuccess(name, args) {
+function runExpectedSuccess(name, args, env = {}) {
   const result = spawnSync(node, args, {
     encoding: "utf8",
-    env: process.env,
+    env: {
+      ...process.env,
+      ...env,
+    },
   });
   const output = `${result.stdout || ""}${result.stderr || ""}`;
 
@@ -47,6 +50,15 @@ runExpectedSuccess("smoke helper syntax check", [
   "--check",
   "scripts/smoke-production.mjs",
 ]);
+runExpectedSuccess(
+  "smoke diagnostic redaction self-test",
+  ["scripts/smoke-production.mjs", "--self-test-redaction"],
+  {
+    ADMIN_PASSWORD: "",
+    SMOKE_ADMIN_PASSWORD: "",
+    SMOKE_BASE_URL: "https://truely-collectables.vercel.app",
+  },
+);
 
 runExpectedFailure(
   "deploy refuses clean domain matching unwanted alias",
