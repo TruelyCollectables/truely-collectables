@@ -7,8 +7,8 @@ Generated for the next Codex session during the production launch stacking pass.
 - Workspace: `C:\Projects\truely-collectables`
 - Branch: `main`
 - GitHub remote: `https://github.com/TruelyCollectables/truely-collectables.git`
-- Latest pushed commit before this README cleanup: `6a362b8 Record clean verified production tip`
-- Local `HEAD` and `origin/main` matched at `6a362b8` after the last verification.
+- Latest pushed commit before this documentation note: `348bac6 Refuse production checks on unwanted alias`
+- Local `HEAD` and `origin/main` matched at `348bac6` after the last push.
 - Local working tree was clean.
 - `.codex-run/` is ignored in `.gitignore`; leave the folder contents alone unless the user explicitly says to delete them.
 
@@ -69,6 +69,7 @@ The smoke helper:
 
 - logs in using `SMOKE_ADMIN_PASSWORD`, `ADMIN_PASSWORD`, or `.env.local` `ADMIN_PASSWORD`;
 - checks admin, launch readiness, verify/preflight/one-shot launch command visibility, live payment/shipping gates, and shipping provider export surfaces;
+- refuses to run when `SMOKE_BASE_URL` resolves to `truely-collectables-tt3b.vercel.app`;
 - fails if the unwanted `truely-collectables-tt3b.vercel.app` alias returns a successful response;
 - prints failed-check HTTP status, content type, request duration, and a short redacted response snippet;
 - prints per-check, slowest-check, and total request timing;
@@ -85,6 +86,8 @@ npm run lint
 npm run build
 npm run preflight:production
 ```
+
+`npm run lint` and `npm run build` were run after commit `348bac6` and passed. A local refusal-path check also confirmed `SMOKE_BASE_URL=https://truely-collectables-tt3b.vercel.app node scripts/smoke-production.mjs` exits before making smoke requests.
 
 `npm run verify:production` was run after commit `6a362b8` and passed end-to-end. It ran lint, build, and the production preflight. The preflight fetched `origin/main`, confirmed local `HEAD` matched GitHub, reported a clean worktree, and did not start a Vercel deployment.
 
@@ -106,6 +109,8 @@ npm run manual:pdf
 Most recent commits, newest first:
 
 ```text
+348bac6 Refuse production checks on unwanted alias
+91b7b0e Replace generic README setup guidance
 6a362b8 Record clean verified production tip
 b460e05 Replace generic Vercel deploy README guidance
 9638322 Ignore Codex scratch run directory

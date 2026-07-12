@@ -64,10 +64,11 @@ That command is deploy-safe: it runs lint, build, and production Git preflight w
 
 - Keep `https://truely-collectables.vercel.app` as the clean production domain.
 - Do not restore or rely on `truely-collectables-tt3b.vercel.app`.
+- Do not override `SMOKE_BASE_URL` to the `tt3b` alias; production smoke refuses that host.
 - Commit and push all launch-bound work before production deploy.
 - Use `npm run launch:production` only when Vercel deploy quota is available and a real production deploy is intended.
 
-## Deploy on Vercel
+## Production deployment
 
 Do not use the generic Vercel template flow for TCOS production.
 

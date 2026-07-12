@@ -7,6 +7,8 @@ Use this when the queued launch work is ready to ship to production.
 - Clean production URL: `https://truely-collectables.vercel.app`
 - Unwanted preview-style alias that must not return: `truely-collectables-tt3b.vercel.app`
 
+Do not point production deploy or smoke overrides at the unwanted alias. The deploy helper refuses a clean-domain configuration that equals the unwanted alias, and the smoke helper refuses `SMOKE_BASE_URL` when it resolves to that alias.
+
 ## Before deploying
 
 Confirm the local branch is pushed to GitHub:
@@ -75,6 +77,8 @@ npm run smoke:production
 The smoke helper logs in with `SMOKE_ADMIN_PASSWORD`, `ADMIN_PASSWORD`, or the local `.env.local` `ADMIN_PASSWORD`, then checks the production admin/readiness/shipping launch surfaces.
 
 Smoke requests default to a 15-second timeout and report per-check, slowest-check, and total request duration. Override with `SMOKE_REQUEST_TIMEOUT_MS` if production is slow but still healthy. Failed-check snippets redact key-shaped Stripe, webhook, and JWT values before printing.
+
+The smoke helper always targets the clean production URL by default. If `SMOKE_BASE_URL` is overridden to `https://truely-collectables-tt3b.vercel.app`, the helper exits before sending requests.
 
 If the smoke says queued launch features are not visible, production is still behind the GitHub stack. Rerun the production deploy once Vercel accepts deployments, then run the smoke again.
 
