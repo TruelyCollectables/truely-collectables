@@ -5,6 +5,10 @@ const baseUrl = (process.env.SMOKE_BASE_URL || "https://truely-collectables.verc
   /\/$/,
   "",
 );
+const unwantedAliasUrl = (
+  process.env.SMOKE_UNWANTED_ALIAS_URL ||
+  "https://truely-collectables-tt3b.vercel.app"
+).replace(/\/$/, "");
 
 function optionalRun(command, args) {
   const result = spawnSync(command, args, {
@@ -77,6 +81,36 @@ async function request(path, options = {}) {
     text,
     response,
   };
+}
+
+async function requestUrl(url, options = {}) {
+  try {
+    const response = await fetch(url, {
+      redirect: "manual",
+      ...options,
+    });
+    const text = await response.text();
+
+    return {
+      path: url,
+      status: response.status,
+      ok: response.status >= 200 && response.status < 400,
+      contentType: response.headers.get("content-type") || "",
+      text,
+      response,
+      error: "",
+    };
+  } catch (error) {
+    return {
+      path: url,
+      status: 0,
+      ok: false,
+      contentType: "",
+      text: "",
+      response: null,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
 }
 
 function diagnosticSnippet(text) {
@@ -197,6 +231,19 @@ for (const check of checks) {
     passed: result.ok && check.expect(result),
   });
 }
+
+const unwantedAlias = await requestUrl(unwantedAliasUrl);
+results.push({
+  name: "unwanted tt3b alias absent",
+  path: unwantedAlias.path,
+  status: unwantedAlias.status,
+  contentType: unwantedAlias.contentType,
+  snippet:
+    diagnosticSnippet(unwantedAlias.text) ||
+    unwantedAlias.error ||
+    "alias did not return content",
+  passed: !unwantedAlias.ok,
+});
 
 const failed = results.filter((result) => !result.passed);
 const queuedFeatureFailures = failed.filter((result) =>
