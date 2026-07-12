@@ -7,6 +7,9 @@ const unwantedAlias =
   process.env.VERCEL_UNWANTED_ALIAS || "truely-collectables-tt3b.vercel.app";
 const deploymentPattern =
   /https:\/\/truely-collectables-[a-z0-9]+-truelycollectables-projects\.vercel\.app/;
+const preflightOnly =
+  process.argv.includes("--preflight-only") ||
+  process.env.TCOS_PRODUCTION_PREFLIGHT_ONLY === "true";
 
 function optionalRun(command, args) {
   const result = spawnSync(command, args, {
@@ -93,6 +96,12 @@ function gitPreflight() {
 }
 
 gitPreflight();
+
+if (preflightOnly) {
+  console.log("Production deploy preflight passed. No Vercel deployment was started.");
+  process.exit(0);
+}
+
 console.log(`Deploying production with Vercel scope ${scope}...`);
 
 const deployOutput = run("vercel", ["--prod", "--yes", "--scope", scope], {

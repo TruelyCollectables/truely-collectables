@@ -19,6 +19,14 @@ git rev-parse --short origin/main
 
 `HEAD` and `origin/main` should match before production deploy.
 
+To run the deploy preflight without touching Vercel:
+
+```bash
+npm run preflight:production
+```
+
+This refreshes `origin/main`, blocks uncommitted deploy-relevant changes, and confirms local `HEAD` matches GitHub without starting a deployment.
+
 ## Deploy
 
 For the normal launch path, run the one-shot command:
@@ -72,6 +80,7 @@ npm run launch:production
 Separate fallback path:
 
 ```bash
+npm run preflight:production
 npm run deploy:production
 npm run smoke:production
 ```

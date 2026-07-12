@@ -1176,12 +1176,14 @@ export default async function LaunchReadinessPage() {
             <pre className="mt-3 overflow-x-auto rounded bg-neutral-950 p-3 text-xs text-neutral-50">
               {`git status --short
 git rev-parse --short HEAD
-git rev-parse --short origin/main`}
+git rev-parse --short origin/main
+npm run preflight:production`}
             </pre>
             <p className="mt-3 text-sm font-semibold">
               Local <code>HEAD</code> and <code>origin/main</code> should match
               before production deploy. The deploy helper also blocks
-              uncommitted deploy-relevant files.
+              uncommitted deploy-relevant files, and the preflight command
+              checks that without starting a Vercel deployment.
             </p>
           </div>
 

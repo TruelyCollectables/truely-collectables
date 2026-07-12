@@ -8,6 +8,7 @@
     "start": "next start",
     "manual:pdf": "node scripts/build-manual-pdf.mjs",
     "simulate:instacomp-jobs": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-instacomp-job-simulations.mjs",
+    "preflight:production": "node scripts/deploy-production.mjs --preflight-only",
     "deploy:production": "node scripts/deploy-production.mjs",
     "smoke:production": "node scripts/smoke-production.mjs",
     "launch:production": "npm run deploy:production && npm run smoke:production",
