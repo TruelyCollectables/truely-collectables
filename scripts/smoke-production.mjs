@@ -295,8 +295,13 @@ const queuedFeatureFailures = failed.filter((result) =>
     "shipping provider operator checklist",
   ].includes(result.name),
 );
+const totalDurationMs = results.reduce(
+  (sum, result) => sum + (result.durationMs || 0),
+  0,
+);
 
 console.table(results);
+console.log(`Production smoke total request time: ${totalDurationMs}ms`);
 
 if (failed.length > 0) {
   console.error("Failed production smoke details:");
@@ -322,7 +327,8 @@ if (failed.length > 0) {
       .map((result) => result.name)
       .join(", ")}`,
   );
+  console.error(`Production smoke total request time: ${totalDurationMs}ms`);
   process.exit(1);
 }
 
-console.log(`Production smoke passed for ${baseUrl}.`);
+console.log(`Production smoke passed for ${baseUrl} in ${totalDurationMs}ms.`);
