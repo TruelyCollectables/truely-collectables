@@ -200,6 +200,10 @@ function diagnosticSnippet(text) {
     .slice(0, 240);
 }
 
+function safeSnippet(text, error = "") {
+  return diagnosticSnippet(`${text || ""} ${error || ""}`);
+}
+
 function runRedactionSelfTest() {
   const sample = [
     "sk_live_fakeSecret123456789",
@@ -212,6 +216,7 @@ function runRedactionSelfTest() {
     "eyJabcdefghijklmnopqrstuv.eyJabcdefghijklmnopqrstuv.signatureabcdefghijklmnopqrstuv",
   ].join(" ");
   const snippet = diagnosticSnippet(sample);
+  const errorSnippet = safeSnippet("", sample);
   const leakedMarkers = [
     "sk_live_",
     "pk_live_",
@@ -221,7 +226,7 @@ function runRedactionSelfTest() {
     "abc123456789",
     "refresh123456789",
     "eyJabcdefghijklmnopqrstuv",
-  ].filter((marker) => snippet.includes(marker));
+  ].filter((marker) => snippet.includes(marker) || errorSnippet.includes(marker));
 
   if (leakedMarkers.length > 0) {
     throw new Error(
@@ -335,7 +340,7 @@ const results = [
     status: login.status,
     durationMs: login.durationMs,
     contentType: login.contentType,
-    snippet: diagnosticSnippet(login.text) || login.error,
+    snippet: safeSnippet(login.text, login.error),
     passed: login.ok && Boolean(cookie),
   },
 ];
@@ -348,7 +353,7 @@ for (const check of checks) {
     status: result.status,
     durationMs: result.durationMs,
     contentType: result.contentType,
-    snippet: diagnosticSnippet(result.text) || result.error,
+    snippet: safeSnippet(result.text, result.error),
     passed: result.ok && check.expect(result),
   });
 }
@@ -361,8 +366,7 @@ results.push({
   durationMs: unwantedAlias.durationMs,
   contentType: unwantedAlias.contentType,
   snippet:
-    diagnosticSnippet(unwantedAlias.text) ||
-    unwantedAlias.error ||
+    safeSnippet(unwantedAlias.text, unwantedAlias.error) ||
     "alias did not return content",
   passed: !unwantedAlias.ok,
 });

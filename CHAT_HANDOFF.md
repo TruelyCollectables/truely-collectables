@@ -7,8 +7,8 @@ Generated for the next Codex session during the production launch stacking pass.
 - Workspace: `C:\Projects\truely-collectables`
 - Branch: `main`
 - GitHub remote: `https://github.com/TruelyCollectables/truely-collectables.git`
-- Latest verified commit before this handoff note: `0dadb81 Self-test production smoke redaction`
-- Local `HEAD` and `origin/main` matched at `0dadb81` after the latest verify pass.
+- Latest pushed commit before this smoke-error-redaction change: `029020f Record verified smoke self-test tip`
+- Local `HEAD` and `origin/main` matched at `029020f` after the last push.
 - Local working tree was clean.
 - `.codex-run/` is ignored in `.gitignore`; leave the folder contents alone unless the user explicitly says to delete them.
 
@@ -73,7 +73,7 @@ The smoke helper:
 - normalizes `SMOKE_BASE_URL` and `SMOKE_UNWANTED_ALIAS_URL` from hostnames or URLs;
 - refuses to run when `SMOKE_BASE_URL` resolves to `truely-collectables-tt3b.vercel.app`;
 - fails if the unwanted `truely-collectables-tt3b.vercel.app` alias returns a successful response;
-- prints failed-check HTTP status, content type, request duration, and a short response snippet redacted for Stripe, webhook, JWT, Resend, auth-header, query-token, and JSON secret values;
+- prints failed-check HTTP status, content type, request duration, and short response/error snippets redacted for Stripe, webhook, JWT, Resend, auth-header, query-token, and JSON secret values;
 - prints per-check, slowest-check, and total request timing;
 - prints local/remote commit context;
 - clearly calls out queued feature failures when production is simply behind GitHub.
@@ -91,7 +91,7 @@ npm run preflight:production
 
 `npm run verify:production` was rerun after commit `0dadb81` and passed end-to-end. It ran lint, build, production guardrail checks including the smoke redaction self-test, and production preflight; the preflight fetched `origin/main`, confirmed local `HEAD` matched GitHub, reported a clean worktree, and did not start a Vercel deployment.
 
-`npm run check:production-guardrails` now also runs `node scripts/smoke-production.mjs --self-test-redaction`, which proves the production smoke diagnostic snippet redacts Stripe, webhook, JWT, Resend, auth-header, query-token, and JSON secret shapes before printing failures.
+`npm run check:production-guardrails` now also runs `node scripts/smoke-production.mjs --self-test-redaction`, which proves the production smoke diagnostic response/error snippets redact Stripe, webhook, JWT, Resend, auth-header, query-token, and JSON secret shapes before printing failures.
 
 `npm run verify:production` was rerun after commit `f8cd4a9` and passed end-to-end. It ran lint, build, production guardrail checks, and production preflight; the preflight fetched `origin/main`, confirmed local `HEAD` matched GitHub, reported a clean worktree, and did not start a Vercel deployment.
 
@@ -130,6 +130,7 @@ npm run manual:pdf
 Most recent commits, newest first:
 
 ```text
+029020f Record verified smoke self-test tip
 0dadb81 Self-test production smoke redaction
 fa5ecbd Record verified smoke redaction tip
 f8cd4a9 Expand production smoke secret redaction
