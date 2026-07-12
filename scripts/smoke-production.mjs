@@ -48,9 +48,24 @@ const adminPassword =
   process.env.ADMIN_PASSWORD ||
   envValueFromLocalFile("ADMIN_PASSWORD");
 
+function hostFor(url) {
+  try {
+    return new URL(url).host;
+  } catch {
+    return "";
+  }
+}
+
 if (!adminPassword) {
   console.error(
     "Missing admin password. Set SMOKE_ADMIN_PASSWORD or keep ADMIN_PASSWORD in .env.local.",
+  );
+  process.exit(1);
+}
+
+if (hostFor(baseUrl) && hostFor(baseUrl) === hostFor(unwantedAliasUrl)) {
+  console.error(
+    `Refusing to smoke test the unwanted production alias: ${baseUrl}. Use the clean production domain instead.`,
   );
   process.exit(1);
 }

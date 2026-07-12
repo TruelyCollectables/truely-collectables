@@ -9,6 +9,12 @@ const preflightOnly =
   process.argv.includes("--preflight-only") ||
   process.env.TCOS_PRODUCTION_PREFLIGHT_ONLY === "true";
 
+if (cleanDomain === unwantedAlias) {
+  throw new Error(
+    `Refusing production deploy because VERCEL_CLEAN_DOMAIN matches the unwanted alias: ${cleanDomain}`,
+  );
+}
+
 function optionalRun(command, args) {
   const result = spawnSync(command, args, {
     encoding: "utf8",
