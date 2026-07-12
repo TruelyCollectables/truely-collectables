@@ -1,0 +1,60 @@
+# TCOS Production Deploy Runbook
+
+Use this when the queued launch work is ready to ship to production.
+
+## Production target
+
+- Clean production URL: `https://truely-collectables.vercel.app`
+- Unwanted preview-style alias that must not return: `truely-collectables-tt3b.vercel.app`
+
+## Before deploying
+
+Confirm the local branch is pushed to GitHub:
+
+```bash
+git status --short
+git rev-parse --short HEAD
+git rev-parse --short origin/main
+```
+
+`HEAD` and `origin/main` should match before production deploy.
+
+## Deploy
+
+```bash
+npm run deploy:production
+```
+
+The deploy helper:
+
+- prints the local and remote Git commit IDs;
+- blocks if local `HEAD` does not match `origin/main`;
+- deploys production through Vercel;
+- stops with a clear message if Vercel's deployment quota is still capped;
+- removes the unwanted `truely-collectables-tt3b.vercel.app` alias if present;
+- points `https://truely-collectables.vercel.app` at the new production deployment.
+
+If Vercel reports `api-deployments-free-per-day`, wait for the rolling quota window to reset, then rerun the same command.
+
+## Smoke test
+
+After a successful deploy:
+
+```bash
+npm run smoke:production
+```
+
+The smoke helper logs in with `SMOKE_ADMIN_PASSWORD`, `ADMIN_PASSWORD`, or the local `.env.local` `ADMIN_PASSWORD`, then checks the production admin/readiness/shipping launch surfaces.
+
+If the smoke says queued launch features are not visible, production is still behind the GitHub stack. Rerun the production deploy once Vercel accepts deployments, then run the smoke again.
+
+## Expected success path
+
+```bash
+git status --short
+git rev-parse --short HEAD
+git rev-parse --short origin/main
+npm run deploy:production
+npm run smoke:production
+```
+

@@ -12,6 +12,7 @@ Start with the operator manual:
 
 - [TCOS Operator Manual](docs/TCOS_OPERATOR_MANUAL.md)
 - [TCOS Operator Manual PDF](docs/TCOS_OPERATOR_MANUAL.pdf)
+- [Production Deploy Runbook](docs/PRODUCTION_DEPLOY_RUNBOOK.md)
 
 The manual explains daily store operation, inventory, orders, offers, eBay sync, AI descriptions, sales comps, suggested pricing, and required environment variables.
 
@@ -27,6 +28,17 @@ To regenerate the downloadable manual PDF:
 ```bash
 npm run manual:pdf
 ```
+
+## Production deploy and smoke
+
+Use the production runbook when shipping queued launch work:
+
+```bash
+npm run deploy:production
+npm run smoke:production
+```
+
+The deploy helper verifies Git state, handles the clean Vercel production alias, removes the unwanted `tt3b` alias if it appears, and reports Vercel quota blocks clearly.
 
 ## Getting Started
 
