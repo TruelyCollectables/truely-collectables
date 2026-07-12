@@ -41,6 +41,9 @@ function run(command, args, options = {}) {
 }
 
 function gitPreflight() {
+  console.log("Refreshing origin/main before deploy...");
+  run("git", ["fetch", "origin", "main"]);
+
   const status = optionalRun("git", ["status", "--short"]);
   const localHead = optionalRun("git", ["rev-parse", "HEAD"]);
   const remoteHead = optionalRun("git", ["rev-parse", "origin/main"]);

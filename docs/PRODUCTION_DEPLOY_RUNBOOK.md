@@ -38,6 +38,7 @@ npm run deploy:production
 The deploy helper:
 
 - prints the local and remote Git commit IDs;
+- refreshes `origin/main` before comparing commit IDs;
 - blocks if local `HEAD` does not match `origin/main`;
 - deploys production through Vercel;
 - stops with a clear message if Vercel's deployment quota is still capped;
