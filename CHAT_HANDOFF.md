@@ -7,8 +7,8 @@ Generated for the next Codex session during the production launch stacking pass.
 - Workspace: `C:\Projects\truely-collectables`
 - Branch: `main`
 - GitHub remote: `https://github.com/TruelyCollectables/truely-collectables.git`
-- Latest pushed commit before this validation note: `b460e05 Replace generic Vercel deploy README guidance`
-- Local `HEAD` and `origin/main` matched at `b460e05` after the last push.
+- Latest pushed commit before this README cleanup: `6a362b8 Record clean verified production tip`
+- Local `HEAD` and `origin/main` matched at `6a362b8` after the last verification.
 - Local working tree was clean.
 - `.codex-run/` is ignored in `.gitignore`; leave the folder contents alone unless the user explicitly says to delete them.
 
@@ -86,7 +86,7 @@ npm run build
 npm run preflight:production
 ```
 
-`npm run verify:production` was run after commit `b460e05` and passed end-to-end. It ran lint, build, and the production preflight. The preflight fetched `origin/main`, confirmed local `HEAD` matched GitHub, reported a clean worktree, and did not start a Vercel deployment.
+`npm run verify:production` was run after commit `6a362b8` and passed end-to-end. It ran lint, build, and the production preflight. The preflight fetched `origin/main`, confirmed local `HEAD` matched GitHub, reported a clean worktree, and did not start a Vercel deployment.
 
 Manual generation status from the earlier handoff still applies:
 
@@ -106,6 +106,7 @@ npm run manual:pdf
 Most recent commits, newest first:
 
 ```text
+6a362b8 Record clean verified production tip
 b460e05 Replace generic Vercel deploy README guidance
 9638322 Ignore Codex scratch run directory
 aa52008 Record latest production verify pass

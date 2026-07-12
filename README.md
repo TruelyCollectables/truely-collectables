@@ -40,34 +40,32 @@ npm run launch:production
 
 The verify helper runs lint, build, and GitHub/clean-worktree preflight without starting a Vercel deploy. The launch helper runs that same verification first, then deploys production and runs the production smoke if the deploy succeeds. The deploy step verifies Git state, handles the clean Vercel production alias, removes the unwanted `tt3b` alias if it appears, and reports Vercel quota blocks clearly.
 
-## Getting Started
+## Local development
 
-First, run the development server:
+Install dependencies once, then run the local development server:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open [http://localhost:3000](http://localhost:3000).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Keep local-only secrets in `.env.local`. Do not commit real Stripe, Supabase, Resend, shipping-provider, eBay, or admin password values.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Before stacking production-bound work, run:
 
-## Learn More
+```bash
+npm run verify:production
+```
 
-To learn more about Next.js, take a look at the following resources:
+That command is deploy-safe: it runs lint, build, and production Git preflight without consuming a Vercel deployment.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Production safety rules
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+- Keep `https://truely-collectables.vercel.app` as the clean production domain.
+- Do not restore or rely on `truely-collectables-tt3b.vercel.app`.
+- Commit and push all launch-bound work before production deploy.
+- Use `npm run launch:production` only when Vercel deploy quota is available and a real production deploy is intended.
 
 ## Deploy on Vercel
 
