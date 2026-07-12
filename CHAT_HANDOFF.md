@@ -7,8 +7,8 @@ Generated for the next Codex session during the production launch stacking pass.
 - Workspace: `C:\Projects\truely-collectables`
 - Branch: `main`
 - GitHub remote: `https://github.com/TruelyCollectables/truely-collectables.git`
-- Latest verified commit before this handoff note: `9277c1f Normalize production smoke URL overrides`
-- Local `HEAD` and `origin/main` matched at `9277c1f` after the latest verify pass.
+- Latest pushed commit before this smoke-redaction change: `db12b83 Record latest production verify pass`
+- Local `HEAD` and `origin/main` matched at `db12b83` after the last push.
 - Local working tree was clean.
 - `.codex-run/` is ignored in `.gitignore`; leave the folder contents alone unless the user explicitly says to delete them.
 
@@ -73,7 +73,7 @@ The smoke helper:
 - normalizes `SMOKE_BASE_URL` and `SMOKE_UNWANTED_ALIAS_URL` from hostnames or URLs;
 - refuses to run when `SMOKE_BASE_URL` resolves to `truely-collectables-tt3b.vercel.app`;
 - fails if the unwanted `truely-collectables-tt3b.vercel.app` alias returns a successful response;
-- prints failed-check HTTP status, content type, request duration, and a short redacted response snippet;
+- prints failed-check HTTP status, content type, request duration, and a short response snippet redacted for Stripe, webhook, JWT, Resend, auth-header, query-token, and JSON secret values;
 - prints per-check, slowest-check, and total request timing;
 - prints local/remote commit context;
 - clearly calls out queued feature failures when production is simply behind GitHub.
@@ -124,6 +124,7 @@ npm run manual:pdf
 Most recent commits, newest first:
 
 ```text
+db12b83 Record latest production verify pass
 9277c1f Normalize production smoke URL overrides
 9943722 Refresh handoff after guardrail checks
 743fe19 Syntax check production helpers in guardrails
