@@ -7,8 +7,8 @@ Generated for the next Codex session during the production launch stacking pass.
 - Workspace: `C:\Projects\truely-collectables`
 - Branch: `main`
 - GitHub remote: `https://github.com/TruelyCollectables/truely-collectables.git`
-- Latest pushed commit before this handoff refresh: `fb5c53d Smoke production preflight command visibility`
-- Local `HEAD` and `origin/main` matched at `fb5c53d` after the last push.
+- Latest pushed commit before this handoff refresh: `c59092e Add quota-safe production verify command`
+- Local `HEAD` and `origin/main` matched at `c59092e` after the last push.
 - Local working tree was clean except for untracked `.codex-run/`.
   - Leave `.codex-run/` alone unless the user explicitly says to delete it.
 
@@ -30,7 +30,7 @@ Use the runbook:
 Expected command sequence once Vercel accepts deployments:
 
 ```powershell
-npm run preflight:production
+npm run verify:production
 npm run launch:production
 ```
 
@@ -56,12 +56,18 @@ The preflight helper:
 - runs the same Git/clean-worktree checks through `npm run preflight:production`;
 - exits before starting any Vercel deployment.
 
+The verify helper:
+
+- runs `npm run lint`, `npm run build`, and `npm run preflight:production`;
+- is quota-safe because it does not start a Vercel deployment.
+
 The smoke helper:
 
 - logs in using `SMOKE_ADMIN_PASSWORD`, `ADMIN_PASSWORD`, or `.env.local` `ADMIN_PASSWORD`;
-- checks admin, launch readiness, preflight/one-shot launch command visibility, live payment/shipping gates, and shipping provider export surfaces;
+- checks admin, launch readiness, verify/preflight/one-shot launch command visibility, live payment/shipping gates, and shipping provider export surfaces;
 - fails if the unwanted `truely-collectables-tt3b.vercel.app` alias returns a successful response;
-- prints failed-check HTTP status, content type, and a short safe response snippet;
+- prints failed-check HTTP status, content type, request duration, and a short redacted response snippet;
+- prints per-check, slowest-check, and total request timing;
 - prints local/remote commit context;
 - clearly calls out queued feature failures when production is simply behind GitHub.
 
@@ -92,19 +98,19 @@ npm run manual:pdf
 Most recent commits, newest first:
 
 ```text
+c59092e Add quota-safe production verify command
+b42d353 Report slowest production smoke checks
+01ac4d4 Report production smoke total duration
+98aacfe Report production smoke request durations
+747d4e6 Redact production smoke diagnostics
+87a7241 Add production smoke request timeouts
+9633d99 Harden Vercel deployment URL parsing
+0754589 Document production preflight in top-level handoff
 fb5c53d Smoke production preflight command visibility
 a9f2415 Add production deploy preflight script
 c433adb Block dirty production deploys
 4d920e8 Refresh remote before production deploy preflight
 debe1fb Align production launch script guidance
-86363c9 Lead README with one-shot production launch
-8986a08 Refresh handoff for one-shot launch flow
-dcb3bf4 Smoke one-shot launch command visibility
-79955ce Add one-shot production launch script
-be20fcb Guard unwanted Vercel alias in production smoke
-ccf27ba Add production smoke failure diagnostics
-a0cbb78 Smoke production deploy queue surface
-5e2de83 Surface production deploy queue in readiness
 ```
 
 ## What was just completed
@@ -123,6 +129,7 @@ Package scripts:
 ```json
 {
   "preflight:production": "node scripts/deploy-production.mjs --preflight-only",
+  "verify:production": "npm run lint && npm run build && npm run preflight:production",
   "deploy:production": "node scripts/deploy-production.mjs",
   "smoke:production": "node scripts/smoke-production.mjs",
   "launch:production": "npm run deploy:production && npm run smoke:production"
@@ -298,7 +305,7 @@ Best next steps, in order:
 
 1. Keep stacking Vercel-ready launch improvements in small commits while quota is capped.
 2. When quota opens, run:
-   - `npm run preflight:production`
+   - `npm run verify:production`
    - `npm run launch:production`
    - If needed, run the fallback pair manually:
      - `npm run deploy:production`
