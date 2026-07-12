@@ -7,8 +7,8 @@ Generated for the next Codex session during the production launch stacking pass.
 - Workspace: `C:\Projects\truely-collectables`
 - Branch: `main`
 - GitHub remote: `https://github.com/TruelyCollectables/truely-collectables.git`
-- Latest pushed commit before this handoff refresh: `743fe19 Syntax check production helpers in guardrails`
-- Local `HEAD` and `origin/main` matched at `743fe19` after the last push.
+- Latest pushed commit before this smoke-normalization change: `9943722 Refresh handoff after guardrail checks`
+- Local `HEAD` and `origin/main` matched at `9943722` after the last push.
 - Local working tree was clean.
 - `.codex-run/` is ignored in `.gitignore`; leave the folder contents alone unless the user explicitly says to delete them.
 
@@ -70,6 +70,7 @@ The smoke helper:
 
 - logs in using `SMOKE_ADMIN_PASSWORD`, `ADMIN_PASSWORD`, or `.env.local` `ADMIN_PASSWORD`;
 - checks admin, launch readiness, verify/preflight/one-shot launch command visibility, live payment/shipping gates, and shipping provider export surfaces;
+- normalizes `SMOKE_BASE_URL` and `SMOKE_UNWANTED_ALIAS_URL` from hostnames or URLs;
 - refuses to run when `SMOKE_BASE_URL` resolves to `truely-collectables-tt3b.vercel.app`;
 - fails if the unwanted `truely-collectables-tt3b.vercel.app` alias returns a successful response;
 - prints failed-check HTTP status, content type, request duration, and a short redacted response snippet;
@@ -121,6 +122,7 @@ npm run manual:pdf
 Most recent commits, newest first:
 
 ```text
+9943722 Refresh handoff after guardrail checks
 743fe19 Syntax check production helpers in guardrails
 5355813 Pin smoke guardrail alias check
 8ad295f Clean production guardrail check output

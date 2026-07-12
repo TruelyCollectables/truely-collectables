@@ -1,14 +1,15 @@
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 
-const baseUrl = (process.env.SMOKE_BASE_URL || "https://truely-collectables.vercel.app").replace(
-  /\/$/,
-  "",
+const baseUrl = normalizeSmokeOrigin(
+  process.env.SMOKE_BASE_URL || "https://truely-collectables.vercel.app",
+  "SMOKE_BASE_URL",
 );
-const unwantedAliasUrl = (
+const unwantedAliasUrl = normalizeSmokeOrigin(
   process.env.SMOKE_UNWANTED_ALIAS_URL ||
-  "https://truely-collectables-tt3b.vercel.app"
-).replace(/\/$/, "");
+    "https://truely-collectables-tt3b.vercel.app",
+  "SMOKE_UNWANTED_ALIAS_URL",
+);
 const requestTimeoutMs = Math.max(
   1000,
   Number(process.env.SMOKE_REQUEST_TIMEOUT_MS || 15000) || 15000,
@@ -23,6 +24,22 @@ function optionalRun(command, args) {
   if (result.status !== 0) return "";
 
   return `${result.stdout || ""}${result.stderr || ""}`.trim();
+}
+
+function normalizeSmokeOrigin(value, label) {
+  const trimmed = value.trim();
+
+  if (!trimmed) {
+    throw new Error(`${label} cannot be empty.`);
+  }
+
+  const urlText = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+
+  try {
+    return new URL(urlText).origin.toLowerCase();
+  } catch {
+    throw new Error(`${label} must be a valid production URL or hostname.`);
+  }
 }
 
 function envValueFromLocalFile(key) {
