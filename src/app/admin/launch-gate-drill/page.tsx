@@ -61,6 +61,12 @@ export default async function LaunchGateDrillPage() {
             <Link href="/admin/launch-readiness" className="rounded border bg-white px-4 py-2">
               Launch Readiness
             </Link>
+            <Link
+              href="/api/admin/launch-gate-drill?format=markdown"
+              className="rounded border bg-white px-4 py-2"
+            >
+              Download Drill Report
+            </Link>
             <Link href="/admin/live-payment-launch" className="rounded border bg-white px-4 py-2">
               Payment Gate
             </Link>

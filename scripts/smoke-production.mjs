@@ -311,6 +311,7 @@ const checks = [
     expect: (result) =>
       result.text.includes("Launch Gate Drill") &&
       result.text.includes("No-money runtime smoke") &&
+      result.text.includes("Download Drill Report") &&
       result.text.includes("Side-effect Guardrails") &&
       result.text.includes("Not allowed during this drill"),
   },
@@ -321,6 +322,15 @@ const checks = [
       result.contentType.includes("application/json") &&
       result.text.includes('"sideEffectPolicy"') &&
       result.text.includes('"forbiddenOperations"'),
+  },
+  {
+    name: "launch gate drill markdown",
+    path: "/api/admin/launch-gate-drill?format=markdown",
+    expect: (result) =>
+      result.contentType.includes("text/markdown") &&
+      result.text.includes("# TCOS Launch Gate Drill Report") &&
+      result.text.includes("## Side-effect Guardrails") &&
+      result.text.includes("### Forbidden Operations"),
   },
   {
     name: "launch handoff bundle",
