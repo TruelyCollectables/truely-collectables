@@ -4702,6 +4702,7 @@ Recent seller workspace wording cleanup:
 
 - InstaComp draft success links now open the Seller Inventory InstaComp lane directly through `Open InstaComp Drafts` and `Open in InstaComp drafts`.
 - Seller Inventory now has a `Source` filter with an `InstaComp` lane, InstaComp item badges, scan/serial/price-source details, and ready-row marketplace packet export controls.
+- InstaComp draft titles now prefer serial-run display such as `/50` instead of exact copy-number display such as `07/50`; true one-of-one cards remain `1/1`.
 - Seller Inventory rows now show the default Standard Envelope/Ground Advantage shipping plan, estimated postage, Coverage requirement, and Coverage type; selected rows now show a shipping mix summary before activation or marketplace export, and selected ready-row marketplace packets include those shipping fields.
 - Seller Inventory Selection Summary now shows a selected-row activation check with activatable, needs-work, active, archived, and top-blocker counts before `Activate Ready`.
 - Seller Inventory Bulk Action Follow-Up now groups failed rows by blocker reason and lets operators keep only a specific blocker group selected for cleanup.
