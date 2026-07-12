@@ -139,6 +139,31 @@ export default async function LaunchGateDrillPage() {
           ))}
         </section>
 
+        <section className="mt-8 rounded border border-blue-200 bg-blue-50 p-6 text-blue-950">
+          <h2 className="text-xl font-black">Side-effect Guardrails</h2>
+          <p className="mt-2 max-w-3xl text-sm leading-6">
+            {report.sideEffectPolicy.assurance}
+          </p>
+          <div className="mt-5 grid gap-4 md:grid-cols-2">
+            <div className="rounded border border-blue-200 bg-white p-4">
+              <h3 className="font-black">Allowed during this drill</h3>
+              <ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-6">
+                {report.sideEffectPolicy.allowedOperations.map((operation) => (
+                  <li key={operation}>{operation}</li>
+                ))}
+              </ul>
+            </div>
+            <div className="rounded border border-blue-200 bg-white p-4">
+              <h3 className="font-black">Not allowed during this drill</h3>
+              <ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-6">
+                {report.sideEffectPolicy.forbiddenOperations.map((operation) => (
+                  <li key={operation}>{operation}</li>
+                ))}
+              </ul>
+            </div>
+          </div>
+        </section>
+
         <section className="mt-8 rounded border bg-white p-6">
           <h2 className="text-xl font-black">What This Proves</h2>
           <div className="mt-4 grid gap-4 text-sm leading-6 md:grid-cols-3">

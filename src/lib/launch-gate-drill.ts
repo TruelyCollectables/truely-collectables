@@ -40,6 +40,7 @@ export type LaunchGateDrillReport = {
     payment: LaunchGatePosture;
     shipping: LaunchGatePosture;
   };
+  sideEffectPolicy: LaunchGateSideEffectPolicy;
   checks: LaunchGateDrillCheck[];
 };
 
@@ -50,6 +51,12 @@ export type LaunchGatePosture = {
   blockedChecks: string[];
   warningChecks: string[];
   nextActions: string[];
+};
+
+export type LaunchGateSideEffectPolicy = {
+  assurance: string;
+  allowedOperations: string[];
+  forbiddenOperations: string[];
 };
 
 function drillCheck(
@@ -373,6 +380,22 @@ export async function runLaunchGateDrill(params?: {
         blockedChecks: shippingBlockedChecks,
         warningChecks: shippingWarningChecks,
       }),
+    },
+    sideEffectPolicy: {
+      assurance:
+        "This drill is a no-money/no-postage runtime check. It reads launch reports and runtime gates only.",
+      allowedOperations: [
+        "Read live-payment and live-shipping launch reports.",
+        "Evaluate payment runtime gates with synthetic Stripe key strings.",
+        "Evaluate the shipping runtime gate without a package, quote, label, or provider transaction.",
+        "Return an admin report for operator review.",
+      ],
+      forbiddenOperations: [
+        "Create Stripe Checkout Sessions, Customers, PaymentIntents, refunds, or disputes.",
+        "Quote, buy, void, print, or record provider postage labels.",
+        "Purchase seller Coverage or create external claim/policy records.",
+        "Release seller payouts or mark orders shipped.",
+      ],
     },
     checks,
   };

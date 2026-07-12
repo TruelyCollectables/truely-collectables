@@ -306,6 +306,23 @@ const checks = [
     expect: (result) => result.text.includes("# TCOS Launch Readiness Brief"),
   },
   {
+    name: "launch gate drill page",
+    path: "/admin/launch-gate-drill",
+    expect: (result) =>
+      result.text.includes("Launch Gate Drill") &&
+      result.text.includes("No-money runtime smoke") &&
+      result.text.includes("Side-effect Guardrails") &&
+      result.text.includes("Not allowed during this drill"),
+  },
+  {
+    name: "launch gate drill json",
+    path: "/api/admin/launch-gate-drill",
+    expect: (result) =>
+      result.contentType.includes("application/json") &&
+      result.text.includes('"sideEffectPolicy"') &&
+      result.text.includes('"forbiddenOperations"'),
+  },
+  {
     name: "launch handoff bundle",
     path: "/api/admin/launch-readiness?format=handoff-bundle",
     expect: (result) =>
