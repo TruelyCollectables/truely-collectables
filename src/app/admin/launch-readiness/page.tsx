@@ -1148,6 +1148,57 @@ export default async function LaunchReadinessPage() {
         </div>
       </section>
 
+      <section className="mb-8 rounded border border-blue-200 bg-blue-50 p-6 text-blue-950">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h2 className="text-2xl font-bold">Production Deploy Queue</h2>
+            <p className="mt-1 max-w-3xl text-sm">
+              Use this after the GitHub stack is pushed and Vercel accepts new
+              production deployments. If Vercel reports{" "}
+              <code className="rounded bg-white px-1 py-0.5">
+                api-deployments-free-per-day
+              </code>
+              , wait for the rolling quota window to reset and rerun the same
+              deploy command.
+            </p>
+          </div>
+          <a
+            href="/api/admin/launch-readiness?format=handoff-bundle"
+            className="rounded border border-blue-300 bg-white px-4 py-2 text-sm font-bold"
+          >
+            Download Hand-off Bundle
+          </a>
+        </div>
+
+        <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
+          <div className="rounded border border-blue-200 bg-white p-4">
+            <h3 className="font-bold">1. Confirm GitHub has the stack</h3>
+            <pre className="mt-3 overflow-x-auto rounded bg-neutral-950 p-3 text-xs text-neutral-50">
+              {`git status --short
+git rev-parse --short HEAD
+git rev-parse --short origin/main`}
+            </pre>
+            <p className="mt-3 text-sm font-semibold">
+              Local <code>HEAD</code> and <code>origin/main</code> should match
+              before production deploy.
+            </p>
+          </div>
+
+          <div className="rounded border border-blue-200 bg-white p-4">
+            <h3 className="font-bold">2. Deploy and smoke production</h3>
+            <pre className="mt-3 overflow-x-auto rounded bg-neutral-950 p-3 text-xs text-neutral-50">
+              {`npm run deploy:production
+npm run smoke:production`}
+            </pre>
+            <p className="mt-3 text-sm font-semibold">
+              The deploy helper keeps the clean production alias on{" "}
+              <code>truely-collectables.vercel.app</code> and removes the
+              unwanted <code>tt3b</code> alias if it appears.
+            </p>
+          </div>
+        </div>
+      </section>
+
       {attentionItems.length > 0 ? (
         <section className="mb-8 rounded border bg-white p-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
