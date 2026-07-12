@@ -4451,6 +4451,8 @@ Open `/admin/shipping/simulations` and run the suite. Require all seven policy/a
 - shipping adapter profiles expose provider, carrier, credential, Coverage, live-support, and manual-fallback state
 - dry-run Standard Envelope and Ground Advantage adapter purchases behave as dry runs
 
+The dry-run Standard Envelope purchase assertion uses the active Standard Envelope rate table at run time, so it should follow the July 12, 2026 rate change without hardcoded stale postage.
+
 The page also shows a Live Shipping Approval Report. Live shipping must remain blocked unless the report says `ready_to_request_live_mode`, the setup verdict is acceptable, every live requirement is ready, and there are zero blockers. This page does not contact USPS or Coverage and does not buy postage.
 
 ## 35. Seller eBay Connection, Staging, Outside Orders, And Reconciliation

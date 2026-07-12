@@ -9,7 +9,7 @@ import {
 } from "./shipping-provider-adapter";
 import { buildShippingProviderSetupPacket } from "./shipping-provider-setup";
 
-export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-11.2";
+export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-12.1";
 
 export type ShippingSimulationScenario = {
   scenario_key: string;
@@ -50,6 +50,9 @@ export async function runShippingSimulationSuite() {
   const standardEnvelopeRate = standardEnvelopeRateForEstimatedOunces({
     estimatedOunces: 3,
     now: new Date("2026-07-10T12:00:00.000Z"),
+  });
+  const currentStandardEnvelopeRate = standardEnvelopeRateForEstimatedOunces({
+    estimatedOunces: 3,
   });
   scenarios.push({
     scenario_key: "standard_envelope_under_20_and_3oz",
@@ -169,15 +172,17 @@ export async function runShippingSimulationSuite() {
       standardEnvelopePurchase.mode === "dry_run" &&
         standardEnvelopePurchase.trackingNumber.startsWith("IMB-") &&
         standardEnvelopePurchase.coverageStatus === "covered" &&
-        standardEnvelopePurchase.postageAmount === 1.32,
+        standardEnvelopePurchase.postageAmount ===
+          money(currentStandardEnvelopeRate),
     ),
     detail:
-      "The dry-run adapter simulates a Standard Envelope IMb, coverage policy, and postage without buying postage.",
+      "The dry-run adapter simulates a Standard Envelope IMb, coverage policy, and current-rate postage without buying postage.",
     assertions: {
       mode: standardEnvelopePurchase.mode,
       provider: standardEnvelopePurchase.provider,
       tracking_number: standardEnvelopePurchase.trackingNumber,
       postage_amount: standardEnvelopePurchase.postageAmount,
+      expected_current_postage_amount: money(currentStandardEnvelopeRate),
       coverage_policy_id: standardEnvelopePurchase.coveragePolicyId,
     },
   });
