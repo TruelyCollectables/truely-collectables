@@ -4414,7 +4414,7 @@ The shipping queue also supports priority sorting, external void records, claim 
 
 ### Shipping simulation runbook
 
-Open `/admin/shipping/simulations` and run the suite. Require all seven assertions:
+Open `/admin/shipping/simulations` and run the suite. Require all seven policy/adapter assertions:
 
 - `$19.99` and 3 oz stays Standard Envelope
 - `$20.01` forces Ground Advantage
@@ -4424,7 +4424,7 @@ Open `/admin/shipping/simulations` and run the suite. Require all seven assertio
 - shipping adapter profiles expose provider, carrier, credential, Coverage, live-support, and manual-fallback state
 - dry-run Standard Envelope and Ground Advantage adapter purchases behave as dry runs
 
-This page does not contact USPS or Coverage and does not buy postage.
+The page also shows a Live Shipping Approval Report. Live shipping must remain blocked unless the report says `ready_to_request_live_mode`, the setup verdict is acceptable, every live requirement is ready, and there are zero blockers. This page does not contact USPS or Coverage and does not buy postage.
 
 ## 35. Seller eBay Connection, Staging, Outside Orders, And Reconciliation
 

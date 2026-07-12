@@ -4162,7 +4162,7 @@ dryrun-</code></pre>
 <li>Treat paid, denied, and cancelled claims as audit-locked.</li>
 </ol>
 <h3>Shipping simulation runbook</h3>
-<p>Open <code>/admin/shipping/simulations</code> and run the suite. Require all seven assertions:</p>
+<p>Open <code>/admin/shipping/simulations</code> and run the suite. Require all seven policy/adapter assertions:</p>
 <ul>
 <li><code>$19.99</code> and 3 oz stays Standard Envelope</li>
 <li><code>$20.01</code> forces Ground Advantage</li>
@@ -4172,7 +4172,7 @@ dryrun-</code></pre>
 <li>shipping adapter profiles expose provider, carrier, credential, Coverage, live-support, and manual-fallback state</li>
 <li>dry-run Standard Envelope and Ground Advantage adapter purchases behave as dry runs</li>
 </ul>
-<p>This page does not contact USPS or Coverage and does not buy postage.</p>
+<p>The page also shows a Live Shipping Approval Report. Live shipping must remain blocked unless the report says <code>ready_to_request_live_mode</code>, the setup verdict is acceptable, every live requirement is ready, and there are zero blockers. This page does not contact USPS or Coverage and does not buy postage.</p>
 <h2>35. Seller eBay Connection, Staging, Outside Orders, And Reconciliation</h2>
 <p>Seller-scoped eBay tokens and workflows are separate from the Store #1 global <code>ebay_tokens</code> connection.</p>
 <h3>Connect and stage inventory</h3>

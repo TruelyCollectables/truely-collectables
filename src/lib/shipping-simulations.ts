@@ -7,14 +7,27 @@ import {
   getShippingProviderAdapterProfile,
   purchaseShippingLabel,
 } from "./shipping-provider-adapter";
+import { buildShippingProviderSetupPacket } from "./shipping-provider-setup";
 
-export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-11.1";
+export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-11.2";
 
 export type ShippingSimulationScenario = {
   scenario_key: string;
   scenario_status: "passed" | "failed";
   detail: string;
   assertions: Record<string, unknown>;
+};
+
+export type LiveShippingApprovalReport = {
+  approval_status: "ready_to_request_live_mode" | "blocked";
+  detail: string;
+  next_action: string;
+  provider_setup_status: string;
+  purchase_mode: string;
+  simulation_status: "passed" | "failed";
+  requirements_ready_count: number;
+  requirements_count: number;
+  blockers: string[];
 };
 
 function pass(condition: boolean) {
@@ -27,6 +40,7 @@ function money(value: number) {
 
 export async function runShippingSimulationSuite() {
   const scenarios: ShippingSimulationScenario[] = [];
+  const providerSetup = buildShippingProviderSetupPacket();
 
   const standardEnvelope = resolveShippingMethod({
     requestedMethod: "STANDARD_ENVELOPE",
@@ -199,13 +213,50 @@ export async function runShippingSimulationSuite() {
   const failed = scenarios.filter(
     (scenario) => scenario.scenario_status === "failed",
   ).length;
+  const runStatus = failed > 0 ? "failed" : "passed";
+  const requirementBlockers = providerSetup.liveRequirements
+    .filter((requirement) => requirement.status !== "ready")
+    .map((requirement) => requirement.label);
+  const blockers = Array.from(
+    new Set([
+      ...requirementBlockers,
+      ...providerSetup.decision.blockers,
+      ...(runStatus === "failed" ? ["shipping simulation suite failed"] : []),
+    ]),
+  );
+  const readyToRequestLiveMode =
+    runStatus === "passed" &&
+    blockers.length === 0 &&
+    !["needs_provider_setup", "live_blocked"].includes(
+      providerSetup.decision.status,
+    );
+  const liveApproval: LiveShippingApprovalReport = {
+    approval_status: readyToRequestLiveMode
+      ? "ready_to_request_live_mode"
+      : "blocked",
+    detail: readyToRequestLiveMode
+      ? "Shipping simulations passed and all live-shipping approval gates are ready. A controlled live-mode request can be reviewed."
+      : "Live shipping remains blocked. TCOS may plan labels, run dry-run purchase simulations, and record real external labels manually, but it must not buy live postage.",
+    next_action: readyToRequestLiveMode
+      ? "Review the provider setup packet, save approval evidence, and only then consider TCOS_SHIPPING_PURCHASE_MODE=live."
+      : "Clear the listed blockers in the Live Adapter Approval Checklist, rerun simulations, and keep TCOS_SHIPPING_PURCHASE_MODE=dry_run.",
+    provider_setup_status: providerSetup.decision.status,
+    purchase_mode: providerSetup.lanes[0]?.purchaseMode || "dry_run",
+    simulation_status: runStatus,
+    requirements_ready_count: providerSetup.liveRequirements.filter(
+      (requirement) => requirement.status === "ready",
+    ).length,
+    requirements_count: providerSetup.liveRequirements.length,
+    blockers,
+  };
 
   return {
     suite_version: SHIPPING_SIMULATION_SUITE_VERSION,
-    run_status: failed > 0 ? "failed" : "passed",
+    run_status: runStatus,
     scenario_count: scenarios.length,
     passed_count: scenarios.length - failed,
     failed_count: failed,
+    live_approval: liveApproval,
     scenarios,
   };
 }

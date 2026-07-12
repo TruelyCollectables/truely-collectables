@@ -393,7 +393,7 @@ function ProviderGoLiveRunway({
         ))}
       </div>
 
-      <div className="mt-4 rounded border border-neutral-200 bg-neutral-50 p-4">
+        <div className="mt-4 rounded border border-neutral-200 bg-neutral-50 p-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h5 className="font-black">Live Adapter Approval Checklist</h5>
@@ -440,6 +440,21 @@ function ProviderGoLiveRunway({
               </ul>
             </article>
           ))}
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Link
+            href="/admin/shipping/simulations"
+            className="rounded bg-neutral-950 px-3 py-2 text-xs font-black text-white"
+          >
+            Run Live Approval Simulation
+          </Link>
+          <a
+            href="/api/admin/shipping/provider-setup"
+            className="rounded border border-neutral-300 bg-white px-3 py-2 text-xs font-black text-neutral-950"
+          >
+            Provider Setup JSON
+          </a>
         </div>
       </div>
     </div>

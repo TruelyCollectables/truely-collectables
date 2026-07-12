@@ -10,6 +10,7 @@ function label(value: unknown) {
 
 function tone(status: string) {
   if (status === "passed") return "border-emerald-200 bg-emerald-50 text-emerald-900";
+  if (status === "ready_to_request_live_mode") return "border-blue-200 bg-blue-50 text-blue-900";
   return "border-rose-200 bg-rose-50 text-rose-900";
 }
 
@@ -59,6 +60,65 @@ export default async function ShippingSimulationsPage() {
           <Metric label="Status" value={label(result.run_status)} />
           <Metric label="Passed" value={String(result.passed_count)} />
           <Metric label="Failed" value={String(result.failed_count)} />
+        </section>
+
+        <section
+          className={`rounded border p-5 ${tone(
+            result.live_approval.approval_status,
+          )}`}
+        >
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-black uppercase tracking-widest opacity-75">
+                Live shipping approval report
+              </p>
+              <h2 className="mt-1 text-2xl font-black">
+                {label(result.live_approval.approval_status)}
+              </h2>
+              <p className="mt-2 max-w-4xl text-sm font-semibold">
+                {result.live_approval.detail}
+              </p>
+              <p className="mt-2 text-sm font-black">
+                {result.live_approval.next_action}
+              </p>
+            </div>
+            <div className="grid min-w-64 grid-cols-2 gap-2 text-sm">
+              <Metric
+                label="Requirements"
+                value={`${result.live_approval.requirements_ready_count}/${result.live_approval.requirements_count}`}
+              />
+              <Metric
+                label="Mode"
+                value={label(result.live_approval.purchase_mode)}
+              />
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <Metric
+              label="Setup Verdict"
+              value={label(result.live_approval.provider_setup_status)}
+            />
+            <Metric
+              label="Simulation Status"
+              value={label(result.live_approval.simulation_status)}
+            />
+            <Metric
+              label="Blockers"
+              value={String(result.live_approval.blockers.length)}
+            />
+          </div>
+
+          {result.live_approval.blockers.length > 0 ? (
+            <div className="mt-4 rounded border border-current bg-white/60 p-3">
+              <h3 className="font-black">Live shipping blockers</h3>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-sm font-bold">
+                {result.live_approval.blockers.map((blocker) => (
+                  <li key={blocker}>{blocker}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
         </section>
 
         <section className="grid gap-4 lg:grid-cols-2">
