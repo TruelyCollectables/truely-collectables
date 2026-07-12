@@ -7,8 +7,8 @@ Generated for the next Codex session during the production launch stacking pass.
 - Workspace: `C:\Projects\truely-collectables`
 - Branch: `main`
 - GitHub remote: `https://github.com/TruelyCollectables/truely-collectables.git`
-- Latest pushed commit before this bundle-section cleanup: `1083d3d Record verified launch handoff bundle tip`
-- Local `HEAD` and `origin/main` matched at `1083d3d` after the last push.
+- Latest pushed commit: `bdead99 Separate launch handoff deploy commands`
+- Local `HEAD` and `origin/main` matched at `bdead99` after the last push.
 - Local working tree was clean.
 - `.codex-run/` is ignored in `.gitignore`; leave the folder contents alone unless the user explicitly says to delete them.
 
@@ -93,6 +93,8 @@ npm run build
 npm run preflight:production
 ```
 
+`npm run check:production-guardrails`, `npm run lint`, and `npm run build` were rerun before commit `bdead99` and passed. Commit `bdead99` separated the launch handoff bundle deploy commands into their own `## Production Deploy Commands` section and updated smoke coverage to require the split `npm run deploy:production` / `npm run smoke:production` fallback commands. The commit was pushed to `origin/main`; no Vercel deployment was started.
+
 `npm run verify:production` was rerun after commit `5622761` and passed end-to-end. It ran lint, build, production guardrail checks including the smoke redaction self-test, and production preflight; the preflight fetched `origin/main`, confirmed local `HEAD` matched GitHub, reported a clean worktree, and did not start a Vercel deployment.
 
 `npm run verify:production` was rerun after commit `0bc64a3` and passed end-to-end. It ran lint, build, production guardrail checks including the smoke redaction self-test, and production preflight; the preflight fetched `origin/main`, confirmed local `HEAD` matched GitHub, reported a clean worktree, and did not start a Vercel deployment.
@@ -138,6 +140,7 @@ npm run manual:pdf
 Most recent commits, newest first:
 
 ```text
+bdead99 Separate launch handoff deploy commands
 1083d3d Record verified launch handoff bundle tip
 5622761 Include deploy commands in launch handoff bundle
 625cd50 Record verified smoke error redaction tip
