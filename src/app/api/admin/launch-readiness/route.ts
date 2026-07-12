@@ -14,6 +14,7 @@ type BriefItem = {
   status: "ready" | "review" | "blocked";
   detail: string;
   action: string;
+  href?: string;
 };
 
 function statusFromCheck(status: "passed" | "warning" | "blocked") {
@@ -42,6 +43,32 @@ function sortAttentionItems(items: BriefItem[]) {
     .sort((a, b) => rank[a.status] - rank[b.status]);
 }
 
+function hrefForBriefItem(item: BriefItem) {
+  const label = item.label.toLowerCase();
+  const action = item.action.toLowerCase();
+
+  if (label.includes("payment")) return "/admin/live-payment-launch";
+  if (label.includes("live shipping")) return "/admin/live-shipping-launch";
+  if (label.includes("dry-run shipping cleanup")) {
+    return "/admin/shipping#dry-run-cleanup";
+  }
+  if (label.includes("shipping: shipping simulation")) {
+    return "/admin/shipping/simulations";
+  }
+  if (label.includes("shipping") || label.includes("provider")) {
+    return "/admin/shipping";
+  }
+  if (action.includes("/admin/shipping/simulations")) {
+    return "/admin/shipping/simulations";
+  }
+  if (action.includes("/admin/shipping")) return "/admin/shipping";
+  if (action.includes("supabase/migrations/")) {
+    return "/admin/launch-readiness#database-readiness";
+  }
+
+  return undefined;
+}
+
 function markdownList(items: BriefItem[]) {
   if (items.length === 0) return "- None";
 
@@ -51,6 +78,15 @@ function markdownList(items: BriefItem[]) {
         `- **${item.status.toUpperCase()} — ${item.label}:** ${item.detail} Next: ${item.action}`,
     )
     .join("\n");
+}
+
+function markdownListWithLinks(items: BriefItem[]) {
+  return markdownList(
+    items.map((item) => ({
+      ...item,
+      action: item.href ? `${item.action} Link: ${item.href}` : item.action,
+    })),
+  );
 }
 
 function markdownForBrief(brief: Awaited<ReturnType<typeof buildBrief>>) {
@@ -83,7 +119,7 @@ function markdownForBrief(brief: Awaited<ReturnType<typeof buildBrief>>) {
     "",
     "## Attention Items",
     "",
-    markdownList(brief.attentionItems),
+    markdownListWithLinks(brief.attentionItems),
     "",
     "## Launch Drill",
     "",
@@ -116,12 +152,14 @@ async function buildBrief() {
     status: statusFromCheck(check.status),
     detail: check.detail,
     action: "Open /admin/live-payment-launch and clear this payment launch check.",
+    href: "/admin/live-payment-launch",
   }));
   const shippingItems: BriefItem[] = shippingReport.checks.map((check) => ({
     label: `Shipping: ${check.label}`,
     status: statusFromCheck(check.status),
     detail: check.detail,
     action: "Open /admin/live-shipping-launch or /admin/shipping and clear this shipping launch check.",
+    href: "/admin/live-shipping-launch",
   }));
   const providerItems: BriefItem[] = providerSetup.readiness.map((item) => ({
     label: `Provider: ${item.label}`,
@@ -133,6 +171,12 @@ async function buildBrief() {
           : "review",
     detail: item.detail,
     action: item.action,
+    href: hrefForBriefItem({
+      label: `Provider: ${item.label}`,
+      status: item.status === "blocked" ? "blocked" : "review",
+      detail: item.detail,
+      action: item.action,
+    }),
   }));
   const dryRunCleanupItem: BriefItem = dryRunCleanup.error
     ? {
@@ -140,6 +184,7 @@ async function buildBrief() {
         status: "blocked",
         detail: `Dry-run cleanup could not be checked: ${dryRunCleanup.error.message}`,
         action: "Open /admin/shipping#dry-run-cleanup after shipping migrations are available.",
+        href: "/admin/shipping#dry-run-cleanup",
       }
     : dryRunCleanup.total > 0
       ? {
@@ -147,12 +192,14 @@ async function buildBrief() {
           status: "blocked",
           detail: dryRunCleanup.detail,
           action: "Open /admin/shipping#dry-run-cleanup and retire simulated proof before launch.",
+          href: "/admin/shipping#dry-run-cleanup",
         }
       : {
           label: "Dry-Run Shipping Cleanup",
           status: "ready",
           detail: dryRunCleanup.detail,
           action: "Keep dry-run cleanup clear before seller payout release or shipping launch.",
+          href: "/admin/shipping#dry-run-cleanup",
         };
 
   const items = [
@@ -161,7 +208,12 @@ async function buildBrief() {
     ...providerItems,
     dryRunCleanupItem,
   ];
-  const attentionItems = sortAttentionItems(items).slice(0, 15);
+  const attentionItems = sortAttentionItems(items)
+    .slice(0, 15)
+    .map((item) => ({
+      ...item,
+      href: item.href || hrefForBriefItem(item),
+    }));
 
   return {
     generatedAt: new Date().toISOString(),
