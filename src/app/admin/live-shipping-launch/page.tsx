@@ -64,6 +64,9 @@ export default async function LiveShippingLaunchPage() {
             <Link href="/admin/launch-readiness" className="rounded border bg-white px-4 py-2">
               Launch Readiness
             </Link>
+            <Link href="/admin/launch-gate-drill" className="rounded border bg-white px-4 py-2">
+              Gate Drill
+            </Link>
           </div>
         </div>
 

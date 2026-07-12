@@ -12,7 +12,7 @@ Main TCOS website/domain: TotallyCollectibles.com.
 
 Flagship store / Store #1: Truely Collectables.
 
-Last updated: 2026-07-11
+Last updated: 2026-07-12
 
 This is the working manual for Totally Collectibles OS (TCOS). It must stay current as features are added.
 
@@ -271,7 +271,8 @@ Daily production safety order:
 6. `/admin/orders` - pack, record real labels/coverage, save tracking, and mark shipped.
 7. `/seller/marketplaces` and `/admin/ebay` - inspect stale connections, failed staging, outside orders, and reconciliation.
 8. Run `/admin/payment-simulations` and `/admin/shipping/simulations` before changing payment or shipping behavior.
-9. Use `/admin/live-payment-launch` only for controlled launch approval or emergency revocation.
+9. Run `/admin/launch-gate-drill` to confirm the runtime locks match the current launch reports without charging cards or buying postage.
+10. Use `/admin/live-payment-launch` only for controlled launch approval or emergency revocation.
 
 ## 2. Routes
 
@@ -315,6 +316,7 @@ Daily production safety order:
 | `/admin/order-review-cases` | Global chargeback, return, authenticity, shipping, payment-risk, and seller-dispute case queue |
 | `/admin/files` | Transaction evidence files |
 | `/admin/launch-readiness` | Live payment and production readiness checklist |
+| `/admin/launch-gate-drill` | No-money runtime drill for live payment and shipping launch locks |
 | `/admin/live-payment-launch` | Auditable dual-lock live payment approval/revocation gate |
 | `/admin/live-shipping-launch` | Auditable dual-lock live shipping approval/revocation gate |
 | `/admin/payment-simulations` | Payment reliability, webhook, refund, dispute, and checkout drill lab |
@@ -339,6 +341,7 @@ Daily production safety order:
 | `/api/admin/order-review-cases/[id]/packet` | Downloads an order review case packet PDF |
 | `/api/admin/order-review-cases/[id]/payout-resolution` | Resolves related seller payout rows after a case decision |
 | `/api/admin/order-review-cases/[id]/stripe-evidence` | Stages or submits the case evidence supported by Stripe |
+| `/api/admin/launch-gate-drill` | Runs the no-money payment and shipping runtime gate drill |
 | `/api/admin/live-payment-launch` | Approves or revokes the database half of the live payment gate |
 | `/api/admin/live-shipping-launch` | Approves or revokes the database half of the live shipping gate |
 | `/api/admin/payment-simulations` | Runs signed webhook, refund, dispute, idempotency, and related payment simulations |
@@ -4167,6 +4170,8 @@ If the live-payment approval migration is missing, the runtime gate fails closed
 
 `/admin/launch-readiness` now also includes a first-class Live Payment Launch Gate row plus database checks for `live_payment_launch_gates` and `live_payment_launch_events`. Live buyer payments are not configuration-ready when the live-payment audit tables are unavailable or when Stripe live mode is staged but the approval report still has blockers.
 
+`/admin/launch-gate-drill` runs a no-money runtime smoke over the payment and shipping launch locks. For payments, it verifies that test-mode Checkout remains available for simulations, invalid Stripe secrets fail closed, and the current live runtime state matches the live-payment launch report. It uses synthetic key strings and does not create Checkout Sessions, Customers, PaymentIntents, refunds, or disputes.
+
 Live Checkout runtime also probes the immutable live-payment event table after approval is verified. If the audit table becomes unavailable after an approval was recorded, live Checkout fails closed until the migration/table problem is fixed.
 
 ### Financial reconciliation runbook
@@ -4335,6 +4340,8 @@ The live-shipping approval button is disabled when the approval database check c
 Provider purchase attempts in `/api/admin/orders/[id]/shipping-labels` now check the live-shipping runtime gate before calling the provider adapter. Manual external label purchase/void recording remains available, but live provider purchase is blocked unless the database gate, immutable event table, `TCOS_LIVE_SHIPPING_ENABLED`, `TCOS_SHIPPING_PURCHASE_MODE`, live requirements, and dry-run cleanup checks all pass.
 
 `/admin/launch-readiness` also includes the same Shipping Setup Verdict, the live-shipping launch gate status, and database checks for `live_shipping_launch_gates` plus `live_shipping_launch_events`. Treat this as the production-readiness warning surface; it does not mean live postage buying is enabled.
+
+The same `/admin/launch-gate-drill` report also checks the live-shipping runtime lock without quoting, buying, voiding, or recording a provider label. In dry-run mode, the expected safe result is that the dry-run shipping path remains available while live postage remains locked. In live mode, the drill expects the runtime gate to match the live-shipping launch report.
 
 The admin command center (`/admin`) also shows the Shipping Setup verdict in the side rail and includes it in operator alerts, so blocked shipping-provider setup is visible from the first admin landing page.
 

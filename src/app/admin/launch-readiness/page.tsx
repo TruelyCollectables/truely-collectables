@@ -970,7 +970,7 @@ export default async function LaunchReadinessPage() {
           </p>
         </div>
 
-        <div className="flex gap-3">
+        <div className="flex flex-wrap gap-3">
           <Link href="/admin" className="rounded border bg-white px-4 py-2">
             Dashboard
           </Link>
@@ -985,6 +985,9 @@ export default async function LaunchReadinessPage() {
           </Link>
           <Link href="/admin/live-payment-launch" className="rounded border bg-white px-4 py-2">
             Live Payment Gate
+          </Link>
+          <Link href="/admin/launch-gate-drill" className="rounded border bg-white px-4 py-2">
+            Gate Drill
           </Link>
           <Link
             href="/admin/live-shipping-launch"

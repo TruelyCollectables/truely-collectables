@@ -56,6 +56,9 @@ export default async function LivePaymentLaunchPage() {
             <Link href="/admin/launch-readiness" className="rounded border bg-white px-4 py-2">
               Launch Readiness
             </Link>
+            <Link href="/admin/launch-gate-drill" className="rounded border bg-white px-4 py-2">
+              Gate Drill
+            </Link>
             <Link href="/admin/payment-simulations" className="rounded border bg-white px-4 py-2">
               Payment Lab
             </Link>

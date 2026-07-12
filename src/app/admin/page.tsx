@@ -437,6 +437,7 @@ export default async function AdminDashboard() {
             <CommandButton href="/admin/security" label="Security" />
             <CommandButton href="/admin/ebay/sync-control" label="Sync Control" />
             <CommandButton href="/admin/launch-readiness" label="Readiness" />
+            <CommandButton href="/admin/launch-gate-drill" label="Gate Drill" />
             <CommandButton href="/admin/logout" label="Logout" danger />
           </div>
         </div>
@@ -617,6 +618,7 @@ export default async function AdminDashboard() {
                 <LinkButton href="/admin/offers" label="Offers" />
                 <LinkButton href="/admin/files" label="Files" />
                 <LinkButton href="/admin/launch-readiness" label="Launch" />
+                <LinkButton href="/admin/launch-gate-drill" label="Gate Drill" />
                 <LinkButton href="/shop" label="Shop" />
               </div>
             </section>
@@ -655,6 +657,7 @@ export default async function AdminDashboard() {
               <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
                 <LinkButton href="/admin/shipping" label="Shipping Ops" />
                 <LinkButton href="/admin/launch-readiness" label="Readiness" />
+                <LinkButton href="/admin/launch-gate-drill" label="Gate Drill" />
               </div>
             </section>
           </aside>
