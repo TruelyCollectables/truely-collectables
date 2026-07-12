@@ -1027,6 +1027,18 @@ export default async function LaunchReadinessPage() {
           <Link href="/admin/launch-gate-drill" className="rounded border bg-white px-4 py-2">
             Gate Drill
           </Link>
+          <a
+            href="/api/admin/launch-readiness"
+            className="rounded border bg-white px-4 py-2"
+          >
+            Brief JSON
+          </a>
+          <a
+            href="/api/admin/launch-readiness?format=markdown"
+            className="rounded border bg-white px-4 py-2"
+          >
+            Brief Markdown
+          </a>
           <Link
             href="/admin/live-shipping-launch"
             className="rounded border border-red-200 bg-red-50 px-4 py-2 font-bold text-red-950"

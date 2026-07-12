@@ -4175,6 +4175,8 @@ The top Launch Readiness payment banner follows the dedicated Live Payment Launc
 
 The Launch Attention Board near the top of `/admin/launch-readiness` pulls the current blocked and review items out of the full checklist and shows the first ten by severity. It is a triage shortcut over the same readiness data, not a separate approval gate. When TCOS can infer the right admin surface, each attention card includes an `Open related page` shortcut.
 
+The same page links to `/api/admin/launch-readiness` for a compact JSON launch brief and `/api/admin/launch-readiness?format=markdown` for a Markdown handoff brief. These exports are read-only and summarize payment posture, shipping posture, dry-run cleanup, launch drill counts, and the top attention items.
+
 `/admin/launch-gate-drill` runs a no-money runtime smoke over the payment and shipping launch locks. For payments, it verifies that test-mode Checkout remains available for simulations, invalid Stripe secrets fail closed, and the current live runtime state matches the live-payment launch report. It uses synthetic key strings and does not create Checkout Sessions, Customers, PaymentIntents, refunds, or disputes.
 
 The Launch Gate Drill also shows Payment Launch Posture and Shipping Launch Posture cards. These cards separate runtime-smoke safety from operator launch readiness: the drill can pass while shipping remains `Locked Safe` because TCOS is still in dry-run postage mode or provider setup is incomplete. Treat `Locked Safe` as an intentional hold, not permission to buy postage.
