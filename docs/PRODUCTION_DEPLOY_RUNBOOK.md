@@ -83,6 +83,8 @@ The smoke helper always targets the clean production URL by default. If `SMOKE_B
 
 If the smoke says queued launch features are not visible, production is still behind the GitHub stack. Rerun the production deploy once Vercel accepts deployments, then run the smoke again.
 
+The downloadable launch handoff bundle from `/api/admin/launch-readiness?format=handoff-bundle` also includes the verify, launch, split deploy/smoke, clean-domain, and unwanted-alias reminders so an operator can hand off the production deploy without relying on chat history.
+
 ## Expected success path
 
 ```bash

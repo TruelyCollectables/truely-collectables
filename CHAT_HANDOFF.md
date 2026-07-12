@@ -7,8 +7,8 @@ Generated for the next Codex session during the production launch stacking pass.
 - Workspace: `C:\Projects\truely-collectables`
 - Branch: `main`
 - GitHub remote: `https://github.com/TruelyCollectables/truely-collectables.git`
-- Latest verified commit before this handoff note: `0bc64a3 Redact production smoke error snippets`
-- Local `HEAD` and `origin/main` matched at `0bc64a3` after the latest verify pass.
+- Latest pushed commit before this launch-handoff-bundle change: `625cd50 Record verified smoke error redaction tip`
+- Local `HEAD` and `origin/main` matched at `625cd50` after the last push.
 - Local working tree was clean.
 - `.codex-run/` is ignored in `.gitignore`; leave the folder contents alone unless the user explicitly says to delete them.
 
@@ -78,6 +78,10 @@ The smoke helper:
 - prints local/remote commit context;
 - clearly calls out queued feature failures when production is simply behind GitHub.
 
+The launch handoff bundle:
+
+- includes `npm run verify:production`, `npm run launch:production`, split deploy/smoke fallback commands, the clean production domain, and the unwanted `tt3b` alias reminder.
+
 ## Validation state
 
 Recent pushed work passed:
@@ -132,6 +136,7 @@ npm run manual:pdf
 Most recent commits, newest first:
 
 ```text
+625cd50 Record verified smoke error redaction tip
 0bc64a3 Redact production smoke error snippets
 029020f Record verified smoke self-test tip
 0dadb81 Self-test production smoke redaction

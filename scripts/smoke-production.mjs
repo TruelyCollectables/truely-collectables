@@ -287,7 +287,11 @@ const checks = [
   {
     name: "launch handoff bundle",
     path: "/api/admin/launch-readiness?format=handoff-bundle",
-    expect: (result) => result.text.includes("# TCOS Launch Hand-off Bundle"),
+    expect: (result) =>
+      result.text.includes("# TCOS Launch Hand-off Bundle") &&
+      result.text.includes("npm run verify:production") &&
+      result.text.includes("npm run launch:production") &&
+      result.text.includes("truely-collectables-tt3b.vercel.app"),
   },
   {
     name: "live payment gate",
