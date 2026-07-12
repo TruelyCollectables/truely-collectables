@@ -437,6 +437,7 @@ Admin login hardening:
 - failed and successful attempts are written to `admin_login_attempts` when the table is available
 - login attempts store store ID, IP address, user agent, result, failure reason, identity risk, header evidence, and lockout timestamp when applicable
 - five failed attempts from the same IP inside 15 minutes triggers a 15-minute lockout
+- active-lockout hits are audited but do not count as additional invalid-password attempts
 - locked-out login attempts return HTTP `429`
 - masked or blocked identity attempts return HTTP `403`
 - if the audit table has not been migrated yet, login still works but audit/lockout storage is unavailable

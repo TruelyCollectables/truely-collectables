@@ -877,6 +877,7 @@
 <li>failed and successful attempts are written to <code>admin_login_attempts</code> when the table is available</li>
 <li>login attempts store store ID, IP address, user agent, result, failure reason, identity risk, header evidence, and lockout timestamp when applicable</li>
 <li>five failed attempts from the same IP inside 15 minutes triggers a 15-minute lockout</li>
+<li>active-lockout hits are audited but do not count as additional invalid-password attempts</li>
 <li>locked-out login attempts return HTTP <code>429</code></li>
 <li>masked or blocked identity attempts return HTTP <code>403</code></li>
 <li>if the audit table has not been migrated yet, login still works but audit/lockout storage is unavailable</li>

@@ -9,6 +9,7 @@ const LOCKOUT_MINUTES = 15;
 
 type LoginAttemptRow = {
   success: boolean;
+  failure_reason: string | null;
   lockout_until: string | null;
   created_at: string;
 };
@@ -95,7 +96,7 @@ export async function checkAdminLoginAllowed(
 
   const { data, error } = await supabase
     .from("admin_login_attempts")
-    .select("success,lockout_until,created_at")
+    .select("success,failure_reason,lockout_until,created_at")
     .eq("store_id", storeId)
     .eq("ip_address", clientKey(identity))
     .gte("created_at", windowStart())
@@ -126,7 +127,11 @@ export async function checkAdminLoginAllowed(
     .sort()
     .at(-1) ?? null;
   const retryAfterSeconds = secondsUntil(activeLockout);
-  const failedAttempts = rows.filter((row) => !row.success).length;
+  const failedAttempts = rows.filter(
+    (row) =>
+      !row.success &&
+      (!row.failure_reason || row.failure_reason === "invalid_password"),
+  ).length;
 
   if (retryAfterSeconds) {
     return {
