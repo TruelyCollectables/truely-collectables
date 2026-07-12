@@ -47,6 +47,93 @@ function shippingPurchaseMode() {
     : ("dry_run" as const);
 }
 
+export async function getLiveShippingRuntimeGate(params?: {
+  supabase?: SupabaseClient;
+  storeId?: string;
+}) {
+  const purchaseMode = shippingPurchaseMode();
+
+  if (purchaseMode === "dry_run") {
+    return {
+      allowed: true,
+      mode: "dry_run" as const,
+      reason: null,
+    };
+  }
+
+  if (process.env.TCOS_LIVE_SHIPPING_ENABLED !== "true") {
+    return {
+      allowed: false,
+      mode: "live" as const,
+      reason: "Live shipping is administratively locked.",
+    };
+  }
+
+  const supabase =
+    params?.supabase || createSupabaseServerClient({ admin: true });
+  const storeId = params?.storeId || getActiveStoreId();
+  const { data, error } = await supabase
+    .from("live_shipping_launch_gates")
+    .select("gate_status,approval_version")
+    .eq("store_id", storeId)
+    .maybeSingle();
+
+  const approved =
+    !error &&
+    data?.gate_status === "approved" &&
+    data?.approval_version === LIVE_SHIPPING_APPROVAL_VERSION;
+
+  if (!approved) {
+    return {
+      allowed: false,
+      mode: "live" as const,
+      reason: error
+        ? `Live shipping approval could not be verified: ${error.message}`
+        : "Live shipping requires current administrator launch approval.",
+    };
+  }
+
+  const providerSetup = buildShippingProviderSetupPacket();
+  const requirementBlockers = providerSetup.liveRequirements
+    .filter((requirement) => requirement.status !== "ready")
+    .map((requirement) => requirement.label);
+  const setupBlocked = ["needs_provider_setup", "live_blocked"].includes(
+    providerSetup.decision.status,
+  );
+
+  if (setupBlocked || requirementBlockers.length > 0) {
+    return {
+      allowed: false,
+      mode: "live" as const,
+      reason: `Live shipping is blocked by provider setup or approval requirements: ${[
+        ...providerSetup.decision.blockers,
+        ...requirementBlockers,
+      ].join(", ") || providerSetup.decision.summary}.`,
+    };
+  }
+
+  const dryRunShippingCleanup = await getDryRunShippingCleanupSummary({
+    supabase,
+    storeId,
+  });
+
+  if (dryRunShippingCleanup.error || dryRunShippingCleanup.total > 0) {
+    return {
+      allowed: false,
+      mode: "live" as const,
+      reason: dryRunShippingCleanup.error
+        ? `Live shipping is blocked because dry-run shipping cleanup could not be verified: ${dryRunShippingCleanup.error.message}`
+        : `Live shipping is blocked until dry-run shipping cleanup is complete. ${dryRunShippingCleanup.detail}`,
+    };
+  }
+
+  return {
+    allowed: true,
+    mode: "live" as const,
+    reason: null,
+  };
+}
+
 export async function evaluateLiveShippingLaunch(params?: {
   supabase?: SupabaseClient;
   storeId?: string;

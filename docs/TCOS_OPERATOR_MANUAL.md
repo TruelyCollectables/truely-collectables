@@ -4322,6 +4322,8 @@ The Live Shipping Runway now includes a Live Adapter Approval Checklist. The pro
 
 `/admin/live-shipping-launch` is the auditable live-shipping database lock. It evaluates the current live-shipping approval version, `TCOS_LIVE_SHIPPING_ENABLED`, `TCOS_SHIPPING_PURCHASE_MODE`, provider setup, live requirement checklist, shipping simulations, live approval report, and dry-run cleanup status. Approval writes to `live_shipping_launch_gates` and appends immutable `live_shipping_launch_events`; revocation clears the approval side of the lock. Live shipping still requires both this database approval and the environment/runtime switches, and the current dry-run-only provider adapter still blocks live postage execution.
 
+Provider purchase attempts in `/api/admin/orders/[id]/shipping-labels` now check the live-shipping runtime gate before calling the provider adapter. Manual external label purchase/void recording remains available, but live provider purchase is blocked unless the database gate, `TCOS_LIVE_SHIPPING_ENABLED`, `TCOS_SHIPPING_PURCHASE_MODE`, live requirements, and dry-run cleanup checks all pass.
+
 `/admin/launch-readiness` also includes the same Shipping Setup Verdict and links directly to Shipping Ops. Treat this as the production-readiness warning surface; it does not mean live postage buying is enabled.
 
 The admin command center (`/admin`) also shows the Shipping Setup verdict in the side rail and includes it in operator alerts, so blocked shipping-provider setup is visible from the first admin landing page.

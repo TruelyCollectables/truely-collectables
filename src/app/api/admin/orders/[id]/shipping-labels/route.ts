@@ -1,4 +1,5 @@
 import { getClientIdentity } from "../../../../../../lib/client-identity";
+import { getLiveShippingRuntimeGate } from "../../../../../../lib/live-shipping-launch";
 import {
   getShippingCoverage,
   isShippingMethod,
@@ -536,6 +537,68 @@ export async function PATCH(
       label.resolved_shipping_method || typedOrder.shipping_method,
     );
     const now = new Date().toISOString();
+    const liveShippingGate = await getLiveShippingRuntimeGate({
+      supabase,
+      storeId,
+    });
+
+    if (!liveShippingGate.allowed) {
+      await supabase.from("order_shipping_tracking_events").insert({
+        store_id: storeId,
+        order_id: orderId,
+        shipping_label_id: label.id,
+        provider: "tcos",
+        carrier: typedOrder.carrier || carrierForMethod(
+          safeShippingMethod(label.resolved_shipping_method),
+        ),
+        tracking_number: typedOrder.tracking_number || null,
+        event_type: "provider_purchase_blocked",
+        event_status: "blocked",
+        message: liveShippingGate.reason,
+        occurred_at: now,
+        raw_payload: {
+          blocker_type: "live_shipping_runtime_gate",
+          live_shipping_gate: liveShippingGate,
+          shipping_adapter_profile: adapterProfile,
+          attempted_by_identity: identity,
+        },
+      });
+
+      await supabase
+        .from("order_shipping_labels")
+        .update({
+          label_status: "purchase_pending",
+          coverage_status:
+            label.coverage_status === "covered"
+              ? label.coverage_status
+              : "purchase_pending",
+          updated_at: now,
+          metadata: {
+            ...(label.metadata || {}),
+            latest_purchase_attempt: {
+              status: "blocked",
+              attempted_at: now,
+              attempted_by_identity: identity,
+              blocker_type: "live_shipping_runtime_gate",
+              live_shipping_gate: liveShippingGate,
+              shipping_adapter_profile: adapterProfile,
+            },
+          },
+        })
+        .eq("id", label.id)
+        .eq("store_id", storeId);
+
+      return Response.json(
+        {
+          error:
+            liveShippingGate.reason ||
+            "Provider purchase is blocked by the live shipping launch gate.",
+          labelId: label.id,
+          liveShippingGate,
+        },
+        { status: 409 },
+      );
+    }
 
     if (blockers.length > 0) {
       await supabase.from("order_shipping_tracking_events").insert({
