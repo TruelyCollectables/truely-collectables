@@ -37,7 +37,7 @@ To run the full quota-safe production readiness check:
 npm run verify:production
 ```
 
-This runs lint, build, and the production preflight without starting a Vercel deployment.
+This runs lint, the InstaComp queue and accuracy simulations, build, and the production preflight without starting a Vercel deployment.
 It also runs `npm run check:production-guardrails`, which syntax-checks the production deploy/smoke helpers, verifies smoke diagnostic redaction, and verifies the clean production domain cannot be confused with the unwanted `tt3b` alias.
 
 ## Deploy
@@ -48,7 +48,7 @@ For the normal launch path, run the one-shot command:
 npm run launch:production
 ```
 
-This runs lint, build, production guardrail checks, production preflight, production deploy, and production smoke in order.
+This runs lint, InstaComp regression simulations, build, production guardrail checks, production preflight, production deploy, and production smoke in order.
 
 If you need to run the steps separately, deploy first:
 

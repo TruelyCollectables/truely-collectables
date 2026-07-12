@@ -38,7 +38,7 @@ npm run verify:production
 npm run launch:production
 ```
 
-The verify helper runs lint, build, production guardrail checks, and GitHub/clean-worktree preflight without starting a Vercel deploy. The launch helper runs that same verification first, then deploys production and runs the production smoke if the deploy succeeds. The deploy step verifies Git state, handles the clean Vercel production alias, removes the unwanted `tt3b` alias if it appears, and reports Vercel quota blocks clearly.
+The verify helper runs lint, InstaComp queue and accuracy simulations, build, production guardrail checks, and GitHub/clean-worktree preflight without starting a Vercel deploy. The launch helper runs that same verification first, then deploys production and runs the production smoke if the deploy succeeds. The deploy step verifies Git state, handles the clean Vercel production alias, removes the unwanted `tt3b` alias if it appears, and reports Vercel quota blocks clearly.
 
 ## Local development
 
@@ -56,6 +56,12 @@ Before stacking production-bound work, run:
 
 ```bash
 npm run verify:production
+```
+
+For a fast InstaComp-only regression check, run:
+
+```bash
+npm run verify:instacomp
 ```
 
 That command is deploy-safe: it runs lint, build, production guardrail checks, and production Git preflight without consuming a Vercel deployment.
