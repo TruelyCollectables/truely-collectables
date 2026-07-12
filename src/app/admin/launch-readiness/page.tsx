@@ -836,6 +836,12 @@ export default async function LaunchReadinessPage() {
           <Link href="/admin/live-payment-launch" className="rounded border bg-white px-4 py-2">
             Live Payment Gate
           </Link>
+          <Link
+            href="/admin/live-shipping-launch"
+            className="rounded border border-red-200 bg-red-50 px-4 py-2 font-bold text-red-950"
+          >
+            Live Shipping Gate
+          </Link>
           <Link href="/admin/shipping" className="rounded border bg-white px-4 py-2">
             Shipping Ops
           </Link>

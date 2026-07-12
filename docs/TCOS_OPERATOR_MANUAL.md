@@ -316,6 +316,7 @@ Daily production safety order:
 | `/admin/files` | Transaction evidence files |
 | `/admin/launch-readiness` | Live payment and production readiness checklist |
 | `/admin/live-payment-launch` | Auditable dual-lock live payment approval/revocation gate |
+| `/admin/live-shipping-launch` | Auditable dual-lock live shipping approval/revocation gate |
 | `/admin/payment-simulations` | Payment reliability, webhook, refund, dispute, and checkout drill lab |
 | `/admin/financial-reconciliation` | Stripe-versus-TCOS reconciliation queue and resolution controls |
 | `/admin/seller-payouts` | Seller Connect readiness, ledger holds, and cash-out administration |
@@ -339,6 +340,7 @@ Daily production safety order:
 | `/api/admin/order-review-cases/[id]/payout-resolution` | Resolves related seller payout rows after a case decision |
 | `/api/admin/order-review-cases/[id]/stripe-evidence` | Stages or submits the case evidence supported by Stripe |
 | `/api/admin/live-payment-launch` | Approves or revokes the database half of the live payment gate |
+| `/api/admin/live-shipping-launch` | Approves or revokes the database half of the live shipping gate |
 | `/api/admin/payment-simulations` | Runs signed webhook, refund, dispute, idempotency, and related payment simulations |
 | `/api/admin/payment-simulations/checkout-e2e` | Runs the isolated storefront checkout end-to-end drill |
 | `/api/admin/financial-reconciliation` | Loads and resolves Stripe-versus-TCOS financial exceptions |
@@ -3113,6 +3115,8 @@ TCOS V2:
 - `payment_simulation_scenarios`
 - `live_payment_launch_gates`
 - `live_payment_launch_events`
+- `live_shipping_launch_gates`
+- `live_shipping_launch_events`
 - `order_shipping_labels`
 - `order_shipping_tracking_events`
 - `order_shipping_coverage_claims`
@@ -3154,6 +3158,7 @@ Apply every migration in timestamp order. Do not rely on a hand-selected subset.
 20260710185000_create_live_payment_launch_gate.sql
 20260710190000_create_shipping_label_infrastructure.sql
 20260711010000_create_instacomp_scan_job_queue.sql
+20260711185500_create_live_shipping_launch_gate.sql
 ```
 
 The authoritative list is the complete `supabase/migrations` directory, including all earlier account, inventory, evidence, security, seller, and payout migrations. Apply migrations before using features that depend on new tables. A missing migration can appear as an unavailable page, `503`, failed draft creation, missing reconciliation data, or an unsafe launch-readiness blocker.
@@ -4314,6 +4319,8 @@ The same decision appears in the `/admin/shipping` Provider Setup Checklist as t
 - what must not happen: mailing dry-run labels, marking dry-run tracking as shipped, or enabling live mode before launch readiness and simulations are clean
 
 The Live Shipping Runway now includes a Live Adapter Approval Checklist. The provider setup packet and `/admin/shipping` must show all of these gates ready before TCOS treats live postage or Coverage purchase as approved: provider credentials, live adapter implementation, quote/buy/void tests, Coverage purchase tests, provider webhook plus reconciliation approval, shipping simulation pass evidence, and explicit admin live-shipping approval. Secret presence alone is not enough to enable live postage.
+
+`/admin/live-shipping-launch` is the auditable live-shipping database lock. It evaluates the current live-shipping approval version, `TCOS_LIVE_SHIPPING_ENABLED`, `TCOS_SHIPPING_PURCHASE_MODE`, provider setup, live requirement checklist, shipping simulations, live approval report, and dry-run cleanup status. Approval writes to `live_shipping_launch_gates` and appends immutable `live_shipping_launch_events`; revocation clears the approval side of the lock. Live shipping still requires both this database approval and the environment/runtime switches, and the current dry-run-only provider adapter still blocks live postage execution.
 
 `/admin/launch-readiness` also includes the same Shipping Setup Verdict and links directly to Shipping Ops. Treat this as the production-readiness warning surface; it does not mean live postage buying is enabled.
 

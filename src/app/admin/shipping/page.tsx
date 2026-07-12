@@ -855,6 +855,12 @@ export default async function AdminShippingPage() {
               Simulations
             </Link>
             <Link
+              href="/admin/live-shipping-launch"
+              className="rounded border border-red-200 bg-red-50 px-4 py-2 font-bold text-red-950"
+            >
+              Live Shipping Gate
+            </Link>
+            <Link
               href="/admin/launch-readiness"
               className="rounded border bg-white px-4 py-2"
             >

@@ -519,6 +519,10 @@
 <td>Auditable dual-lock live payment approval/revocation gate</td>
 </tr>
 <tr>
+<td><code>/admin/live-shipping-launch</code></td>
+<td>Auditable dual-lock live shipping approval/revocation gate</td>
+</tr>
+<tr>
 <td><code>/admin/payment-simulations</code></td>
 <td>Payment reliability, webhook, refund, dispute, and checkout drill lab</td>
 </tr>
@@ -597,6 +601,10 @@
 <tr>
 <td><code>/api/admin/live-payment-launch</code></td>
 <td>Approves or revokes the database half of the live payment gate</td>
+</tr>
+<tr>
+<td><code>/api/admin/live-shipping-launch</code></td>
+<td>Approves or revokes the database half of the live shipping gate</td>
 </tr>
 <tr>
 <td><code>/api/admin/payment-simulations</code></td>
@@ -3190,6 +3198,8 @@ IP_INTELLIGENCE_REQUIRED=true</code></pre>
 <li><code>payment_simulation_scenarios</code></li>
 <li><code>live_payment_launch_gates</code></li>
 <li><code>live_payment_launch_events</code></li>
+<li><code>live_shipping_launch_gates</code></li>
+<li><code>live_shipping_launch_events</code></li>
 <li><code>order_shipping_labels</code></li>
 <li><code>order_shipping_tracking_events</code></li>
 <li><code>order_shipping_coverage_claims</code></li>
@@ -3219,7 +3229,8 @@ IP_INTELLIGENCE_REQUIRED=true</code></pre>
 20260710184000_restore_order_seller_routing.sql
 20260710185000_create_live_payment_launch_gate.sql
 20260710190000_create_shipping_label_infrastructure.sql
-20260711010000_create_instacomp_scan_job_queue.sql</code></pre>
+20260711010000_create_instacomp_scan_job_queue.sql
+20260711185500_create_live_shipping_launch_gate.sql</code></pre>
 <p>The authoritative list is the complete <code>supabase/migrations</code> directory, including all earlier account, inventory, evidence, security, seller, and payout migrations. Apply migrations before using features that depend on new tables. A missing migration can appear as an unavailable page, <code>503</code>, failed draft creation, missing reconciliation data, or an unsafe launch-readiness blocker.</p>
 <p>The durable InstaComp queue is unavailable until this migration has been applied to the target Supabase project:</p>
 <pre><code>supabase/migrations/20260711010000_create_instacomp_scan_job_queue.sql</code></pre>
@@ -4096,6 +4107,7 @@ charge.dispute.funds_reinstated</code></pre>
 <li>what must not happen: mailing dry-run labels, marking dry-run tracking as shipped, or enabling live mode before launch readiness and simulations are clean</li>
 </ul>
 <p>The Live Shipping Runway now includes a Live Adapter Approval Checklist. The provider setup packet and <code>/admin/shipping</code> must show all of these gates ready before TCOS treats live postage or Coverage purchase as approved: provider credentials, live adapter implementation, quote/buy/void tests, Coverage purchase tests, provider webhook plus reconciliation approval, shipping simulation pass evidence, and explicit admin live-shipping approval. Secret presence alone is not enough to enable live postage.</p>
+<p><code>/admin/live-shipping-launch</code> is the auditable live-shipping database lock. It evaluates the current live-shipping approval version, <code>TCOS_LIVE_SHIPPING_ENABLED</code>, <code>TCOS_SHIPPING_PURCHASE_MODE</code>, provider setup, live requirement checklist, shipping simulations, live approval report, and dry-run cleanup status. Approval writes to <code>live_shipping_launch_gates</code> and appends immutable <code>live_shipping_launch_events</code>; revocation clears the approval side of the lock. Live shipping still requires both this database approval and the environment/runtime switches, and the current dry-run-only provider adapter still blocks live postage execution.</p>
 <p><code>/admin/launch-readiness</code> also includes the same Shipping Setup Verdict and links directly to Shipping Ops. Treat this as the production-readiness warning surface; it does not mean live postage buying is enabled.</p>
 <p>The admin command center (<code>/admin</code>) also shows the Shipping Setup verdict in the side rail and includes it in operator alerts, so blocked shipping-provider setup is visible from the first admin landing page.</p>
 <p>Never mail with references beginning:</p>
