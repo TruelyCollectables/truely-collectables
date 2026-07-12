@@ -24,6 +24,7 @@
 .DS_Store
 *.pem
 *.zip
+/.codex-run/
 
 # debug
 npm-debug.log*
