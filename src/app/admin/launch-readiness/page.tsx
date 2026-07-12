@@ -15,6 +15,7 @@ import {
   type ProviderSetupDecision,
 } from "../../../lib/shipping-provider-setup";
 import { getDryRunShippingCleanupSummary } from "../../../lib/shipping-dry-run-cleanup";
+import { evaluateLivePaymentLaunch } from "../../../lib/live-payment-launch";
 import { evaluateLiveShippingLaunch } from "../../../lib/live-shipping-launch";
 import { SHIPPING_SIMULATION_SUITE_VERSION } from "../../../lib/shipping-simulations";
 import {
@@ -483,6 +484,24 @@ async function checkDatabaseReadiness(): Promise<ReadinessItem[]> {
         "orders supports run-scoped test tagging so the disposable checkout-to-refund drill stays outside daily reconciliation and production financial totals.",
     },
     {
+      label: "Live Payment Launch Gate",
+      table: "live_payment_launch_gates",
+      select:
+        "store_id,gate_status,approval_version,approved_at,approved_by,revoked_at,revoked_by,updated_at",
+      migration: "20260710185000_create_live_payment_launch_gate.sql",
+      readyDetail:
+        "live_payment_launch_gates is available for auditable live-checkout approval and revocation.",
+    },
+    {
+      label: "Live Payment Launch Events",
+      table: "live_payment_launch_events",
+      select:
+        "id,store_id,event_type,approval_version,actor,note,created_at",
+      migration: "20260710185000_create_live_payment_launch_gate.sql",
+      readyDetail:
+        "live_payment_launch_events is available for immutable live-payment approval history.",
+    },
+    {
       label: "Shipping Label Records",
       table: "order_shipping_labels",
       select:
@@ -805,6 +824,55 @@ async function checkDryRunShippingReadiness(): Promise<ReadinessItem> {
   };
 }
 
+async function checkLivePaymentLaunchReadiness(): Promise<ReadinessItem> {
+  const supabase = getSupabaseClient();
+
+  if (!supabase) {
+    return {
+      label: "Live Payment Launch Gate",
+      status: "blocked",
+      detail:
+        "Supabase is not configured, so launch readiness cannot verify the auditable live-payment gate.",
+      action:
+        "Set Supabase environment variables before reviewing or enabling live buyer payments.",
+    };
+  }
+
+  const report = await evaluateLivePaymentLaunch({
+    supabase,
+    storeId: getActiveStoreId(),
+  });
+  const blockedChecks = report.checks.filter(
+    (item) => item.status === "blocked",
+  );
+  const warningChecks = report.checks.filter(
+    (item) => item.status === "warning",
+  );
+  const databaseApproval = report.checks.find(
+    (item) => item.key === "database_approval",
+  );
+  const blockedLabels =
+    blockedChecks.map((item) => item.label).join(", ") || "none";
+  const status: ReadinessStatus = report.livePaymentsEnabled
+    ? "ready"
+    : report.paymentMode === "live"
+      ? "blocked"
+      : "warning";
+  const detail = report.livePaymentsEnabled
+    ? "Live payments are enabled by both the environment switch and current database approval."
+    : report.paymentMode === "live"
+      ? `Stripe live mode is staged, but the runtime gate is not fully enabled. Blocked checks: ${blockedLabels}.`
+      : `Live payments are safely staged outside live mode. Database approval is ${databaseApproval?.status || "unknown"}; ${blockedChecks.length} blocked and ${warningChecks.length} warning check(s) remain before live Checkout.`;
+
+  return {
+    label: "Live Payment Launch Gate",
+    status,
+    detail,
+    action:
+      "Open /admin/live-payment-launch to review approval status, Stripe live checks, dry-run cleanup, reconciliation, and the runtime kill switch before any live Checkout rollout.",
+  };
+}
+
 async function checkLiveShippingLaunchReadiness(): Promise<ReadinessItem> {
   const supabase = getSupabaseClient();
 
@@ -869,17 +937,20 @@ export default async function LaunchReadinessPage() {
     storeSettings,
     databaseItems,
     dryRunShippingItem,
+    livePaymentLaunchItem,
     liveShippingLaunchItem,
   ] = await Promise.all([
     loadStoreSettings(),
     checkDatabaseReadiness(),
     checkDryRunShippingReadiness(),
+    checkLivePaymentLaunchReadiness(),
     checkLiveShippingLaunchReadiness(),
   ]);
   const baseItems = buildReadinessItems(storeSettings);
   const items = [
     ...baseItems,
     dryRunShippingItem,
+    livePaymentLaunchItem,
     liveShippingLaunchItem,
     ...databaseItems,
   ];

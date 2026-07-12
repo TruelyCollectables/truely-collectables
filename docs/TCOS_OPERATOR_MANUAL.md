@@ -4165,6 +4165,8 @@ charge.dispute.funds_reinstated
 
 If the live-payment approval migration is missing, the runtime gate fails closed and tells the operator to apply `supabase/migrations/20260710185000_create_live_payment_launch_gate.sql`. The approval button is disabled when either the gate table or immutable event table cannot be checked, and `/api/admin/live-payment-launch` returns a blocked `409` response instead of recording approval or surfacing an unclear write error. Missing approval tables are a migration problem, not an operator override problem.
 
+`/admin/launch-readiness` now also includes a first-class Live Payment Launch Gate row plus database checks for `live_payment_launch_gates` and `live_payment_launch_events`. Live buyer payments are not configuration-ready when the live-payment audit tables are unavailable or when Stripe live mode is staged but the approval report still has blockers.
+
 ### Financial reconciliation runbook
 
 Open:
