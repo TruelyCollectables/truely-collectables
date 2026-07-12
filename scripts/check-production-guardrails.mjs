@@ -42,6 +42,7 @@ runExpectedFailure(
     ADMIN_PASSWORD: "",
     SMOKE_ADMIN_PASSWORD: "",
     SMOKE_BASE_URL: "https://TRUELY-COLLECTABLES-TT3B.vercel.app/",
+    SMOKE_UNWANTED_ALIAS_URL: "https://truely-collectables-tt3b.vercel.app",
   },
   "Refusing to smoke test the unwanted production alias",
 );

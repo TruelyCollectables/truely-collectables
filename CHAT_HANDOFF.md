@@ -148,6 +148,7 @@ Added and pushed:
 
 - `scripts/deploy-production.mjs`
 - `scripts/smoke-production.mjs`
+- `scripts/check-production-guardrails.mjs`
 - `docs/PRODUCTION_DEPLOY_RUNBOOK.md`
 - README link to the production deploy runbook
 
@@ -155,8 +156,9 @@ Package scripts:
 
 ```json
 {
+  "check:production-guardrails": "node scripts/check-production-guardrails.mjs",
   "preflight:production": "node scripts/deploy-production.mjs --preflight-only",
-  "verify:production": "npm run lint && npm run build && npm run preflight:production",
+  "verify:production": "npm run lint && npm run build && npm run check:production-guardrails && npm run preflight:production",
   "deploy:production": "node scripts/deploy-production.mjs",
   "smoke:production": "node scripts/smoke-production.mjs",
   "launch:production": "npm run verify:production && npm run deploy:production && npm run smoke:production"
