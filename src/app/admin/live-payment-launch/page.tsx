@@ -93,7 +93,10 @@ export default async function LivePaymentLaunchPage() {
             Approval version: <code>{report.approvalVersion}</code>. Report generated {report.generatedAt}.
           </p>
           <div className="mt-5">
-            <LivePaymentGateActions approvalReady={report.approvalReady} />
+            <LivePaymentGateActions
+              approvalDatabaseReady={report.approvalDatabaseReady}
+              approvalReady={report.approvalReady}
+            />
           </div>
         </section>
 

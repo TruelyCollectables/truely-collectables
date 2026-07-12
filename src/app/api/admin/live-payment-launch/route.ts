@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import {
   evaluateLivePaymentLaunch,
+  getLivePaymentGateErrorDetail,
   LIVE_PAYMENT_APPROVAL_VERSION,
 } from "../../../../lib/live-payment-launch";
 import { getActiveStoreId } from "../../../../lib/stores";
@@ -59,6 +60,17 @@ export async function POST(request: Request) {
     const supabase = createSupabaseServerClient({ admin: true });
     const storeId = getActiveStoreId();
     const report = await evaluateLivePaymentLaunch({ supabase, storeId });
+
+    if (action === "approve" && !report.approvalDatabaseReady) {
+      return NextResponse.json(
+        {
+          error:
+            "Live payment approval tables are unavailable. Apply the live-payment launch gate migration before approving live Checkout.",
+          report,
+        },
+        { status: 409 },
+      );
+    }
 
     if (action === "approve" && !report.approvalReady) {
       return NextResponse.json(
@@ -122,9 +134,17 @@ export async function POST(request: Request) {
         process.env.TCOS_LIVE_PAYMENTS_ENABLED === "true",
     });
   } catch (error: any) {
+    const detail = error?.message || "Could not change the live payment gate.";
+    const status =
+      /live_payment_launch_|schema cache|does not exist|relation .* not found/i.test(
+        detail,
+      )
+        ? 409
+        : 500;
+
     return NextResponse.json(
-      { error: error.message || "Could not change the live payment gate." },
-      { status: 500 },
+      { error: getLivePaymentGateErrorDetail(error || { message: detail }) },
+      { status },
     );
   }
 }

@@ -38,6 +38,7 @@ export type LivePaymentLaunchReport = {
   approvalVersion: string;
   generatedAt: string;
   paymentMode: "live" | "test" | "mixed" | "missing";
+  approvalDatabaseReady: boolean;
   approvalReady: boolean;
   livePaymentsEnabled: boolean;
   checks: LivePaymentCheck[];
@@ -85,6 +86,24 @@ function safeCount(value: number | null) {
   return Number.isFinite(value) ? Number(value) : 0;
 }
 
+export function getLivePaymentGateErrorDetail(error: {
+  code?: string;
+  message?: string;
+}): string {
+  const message = error.message || "Unknown Supabase error.";
+  const missingGateTable =
+    error.code === "42P01" ||
+    /live_payment_launch_(gates|events)|schema cache|does not exist|relation .* not found/i.test(
+      message,
+    );
+
+  if (missingGateTable) {
+    return "Live payment approval tables are unavailable. Apply supabase/migrations/20260710185000_create_live_payment_launch_gate.sql before enabling live Checkout.";
+  }
+
+  return `Live payment approval could not be verified: ${message}`;
+}
+
 export async function getLivePaymentRuntimeGate(params: {
   stripeKey: string;
   storeId?: string;
@@ -128,7 +147,9 @@ export async function getLivePaymentRuntimeGate(params: {
     return {
       allowed: false,
       mode: "live" as const,
-      reason: "Live payments require current administrator launch approval.",
+      reason: error
+        ? getLivePaymentGateErrorDetail(error)
+        : "Live payments require current administrator launch approval.",
     };
   }
 
@@ -246,6 +267,7 @@ export async function evaluateLivePaymentLaunch(params?: {
     !gateResult.error &&
     gate?.gate_status === "approved" &&
     gate?.approval_version === LIVE_PAYMENT_APPROVAL_VERSION;
+  const approvalDatabaseReady = !gateResult.error;
   checks.push(
     check(
       "database_approval",
@@ -253,7 +275,9 @@ export async function evaluateLivePaymentLaunch(params?: {
       databaseApproved ? "passed" : "blocked",
       databaseApproved
         ? `Approved by ${gate?.approved_by || "TCOS admin"} at ${gate?.approved_at || "an unknown time"}.`
-        : "The auditable database launch approval is locked or stale.",
+        : gateResult.error
+          ? getLivePaymentGateErrorDetail(gateResult.error)
+          : "The auditable database launch approval is locked or stale.",
     ),
   );
 
@@ -494,6 +518,7 @@ export async function evaluateLivePaymentLaunch(params?: {
     approvalVersion: LIVE_PAYMENT_APPROVAL_VERSION,
     generatedAt: new Date().toISOString(),
     paymentMode: mode,
+    approvalDatabaseReady,
     approvalReady,
     livePaymentsEnabled,
     checks,

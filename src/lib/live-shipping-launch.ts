@@ -55,7 +55,7 @@ export function getLiveShippingGateErrorDetail(error: {
   const message = error.message || "Unknown Supabase error.";
   const missingGateTable =
     error.code === "42P01" ||
-    /live_shipping_launch_gates|schema cache|does not exist|relation .* not found/i.test(
+    /live_shipping_launch_(gates|events)|schema cache|does not exist|relation .* not found/i.test(
       message,
     );
 

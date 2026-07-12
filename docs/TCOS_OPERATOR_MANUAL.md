@@ -4163,6 +4163,8 @@ charge.dispute.funds_reinstated
 
 `/admin/launch-readiness` is a broad advisory configuration/database report. `/admin/live-payment-launch` is the actual database half of the two-lock checkout control. Neither page proves that live postage purchasing works.
 
+If the live-payment approval migration is missing, the runtime gate fails closed and tells the operator to apply `supabase/migrations/20260710185000_create_live_payment_launch_gate.sql`. The approval button is disabled when the approval database check cannot run, and `/api/admin/live-payment-launch` returns a blocked `409` response instead of recording approval or surfacing an unclear write error. Missing approval tables are a migration problem, not an operator override problem.
+
 ### Financial reconciliation runbook
 
 Open:
