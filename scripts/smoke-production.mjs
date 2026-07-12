@@ -79,6 +79,16 @@ async function request(path, options = {}) {
   };
 }
 
+function diagnosticSnippet(text) {
+  return text
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 240);
+}
+
 const login = await request("/api/admin/login", {
   method: "POST",
   headers: { "content-type": "application/json" },
@@ -170,6 +180,8 @@ const results = [
     name: "admin login",
     path: "/api/admin/login",
     status: login.status,
+    contentType: login.contentType,
+    snippet: diagnosticSnippet(login.text),
     passed: login.ok && Boolean(cookie),
   },
 ];
@@ -180,6 +192,8 @@ for (const check of checks) {
     name: check.name,
     path: check.path,
     status: result.status,
+    contentType: result.contentType,
+    snippet: diagnosticSnippet(result.text),
     passed: result.ok && check.expect(result),
   });
 }
@@ -199,6 +213,17 @@ const queuedFeatureFailures = failed.filter((result) =>
 console.table(results);
 
 if (failed.length > 0) {
+  console.error("Failed production smoke details:");
+  console.table(
+    failed.map((result) => ({
+      name: result.name,
+      path: result.path,
+      status: result.status,
+      contentType: result.contentType || "none",
+      snippet: result.snippet || "empty response",
+    })),
+  );
+
   if (queuedFeatureFailures.length > 0) {
     console.error(
       "Queued launch features are not visible on production yet. If Vercel quota recently blocked deployment, rerun npm run deploy:production once quota resets, then rerun this smoke.",
