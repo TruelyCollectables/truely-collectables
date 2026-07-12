@@ -772,7 +772,7 @@ async function checkDryRunShippingReadiness(): Promise<ReadinessItem> {
       status: "blocked",
       detail: dryRunShippingCleanup.detail,
       action:
-        "Open /admin/shipping, void or replace dry-run labels, record real carrier proof, and rerun launch readiness before live buyer payments.",
+        "Open /admin/shipping#dry-run-cleanup, retire simulated proof, record real carrier/Coverage proof, and rerun launch readiness before live buyer payments.",
     };
   }
 
@@ -838,6 +838,12 @@ export default async function LaunchReadinessPage() {
           </Link>
           <Link href="/admin/shipping" className="rounded border bg-white px-4 py-2">
             Shipping Ops
+          </Link>
+          <Link
+            href="/admin/shipping#dry-run-cleanup"
+            className="rounded border border-red-200 bg-red-50 px-4 py-2 font-bold text-red-950"
+          >
+            Dry-Run Cleanup
           </Link>
           <Link href="/admin/shipping/simulations" className="rounded border bg-white px-4 py-2">
             Shipping Simulations

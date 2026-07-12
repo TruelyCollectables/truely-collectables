@@ -4371,6 +4371,8 @@ Live Checkout runtime also rechecks dry-run shipping cleanup after the environme
 
 The shared dry-run shipping cleanup scanner lives in `src/lib/shipping-dry-run-cleanup.ts`; use it for launch, live-payment, or future money/fulfillment gates instead of duplicating label/event/order cleanup queries.
 
+`/admin/shipping#dry-run-cleanup` is the Dry-Run Shipping Cleanup Center. It lists the exact order rows, shipping label rows, and tracking-event rows that are still blocking launch or seller payout release because they contain TCOS dry-run proof. Use `Retire Dry-Run Proof` only for simulated TCOS rows: it clears fake order tracking, voids simulated label records, retires simulated tracking events, and preserves audit metadata showing who retired the proof and why. It does not buy postage, void real postage, purchase Coverage, or prove shipment. After retiring dry-run proof, record a real external label, real carrier/IMb tracking, and real Coverage policy before shipping or releasing seller funds.
+
 ### Real shipment runbook
 
 1. Open `/admin/orders/[id]`.

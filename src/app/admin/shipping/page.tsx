@@ -9,8 +9,10 @@ import {
   type ProviderSetupDecision,
 } from "../../../lib/shipping-provider-setup";
 import { isDryRunShippingLabel as isDryRunShippingLabelRecord } from "../../../lib/shipping-dry-run";
+import { getDryRunShippingProofByOrder } from "../../../lib/shipping-dry-run-cleanup";
 import { getActiveStoreId } from "../../../lib/stores";
 import { createSupabaseServerClient } from "../../../lib/supabase-server";
+import DryRunCleanupActions from "./DryRunCleanupActions";
 import ShippingClaimActions from "./ShippingClaimActions";
 import {
   MarkOrderShippedButton,
@@ -70,6 +72,7 @@ type TrackingEventRow = {
   message: string | null;
   location: string | null;
   occurred_at: string;
+  raw_payload?: Record<string, unknown> | null;
 };
 
 type CoverageClaimRow = {
@@ -480,7 +483,8 @@ export default async function AdminShippingPage() {
   const groundAdvantageProfile =
     getShippingProviderAdapterProfile("GROUND_ADVANTAGE");
 
-  const [labelsResult, eventsResult, claimsResult] = await Promise.all([
+  const [labelsResult, eventsResult, claimsResult, dryRunOrderCandidatesResult] =
+    await Promise.all([
     supabase
       .from("order_shipping_labels")
       .select(
@@ -492,7 +496,7 @@ export default async function AdminShippingPage() {
     supabase
       .from("order_shipping_tracking_events")
       .select(
-        "id,order_id,shipping_label_id,provider,carrier,tracking_number,event_type,event_code,event_status,message,location,occurred_at",
+        "id,order_id,shipping_label_id,provider,carrier,tracking_number,event_type,event_code,event_status,message,location,occurred_at,raw_payload",
       )
       .eq("store_id", storeId)
       .order("occurred_at", { ascending: false })
@@ -505,6 +509,15 @@ export default async function AdminShippingPage() {
       .eq("store_id", storeId)
       .order("created_at", { ascending: false })
       .limit(50),
+    supabase
+      .from("orders")
+      .select(
+        "id,customer_email,total,status,fulfillment_status,shipping_name,shipping_method,tracking_number,carrier,created_at",
+      )
+      .eq("store_id", storeId)
+      .not("tracking_number", "is", null)
+      .order("created_at", { ascending: false })
+      .limit(100),
   ]);
 
   const labels = labelsResult.error
@@ -516,11 +529,15 @@ export default async function AdminShippingPage() {
   const claims = claimsResult.error
     ? []
     : ((claimsResult.data || []) as CoverageClaimRow[]);
+  const dryRunOrderCandidates = dryRunOrderCandidatesResult.error
+    ? []
+    : ((dryRunOrderCandidatesResult.data || []) as OrderRow[]);
   const orderIds = Array.from(
     new Set([
       ...labels.map((row) => row.order_id),
       ...events.map((row) => row.order_id),
       ...claims.map((row) => row.order_id),
+      ...dryRunOrderCandidates.map((row) => row.id),
     ]),
   );
   const ordersResult =
@@ -534,8 +551,19 @@ export default async function AdminShippingPage() {
           .eq("store_id", storeId)
           .in("id", orderIds);
   const ordersById = new Map(
-    ((ordersResult.data || []) as OrderRow[]).map((order) => [order.id, order]),
+    [
+      ...dryRunOrderCandidates,
+      ...((ordersResult.data || []) as OrderRow[]),
+    ].map((order) => [order.id, order]),
   );
+  const dryRunProofByOrder = await getDryRunShippingProofByOrder({
+    supabase,
+    storeId,
+    orderIds,
+  });
+  const dryRunCleanupRows = Array.from(dryRunProofByOrder.values())
+    .filter((proof) => proof.hasDryRun)
+    .sort((a, b) => b.total - a.total || a.orderId - b.orderId);
 
   const plannedLabels = labels.filter((row) => row.label_status === "planned");
   const pendingPurchases = labels.filter((row) =>
@@ -767,11 +795,12 @@ export default async function AdminShippingPage() {
           </div>
         </div>
 
-        <section className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-10">
+        <section className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-11">
           <Metric label="Planned Labels" value={plannedLabels.length} />
           <Metric label="Purchase Pending" value={pendingPurchases.length} />
           <Metric label="Purchased / Printed" value={purchasedLabels.length} />
           <Metric label="Dry-Run Purchased" value={dryRunPurchasedLabels.length} />
+          <Metric label="Dry-Run Cleanup" value={dryRunCleanupRows.length} />
           <Metric label="Ready To Ship" value={readyToMarkShippedLabels.length} />
           <Metric label="Tracking Missing" value={trackingMissingLabels.length} />
           <Metric label="Voided Labels" value={voidedLabels.length} />
@@ -858,16 +887,136 @@ export default async function AdminShippingPage() {
           </div>
         </section>
 
-        {(labelsResult.error || eventsResult.error || claimsResult.error) ? (
+        {(labelsResult.error ||
+          eventsResult.error ||
+          claimsResult.error ||
+          dryRunOrderCandidatesResult.error) ? (
           <section className="rounded border border-red-200 bg-red-50 p-5 text-red-950">
             <h2 className="font-black">Shipping tables need attention</h2>
             <p className="mt-2 text-sm font-semibold">
               {labelsResult.error?.message ||
                 eventsResult.error?.message ||
-                claimsResult.error?.message}
+                claimsResult.error?.message ||
+                dryRunOrderCandidatesResult.error?.message}
             </p>
           </section>
         ) : null}
+
+        <section
+          id="dry-run-cleanup"
+          className={`rounded border p-6 ${
+            dryRunCleanupRows.length > 0
+              ? "border-red-200 bg-red-50"
+              : "border-green-200 bg-green-50"
+          }`}
+        >
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="text-sm font-black uppercase tracking-widest text-neutral-500">
+                Launch blocker cleanup
+              </p>
+              <h2 className="mt-1 text-2xl font-black">
+                Dry-Run Shipping Cleanup Center
+              </h2>
+              <p className="mt-1 max-w-3xl text-sm text-neutral-700">
+                This is the exact residue that blocks live payments and seller
+                payout release: simulated labels, simulated tracking events, or
+                TCOS dry-run tracking saved on the order row.
+              </p>
+            </div>
+            <span
+              className={`rounded border px-3 py-1 text-sm font-black ${
+                dryRunCleanupRows.length > 0
+                  ? "border-red-300 bg-white text-red-950"
+                  : "border-green-300 bg-white text-green-950"
+              }`}
+            >
+              {dryRunCleanupRows.length === 0
+                ? "No dry-run blockers"
+                : `${dryRunCleanupRows.length} order blocker${
+                    dryRunCleanupRows.length === 1 ? "" : "s"
+                  }`}
+            </span>
+          </div>
+
+          {dryRunCleanupRows.length === 0 ? (
+            <p className="mt-5 rounded border border-green-200 bg-white p-4 text-sm font-bold text-green-950">
+              No active dry-run shipping proof was found in the sampled shipping
+              records. Keep running simulations, but do not let simulated proof
+              ride into live checkout or payout release. Tiny broom, big money
+              safety.
+            </p>
+          ) : (
+            <div className="mt-5 grid grid-cols-1 gap-4 xl:grid-cols-2">
+              {dryRunCleanupRows.map((proof) => {
+                const order = ordersById.get(proof.orderId);
+
+                return (
+                  <article
+                    key={proof.orderId}
+                    className="rounded border border-red-200 bg-white p-4 text-red-950"
+                  >
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <Link
+                          href={`/admin/orders/${proof.orderId}`}
+                          className="text-lg font-black underline"
+                        >
+                          Order #{proof.orderId}
+                        </Link>
+                        <p className="mt-1 text-sm font-semibold">
+                          {order?.customer_email || "No customer email"} /{" "}
+                          {money(order?.total)} /{" "}
+                          {label(order?.fulfillment_status)}
+                        </p>
+                      </div>
+                      <span className="rounded border border-red-300 bg-red-50 px-2 py-1 text-xs font-black">
+                        {proof.total} dry-run ref{proof.total === 1 ? "" : "s"}
+                      </span>
+                    </div>
+
+                    <dl className="mt-3 grid grid-cols-3 gap-2 text-xs">
+                      <Info
+                        label="Labels"
+                        value={String(proof.dryRunLabelCount)}
+                      />
+                      <Info
+                        label="Events"
+                        value={String(proof.dryRunEventCount)}
+                      />
+                      <Info
+                        label="Order Tracking"
+                        value={proof.dryRunOrderTracking ? "Dry-run" : "Clean"}
+                      />
+                    </dl>
+
+                    <p className="mt-3 rounded border border-red-200 bg-red-50 p-2 text-sm font-bold">
+                      {proof.detail}
+                    </p>
+
+                    <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_auto]">
+                      <DryRunCleanupActions orderId={proof.orderId} />
+                      <div className="flex flex-col gap-2">
+                        <Link
+                          href={`/admin/orders/${proof.orderId}`}
+                          className="rounded bg-neutral-950 px-3 py-2 text-center text-xs font-black text-white"
+                        >
+                          Record Real Label
+                        </Link>
+                        <a
+                          href={`/api/admin/shipping/exceptions`}
+                          className="rounded border border-neutral-300 bg-white px-3 py-2 text-center text-xs font-black text-neutral-950"
+                        >
+                          Export Exceptions
+                        </a>
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
 
         <section className="rounded border bg-white p-6">
           <div className="flex flex-wrap items-start justify-between gap-4">

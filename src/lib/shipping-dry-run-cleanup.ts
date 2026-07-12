@@ -19,6 +19,7 @@ type DryRunShippingEventCheckRow = {
   order_id?: number | null;
   event_type: string | null;
   tracking_number: string | null;
+  raw_payload?: Record<string, unknown> | null;
 };
 
 type DryRunShippingOrderCheckRow = {
@@ -69,6 +70,51 @@ function emptyDryRunShippingOrderProof(orderId: number): DryRunShippingOrderProo
   };
 }
 
+function recordValue(
+  record: Record<string, unknown> | null | undefined,
+  key: string,
+) {
+  const value = record?.[key];
+
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+export function isRetiredDryRunShippingCleanup(
+  metadata: Record<string, unknown> | null | undefined,
+) {
+  const cleanup = recordValue(metadata, "dry_run_cleanup");
+  const status = String(cleanup?.status || "").trim();
+
+  return [
+    "retired",
+    "retired_from_launch_cleanup",
+    "superseded_by_real_shipping",
+  ].includes(status);
+}
+
+export function isBlockingDryRunShippingLabel(
+  label: DryRunShippingLabelCheckRow | null | undefined,
+) {
+  return Boolean(
+    label &&
+      !isRetiredDryRunShippingCleanup(label.metadata) &&
+      isDryRunShippingLabel(label),
+  );
+}
+
+export function isBlockingDryRunShippingEvent(
+  event: DryRunShippingEventCheckRow | null | undefined,
+) {
+  return Boolean(
+    event &&
+      !isRetiredDryRunShippingCleanup(event.raw_payload) &&
+      (event.event_type === "provider_purchase_simulated" ||
+        isDryRunShippingReference(event.tracking_number)),
+  );
+}
+
 function finalizeDryRunShippingOrderProof(
   proof: DryRunShippingOrderProof,
 ): DryRunShippingOrderProof {
@@ -105,7 +151,7 @@ export async function getDryRunShippingCleanupSummary(params: {
         .limit(sampleLimit),
       params.supabase
         .from("order_shipping_tracking_events")
-        .select("id,event_type,tracking_number")
+        .select("id,event_type,tracking_number,raw_payload")
         .eq("store_id", params.storeId)
         .limit(sampleLimit),
       params.supabase
@@ -122,14 +168,10 @@ export async function getDryRunShippingCleanupSummary(params: {
     null;
   const dryRunLabelCount = (
     (shippingLabelResult.data || []) as DryRunShippingLabelCheckRow[]
-  ).filter((row) => isDryRunShippingLabel(row)).length;
+  ).filter((row) => isBlockingDryRunShippingLabel(row)).length;
   const dryRunEventCount = (
     (shippingEventResult.data || []) as DryRunShippingEventCheckRow[]
-  ).filter(
-    (row) =>
-      row.event_type === "provider_purchase_simulated" ||
-      isDryRunShippingReference(row.tracking_number),
-  ).length;
+  ).filter((row) => isBlockingDryRunShippingEvent(row)).length;
   const dryRunOrderCount = (
     (shippingOrderResult.data || []) as DryRunShippingOrderCheckRow[]
   ).filter((row) => isDryRunShippingReference(row.tracking_number)).length;
@@ -173,7 +215,7 @@ export async function getDryRunShippingProofByOrder(params: {
       .in("order_id", orderIds),
     params.supabase
       .from("order_shipping_tracking_events")
-      .select("id,order_id,event_type,tracking_number")
+      .select("id,order_id,event_type,tracking_number,raw_payload")
       .eq("store_id", params.storeId)
       .in("order_id", orderIds),
   ]);
@@ -191,7 +233,7 @@ export async function getDryRunShippingProofByOrder(params: {
   for (const label of (labelResult.data || []) as DryRunShippingLabelCheckRow[]) {
     const orderId = Number(label.order_id);
     const proof = proofByOrderId.get(orderId);
-    if (!proof || !isDryRunShippingLabel(label)) continue;
+    if (!proof || !isBlockingDryRunShippingLabel(label)) continue;
     proof.dryRunLabelCount += 1;
   }
 
@@ -199,10 +241,7 @@ export async function getDryRunShippingProofByOrder(params: {
     const orderId = Number(event.order_id);
     const proof = proofByOrderId.get(orderId);
     if (!proof) continue;
-    if (
-      event.event_type === "provider_purchase_simulated" ||
-      isDryRunShippingReference(event.tracking_number)
-    ) {
+    if (isBlockingDryRunShippingEvent(event)) {
       proof.dryRunEventCount += 1;
     }
   }
