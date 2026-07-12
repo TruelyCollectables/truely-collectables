@@ -4367,6 +4367,8 @@ The Live Payment Launch Gate uses the same dry-run shipping cleanup check inside
 
 Live Checkout runtime also rechecks dry-run shipping cleanup after the environment switch and database approval pass, so an older approval cannot keep live Checkout open if new dry-run shipping residue appears later.
 
+The shared dry-run shipping cleanup scanner lives in `src/lib/shipping-dry-run-cleanup.ts`; use it for launch, live-payment, or future money/fulfillment gates instead of duplicating label/event/order cleanup queries.
+
 ### Real shipment runbook
 
 1. Open `/admin/orders/[id]`.

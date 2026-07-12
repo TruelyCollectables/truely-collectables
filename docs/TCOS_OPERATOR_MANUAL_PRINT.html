@@ -141,7 +141,7 @@
 </head>
 <body>
   <div class="page-watermark">Property of Dag Danky Holdings LLC.</div>
-  <div class="print-meta">Generated 2026-07-11 from docs/TCOS_OPERATOR_MANUAL.md</div>
+  <div class="print-meta">Generated 2026-07-12 from docs/TCOS_OPERATOR_MANUAL.md</div>
   <h1>Totally Collectibles OS Operator Manual</h1>
 <p>Copyright 2026 Dag Danky Holdings LLC. All rights reserved.</p>
 <p>Authored by David Bakanas.</p>
@@ -4122,6 +4122,7 @@ dryrun-</code></pre>
 <p>Launch Readiness now includes a fail-closed dry-run shipping cleanup gate. Live buyer payments stay blocked when recent label, tracking-event, or order rows still contain TCOS dry-run shipping references or when the cleanup check cannot run.</p>
 <p>The Live Payment Launch Gate uses the same dry-run shipping cleanup check inside the approval report, so <code>/api/admin/live-payment-launch</code> cannot record a new live-payment approval while sampled shipping, tracking-event, or order rows still contain TCOS dry-run references.</p>
 <p>Live Checkout runtime also rechecks dry-run shipping cleanup after the environment switch and database approval pass, so an older approval cannot keep live Checkout open if new dry-run shipping residue appears later.</p>
+<p>The shared dry-run shipping cleanup scanner lives in <code>src/lib/shipping-dry-run-cleanup.ts</code>; use it for launch, live-payment, or future money/fulfillment gates instead of duplicating label/event/order cleanup queries.</p>
 <h3>Real shipment runbook</h3>
 <ol>
 <li>Open <code>/admin/orders/[id]</code>.</li>

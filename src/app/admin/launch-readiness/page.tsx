@@ -14,10 +14,7 @@ import {
   buildShippingProviderSetupPacket,
   type ProviderSetupDecision,
 } from "../../../lib/shipping-provider-setup";
-import {
-  isDryRunShippingLabel,
-  isDryRunShippingReference,
-} from "../../../lib/shipping-dry-run";
+import { getDryRunShippingCleanupSummary } from "../../../lib/shipping-dry-run-cleanup";
 import { SHIPPING_SIMULATION_SUITE_VERSION } from "../../../lib/shipping-simulations";
 import {
   getStripeLivePublishableKey,
@@ -45,26 +42,6 @@ type DatabaseCapability = {
   select: string;
   migration: string;
   readyDetail: string;
-};
-
-type DryRunShippingLabelCheckRow = {
-  id: string;
-  metadata: Record<string, unknown> | null;
-  provider_label_id: string | null;
-  provider_shipment_id: string | null;
-  tracking_number: string | null;
-  coverage_policy_id: string | null;
-};
-
-type DryRunShippingEventCheckRow = {
-  id: string;
-  event_type: string | null;
-  tracking_number: string | null;
-};
-
-type DryRunShippingOrderCheckRow = {
-  id: number;
-  tracking_number: string | null;
 };
 
 function isConfigured(value: string | undefined): boolean {
@@ -773,60 +750,27 @@ async function checkDryRunShippingReadiness(): Promise<ReadinessItem> {
   }
 
   const storeId = getActiveStoreId();
-  const [labelResult, eventResult, orderResult] = await Promise.all([
-    supabase
-      .from("order_shipping_labels")
-      .select(
-        "id,metadata,provider_label_id,provider_shipment_id,tracking_number,coverage_policy_id",
-      )
-      .eq("store_id", storeId)
-      .limit(500),
-    supabase
-      .from("order_shipping_tracking_events")
-      .select("id,event_type,tracking_number")
-      .eq("store_id", storeId)
-      .limit(500),
-    supabase
-      .from("orders")
-      .select("id,tracking_number")
-      .eq("store_id", storeId)
-      .limit(500),
-  ]);
+  const dryRunShippingCleanup = await getDryRunShippingCleanupSummary({
+    supabase,
+    storeId,
+    sampleLimit: 500,
+  });
 
-  const firstError =
-    labelResult.error || eventResult.error || orderResult.error || null;
-
-  if (firstError) {
+  if (dryRunShippingCleanup.error) {
     return {
       label: "Dry-Run Shipping Cleanup",
       status: "blocked",
-      detail: `Launch readiness could not verify dry-run shipping cleanup: ${firstError.message}`,
+      detail: `Launch readiness could not verify dry-run shipping cleanup: ${dryRunShippingCleanup.error.message}`,
       action:
         "Apply shipping/order migrations and rerun readiness before enabling live buyer payments.",
     };
   }
 
-  const dryRunLabelCount = (
-    (labelResult.data || []) as DryRunShippingLabelCheckRow[]
-  ).filter((row) => isDryRunShippingLabel(row)).length;
-  const dryRunEventCount = (
-    (eventResult.data || []) as DryRunShippingEventCheckRow[]
-  ).filter(
-    (row) =>
-      row.event_type === "provider_purchase_simulated" ||
-      isDryRunShippingReference(row.tracking_number),
-  ).length;
-  const dryRunOrderCount = (
-    (orderResult.data || []) as DryRunShippingOrderCheckRow[]
-  ).filter((row) => isDryRunShippingReference(row.tracking_number)).length;
-  const totalDryRunRows =
-    dryRunLabelCount + dryRunEventCount + dryRunOrderCount;
-
-  if (totalDryRunRows > 0) {
+  if (dryRunShippingCleanup.total > 0) {
     return {
       label: "Dry-Run Shipping Cleanup",
       status: "blocked",
-      detail: `${totalDryRunRows} dry-run shipping reference(s) found across recent label, tracking-event, and order rows (${dryRunLabelCount} label, ${dryRunEventCount} event, ${dryRunOrderCount} order).`,
+      detail: dryRunShippingCleanup.detail,
       action:
         "Open /admin/shipping, void or replace dry-run labels, record real carrier proof, and rerun launch readiness before live buyer payments.",
     };
