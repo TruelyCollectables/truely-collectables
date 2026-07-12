@@ -7,10 +7,10 @@ Generated for the next Codex session during the production launch stacking pass.
 - Workspace: `C:\Projects\truely-collectables`
 - Branch: `main`
 - GitHub remote: `https://github.com/TruelyCollectables/truely-collectables.git`
-- Latest pushed commit before this validation note: `4821ba1 Record verified launch flow in handoff`
-- Local `HEAD` and `origin/main` matched at `4821ba1` after the last push.
-- Local working tree was clean except for untracked `.codex-run/`.
-  - Leave `.codex-run/` alone unless the user explicitly says to delete it.
+- Latest pushed commit before this validation note: `b460e05 Replace generic Vercel deploy README guidance`
+- Local `HEAD` and `origin/main` matched at `b460e05` after the last push.
+- Local working tree was clean.
+- `.codex-run/` is ignored in `.gitignore`; leave the folder contents alone unless the user explicitly says to delete them.
 
 ## Production/Vercel state
 
@@ -86,7 +86,7 @@ npm run build
 npm run preflight:production
 ```
 
-`npm run verify:production` was run after commit `4821ba1` and passed end-to-end. It ran lint, build, and the production preflight. The preflight fetched `origin/main`, confirmed local `HEAD` matched GitHub, ignored only `.codex-run/`, and did not start a Vercel deployment.
+`npm run verify:production` was run after commit `b460e05` and passed end-to-end. It ran lint, build, and the production preflight. The preflight fetched `origin/main`, confirmed local `HEAD` matched GitHub, reported a clean worktree, and did not start a Vercel deployment.
 
 Manual generation status from the earlier handoff still applies:
 
@@ -106,6 +106,9 @@ npm run manual:pdf
 Most recent commits, newest first:
 
 ```text
+b460e05 Replace generic Vercel deploy README guidance
+9638322 Ignore Codex scratch run directory
+aa52008 Record latest production verify pass
 4821ba1 Record verified launch flow in handoff
 f5228a8 Run production verify before launch deploy
 26f2c91 Record production verify pass in handoff
@@ -116,13 +119,6 @@ b42d353 Report slowest production smoke checks
 98aacfe Report production smoke request durations
 747d4e6 Redact production smoke diagnostics
 87a7241 Add production smoke request timeouts
-9633d99 Harden Vercel deployment URL parsing
-0754589 Document production preflight in top-level handoff
-fb5c53d Smoke production preflight command visibility
-a9f2415 Add production deploy preflight script
-c433adb Block dirty production deploys
-4d920e8 Refresh remote before production deploy preflight
-debe1fb Align production launch script guidance
 ```
 
 ## What was just completed
@@ -337,9 +333,9 @@ Best next steps, in order:
 
 ## Last known local status
 
-Before this handoff rewrite:
+Before this handoff update:
 
 ```text
 git status --short
-?? .codex-run/
+<clean>
 ```
