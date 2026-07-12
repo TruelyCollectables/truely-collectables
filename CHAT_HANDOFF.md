@@ -7,8 +7,8 @@ Generated for the next Codex session during the production launch stacking pass.
 - Workspace: `C:\Projects\truely-collectables`
 - Branch: `main`
 - GitHub remote: `https://github.com/TruelyCollectables/truely-collectables.git`
-- Latest pushed commit before this validation note: `03fe1e0 Refresh handoff for production verify flow`
-- Local `HEAD` and `origin/main` matched at `03fe1e0` after the last push.
+- Latest pushed commit before this validation note: `f5228a8 Run production verify before launch deploy`
+- Local `HEAD` and `origin/main` matched at `f5228a8` after the last push.
 - Local working tree was clean except for untracked `.codex-run/`.
   - Leave `.codex-run/` alone unless the user explicitly says to delete it.
 
@@ -60,6 +60,11 @@ The verify helper:
 - runs `npm run lint`, `npm run build`, and `npm run preflight:production`;
 - is quota-safe because it does not start a Vercel deployment.
 
+The launch helper:
+
+- runs `npm run verify:production`, then `npm run deploy:production`, then `npm run smoke:production`;
+- should be the only command needed when Vercel quota opens.
+
 The smoke helper:
 
 - logs in using `SMOKE_ADMIN_PASSWORD`, `ADMIN_PASSWORD`, or `.env.local` `ADMIN_PASSWORD`;
@@ -81,7 +86,7 @@ npm run build
 npm run preflight:production
 ```
 
-`npm run verify:production` was run after commit `03fe1e0` and passed end-to-end. It ran lint, build, and the production preflight. The preflight fetched `origin/main`, confirmed local `HEAD` matched GitHub, ignored only `.codex-run/`, and did not start a Vercel deployment.
+`npm run verify:production` was run after commit `f5228a8` and passed end-to-end. It ran lint, build, and the production preflight. The preflight fetched `origin/main`, confirmed local `HEAD` matched GitHub, ignored only `.codex-run/`, and did not start a Vercel deployment.
 
 Manual generation status from the earlier handoff still applies:
 
@@ -101,6 +106,8 @@ npm run manual:pdf
 Most recent commits, newest first:
 
 ```text
+f5228a8 Run production verify before launch deploy
+26f2c91 Record production verify pass in handoff
 03fe1e0 Refresh handoff for production verify flow
 c59092e Add quota-safe production verify command
 b42d353 Report slowest production smoke checks
