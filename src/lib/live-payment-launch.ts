@@ -38,6 +38,14 @@ export type LivePaymentLaunchReport = {
   approvalVersion: string;
   generatedAt: string;
   paymentMode: "live" | "test" | "mixed" | "missing";
+  credentialDiagnostics: {
+    liveSecretKeyRecognized: boolean;
+    livePublishableKeyRecognized: boolean;
+    liveWebhookSecretRecognized: boolean;
+    testSecretKeyRecognized: boolean;
+    livePaymentsSwitchEnabled: boolean;
+    liveFinancialEventsVerified: boolean;
+  };
   approvalDatabaseReady: boolean;
   approvalReady: boolean;
   livePaymentsEnabled: boolean;
@@ -541,6 +549,16 @@ export async function evaluateLivePaymentLaunch(params?: {
     approvalVersion: LIVE_PAYMENT_APPROVAL_VERSION,
     generatedAt: new Date().toISOString(),
     paymentMode: mode,
+    credentialDiagnostics: {
+      liveSecretKeyRecognized: Boolean(getStripeLiveSecretKey()),
+      livePublishableKeyRecognized: Boolean(getStripeLivePublishableKey()),
+      liveWebhookSecretRecognized: Boolean(getStripeLiveWebhookSecret()),
+      testSecretKeyRecognized: Boolean(getStripeTestSecretKey()),
+      livePaymentsSwitchEnabled:
+        process.env.TCOS_LIVE_PAYMENTS_ENABLED === "true",
+      liveFinancialEventsVerified:
+        process.env.STRIPE_LIVE_FINANCIAL_EVENTS_VERIFIED === "true",
+    },
     approvalDatabaseReady,
     approvalReady,
     livePaymentsEnabled,
