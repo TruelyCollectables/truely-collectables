@@ -1,9 +1,21 @@
 import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 
 const baseUrl = (process.env.SMOKE_BASE_URL || "https://truely-collectables.vercel.app").replace(
   /\/$/,
   "",
 );
+
+function optionalRun(command, args) {
+  const result = spawnSync(command, args, {
+    encoding: "utf8",
+    shell: process.platform === "win32",
+  });
+
+  if (result.status !== 0) return "";
+
+  return `${result.stdout || ""}${result.stderr || ""}`.trim();
+}
 
 function envValueFromLocalFile(key) {
   try {
@@ -34,6 +46,13 @@ if (!adminPassword) {
   );
   process.exit(1);
 }
+
+const localHead = optionalRun("git", ["rev-parse", "--short", "HEAD"]);
+const remoteHead = optionalRun("git", ["rev-parse", "--short", "origin/main"]);
+
+console.log(`Production smoke target: ${baseUrl}`);
+console.log(`Local HEAD: ${localHead || "unknown"}`);
+console.log(`origin/main: ${remoteHead || "unknown"}`);
 
 function setCookieHeaderValue(response) {
   if (typeof response.headers.getSetCookie === "function") {
@@ -160,10 +179,25 @@ for (const check of checks) {
 }
 
 const failed = results.filter((result) => !result.passed);
+const queuedFeatureFailures = failed.filter((result) =>
+  [
+    "launch handoff bundle",
+    "shipping provider setup json",
+    "shipping provider env template",
+    "shipping provider vercel commands",
+    "shipping provider operator checklist",
+  ].includes(result.name),
+);
 
 console.table(results);
 
 if (failed.length > 0) {
+  if (queuedFeatureFailures.length > 0) {
+    console.error(
+      "Queued launch features are not visible on production yet. If Vercel quota recently blocked deployment, rerun npm run deploy:production once quota resets, then rerun this smoke.",
+    );
+  }
+
   console.error(
     `Production smoke failed for ${failed.length} check(s): ${failed
       .map((result) => result.name)
