@@ -36,7 +36,7 @@ npm run verify:production
 ```
 
 This runs lint, build, and the production preflight without starting a Vercel deployment.
-It also runs `npm run check:production-guardrails`, which verifies the clean production domain cannot be confused with the unwanted `tt3b` alias.
+It also runs `npm run check:production-guardrails`, which syntax-checks the production deploy/smoke helpers and verifies the clean production domain cannot be confused with the unwanted `tt3b` alias.
 
 ## Deploy
 

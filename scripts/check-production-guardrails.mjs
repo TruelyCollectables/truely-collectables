@@ -2,6 +2,20 @@ import { spawnSync } from "node:child_process";
 
 const node = process.execPath;
 
+function runExpectedSuccess(name, args) {
+  const result = spawnSync(node, args, {
+    encoding: "utf8",
+    env: process.env,
+  });
+  const output = `${result.stdout || ""}${result.stderr || ""}`;
+
+  if (result.status !== 0) {
+    throw new Error(`${name} failed unexpectedly.\n${output}`);
+  }
+
+  console.log(`PASS ${name}`);
+}
+
 function runExpectedFailure(name, args, env, expectedText) {
   const result = spawnSync(node, args, {
     encoding: "utf8",
@@ -24,6 +38,15 @@ function runExpectedFailure(name, args, env, expectedText) {
 
   console.log(`PASS ${name}`);
 }
+
+runExpectedSuccess("deploy helper syntax check", [
+  "--check",
+  "scripts/deploy-production.mjs",
+]);
+runExpectedSuccess("smoke helper syntax check", [
+  "--check",
+  "scripts/smoke-production.mjs",
+]);
 
 runExpectedFailure(
   "deploy refuses clean domain matching unwanted alias",
