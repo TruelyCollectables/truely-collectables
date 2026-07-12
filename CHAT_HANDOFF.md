@@ -7,8 +7,8 @@ Generated for the next Codex session during the production launch stacking pass.
 - Workspace: `C:\Projects\truely-collectables`
 - Branch: `main`
 - GitHub remote: `https://github.com/TruelyCollectables/truely-collectables.git`
-- Latest pushed commit before this redaction self-test change: `fa5ecbd Record verified smoke redaction tip`
-- Local `HEAD` and `origin/main` matched at `fa5ecbd` after the last push.
+- Latest verified commit before this handoff note: `0dadb81 Self-test production smoke redaction`
+- Local `HEAD` and `origin/main` matched at `0dadb81` after the latest verify pass.
 - Local working tree was clean.
 - `.codex-run/` is ignored in `.gitignore`; leave the folder contents alone unless the user explicitly says to delete them.
 
@@ -89,6 +89,8 @@ npm run build
 npm run preflight:production
 ```
 
+`npm run verify:production` was rerun after commit `0dadb81` and passed end-to-end. It ran lint, build, production guardrail checks including the smoke redaction self-test, and production preflight; the preflight fetched `origin/main`, confirmed local `HEAD` matched GitHub, reported a clean worktree, and did not start a Vercel deployment.
+
 `npm run check:production-guardrails` now also runs `node scripts/smoke-production.mjs --self-test-redaction`, which proves the production smoke diagnostic snippet redacts Stripe, webhook, JWT, Resend, auth-header, query-token, and JSON secret shapes before printing failures.
 
 `npm run verify:production` was rerun after commit `f8cd4a9` and passed end-to-end. It ran lint, build, production guardrail checks, and production preflight; the preflight fetched `origin/main`, confirmed local `HEAD` matched GitHub, reported a clean worktree, and did not start a Vercel deployment.
@@ -128,6 +130,7 @@ npm run manual:pdf
 Most recent commits, newest first:
 
 ```text
+0dadb81 Self-test production smoke redaction
 fa5ecbd Record verified smoke redaction tip
 f8cd4a9 Expand production smoke secret redaction
 db12b83 Record latest production verify pass
