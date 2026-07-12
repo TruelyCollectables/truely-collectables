@@ -144,6 +144,12 @@ function safeJson(value: unknown) {
   return JSON.stringify(value ?? {}, null, 2);
 }
 
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
 function packetFilename(orderId: number | string, claimId: string) {
   return `shipping-coverage-claim-order-${orderId}-${claimId}.pdf`;
 }
@@ -160,6 +166,9 @@ function buildReport(input: {
     isDryRunShippingLabel(shippingLabel) ||
     isDryRunShippingReference(order?.tracking_number) ||
     events.some((event) => event.event_type === "provider_purchase_simulated");
+  const under20ProtectionClaim = recordValue(
+    recordValue(claim.metadata).under_20_seller_protection_claim,
+  );
   const lines: string[] = [
     "TCOS SHIPPING COVERAGE CLAIM PACKET",
     "Generated from TCOS order, shipping label, tracking, and coverage claim records.",
@@ -184,6 +193,39 @@ function buildReport(input: {
     line("Resolved At", claim.resolved_at),
     line("Created At", claim.created_at),
     line("Updated At", claim.updated_at),
+    ...(Object.keys(under20ProtectionClaim).length > 0
+      ? [
+          ...section("Under-$20 Seller Protection"),
+          line("Program", under20ProtectionClaim.program),
+          line(
+            "Seller Opted In",
+            under20ProtectionClaim.sellerOptedIn ? "Yes" : "No",
+          ),
+          line("Eligible", under20ProtectionClaim.eligible ? "Yes" : "No"),
+          line(
+            "Protected Item Amount",
+            money(under20ProtectionClaim.protectedItemAmount as number),
+          ),
+          line(
+            "Seller Reimbursement Amount",
+            money(under20ProtectionClaim.reimbursableItemAmount as number),
+          ),
+          line(
+            "Shipping Excluded",
+            under20ProtectionClaim.reimbursesShipping === false ? "Yes" : "No",
+          ),
+          line(
+            "Shipping Excluded Amount",
+            money(under20ProtectionClaim.shippingExcludedAmount as number),
+          ),
+          line("Coverage Basis", under20ProtectionClaim.coverageBasis),
+          line(
+            "Seller Refund Responsibility",
+            under20ProtectionClaim.sellerRefundResponsibility,
+          ),
+          line("Reimbursement Rule", under20ProtectionClaim.reimbursementRule),
+        ]
+      : []),
     ...section("Order Snapshot"),
   ];
 

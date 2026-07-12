@@ -235,8 +235,9 @@ export default function CartClient(props: { storeDisplayName: string }) {
                 {SHIPPING_RULES.STANDARD_ENVELOPE.name} -{" "}
                 <strong>${standardEnvelopeShipping.toFixed(2)}</strong>
                 <span className="mt-2 block text-xs font-semibold text-neutral-600">
-                  Raw-card envelope only. Eligible up to $20.00 and 3 estimated
-                  oz; current cart estimate:{" "}
+                  Raw-card envelope only, with USPS IMb delivery evidence.
+                  Eligible up to $20.00 and 3 estimated oz; current cart
+                  estimate:{" "}
                   {standardEnvelopeEligibility.estimatedOunces} oz.
                 </span>
                 {!standardEnvelopeEligibility.eligible ? (
@@ -287,15 +288,33 @@ export default function CartClient(props: { storeDisplayName: string }) {
               </div>
 
               <div className="mt-3 rounded border border-emerald-200 bg-emerald-50 p-4 text-sm">
-                <p className="font-black text-emerald-950">
-                  Seller shipping coverage included
-                </p>
-                <p className="mt-1 font-semibold text-emerald-900">
-                  {shippingCoverage.provider} coverage is required for every
-                  TCOS shipment and protects the seller for up to $
-                  {shippingCoverage.coveredAmount.toFixed(2)} in item value.
-                  No separate buyer coverage fee is added at checkout.
-                </p>
+                {selectedShippingMethod === "STANDARD_ENVELOPE" ? (
+                  <>
+                    <p className="font-black text-emerald-950">
+                      Delivery tracking included
+                    </p>
+                    <p className="mt-1 font-semibold text-emerald-900">
+                      {shippingCoverage.provider} delivery evidence is required
+                      for under-$20 envelope orders and is expected to show USPS
+                      scan history through Out for Delivery / Delivered in
+                      Mailbox when USPS data is available. No separate buyer fee
+                      is added at checkout.
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <p className="font-black text-emerald-950">
+                      Seller shipping coverage included
+                    </p>
+                    <p className="mt-1 font-semibold text-emerald-900">
+                      {shippingCoverage.provider} coverage is required for every
+                      TCOS parcel shipment and protects the seller for up to $
+                      {shippingCoverage.coveredAmount.toFixed(2)} in item
+                      value. No separate buyer coverage fee is added at
+                      checkout.
+                    </p>
+                  </>
+                )}
               </div>
             </div>
 

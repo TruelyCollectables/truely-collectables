@@ -12,6 +12,8 @@ import {
 } from "../../../../../lib/inventory-activation";
 import {
   calculateShipping,
+  getUnder20SellerProtection,
+  getUnder20SellerProtectionOptIn,
   getShippingCoverage,
   resolveShippingMethod,
   SHIPPING_RULES,
@@ -70,6 +72,10 @@ type SellerInventoryResponseItem = {
     coverageProvider: string;
     coverageRequired: boolean;
     coverageType: string;
+    sellerProtectionOptedIn: boolean;
+    sellerProtectionFeeEstimate: number;
+    sellerProtectionCoveredAmount: number;
+    sellerProtectionClaimRule: string;
     reason: string | null;
   };
   instaComp: {
@@ -133,7 +139,10 @@ function instacompSummary(metadata: Record<string, unknown> | null) {
   };
 }
 
-function sellerInventoryShippingPlan(price: number) {
+function sellerInventoryShippingPlan(
+  price: number,
+  metadata: Record<string, unknown> | null,
+) {
   const subtotal = Math.max(0, Math.round(Number(price || 0) * 100) / 100);
   const itemCount = 1;
   const requestedMethod: ShippingMethod =
@@ -149,6 +158,12 @@ function sellerInventoryShippingPlan(price: number) {
     method: resolved.method,
     subtotal,
   });
+  const sellerProtectionOptedIn = getUnder20SellerProtectionOptIn(metadata);
+  const sellerProtection = getUnder20SellerProtection({
+    method: resolved.method,
+    subtotal,
+    sellerOptedIn: sellerProtectionOptedIn,
+  });
 
   return {
     method: resolved.method,
@@ -162,6 +177,10 @@ function sellerInventoryShippingPlan(price: number) {
     coverageProvider: coverage.provider,
     coverageRequired: coverage.required,
     coverageType: coverage.coverageType,
+    sellerProtectionOptedIn,
+    sellerProtectionFeeEstimate: sellerProtection.feeAmount,
+    sellerProtectionCoveredAmount: sellerProtection.coveredAmount,
+    sellerProtectionClaimRule: sellerProtection.claimTrigger,
     reason: resolved.reason,
   };
 }
@@ -216,7 +235,10 @@ function mapInventoryItem(
     ebayItemId: product?.ebay_item_id || null,
     imageUrl: product?.image_url || null,
     authenticity: extractAuthenticityProfile(item.metadata),
-    shippingPlan: sellerInventoryShippingPlan(moneyNumber(item.price)),
+    shippingPlan: sellerInventoryShippingPlan(
+      moneyNumber(item.price),
+      item.metadata,
+    ),
     instaComp: instacompSummary(item.metadata),
     activationReadiness: {
       ready: shouldEvaluateReadiness

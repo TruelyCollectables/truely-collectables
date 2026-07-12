@@ -680,12 +680,38 @@ export async function POST(req: Request) {
     if (ledgerOrderItems && ledgerOrderItems.length > 0) {
       try {
         const storeSettings = await getStoreSettings(supabase, storeId);
+        const ledgerProductIds = Array.from(
+          new Set(
+            ledgerOrderItems
+              .map((item) => Number(item.product_id || 0))
+              .filter((productId) => productId > 0),
+          ),
+        );
+        const { data: ledgerInventoryItems } =
+          ledgerProductIds.length === 0
+            ? { data: [] }
+            : await supabase
+                .from("inventory_items")
+                .select("legacy_product_id,metadata")
+                .eq("store_id", storeId)
+                .in("legacy_product_id", ledgerProductIds);
+        const metadataByLegacyProductId = new Map(
+          (ledgerInventoryItems || []).map((item: any) => [
+            Number(item.legacy_product_id || 0),
+            item.metadata || {},
+          ]),
+        );
+        const ledgerOrderItemsWithMetadata = ledgerOrderItems.map((item) => ({
+          ...item,
+          metadata:
+            metadataByLegacyProductId.get(Number(item.product_id || 0)) || {},
+        }));
 
         await createPlatformFeeLedgerForOrder({
           supabase,
           storeId,
           orderId,
-          orderItems: ledgerOrderItems,
+          orderItems: ledgerOrderItemsWithMetadata,
           shippingAmount,
           platformFeeRate: storeSettings.sellerCommissionRate,
           stripeSession: session,
@@ -695,8 +721,9 @@ export async function POST(req: Request) {
           supabase,
           storeId,
           orderId,
-          orderItems: ledgerOrderItems,
+          orderItems: ledgerOrderItemsWithMetadata,
           shippingAmount,
+          shippingMethod,
           platformFeeRate: storeSettings.sellerCommissionRate,
           stripeSession: session,
         });

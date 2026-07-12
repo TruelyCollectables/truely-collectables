@@ -298,7 +298,7 @@ function buildReadinessItems(
     {
       label: "Shipping Simulation Lab",
       status: "ready" as const,
-      detail: `Shipping simulation suite ${SHIPPING_SIMULATION_SUITE_VERSION} is available for Standard Envelope routing, Ground Advantage fallback, seller coverage, adapter-profile, and dry-run provider purchase assertions.`,
+      detail: `Shipping simulation suite ${SHIPPING_SIMULATION_SUITE_VERSION} is available for Standard Envelope routing, Ground Advantage fallback, under-$20 seller-protection reimbursement rules, adapter-profile, and dry-run provider purchase assertions.`,
       action:
         "Run /admin/shipping/simulations before enabling any live shipping provider purchase workflow.",
     },

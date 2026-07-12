@@ -3,9 +3,11 @@ import {
   getAuthenticatedAccountFromRequest,
 } from "../../../../../../lib/account-auth";
 import {
+  mergeAuthenticityIntoMetadata,
   sanitizeAuthenticityProfile,
   validateAuthenticityProfile,
 } from "../../../../../../lib/authenticity";
+import { mergeUnder20SellerProtectionOptIn } from "../../../../../../lib/shipping";
 import {
   inventoryEngine,
   InventoryEngineError,
@@ -21,6 +23,7 @@ type InventoryOwnershipRow = {
   legacy_product_id: number | null;
   seller_account_id: string | null;
   status: string | null;
+  metadata: Record<string, unknown> | null;
 };
 
 function getSupabaseClient() {
@@ -71,7 +74,7 @@ async function loadOwnedInventoryRow(params: {
 }) {
   const { data, error } = await params.supabase
     .from("inventory_items")
-    .select("id,legacy_product_id,seller_account_id,status")
+    .select("id,legacy_product_id,seller_account_id,status,metadata")
     .eq("id", params.inventoryItemId)
     .eq("store_id", params.storeId)
     .eq("seller_account_id", params.accountId)
@@ -126,6 +129,8 @@ export async function PATCH(
     const quantity = parseQuantity(body.quantity);
     const authenticity = sanitizeAuthenticityProfile(body.authenticity);
     const authenticityError = validateAuthenticityProfile(authenticity);
+    const under20SellerProtectionOptIn =
+      body.under20SellerProtectionOptIn === true;
 
     if (!title) {
       return Response.json(
@@ -209,6 +214,20 @@ export async function PATCH(
         authenticity,
       },
     );
+    const nextMetadata = mergeUnder20SellerProtectionOptIn(
+      mergeAuthenticityIntoMetadata(ownershipRow.metadata, authenticity),
+      under20SellerProtectionOptIn,
+    );
+
+    await supabase
+      .from("inventory_items")
+      .update({
+        metadata: nextMetadata,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", ownershipRow.id)
+      .eq("store_id", storeId)
+      .eq("seller_account_id", account.id);
 
     return Response.json({
       success: true,

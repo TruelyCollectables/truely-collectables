@@ -1,4 +1,5 @@
 import {
+  getUnder20SellerProtection,
   getShippingCoverage,
   resolveShippingMethod,
   standardEnvelopeRateForEstimatedOunces,
@@ -8,8 +9,9 @@ import {
   purchaseShippingLabel,
 } from "./shipping-provider-adapter";
 import { buildShippingProviderSetupPacket } from "./shipping-provider-setup";
+import { buildUnder20SellerProtectionClaimSummary } from "./under20-seller-protection-claims";
 
-export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-12.1";
+export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-12.2";
 
 export type ShippingSimulationScenario = {
   scenario_key: string;
@@ -132,6 +134,69 @@ export async function runShippingSimulationSuite() {
     assertions: {
       standard_envelope: standardEnvelopeCoverage,
       ground_advantage: groundCoverage,
+    },
+  });
+
+  const optedInProtection = getUnder20SellerProtection({
+    method: "STANDARD_ENVELOPE",
+    subtotal: 18.75,
+    sellerOptedIn: true,
+  });
+  const optedInClaim = buildUnder20SellerProtectionClaimSummary([
+    {
+      id: "sim-ledger-protected",
+      gross_item_amount: 18.75,
+      shipping_allocated_amount: 1.07,
+      metadata: {
+        under_20_seller_protection: optedInProtection,
+      },
+    },
+  ]);
+  scenarios.push({
+    scenario_key: "under_20_seller_protection_opted_in_item_only",
+    scenario_status: pass(
+      optedInProtection.eligible &&
+        optedInProtection.feeAmount === 0.38 &&
+        optedInClaim.reimbursableItemAmount === 18.75 &&
+        optedInClaim.reimbursesShipping === false &&
+        optedInClaim.shippingExcludedAmount === 1.07,
+    ),
+    detail:
+      "An opted-in under-$20 Standard Envelope sale withholds 2%, reimburses protected item amount only, and excludes shipping.",
+    assertions: {
+      protection: optedInProtection,
+      claim: optedInClaim,
+    },
+  });
+
+  const notOptedInProtection = getUnder20SellerProtection({
+    method: "STANDARD_ENVELOPE",
+    subtotal: 18.75,
+    sellerOptedIn: false,
+  });
+  const notOptedInClaim = buildUnder20SellerProtectionClaimSummary([
+    {
+      id: "sim-ledger-unprotected",
+      gross_item_amount: 18.75,
+      shipping_allocated_amount: 1.07,
+      metadata: {
+        under_20_seller_protection: notOptedInProtection,
+      },
+    },
+  ]);
+  scenarios.push({
+    scenario_key: "under_20_seller_protection_not_opted_in_seller_liability",
+    scenario_status: pass(
+      !notOptedInProtection.eligible &&
+        notOptedInProtection.feeAmount === 0 &&
+        notOptedInClaim.reimbursableItemAmount === 0 &&
+        notOptedInClaim.sellerOptedIn === false,
+    ),
+    detail:
+      "A non-opted-in under-$20 Standard Envelope sale withholds no reserve, reimburses $0, and leaves refund liability with the seller.",
+    assertions: {
+      protection: notOptedInProtection,
+      claim: notOptedInClaim,
     },
   });
 

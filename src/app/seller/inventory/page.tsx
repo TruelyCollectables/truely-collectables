@@ -54,6 +54,10 @@ type SellerInventoryItem = {
     coverageProvider: string;
     coverageRequired: boolean;
     coverageType: string;
+    sellerProtectionOptedIn: boolean;
+    sellerProtectionFeeEstimate: number;
+    sellerProtectionCoveredAmount: number;
+    sellerProtectionClaimRule: string;
     reason: string | null;
   };
   instaComp?: {
@@ -288,6 +292,11 @@ function marketplaceExportRows(items: SellerInventoryItem[]) {
     shippingCoverageProvider: item.shippingPlan.coverageProvider,
     shippingCoverageRequired: item.shippingPlan.coverageRequired,
     shippingCoverageType: item.shippingPlan.coverageType,
+    under20SellerProtectionOptedIn: item.shippingPlan.sellerProtectionOptedIn,
+    under20SellerProtectionFeeEstimate:
+      item.shippingPlan.sellerProtectionFeeEstimate,
+    under20SellerProtectionCoveredAmount:
+      item.shippingPlan.sellerProtectionCoveredAmount,
     shippingPlanNote: item.shippingPlan.reason || "",
     shippingPurchaseIncluded: false,
     shippingPurchaseMode: "not_included_in_marketplace_export",
@@ -684,6 +693,10 @@ export default function SellerInventoryPage() {
     useState("");
   const [editorProvenanceEvidence, setEditorProvenanceEvidence] = useState("");
   const [editorAuthenticityNotes, setEditorAuthenticityNotes] = useState("");
+  const [
+    editorUnder20SellerProtectionOptIn,
+    setEditorUnder20SellerProtectionOptIn,
+  ] = useState(false);
   const [savingItemId, setSavingItemId] = useState<string | null>(null);
   const [descriptionActionItemId, setDescriptionActionItemId] = useState<
     string | null
@@ -1405,6 +1418,9 @@ export default function SellerInventoryPage() {
     );
     setEditorProvenanceEvidence(item.authenticity.provenanceEvidence || "");
     setEditorAuthenticityNotes(item.authenticity.authenticityNotes || "");
+    setEditorUnder20SellerProtectionOptIn(
+      item.shippingPlan.sellerProtectionOptedIn,
+    );
     setNotice("");
     setError("");
   }
@@ -1422,6 +1438,7 @@ export default function SellerInventoryPage() {
     setEditorGuaranteedAuthenticators("");
     setEditorProvenanceEvidence("");
     setEditorAuthenticityNotes("");
+    setEditorUnder20SellerProtectionOptIn(false);
   }
 
   async function saveSellerInventoryItem(inventoryItemId: string) {
@@ -1455,6 +1472,8 @@ export default function SellerInventoryPage() {
               provenanceEvidence: editorProvenanceEvidence,
               authenticityNotes: editorAuthenticityNotes,
             },
+            under20SellerProtectionOptIn:
+              editorUnder20SellerProtectionOptIn,
           }),
         },
       );
@@ -2860,7 +2879,34 @@ export default function SellerInventoryPage() {
                         label="Coverage type"
                         value={label(item.shippingPlan.coverageType)}
                       />
+                      <Info
+                        label="Seller protection"
+                        value={
+                          item.shippingPlan.sellerProtectionOptedIn
+                            ? `Opted in - ${formatCurrency(
+                                item.shippingPlan.sellerProtectionFeeEstimate,
+                              )} reserve`
+                            : "Not opted in - seller responsible for loss refund"
+                        }
+                      />
+                      <Info
+                        label="Item protection cap"
+                        value={
+                          item.shippingPlan.sellerProtectionOptedIn
+                            ? formatCurrency(
+                                item.shippingPlan.sellerProtectionCoveredAmount,
+                              )
+                            : "$0.00"
+                        }
+                      />
                     </div>
+                    {item.shippingPlan.method === "STANDARD_ENVELOPE" ? (
+                      <p className="mt-2 text-xs font-semibold text-emerald-950">
+                        {item.shippingPlan.sellerProtectionOptedIn
+                          ? "Seller opted into TCOS Under-$20 Seller Protection for this listing. The 2% reserve is withheld from payout if this ships by Standard Envelope. If a covered refund is required, TCOS reimburses the item sale amount up to $20; shipping is not reimbursed."
+                          : "Seller has not opted in. If this Standard Envelope shipment is lost or cannot show delivered status, the seller is responsible for refunding the buyer in full."}
+                      </p>
+                    ) : null}
                     {item.shippingPlan.reason ? (
                       <p className="mt-2 text-xs font-semibold text-emerald-950">
                         {item.shippingPlan.reason}
@@ -3267,6 +3313,33 @@ export default function SellerInventoryPage() {
                             placeholder="Extra buyer-facing disclosure that should travel with the listing"
                             className="mt-2 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm"
                           />
+                        </label>
+
+                        <label className="mt-4 flex items-start gap-3 rounded-md border border-emerald-200 bg-emerald-50 p-3 text-sm">
+                          <input
+                            type="checkbox"
+                            checked={editorUnder20SellerProtectionOptIn}
+                            onChange={(event) =>
+                              setEditorUnder20SellerProtectionOptIn(
+                                event.target.checked,
+                              )
+                            }
+                            className="mt-1"
+                          />
+                          <span>
+                            <span className="block font-black text-emerald-950">
+                              Opt into TCOS Under-$20 Seller Protection
+                            </span>
+                            <span className="mt-1 block font-semibold text-emerald-900">
+                              If this card ships by Standard Envelope, TCOS
+                              withholds 2% of the sale as the protection reserve
+                              and may reimburse the item sale amount up to $20
+                              if delivery evidence fails under TCOS claim rules.
+                              Shipping is not reimbursed. If you do not opt in,
+                              you are responsible for refunding the buyer in full
+                              if the shipment is lost.
+                            </span>
+                          </span>
                         </label>
                       </div>
 

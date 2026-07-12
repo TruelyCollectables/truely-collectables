@@ -1,5 +1,10 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type Stripe from "stripe";
+import {
+  getUnder20SellerProtection,
+  getUnder20SellerProtectionOptIn,
+  isShippingMethod,
+} from "./shipping";
 
 export type SellerPayoutOrderItem = {
   id: number;
@@ -8,6 +13,7 @@ export type SellerPayoutOrderItem = {
   title?: string | null;
   price?: number | string | null;
   quantity?: number | string | null;
+  metadata?: Record<string, unknown> | null;
 };
 
 function roundMoney(value: number) {
@@ -30,6 +36,7 @@ export async function createSellerPayoutLedgerForOrder(params: {
   orderId: number;
   orderItems: SellerPayoutOrderItem[];
   shippingAmount: number;
+  shippingMethod?: string | null;
   platformFeeRate: number;
   stripeSession?: Stripe.Checkout.Session | null;
 }) {
@@ -64,6 +71,15 @@ export async function createSellerPayoutLedgerForOrder(params: {
       grossItemAmount + shippingAllocatedAmount,
     );
     const platformFeeAmount = roundMoney(totalBasisAmount * platformFeeRate);
+    const shippingMethod = isShippingMethod(params.shippingMethod)
+      ? params.shippingMethod
+      : "GROUND_ADVANTAGE";
+    const under20Protection = getUnder20SellerProtection({
+      method: shippingMethod,
+      subtotal: grossItemAmount,
+      sellerOptedIn: getUnder20SellerProtectionOptIn(item.metadata),
+    });
+    const sellerProtectionFeeAmount = under20Protection.feeAmount;
 
     return {
       store_id: params.storeId,
@@ -77,7 +93,9 @@ export async function createSellerPayoutLedgerForOrder(params: {
       total_basis_amount: totalBasisAmount,
       platform_fee_rate: platformFeeRate,
       platform_fee_amount: platformFeeAmount,
-      seller_payable_amount: roundMoney(totalBasisAmount - platformFeeAmount),
+      seller_payable_amount: roundMoney(
+        totalBasisAmount - platformFeeAmount - sellerProtectionFeeAmount,
+      ),
       payout_status: "hold_pending_fulfillment",
       stripe_session_id: params.stripeSession?.id ?? null,
       stripe_payment_intent_id: params.stripeSession
@@ -86,6 +104,8 @@ export async function createSellerPayoutLedgerForOrder(params: {
       metadata: {
         item_title: item.title ?? null,
         quantity,
+        under_20_seller_protection: under20Protection,
+        seller_protection_fee_amount: sellerProtectionFeeAmount,
       },
       updated_at: new Date().toISOString(),
     };

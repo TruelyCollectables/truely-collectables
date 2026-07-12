@@ -2,6 +2,10 @@ import { getClientIdentity } from "../../../../../../lib/client-identity";
 import { isDryRunShippingLabel } from "../../../../../../lib/shipping-dry-run";
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
+import {
+  buildUnder20SellerProtectionClaimSummary,
+  type Under20SellerProtectionLedgerRow,
+} from "../../../../../../lib/under20-seller-protection-claims";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +21,8 @@ type ShippingLabelRow = {
   coverage_policy_id: string | null;
   coverage_amount: number | string | null;
   coverage_status: string | null;
+  resolved_shipping_method: string | null;
+  service_level: string | null;
   metadata: Record<string, unknown> | null;
 };
 
@@ -33,7 +39,7 @@ async function activeLabelForOrder(params: {
   const { data, error } = await params.supabase
     .from("order_shipping_labels")
     .select(
-      "id,provider,provider_label_id,provider_shipment_id,tracking_number,coverage_provider,coverage_policy_id,coverage_amount,coverage_status,metadata",
+      "id,provider,provider_label_id,provider_shipment_id,tracking_number,coverage_provider,coverage_policy_id,coverage_amount,coverage_status,resolved_shipping_method,service_level,metadata",
     )
     .eq("store_id", params.storeId)
     .eq("order_id", params.orderId)
@@ -116,24 +122,56 @@ export async function POST(
     }
 
     const now = new Date().toISOString();
+    const isStandardEnvelope =
+      label.resolved_shipping_method === "STANDARD_ENVELOPE" ||
+      label.service_level === "STANDARD_ENVELOPE";
+    const { data: payoutRows, error: payoutRowsError } =
+      isStandardEnvelope
+        ? await supabase
+            .from("seller_payout_ledger_entries")
+            .select(
+              "id,seller_account_id,gross_item_amount,shipping_allocated_amount,metadata",
+            )
+            .eq("store_id", storeId)
+            .eq("order_id", orderId)
+        : { data: [], error: null };
+
+    if (payoutRowsError) throw payoutRowsError;
+
+    const under20ProtectionSummary = isStandardEnvelope
+      ? buildUnder20SellerProtectionClaimSummary(
+          (payoutRows || []) as Under20SellerProtectionLedgerRow[],
+        )
+      : null;
+    const claimAmount = under20ProtectionSummary
+      ? under20ProtectionSummary.reimbursableItemAmount
+      : Number(label.coverage_amount || 0);
+    const claimProvider = under20ProtectionSummary
+      ? under20ProtectionSummary.program
+      : label.coverage_provider || "Coverage";
+    const claimReason = under20ProtectionSummary
+      ? under20ProtectionSummary.eligible
+        ? "Draft opened from TCOS admin for an opted-in under-$20 Standard Envelope seller-protection reimbursement. Buyer refund evidence and delivery-evidence failure must be confirmed before payout."
+        : "Draft opened from TCOS admin for under-$20 Standard Envelope seller-liability review. Seller did not opt into TCOS protection, so TCOS reimbursement is $0 and seller is responsible for buyer refund."
+      : "Draft opened from TCOS admin. Add carrier evidence, buyer communication, and provider claim details before submission.";
     const { data: claim, error: claimError } = await supabase
       .from("order_shipping_coverage_claims")
       .insert({
         store_id: storeId,
         order_id: orderId,
         shipping_label_id: label.id,
-        provider: label.coverage_provider || "Coverage",
+        provider: claimProvider,
         claim_status: "draft",
         claim_type: "shipment_loss_or_damage",
-        claim_amount: Number(label.coverage_amount || 0),
-        reason:
-          "Draft opened from TCOS admin. Add carrier evidence, buyer communication, and provider claim details before submission.",
+        claim_amount: claimAmount,
+        reason: claimReason,
         metadata: {
           opened_from: "admin_order_shipping_cockpit",
           opened_at: now,
           opened_by_identity: identity,
           label_provider: label.provider,
           label_coverage_status: label.coverage_status,
+          under_20_seller_protection_claim: under20ProtectionSummary,
         },
       })
       .select("id,claim_status")
@@ -158,7 +196,8 @@ export async function POST(
       occurred_at: now,
       raw_payload: {
         claim_id: claim.id,
-        claim_amount: Number(label.coverage_amount || 0),
+        claim_amount: claimAmount,
+        under_20_seller_protection_claim: under20ProtectionSummary,
         opened_by_identity: identity,
       },
     });

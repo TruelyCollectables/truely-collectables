@@ -4296,6 +4296,7 @@ Standard Envelope is eligible when:
 - merchandise subtotal is at most `$20.00`
 - estimated weight is at most `3 oz`
 - current estimate is one ounce per card
+- USPS IMb delivery evidence is required through the approved Standard Envelope provider
 
 TCOS automatically resolves to Ground Advantage at `$20.01` or more or above three estimated ounces.
 
@@ -4311,7 +4312,11 @@ Parcel rules currently embedded in TCOS:
 
 - Ground Advantage: `$6.99` for the first five cards, then `$0.25` per additional card; free at `$149`
 - Priority: `$12.99` for the first five cards, then `$0.25` per additional card; free at `$500`
-- Coverage is required for every shipment
+- TCOS Under-$20 Seller Protection is the optional internal Standard Envelope program; it is not third-party insurance and depends on IMb delivery evidence such as Out for Delivery / Delivered in Mailbox when USPS data is available
+- when a seller opts in for a Standard Envelope shipment, TCOS withholds a 2% seller-protection reserve from the seller payout row and caps reimbursement exposure at `$20.00` of item sale amount
+- if an opted-in under-$20 Standard Envelope shipment requires a buyer refund because delivery evidence does not show delivered under TCOS claim rules, TCOS reimburses the seller for the protected item sale amount up to `$20.00`; shipping is excluded and is not reimbursed
+- when a seller does not opt in for a Standard Envelope shipment, no 2% reserve is withheld and the seller is responsible for refunding the buyer in full if the shipment is lost or cannot satisfy TCOS delivery-evidence rules
+- parcel Coverage is required for Ground Advantage and Priority shipments
 - current buyer charge for Coverage is zero
 
 ### Critical live-postage warning
@@ -4464,12 +4469,14 @@ The shipping queue also supports priority sorting, external void records, claim 
 
 ### Shipping simulation runbook
 
-Open `/admin/shipping/simulations` and run the suite. Require all seven policy/adapter assertions:
+Open `/admin/shipping/simulations` and run the suite. Require all nine policy/adapter assertions:
 
 - `$19.99` and 3 oz stays Standard Envelope
 - `$20.01` forces Ground Advantage
 - more than 3 oz forces Ground Advantage
-- Coverage is required for Standard Envelope
+- Standard Envelope requires delivery evidence and records whether the seller opted into TCOS Under-$20 Seller Protection
+- opted-in under-$20 Standard Envelope claims reimburse item sale amount only and exclude shipping
+- non-opted-in under-$20 Standard Envelope claims reimburse `$0.00` and leave refund liability with the seller
 - Coverage is required for parcel shipping
 - shipping adapter profiles expose provider, carrier, credential, Coverage, live-support, and manual-fallback state
 - dry-run Standard Envelope and Ground Advantage adapter purchases behave as dry runs
