@@ -81,6 +81,34 @@ function unique(values: string[]) {
   return Array.from(new Set(values.filter(Boolean)));
 }
 
+const providerCredentialGroups = [
+  {
+    title: "Standard Envelope / IMb provider name",
+    note: "Required for real Standard Envelope label purchase.",
+    keys: ["TCOS_STANDARD_ENVELOPE_PROVIDER"],
+  },
+  {
+    title: "Standard Envelope / IMb API key",
+    note: "Choose the key name used by the approved Standard Envelope adapter.",
+    keys: ["TCOS_STANDARD_ENVELOPE_API_KEY", "IMB_PROVIDER_API_KEY"],
+  },
+  {
+    title: "Ground Advantage / Priority label provider",
+    note: "Choose one provider path. EasyPost or Shippo tokens can infer the provider.",
+    keys: ["TCOS_PARCEL_LABEL_PROVIDER", "EASYPOST_API_KEY", "SHIPPO_API_TOKEN"],
+  },
+  {
+    title: "Shipment Coverage provider name",
+    note: "Required before TCOS can purchase external seller shipment protection.",
+    keys: ["TCOS_SHIPPING_COVERAGE_PROVIDER"],
+  },
+  {
+    title: "Shipment Coverage API key",
+    note: "Choose the key name used by the approved Coverage adapter.",
+    keys: ["TCOS_SHIPPING_COVERAGE_API_KEY", "COVERAGE_API_KEY"],
+  },
+] as const;
+
 function envTemplateResponse(params: {
   lanes: ProviderSetupLane[];
   decision: ProviderSetupDecision;
@@ -106,6 +134,15 @@ function envTemplateResponse(params: {
     "EASYPOST_WEBHOOK_SECRET",
     "SHIPPO_WEBHOOK_SECRET",
   ];
+  const credentialGroupLines = providerCredentialGroups.flatMap((group) => [
+    `# ${group.title}`,
+    `# ${group.note}`,
+    group.keys.length > 1
+      ? `# Choose one of: ${group.keys.join(" or ")}`
+      : "# Required",
+    ...group.keys.map((key) => `${key}=`),
+    "",
+  ]);
   const lines = [
     "# TCOS shipping provider setup template",
     "# Paste these keys into Vercel production/preview environment variables.",
@@ -113,10 +150,18 @@ function envTemplateResponse(params: {
     `# Provider decision: ${params.decision.status}`,
     `# Next action: ${params.decision.nextAction}`,
     "",
-    "# Required provider credential names",
-    ...requiredCredentialKeys.map((key) => `${key}=`),
+    "# Safe shipping runtime defaults",
+    "TCOS_SHIPPING_PURCHASE_MODE=dry_run",
+    "TCOS_LIVE_SHIPPING_ENABLED=false",
+    "",
+    "# Provider credential groups",
+    "# Single-key groups are required. Multi-key groups are alternatives; set the one your approved provider adapter uses.",
+    ...credentialGroupLines,
+    "# All supported credential key names, deduped",
+    ...requiredCredentialKeys.map((key) => `# ${key}`),
     "",
     "# Provider webhook signing secret names; configure the one your provider uses",
+    `# Choose one of: ${webhookKeys.join(" or ")}`,
     ...webhookKeys.map((key) => `${key}=`),
     "",
     "# Live adapter approval flags; keep false until evidence is saved",
