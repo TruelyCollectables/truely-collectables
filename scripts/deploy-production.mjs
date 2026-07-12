@@ -40,11 +40,25 @@ function run(command, args, options = {}) {
   return output;
 }
 
+function deployRelevantStatus(status) {
+  return status
+    .split(/\r?\n/)
+    .map((line) => line.trimEnd())
+    .filter(Boolean)
+    .filter((line) => {
+      const path = line.slice(3).replaceAll("\\", "/");
+
+      return path !== ".codex-run/" && !path.startsWith(".codex-run/");
+    })
+    .join("\n");
+}
+
 function gitPreflight() {
   console.log("Refreshing origin/main before deploy...");
   run("git", ["fetch", "origin", "main"]);
 
   const status = optionalRun("git", ["status", "--short"]);
+  const deployStatus = deployRelevantStatus(status);
   const localHead = optionalRun("git", ["rev-parse", "HEAD"]);
   const remoteHead = optionalRun("git", ["rev-parse", "origin/main"]);
 
@@ -52,11 +66,23 @@ function gitPreflight() {
   console.log(`- local HEAD: ${localHead || "unknown"}`);
   console.log(`- origin/main: ${remoteHead || "unknown"}`);
 
-  if (status) {
-    console.log("- working tree has local changes:");
+  if (deployStatus) {
+    console.log("- working tree has deploy-relevant local changes:");
+    console.log(deployStatus);
+    throw new Error(
+      "Production deploy requires a clean committed worktree. Commit and push local changes before deploying.",
+    );
+  } else if (status) {
+    console.log("- working tree is clean for deploy; ignored scratch changes:");
     console.log(status);
   } else {
     console.log("- working tree is clean");
+  }
+
+  if (!localHead || !remoteHead) {
+    throw new Error(
+      "Could not resolve local HEAD and origin/main after fetch. Check Git remote access before deploying.",
+    );
   }
 
   if (localHead && remoteHead && localHead !== remoteHead) {

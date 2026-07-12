@@ -1180,7 +1180,8 @@ git rev-parse --short origin/main`}
             </pre>
             <p className="mt-3 text-sm font-semibold">
               Local <code>HEAD</code> and <code>origin/main</code> should match
-              before production deploy.
+              before production deploy. The deploy helper also blocks
+              uncommitted deploy-relevant files.
             </p>
           </div>
 
