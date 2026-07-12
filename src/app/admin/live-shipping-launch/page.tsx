@@ -162,6 +162,12 @@ export default async function LiveShippingLaunchPage() {
               >
                 Env Template
               </Link>
+              <Link
+                href="/api/admin/shipping/provider-setup?format=vercel-commands"
+                className="rounded border border-amber-300 bg-white px-4 py-2 font-black text-amber-950"
+              >
+                Vercel Commands
+              </Link>
             </div>
           </div>
 

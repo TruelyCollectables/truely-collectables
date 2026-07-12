@@ -842,6 +842,12 @@ export default async function AdminShippingPage() {
                 >
                   Env Template
                 </a>
+                <a
+                  href="/api/admin/shipping/provider-setup?format=vercel-commands"
+                  className="inline-flex rounded border border-neutral-300 bg-white px-4 py-2 font-black text-neutral-950"
+                >
+                  Vercel Commands
+                </a>
               </div>
               <p className="mt-1 text-xs font-semibold text-neutral-500">
                 No-secret provider checklist for Standard Envelope, parcels,

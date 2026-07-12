@@ -185,6 +185,66 @@ function envTemplateResponse(params: {
   });
 }
 
+function vercelCommandsResponse(params: {
+  lanes: ProviderSetupLane[];
+  decision: ProviderSetupDecision;
+  liveRequirements: LiveShippingRequirement[];
+}) {
+  const requiredCredentialKeys = unique(
+    params.lanes.flatMap((lane) => [
+      ...lane.credentialKeys,
+      ...lane.coverageCredentialKeys,
+    ]),
+  );
+  const liveRequirementKeys = unique(
+    params.liveRequirements.flatMap((requirement) => requirement.evidence),
+  )
+    .filter((evidence) => /^[A-Z0-9_]+=(true|false)$/i.test(evidence))
+    .map((evidence) => evidence.split("=")[0]);
+  const webhookKeys = [
+    "TCOS_SHIPPING_PROVIDER_WEBHOOK_SECRET",
+    "EASYPOST_WEBHOOK_SECRET",
+    "SHIPPO_WEBHOOK_SECRET",
+  ];
+  const commandKeys = unique([
+    "TCOS_SHIPPING_PURCHASE_MODE",
+    "TCOS_LIVE_SHIPPING_ENABLED",
+    ...requiredCredentialKeys,
+    ...webhookKeys,
+    ...liveRequirementKeys,
+  ]);
+  const lines = [
+    "# TCOS shipping provider Vercel env command checklist",
+    "# These commands prompt for values. They do not contain secret values.",
+    "# Use the provider groups in the env-template export to decide which alternatives to set.",
+    `# Provider decision: ${params.decision.status}`,
+    `# Next action: ${params.decision.nextAction}`,
+    "",
+    "# Production environment",
+    ...commandKeys.map(
+      (key) => `vercel env add ${key} production --scope truelycollectables-projects`,
+    ),
+    "",
+    "# Preview environment, if you want the same staged shape before the next deploy",
+    ...commandKeys.map(
+      (key) => `vercel env add ${key} preview --scope truelycollectables-projects`,
+    ),
+    "",
+    "# After env changes, redeploy when the deployment quota is available.",
+    "",
+  ];
+  const exportedAt = new Date().toISOString().slice(0, 10);
+
+  return new Response(lines.join("\n"), {
+    status: 200,
+    headers: {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Content-Disposition": `attachment; filename="tcos-shipping-provider-vercel-env-${exportedAt}.sh"`,
+      "Cache-Control": "no-store",
+    },
+  });
+}
+
 export async function GET(request: Request) {
   try {
     const packet = buildShippingProviderSetupPacket();
@@ -200,6 +260,14 @@ export async function GET(request: Request) {
 
     if (url.searchParams.get("format") === "env-template") {
       return envTemplateResponse({
+        lanes: packet.lanes,
+        decision: packet.decision,
+        liveRequirements: packet.liveRequirements,
+      });
+    }
+
+    if (url.searchParams.get("format") === "vercel-commands") {
+      return vercelCommandsResponse({
         lanes: packet.lanes,
         decision: packet.decision,
         liveRequirements: packet.liveRequirements,
