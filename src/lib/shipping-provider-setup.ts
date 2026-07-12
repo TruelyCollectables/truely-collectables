@@ -48,12 +48,23 @@ export type LiveShippingRequirement = {
   evidence: string[];
 };
 
+export type ProviderCredentialGroup = {
+  title: string;
+  note: string;
+  keys: string[];
+  requirement: string;
+  status: "ready" | "missing";
+  configuredKeys: string[];
+  missingKeys: string[];
+};
+
 export type ProviderSetupPacket = {
   exportedAt: string;
   scope: "tcos_shipping_provider_setup_no_secret_values";
   warning: string;
   decision: ProviderSetupDecision;
   liveRequirements: LiveShippingRequirement[];
+  credentialGroups: ProviderCredentialGroup[];
   readinessSummary: ReturnType<typeof shippingProviderSummary>;
   readiness: ReturnType<typeof getShippingProviderReadiness>;
   lanes: ProviderSetupLane[];
@@ -157,6 +168,68 @@ function flagEnabled(key: string) {
 
 function secretConfigured(key: string) {
   return Boolean(process.env[key]?.trim());
+}
+
+const providerCredentialGroupDefinitions = [
+  {
+    title: "Standard Envelope / IMb provider name",
+    note: "Required for real Standard Envelope label purchase.",
+    keys: ["TCOS_STANDARD_ENVELOPE_PROVIDER"],
+  },
+  {
+    title: "Standard Envelope / IMb API key",
+    note: "Choose the key name used by the approved Standard Envelope adapter.",
+    keys: ["TCOS_STANDARD_ENVELOPE_API_KEY", "IMB_PROVIDER_API_KEY"],
+  },
+  {
+    title: "Ground Advantage / Priority label provider",
+    note: "Choose one provider path. EasyPost or Shippo tokens can infer the provider.",
+    keys: ["TCOS_PARCEL_LABEL_PROVIDER", "EASYPOST_API_KEY", "SHIPPO_API_TOKEN"],
+  },
+  {
+    title: "Shipment Coverage provider name",
+    note: "Required before TCOS can purchase external seller shipment protection.",
+    keys: ["TCOS_SHIPPING_COVERAGE_PROVIDER"],
+  },
+  {
+    title: "Shipment Coverage API key",
+    note: "Choose the key name used by the approved Coverage adapter.",
+    keys: ["TCOS_SHIPPING_COVERAGE_API_KEY", "COVERAGE_API_KEY"],
+  },
+] as const;
+
+function unique(values: string[]) {
+  return Array.from(new Set(values.filter(Boolean)));
+}
+
+function providerCredentialGroupStatus(
+  lanes: ProviderSetupLane[],
+): ProviderCredentialGroup[] {
+  const configuredKeys = unique(
+    lanes.flatMap((lane) => [
+      ...lane.configuredCredentialKeys,
+      ...lane.configuredCoverageCredentialKeys,
+    ]),
+  );
+
+  return providerCredentialGroupDefinitions.map((group) => {
+    const configuredGroupKeys = group.keys.filter((key) =>
+      configuredKeys.includes(key),
+    );
+
+    return {
+      title: group.title,
+      note: group.note,
+      keys: [...group.keys],
+      requirement:
+        group.keys.length > 1
+          ? `Choose one of: ${group.keys.join(" or ")}`
+          : "Required",
+      status: configuredGroupKeys.length > 0 ? "ready" : "missing",
+      configuredKeys: configuredGroupKeys,
+      missingKeys: configuredGroupKeys.length > 0 ? [] : [...group.keys],
+    };
+  });
 }
 
 function liveShippingRequirements(params: {
@@ -296,6 +369,7 @@ export function buildShippingProviderSetupPacket(): ProviderSetupPacket {
     },
   ];
   const liveRequirements = liveShippingRequirements({ lanes });
+  const credentialGroups = providerCredentialGroupStatus(lanes);
   const decision = providerSetupDecision({
     lanes,
     readiness,
@@ -309,6 +383,7 @@ export function buildShippingProviderSetupPacket(): ProviderSetupPacket {
       "This packet includes secret names and configuration status only. It does not include secret values and does not contact live providers.",
     decision,
     liveRequirements,
+    credentialGroups,
     readinessSummary: shippingProviderSummary(readiness),
     readiness,
     lanes,

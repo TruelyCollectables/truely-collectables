@@ -1,6 +1,7 @@
 import {
   buildShippingProviderSetupPacket,
   type LiveShippingRequirement,
+  type ProviderCredentialGroup,
   type ProviderSetupDecision,
   type ProviderSetupLane,
 } from "../../../../../lib/shipping-provider-setup";
@@ -94,64 +95,8 @@ function exportLinks(requestUrl: string) {
   };
 }
 
-const providerCredentialGroups = [
-  {
-    title: "Standard Envelope / IMb provider name",
-    note: "Required for real Standard Envelope label purchase.",
-    keys: ["TCOS_STANDARD_ENVELOPE_PROVIDER"],
-  },
-  {
-    title: "Standard Envelope / IMb API key",
-    note: "Choose the key name used by the approved Standard Envelope adapter.",
-    keys: ["TCOS_STANDARD_ENVELOPE_API_KEY", "IMB_PROVIDER_API_KEY"],
-  },
-  {
-    title: "Ground Advantage / Priority label provider",
-    note: "Choose one provider path. EasyPost or Shippo tokens can infer the provider.",
-    keys: ["TCOS_PARCEL_LABEL_PROVIDER", "EASYPOST_API_KEY", "SHIPPO_API_TOKEN"],
-  },
-  {
-    title: "Shipment Coverage provider name",
-    note: "Required before TCOS can purchase external seller shipment protection.",
-    keys: ["TCOS_SHIPPING_COVERAGE_PROVIDER"],
-  },
-  {
-    title: "Shipment Coverage API key",
-    note: "Choose the key name used by the approved Coverage adapter.",
-    keys: ["TCOS_SHIPPING_COVERAGE_API_KEY", "COVERAGE_API_KEY"],
-  },
-] as const;
-
-function providerCredentialGroupStatus(lanes: ProviderSetupLane[]) {
-  const configuredKeys = unique(
-    lanes.flatMap((lane) => [
-      ...lane.configuredCredentialKeys,
-      ...lane.configuredCoverageCredentialKeys,
-    ]),
-  );
-
-  return providerCredentialGroups.map((group) => {
-    const configuredGroupKeys = group.keys.filter((key) =>
-      configuredKeys.includes(key),
-    );
-
-    return {
-      title: group.title,
-      note: group.note,
-      keys: [...group.keys],
-      requirement:
-        group.keys.length > 1
-          ? `Choose one of: ${group.keys.join(" or ")}`
-          : "Required",
-      status: configuredGroupKeys.length > 0 ? "ready" : "missing",
-      configuredKeys: configuredGroupKeys,
-      missingKeys:
-        configuredGroupKeys.length > 0 ? [] : [...group.keys],
-    };
-  });
-}
-
 function envTemplateResponse(params: {
+  credentialGroups: ProviderCredentialGroup[];
   lanes: ProviderSetupLane[];
   decision: ProviderSetupDecision;
   liveRequirements: LiveShippingRequirement[];
@@ -176,12 +121,10 @@ function envTemplateResponse(params: {
     "EASYPOST_WEBHOOK_SECRET",
     "SHIPPO_WEBHOOK_SECRET",
   ];
-  const credentialGroupLines = providerCredentialGroups.flatMap((group) => [
+  const credentialGroupLines = params.credentialGroups.flatMap((group) => [
     `# ${group.title}`,
     `# ${group.note}`,
-    group.keys.length > 1
-      ? `# Choose one of: ${group.keys.join(" or ")}`
-      : "# Required",
+    `# ${group.requirement}`,
     ...group.keys.map((key) => `${key}=`),
     "",
   ]);
@@ -288,6 +231,7 @@ function vercelCommandsResponse(params: {
 }
 
 function operatorChecklistResponse(params: {
+  credentialGroups: ProviderCredentialGroup[];
   lanes: ProviderSetupLane[];
   decision: ProviderSetupDecision;
   liveRequirements: LiveShippingRequirement[];
@@ -314,13 +258,11 @@ function operatorChecklistResponse(params: {
     "",
     "## Provider Credentials To Gather",
     "",
-    ...providerCredentialGroups.flatMap((group) => [
+    ...params.credentialGroups.flatMap((group) => [
       `### ${group.title}`,
       "",
       `- ${group.note}`,
-      group.keys.length > 1
-        ? `- Choose one of: ${group.keys.join(" or ")}`
-        : "- Required.",
+      `- ${group.requirement}.`,
       "- Confirm the provider account is production/live-capable before storing the key.",
       "",
     ]),
@@ -376,6 +318,7 @@ export async function GET(request: Request) {
 
     if (url.searchParams.get("format") === "env-template") {
       return envTemplateResponse({
+        credentialGroups: packet.credentialGroups,
         lanes: packet.lanes,
         decision: packet.decision,
         liveRequirements: packet.liveRequirements,
@@ -392,6 +335,7 @@ export async function GET(request: Request) {
 
     if (url.searchParams.get("format") === "operator-checklist") {
       return operatorChecklistResponse({
+        credentialGroups: packet.credentialGroups,
         lanes: packet.lanes,
         decision: packet.decision,
         liveRequirements: packet.liveRequirements,
@@ -402,7 +346,6 @@ export async function GET(request: Request) {
       {
         ...packet,
         exports: exportLinks(request.url),
-        credentialGroups: providerCredentialGroupStatus(packet.lanes),
       },
       {
         headers: {
