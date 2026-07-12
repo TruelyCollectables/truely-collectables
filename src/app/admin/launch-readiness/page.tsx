@@ -1187,6 +1187,13 @@ git rev-parse --short origin/main`}
           <div className="rounded border border-blue-200 bg-white p-4">
             <h3 className="font-bold">2. Deploy and smoke production</h3>
             <pre className="mt-3 overflow-x-auto rounded bg-neutral-950 p-3 text-xs text-neutral-50">
+              {`npm run launch:production`}
+            </pre>
+            <p className="mt-3 text-sm font-semibold">
+              One command deploys production and then runs the smoke check if
+              the deploy succeeds. Separate fallback:
+            </p>
+            <pre className="mt-3 overflow-x-auto rounded bg-neutral-950 p-3 text-xs text-neutral-50">
               {`npm run deploy:production
 npm run smoke:production`}
             </pre>
