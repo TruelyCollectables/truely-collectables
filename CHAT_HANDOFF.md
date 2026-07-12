@@ -7,8 +7,8 @@ Generated for the next Codex session during the production launch stacking pass.
 - Workspace: `C:\Projects\truely-collectables`
 - Branch: `main`
 - GitHub remote: `https://github.com/TruelyCollectables/truely-collectables.git`
-- Latest pushed commit before this validation note: `f5228a8 Run production verify before launch deploy`
-- Local `HEAD` and `origin/main` matched at `f5228a8` after the last push.
+- Latest pushed commit before this validation note: `4821ba1 Record verified launch flow in handoff`
+- Local `HEAD` and `origin/main` matched at `4821ba1` after the last push.
 - Local working tree was clean except for untracked `.codex-run/`.
   - Leave `.codex-run/` alone unless the user explicitly says to delete it.
 
@@ -86,7 +86,7 @@ npm run build
 npm run preflight:production
 ```
 
-`npm run verify:production` was run after commit `f5228a8` and passed end-to-end. It ran lint, build, and the production preflight. The preflight fetched `origin/main`, confirmed local `HEAD` matched GitHub, ignored only `.codex-run/`, and did not start a Vercel deployment.
+`npm run verify:production` was run after commit `4821ba1` and passed end-to-end. It ran lint, build, and the production preflight. The preflight fetched `origin/main`, confirmed local `HEAD` matched GitHub, ignored only `.codex-run/`, and did not start a Vercel deployment.
 
 Manual generation status from the earlier handoff still applies:
 
@@ -106,6 +106,7 @@ npm run manual:pdf
 Most recent commits, newest first:
 
 ```text
+4821ba1 Record verified launch flow in handoff
 f5228a8 Run production verify before launch deploy
 26f2c91 Record production verify pass in handoff
 03fe1e0 Refresh handoff for production verify flow
