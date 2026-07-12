@@ -218,6 +218,7 @@ export async function evaluateLivePaymentLaunch(params?: {
 
   const [
     gateResult,
+    approvalEventsResult,
     latestE2EResult,
     openMoneyResult,
     testOrdersResult,
@@ -231,6 +232,11 @@ export async function evaluateLivePaymentLaunch(params?: {
         .select("gate_status,approval_version,approved_at,approved_by")
         .eq("store_id", storeId)
         .maybeSingle(),
+      supabase
+        .from("live_payment_launch_events")
+        .select("id")
+        .eq("store_id", storeId)
+        .limit(1),
       supabase
         .from("payment_simulation_runs")
         .select("run_status,scenario_count,passed_count,failed_count,completed_at")
@@ -267,7 +273,8 @@ export async function evaluateLivePaymentLaunch(params?: {
     !gateResult.error &&
     gate?.gate_status === "approved" &&
     gate?.approval_version === LIVE_PAYMENT_APPROVAL_VERSION;
-  const approvalDatabaseReady = !gateResult.error;
+  const approvalDatabaseReady =
+    !gateResult.error && !approvalEventsResult.error;
   checks.push(
     check(
       "database_approval",
@@ -277,6 +284,8 @@ export async function evaluateLivePaymentLaunch(params?: {
         ? `Approved by ${gate?.approved_by || "TCOS admin"} at ${gate?.approved_at || "an unknown time"}.`
         : gateResult.error
           ? getLivePaymentGateErrorDetail(gateResult.error)
+          : approvalEventsResult.error
+            ? getLivePaymentGateErrorDetail(approvalEventsResult.error)
           : "The auditable database launch approval is locked or stale.",
     ),
   );

@@ -163,12 +163,22 @@ export async function evaluateLiveShippingLaunch(params?: {
   const purchaseMode = shippingPurchaseMode();
   const checks: LiveShippingLaunchCheck[] = [];
 
-  const [gateResult, dryRunShippingCleanup, simulationResult] = await Promise.all([
+  const [
+    gateResult,
+    approvalEventsResult,
+    dryRunShippingCleanup,
+    simulationResult,
+  ] = await Promise.all([
     supabase
       .from("live_shipping_launch_gates")
       .select("gate_status,approval_version,approved_at,approved_by")
       .eq("store_id", storeId)
       .maybeSingle(),
+    supabase
+      .from("live_shipping_launch_events")
+      .select("id")
+      .eq("store_id", storeId)
+      .limit(1),
     getDryRunShippingCleanupSummary({ supabase, storeId }),
     runShippingSimulationSuite(),
   ]);
@@ -178,7 +188,8 @@ export async function evaluateLiveShippingLaunch(params?: {
     !gateResult.error &&
     gate?.gate_status === "approved" &&
     gate?.approval_version === LIVE_SHIPPING_APPROVAL_VERSION;
-  const approvalDatabaseReady = !gateResult.error;
+  const approvalDatabaseReady =
+    !gateResult.error && !approvalEventsResult.error;
 
   checks.push(
     check(
@@ -189,6 +200,8 @@ export async function evaluateLiveShippingLaunch(params?: {
         ? `Approved by ${gate?.approved_by || "TCOS admin"} at ${gate?.approved_at || "an unknown time"}.`
         : gateResult.error
           ? getLiveShippingGateErrorDetail(gateResult.error)
+          : approvalEventsResult.error
+            ? getLiveShippingGateErrorDetail(approvalEventsResult.error)
           : "The auditable database launch approval is locked or stale.",
     ),
   );

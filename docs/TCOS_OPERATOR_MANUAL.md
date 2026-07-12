@@ -4163,7 +4163,7 @@ charge.dispute.funds_reinstated
 
 `/admin/launch-readiness` is a broad advisory configuration/database report. `/admin/live-payment-launch` is the actual database half of the two-lock checkout control. Neither page proves that live postage purchasing works.
 
-If the live-payment approval migration is missing, the runtime gate fails closed and tells the operator to apply `supabase/migrations/20260710185000_create_live_payment_launch_gate.sql`. The approval button is disabled when the approval database check cannot run, and `/api/admin/live-payment-launch` returns a blocked `409` response instead of recording approval or surfacing an unclear write error. Missing approval tables are a migration problem, not an operator override problem.
+If the live-payment approval migration is missing, the runtime gate fails closed and tells the operator to apply `supabase/migrations/20260710185000_create_live_payment_launch_gate.sql`. The approval button is disabled when either the gate table or immutable event table cannot be checked, and `/api/admin/live-payment-launch` returns a blocked `409` response instead of recording approval or surfacing an unclear write error. Missing approval tables are a migration problem, not an operator override problem.
 
 ### Financial reconciliation runbook
 
@@ -4324,7 +4324,7 @@ The Live Shipping Runway now includes a Live Adapter Approval Checklist. The pro
 
 `/admin/live-shipping-launch` is the auditable live-shipping database lock. It evaluates the current live-shipping approval version, `TCOS_LIVE_SHIPPING_ENABLED`, `TCOS_SHIPPING_PURCHASE_MODE`, provider setup, live requirement checklist, shipping simulations, live approval report, and dry-run cleanup status. Approval writes to `live_shipping_launch_gates` and appends immutable `live_shipping_launch_events`; revocation clears the approval side of the lock. Live shipping still requires both this database approval and the environment/runtime switches, and the current dry-run-only provider adapter still blocks live postage execution.
 
-If the live-shipping approval migration is missing, the runtime gate fails closed and tells the operator to apply `supabase/migrations/20260711185500_create_live_shipping_launch_gate.sql`. Do not switch `TCOS_SHIPPING_PURCHASE_MODE` to `live` until `/admin/launch-readiness` shows the live-shipping tables available and `/admin/live-shipping-launch` shows the approval report is safe.
+If the live-shipping approval migration is missing, the runtime gate fails closed and tells the operator to apply `supabase/migrations/20260711185500_create_live_shipping_launch_gate.sql`. Do not switch `TCOS_SHIPPING_PURCHASE_MODE` to `live` until `/admin/launch-readiness` shows the live-shipping gate and immutable event tables available and `/admin/live-shipping-launch` shows the approval report is safe.
 
 The live-shipping approval button is disabled when the approval database check cannot run, and `/api/admin/live-shipping-launch` returns a blocked `409` response instead of recording approval or surfacing an unclear write error. Missing approval tables are a migration problem, not an operator override problem.
 
