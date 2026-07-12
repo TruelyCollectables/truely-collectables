@@ -238,9 +238,16 @@ async function buildBrief(origin: string | null = null) {
     action: "Open /admin/live-payment-launch and clear this payment launch check.",
     href: "/admin/live-payment-launch",
   }));
+  const shippingSafelyLocked =
+    shippingReport.approvalDatabaseReady &&
+    shippingReport.purchaseMode === "dry_run" &&
+    !shippingReport.liveShippingEnabled;
   const shippingItems: BriefItem[] = shippingReport.checks.map((check) => ({
     label: `Shipping: ${check.label}`,
-    status: statusFromCheck(check.status),
+    status:
+      shippingSafelyLocked && check.status === "blocked"
+        ? "review"
+        : statusFromCheck(check.status),
     detail: check.detail,
     action: "Open /admin/live-shipping-launch or /admin/shipping and clear this shipping launch check.",
     href: "/admin/live-shipping-launch",

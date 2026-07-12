@@ -4177,6 +4177,8 @@ The Launch Attention Board near the top of `/admin/launch-readiness` pulls the c
 
 The same page links to `/api/admin/launch-readiness` for a compact JSON launch brief and `/api/admin/launch-readiness?format=markdown` for a Markdown handoff brief. These exports are read-only and summarize payment posture, shipping posture, dry-run cleanup, launch drill counts, top attention items with inferred admin `href` and absolute `url` targets, plus an operator-facing overall status and next recommended step.
 
+When shipping is intentionally in `dry_run` mode with live shipping disabled and the shipping approval database is available, the launch brief treats live-shipping lock checks as `review` items rather than overall launch blockers. This keeps the handoff aligned with the Launch Locks card: live payments can be open while shipping stays safely locked.
+
 `/admin/launch-gate-drill` runs a no-money runtime smoke over the payment and shipping launch locks. For payments, it verifies that test-mode Checkout remains available for simulations, invalid Stripe secrets fail closed, and the current live runtime state matches the live-payment launch report. It uses synthetic key strings and does not create Checkout Sessions, Customers, PaymentIntents, refunds, or disputes.
 
 The Launch Gate Drill also shows Payment Launch Posture and Shipping Launch Posture cards. These cards separate runtime-smoke safety from operator launch readiness: the drill can pass while shipping remains `Locked Safe` because TCOS is still in dry-run postage mode or provider setup is incomplete. Treat `Locked Safe` as an intentional hold, not permission to buy postage.
