@@ -11,7 +11,7 @@ export default function DryRunCleanupActions({
   const [note, setNote] = useState("");
   const [message, setMessage] = useState("");
 
-  async function retireProof() {
+  async function retireProof({ redirectToManual }: { redirectToManual: boolean }) {
     if (
       !window.confirm(
         "Retire TCOS dry-run shipping proof for this order? This clears simulated tracking, voids simulated label records, and marks simulated events retired. It does not buy or void real postage.",
@@ -47,7 +47,11 @@ export default function DryRunCleanupActions({
           "Dry-run proof retired. Record real carrier/Coverage proof next.",
       );
       setTimeout(() => {
-        window.location.reload();
+        if (redirectToManual) {
+          window.location.href = `/admin/orders/${orderId}?shippingAction=manualPurchase`;
+        } else {
+          window.location.reload();
+        }
       }, 800);
     } catch (error: any) {
       setMessage(error.message || "Could not retire dry-run shipping proof.");
@@ -65,13 +69,22 @@ export default function DryRunCleanupActions({
         rows={2}
         className="w-full rounded border bg-white px-2 py-1 text-xs"
       />
-      <button
-        onClick={retireProof}
-        disabled={retiring}
-        className="rounded bg-red-700 px-3 py-2 text-xs font-black text-white disabled:opacity-50"
-      >
-        {retiring ? "Retiring..." : "Retire Dry-Run Proof"}
-      </button>
+      <div className="flex flex-wrap gap-2">
+        <button
+          onClick={() => retireProof({ redirectToManual: true })}
+          disabled={retiring}
+          className="rounded bg-red-700 px-3 py-2 text-xs font-black text-white disabled:opacity-50"
+        >
+          {retiring ? "Retiring..." : "Retire + Record Real Label"}
+        </button>
+        <button
+          onClick={() => retireProof({ redirectToManual: false })}
+          disabled={retiring}
+          className="rounded border border-red-300 bg-white px-3 py-2 text-xs font-black text-red-950 disabled:opacity-50"
+        >
+          Retire Only
+        </button>
+      </div>
       {message ? (
         <p className="rounded border bg-white p-2 text-xs font-semibold text-red-950">
           {message}

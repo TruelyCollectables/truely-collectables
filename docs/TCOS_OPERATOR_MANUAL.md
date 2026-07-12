@@ -4373,6 +4373,8 @@ The shared dry-run shipping cleanup scanner lives in `src/lib/shipping-dry-run-c
 
 `/admin/shipping#dry-run-cleanup` is the Dry-Run Shipping Cleanup Center. It lists the exact order rows, shipping label rows, and tracking-event rows that are still blocking launch or seller payout release because they contain TCOS dry-run proof. Use `Retire Dry-Run Proof` only for simulated TCOS rows: it clears fake order tracking, voids simulated label records, retires simulated tracking events, and preserves audit metadata showing who retired the proof and why. It does not buy postage, void real postage, purchase Coverage, or prove shipment. After retiring dry-run proof, record a real external label, real carrier/IMb tracking, and real Coverage policy before shipping or releasing seller funds.
 
+The preferred cleanup test flow is `Retire + Record Real Label` from `/admin/shipping#dry-run-cleanup`. That retires simulated proof, then opens `/admin/orders/[id]?shippingAction=manualPurchase` with the manual label + Coverage form already expanded. Save the real provider, carrier, tracking/IMb, postage, provider IDs, label URL/PDF if available, Coverage provider, Coverage policy ID, and coverage amount. Use `Retire Only` only when you are intentionally clearing simulated proof before recording real proof later.
+
 ### Real shipment runbook
 
 1. Open `/admin/orders/[id]`.

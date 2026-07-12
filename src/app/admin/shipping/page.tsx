@@ -998,7 +998,7 @@ export default async function AdminShippingPage() {
                       <DryRunCleanupActions orderId={proof.orderId} />
                       <div className="flex flex-col gap-2">
                         <Link
-                          href={`/admin/orders/${proof.orderId}`}
+                          href={`/admin/orders/${proof.orderId}?shippingAction=manualPurchase`}
                           className="rounded bg-neutral-950 px-3 py-2 text-center text-xs font-black text-white"
                         >
                           Record Real Label

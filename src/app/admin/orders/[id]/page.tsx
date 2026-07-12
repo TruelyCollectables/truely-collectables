@@ -277,11 +277,15 @@ function shippingAdapterProfileDetails(
 
 export default async function AdminOrderDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams?: Promise<{ shippingAction?: string }>;
 }) {
   const supabase = createSupabaseServerClient({ admin: true });
   const { id } = await params;
+  const resolvedSearchParams = searchParams ? await searchParams : {};
+  const shippingAction = String(resolvedSearchParams.shippingAction || "").trim();
   const storeId = getActiveStoreId();
 
   const { data: order, error } = await supabase
@@ -965,11 +969,20 @@ export default async function AdminOrderDetailPage({
             </p>
           </div>
 
-          <ShippingLabelActions
-            orderId={typedOrder.id}
-            activeDryRunLabel={activeDryRunShippingLabel}
-          />
+        <ShippingLabelActions
+          orderId={typedOrder.id}
+          activeDryRunLabel={activeDryRunShippingLabel}
+          initialAction={shippingAction}
+        />
         </div>
+
+        {shippingAction === "manualPurchase" ? (
+          <div className="mt-4 rounded border border-blue-200 bg-blue-50 p-4 text-sm font-black text-blue-950">
+            Dry-run cleanup sent you here. Save real external label details,
+            tracking or IMb, postage, and Coverage policy proof before marking
+            this order shipped or releasing seller funds.
+          </div>
+        ) : null}
 
         {shippingLabelsError ? (
           <div className="mt-4 rounded border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-950">

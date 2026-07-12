@@ -5,9 +5,11 @@ import { useState } from "react";
 export default function ShippingLabelActions({
   orderId,
   activeDryRunLabel = false,
+  initialAction = "",
 }: {
   orderId: number;
   activeDryRunLabel?: boolean;
+  initialAction?: string;
 }) {
   const [preparing, setPreparing] = useState(false);
   const [purchasing, setPurchasing] = useState(false);
@@ -15,8 +17,12 @@ export default function ShippingLabelActions({
   const [voiding, setVoiding] = useState(false);
   const [openingClaim, setOpeningClaim] = useState(false);
   const [message, setMessage] = useState("");
-  const [showManualForm, setShowManualForm] = useState(false);
-  const [showVoidForm, setShowVoidForm] = useState(false);
+  const [showManualForm, setShowManualForm] = useState(
+    initialAction === "manualPurchase",
+  );
+  const [showVoidForm, setShowVoidForm] = useState(
+    initialAction === "recordVoid",
+  );
   const [manualForm, setManualForm] = useState({
     provider: "",
     carrier: "USPS",
@@ -280,6 +286,14 @@ export default function ShippingLabelActions({
         <div className="rounded border border-red-200 bg-red-50 p-3 text-sm font-black text-red-950">
           Active label is dry-run only. Record a real external label + Coverage
           policy, or void this dry-run record before claim or provider actions.
+        </div>
+      ) : null}
+
+      {initialAction === "manualPurchase" ? (
+        <div className="rounded border border-blue-200 bg-blue-50 p-3 text-sm font-black text-blue-950">
+          Dry-run cleanup handoff: save the real external label, tracking/IMb,
+          postage, and Coverage policy here before shipping or releasing seller
+          funds.
         </div>
       ) : null}
 
