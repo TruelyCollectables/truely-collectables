@@ -18,6 +18,9 @@ type BriefItem = {
   url?: string;
 };
 
+const SHIPPING_PROVIDER_ENV_TEMPLATE_HREF =
+  "/api/admin/shipping/provider-setup?format=env-template";
+
 function statusFromCheck(status: "passed" | "warning" | "blocked") {
   if (status === "passed") return "ready" as const;
   if (status === "warning") return "review" as const;
@@ -140,6 +143,7 @@ function markdownForBrief(brief: Awaited<ReturnType<typeof buildBrief>>) {
     `- Approval ready: ${brief.shipping.approvalReady ? "yes" : "no"}`,
     `- Posture: ${brief.shipping.posture}`,
     `- Dry-run cleanup: ${brief.shipping.dryRunCleanup}`,
+    `- Provider env template: ${brief.shipping.providerSetupEnvTemplateUrl || brief.shipping.providerSetupEnvTemplateHref}`,
     "",
     "## Attention Items",
     "",
@@ -356,6 +360,11 @@ async function buildBrief(origin: string | null = null) {
       dryRunCleanup: dryRunCleanup.detail,
       providerSetupStatus: providerSetup.decision.status,
       providerSetupSummary: providerSetup.decision.summary,
+      providerSetupEnvTemplateHref: SHIPPING_PROVIDER_ENV_TEMPLATE_HREF,
+      providerSetupEnvTemplateUrl: absoluteUrl(
+        origin,
+        SHIPPING_PROVIDER_ENV_TEMPLATE_HREF,
+      ),
     },
     drill: {
       passed: drillReport.summary.passed,

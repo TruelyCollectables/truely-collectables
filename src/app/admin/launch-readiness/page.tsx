@@ -1039,6 +1039,12 @@ export default async function LaunchReadinessPage() {
           >
             Brief Markdown
           </a>
+          <a
+            href="/api/admin/shipping/provider-setup?format=env-template"
+            className="rounded border border-amber-200 bg-amber-50 px-4 py-2 font-bold text-amber-950"
+          >
+            Shipping Env Template
+          </a>
           <Link
             href="/admin/live-shipping-launch"
             className="rounded border border-red-200 bg-red-50 px-4 py-2 font-bold text-red-950"
