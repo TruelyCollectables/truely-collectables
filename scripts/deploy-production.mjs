@@ -72,7 +72,7 @@ const deployOutput = run("vercel", ["--prod", "--yes", "--scope", scope], {
 
 if (deployOutput.includes("api-deployments-free-per-day")) {
   throw new Error(
-    "Vercel deployment quota is still capped (api-deployments-free-per-day). Wait for the rolling 24-hour quota to reset, then rerun npm run deploy:production.",
+    "Vercel deployment quota is still capped (api-deployments-free-per-day). Wait for the rolling 24-hour quota to reset, then rerun npm run launch:production.",
   );
 }
 
@@ -99,5 +99,5 @@ console.log("");
 console.log(`DEPLOYED_PRODUCTION=${deploymentUrl}`);
 console.log(`CLEAN_PRODUCTION=https://${cleanDomain}`);
 console.log("");
-console.log("Next verification command:");
+console.log("Next verification command if you ran deploy without the one-shot launch:");
 console.log("npm run smoke:production");
