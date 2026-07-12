@@ -71,6 +71,14 @@ You can check out [the Next.js GitHub repository](https://github.com/vercel/next
 
 ## Deploy on Vercel
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Do not use the generic Vercel template flow for TCOS production.
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+Use the checked production launch helper:
+
+```bash
+npm run launch:production
+```
+
+That command runs lint, build, GitHub/clean-worktree preflight, production deploy, clean-domain aliasing, unwanted `tt3b` alias removal, and production smoke in order.
+
+See [Production Deploy Runbook](docs/PRODUCTION_DEPLOY_RUNBOOK.md) for details.
