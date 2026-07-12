@@ -38,7 +38,7 @@ npm run verify:production
 npm run launch:production
 ```
 
-The verify helper runs lint, build, and GitHub/clean-worktree preflight without starting a Vercel deploy. The launch helper deploys production and then runs the production smoke if the deploy succeeds. The deploy step verifies Git state, handles the clean Vercel production alias, removes the unwanted `tt3b` alias if it appears, and reports Vercel quota blocks clearly.
+The verify helper runs lint, build, and GitHub/clean-worktree preflight without starting a Vercel deploy. The launch helper runs that same verification first, then deploys production and runs the production smoke if the deploy succeeds. The deploy step verifies Git state, handles the clean Vercel production alias, removes the unwanted `tt3b` alias if it appears, and reports Vercel quota blocks clearly.
 
 ## Getting Started
 

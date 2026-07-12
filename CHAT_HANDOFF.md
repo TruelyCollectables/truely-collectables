@@ -30,7 +30,6 @@ Use the runbook:
 Expected command sequence once Vercel accepts deployments:
 
 ```powershell
-npm run verify:production
 npm run launch:production
 ```
 
@@ -137,7 +136,7 @@ Package scripts:
   "verify:production": "npm run lint && npm run build && npm run preflight:production",
   "deploy:production": "node scripts/deploy-production.mjs",
   "smoke:production": "node scripts/smoke-production.mjs",
-  "launch:production": "npm run deploy:production && npm run smoke:production"
+  "launch:production": "npm run verify:production && npm run deploy:production && npm run smoke:production"
 }
 ```
 
@@ -310,7 +309,6 @@ Best next steps, in order:
 
 1. Keep stacking Vercel-ready launch improvements in small commits while quota is capped.
 2. When quota opens, run:
-   - `npm run verify:production`
    - `npm run launch:production`
    - If needed, run the fallback pair manually:
      - `npm run deploy:production`

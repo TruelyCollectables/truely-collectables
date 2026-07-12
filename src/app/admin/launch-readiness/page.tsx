@@ -1195,8 +1195,8 @@ npm run preflight:production`}
               {`npm run launch:production`}
             </pre>
             <p className="mt-3 text-sm font-semibold">
-              One command deploys production and then runs the smoke check if
-              the deploy succeeds. Separate fallback:
+              One command runs lint, build, production preflight, production
+              deploy, and smoke. Separate fallback:
             </p>
             <pre className="mt-3 overflow-x-auto rounded bg-neutral-950 p-3 text-xs text-neutral-50">
               {`npm run deploy:production

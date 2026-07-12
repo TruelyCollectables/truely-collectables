@@ -43,7 +43,7 @@ For the normal launch path, run the one-shot command:
 npm run launch:production
 ```
 
-This deploys production and immediately runs the production smoke if the deploy succeeds.
+This runs lint, build, production preflight, production deploy, and production smoke in order.
 
 If you need to run the steps separately, deploy first:
 
@@ -84,7 +84,6 @@ If the smoke says queued launch features are not visible, production is still be
 git status --short
 git rev-parse --short HEAD
 git rev-parse --short origin/main
-npm run verify:production
 npm run launch:production
 ```
 

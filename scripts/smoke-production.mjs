@@ -180,6 +180,7 @@ const checks = [
       result.text.includes("npm run verify:production") &&
       result.text.includes("npm run preflight:production") &&
       result.text.includes("npm run launch:production") &&
+      result.text.includes("lint, build, production preflight") &&
       result.text.includes("npm run deploy:production") &&
       result.text.includes("npm run smoke:production") &&
       result.text.includes("truely-collectables.vercel.app") &&
