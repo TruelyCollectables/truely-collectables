@@ -11,7 +11,7 @@ Generated for the next Codex session after the live payment/shipping launch-gate
 - Production Vercel deployment verified Ready:
   - `https://truely-collectables-nzx0vpaha-truelycollectables-projects.vercel.app`
 - Vercel production alias also points at the latest Ready deployment:
-  - `https://truely-collectables-tt3b.vercel.app`
+  - `https://truely-collectables.vercel.app`
   - `https://truely-collectables-truelycollectables-projects.vercel.app`
   - `https://truely-collectables-git-main-truelycollectables-projects.vercel.app`
 - Local working tree was clean except for untracked `.codex-run/`.

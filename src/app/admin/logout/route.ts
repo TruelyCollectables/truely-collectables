@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
+import { configuredSiteOrigin } from "../../../lib/site-origin";
 
 export async function GET() {
-  const res = NextResponse.redirect(new URL("/admin/login", process.env.NEXT_PUBLIC_SITE_URL || "https://truely-collectables-tt3b.vercel.app"));
+  const res = NextResponse.redirect(
+    new URL("/admin/login", configuredSiteOrigin()),
+  );
 
   res.cookies.set("admin_auth", "", {
     path: "/",
