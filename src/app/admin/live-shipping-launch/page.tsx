@@ -39,13 +39,11 @@ export default async function LiveShippingLaunchPage() {
   const passed = report.checks.filter((item) => item.status === "passed").length;
   const warning = report.checks.filter((item) => item.status === "warning").length;
   const providerSetupPacket = buildShippingProviderSetupPacket();
-  const missingProviderSecretKeys = Array.from(
-    new Set(providerSetupPacket.lanes.flatMap((lane) => lane.missingCredentialKeys)),
+  const missingCredentialGroups = providerSetupPacket.credentialGroups.filter(
+    (group) => group.status === "missing",
   );
-  const stagedProviderSecretKeys = Array.from(
-    new Set(
-      providerSetupPacket.lanes.flatMap((lane) => lane.configuredCredentialKeys),
-    ),
+  const readyCredentialGroups = providerSetupPacket.credentialGroups.filter(
+    (group) => group.status === "ready",
   );
   const readyRequirements = providerSetupPacket.liveRequirements.filter(
     (requirement) => requirement.status === "ready",
@@ -193,19 +191,36 @@ export default async function LiveShippingLaunchPage() {
 
             <article className="rounded border border-amber-300 bg-white p-4">
               <p className="text-xs font-black uppercase text-neutral-500">
-                Required secrets
+                Credential groups
               </p>
               <p className="mt-2 text-2xl font-black">
-                {missingProviderSecretKeys.length} missing
+                {readyCredentialGroups.length}/{providerSetupPacket.credentialGroups.length} ready
               </p>
-              <p className="mt-2 text-sm leading-6">
-                {missingProviderSecretKeys.length > 0
-                  ? missingProviderSecretKeys.join(", ")
-                  : "All required provider secret groups appear staged."}
-              </p>
-              {stagedProviderSecretKeys.length > 0 ? (
-                <p className="mt-2 text-xs font-bold text-green-800">
-                  Staged: {stagedProviderSecretKeys.join(", ")}
+              <div className="mt-3 space-y-2">
+                {providerSetupPacket.credentialGroups.map((group) => (
+                  <div
+                    key={group.title}
+                    className={`rounded border p-2 text-xs font-bold ${
+                      group.status === "ready"
+                        ? "border-green-200 bg-green-50 text-green-900"
+                        : "border-amber-200 bg-amber-50 text-amber-950"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <span>{group.title}</span>
+                      <span className="uppercase">{group.status}</span>
+                    </div>
+                    <p className="mt-1 font-semibold opacity-80">
+                      {group.status === "ready"
+                        ? `Staged: ${group.configuredKeys.join(", ")}`
+                        : group.requirement}
+                    </p>
+                  </div>
+                ))}
+              </div>
+              {missingCredentialGroups.length > 0 ? (
+                <p className="mt-3 text-xs font-black">
+                  Missing: {missingCredentialGroups.map((group) => group.title).join(", ")}
                 </p>
               ) : null}
             </article>
