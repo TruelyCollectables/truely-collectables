@@ -1,4 +1,7 @@
-import { serialRunDisplayLabel } from "./instacomp-serial";
+import {
+  extractInstaCompSerialNumber,
+  serialRunDisplayLabel,
+} from "./instacomp-serial";
 
 export type InstaCompAiResult = {
   player: string | null;
@@ -158,22 +161,22 @@ function normalizeSerialNumber(value: string | null | undefined) {
 
 function serialNumberParts(value: string | null | undefined) {
   const normalized = normalizeSerialNumber(value);
-  const match = normalized.match(/(\d+)\/(\d+)/);
+  const parsed = extractInstaCompSerialNumber(normalized);
 
-  if (!match) {
+  if (!parsed) {
     return {
-      normalized,
+      normalized: "",
       numerator: "",
       denominator: "",
-      unpadded: normalized,
+      unpadded: "",
     };
   }
 
-  const numerator = String(Number(match[1]));
-  const denominator = String(Number(match[2]));
+  const numerator = String(parsed.numerator);
+  const denominator = String(parsed.denominator);
 
   return {
-    normalized,
+    normalized: parsed.exact.toLowerCase(),
     numerator,
     denominator,
     unpadded: `${numerator}/${denominator}`,
