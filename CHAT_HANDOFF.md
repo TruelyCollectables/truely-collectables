@@ -7,8 +7,8 @@ Generated for the next Codex session during the production launch stacking pass.
 - Workspace: `C:\Projects\truely-collectables`
 - Branch: `main`
 - GitHub remote: `https://github.com/TruelyCollectables/truely-collectables.git`
-- Latest pushed commit before this smoke-normalization change: `9943722 Refresh handoff after guardrail checks`
-- Local `HEAD` and `origin/main` matched at `9943722` after the last push.
+- Latest verified commit before this handoff note: `9277c1f Normalize production smoke URL overrides`
+- Local `HEAD` and `origin/main` matched at `9277c1f` after the latest verify pass.
 - Local working tree was clean.
 - `.codex-run/` is ignored in `.gitignore`; leave the folder contents alone unless the user explicitly says to delete them.
 
@@ -89,6 +89,8 @@ npm run build
 npm run preflight:production
 ```
 
+`npm run verify:production` was rerun after commit `9277c1f` and passed end-to-end. It ran lint, build, production guardrail checks, and production preflight; the preflight fetched `origin/main`, confirmed local `HEAD` matched GitHub, reported a clean worktree, and did not start a Vercel deployment.
+
 `npm run check:production-guardrails` and `npm run lint` were run after commit `743fe19` and passed. The guardrail command now syntax-checks the production deploy/smoke helpers before running the alias refusal checks.
 
 `npm run verify:production` was rerun after commit `6ea91db` and passed end-to-end. It ran lint, build, production guardrail checks, and production preflight; the preflight fetched `origin/main`, confirmed local `HEAD` matched GitHub, reported a clean worktree, and did not start a Vercel deployment.
@@ -122,6 +124,7 @@ npm run manual:pdf
 Most recent commits, newest first:
 
 ```text
+9277c1f Normalize production smoke URL overrides
 9943722 Refresh handoff after guardrail checks
 743fe19 Syntax check production helpers in guardrails
 5355813 Pin smoke guardrail alias check
