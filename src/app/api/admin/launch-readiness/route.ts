@@ -164,6 +164,72 @@ function markdownForBrief(brief: Awaited<ReturnType<typeof buildBrief>>) {
   ].join("\n");
 }
 
+function markdownForHandoffBundle(
+  brief: Awaited<ReturnType<typeof buildBrief>>,
+) {
+  return [
+    "# TCOS Launch Hand-off Bundle",
+    "",
+    `Generated: ${brief.generatedAt}`,
+    `Store: ${brief.storeId}`,
+    "",
+    "## Current Launch Posture",
+    "",
+    `- Overall: ${brief.status.overall}`,
+    `- Operator next step: ${brief.status.nextStep}`,
+    `- Operator link: ${brief.status.url || brief.status.href}`,
+    `- Ready: ${brief.summary.ready}`,
+    `- Review: ${brief.summary.review}`,
+    `- Blocked: ${brief.summary.blocked}`,
+    "",
+    "## Payment",
+    "",
+    `- Mode: ${brief.payment.mode}`,
+    `- Live payments enabled: ${brief.payment.livePaymentsEnabled ? "yes" : "no"}`,
+    `- Approval ready: ${brief.payment.approvalReady ? "yes" : "no"}`,
+    `- Posture: ${brief.payment.posture}`,
+    "",
+    "## Shipping",
+    "",
+    `- Mode: ${brief.shipping.mode}`,
+    `- Live shipping enabled: ${brief.shipping.liveShippingEnabled ? "yes" : "no"}`,
+    `- Approval ready: ${brief.shipping.approvalReady ? "yes" : "no"}`,
+    `- Posture: ${brief.shipping.posture}`,
+    `- Dry-run cleanup: ${brief.shipping.dryRunCleanup}`,
+    `- Provider setup status: ${brief.shipping.providerSetupStatus}`,
+    `- Provider setup summary: ${brief.shipping.providerSetupSummary}`,
+    "",
+    "## Shipping Setup Exports",
+    "",
+    `- Env template: ${brief.shipping.providerSetupEnvTemplateUrl || brief.shipping.providerSetupEnvTemplateHref}`,
+    `- Vercel commands: ${brief.shipping.providerSetupVercelCommandsUrl || brief.shipping.providerSetupVercelCommandsHref}`,
+    `- Operator checklist: ${brief.shipping.providerSetupOperatorChecklistUrl || brief.shipping.providerSetupOperatorChecklistHref}`,
+    "",
+    "## Safe Shipping Defaults",
+    "",
+    "- Keep `TCOS_SHIPPING_PURCHASE_MODE=dry_run` while provider credentials, live adapter, Coverage, webhooks, reconciliation, simulations, and admin approval are incomplete.",
+    "- Keep `TCOS_LIVE_SHIPPING_ENABLED=false` until the live shipping gate is fully approved.",
+    "- Do not paste provider secret values into Git, chat, screenshots, tickets, or exported packets.",
+    "",
+    "## Attention Items",
+    "",
+    cleanMarkdownListWithLinks(brief.attentionItems),
+    "",
+    "## Post-deploy Verification",
+    "",
+    "- Confirm admin login returns 200.",
+    "- Confirm `/admin/launch-readiness` renders.",
+    "- Confirm `/api/admin/launch-readiness` returns JSON.",
+    "- Confirm `/api/admin/launch-readiness?format=markdown` downloads Markdown.",
+    "- Confirm `/api/admin/launch-readiness?format=handoff-bundle` downloads this bundle.",
+    "- Confirm `/admin/live-payment-launch` still shows live payments open.",
+    "- Confirm `/admin/live-shipping-launch` still shows shipping locked until provider work is complete.",
+    "- Confirm `/api/admin/shipping/provider-setup` exposes export links and credential groups.",
+    "- Confirm the clean production domain points at the latest deployment.",
+    "",
+  ].join("\n");
+}
+
 function absoluteUrl(origin: string | null, href: string | undefined) {
   if (!origin || !href) return undefined;
 
@@ -403,6 +469,16 @@ export async function GET(request: Request) {
         headers: {
           "Cache-Control": "no-store",
           "Content-Disposition": 'attachment; filename="tcos-launch-readiness-brief.md"',
+          "Content-Type": "text/markdown; charset=utf-8",
+        },
+      });
+    }
+
+    if (format === "handoff-bundle") {
+      return new Response(markdownForHandoffBundle(brief), {
+        headers: {
+          "Cache-Control": "no-store",
+          "Content-Disposition": 'attachment; filename="tcos-launch-handoff-bundle.md"',
           "Content-Type": "text/markdown; charset=utf-8",
         },
       });
