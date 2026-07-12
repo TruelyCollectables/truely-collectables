@@ -959,6 +959,7 @@ export default async function LaunchReadinessPage() {
   const paymentMode = getPaymentMode();
   const livePaymentGateOpen = livePaymentLaunchItem.status === "ready";
   const fullLaunchHasBlockers = summary.blocked > 0;
+  const fullLaunchNeedsReview = summary.warning > 0;
 
   return (
     <main className="min-h-screen bg-neutral-50 p-8 text-neutral-950">
@@ -1048,13 +1049,23 @@ export default async function LaunchReadinessPage() {
         <div
           className={`mt-3 rounded border p-4 ${
             fullLaunchHasBlockers
+              ? "border-red-200 bg-red-50 text-red-800"
+              : fullLaunchNeedsReview
               ? "border-yellow-200 bg-yellow-50 text-yellow-900"
               : "border-green-200 bg-green-50 text-green-800"
           }`}
         >
           <p className="font-bold">
             {fullLaunchHasBlockers
-              ? "Full launch still has blockers or review items."
+              ? `Full launch still has ${summary.blocked} blocked item${
+                  summary.blocked === 1 ? "" : "s"
+                } and ${summary.warning} review item${
+                  summary.warning === 1 ? "" : "s"
+                }.`
+              : fullLaunchNeedsReview
+              ? `Full launch has ${summary.warning} review item${
+                  summary.warning === 1 ? "" : "s"
+                } but no blocked items.`
               : "Full launch checklist has no blocked items."}
           </p>
           <p className="mt-1 text-sm">
