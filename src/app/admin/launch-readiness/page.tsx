@@ -15,6 +15,7 @@ import {
   type ProviderSetupDecision,
 } from "../../../lib/shipping-provider-setup";
 import { getDryRunShippingCleanupSummary } from "../../../lib/shipping-dry-run-cleanup";
+import { evaluateLiveShippingLaunch } from "../../../lib/live-shipping-launch";
 import { SHIPPING_SIMULATION_SUITE_VERSION } from "../../../lib/shipping-simulations";
 import {
   getStripeLivePublishableKey,
@@ -509,6 +510,24 @@ async function checkDatabaseReadiness(): Promise<ReadinessItem[]> {
         "order_shipping_coverage_claims is available for seller protection loss/damage claim tracking.",
     },
     {
+      label: "Live Shipping Launch Gate",
+      table: "live_shipping_launch_gates",
+      select:
+        "store_id,gate_status,approval_version,approved_at,approved_by,revoked_at,revoked_by,updated_at",
+      migration: "20260711185500_create_live_shipping_launch_gate.sql",
+      readyDetail:
+        "live_shipping_launch_gates is available for auditable live-postage approval and revocation.",
+    },
+    {
+      label: "Live Shipping Launch Events",
+      table: "live_shipping_launch_events",
+      select:
+        "id,store_id,event_type,approval_version,actor,reason,created_at",
+      migration: "20260711185500_create_live_shipping_launch_gate.sql",
+      readyDetail:
+        "live_shipping_launch_events is available for immutable live-shipping approval history.",
+    },
+    {
       label: "Seller Payout Accounts",
       table: "seller_payout_accounts",
       select:
@@ -786,6 +805,55 @@ async function checkDryRunShippingReadiness(): Promise<ReadinessItem> {
   };
 }
 
+async function checkLiveShippingLaunchReadiness(): Promise<ReadinessItem> {
+  const supabase = getSupabaseClient();
+
+  if (!supabase) {
+    return {
+      label: "Live Shipping Launch Gate",
+      status: "blocked",
+      detail:
+        "Supabase is not configured, so launch readiness cannot verify the auditable live-shipping gate.",
+      action:
+        "Set Supabase environment variables before reviewing or enabling live postage.",
+    };
+  }
+
+  const report = await evaluateLiveShippingLaunch({
+    supabase,
+    storeId: getActiveStoreId(),
+  });
+  const blockedChecks = report.checks.filter(
+    (item) => item.status === "blocked",
+  );
+  const warningChecks = report.checks.filter(
+    (item) => item.status === "warning",
+  );
+  const databaseApproval = report.checks.find(
+    (item) => item.key === "database_approval",
+  );
+  const blockedLabels =
+    blockedChecks.map((item) => item.label).join(", ") || "none";
+  const status: ReadinessStatus = report.liveShippingEnabled
+    ? "ready"
+    : report.purchaseMode === "live"
+      ? "blocked"
+      : "warning";
+  const detail = report.liveShippingEnabled
+    ? "Live shipping is enabled by both the environment switch and current database approval."
+    : report.purchaseMode === "live"
+      ? `Live shipping purchase mode is LIVE, but the runtime gate is not fully enabled. Blocked checks: ${blockedLabels}.`
+      : `Live shipping is safely staged in dry-run mode. Database approval is ${databaseApproval?.status || "unknown"}; ${blockedChecks.length} blocked and ${warningChecks.length} warning check(s) remain before live postage.`;
+
+  return {
+    label: "Live Shipping Launch Gate",
+    status,
+    detail,
+    action:
+      "Open /admin/live-shipping-launch to review approval status, simulations, dry-run cleanup, and the runtime kill switch before any live postage rollout.",
+  };
+}
+
 async function loadStoreSettings(): Promise<StoreOperationalSettings> {
   const supabase = getSupabaseClient();
 
@@ -797,13 +865,24 @@ async function loadStoreSettings(): Promise<StoreOperationalSettings> {
 }
 
 export default async function LaunchReadinessPage() {
-  const [storeSettings, databaseItems, dryRunShippingItem] = await Promise.all([
+  const [
+    storeSettings,
+    databaseItems,
+    dryRunShippingItem,
+    liveShippingLaunchItem,
+  ] = await Promise.all([
     loadStoreSettings(),
     checkDatabaseReadiness(),
     checkDryRunShippingReadiness(),
+    checkLiveShippingLaunchReadiness(),
   ]);
   const baseItems = buildReadinessItems(storeSettings);
-  const items = [...baseItems, dryRunShippingItem, ...databaseItems];
+  const items = [
+    ...baseItems,
+    dryRunShippingItem,
+    liveShippingLaunchItem,
+    ...databaseItems,
+  ];
   const summary = summarize(items);
   const databaseSummary = summarize(databaseItems);
   const paymentMode = getPaymentMode();

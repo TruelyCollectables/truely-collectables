@@ -47,6 +47,24 @@ function shippingPurchaseMode() {
     : ("dry_run" as const);
 }
 
+function liveShippingGateErrorDetail(error: {
+  code?: string;
+  message?: string;
+}): string {
+  const message = error.message || "Unknown Supabase error.";
+  const missingGateTable =
+    error.code === "42P01" ||
+    /live_shipping_launch_gates|schema cache|does not exist|relation .* not found/i.test(
+      message,
+    );
+
+  if (missingGateTable) {
+    return "Live shipping approval tables are unavailable. Apply supabase/migrations/20260711185500_create_live_shipping_launch_gate.sql before enabling live postage.";
+  }
+
+  return `Live shipping approval could not be verified: ${message}`;
+}
+
 export async function getLiveShippingRuntimeGate(params?: {
   supabase?: SupabaseClient;
   storeId?: string;
@@ -88,7 +106,7 @@ export async function getLiveShippingRuntimeGate(params?: {
       allowed: false,
       mode: "live" as const,
       reason: error
-        ? `Live shipping approval could not be verified: ${error.message}`
+        ? liveShippingGateErrorDetail(error)
         : "Live shipping requires current administrator launch approval.",
     };
   }
@@ -168,7 +186,7 @@ export async function evaluateLiveShippingLaunch(params?: {
       databaseApproved
         ? `Approved by ${gate?.approved_by || "TCOS admin"} at ${gate?.approved_at || "an unknown time"}.`
         : gateResult.error
-          ? `The auditable database launch approval could not be checked: ${gateResult.error.message}`
+          ? liveShippingGateErrorDetail(gateResult.error)
           : "The auditable database launch approval is locked or stale.",
     ),
   );
