@@ -287,7 +287,8 @@ const checks = [
       result.text.includes("npm run check:production-guardrails") &&
       result.text.includes("npm run preflight:production") &&
       result.text.includes("npm run launch:production") &&
-      result.text.includes("lint, build, production guardrail checks") &&
+      result.text.includes("thirteen-scenario shipping simulation suite") &&
+      result.text.includes("LetterTrack evidence checks") &&
       result.text.includes("npm run deploy:production") &&
       result.text.includes("npm run smoke:production") &&
       result.text.includes("truely-collectables.vercel.app") &&
