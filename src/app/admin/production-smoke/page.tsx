@@ -9,6 +9,7 @@ const smokeChecks = [
   "Launch Gate Drill page, JSON report, and Markdown operator report",
   "Live Payment Launch Gate",
   "Live Shipping Launch Gate",
+  "Admin shipping cockpit LetterTrack controls",
   "Shipping provider setup JSON and export packets",
   "LetterTrack Standard Envelope CSV export",
   "Clean production domain",

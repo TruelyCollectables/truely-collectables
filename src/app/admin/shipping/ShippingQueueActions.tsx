@@ -179,6 +179,100 @@ export function SaveTrackingForm({
   );
 }
 
+export function RecordLetterTrackImbForm({
+  orderId,
+}: {
+  orderId: number;
+}) {
+  const [trackingNumber, setTrackingNumber] = useState("");
+  const [letterTrackReference, setLetterTrackReference] = useState("");
+  const [postageAmount, setPostageAmount] = useState("");
+  const [note, setNote] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+
+  async function recordImb() {
+    setSaving(true);
+    setMessage("");
+
+    try {
+      const response = await fetch(
+        `/api/admin/orders/${orderId}/shipping-labels`,
+        {
+          method: "PATCH",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            action: "record_lettertrack_imb",
+            trackingNumber,
+            letterTrackReference,
+            postageAmount,
+            note,
+          }),
+        },
+      );
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        setMessage(data.error || "Could not record LetterTrack IMb.");
+        return;
+      }
+
+      setMessage(data.message || "LetterTrack IMb recorded.");
+      setTimeout(() => {
+        window.location.reload();
+      }, 800);
+    } catch (error: any) {
+      setMessage(error.message || "Could not record LetterTrack IMb.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-2 rounded border bg-blue-50 p-2">
+      <input
+        value={trackingNumber}
+        onChange={(event) => setTrackingNumber(event.target.value)}
+        placeholder="LetterTrack IMb / tracking reference"
+        className="w-full rounded border bg-white px-2 py-1 text-xs"
+      />
+      <input
+        value={letterTrackReference}
+        onChange={(event) => setLetterTrackReference(event.target.value)}
+        placeholder="LetterTrack order/mailpiece ID (optional)"
+        className="w-full rounded border bg-white px-2 py-1 text-xs"
+      />
+      <input
+        value={postageAmount}
+        onChange={(event) => setPostageAmount(event.target.value)}
+        placeholder="Postage amount (optional)"
+        className="w-full rounded border bg-white px-2 py-1 text-xs"
+      />
+      <textarea
+        value={note}
+        onChange={(event) => setNote(event.target.value)}
+        placeholder="Internal note"
+        rows={2}
+        className="w-full rounded border bg-white px-2 py-1 text-xs"
+      />
+      <button
+        onClick={recordImb}
+        disabled={saving}
+        className="rounded bg-blue-950 px-3 py-2 text-xs font-black text-white disabled:opacity-50"
+      >
+        {saving ? "Recording..." : "Record LetterTrack IMb"}
+      </button>
+      {message ? (
+        <p className="rounded border bg-white p-2 text-xs font-semibold">
+          {message}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 export function MarkOrderShippedButton({
   orderId,
   carrier,

@@ -17,6 +17,7 @@ import DryRunCleanupActions from "./DryRunCleanupActions";
 import ShippingClaimActions from "./ShippingClaimActions";
 import {
   MarkOrderShippedButton,
+  RecordLetterTrackImbForm,
   SaveCoveragePolicyForm,
   SaveTrackingForm,
 } from "./ShippingQueueActions";
@@ -1379,6 +1380,26 @@ export default async function AdminShippingPage() {
               )}
             </Panel>
 
+            <Panel title="LetterTrack IMb Recording">
+              {letterTrackExportableLabels.length === 0 ? (
+                <p className="text-sm text-neutral-600">
+                  No Standard Envelope labels are waiting for LetterTrack IMb
+                  recording.
+                </p>
+              ) : (
+                letterTrackExportableLabels.slice(0, 8).map((row) => (
+                  <LabelIssueCard
+                    key={row.id}
+                    row={row}
+                    order={orderFor(ordersById, row)}
+                    message="Export/import this envelope in LetterTrack, print/mail it, then paste the assigned IMb or LetterTrack reference here."
+                    tone="text-blue-950"
+                    showRecordLetterTrackAction
+                  />
+                ))
+              )}
+            </Panel>
+
             <Panel title="Ready To Mark Shipped">
               {readyToMarkShippedLabels.length === 0 ? (
                 <p className="text-sm text-neutral-600">
@@ -1571,6 +1592,7 @@ function LabelIssueCard({
   showMarkShippedAction = false,
   showSaveTrackingAction = false,
   showSaveCoveragePolicyAction = false,
+  showRecordLetterTrackAction = false,
 }: {
   row: ShippingLabelRow;
   order: OrderRow | null;
@@ -1579,6 +1601,7 @@ function LabelIssueCard({
   showMarkShippedAction?: boolean;
   showSaveTrackingAction?: boolean;
   showSaveCoveragePolicyAction?: boolean;
+  showRecordLetterTrackAction?: boolean;
 }) {
   const carrier = row.carrier || order?.carrier || "";
   const trackingNumber = row.tracking_number || order?.tracking_number || "";
@@ -1635,6 +1658,9 @@ function LabelIssueCard({
             orderId={row.order_id}
             defaultCarrier={row.carrier || order?.carrier || "USPS"}
           />
+        ) : null}
+        {showRecordLetterTrackAction ? (
+          <RecordLetterTrackImbForm orderId={row.order_id} />
         ) : null}
         {showMarkShippedAction && carrier && trackingNumber ? (
           <MarkOrderShippedButton

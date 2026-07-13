@@ -369,6 +369,13 @@ const checks = [
     expect: (result) => result.text.includes("Live Shipping Launch Gate"),
   },
   {
+    name: "admin shipping lettertrack controls",
+    path: "/admin/shipping",
+    expect: (result) =>
+      result.text.includes("Export LetterTrack CSV") &&
+      result.text.includes("LetterTrack IMb Recording"),
+  },
+  {
     name: "shipping provider setup json",
     path: "/api/admin/shipping/provider-setup",
     expect: (result) =>

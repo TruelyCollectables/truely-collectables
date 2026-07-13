@@ -4337,6 +4337,8 @@ The checklist displays provider names, service/carrier labels, purchase mode, li
 
 `/admin/shipping` exposes `Export LetterTrack CSV`, which downloads `/api/admin/shipping/lettertrack-export`. The export includes only Standard Envelope labels in `planned`, `purchase_pending`, or `rate_selected` status. Rows missing recipient name, address line 1, city, state, or postal code are skipped so the import file is not polluted with unshippable envelopes. LetterTrack provides IMb delivery evidence; TCOS Under-$20 Seller Protection remains internal, item-only, optional per seller shipment, and not third-party insurance.
 
+After the LetterTrack import/print step, use the `/admin/shipping` `LetterTrack IMb Recording` panel to paste the assigned IMb or LetterTrack mailpiece reference back into TCOS. This writes `lettertrack_imb_recorded`, changes the label to `printed`, stores the IMb as the tracking and coverage evidence reference, and copies the tracking reference onto the order row. Only mark the order shipped after the envelope is actually mailed.
+
 Provider setup packets are available from `/admin/shipping`:
 
 - `Setup JSON` opens `/api/admin/shipping/provider-setup`

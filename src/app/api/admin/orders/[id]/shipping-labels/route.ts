@@ -456,6 +456,144 @@ export async function PATCH(
       });
     }
 
+    if (body.action === "record_lettertrack_imb") {
+      const now = new Date().toISOString();
+      const resolvedMethod = safeShippingMethod(label.resolved_shipping_method);
+
+      if (resolvedMethod !== "STANDARD_ENVELOPE") {
+        return Response.json(
+          {
+            error:
+              "LetterTrack IMb recording is only available for Standard Envelope labels.",
+          },
+          { status: 409 },
+        );
+      }
+
+      const trackingNumber = cleanText(body.trackingNumber);
+      const letterTrackReference = cleanText(body.letterTrackReference);
+      const postageAmount =
+        cleanMoney(body.postageAmount) ??
+        Number(typedOrder.shipping_amount || 0);
+      const note = cleanText(body.note);
+      const adapterProfile = getShippingProviderAdapterProfile(resolvedMethod);
+      const dryRunFields = [
+        ["trackingNumber", trackingNumber],
+        ["letterTrackReference", letterTrackReference],
+      ]
+        .filter(([, value]) => isDryRunShippingReference(value))
+        .map(([field]) => field);
+
+      if (!trackingNumber) {
+        return Response.json(
+          { error: "Paste the LetterTrack IMb or tracking reference first." },
+          { status: 400 },
+        );
+      }
+
+      if (dryRunFields.length > 0) {
+        return Response.json(
+          {
+            error:
+              "LetterTrack records must use the real assigned IMb or LetterTrack reference, not TCOS dry-run references.",
+            dryRunFields,
+          },
+          { status: 409 },
+        );
+      }
+
+      const coverageAmount = Number(typedOrder.subtotal || 0);
+      const { error: labelUpdateError } = await supabase
+        .from("order_shipping_labels")
+        .update({
+          provider: "LetterTrack / USPS IMb",
+          provider_label_id: letterTrackReference || trackingNumber,
+          provider_shipment_id: letterTrackReference || trackingNumber,
+          provider_service: "USPS First-Class Letter + LetterTrack IMb",
+          carrier: "USPS IMb",
+          tracking_number: trackingNumber,
+          postage_amount: postageAmount,
+          label_status: "printed",
+          coverage_provider: "LetterTrack / USPS IMb",
+          coverage_status: "covered",
+          coverage_amount: coverageAmount,
+          coverage_policy_id: trackingNumber,
+          purchased_at: now,
+          printed_at: now,
+          updated_at: now,
+          metadata: {
+            ...(label.metadata || {}),
+            latest_lettertrack_imb_record: {
+              recorded_at: now,
+              recorded_by_identity: identity,
+              tracking_number: trackingNumber,
+              lettertrack_reference: letterTrackReference,
+              postage_amount: postageAmount,
+              note,
+              shipping_adapter_profile: adapterProfile,
+              reminder:
+                "LetterTrack provides USPS IMb delivery evidence. TCOS Under-$20 Seller Protection remains internal, optional, and item-only.",
+            },
+            latest_purchase_attempt: {
+              status: "lettertrack_imb_recorded",
+              attempted_at: now,
+              attempted_by_identity: identity,
+              provider_readiness: providerReadiness,
+              shipping_adapter_profile: adapterProfile,
+            },
+          },
+        })
+        .eq("id", label.id)
+        .eq("store_id", storeId);
+
+      if (labelUpdateError) throw labelUpdateError;
+
+      const { error: orderUpdateError } = await supabase
+        .from("orders")
+        .update({
+          carrier: "USPS IMb",
+          tracking_number: trackingNumber,
+          updated_at: now,
+        })
+        .eq("id", orderId)
+        .eq("store_id", storeId);
+
+      if (orderUpdateError) throw orderUpdateError;
+
+      await supabase.from("order_shipping_tracking_events").insert({
+        store_id: storeId,
+        order_id: orderId,
+        shipping_label_id: label.id,
+        provider: "LetterTrack / USPS IMb",
+        carrier: "USPS IMb",
+        tracking_number: trackingNumber,
+        event_type: "lettertrack_imb_recorded",
+        event_status: "printed",
+        message:
+          "Admin recorded the LetterTrack USPS IMb reference for this Standard Envelope shipment.",
+        occurred_at: now,
+        raw_payload: {
+          recorded_by_identity: identity,
+          lettertrack_reference: letterTrackReference,
+          postage_amount: postageAmount,
+          coverage_policy_id: trackingNumber,
+          coverage_status: "covered",
+          note,
+        },
+      });
+
+      return Response.json({
+        success: true,
+        labelId: label.id,
+        labelStatus: "printed",
+        coverageStatus: "covered",
+        trackingNumber,
+        providerLabelId: letterTrackReference || trackingNumber,
+        message:
+          "LetterTrack IMb recorded. The order can be marked shipped after the envelope is actually mailed.",
+      });
+    }
+
     if (body.action === "record_manual_void") {
       const now = new Date().toISOString();
       const provider = cleanText(body.provider) || "manual";
