@@ -178,6 +178,16 @@ assertFileIncludes("deploy live safety runbook", "docs/PRODUCTION_DEPLOY_RUNBOOK
   "rolling 24-hour reset",
 ]);
 
+assertFileIncludes("deploy live safety README", "README.md", [
+  "deploy live safety contract",
+  "Vercel quota messaging",
+  "unwanted `tt3b` alias",
+  "deployed and clean URLs",
+  "npm run smoke:production",
+  "api-deployments-free-per-day",
+  "rolling 24-hour quota reset",
+]);
+
 assertFileIncludes("deploy live safety operator manual", "docs/TCOS_OPERATOR_MANUAL.md", [
   "live deploy safety contract",
   "Vercel quota messaging",
