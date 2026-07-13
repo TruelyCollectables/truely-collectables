@@ -36,6 +36,25 @@ function assertFileIncludes(name, filePath, expectedParts) {
   console.log(`PASS ${name} includes ${expectedParts.join(", ")}`);
 }
 
+function assertFileOrder(name, filePath, orderedParts) {
+  const text = fs.readFileSync(filePath, "utf8");
+  let cursor = -1;
+
+  for (const part of orderedParts) {
+    const index = text.indexOf(part, cursor + 1);
+
+    if (index === -1) {
+      throw new Error(
+        `${name} in ${filePath} is missing ordered production guardrail text after ${cursor}: ${part}`,
+      );
+    }
+
+    cursor = index;
+  }
+
+  console.log(`PASS ${name} order includes ${orderedParts.join(" -> ")}`);
+}
+
 function runExpectedSuccess(name, args, env = {}) {
   const result = spawnSync(node, args, {
     encoding: "utf8",
@@ -187,6 +206,17 @@ assertFileIncludes("deploy helper smoke handoff", "scripts/deploy-production.mjs
   "CLEAN_PRODUCTION=https://",
   'console.log("Next verification command if you ran deploy without the one-shot launch:");',
   'console.log("npm run smoke:production");',
+]);
+
+assertFileOrder("deploy live safety sequence", "scripts/deploy-production.mjs", [
+  "Removing unwanted alias if present:",
+  '"alias", "rm", unwantedAlias',
+  "Pointing ${cleanDomain} at ${deploymentUrl}",
+  '"alias", "set", deploymentUrl, cleanDomain',
+  "DEPLOYED_PRODUCTION=",
+  "CLEAN_PRODUCTION=https://",
+  "Next verification command if you ran deploy without the one-shot launch:",
+  "npm run smoke:production",
 ]);
 
 assertFileIncludes("deploy live safety centralized source", "src/app/api/admin/launch-readiness/route.ts", [
