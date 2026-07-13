@@ -395,6 +395,22 @@ const checks = [
       result.text.includes("DRY RUN STANDARD ENVELOPE PURCHASE"),
   },
   {
+    name: "shipping simulation api",
+    path: "/api/admin/shipping/simulations",
+    options: { method: "POST" },
+    expect: (result) =>
+      result.contentType.includes("application/json") &&
+      result.text.includes('"success":true') &&
+      result.text.includes('"scenario_count":13') &&
+      result.text.includes('"expected_scenario_count":13') &&
+      result.text.includes('"scenario_coverage_status":"passed"') &&
+      result.text.includes('"scenario_key_coverage_status":"passed"') &&
+      result.text.includes('"missing_scenario_keys":[]') &&
+      result.text.includes('"unexpected_scenario_keys":[]') &&
+      result.text.includes('"lettertrack_seller_protection_evidence_review_audit"') &&
+      result.text.includes('"dry_run_standard_envelope_purchase"'),
+  },
+  {
     name: "shipping exceptions export",
     path: "/api/admin/shipping/exceptions",
     expect: (result) =>
@@ -465,7 +481,10 @@ const results = [
 ];
 
 for (const check of checks) {
-  const result = await request(check.path, { headers: authHeaders });
+  const result = await request(check.path, {
+    ...check.options,
+    headers: { ...authHeaders, ...(check.options?.headers || {}) },
+  });
   results.push({
     name: check.name,
     path: check.path,
