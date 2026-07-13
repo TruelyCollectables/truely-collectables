@@ -4477,7 +4477,7 @@ The shipping queue also supports priority sorting, external void records, claim 
 
 ### Shipping simulation runbook
 
-Open `/admin/shipping/simulations` and run the suite. Require all twelve policy/adapter assertions:
+Open `/admin/shipping/simulations` or run `npm run simulate:shipping`. Require all thirteen policy/adapter assertions:
 
 - `$19.99` and 3 oz stays Standard Envelope
 - `$20.01` forces Ground Advantage
