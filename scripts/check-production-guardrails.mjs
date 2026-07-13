@@ -182,6 +182,13 @@ assertFileIncludes("deploy helper quota block defaults", "scripts/deploy-product
   "rerun npm run launch:production",
 ]);
 
+assertFileIncludes("deploy helper smoke handoff", "scripts/deploy-production.mjs", [
+  "DEPLOYED_PRODUCTION=",
+  "CLEAN_PRODUCTION=https://",
+  'console.log("Next verification command if you ran deploy without the one-shot launch:");',
+  'console.log("npm run smoke:production");',
+]);
+
 assertFileIncludes("deploy live safety centralized source", "src/app/api/admin/launch-readiness/route.ts", [
   "const DEPLOY_SAFETY_SMOKE_COMMAND",
   "const DEPLOY_SAFETY = {",
@@ -198,6 +205,17 @@ assertFileIncludes(
   [
     'cleanProductionDomain: "https://truely-collectables.vercel.app"',
     'unwantedAlias: "truely-collectables-tt3b.vercel.app"',
+  ],
+);
+
+assertFileIncludes(
+  "deploy safety export smoke handoff",
+  "src/app/api/admin/launch-readiness/route.ts",
+  [
+    'const DEPLOY_SAFETY_SMOKE_COMMAND = "npm run smoke:production"',
+    "smokeCommand: DEPLOY_SAFETY_SMOKE_COMMAND",
+    "${DEPLOY_SAFETY_SMOKE_COMMAND} handoff",
+    "DEPLOY_SAFETY.smokeCommand",
   ],
 );
 
