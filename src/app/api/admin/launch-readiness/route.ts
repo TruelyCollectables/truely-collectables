@@ -145,6 +145,10 @@ function deploySafetyContractMarkdown() {
   return `${contractWithoutSmoke}, and the \`${DEPLOY_SAFETY.smokeCommand}\` handoff`;
 }
 
+function deploySafetySequenceMarkdown() {
+  return DEPLOY_SAFETY.sequence.join(" -> ");
+}
+
 function deploySafetyMarkdownLines() {
   return [
     `## ${DEPLOY_SAFETY.section}`,
@@ -152,6 +156,7 @@ function deploySafetyMarkdownLines() {
     "- Run `npm run verify:production` before launch work.",
     `- If Vercel reports \`${DEPLOY_SAFETY.quotaBlockCode}\`, ${DEPLOY_SAFETY.quotaResetInstruction.replace("npm run launch:production", "`npm run launch:production`")}`,
     `- The deploy live safety contract must keep ${deploySafetyContractMarkdown()} intact.`,
+    `- Protected deploy sequence: ${deploySafetySequenceMarkdown()}.`,
     `- Keep \`${DEPLOY_SAFETY.cleanProductionDomain}\` as the clean production domain and reject the unwanted \`${DEPLOY_SAFETY.unwantedAlias}\` alias.`,
   ];
 }
@@ -281,6 +286,7 @@ function markdownForHandoffBundle(
     `- If the launch helper must be split up, run \`npm run deploy:production\` and then \`${DEPLOY_SAFETY.smokeCommand}\`.`,
     `- Keep \`${DEPLOY_SAFETY.cleanProductionDomain}\` as the clean production domain and reject the unwanted \`${DEPLOY_SAFETY.unwantedAlias}\` alias.`,
     `- The deploy live safety contract must keep ${deploySafetyContractMarkdown()} intact.`,
+    `- Protected deploy sequence: ${deploySafetySequenceMarkdown()}.`,
     "",
     "## Post-deploy Verification",
     "",

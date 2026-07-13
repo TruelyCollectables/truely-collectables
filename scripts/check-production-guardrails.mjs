@@ -223,6 +223,7 @@ assertFileIncludes("deploy live safety centralized source", "src/app/api/admin/l
   "const DEPLOY_SAFETY_SMOKE_COMMAND",
   "const DEPLOY_SAFETY = {",
   "function deploySafetyContractMarkdown()",
+  "function deploySafetySequenceMarkdown()",
   "function deploySafetyMarkdownLines()",
   "...deploySafetyMarkdownLines()",
   "deploySafetyContractMarkdown()} intact.",
@@ -268,6 +269,8 @@ assertFileIncludes("deploy live safety handoff bundle", "src/app/api/admin/launc
   "clean-domain aliasing",
   "deployed URL output",
   "clean URL output",
+  "Protected deploy sequence:",
+  "deploySafetySequenceMarkdown()",
   "npm run smoke:production",
 ]);
 
@@ -281,6 +284,8 @@ assertFileIncludes("deploy live safety launch readiness markdown", "src/app/api/
   "clean-domain aliasing",
   "deployed URL output",
   "clean URL output",
+  "Protected deploy sequence:",
+  "deploySafetySequenceMarkdown()",
   "npm run smoke:production",
 ]);
 
