@@ -503,7 +503,9 @@ const checks = [
       result.text.includes('"csv"') &&
       result.text.includes('"envTemplate"') &&
       result.text.includes('"vercelCommands"') &&
-      result.text.includes('"operatorChecklist"'),
+      result.text.includes('"operatorChecklist"') &&
+      !result.text.includes("sk_live_") &&
+      !result.text.includes("whsec_"),
   },
   {
     name: "shipping provider setup csv",
@@ -520,7 +522,10 @@ const checks = [
     name: "shipping provider env template",
     path: "/api/admin/shipping/provider-setup?format=env-template",
     expect: (result) =>
+      result.contentType.includes("text/plain") &&
       result.text.includes("TCOS shipping provider setup template") &&
+      result.text.includes("TCOS_SHIPPING_PURCHASE_MODE=dry_run") &&
+      result.text.includes("TCOS_LIVE_SHIPPING_ENABLED=false") &&
       !result.text.includes("sk_live_") &&
       !result.text.includes("whsec_"),
   },
@@ -528,7 +533,10 @@ const checks = [
     name: "shipping provider vercel commands",
     path: "/api/admin/shipping/provider-setup?format=vercel-commands",
     expect: (result) =>
+      result.contentType.includes("text/plain") &&
       result.text.includes("vercel env add") &&
+      result.text.includes("# Production environment") &&
+      result.text.includes("TCOS_LIVE_SHIPPING_ENABLED") &&
       !result.text.includes("sk_live_") &&
       !result.text.includes("whsec_"),
   },
@@ -536,7 +544,10 @@ const checks = [
     name: "shipping provider operator checklist",
     path: "/api/admin/shipping/provider-setup?format=operator-checklist",
     expect: (result) =>
+      result.contentType.includes("text/markdown") &&
       result.text.includes("# TCOS Shipping Provider Operator Checklist") &&
+      result.text.includes("Keep TCOS_SHIPPING_PURCHASE_MODE=dry_run") &&
+      result.text.includes("Keep TCOS_LIVE_SHIPPING_ENABLED=false") &&
       !result.text.includes("sk_live_") &&
       !result.text.includes("whsec_"),
   },
