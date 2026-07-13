@@ -30,6 +30,7 @@ npm run preflight:production
 ```
 
 This refreshes `origin/main`, blocks uncommitted deploy-relevant changes, and confirms local `HEAD` matches GitHub without starting a deployment.
+The deploy helper also honors `TCOS_PRODUCTION_PREFLIGHT_ONLY=true` as an environment-flag equivalent to `--preflight-only`; production guardrails protect that no-deploy path.
 
 To run the full quota-safe production readiness check:
 
@@ -38,7 +39,7 @@ npm run verify:production
 ```
 
 This runs lint, the InstaComp queue and accuracy simulations, the LetterTrack evidence checks, the thirteen-scenario shipping simulation suite, build, and the production preflight without starting a Vercel deployment.
-It also runs `npm run check:production-guardrails`, which syntax-checks the production deploy/smoke helpers and shipping simulation runner, verifies the package script chain still includes the required shipping/production/launch commands, verifies the named `shipping simulation API smoke contract`, verifies the named `queued-feature smoke manifest` rejects unknown or duplicate check names, verifies smoke diagnostic redaction, and verifies the clean production domain cannot be confused with the unwanted `tt3b` alias.
+It also runs `npm run check:production-guardrails`, which syntax-checks the production deploy/smoke helpers and shipping simulation runner, verifies the package script chain still includes the required shipping/production/launch commands, verifies the named `shipping simulation API smoke contract`, verifies the named `queued-feature smoke manifest` rejects unknown or duplicate check names, verifies the deploy preflight env-flag path, verifies smoke diagnostic redaction, and verifies the clean production domain cannot be confused with the unwanted `tt3b` alias.
 
 ## Deploy
 
