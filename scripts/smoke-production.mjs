@@ -363,6 +363,11 @@ const checks = [
       result.text.includes("npm run launch:production") &&
       result.text.includes("npm run deploy:production") &&
       result.text.includes("npm run smoke:production") &&
+      result.text.includes("api-deployments-free-per-day") &&
+      result.text.includes("rolling 24-hour quota reset") &&
+      result.text.includes("deploy live safety contract") &&
+      result.text.includes("deployed URL output") &&
+      result.text.includes("clean URL output") &&
       result.text.includes(
         "production smoke POSTs `/api/admin/shipping/simulations`",
       ) &&
