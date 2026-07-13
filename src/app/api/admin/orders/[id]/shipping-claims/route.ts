@@ -3,7 +3,13 @@ import { isDryRunShippingLabel } from "../../../../../../lib/shipping-dry-run";
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
 import {
+  buildLetterTrackDeliveryEvidenceSummary,
+  type LetterTrackDeliveryEvidenceEvent,
+  type LetterTrackDeliveryEvidenceSummary,
+} from "../../../../../../lib/lettertrack-delivery-evidence";
+import {
   buildUnder20SellerProtectionClaimSummary,
+  type Under20SellerProtectionClaimSummary,
   type Under20SellerProtectionLedgerRow,
 } from "../../../../../../lib/under20-seller-protection-claims";
 
@@ -30,6 +36,27 @@ type CoverageClaimRow = {
   id: string;
   claim_status: string | null;
 };
+
+function under20ClaimReason(params: {
+  summary: Under20SellerProtectionClaimSummary;
+  letterTrackDeliveryEvidence: LetterTrackDeliveryEvidenceSummary;
+}) {
+  const { summary, letterTrackDeliveryEvidence } = params;
+
+  if (!summary.eligible) {
+    return "Draft opened from TCOS admin for under-$20 Standard Envelope seller-liability review. Seller did not opt into TCOS protection, so TCOS reimbursement is $0 and seller is responsible for buyer refund.";
+  }
+
+  if (letterTrackDeliveryEvidence.deliveredEvidencePresent) {
+    return "Draft opened from TCOS admin for an opted-in under-$20 Standard Envelope seller-protection review, but LetterTrack/USPS IMb delivered evidence is present. Do not pay the seller-protection reimbursement unless an operator documents an override reason.";
+  }
+
+  if (letterTrackDeliveryEvidence.claimReviewSupported) {
+    return "Draft opened from TCOS admin for an opted-in under-$20 Standard Envelope seller-protection reimbursement. LetterTrack/USPS IMb evidence currently supports not-delivered, exception, or returned review; buyer refund evidence must still be confirmed before payout.";
+  }
+
+  return "Draft opened from TCOS admin for an opted-in under-$20 Standard Envelope seller-protection reimbursement. Buyer refund evidence and LetterTrack/USPS IMb delivery-evidence failure must be confirmed before payout.";
+}
 
 async function activeLabelForOrder(params: {
   supabase: ReturnType<typeof createSupabaseServerClient>;
@@ -143,6 +170,27 @@ export async function POST(
           (payoutRows || []) as Under20SellerProtectionLedgerRow[],
         )
       : null;
+    const { data: letterTrackEvents, error: letterTrackEventsError } =
+      isStandardEnvelope
+        ? await supabase
+            .from("order_shipping_tracking_events")
+            .select(
+              "id,provider,carrier,tracking_number,event_type,event_code,event_status,message,location,occurred_at,raw_payload",
+            )
+            .eq("store_id", storeId)
+            .eq("order_id", orderId)
+            .eq("shipping_label_id", label.id)
+            .order("occurred_at", { ascending: true })
+            .limit(50)
+        : { data: [], error: null };
+
+    if (letterTrackEventsError) throw letterTrackEventsError;
+
+    const letterTrackDeliveryEvidence = isStandardEnvelope
+      ? buildLetterTrackDeliveryEvidenceSummary(
+          (letterTrackEvents || []) as LetterTrackDeliveryEvidenceEvent[],
+        )
+      : null;
     const claimAmount = under20ProtectionSummary
       ? under20ProtectionSummary.reimbursableItemAmount
       : Number(label.coverage_amount || 0);
@@ -150,9 +198,10 @@ export async function POST(
       ? under20ProtectionSummary.program
       : label.coverage_provider || "Coverage";
     const claimReason = under20ProtectionSummary
-      ? under20ProtectionSummary.eligible
-        ? "Draft opened from TCOS admin for an opted-in under-$20 Standard Envelope seller-protection reimbursement. Buyer refund evidence and delivery-evidence failure must be confirmed before payout."
-        : "Draft opened from TCOS admin for under-$20 Standard Envelope seller-liability review. Seller did not opt into TCOS protection, so TCOS reimbursement is $0 and seller is responsible for buyer refund."
+      ? under20ClaimReason({
+          summary: under20ProtectionSummary,
+          letterTrackDeliveryEvidence: letterTrackDeliveryEvidence!,
+        })
       : "Draft opened from TCOS admin. Add carrier evidence, buyer communication, and provider claim details before submission.";
     const { data: claim, error: claimError } = await supabase
       .from("order_shipping_coverage_claims")
@@ -172,6 +221,7 @@ export async function POST(
           label_provider: label.provider,
           label_coverage_status: label.coverage_status,
           under_20_seller_protection_claim: under20ProtectionSummary,
+          lettertrack_delivery_evidence: letterTrackDeliveryEvidence,
         },
       })
       .select("id,claim_status")
@@ -198,6 +248,7 @@ export async function POST(
         claim_id: claim.id,
         claim_amount: claimAmount,
         under_20_seller_protection_claim: under20ProtectionSummary,
+        lettertrack_delivery_evidence: letterTrackDeliveryEvidence,
         opened_by_identity: identity,
       },
     });

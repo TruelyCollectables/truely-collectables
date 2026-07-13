@@ -169,6 +169,9 @@ function buildReport(input: {
   const under20ProtectionClaim = recordValue(
     recordValue(claim.metadata).under_20_seller_protection_claim,
   );
+  const letterTrackDeliveryEvidence = recordValue(
+    recordValue(claim.metadata).lettertrack_delivery_evidence,
+  );
   const lines: string[] = [
     "TCOS SHIPPING COVERAGE CLAIM PACKET",
     "Generated from TCOS order, shipping label, tracking, and coverage claim records.",
@@ -224,6 +227,32 @@ function buildReport(input: {
             under20ProtectionClaim.sellerRefundResponsibility,
           ),
           line("Reimbursement Rule", under20ProtectionClaim.reimbursementRule),
+        ]
+      : []),
+    ...(Object.keys(letterTrackDeliveryEvidence).length > 0
+      ? [
+          ...section("LetterTrack Delivery Evidence Snapshot"),
+          line("Provider", letterTrackDeliveryEvidence.provider),
+          line("Evidence Events", letterTrackDeliveryEvidence.eventCount),
+          line(
+            "Delivered Evidence Present",
+            letterTrackDeliveryEvidence.deliveredEvidencePresent ? "Yes" : "No",
+          ),
+          line(
+            "Claim Review Supported",
+            letterTrackDeliveryEvidence.claimReviewSupported ? "Yes" : "No",
+          ),
+          line("Latest Status", letterTrackDeliveryEvidence.latestStatus),
+          line("Latest Event", letterTrackDeliveryEvidence.latestEventType),
+          line("Latest At", letterTrackDeliveryEvidence.latestOccurredAt),
+          line(
+            "Latest Tracking",
+            letterTrackDeliveryEvidence.latestTrackingNumber,
+          ),
+          line("Latest Message", letterTrackDeliveryEvidence.latestMessage),
+          line("Latest Location", letterTrackDeliveryEvidence.latestLocation),
+          line("Delivered At", letterTrackDeliveryEvidence.deliveredAt),
+          line("Review Rule", letterTrackDeliveryEvidence.claimReviewReason),
         ]
       : []),
     ...section("Order Snapshot"),

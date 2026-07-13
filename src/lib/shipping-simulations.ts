@@ -13,9 +13,10 @@ import {
   buildLetterTrackExport,
   letterTrackCsvContent,
 } from "./lettertrack-export";
+import { buildLetterTrackDeliveryEvidenceSummary } from "./lettertrack-delivery-evidence";
 import { buildUnder20SellerProtectionClaimSummary } from "./under20-seller-protection-claims";
 
-export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-12.3";
+export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-12.4";
 
 export type ShippingSimulationScenario = {
   scenario_key: string;
@@ -278,6 +279,44 @@ export async function runShippingSimulationSuite() {
       row_count: letterTrackExport.rows.length,
       skipped_count: letterTrackExport.skipped.length,
       csv_preview: letterTrackCsv.split("\n").slice(0, 2),
+    },
+  });
+
+  const deliveredEvidence = buildLetterTrackDeliveryEvidenceSummary([
+    {
+      provider: "LetterTrack / USPS IMb",
+      carrier: "USPS IMb",
+      tracking_number: "IMB123456789",
+      event_type: "lettertrack_delivered",
+      event_status: "delivered",
+      message: "LetterTrack / USPS IMb evidence shows delivered.",
+      occurred_at: "2026-07-12T18:00:00.000Z",
+    },
+  ]);
+  const notDeliveredEvidence = buildLetterTrackDeliveryEvidenceSummary([
+    {
+      provider: "LetterTrack / USPS IMb",
+      carrier: "USPS IMb",
+      tracking_number: "IMB987654321",
+      event_type: "lettertrack_not_delivered",
+      event_status: "not_delivered",
+      message: "LetterTrack / USPS IMb evidence does not show delivered.",
+      occurred_at: "2026-07-12T18:00:00.000Z",
+    },
+  ]);
+  scenarios.push({
+    scenario_key: "lettertrack_delivery_evidence_claim_review_rules",
+    scenario_status: pass(
+      deliveredEvidence.deliveredEvidencePresent &&
+        !deliveredEvidence.claimReviewSupported &&
+        notDeliveredEvidence.claimReviewSupported &&
+        !notDeliveredEvidence.deliveredEvidencePresent,
+    ),
+    detail:
+      "LetterTrack IMb delivery evidence snapshots distinguish delivered shipments from not-delivered claim-review support before under-$20 seller-protection reimbursement.",
+    assertions: {
+      delivered: deliveredEvidence,
+      not_delivered: notDeliveredEvidence,
     },
   });
 
