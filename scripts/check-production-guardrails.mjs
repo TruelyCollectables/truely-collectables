@@ -23,6 +23,19 @@ function assertScriptIncludes(scriptName, expectedParts) {
   console.log(`PASS ${scriptName} includes ${expectedParts.join(", ")}`);
 }
 
+function assertFileIncludes(filePath, expectedParts) {
+  const text = fs.readFileSync(filePath, "utf8");
+  const missing = expectedParts.filter((part) => !text.includes(part));
+
+  if (missing.length > 0) {
+    throw new Error(
+      `${filePath} is missing required production guardrail text: ${missing.join(", ")}`,
+    );
+  }
+
+  console.log(`PASS ${filePath} includes ${expectedParts.join(", ")}`);
+}
+
 function runExpectedSuccess(name, args, env = {}) {
   const result = spawnSync(node, args, {
     encoding: "utf8",
@@ -91,6 +104,16 @@ assertScriptIncludes("launch:production", [
   "verify:production",
   "deploy:production",
   "smoke:production",
+]);
+assertFileIncludes("scripts/smoke-production.mjs", [
+  'name: "shipping simulation api"',
+  'path: "/api/admin/shipping/simulations"',
+  'options: { method: "POST" }',
+  '"scenario_count":13',
+  '"expected_scenario_count":13',
+  '"scenario_key_coverage_status":"passed"',
+  '"missing_scenario_keys":[]',
+  '"unexpected_scenario_keys":[]',
 ]);
 runExpectedSuccess(
   "smoke diagnostic redaction self-test",
