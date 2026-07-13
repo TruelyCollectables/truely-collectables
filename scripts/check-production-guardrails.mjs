@@ -175,6 +175,13 @@ assertFileIncludes("deploy helper production target defaults", "scripts/deploy-p
   "VERCEL_UNWANTED_ALIAS",
 ]);
 
+assertFileIncludes("deploy helper quota block defaults", "scripts/deploy-production.mjs", [
+  "deployOutput.includes(\"api-deployments-free-per-day\")",
+  "Vercel deployment quota is still capped",
+  "Wait for the rolling 24-hour quota to reset",
+  "rerun npm run launch:production",
+]);
+
 assertFileIncludes("deploy live safety centralized source", "src/app/api/admin/launch-readiness/route.ts", [
   "const DEPLOY_SAFETY_SMOKE_COMMAND",
   "const DEPLOY_SAFETY = {",
@@ -191,6 +198,16 @@ assertFileIncludes(
   [
     'cleanProductionDomain: "https://truely-collectables.vercel.app"',
     'unwantedAlias: "truely-collectables-tt3b.vercel.app"',
+  ],
+);
+
+assertFileIncludes(
+  "deploy safety export quota block defaults",
+  "src/app/api/admin/launch-readiness/route.ts",
+  [
+    'quotaBlockCode: "api-deployments-free-per-day"',
+    "quotaResetInstruction:",
+    "Wait for the rolling 24-hour quota reset before retrying npm run launch:production.",
   ],
 );
 
