@@ -123,7 +123,7 @@ function deploySafetyMarkdownLines() {
   return [
     `## ${DEPLOY_SAFETY.section}`,
     "",
-    "- Run `npm run verify:production` before launch work.",
+    "- Run `npm run verify:production` before launch work; it covers InstaComp regressions, LetterTrack evidence checks, the thirteen-scenario shipping simulation suite, build, production guardrails, and production preflight.",
     `- If Vercel reports \`${DEPLOY_SAFETY.quotaBlockCode}\`, ${DEPLOY_SAFETY.quotaResetInstruction.replace("npm run launch:production", "`npm run launch:production`")}`,
     `- The deploy live safety contract must keep ${deploySafetyContractMarkdown()} intact.`,
     `- Protected deploy sequence: ${deploySafetySequenceMarkdown()}.`,
@@ -250,7 +250,7 @@ function markdownForHandoffBundle(
     "",
     "## Production Deploy Commands",
     "",
-    "- Before deploying, run `npm run verify:production`.",
+    "- Before deploying, run `npm run verify:production`; it covers InstaComp regressions, LetterTrack evidence checks, the thirteen-scenario shipping simulation suite, build, production guardrails, and production preflight.",
     "- If Vercel deploy quota is open, run `npm run launch:production`.",
     `- If Vercel reports \`${DEPLOY_SAFETY.quotaBlockCode}\`, ${DEPLOY_SAFETY.quotaResetInstruction.replace("npm run launch:production", "the launch helper")}`,
     `- If the launch helper must be split up, run \`npm run deploy:production\` and then \`${DEPLOY_SAFETY.smokeCommand}\`.`,
