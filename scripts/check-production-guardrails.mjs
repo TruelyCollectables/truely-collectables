@@ -240,6 +240,8 @@ assertFileIncludes("deploy live safety README", "README.md", [
 
 assertFileIncludes("deploy live safety operator manual", "docs/TCOS_OPERATOR_MANUAL.md", [
   "live deploy safety contract",
+  "/admin/production-smoke",
+  "deploy-live safety contract",
   "/api/admin/launch-readiness?format=markdown",
   "Production Deploy Safety",
   "Vercel quota messaging",
@@ -255,6 +257,8 @@ assertFileIncludes(
   "docs/TCOS_OPERATOR_MANUAL_PRINT.html",
   [
     "live deploy safety contract",
+    "/admin/production-smoke",
+    "deploy-live safety contract",
     "/api/admin/launch-readiness?format=markdown",
     "Production Deploy Safety",
     "Vercel quota messaging",
