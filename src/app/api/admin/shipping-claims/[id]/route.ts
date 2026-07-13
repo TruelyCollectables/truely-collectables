@@ -1,4 +1,11 @@
 import { getClientIdentity } from "../../../../../lib/client-identity";
+import {
+  buildLetterTrackDeliveryEvidenceSummary,
+  evaluateLetterTrackSellerProtectionPaymentGate,
+  type LetterTrackDeliveryEvidenceEvent,
+  type LetterTrackDeliveryEvidenceSummary,
+  type LetterTrackSellerProtectionPaymentGate,
+} from "../../../../../lib/lettertrack-delivery-evidence";
 import { isDryRunShippingLabel } from "../../../../../lib/shipping-dry-run";
 import { getActiveStoreId } from "../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
@@ -61,6 +68,11 @@ type SellerProtectionLedgerRow = {
   metadata: Record<string, unknown> | null;
 };
 
+type SellerProtectionPaymentEvidence = {
+  summary: LetterTrackDeliveryEvidenceSummary;
+  gate: LetterTrackSellerProtectionPaymentGate;
+};
+
 function moneyNumber(value: unknown) {
   const parsed = Number(value || 0);
   return Number.isFinite(parsed) ? Math.round(parsed * 100) / 100 : 0;
@@ -78,6 +90,42 @@ function stringList(value: unknown) {
         .map((entry) => String(entry || "").trim())
         .filter((entry) => entry.length > 0)
     : [];
+}
+
+async function latestSellerProtectionPaymentEvidence(params: {
+  supabase: ReturnType<typeof createSupabaseServerClient>;
+  storeId: string;
+  claim: CoverageClaimRow;
+  overrideNote: string;
+}): Promise<SellerProtectionPaymentEvidence> {
+  if (!params.claim.shipping_label_id) {
+    throw new Error(
+      "Cannot mark seller-protection claim paid because no shipping label is linked for LetterTrack evidence review.",
+    );
+  }
+
+  const { data, error } = await params.supabase
+    .from("order_shipping_tracking_events")
+    .select(
+      "id,provider,carrier,tracking_number,event_type,event_code,event_status,message,location,occurred_at,raw_payload",
+    )
+    .eq("store_id", params.storeId)
+    .eq("order_id", params.claim.order_id)
+    .eq("shipping_label_id", params.claim.shipping_label_id)
+    .order("occurred_at", { ascending: true })
+    .limit(100);
+
+  if (error) throw error;
+
+  const summary = buildLetterTrackDeliveryEvidenceSummary(
+    (data || []) as LetterTrackDeliveryEvidenceEvent[],
+  );
+  const gate = evaluateLetterTrackSellerProtectionPaymentGate({
+    evidence: summary,
+    overrideNote: params.overrideNote,
+  });
+
+  return { summary, gate };
 }
 
 function coverageStatusForClaimStatus(
@@ -312,6 +360,29 @@ export async function PATCH(
     }
 
     const now = new Date().toISOString();
+    const under20Claim = recordValue(
+      recordValue(claim.metadata).under_20_seller_protection_claim,
+    );
+    const sellerProtectionPaymentEvidence =
+      nextStatus === "paid" && under20Claim.eligible === true
+        ? await latestSellerProtectionPaymentEvidence({
+            supabase,
+            storeId,
+            claim,
+            overrideNote: note,
+          })
+        : null;
+
+    if (
+      sellerProtectionPaymentEvidence &&
+      !sellerProtectionPaymentEvidence.gate.allowed
+    ) {
+      return Response.json(
+        { error: sellerProtectionPaymentEvidence.gate.reason },
+        { status: 409 },
+      );
+    }
+
     const sellerProtectionReimbursement =
       nextStatus === "paid"
         ? await createSellerProtectionReimbursement({
@@ -337,6 +408,14 @@ export async function PATCH(
         ? {
             latest_seller_protection_reimbursement:
               sellerProtectionReimbursement,
+          }
+        : {}),
+      ...(sellerProtectionPaymentEvidence
+        ? {
+            latest_lettertrack_seller_protection_payment_gate:
+              sellerProtectionPaymentEvidence,
+            lettertrack_delivery_evidence:
+              sellerProtectionPaymentEvidence.summary,
           }
         : {}),
     };
@@ -411,6 +490,8 @@ export async function PATCH(
         provider_claim_id: providerClaimId || claim.provider_claim_id || null,
         note: note || null,
         seller_protection_reimbursement: sellerProtectionReimbursement,
+        lettertrack_seller_protection_payment_gate:
+          sellerProtectionPaymentEvidence,
         changed_by_identity: identity,
       },
     });
@@ -421,6 +502,7 @@ export async function PATCH(
       previousStatus,
       claimStatus: nextStatus,
       sellerProtectionReimbursement,
+      letterTrackSellerProtectionPaymentGate: sellerProtectionPaymentEvidence,
       message:
         nextStatus === previousStatus
           ? "Coverage claim status reaffirmed and logged."

@@ -4339,7 +4339,7 @@ The checklist displays provider names, service/carrier labels, purchase mode, li
 
 After the LetterTrack import/print step, use the `/admin/shipping` `LetterTrack IMb Recording` panel to paste the assigned IMb or LetterTrack mailpiece reference back into TCOS. This writes `lettertrack_imb_recorded`, changes the label to `printed`, stores the IMb as the tracking and coverage evidence reference, and copies the tracking reference onto the order row. Only mark the order shipped after the envelope is actually mailed.
 
-After USPS/LetterTrack scan history appears, use the `/admin/shipping` `LetterTrack Delivery Evidence` panel to record `Delivered`, `Out for Delivery`, `Not Delivered`, `Delivery Exception`, `Returned`, or other IMb status evidence. These events are stored in `order_shipping_tracking_events` and are included in label and claim packets. When an under-$20 Standard Envelope claim draft is opened, TCOS snapshots the latest LetterTrack evidence into the claim metadata and packet. Delivered evidence supports closing the shipment trail and should block seller-protection payout unless an operator documents an override; not-delivered, exception, or returned evidence supports TCOS Under-$20 Seller Protection claim review.
+After USPS/LetterTrack scan history appears, use the `/admin/shipping` `LetterTrack Delivery Evidence` panel to record `Delivered`, `Out for Delivery`, `Not Delivered`, `Delivery Exception`, `Returned`, or other IMb status evidence. These events are stored in `order_shipping_tracking_events` and are included in label and claim packets. When an under-$20 Standard Envelope claim draft is opened, TCOS snapshots the latest LetterTrack evidence into the claim metadata and packet. Delivered evidence supports closing the shipment trail and blocks seller-protection payout unless an operator documents an explicit override note; not-delivered, exception, or returned evidence supports TCOS Under-$20 Seller Protection claim review. Before `Mark Paid` creates a seller-protection reimbursement, TCOS reloads the latest LetterTrack evidence and refuses payout unless claim-review evidence is present or the internal note contains an override reason.
 
 Provider setup packets are available from `/admin/shipping`:
 
@@ -4477,7 +4477,7 @@ The shipping queue also supports priority sorting, external void records, claim 
 
 ### Shipping simulation runbook
 
-Open `/admin/shipping/simulations` and run the suite. Require all eleven policy/adapter assertions:
+Open `/admin/shipping/simulations` and run the suite. Require all twelve policy/adapter assertions:
 
 - `$19.99` and 3 oz stays Standard Envelope
 - `$20.01` forces Ground Advantage
@@ -4489,6 +4489,7 @@ Open `/admin/shipping/simulations` and run the suite. Require all eleven policy/
 - shipping adapter profiles expose provider, carrier, credential, Coverage, live-support, and manual-fallback state
 - Standard Envelope labels can export to a LetterTrack import CSV with recipient address, order reference, declared value, and IMb recording instructions
 - LetterTrack delivery evidence snapshots distinguish delivered shipments from not-delivered claim-review support before TCOS Under-$20 Seller Protection reimbursement
+- under-$20 seller-protection payout blocks delivered LetterTrack evidence, allows not-delivered review evidence, and requires an explicit override note for exceptions
 - dry-run Standard Envelope and Ground Advantage adapter purchases behave as dry runs
 
 The dry-run Standard Envelope purchase assertion uses the active Standard Envelope rate table at run time, so it should follow the July 12, 2026 rate change without hardcoded stale postage.

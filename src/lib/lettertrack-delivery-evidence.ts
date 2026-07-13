@@ -27,6 +27,12 @@ export type LetterTrackDeliveryEvidenceSummary = {
   claimReviewReason: string;
 };
 
+export type LetterTrackSellerProtectionPaymentGate = {
+  allowed: boolean;
+  overrideAccepted: boolean;
+  reason: string;
+};
+
 const deliveredStatuses = new Set(["delivered"]);
 const claimReviewStatuses = new Set([
   "not_delivered",
@@ -49,6 +55,11 @@ function isLetterTrackEvent(event: LetterTrackDeliveryEvidenceEvent) {
     normalized(event.carrier).includes("imb") ||
     normalized(event.event_type).startsWith("lettertrack_")
   );
+}
+
+function hasOverrideNote(value: unknown) {
+  const note = String(value || "").trim().toLowerCase();
+  return note.includes("override") && note.length >= 20;
 }
 
 export function buildLetterTrackDeliveryEvidenceSummary(
@@ -90,5 +101,46 @@ export function buildLetterTrackDeliveryEvidenceSummary(
         : letterTrackEvents.length > 0
           ? "LetterTrack evidence exists but does not yet prove delivered or not-delivered outcome."
           : "No LetterTrack delivery evidence has been recorded yet.",
+  };
+}
+
+export function evaluateLetterTrackSellerProtectionPaymentGate(params: {
+  evidence: LetterTrackDeliveryEvidenceSummary;
+  overrideNote?: string | null;
+}): LetterTrackSellerProtectionPaymentGate {
+  const overrideAccepted = hasOverrideNote(params.overrideNote);
+
+  if (params.evidence.deliveredEvidencePresent && !overrideAccepted) {
+    return {
+      allowed: false,
+      overrideAccepted: false,
+      reason:
+        "LetterTrack / USPS IMb delivered evidence is present. Add an internal note containing an override reason before marking this seller-protection claim paid.",
+    };
+  }
+
+  if (params.evidence.claimReviewSupported) {
+    return {
+      allowed: true,
+      overrideAccepted,
+      reason:
+        "LetterTrack / USPS IMb evidence supports not-delivered, exception, or returned claim review.",
+    };
+  }
+
+  if (overrideAccepted) {
+    return {
+      allowed: true,
+      overrideAccepted: true,
+      reason:
+        "Operator override note accepted even though LetterTrack evidence does not independently support seller-protection reimbursement.",
+    };
+  }
+
+  return {
+    allowed: false,
+    overrideAccepted: false,
+    reason:
+      "Record LetterTrack / USPS IMb Not Delivered, Delivery Exception, or Returned evidence before marking this seller-protection claim paid, or add an internal override note.",
   };
 }

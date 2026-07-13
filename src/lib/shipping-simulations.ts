@@ -13,10 +13,13 @@ import {
   buildLetterTrackExport,
   letterTrackCsvContent,
 } from "./lettertrack-export";
-import { buildLetterTrackDeliveryEvidenceSummary } from "./lettertrack-delivery-evidence";
+import {
+  buildLetterTrackDeliveryEvidenceSummary,
+  evaluateLetterTrackSellerProtectionPaymentGate,
+} from "./lettertrack-delivery-evidence";
 import { buildUnder20SellerProtectionClaimSummary } from "./under20-seller-protection-claims";
 
-export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-12.4";
+export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-12.5";
 
 export type ShippingSimulationScenario = {
   scenario_key: string;
@@ -317,6 +320,34 @@ export async function runShippingSimulationSuite() {
     assertions: {
       delivered: deliveredEvidence,
       not_delivered: notDeliveredEvidence,
+    },
+  });
+  const deliveredPaymentGate = evaluateLetterTrackSellerProtectionPaymentGate({
+    evidence: deliveredEvidence,
+  });
+  const notDeliveredPaymentGate =
+    evaluateLetterTrackSellerProtectionPaymentGate({
+      evidence: notDeliveredEvidence,
+    });
+  const overridePaymentGate = evaluateLetterTrackSellerProtectionPaymentGate({
+    evidence: deliveredEvidence,
+    overrideNote:
+      "Override: buyer refund required after operator reviewed conflicting delivery evidence.",
+  });
+  scenarios.push({
+    scenario_key: "lettertrack_seller_protection_paid_gate",
+    scenario_status: pass(
+      !deliveredPaymentGate.allowed &&
+        notDeliveredPaymentGate.allowed &&
+        overridePaymentGate.allowed &&
+        overridePaymentGate.overrideAccepted,
+    ),
+    detail:
+      "Under-$20 seller-protection payout blocks delivered LetterTrack evidence, allows not-delivered review evidence, and requires an explicit override note for exceptions.",
+    assertions: {
+      delivered_gate: deliveredPaymentGate,
+      not_delivered_gate: notDeliveredPaymentGate,
+      override_gate: overridePaymentGate,
     },
   });
 
