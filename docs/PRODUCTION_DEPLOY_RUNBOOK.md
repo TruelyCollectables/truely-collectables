@@ -83,7 +83,7 @@ Before reporting commit context, smoke refreshes `origin/main` with `git fetch o
 
 The smoke helper always targets the clean production URL by default. If `SMOKE_BASE_URL` is overridden to `https://truely-collectables-tt3b.vercel.app` or the same host without a scheme, the helper normalizes it and exits before sending requests.
 
-If the smoke says queued launch features are not visible, production is still behind the GitHub stack. This includes failures for the production smoke report page, Shipping Simulation Lab page, shipping simulation API POST, shipping provider exports, shipping exceptions export, LetterTrack CSV export, launch readiness page, or handoff bundle. Rerun the production deploy once Vercel accepts deployments, then run the smoke again.
+If the smoke says queued launch features are not visible, production is still behind the GitHub stack. The helper also prints `Queued launch feature failure(s): ...` with the exact failed check names. This includes failures for the production smoke report page, Shipping Simulation Lab page, shipping simulation API POST, shipping provider exports, shipping exceptions export, LetterTrack CSV export, launch readiness page, or handoff bundle. Rerun the production deploy once Vercel accepts deployments, then run the smoke again.
 
 The downloadable launch handoff bundle from `/api/admin/launch-readiness?format=handoff-bundle` also includes Git Tip Verification and Production Deploy Commands sections with the `git fetch origin main` refresh, HEAD/origin checks, verify, launch, split deploy/smoke, clean-domain, and unwanted-alias reminders so an operator can hand off the production deploy without relying on chat history.
 
