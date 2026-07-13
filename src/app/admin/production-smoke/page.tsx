@@ -11,6 +11,7 @@ const smokeChecks = [
   "Live Shipping Launch Gate",
   "Admin shipping cockpit LetterTrack export, IMb, and delivery-evidence controls",
   "Shipping provider setup JSON and export packets",
+  "Ranked shipping exceptions CSV, including seller-protection payout blocker support",
   "LetterTrack Standard Envelope CSV export",
   "Clean production domain",
   "Unwanted tt3b alias absence",
@@ -116,6 +117,7 @@ export default function ProductionSmokePage() {
             <SmokeLink href="/admin/live-shipping-launch" label="Live Shipping Launch" />
             <SmokeLink href="/admin/shipping#dry-run-cleanup" label="Dry-run Cleanup" />
             <SmokeLink href="/api/admin/shipping/lettertrack-export" label="LetterTrack CSV Export" />
+            <SmokeLink href="/api/admin/shipping/exceptions" label="Shipping Exceptions CSV" />
             <SmokeLink href="/api/admin/launch-gate-drill?format=markdown" label="Gate Drill Report" />
             <SmokeLink href="/api/admin/shipping/provider-setup?format=operator-checklist" label="Shipping Checklist" />
           </div>

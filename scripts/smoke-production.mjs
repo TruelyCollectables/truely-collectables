@@ -374,7 +374,21 @@ const checks = [
     expect: (result) =>
       result.text.includes("Export LetterTrack CSV") &&
       result.text.includes("LetterTrack IMb Recording") &&
-      result.text.includes("LetterTrack Delivery Evidence"),
+      result.text.includes("LetterTrack Delivery Evidence") &&
+      result.text.includes("Seller Protection Payout Blocked"),
+  },
+  {
+    name: "shipping exceptions export",
+    path: "/api/admin/shipping/exceptions",
+    expect: (result) =>
+      result.contentType.includes("text/csv") &&
+      result.text.includes("priority_rank,exception_key,severity") &&
+      result.text.includes("exception_type") &&
+      result.text.includes("action_needed") &&
+      result.text.includes("claim_id") &&
+      result.text.includes("dry_run_warning") &&
+      !result.text.includes("sk_live_") &&
+      !result.text.includes("whsec_"),
   },
   {
     name: "shipping provider setup json",
@@ -468,6 +482,7 @@ const queuedFeatureFailures = failed.filter((result) =>
     "shipping provider env template",
     "shipping provider vercel commands",
     "shipping provider operator checklist",
+    "shipping exceptions export",
     "lettertrack standard envelope export",
   ].includes(result.name),
 );
