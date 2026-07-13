@@ -109,6 +109,13 @@ assertFileIncludes("scripts/smoke-production.mjs", [
   'name: "shipping simulation api"',
   'path: "/api/admin/shipping/simulations"',
   'options: { method: "POST" }',
+  '"scenario_count":13',
+  '"expected_scenario_count":13',
+  '"scenario_key_coverage_status":"passed"',
+  '"missing_scenario_keys":[]',
+  '"unexpected_scenario_keys":[]',
+]);
+assertFileIncludes("scripts/smoke-production.mjs", [
   "const queuedFeatureCheckNames = [",
   "Queued feature smoke manifest references unknown check(s):",
   "Queued feature smoke manifest contains duplicate check(s):",
@@ -124,11 +131,6 @@ assertFileIncludes("scripts/smoke-production.mjs", [
   '"shipping exceptions export"',
   '"lettertrack standard envelope export"',
   "Queued launch feature failure(s):",
-  '"scenario_count":13',
-  '"expected_scenario_count":13',
-  '"scenario_key_coverage_status":"passed"',
-  '"missing_scenario_keys":[]',
-  '"unexpected_scenario_keys":[]',
 ]);
 runExpectedSuccess(
   "smoke diagnostic redaction self-test",
