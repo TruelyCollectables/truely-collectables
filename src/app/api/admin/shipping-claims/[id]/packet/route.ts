@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { createEvidencePdf } from "../../../../../../lib/evidence-pdf";
 import {
+  buildLetterTrackDeliveryEvidenceSummary,
+  evaluateLetterTrackSellerProtectionPaymentGate,
+  type LetterTrackDeliveryEvidenceEvent,
+} from "../../../../../../lib/lettertrack-delivery-evidence";
+import {
   isDryRunShippingLabel,
   isDryRunShippingReference,
 } from "../../../../../../lib/shipping-dry-run";
@@ -178,6 +183,16 @@ function buildReport(input: {
   const letterTrackSellerProtectionPaymentGateDecision = recordValue(
     letterTrackSellerProtectionPaymentGate.gate,
   );
+  const currentLetterTrackDeliveryEvidence =
+    buildLetterTrackDeliveryEvidenceSummary(
+      events as LetterTrackDeliveryEvidenceEvent[],
+    );
+  const currentLetterTrackPaymentGate =
+    under20ProtectionClaim.eligible === true
+      ? evaluateLetterTrackSellerProtectionPaymentGate({
+          evidence: currentLetterTrackDeliveryEvidence,
+        })
+      : null;
   const lines: string[] = [
     "TCOS SHIPPING COVERAGE CLAIM PACKET",
     "Generated from TCOS order, shipping label, tracking, and coverage claim records.",
@@ -259,6 +274,48 @@ function buildReport(input: {
           line("Latest Location", letterTrackDeliveryEvidence.latestLocation),
           line("Delivered At", letterTrackDeliveryEvidence.deliveredAt),
           line("Review Rule", letterTrackDeliveryEvidence.claimReviewReason),
+        ]
+      : []),
+    ...(currentLetterTrackDeliveryEvidence.eventCount > 0
+      ? [
+          ...section("Current LetterTrack Evidence Review"),
+          "This section is recalculated from the current tracking-event records included in this packet.",
+          line("Provider", currentLetterTrackDeliveryEvidence.provider),
+          line("Current Evidence Events", currentLetterTrackDeliveryEvidence.eventCount),
+          line(
+            "Current Delivered Evidence",
+            currentLetterTrackDeliveryEvidence.deliveredEvidencePresent
+              ? "Yes"
+              : "No",
+          ),
+          line(
+            "Current Claim Review Supported",
+            currentLetterTrackDeliveryEvidence.claimReviewSupported
+              ? "Yes"
+              : "No",
+          ),
+          line("Current Latest Status", currentLetterTrackDeliveryEvidence.latestStatus),
+          line("Current Latest Event", currentLetterTrackDeliveryEvidence.latestEventType),
+          line("Current Latest At", currentLetterTrackDeliveryEvidence.latestOccurredAt),
+          line(
+            "Current Latest Tracking",
+            currentLetterTrackDeliveryEvidence.latestTrackingNumber,
+          ),
+          line("Current Delivered At", currentLetterTrackDeliveryEvidence.deliveredAt),
+          line("Current Review Rule", currentLetterTrackDeliveryEvidence.claimReviewReason),
+          ...(currentLetterTrackPaymentGate
+            ? [
+                line(
+                  "Current Payout Gate Allowed",
+                  currentLetterTrackPaymentGate.allowed ? "Yes" : "No",
+                ),
+                line(
+                  "Current Payout Override Accepted",
+                  currentLetterTrackPaymentGate.overrideAccepted ? "Yes" : "No",
+                ),
+                line("Current Payout Gate Reason", currentLetterTrackPaymentGate.reason),
+              ]
+            : []),
         ]
       : []),
     ...(Object.keys(letterTrackSellerProtectionPaymentGate).length > 0
