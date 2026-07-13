@@ -354,6 +354,7 @@ assertFileIncludes("deploy live safety production smoke page", "src/app/admin/pr
   "DEPLOY_SAFETY.quotaBlockCode",
   "DEPLOY_SAFETY.cleanProductionDomain",
   "DEPLOY_SAFETY.unwantedAlias",
+  "${DEPLOY_SAFETY.unwantedAlias} alias cleanup",
   "DEPLOY_SAFETY.smokeCommand",
   "DEPLOY_SAFETY.quotaResetInstruction",
   "unwanted alias removal for",

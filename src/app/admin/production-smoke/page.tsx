@@ -18,7 +18,7 @@ const smokeChecks = [
   "LetterTrack Standard Envelope CSV export",
   "Clean production domain",
   `Unwanted ${DEPLOY_SAFETY.unwantedAlias} alias absence`,
-  "Deploy live safety contract with quota messaging, alias cleanup, deployed/clean URL output, and smoke handoff",
+  `Deploy live safety contract with quota messaging, ${DEPLOY_SAFETY.unwantedAlias} alias cleanup, deployed/clean URL output, and smoke handoff`,
 ];
 
 const failureMeanings = [
