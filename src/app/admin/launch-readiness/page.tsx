@@ -29,6 +29,14 @@ import {
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+const protectedDeploySequence = [
+  "remove unwanted alias",
+  "set clean production alias",
+  "print DEPLOYED_PRODUCTION",
+  "print CLEAN_PRODUCTION",
+  "print smoke handoff command",
+];
+
 type ReadinessStatus = "ready" | "warning" | "blocked";
 
 type ReadinessItem = {
@@ -1181,6 +1189,20 @@ export default async function LaunchReadinessPage() {
           >
             Production Smoke Report
           </a>
+        </div>
+
+        <div className="mt-4 rounded border border-blue-200 bg-white p-4">
+          <h3 className="font-bold">Protected deploy sequence</h3>
+          <ol className="mt-3 grid gap-2 text-sm font-semibold text-blue-950 md:grid-cols-5">
+            {protectedDeploySequence.map((step, index) => (
+              <li key={step} className="rounded border border-blue-100 bg-blue-50 p-3">
+                <span className="mr-2 rounded bg-white px-2 py-1 text-xs font-black">
+                  {index + 1}
+                </span>
+                {step}
+              </li>
+            ))}
+          </ol>
         </div>
 
         <div className="mt-4 grid grid-cols-1 gap-3 lg:grid-cols-2">
