@@ -157,6 +157,17 @@ assertFileIncludes("deploy preflight env flag", "scripts/deploy-production.mjs",
   "Production deploy preflight passed. No Vercel deployment was started.",
 ]);
 
+assertFileIncludes("deploy live safety contract", "scripts/deploy-production.mjs", [
+  "api-deployments-free-per-day",
+  "Wait for the rolling 24-hour quota to reset",
+  "Removing unwanted alias if present:",
+  '"alias", "rm", unwantedAlias',
+  '"alias", "set", deploymentUrl, cleanDomain',
+  "DEPLOYED_PRODUCTION=",
+  "CLEAN_PRODUCTION=https://",
+  "npm run smoke:production",
+]);
+
 runExpectedFailure(
   "smoke refuses unwanted alias before admin auth",
   ["scripts/smoke-production.mjs"],
