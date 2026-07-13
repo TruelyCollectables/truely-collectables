@@ -310,7 +310,15 @@ const checks = [
   {
     name: "launch readiness markdown",
     path: "/api/admin/launch-readiness?format=markdown",
-    expect: (result) => result.text.includes("# TCOS Launch Readiness Brief"),
+    expect: (result) =>
+      result.text.includes("# TCOS Launch Readiness Brief") &&
+      result.text.includes("## Production Deploy Safety") &&
+      result.text.includes("api-deployments-free-per-day") &&
+      result.text.includes("rolling 24-hour quota reset") &&
+      result.text.includes("deploy live safety contract") &&
+      result.text.includes("deployed URL output") &&
+      result.text.includes("clean URL output") &&
+      result.text.includes("npm run smoke:production"),
   },
   {
     name: "launch gate drill page",
