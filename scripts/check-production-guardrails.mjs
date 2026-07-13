@@ -134,6 +134,21 @@ assertFileIncludes("shipping simulation API smoke contract", "scripts/smoke-prod
   '"missing_scenario_keys":[]',
   '"unexpected_scenario_keys":[]',
 ]);
+assertFileIncludes("shipping provider setup smoke contract", "scripts/smoke-production.mjs", [
+  'name: "shipping provider setup json"',
+  'path: "/api/admin/shipping/provider-setup"',
+  '"credentialGroups"',
+  '"exports"',
+  '"csv"',
+  '"envTemplate"',
+  '"vercelCommands"',
+  '"operatorChecklist"',
+  'name: "shipping provider setup csv"',
+  'path: "/api/admin/shipping/provider-setup?format=csv"',
+  "decisionStatus,decisionSummary,decisionNextAction",
+  "liveRequirementBlockers",
+  "missingCredentialKeys",
+]);
 assertFileIncludes("queued-feature smoke manifest", "scripts/smoke-production.mjs", [
   "const queuedFeatureCheckNames = [",
   "Queued feature smoke manifest references unknown check(s):",

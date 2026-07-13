@@ -499,7 +499,11 @@ const checks = [
     expect: (result) =>
       result.contentType.includes("application/json") &&
       result.text.includes('"credentialGroups"') &&
-      result.text.includes('"exports"'),
+      result.text.includes('"exports"') &&
+      result.text.includes('"csv"') &&
+      result.text.includes('"envTemplate"') &&
+      result.text.includes('"vercelCommands"') &&
+      result.text.includes('"operatorChecklist"'),
   },
   {
     name: "shipping provider setup csv",
