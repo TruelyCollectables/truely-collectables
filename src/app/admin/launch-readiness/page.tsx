@@ -1160,8 +1160,11 @@ export default async function LaunchReadinessPage() {
                 {DEPLOY_SAFETY.quotaBlockCode}
               </code>
               , {DEPLOY_SAFETY.quotaResetInstruction} The deploy live safety
-              contract keeps Vercel quota messaging, unwanted alias removal,
-              clean-domain aliasing,{" "}
+              contract keeps Vercel quota messaging, unwanted alias removal for{" "}
+              <code className="rounded bg-white px-1 py-0.5">
+                {DEPLOY_SAFETY.unwantedAlias}
+              </code>
+              , clean-domain aliasing,{" "}
               <span>deployed URL output</span>, <span>clean URL output</span>,
               and the{" "}
               <code className="rounded bg-white px-1 py-0.5">

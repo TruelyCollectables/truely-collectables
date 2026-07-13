@@ -9,7 +9,7 @@ export const DEPLOY_SAFETY = {
     "Wait for the rolling 24-hour quota reset before retrying npm run launch:production.",
   contract: [
     "Vercel quota messaging",
-    "unwanted alias removal",
+    "unwanted alias removal for truely-collectables-tt3b.vercel.app",
     "clean-domain aliasing",
     "deployed URL output",
     "clean URL output",

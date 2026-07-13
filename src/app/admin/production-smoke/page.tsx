@@ -93,9 +93,10 @@ export default function ProductionSmokePage() {
           <h2 className="text-xl font-black">Deploy live safety contract</h2>
           <p className="mt-2 max-w-4xl text-sm leading-6">
             The production deploy helper must keep Vercel quota messaging,
-            unwanted alias removal, clean-domain aliasing, deployed URL output,
-            clean URL output, and the <code>{DEPLOY_SAFETY.smokeCommand}</code>{" "}
-            handoff intact. If Vercel returns{" "}
+            unwanted alias removal for{" "}
+            <code>{DEPLOY_SAFETY.unwantedAlias}</code>, clean-domain aliasing,
+            deployed URL output, clean URL output, and the{" "}
+            <code>{DEPLOY_SAFETY.smokeCommand}</code> handoff intact. If Vercel returns{" "}
             <code>{DEPLOY_SAFETY.quotaBlockCode}</code>,{" "}
             {DEPLOY_SAFETY.quotaResetInstruction}
           </p>
