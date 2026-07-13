@@ -14,8 +14,15 @@ function tone(status: string) {
   return "border-rose-200 bg-rose-50 text-rose-900";
 }
 
+function listValue(values: readonly string[]) {
+  return values.length > 0 ? values.join(", ") : "none";
+}
+
 export default async function ShippingSimulationsPage() {
   const result = await runShippingSimulationSuite();
+  const scenarioCoveragePassed =
+    result.scenario_coverage_status === "passed" &&
+    result.scenario_key_coverage_status === "passed";
 
   return (
     <main className="min-h-screen bg-neutral-50 p-8 text-neutral-950">
@@ -68,6 +75,58 @@ export default async function ShippingSimulationsPage() {
           />
           <Metric label="Passed" value={String(result.passed_count)} />
           <Metric label="Failed" value={String(result.failed_count)} />
+        </section>
+
+        <section
+          className={`rounded border p-5 ${
+            scenarioCoveragePassed
+              ? "border-emerald-200 bg-emerald-50 text-emerald-950"
+              : "border-rose-200 bg-rose-50 text-rose-950"
+          }`}
+        >
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-black uppercase tracking-widest opacity-75">
+                Scenario coverage guardrail
+              </p>
+              <h2 className="mt-1 text-2xl font-black">
+                {scenarioCoveragePassed ? "Expected manifest confirmed" : "Scenario drift detected"}
+              </h2>
+              <p className="mt-2 max-w-4xl text-sm font-semibold">
+                Count status: {label(result.scenario_coverage_status)}. Key status:{" "}
+                {label(result.scenario_key_coverage_status)}.
+              </p>
+            </div>
+            <div className="grid min-w-64 grid-cols-2 gap-2 text-sm">
+              <Metric
+                label="Expected"
+                value={String(result.expected_scenario_count)}
+              />
+              <Metric label="Actual" value={String(result.scenario_count)} />
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <Metric
+              label="Missing Scenario Keys"
+              value={listValue(result.missing_scenario_keys)}
+            />
+            <Metric
+              label="Unexpected Scenario Keys"
+              value={listValue(result.unexpected_scenario_keys)}
+            />
+          </div>
+
+          <details className="mt-4 rounded border border-current bg-white/60 p-3 text-sm">
+            <summary className="cursor-pointer font-black">
+              Expected scenario key manifest
+            </summary>
+            <ol className="mt-3 list-decimal space-y-1 pl-5 font-semibold">
+              {result.expected_scenario_keys.map((scenarioKey) => (
+                <li key={scenarioKey}>{scenarioKey}</li>
+              ))}
+            </ol>
+          </details>
         </section>
 
         <section

@@ -385,6 +385,9 @@ const checks = [
       result.text.includes("Shipping Simulation Lab") &&
       result.text.includes("Scenario Coverage") &&
       result.text.includes("Scenario Keys") &&
+      result.text.includes("Scenario coverage guardrail") &&
+      result.text.includes("Missing Scenario Keys") &&
+      result.text.includes("Unexpected Scenario Keys") &&
       result.text.includes("13") &&
       result.text.includes(
         "Under-$20 seller-protection claim status changes save a LetterTrack evidence review audit record before payout.",
