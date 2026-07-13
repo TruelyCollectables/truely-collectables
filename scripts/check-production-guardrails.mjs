@@ -188,6 +188,20 @@ assertFileIncludes("deploy live safety operator manual", "docs/TCOS_OPERATOR_MAN
   "npm run smoke:production",
 ]);
 
+assertFileIncludes(
+  "deploy live safety printable operator manual",
+  "docs/TCOS_OPERATOR_MANUAL_PRINT.html",
+  [
+    "live deploy safety contract",
+    "Vercel quota messaging",
+    "unwanted alias removal",
+    "clean production aliasing",
+    "deployed URL output",
+    "clean URL output",
+    "npm run smoke:production",
+  ],
+);
+
 runExpectedFailure(
   "smoke refuses unwanted alias before admin auth",
   ["scripts/smoke-production.mjs"],
