@@ -42,7 +42,7 @@ The verify helper runs lint, InstaComp queue and accuracy simulations, build, pr
 
 The protected live deploy sequence removes the unwanted alias, sets the clean production alias, prints `DEPLOYED_PRODUCTION=`, prints `CLEAN_PRODUCTION=https://`, then prints the smoke handoff command.
 
-For operator handoff, `/api/admin/launch-readiness` exposes `brief.deploySafety` in JSON, and `/api/admin/launch-readiness?format=markdown` includes the same `Production Deploy Safety` reminders.
+For operator handoff, `/api/admin/launch-readiness` exposes `brief.deploySafety` in JSON, including `brief.deploySafety.sequence`, and `/api/admin/launch-readiness?format=markdown` includes the same `Production Deploy Safety` reminders.
 
 ## Local development
 
