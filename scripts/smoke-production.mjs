@@ -289,6 +289,8 @@ const checks = [
       result.text.includes("npm run launch:production") &&
       result.text.includes("thirteen-scenario shipping simulation suite") &&
       result.text.includes("LetterTrack evidence checks") &&
+      result.text.includes("/api/admin/shipping/simulations") &&
+      result.text.includes("no missing/unexpected shipping simulation keys") &&
       result.text.includes("npm run deploy:production") &&
       result.text.includes("npm run smoke:production") &&
       result.text.includes("truely-collectables.vercel.app") &&
