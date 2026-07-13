@@ -165,6 +165,23 @@ assertFileIncludes("shipping provider setup smoke contract", "scripts/smoke-prod
   "Keep TCOS_SHIPPING_PURCHASE_MODE=dry_run",
   "Keep TCOS_LIVE_SHIPPING_ENABLED=false",
 ]);
+assertFileIncludes("shipping export smoke contract", "scripts/smoke-production.mjs", [
+  'name: "shipping exceptions export"',
+  'path: "/api/admin/shipping/exceptions"',
+  'result.contentType.includes("text/csv")',
+  "priority_rank,exception_key,severity",
+  "exception_type",
+  "action_needed",
+  "claim_id",
+  "dry_run_warning",
+  'name: "lettertrack standard envelope export"',
+  'path: "/api/admin/shipping/lettertrack-export"',
+  "orderNumber,labelId,recipientName",
+  'result.response?.headers.get("x-tcos-lettertrack-rows") !== null',
+  'result.response?.headers.get("x-tcos-lettertrack-skipped") !== null',
+  '!result.text.includes("sk_live_")',
+  '!result.text.includes("whsec_")',
+]);
 assertFileIncludes("queued-feature smoke manifest", "scripts/smoke-production.mjs", [
   "const queuedFeatureCheckNames = [",
   "Queued feature smoke manifest references unknown check(s):",
