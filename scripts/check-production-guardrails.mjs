@@ -152,6 +152,11 @@ runExpectedFailure(
   "Refusing production deploy because VERCEL_CLEAN_DOMAIN matches the unwanted alias",
 );
 
+assertFileIncludes("deploy preflight env flag", "scripts/deploy-production.mjs", [
+  "process.env.TCOS_PRODUCTION_PREFLIGHT_ONLY",
+  "Production deploy preflight passed. No Vercel deployment was started.",
+]);
+
 runExpectedFailure(
   "smoke refuses unwanted alias before admin auth",
   ["scripts/smoke-production.mjs"],
