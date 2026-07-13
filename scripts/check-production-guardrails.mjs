@@ -168,6 +168,16 @@ assertFileIncludes("deploy live safety contract", "scripts/deploy-production.mjs
   "npm run smoke:production",
 ]);
 
+assertFileIncludes("deploy live safety centralized source", "src/app/api/admin/launch-readiness/route.ts", [
+  "const DEPLOY_SAFETY_SMOKE_COMMAND",
+  "const DEPLOY_SAFETY = {",
+  "function deploySafetyContractMarkdown()",
+  "function deploySafetyMarkdownLines()",
+  "...deploySafetyMarkdownLines()",
+  "deploySafetyContractMarkdown()} intact.",
+  "deploySafety: DEPLOY_SAFETY",
+]);
+
 assertFileIncludes("deploy live safety handoff bundle", "src/app/api/admin/launch-readiness/route.ts", [
   "api-deployments-free-per-day",
   "rolling 24-hour quota reset",
