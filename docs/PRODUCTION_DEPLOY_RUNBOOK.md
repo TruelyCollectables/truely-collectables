@@ -39,7 +39,7 @@ npm run verify:production
 ```
 
 This runs lint, the InstaComp queue and accuracy simulations, the LetterTrack evidence checks, the thirteen-scenario shipping simulation suite, build, and the production preflight without starting a Vercel deployment.
-It also runs `npm run check:production-guardrails`, which syntax-checks the production deploy/smoke helpers and shipping simulation runner, verifies the package script chain still includes the required shipping/production/launch commands, verifies the named `shipping simulation API smoke contract`, verifies the named `queued-feature smoke manifest` rejects unknown or duplicate check names, verifies the deploy preflight env-flag path, verifies the live deploy safety contract for Vercel quota messaging, unwanted alias removal, clean-domain aliasing, and post-deploy smoke handoff, verifies smoke diagnostic redaction, and verifies the clean production domain cannot be confused with the unwanted `tt3b` alias.
+It also runs `npm run check:production-guardrails`, which syntax-checks the production deploy/smoke helpers and shipping simulation runner, verifies the package script chain still includes the required shipping/production/launch commands, verifies the named `shipping simulation API smoke contract`, verifies the named `queued-feature smoke manifest` rejects unknown or duplicate check names, verifies the deploy preflight env-flag path, verifies the live deploy safety contract for Vercel quota messaging, unwanted alias removal, clean-domain aliasing, and post-deploy smoke handoff, verifies smoke diagnostic redaction, and verifies the clean production domain cannot be confused with the unwanted `truely-collectables-tt3b.vercel.app` alias.
 
 ## Deploy
 

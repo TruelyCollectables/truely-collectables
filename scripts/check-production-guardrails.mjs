@@ -389,7 +389,7 @@ assertFileIncludes("deploy live safety runbook", "docs/PRODUCTION_DEPLOY_RUNBOOK
   "/api/admin/launch-readiness?format=markdown",
   "Production Deploy Safety",
   "Vercel quota messaging",
-  "unwanted alias removal",
+  "unwanted `truely-collectables-tt3b.vercel.app` alias",
   "clean-domain aliasing",
   "post-deploy smoke handoff",
   "protected live deploy sequence",
