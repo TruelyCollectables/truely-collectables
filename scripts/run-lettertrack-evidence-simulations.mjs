@@ -1,6 +1,8 @@
 import {
+  buildLetterTrackSellerProtectionEvidenceReview,
   buildLetterTrackDeliveryEvidenceSummary,
   evaluateLetterTrackSellerProtectionPaymentGate,
+  shouldRecordLetterTrackSellerProtectionEvidenceReview,
 } from "../src/lib/lettertrack-delivery-evidence.ts";
 
 let failed = 0;
@@ -144,6 +146,53 @@ check(
     !ignoredEvidence.deliveredEvidencePresent &&
     !ignoredEvidence.claimReviewSupported,
   ignoredEvidence.claimReviewReason,
+);
+
+const reviewableStatuses = [
+  "submitted",
+  "under_review",
+  "approved",
+  "paid",
+  "denied",
+];
+check(
+  "seller-protection evidence reviews are recorded on claim review statuses only",
+  reviewableStatuses.every((status) =>
+    shouldRecordLetterTrackSellerProtectionEvidenceReview({
+      status,
+      eligible: true,
+    }),
+  ) &&
+    !shouldRecordLetterTrackSellerProtectionEvidenceReview({
+      status: "draft",
+      eligible: true,
+    }) &&
+    !shouldRecordLetterTrackSellerProtectionEvidenceReview({
+      status: "cancelled",
+      eligible: true,
+    }) &&
+    !shouldRecordLetterTrackSellerProtectionEvidenceReview({
+      status: "paid",
+      eligible: false,
+    }),
+  "submitted, under_review, approved, paid, and denied create audit reviews for eligible under-$20 claims.",
+);
+
+const savedReview = buildLetterTrackSellerProtectionEvidenceReview({
+  status: "approved",
+  reviewedAt: "2026-07-13T18:00:00.000Z",
+  reviewedByIdentity: { type: "admin", id: "sim" },
+  note: "Ready for final payout review.",
+  summary: notDeliveredEvidence,
+  gate: notDeliveredGate,
+});
+check(
+  "seller-protection evidence review stores status, note, evidence, and gate",
+  savedReview.status === "approved" &&
+    savedReview.note === "Ready for final payout review." &&
+    savedReview.summary.claimReviewSupported &&
+    savedReview.gate.allowed,
+  savedReview.gate.reason,
 );
 
 console.log(`LetterTrack evidence simulations: ${total - failed}/${total} passed.`);

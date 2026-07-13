@@ -14,12 +14,14 @@ import {
   letterTrackCsvContent,
 } from "./lettertrack-export";
 import {
+  buildLetterTrackSellerProtectionEvidenceReview,
   buildLetterTrackDeliveryEvidenceSummary,
   evaluateLetterTrackSellerProtectionPaymentGate,
+  shouldRecordLetterTrackSellerProtectionEvidenceReview,
 } from "./lettertrack-delivery-evidence";
 import { buildUnder20SellerProtectionClaimSummary } from "./under20-seller-protection-claims";
 
-export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-12.5";
+export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-12.6";
 
 export type ShippingSimulationScenario = {
   scenario_key: string;
@@ -348,6 +350,42 @@ export async function runShippingSimulationSuite() {
       delivered_gate: deliveredPaymentGate,
       not_delivered_gate: notDeliveredPaymentGate,
       override_gate: overridePaymentGate,
+    },
+  });
+  const savedEvidenceReview = buildLetterTrackSellerProtectionEvidenceReview({
+    status: "approved",
+    reviewedAt: "2026-07-13T18:00:00.000Z",
+    reviewedByIdentity: { type: "simulation" },
+    note: "Ready for final payout review.",
+    summary: notDeliveredEvidence,
+    gate: notDeliveredPaymentGate,
+  });
+  scenarios.push({
+    scenario_key: "lettertrack_seller_protection_evidence_review_audit",
+    scenario_status: pass(
+      ["submitted", "under_review", "approved", "paid", "denied"].every(
+        (status) =>
+          shouldRecordLetterTrackSellerProtectionEvidenceReview({
+            status,
+            eligible: true,
+          }),
+      ) &&
+        !shouldRecordLetterTrackSellerProtectionEvidenceReview({
+          status: "cancelled",
+          eligible: true,
+        }) &&
+        !shouldRecordLetterTrackSellerProtectionEvidenceReview({
+          status: "paid",
+          eligible: false,
+        }) &&
+        savedEvidenceReview.status === "approved" &&
+        savedEvidenceReview.summary.claimReviewSupported &&
+        savedEvidenceReview.gate.allowed,
+    ),
+    detail:
+      "Under-$20 seller-protection claim status changes save a LetterTrack evidence review audit record before payout.",
+    assertions: {
+      saved_evidence_review: savedEvidenceReview,
     },
   });
 

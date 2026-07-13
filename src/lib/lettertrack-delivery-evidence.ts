@@ -33,11 +33,27 @@ export type LetterTrackSellerProtectionPaymentGate = {
   reason: string;
 };
 
+export type LetterTrackSellerProtectionEvidenceReview = {
+  status: string;
+  reviewed_at: string;
+  reviewed_by_identity: unknown;
+  note: string | null;
+  summary: LetterTrackDeliveryEvidenceSummary;
+  gate: LetterTrackSellerProtectionPaymentGate;
+};
+
 const deliveredStatuses = new Set(["delivered"]);
 const claimReviewStatuses = new Set([
   "not_delivered",
   "delivery_exception",
   "returned",
+]);
+const sellerProtectionEvidenceReviewStatuses = new Set([
+  "submitted",
+  "under_review",
+  "approved",
+  "paid",
+  "denied",
 ]);
 
 function normalized(value: unknown) {
@@ -142,5 +158,33 @@ export function evaluateLetterTrackSellerProtectionPaymentGate(params: {
     overrideAccepted: false,
     reason:
       "Record LetterTrack / USPS IMb Not Delivered, Delivery Exception, or Returned evidence before marking this seller-protection claim paid, or add an internal override note.",
+  };
+}
+
+export function shouldRecordLetterTrackSellerProtectionEvidenceReview(params: {
+  status: string;
+  eligible: unknown;
+}) {
+  return (
+    params.eligible === true &&
+    sellerProtectionEvidenceReviewStatuses.has(params.status)
+  );
+}
+
+export function buildLetterTrackSellerProtectionEvidenceReview(params: {
+  status: string;
+  reviewedAt: string;
+  reviewedByIdentity: unknown;
+  note?: string | null;
+  summary: LetterTrackDeliveryEvidenceSummary;
+  gate: LetterTrackSellerProtectionPaymentGate;
+}): LetterTrackSellerProtectionEvidenceReview {
+  return {
+    status: params.status,
+    reviewed_at: params.reviewedAt,
+    reviewed_by_identity: params.reviewedByIdentity,
+    note: params.note || null,
+    summary: params.summary,
+    gate: params.gate,
   };
 }

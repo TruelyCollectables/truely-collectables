@@ -1,10 +1,13 @@
 import { getClientIdentity } from "../../../../../lib/client-identity";
 import {
   buildLetterTrackDeliveryEvidenceSummary,
+  buildLetterTrackSellerProtectionEvidenceReview,
   evaluateLetterTrackSellerProtectionPaymentGate,
+  shouldRecordLetterTrackSellerProtectionEvidenceReview,
   type LetterTrackDeliveryEvidenceEvent,
   type LetterTrackDeliveryEvidenceSummary,
   type LetterTrackSellerProtectionPaymentGate,
+  type LetterTrackSellerProtectionEvidenceReview,
 } from "../../../../../lib/lettertrack-delivery-evidence";
 import { isDryRunShippingLabel } from "../../../../../lib/shipping-dry-run";
 import { getActiveStoreId } from "../../../../../lib/stores";
@@ -73,6 +76,8 @@ type SellerProtectionPaymentEvidence = {
   gate: LetterTrackSellerProtectionPaymentGate;
 };
 
+type SellerProtectionEvidenceReview = LetterTrackSellerProtectionEvidenceReview;
+
 function moneyNumber(value: unknown) {
   const parsed = Number(value || 0);
   return Number.isFinite(parsed) ? Math.round(parsed * 100) / 100 : 0;
@@ -133,18 +138,6 @@ async function latestSellerProtectionPaymentEvidence(params: {
   });
 
   return { summary, gate };
-}
-
-function shouldReviewSellerProtectionEvidence(params: {
-  status: string;
-  under20Claim: Record<string, unknown>;
-}) {
-  return (
-    params.under20Claim.eligible === true &&
-    ["submitted", "under_review", "approved", "paid", "denied"].includes(
-      params.status,
-    )
-  );
 }
 
 function coverageStatusForClaimStatus(
@@ -383,9 +376,9 @@ export async function PATCH(
       recordValue(claim.metadata).under_20_seller_protection_claim,
     );
     const sellerProtectionPaymentEvidence =
-      shouldReviewSellerProtectionEvidence({
+      shouldRecordLetterTrackSellerProtectionEvidenceReview({
         status: nextStatus,
-        under20Claim,
+        eligible: under20Claim.eligible,
       })
         ? await latestSellerProtectionPaymentEvidence({
             supabase,
@@ -405,6 +398,18 @@ export async function PATCH(
         { status: 409 },
       );
     }
+
+    const sellerProtectionEvidenceReview: SellerProtectionEvidenceReview | null =
+      sellerProtectionPaymentEvidence
+        ? buildLetterTrackSellerProtectionEvidenceReview({
+            status: nextStatus,
+            reviewedAt: now,
+            reviewedByIdentity: identity,
+            note,
+            summary: sellerProtectionPaymentEvidence.summary,
+            gate: sellerProtectionPaymentEvidence.gate,
+          })
+        : null;
 
     const sellerProtectionReimbursement =
       nextStatus === "paid"
@@ -435,14 +440,8 @@ export async function PATCH(
         : {}),
       ...(sellerProtectionPaymentEvidence
         ? {
-            latest_lettertrack_delivery_evidence_review: {
-              status: nextStatus,
-              reviewed_at: now,
-              reviewed_by_identity: identity,
-              note: note || null,
-              summary: sellerProtectionPaymentEvidence.summary,
-              gate: sellerProtectionPaymentEvidence.gate,
-            },
+            latest_lettertrack_delivery_evidence_review:
+              sellerProtectionEvidenceReview,
             latest_lettertrack_seller_protection_payment_gate:
               sellerProtectionPaymentEvidence,
             ...(nextStatus === "paid"
@@ -525,7 +524,7 @@ export async function PATCH(
         provider_claim_id: providerClaimId || claim.provider_claim_id || null,
         note: note || null,
         seller_protection_reimbursement: sellerProtectionReimbursement,
-        lettertrack_delivery_evidence_review: sellerProtectionPaymentEvidence,
+        lettertrack_delivery_evidence_review: sellerProtectionEvidenceReview,
         lettertrack_seller_protection_payment_gate:
           sellerProtectionPaymentEvidence,
         changed_by_identity: identity,

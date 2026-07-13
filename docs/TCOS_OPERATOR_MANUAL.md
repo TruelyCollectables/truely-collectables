@@ -3218,7 +3218,7 @@ git diff --check
 
 The queue simulation verifies state transitions, leases, idempotency, retries, and completion calculations in the local model. It is not a substitute for applying the migration and running one authenticated upload/scan/recovery test against the target Supabase project.
 
-Use these checks before deploy or after feature changes. Run the relevant payment and shipping simulations after changing money, webhook, reconciliation, seller payout, shipping-policy, provider-adapter, or claim code. `npm run verify:production` includes the LetterTrack evidence simulation so delivered, not-delivered, exception, returned, override, and ignored-provider payout-gate cases are checked before deployment.
+Use these checks before deploy or after feature changes. Run the relevant payment and shipping simulations after changing money, webhook, reconciliation, seller payout, shipping-policy, provider-adapter, or claim code. `npm run verify:production` includes the LetterTrack evidence simulation so delivered, not-delivered, exception, returned, override, ignored-provider payout-gate, and saved claim evidence-review audit cases are checked before deployment.
 
 Reference:
 
@@ -4490,6 +4490,7 @@ Open `/admin/shipping/simulations` and run the suite. Require all twelve policy/
 - Standard Envelope labels can export to a LetterTrack import CSV with recipient address, order reference, declared value, and IMb recording instructions
 - LetterTrack delivery evidence snapshots distinguish delivered shipments from not-delivered claim-review support before TCOS Under-$20 Seller Protection reimbursement
 - under-$20 seller-protection payout blocks delivered LetterTrack evidence, allows not-delivered review evidence, and requires an explicit override note for exceptions
+- under-$20 seller-protection status changes save LetterTrack evidence-review audit records on submitted, under-review, approved, paid, and denied statuses
 - dry-run Standard Envelope and Ground Advantage adapter purchases behave as dry runs
 
 The dry-run Standard Envelope purchase assertion uses the active Standard Envelope rate table at run time, so it should follow the July 12, 2026 rate change without hardcoded stale postage.
