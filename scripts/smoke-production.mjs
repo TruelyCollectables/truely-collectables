@@ -373,7 +373,8 @@ const checks = [
     path: "/admin/shipping",
     expect: (result) =>
       result.text.includes("Export LetterTrack CSV") &&
-      result.text.includes("LetterTrack IMb Recording"),
+      result.text.includes("LetterTrack IMb Recording") &&
+      result.text.includes("LetterTrack Delivery Evidence"),
   },
   {
     name: "shipping provider setup json",

@@ -4339,6 +4339,8 @@ The checklist displays provider names, service/carrier labels, purchase mode, li
 
 After the LetterTrack import/print step, use the `/admin/shipping` `LetterTrack IMb Recording` panel to paste the assigned IMb or LetterTrack mailpiece reference back into TCOS. This writes `lettertrack_imb_recorded`, changes the label to `printed`, stores the IMb as the tracking and coverage evidence reference, and copies the tracking reference onto the order row. Only mark the order shipped after the envelope is actually mailed.
 
+After USPS/LetterTrack scan history appears, use the `/admin/shipping` `LetterTrack Delivery Evidence` panel to record `Delivered`, `Out for Delivery`, `Not Delivered`, `Delivery Exception`, `Returned`, or other IMb status evidence. These events are stored in `order_shipping_tracking_events` and are included in label and claim packets. Delivered evidence supports closing the shipment trail; not-delivered or exception evidence supports TCOS Under-$20 Seller Protection claim review.
+
 Provider setup packets are available from `/admin/shipping`:
 
 - `Setup JSON` opens `/api/admin/shipping/provider-setup`

@@ -273,6 +273,125 @@ export function RecordLetterTrackImbForm({
   );
 }
 
+export function RecordLetterTrackDeliveryEventForm({
+  labelId,
+  defaultTrackingNumber = "",
+}: {
+  labelId: string;
+  defaultTrackingNumber?: string;
+}) {
+  const [status, setStatus] = useState("delivered");
+  const [trackingNumber, setTrackingNumber] = useState(defaultTrackingNumber);
+  const [providerEventId, setProviderEventId] = useState("");
+  const [location, setLocation] = useState("");
+  const [occurredAt, setOccurredAt] = useState("");
+  const [note, setNote] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState("");
+
+  async function recordEvidence() {
+    setSaving(true);
+    setMessage("");
+
+    try {
+      const response = await fetch(
+        `/api/admin/shipping-labels/${labelId}/tracking-event`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            status,
+            trackingNumber,
+            providerEventId,
+            location,
+            occurredAt,
+            note,
+          }),
+        },
+      );
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok) {
+        setMessage(data.error || "Could not record delivery evidence.");
+        return;
+      }
+
+      setMessage(data.message || "Delivery evidence recorded.");
+      setTimeout(() => {
+        window.location.reload();
+      }, 800);
+    } catch (error: any) {
+      setMessage(error.message || "Could not record delivery evidence.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div className="space-y-2 rounded border bg-green-50 p-2">
+      <select
+        value={status}
+        onChange={(event) => setStatus(event.target.value)}
+        className="w-full rounded border bg-white px-2 py-1 text-xs"
+      >
+        <option value="delivered">Delivered</option>
+        <option value="out_for_delivery">Out for Delivery</option>
+        <option value="in_transit">In Transit</option>
+        <option value="accepted">Accepted</option>
+        <option value="delivery_exception">Delivery Exception</option>
+        <option value="returned">Returned</option>
+        <option value="not_delivered">Not Delivered</option>
+        <option value="imb_recorded">IMb Recorded</option>
+      </select>
+      <input
+        value={trackingNumber}
+        onChange={(event) => setTrackingNumber(event.target.value)}
+        placeholder="LetterTrack IMb / tracking reference"
+        className="w-full rounded border bg-white px-2 py-1 text-xs"
+      />
+      <input
+        value={providerEventId}
+        onChange={(event) => setProviderEventId(event.target.value)}
+        placeholder="Provider event ID / scan ID (optional)"
+        className="w-full rounded border bg-white px-2 py-1 text-xs"
+      />
+      <input
+        value={location}
+        onChange={(event) => setLocation(event.target.value)}
+        placeholder="Location (optional)"
+        className="w-full rounded border bg-white px-2 py-1 text-xs"
+      />
+      <input
+        value={occurredAt}
+        onChange={(event) => setOccurredAt(event.target.value)}
+        placeholder="Occurred at ISO/date (optional)"
+        className="w-full rounded border bg-white px-2 py-1 text-xs"
+      />
+      <textarea
+        value={note}
+        onChange={(event) => setNote(event.target.value)}
+        placeholder="Evidence note / copied LetterTrack status"
+        rows={2}
+        className="w-full rounded border bg-white px-2 py-1 text-xs"
+      />
+      <button
+        onClick={recordEvidence}
+        disabled={saving}
+        className="rounded bg-green-800 px-3 py-2 text-xs font-black text-white disabled:opacity-50"
+      >
+        {saving ? "Recording..." : "Record Delivery Evidence"}
+      </button>
+      {message ? (
+        <p className="rounded border bg-white p-2 text-xs font-semibold">
+          {message}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 export function MarkOrderShippedButton({
   orderId,
   carrier,

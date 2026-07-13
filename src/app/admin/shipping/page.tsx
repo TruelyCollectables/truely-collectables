@@ -17,6 +17,7 @@ import DryRunCleanupActions from "./DryRunCleanupActions";
 import ShippingClaimActions from "./ShippingClaimActions";
 import {
   MarkOrderShippedButton,
+  RecordLetterTrackDeliveryEventForm,
   RecordLetterTrackImbForm,
   SaveCoveragePolicyForm,
   SaveTrackingForm,
@@ -645,8 +646,16 @@ export default async function AdminShippingPage() {
         row.label_status || "",
       ),
   );
+  const letterTrackEvidenceLabels = labels.filter(
+    (row) =>
+      row.resolved_shipping_method === "STANDARD_ENVELOPE" &&
+      Boolean(row.tracking_number) &&
+      ["printed", "purchased", "shipped", "delivered"].includes(
+        row.label_status || "",
+      ),
+  );
   const purchasedLabels = labels.filter((row) =>
-    ["purchased", "printed"].includes(row.label_status || ""),
+    ["purchased", "printed", "delivered"].includes(row.label_status || ""),
   );
   const dryRunPurchasedLabels = purchasedLabels.filter(isDryRunLabel);
   const realPurchasedLabels = purchasedLabels.filter((row) => !isDryRunLabel(row));
@@ -1400,6 +1409,26 @@ export default async function AdminShippingPage() {
               )}
             </Panel>
 
+            <Panel title="LetterTrack Delivery Evidence">
+              {letterTrackEvidenceLabels.length === 0 ? (
+                <p className="text-sm text-neutral-600">
+                  No Standard Envelope labels have an IMb ready for delivery
+                  evidence updates.
+                </p>
+              ) : (
+                letterTrackEvidenceLabels.slice(0, 8).map((row) => (
+                  <LabelIssueCard
+                    key={row.id}
+                    row={row}
+                    order={orderFor(ordersById, row)}
+                    message="Record LetterTrack / USPS IMb scan evidence here. Delivered evidence closes the item-only under-$20 risk trail; not-delivered or exception evidence supports claim review."
+                    tone="text-green-950"
+                    showRecordLetterTrackDeliveryAction
+                  />
+                ))
+              )}
+            </Panel>
+
             <Panel title="Ready To Mark Shipped">
               {readyToMarkShippedLabels.length === 0 ? (
                 <p className="text-sm text-neutral-600">
@@ -1593,6 +1622,7 @@ function LabelIssueCard({
   showSaveTrackingAction = false,
   showSaveCoveragePolicyAction = false,
   showRecordLetterTrackAction = false,
+  showRecordLetterTrackDeliveryAction = false,
 }: {
   row: ShippingLabelRow;
   order: OrderRow | null;
@@ -1602,6 +1632,7 @@ function LabelIssueCard({
   showSaveTrackingAction?: boolean;
   showSaveCoveragePolicyAction?: boolean;
   showRecordLetterTrackAction?: boolean;
+  showRecordLetterTrackDeliveryAction?: boolean;
 }) {
   const carrier = row.carrier || order?.carrier || "";
   const trackingNumber = row.tracking_number || order?.tracking_number || "";
@@ -1661,6 +1692,12 @@ function LabelIssueCard({
         ) : null}
         {showRecordLetterTrackAction ? (
           <RecordLetterTrackImbForm orderId={row.order_id} />
+        ) : null}
+        {showRecordLetterTrackDeliveryAction ? (
+          <RecordLetterTrackDeliveryEventForm
+            labelId={row.id}
+            defaultTrackingNumber={row.tracking_number || order?.tracking_number || ""}
+          />
         ) : null}
         {showMarkShippedAction && carrier && trackingNumber ? (
           <MarkOrderShippedButton
