@@ -1,3 +1,7 @@
+import {
+  buildLetterTrackDeliveryEvidenceSummary,
+  evaluateLetterTrackSellerProtectionPaymentGate,
+} from "../../../../../lib/lettertrack-delivery-evidence";
 import { isDryRunShippingLabel as isDryRunShippingLabelRecord } from "../../../../../lib/shipping-dry-run";
 import { getActiveStoreId } from "../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
@@ -59,6 +63,7 @@ type CoverageClaimRow = {
   claim_type: string | null;
   claim_amount: number | string | null;
   reason: string | null;
+  metadata: Record<string, unknown> | null;
   created_at: string;
 };
 
@@ -99,6 +104,12 @@ function csvCell(value: unknown) {
 
 function money(value: number | string | null | undefined) {
   return Number(value || 0).toFixed(2);
+}
+
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
 }
 
 function isDryRunLabel(
@@ -219,7 +230,7 @@ export async function GET(request: Request) {
       supabase
         .from("order_shipping_coverage_claims")
         .select(
-          "id,order_id,shipping_label_id,provider,provider_claim_id,claim_status,claim_type,claim_amount,reason,created_at",
+          "id,order_id,shipping_label_id,provider,provider_claim_id,claim_status,claim_type,claim_amount,reason,metadata,created_at",
         )
         .eq("store_id", storeId)
         .order("created_at", { ascending: false })
@@ -234,6 +245,13 @@ export async function GET(request: Request) {
     const events = (eventsResult.data || []) as TrackingEventRow[];
     const claims = (claimsResult.data || []) as CoverageClaimRow[];
     const labelsById = new Map(labels.map((label) => [label.id, label]));
+    const eventsByLabelId = new Map<string, TrackingEventRow[]>();
+    for (const event of events) {
+      if (!event.shipping_label_id) continue;
+      const list = eventsByLabelId.get(event.shipping_label_id) || [];
+      list.push(event);
+      eventsByLabelId.set(event.shipping_label_id, list);
+    }
     const simulatedLabelIds = new Set(
       events
         .filter(
@@ -437,6 +455,74 @@ export async function GET(request: Request) {
           oldestAt: label.updated_at || label.created_at,
         });
       }
+    }
+
+    for (const claim of claims.filter(
+      (row) => row.claim_status === "approved",
+    )) {
+      const under20Claim = recordValue(
+        recordValue(claim.metadata).under_20_seller_protection_claim,
+      );
+
+      if (under20Claim.eligible !== true) continue;
+
+      const order = orderFor(ordersById, claim.order_id);
+      const label = labelFor(labelsById, claim.shipping_label_id);
+      const liveLetterTrackEvidence = buildLetterTrackDeliveryEvidenceSummary(
+        claim.shipping_label_id
+          ? eventsByLabelId.get(claim.shipping_label_id) || []
+          : [],
+      );
+      const gate = evaluateLetterTrackSellerProtectionPaymentGate({
+        evidence: liveLetterTrackEvidence,
+      });
+
+      if (gate.allowed) continue;
+
+      const dryRun = isDryRunLabel(label, simulatedLabelIds);
+      rows.push({
+        priority_rank: 0,
+        exception_key: exceptionKey({
+          exceptionType: "seller_protection_payout_blocked",
+          orderId: claim.order_id,
+          labelId: claim.shipping_label_id,
+          claimId: claim.id,
+        }),
+        severity: liveLetterTrackEvidence.deliveredEvidencePresent
+          ? "critical"
+          : "warning",
+        exception_type: "seller_protection_payout_blocked",
+        action_needed:
+          "Record LetterTrack not-delivered evidence, deny/cancel the claim, or add an explicit override note before Mark Paid.",
+        order_id: claim.order_id,
+        customer_email: order?.customer_email || "",
+        order_status: order?.status || "",
+        fulfillment_status: order?.fulfillment_status || "",
+        order_total: money(order?.total),
+        shipping_label_id: claim.shipping_label_id || "",
+        claim_id: claim.id,
+        provider: claim.provider || label?.provider || "",
+        service: label?.provider_service || order?.shipping_name || "",
+        carrier: label?.carrier || order?.carrier || "",
+        tracking_number:
+          liveLetterTrackEvidence.latestTrackingNumber ||
+          label?.tracking_number ||
+          order?.tracking_number ||
+          "",
+        label_status: label?.label_status || "",
+        coverage_provider: label?.coverage_provider || claim.provider || "",
+        coverage_status: label?.coverage_status || "",
+        coverage_policy_id: label?.coverage_policy_id || "",
+        coverage_amount: money(label?.coverage_amount || claim.claim_amount),
+        postage_amount: money(label?.postage_amount),
+        dry_run_record: dryRun ? "yes" : "no",
+        dry_run_warning: dryRunWarning(dryRun),
+        issue_detail: `${gate.reason} Latest LetterTrack status: ${
+          liveLetterTrackEvidence.latestStatus || "not recorded"
+        }.`,
+        oldest_at: claim.created_at,
+        admin_url: `${url.origin}/admin/orders/${claim.order_id}`,
+      });
     }
 
     for (const claim of claims.filter(

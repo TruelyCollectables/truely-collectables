@@ -5,6 +5,10 @@ import {
   type ShippingProviderAdapterProfile,
 } from "../../../lib/shipping-provider-adapter";
 import {
+  buildLetterTrackDeliveryEvidenceSummary,
+  evaluateLetterTrackSellerProtectionPaymentGate,
+} from "../../../lib/lettertrack-delivery-evidence";
+import {
   buildShippingProviderSetupPacket,
   type LiveShippingRequirement,
   type ProviderSetupDecision,
@@ -713,6 +717,32 @@ export default async function AdminShippingPage() {
     (claim) =>
       !["paid", "denied", "cancelled"].includes(claim.claim_status || "draft"),
   );
+  const eventsByLabelId = new Map<string, TrackingEventRow[]>();
+  for (const event of events) {
+    if (!event.shipping_label_id) continue;
+    const list = eventsByLabelId.get(event.shipping_label_id) || [];
+    list.push(event);
+    eventsByLabelId.set(event.shipping_label_id, list);
+  }
+  const approvedSellerProtectionPayoutBlockers = claims.filter((claim) => {
+    if (claim.claim_status !== "approved") return false;
+
+    const under20Claim = metadataRecord(
+      claim.metadata,
+      "under_20_seller_protection_claim",
+    );
+
+    if (under20Claim?.eligible !== true) return false;
+
+    const evidence = buildLetterTrackDeliveryEvidenceSummary(
+      claim.shipping_label_id
+        ? eventsByLabelId.get(claim.shipping_label_id) || []
+        : [],
+    );
+    const gate = evaluateLetterTrackSellerProtectionPaymentGate({ evidence });
+
+    return !gate.allowed;
+  });
   const priorityIssues = [
     {
       key: "blocked_purchase",
@@ -795,6 +825,31 @@ export default async function AdminShippingPage() {
       cta: "Mark shipped",
       oldestAt: oldestDate(
         readyToMarkShippedLabels.map((row) => row.updated_at || row.created_at),
+      ),
+    },
+    {
+      key: "seller_protection_payout_blocked",
+      title: "Seller Protection Payout Blocked",
+      count: approvedSellerProtectionPayoutBlockers.length,
+      severity: approvedSellerProtectionPayoutBlockers.some((claim) => {
+        const evidence = buildLetterTrackDeliveryEvidenceSummary(
+          claim.shipping_label_id
+            ? eventsByLabelId.get(claim.shipping_label_id) || []
+            : [],
+        );
+
+        return evidence.deliveredEvidencePresent;
+      })
+        ? ("critical" as PrioritySeverity)
+        : ("warning" as PrioritySeverity),
+      detail:
+        "Approved under-$20 claims need LetterTrack not-delivered evidence or an explicit override note before Mark Paid.",
+      href: approvedSellerProtectionPayoutBlockers[0]?.order_id
+        ? `/admin/orders/${approvedSellerProtectionPayoutBlockers[0].order_id}`
+        : "/admin/shipping",
+      cta: "Review payout gate",
+      oldestAt: oldestDate(
+        approvedSellerProtectionPayoutBlockers.map((claim) => claim.created_at),
       ),
     },
     {
