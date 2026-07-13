@@ -21,8 +21,24 @@ import {
 } from "./lettertrack-delivery-evidence";
 import { buildUnder20SellerProtectionClaimSummary } from "./under20-seller-protection-claims";
 
-export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-12.7";
-export const SHIPPING_SIMULATION_EXPECTED_SCENARIO_COUNT = 13;
+export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-12.8";
+export const SHIPPING_SIMULATION_EXPECTED_SCENARIO_KEYS = [
+  "standard_envelope_under_20_and_3oz",
+  "standard_envelope_over_20_forces_ground_advantage",
+  "standard_envelope_over_3oz_forces_ground_advantage",
+  "coverage_required_for_standard_and_ground",
+  "under_20_seller_protection_opted_in_item_only",
+  "under_20_seller_protection_not_opted_in_seller_liability",
+  "shipping_adapter_profiles_are_auditable",
+  "lettertrack_standard_envelope_export",
+  "lettertrack_delivery_evidence_claim_review_rules",
+  "lettertrack_seller_protection_paid_gate",
+  "lettertrack_seller_protection_evidence_review_audit",
+  "dry_run_standard_envelope_purchase",
+  "dry_run_ground_advantage_purchase",
+] as const;
+export const SHIPPING_SIMULATION_EXPECTED_SCENARIO_COUNT =
+  SHIPPING_SIMULATION_EXPECTED_SCENARIO_KEYS.length;
 
 export type ShippingSimulationScenario = {
   scenario_key: string;
@@ -454,7 +470,22 @@ export async function runShippingSimulationSuite() {
   ).length;
   const scenarioCountMatches =
     scenarios.length === SHIPPING_SIMULATION_EXPECTED_SCENARIO_COUNT;
-  const failed = scenarioFailures + (scenarioCountMatches ? 0 : 1);
+  const scenarioKeys = scenarios.map((scenario) => scenario.scenario_key);
+  const missingScenarioKeys = SHIPPING_SIMULATION_EXPECTED_SCENARIO_KEYS.filter(
+    (scenarioKey) => !scenarioKeys.includes(scenarioKey),
+  );
+  const unexpectedScenarioKeys = scenarioKeys.filter(
+    (scenarioKey) =>
+      !SHIPPING_SIMULATION_EXPECTED_SCENARIO_KEYS.includes(
+        scenarioKey as (typeof SHIPPING_SIMULATION_EXPECTED_SCENARIO_KEYS)[number],
+      ),
+  );
+  const scenarioKeysMatch =
+    missingScenarioKeys.length === 0 && unexpectedScenarioKeys.length === 0;
+  const failed =
+    scenarioFailures +
+    (scenarioCountMatches ? 0 : 1) +
+    (scenarioKeysMatch ? 0 : 1);
   const runStatus = failed > 0 ? "failed" : "passed";
   const requirementBlockers = providerSetup.liveRequirements
     .filter((requirement) => requirement.status !== "ready")
@@ -466,6 +497,13 @@ export async function runShippingSimulationSuite() {
       ...(!scenarioCountMatches
         ? [
             `shipping simulation scenario count changed: expected ${SHIPPING_SIMULATION_EXPECTED_SCENARIO_COUNT}, found ${scenarios.length}`,
+          ]
+        : []),
+      ...(!scenarioKeysMatch
+        ? [
+            `shipping simulation scenario keys changed: missing ${
+              missingScenarioKeys.join(", ") || "none"
+            }; unexpected ${unexpectedScenarioKeys.join(", ") || "none"}`,
           ]
         : []),
       ...(runStatus === "failed" ? ["shipping simulation suite failed"] : []),
@@ -502,6 +540,10 @@ export async function runShippingSimulationSuite() {
     run_status: runStatus,
     expected_scenario_count: SHIPPING_SIMULATION_EXPECTED_SCENARIO_COUNT,
     scenario_coverage_status: scenarioCountMatches ? "passed" : "failed",
+    expected_scenario_keys: SHIPPING_SIMULATION_EXPECTED_SCENARIO_KEYS,
+    missing_scenario_keys: missingScenarioKeys,
+    unexpected_scenario_keys: unexpectedScenarioKeys,
+    scenario_key_coverage_status: scenarioKeysMatch ? "passed" : "failed",
     scenario_count: scenarios.length,
     passed_count: scenarios.length - scenarioFailures,
     failed_count: failed,

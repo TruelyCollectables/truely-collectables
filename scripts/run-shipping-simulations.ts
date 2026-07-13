@@ -12,6 +12,11 @@ async function main() {
   console.log(
     `${scenarioCoverageMarker} shipping_simulation_expected_scenario_count - expected ${result.expected_scenario_count}, found ${result.scenario_count}`,
   );
+  const scenarioKeyCoverageMarker =
+    result.scenario_key_coverage_status === "passed" ? "PASS" : "FAIL";
+  console.log(
+    `${scenarioKeyCoverageMarker} shipping_simulation_expected_scenario_keys - missing ${result.missing_scenario_keys.join(", ") || "none"}; unexpected ${result.unexpected_scenario_keys.join(", ") || "none"}`,
+  );
 
   for (const scenario of result.scenarios) {
     const marker = scenario.scenario_status === "passed" ? "PASS" : "FAIL";
