@@ -360,6 +360,10 @@ const checks = [
       result.text.includes("npm run launch:production") &&
       result.text.includes("npm run deploy:production") &&
       result.text.includes("npm run smoke:production") &&
+      result.text.includes(
+        "production smoke POSTs `/api/admin/shipping/simulations`",
+      ) &&
+      result.text.includes("no missing or unexpected scenario keys") &&
       result.text.includes("truely-collectables-tt3b.vercel.app"),
   },
   {
