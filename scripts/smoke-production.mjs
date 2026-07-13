@@ -502,6 +502,17 @@ const checks = [
       result.text.includes('"exports"'),
   },
   {
+    name: "shipping provider setup csv",
+    path: "/api/admin/shipping/provider-setup?format=csv",
+    expect: (result) =>
+      result.contentType.includes("text/csv") &&
+      result.text.includes("decisionStatus,decisionSummary,decisionNextAction") &&
+      result.text.includes("liveRequirementBlockers") &&
+      result.text.includes("missingCredentialKeys") &&
+      !result.text.includes("sk_live_") &&
+      !result.text.includes("whsec_"),
+  },
+  {
     name: "shipping provider env template",
     path: "/api/admin/shipping/provider-setup?format=env-template",
     expect: (result) =>
@@ -545,6 +556,7 @@ const queuedFeatureCheckNames = [
   "shipping simulation lab",
   "shipping simulation api",
   "shipping provider setup json",
+  "shipping provider setup csv",
   "shipping provider env template",
   "shipping provider vercel commands",
   "shipping provider operator checklist",

@@ -144,6 +144,7 @@ assertFileIncludes("queued-feature smoke manifest", "scripts/smoke-production.mj
   '"shipping simulation lab"',
   '"shipping simulation api"',
   '"shipping provider setup json"',
+  '"shipping provider setup csv"',
   '"shipping provider env template"',
   '"shipping provider vercel commands"',
   '"shipping provider operator checklist"',
