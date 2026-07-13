@@ -88,6 +88,7 @@ type CoverageClaimRow = {
   claim_type: string | null;
   claim_amount: number | string | null;
   reason: string | null;
+  metadata: Record<string, unknown> | null;
   created_at: string;
 };
 
@@ -574,7 +575,7 @@ export default async function AdminShippingPage() {
     supabase
       .from("order_shipping_coverage_claims")
       .select(
-        "id,order_id,shipping_label_id,provider,provider_claim_id,claim_status,claim_type,claim_amount,reason,created_at",
+        "id,order_id,shipping_label_id,provider,provider_claim_id,claim_status,claim_type,claim_amount,reason,metadata,created_at",
       )
       .eq("store_id", storeId)
       .order("created_at", { ascending: false })
@@ -1536,6 +1537,7 @@ export default async function AdminShippingPage() {
                       claimId={claim.id}
                       claimStatus={claim.claim_status}
                       providerClaimId={claim.provider_claim_id}
+                      claimMetadata={claim.metadata}
                     />
                   </div>
                 ))

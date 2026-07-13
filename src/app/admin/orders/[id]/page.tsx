@@ -155,6 +155,7 @@ type ShippingCoverageClaim = {
   claim_type: string | null;
   claim_amount: number | string | null;
   reason: string | null;
+  metadata: Record<string, unknown> | null;
   submitted_at: string | null;
   resolved_at: string | null;
   created_at: string;
@@ -545,6 +546,7 @@ export default async function AdminOrderDetailPage({
         claim_type,
         claim_amount,
         reason,
+        metadata,
         submitted_at,
         resolved_at,
         created_at
@@ -1258,6 +1260,7 @@ export default async function AdminOrderDetailPage({
                       claimId={claim.id}
                       claimStatus={claim.claim_status}
                       providerClaimId={claim.provider_claim_id}
+                      claimMetadata={claim.metadata}
                     />
                   </div>
                 ))}

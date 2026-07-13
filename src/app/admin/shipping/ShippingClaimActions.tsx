@@ -103,24 +103,113 @@ function normalizeStatus(value: string | null | undefined): ClaimStatus {
   return "draft";
 }
 
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function yesNo(value: unknown) {
+  return value === true ? "Yes" : "No";
+}
+
+function gateTone(evidence: Record<string, unknown>) {
+  if (evidence.deliveredEvidencePresent === true) {
+    return "border-red-200 bg-red-50 text-red-950";
+  }
+
+  if (evidence.claimReviewSupported === true) {
+    return "border-green-200 bg-green-50 text-green-950";
+  }
+
+  return "border-amber-200 bg-amber-50 text-amber-950";
+}
+
 export default function ShippingClaimActions({
   claimId,
   claimStatus,
   providerClaimId,
+  claimMetadata,
 }: {
   claimId: string;
   claimStatus: string | null;
   providerClaimId?: string | null;
+  claimMetadata?: Record<string, unknown> | null;
 }) {
   const normalizedStatus = normalizeStatus(claimStatus);
   const actions = useMemo(
     () => statusActions[normalizedStatus],
     [normalizedStatus],
   );
+  const under20Claim = recordValue(
+    recordValue(claimMetadata).under_20_seller_protection_claim,
+  );
+  const letterTrackEvidence = recordValue(
+    recordValue(claimMetadata).lettertrack_delivery_evidence,
+  );
+  const paymentGate = recordValue(
+    recordValue(claimMetadata).latest_lettertrack_seller_protection_payment_gate,
+  );
+  const paymentGateDecision = recordValue(paymentGate.gate);
+  const isUnder20SellerProtection = under20Claim.eligible === true;
+  const hasLetterTrackEvidence = Object.keys(letterTrackEvidence).length > 0;
   const [pendingStatus, setPendingStatus] = useState("");
   const [message, setMessage] = useState("");
   const [note, setNote] = useState("");
   const [providerId, setProviderId] = useState(providerClaimId || "");
+  const evidenceCard = hasLetterTrackEvidence ? (
+    <div
+      className={`rounded border p-3 text-xs font-semibold ${gateTone(
+        letterTrackEvidence,
+      )}`}
+    >
+      <p className="font-black uppercase tracking-widest">
+        LetterTrack seller-protection gate
+      </p>
+      <dl className="mt-2 grid grid-cols-1 gap-1 sm:grid-cols-2">
+        <div>
+          <dt className="text-[10px] uppercase tracking-widest opacity-70">
+            Delivered evidence
+          </dt>
+          <dd>{yesNo(letterTrackEvidence.deliveredEvidencePresent)}</dd>
+        </div>
+        <div>
+          <dt className="text-[10px] uppercase tracking-widest opacity-70">
+            Claim-review support
+          </dt>
+          <dd>{yesNo(letterTrackEvidence.claimReviewSupported)}</dd>
+        </div>
+        <div>
+          <dt className="text-[10px] uppercase tracking-widest opacity-70">
+            Latest status
+          </dt>
+          <dd>{String(letterTrackEvidence.latestStatus || "Not recorded")}</dd>
+        </div>
+        <div>
+          <dt className="text-[10px] uppercase tracking-widest opacity-70">
+            Latest tracking
+          </dt>
+          <dd>
+            {String(letterTrackEvidence.latestTrackingNumber || "Not recorded")}
+          </dd>
+        </div>
+      </dl>
+      <p className="mt-2">
+        {String(
+          paymentGateDecision.reason ||
+            letterTrackEvidence.claimReviewReason ||
+            "TCOS will re-check latest LetterTrack evidence before Mark Paid.",
+        )}
+      </p>
+    </div>
+  ) : isUnder20SellerProtection ? (
+    <p className="rounded border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-950">
+      Under-$20 seller protection is eligible, but no LetterTrack delivery
+      evidence snapshot is saved on this claim yet. Mark Paid will require latest
+      not-delivered, delivery-exception, or returned evidence unless the internal
+      note contains an explicit override reason.
+    </p>
+  ) : null;
   const packetLink = (
     <a
       href={`/api/admin/shipping-claims/${claimId}/packet`}
@@ -168,6 +257,7 @@ export default function ShippingClaimActions({
     return (
       <div className="mt-3 space-y-2 rounded border bg-neutral-50 p-3">
         {packetLink}
+        {evidenceCard}
         <p className="text-xs font-semibold text-neutral-600">
           Claim is closed. Status changes are locked for audit safety.
         </p>
@@ -178,6 +268,15 @@ export default function ShippingClaimActions({
   return (
     <div className="mt-3 space-y-2 rounded border bg-neutral-50 p-3">
       {packetLink}
+      {evidenceCard}
+      {normalizedStatus === "approved" && isUnder20SellerProtection ? (
+        <p className="rounded border border-neutral-200 bg-white p-3 text-xs font-semibold text-neutral-700">
+          Before Mark Paid: record buyer refund evidence and confirm LetterTrack
+          does not show delivered. If you are overriding delivered or missing
+          evidence, include the word “override” and the reason in the internal
+          note.
+        </p>
+      ) : null}
       <input
         value={providerId}
         onChange={(event) => setProviderId(event.target.value)}
@@ -187,7 +286,11 @@ export default function ShippingClaimActions({
       <textarea
         value={note}
         onChange={(event) => setNote(event.target.value)}
-        placeholder="Internal note / evidence status"
+        placeholder={
+          normalizedStatus === "approved" && isUnder20SellerProtection
+            ? "Internal note / evidence status. For exceptions, include “override” plus the reason."
+            : "Internal note / evidence status"
+        }
         rows={2}
         className="w-full rounded border bg-white px-3 py-2 text-sm"
       />
