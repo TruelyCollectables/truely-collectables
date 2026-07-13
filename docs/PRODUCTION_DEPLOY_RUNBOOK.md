@@ -39,7 +39,7 @@ npm run verify:production
 ```
 
 This runs lint, the InstaComp queue and accuracy simulations, the LetterTrack evidence checks, the thirteen-scenario shipping simulation suite, build, and the production preflight without starting a Vercel deployment.
-It also runs `npm run check:production-guardrails`, which syntax-checks the production deploy/smoke helpers and shipping simulation runner, verifies the package script chain still includes the required shipping/production/launch commands, verifies the named `shipping simulation API smoke contract`, verifies the named `queued-feature smoke manifest` rejects unknown or duplicate check names, verifies the deploy preflight env-flag path, verifies smoke diagnostic redaction, and verifies the clean production domain cannot be confused with the unwanted `tt3b` alias.
+It also runs `npm run check:production-guardrails`, which syntax-checks the production deploy/smoke helpers and shipping simulation runner, verifies the package script chain still includes the required shipping/production/launch commands, verifies the named `shipping simulation API smoke contract`, verifies the named `queued-feature smoke manifest` rejects unknown or duplicate check names, verifies the deploy preflight env-flag path, verifies the live deploy safety contract for Vercel quota messaging, unwanted alias removal, clean-domain aliasing, and post-deploy smoke handoff, verifies smoke diagnostic redaction, and verifies the clean production domain cannot be confused with the unwanted `tt3b` alias.
 
 ## Deploy
 
@@ -67,6 +67,8 @@ The deploy helper:
 - stops with a clear message if Vercel's deployment quota is still capped;
 - removes the unwanted `truely-collectables-tt3b.vercel.app` alias if present;
 - points `https://truely-collectables.vercel.app` at the new production deployment.
+
+The production guardrail suite locks this live deploy behavior in place: quota blocks must mention `api-deployments-free-per-day` and tell the operator to wait for the rolling 24-hour reset, the unwanted alias removal command must stay wired, the clean production alias command must stay wired, and the helper must keep printing the deployed/clean URLs before handing off to `npm run smoke:production`.
 
 If Vercel reports `api-deployments-free-per-day`, wait for the rolling quota window to reset, then rerun the same command.
 
