@@ -304,7 +304,7 @@ const checks = [
       result.text.includes("deployed URL output") &&
       result.text.includes("clean URL output") &&
       result.text.includes("truely-collectables.vercel.app") &&
-      result.text.includes("tt3b"),
+      result.text.includes("truely-collectables-tt3b.vercel.app"),
   },
   {
     name: "launch readiness json",
