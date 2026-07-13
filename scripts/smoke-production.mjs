@@ -378,6 +378,17 @@ const checks = [
       result.text.includes("Seller Protection Payout Blocked"),
   },
   {
+    name: "shipping simulation lab",
+    path: "/admin/shipping/simulations",
+    expect: (result) =>
+      result.text.includes("Shipping Simulation Lab") &&
+      result.text.includes("13") &&
+      result.text.includes(
+        "Under-$20 seller-protection claim status changes save a LetterTrack evidence review audit record before payout.",
+      ) &&
+      result.text.includes("DRY RUN STANDARD ENVELOPE PURCHASE"),
+  },
+  {
     name: "shipping exceptions export",
     path: "/api/admin/shipping/exceptions",
     expect: (result) =>
