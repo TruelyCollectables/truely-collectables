@@ -232,6 +232,8 @@ assertFileIncludes("deploy live safety launch readiness page", "src/app/admin/la
 
 assertFileIncludes("deploy live safety runbook", "docs/PRODUCTION_DEPLOY_RUNBOOK.md", [
   "live deploy safety contract",
+  "/api/admin/launch-readiness",
+  "brief.deploySafety",
   "/api/admin/launch-readiness?format=markdown",
   "Production Deploy Safety",
   "Vercel quota messaging",
@@ -256,6 +258,7 @@ assertFileIncludes("deploy live safety operator manual", "docs/TCOS_OPERATOR_MAN
   "live deploy safety contract",
   "/admin/production-smoke",
   "deploy-live safety contract",
+  "brief.deploySafety",
   "/api/admin/launch-readiness?format=markdown",
   "Production Deploy Safety",
   "Vercel quota messaging",
@@ -273,6 +276,7 @@ assertFileIncludes(
     "live deploy safety contract",
     "/admin/production-smoke",
     "deploy-live safety contract",
+    "brief.deploySafety",
     "/api/admin/launch-readiness?format=markdown",
     "Production Deploy Safety",
     "Vercel quota messaging",
