@@ -180,6 +180,17 @@ assertFileIncludes("deploy live safety handoff bundle", "src/app/api/admin/launc
   "npm run smoke:production",
 ]);
 
+assertFileIncludes("deploy live safety production smoke page", "src/app/admin/production-smoke/page.tsx", [
+  "Deploy live safety contract",
+  "api-deployments-free-per-day",
+  "rolling 24-hour quota reset",
+  "unwanted alias removal",
+  "clean-domain aliasing",
+  "deployed URL output",
+  "clean URL output",
+  "npm run smoke:production",
+]);
+
 assertFileIncludes("deploy live safety runbook", "docs/PRODUCTION_DEPLOY_RUNBOOK.md", [
   "live deploy safety contract",
   "Vercel quota messaging",

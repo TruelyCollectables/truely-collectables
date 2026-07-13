@@ -17,13 +17,14 @@ const smokeChecks = [
   "LetterTrack Standard Envelope CSV export",
   "Clean production domain",
   "Unwanted tt3b alias absence",
+  "Deploy live safety contract with quota messaging, alias cleanup, deployed/clean URL output, and smoke handoff",
 ];
 
 const failureMeanings = [
   {
     label: "Vercel quota capped",
     detail:
-      "If deploy reports api-deployments-free-per-day, wait for the rolling quota window and rerun npm run launch:production.",
+      "If deploy reports api-deployments-free-per-day, wait for the rolling 24-hour quota reset and rerun npm run launch:production.",
   },
   {
     label: "Queued feature missing",
@@ -85,6 +86,18 @@ export default function ProductionSmokePage() {
           <p className="mt-3 text-sm font-bold">
             Clean target: <code>https://truely-collectables.vercel.app</code>.
             The smoke refuses the unwanted <code>tt3b</code> alias as a target.
+          </p>
+        </section>
+
+        <section className="mb-8 rounded border border-amber-200 bg-amber-50 p-6 text-amber-950">
+          <h2 className="text-xl font-black">Deploy live safety contract</h2>
+          <p className="mt-2 max-w-4xl text-sm leading-6">
+            The production deploy helper must keep Vercel quota messaging,
+            unwanted alias removal, clean-domain aliasing, deployed URL output,
+            clean URL output, and the <code>npm run smoke:production</code>{" "}
+            handoff intact. If Vercel returns{" "}
+            <code>api-deployments-free-per-day</code>, wait for the rolling
+            24-hour quota reset before retrying <code>npm run launch:production</code>.
           </p>
         </section>
 

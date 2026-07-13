@@ -346,6 +346,11 @@ const checks = [
       ) &&
       result.text.includes("Queued launch feature failure(s)") &&
       result.text.includes("Unwanted tt3b alias absence") &&
+      result.text.includes("Deploy live safety contract") &&
+      result.text.includes("api-deployments-free-per-day") &&
+      result.text.includes("rolling 24-hour quota reset") &&
+      result.text.includes("deployed URL output") &&
+      result.text.includes("clean URL output") &&
       result.text.includes("npm run launch:production"),
   },
   {
