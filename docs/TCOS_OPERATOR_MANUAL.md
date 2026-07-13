@@ -3218,7 +3218,7 @@ git diff --check
 
 The queue simulation verifies state transitions, leases, idempotency, retries, and completion calculations in the local model. It is not a substitute for applying the migration and running one authenticated upload/scan/recovery test against the target Supabase project.
 
-Use these checks before deploy or after feature changes. Run the relevant payment and shipping simulations after changing money, webhook, reconciliation, seller payout, shipping-policy, provider-adapter, or claim code.
+Use these checks before deploy or after feature changes. Run the relevant payment and shipping simulations after changing money, webhook, reconciliation, seller payout, shipping-policy, provider-adapter, or claim code. `npm run verify:production` includes the LetterTrack evidence simulation so delivered, not-delivered, exception, returned, override, and ignored-provider payout-gate cases are checked before deployment.
 
 Reference:
 
