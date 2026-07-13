@@ -193,6 +193,20 @@ assertFileIncludes("deploy live safety launch readiness markdown", "src/app/api/
   "npm run smoke:production",
 ]);
 
+assertFileIncludes("deploy live safety launch readiness json", "src/app/api/admin/launch-readiness/route.ts", [
+  "deploySafety",
+  "Production Deploy Safety",
+  "quotaBlockCode",
+  "api-deployments-free-per-day",
+  "quotaResetInstruction",
+  "rolling 24-hour quota reset",
+  "cleanProductionDomain",
+  "unwantedAlias",
+  "deployed URL output",
+  "clean URL output",
+  "npm run smoke:production handoff",
+]);
+
 assertFileIncludes("deploy live safety production smoke page", "src/app/admin/production-smoke/page.tsx", [
   "Deploy live safety contract",
   "api-deployments-free-per-day",

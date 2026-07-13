@@ -452,6 +452,23 @@ async function buildBrief(origin: string | null = null) {
       ...operatorStatus,
       url: absoluteUrl(origin, operatorStatus.href),
     },
+    deploySafety: {
+      section: "Production Deploy Safety",
+      cleanProductionDomain: "https://truely-collectables.vercel.app",
+      unwantedAlias: "truely-collectables-tt3b.vercel.app",
+      quotaBlockCode: "api-deployments-free-per-day",
+      quotaResetInstruction:
+        "Wait for the rolling 24-hour quota reset before retrying npm run launch:production.",
+      contract: [
+        "Vercel quota messaging",
+        "unwanted alias removal",
+        "clean-domain aliasing",
+        "deployed URL output",
+        "clean URL output",
+        "npm run smoke:production handoff",
+      ],
+      smokeCommand: "npm run smoke:production",
+    },
     summary,
     payment: {
       mode: paymentReport.paymentMode,

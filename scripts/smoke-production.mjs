@@ -305,7 +305,13 @@ const checks = [
     path: "/api/admin/launch-readiness",
     expect: (result) =>
       result.contentType.includes("application/json") &&
-      result.text.includes('"brief"'),
+      result.text.includes('"brief"') &&
+      result.text.includes('"deploySafety"') &&
+      result.text.includes('"quotaBlockCode":"api-deployments-free-per-day"') &&
+      result.text.includes("rolling 24-hour quota reset") &&
+      result.text.includes("deployed URL output") &&
+      result.text.includes("clean URL output") &&
+      result.text.includes("npm run smoke:production handoff"),
   },
   {
     name: "launch readiness markdown",
