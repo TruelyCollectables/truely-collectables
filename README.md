@@ -38,7 +38,7 @@ npm run verify:production
 npm run launch:production
 ```
 
-The verify helper runs lint, InstaComp queue and accuracy simulations, build, production guardrail checks, and GitHub/clean-worktree preflight without starting a Vercel deploy. The launch helper runs that same verification first, then deploys production and runs the production smoke if the deploy succeeds. The deploy live safety contract verifies Git state, keeps Vercel quota messaging clear, handles the clean Vercel production alias, removes the unwanted `tt3b` alias if it appears, prints the deployed and clean URLs, and hands off to `npm run smoke:production`.
+The verify helper runs lint, InstaComp queue and accuracy simulations, build, production guardrail checks, and GitHub/clean-worktree preflight without starting a Vercel deploy. The launch helper runs that same verification first, then deploys production and runs the production smoke if the deploy succeeds. The deploy live safety contract verifies Git state, keeps Vercel quota messaging clear, handles the clean Vercel production alias, removes the unwanted `truely-collectables-tt3b.vercel.app` alias if it appears, prints the deployed and clean URLs, and hands off to `npm run smoke:production`.
 
 The protected live deploy sequence removes the unwanted alias, sets the clean production alias, prints `DEPLOYED_PRODUCTION=`, prints `CLEAN_PRODUCTION=https://`, then prints the smoke handoff command.
 
@@ -74,7 +74,7 @@ That command is deploy-safe: it runs lint, build, production guardrail checks, a
 
 - Keep `https://truely-collectables.vercel.app` as the clean production domain.
 - Do not restore or rely on `truely-collectables-tt3b.vercel.app`.
-- Do not override `SMOKE_BASE_URL` to the `tt3b` alias; production smoke refuses that host.
+- Do not override `SMOKE_BASE_URL` to `truely-collectables-tt3b.vercel.app`; production smoke refuses that host.
 - Commit and push all launch-bound work before production deploy.
 - Use `npm run launch:production` only when Vercel deploy quota is available and a real production deploy is intended.
 - If Vercel reports `api-deployments-free-per-day`, wait for the rolling 24-hour quota reset before retrying the launch helper.
@@ -89,6 +89,6 @@ Use the checked production launch helper:
 npm run launch:production
 ```
 
-That command runs lint, build, production guardrail checks, GitHub/clean-worktree preflight, production deploy, clean-domain aliasing, unwanted `tt3b` alias removal, deployed/clean URL output, and production smoke in order.
+That command runs lint, build, production guardrail checks, GitHub/clean-worktree preflight, production deploy, clean-domain aliasing, unwanted `truely-collectables-tt3b.vercel.app` alias removal, deployed/clean URL output, and production smoke in order.
 
 See [Production Deploy Runbook](docs/PRODUCTION_DEPLOY_RUNBOOK.md) for details.

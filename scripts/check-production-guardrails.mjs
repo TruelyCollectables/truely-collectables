@@ -409,7 +409,7 @@ assertFileIncludes("deploy live safety README", "README.md", [
   "/api/admin/launch-readiness?format=markdown",
   "Production Deploy Safety",
   "Vercel quota messaging",
-  "unwanted `tt3b` alias",
+  "unwanted `truely-collectables-tt3b.vercel.app` alias",
   "deployed and clean URLs",
   "protected live deploy sequence",
   "removes the unwanted alias",
