@@ -575,7 +575,7 @@ export default async function AdminShippingPage() {
       )
       .eq("store_id", storeId)
       .order("occurred_at", { ascending: false })
-      .limit(50),
+      .limit(500),
     supabase
       .from("order_shipping_coverage_claims")
       .select(

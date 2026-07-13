@@ -533,7 +533,7 @@ export default async function AdminOrderDetailPage({
       .eq("order_id", typedOrder.id)
       .eq("store_id", storeId)
       .order("occurred_at", { ascending: false })
-      .limit(20);
+      .limit(100);
   const shippingTrackingEvents = shippingTrackingEventsError
     ? []
     : ((shippingTrackingEventsData || []) as ShippingTrackingEvent[]);
