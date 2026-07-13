@@ -1159,9 +1159,9 @@ export default async function LaunchReadinessPage() {
               <code className="rounded bg-white px-1 py-0.5">
                 {DEPLOY_SAFETY.quotaBlockCode}
               </code>
-              , wait for the rolling 24-hour quota reset and rerun the same
-              deploy command. The deploy live safety contract keeps Vercel quota
-              messaging, unwanted alias removal, clean-domain aliasing,{" "}
+              , {DEPLOY_SAFETY.quotaResetInstruction} The deploy live safety
+              contract keeps Vercel quota messaging, unwanted alias removal,
+              clean-domain aliasing,{" "}
               <span>deployed URL output</span>, <span>clean URL output</span>,
               and the{" "}
               <code className="rounded bg-white px-1 py-0.5">

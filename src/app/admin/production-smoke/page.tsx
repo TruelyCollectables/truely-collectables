@@ -24,7 +24,7 @@ const smokeChecks = [
 const failureMeanings = [
   {
     label: "Vercel quota capped",
-    detail: `If deploy reports ${DEPLOY_SAFETY.quotaBlockCode}, wait for the rolling 24-hour quota reset and rerun npm run launch:production.`,
+    detail: `If deploy reports ${DEPLOY_SAFETY.quotaBlockCode}, ${DEPLOY_SAFETY.quotaResetInstruction}`,
   },
   {
     label: "Queued feature missing",
@@ -97,9 +97,8 @@ export default function ProductionSmokePage() {
             unwanted alias removal, clean-domain aliasing, deployed URL output,
             clean URL output, and the <code>{DEPLOY_SAFETY.smokeCommand}</code>{" "}
             handoff intact. If Vercel returns{" "}
-            <code>{DEPLOY_SAFETY.quotaBlockCode}</code>, wait for the rolling
-            24-hour quota reset before retrying{" "}
-            <code>npm run launch:production</code>.
+            <code>{DEPLOY_SAFETY.quotaBlockCode}</code>,{" "}
+            {DEPLOY_SAFETY.quotaResetInstruction}
           </p>
           <h3 className="mt-5 font-black">Protected deploy sequence</h3>
           <ol className="mt-3 grid gap-2 text-sm font-semibold md:grid-cols-5">
