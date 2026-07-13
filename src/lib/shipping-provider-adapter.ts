@@ -78,7 +78,7 @@ function suffix(input: string) {
 
 function providerForMethod(method: ShippingMethod) {
   if (method === "STANDARD_ENVELOPE") {
-    return process.env.TCOS_STANDARD_ENVELOPE_PROVIDER || "TCOS Dry-Run IMb";
+    return process.env.TCOS_STANDARD_ENVELOPE_PROVIDER || "LetterTrack / USPS IMb";
   }
 
   return (
@@ -90,7 +90,9 @@ function providerForMethod(method: ShippingMethod) {
 }
 
 function serviceForMethod(method: ShippingMethod) {
-  if (method === "STANDARD_ENVELOPE") return "TCOS Standard Envelope";
+  if (method === "STANDARD_ENVELOPE") {
+    return "USPS First-Class Letter + LetterTrack IMb";
+  }
   if (method === "PRIORITY_MAIL") return "USPS Priority Mail";
   return "USPS Ground Advantage";
 }
@@ -124,8 +126,12 @@ export function getShippingProviderAdapterProfile(
   const method = safeMethod(methodInput);
   const mode = purchaseMode();
   const standardEnvelopeCredentialGroups = [
-    ["TCOS_STANDARD_ENVELOPE_PROVIDER"],
-    ["TCOS_STANDARD_ENVELOPE_API_KEY", "IMB_PROVIDER_API_KEY"],
+    ["TCOS_STANDARD_ENVELOPE_PROVIDER", "LETTERTRACK_ACCOUNT_CONFIGURED"],
+    [
+      "LETTERTRACK_IMPORT_WORKFLOW_APPROVED",
+      "TCOS_STANDARD_ENVELOPE_API_KEY",
+      "IMB_PROVIDER_API_KEY",
+    ],
   ];
   const parcelCredentialGroups = [
     ["TCOS_PARCEL_LABEL_PROVIDER", "EASYPOST_API_KEY", "SHIPPO_API_TOKEN"],
@@ -156,7 +162,7 @@ export function getShippingProviderAdapterProfile(
     carrier: carrierForMethod(method),
     adapterKey:
       method === "STANDARD_ENVELOPE"
-        ? "standard_envelope_imb"
+        ? "standard_envelope_lettertrack_imb"
         : "usps_parcel_label",
     adapterStatus: mode === "live" ? "live_blocked" : "dry_run_only",
     livePurchaseSupported: false,
@@ -253,6 +259,10 @@ export async function purchaseShippingLabel(
       standard_envelope_estimated_ounces:
         request.standardEnvelopeEstimatedOunces || null,
       note: "This payload proves the purchase pipeline without contacting a live provider.",
+      live_handoff:
+        method === "STANDARD_ENVELOPE"
+          ? "Use /api/admin/shipping/lettertrack-export to create the LetterTrack import CSV, then record the assigned IMb back into TCOS."
+          : "Record the external parcel label and Coverage policy back into TCOS.",
     },
   };
 }

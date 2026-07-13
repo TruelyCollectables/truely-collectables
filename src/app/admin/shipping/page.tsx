@@ -637,6 +637,13 @@ export default async function AdminShippingPage() {
   const pendingPurchases = labels.filter((row) =>
     ["purchase_pending", "rate_selected"].includes(row.label_status || ""),
   );
+  const letterTrackExportableLabels = labels.filter(
+    (row) =>
+      row.resolved_shipping_method === "STANDARD_ENVELOPE" &&
+      ["planned", "purchase_pending", "rate_selected"].includes(
+        row.label_status || "",
+      ),
+  );
   const purchasedLabels = labels.filter((row) =>
     ["purchased", "printed"].includes(row.label_status || ""),
   );
@@ -823,6 +830,18 @@ export default async function AdminShippingPage() {
               </p>
             </div>
             <div className="max-w-xs">
+              <a
+                href="/api/admin/shipping/lettertrack-export"
+                className="inline-flex rounded bg-blue-950 px-4 py-2 font-black text-white"
+              >
+                Export LetterTrack CSV
+              </a>
+              <p className="mt-1 text-xs font-semibold text-neutral-500">
+                Standard Envelope / IMb import file for under-$20 card orders
+                waiting on real LetterTrack labels.
+              </p>
+            </div>
+            <div className="max-w-xs">
               <div className="flex flex-wrap gap-2">
                 <a
                   href="/api/admin/shipping/provider-setup"
@@ -887,9 +906,13 @@ export default async function AdminShippingPage() {
           </div>
         </div>
 
-        <section className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-11">
+        <section className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-12">
           <Metric label="Planned Labels" value={plannedLabels.length} />
           <Metric label="Purchase Pending" value={pendingPurchases.length} />
+          <Metric
+            label="LetterTrack Export"
+            value={letterTrackExportableLabels.length}
+          />
           <Metric label="Purchased / Printed" value={purchasedLabels.length} />
           <Metric label="Dry-Run Purchased" value={dryRunPurchasedLabels.length} />
           <Metric label="Dry-Run Cleanup" value={dryRunCleanupRows.length} />

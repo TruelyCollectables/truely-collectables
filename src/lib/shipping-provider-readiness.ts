@@ -66,10 +66,10 @@ export function getShippingProviderReadiness(): ShippingProviderReadinessItem[] 
       detail:
         standardEnvelopeProfile.missingCredentialKeys.length === 0
           ? `${standardEnvelopeProfile.provider} is configured for TCOS Standard Envelope / IMb shipping.`
-          : "TCOS can price and audit Standard Envelope orders, but cannot buy real IMb envelope labels until the provider account is configured.",
+          : "TCOS can price and audit Standard Envelope orders, and can export a LetterTrack import CSV, but cannot treat the lane as operational until the LetterTrack account/import workflow or a future IMb API provider is approved.",
       action:
         standardEnvelopeProfile.missingCredentialKeys.length === 0
-          ? "Wire the provider purchase adapter into the order shipping cockpit."
+          ? "Use the LetterTrack export from the shipping cockpit, then record assigned IMb references back into TCOS."
           : `Set ${standardEnvelopeProfile.missingCredentialKeys.join(", ")} in production secrets.`,
       missing: standardEnvelopeProfile.missingCredentialKeys,
     },

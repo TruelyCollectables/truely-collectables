@@ -9,9 +9,13 @@ import {
   purchaseShippingLabel,
 } from "./shipping-provider-adapter";
 import { buildShippingProviderSetupPacket } from "./shipping-provider-setup";
+import {
+  buildLetterTrackExport,
+  letterTrackCsvContent,
+} from "./lettertrack-export";
 import { buildUnder20SellerProtectionClaimSummary } from "./under20-seller-protection-claims";
 
-export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-12.2";
+export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-12.3";
 
 export type ShippingSimulationScenario = {
   scenario_key: string;
@@ -207,7 +211,7 @@ export async function runShippingSimulationSuite() {
   scenarios.push({
     scenario_key: "shipping_adapter_profiles_are_auditable",
     scenario_status: pass(
-      standardEnvelopeProfile.adapterKey === "standard_envelope_imb" &&
+      standardEnvelopeProfile.adapterKey === "standard_envelope_lettertrack_imb" &&
         groundAdapterProfile.adapterKey === "usps_parcel_label" &&
         standardEnvelopeProfile.livePurchaseSupported === false &&
         groundAdapterProfile.manualPurchaseRequired === true &&
@@ -218,6 +222,62 @@ export async function runShippingSimulationSuite() {
     assertions: {
       standard_envelope: standardEnvelopeProfile,
       ground_advantage: groundAdapterProfile,
+    },
+  });
+
+  const letterTrackExport = buildLetterTrackExport({
+    exportedAt: "2026-07-12T12:00:00.000Z",
+    labels: [
+      {
+        id: "sim-lettertrack-label-001",
+        order_id: 1003,
+        label_status: "planned",
+        requested_shipping_method: "STANDARD_ENVELOPE",
+        resolved_shipping_method: "STANDARD_ENVELOPE",
+        coverage_amount: 18.75,
+        coverage_status: "required_at_label_purchase",
+        metadata: {
+          standard_envelope_estimated_oz: 2,
+        },
+        created_at: "2026-07-12T11:00:00.000Z",
+      },
+    ],
+    ordersById: new Map([
+      [
+        1003,
+        {
+          id: 1003,
+          customer_email: "collector@example.com",
+          customer_name: "Collector Example",
+          shipping_name: "Collector Example",
+          shipping_address_line1: "123 Cardboard Ct",
+          shipping_address_line2: "",
+          shipping_city: "Denver",
+          shipping_state: "CO",
+          shipping_postal_code: "80202",
+          shipping_country: "US",
+          subtotal: 18.75,
+          total: 19.82,
+          item_count: 2,
+        },
+      ],
+    ]),
+  });
+  const letterTrackCsv = letterTrackCsvContent(letterTrackExport.rows);
+  scenarios.push({
+    scenario_key: "lettertrack_standard_envelope_export",
+    scenario_status: pass(
+      letterTrackExport.rows.length === 1 &&
+        letterTrackExport.skipped.length === 0 &&
+        letterTrackCsv.includes("LetterTrack / USPS Informed Visibility IMb") &&
+        letterTrackCsv.includes("TCOS-1003"),
+    ),
+    detail:
+      "Standard Envelope labels can be exported to a LetterTrack import CSV with recipient address, order reference, value, and IMb recording instructions.",
+    assertions: {
+      row_count: letterTrackExport.rows.length,
+      skipped_count: letterTrackExport.skipped.length,
+      csv_preview: letterTrackCsv.split("\n").slice(0, 2),
     },
   });
 

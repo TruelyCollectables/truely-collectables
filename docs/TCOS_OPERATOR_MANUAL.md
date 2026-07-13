@@ -4333,7 +4333,9 @@ TCOS currently has only a dry-run shipping provider adapter. No live postage-pro
 - Ground Advantage / Priority
 - Shipment Coverage
 
-The checklist displays provider names, service/carrier labels, purchase mode, live-purchase support state, and required secret names. It does not display secret values and it does not call any live provider.
+The checklist displays provider names, service/carrier labels, purchase mode, live-purchase support state, and required secret names. It does not display secret values and it does not call any live provider. Standard Envelope currently uses the LetterTrack / USPS IMb handoff path: TCOS can export eligible Standard Envelope rows as a LetterTrack import CSV, but the operator must import/print in LetterTrack and then record the assigned IMb or tracking reference back into TCOS before marking the order shipped.
+
+`/admin/shipping` exposes `Export LetterTrack CSV`, which downloads `/api/admin/shipping/lettertrack-export`. The export includes only Standard Envelope labels in `planned`, `purchase_pending`, or `rate_selected` status. Rows missing recipient name, address line 1, city, state, or postal code are skipped so the import file is not polluted with unshippable envelopes. LetterTrack provides IMb delivery evidence; TCOS Under-$20 Seller Protection remains internal, item-only, optional per seller shipment, and not third-party insurance.
 
 Provider setup packets are available from `/admin/shipping`:
 
@@ -4471,7 +4473,7 @@ The shipping queue also supports priority sorting, external void records, claim 
 
 ### Shipping simulation runbook
 
-Open `/admin/shipping/simulations` and run the suite. Require all nine policy/adapter assertions:
+Open `/admin/shipping/simulations` and run the suite. Require all ten policy/adapter assertions:
 
 - `$19.99` and 3 oz stays Standard Envelope
 - `$20.01` forces Ground Advantage
@@ -4481,6 +4483,7 @@ Open `/admin/shipping/simulations` and run the suite. Require all nine policy/ad
 - non-opted-in under-$20 Standard Envelope claims reimburse `$0.00` and leave refund liability with the seller
 - Coverage is required for parcel shipping
 - shipping adapter profiles expose provider, carrier, credential, Coverage, live-support, and manual-fallback state
+- Standard Envelope labels can export to a LetterTrack import CSV with recipient address, order reference, declared value, and IMb recording instructions
 - dry-run Standard Envelope and Ground Advantage adapter purchases behave as dry runs
 
 The dry-run Standard Envelope purchase assertion uses the active Standard Envelope rate table at run time, so it should follow the July 12, 2026 rate change without hardcoded stale postage.

@@ -172,14 +172,18 @@ function secretConfigured(key: string) {
 
 const providerCredentialGroupDefinitions = [
   {
-    title: "Standard Envelope / IMb provider name",
-    note: "Required for real Standard Envelope label purchase.",
-    keys: ["TCOS_STANDARD_ENVELOPE_PROVIDER"],
+    title: "Standard Envelope / IMb provider account",
+    note: "LetterTrack is the current Standard Envelope / USPS IMb handoff path. Set either the provider name or the explicit account-configured flag.",
+    keys: ["TCOS_STANDARD_ENVELOPE_PROVIDER", "LETTERTRACK_ACCOUNT_CONFIGURED"],
   },
   {
-    title: "Standard Envelope / IMb API key",
-    note: "Choose the key name used by the approved Standard Envelope adapter.",
-    keys: ["TCOS_STANDARD_ENVELOPE_API_KEY", "IMB_PROVIDER_API_KEY"],
+    title: "Standard Envelope / IMb integration proof",
+    note: "Approve the LetterTrack CSV import workflow now, or configure a future IMb provider API key when a true API adapter is selected.",
+    keys: [
+      "LETTERTRACK_IMPORT_WORKFLOW_APPROVED",
+      "TCOS_STANDARD_ENVELOPE_API_KEY",
+      "IMB_PROVIDER_API_KEY",
+    ],
   },
   {
     title: "Ground Advantage / Priority label provider",
@@ -286,7 +290,7 @@ function liveShippingRequirements(params: {
       detail:
         "Standard Envelope and parcel labels need test-mode quote, buy, print/download, void, duplicate prevention, and idempotency evidence.",
       action:
-        "Run provider test-mode label scenarios and set TCOS_LIVE_SHIPPING_LABEL_TESTS_PASSED only after evidence is saved.",
+        "Run LetterTrack CSV import/IMb recording tests plus provider parcel-label scenarios, then set TCOS_LIVE_SHIPPING_LABEL_TESTS_PASSED only after evidence is saved.",
       evidence: ["TCOS_LIVE_SHIPPING_LABEL_TESTS_PASSED=true"],
     },
     {
