@@ -50,6 +50,12 @@ runExpectedSuccess("smoke helper syntax check", [
   "--check",
   "scripts/smoke-production.mjs",
 ]);
+runExpectedSuccess("shipping simulation runner syntax check", [
+  "--import",
+  "tsx",
+  "--check",
+  "scripts/run-shipping-simulations.ts",
+]);
 runExpectedSuccess(
   "smoke diagnostic redaction self-test",
   ["scripts/smoke-production.mjs", "--self-test-redaction"],
