@@ -24,8 +24,7 @@ const smokeChecks = [
 const failureMeanings = [
   {
     label: "Vercel quota capped",
-    detail:
-      "If deploy reports api-deployments-free-per-day, wait for the rolling 24-hour quota reset and rerun npm run launch:production.",
+    detail: `If deploy reports ${DEPLOY_SAFETY.quotaBlockCode}, wait for the rolling 24-hour quota reset and rerun npm run launch:production.`,
   },
   {
     label: "Queued feature missing",
@@ -85,8 +84,9 @@ export default function ProductionSmokePage() {
             {`npm run launch:production`}
           </pre>
           <p className="mt-3 text-sm font-bold">
-            Clean target: <code>https://truely-collectables.vercel.app</code>.
-            The smoke refuses the unwanted <code>tt3b</code> alias as a target.
+            Clean target: <code>{DEPLOY_SAFETY.cleanProductionDomain}</code>.
+            The smoke refuses the unwanted{" "}
+            <code>{DEPLOY_SAFETY.unwantedAlias}</code> alias as a target.
           </p>
         </section>
 
@@ -95,10 +95,11 @@ export default function ProductionSmokePage() {
           <p className="mt-2 max-w-4xl text-sm leading-6">
             The production deploy helper must keep Vercel quota messaging,
             unwanted alias removal, clean-domain aliasing, deployed URL output,
-            clean URL output, and the <code>npm run smoke:production</code>{" "}
+            clean URL output, and the <code>{DEPLOY_SAFETY.smokeCommand}</code>{" "}
             handoff intact. If Vercel returns{" "}
-            <code>api-deployments-free-per-day</code>, wait for the rolling
-            24-hour quota reset before retrying <code>npm run launch:production</code>.
+            <code>{DEPLOY_SAFETY.quotaBlockCode}</code>, wait for the rolling
+            24-hour quota reset before retrying{" "}
+            <code>npm run launch:production</code>.
           </p>
           <h3 className="mt-5 font-black">Protected deploy sequence</h3>
           <ol className="mt-3 grid gap-2 text-sm font-semibold md:grid-cols-5">

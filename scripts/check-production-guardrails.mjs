@@ -329,7 +329,10 @@ assertFileIncludes("deploy live safety launch readiness json source", "src/lib/d
 
 assertFileIncludes("deploy live safety production smoke page", "src/app/admin/production-smoke/page.tsx", [
   "Deploy live safety contract",
-  "api-deployments-free-per-day",
+  "DEPLOY_SAFETY.quotaBlockCode",
+  "DEPLOY_SAFETY.cleanProductionDomain",
+  "DEPLOY_SAFETY.unwantedAlias",
+  "DEPLOY_SAFETY.smokeCommand",
   "rolling 24-hour quota reset",
   "unwanted alias removal",
   "clean-domain aliasing",
@@ -337,11 +340,13 @@ assertFileIncludes("deploy live safety production smoke page", "src/app/admin/pr
   "DEPLOY_SAFETY.sequence",
   "deployed URL output",
   "clean URL output",
-  "npm run smoke:production",
 ]);
 
 assertFileIncludes("deploy live safety launch readiness page", "src/app/admin/launch-readiness/page.tsx", [
-  "api-deployments-free-per-day",
+  "DEPLOY_SAFETY.quotaBlockCode",
+  "DEPLOY_SAFETY.cleanProductionDomain",
+  "DEPLOY_SAFETY.unwantedAlias",
+  "DEPLOY_SAFETY.smokeCommand",
   "rolling 24-hour quota reset",
   "deploy live safety contract",
   "Vercel quota",
@@ -351,7 +356,6 @@ assertFileIncludes("deploy live safety launch readiness page", "src/app/admin/la
   "DEPLOY_SAFETY.sequence",
   "deployed URL output",
   "clean URL output",
-  "npm run smoke:production",
 ]);
 
 assertFileIncludes("deploy live safety runbook", "docs/PRODUCTION_DEPLOY_RUNBOOK.md", [

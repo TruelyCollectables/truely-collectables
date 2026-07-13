@@ -1157,7 +1157,7 @@ export default async function LaunchReadinessPage() {
               Use this after the GitHub stack is pushed and Vercel accepts new
               production deployments. If Vercel reports{" "}
               <code className="rounded bg-white px-1 py-0.5">
-                api-deployments-free-per-day
+                {DEPLOY_SAFETY.quotaBlockCode}
               </code>
               , wait for the rolling 24-hour quota reset and rerun the same
               deploy command. The deploy live safety contract keeps Vercel quota
@@ -1165,7 +1165,7 @@ export default async function LaunchReadinessPage() {
               <span>deployed URL output</span>, <span>clean URL output</span>,
               and the{" "}
               <code className="rounded bg-white px-1 py-0.5">
-                npm run smoke:production
+                {DEPLOY_SAFETY.smokeCommand}
               </code>{" "}
               handoff intact.
             </p>
@@ -1237,12 +1237,13 @@ npm run preflight:production`}
             </p>
             <pre className="mt-3 overflow-x-auto rounded bg-neutral-950 p-3 text-xs text-neutral-50">
               {`npm run deploy:production
-npm run smoke:production`}
+${DEPLOY_SAFETY.smokeCommand}`}
             </pre>
             <p className="mt-3 text-sm font-semibold">
               The deploy helper keeps the clean production alias on{" "}
-              <code>truely-collectables.vercel.app</code> and removes the
-              unwanted <code>tt3b</code> alias if it appears.
+              <code>{DEPLOY_SAFETY.cleanProductionDomain}</code> and removes the
+              unwanted <code>{DEPLOY_SAFETY.unwantedAlias}</code> alias if it
+              appears.
             </p>
           </div>
         </div>
