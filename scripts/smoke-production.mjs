@@ -569,6 +569,11 @@ if (failed.length > 0) {
     console.error(
       "Queued launch features are not visible on production yet. If Vercel quota recently blocked deployment, rerun npm run launch:production once quota resets. If deployment already succeeded, rerun npm run smoke:production.",
     );
+    console.error(
+      `Queued launch feature failure(s): ${queuedFeatureFailures
+        .map((result) => result.name)
+        .join(", ")}`,
+    );
   }
 
   console.error(
