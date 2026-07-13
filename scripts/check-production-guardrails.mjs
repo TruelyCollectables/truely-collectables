@@ -206,6 +206,12 @@ assertFileIncludes("deploy helper quota block defaults", "scripts/deploy-product
   "rerun npm run launch:production",
 ]);
 
+assertFileIncludes("deploy helper parse diagnostics", "scripts/deploy-production.mjs", [
+  "clean production domain (${cleanDomain})",
+  "unwanted alias (${unwantedAlias})",
+  "If quota is capped, wait and retry",
+]);
+
 assertFileIncludes("deploy helper smoke handoff", "scripts/deploy-production.mjs", [
   "DEPLOYED_PRODUCTION=",
   "CLEAN_PRODUCTION=https://",

@@ -155,7 +155,7 @@ const deploymentUrl = parseDeploymentUrl(deployOutput);
 
 if (!deploymentUrl) {
   throw new Error(
-    `Could not parse a Vercel deployment URL that is not the clean production domain or unwanted alias. If quota is capped, wait and retry.\n${deployOutput}`,
+    `Could not parse a Vercel deployment URL that is not the clean production domain (${cleanDomain}) or unwanted alias (${unwantedAlias}). If quota is capped, wait and retry.\n${deployOutput}`,
   );
 }
 
