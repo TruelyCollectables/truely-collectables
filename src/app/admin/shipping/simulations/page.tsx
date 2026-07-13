@@ -55,9 +55,13 @@ export default async function ShippingSimulationsPage() {
           </p>
         </section>
 
-        <section className="grid gap-3 md:grid-cols-4">
+        <section className="grid gap-3 md:grid-cols-5">
           <Metric label="Suite" value={result.suite_version} />
           <Metric label="Status" value={label(result.run_status)} />
+          <Metric
+            label="Scenario Coverage"
+            value={`${result.scenario_count}/${result.expected_scenario_count}`}
+          />
           <Metric label="Passed" value={String(result.passed_count)} />
           <Metric label="Failed" value={String(result.failed_count)} />
         </section>

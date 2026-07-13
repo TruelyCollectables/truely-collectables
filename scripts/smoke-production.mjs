@@ -383,6 +383,7 @@ const checks = [
     path: "/admin/shipping/simulations",
     expect: (result) =>
       result.text.includes("Shipping Simulation Lab") &&
+      result.text.includes("Scenario Coverage") &&
       result.text.includes("13") &&
       result.text.includes(
         "Under-$20 seller-protection claim status changes save a LetterTrack evidence review audit record before payout.",

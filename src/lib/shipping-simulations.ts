@@ -21,7 +21,8 @@ import {
 } from "./lettertrack-delivery-evidence";
 import { buildUnder20SellerProtectionClaimSummary } from "./under20-seller-protection-claims";
 
-export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-12.6";
+export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-12.7";
+export const SHIPPING_SIMULATION_EXPECTED_SCENARIO_COUNT = 13;
 
 export type ShippingSimulationScenario = {
   scenario_key: string;
@@ -448,9 +449,12 @@ export async function runShippingSimulationSuite() {
     },
   });
 
-  const failed = scenarios.filter(
+  const scenarioFailures = scenarios.filter(
     (scenario) => scenario.scenario_status === "failed",
   ).length;
+  const scenarioCountMatches =
+    scenarios.length === SHIPPING_SIMULATION_EXPECTED_SCENARIO_COUNT;
+  const failed = scenarioFailures + (scenarioCountMatches ? 0 : 1);
   const runStatus = failed > 0 ? "failed" : "passed";
   const requirementBlockers = providerSetup.liveRequirements
     .filter((requirement) => requirement.status !== "ready")
@@ -459,6 +463,11 @@ export async function runShippingSimulationSuite() {
     new Set([
       ...requirementBlockers,
       ...providerSetup.decision.blockers,
+      ...(!scenarioCountMatches
+        ? [
+            `shipping simulation scenario count changed: expected ${SHIPPING_SIMULATION_EXPECTED_SCENARIO_COUNT}, found ${scenarios.length}`,
+          ]
+        : []),
       ...(runStatus === "failed" ? ["shipping simulation suite failed"] : []),
     ]),
   );
@@ -491,8 +500,10 @@ export async function runShippingSimulationSuite() {
   return {
     suite_version: SHIPPING_SIMULATION_SUITE_VERSION,
     run_status: runStatus,
+    expected_scenario_count: SHIPPING_SIMULATION_EXPECTED_SCENARIO_COUNT,
+    scenario_coverage_status: scenarioCountMatches ? "passed" : "failed",
     scenario_count: scenarios.length,
-    passed_count: scenarios.length - failed,
+    passed_count: scenarios.length - scenarioFailures,
     failed_count: failed,
     live_approval: liveApproval,
     scenarios,

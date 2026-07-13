@@ -4,7 +4,13 @@ async function main() {
   const result = await runShippingSimulationSuite();
 
   console.log(
-    `Shipping simulation suite ${result.suite_version}: ${result.passed_count}/${result.scenario_count} passed.`,
+    `Shipping simulation suite ${result.suite_version}: ${result.passed_count}/${result.scenario_count} passed; expected ${result.expected_scenario_count} scenarios.`,
+  );
+
+  const scenarioCoverageMarker =
+    result.scenario_coverage_status === "passed" ? "PASS" : "FAIL";
+  console.log(
+    `${scenarioCoverageMarker} shipping_simulation_expected_scenario_count - expected ${result.expected_scenario_count}, found ${result.scenario_count}`,
   );
 
   for (const scenario of result.scenarios) {
