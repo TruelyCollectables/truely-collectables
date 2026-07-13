@@ -1,6 +1,27 @@
 import { spawnSync } from "node:child_process";
+import fs from "node:fs";
 
 const node = process.execPath;
+const packageJson = JSON.parse(fs.readFileSync("package.json", "utf8"));
+const scripts = packageJson.scripts || {};
+
+function assertScriptIncludes(scriptName, expectedParts) {
+  const script = scripts[scriptName];
+
+  if (!script) {
+    throw new Error(`package.json is missing required script: ${scriptName}`);
+  }
+
+  const missing = expectedParts.filter((part) => !script.includes(part));
+
+  if (missing.length > 0) {
+    throw new Error(
+      `${scriptName} is missing required command(s): ${missing.join(", ")}\nActual: ${script}`,
+    );
+  }
+
+  console.log(`PASS ${scriptName} includes ${expectedParts.join(", ")}`);
+}
 
 function runExpectedSuccess(name, args, env = {}) {
   const result = spawnSync(node, args, {
@@ -55,6 +76,21 @@ runExpectedSuccess("shipping simulation runner syntax check", [
   "tsx",
   "--check",
   "scripts/run-shipping-simulations.ts",
+]);
+assertScriptIncludes("verify:shipping", [
+  "simulate:lettertrack-evidence",
+  "simulate:shipping",
+]);
+assertScriptIncludes("verify:production", [
+  "verify:instacomp",
+  "verify:shipping",
+  "check:production-guardrails",
+  "preflight:production",
+]);
+assertScriptIncludes("launch:production", [
+  "verify:production",
+  "deploy:production",
+  "smoke:production",
 ]);
 runExpectedSuccess(
   "smoke diagnostic redaction self-test",
