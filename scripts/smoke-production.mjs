@@ -344,6 +344,7 @@ const checks = [
       result.text.includes(
         "Shipping simulation API POST with scenario count, manifest, and drift-field checks",
       ) &&
+      result.text.includes("Queued launch feature failure(s)") &&
       result.text.includes("Unwanted tt3b alias absence") &&
       result.text.includes("npm run launch:production"),
   },

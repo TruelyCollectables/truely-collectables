@@ -28,7 +28,7 @@ const failureMeanings = [
   {
     label: "Queued feature missing",
     detail:
-      "If smoke says queued launch features are not visible, production is behind GitHub. Deploy the pushed stack again when Vercel accepts it.",
+      "If smoke says queued launch features are not visible, production is behind GitHub. Read the Queued launch feature failure(s) line for the exact checks, then deploy the pushed stack again when Vercel accepts it.",
   },
   {
     label: "tt3b responds",
