@@ -168,6 +168,26 @@ assertFileIncludes("deploy live safety contract", "scripts/deploy-production.mjs
   "npm run smoke:production",
 ]);
 
+assertFileIncludes("deploy live safety runbook", "docs/PRODUCTION_DEPLOY_RUNBOOK.md", [
+  "live deploy safety contract",
+  "Vercel quota messaging",
+  "unwanted alias removal",
+  "clean-domain aliasing",
+  "post-deploy smoke handoff",
+  "api-deployments-free-per-day",
+  "rolling 24-hour reset",
+]);
+
+assertFileIncludes("deploy live safety operator manual", "docs/TCOS_OPERATOR_MANUAL.md", [
+  "live deploy safety contract",
+  "Vercel quota messaging",
+  "unwanted alias removal",
+  "clean production aliasing",
+  "deployed URL output",
+  "clean URL output",
+  "npm run smoke:production",
+]);
+
 runExpectedFailure(
   "smoke refuses unwanted alias before admin auth",
   ["scripts/smoke-production.mjs"],
