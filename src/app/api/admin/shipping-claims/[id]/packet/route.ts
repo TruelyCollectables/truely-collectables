@@ -172,6 +172,12 @@ function buildReport(input: {
   const letterTrackDeliveryEvidence = recordValue(
     recordValue(claim.metadata).lettertrack_delivery_evidence,
   );
+  const letterTrackSellerProtectionPaymentGate = recordValue(
+    recordValue(claim.metadata).latest_lettertrack_seller_protection_payment_gate,
+  );
+  const letterTrackSellerProtectionPaymentGateDecision = recordValue(
+    letterTrackSellerProtectionPaymentGate.gate,
+  );
   const lines: string[] = [
     "TCOS SHIPPING COVERAGE CLAIM PACKET",
     "Generated from TCOS order, shipping label, tracking, and coverage claim records.",
@@ -253,6 +259,48 @@ function buildReport(input: {
           line("Latest Location", letterTrackDeliveryEvidence.latestLocation),
           line("Delivered At", letterTrackDeliveryEvidence.deliveredAt),
           line("Review Rule", letterTrackDeliveryEvidence.claimReviewReason),
+        ]
+      : []),
+    ...(Object.keys(letterTrackSellerProtectionPaymentGate).length > 0
+      ? [
+          ...section("LetterTrack Seller-Protection Payout Gate"),
+          line(
+            "Payout Allowed",
+            letterTrackSellerProtectionPaymentGateDecision.allowed
+              ? "Yes"
+              : "No",
+          ),
+          line(
+            "Override Accepted",
+            letterTrackSellerProtectionPaymentGateDecision.overrideAccepted
+              ? "Yes"
+              : "No",
+          ),
+          line("Gate Reason", letterTrackSellerProtectionPaymentGateDecision.reason),
+          line(
+            "Gate Delivered Evidence",
+            recordValue(letterTrackSellerProtectionPaymentGate.summary)
+              .deliveredEvidencePresent
+              ? "Yes"
+              : "No",
+          ),
+          line(
+            "Gate Claim Review Supported",
+            recordValue(letterTrackSellerProtectionPaymentGate.summary)
+              .claimReviewSupported
+              ? "Yes"
+              : "No",
+          ),
+          line(
+            "Gate Latest Status",
+            recordValue(letterTrackSellerProtectionPaymentGate.summary)
+              .latestStatus,
+          ),
+          line(
+            "Gate Latest Tracking",
+            recordValue(letterTrackSellerProtectionPaymentGate.summary)
+              .latestTrackingNumber,
+          ),
         ]
       : []),
     ...section("Order Snapshot"),
