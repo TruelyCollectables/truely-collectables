@@ -177,6 +177,15 @@ function buildReport(input: {
   const letterTrackDeliveryEvidence = recordValue(
     recordValue(claim.metadata).lettertrack_delivery_evidence,
   );
+  const latestLetterTrackDeliveryEvidenceReview = recordValue(
+    recordValue(claim.metadata).latest_lettertrack_delivery_evidence_review,
+  );
+  const latestLetterTrackDeliveryEvidenceReviewSummary = recordValue(
+    latestLetterTrackDeliveryEvidenceReview.summary,
+  );
+  const latestLetterTrackDeliveryEvidenceReviewGate = recordValue(
+    latestLetterTrackDeliveryEvidenceReview.gate,
+  );
   const letterTrackSellerProtectionPaymentGate = recordValue(
     recordValue(claim.metadata).latest_lettertrack_seller_protection_payment_gate,
   );
@@ -274,6 +283,59 @@ function buildReport(input: {
           line("Latest Location", letterTrackDeliveryEvidence.latestLocation),
           line("Delivered At", letterTrackDeliveryEvidence.deliveredAt),
           line("Review Rule", letterTrackDeliveryEvidence.claimReviewReason),
+        ]
+      : []),
+    ...(Object.keys(latestLetterTrackDeliveryEvidenceReviewSummary).length > 0
+      ? [
+          ...section("Latest Saved LetterTrack Evidence Review"),
+          "This section was saved during the latest under-$20 seller-protection claim status change.",
+          line("Reviewed Claim Status", latestLetterTrackDeliveryEvidenceReview.status),
+          line("Reviewed At", latestLetterTrackDeliveryEvidenceReview.reviewed_at),
+          line("Review Note", latestLetterTrackDeliveryEvidenceReview.note),
+          line(
+            "Review Payout Gate Allowed",
+            latestLetterTrackDeliveryEvidenceReviewGate.allowed ? "Yes" : "No",
+          ),
+          line(
+            "Review Override Accepted",
+            latestLetterTrackDeliveryEvidenceReviewGate.overrideAccepted
+              ? "Yes"
+              : "No",
+          ),
+          line("Review Gate Reason", latestLetterTrackDeliveryEvidenceReviewGate.reason),
+          line("Review Provider", latestLetterTrackDeliveryEvidenceReviewSummary.provider),
+          line(
+            "Review Evidence Events",
+            latestLetterTrackDeliveryEvidenceReviewSummary.eventCount,
+          ),
+          line(
+            "Review Delivered Evidence",
+            latestLetterTrackDeliveryEvidenceReviewSummary.deliveredEvidencePresent
+              ? "Yes"
+              : "No",
+          ),
+          line(
+            "Review Claim Review Supported",
+            latestLetterTrackDeliveryEvidenceReviewSummary.claimReviewSupported
+              ? "Yes"
+              : "No",
+          ),
+          line(
+            "Review Latest Status",
+            latestLetterTrackDeliveryEvidenceReviewSummary.latestStatus,
+          ),
+          line(
+            "Review Latest Tracking",
+            latestLetterTrackDeliveryEvidenceReviewSummary.latestTrackingNumber,
+          ),
+          line(
+            "Review Delivered At",
+            latestLetterTrackDeliveryEvidenceReviewSummary.deliveredAt,
+          ),
+          line(
+            "Review Rule",
+            latestLetterTrackDeliveryEvidenceReviewSummary.claimReviewReason,
+          ),
         ]
       : []),
     ...(currentLetterTrackDeliveryEvidence.eventCount > 0

@@ -204,6 +204,11 @@ export default function ShippingClaimActions({
   const letterTrackEvidence = recordValue(
     recordValue(claimMetadata).lettertrack_delivery_evidence,
   );
+  const latestEvidenceReview = recordValue(
+    recordValue(claimMetadata).latest_lettertrack_delivery_evidence_review,
+  );
+  const latestEvidenceReviewSummary = recordValue(latestEvidenceReview.summary);
+  const latestEvidenceReviewGate = recordValue(latestEvidenceReview.gate);
   const paymentGate = recordValue(
     recordValue(claimMetadata).latest_lettertrack_seller_protection_payment_gate,
   );
@@ -211,6 +216,8 @@ export default function ShippingClaimActions({
   const currentPaymentGateDecision = recordValue(currentLetterTrackPaymentGate);
   const isUnder20SellerProtection = under20Claim.eligible === true;
   const hasLetterTrackEvidence = Object.keys(letterTrackEvidence).length > 0;
+  const hasLatestEvidenceReview =
+    Object.keys(latestEvidenceReviewSummary).length > 0;
   const hasCurrentLetterTrackEvidence =
     Number(recordValue(currentLetterTrackEvidence).eventCount || 0) > 0;
   const [pendingStatus, setPendingStatus] = useState("");
@@ -232,6 +239,18 @@ export default function ShippingClaimActions({
       note contains an explicit override reason.
     </p>
   ) : null;
+  const latestEvidenceReviewCard = hasLatestEvidenceReview
+    ? evidenceCard({
+        title: "Latest saved LetterTrack status review",
+        evidence: latestEvidenceReviewSummary,
+        reason:
+          latestEvidenceReviewGate.reason ||
+          latestEvidenceReviewSummary.claimReviewReason,
+        intro: `Saved when claim status was set to ${String(
+          latestEvidenceReview.status || "unknown",
+        )} at ${String(latestEvidenceReview.reviewed_at || "unknown time")}.`,
+      })
+    : null;
   const currentEvidenceCard =
     hasCurrentLetterTrackEvidence && currentLetterTrackEvidence
       ? evidenceCard({
@@ -292,6 +311,7 @@ export default function ShippingClaimActions({
       <div className="mt-3 space-y-2 rounded border bg-neutral-50 p-3">
         {packetLink}
         {currentEvidenceCard}
+        {latestEvidenceReviewCard}
         {savedEvidenceCard}
         <p className="text-xs font-semibold text-neutral-600">
           Claim is closed. Status changes are locked for audit safety.
@@ -304,6 +324,7 @@ export default function ShippingClaimActions({
     <div className="mt-3 space-y-2 rounded border bg-neutral-50 p-3">
       {packetLink}
       {currentEvidenceCard}
+      {latestEvidenceReviewCard}
       {savedEvidenceCard}
       {normalizedStatus === "approved" && isUnder20SellerProtection ? (
         <p className="rounded border border-neutral-200 bg-white p-3 text-xs font-semibold text-neutral-700">
