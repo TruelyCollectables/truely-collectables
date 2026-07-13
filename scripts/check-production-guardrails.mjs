@@ -168,6 +168,13 @@ assertFileIncludes("deploy live safety contract", "scripts/deploy-production.mjs
   "npm run smoke:production",
 ]);
 
+assertFileIncludes("deploy helper production target defaults", "scripts/deploy-production.mjs", [
+  '"truely-collectables.vercel.app"',
+  '"truely-collectables-tt3b.vercel.app"',
+  "VERCEL_CLEAN_DOMAIN",
+  "VERCEL_UNWANTED_ALIAS",
+]);
+
 assertFileIncludes("deploy live safety centralized source", "src/app/api/admin/launch-readiness/route.ts", [
   "const DEPLOY_SAFETY_SMOKE_COMMAND",
   "const DEPLOY_SAFETY = {",
@@ -177,6 +184,15 @@ assertFileIncludes("deploy live safety centralized source", "src/app/api/admin/l
   "deploySafetyContractMarkdown()} intact.",
   "deploySafety: DEPLOY_SAFETY",
 ]);
+
+assertFileIncludes(
+  "deploy safety export production target defaults",
+  "src/app/api/admin/launch-readiness/route.ts",
+  [
+    'cleanProductionDomain: "https://truely-collectables.vercel.app"',
+    'unwantedAlias: "truely-collectables-tt3b.vercel.app"',
+  ],
+);
 
 assertFileIncludes("deploy live safety handoff bundle", "src/app/api/admin/launch-readiness/route.ts", [
   "api-deployments-free-per-day",
