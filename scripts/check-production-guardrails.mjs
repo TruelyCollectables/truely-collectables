@@ -366,6 +366,11 @@ assertFileIncludes("deploy live safety operator manual", "docs/TCOS_OPERATOR_MAN
   "clean production aliasing",
   "deployed URL output",
   "clean URL output",
+  "protected live deploy sequence",
+  "removes the unwanted alias",
+  "sets the clean production alias",
+  "DEPLOYED_PRODUCTION=",
+  "CLEAN_PRODUCTION=https://",
   "npm run smoke:production",
 ]);
 
@@ -384,6 +389,11 @@ assertFileIncludes(
     "clean production aliasing",
     "deployed URL output",
     "clean URL output",
+    "protected live deploy sequence",
+    "removes the unwanted alias",
+    "sets the clean production alias",
+    "DEPLOYED_PRODUCTION=",
+    "CLEAN_PRODUCTION=https://",
     "npm run smoke:production",
   ],
 );
