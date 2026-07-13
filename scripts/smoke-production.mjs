@@ -400,6 +400,17 @@ const checks = [
       !result.text.includes("sk_live_") &&
       !result.text.includes("whsec_"),
   },
+  {
+    name: "lettertrack standard envelope export",
+    path: "/api/admin/shipping/lettertrack-export",
+    expect: (result) =>
+      result.contentType.includes("text/csv") &&
+      result.text.includes("orderNumber,labelId,recipientName") &&
+      result.response?.headers.get("x-tcos-lettertrack-rows") !== null &&
+      result.response?.headers.get("x-tcos-lettertrack-skipped") !== null &&
+      !result.text.includes("sk_live_") &&
+      !result.text.includes("whsec_"),
+  },
 ];
 
 const results = [
@@ -449,6 +460,7 @@ const queuedFeatureFailures = failed.filter((result) =>
     "shipping provider env template",
     "shipping provider vercel commands",
     "shipping provider operator checklist",
+    "lettertrack standard envelope export",
   ].includes(result.name),
 );
 const totalDurationMs = results.reduce(
