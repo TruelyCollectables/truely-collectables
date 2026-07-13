@@ -40,6 +40,8 @@ npm run launch:production
 
 The verify helper runs lint, InstaComp queue and accuracy simulations, build, production guardrail checks, and GitHub/clean-worktree preflight without starting a Vercel deploy. The launch helper runs that same verification first, then deploys production and runs the production smoke if the deploy succeeds. The deploy live safety contract verifies Git state, keeps Vercel quota messaging clear, handles the clean Vercel production alias, removes the unwanted `tt3b` alias if it appears, prints the deployed and clean URLs, and hands off to `npm run smoke:production`.
 
+For operator handoff, `/api/admin/launch-readiness` exposes `brief.deploySafety` in JSON, and `/api/admin/launch-readiness?format=markdown` includes the same `Production Deploy Safety` reminders.
+
 ## Local development
 
 Install dependencies once, then run the local development server:

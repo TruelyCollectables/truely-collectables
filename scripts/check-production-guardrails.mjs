@@ -246,6 +246,10 @@ assertFileIncludes("deploy live safety runbook", "docs/PRODUCTION_DEPLOY_RUNBOOK
 
 assertFileIncludes("deploy live safety README", "README.md", [
   "deploy live safety contract",
+  "/api/admin/launch-readiness",
+  "brief.deploySafety",
+  "/api/admin/launch-readiness?format=markdown",
+  "Production Deploy Safety",
   "Vercel quota messaging",
   "unwanted `tt3b` alias",
   "deployed and clean URLs",
