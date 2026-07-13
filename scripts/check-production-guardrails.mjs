@@ -191,6 +191,18 @@ assertFileIncludes("deploy live safety production smoke page", "src/app/admin/pr
   "npm run smoke:production",
 ]);
 
+assertFileIncludes("deploy live safety launch readiness page", "src/app/admin/launch-readiness/page.tsx", [
+  "api-deployments-free-per-day",
+  "rolling 24-hour quota reset",
+  "deploy live safety contract",
+  "Vercel quota",
+  "unwanted alias removal",
+  "clean-domain aliasing",
+  "deployed URL output",
+  "clean URL output",
+  "npm run smoke:production",
+]);
+
 assertFileIncludes("deploy live safety runbook", "docs/PRODUCTION_DEPLOY_RUNBOOK.md", [
   "live deploy safety contract",
   "Vercel quota messaging",

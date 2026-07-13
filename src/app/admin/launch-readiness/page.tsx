@@ -1158,8 +1158,15 @@ export default async function LaunchReadinessPage() {
               <code className="rounded bg-white px-1 py-0.5">
                 api-deployments-free-per-day
               </code>
-              , wait for the rolling quota window to reset and rerun the same
-              deploy command.
+              , wait for the rolling 24-hour quota reset and rerun the same
+              deploy command. The deploy live safety contract keeps Vercel quota
+              messaging, unwanted alias removal, clean-domain aliasing,{" "}
+              <span>deployed URL output</span>, <span>clean URL output</span>,
+              and the{" "}
+              <code className="rounded bg-white px-1 py-0.5">
+                npm run smoke:production
+              </code>{" "}
+              handoff intact.
             </p>
           </div>
           <a
