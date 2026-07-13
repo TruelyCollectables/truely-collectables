@@ -184,7 +184,7 @@ assertFileIncludes("deploy preflight env flag", "scripts/deploy-production.mjs",
 assertFileIncludes("deploy live safety contract", "scripts/deploy-production.mjs", [
   "api-deployments-free-per-day",
   "Wait for the rolling 24-hour quota to reset",
-  "Removing unwanted alias if present:",
+  "Removing unwanted ${unwantedAlias} alias if present",
   '"alias", "rm", unwantedAlias',
   '"alias", "set", deploymentUrl, cleanDomain',
   "DEPLOYED_PRODUCTION=",
@@ -214,7 +214,7 @@ assertFileIncludes("deploy helper smoke handoff", "scripts/deploy-production.mjs
 ]);
 
 assertFileOrder("deploy live safety sequence", "scripts/deploy-production.mjs", [
-  "Removing unwanted alias if present:",
+  "Removing unwanted ${unwantedAlias} alias if present",
   '"alias", "rm", unwantedAlias',
   "Pointing ${cleanDomain} at ${deploymentUrl}",
   '"alias", "set", deploymentUrl, cleanDomain',

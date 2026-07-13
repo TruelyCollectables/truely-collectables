@@ -160,7 +160,7 @@ if (!deploymentUrl) {
 }
 
 console.log(`Parsed deployment URL: ${deploymentUrl}`);
-console.log(`Removing unwanted alias if present: ${unwantedAlias}`);
+console.log(`Removing unwanted ${unwantedAlias} alias if present`);
 run(
   "vercel",
   ["alias", "rm", unwantedAlias, "--yes", "--scope", scope],
