@@ -228,6 +228,23 @@ assertFileIncludes("deploy live safety centralized source", "src/lib/deploy-safe
   "smokeCommand: DEPLOY_SAFETY_SMOKE_COMMAND",
 ]);
 
+assertFileIncludes("deploy live safety site origin source", "src/lib/site-origin.ts", [
+  'import { DEPLOY_SAFETY } from "./deploy-safety"',
+  "DEPLOY_SAFETY.cleanProductionDomain",
+  "NEXT_PUBLIC_SITE_URL",
+  "SITE_URL",
+]);
+
+assertFileIncludes(
+  "live payment webhook smoke shared origin",
+  "src/app/api/admin/live-payment-launch/webhook-smoke/route.ts",
+  [
+    "configuredSiteOrigin",
+    "const origin = configuredSiteOrigin()",
+    "const endpointUrl = `${origin}/api/webhook`",
+  ],
+);
+
 assertFileIncludes("deploy live safety launch readiness route source", "src/app/api/admin/launch-readiness/route.ts", [
   "DEPLOY_SAFETY",
   "deploySafetyContractMarkdown",

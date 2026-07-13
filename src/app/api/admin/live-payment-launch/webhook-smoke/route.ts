@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { getStripeLiveSecretKey } from "../../../../../lib/stripe-credentials";
+import { configuredSiteOrigin } from "../../../../../lib/site-origin";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 30;
@@ -55,10 +56,7 @@ export async function POST(request: Request) {
 
   const markerValue = randomUUID();
   const startedAt = Math.floor(Date.now() / 1000) - 2;
-  const origin = (
-    process.env.NEXT_PUBLIC_SITE_URL ||
-    "https://truely-collectables.vercel.app"
-  ).replace(/\/$/, "");
+  const origin = configuredSiteOrigin();
   const endpointUrl = `${origin}/api/webhook`;
   let endpoint: any = null;
   let originalEvents: string[] = [];

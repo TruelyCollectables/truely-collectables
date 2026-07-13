@@ -1,4 +1,4 @@
-const DEFAULT_SITE_ORIGIN = "https://truely-collectables.vercel.app";
+import { DEPLOY_SAFETY } from "./deploy-safety";
 
 function normalizeOrigin(value: string | null | undefined) {
   const text = String(value || "").trim();
@@ -29,7 +29,7 @@ export function configuredSiteOrigin() {
   return (
     normalizeOrigin(process.env.NEXT_PUBLIC_SITE_URL) ||
     normalizeOrigin(process.env.SITE_URL) ||
-    DEFAULT_SITE_ORIGIN
+    DEPLOY_SAFETY.cleanProductionDomain
   );
 }
 
