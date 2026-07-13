@@ -339,6 +339,9 @@ const checks = [
     expect: (result) =>
       result.text.includes("Production Smoke Report") &&
       result.text.includes("Smoke coverage") &&
+      result.text.includes(
+        "Shipping simulation API POST with scenario count, manifest, and drift-field checks",
+      ) &&
       result.text.includes("Unwanted tt3b alias absence") &&
       result.text.includes("npm run launch:production"),
   },
