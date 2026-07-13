@@ -125,16 +125,73 @@ function gateTone(evidence: Record<string, unknown>) {
   return "border-amber-200 bg-amber-50 text-amber-950";
 }
 
+function evidenceCard(params: {
+  title: string;
+  evidence: Record<string, unknown>;
+  reason?: unknown;
+  intro?: string;
+}) {
+  const { title, evidence, reason, intro } = params;
+
+  return (
+    <div
+      className={`rounded border p-3 text-xs font-semibold ${gateTone(
+        evidence,
+      )}`}
+    >
+      <p className="font-black uppercase tracking-widest">{title}</p>
+      {intro ? <p className="mt-1">{intro}</p> : null}
+      <dl className="mt-2 grid grid-cols-1 gap-1 sm:grid-cols-2">
+        <div>
+          <dt className="text-[10px] uppercase tracking-widest opacity-70">
+            Delivered evidence
+          </dt>
+          <dd>{yesNo(evidence.deliveredEvidencePresent)}</dd>
+        </div>
+        <div>
+          <dt className="text-[10px] uppercase tracking-widest opacity-70">
+            Claim-review support
+          </dt>
+          <dd>{yesNo(evidence.claimReviewSupported)}</dd>
+        </div>
+        <div>
+          <dt className="text-[10px] uppercase tracking-widest opacity-70">
+            Latest status
+          </dt>
+          <dd>{String(evidence.latestStatus || "Not recorded")}</dd>
+        </div>
+        <div>
+          <dt className="text-[10px] uppercase tracking-widest opacity-70">
+            Latest tracking
+          </dt>
+          <dd>{String(evidence.latestTrackingNumber || "Not recorded")}</dd>
+        </div>
+      </dl>
+      <p className="mt-2">
+        {String(
+          reason ||
+            evidence.claimReviewReason ||
+            "TCOS will re-check latest LetterTrack evidence before Mark Paid.",
+        )}
+      </p>
+    </div>
+  );
+}
+
 export default function ShippingClaimActions({
   claimId,
   claimStatus,
   providerClaimId,
   claimMetadata,
+  currentLetterTrackEvidence,
+  currentLetterTrackPaymentGate,
 }: {
   claimId: string;
   claimStatus: string | null;
   providerClaimId?: string | null;
   claimMetadata?: Record<string, unknown> | null;
+  currentLetterTrackEvidence?: Record<string, unknown> | null;
+  currentLetterTrackPaymentGate?: Record<string, unknown> | null;
 }) {
   const normalizedStatus = normalizeStatus(claimStatus);
   const actions = useMemo(
@@ -151,57 +208,22 @@ export default function ShippingClaimActions({
     recordValue(claimMetadata).latest_lettertrack_seller_protection_payment_gate,
   );
   const paymentGateDecision = recordValue(paymentGate.gate);
+  const currentPaymentGateDecision = recordValue(currentLetterTrackPaymentGate);
   const isUnder20SellerProtection = under20Claim.eligible === true;
   const hasLetterTrackEvidence = Object.keys(letterTrackEvidence).length > 0;
+  const hasCurrentLetterTrackEvidence =
+    Number(recordValue(currentLetterTrackEvidence).eventCount || 0) > 0;
   const [pendingStatus, setPendingStatus] = useState("");
   const [message, setMessage] = useState("");
   const [note, setNote] = useState("");
   const [providerId, setProviderId] = useState(providerClaimId || "");
-  const evidenceCard = hasLetterTrackEvidence ? (
-    <div
-      className={`rounded border p-3 text-xs font-semibold ${gateTone(
-        letterTrackEvidence,
-      )}`}
-    >
-      <p className="font-black uppercase tracking-widest">
-        LetterTrack seller-protection gate
-      </p>
-      <dl className="mt-2 grid grid-cols-1 gap-1 sm:grid-cols-2">
-        <div>
-          <dt className="text-[10px] uppercase tracking-widest opacity-70">
-            Delivered evidence
-          </dt>
-          <dd>{yesNo(letterTrackEvidence.deliveredEvidencePresent)}</dd>
-        </div>
-        <div>
-          <dt className="text-[10px] uppercase tracking-widest opacity-70">
-            Claim-review support
-          </dt>
-          <dd>{yesNo(letterTrackEvidence.claimReviewSupported)}</dd>
-        </div>
-        <div>
-          <dt className="text-[10px] uppercase tracking-widest opacity-70">
-            Latest status
-          </dt>
-          <dd>{String(letterTrackEvidence.latestStatus || "Not recorded")}</dd>
-        </div>
-        <div>
-          <dt className="text-[10px] uppercase tracking-widest opacity-70">
-            Latest tracking
-          </dt>
-          <dd>
-            {String(letterTrackEvidence.latestTrackingNumber || "Not recorded")}
-          </dd>
-        </div>
-      </dl>
-      <p className="mt-2">
-        {String(
-          paymentGateDecision.reason ||
-            letterTrackEvidence.claimReviewReason ||
-            "TCOS will re-check latest LetterTrack evidence before Mark Paid.",
-        )}
-      </p>
-    </div>
+  const savedEvidenceCard = hasLetterTrackEvidence ? (
+    evidenceCard({
+      title: "Saved LetterTrack claim snapshot",
+      evidence: letterTrackEvidence,
+      reason: paymentGateDecision.reason || letterTrackEvidence.claimReviewReason,
+      intro: "Saved on the claim record for audit history.",
+    })
   ) : isUnder20SellerProtection ? (
     <p className="rounded border border-amber-200 bg-amber-50 p-3 text-xs font-semibold text-amber-950">
       Under-$20 seller protection is eligible, but no LetterTrack delivery
@@ -210,6 +232,18 @@ export default function ShippingClaimActions({
       note contains an explicit override reason.
     </p>
   ) : null;
+  const currentEvidenceCard =
+    hasCurrentLetterTrackEvidence && currentLetterTrackEvidence
+      ? evidenceCard({
+          title: "Current LetterTrack evidence",
+          evidence: recordValue(currentLetterTrackEvidence),
+          reason:
+            currentPaymentGateDecision.reason ||
+            recordValue(currentLetterTrackEvidence).claimReviewReason,
+          intro:
+            "Recalculated from the latest tracking events loaded on this admin page.",
+        })
+      : null;
   const packetLink = (
     <a
       href={`/api/admin/shipping-claims/${claimId}/packet`}
@@ -257,7 +291,8 @@ export default function ShippingClaimActions({
     return (
       <div className="mt-3 space-y-2 rounded border bg-neutral-50 p-3">
         {packetLink}
-        {evidenceCard}
+        {currentEvidenceCard}
+        {savedEvidenceCard}
         <p className="text-xs font-semibold text-neutral-600">
           Claim is closed. Status changes are locked for audit safety.
         </p>
@@ -268,7 +303,8 @@ export default function ShippingClaimActions({
   return (
     <div className="mt-3 space-y-2 rounded border bg-neutral-50 p-3">
       {packetLink}
-      {evidenceCard}
+      {currentEvidenceCard}
+      {savedEvidenceCard}
       {normalizedStatus === "approved" && isUnder20SellerProtection ? (
         <p className="rounded border border-neutral-200 bg-white p-3 text-xs font-semibold text-neutral-700">
           Before Mark Paid: record buyer refund evidence and confirm LetterTrack

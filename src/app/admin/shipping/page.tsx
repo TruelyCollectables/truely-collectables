@@ -1567,35 +1567,56 @@ export default async function AdminShippingPage() {
                   No coverage claims opened.
                 </p>
               ) : (
-                claims.slice(0, 8).map((claim) => (
-                  <div key={claim.id} className="border-b py-3 last:border-b-0">
-                    <Link
-                      href={`/admin/orders/${claim.order_id}`}
-                      className="font-bold underline"
-                    >
-                      Order #{claim.order_id}
-                    </Link>
-                    <p className="mt-1 text-sm text-neutral-600">
-                      {label(claim.claim_type)} / {money(claim.claim_amount)}
-                    </p>
-                    <p
-                      className={`mt-2 inline-block rounded border px-2 py-1 text-xs font-black ${statusTone(
-                        claim.claim_status,
-                      )}`}
-                    >
-                      {label(claim.claim_status)}
-                    </p>
-                    {claim.reason ? (
-                      <p className="mt-2 text-sm">{claim.reason}</p>
-                    ) : null}
-                    <ShippingClaimActions
-                      claimId={claim.id}
-                      claimStatus={claim.claim_status}
-                      providerClaimId={claim.provider_claim_id}
-                      claimMetadata={claim.metadata}
-                    />
-                  </div>
-                ))
+                claims.slice(0, 8).map((claim) => {
+                    const currentEvidence =
+                      buildLetterTrackDeliveryEvidenceSummary(
+                        claim.shipping_label_id
+                          ? eventsByLabelId.get(claim.shipping_label_id) || []
+                          : [],
+                      );
+                    const under20Claim = metadataRecord(
+                      claim.metadata,
+                      "under_20_seller_protection_claim",
+                    );
+                    const currentGate =
+                      under20Claim?.eligible === true
+                        ? evaluateLetterTrackSellerProtectionPaymentGate({
+                            evidence: currentEvidence,
+                          })
+                        : null;
+
+                    return (
+                      <div key={claim.id} className="border-b py-3 last:border-b-0">
+                        <Link
+                          href={`/admin/orders/${claim.order_id}`}
+                          className="font-bold underline"
+                        >
+                          Order #{claim.order_id}
+                        </Link>
+                        <p className="mt-1 text-sm text-neutral-600">
+                          {label(claim.claim_type)} / {money(claim.claim_amount)}
+                        </p>
+                        <p
+                          className={`mt-2 inline-block rounded border px-2 py-1 text-xs font-black ${statusTone(
+                            claim.claim_status,
+                          )}`}
+                        >
+                          {label(claim.claim_status)}
+                        </p>
+                        {claim.reason ? (
+                          <p className="mt-2 text-sm">{claim.reason}</p>
+                        ) : null}
+                        <ShippingClaimActions
+                          claimId={claim.id}
+                          claimStatus={claim.claim_status}
+                          providerClaimId={claim.provider_claim_id}
+                          claimMetadata={claim.metadata}
+                          currentLetterTrackEvidence={currentEvidence}
+                          currentLetterTrackPaymentGate={currentGate}
+                        />
+                      </div>
+                    );
+                  })
               )}
             </Panel>
           </aside>

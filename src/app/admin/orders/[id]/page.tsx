@@ -4,6 +4,10 @@ import { getAccountProfilesByIds } from "../../../../lib/account-profiles";
 import { isOrderReviewStatus } from "../../../../lib/order-status";
 import { isDryRunShippingLabel as isDryRunShippingLabelRecord } from "../../../../lib/shipping-dry-run";
 import { getShippingProviderReadiness } from "../../../../lib/shipping-provider-readiness";
+import {
+  buildLetterTrackDeliveryEvidenceSummary,
+  evaluateLetterTrackSellerProtectionPaymentGate,
+} from "../../../../lib/lettertrack-delivery-evidence";
 import Link from "next/link";
 import PayoutLedgerActions from "../../seller-payouts/PayoutLedgerActions";
 import OrderReviewCasesPanel, {
@@ -533,6 +537,13 @@ export default async function AdminOrderDetailPage({
   const shippingTrackingEvents = shippingTrackingEventsError
     ? []
     : ((shippingTrackingEventsData || []) as ShippingTrackingEvent[]);
+  const shippingTrackingEventsByLabelId = new Map<string, ShippingTrackingEvent[]>();
+  for (const event of shippingTrackingEvents) {
+    if (!event.shipping_label_id) continue;
+    const list = shippingTrackingEventsByLabelId.get(event.shipping_label_id) || [];
+    list.push(event);
+    shippingTrackingEventsByLabelId.set(event.shipping_label_id, list);
+  }
   const { data: shippingCoverageClaimsData, error: shippingCoverageClaimsError } =
     await supabase
       .from("order_shipping_coverage_claims")
@@ -1239,31 +1250,54 @@ export default async function AdminOrderDetailPage({
               </p>
             ) : (
               <div className="mt-3 space-y-3">
-                {shippingCoverageClaims.map((claim) => (
-                  <div key={claim.id} className="border-b pb-3 last:border-b-0">
-                    <p className="font-bold">
-                      {claim.provider || "Coverage"} /{" "}
-                      {label(claim.claim_status)}
-                    </p>
-                    <p className="text-sm text-gray-600">
-                      {label(claim.claim_type)} for{" "}
-                      {money(Number(claim.claim_amount || 0))}
-                    </p>
-                    <p className="text-xs font-semibold text-gray-500">
-                      {claim.provider_claim_id || "Provider claim pending"} /{" "}
-                      {dateLabel(claim.created_at)}
-                    </p>
-                    {claim.reason ? (
-                      <p className="mt-1 text-sm">{claim.reason}</p>
-                    ) : null}
-                    <ShippingClaimActions
-                      claimId={claim.id}
-                      claimStatus={claim.claim_status}
-                      providerClaimId={claim.provider_claim_id}
-                      claimMetadata={claim.metadata}
-                    />
-                  </div>
-                ))}
+                {shippingCoverageClaims.map((claim) => {
+                  const currentEvidence =
+                    buildLetterTrackDeliveryEvidenceSummary(
+                      claim.shipping_label_id
+                        ? shippingTrackingEventsByLabelId.get(
+                            claim.shipping_label_id,
+                          ) || []
+                        : [],
+                    );
+                  const under20Claim = metadataRecord(
+                    claim.metadata,
+                    "under_20_seller_protection_claim",
+                  );
+                  const currentGate =
+                    under20Claim?.eligible === true
+                      ? evaluateLetterTrackSellerProtectionPaymentGate({
+                          evidence: currentEvidence,
+                        })
+                      : null;
+
+                  return (
+                    <div key={claim.id} className="border-b pb-3 last:border-b-0">
+                      <p className="font-bold">
+                        {claim.provider || "Coverage"} /{" "}
+                        {label(claim.claim_status)}
+                      </p>
+                      <p className="text-sm text-gray-600">
+                        {label(claim.claim_type)} for{" "}
+                        {money(Number(claim.claim_amount || 0))}
+                      </p>
+                      <p className="text-xs font-semibold text-gray-500">
+                        {claim.provider_claim_id || "Provider claim pending"} /{" "}
+                        {dateLabel(claim.created_at)}
+                      </p>
+                      {claim.reason ? (
+                        <p className="mt-1 text-sm">{claim.reason}</p>
+                      ) : null}
+                      <ShippingClaimActions
+                        claimId={claim.id}
+                        claimStatus={claim.claim_status}
+                        providerClaimId={claim.provider_claim_id}
+                        claimMetadata={claim.metadata}
+                        currentLetterTrackEvidence={currentEvidence}
+                        currentLetterTrackPaymentGate={currentGate}
+                      />
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
