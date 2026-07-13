@@ -181,7 +181,7 @@ assertFileIncludes("deploy live safety handoff bundle", "src/app/api/admin/launc
 ]);
 
 assertFileIncludes("deploy live safety launch readiness markdown", "src/app/api/admin/launch-readiness/route.ts", [
-  "## Production Deploy Safety",
+  "DEPLOY_SAFETY.section",
   "api-deployments-free-per-day",
   "rolling 24-hour quota reset",
   "deploy live safety contract",
@@ -204,7 +204,7 @@ assertFileIncludes("deploy live safety launch readiness json", "src/app/api/admi
   "unwantedAlias",
   "deployed URL output",
   "clean URL output",
-  "npm run smoke:production handoff",
+  "${DEPLOY_SAFETY_SMOKE_COMMAND} handoff",
 ]);
 
 assertFileIncludes("deploy live safety production smoke page", "src/app/admin/production-smoke/page.tsx", [

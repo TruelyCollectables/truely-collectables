@@ -24,6 +24,24 @@ const SHIPPING_PROVIDER_VERCEL_COMMANDS_HREF =
   "/api/admin/shipping/provider-setup?format=vercel-commands";
 const SHIPPING_PROVIDER_OPERATOR_CHECKLIST_HREF =
   "/api/admin/shipping/provider-setup?format=operator-checklist";
+const DEPLOY_SAFETY_SMOKE_COMMAND = "npm run smoke:production";
+const DEPLOY_SAFETY = {
+  section: "Production Deploy Safety",
+  cleanProductionDomain: "https://truely-collectables.vercel.app",
+  unwantedAlias: "truely-collectables-tt3b.vercel.app",
+  quotaBlockCode: "api-deployments-free-per-day",
+  quotaResetInstruction:
+    "Wait for the rolling 24-hour quota reset before retrying npm run launch:production.",
+  contract: [
+    "Vercel quota messaging",
+    "unwanted alias removal",
+    "clean-domain aliasing",
+    "deployed URL output",
+    "clean URL output",
+    `${DEPLOY_SAFETY_SMOKE_COMMAND} handoff`,
+  ],
+  smokeCommand: DEPLOY_SAFETY_SMOKE_COMMAND,
+};
 
 function statusFromCheck(status: "passed" | "warning" | "blocked") {
   if (status === "passed") return "ready" as const;
@@ -114,6 +132,23 @@ function cleanMarkdownListWithLinks(items: BriefItem[]) {
     .join("\n");
 }
 
+function deploySafetyContractMarkdown() {
+  const contractWithoutSmoke = DEPLOY_SAFETY.contract.slice(0, -1).join(", ");
+
+  return `${contractWithoutSmoke}, and the \`${DEPLOY_SAFETY.smokeCommand}\` handoff`;
+}
+
+function deploySafetyMarkdownLines() {
+  return [
+    `## ${DEPLOY_SAFETY.section}`,
+    "",
+    "- Run `npm run verify:production` before launch work.",
+    `- If Vercel reports \`${DEPLOY_SAFETY.quotaBlockCode}\`, ${DEPLOY_SAFETY.quotaResetInstruction.replace("npm run launch:production", "`npm run launch:production`")}`,
+    `- The deploy live safety contract must keep ${deploySafetyContractMarkdown()} intact.`,
+    `- Keep \`${DEPLOY_SAFETY.cleanProductionDomain}\` as the clean production domain and reject the unwanted \`${DEPLOY_SAFETY.unwantedAlias}\` alias.`,
+  ];
+}
+
 function markdownForBrief(brief: Awaited<ReturnType<typeof buildBrief>>) {
   return [
     "# TCOS Launch Readiness Brief",
@@ -155,12 +190,7 @@ function markdownForBrief(brief: Awaited<ReturnType<typeof buildBrief>>) {
     "",
     cleanMarkdownListWithLinks(brief.attentionItems),
     "",
-    "## Production Deploy Safety",
-    "",
-    "- Run `npm run verify:production` before launch work.",
-    "- If Vercel reports `api-deployments-free-per-day`, wait for the rolling 24-hour quota reset before retrying `npm run launch:production`.",
-    "- The deploy live safety contract must keep Vercel quota messaging, unwanted alias removal, clean-domain aliasing, deployed URL output, clean URL output, and the `npm run smoke:production` handoff intact.",
-    "- Keep `https://truely-collectables.vercel.app` as the clean production domain and reject the unwanted `truely-collectables-tt3b.vercel.app` alias.",
+    ...deploySafetyMarkdownLines(),
     "",
     "## Launch Drill",
     "",
@@ -240,10 +270,10 @@ function markdownForHandoffBundle(
     "",
     "- Before deploying, run `npm run verify:production`.",
     "- If Vercel deploy quota is open, run `npm run launch:production`.",
-    "- If Vercel reports `api-deployments-free-per-day`, wait for the rolling 24-hour quota reset before retrying the launch helper.",
-    "- If the launch helper must be split up, run `npm run deploy:production` and then `npm run smoke:production`.",
-    "- Keep `https://truely-collectables.vercel.app` as the clean production domain and reject the unwanted `truely-collectables-tt3b.vercel.app` alias.",
-    "- The deploy live safety contract must keep Vercel quota messaging, unwanted alias removal, clean-domain aliasing, deployed URL output, clean URL output, and the `npm run smoke:production` handoff intact.",
+    `- If Vercel reports \`${DEPLOY_SAFETY.quotaBlockCode}\`, ${DEPLOY_SAFETY.quotaResetInstruction.replace("npm run launch:production", "the launch helper")}`,
+    `- If the launch helper must be split up, run \`npm run deploy:production\` and then \`${DEPLOY_SAFETY.smokeCommand}\`.`,
+    `- Keep \`${DEPLOY_SAFETY.cleanProductionDomain}\` as the clean production domain and reject the unwanted \`${DEPLOY_SAFETY.unwantedAlias}\` alias.`,
+    `- The deploy live safety contract must keep ${deploySafetyContractMarkdown()} intact.`,
     "",
     "## Post-deploy Verification",
     "",
@@ -452,23 +482,7 @@ async function buildBrief(origin: string | null = null) {
       ...operatorStatus,
       url: absoluteUrl(origin, operatorStatus.href),
     },
-    deploySafety: {
-      section: "Production Deploy Safety",
-      cleanProductionDomain: "https://truely-collectables.vercel.app",
-      unwantedAlias: "truely-collectables-tt3b.vercel.app",
-      quotaBlockCode: "api-deployments-free-per-day",
-      quotaResetInstruction:
-        "Wait for the rolling 24-hour quota reset before retrying npm run launch:production.",
-      contract: [
-        "Vercel quota messaging",
-        "unwanted alias removal",
-        "clean-domain aliasing",
-        "deployed URL output",
-        "clean URL output",
-        "npm run smoke:production handoff",
-      ],
-      smokeCommand: "npm run smoke:production",
-    },
+    deploySafety: DEPLOY_SAFETY,
     summary,
     payment: {
       mode: paymentReport.paymentMode,
