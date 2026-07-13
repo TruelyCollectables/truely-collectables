@@ -40,6 +40,13 @@ const DEPLOY_SAFETY = {
     "clean URL output",
     `${DEPLOY_SAFETY_SMOKE_COMMAND} handoff`,
   ],
+  sequence: [
+    "remove unwanted alias",
+    "set clean production alias",
+    "print DEPLOYED_PRODUCTION",
+    "print CLEAN_PRODUCTION",
+    "print smoke handoff command",
+  ],
   smokeCommand: DEPLOY_SAFETY_SMOKE_COMMAND,
 };
 

@@ -295,6 +295,12 @@ assertFileIncludes("deploy live safety launch readiness json", "src/app/api/admi
   "unwantedAlias",
   "deployed URL output",
   "clean URL output",
+  "sequence: [",
+  "remove unwanted alias",
+  "set clean production alias",
+  "print DEPLOYED_PRODUCTION",
+  "print CLEAN_PRODUCTION",
+  "print smoke handoff command",
   "${DEPLOY_SAFETY_SMOKE_COMMAND} handoff",
 ]);
 

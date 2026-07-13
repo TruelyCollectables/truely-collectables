@@ -311,6 +311,12 @@ const checks = [
       result.text.includes("rolling 24-hour quota reset") &&
       result.text.includes("deployed URL output") &&
       result.text.includes("clean URL output") &&
+      result.text.includes('"sequence"') &&
+      result.text.includes("remove unwanted alias") &&
+      result.text.includes("set clean production alias") &&
+      result.text.includes("print DEPLOYED_PRODUCTION") &&
+      result.text.includes("print CLEAN_PRODUCTION") &&
+      result.text.includes("print smoke handoff command") &&
       result.text.includes("npm run smoke:production handoff"),
   },
   {
