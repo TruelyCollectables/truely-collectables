@@ -381,7 +381,9 @@ const checks = [
         "Shipping simulation API POST with scenario count, manifest, and drift-field checks",
       ) &&
       result.text.includes("Queued launch feature failure(s)") &&
-      result.text.includes("Unwanted tt3b alias absence") &&
+      result.text.includes(
+        "Unwanted truely-collectables-tt3b.vercel.app alias absence",
+      ) &&
       result.text.includes("Deploy live safety contract") &&
       result.text.includes("api-deployments-free-per-day") &&
       result.text.includes("rolling 24-hour quota reset") &&

@@ -17,7 +17,7 @@ const smokeChecks = [
   "Ranked shipping exceptions CSV, including seller-protection payout blocker support",
   "LetterTrack Standard Envelope CSV export",
   "Clean production domain",
-  "Unwanted tt3b alias absence",
+  `Unwanted ${DEPLOY_SAFETY.unwantedAlias} alias absence`,
   "Deploy live safety contract with quota messaging, alias cleanup, deployed/clean URL output, and smoke handoff",
 ];
 
@@ -32,9 +32,8 @@ const failureMeanings = [
       "If smoke says queued launch features are not visible, production is behind GitHub. Read the Queued launch feature failure(s) line for the exact checks, then deploy the pushed stack again when Vercel accepts it.",
   },
   {
-    label: "tt3b responds",
-    detail:
-      "If the unwanted alias returns successfully, remove the alias before treating production as clean.",
+    label: `${DEPLOY_SAFETY.unwantedAlias} responds`,
+    detail: `If ${DEPLOY_SAFETY.unwantedAlias} returns successfully, remove the alias before treating production as clean.`,
   },
   {
     label: "Admin/auth failure",
