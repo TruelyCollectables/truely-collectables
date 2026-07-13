@@ -38,7 +38,7 @@ npm run verify:production
 npm run launch:production
 ```
 
-The verify helper runs lint, InstaComp queue and accuracy simulations, build, production guardrail checks, and GitHub/clean-worktree preflight without starting a Vercel deploy. The launch helper runs that same verification first, then deploys production and runs the production smoke if the deploy succeeds. The deploy live safety contract verifies Git state, keeps Vercel quota messaging clear, handles the clean Vercel production alias, removes the unwanted `truely-collectables-tt3b.vercel.app` alias if it appears, prints the deployed and clean URLs, and hands off to `npm run smoke:production`.
+The verify helper runs lint, InstaComp queue and accuracy simulations, LetterTrack evidence checks, the thirteen-scenario shipping simulation suite, build, production guardrail checks, and GitHub/clean-worktree preflight without starting a Vercel deploy. The launch helper runs that same verification first, then deploys production and runs the production smoke if the deploy succeeds. The deploy live safety contract verifies Git state, keeps Vercel quota messaging clear, handles the clean Vercel production alias, removes the unwanted `truely-collectables-tt3b.vercel.app` alias if it appears, prints the deployed and clean URLs, and hands off to `npm run smoke:production`.
 
 The protected live deploy sequence removes the unwanted `truely-collectables-tt3b.vercel.app` alias, sets the clean production alias, prints `DEPLOYED_PRODUCTION=`, prints `CLEAN_PRODUCTION=https://`, then prints the smoke handoff command.
 
@@ -68,7 +68,7 @@ For a fast InstaComp-only regression check, run:
 npm run verify:instacomp
 ```
 
-That command is deploy-safe: it runs lint, build, production guardrail checks, and production Git preflight without consuming a Vercel deployment.
+That command is deploy-safe: it runs lint, InstaComp regressions, LetterTrack evidence checks, the thirteen-scenario shipping simulation suite, build, production guardrail checks, and production Git preflight without consuming a Vercel deployment.
 
 ## Production safety rules
 
@@ -89,6 +89,6 @@ Use the checked production launch helper:
 npm run launch:production
 ```
 
-That command runs lint, build, production guardrail checks, GitHub/clean-worktree preflight, production deploy, clean-domain aliasing, unwanted `truely-collectables-tt3b.vercel.app` alias removal, deployed/clean URL output, and production smoke in order.
+That command runs lint, InstaComp regressions, LetterTrack evidence checks, the thirteen-scenario shipping simulation suite, build, production guardrail checks, GitHub/clean-worktree preflight, production deploy, clean-domain aliasing, unwanted `truely-collectables-tt3b.vercel.app` alias removal, deployed/clean URL output, and production smoke in order.
 
 See [Production Deploy Runbook](docs/PRODUCTION_DEPLOY_RUNBOOK.md) for details.
