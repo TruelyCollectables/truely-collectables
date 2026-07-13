@@ -147,6 +147,7 @@ export default function ProductionSmokePage() {
             <SmokeLink href="/api/admin/shipping/lettertrack-export" label="LetterTrack CSV Export" />
             <SmokeLink href="/api/admin/shipping/exceptions" label="Shipping Exceptions CSV" />
             <SmokeLink href="/api/admin/launch-gate-drill?format=markdown" label="Gate Drill Report" />
+            <SmokeLink href="/api/admin/shipping/provider-setup" label="Shipping Provider JSON" />
             <SmokeLink href="/api/admin/shipping/provider-setup?format=operator-checklist" label="Shipping Checklist" />
           </div>
         </section>

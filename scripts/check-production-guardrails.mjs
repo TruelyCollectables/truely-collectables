@@ -382,6 +382,8 @@ assertFileIncludes("deploy live safety production smoke page", "src/app/admin/pr
   "clean-domain aliasing",
   "Protected deploy sequence",
   "DEPLOY_SAFETY.sequence",
+  "/api/admin/shipping/provider-setup",
+  "/api/admin/shipping/provider-setup?format=operator-checklist",
   "deployed URL output",
   "clean URL output",
 ]);
