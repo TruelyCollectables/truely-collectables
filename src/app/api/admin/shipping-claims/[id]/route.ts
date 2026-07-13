@@ -99,9 +99,16 @@ async function latestSellerProtectionPaymentEvidence(params: {
   overrideNote: string;
 }): Promise<SellerProtectionPaymentEvidence> {
   if (!params.claim.shipping_label_id) {
-    throw new Error(
-      "Cannot mark seller-protection claim paid because no shipping label is linked for LetterTrack evidence review.",
-    );
+    const summary = buildLetterTrackDeliveryEvidenceSummary([]);
+    return {
+      summary,
+      gate: {
+        allowed: false,
+        overrideAccepted: false,
+        reason:
+          "No shipping label is linked for LetterTrack evidence review. Link the Standard Envelope label before marking this seller-protection claim paid.",
+      },
+    };
   }
 
   const { data, error } = await params.supabase
@@ -126,6 +133,18 @@ async function latestSellerProtectionPaymentEvidence(params: {
   });
 
   return { summary, gate };
+}
+
+function shouldReviewSellerProtectionEvidence(params: {
+  status: string;
+  under20Claim: Record<string, unknown>;
+}) {
+  return (
+    params.under20Claim.eligible === true &&
+    ["submitted", "under_review", "approved", "paid", "denied"].includes(
+      params.status,
+    )
+  );
 }
 
 function coverageStatusForClaimStatus(
@@ -364,7 +383,10 @@ export async function PATCH(
       recordValue(claim.metadata).under_20_seller_protection_claim,
     );
     const sellerProtectionPaymentEvidence =
-      nextStatus === "paid" && under20Claim.eligible === true
+      shouldReviewSellerProtectionEvidence({
+        status: nextStatus,
+        under20Claim,
+      })
         ? await latestSellerProtectionPaymentEvidence({
             supabase,
             storeId,
@@ -375,6 +397,7 @@ export async function PATCH(
 
     if (
       sellerProtectionPaymentEvidence &&
+      nextStatus === "paid" &&
       !sellerProtectionPaymentEvidence.gate.allowed
     ) {
       return Response.json(
@@ -412,10 +435,22 @@ export async function PATCH(
         : {}),
       ...(sellerProtectionPaymentEvidence
         ? {
+            latest_lettertrack_delivery_evidence_review: {
+              status: nextStatus,
+              reviewed_at: now,
+              reviewed_by_identity: identity,
+              note: note || null,
+              summary: sellerProtectionPaymentEvidence.summary,
+              gate: sellerProtectionPaymentEvidence.gate,
+            },
             latest_lettertrack_seller_protection_payment_gate:
               sellerProtectionPaymentEvidence,
-            lettertrack_delivery_evidence:
-              sellerProtectionPaymentEvidence.summary,
+            ...(nextStatus === "paid"
+              ? {
+                  lettertrack_delivery_evidence:
+                    sellerProtectionPaymentEvidence.summary,
+                }
+              : {}),
           }
         : {}),
     };
@@ -490,6 +525,7 @@ export async function PATCH(
         provider_claim_id: providerClaimId || claim.provider_claim_id || null,
         note: note || null,
         seller_protection_reimbursement: sellerProtectionReimbursement,
+        lettertrack_delivery_evidence_review: sellerProtectionPaymentEvidence,
         lettertrack_seller_protection_payment_gate:
           sellerProtectionPaymentEvidence,
         changed_by_identity: identity,
