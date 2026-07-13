@@ -331,6 +331,11 @@ assertFileIncludes("deploy live safety runbook", "docs/PRODUCTION_DEPLOY_RUNBOOK
   "unwanted alias removal",
   "clean-domain aliasing",
   "post-deploy smoke handoff",
+  "protected live deploy sequence",
+  "remove the unwanted alias",
+  "set the clean production alias",
+  "DEPLOYED_PRODUCTION=",
+  "CLEAN_PRODUCTION=https://",
   "api-deployments-free-per-day",
   "rolling 24-hour reset",
 ]);
