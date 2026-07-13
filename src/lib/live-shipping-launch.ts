@@ -277,7 +277,7 @@ export async function evaluateLiveShippingLaunch(params?: {
       "shipping_simulations",
       "Shipping Simulation Suite",
       simulationResult.run_status === "passed" ? "passed" : "blocked",
-      `${simulationResult.passed_count}/${simulationResult.scenario_count} shipping simulation scenario(s) passed.`,
+      `${simulationResult.passed_count}/${simulationResult.scenario_count} shipping simulation scenario(s) passed across Standard Envelope, Ground Advantage, under-$20 seller protection, LetterTrack evidence-review audit, adapter-profile, and dry-run guardrails.`,
     ),
   );
 

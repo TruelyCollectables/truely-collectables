@@ -56,12 +56,12 @@ function hrefForBriefItem(item: BriefItem) {
   const action = item.action.toLowerCase();
 
   if (label.includes("payment")) return "/admin/live-payment-launch";
+  if (label.includes("shipping: shipping simulation")) {
+    return "/admin/shipping/simulations";
+  }
   if (label.includes("live shipping")) return "/admin/live-shipping-launch";
   if (label.includes("dry-run shipping cleanup")) {
     return "/admin/shipping#dry-run-cleanup";
-  }
-  if (label.includes("shipping: shipping simulation")) {
-    return "/admin/shipping/simulations";
   }
   if (label.includes("shipping") || label.includes("provider")) {
     return "/admin/shipping";
@@ -359,8 +359,14 @@ async function buildBrief(origin: string | null = null) {
         ? "review"
         : statusFromCheck(check.status),
     detail: check.detail,
-    action: "Open /admin/live-shipping-launch or /admin/shipping and clear this shipping launch check.",
-    href: "/admin/live-shipping-launch",
+    action:
+      check.key === "shipping_simulations"
+        ? "Open /admin/shipping/simulations or run npm run simulate:shipping and save passing evidence."
+        : "Open /admin/live-shipping-launch or /admin/shipping and clear this shipping launch check.",
+    href:
+      check.key === "shipping_simulations"
+        ? "/admin/shipping/simulations"
+        : "/admin/live-shipping-launch",
   }));
   const providerItems: BriefItem[] = providerSetup.readiness.map((item) => ({
     label: `Provider: ${item.label}`,
