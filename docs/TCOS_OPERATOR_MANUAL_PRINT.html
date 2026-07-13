@@ -141,7 +141,7 @@
 </head>
 <body>
   <div class="page-watermark">Property of Dag Danky Holdings LLC.</div>
-  <div class="print-meta">Generated 2026-07-12 from docs/TCOS_OPERATOR_MANUAL.md</div>
+  <div class="print-meta">Generated 2026-07-13 from docs/TCOS_OPERATOR_MANUAL.md</div>
   <h1>Totally Collectibles OS Operator Manual</h1>
 <p>Copyright 2026 Dag Danky Holdings LLC. All rights reserved.</p>
 <p>Authored by David Bakanas.</p>
@@ -3240,7 +3240,8 @@ IP_INTELLIGENCE_REQUIRED=true</code></pre>
 20260710185000_create_live_payment_launch_gate.sql
 20260710190000_create_shipping_label_infrastructure.sql
 20260711010000_create_instacomp_scan_job_queue.sql
-20260711185500_create_live_shipping_launch_gate.sql</code></pre>
+20260711185500_create_live_shipping_launch_gate.sql
+20260712174000_add_seller_protection_financial_adjustments.sql</code></pre>
 <p>The authoritative list is the complete <code>supabase/migrations</code> directory, including all earlier account, inventory, evidence, security, seller, and payout migrations. Apply migrations before using features that depend on new tables. A missing migration can appear as an unavailable page, <code>503</code>, failed draft creation, missing reconciliation data, or an unsafe launch-readiness blocker.</p>
 <p>The durable InstaComp queue is unavailable until this migration has been applied to the target Supabase project:</p>
 <pre><code>supabase/migrations/20260711010000_create_instacomp_scan_job_queue.sql</code></pre>
@@ -3273,7 +3274,7 @@ Invoke-RestMethod http://127.0.0.1:8008/health</code></pre>
 <pre><code>npx tsc --noEmit
 git diff --check</code></pre>
 <p>The queue simulation verifies state transitions, leases, idempotency, retries, and completion calculations in the local model. It is not a substitute for applying the migration and running one authenticated upload/scan/recovery test against the target Supabase project.</p>
-<p>Use these checks before deploy or after feature changes. Run the relevant payment and shipping simulations after changing money, webhook, reconciliation, seller payout, shipping-policy, provider-adapter, or claim code.</p>
+<p>Use these checks before deploy or after feature changes. Run the relevant payment and shipping simulations after changing money, webhook, reconciliation, seller payout, shipping-policy, provider-adapter, or claim code. <code>npm run verify:production</code> includes the LetterTrack evidence simulation and the full thirteen-scenario shipping simulation suite, so delivered, not-delivered, exception, returned, override, ignored-provider payout-gate, saved claim evidence-review audit, Standard Envelope, Ground Advantage, seller-protection reserve, provider-adapter, and dry-run guardrail cases are checked before deployment.</p>
 <p>Reference:</p>
 <ul>
 <li><a href="https://nextjs.org/docs">Next.js docs</a></li>
@@ -3648,6 +3649,12 @@ rear</code></pre>
 <li>card number</li>
 <li>parallel or finish</li>
 <li>serial number such as <code>087/250</code></li>
+<li>serial OCR rejects impossible fractions such as <code>0/25</code> or <code>99/25</code>; valid listing and search labels use the print run (<code>/25</code>) while preserving <code>1/1</code></li>
+<li>the production InstaComp accuracy gate also verifies that invalid serials cannot constrain comp searches, exact results keep the same print run, excluded lots/graded cards stay out of raw-card results, and guidance prices identify serial-run adjustments</li>
+<li>exact comps for a named non-base parallel must also contain full or strong partial parallel evidence, preventing a same-card/same-print-run listing in the wrong color from entering exact market value</li>
+<li>exact comps must contain the detected player and card number whenever those identifiers are available, preventing another card from the same set/parallel/print run from clearing the score threshold</li>
+<li>exact comps must also contain the detected year and brand when available, preventing strong but wrong-year or wrong-brand listings from entering exact market value</li>
+<li>when InstaComp identifies an autograph or relic card, exact comps must contain matching autograph or relic title evidence; ordinary base copies remain available only as broader guidance when otherwise relevant</li>
 <li>autograph and relic/patch signals</li>
 <li>team and sport</li>
 <li>condition clue</li>
@@ -3771,7 +3778,8 @@ services/paddleocr-service/README.md</code></pre>
 <li>the Bulk Controls panel displays visible guardrails before export: cross-list prep only, no external publishing, no postage purchase, and the ready-row export count</li>
 <li>only activation-ready selected rows are included</li>
 <li>the export contains TCOS inventory ID, SKU, title, price, quantity, category, condition, description, image URL, shipping method, postage estimate, Coverage fields, shipping-purchase guardrail fields, InstaComp scan ID, serial number, market/listing price evidence, and readiness blockers</li>
-<li>copied/downloaded JSON packets also include packet-level <code>crosslist_prep_only</code>, <code>externalPublishingApproved = false</code>, <code>shippingPurchaseIncluded = false</code>, shipping warning metadata, and export context with selected count, ready count, visible count, active filters, and search text</li>
+<li>copied/downloaded JSON packets also include packet-level <code>crosslist_prep_only</code>, <code>externalPublishingApproved = false</code>, <code>shippingPurchaseIncluded = false</code>, shipping warning metadata, an operator checklist, a prohibited-action manifest, and export context with selected count, ready count, visible count, active filters, and search text</li>
+<li>downloaded marketplace CSV rows include matching prohibited-action columns for external publishing, postage purchase, Coverage policy creation, seller payout release, and order fulfillment</li>
 <li>downloaded marketplace packet/CSV filenames include ready-row count plus current status, readiness, source, and search context so saved files can be matched back to the seller inventory view that produced them</li>
 </ul>
 <p>These packet controls are outbound preparation only. They do not publish to eBay, Whatnot, Shopify, COMC, or another external storefront. Before any real external publishing connector is enabled, implement and test platform-specific listing rules, seller authorization, idempotency, duplicate prevention, fee/shipping mapping, image upload rules, and external-listing reconciliation.</p>
@@ -3974,7 +3982,14 @@ charge.dispute.funds_reinstated</code></pre>
 <p><code>/admin/launch-readiness</code> is a broad advisory configuration/database report. <code>/admin/live-payment-launch</code> is the actual database half of the two-lock checkout control. Neither page proves that live postage purchasing works.</p>
 <p>If the live-payment approval migration is missing, the runtime gate fails closed and tells the operator to apply <code>supabase/migrations/20260710185000_create_live_payment_launch_gate.sql</code>. The approval button is disabled when either the gate table or immutable event table cannot be checked, and <code>/api/admin/live-payment-launch</code> returns a blocked <code>409</code> response instead of recording approval or surfacing an unclear write error. Missing approval tables are a migration problem, not an operator override problem.</p>
 <p><code>/admin/launch-readiness</code> now also includes a first-class Live Payment Launch Gate row plus database checks for <code>live_payment_launch_gates</code> and <code>live_payment_launch_events</code>. Live buyer payments are not configuration-ready when the live-payment audit tables are unavailable or when Stripe live mode is staged but the approval report still has blockers.</p>
+<p>The top Launch Readiness payment banner follows the dedicated Live Payment Launch Gate, not the whole-page blocked count. This prevents unrelated shipping-provider, marketplace, identity, email, or future-feature blockers from making an already-open payment runtime look closed. Use the separate full-launch banner and checklist for those broader launch blockers and review items; that banner reports blocked and review counts separately.</p>
+<p>The Launch Attention Board near the top of <code>/admin/launch-readiness</code> pulls the current blocked and review items out of the full checklist and shows the first ten by severity. It is a triage shortcut over the same readiness data, not a separate approval gate. When TCOS can infer the right admin surface, each attention card includes an <code>Open related page</code> shortcut.</p>
+<p>The same page links to <code>/api/admin/launch-readiness</code> for a compact JSON launch brief and <code>/api/admin/launch-readiness?format=markdown</code> for a Markdown handoff brief. These exports are read-only and summarize payment posture, shipping posture, dry-run cleanup, launch drill counts, top attention items with inferred admin <code>href</code> and absolute <code>url</code> targets, plus an operator-facing overall status and next recommended step.</p>
+<p>When shipping is intentionally in <code>dry_run</code> mode with live shipping disabled and the shipping approval database is available, the launch brief treats live-shipping lock checks as <code>review</code> items rather than overall launch blockers. This keeps the handoff aligned with the Launch Locks card: live payments can be open while shipping stays safely locked.</p>
 <p><code>/admin/launch-gate-drill</code> runs a no-money runtime smoke over the payment and shipping launch locks. For payments, it verifies that test-mode Checkout remains available for simulations, invalid Stripe secrets fail closed, and the current live runtime state matches the live-payment launch report. It uses synthetic key strings and does not create Checkout Sessions, Customers, PaymentIntents, refunds, or disputes.</p>
+<p>The drill report now includes a Side-effect Guardrails section, the JSON API returns <code>sideEffectPolicy</code>, and <code>/api/admin/launch-gate-drill?format=markdown</code> downloads a Markdown operator report. This explicitly lists the read/evaluate operations the drill may perform and the forbidden operations it must not perform: Stripe money-object creation, postage quote/buy/void/record actions, seller Coverage purchase, external claim/policy creation, seller payout release, or marking orders shipped.</p>
+<p><code>/admin/production-smoke</code> is the admin-facing production smoke report map. It does not run Vercel or external provider actions; it shows the launch command, clean production target, smoke coverage, common failure meanings, and the manual follow-up links operators should check after <code>npm run launch:production</code> succeeds. The smoke suite also verifies the Shipping Simulation Lab renders the thirteen policy/adapter scenarios and verifies the ranked shipping exceptions CSV shape, including the lane that can surface under-$20 seller-protection payout blockers.</p>
+<p>The Launch Gate Drill also shows Payment Launch Posture and Shipping Launch Posture cards. These cards separate runtime-smoke safety from operator launch readiness: the drill can pass while shipping remains <code>Locked Safe</code> because TCOS is still in dry-run postage mode or provider setup is incomplete. Treat <code>Locked Safe</code> as an intentional hold, not permission to buy postage.</p>
 <p>Live Checkout runtime also probes the immutable live-payment event table after approval is verified. If the audit table becomes unavailable after an approval was recorded, live Checkout fails closed until the migration/table problem is fixed.</p>
 <h3>Financial reconciliation runbook</h3>
 <p>Open:</p>
@@ -4056,6 +4071,7 @@ charge.dispute.funds_reinstated</code></pre>
 <li>merchandise subtotal is at most <code>$20.00</code></li>
 <li>estimated weight is at most <code>3 oz</code></li>
 <li>current estimate is one ounce per card</li>
+<li>USPS IMb delivery evidence is required through the approved Standard Envelope provider</li>
 </ul>
 <p>TCOS automatically resolves to Ground Advantage at <code>$20.01</code> or more or above three estimated ounces.</p>
 <p>Standard Envelope rate table:</p>
@@ -4086,7 +4102,12 @@ charge.dispute.funds_reinstated</code></pre>
 <ul>
 <li>Ground Advantage: <code>$6.99</code> for the first five cards, then <code>$0.25</code> per additional card; free at <code>$149</code></li>
 <li>Priority: <code>$12.99</code> for the first five cards, then <code>$0.25</code> per additional card; free at <code>$500</code></li>
-<li>Coverage is required for every shipment</li>
+<li>TCOS Under-$20 Seller Protection is the optional internal Standard Envelope program; it is not third-party insurance and depends on IMb delivery evidence such as Out for Delivery / Delivered in Mailbox when USPS data is available</li>
+<li>when a seller opts in for a Standard Envelope shipment, TCOS withholds a 2% seller-protection reserve from the seller payout row and caps reimbursement exposure at <code>$20.00</code> of item sale amount</li>
+<li>if an opted-in under-$20 Standard Envelope shipment requires a buyer refund because delivery evidence does not show delivered under TCOS claim rules, TCOS reimburses the seller for the protected item sale amount up to <code>$20.00</code>; shipping is excluded and is not reimbursed</li>
+<li>when an eligible TCOS Under-$20 Seller Protection claim is marked <code>paid</code>, TCOS records an idempotent <code>seller_protection_reimbursement</code> financial adjustment that credits seller payable for the protected item amount only</li>
+<li>when a seller does not opt in for a Standard Envelope shipment, no 2% reserve is withheld and the seller is responsible for refunding the buyer in full if the shipment is lost or cannot satisfy TCOS delivery-evidence rules</li>
+<li>parcel Coverage is required for Ground Advantage and Priority shipments</li>
 <li>current buyer charge for Coverage is zero</li>
 </ul>
 <h3>Critical live-postage warning</h3>
@@ -4098,7 +4119,10 @@ charge.dispute.funds_reinstated</code></pre>
 <li>Ground Advantage / Priority</li>
 <li>Shipment Coverage</li>
 </ul>
-<p>The checklist displays provider names, service/carrier labels, purchase mode, live-purchase support state, and required secret names. It does not display secret values and it does not call any live provider.</p>
+<p>The checklist displays provider names, service/carrier labels, purchase mode, live-purchase support state, and required secret names. It does not display secret values and it does not call any live provider. Standard Envelope currently uses the LetterTrack / USPS IMb handoff path: TCOS can export eligible Standard Envelope rows as a LetterTrack import CSV, but the operator must import/print in LetterTrack and then record the assigned IMb or tracking reference back into TCOS before marking the order shipped.</p>
+<p><code>/admin/shipping</code> exposes <code>Export LetterTrack CSV</code>, which downloads <code>/api/admin/shipping/lettertrack-export</code>. The export includes only Standard Envelope labels in <code>planned</code>, <code>purchase_pending</code>, or <code>rate_selected</code> status. Rows missing recipient name, address line 1, city, state, or postal code are skipped so the import file is not polluted with unshippable envelopes. LetterTrack provides IMb delivery evidence; TCOS Under-$20 Seller Protection remains internal, item-only, optional per seller shipment, and not third-party insurance.</p>
+<p>After the LetterTrack import/print step, use the <code>/admin/shipping</code> <code>LetterTrack IMb Recording</code> panel to paste the assigned IMb or LetterTrack mailpiece reference back into TCOS. This writes <code>lettertrack_imb_recorded</code>, changes the label to <code>printed</code>, stores the IMb as the tracking and coverage evidence reference, and copies the tracking reference onto the order row. Only mark the order shipped after the envelope is actually mailed.</p>
+<p>After USPS/LetterTrack scan history appears, use the <code>/admin/shipping</code> <code>LetterTrack Delivery Evidence</code> panel to record <code>Delivered</code>, <code>Out for Delivery</code>, <code>Not Delivered</code>, <code>Delivery Exception</code>, <code>Returned</code>, or other IMb status evidence. These events are stored in <code>order_shipping_tracking_events</code> and are included in label and claim packets. When an under-$20 Standard Envelope claim draft is opened, TCOS snapshots the latest LetterTrack evidence into the claim metadata and packet. Delivered evidence supports closing the shipment trail and blocks seller-protection payout unless an operator documents an explicit override note; not-delivered, exception, or returned evidence supports TCOS Under-$20 Seller Protection claim review. Each submitted, under-review, approved, paid, or denied seller-protection status change also records <code>latest_lettertrack_delivery_evidence_review</code> so the claim has an audit trail of the current IMb evidence even before payout. Before <code>Mark Paid</code> creates a seller-protection reimbursement, TCOS reloads the latest LetterTrack evidence and refuses payout unless claim-review evidence is present or the internal note contains an override reason. <code>/admin/shipping</code> and <code>/admin/orders/[id]</code> show the saved claim snapshot, latest saved status-review, and current LetterTrack evidence recalculated from loaded tracking events; the order page loads up to 100 tracking events and the shipping cockpit loads up to 500 so older IMb evidence remains visible during review. Claim evidence packets include the saved claim snapshot, Latest Saved LetterTrack Evidence Review, and a Current LetterTrack Evidence Review recalculated from the current tracking events in the packet. When a payout gate decision is recorded, the claim evidence packet also includes a dedicated LetterTrack Seller-Protection Payout Gate section with allowed/blocked, override, reason, latest status, and latest tracking. Approved seller-protection claims blocked by this rule appear in the <code>/admin/shipping</code> priority board and the <code>/api/admin/shipping/exceptions</code> CSV as <code>seller_protection_payout_blocked</code>.</p>
 <p>Provider setup packets are available from <code>/admin/shipping</code>:</p>
 <ul>
 <li><code>Setup JSON</code> opens <code>/api/admin/shipping/provider-setup</code></li>
@@ -4120,14 +4144,15 @@ charge.dispute.funds_reinstated</code></pre>
 <li>what must be built before TCOS can buy postage: quote, buy, void, Coverage purchase, webhook reconciliation, and audit-packet proof</li>
 <li>what must not happen: mailing dry-run labels, marking dry-run tracking as shipped, or enabling live mode before launch readiness and simulations are clean</li>
 </ul>
-<p>The Live Shipping Runway now includes a Live Adapter Approval Checklist. The provider setup packet and <code>/admin/shipping</code> must show all of these gates ready before TCOS treats live postage or Coverage purchase as approved: provider credentials, live adapter implementation, quote/buy/void tests, Coverage purchase tests, provider webhook plus reconciliation approval, shipping simulation pass evidence, and explicit admin live-shipping approval. Secret presence alone is not enough to enable live postage.</p>
+<p>The Live Shipping Runway now includes a Live Adapter Approval Checklist. The provider setup packet and <code>/admin/shipping</code> must show all of these gates ready before TCOS treats live postage or Coverage purchase as approved: provider credentials, live adapter implementation, quote/buy/void tests, Coverage purchase tests, provider webhook plus reconciliation approval, thirteen-scenario shipping simulation pass evidence, and explicit admin live-shipping approval. Secret presence alone is not enough to enable live postage.</p>
 <p><code>/admin/live-shipping-launch</code> is the auditable live-shipping database lock. It evaluates the current live-shipping approval version, <code>TCOS_LIVE_SHIPPING_ENABLED</code>, <code>TCOS_SHIPPING_PURCHASE_MODE</code>, provider setup, live requirement checklist, shipping simulations, live approval report, and dry-run cleanup status. Approval writes to <code>live_shipping_launch_gates</code> and appends immutable <code>live_shipping_launch_events</code>; revocation clears the approval side of the lock. Live shipping still requires both this database approval and the environment/runtime switches, and the current dry-run-only provider adapter still blocks live postage execution.</p>
 <p>If the live-shipping approval migration is missing, the runtime gate fails closed and tells the operator to apply <code>supabase/migrations/20260711185500_create_live_shipping_launch_gate.sql</code>. Do not switch <code>TCOS_SHIPPING_PURCHASE_MODE</code> to <code>live</code> until <code>/admin/launch-readiness</code> shows the live-shipping gate and immutable event tables available and <code>/admin/live-shipping-launch</code> shows the approval report is safe.</p>
 <p>The live-shipping approval button is disabled when the approval database check cannot run, and <code>/api/admin/live-shipping-launch</code> returns a blocked <code>409</code> response instead of recording approval or surfacing an unclear write error. Missing approval tables are a migration problem, not an operator override problem.</p>
 <p>Provider purchase attempts in <code>/api/admin/orders/[id]/shipping-labels</code> now check the live-shipping runtime gate before calling the provider adapter. Manual external label purchase/void recording remains available, but live provider purchase is blocked unless the database gate, immutable event table, <code>TCOS_LIVE_SHIPPING_ENABLED</code>, <code>TCOS_SHIPPING_PURCHASE_MODE</code>, live requirements, and dry-run cleanup checks all pass.</p>
 <p><code>/admin/launch-readiness</code> also includes the same Shipping Setup Verdict, the live-shipping launch gate status, and database checks for <code>live_shipping_launch_gates</code> plus <code>live_shipping_launch_events</code>. Treat this as the production-readiness warning surface; it does not mean live postage buying is enabled.</p>
 <p>The same <code>/admin/launch-gate-drill</code> report also checks the live-shipping runtime lock without quoting, buying, voiding, or recording a provider label. In dry-run mode, the expected safe result is that the dry-run shipping path remains available while live postage remains locked. In live mode, the drill expects the runtime gate to match the live-shipping launch report.</p>
-<p>The admin command center (<code>/admin</code>) also shows the Shipping Setup verdict in the side rail and includes it in operator alerts, so blocked shipping-provider setup is visible from the first admin landing page.</p>
+<p>The drill's Shipping Launch Posture card lists the blocked live-shipping checks and next actions, such as configuring provider credentials, building the live quote/buy/void adapter, proving Coverage purchase, and wiring provider webhook reconciliation. Keep shipping in <code>Locked Safe</code> until those items are actually ready.</p>
+<p>The admin command center (<code>/admin</code>) also shows a Launch Locks card in the side rail with the current no-money gate drill result, payment posture, shipping posture, and direct links to Gate Drill, Launch Readiness, Live Payment Gate, Live Shipping Gate, and the launch brief JSON/Markdown exports. It also shows the Shipping Setup verdict and includes that verdict in operator alerts, so blocked shipping-provider setup is visible from the first admin landing page.</p>
 <p>Never mail with references beginning:</p>
 <pre><code>IMB-TCOS-DRYRUN-
 USPS-TCOS-DRYRUN-
@@ -4192,16 +4217,23 @@ dryrun-</code></pre>
 <li>Treat paid, denied, and cancelled claims as audit-locked.</li>
 </ol>
 <h3>Shipping simulation runbook</h3>
-<p>Open <code>/admin/shipping/simulations</code> and run the suite. Require all seven policy/adapter assertions:</p>
+<p>Open <code>/admin/shipping/simulations</code> or run <code>npm run simulate:shipping</code>. Require all thirteen policy/adapter assertions:</p>
 <ul>
 <li><code>$19.99</code> and 3 oz stays Standard Envelope</li>
 <li><code>$20.01</code> forces Ground Advantage</li>
 <li>more than 3 oz forces Ground Advantage</li>
-<li>Coverage is required for Standard Envelope</li>
+<li>Standard Envelope requires delivery evidence and records whether the seller opted into TCOS Under-$20 Seller Protection</li>
+<li>opted-in under-$20 Standard Envelope claims reimburse item sale amount only and exclude shipping</li>
+<li>non-opted-in under-$20 Standard Envelope claims reimburse <code>$0.00</code> and leave refund liability with the seller</li>
 <li>Coverage is required for parcel shipping</li>
 <li>shipping adapter profiles expose provider, carrier, credential, Coverage, live-support, and manual-fallback state</li>
+<li>Standard Envelope labels can export to a LetterTrack import CSV with recipient address, order reference, declared value, and IMb recording instructions</li>
+<li>LetterTrack delivery evidence snapshots distinguish delivered shipments from not-delivered claim-review support before TCOS Under-$20 Seller Protection reimbursement</li>
+<li>under-$20 seller-protection payout blocks delivered LetterTrack evidence, allows not-delivered review evidence, and requires an explicit override note for exceptions</li>
+<li>under-$20 seller-protection status changes save LetterTrack evidence-review audit records on submitted, under-review, approved, paid, and denied statuses</li>
 <li>dry-run Standard Envelope and Ground Advantage adapter purchases behave as dry runs</li>
 </ul>
+<p>The dry-run Standard Envelope purchase assertion uses the active Standard Envelope rate table at run time, so it should follow the July 12, 2026 rate change without hardcoded stale postage.</p>
 <p>The page also shows a Live Shipping Approval Report. Live shipping must remain blocked unless the report says <code>ready_to_request_live_mode</code>, the setup verdict is acceptable, every live requirement is ready, and there are zero blockers. This page does not contact USPS or Coverage and does not buy postage.</p>
 <h2>35. Seller eBay Connection, Staging, Outside Orders, And Reconciliation</h2>
 <p>Seller-scoped eBay tokens and workflows are separate from the Store #1 global <code>ebay_tokens</code> connection.</p>
@@ -4391,6 +4423,7 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3000/admin/login</code></pre
 <ul>
 <li>InstaComp draft success links now open the Seller Inventory InstaComp lane directly through <code>Open InstaComp Drafts</code> and <code>Open in InstaComp drafts</code>.</li>
 <li>Seller Inventory now has a <code>Source</code> filter with an <code>InstaComp</code> lane, InstaComp item badges, scan/serial/price-source details, and ready-row marketplace packet export controls.</li>
+<li>InstaComp draft titles now prefer serial-run display such as <code>/50</code> instead of exact copy-number display such as <code>07/50</code>; true one-of-one cards remain <code>1/1</code>. Admin, test, and comp-search title generation share the same serial-run display helper so the behavior does not drift.</li>
 <li>Seller Inventory rows now show the default Standard Envelope/Ground Advantage shipping plan, estimated postage, Coverage requirement, and Coverage type; selected rows now show a shipping mix summary before activation or marketplace export, and selected ready-row marketplace packets include those shipping fields.</li>
 <li>Seller Inventory Selection Summary now shows a selected-row activation check with activatable, needs-work, active, archived, and top-blocker counts before <code>Activate Ready</code>.</li>
 <li>Seller Inventory Bulk Action Follow-Up now groups failed rows by blocker reason and lets operators keep only a specific blocker group selected for cleanup.</li>
