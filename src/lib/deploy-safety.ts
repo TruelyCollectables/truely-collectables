@@ -16,7 +16,7 @@ export const DEPLOY_SAFETY = {
     `${DEPLOY_SAFETY_SMOKE_COMMAND} handoff`,
   ],
   sequence: [
-    "remove unwanted alias",
+    "remove unwanted truely-collectables-tt3b.vercel.app alias",
     "set clean production alias",
     "print DEPLOYED_PRODUCTION",
     "print CLEAN_PRODUCTION",

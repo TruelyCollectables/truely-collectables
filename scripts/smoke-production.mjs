@@ -296,7 +296,7 @@ const checks = [
       result.text.includes("rolling 24-hour quota reset") &&
       result.text.includes("deploy live safety contract") &&
       result.text.includes("Protected deploy sequence") &&
-      result.text.includes("remove unwanted alias") &&
+      result.text.includes("remove unwanted truely-collectables-tt3b.vercel.app alias") &&
       result.text.includes("set clean production alias") &&
       result.text.includes("print DEPLOYED_PRODUCTION") &&
       result.text.includes("print CLEAN_PRODUCTION") &&
@@ -318,7 +318,7 @@ const checks = [
       result.text.includes("deployed URL output") &&
       result.text.includes("clean URL output") &&
       result.text.includes('"sequence"') &&
-      result.text.includes("remove unwanted alias") &&
+      result.text.includes("remove unwanted truely-collectables-tt3b.vercel.app alias") &&
       result.text.includes("set clean production alias") &&
       result.text.includes("print DEPLOYED_PRODUCTION") &&
       result.text.includes("print CLEAN_PRODUCTION") &&
@@ -335,7 +335,7 @@ const checks = [
       result.text.includes("rolling 24-hour quota reset") &&
       result.text.includes("deploy live safety contract") &&
       result.text.includes("Protected deploy sequence:") &&
-      result.text.includes("remove unwanted alias") &&
+      result.text.includes("remove unwanted truely-collectables-tt3b.vercel.app alias") &&
       result.text.includes("set clean production alias") &&
       result.text.includes("print DEPLOYED_PRODUCTION") &&
       result.text.includes("print CLEAN_PRODUCTION") &&
@@ -388,7 +388,7 @@ const checks = [
       result.text.includes("api-deployments-free-per-day") &&
       result.text.includes("rolling 24-hour quota reset") &&
       result.text.includes("Protected deploy sequence") &&
-      result.text.includes("remove unwanted alias") &&
+      result.text.includes("remove unwanted truely-collectables-tt3b.vercel.app alias") &&
       result.text.includes("set clean production alias") &&
       result.text.includes("print DEPLOYED_PRODUCTION") &&
       result.text.includes("print CLEAN_PRODUCTION") &&
@@ -416,7 +416,7 @@ const checks = [
       result.text.includes("rolling 24-hour quota reset") &&
       result.text.includes("deploy live safety contract") &&
       result.text.includes("Protected deploy sequence:") &&
-      result.text.includes("remove unwanted alias") &&
+      result.text.includes("remove unwanted truely-collectables-tt3b.vercel.app alias") &&
       result.text.includes("set clean production alias") &&
       result.text.includes("print DEPLOYED_PRODUCTION") &&
       result.text.includes("print CLEAN_PRODUCTION") &&
