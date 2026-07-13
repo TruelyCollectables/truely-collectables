@@ -23,17 +23,17 @@ function assertScriptIncludes(scriptName, expectedParts) {
   console.log(`PASS ${scriptName} includes ${expectedParts.join(", ")}`);
 }
 
-function assertFileIncludes(filePath, expectedParts) {
+function assertFileIncludes(name, filePath, expectedParts) {
   const text = fs.readFileSync(filePath, "utf8");
   const missing = expectedParts.filter((part) => !text.includes(part));
 
   if (missing.length > 0) {
     throw new Error(
-      `${filePath} is missing required production guardrail text: ${missing.join(", ")}`,
+      `${name} in ${filePath} is missing required production guardrail text: ${missing.join(", ")}`,
     );
   }
 
-  console.log(`PASS ${filePath} includes ${expectedParts.join(", ")}`);
+  console.log(`PASS ${name} includes ${expectedParts.join(", ")}`);
 }
 
 function runExpectedSuccess(name, args, env = {}) {
@@ -105,7 +105,7 @@ assertScriptIncludes("launch:production", [
   "deploy:production",
   "smoke:production",
 ]);
-assertFileIncludes("scripts/smoke-production.mjs", [
+assertFileIncludes("shipping simulation API smoke contract", "scripts/smoke-production.mjs", [
   'name: "shipping simulation api"',
   'path: "/api/admin/shipping/simulations"',
   'options: { method: "POST" }',
@@ -115,7 +115,7 @@ assertFileIncludes("scripts/smoke-production.mjs", [
   '"missing_scenario_keys":[]',
   '"unexpected_scenario_keys":[]',
 ]);
-assertFileIncludes("scripts/smoke-production.mjs", [
+assertFileIncludes("queued-feature smoke manifest", "scripts/smoke-production.mjs", [
   "const queuedFeatureCheckNames = [",
   "Queued feature smoke manifest references unknown check(s):",
   "Queued feature smoke manifest contains duplicate check(s):",
