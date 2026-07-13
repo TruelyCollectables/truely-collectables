@@ -478,6 +478,33 @@ const checks = [
   },
 ];
 
+const queuedFeatureCheckNames = [
+  "launch handoff bundle",
+  "launch readiness page",
+  "production smoke report page",
+  "shipping simulation lab",
+  "shipping simulation api",
+  "shipping provider setup json",
+  "shipping provider env template",
+  "shipping provider vercel commands",
+  "shipping provider operator checklist",
+  "shipping exceptions export",
+  "lettertrack standard envelope export",
+];
+
+const checkNames = new Set(checks.map((check) => check.name));
+const unknownQueuedFeatureCheckNames = queuedFeatureCheckNames.filter(
+  (name) => !checkNames.has(name),
+);
+
+if (unknownQueuedFeatureCheckNames.length > 0) {
+  throw new Error(
+    `Queued feature smoke manifest references unknown check(s): ${unknownQueuedFeatureCheckNames.join(
+      ", ",
+    )}`,
+  );
+}
+
 const results = [
   {
     name: "admin login",
@@ -521,19 +548,7 @@ results.push({
 
 const failed = results.filter((result) => !result.passed);
 const queuedFeatureFailures = failed.filter((result) =>
-  [
-    "launch handoff bundle",
-    "launch readiness page",
-    "production smoke report page",
-    "shipping simulation lab",
-    "shipping simulation api",
-    "shipping provider setup json",
-    "shipping provider env template",
-    "shipping provider vercel commands",
-    "shipping provider operator checklist",
-    "shipping exceptions export",
-    "lettertrack standard envelope export",
-  ].includes(result.name),
+  queuedFeatureCheckNames.includes(result.name),
 );
 const totalDurationMs = results.reduce(
   (sum, result) => sum + (result.durationMs || 0),

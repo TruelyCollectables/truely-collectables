@@ -109,6 +109,8 @@ assertFileIncludes("scripts/smoke-production.mjs", [
   'name: "shipping simulation api"',
   'path: "/api/admin/shipping/simulations"',
   'options: { method: "POST" }',
+  "const queuedFeatureCheckNames = [",
+  "Queued feature smoke manifest references unknown check(s):",
   '"launch handoff bundle"',
   '"launch readiness page"',
   '"production smoke report page"',
