@@ -148,6 +148,9 @@ export default function ProductionSmokePage() {
             <SmokeLink href="/api/admin/shipping/exceptions" label="Shipping Exceptions CSV" />
             <SmokeLink href="/api/admin/launch-gate-drill?format=markdown" label="Gate Drill Report" />
             <SmokeLink href="/api/admin/shipping/provider-setup" label="Shipping Provider JSON" />
+            <SmokeLink href="/api/admin/shipping/provider-setup?format=csv" label="Shipping Setup CSV" />
+            <SmokeLink href="/api/admin/shipping/provider-setup?format=env-template" label="Shipping Env Template" />
+            <SmokeLink href="/api/admin/shipping/provider-setup?format=vercel-commands" label="Shipping Vercel Commands" />
             <SmokeLink href="/api/admin/shipping/provider-setup?format=operator-checklist" label="Shipping Checklist" />
           </div>
         </section>
