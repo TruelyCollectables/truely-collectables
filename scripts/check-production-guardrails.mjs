@@ -216,7 +216,7 @@ assertFileIncludes("deploy helper smoke handoff", "scripts/deploy-production.mjs
 assertFileOrder("deploy live safety sequence", "scripts/deploy-production.mjs", [
   "Removing unwanted ${unwantedAlias} alias if present",
   '"alias", "rm", unwantedAlias',
-  "Pointing ${cleanDomain} at ${deploymentUrl}",
+  "Pointing https://${cleanDomain} at ${deploymentUrl}",
   '"alias", "set", deploymentUrl, cleanDomain',
   "DEPLOYED_PRODUCTION=",
   "CLEAN_PRODUCTION=https://",

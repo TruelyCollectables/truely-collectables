@@ -167,7 +167,7 @@ run(
   { allowFailure: true },
 );
 
-console.log(`Pointing ${cleanDomain} at ${deploymentUrl}`);
+console.log(`Pointing https://${cleanDomain} at ${deploymentUrl}`);
 run("vercel", ["alias", "set", deploymentUrl, cleanDomain, "--scope", scope]);
 
 console.log("");
