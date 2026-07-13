@@ -496,12 +496,24 @@ const checkNames = new Set(checks.map((check) => check.name));
 const unknownQueuedFeatureCheckNames = queuedFeatureCheckNames.filter(
   (name) => !checkNames.has(name),
 );
+const duplicateQueuedFeatureCheckNames = queuedFeatureCheckNames.filter(
+  (name, index) => queuedFeatureCheckNames.indexOf(name) !== index,
+);
+const queuedFeatureCheckNameSet = new Set(queuedFeatureCheckNames);
 
 if (unknownQueuedFeatureCheckNames.length > 0) {
   throw new Error(
     `Queued feature smoke manifest references unknown check(s): ${unknownQueuedFeatureCheckNames.join(
       ", ",
     )}`,
+  );
+}
+
+if (duplicateQueuedFeatureCheckNames.length > 0) {
+  throw new Error(
+    `Queued feature smoke manifest contains duplicate check(s): ${[
+      ...new Set(duplicateQueuedFeatureCheckNames),
+    ].join(", ")}`,
   );
 }
 
@@ -548,7 +560,7 @@ results.push({
 
 const failed = results.filter((result) => !result.passed);
 const queuedFeatureFailures = failed.filter((result) =>
-  queuedFeatureCheckNames.includes(result.name),
+  queuedFeatureCheckNameSet.has(result.name),
 );
 const totalDurationMs = results.reduce(
   (sum, result) => sum + (result.durationMs || 0),

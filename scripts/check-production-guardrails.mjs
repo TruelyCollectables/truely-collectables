@@ -111,6 +111,7 @@ assertFileIncludes("scripts/smoke-production.mjs", [
   'options: { method: "POST" }',
   "const queuedFeatureCheckNames = [",
   "Queued feature smoke manifest references unknown check(s):",
+  "Queued feature smoke manifest contains duplicate check(s):",
   '"launch handoff bundle"',
   '"launch readiness page"',
   '"production smoke report page"',
