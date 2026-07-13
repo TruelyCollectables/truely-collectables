@@ -124,6 +124,19 @@ assertScriptIncludes("launch:production", [
   "deploy:production",
   "smoke:production",
 ]);
+assertFileIncludes("launch gate drill smoke contract", "scripts/smoke-production.mjs", [
+  'name: "launch gate drill json"',
+  'path: "/api/admin/launch-gate-drill"',
+  'result.contentType.includes("application/json")',
+  '"sideEffectPolicy"',
+  '"forbiddenOperations"',
+  'name: "launch gate drill markdown"',
+  'path: "/api/admin/launch-gate-drill?format=markdown"',
+  'result.contentType.includes("text/markdown")',
+  "# TCOS Launch Gate Drill Report",
+  "## Side-effect Guardrails",
+  "### Forbidden Operations",
+]);
 assertFileIncludes("shipping simulation API smoke contract", "scripts/smoke-production.mjs", [
   'name: "shipping simulation api"',
   'path: "/api/admin/shipping/simulations"',
