@@ -37,7 +37,7 @@ To run the full quota-safe production readiness check:
 npm run verify:production
 ```
 
-This runs lint, the InstaComp queue and accuracy simulations, build, and the production preflight without starting a Vercel deployment.
+This runs lint, the InstaComp queue and accuracy simulations, the LetterTrack evidence checks, the thirteen-scenario shipping simulation suite, build, and the production preflight without starting a Vercel deployment.
 It also runs `npm run check:production-guardrails`, which syntax-checks the production deploy/smoke helpers, verifies smoke diagnostic redaction, and verifies the clean production domain cannot be confused with the unwanted `tt3b` alias.
 
 ## Deploy
@@ -48,7 +48,7 @@ For the normal launch path, run the one-shot command:
 npm run launch:production
 ```
 
-This runs lint, InstaComp regression simulations, build, production guardrail checks, production preflight, production deploy, and production smoke in order.
+This runs lint, InstaComp regression simulations, LetterTrack evidence checks, the thirteen-scenario shipping simulation suite, build, production guardrail checks, production preflight, production deploy, and production smoke in order.
 
 If you need to run the steps separately, deploy first:
 
@@ -77,7 +77,7 @@ After a successful deploy:
 npm run smoke:production
 ```
 
-The smoke helper logs in with `SMOKE_ADMIN_PASSWORD`, `ADMIN_PASSWORD`, or the local `.env.local` `ADMIN_PASSWORD`, then checks the production admin/readiness/shipping launch surfaces.
+The smoke helper logs in with `SMOKE_ADMIN_PASSWORD`, `ADMIN_PASSWORD`, or the local `.env.local` `ADMIN_PASSWORD`, then checks the production admin/readiness/shipping launch surfaces, including the Shipping Simulation Lab page that renders the thirteen policy/adapter scenarios.
 
 Before reporting commit context, smoke refreshes `origin/main` with `git fetch origin main`. Smoke requests default to a 15-second timeout and report per-check, slowest-check, and total request duration. Override with `SMOKE_REQUEST_TIMEOUT_MS` if production is slow but still healthy. Failed-check response/error snippets redact key-shaped Stripe, webhook, JWT, Resend, auth-header, query-token, and JSON secret values before printing.
 
