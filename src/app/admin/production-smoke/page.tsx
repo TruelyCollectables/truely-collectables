@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { DEPLOY_SAFETY } from "../../../lib/deploy-safety";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -18,14 +19,6 @@ const smokeChecks = [
   "Clean production domain",
   "Unwanted tt3b alias absence",
   "Deploy live safety contract with quota messaging, alias cleanup, deployed/clean URL output, and smoke handoff",
-];
-
-const protectedDeploySequence = [
-  "remove unwanted alias",
-  "set clean production alias",
-  "print DEPLOYED_PRODUCTION",
-  "print CLEAN_PRODUCTION",
-  "print smoke handoff command",
 ];
 
 const failureMeanings = [
@@ -109,7 +102,7 @@ export default function ProductionSmokePage() {
           </p>
           <h3 className="mt-5 font-black">Protected deploy sequence</h3>
           <ol className="mt-3 grid gap-2 text-sm font-semibold md:grid-cols-5">
-            {protectedDeploySequence.map((step, index) => (
+            {DEPLOY_SAFETY.sequence.map((step, index) => (
               <li key={step} className="rounded border border-amber-200 bg-white p-3">
                 <span className="mr-2 rounded bg-amber-100 px-2 py-1 text-xs font-black">
                   {index + 1}

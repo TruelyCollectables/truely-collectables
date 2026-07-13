@@ -6,6 +6,11 @@ import { evaluateLiveShippingLaunch } from "../../../../lib/live-shipping-launch
 import { runLaunchGateDrill } from "../../../../lib/launch-gate-drill";
 import { getActiveStoreId } from "../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
+import {
+  DEPLOY_SAFETY,
+  deploySafetyContractMarkdown,
+  deploySafetySequenceMarkdown,
+} from "../../../../lib/deploy-safety";
 
 export const dynamic = "force-dynamic";
 
@@ -24,31 +29,6 @@ const SHIPPING_PROVIDER_VERCEL_COMMANDS_HREF =
   "/api/admin/shipping/provider-setup?format=vercel-commands";
 const SHIPPING_PROVIDER_OPERATOR_CHECKLIST_HREF =
   "/api/admin/shipping/provider-setup?format=operator-checklist";
-const DEPLOY_SAFETY_SMOKE_COMMAND = "npm run smoke:production";
-const DEPLOY_SAFETY = {
-  section: "Production Deploy Safety",
-  cleanProductionDomain: "https://truely-collectables.vercel.app",
-  unwantedAlias: "truely-collectables-tt3b.vercel.app",
-  quotaBlockCode: "api-deployments-free-per-day",
-  quotaResetInstruction:
-    "Wait for the rolling 24-hour quota reset before retrying npm run launch:production.",
-  contract: [
-    "Vercel quota messaging",
-    "unwanted alias removal",
-    "clean-domain aliasing",
-    "deployed URL output",
-    "clean URL output",
-    `${DEPLOY_SAFETY_SMOKE_COMMAND} handoff`,
-  ],
-  sequence: [
-    "remove unwanted alias",
-    "set clean production alias",
-    "print DEPLOYED_PRODUCTION",
-    "print CLEAN_PRODUCTION",
-    "print smoke handoff command",
-  ],
-  smokeCommand: DEPLOY_SAFETY_SMOKE_COMMAND,
-};
 
 function statusFromCheck(status: "passed" | "warning" | "blocked") {
   if (status === "passed") return "ready" as const;
@@ -137,16 +117,6 @@ function cleanMarkdownListWithLinks(items: BriefItem[]) {
       return `- **${item.status.toUpperCase()} - ${item.label}:** ${item.detail} Next: ${action}`;
     })
     .join("\n");
-}
-
-function deploySafetyContractMarkdown() {
-  const contractWithoutSmoke = DEPLOY_SAFETY.contract.slice(0, -1).join(", ");
-
-  return `${contractWithoutSmoke}, and the \`${DEPLOY_SAFETY.smokeCommand}\` handoff`;
-}
-
-function deploySafetySequenceMarkdown() {
-  return DEPLOY_SAFETY.sequence.join(" -> ");
 }
 
 function deploySafetyMarkdownLines() {

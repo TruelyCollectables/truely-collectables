@@ -219,11 +219,19 @@ assertFileOrder("deploy live safety sequence", "scripts/deploy-production.mjs", 
   "npm run smoke:production",
 ]);
 
-assertFileIncludes("deploy live safety centralized source", "src/app/api/admin/launch-readiness/route.ts", [
+assertFileIncludes("deploy live safety centralized source", "src/lib/deploy-safety.ts", [
   "const DEPLOY_SAFETY_SMOKE_COMMAND",
   "const DEPLOY_SAFETY = {",
   "function deploySafetyContractMarkdown()",
   "function deploySafetySequenceMarkdown()",
+  "sequence: [",
+  "smokeCommand: DEPLOY_SAFETY_SMOKE_COMMAND",
+]);
+
+assertFileIncludes("deploy live safety launch readiness route source", "src/app/api/admin/launch-readiness/route.ts", [
+  "DEPLOY_SAFETY",
+  "deploySafetyContractMarkdown",
+  "deploySafetySequenceMarkdown",
   "function deploySafetyMarkdownLines()",
   "...deploySafetyMarkdownLines()",
   "deploySafetyContractMarkdown()} intact.",
@@ -232,7 +240,7 @@ assertFileIncludes("deploy live safety centralized source", "src/app/api/admin/l
 
 assertFileIncludes(
   "deploy safety export production target defaults",
-  "src/app/api/admin/launch-readiness/route.ts",
+  "src/lib/deploy-safety.ts",
   [
     'cleanProductionDomain: "https://truely-collectables.vercel.app"',
     'unwantedAlias: "truely-collectables-tt3b.vercel.app"',
@@ -241,7 +249,7 @@ assertFileIncludes(
 
 assertFileIncludes(
   "deploy safety export smoke handoff",
-  "src/app/api/admin/launch-readiness/route.ts",
+  "src/lib/deploy-safety.ts",
   [
     'const DEPLOY_SAFETY_SMOKE_COMMAND = "npm run smoke:production"',
     "smokeCommand: DEPLOY_SAFETY_SMOKE_COMMAND",
@@ -252,7 +260,7 @@ assertFileIncludes(
 
 assertFileIncludes(
   "deploy safety export quota block defaults",
-  "src/app/api/admin/launch-readiness/route.ts",
+  "src/lib/deploy-safety.ts",
   [
     'quotaBlockCode: "api-deployments-free-per-day"',
     "quotaResetInstruction:",
@@ -261,36 +269,46 @@ assertFileIncludes(
 );
 
 assertFileIncludes("deploy live safety handoff bundle", "src/app/api/admin/launch-readiness/route.ts", [
-  "api-deployments-free-per-day",
-  "rolling 24-hour quota reset",
   "deploy live safety contract",
-  "Vercel quota messaging",
-  "unwanted alias removal",
-  "clean-domain aliasing",
-  "deployed URL output",
-  "clean URL output",
+  "DEPLOY_SAFETY.quotaBlockCode",
+  "DEPLOY_SAFETY.quotaResetInstruction",
+  "DEPLOY_SAFETY.cleanProductionDomain",
+  "DEPLOY_SAFETY.unwantedAlias",
+  "DEPLOY_SAFETY.smokeCommand",
+  "deploySafetyContractMarkdown()",
   "Protected deploy sequence:",
   "deploySafetySequenceMarkdown()",
-  "npm run smoke:production",
 ]);
 
 assertFileIncludes("deploy live safety launch readiness markdown", "src/app/api/admin/launch-readiness/route.ts", [
   "DEPLOY_SAFETY.section",
+  "deploy live safety contract",
+  "DEPLOY_SAFETY.quotaBlockCode",
+  "DEPLOY_SAFETY.quotaResetInstruction",
+  "DEPLOY_SAFETY.cleanProductionDomain",
+  "DEPLOY_SAFETY.unwantedAlias",
+  "deploySafetyContractMarkdown()",
+  "Protected deploy sequence:",
+  "deploySafetySequenceMarkdown()",
+]);
+
+assertFileIncludes("deploy live safety shared text source", "src/lib/deploy-safety.ts", [
   "api-deployments-free-per-day",
   "rolling 24-hour quota reset",
-  "deploy live safety contract",
   "Vercel quota messaging",
   "unwanted alias removal",
   "clean-domain aliasing",
   "deployed URL output",
   "clean URL output",
-  "Protected deploy sequence:",
-  "deploySafetySequenceMarkdown()",
   "npm run smoke:production",
 ]);
 
 assertFileIncludes("deploy live safety launch readiness json", "src/app/api/admin/launch-readiness/route.ts", [
   "deploySafety",
+  "deploySafety: DEPLOY_SAFETY",
+]);
+
+assertFileIncludes("deploy live safety launch readiness json source", "src/lib/deploy-safety.ts", [
   "Production Deploy Safety",
   "quotaBlockCode",
   "api-deployments-free-per-day",
@@ -316,11 +334,7 @@ assertFileIncludes("deploy live safety production smoke page", "src/app/admin/pr
   "unwanted alias removal",
   "clean-domain aliasing",
   "Protected deploy sequence",
-  "remove unwanted alias",
-  "set clean production alias",
-  "print DEPLOYED_PRODUCTION",
-  "print CLEAN_PRODUCTION",
-  "print smoke handoff command",
+  "DEPLOY_SAFETY.sequence",
   "deployed URL output",
   "clean URL output",
   "npm run smoke:production",
@@ -334,11 +348,7 @@ assertFileIncludes("deploy live safety launch readiness page", "src/app/admin/la
   "unwanted alias removal",
   "clean-domain aliasing",
   "Protected deploy sequence",
-  "remove unwanted alias",
-  "set clean production alias",
-  "print DEPLOYED_PRODUCTION",
-  "print CLEAN_PRODUCTION",
-  "print smoke handoff command",
+  "DEPLOY_SAFETY.sequence",
   "deployed URL output",
   "clean URL output",
   "npm run smoke:production",
