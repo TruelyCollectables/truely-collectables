@@ -151,6 +151,11 @@ assertFileIncludes("queued-feature smoke manifest", "scripts/smoke-production.mj
   '"lettertrack standard envelope export"',
   "Queued launch feature failure(s):",
 ]);
+assertFileIncludes("smoke unwanted alias label", "scripts/smoke-production.mjs", [
+  "unwanted ${unwantedAlias.url.hostname} alias absent",
+  "SMOKE_UNWANTED_ALIAS_URL",
+  "truely-collectables-tt3b.vercel.app",
+]);
 runExpectedSuccess(
   "smoke diagnostic redaction self-test",
   ["scripts/smoke-production.mjs", "--self-test-redaction"],
