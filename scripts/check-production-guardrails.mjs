@@ -134,6 +134,14 @@ assertFileIncludes("shipping simulation API smoke contract", "scripts/smoke-prod
   '"missing_scenario_keys":[]',
   '"unexpected_scenario_keys":[]',
 ]);
+assertFileIncludes("admin shipping controls smoke contract", "scripts/smoke-production.mjs", [
+  'name: "admin shipping lettertrack controls"',
+  'path: "/admin/shipping"',
+  "Export LetterTrack CSV",
+  "LetterTrack IMb Recording",
+  "LetterTrack Delivery Evidence",
+  "Seller Protection Payout Blocked",
+]);
 assertFileIncludes("shipping provider setup smoke contract", "scripts/smoke-production.mjs", [
   'name: "shipping provider setup json"',
   'path: "/api/admin/shipping/provider-setup"',
