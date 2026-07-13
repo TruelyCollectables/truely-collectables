@@ -385,6 +385,7 @@ assertFileIncludes("deploy live safety runbook", "docs/PRODUCTION_DEPLOY_RUNBOOK
   "live deploy safety contract",
   "/api/admin/launch-readiness",
   "brief.deploySafety",
+  "brief.deploySafety` with the clean production domain, unwanted `truely-collectables-tt3b.vercel.app` alias",
   "brief.deploySafety.sequence",
   "/api/admin/launch-readiness?format=markdown",
   "Production Deploy Safety",
