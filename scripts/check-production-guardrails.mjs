@@ -109,6 +109,7 @@ assertFileIncludes("scripts/smoke-production.mjs", [
   'name: "shipping simulation api"',
   'path: "/api/admin/shipping/simulations"',
   'options: { method: "POST" }',
+  '"shipping simulation api"',
   '"scenario_count":13',
   '"expected_scenario_count":13',
   '"scenario_key_coverage_status":"passed"',

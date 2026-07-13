@@ -523,6 +523,9 @@ const queuedFeatureFailures = failed.filter((result) =>
   [
     "launch handoff bundle",
     "launch readiness page",
+    "production smoke report page",
+    "shipping simulation lab",
+    "shipping simulation api",
     "shipping provider setup json",
     "shipping provider env template",
     "shipping provider vercel commands",
