@@ -181,6 +181,15 @@ assertFileIncludes("deploy preflight env flag", "scripts/deploy-production.mjs",
   "Production deploy preflight passed. No Vercel deployment was started.",
 ]);
 
+assertFileIncludes("deploy git preflight diagnostics", "scripts/deploy-production.mjs", [
+  "Refreshing origin/main before deploy",
+  "working tree has deploy-relevant local changes",
+  "Production deploy requires a clean committed worktree",
+  "Could not resolve local HEAD and origin/main after fetch",
+  "Local HEAD does not match origin/main",
+  "Run git push before deploying",
+]);
+
 assertFileIncludes("deploy live safety contract", "scripts/deploy-production.mjs", [
   "api-deployments-free-per-day",
   "Wait for the rolling 24-hour quota to reset",
