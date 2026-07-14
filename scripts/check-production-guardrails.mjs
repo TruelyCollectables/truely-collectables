@@ -1268,6 +1268,33 @@ assertFileIncludes(
   ],
 );
 assertFileIncludes(
+  "collector profile response contract",
+  "src/app/api/account/collector/profile/route.ts",
+  [
+    "function collectorProfileHeaders",
+    "X-TCOS-Collector-Profile-Present",
+    "X-TCOS-Collector-Profile-Visibility",
+    "X-TCOS-Collector-Profile-Messages",
+    "X-TCOS-Collector-Profile-Mutation",
+    'mutation: "loaded"',
+    'mutation: "upserted"',
+    "account_collector_profiles",
+    "allow_messages",
+  ],
+);
+assertFileIncludes(
+  "collector profile operator manual contract",
+  "docs/TCOS_OPERATOR_MANUAL.md",
+  [
+    "/api/account/collector/profile",
+    "X-TCOS-Collector-Profile-Present",
+    "X-TCOS-Collector-Profile-Visibility",
+    "X-TCOS-Collector-Profile-Messages",
+    "X-TCOS-Collector-Profile-Mutation",
+    "without exposing account IDs in response headers",
+  ],
+);
+assertFileIncludes(
   "collector export operator manual contract",
   "docs/TCOS_OPERATOR_MANUAL.md",
   [
@@ -1316,6 +1343,34 @@ assertFileIncludes(
     "X-TCOS-Collector-Import-Skipped",
     "X-TCOS-Collector-Import-Errors",
     "X-TCOS-Collector-Import-Job",
+  ],
+);
+assertFileIncludes(
+  "collector messages response contract",
+  "src/app/api/account/collector/messages/route.ts",
+  [
+    "function collectorConversationHeaders",
+    "function collectorMessageHeaders",
+    "X-TCOS-Collector-Conversations",
+    "X-TCOS-Collector-Conversation-Id",
+    "X-TCOS-Collector-Message-Id",
+    "X-TCOS-Collector-Message-Action",
+    "conversationCount: conversations.length",
+    'messageAction: "new_conversation" | "existing_conversation"',
+    "account_conversations",
+    "account_conversation_messages",
+  ],
+);
+assertFileIncludes(
+  "collector messages operator manual contract",
+  "docs/TCOS_OPERATOR_MANUAL.md",
+  [
+    "/api/account/collector/messages",
+    "X-TCOS-Collector-Conversations",
+    "X-TCOS-Collector-Conversation-Id",
+    "X-TCOS-Collector-Message-Id",
+    "X-TCOS-Collector-Message-Action",
+    "new conversation sends from replies",
   ],
 );
 assertFileIncludes(

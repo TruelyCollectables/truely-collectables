@@ -49,6 +49,20 @@ function unavailableResponse() {
   );
 }
 
+function collectorProfileHeaders(params: {
+  profilePresent: boolean;
+  visibility: string | null;
+  allowMessages: boolean | null;
+  mutation: "loaded" | "upserted";
+}) {
+  return {
+    "X-TCOS-Collector-Profile-Present": String(params.profilePresent),
+    "X-TCOS-Collector-Profile-Visibility": params.visibility || "none",
+    "X-TCOS-Collector-Profile-Messages": String(params.allowMessages ?? false),
+    "X-TCOS-Collector-Profile-Mutation": params.mutation,
+  };
+}
+
 export async function GET(request: Request) {
   try {
     const account = await getAuthenticatedAccountFromRequest(request);
@@ -71,7 +85,17 @@ export async function GET(request: Request) {
       throw error;
     }
 
-    return NextResponse.json({ success: true, profile: data });
+    return NextResponse.json(
+      { success: true, profile: data },
+      {
+        headers: collectorProfileHeaders({
+          profilePresent: Boolean(data),
+          visibility: data?.visibility ?? null,
+          allowMessages: data?.allow_messages ?? null,
+          mutation: "loaded",
+        }),
+      },
+    );
   } catch (error: any) {
     return NextResponse.json(
       { error: error.message || "Could not load collector profile" },
@@ -124,7 +148,17 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    return NextResponse.json({ success: true, profile: data });
+    return NextResponse.json(
+      { success: true, profile: data },
+      {
+        headers: collectorProfileHeaders({
+          profilePresent: true,
+          visibility: data.visibility ?? visibility,
+          allowMessages: data.allow_messages ?? payload.allow_messages,
+          mutation: "upserted",
+        }),
+      },
+    );
   } catch (error: any) {
     return NextResponse.json(
       { error: error.message || "Could not save collector profile" },

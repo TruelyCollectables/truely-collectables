@@ -35,6 +35,24 @@ function unavailableResponse() {
   );
 }
 
+function collectorConversationHeaders(params: { conversationCount: number }) {
+  return {
+    "X-TCOS-Collector-Conversations": String(params.conversationCount),
+  };
+}
+
+function collectorMessageHeaders(params: {
+  conversationId: string | null;
+  messageId: string | null;
+  action: "new_conversation" | "existing_conversation";
+}) {
+  return {
+    "X-TCOS-Collector-Conversation-Id": params.conversationId || "none",
+    "X-TCOS-Collector-Message-Id": params.messageId || "none",
+    "X-TCOS-Collector-Message-Action": params.action,
+  };
+}
+
 async function requireConversationAccess(params: {
   supabase: ReturnType<typeof getSupabaseClient>;
   conversationId: string;
@@ -116,7 +134,16 @@ export async function GET(request: Request) {
       throw error;
     }
 
-    return NextResponse.json({ success: true, conversations: data ?? [] });
+    const conversations = data ?? [];
+
+    return NextResponse.json(
+      { success: true, conversations },
+      {
+        headers: collectorConversationHeaders({
+          conversationCount: conversations.length,
+        }),
+      },
+    );
   } catch (error: any) {
     return NextResponse.json(
       { error: error.message || "Could not load messages" },
@@ -144,6 +171,8 @@ export async function POST(request: Request) {
     }
 
     let activeConversationId = conversationId;
+    let messageAction: "new_conversation" | "existing_conversation" =
+      activeConversationId ? "existing_conversation" : "new_conversation";
 
     if (activeConversationId) {
       const access = await requireConversationAccess({
@@ -179,6 +208,7 @@ export async function POST(request: Request) {
       }
 
       activeConversationId = conversation.id;
+      messageAction = "new_conversation";
     }
 
     const { data: message, error: messageError } = await supabase
@@ -206,11 +236,20 @@ export async function POST(request: Request) {
       .eq("id", activeConversationId)
       .eq("store_id", storeId);
 
-    return NextResponse.json({
-      success: true,
-      conversationId: activeConversationId,
-      message,
-    });
+    return NextResponse.json(
+      {
+        success: true,
+        conversationId: activeConversationId,
+        message,
+      },
+      {
+        headers: collectorMessageHeaders({
+          conversationId: activeConversationId,
+          messageId: message.id,
+          action: messageAction,
+        }),
+      },
+    );
   } catch (error: any) {
     return NextResponse.json(
       { error: error.message || "Could not send message" },

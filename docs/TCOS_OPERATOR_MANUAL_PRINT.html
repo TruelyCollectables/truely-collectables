@@ -1874,6 +1874,11 @@ account_wish_list_matches</code></pre>
 <li>list responses include <code>X-TCOS-Collector-Items</code> and <code>X-TCOS-Collector-Wish-List</code> headers so the dashboard payload can be reconciled with the returned counts</li>
 <li>create/archive/cancel responses include <code>X-TCOS-Collector-Item-Kind</code>, <code>X-TCOS-Collector-Mutation</code>, and <code>X-TCOS-Collector-Item-Id</code> headers so browser traces can identify the exact collector mutation without parsing the JSON body</li>
 </ul>
+<p>Collector profile API:</p>
+<ul>
+<li><code>/api/account/collector/profile</code> loads and upserts the logged-in collector's profile without exposing account IDs in response headers</li>
+<li>profile responses include <code>X-TCOS-Collector-Profile-Present</code>, <code>X-TCOS-Collector-Profile-Visibility</code>, <code>X-TCOS-Collector-Profile-Messages</code>, and <code>X-TCOS-Collector-Profile-Mutation</code> headers so operators can confirm profile state and message opt-in from browser traces</li>
+</ul>
 <p>Collection exports:</p>
 <ul>
 <li><code>/api/account/collector/exports?format=csv</code> downloads a spreadsheet-friendly collection backup</li>
@@ -1897,6 +1902,8 @@ account_wish_list_matches</code></pre>
 <li><code>account_conversations</code> stores account-to-account collector threads</li>
 <li><code>account_conversation_messages</code> stores regular messages, binding-offer messages, and system messages</li>
 <li>the account page does not yet expose the full inbox UI; the API and schema foundation are in place</li>
+<li><code>/api/account/collector/messages</code> list responses include <code>X-TCOS-Collector-Conversations</code></li>
+<li>message-send responses include <code>X-TCOS-Collector-Conversation-Id</code>, <code>X-TCOS-Collector-Message-Id</code>, and <code>X-TCOS-Collector-Message-Action</code> so browser traces can distinguish new conversation sends from replies without parsing the JSON body</li>
 </ul>
 <p>Binding offer rule:</p>
 <ul>

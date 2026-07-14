@@ -1667,6 +1667,11 @@ Collection dashboard API:
 - list responses include `X-TCOS-Collector-Items` and `X-TCOS-Collector-Wish-List` headers so the dashboard payload can be reconciled with the returned counts
 - create/archive/cancel responses include `X-TCOS-Collector-Item-Kind`, `X-TCOS-Collector-Mutation`, and `X-TCOS-Collector-Item-Id` headers so browser traces can identify the exact collector mutation without parsing the JSON body
 
+Collector profile API:
+
+- `/api/account/collector/profile` loads and upserts the logged-in collector's profile without exposing account IDs in response headers
+- profile responses include `X-TCOS-Collector-Profile-Present`, `X-TCOS-Collector-Profile-Visibility`, `X-TCOS-Collector-Profile-Messages`, and `X-TCOS-Collector-Profile-Mutation` headers so operators can confirm profile state and message opt-in from browser traces
+
 Collection exports:
 
 - `/api/account/collector/exports?format=csv` downloads a spreadsheet-friendly collection backup
@@ -1690,6 +1695,8 @@ Messaging foundation:
 - `account_conversations` stores account-to-account collector threads
 - `account_conversation_messages` stores regular messages, binding-offer messages, and system messages
 - the account page does not yet expose the full inbox UI; the API and schema foundation are in place
+- `/api/account/collector/messages` list responses include `X-TCOS-Collector-Conversations`
+- message-send responses include `X-TCOS-Collector-Conversation-Id`, `X-TCOS-Collector-Message-Id`, and `X-TCOS-Collector-Message-Action` so browser traces can distinguish new conversation sends from replies without parsing the JSON body
 
 Binding offer rule:
 
