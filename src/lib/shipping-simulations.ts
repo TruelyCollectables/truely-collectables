@@ -22,9 +22,10 @@ import {
 import {
   buildUnder20SellerProtectionClaimSummary,
   buildUnder20SellerProtectionReimbursementPlan,
+  evaluateUnder20SellerProtectionBuyerRefundGate,
 } from "./under20-seller-protection-claims";
 
-export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-14.3";
+export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-14.4";
 export const SHIPPING_SIMULATION_EXPECTED_SCENARIO_KEYS = [
   "standard_envelope_under_20_and_3oz",
   "standard_envelope_over_20_forces_ground_advantage",
@@ -34,6 +35,7 @@ export const SHIPPING_SIMULATION_EXPECTED_SCENARIO_KEYS = [
   "under_20_seller_protection_not_opted_in_seller_liability",
   "under_20_seller_protection_caps_mixed_rows",
   "under_20_seller_protection_reimbursement_allocation",
+  "under_20_seller_protection_buyer_refund_gate",
   "shipping_adapter_profiles_are_auditable",
   "lettertrack_standard_envelope_export",
   "lettertrack_csv_seller_protection_contract",
@@ -344,6 +346,27 @@ export async function runShippingSimulationSuite() {
       "Seller-protection Mark Paid allocation creates credits only for payable seller rows, stops at the $20 cap, skips unprotected/missing-seller rows, and keeps shipping excluded.",
     assertions: {
       allocation_plan: allocationPlan,
+    },
+  });
+  const missingBuyerRefundGate = evaluateUnder20SellerProtectionBuyerRefundGate({
+    note: "LetterTrack returned; no refund reference saved.",
+  });
+  const acceptedBuyerRefundGate = evaluateUnder20SellerProtectionBuyerRefundGate({
+    note: "Buyer refund confirmed in Stripe refund ref re_123 after order review.",
+  });
+  scenarios.push({
+    scenario_key: "under_20_seller_protection_buyer_refund_gate",
+    scenario_status: pass(
+      missingBuyerRefundGate.allowed === false &&
+        missingBuyerRefundGate.reason.includes("Before Mark Paid") &&
+        acceptedBuyerRefundGate.allowed === true &&
+        acceptedBuyerRefundGate.reason.includes("Buyer refund evidence"),
+    ),
+    detail:
+      "Under-$20 seller-protection Mark Paid requires an internal note confirming buyer refund evidence or a refund reference before TCOS credits the seller.",
+    assertions: {
+      missing_buyer_refund_gate: missingBuyerRefundGate,
+      accepted_buyer_refund_gate: acceptedBuyerRefundGate,
     },
   });
 

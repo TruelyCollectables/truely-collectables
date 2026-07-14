@@ -54,9 +54,32 @@ export type Under20SellerProtectionReimbursementPlan = {
   skippedRowIds: string[];
 };
 
+export type Under20SellerProtectionBuyerRefundGate = {
+  allowed: boolean;
+  reason: string;
+};
+
 function moneyNumber(value: unknown) {
   const parsed = Number(value || 0);
   return Number.isFinite(parsed) ? Math.round(parsed * 100) / 100 : 0;
+}
+
+function normalized(value: unknown) {
+  return String(value || "").trim().toLowerCase();
+}
+
+function hasBuyerRefundProofNote(value: unknown) {
+  const note = normalized(value);
+
+  return (
+    note.length >= 20 &&
+    (note.includes("refund") || note.includes("refunded")) &&
+    (note.includes("buyer") ||
+      note.includes("customer") ||
+      note.includes("order") ||
+      note.includes("stripe") ||
+      note.includes("payment"))
+  );
 }
 
 function metadataRecord(value: unknown): Record<string, unknown> {
@@ -116,6 +139,24 @@ export function buildUnder20SellerProtectionClaimSummary(
       : "Seller did not opt into TCOS Under-$20 Seller Protection for this shipment, so seller is responsible for the buyer refund and TCOS reimbursement is $0.",
     reimbursementRule:
       "Under-$20 Standard Envelope seller protection reimburses protected item sale amount only after a buyer refund is required by TCOS delivery-evidence rules. Shipping is not reimbursed.",
+  };
+}
+
+export function evaluateUnder20SellerProtectionBuyerRefundGate(params: {
+  note?: string | null;
+}): Under20SellerProtectionBuyerRefundGate {
+  if (hasBuyerRefundProofNote(params.note)) {
+    return {
+      allowed: true,
+      reason:
+        "Buyer refund evidence was confirmed in the internal note before TCOS seller-protection reimbursement.",
+    };
+  }
+
+  return {
+    allowed: false,
+    reason:
+      "Before Mark Paid, add an internal note confirming the buyer/customer refund evidence or refund reference. TCOS seller-protection reimbursement can only be recorded after buyer refund proof is documented.",
   };
 }
 

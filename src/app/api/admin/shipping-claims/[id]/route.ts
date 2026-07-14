@@ -14,6 +14,8 @@ import { getActiveStoreId } from "../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
 import {
   buildUnder20SellerProtectionReimbursementPlan,
+  evaluateUnder20SellerProtectionBuyerRefundGate,
+  type Under20SellerProtectionBuyerRefundGate,
   type Under20SellerProtectionReimbursementRow,
 } from "../../../../../lib/under20-seller-protection-claims";
 
@@ -77,6 +79,13 @@ type SellerProtectionLedgerRow = {
 type SellerProtectionPaymentEvidence = {
   summary: LetterTrackDeliveryEvidenceSummary;
   gate: LetterTrackSellerProtectionPaymentGate;
+};
+
+type SellerProtectionBuyerRefundEvidence = {
+  reviewed_at: string;
+  reviewed_by_identity: Awaited<ReturnType<typeof getClientIdentity>>;
+  note: string | null;
+  gate: Under20SellerProtectionBuyerRefundGate;
 };
 
 type SellerProtectionEvidenceReview = LetterTrackSellerProtectionEvidenceReview;
@@ -393,6 +402,26 @@ export async function PATCH(
       );
     }
 
+    const sellerProtectionBuyerRefundEvidence: SellerProtectionBuyerRefundEvidence | null =
+      nextStatus === "paid" && under20Claim.eligible === true
+        ? {
+            reviewed_at: now,
+            reviewed_by_identity: identity,
+            note: note || null,
+            gate: evaluateUnder20SellerProtectionBuyerRefundGate({ note }),
+          }
+        : null;
+
+    if (
+      sellerProtectionBuyerRefundEvidence &&
+      !sellerProtectionBuyerRefundEvidence.gate.allowed
+    ) {
+      return Response.json(
+        { error: sellerProtectionBuyerRefundEvidence.gate.reason },
+        { status: 409 },
+      );
+    }
+
     const sellerProtectionEvidenceReview: SellerProtectionEvidenceReview | null =
       sellerProtectionPaymentEvidence
         ? buildLetterTrackSellerProtectionEvidenceReview({
@@ -430,6 +459,12 @@ export async function PATCH(
         ? {
             latest_seller_protection_reimbursement:
               sellerProtectionReimbursement,
+          }
+        : {}),
+      ...(sellerProtectionBuyerRefundEvidence
+        ? {
+            latest_seller_protection_buyer_refund_evidence:
+              sellerProtectionBuyerRefundEvidence,
           }
         : {}),
       ...(sellerProtectionPaymentEvidence
@@ -518,6 +553,8 @@ export async function PATCH(
         provider_claim_id: providerClaimId || claim.provider_claim_id || null,
         note: note || null,
         seller_protection_reimbursement: sellerProtectionReimbursement,
+        seller_protection_buyer_refund_evidence:
+          sellerProtectionBuyerRefundEvidence,
         lettertrack_delivery_evidence_review: sellerProtectionEvidenceReview,
         lettertrack_seller_protection_payment_gate:
           sellerProtectionPaymentEvidence,
@@ -531,6 +568,7 @@ export async function PATCH(
       previousStatus,
       claimStatus: nextStatus,
       sellerProtectionReimbursement,
+      sellerProtectionBuyerRefundEvidence,
       letterTrackSellerProtectionPaymentGate: sellerProtectionPaymentEvidence,
       message:
         nextStatus === previousStatus

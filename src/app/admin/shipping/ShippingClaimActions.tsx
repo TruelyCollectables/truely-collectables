@@ -261,6 +261,45 @@ function reimbursementAllocationCard(
   );
 }
 
+function buyerRefundEvidenceCard(evidence: Record<string, unknown>) {
+  const gate = recordValue(evidence.gate);
+  const allowed = gate.allowed === true;
+
+  return (
+    <div
+      className={`rounded border p-3 text-xs font-semibold ${
+        allowed
+          ? "border-green-200 bg-green-50 text-green-950"
+          : "border-amber-200 bg-amber-50 text-amber-950"
+      }`}
+    >
+      <p className="font-black uppercase tracking-widest">
+        Buyer refund evidence gate
+      </p>
+      <p className="mt-1">
+        Saved before TCOS seller-protection reimbursement. Mark Paid requires an
+        internal note confirming buyer/customer refund evidence or a refund
+        reference.
+      </p>
+      <dl className="mt-2 grid grid-cols-1 gap-1 sm:grid-cols-2">
+        <div>
+          <dt className="text-[10px] uppercase tracking-widest opacity-70">
+            Refund proof accepted
+          </dt>
+          <dd>{allowed ? "Yes" : "No"}</dd>
+        </div>
+        <div>
+          <dt className="text-[10px] uppercase tracking-widest opacity-70">
+            Reviewed at
+          </dt>
+          <dd>{String(evidence.reviewed_at || "Not saved")}</dd>
+        </div>
+      </dl>
+      <p className="mt-2">{String(gate.reason || "No refund gate reason saved.")}</p>
+    </div>
+  );
+}
+
 export default function ShippingClaimActions({
   claimId,
   claimStatus,
@@ -302,6 +341,9 @@ export default function ShippingClaimActions({
   const latestReimbursementPlan = recordValue(
     latestReimbursement.reimbursementPlan,
   );
+  const latestBuyerRefundEvidence = recordValue(
+    recordValue(claimMetadata).latest_seller_protection_buyer_refund_evidence,
+  );
   const currentPaymentGateDecision = recordValue(currentLetterTrackPaymentGate);
   const isUnder20SellerProtection = under20Claim.eligible === true;
   const hasLetterTrackEvidence = Object.keys(letterTrackEvidence).length > 0;
@@ -310,6 +352,8 @@ export default function ShippingClaimActions({
   const hasCurrentLetterTrackEvidence =
     Number(recordValue(currentLetterTrackEvidence).eventCount || 0) > 0;
   const hasLatestReimbursement = Object.keys(latestReimbursement).length > 0;
+  const hasLatestBuyerRefundEvidence =
+    Object.keys(latestBuyerRefundEvidence).length > 0;
   const [pendingStatus, setPendingStatus] = useState("");
   const [message, setMessage] = useState("");
   const [note, setNote] = useState("");
@@ -355,6 +399,9 @@ export default function ShippingClaimActions({
       : null;
   const reimbursementCard = hasLatestReimbursement
     ? reimbursementAllocationCard(latestReimbursement, latestReimbursementPlan)
+    : null;
+  const buyerRefundEvidenceCardNode = hasLatestBuyerRefundEvidence
+    ? buyerRefundEvidenceCard(latestBuyerRefundEvidence)
     : null;
   const packetLink = (
     <a
@@ -403,6 +450,7 @@ export default function ShippingClaimActions({
     return (
       <div className="mt-3 space-y-2 rounded border bg-neutral-50 p-3">
         {packetLink}
+        {buyerRefundEvidenceCardNode}
         {reimbursementCard}
         {currentEvidenceCard}
         {latestEvidenceReviewCard}
@@ -417,6 +465,7 @@ export default function ShippingClaimActions({
   return (
     <div className="mt-3 space-y-2 rounded border bg-neutral-50 p-3">
       {packetLink}
+      {buyerRefundEvidenceCardNode}
       {reimbursementCard}
       {currentEvidenceCard}
       {latestEvidenceReviewCard}
@@ -425,8 +474,9 @@ export default function ShippingClaimActions({
         <p className="rounded border border-neutral-200 bg-white p-3 text-xs font-semibold text-neutral-700">
           Before Mark Paid: record buyer refund evidence and confirm LetterTrack
           does not show delivered. If you are overriding delivered or missing
-          evidence, include the word “override” and the reason in the internal
-          note.
+          delivery evidence, include the word “override” and the reason in the
+          internal note. The note must also confirm the buyer/customer refund
+          evidence or refund reference.
         </p>
       ) : null}
       <input
@@ -440,7 +490,7 @@ export default function ShippingClaimActions({
         onChange={(event) => setNote(event.target.value)}
         placeholder={
           normalizedStatus === "approved" && isUnder20SellerProtection
-            ? "Internal note / evidence status. For exceptions, include “override” plus the reason."
+            ? "Internal note / refund evidence. Include buyer/customer refund reference; for delivery exceptions, include “override” plus the reason."
             : "Internal note / evidence status"
         }
         rows={2}

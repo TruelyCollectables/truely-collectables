@@ -208,6 +208,12 @@ function buildReport(input: {
   )
     ? sellerProtectionReimbursementPlan.skippedRowIds
     : [];
+  const sellerProtectionBuyerRefundEvidence = recordValue(
+    recordValue(claim.metadata).latest_seller_protection_buyer_refund_evidence,
+  );
+  const sellerProtectionBuyerRefundEvidenceGate = recordValue(
+    sellerProtectionBuyerRefundEvidence.gate,
+  );
   const currentLetterTrackDeliveryEvidence =
     buildLetterTrackDeliveryEvidenceSummary(
       events as LetterTrackDeliveryEvidenceEvent[],
@@ -495,6 +501,19 @@ function buildReport(input: {
               : "None",
           ),
           line("Detail", sellerProtectionReimbursement.detail),
+        ]
+      : []),
+    ...(Object.keys(sellerProtectionBuyerRefundEvidence).length > 0
+      ? [
+          ...section("Seller-Protection Buyer Refund Evidence Gate"),
+          "This section is saved before Mark Paid creates or reuses TCOS internal seller-protection reimbursement credits.",
+          line(
+            "Refund Proof Accepted",
+            sellerProtectionBuyerRefundEvidenceGate.allowed ? "Yes" : "No",
+          ),
+          line("Gate Reason", sellerProtectionBuyerRefundEvidenceGate.reason),
+          line("Reviewed At", sellerProtectionBuyerRefundEvidence.reviewed_at),
+          line("Review Note", sellerProtectionBuyerRefundEvidence.note),
         ]
       : []),
     ...section("Order Snapshot"),

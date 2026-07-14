@@ -206,7 +206,7 @@ assertFileIncludes("launch readiness smoke contract", "scripts/smoke-production.
   "git fetch origin main",
   "npm run check:production-guardrails",
   "npm run preflight:production",
-  "sixteen-scenario shipping simulation suite",
+  "seventeen-scenario shipping simulation suite",
   "LetterTrack evidence checks",
   "/api/admin/shipping/simulations",
   "no missing/unexpected shipping simulation keys",
@@ -296,13 +296,14 @@ assertFileIncludes("shipping simulation API smoke contract", "scripts/smoke-prod
   'name: "shipping simulation api"',
   'path: "/api/admin/shipping/simulations"',
   'options: { method: "POST" }',
-  '"scenario_count":16',
-  '"expected_scenario_count":16',
+  '"scenario_count":17',
+  '"expected_scenario_count":17',
   '"scenario_key_coverage_status":"passed"',
   '"missing_scenario_keys":[]',
   '"unexpected_scenario_keys":[]',
   '"under_20_seller_protection_caps_mixed_rows"',
   '"under_20_seller_protection_reimbursement_allocation"',
+  '"under_20_seller_protection_buyer_refund_gate"',
   '"lettertrack_csv_seller_protection_contract"',
 ]);
 assertFileIncludes("admin shipping controls smoke contract", "scripts/smoke-production.mjs", [
@@ -319,9 +320,10 @@ assertFileIncludes("shipping simulation lab smoke contract", "scripts/smoke-prod
   "Scenario Coverage",
   "Scenario Keys",
   "Scenario coverage guardrail",
-  "16",
+  "17",
   "Mixed under-$20 claim rows cap reimbursement at $20",
   "Seller-protection Mark Paid allocation creates credits only for payable seller rows",
+  "Under-$20 seller-protection Mark Paid requires an internal note confirming buyer refund evidence",
   "LetterTrack CSV rows carry the under-$20 seller-protection contract",
   "DRY RUN STANDARD ENVELOPE PURCHASE",
 ]);
@@ -397,6 +399,7 @@ assertFileIncludes(
   [
     "Seller-protection reimbursement allocation",
     "latest_seller_protection_reimbursement",
+    "latest_seller_protection_buyer_refund_evidence",
     "reimbursementPlan",
     "Inserted credits",
     "Requested plan",
@@ -404,6 +407,35 @@ assertFileIncludes(
     "Skipped rows",
     "shipping excluded",
     "Saved after Mark Paid created or reused TCOS internal seller-protection",
+  ],
+);
+assertFileIncludes(
+  "seller protection buyer refund gate route contract",
+  "src/app/api/admin/shipping-claims/[id]/route.ts",
+  [
+    "evaluateUnder20SellerProtectionBuyerRefundGate",
+    "latest_seller_protection_buyer_refund_evidence",
+    "sellerProtectionBuyerRefundEvidence",
+  ],
+);
+assertFileIncludes(
+  "seller protection buyer refund helper contract",
+  "src/lib/under20-seller-protection-claims.ts",
+  [
+    "evaluateUnder20SellerProtectionBuyerRefundGate",
+    "Before Mark Paid",
+    "buyer/customer refund evidence",
+    "Buyer refund evidence was confirmed",
+  ],
+);
+assertFileIncludes(
+  "seller protection buyer refund packet contract",
+  "src/app/api/admin/shipping-claims/[id]/packet/route.ts",
+  [
+    "Seller-Protection Buyer Refund Evidence Gate",
+    "latest_seller_protection_buyer_refund_evidence",
+    "Refund Proof Accepted",
+    "Review Note",
   ],
 );
 assertFileIncludes("queued-feature smoke manifest", "scripts/smoke-production.mjs", [
@@ -638,7 +670,7 @@ assertFileIncludes("deploy live safety handoff bundle", "src/app/api/admin/launc
   "DEPLOY_SAFETY.smokeCommand",
   "InstaComp regressions",
   "LetterTrack evidence checks",
-  "sixteen-scenario shipping simulation suite",
+  "seventeen-scenario shipping simulation suite",
   "deploySafetyContractMarkdown()",
   "Protected deploy sequence:",
   "deploySafetySequenceMarkdown()",
@@ -653,7 +685,7 @@ assertFileIncludes("deploy live safety launch readiness markdown", "src/app/api/
   "DEPLOY_SAFETY.unwantedAlias",
   "InstaComp regressions",
   "LetterTrack evidence checks",
-  "sixteen-scenario shipping simulation suite",
+  "seventeen-scenario shipping simulation suite",
   "deploySafetyContractMarkdown()",
   "Protected deploy sequence:",
   "deploySafetySequenceMarkdown()",
@@ -726,7 +758,7 @@ assertFileIncludes("deploy live safety launch readiness page", "src/app/admin/la
   "Vercel quota",
   "InstaComp regressions",
   "LetterTrack evidence checks",
-  "sixteen-scenario shipping simulation suite",
+  "seventeen-scenario shipping simulation suite",
   "unwanted alias removal for",
   "clean-domain aliasing",
   "Protected deploy sequence",
@@ -744,7 +776,7 @@ assertFileIncludes("deploy live safety runbook", "docs/PRODUCTION_DEPLOY_RUNBOOK
   "/api/admin/launch-readiness?format=markdown",
   "Production Deploy Safety",
   "LetterTrack evidence checks",
-  "sixteen-scenario shipping simulation suite",
+  "seventeen-scenario shipping simulation suite",
   "Vercel quota messaging",
   "unwanted `truely-collectables-tt3b.vercel.app` alias",
   "clean-domain aliasing",
@@ -769,7 +801,7 @@ assertFileIncludes("deploy live safety README", "README.md", [
   "/api/admin/launch-readiness?format=markdown",
   "Production Deploy Safety",
   "LetterTrack evidence checks",
-  "sixteen-scenario shipping simulation suite",
+  "seventeen-scenario shipping simulation suite",
   "Vercel quota messaging",
   "unwanted `truely-collectables-tt3b.vercel.app` alias",
   "deployed and clean URLs",
