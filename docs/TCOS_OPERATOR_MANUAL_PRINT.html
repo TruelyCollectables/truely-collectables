@@ -1867,6 +1867,13 @@ account_wish_list_matches</code></pre>
 <li>includes tracked traffic by source so weekly email can show which social/link channel brought visitors back</li>
 <li>should be scheduled once per week by the deployment scheduler or admin automation</li>
 </ul>
+<p>Collection dashboard API:</p>
+<ul>
+<li><code>/api/account/collector/items</code> lists the logged-in collector's private collection shelf and active/matched/renewed wish-list rows</li>
+<li>the same endpoint creates <code>collection_item</code> and <code>wish_list_item</code> rows, archives collection rows, and cancels wish-list rows without creating storefront products, orders, checkout rows, or Stripe activity</li>
+<li>list responses include <code>X-TCOS-Collector-Items</code> and <code>X-TCOS-Collector-Wish-List</code> headers so the dashboard payload can be reconciled with the returned counts</li>
+<li>create/archive/cancel responses include <code>X-TCOS-Collector-Item-Kind</code>, <code>X-TCOS-Collector-Mutation</code>, and <code>X-TCOS-Collector-Item-Id</code> headers so browser traces can identify the exact collector mutation without parsing the JSON body</li>
+</ul>
 <p>Collection exports:</p>
 <ul>
 <li><code>/api/account/collector/exports?format=csv</code> downloads a spreadsheet-friendly collection backup</li>

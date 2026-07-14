@@ -1234,6 +1234,40 @@ assertFileIncludes(
   ],
 );
 assertFileIncludes(
+  "collector items response contract",
+  "src/app/api/account/collector/items/route.ts",
+  [
+    "function collectorItemsHeaders",
+    "function collectorMutationHeaders",
+    "X-TCOS-Collector-Items",
+    "X-TCOS-Collector-Wish-List",
+    "X-TCOS-Collector-Item-Kind",
+    "X-TCOS-Collector-Mutation",
+    "X-TCOS-Collector-Item-Id",
+    "collectionItemCount: collectionItems.length",
+    "wishListItemCount: wishListItems.length",
+    'action: "created"',
+    'action: "archived"',
+    'action: "canceled"',
+    "account_collection_items",
+    "account_wish_list_items",
+  ],
+);
+assertFileIncludes(
+  "collector items operator manual contract",
+  "docs/TCOS_OPERATOR_MANUAL.md",
+  [
+    "/api/account/collector/items",
+    "collection_item",
+    "wish_list_item",
+    "X-TCOS-Collector-Items",
+    "X-TCOS-Collector-Wish-List",
+    "X-TCOS-Collector-Item-Kind",
+    "X-TCOS-Collector-Mutation",
+    "X-TCOS-Collector-Item-Id",
+  ],
+);
+assertFileIncludes(
   "collector export operator manual contract",
   "docs/TCOS_OPERATOR_MANUAL.md",
   [

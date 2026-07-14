@@ -61,6 +61,28 @@ function collectorUnavailableResponse() {
   );
 }
 
+function collectorItemsHeaders(params: {
+  collectionItemCount: number;
+  wishListItemCount: number;
+}) {
+  return {
+    "X-TCOS-Collector-Items": String(params.collectionItemCount),
+    "X-TCOS-Collector-Wish-List": String(params.wishListItemCount),
+  };
+}
+
+function collectorMutationHeaders(params: {
+  kind: CollectorItemKind;
+  action: "created" | "archived" | "canceled";
+  itemId: string;
+}) {
+  return {
+    "X-TCOS-Collector-Item-Kind": params.kind,
+    "X-TCOS-Collector-Mutation": params.action,
+    "X-TCOS-Collector-Item-Id": params.itemId,
+  };
+}
+
 export async function GET(request: Request) {
   try {
     const account = await getAuthenticatedAccountFromRequest(request);
@@ -105,11 +127,22 @@ export async function GET(request: Request) {
       throw error;
     }
 
-    return NextResponse.json({
-      success: true,
-      collectionItems: collectionResult.data ?? [],
-      wishListItems: wishListResult.data ?? [],
-    });
+    const collectionItems = collectionResult.data ?? [];
+    const wishListItems = wishListResult.data ?? [];
+
+    return NextResponse.json(
+      {
+        success: true,
+        collectionItems,
+        wishListItems,
+      },
+      {
+        headers: collectorItemsHeaders({
+          collectionItemCount: collectionItems.length,
+          wishListItemCount: wishListItems.length,
+        }),
+      },
+    );
   } catch (error: any) {
     return NextResponse.json(
       { error: error.message || "Could not load collector dashboard" },
@@ -166,7 +199,16 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: error.message }, { status: 400 });
       }
 
-      return NextResponse.json({ success: true, collectionItem: data });
+      return NextResponse.json(
+        { success: true, collectionItem: data },
+        {
+          headers: collectorMutationHeaders({
+            kind,
+            action: "created",
+            itemId: String(data.id),
+          }),
+        },
+      );
     }
 
     if (kind === "wish_list_item") {
@@ -207,7 +249,16 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: error.message }, { status: 400 });
       }
 
-      return NextResponse.json({ success: true, wishListItem: data });
+      return NextResponse.json(
+        { success: true, wishListItem: data },
+        {
+          headers: collectorMutationHeaders({
+            kind,
+            action: "created",
+            itemId: String(data.id),
+          }),
+        },
+      );
     }
 
     return NextResponse.json(
@@ -257,7 +308,16 @@ export async function DELETE(request: Request) {
         throw error;
       }
 
-      return NextResponse.json({ success: true });
+      return NextResponse.json(
+        { success: true },
+        {
+          headers: collectorMutationHeaders({
+            kind,
+            action: "archived",
+            itemId: id,
+          }),
+        },
+      );
     }
 
     if (kind === "wish_list_item") {
@@ -276,7 +336,16 @@ export async function DELETE(request: Request) {
         throw error;
       }
 
-      return NextResponse.json({ success: true });
+      return NextResponse.json(
+        { success: true },
+        {
+          headers: collectorMutationHeaders({
+            kind,
+            action: "canceled",
+            itemId: id,
+          }),
+        },
+      );
     }
 
     return NextResponse.json(

@@ -1660,6 +1660,13 @@ Weekly brag stats:
 - includes tracked traffic by source so weekly email can show which social/link channel brought visitors back
 - should be scheduled once per week by the deployment scheduler or admin automation
 
+Collection dashboard API:
+
+- `/api/account/collector/items` lists the logged-in collector's private collection shelf and active/matched/renewed wish-list rows
+- the same endpoint creates `collection_item` and `wish_list_item` rows, archives collection rows, and cancels wish-list rows without creating storefront products, orders, checkout rows, or Stripe activity
+- list responses include `X-TCOS-Collector-Items` and `X-TCOS-Collector-Wish-List` headers so the dashboard payload can be reconciled with the returned counts
+- create/archive/cancel responses include `X-TCOS-Collector-Item-Kind`, `X-TCOS-Collector-Mutation`, and `X-TCOS-Collector-Item-Id` headers so browser traces can identify the exact collector mutation without parsing the JSON body
+
 Collection exports:
 
 - `/api/account/collector/exports?format=csv` downloads a spreadsheet-friendly collection backup
