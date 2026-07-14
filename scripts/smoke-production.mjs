@@ -376,6 +376,15 @@ const checks = [
     expect: (result) =>
       result.text.includes("Shipping Setup") &&
       result.text.includes("Shipping Provider Unlock Action Plan") &&
+      result.text.includes("Seller Marketplace Receipt Handoff") &&
+      result.text.includes("Seller marketplace receipt handoff proof text") &&
+      result.text.includes("Copy Safe Receipt") &&
+      result.text.includes("Download Safe Receipt") &&
+      result.text.includes("Copy Trail") &&
+      result.text.includes("Download Trail") &&
+      result.text.includes("Clear Trail") &&
+      result.text.includes("not an audit ledger") &&
+      result.text.includes("/seller/marketplaces") &&
       result.text.includes("Choose provider accounts") &&
       result.text.includes("Stage Vercel environment names") &&
       result.text.includes("Keep shipping runtime locked") &&

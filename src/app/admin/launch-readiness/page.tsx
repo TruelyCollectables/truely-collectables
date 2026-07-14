@@ -1290,6 +1290,8 @@ ${DEPLOY_SAFETY.smokeCommand}`}
         actionPlan={shippingProviderSetup.actionPlan}
       />
 
+      <SellerMarketplaceReceiptHandoff />
+
       {attentionItems.length > 0 ? (
         <section className="mb-8 rounded border bg-white p-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
@@ -1467,6 +1469,65 @@ ${DEPLOY_SAFETY.smokeCommand}`}
         ))}
       </div>
     </main>
+  );
+}
+
+function SellerMarketplaceReceiptHandoff() {
+  const controls = [
+    "Copy Safe Receipt",
+    "Download Safe Receipt",
+    "Copy Trail",
+    "Download Trail",
+    "Clear Trail",
+  ];
+
+  return (
+    <section className="mb-8 rounded border border-emerald-200 bg-emerald-50 p-6 text-emerald-950">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold">
+            Seller Marketplace Receipt Handoff
+          </h2>
+          <p className="mt-1 max-w-3xl text-sm font-semibold">
+            Launch readiness also verifies the seller marketplace page exposes
+            safe API receipt handoff controls for marketplace auth, import,
+            staging, reconciliation, order-import, and promotion debugging.
+          </p>
+        </div>
+        <Link
+          href="/seller/marketplaces"
+          className="rounded border border-emerald-300 bg-white px-4 py-2 text-sm font-bold"
+        >
+          Open Seller Marketplaces
+        </Link>
+      </div>
+
+      <div className="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-3">
+        <div className="rounded border border-emerald-200 bg-white p-4">
+          <h3 className="font-bold">Required proof text</h3>
+          <p className="mt-2 text-sm font-semibold">
+            The seller workspace must show Seller marketplace receipt handoff
+            proof text before operators rely on copied or downloaded receipts.
+          </p>
+        </div>
+        <div className="rounded border border-emerald-200 bg-white p-4">
+          <h3 className="font-bold">Required controls</h3>
+          <ul className="mt-2 list-disc space-y-1 pl-4 text-sm font-semibold">
+            {controls.map((control) => (
+              <li key={control}>{control}</li>
+            ))}
+          </ul>
+        </div>
+        <div className="rounded border border-emerald-200 bg-white p-4">
+          <h3 className="font-bold">Safe-use boundary</h3>
+          <p className="mt-2 text-sm font-semibold">
+            Treat the receipt trail as a safe operator handoff aid, not an audit
+            ledger, payment record, fulfillment proof, or provider
+            reconciliation source of truth.
+          </p>
+        </div>
+      </div>
+    </section>
   );
 }
 
