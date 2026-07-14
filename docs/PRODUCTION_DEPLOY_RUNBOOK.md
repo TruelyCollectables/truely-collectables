@@ -70,13 +70,13 @@ The deploy helper:
 
 The production guardrail suite locks this live deploy behavior in place: quota blocks must mention `api-deployments-free-per-day` and tell the operator to wait for the rolling 24-hour reset, the unwanted alias removal command must stay wired, the clean production alias command must stay wired, and the helper must keep printing the deployed/clean URLs before handing off to `npm run smoke:production`. The protected live deploy sequence is: remove the unwanted `truely-collectables-tt3b.vercel.app` alias, set the clean production alias, print `DEPLOYED_PRODUCTION=`, print `CLEAN_PRODUCTION=https://`, then print the smoke handoff command.
 
-If Vercel reports `api-deployments-free-per-day`, wait for the rolling quota window to reset, then rerun the same command.
+If Vercel reports `api-deployments-free-per-day`, wait for the rolling quota window to reset, then rerun the same command. Do not rapid-fire retries while capped; Vercel can still accept the upload stream before returning the quota error, so repeated attempts waste operator time without producing a deploy.
 
 ## Production go/no-go ladder
 
 1. Verify the pushed stack with `npm run verify:production`. This must pass lint, simulations, build, production guardrails, and GitHub preflight without touching Vercel.
 2. Launch only when quota is open with `npm run launch:production`. This should deploy production, set the clean alias, remove the unwanted alias, and run smoke in order.
-3. Halt on Vercel quota. If the deploy reports `api-deployments-free-per-day`, do not force alternate deploy paths; wait for the rolling 24-hour reset and rerun the launch helper.
+3. Halt on Vercel quota. If the deploy reports `api-deployments-free-per-day`, do not force alternate deploy paths or rapid-fire retries; Vercel can still upload files before returning the quota error, so wait for the rolling 24-hour reset and rerun the launch helper.
 4. Split the run only after a successful deploy or when intentionally rerunning steps: `npm run deploy:production` then `npm run smoke:production`.
 5. Ship only after smoke passes `https://truely-collectables.vercel.app` and confirms the unwanted `truely-collectables-tt3b.vercel.app` alias does not respond.
 
