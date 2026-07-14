@@ -728,10 +728,24 @@ function sellerMarketplacePromotionReceipt(
   };
 }
 
+function formatSellerMarketplaceOperationReceipt(
+  receipt: SellerMarketplaceOperationReceipt,
+) {
+  return [
+    "TCOS Seller Marketplace API Receipt",
+    `Title: ${receipt.title}`,
+    `Summary: ${receipt.summary}`,
+    `Tone: ${label(receipt.tone)}`,
+    ...receipt.details.map((detail) => `${detail.label}: ${detail.value}`),
+  ].join("\n");
+}
+
 function SellerMarketplaceOperationReceiptCard({
   receipt,
+  onCopyReceipt,
 }: {
   receipt: SellerMarketplaceOperationReceipt;
+  onCopyReceipt: (receipt: SellerMarketplaceOperationReceipt) => void;
 }) {
   return (
     <div
@@ -745,6 +759,13 @@ function SellerMarketplaceOperationReceiptCard({
           <p className="mt-1 text-sm font-black">{receipt.title}</p>
           <p className="mt-1 text-sm leading-6">{receipt.summary}</p>
         </div>
+        <button
+          type="button"
+          onClick={() => onCopyReceipt(receipt)}
+          className="rounded-md border border-current bg-white/70 px-3 py-2 text-xs font-black uppercase tracking-[0.08em] hover:bg-white"
+        >
+          Copy Safe Receipt
+        </button>
       </div>
       <dl className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
         {receipt.details.map((detail) => (
@@ -3591,29 +3612,44 @@ export default function SellerConnectionsPanel({
     setStagedSearch("");
   }
 
+  async function copyTextToClipboard(text: string) {
+    if (typeof window === "undefined") return;
+
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return;
+    }
+
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.setAttribute("readonly", "true");
+    textarea.style.position = "absolute";
+    textarea.style.left = "-9999px";
+    document.body.appendChild(textarea);
+    textarea.select();
+    document.execCommand("copy");
+    document.body.removeChild(textarea);
+  }
+
   async function copyWorkspaceLink() {
     if (typeof window === "undefined") return;
 
-    const href = window.location.href;
-
     try {
-      if (navigator.clipboard?.writeText) {
-        await navigator.clipboard.writeText(href);
-      } else {
-        const textarea = document.createElement("textarea");
-        textarea.value = href;
-        textarea.setAttribute("readonly", "true");
-        textarea.style.position = "absolute";
-        textarea.style.left = "-9999px";
-        document.body.appendChild(textarea);
-        textarea.select();
-        document.execCommand("copy");
-        document.body.removeChild(textarea);
-      }
-
+      await copyTextToClipboard(window.location.href);
       setMessage("Workspace link copied.");
     } catch {
       setMessage("Could not copy workspace link.");
+    }
+  }
+
+  async function copyMarketplaceOperationReceipt(
+    receipt: SellerMarketplaceOperationReceipt,
+  ) {
+    try {
+      await copyTextToClipboard(formatSellerMarketplaceOperationReceipt(receipt));
+      setMessage("Safe marketplace API receipt copied.");
+    } catch {
+      setMessage("Could not copy marketplace API receipt.");
     }
   }
 
@@ -3887,6 +3923,9 @@ export default function SellerConnectionsPanel({
       {latestMarketplaceOperationReceipt ? (
         <SellerMarketplaceOperationReceiptCard
           receipt={latestMarketplaceOperationReceipt}
+          onCopyReceipt={(receipt) =>
+            void copyMarketplaceOperationReceipt(receipt)
+          }
         />
       ) : null}
 
