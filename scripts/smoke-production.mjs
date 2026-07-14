@@ -541,6 +541,7 @@ const checks = [
       "Shipping purchase-attempt audit simulations for live-gate, missing-setup, dry-run, and packet-output text",
       "Shipping simulation API POST with scenario count, manifest, and drift-field checks",
       "Shipping provider setup JSON and export packets with Standard Envelope evidence readiness",
+      "Seller marketplace packet intake guardrail for cross-list prep only, no postage purchase, no Coverage policy creation, no payout release, no order fulfillment, and no automatic under-$20 protection activation",
       "Queued launch feature failure(s)",
       "Unwanted truely-collectables-tt3b.vercel.app alias absence",
       "Deploy live safety contract",
@@ -560,6 +561,7 @@ const checks = [
       "Live shipping lock posture",
       "Seller protection money trail",
       "Shipping operations exports",
+      "Seller marketplace packet intake",
       "deployed URL output",
       "clean URL output",
       "npm run launch:production",
@@ -592,6 +594,9 @@ const checks = [
       result.text.includes(
         "Shipping provider setup JSON and export packets with Standard Envelope evidence readiness",
       ) &&
+      result.text.includes(
+        "Seller marketplace packet intake guardrail for cross-list prep only, no postage purchase, no Coverage policy creation, no payout release, no order fulfillment, and no automatic under-$20 protection activation",
+      ) &&
       result.text.includes("Queued launch feature failure(s)") &&
       result.text.includes(
         "Unwanted truely-collectables-tt3b.vercel.app alias absence",
@@ -613,6 +618,7 @@ const checks = [
       result.text.includes("Live shipping lock posture") &&
       result.text.includes("Seller protection money trail") &&
       result.text.includes("Shipping operations exports") &&
+      result.text.includes("Seller marketplace packet intake") &&
       result.text.includes("remove unwanted truely-collectables-tt3b.vercel.app alias") &&
       result.text.includes("set clean production alias") &&
       result.text.includes("print DEPLOYED_PRODUCTION") &&

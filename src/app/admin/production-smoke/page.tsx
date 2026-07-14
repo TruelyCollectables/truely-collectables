@@ -20,6 +20,7 @@ const smokeChecks = [
   "Shipping provider setup JSON and export packets with Standard Envelope evidence readiness",
   "Ranked shipping exceptions CSV, including seller-protection refund-proof and payout blocker support",
   "LetterTrack Standard Envelope CSV export",
+  "Seller marketplace packet intake guardrail for cross-list prep only, no postage purchase, no Coverage policy creation, no payout release, no order fulfillment, and no automatic under-$20 protection activation",
   "Clean production domain",
   `Unwanted ${DEPLOY_SAFETY.unwantedAlias} alias absence`,
   `Deploy live safety contract with quota messaging, ${DEPLOY_SAFETY.unwantedAlias} alias cleanup, deployed/clean URL output, and smoke handoff`,
@@ -86,6 +87,14 @@ const manualVerificationChecks = [
       "Shipping cockpit links LetterTrack CSV, exception CSV, claim packets, IMb recording, and delivery-evidence review actions.",
     ifBlocked:
       "Keep affected orders in shipping review and export the exception CSV before touching payouts.",
+  },
+  {
+    label: "Seller marketplace packet intake",
+    href: "/seller/marketplaces",
+    proof:
+      "Seller Connections shows the Marketplace Packet Intake card and states packets are cross-list prep only, with no publishing, postage purchase, Coverage policy creation, payout release, fulfillment, insurance, or automatic under-$20 protection activation.",
+    ifBlocked:
+      "Keep marketplace packets as internal prep files only and send sellers back through ready or needs-work Seller Inventory rows before any external marketplace action.",
   },
 ];
 
