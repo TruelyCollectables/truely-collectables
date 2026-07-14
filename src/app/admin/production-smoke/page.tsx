@@ -22,6 +22,7 @@ const smokeChecks = [
   "LetterTrack Standard Envelope CSV export",
   "Seller marketplace packet intake guardrail for cross-list prep only, no postage purchase, no Coverage policy creation, no payout release, no order fulfillment, and no automatic under-$20 protection activation",
   "Seller marketplace page renders Marketplace Packet Intake guidance, ready-row handoff, needs-work handoff, and prep-only export wording",
+  "Seller inventory, order, and payout workspaces render login gates before exposing seller-owned data",
   "Clean production domain",
   `Unwanted ${DEPLOY_SAFETY.unwantedAlias} alias absence`,
   `Deploy live safety contract with quota messaging, ${DEPLOY_SAFETY.unwantedAlias} alias cleanup, deployed/clean URL output, and smoke handoff`,

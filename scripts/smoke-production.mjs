@@ -543,6 +543,7 @@ const checks = [
       "Shipping provider setup JSON and export packets with Standard Envelope evidence readiness",
       "Seller marketplace packet intake guardrail for cross-list prep only, no postage purchase, no Coverage policy creation, no payout release, no order fulfillment, and no automatic under-$20 protection activation",
       "Seller marketplace page renders Marketplace Packet Intake guidance, ready-row handoff, needs-work handoff, and prep-only export wording",
+      "Seller inventory, order, and payout workspaces render login gates before exposing seller-owned data",
       "Queued launch feature failure(s)",
       "Unwanted truely-collectables-tt3b.vercel.app alias absence",
       "Deploy live safety contract",
@@ -600,6 +601,9 @@ const checks = [
       ) &&
       result.text.includes(
         "Seller marketplace page renders Marketplace Packet Intake guidance, ready-row handoff, needs-work handoff, and prep-only export wording",
+      ) &&
+      result.text.includes(
+        "Seller inventory, order, and payout workspaces render login gates before exposing seller-owned data",
       ) &&
       result.text.includes("Queued launch feature failure(s)") &&
       result.text.includes(
@@ -661,6 +665,57 @@ const checks = [
       result.text.includes("prep-only JSON/CSV handoffs") &&
       !result.text.includes("sk_live_") &&
       !result.text.includes("whsec_"),
+  },
+  {
+    name: "seller inventory auth gate",
+    path: "/seller/inventory",
+    requiredText: [
+      "Seller Inventory",
+      "Log in through your TCOS account first",
+      "review seller-owned drafts, active inventory, and activation blockers",
+      "Log In",
+      "Seller Marketplaces",
+    ],
+    expect: (result) =>
+      result.text.includes("Seller Inventory") &&
+      result.text.includes("Log in through your TCOS account first") &&
+      result.text.includes("review seller-owned drafts, active inventory, and activation blockers") &&
+      result.text.includes("Log In") &&
+      result.text.includes("Seller Marketplaces"),
+  },
+  {
+    name: "seller orders auth gate",
+    path: "/seller/orders",
+    requiredText: [
+      "Seller Order Activity",
+      "Log in through your TCOS account first",
+      "review seller-owned orders, payout holds, and cash-out blockers",
+      "Log In",
+      "Account",
+    ],
+    expect: (result) =>
+      result.text.includes("Seller Order Activity") &&
+      result.text.includes("Log in through your TCOS account first") &&
+      result.text.includes("review seller-owned orders, payout holds, and cash-out blockers") &&
+      result.text.includes("Log In") &&
+      result.text.includes("Account"),
+  },
+  {
+    name: "seller payouts auth gate",
+    path: "/seller/payouts",
+    requiredText: [
+      "Seller Payouts",
+      "Log in through your TCOS account first",
+      "review payout verification, cash-out readiness, and seller hold context",
+      "Log In",
+      "Account",
+    ],
+    expect: (result) =>
+      result.text.includes("Seller Payouts") &&
+      result.text.includes("Log in through your TCOS account first") &&
+      result.text.includes("review payout verification, cash-out readiness, and seller hold context") &&
+      result.text.includes("Log In") &&
+      result.text.includes("Account"),
   },
   {
     name: "launch handoff bundle",

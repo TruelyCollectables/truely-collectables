@@ -381,6 +381,7 @@ assertFileIncludes("production smoke page contract", "scripts/smoke-production.m
   "Shipping provider setup JSON and export packets with Standard Envelope evidence readiness",
   "Seller marketplace packet intake guardrail for cross-list prep only, no postage purchase, no Coverage policy creation, no payout release, no order fulfillment, and no automatic under-$20 protection activation",
   "Seller marketplace page renders Marketplace Packet Intake guidance, ready-row handoff, needs-work handoff, and prep-only export wording",
+  "Seller inventory, order, and payout workspaces render login gates before exposing seller-owned data",
   "Queued launch feature failure(s)",
   "Unwanted truely-collectables-tt3b.vercel.app alias absence",
   "Deploy live safety contract",
@@ -420,6 +421,21 @@ assertFileIncludes("seller marketplace packet intake smoke contract", "scripts/s
   "Open Needs-Work Inventory",
   "Seller marketplace packet intake guidance",
   "prep-only JSON/CSV handoffs",
+]);
+assertFileIncludes("seller workspace auth gate smoke contract", "scripts/smoke-production.mjs", [
+  'name: "seller inventory auth gate"',
+  'path: "/seller/inventory"',
+  "Seller Inventory",
+  "review seller-owned drafts, active inventory, and activation blockers",
+  'name: "seller orders auth gate"',
+  'path: "/seller/orders"',
+  "Seller Order Activity",
+  "review seller-owned orders, payout holds, and cash-out blockers",
+  'name: "seller payouts auth gate"',
+  'path: "/seller/payouts"',
+  "Seller Payouts",
+  "review payout verification, cash-out readiness, and seller hold context",
+  "Log in through your TCOS account first",
 ]);
 assertFileIncludes(
   "seller protection launch contract shared source",
