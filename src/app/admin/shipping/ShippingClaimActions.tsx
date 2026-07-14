@@ -191,6 +191,7 @@ function reimbursementAllocationCard(
   const skippedRowIds = Array.isArray(plan.skippedRowIds)
     ? plan.skippedRowIds
     : [];
+  const skippedRows = Array.isArray(plan.skippedRows) ? plan.skippedRows : [];
 
   return (
     <div className="rounded border border-green-200 bg-green-50 p-3 text-xs font-semibold text-green-950">
@@ -236,7 +237,21 @@ function reimbursementAllocationCard(
           <dt className="text-[10px] uppercase tracking-widest opacity-70">
             Skipped rows
           </dt>
-          <dd>{skippedRowIds.length > 0 ? skippedRowIds.join(", ") : "None"}</dd>
+          <dd>
+            {skippedRows.length > 0
+              ? skippedRows
+                  .map((entry) => {
+                    const row = recordValue(entry);
+
+                    return `${String(row.rowId || "unknown")}: ${String(
+                      row.reason || "not recorded",
+                    )}`;
+                  })
+                  .join(", ")
+              : skippedRowIds.length > 0
+                ? skippedRowIds.join(", ")
+                : "None"}
+          </dd>
         </div>
       </dl>
       {allocations.length > 0 ? (

@@ -46,12 +46,22 @@ export type Under20SellerProtectionReimbursementAllocation = {
   coveredAmount: number;
 };
 
+export type Under20SellerProtectionSkippedReimbursementRow = {
+  rowId: string;
+  reason:
+    | "cap_reached"
+    | "missing_seller_account"
+    | "not_eligible_under20_seller_protection"
+    | "no_covered_amount";
+};
+
 export type Under20SellerProtectionReimbursementPlan = {
   requestedReimbursableAmount: number;
   reimbursedAmount: number;
   remainingAmount: number;
   allocations: Under20SellerProtectionReimbursementAllocation[];
   skippedRowIds: string[];
+  skippedRows: Under20SellerProtectionSkippedReimbursementRow[];
 };
 
 export type Under20SellerProtectionBuyerRefundGate = {
@@ -283,10 +293,18 @@ export function buildUnder20SellerProtectionReimbursementPlan({
   let reimbursedAmount = 0;
   const allocations: Under20SellerProtectionReimbursementAllocation[] = [];
   const skippedRowIds: string[] = [];
+  const skippedRows: Under20SellerProtectionSkippedReimbursementRow[] = [];
+  const skip = (
+    rowId: string,
+    reason: Under20SellerProtectionSkippedReimbursementRow["reason"],
+  ) => {
+    skippedRowIds.push(rowId);
+    skippedRows.push({ rowId, reason });
+  };
 
   for (const row of rows) {
     if (remaining <= 0) {
-      skippedRowIds.push(row.id);
+      skip(row.id, "cap_reached");
       continue;
     }
 
@@ -295,8 +313,18 @@ export function buildUnder20SellerProtectionReimbursementPlan({
     const coveredAmount = moneyNumber(protection.coveredAmount);
     const amount = Math.min(coveredAmount, remaining);
 
-    if (!eligible || amount <= 0 || !row.seller_account_id) {
-      skippedRowIds.push(row.id);
+    if (!eligible) {
+      skip(row.id, "not_eligible_under20_seller_protection");
+      continue;
+    }
+
+    if (amount <= 0) {
+      skip(row.id, "no_covered_amount");
+      continue;
+    }
+
+    if (!row.seller_account_id) {
+      skip(row.id, "missing_seller_account");
       continue;
     }
 
@@ -318,5 +346,6 @@ export function buildUnder20SellerProtectionReimbursementPlan({
     remainingAmount: moneyNumber(remaining),
     allocations,
     skippedRowIds,
+    skippedRows,
   };
 }

@@ -382,10 +382,25 @@ export async function runShippingSimulationSuite() {
         ) &&
         allocationPlan.skippedRowIds.includes(
           "sim-ledger-protected-missing-seller",
+        ) &&
+        allocationPlan.skippedRows.some(
+          (row) =>
+            row.rowId === "sim-ledger-unprotected-mixed" &&
+            row.reason === "not_eligible_under20_seller_protection",
+        ) &&
+        allocationPlan.skippedRows.some(
+          (row) =>
+            row.rowId === "sim-ledger-forged-covered-unprotected" &&
+            row.reason === "not_eligible_under20_seller_protection",
+        ) &&
+        allocationPlan.skippedRows.some(
+          (row) =>
+            row.rowId === "sim-ledger-protected-missing-seller" &&
+            row.reason === "missing_seller_account",
         ),
     ),
     detail:
-      "Seller-protection Mark Paid allocation creates credits only for eligible payable seller rows, stops at the $20 cap, skips unprotected/forged/missing-seller rows, and keeps shipping excluded.",
+      "Seller-protection Mark Paid allocation creates credits only for eligible payable seller rows, stops at the $20 cap, records skip reasons for unprotected/forged/missing-seller rows, and keeps shipping excluded.",
     assertions: {
       allocation_plan: allocationPlan,
     },

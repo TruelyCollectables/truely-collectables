@@ -208,6 +208,11 @@ function buildReport(input: {
   )
     ? sellerProtectionReimbursementPlan.skippedRowIds
     : [];
+  const sellerProtectionReimbursementSkippedRowsWithReasons = Array.isArray(
+    sellerProtectionReimbursementPlan.skippedRows,
+  )
+    ? sellerProtectionReimbursementPlan.skippedRows
+    : [];
   const sellerProtectionBuyerRefundEvidence = recordValue(
     recordValue(claim.metadata).latest_seller_protection_buyer_refund_evidence,
   );
@@ -497,7 +502,17 @@ function buildReport(input: {
           ),
           line(
             "Skipped Rows",
-            sellerProtectionReimbursementSkippedRows.length > 0
+            sellerProtectionReimbursementSkippedRowsWithReasons.length > 0
+              ? sellerProtectionReimbursementSkippedRowsWithReasons
+                  .map((entry) => {
+                    const row = recordValue(entry);
+
+                    return `${String(row.rowId || "unknown")}: ${String(
+                      row.reason || "not recorded",
+                    )}`;
+                  })
+                  .join(", ")
+              : sellerProtectionReimbursementSkippedRows.length > 0
               ? sellerProtectionReimbursementSkippedRows.join(", ")
               : "None",
           ),
