@@ -156,7 +156,11 @@ export default function ProductionSmokePage() {
             deployed URL output, clean URL output, and the{" "}
             <code>{DEPLOY_SAFETY.smokeCommand}</code> handoff intact. If Vercel returns{" "}
             <code>{DEPLOY_SAFETY.quotaBlockCode}</code>,{" "}
-            {DEPLOY_SAFETY.quotaResetInstruction}
+            {DEPLOY_SAFETY.quotaResetInstruction}{" "}
+            {DEPLOY_SAFETY.quotaUploadWarning} Marker:{" "}
+            <code>{DEPLOY_SAFETY.quotaCooldownMarkerPath}</code>. Override only
+            intentionally with <code>{DEPLOY_SAFETY.quotaRetryOverrideEnv}</code>{" "}
+            or <code>{DEPLOY_SAFETY.quotaRetryOverrideFlag}</code>.
           </p>
           <h3 className="mt-5 font-black">Protected deploy sequence</h3>
           <ol className="mt-3 grid gap-2 text-sm font-semibold md:grid-cols-5">

@@ -1179,8 +1179,21 @@ export default async function LaunchReadinessPage() {
               <code className="rounded bg-white px-1 py-0.5">
                 {DEPLOY_SAFETY.quotaBlockCode}
               </code>
-              , {DEPLOY_SAFETY.quotaResetInstruction} The deploy live safety
-              contract keeps Vercel quota messaging, unwanted alias removal for{" "}
+              , {DEPLOY_SAFETY.quotaResetInstruction}{" "}
+              {DEPLOY_SAFETY.quotaUploadWarning} Marker:{" "}
+              <code className="rounded bg-white px-1 py-0.5">
+                {DEPLOY_SAFETY.quotaCooldownMarkerPath}
+              </code>
+              . Override only intentionally with{" "}
+              <code className="rounded bg-white px-1 py-0.5">
+                {DEPLOY_SAFETY.quotaRetryOverrideEnv}
+              </code>{" "}
+              or{" "}
+              <code className="rounded bg-white px-1 py-0.5">
+                {DEPLOY_SAFETY.quotaRetryOverrideFlag}
+              </code>
+              . The deploy live safety contract keeps Vercel quota messaging,
+              local quota cooldown marker handling, unwanted alias removal for{" "}
               <code className="rounded bg-white px-1 py-0.5">
                 {DEPLOY_SAFETY.unwantedAlias}
               </code>

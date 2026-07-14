@@ -137,6 +137,7 @@ function deploySafetyMarkdownLines() {
     "",
     "- Run `npm run verify:production` before launch work; it covers InstaComp regressions, LetterTrack evidence checks, shipping purchase-attempt audit simulations, the nineteen-scenario shipping simulation suite, build, production guardrails, and production preflight.",
     `- If Vercel reports \`${DEPLOY_SAFETY.quotaBlockCode}\`, ${DEPLOY_SAFETY.quotaResetInstruction.replace("npm run launch:production", "`npm run launch:production`")}`,
+    `- ${DEPLOY_SAFETY.quotaUploadWarning} Marker: \`${DEPLOY_SAFETY.quotaCooldownMarkerPath}\`. Override only intentionally with \`${DEPLOY_SAFETY.quotaRetryOverrideEnv}\` or \`${DEPLOY_SAFETY.quotaRetryOverrideFlag}\`.`,
     `- The deploy live safety contract must keep ${deploySafetyContractMarkdown()} intact.`,
     `- Protected deploy sequence: ${deploySafetySequenceMarkdown()}.`,
     `- Keep \`${DEPLOY_SAFETY.cleanProductionDomain}\` as the clean production domain and reject the unwanted \`${DEPLOY_SAFETY.unwantedAlias}\` alias.`,

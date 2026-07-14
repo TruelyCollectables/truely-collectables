@@ -7,8 +7,14 @@ export const DEPLOY_SAFETY = {
   quotaBlockCode: "api-deployments-free-per-day",
   quotaResetInstruction:
     "Wait for the rolling 24-hour quota reset before retrying npm run launch:production.",
+  quotaCooldownMarkerPath: ".codex-run/vercel-quota-block.json",
+  quotaRetryOverrideEnv: "TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true",
+  quotaRetryOverrideFlag: "--force-quota-retry",
+  quotaUploadWarning:
+    "Vercel can still upload files before returning the quota error, so the deploy helper records a local cooldown marker and stops later attempts before upload unless an intentional override is used.",
   contract: [
     "Vercel quota messaging",
+    "local Vercel quota cooldown marker",
     "unwanted alias removal for truely-collectables-tt3b.vercel.app",
     "clean-domain aliasing",
     "deployed URL output",
@@ -39,7 +45,7 @@ export const DEPLOY_SAFETY = {
       label: "3. Halt on Vercel quota",
       command: "api-deployments-free-per-day",
       outcome:
-        "do not force alternate deploy paths; wait for the rolling 24-hour reset and rerun the launch helper",
+        "do not force alternate deploy paths; let the local cooldown marker stop repeat uploads, then wait for the rolling 24-hour reset and rerun the launch helper",
     },
     {
       label: "4. Split only after a successful deploy",
