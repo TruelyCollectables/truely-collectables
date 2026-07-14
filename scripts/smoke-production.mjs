@@ -493,7 +493,7 @@ const checks = [
         "LetterTrack CSV rows carry the under-$20 seller-protection contract",
       ) &&
       result.text.includes(
-        "Under-$20 seller-protection claim status changes save a LetterTrack evidence review audit record before payout.",
+        "Under-$20 seller-protection payout blocks delivered LetterTrack evidence, allows not-delivered review evidence, and accepts a current or previously saved explicit override note",
       ) &&
       result.text.includes("DRY RUN STANDARD ENVELOPE PURCHASE"),
   },

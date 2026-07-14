@@ -1,6 +1,6 @@
 import {
   buildLetterTrackDeliveryEvidenceSummary,
-  evaluateLetterTrackSellerProtectionPaymentGate,
+  evaluateLetterTrackSellerProtectionPaymentMetadataGate,
 } from "../../../../../lib/lettertrack-delivery-evidence";
 import { isDryRunShippingLabel as isDryRunShippingLabelRecord } from "../../../../../lib/shipping-dry-run";
 import { getActiveStoreId } from "../../../../../lib/stores";
@@ -518,8 +518,9 @@ export async function GET(request: Request) {
           ? eventsByLabelId.get(claim.shipping_label_id) || []
           : [],
       );
-      const gate = evaluateLetterTrackSellerProtectionPaymentGate({
+      const gate = evaluateLetterTrackSellerProtectionPaymentMetadataGate({
         evidence: liveLetterTrackEvidence,
+        metadata: claim.metadata,
       });
 
       if (gate.allowed) continue;
@@ -538,7 +539,7 @@ export async function GET(request: Request) {
           : "warning",
         exception_type: "seller_protection_payout_blocked",
         action_needed:
-          "Record LetterTrack not-delivered evidence, deny/cancel the claim, or add an explicit override note before Mark Paid.",
+          "Record LetterTrack not-delivered evidence, deny/cancel the claim, or add a current/saved explicit override note before Mark Paid.",
         order_id: claim.order_id,
         customer_email: order?.customer_email || "",
         order_status: order?.status || "",

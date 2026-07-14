@@ -2,6 +2,7 @@ import {
   buildLetterTrackSellerProtectionEvidenceReview,
   buildLetterTrackDeliveryEvidenceSummary,
   evaluateLetterTrackSellerProtectionPaymentGate,
+  evaluateLetterTrackSellerProtectionPaymentMetadataGate,
   shouldRecordLetterTrackSellerProtectionEvidenceReview,
 } from "../src/lib/lettertrack-delivery-evidence.ts";
 
@@ -105,6 +106,20 @@ check(
   "explicit override note can allow exceptional payout",
   overrideGate.allowed && overrideGate.overrideAccepted,
   overrideGate.reason,
+);
+
+const savedOverrideGate = evaluateLetterTrackSellerProtectionPaymentMetadataGate({
+  evidence: deliveredEvidence,
+  metadata: {
+    latest_admin_status_change: {
+      note: "Override: buyer refund required after operator reviewed conflicting LetterTrack evidence.",
+    },
+  },
+});
+check(
+  "saved explicit override note can allow exceptional payout",
+  savedOverrideGate.allowed && savedOverrideGate.overrideAccepted,
+  savedOverrideGate.reason,
 );
 
 const weakOverrideGate = evaluateLetterTrackSellerProtectionPaymentGate({

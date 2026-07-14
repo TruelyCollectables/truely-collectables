@@ -17,6 +17,7 @@ import {
   buildLetterTrackSellerProtectionEvidenceReview,
   buildLetterTrackDeliveryEvidenceSummary,
   evaluateLetterTrackSellerProtectionPaymentGate,
+  evaluateLetterTrackSellerProtectionPaymentMetadataGate,
   shouldRecordLetterTrackSellerProtectionEvidenceReview,
 } from "./lettertrack-delivery-evidence";
 import {
@@ -534,20 +535,32 @@ export async function runShippingSimulationSuite() {
     overrideNote:
       "Override: buyer refund required after operator reviewed conflicting delivery evidence.",
   });
+  const savedOverridePaymentGate =
+    evaluateLetterTrackSellerProtectionPaymentMetadataGate({
+      evidence: deliveredEvidence,
+      metadata: {
+        latest_admin_status_change: {
+          note: "Override: buyer refund required after operator reviewed conflicting delivery evidence.",
+        },
+      },
+    });
   scenarios.push({
     scenario_key: "lettertrack_seller_protection_paid_gate",
     scenario_status: pass(
       !deliveredPaymentGate.allowed &&
         notDeliveredPaymentGate.allowed &&
         overridePaymentGate.allowed &&
-        overridePaymentGate.overrideAccepted,
+        overridePaymentGate.overrideAccepted &&
+        savedOverridePaymentGate.allowed &&
+        savedOverridePaymentGate.overrideAccepted,
     ),
     detail:
-      "Under-$20 seller-protection payout blocks delivered LetterTrack evidence, allows not-delivered review evidence, and requires an explicit override note for exceptions.",
+      "Under-$20 seller-protection payout blocks delivered LetterTrack evidence, allows not-delivered review evidence, and accepts a current or previously saved explicit override note for exceptions.",
     assertions: {
       delivered_gate: deliveredPaymentGate,
       not_delivered_gate: notDeliveredPaymentGate,
       override_gate: overridePaymentGate,
+      saved_override_gate: savedOverridePaymentGate,
     },
   });
   const savedEvidenceReview = buildLetterTrackSellerProtectionEvidenceReview({

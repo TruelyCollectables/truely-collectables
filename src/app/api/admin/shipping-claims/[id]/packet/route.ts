@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { createEvidencePdf } from "../../../../../../lib/evidence-pdf";
 import {
   buildLetterTrackDeliveryEvidenceSummary,
-  evaluateLetterTrackSellerProtectionPaymentGate,
+  evaluateLetterTrackSellerProtectionPaymentMetadataGate,
   type LetterTrackDeliveryEvidenceEvent,
 } from "../../../../../../lib/lettertrack-delivery-evidence";
 import {
@@ -220,8 +220,9 @@ function buildReport(input: {
     );
   const currentLetterTrackPaymentGate =
     under20ProtectionClaim.eligible === true
-      ? evaluateLetterTrackSellerProtectionPaymentGate({
+      ? evaluateLetterTrackSellerProtectionPaymentMetadataGate({
           evidence: currentLetterTrackDeliveryEvidence,
+          metadata: claim.metadata,
         })
       : null;
   const lines: string[] = [

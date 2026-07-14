@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { evaluateUnder20SellerProtectionBuyerRefundMetadataGate } from "../../../lib/under20-seller-protection-claims";
 
 type ClaimStatus =
   | "draft"
@@ -300,6 +301,44 @@ function buyerRefundEvidenceCard(evidence: Record<string, unknown>) {
   );
 }
 
+function buyerRefundReadinessCard(gate: { allowed: boolean; reason: string }) {
+  const allowed = gate.allowed === true;
+
+  return (
+    <div
+      className={`rounded border p-3 text-xs font-semibold ${
+        allowed
+          ? "border-green-200 bg-green-50 text-green-950"
+          : "border-amber-200 bg-amber-50 text-amber-950"
+      }`}
+    >
+      <p className="font-black uppercase tracking-widest">
+        Buyer refund proof readiness
+      </p>
+      <p className="mt-1">
+        Checked from the typed note and current claim metadata before Mark Paid.
+        A current or previously saved status note can satisfy the
+        buyer/customer refund proof requirement.
+      </p>
+      <dl className="mt-2 grid grid-cols-1 gap-1 sm:grid-cols-2">
+        <div>
+          <dt className="text-[10px] uppercase tracking-widest opacity-70">
+            Ready for Mark Paid
+          </dt>
+          <dd>{allowed ? "Yes" : "No"}</dd>
+        </div>
+        <div>
+          <dt className="text-[10px] uppercase tracking-widest opacity-70">
+            Proof source
+          </dt>
+          <dd>Current note or saved status note</dd>
+        </div>
+      </dl>
+      <p className="mt-2">{String(gate.reason || "No refund gate reason available.")}</p>
+    </div>
+  );
+}
+
 export default function ShippingClaimActions({
   claimId,
   claimStatus,
@@ -358,6 +397,11 @@ export default function ShippingClaimActions({
   const [message, setMessage] = useState("");
   const [note, setNote] = useState("");
   const [providerId, setProviderId] = useState(providerClaimId || "");
+  const buyerRefundReadinessGate =
+    evaluateUnder20SellerProtectionBuyerRefundMetadataGate({
+      metadata: claimMetadata,
+      note,
+    });
   const savedEvidenceCard = hasLetterTrackEvidence ? (
     evidenceCard({
       title: "Saved LetterTrack claim snapshot",
@@ -403,6 +447,10 @@ export default function ShippingClaimActions({
   const buyerRefundEvidenceCardNode = hasLatestBuyerRefundEvidence
     ? buyerRefundEvidenceCard(latestBuyerRefundEvidence)
     : null;
+  const buyerRefundReadinessCardNode =
+    normalizedStatus === "approved" && isUnder20SellerProtection
+      ? buyerRefundReadinessCard(buyerRefundReadinessGate)
+      : null;
   const packetLink = (
     <a
       href={`/api/admin/shipping-claims/${claimId}/packet`}
@@ -465,6 +513,7 @@ export default function ShippingClaimActions({
   return (
     <div className="mt-3 space-y-2 rounded border bg-neutral-50 p-3">
       {packetLink}
+      {buyerRefundReadinessCardNode}
       {buyerRefundEvidenceCardNode}
       {reimbursementCard}
       {currentEvidenceCard}

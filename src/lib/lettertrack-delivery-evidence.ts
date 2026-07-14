@@ -78,6 +78,12 @@ function hasOverrideNote(value: unknown) {
   return note.includes("override") && note.length >= 20;
 }
 
+function metadataRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
 export function buildLetterTrackDeliveryEvidenceSummary(
   events: LetterTrackDeliveryEvidenceEvent[],
 ): LetterTrackDeliveryEvidenceSummary {
@@ -159,6 +165,33 @@ export function evaluateLetterTrackSellerProtectionPaymentGate(params: {
     reason:
       "Record LetterTrack / USPS IMb Not Delivered, Delivery Exception, or Returned evidence before marking this seller-protection claim paid, or add an internal override note.",
   };
+}
+
+export function evaluateLetterTrackSellerProtectionPaymentMetadataGate(params: {
+  evidence: LetterTrackDeliveryEvidenceSummary;
+  metadata?: Record<string, unknown> | null;
+  overrideNote?: string | null;
+}): LetterTrackSellerProtectionPaymentGate {
+  const metadata = metadataRecord(params.metadata);
+  const latestEvidenceReview = metadataRecord(
+    metadata.latest_lettertrack_delivery_evidence_review,
+  );
+  const latestAdminStatusChange = metadataRecord(
+    metadata.latest_admin_status_change,
+  );
+  const combinedOverrideNote = [
+    params.overrideNote,
+    latestEvidenceReview.note,
+    latestAdminStatusChange.note,
+  ]
+    .map((entry) => String(entry || "").trim())
+    .filter((entry) => entry.length > 0)
+    .join(" / ");
+
+  return evaluateLetterTrackSellerProtectionPaymentGate({
+    evidence: params.evidence,
+    overrideNote: combinedOverrideNote,
+  });
 }
 
 export function shouldRecordLetterTrackSellerProtectionEvidenceReview(params: {

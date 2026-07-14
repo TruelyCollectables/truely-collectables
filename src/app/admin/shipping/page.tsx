@@ -6,7 +6,7 @@ import {
 } from "../../../lib/shipping-provider-adapter";
 import {
   buildLetterTrackDeliveryEvidenceSummary,
-  evaluateLetterTrackSellerProtectionPaymentGate,
+  evaluateLetterTrackSellerProtectionPaymentMetadataGate,
 } from "../../../lib/lettertrack-delivery-evidence";
 import {
   buildShippingProviderSetupPacket,
@@ -740,7 +740,10 @@ export default async function AdminShippingPage() {
         ? eventsByLabelId.get(claim.shipping_label_id) || []
         : [],
     );
-    const gate = evaluateLetterTrackSellerProtectionPaymentGate({ evidence });
+    const gate = evaluateLetterTrackSellerProtectionPaymentMetadataGate({
+      evidence,
+      metadata: claim.metadata,
+    });
 
     return !gate.allowed;
   });
@@ -877,7 +880,7 @@ export default async function AdminShippingPage() {
         ? ("critical" as PrioritySeverity)
         : ("warning" as PrioritySeverity),
       detail:
-        "Approved under-$20 claims need LetterTrack not-delivered evidence or an explicit override note before Mark Paid.",
+        "Approved under-$20 claims need LetterTrack not-delivered evidence or a current/saved explicit override note before Mark Paid.",
       href: approvedSellerProtectionPayoutBlockers[0]?.order_id
         ? `/admin/orders/${approvedSellerProtectionPayoutBlockers[0].order_id}`
         : "/admin/shipping",
@@ -1614,8 +1617,9 @@ export default async function AdminShippingPage() {
                     );
                     const currentGate =
                       under20Claim?.eligible === true
-                        ? evaluateLetterTrackSellerProtectionPaymentGate({
+                        ? evaluateLetterTrackSellerProtectionPaymentMetadataGate({
                             evidence: currentEvidence,
+                            metadata: claim.metadata,
                           })
                         : null;
 

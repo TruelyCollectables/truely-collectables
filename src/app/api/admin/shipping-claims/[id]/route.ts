@@ -2,7 +2,7 @@ import { getClientIdentity } from "../../../../../lib/client-identity";
 import {
   buildLetterTrackDeliveryEvidenceSummary,
   buildLetterTrackSellerProtectionEvidenceReview,
-  evaluateLetterTrackSellerProtectionPaymentGate,
+  evaluateLetterTrackSellerProtectionPaymentMetadataGate,
   shouldRecordLetterTrackSellerProtectionEvidenceReview,
   type LetterTrackDeliveryEvidenceEvent,
   type LetterTrackDeliveryEvidenceSummary,
@@ -144,8 +144,9 @@ async function latestSellerProtectionPaymentEvidence(params: {
   const summary = buildLetterTrackDeliveryEvidenceSummary(
     (data || []) as LetterTrackDeliveryEvidenceEvent[],
   );
-  const gate = evaluateLetterTrackSellerProtectionPaymentGate({
+  const gate = evaluateLetterTrackSellerProtectionPaymentMetadataGate({
     evidence: summary,
+    metadata: params.claim.metadata,
     overrideNote: params.overrideNote,
   });
 

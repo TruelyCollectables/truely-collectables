@@ -325,6 +325,7 @@ assertFileIncludes("shipping simulation lab smoke contract", "scripts/smoke-prod
   "Mixed under-$20 claim rows cap reimbursement at $20",
   "Seller-protection Mark Paid allocation creates credits only for payable seller rows",
   "Under-$20 seller-protection Mark Paid requires a current or previously saved internal note confirming buyer refund evidence",
+  "Under-$20 seller-protection payout blocks delivered LetterTrack evidence, allows not-delivered review evidence, and accepts a current or previously saved explicit override note",
   "LetterTrack CSV rows carry the under-$20 seller-protection contract",
   "DRY RUN STANDARD ENVELOPE PURCHASE",
 ]);
@@ -401,6 +402,9 @@ assertFileIncludes(
     "Seller-protection reimbursement allocation",
     "latest_seller_protection_reimbursement",
     "latest_seller_protection_buyer_refund_evidence",
+    "Buyer refund proof readiness",
+    "evaluateUnder20SellerProtectionBuyerRefundMetadataGate",
+    "Checked from the typed note and current claim metadata before Mark Paid",
     "reimbursementPlan",
     "Inserted credits",
     "Requested plan",
@@ -438,6 +442,60 @@ assertFileIncludes(
     "seller_protection_refund_proof_missing",
     "Document buyer/customer refund evidence or a refund reference before Mark Paid",
     "refundGate.reason",
+  ],
+);
+assertFileIncludes(
+  "lettertrack saved override helper contract",
+  "src/lib/lettertrack-delivery-evidence.ts",
+  [
+    "evaluateLetterTrackSellerProtectionPaymentMetadataGate",
+    "latest_lettertrack_delivery_evidence_review",
+    "latest_admin_status_change",
+    "combinedOverrideNote",
+    "overrideNote: combinedOverrideNote",
+  ],
+);
+assertFileIncludes(
+  "lettertrack saved override runtime callers",
+  "src/app/api/admin/shipping-claims/[id]/route.ts",
+  [
+    "evaluateLetterTrackSellerProtectionPaymentMetadataGate",
+    "metadata: params.claim.metadata",
+    "overrideNote: params.overrideNote",
+  ],
+);
+assertFileIncludes(
+  "lettertrack saved override admin callers",
+  "src/app/admin/shipping/page.tsx",
+  [
+    "evaluateLetterTrackSellerProtectionPaymentMetadataGate",
+    "metadata: claim.metadata",
+    "current/saved explicit override note before Mark Paid",
+  ],
+);
+assertFileIncludes(
+  "lettertrack saved override exception export callers",
+  "src/app/api/admin/shipping/exceptions/route.ts",
+  [
+    "evaluateLetterTrackSellerProtectionPaymentMetadataGate",
+    "metadata: claim.metadata",
+    "current/saved explicit override note before Mark Paid",
+  ],
+);
+assertFileIncludes(
+  "lettertrack saved override order detail callers",
+  "src/app/admin/orders/[id]/page.tsx",
+  [
+    "evaluateLetterTrackSellerProtectionPaymentMetadataGate",
+    "metadata: claim.metadata",
+  ],
+);
+assertFileIncludes(
+  "lettertrack saved override packet caller",
+  "src/app/api/admin/shipping-claims/[id]/packet/route.ts",
+  [
+    "evaluateLetterTrackSellerProtectionPaymentMetadataGate",
+    "metadata: claim.metadata",
   ],
 );
 assertFileIncludes(

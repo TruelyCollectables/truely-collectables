@@ -6,7 +6,7 @@ import { isDryRunShippingLabel as isDryRunShippingLabelRecord } from "../../../.
 import { getShippingProviderReadiness } from "../../../../lib/shipping-provider-readiness";
 import {
   buildLetterTrackDeliveryEvidenceSummary,
-  evaluateLetterTrackSellerProtectionPaymentGate,
+  evaluateLetterTrackSellerProtectionPaymentMetadataGate,
 } from "../../../../lib/lettertrack-delivery-evidence";
 import Link from "next/link";
 import PayoutLedgerActions from "../../seller-payouts/PayoutLedgerActions";
@@ -1265,8 +1265,9 @@ export default async function AdminOrderDetailPage({
                   );
                   const currentGate =
                     under20Claim?.eligible === true
-                      ? evaluateLetterTrackSellerProtectionPaymentGate({
+                      ? evaluateLetterTrackSellerProtectionPaymentMetadataGate({
                           evidence: currentEvidence,
+                          metadata: claim.metadata,
                         })
                       : null;
 
