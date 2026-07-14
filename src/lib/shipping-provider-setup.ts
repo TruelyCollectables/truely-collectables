@@ -81,6 +81,7 @@ export type ProviderSetupPacket = {
   liveRequirements: LiveShippingRequirement[];
   credentialGroups: ProviderCredentialGroup[];
   standardEnvelopeEvidenceContract: StandardEnvelopeEvidenceContract;
+  standardEnvelopeEvidenceContractReady: boolean;
   readinessSummary: ReturnType<typeof shippingProviderSummary>;
   readiness: ReturnType<typeof getShippingProviderReadiness>;
   lanes: ProviderSetupLane[];
@@ -432,6 +433,7 @@ export function buildShippingProviderSetupPacket(): ProviderSetupPacket {
   ];
   const liveRequirements = liveShippingRequirements({ lanes });
   const credentialGroups = providerCredentialGroupStatus(lanes);
+  const standardEnvelopeEvidenceContract = STANDARD_ENVELOPE_EVIDENCE_CONTRACT;
   const decision = providerSetupDecision({
     lanes,
     readiness,
@@ -446,7 +448,9 @@ export function buildShippingProviderSetupPacket(): ProviderSetupPacket {
     decision,
     liveRequirements,
     credentialGroups,
-    standardEnvelopeEvidenceContract: STANDARD_ENVELOPE_EVIDENCE_CONTRACT,
+    standardEnvelopeEvidenceContract,
+    standardEnvelopeEvidenceContractReady:
+      isStandardEnvelopeEvidenceContractReady(standardEnvelopeEvidenceContract),
     readinessSummary: shippingProviderSummary(readiness),
     readiness,
     lanes,

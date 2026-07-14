@@ -19,6 +19,7 @@ function csvResponse(params: {
   decision: ProviderSetupDecision;
   liveRequirements: LiveShippingRequirement[];
   standardEnvelopeEvidenceContract: StandardEnvelopeEvidenceContract;
+  standardEnvelopeEvidenceContractReady: boolean;
 }) {
   const headers = [
     "decisionStatus",
@@ -50,6 +51,7 @@ function csvResponse(params: {
     "under20ProtectionNotInsurance",
     "under20ProtectionReserveRate",
     "under20ProtectionReimbursesShipping",
+    "standardEnvelopeEvidenceContractReady",
   ] as const;
   const decision = {
     decisionStatus: params.decision.status,
@@ -71,6 +73,8 @@ function csvResponse(params: {
       params.standardEnvelopeEvidenceContract.reserveRate,
     under20ProtectionReimbursesShipping:
       params.standardEnvelopeEvidenceContract.reimbursesShipping,
+    standardEnvelopeEvidenceContractReady:
+      params.standardEnvelopeEvidenceContractReady,
   };
   const body = [
     headers.join(","),
@@ -121,6 +125,7 @@ function envTemplateResponse(params: {
   decision: ProviderSetupDecision;
   liveRequirements: LiveShippingRequirement[];
   standardEnvelopeEvidenceContract: StandardEnvelopeEvidenceContract;
+  standardEnvelopeEvidenceContractReady: boolean;
 }) {
   const requiredCredentialKeys = unique(
     params.lanes.flatMap((lane) => [
@@ -161,6 +166,7 @@ function envTemplateResponse(params: {
     "TCOS_LIVE_SHIPPING_ENABLED=false",
     "",
     "# Standard Envelope evidence/protection contract",
+    `# Runtime gate validator: ${params.standardEnvelopeEvidenceContractReady ? "ready" : "blocked"}`,
     `# Evidence provider: ${params.standardEnvelopeEvidenceContract.evidenceProvider}`,
     `# Trackable requirement: ${params.standardEnvelopeEvidenceContract.trackableRequirement}`,
     `# Under-$20 protection model: ${params.standardEnvelopeEvidenceContract.under20ProtectionModel}`,
@@ -268,6 +274,7 @@ function operatorChecklistResponse(params: {
   decision: ProviderSetupDecision;
   liveRequirements: LiveShippingRequirement[];
   standardEnvelopeEvidenceContract: StandardEnvelopeEvidenceContract;
+  standardEnvelopeEvidenceContractReady: boolean;
 }) {
   const missingCredentialGroups = unique(
     params.lanes.flatMap((lane) => [
@@ -291,6 +298,7 @@ function operatorChecklistResponse(params: {
     "",
     "## Standard Envelope Evidence + Under-$20 Protection Contract",
     "",
+    `- Runtime gate validator: ${params.standardEnvelopeEvidenceContractReady ? "ready" : "blocked"}`,
     `- Evidence provider: ${params.standardEnvelopeEvidenceContract.evidenceProvider}`,
     `- Evidence purpose: ${params.standardEnvelopeEvidenceContract.evidencePurpose}`,
     `- Trackable requirement: ${params.standardEnvelopeEvidenceContract.trackableRequirement}`,
@@ -367,6 +375,8 @@ export async function GET(request: Request) {
         liveRequirements: packet.liveRequirements,
         standardEnvelopeEvidenceContract:
           packet.standardEnvelopeEvidenceContract,
+        standardEnvelopeEvidenceContractReady:
+          packet.standardEnvelopeEvidenceContractReady,
       });
     }
 
@@ -378,6 +388,8 @@ export async function GET(request: Request) {
         liveRequirements: packet.liveRequirements,
         standardEnvelopeEvidenceContract:
           packet.standardEnvelopeEvidenceContract,
+        standardEnvelopeEvidenceContractReady:
+          packet.standardEnvelopeEvidenceContractReady,
       });
     }
 
@@ -397,6 +409,8 @@ export async function GET(request: Request) {
         liveRequirements: packet.liveRequirements,
         standardEnvelopeEvidenceContract:
           packet.standardEnvelopeEvidenceContract,
+        standardEnvelopeEvidenceContractReady:
+          packet.standardEnvelopeEvidenceContractReady,
       });
     }
 

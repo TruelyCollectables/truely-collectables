@@ -732,6 +732,7 @@ const checks = [
       result.contentType.includes("application/json") &&
       result.text.includes('"credentialGroups"') &&
       result.text.includes('"standardEnvelopeEvidenceContract"') &&
+      result.text.includes('"standardEnvelopeEvidenceContractReady":true') &&
       result.text.includes('"evidenceProvider":"LetterTrack / USPS IMb"') &&
       result.text.includes('"trackableRequirement"') &&
       result.text.includes('"notInsuranceNotice"') &&
@@ -751,6 +752,7 @@ const checks = [
       result.text.includes("decisionStatus,decisionSummary,decisionNextAction") &&
       result.text.includes("standardEnvelopeEvidenceProvider") &&
       result.text.includes("under20ProtectionNotInsurance") &&
+      result.text.includes("standardEnvelopeEvidenceContractReady") &&
       result.text.includes("LetterTrack / USPS IMb") &&
       result.text.includes("not third-party insurance") &&
       result.text.includes("liveRequirementBlockers") &&
@@ -765,6 +767,7 @@ const checks = [
       result.contentType.includes("text/plain") &&
       result.text.includes("TCOS shipping provider setup template") &&
       result.text.includes("Standard Envelope evidence/protection contract") &&
+      result.text.includes("Runtime gate validator: ready") &&
       result.text.includes("Evidence provider: LetterTrack / USPS IMb") &&
       result.text.includes("TCOS Under-$20 Seller Protection is an optional internal seller program") &&
       result.text.includes("Not insurance: LetterTrack / USPS IMb is delivery-evidence tracking") &&
@@ -791,6 +794,7 @@ const checks = [
       result.contentType.includes("text/markdown") &&
       result.text.includes("# TCOS Shipping Provider Operator Checklist") &&
       result.text.includes("## Standard Envelope Evidence + Under-$20 Protection Contract") &&
+      result.text.includes("Runtime gate validator: ready") &&
       result.text.includes("Evidence provider: LetterTrack / USPS IMb") &&
       result.text.includes("TCOS Under-$20 Seller Protection is an optional internal seller program") &&
       result.text.includes("Not insurance: LetterTrack / USPS IMb is delivery-evidence tracking") &&
