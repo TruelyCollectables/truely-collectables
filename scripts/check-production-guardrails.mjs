@@ -2980,6 +2980,22 @@ assertFileIncludes("operator manual PDF generator portability guardrail", "scrip
   "Manual PDF written:",
 ]);
 
+assertFileIncludes("chat handoff current launch stack", "CHAT_HANDOFF.md", [
+  "/Users/davidbakanas/Documents/GitHub/truely-collectables",
+  "44a49a4 Harden operator manual PDF generation",
+  "cc36a5b Harden marketplace packet intake guardrails",
+  "2400ce8 Guard README launch contract wording",
+  "api-deployments-free-per-day",
+  "npm run verify:production",
+  "npm run launch:production",
+  "no payout release",
+  "no order fulfillment",
+  "no automatic under-$20 protection activation",
+  "TCOS_MANUAL_BROWSER_PATH",
+  "TCOS_MANUAL_PDF_BROWSER_TIMEOUT_MS",
+  "That recurring stale-PDF issue is fixed and guarded.",
+]);
+
 assertFileIncludes("deploy live safety operator manual", "docs/TCOS_OPERATOR_MANUAL.md", [
   "live deploy safety contract",
   "/admin/production-smoke",

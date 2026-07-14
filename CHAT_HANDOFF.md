@@ -4,21 +4,32 @@ Generated for the next Codex session during the production launch stacking pass.
 
 ## Current repo state
 
-- Workspace: `C:\Projects\truely-collectables`
+- Workspace: `/Users/davidbakanas/Documents/GitHub/truely-collectables`
 - Branch: `main`
 - GitHub remote: `https://github.com/TruelyCollectables/truely-collectables.git`
-- Last launch-code commit covered by this handoff: `bdead99 Separate launch handoff deploy commands`
-- Handoff-only commits may appear after that commit. Run `git fetch origin main`, then treat `git log -5 --oneline` plus `git rev-parse --short HEAD` / `git rev-parse --short origin/main` as the source of truth for the current Git tip.
-- Local `HEAD` and `origin/main` matched after the previous handoff refresh, and the local working tree was clean before this handoff note was edited.
+- Latest verified pushed commit at this handoff: `44a49a4 Harden operator manual PDF generation`
+- Local `HEAD` and `origin/main` matched at `44a49a4b55e620960e36f77d906b4aed824c703c` after `npm run preflight:production`.
+- Working tree was clean after that preflight.
 - `.codex-run/` is ignored in `.gitignore`; leave the folder contents alone unless the user explicitly says to delete them.
+
+Always refresh the exact Git state before deploy work:
+
+```bash
+git fetch origin main
+git status --short
+git rev-parse --short HEAD
+git rev-parse --short origin/main
+git log -6 --oneline
+```
 
 ## Production/Vercel state
 
 - Clean production URL: `https://truely-collectables.vercel.app`
 - The unwanted preview-style alias `truely-collectables-tt3b.vercel.app` must not return.
-- Vercel production deploys were blocked by the free deployment quota:
+- Vercel production deploys were recently blocked by the free deployment quota:
   - `api-deployments-free-per-day`
-- The latest GitHub commits are queued and pushed, but production may not include them until the quota window resets and `npm run launch:production` succeeds.
+- The deploy helper records `.codex-run/vercel-quota-block.json` after a quota cap so later attempts can stop before upload unless the retry is intentional.
+- Latest GitHub commits are queued and pushed, but production may not include them until the quota window resets and `npm run launch:production` succeeds.
 - Do not treat missing queued launch exports on production as code loss. They are expected until the next successful Vercel production deploy.
 
 ## Production deploy flow
@@ -29,13 +40,13 @@ Use the runbook:
 
 Expected command sequence once Vercel accepts deployments:
 
-```powershell
+```bash
 npm run launch:production
 ```
 
 Separate fallback commands:
 
-```powershell
+```bash
 npm run deploy:production
 npm run smoke:production
 ```
@@ -46,10 +57,12 @@ The deploy helper:
 - blocks uncommitted deploy-relevant local changes;
 - checks local Git state against `origin/main`;
 - normalizes `VERCEL_CLEAN_DOMAIN` and `VERCEL_UNWANTED_ALIAS` from hostnames or URLs;
-- deploys production through Vercel;
+- stops early when the local Vercel quota cooldown marker is still active;
+- deploys production through Vercel only when the checks pass;
 - fails clearly if Vercel quota is still capped;
 - removes the unwanted `truely-collectables-tt3b.vercel.app` alias if present;
-- points `https://truely-collectables.vercel.app` at the new production deployment.
+- points `https://truely-collectables.vercel.app` at the new production deployment;
+- prints deployed/clean URL output and the `npm run smoke:production` handoff.
 
 The preflight helper:
 
@@ -58,7 +71,7 @@ The preflight helper:
 
 The verify helper:
 
-- runs `npm run lint`, `npm run build`, `npm run check:production-guardrails`, and `npm run preflight:production`;
+- runs lint, InstaComp queue/accuracy simulations, LetterTrack evidence checks, shipping purchase-attempt audit simulations, the twenty-scenario shipping simulation suite, build, production guardrail checks, and production preflight;
 - is quota-safe because it does not start a Vercel deployment.
 
 The launch helper:
@@ -69,334 +82,99 @@ The launch helper:
 The smoke helper:
 
 - logs in using `SMOKE_ADMIN_PASSWORD`, `ADMIN_PASSWORD`, or `.env.local` `ADMIN_PASSWORD`;
-- checks admin, launch readiness, verify/preflight/one-shot launch command visibility, live payment/shipping gates, and shipping provider export surfaces;
+- checks admin, launch readiness, Launch Gate Drill, live payment/shipping gates, production smoke page, shipping simulation surfaces, shipping provider exports, shipping exceptions export, LetterTrack CSV export, Seller Connections Marketplace Packet Intake, seller receipt handoff controls, and seller inventory/order/payout auth gates;
 - normalizes `SMOKE_BASE_URL` and `SMOKE_UNWANTED_ALIAS_URL` from hostnames or URLs;
 - refuses to run when `SMOKE_BASE_URL` resolves to `truely-collectables-tt3b.vercel.app`;
 - fails if the unwanted `truely-collectables-tt3b.vercel.app` alias returns a successful response;
-- prints failed-check HTTP status, content type, request duration, and short response/error snippets redacted for Stripe, webhook, JWT, Resend, auth-header, query-token, and JSON secret values;
+- prints failed-check HTTP status, content type, request duration, and short response/error snippets redacted for Stripe, webhook, JWT, Resend, auth-header, query-token, API-key, password, and JSON secret values;
 - prints per-check, slowest-check, and total request timing;
 - refreshes `origin/main` before printing local/remote commit context;
 - clearly calls out queued feature failures when production is simply behind GitHub.
 
-The launch handoff bundle:
-
-- includes a Git Tip Verification section with `git fetch origin main`, `git status --short`, `git rev-parse --short HEAD`, `git rev-parse --short origin/main`, and `git log -5 --oneline`;
-- includes a Production Deploy Commands section with `npm run verify:production`, `npm run launch:production`, split deploy/smoke fallback commands, the clean production domain, and the unwanted `tt3b` alias reminder.
-
-## Validation state
+## Recent validation state
 
 Recent pushed work passed:
 
-```powershell
+```bash
 npm run verify:production
+npm run check:production-guardrails
 npm run lint
+npx tsc --noEmit --pretty false
 npm run build
+npm run manual:pdf
 npm run preflight:production
 ```
 
-Commit `ad6ed27` refreshed this handoff after the deploy-command cleanup. It was a documentation-only breadcrumb commit; no Vercel deployment was started.
+Most recent notable validation:
 
-`npm run check:production-guardrails`, `npm run lint`, and `npm run build` were rerun before commit `bdead99` and passed. Commit `bdead99` separated the launch handoff bundle deploy commands into their own `## Production Deploy Commands` section and updated smoke coverage to require the split `npm run deploy:production` / `npm run smoke:production` fallback commands. The commit was pushed to `origin/main`; no Vercel deployment was started.
+- `cc36a5b Harden marketplace packet intake guardrails`
+  - Added visible `/seller/marketplaces` no-op chips for no payout release, no order fulfillment, and no automatic under-$20 protection activation.
+  - Updated production smoke and guardrails.
+  - `npm run verify:production` passed after push.
+- `2400ce8 Guard README launch contract wording`
+  - README now matches the hardened packet-intake contract.
+  - README now correctly describes `verify:instacomp` as focused instead of full production verification.
+  - Guardrails protect those README statements.
+  - `npm run verify:production` passed after push.
+- `44a49a4 Harden operator manual PDF generation`
+  - `scripts/build-manual-pdf.mjs` now supports macOS/Linux browser paths, `TCOS_MANUAL_BROWSER_PATH`, proper `pathToFileURL` file URLs, browser timeout via `TCOS_MANUAL_PDF_BROWSER_TIMEOUT_MS`, and fresh-PDF success detection.
+  - `docs/TCOS_OPERATOR_MANUAL.pdf` was regenerated successfully.
+  - `npm run manual:pdf`, `npm run check:production-guardrails`, `npm run lint`, `node --check scripts/build-manual-pdf.mjs`, `git diff --check`, and `npm run preflight:production` passed.
 
-`npm run verify:production` was rerun after commit `5622761` and passed end-to-end. It ran lint, build, production guardrail checks including the smoke redaction self-test, and production preflight; the preflight fetched `origin/main`, confirmed local `HEAD` matched GitHub, reported a clean worktree, and did not start a Vercel deployment.
+Manual generation status:
 
-`npm run verify:production` was rerun after commit `0bc64a3` and passed end-to-end. It ran lint, build, production guardrail checks including the smoke redaction self-test, and production preflight; the preflight fetched `origin/main`, confirmed local `HEAD` matched GitHub, reported a clean worktree, and did not start a Vercel deployment.
-
-`npm run verify:production` was rerun after commit `0dadb81` and passed end-to-end. It ran lint, build, production guardrail checks including the smoke redaction self-test, and production preflight; the preflight fetched `origin/main`, confirmed local `HEAD` matched GitHub, reported a clean worktree, and did not start a Vercel deployment.
-
-`npm run check:production-guardrails` now also runs `node scripts/smoke-production.mjs --self-test-redaction`, which proves the production smoke diagnostic response/error snippets redact Stripe, webhook, JWT, Resend, auth-header, query-token, and JSON secret shapes before printing failures.
-
-`npm run verify:production` was rerun after commit `f8cd4a9` and passed end-to-end. It ran lint, build, production guardrail checks, and production preflight; the preflight fetched `origin/main`, confirmed local `HEAD` matched GitHub, reported a clean worktree, and did not start a Vercel deployment.
-
-`npm run verify:production` was rerun after commit `9277c1f` and passed end-to-end. It ran lint, build, production guardrail checks, and production preflight; the preflight fetched `origin/main`, confirmed local `HEAD` matched GitHub, reported a clean worktree, and did not start a Vercel deployment.
-
-`npm run check:production-guardrails` and `npm run lint` were run after commit `743fe19` and passed. The guardrail command now syntax-checks the production deploy/smoke helpers before running the alias refusal checks.
-
-`npm run verify:production` was rerun after commit `6ea91db` and passed end-to-end. It ran lint, build, production guardrail checks, and production preflight; the preflight fetched `origin/main`, confirmed local `HEAD` matched GitHub, reported a clean worktree, and did not start a Vercel deployment.
-
-`npm run check:production-guardrails` was added and passed. It syntax-checks the production deploy/smoke helpers, confirms the deploy helper refuses a clean domain that normalizes to the unwanted alias, and confirms the smoke helper refuses the unwanted alias before admin auth.
-
-`npm run lint` was run after the production domain normalization changes and passed. `node --check` passed for the deploy and smoke helpers. Local refusal-path checks confirmed:
-
-- `VERCEL_CLEAN_DOMAIN=https://truely-collectables-tt3b.vercel.app/ VERCEL_UNWANTED_ALIAS=truely-collectables-tt3b.vercel.app node scripts/deploy-production.mjs --preflight-only` exits before Git/Vercel work.
-- `SMOKE_BASE_URL=https://TRUELY-COLLECTABLES-TT3B.vercel.app/ node scripts/smoke-production.mjs` exits before making smoke requests.
-
-`npm run lint` and `npm run build` were run after commit `348bac6` and passed. A local refusal-path check also confirmed `SMOKE_BASE_URL=https://truely-collectables-tt3b.vercel.app node scripts/smoke-production.mjs` exits before making smoke requests.
-
-`npm run verify:production` was run after commit `6a362b8` and passed end-to-end. It ran lint, build, and the production preflight. The preflight fetched `origin/main`, confirmed local `HEAD` matched GitHub, reported a clean worktree, and did not start a Vercel deployment.
-
-Manual generation status from the earlier handoff still applies:
-
-```powershell
+```bash
 npm run manual:pdf
 ```
 
-- The manual HTML existed:
-  - `docs/TCOS_OPERATOR_MANUAL_PRINT.html`
-- Local PDF export had been failing because local Chrome/Edge GPU processes crash.
-- Existing PDF may be stale:
-  - `docs/TCOS_OPERATOR_MANUAL.pdf`
-- This PDF issue has been recurring and is not caused by the latest app code.
+- The manual HTML and PDF are current as of commit `44a49a4`.
+- Local PDF generation previously failed on this Mac workspace because the script only knew Windows browser paths and could hang after Chrome wrote the PDF.
+- That recurring stale-PDF issue is fixed and guarded.
 
 ## Recent commit trail
 
 Most recent commits, newest first:
 
 ```text
-ad6ed27 Refresh handoff after deploy command cleanup
-bdead99 Separate launch handoff deploy commands
-1083d3d Record verified launch handoff bundle tip
-5622761 Include deploy commands in launch handoff bundle
-625cd50 Record verified smoke error redaction tip
-0bc64a3 Redact production smoke error snippets
-029020f Record verified smoke self-test tip
-0dadb81 Self-test production smoke redaction
-fa5ecbd Record verified smoke redaction tip
-f8cd4a9 Expand production smoke secret redaction
-db12b83 Record latest production verify pass
-9277c1f Normalize production smoke URL overrides
-9943722 Refresh handoff after guardrail checks
-743fe19 Syntax check production helpers in guardrails
-5355813 Pin smoke guardrail alias check
-8ad295f Clean production guardrail check output
-6ea91db Add production guardrail verification
-43238f2 Normalize production domain guardrails
-c5ba964 Document unwanted alias guardrails
-348bac6 Refuse production checks on unwanted alias
-91b7b0e Replace generic README setup guidance
-6a362b8 Record clean verified production tip
-b460e05 Replace generic Vercel deploy README guidance
-9638322 Ignore Codex scratch run directory
-aa52008 Record latest production verify pass
-4821ba1 Record verified launch flow in handoff
-f5228a8 Run production verify before launch deploy
-26f2c91 Record production verify pass in handoff
-03fe1e0 Refresh handoff for production verify flow
-c59092e Add quota-safe production verify command
-b42d353 Report slowest production smoke checks
-01ac4d4 Report production smoke total duration
-98aacfe Report production smoke request durations
-747d4e6 Redact production smoke diagnostics
-87a7241 Add production smoke request timeouts
+44a49a4 Harden operator manual PDF generation
+2400ce8 Guard README launch contract wording
+cc36a5b Harden marketplace packet intake guardrails
+008ce18 Surface seller protection allocation contract
+9e86c87 Guard under-20 seller protection allocation
+4a1cb02 Ignore quarantined Next build artifacts
+84f7528 Document queued smoke diagnostics
+2acb107 Add queued smoke path snippets
+4c754fd Clarify queued smoke failure details
+9cf77be Centralize receipt handoff smoke checks
 ```
 
-## What was just completed
+## Current queued production-safe work
 
-### Launch deployment/runbook stack
+Recent queued work added or hardened:
 
-Added and pushed:
-
-- `scripts/deploy-production.mjs`
-- `scripts/smoke-production.mjs`
-- `scripts/check-production-guardrails.mjs`
-- `docs/PRODUCTION_DEPLOY_RUNBOOK.md`
-- README link to the production deploy runbook
-
-Package scripts:
-
-```json
-{
-  "check:production-guardrails": "node scripts/check-production-guardrails.mjs",
-  "preflight:production": "node scripts/deploy-production.mjs --preflight-only",
-  "verify:production": "npm run lint && npm run build && npm run check:production-guardrails && npm run preflight:production",
-  "deploy:production": "node scripts/deploy-production.mjs",
-  "smoke:production": "node scripts/smoke-production.mjs",
-  "launch:production": "npm run verify:production && npm run deploy:production && npm run smoke:production"
-}
-```
-
-### Launch handoff and shipping provider exports
-
-Recent queued work also added admin/export surfaces for:
-
+- under-$20 Seller Protection allocation simulations and visible admin simulation contract;
+- item-only reimbursement, shipping exclusion, and non-opted-in seller liability guardrails;
+- Seller Connections Marketplace Packet Intake guardrails:
+  - cross-list prep only;
+  - no external publishing;
+  - no postage purchase;
+  - no Coverage policy creation;
+  - no payout release;
+  - no order fulfillment;
+  - no automatic under-$20 protection activation;
+- Seller Marketplace Receipt Handoff proof route and controls;
 - launch handoff bundle;
 - shipping provider setup JSON;
 - shipping provider env template;
 - shipping provider Vercel env command export;
 - shipping provider operator checklist;
-- provider credential groups displayed in the shipping gate/setup flow.
+- provider credential groups displayed in the shipping gate/setup flow;
+- portable operator manual PDF generation.
 
 These may fail production smoke until a successful Vercel deploy lands the queued commits.
 
-### Live shipping launch gate
+## Next safe steps
 
-Live shipping has a dual-lock control plane:
-
-- Admin page:
-  - `/admin/live-shipping-launch`
-- API:
-  - `/api/admin/live-shipping-launch`
-- Runtime enforcement:
-  - `src/lib/live-shipping-launch.ts`
-  - `src/app/api/admin/orders/[id]/shipping-labels/route.ts`
-- Supabase migration:
-  - `supabase/migrations/20260711185500_create_live_shipping_launch_gate.sql`
-- Tables:
-  - `live_shipping_launch_gates`
-  - `live_shipping_launch_events`
-
-Important behavior:
-
-- Live postage purchase is blocked unless:
-  - `TCOS_SHIPPING_PURCHASE_MODE=live`
-  - `TCOS_LIVE_SHIPPING_ENABLED=true`
-  - current database gate approval exists
-  - immutable live-shipping event table is reachable
-  - provider live requirements pass
-  - dry-run shipping cleanup is clean
-  - shipping simulations/live approval report pass
-- Manual external label recording still works.
-- Runtime probes `live_shipping_launch_events` after approval is verified. If the audit table disappears after approval, live shipping fails closed.
-- Approval API refuses approval when either the gate table or event table is unavailable.
-
-### Live payment launch gate
-
-Live payments have matching hardening:
-
-- Admin page:
-  - `/admin/live-payment-launch`
-- API:
-  - `/api/admin/live-payment-launch`
-- Runtime enforcement:
-  - `src/lib/live-payment-launch.ts`
-- Supabase migration:
-  - `supabase/migrations/20260710185000_create_live_payment_launch_gate.sql`
-- Tables:
-  - `live_payment_launch_gates`
-  - `live_payment_launch_events`
-
-Important behavior:
-
-- Live Checkout is blocked unless:
-  - live Stripe keys are configured
-  - `TCOS_LIVE_PAYMENTS_ENABLED=true`
-  - current database gate approval exists
-  - immutable live-payment event table is reachable
-  - dry-run shipping cleanup is clean
-  - reconciliation/test residue/payment simulation checks pass
-  - live webhook/refund/dispute verification checks pass
-- Runtime probes `live_payment_launch_events` after approval is verified. If the audit table disappears after approval, live Checkout fails closed.
-- Approval API refuses approval when either the gate table or event table is unavailable.
-
-### Launch readiness
-
-`/admin/launch-readiness` includes:
-
-- first-class Live Payment Launch Gate row;
-- first-class Live Shipping Launch Gate row;
-- database checks for:
-  - `live_payment_launch_gates`
-  - `live_payment_launch_events`
-  - `live_shipping_launch_gates`
-  - `live_shipping_launch_events`
-- dry-run shipping cleanup gate;
-- shipping setup/provider readiness;
-- Stripe, Supabase, webhook, admin, reconciliation, evidence, eBay, and other existing readiness checks.
-
-This page is advisory/readiness surface. The runtime gates live in the API/lib code above.
-
-### Dry-run shipping safety
-
-The system has a dry-run cleanup center and fail-closed launch checks:
-
-- Admin cleanup page anchor:
-  - `/admin/shipping#dry-run-cleanup`
-- Cleanup API:
-  - `/api/admin/shipping/dry-run-cleanup`
-- Shared scanner:
-  - `src/lib/shipping-dry-run-cleanup.ts`
-
-Live payment and live shipping approval/runtime checks both recheck dry-run shipping residue.
-
-### Shipping roadmap already baked in
-
-Prior work in this thread added/advanced:
-
-- Standard Envelope routing for collectible cards under the configured threshold.
-- Ground Advantage fallback for higher-value/over-weight shipments.
-- Coverage/seller protection tracking fields and claim packet surfaces.
-- Dry-run provider setup/export/readiness.
-- Shipping simulation suite and live adapter approval checklist.
-
-Keep live postage in dry-run until a real provider adapter, credentials, quote/buy/void tests, Coverage purchase tests, webhook reconciliation, and admin approval are all clean.
-
-### InstaComp state
-
-InstaComp has been improved, but the user wants to test later. Current remembered state:
-
-- PaddleOCR was chosen for OCR improvement.
-- Serial detection improved enough that serial ranges like `/25` are being found.
-- Listing display should prefer the serial range like `/25`, not the exact serial number like `15/25`, except `1/1` stays `1/1`.
-- Comps still need real-world testing and likely more work.
-- User wants InstaComp to become a simple one-button workflow:
-  - upload up to 500 card images
-  - pair fronts/backs
-  - identify exact card/year/player/set/parallel/serial range/auto
-  - pull comps, including eBay
-  - create TCOS draft listings
-  - later publish/export to eBay, Whatnot, and other storefronts
-- Do not assume InstaComp is final. It is parked for later testing.
-
-## Important user preferences / operating rules
-
-- User wants rapid forward motion. If they say `next`, pick the next high-value roadmap/safety item and execute.
-- User has already approved pushing commits to GitHub main when needed.
-- User expects pushed commits to deploy on Vercel and be verified.
-- While Vercel quota is capped, keep stacking safe commits on GitHub.
-- Keep `.codex-run/` untracked and untouched.
-- Use `apply_patch` for file edits.
-- Use `rg` first for searching.
-- Do not use destructive git commands.
-- Do not delete local/user files unless the user explicitly approves.
-- Keep the manual/docs updated when operational behavior changes.
-- The user likes direct, plain language and does not need sugarcoating.
-
-## Useful admin routes
-
-```text
-/admin
-/admin/launch-readiness
-/admin/live-payment-launch
-/admin/live-shipping-launch
-/admin/shipping
-/admin/shipping#dry-run-cleanup
-/admin/shipping/simulations
-/admin/payment-simulations
-/admin/financial-reconciliation
-/admin/instacomp
-/admin/products
-/admin/orders
-```
-
-## Recommended next work queue
-
-Best next steps, in order:
-
-1. Keep stacking Vercel-ready launch improvements in small commits while quota is capped.
-2. When quota opens, run:
-   - `npm run launch:production`
-   - If needed, run the fallback pair manually:
-     - `npm run deploy:production`
-     - `npm run smoke:production`
-3. If smoke passes, verify production admin manually:
-   - `/admin/launch-readiness`
-   - `/admin/live-payment-launch`
-   - `/admin/live-shipping-launch`
-   - `/admin/shipping#dry-run-cleanup`
-4. Keep live shipping locked unless intentionally testing:
-   - `TCOS_SHIPPING_PURCHASE_MODE=dry_run`
-   - `TCOS_LIVE_SHIPPING_ENABLED=false`
-5. If continuing feature work before deploy, good targets are:
-   - admin-facing production smoke report page;
-   - no-money/no-postage gate drill;
-   - marketplace/seller inventory export;
-   - InstaComp real-batch testing and accuracy pass.
-
-## Last known local status
-
-Before this handoff update:
-
-```text
-git status --short
-<clean>
-```
+- If Vercel quota is still capped, do not rapid-fire deploy retries. Keep stacking small production-safe code/docs/guardrail commits.
+- Prefer work that improves smoke coverage, launch docs, operator handoffs, or fail-closed shipping/seller-protection contracts.
+- When quota opens, run `npm run launch:production` and ship only after smoke passes the clean production domain while the unwanted alias stays absent.
