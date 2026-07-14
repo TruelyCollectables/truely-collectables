@@ -164,6 +164,53 @@ function sellerPayoutAccountReady(row: SellerPayoutAccountRow | null) {
   );
 }
 
+function sellerPayoutRequestHeaders(params: {
+  requestCount: number;
+  openRequestCount: number;
+  blockedRequestCount: number;
+  eligibleCount: number;
+  pendingFulfillmentCount: number;
+  disputeHoldCount: number;
+  reviewGuardUnavailable: boolean;
+  sellerProtection: ReturnType<
+    typeof buildUnder20SellerProtectionSellerVisibilitySummary
+  >;
+}) {
+  return {
+    "X-TCOS-Seller-Payout-Requests": String(params.requestCount),
+    "X-TCOS-Seller-Payout-Open-Requests": String(params.openRequestCount),
+    "X-TCOS-Seller-Payout-Blocked-Requests": String(
+      params.blockedRequestCount,
+    ),
+    "X-TCOS-Seller-Payout-Eligible-Rows": String(params.eligibleCount),
+    "X-TCOS-Seller-Payout-Pending-Fulfillment": String(
+      params.pendingFulfillmentCount,
+    ),
+    "X-TCOS-Seller-Payout-Dispute-Holds": String(params.disputeHoldCount),
+    "X-TCOS-Seller-Payout-Review-Guard": params.reviewGuardUnavailable
+      ? "unavailable"
+      : "ready",
+    "X-TCOS-Seller-Payout-Protection-Status": params.sellerProtection.status,
+    "X-TCOS-Seller-Payout-Protection-Rows": String(
+      params.sellerProtection.protectedRowCount,
+    ),
+  };
+}
+
+function sellerPayoutRequestMutationHeaders(params: {
+  action: "created";
+  status: "requested";
+  allocatedRowCount: number;
+}) {
+  return {
+    "X-TCOS-Seller-Payout-Request-Mutation": params.action,
+    "X-TCOS-Seller-Payout-Request-Status": params.status,
+    "X-TCOS-Seller-Payout-Request-Allocated-Rows": String(
+      params.allocatedRowCount,
+    ),
+  };
+}
+
 async function loadSellerPayoutBalance(params: {
   supabase: ReturnType<typeof getSupabaseClient>;
   storeId: string;
@@ -482,29 +529,43 @@ export async function GET(request: Request) {
       sellerAccountId: account.id,
     });
 
-    return Response.json({
-      success: true,
-      balance: {
-        heldAmount: balance.heldAmount,
-        pendingFulfillmentAmount: balance.pendingFulfillmentAmount,
-        pendingFulfillmentCount: balance.pendingFulfillmentCount,
-        disputeHoldAmount: balance.disputeHoldAmount,
-        disputeHoldCount: balance.disputeHoldCount,
-        cancelledOrReversedAmount: balance.cancelledOrReversedAmount,
-        cancelledOrReversedCount: balance.cancelledOrReversedCount,
-        eligibleAmount: balance.eligibleAmount,
-        eligibleCount: balance.eligibleCount,
-        openRequestAmount: balance.openRequestAmount,
-        openRequestCount: balance.openRequestCount,
-        availableToRequestAmount: balance.availableToRequestAmount,
-        paidAmount: balance.paidAmount,
-        requestCount: balance.requestCount,
-        blockedRequestCount: balance.blockedRequestCount,
-        reviewGuardUnavailable: balance.reviewGuardUnavailable,
-        sellerProtection: balance.sellerProtection,
+    return Response.json(
+      {
+        success: true,
+        balance: {
+          heldAmount: balance.heldAmount,
+          pendingFulfillmentAmount: balance.pendingFulfillmentAmount,
+          pendingFulfillmentCount: balance.pendingFulfillmentCount,
+          disputeHoldAmount: balance.disputeHoldAmount,
+          disputeHoldCount: balance.disputeHoldCount,
+          cancelledOrReversedAmount: balance.cancelledOrReversedAmount,
+          cancelledOrReversedCount: balance.cancelledOrReversedCount,
+          eligibleAmount: balance.eligibleAmount,
+          eligibleCount: balance.eligibleCount,
+          openRequestAmount: balance.openRequestAmount,
+          openRequestCount: balance.openRequestCount,
+          availableToRequestAmount: balance.availableToRequestAmount,
+          paidAmount: balance.paidAmount,
+          requestCount: balance.requestCount,
+          blockedRequestCount: balance.blockedRequestCount,
+          reviewGuardUnavailable: balance.reviewGuardUnavailable,
+          sellerProtection: balance.sellerProtection,
+        },
+        requests: balance.requests,
       },
-      requests: balance.requests,
-    });
+      {
+        headers: sellerPayoutRequestHeaders({
+          requestCount: balance.requestCount,
+          openRequestCount: balance.openRequestCount,
+          blockedRequestCount: balance.blockedRequestCount,
+          eligibleCount: balance.eligibleCount,
+          pendingFulfillmentCount: balance.pendingFulfillmentCount,
+          disputeHoldCount: balance.disputeHoldCount,
+          reviewGuardUnavailable: balance.reviewGuardUnavailable,
+          sellerProtection: balance.sellerProtection,
+        }),
+      },
+    );
   } catch (error: any) {
     if (isMissingPayoutRequestTables(error)) return unavailableResponse();
 
@@ -650,12 +711,21 @@ export async function POST(request: Request) {
       if (entryError) throw entryError;
     }
 
-    return Response.json({
-      success: true,
-      payoutRequestId: payoutRequest.id,
-      requestedAmount,
-      estimatedNetAmount: requestedAmount,
-    });
+    return Response.json(
+      {
+        success: true,
+        payoutRequestId: payoutRequest.id,
+        requestedAmount,
+        estimatedNetAmount: requestedAmount,
+      },
+      {
+        headers: sellerPayoutRequestMutationHeaders({
+          action: "created",
+          status: "requested",
+          allocatedRowCount: entryRows.length,
+        }),
+      },
+    );
   } catch (error: any) {
     if (isMissingPayoutRequestTables(error)) return unavailableResponse();
 
