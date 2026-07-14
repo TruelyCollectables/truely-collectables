@@ -7,8 +7,8 @@ Generated for the next Codex session during the production launch stacking pass.
 - Workspace: `/Users/davidbakanas/Documents/GitHub/truely-collectables`
 - Branch: `main`
 - GitHub remote: `https://github.com/TruelyCollectables/truely-collectables.git`
-- Latest verified pushed commit at this handoff: `44a49a4 Harden operator manual PDF generation`
-- Local `HEAD` and `origin/main` matched at `44a49a4b55e620960e36f77d906b4aed824c703c` after `npm run preflight:production`.
+- Recent verified production-safe stack includes `44a49a4 Harden operator manual PDF generation` and `38a752d Refresh launch handoff state`.
+- Local `HEAD` and `origin/main` matched after the latest post-push `npm run preflight:production`.
 - Working tree was clean after that preflight.
 - `.codex-run/` is ignored in `.gitignore`; leave the folder contents alone unless the user explicitly says to delete them.
 
@@ -21,6 +21,8 @@ git rev-parse --short HEAD
 git rev-parse --short origin/main
 git log -6 --oneline
 ```
+
+Treat those commands as the source of truth for the current Git tip. This handoff may be followed by handoff-only commits that do not change the deploy sequence.
 
 ## Production/Vercel state
 
@@ -136,6 +138,7 @@ npm run manual:pdf
 Most recent commits, newest first:
 
 ```text
+38a752d Refresh launch handoff state
 44a49a4 Harden operator manual PDF generation
 2400ce8 Guard README launch contract wording
 cc36a5b Harden marketplace packet intake guardrails
