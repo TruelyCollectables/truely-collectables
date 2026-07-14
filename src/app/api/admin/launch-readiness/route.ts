@@ -68,6 +68,9 @@ function hrefForBriefItem(item: BriefItem) {
   if (label.includes("shipping: shipping simulation")) {
     return "/admin/shipping/simulations";
   }
+  if (label.includes("provider purchase-attempt audit")) {
+    return "/admin/shipping/simulations";
+  }
   if (label.includes("live shipping")) return "/admin/live-shipping-launch";
   if (label.includes("dry-run shipping cleanup")) {
     return "/admin/shipping#dry-run-cleanup";
@@ -184,6 +187,7 @@ function markdownForBrief(brief: Awaited<ReturnType<typeof buildBrief>>) {
     `- Approval ready: ${brief.shipping.approvalReady ? "yes" : "no"}`,
     `- Posture: ${brief.shipping.posture}`,
     `- Standard Envelope evidence validator: ${brief.shipping.standardEnvelopeEvidenceContractReady ? "ready" : "blocked"}`,
+    `- Provider purchase-attempt audit suite: ${brief.shipping.purchaseAttemptAuditRunStatus}; ${brief.shipping.purchaseAttemptAuditScenarioCount}/${brief.shipping.purchaseAttemptAuditExpectedScenarioCount} scenarios; key coverage ${brief.shipping.purchaseAttemptAuditKeyCoverageStatus}`,
     `- Dry-run cleanup: ${brief.shipping.dryRunCleanup}`,
     `- Provider env template: ${brief.shipping.providerSetupEnvTemplateUrl || brief.shipping.providerSetupEnvTemplateHref}`,
     `- Provider Vercel commands: ${brief.shipping.providerSetupVercelCommandsUrl || brief.shipping.providerSetupVercelCommandsHref}`,
@@ -240,6 +244,7 @@ function markdownForHandoffBundle(
     `- Approval ready: ${brief.shipping.approvalReady ? "yes" : "no"}`,
     `- Posture: ${brief.shipping.posture}`,
     `- Standard Envelope evidence validator: ${brief.shipping.standardEnvelopeEvidenceContractReady ? "ready" : "blocked"}`,
+    `- Provider purchase-attempt audit suite: ${brief.shipping.purchaseAttemptAuditRunStatus}; ${brief.shipping.purchaseAttemptAuditScenarioCount}/${brief.shipping.purchaseAttemptAuditExpectedScenarioCount} scenarios; key coverage ${brief.shipping.purchaseAttemptAuditKeyCoverageStatus}`,
     `- Dry-run cleanup: ${brief.shipping.dryRunCleanup}`,
     `- Provider setup status: ${brief.shipping.providerSetupStatus}`,
     `- Provider setup summary: ${brief.shipping.providerSetupSummary}`,
@@ -438,10 +443,14 @@ async function buildBrief(origin: string | null = null) {
     action:
       check.key === "shipping_simulations"
         ? "Open /admin/shipping/simulations or run npm run simulate:shipping and save passing evidence."
+        : check.key === "provider_purchase_attempt_audit_simulations"
+          ? "Open /admin/shipping/simulations or run npm run simulate:shipping-purchase-audit and save the five-scenario pass evidence."
         : "Open /admin/live-shipping-launch or /admin/shipping and clear this shipping launch check.",
     href:
       check.key === "shipping_simulations"
         ? "/admin/shipping/simulations"
+        : check.key === "provider_purchase_attempt_audit_simulations"
+          ? "/admin/shipping/simulations"
         : "/admin/live-shipping-launch",
   }));
   const providerItems: BriefItem[] = providerSetup.readiness.map((item) => ({
@@ -536,6 +545,15 @@ async function buildBrief(origin: string | null = null) {
       posture: drillReport.posture.shipping.label,
       standardEnvelopeEvidenceContractReady:
         shippingReport.standardEnvelopeEvidenceContractReady,
+      purchaseAttemptAuditRunStatus:
+        shippingReport.purchaseAttemptAuditSimulation.run_status,
+      purchaseAttemptAuditScenarioCount:
+        shippingReport.purchaseAttemptAuditSimulation.scenario_count,
+      purchaseAttemptAuditExpectedScenarioCount:
+        shippingReport.purchaseAttemptAuditSimulation.expected_scenario_count,
+      purchaseAttemptAuditKeyCoverageStatus:
+        shippingReport.purchaseAttemptAuditSimulation
+          .scenario_key_coverage_status,
       dryRunCleanup: dryRunCleanup.detail,
       providerSetupStatus: providerSetup.decision.status,
       providerSetupSummary: providerSetup.decision.summary,

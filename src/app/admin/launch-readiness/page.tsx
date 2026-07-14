@@ -299,7 +299,7 @@ function buildReadinessItems(
     {
       label: "Shipping Simulation Lab",
       status: "ready" as const,
-      detail: `Shipping simulation suite ${SHIPPING_SIMULATION_SUITE_VERSION} covers nineteen Standard Envelope, Ground Advantage, under-$20 seller-protection, LetterTrack evidence-review audit, adapter-profile, and dry-run provider purchase assertions. npm run verify:shipping also covers provider purchase-attempt audit text for live-gate, missing-setup, dry-run, and packet-output cases.`,
+      detail: `Shipping simulation suite ${SHIPPING_SIMULATION_SUITE_VERSION} covers nineteen Standard Envelope, Ground Advantage, under-$20 seller-protection, LetterTrack evidence-review audit, adapter-profile, and dry-run provider purchase assertions. npm run verify:shipping also covers the five-scenario provider purchase-attempt audit suite for live-gate, missing-setup, dry-run, empty-packet, and packet-output cases.`,
       action:
         "Run /admin/shipping/simulations and npm run verify:shipping before enabling any live shipping provider purchase workflow.",
     },
@@ -943,10 +943,10 @@ async function checkLiveShippingLaunchReadiness(): Promise<ReadinessItem> {
       ? "blocked"
       : "warning";
   const detail = report.liveShippingEnabled
-    ? `Live shipping is enabled by both the environment switch and current database approval. Standard Envelope evidence validator is ${report.standardEnvelopeEvidenceContractReady ? "ready" : "blocked"}.`
+    ? `Live shipping is enabled by both the environment switch and current database approval. Standard Envelope evidence validator is ${report.standardEnvelopeEvidenceContractReady ? "ready" : "blocked"}. Provider purchase-attempt audit suite is ${report.purchaseAttemptAuditSimulation.run_status} with ${report.purchaseAttemptAuditSimulation.passed_count}/${report.purchaseAttemptAuditSimulation.expected_scenario_count} expected scenarios passing.`
     : report.purchaseMode === "live"
-      ? `Live shipping purchase mode is LIVE, but the runtime gate is not fully enabled. Standard Envelope evidence validator is ${report.standardEnvelopeEvidenceContractReady ? "ready" : "blocked"}. Blocked checks: ${blockedLabels}.`
-      : `Live shipping is safely staged in dry-run mode. Standard Envelope evidence validator is ${report.standardEnvelopeEvidenceContractReady ? "ready" : "blocked"}. Database approval is ${databaseApproval?.status || "unknown"}; ${blockedChecks.length} blocked and ${warningChecks.length} warning check(s) remain before live postage.`;
+      ? `Live shipping purchase mode is LIVE, but the runtime gate is not fully enabled. Standard Envelope evidence validator is ${report.standardEnvelopeEvidenceContractReady ? "ready" : "blocked"}. Provider purchase-attempt audit suite is ${report.purchaseAttemptAuditSimulation.run_status} with key coverage ${report.purchaseAttemptAuditSimulation.scenario_key_coverage_status}. Blocked checks: ${blockedLabels}.`
+      : `Live shipping is safely staged in dry-run mode. Standard Envelope evidence validator is ${report.standardEnvelopeEvidenceContractReady ? "ready" : "blocked"}. Provider purchase-attempt audit suite is ${report.purchaseAttemptAuditSimulation.run_status} with ${report.purchaseAttemptAuditSimulation.passed_count}/${report.purchaseAttemptAuditSimulation.expected_scenario_count} expected scenarios passing and key coverage ${report.purchaseAttemptAuditSimulation.scenario_key_coverage_status}. Database approval is ${databaseApproval?.status || "unknown"}; ${blockedChecks.length} blocked and ${warningChecks.length} warning check(s) remain before live postage.`;
 
   return {
     label: "Live Shipping Launch Gate",
@@ -1232,8 +1232,9 @@ npm run preflight:production`}
               nineteen-scenario shipping simulation suite, build, production
               guardrail checks, and production preflight together. Production
               smoke also POSTs <code>/api/admin/shipping/simulations</code> to
-              verify scenario count, scenario key coverage, and no
-              missing/unexpected shipping simulation keys.
+              verify nineteen expected shipping scenarios, five expected
+              purchase-audit scenarios, scenario key coverage, and no
+              missing/unexpected simulation keys.
             </p>
           </div>
 

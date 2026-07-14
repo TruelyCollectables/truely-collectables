@@ -368,7 +368,9 @@ const checks = [
       result.text.includes("shipping purchase-attempt audit simulations") &&
       result.text.includes("Standard Envelope evidence validator is ready") &&
       result.text.includes("/api/admin/shipping/simulations") &&
-      result.text.includes("no missing/unexpected shipping simulation keys") &&
+      result.text.includes("nineteen expected shipping scenarios") &&
+      result.text.includes("five expected purchase-audit scenarios") &&
+      result.text.includes("no missing/unexpected simulation keys") &&
       result.text.includes("npm run deploy:production") &&
       result.text.includes("npm run smoke:production") &&
       result.text.includes("rolling 24-hour quota reset") &&
@@ -402,6 +404,9 @@ const checks = [
       result.text.includes('"reimbursementEntryType":"seller_protection_reimbursement"') &&
       result.text.includes('"financialAdjustmentTable":"financial_adjustment_ledger_entries"') &&
       result.text.includes("Optional TCOS internal Standard Envelope seller protection") &&
+      result.text.includes('"purchaseAttemptAuditRunStatus":"passed"') &&
+      result.text.includes('"purchaseAttemptAuditExpectedScenarioCount":5') &&
+      result.text.includes('"purchaseAttemptAuditKeyCoverageStatus":"passed"') &&
       result.text.includes('"quotaBlockCode":"api-deployments-free-per-day"') &&
       result.text.includes("rolling 24-hour quota reset") &&
       result.text.includes("deployed URL output") &&
@@ -428,6 +433,7 @@ const checks = [
       result.text.includes("financial_adjustment_ledger_entries") &&
       result.text.includes("shipping is excluded and is not reimbursed") &&
       result.text.includes("Standard Envelope evidence validator: ready") &&
+      result.text.includes("Provider purchase-attempt audit suite: passed; 5/5 scenarios; key coverage passed") &&
       result.text.includes("## Deployment Source") &&
       result.text.includes("Git commit SHA:") &&
       result.text.includes("Smoke comparison:") &&
