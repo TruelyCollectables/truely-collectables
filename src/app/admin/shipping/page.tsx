@@ -1009,6 +1009,17 @@ export default async function AdminShippingPage() {
           </div>
         </div>
 
+        <section className="rounded border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950">
+          <h2 className="font-black">Under-$20 Seller Protection Guardrails</h2>
+          <p className="mt-1 leading-6">
+            Seller Protection Refund Proof Missing and Seller Protection Payout
+            Blocked are always monitored here. Approved under-$20 Standard
+            Envelope claims require buyer refund evidence plus LetterTrack/USPS
+            IMb not-delivered evidence or a saved explicit override before
+            TCOS records a seller-protection reimbursement.
+          </p>
+        </section>
+
         <section className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-12">
           <Metric label="Planned Labels" value={plannedLabels.length} />
           <Metric label="Purchase Pending" value={pendingPurchases.length} />
