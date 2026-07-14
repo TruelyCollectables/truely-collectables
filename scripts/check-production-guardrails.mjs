@@ -648,6 +648,17 @@ assertFileIncludes(
   ],
 );
 assertFileIncludes(
+  "seller protection launch readiness database contract",
+  "src/app/admin/launch-readiness/page.tsx",
+  [
+    "Seller Protection Financial Adjustments",
+    "20260712174000_add_seller_protection_financial_adjustments.sql",
+    "seller_protection_reimbursement",
+    "reimbursement-plan metadata",
+    "financial_adjustment_ledger_entries",
+  ],
+);
+assertFileIncludes(
   "seller protection buyer refund packet contract",
   "src/app/api/admin/shipping-claims/[id]/packet/route.ts",
   [

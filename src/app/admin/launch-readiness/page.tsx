@@ -465,6 +465,15 @@ async function checkDatabaseReadiness(): Promise<ReadinessItem[]> {
         "financial_adjustment_ledger_entries is available for append-only refunds, 8% reversals, payout reversals, dispute holds, chargeback losses, and recovery requirements.",
     },
     {
+      label: "Seller Protection Financial Adjustments",
+      table: "financial_adjustment_ledger_entries",
+      select:
+        "id,store_id,provider,entry_type,amount,metadata,created_at",
+      migration: "20260712174000_add_seller_protection_financial_adjustments.sql",
+      readyDetail:
+        "financial_adjustment_ledger_entries supports TCOS internal seller_protection_reimbursement credits with reimbursement-plan metadata for reconciliation and payout review.",
+    },
+    {
       label: "Stripe Reconciliation Runs",
       table: "stripe_reconciliation_runs",
       select:
