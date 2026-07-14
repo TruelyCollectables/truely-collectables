@@ -28,7 +28,7 @@ import {
   evaluateUnder20SellerProtectionBuyerRefundMetadataGate,
 } from "./under20-seller-protection-claims";
 
-export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-14.4";
+export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-14.5";
 export const SHIPPING_SIMULATION_EXPECTED_SCENARIO_KEYS = [
   "standard_envelope_under_20_and_3oz",
   "standard_envelope_over_20_forces_ground_advantage",
@@ -41,6 +41,7 @@ export const SHIPPING_SIMULATION_EXPECTED_SCENARIO_KEYS = [
   "under_20_seller_protection_reimbursement_allocation",
   "under_20_seller_protection_buyer_refund_gate",
   "shipping_adapter_profiles_are_auditable",
+  "provider_setup_standard_envelope_evidence_contract",
   "lettertrack_standard_envelope_export",
   "lettertrack_csv_seller_protection_contract",
   "lettertrack_delivery_evidence_claim_review_rules",
@@ -421,6 +422,36 @@ export async function runShippingSimulationSuite() {
       standard_envelope: standardEnvelopeProfile,
       ground_advantage: groundAdapterProfile,
     },
+  });
+
+  const standardEnvelopeEvidenceContract =
+    providerSetup.standardEnvelopeEvidenceContract;
+  scenarios.push({
+    scenario_key: "provider_setup_standard_envelope_evidence_contract",
+    scenario_status: pass(
+      standardEnvelopeEvidenceContract.evidenceProvider ===
+        "LetterTrack / USPS IMb" &&
+        standardEnvelopeEvidenceContract.trackableRequirement.includes(
+          "show delivered",
+        ) &&
+        standardEnvelopeEvidenceContract.under20ProtectionModel.includes(
+          "optional internal seller program",
+        ) &&
+        standardEnvelopeEvidenceContract.sellerOptInRule.includes(
+          "Seller must opt in per shipment",
+        ) &&
+        standardEnvelopeEvidenceContract.reserveRate === "2%" &&
+        standardEnvelopeEvidenceContract.itemReimbursementCap === "$20.00" &&
+        standardEnvelopeEvidenceContract.reimbursementBasis ===
+          "item_sale_amount_excluding_shipping" &&
+        standardEnvelopeEvidenceContract.reimbursesShipping === "no" &&
+        standardEnvelopeEvidenceContract.notInsuranceNotice.includes(
+          "not third-party insurance",
+        ),
+    ),
+    detail:
+      "Provider setup exports state that LetterTrack / USPS IMb supplies trackable delivery evidence while TCOS Under-$20 Seller Protection remains an optional internal, item-only, non-insurance program.",
+    assertions: standardEnvelopeEvidenceContract,
   });
 
   const letterTrackExport = buildLetterTrackExport({

@@ -361,7 +361,7 @@ const checks = [
       result.text.includes("npm run check:production-guardrails") &&
       result.text.includes("npm run preflight:production") &&
       result.text.includes("npm run launch:production") &&
-      result.text.includes("eighteen-scenario shipping simulation suite") &&
+      result.text.includes("nineteen-scenario shipping simulation suite") &&
       result.text.includes("LetterTrack evidence checks") &&
       result.text.includes("/api/admin/shipping/simulations") &&
       result.text.includes("no missing/unexpected shipping simulation keys") &&
@@ -629,11 +629,12 @@ const checks = [
       "Scenario coverage guardrail",
       "Missing Scenario Keys",
       "Unexpected Scenario Keys",
-      "18",
+      "19",
       "Mixed under-$20 claim rows cap reimbursement at $20",
       "Seller order views can show under-$20 protection status, 2% reserve, protected item cap, unprotected row liability, and shipping excluded from reimbursement",
       "Seller-protection Mark Paid allocation creates credits only for payable seller rows",
       "Under-$20 seller-protection Mark Paid requires a current or previously saved internal note confirming buyer refund evidence",
+      "Provider setup exports state that LetterTrack / USPS IMb supplies trackable delivery evidence",
       "LetterTrack CSV rows carry the under-$20 seller-protection contract",
       "Under-$20 seller-protection payout blocks delivered LetterTrack evidence, allows not-delivered review evidence, and accepts a current or previously saved explicit override note",
       "DRY RUN STANDARD ENVELOPE PURCHASE",
@@ -645,7 +646,7 @@ const checks = [
       result.text.includes("Scenario coverage guardrail") &&
       result.text.includes("Missing Scenario Keys") &&
       result.text.includes("Unexpected Scenario Keys") &&
-      result.text.includes("18") &&
+      result.text.includes("19") &&
       result.text.includes(
         "Mixed under-$20 claim rows cap reimbursement at $20",
       ) &&
@@ -657,6 +658,9 @@ const checks = [
       ) &&
       result.text.includes(
         "Under-$20 seller-protection Mark Paid requires a current or previously saved internal note confirming buyer refund evidence",
+      ) &&
+      result.text.includes(
+        "Provider setup exports state that LetterTrack / USPS IMb supplies trackable delivery evidence",
       ) &&
       result.text.includes(
         "LetterTrack CSV rows carry the under-$20 seller-protection contract",
@@ -673,12 +677,13 @@ const checks = [
     expect: (result) =>
       result.contentType.includes("application/json") &&
       result.text.includes('"success":true') &&
-      result.text.includes('"scenario_count":18') &&
-      result.text.includes('"expected_scenario_count":18') &&
+      result.text.includes('"scenario_count":19') &&
+      result.text.includes('"expected_scenario_count":19') &&
       result.text.includes('"scenario_coverage_status":"passed"') &&
       result.text.includes('"scenario_key_coverage_status":"passed"') &&
       result.text.includes('"missing_scenario_keys":[]') &&
       result.text.includes('"unexpected_scenario_keys":[]') &&
+      result.text.includes('"provider_setup_standard_envelope_evidence_contract"') &&
       result.text.includes('"under_20_seller_protection_caps_mixed_rows"') &&
       result.text.includes('"under_20_seller_protection_seller_order_visibility"') &&
       result.text.includes('"under_20_seller_protection_reimbursement_allocation"') &&
