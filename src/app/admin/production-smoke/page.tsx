@@ -46,6 +46,49 @@ const failureMeanings = [
   },
 ];
 
+const manualVerificationChecks = [
+  {
+    label: "Git tip and clean domain",
+    href: "/api/admin/launch-readiness",
+    proof:
+      "Launch readiness JSON reports the current origin/main Git SHA, main ref, and clean production domain.",
+    ifBlocked:
+      "Treat this as deploy lag; rerun deploy/smoke after Vercel accepts the pushed stack.",
+  },
+  {
+    label: "Launch gate drill evidence",
+    href: "/api/admin/launch-gate-drill?format=markdown",
+    proof:
+      "Markdown report shows no-money/no-postage side-effect guardrails, passed payment/shipping gates, and no missing/unexpected purchase-audit keys.",
+    ifBlocked:
+      "Keep live changes paused and rerun the drill after fixing the failed payment, shipping, or provider-audit row.",
+  },
+  {
+    label: "Live shipping lock posture",
+    href: "/admin/live-shipping-launch",
+    proof:
+      "Live shipping remains locked while provider credentials, live adapter evidence, Coverage tests, webhooks, reconciliation, simulations, and admin approval are incomplete.",
+    ifBlocked:
+      "Keep TCOS_SHIPPING_PURCHASE_MODE=dry_run and TCOS_LIVE_SHIPPING_ENABLED=false until every blocker is cleared intentionally.",
+  },
+  {
+    label: "Seller protection money trail",
+    href: "/admin/financial-reconciliation",
+    proof:
+      "Seller-protection reimbursement adjustments show the 2% reserve, $20 cap, shipping-excluded amount, and ledger path.",
+    ifBlocked:
+      "Do not mark protected claims paid until buyer refund proof and reimbursement allocation evidence are present.",
+  },
+  {
+    label: "Shipping operations exports",
+    href: "/admin/shipping",
+    proof:
+      "Shipping cockpit links LetterTrack CSV, exception CSV, claim packets, IMb recording, and delivery-evidence review actions.",
+    ifBlocked:
+      "Keep affected orders in shipping review and export the exception CSV before touching payouts.",
+  },
+];
+
 export default function ProductionSmokePage() {
   return (
     <main className="min-h-screen bg-neutral-50 p-8 text-neutral-950">
@@ -163,6 +206,40 @@ export default function ProductionSmokePage() {
 
         <section className="rounded border bg-white p-6">
           <h2 className="text-xl font-black">Manual follow-up after smoke passes</h2>
+          <p className="mt-2 max-w-4xl text-sm leading-6 text-neutral-700">
+            Post-smoke manual verification checklist: follow these in order,
+            capture the listed proof, and halt the launch lane at the first
+            blocker instead of assuming a green smoke means every operator
+            artifact is ready.
+          </p>
+          <div className="mt-4 grid gap-3">
+            {manualVerificationChecks.map((check, index) => (
+              <article
+                key={check.label}
+                className="rounded border border-neutral-200 bg-neutral-50 p-4"
+              >
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <h3 className="font-black">
+                    {index + 1}. {check.label}
+                  </h3>
+                  <Link
+                    href={check.href}
+                    className="rounded border border-neutral-300 bg-white px-3 py-2 text-sm font-bold"
+                  >
+                    Open proof target
+                  </Link>
+                </div>
+                <p className="mt-3 text-sm leading-6 text-neutral-800">
+                  <span className="font-black">Proof to capture:</span>{" "}
+                  {check.proof}
+                </p>
+                <p className="mt-2 text-sm leading-6 text-neutral-800">
+                  <span className="font-black">If blocked:</span>{" "}
+                  {check.ifBlocked}
+                </p>
+              </article>
+            ))}
+          </div>
           <div className="mt-4 grid gap-3 text-sm md:grid-cols-2">
             <SmokeLink href="/admin/launch-readiness" label="Launch Readiness" />
             <SmokeLink href="/api/admin/launch-readiness?format=handoff-bundle" label="Seller Protection Handoff Bundle" />

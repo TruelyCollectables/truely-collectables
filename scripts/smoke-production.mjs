@@ -552,6 +552,14 @@ const checks = [
       "api-deployments-free-per-day",
       "rolling 24-hour quota reset",
       "Protected deploy sequence",
+      "Post-smoke manual verification checklist",
+      "Proof to capture:",
+      "If blocked:",
+      "Git tip and clean domain",
+      "Launch gate drill evidence",
+      "Live shipping lock posture",
+      "Seller protection money trail",
+      "Shipping operations exports",
       "deployed URL output",
       "clean URL output",
       "npm run launch:production",
@@ -597,6 +605,14 @@ const checks = [
       result.text.includes("api-deployments-free-per-day") &&
       result.text.includes("rolling 24-hour quota reset") &&
       result.text.includes("Protected deploy sequence") &&
+      result.text.includes("Post-smoke manual verification checklist") &&
+      result.text.includes("Proof to capture:") &&
+      result.text.includes("If blocked:") &&
+      result.text.includes("Git tip and clean domain") &&
+      result.text.includes("Launch gate drill evidence") &&
+      result.text.includes("Live shipping lock posture") &&
+      result.text.includes("Seller protection money trail") &&
+      result.text.includes("Shipping operations exports") &&
       result.text.includes("remove unwanted truely-collectables-tt3b.vercel.app alias") &&
       result.text.includes("set clean production alias") &&
       result.text.includes("print DEPLOYED_PRODUCTION") &&
