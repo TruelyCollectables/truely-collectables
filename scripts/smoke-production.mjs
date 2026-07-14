@@ -371,9 +371,11 @@ function missingRequiredText(result, check) {
 
 function smokeFailureDetail(result) {
   const details = [
+    `path=${result.path}`,
     `status=${result.status}`,
     `missingText=${result.missingText || "none"}`,
     `diagnostic=${result.diagnostic || "none"}`,
+    `snippet=${result.snippet || "empty response"}`,
   ];
 
   return `${result.name} (${details.join("; ")})`;
