@@ -708,6 +708,9 @@ assertFileIncludes("deploy live safety runbook", "docs/PRODUCTION_DEPLOY_RUNBOOK
   "CLEAN_PRODUCTION=https://",
   "api-deployments-free-per-day",
   "rolling 24-hour reset",
+  "smoke/deploy/guardrail diagnostic redaction self-tests",
+  "admin dashboard, launch readiness page/JSON/Markdown, Launch Gate Drill page/JSON/Markdown",
+  "live payment gate, live shipping gate, admin shipping LetterTrack controls",
 ]);
 
 assertFileIncludes("deploy live safety README", "README.md", [
@@ -730,6 +733,8 @@ assertFileIncludes("deploy live safety README", "README.md", [
   "npm run smoke:production",
   "api-deployments-free-per-day",
   "rolling 24-hour quota reset",
+  "Production smoke and deploy/guardrail diagnostics redact secret-shaped Stripe",
+  "auth-header, token, API-key, password, and JWT values",
 ]);
 
 assertFileIncludes("deploy live safety operator manual", "docs/TCOS_OPERATOR_MANUAL.md", [
@@ -751,6 +756,10 @@ assertFileIncludes("deploy live safety operator manual", "docs/TCOS_OPERATOR_MAN
   "DEPLOYED_PRODUCTION=",
   "CLEAN_PRODUCTION=https://",
   "npm run smoke:production",
+  "smoke/deploy/guardrail diagnostic redaction self-tests",
+  "launch readiness, Launch Gate Drill, production smoke, live payment/shipping gates",
+  "admin dashboard, launch readiness page/JSON/Markdown, Launch Gate Drill page/JSON/Markdown",
+  "live payment gate, live shipping gate, admin shipping LetterTrack controls",
 ]);
 
 assertFileIncludes(
