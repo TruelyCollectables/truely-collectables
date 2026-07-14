@@ -1174,6 +1174,43 @@ assertFileIncludes(
   ],
 );
 assertFileIncludes(
+  "seller inventory marketplace export filename contract",
+  "src/app/seller/inventory/page.tsx",
+  [
+    'function marketplaceExportFileName(extension: "csv" | "json")',
+    '"tcos-marketplace-ready"',
+    '`${selectedMarketplaceReadyItems.length}-rows`',
+    "`status-${statusFilter}`",
+    "`readiness-${readinessFilter}`",
+    "`source-${sourceFilter}`",
+    "search-${exportSlug(search)}",
+    "exportTimestamp()",
+    "downloadSelectedMarketplacePacket",
+    'marketplaceExportFileName("json")',
+    '"application/json;charset=utf-8"',
+    "downloadSelectedMarketplaceCsv",
+    'marketplaceExportFileName("csv")',
+    '"text/csv;charset=utf-8"',
+  ],
+);
+assertFileIncludes(
+  "seller inventory marketplace export context contract",
+  "src/app/seller/inventory/page.tsx",
+  [
+    "function marketplaceExportContext(): MarketplaceExportContext",
+    "selectedCount: selectedInventoryItemIds.length",
+    "selectedReadyCount: selectedMarketplaceReadyItems.length",
+    "visibleCount: selectedVisibleCount",
+    "statusFilter",
+    "readinessFilter",
+    "sourceFilter",
+    "search: search.trim()",
+    "marketplaceExportPacket(",
+    "marketplaceExportContext()",
+    "exportContext",
+  ],
+);
+assertFileIncludes(
   "seller marketplace packet intake contract",
   "src/app/seller/marketplaces/SellerConnectionsPanel.tsx",
   [
