@@ -7,14 +7,19 @@ import {
   type SellerPayoutRequestReviewBlocker,
 } from "../../../../../lib/seller-payout-review-blocks";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
+import { buildUnder20SellerProtectionSellerVisibilitySummary } from "../../../../../lib/under20-seller-protection-claims";
 
 export const dynamic = "force-dynamic";
 
 type SellerPayoutLedgerRow = {
   id: string;
   order_id: number;
+  order_item_id: number | null;
+  gross_item_amount: number | string | null;
+  shipping_allocated_amount: number | string | null;
   seller_payable_amount: number | string | null;
   payout_status: string | null;
+  metadata?: Record<string, unknown> | null;
 };
 
 type EligibleLedgerAllocationRow = SellerPayoutLedgerRow & {
@@ -166,7 +171,9 @@ async function loadSellerPayoutBalance(params: {
 }) {
   const { data: ledgerRows, error: ledgerError } = await params.supabase
     .from("seller_payout_ledger_entries")
-    .select("id,order_id,seller_payable_amount,payout_status")
+    .select(
+      "id,order_id,order_item_id,gross_item_amount,shipping_allocated_amount,seller_payable_amount,payout_status,metadata",
+    )
     .eq("store_id", params.storeId)
     .eq("seller_account_id", params.sellerAccountId);
 
@@ -340,6 +347,9 @@ async function loadSellerPayoutBalance(params: {
         activeCaseCount: number;
         blockedLedgerRowCount: number;
         dryRunShippingRowCount: number;
+        sellerProtection: ReturnType<
+          typeof buildUnder20SellerProtectionSellerVisibilitySummary
+        >;
       }
     >();
 
@@ -351,6 +361,9 @@ async function loadSellerPayoutBalance(params: {
       if (!ledgerRow) continue;
 
       const orderRow = ordersById.get(ledgerRow.order_id);
+      const scopedOrderLedgerRows = ledger.filter(
+        (scopedLedgerRow) => scopedLedgerRow.order_id === ledgerRow.order_id,
+      );
       const existing = orderSummaryById.get(ledgerRow.order_id) || {
         orderId: ledgerRow.order_id,
         createdAt: orderRow?.created_at || null,
@@ -365,6 +378,10 @@ async function loadSellerPayoutBalance(params: {
         activeCaseCount: 0,
         blockedLedgerRowCount: 0,
         dryRunShippingRowCount: 0,
+        sellerProtection:
+          buildUnder20SellerProtectionSellerVisibilitySummary(
+            scopedOrderLedgerRows,
+          ),
       };
 
       existing.amountRequested = roundMoney(
@@ -396,6 +413,17 @@ async function loadSellerPayoutBalance(params: {
 
     return {
       ...publicRequest(row),
+      sellerProtection: buildUnder20SellerProtectionSellerVisibilitySummary(
+        requestEntryRows
+          .filter((entry) => entry.payout_request_id === row.id)
+          .map((entry) =>
+            ledgerRowsById.get(entry.seller_payout_ledger_entry_id),
+          )
+          .filter(
+            (ledgerRow): ledgerRow is SellerPayoutLedgerRow =>
+              Boolean(ledgerRow),
+          ),
+      ),
       reviewBlocked: blocker?.isBlocked === true,
       reviewBlockReason: reviewBlockReason(blocker),
       affectedOrderIds: blocker?.affectedOrderIds || [],
@@ -432,6 +460,7 @@ async function loadSellerPayoutBalance(params: {
     requestCount: requestRows.length,
     blockedRequestCount,
     reviewGuardUnavailable,
+    sellerProtection: buildUnder20SellerProtectionSellerVisibilitySummary(ledger),
     requests: publicRequests,
     eligibleLedgerRows,
   };
@@ -472,6 +501,7 @@ export async function GET(request: Request) {
         requestCount: balance.requestCount,
         blockedRequestCount: balance.blockedRequestCount,
         reviewGuardUnavailable: balance.reviewGuardUnavailable,
+        sellerProtection: balance.sellerProtection,
       },
       requests: balance.requests,
     });

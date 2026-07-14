@@ -38,6 +38,24 @@ type SellerPayoutBalance = {
   requestCount: number;
   blockedRequestCount: number;
   reviewGuardUnavailable?: boolean;
+  sellerProtection: SellerProtectionSummary;
+};
+
+type SellerProtectionSummary = {
+  program: string;
+  reserveRate: number;
+  maxCoverage: number;
+  protectedRowCount: number;
+  unprotectedRowCount: number;
+  protectedItemAmount: number;
+  reimbursableItemAmount: number;
+  shippingExcludedAmount: number;
+  reserveAmount: number;
+  reimbursesShipping: false;
+  status: "protected" | "unprotected" | "mixed" | "not_applicable";
+  label: string;
+  detail: string;
+  sellerResponsibility: string;
 };
 
 type SellerPayoutRequest = {
@@ -62,6 +80,7 @@ type SellerPayoutRequest = {
   affectedOrderIds?: number[];
   activeCaseCount?: number;
   blockedLedgerRowCount?: number;
+  sellerProtection?: SellerProtectionSummary;
   orderSummaries?: Array<{
     orderId: number;
     createdAt: string | null;
@@ -73,6 +92,7 @@ type SellerPayoutRequest = {
     amountRequested: number;
     activeCaseCount: number;
     blockedLedgerRowCount: number;
+    sellerProtection: SellerProtectionSummary;
   }>;
 };
 
@@ -498,6 +518,22 @@ function statusTone(value: string | null | undefined) {
   }
 
   return "border-neutral-200 bg-neutral-100 text-neutral-700";
+}
+
+function sellerProtectionTone(status: SellerProtectionSummary["status"]) {
+  if (status === "protected") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-950";
+  }
+
+  if (status === "mixed") {
+    return "border-amber-200 bg-amber-50 text-amber-950";
+  }
+
+  if (status === "unprotected") {
+    return "border-rose-200 bg-rose-50 text-rose-950";
+  }
+
+  return "border-neutral-200 bg-neutral-50 text-neutral-800";
 }
 
 export default function SellerPayoutsPage() {
@@ -1039,6 +1075,14 @@ export default function SellerPayoutsPage() {
           />
         </section>
 
+        {sellerPayoutBalance?.sellerProtection ? (
+          <SellerProtectionCard
+            summary={sellerPayoutBalance.sellerProtection}
+            title="Under-$20 Protection Reserve"
+            detail="These totals come from your seller payout ledger rows. The 2% reserve is already withheld from protected under-$20 Standard Envelope payouts; unprotected rows remain seller-liable if delivery cannot show delivered."
+          />
+        ) : null}
+
         {error ? (
           <section className="rounded-md border border-amber-200 bg-amber-50 p-5 text-sm font-semibold text-amber-950">
             {error}
@@ -1540,6 +1584,14 @@ export default function SellerPayoutsPage() {
                     />
                   </div>
 
+                  {request.sellerProtection ? (
+                    <SellerProtectionCard
+                      summary={request.sellerProtection}
+                      title="Request Protection Snapshot"
+                      compact
+                    />
+                  ) : null}
+
                   {request.providerPayoutReference ? (
                     <p className="mt-4 text-sm text-neutral-700">
                       Provider reference:{" "}
@@ -1635,6 +1687,28 @@ export default function SellerPayoutsPage() {
                                   label="Held Rows"
                                   value={String(order.blockedLedgerRowCount)}
                                 />
+                              </div>
+
+                              <div
+                                className={`mt-3 rounded-md border px-3 py-2 text-xs font-semibold ${sellerProtectionTone(
+                                  order.sellerProtection.status,
+                                )}`}
+                              >
+                                <span className="font-black">
+                                  {order.sellerProtection.label}
+                                </span>{" "}
+                                / Reserve{" "}
+                                {formatCurrency(
+                                  order.sellerProtection.reserveAmount,
+                                )}
+                                {" / "}Covered{" "}
+                                {formatCurrency(
+                                  order.sellerProtection.reimbursableItemAmount,
+                                )}
+                                {" / "}Shipping excluded{" "}
+                                {formatCurrency(
+                                  order.sellerProtection.shippingExcludedAmount,
+                                )}
                               </div>
 
                               <div className="mt-3 flex flex-wrap gap-2">
@@ -1844,6 +1918,59 @@ function BreakdownCard({
       <p className="mt-1 text-sm font-bold text-neutral-950">{value}</p>
       <p className="mt-1 text-xs leading-5 text-neutral-500">{detail}</p>
     </div>
+  );
+}
+
+function SellerProtectionCard({
+  summary,
+  title,
+  detail,
+  compact,
+}: {
+  summary: SellerProtectionSummary;
+  title: string;
+  detail?: string;
+  compact?: boolean;
+}) {
+  return (
+    <section
+      className={`mt-4 rounded-md border p-4 ${sellerProtectionTone(summary.status)}`}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.14em] opacity-70">
+            {title}
+          </p>
+          <h3 className="mt-1 text-lg font-black">{summary.label}</h3>
+        </div>
+        <span className="rounded border border-current/20 px-2 py-1 text-xs font-black">
+          2% reserve / $20 max / shipping excluded
+        </span>
+      </div>
+      <dl className="mt-3 grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
+        <Info label="Reserve" value={formatCurrency(summary.reserveAmount)} />
+        <Info
+          label="Covered Items"
+          value={formatCurrency(summary.reimbursableItemAmount)}
+        />
+        <Info
+          label="Shipping Excluded"
+          value={formatCurrency(summary.shippingExcludedAmount)}
+        />
+        <Info
+          label="Rows"
+          value={`${summary.protectedRowCount} protected / ${summary.unprotectedRowCount} liable`}
+        />
+      </dl>
+      {!compact ? (
+        <>
+          <p className="mt-3 text-sm opacity-85">{detail || summary.detail}</p>
+          <p className="mt-2 text-xs font-semibold opacity-80">
+            {summary.sellerResponsibility}
+          </p>
+        </>
+      ) : null}
+    </section>
   );
 }
 

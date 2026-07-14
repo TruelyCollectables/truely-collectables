@@ -564,6 +564,28 @@ assertFileIncludes(
   ],
 );
 assertFileIncludes(
+  "seller protection seller payout api visibility contract",
+  "src/app/api/account/seller/payout-requests/route.ts",
+  [
+    "buildUnder20SellerProtectionSellerVisibilitySummary",
+    "gross_item_amount,shipping_allocated_amount",
+    "metadata",
+    "sellerProtection: balance.sellerProtection",
+    "sellerProtection: buildUnder20SellerProtectionSellerVisibilitySummary",
+  ],
+);
+assertFileIncludes(
+  "seller protection seller payout UI visibility contract",
+  "src/app/seller/payouts/page.tsx",
+  [
+    "Under-$20 Protection Reserve",
+    "Request Protection Snapshot",
+    "2% reserve / $20 max / shipping excluded",
+    "SellerProtectionCard",
+    "sellerProtectionTone",
+  ],
+);
+assertFileIncludes(
   "seller protection buyer refund packet contract",
   "src/app/api/admin/shipping-claims/[id]/packet/route.ts",
   [
