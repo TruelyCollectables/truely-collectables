@@ -192,6 +192,22 @@ function buildReport(input: {
   const letterTrackSellerProtectionPaymentGateDecision = recordValue(
     letterTrackSellerProtectionPaymentGate.gate,
   );
+  const sellerProtectionReimbursement = recordValue(
+    recordValue(claim.metadata).latest_seller_protection_reimbursement,
+  );
+  const sellerProtectionReimbursementPlan = recordValue(
+    sellerProtectionReimbursement.reimbursementPlan,
+  );
+  const sellerProtectionReimbursementAllocations = Array.isArray(
+    sellerProtectionReimbursementPlan.allocations,
+  )
+    ? sellerProtectionReimbursementPlan.allocations
+    : [];
+  const sellerProtectionReimbursementSkippedRows = Array.isArray(
+    sellerProtectionReimbursementPlan.skippedRowIds,
+  )
+    ? sellerProtectionReimbursementPlan.skippedRowIds
+    : [];
   const currentLetterTrackDeliveryEvidence =
     buildLetterTrackDeliveryEvidenceSummary(
       events as LetterTrackDeliveryEvidenceEvent[],
@@ -420,6 +436,65 @@ function buildReport(input: {
             recordValue(letterTrackSellerProtectionPaymentGate.summary)
               .latestTrackingNumber,
           ),
+        ]
+      : []),
+    ...(Object.keys(sellerProtectionReimbursement).length > 0
+      ? [
+          ...section("Seller-Protection Reimbursement Allocation"),
+          "This section is saved when Mark Paid creates or reuses TCOS internal seller-protection reimbursement credits.",
+          line(
+            "Required",
+            sellerProtectionReimbursement.required === false ? "No" : "Yes",
+          ),
+          line("Inserted Credits", sellerProtectionReimbursement.insertedCount),
+          line(
+            "Reimbursed Amount",
+            money(sellerProtectionReimbursement.reimbursedAmount as number),
+          ),
+          line(
+            "Plan Requested Amount",
+            money(
+              sellerProtectionReimbursementPlan.requestedReimbursableAmount as number,
+            ),
+          ),
+          line(
+            "Plan Reimbursed Amount",
+            money(sellerProtectionReimbursementPlan.reimbursedAmount as number),
+          ),
+          line(
+            "Plan Remaining Amount",
+            money(sellerProtectionReimbursementPlan.remainingAmount as number),
+          ),
+          line(
+            "Allocation Count",
+            sellerProtectionReimbursementAllocations.length,
+          ),
+          ...sellerProtectionReimbursementAllocations.flatMap(
+            (allocation, index) => {
+              const row = recordValue(allocation);
+
+              return [
+                line(`Allocation ${index + 1} Row ID`, row.rowId),
+                line(
+                  `Allocation ${index + 1} Seller Account`,
+                  row.sellerAccountId,
+                ),
+                line(`Allocation ${index + 1} Order Item`, row.orderItemId),
+                line(`Allocation ${index + 1} Amount`, money(row.amount as number)),
+                line(
+                  `Allocation ${index + 1} Shipping Excluded`,
+                  money(row.shippingExcludedAmount as number),
+                ),
+              ];
+            },
+          ),
+          line(
+            "Skipped Rows",
+            sellerProtectionReimbursementSkippedRows.length > 0
+              ? sellerProtectionReimbursementSkippedRows.join(", ")
+              : "None",
+          ),
+          line("Detail", sellerProtectionReimbursement.detail),
         ]
       : []),
     ...section("Order Snapshot"),

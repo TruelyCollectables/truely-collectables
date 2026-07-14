@@ -376,6 +376,21 @@ assertFileIncludes("shipping export smoke contract", "scripts/smoke-production.m
   '!result.text.includes("sk_live_")',
   '!result.text.includes("whsec_")',
 ]);
+assertFileIncludes(
+  "seller protection reimbursement packet contract",
+  "src/app/api/admin/shipping-claims/[id]/packet/route.ts",
+  [
+    "Seller-Protection Reimbursement Allocation",
+    "latest_seller_protection_reimbursement",
+    "reimbursementPlan",
+    "Inserted Credits",
+    "Plan Requested Amount",
+    "Allocation Count",
+    "Skipped Rows",
+    "shippingExcludedAmount",
+    "Mark Paid creates or reuses TCOS internal seller-protection reimbursement credits",
+  ],
+);
 assertFileIncludes("queued-feature smoke manifest", "scripts/smoke-production.mjs", [
   "const queuedFeatureCheckNames = [",
   "Queued feature smoke manifest references unknown check(s):",
