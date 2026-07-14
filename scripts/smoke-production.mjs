@@ -396,6 +396,14 @@ const checks = [
     expect: (result) =>
       result.text.includes("Production Smoke Report") &&
       result.text.includes("Smoke coverage") &&
+      result.text.includes("Under-$20 Seller Protection launch handoff") &&
+      result.text.includes("2% reserve") &&
+      result.text.includes("shipping exclusion") &&
+      result.text.includes("LetterTrack/USPS IMb evidence rule") &&
+      result.text.includes("reimbursement ledger path") &&
+      result.text.includes("Seller Protection Handoff Bundle") &&
+      result.text.includes("Seller Protection Reconciliation") &&
+      result.text.includes("Shipping Claims Cockpit") &&
       result.text.includes(
         "Shipping simulation API POST with scenario count, manifest, and drift-field checks",
       ) &&

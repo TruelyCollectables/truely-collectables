@@ -7,6 +7,7 @@ export const revalidate = 0;
 const smokeChecks = [
   "Admin login and dashboard render",
   "Launch readiness page, JSON brief, Markdown brief, and handoff bundle",
+  "Under-$20 Seller Protection launch handoff with internal-only model, 2% reserve, $20 item cap, shipping exclusion, LetterTrack/USPS IMb evidence rule, and reimbursement ledger path",
   "Launch Gate Drill page, JSON report, and Markdown operator report",
   "Live Payment Launch Gate",
   "Live Shipping Launch Gate",
@@ -140,9 +141,12 @@ export default function ProductionSmokePage() {
           <h2 className="text-xl font-black">Manual follow-up after smoke passes</h2>
           <div className="mt-4 grid gap-3 text-sm md:grid-cols-2">
             <SmokeLink href="/admin/launch-readiness" label="Launch Readiness" />
+            <SmokeLink href="/api/admin/launch-readiness?format=handoff-bundle" label="Seller Protection Handoff Bundle" />
             <SmokeLink href="/admin/live-payment-launch" label="Live Payment Launch" />
             <SmokeLink href="/admin/live-shipping-launch" label="Live Shipping Launch" />
+            <SmokeLink href="/admin/financial-reconciliation" label="Seller Protection Reconciliation" />
             <SmokeLink href="/admin/shipping/simulations" label="Shipping Simulation Lab" />
+            <SmokeLink href="/admin/shipping" label="Shipping Claims Cockpit" />
             <SmokeLink href="/admin/shipping#dry-run-cleanup" label="Dry-run Cleanup" />
             <SmokeLink href="/api/admin/shipping/lettertrack-export" label="LetterTrack CSV Export" />
             <SmokeLink href="/api/admin/shipping/exceptions" label="Shipping Exceptions CSV" />
