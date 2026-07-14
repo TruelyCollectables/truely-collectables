@@ -21,7 +21,7 @@ import {
 } from "./lettertrack-delivery-evidence";
 import { buildUnder20SellerProtectionClaimSummary } from "./under20-seller-protection-claims";
 
-export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-12.8";
+export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-14.1";
 export const SHIPPING_SIMULATION_EXPECTED_SCENARIO_KEYS = [
   "standard_envelope_under_20_and_3oz",
   "standard_envelope_over_20_forces_ground_advantage",
@@ -31,6 +31,7 @@ export const SHIPPING_SIMULATION_EXPECTED_SCENARIO_KEYS = [
   "under_20_seller_protection_not_opted_in_seller_liability",
   "shipping_adapter_profiles_are_auditable",
   "lettertrack_standard_envelope_export",
+  "lettertrack_csv_seller_protection_contract",
   "lettertrack_delivery_evidence_claim_review_rules",
   "lettertrack_seller_protection_paid_gate",
   "lettertrack_seller_protection_evidence_review_audit",
@@ -290,9 +291,10 @@ export async function runShippingSimulationSuite() {
   scenarios.push({
     scenario_key: "lettertrack_standard_envelope_export",
     scenario_status: pass(
-      letterTrackExport.rows.length === 1 &&
+        letterTrackExport.rows.length === 1 &&
         letterTrackExport.skipped.length === 0 &&
         letterTrackCsv.includes("LetterTrack / USPS Informed Visibility IMb") &&
+        letterTrackCsv.includes("sellerProtectionReserveRate") &&
         letterTrackCsv.includes("TCOS-1003"),
     ),
     detail:
@@ -301,6 +303,32 @@ export async function runShippingSimulationSuite() {
       row_count: letterTrackExport.rows.length,
       skipped_count: letterTrackExport.skipped.length,
       csv_preview: letterTrackCsv.split("\n").slice(0, 2),
+    },
+  });
+  const letterTrackRow = letterTrackExport.rows[0];
+  scenarios.push({
+    scenario_key: "lettertrack_csv_seller_protection_contract",
+    scenario_status: pass(
+      letterTrackRow?.sellerProtectionProgram ===
+        "TCOS Under-$20 Seller Protection" &&
+        letterTrackRow?.sellerProtectionOptInRequired.includes("seller must opt in") &&
+        letterTrackRow?.sellerProtectionReserveRate === "2%" &&
+        letterTrackRow?.sellerProtectionMaxCoverage === "$20.00 item sale amount" &&
+        letterTrackRow?.sellerProtectionCoverageBasis ===
+          "item_sale_amount_excluding_shipping" &&
+        letterTrackRow?.sellerProtectionReimbursesShipping === "no" &&
+        letterTrackRow?.deliveryEvidenceRequirement.includes("LetterTrack status"),
+    ),
+    detail:
+      "LetterTrack CSV rows carry the under-$20 seller-protection contract: opt-in required, 2% reserve, $20 item-only cap, shipping excluded, and IMb delivery-evidence requirement.",
+    assertions: {
+      seller_protection_program: letterTrackRow?.sellerProtectionProgram,
+      opt_in_required: letterTrackRow?.sellerProtectionOptInRequired,
+      reserve_rate: letterTrackRow?.sellerProtectionReserveRate,
+      max_coverage: letterTrackRow?.sellerProtectionMaxCoverage,
+      coverage_basis: letterTrackRow?.sellerProtectionCoverageBasis,
+      reimburses_shipping: letterTrackRow?.sellerProtectionReimbursesShipping,
+      delivery_evidence_requirement: letterTrackRow?.deliveryEvidenceRequirement,
     },
   });
 

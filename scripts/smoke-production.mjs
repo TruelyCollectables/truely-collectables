@@ -297,7 +297,7 @@ const checks = [
       result.text.includes("npm run check:production-guardrails") &&
       result.text.includes("npm run preflight:production") &&
       result.text.includes("npm run launch:production") &&
-      result.text.includes("thirteen-scenario shipping simulation suite") &&
+      result.text.includes("fourteen-scenario shipping simulation suite") &&
       result.text.includes("LetterTrack evidence checks") &&
       result.text.includes("/api/admin/shipping/simulations") &&
       result.text.includes("no missing/unexpected shipping simulation keys") &&
@@ -478,7 +478,10 @@ const checks = [
       result.text.includes("Scenario coverage guardrail") &&
       result.text.includes("Missing Scenario Keys") &&
       result.text.includes("Unexpected Scenario Keys") &&
-      result.text.includes("13") &&
+      result.text.includes("14") &&
+      result.text.includes(
+        "LetterTrack CSV rows carry the under-$20 seller-protection contract",
+      ) &&
       result.text.includes(
         "Under-$20 seller-protection claim status changes save a LetterTrack evidence review audit record before payout.",
       ) &&
@@ -491,12 +494,13 @@ const checks = [
     expect: (result) =>
       result.contentType.includes("application/json") &&
       result.text.includes('"success":true') &&
-      result.text.includes('"scenario_count":13') &&
-      result.text.includes('"expected_scenario_count":13') &&
+      result.text.includes('"scenario_count":14') &&
+      result.text.includes('"expected_scenario_count":14') &&
       result.text.includes('"scenario_coverage_status":"passed"') &&
       result.text.includes('"scenario_key_coverage_status":"passed"') &&
       result.text.includes('"missing_scenario_keys":[]') &&
       result.text.includes('"unexpected_scenario_keys":[]') &&
+      result.text.includes('"lettertrack_csv_seller_protection_contract"') &&
       result.text.includes('"lettertrack_seller_protection_evidence_review_audit"') &&
       result.text.includes('"dry_run_standard_envelope_purchase"'),
   },
@@ -577,6 +581,9 @@ const checks = [
     expect: (result) =>
       result.contentType.includes("text/csv") &&
       result.text.includes("orderNumber,labelId,recipientName") &&
+      result.text.includes("sellerProtectionReserveRate") &&
+      result.text.includes("sellerProtectionReimbursesShipping") &&
+      result.text.includes("deliveryEvidenceRequirement") &&
       result.response?.headers.get("x-tcos-lettertrack-rows") !== null &&
       result.response?.headers.get("x-tcos-lettertrack-skipped") !== null &&
       !result.text.includes("sk_live_") &&

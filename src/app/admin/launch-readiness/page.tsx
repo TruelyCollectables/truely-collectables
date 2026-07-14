@@ -1220,7 +1220,7 @@ npm run preflight:production`}
               uncommitted deploy-relevant files, and the preflight command
               checks that without starting a Vercel deployment. Use verify to
               run lint, InstaComp regressions, LetterTrack evidence checks, the
-              thirteen-scenario shipping simulation suite, build, production
+              fourteen-scenario shipping simulation suite, build, production
               guardrail checks, and production preflight together. Production
               smoke also POSTs <code>/api/admin/shipping/simulations</code> to
               verify scenario count, scenario key coverage, and no

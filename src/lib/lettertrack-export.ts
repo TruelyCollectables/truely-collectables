@@ -43,6 +43,13 @@ export type LetterTrackExportRow = {
   postageInstruction: string;
   trackingProvider: string;
   coverageInstruction: string;
+  sellerProtectionProgram: string;
+  sellerProtectionOptInRequired: string;
+  sellerProtectionReserveRate: string;
+  sellerProtectionMaxCoverage: string;
+  sellerProtectionCoverageBasis: string;
+  sellerProtectionReimbursesShipping: string;
+  deliveryEvidenceRequirement: string;
   tcosStatus: string;
   notes: string;
 };
@@ -74,6 +81,13 @@ const csvHeaders: Array<keyof LetterTrackExportRow> = [
   "postageInstruction",
   "trackingProvider",
   "coverageInstruction",
+  "sellerProtectionProgram",
+  "sellerProtectionOptInRequired",
+  "sellerProtectionReserveRate",
+  "sellerProtectionMaxCoverage",
+  "sellerProtectionCoverageBasis",
+  "sellerProtectionReimbursesShipping",
+  "deliveryEvidenceRequirement",
   "tcosStatus",
   "notes",
 ];
@@ -176,6 +190,14 @@ export function buildLetterTrackExport(params: {
       trackingProvider: "LetterTrack / USPS Informed Visibility IMb",
       coverageInstruction:
         "TCOS under-$20 seller protection is internal and item-only when the seller opted in; LetterTrack provides delivery evidence, not external insurance.",
+      sellerProtectionProgram: "TCOS Under-$20 Seller Protection",
+      sellerProtectionOptInRequired: "yes - seller must opt in per shipment",
+      sellerProtectionReserveRate: "2%",
+      sellerProtectionMaxCoverage: "$20.00 item sale amount",
+      sellerProtectionCoverageBasis: "item_sale_amount_excluding_shipping",
+      sellerProtectionReimbursesShipping: "no",
+      deliveryEvidenceRequirement:
+        "USPS IMb / LetterTrack status must show delivered to close the delivery trail; not-delivered, exception, or returned evidence supports claim review.",
       tcosStatus: label.label_status || "planned",
       notes:
         "After LetterTrack prints/assigns the IMb, record the IMb/tracking reference back on the TCOS shipping label before marking shipped.",
