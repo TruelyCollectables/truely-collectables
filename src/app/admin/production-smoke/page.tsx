@@ -178,10 +178,11 @@ export default function ProductionSmokePage() {
             {DEPLOY_SAFETY.quotaUploadWarning} Marker:{" "}
             <code>{DEPLOY_SAFETY.quotaCooldownMarkerPath}</code>. Override only
             intentionally with <code>{DEPLOY_SAFETY.quotaRetryOverrideEnv}</code>{" "}
-            or <code>{DEPLOY_SAFETY.quotaRetryOverrideFlag}</code>.
+            or <code>{DEPLOY_SAFETY.quotaRetryOverrideFlag}</code>.{" "}
+            {DEPLOY_SAFETY.quotaMarkerClearCondition}
           </p>
           <h3 className="mt-5 font-black">Protected deploy sequence</h3>
-          <ol className="mt-3 grid gap-2 text-sm font-semibold md:grid-cols-5">
+          <ol className="mt-3 grid gap-2 text-sm font-semibold md:grid-cols-3 xl:grid-cols-6">
             {DEPLOY_SAFETY.sequence.map((step, index) => (
               <li key={step} className="rounded border border-amber-200 bg-white p-3">
                 <span className="mr-2 rounded bg-amber-100 px-2 py-1 text-xs font-black">

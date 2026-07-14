@@ -328,6 +328,7 @@ assertFileIncludes("quota status README instructions", "README.md", [
   "Vercel upload started: no",
   "malformed or unreadable marker fails closed",
   "zero, negative, or nonnumeric cooldown value also fails closed",
+  "Quota markers are success-cleared, not attempt-cleared",
 ]);
 assertFileIncludes("quota status shared deploy contract", "src/lib/deploy-safety.ts", [
   'quotaStatusCommand: "npm run status:production"',
@@ -341,6 +342,7 @@ assertFileIncludes(
   [
     "DEPLOY_SAFETY.quotaStatusCommand",
     "DEPLOY_SAFETY.quotaStatusDescription",
+    "DEPLOY_SAFETY.quotaMarkerClearCondition",
     "Check the local Vercel cooldown",
     "starts no upload or deployment",
   ],
@@ -351,6 +353,7 @@ assertFileIncludes(
   [
     "DEPLOY_SAFETY.quotaStatusCommand",
     "DEPLOY_SAFETY.quotaStatusDescription",
+    "DEPLOY_SAFETY.quotaMarkerClearCondition",
     "Before the retry time, use the read-only quota check",
   ],
 );
@@ -360,6 +363,7 @@ assertFileIncludes(
   [
     "DEPLOY_SAFETY.quotaStatusCommand",
     "DEPLOY_SAFETY.quotaStatusDescription",
+    "DEPLOY_SAFETY.quotaMarkerClearCondition",
     "exact read-only local retry status",
   ],
 );
@@ -367,6 +371,8 @@ assertFileIncludes("quota status production smoke coverage", "scripts/smoke-prod
   '"quotaStatusCommand":"npm run status:production"',
   '"quotaStatusDescription"',
   "Read-only local cooldown check with exact blocked/retry timestamps",
+  '"quotaMarkerClearCondition"',
+  "Clear the local quota marker only after Vercel returns a parsed deployment URL and the clean production alias succeeds",
   "npm run status:production",
 ]);
 assertFileIncludes("quota status operator instructions", "docs/TCOS_OPERATOR_MANUAL.md", [
@@ -376,6 +382,7 @@ assertFileIncludes("quota status operator instructions", "docs/TCOS_OPERATOR_MAN
   "TCOS_PRODUCTION_QUOTA_STATUS_ONLY=true",
   "malformed or unreadable marker fails closed",
   "zero, negative, or nonnumeric cooldown value also fails closed",
+  "quota marker is success-cleared, not attempt-cleared",
   "self-test must never use the production marker path",
   "launch-readiness JSON and Markdown",
   "Production smoke verifies those surfaces retain `npm run status:production`",
@@ -390,6 +397,7 @@ assertFileIncludes(
     "TCOS_PRODUCTION_QUOTA_STATUS_ONLY=true",
     "malformed or unreadable marker fails closed",
     "zero, negative, or nonnumeric cooldown value also fails closed",
+    "quota marker is success-cleared, not attempt-cleared",
     "self-test must never use the production marker path",
     "launch-readiness JSON and Markdown",
     "Production smoke verifies those surfaces retain <code>npm run status:production</code>",
@@ -2805,10 +2813,14 @@ assertFileIncludes("deploy helper smoke handoff", "scripts/deploy-production.mjs
 ]);
 
 assertFileOrder("deploy live safety sequence", "scripts/deploy-production.mjs", [
+  "const deploymentUrl = parseDeploymentUrl(deployOutput)",
+  "if (!deploymentUrl)",
   "Removing unwanted ${unwantedAlias} alias if present",
   '"alias", "rm", unwantedAlias',
   "Pointing https://${cleanDomain} at ${deploymentUrl}",
   '"alias", "set", deploymentUrl, cleanDomain',
+  "Production deployment URL and clean alias succeeded; clearing local quota marker.",
+  "removeQuotaBlockMarker();",
   "DEPLOYED_PRODUCTION=",
   "CLEAN_PRODUCTION=https://",
   "Next verification command if you ran deploy without the one-shot launch:",
@@ -2910,6 +2922,10 @@ assertFileIncludes(
     'quotaRetryOverrideFlag: "--force-quota-retry"',
     "quotaUploadWarning:",
     "Vercel can still upload files before returning the quota error",
+    "quotaMarkerClearCondition:",
+    "Clear the local quota marker only after Vercel returns a parsed deployment URL and the clean production alias succeeds.",
+    "success-only quota marker clearing",
+    "clear local quota marker after clean alias succeeds",
   ],
 );
 

@@ -15,12 +15,15 @@ export const DEPLOY_SAFETY = {
   quotaRetryOverrideFlag: "--force-quota-retry",
   quotaUploadWarning:
     "Vercel can still upload files before returning the quota error, so the deploy helper records a local cooldown marker and stops later attempts before upload unless an intentional override is used.",
+  quotaMarkerClearCondition:
+    "Clear the local quota marker only after Vercel returns a parsed deployment URL and the clean production alias succeeds.",
   contract: [
     "Vercel quota messaging",
     "local Vercel quota cooldown marker",
     "read-only quota status via npm run status:production",
     "unwanted alias removal for truely-collectables-tt3b.vercel.app",
     "clean-domain aliasing",
+    "success-only quota marker clearing",
     "deployed URL output",
     "clean URL output",
     `${DEPLOY_SAFETY_SMOKE_COMMAND} handoff`,
@@ -28,6 +31,7 @@ export const DEPLOY_SAFETY = {
   sequence: [
     "remove unwanted truely-collectables-tt3b.vercel.app alias",
     "set clean production alias",
+    "clear local quota marker after clean alias succeeds",
     "print DEPLOYED_PRODUCTION",
     "print CLEAN_PRODUCTION",
     "print smoke handoff command",

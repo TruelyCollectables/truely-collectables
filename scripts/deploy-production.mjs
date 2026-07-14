@@ -534,8 +534,6 @@ if (deployOutput.includes("api-deployments-free-per-day")) {
 
 const deploymentUrl = parseDeploymentUrl(deployOutput);
 
-removeQuotaBlockMarker();
-
 if (!deploymentUrl) {
   throw new Error(
     `Could not parse a Vercel deployment URL that is not the clean production domain (${cleanDomain}) or unwanted alias (${unwantedAlias}). If quota is capped, wait and retry.\n${diagnosticSnippet(deployOutput)}`,
@@ -552,6 +550,11 @@ run(
 
 console.log(`Pointing https://${cleanDomain} at ${deploymentUrl}`);
 run("vercel", ["alias", "set", deploymentUrl, cleanDomain, "--scope", scope]);
+
+console.log(
+  "Production deployment URL and clean alias succeeded; clearing local quota marker.",
+);
+removeQuotaBlockMarker();
 
 console.log("");
 console.log(`DEPLOYED_PRODUCTION=${deploymentUrl}`);

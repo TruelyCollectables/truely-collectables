@@ -506,6 +506,8 @@ const checks = [
       result.text.includes("Protected deploy sequence") &&
       result.text.includes("remove unwanted truely-collectables-tt3b.vercel.app alias") &&
       result.text.includes("set clean production alias") &&
+      result.text.includes("clear local quota marker after clean alias succeeds") &&
+      result.text.includes("Clear the local quota marker only after Vercel returns a parsed deployment URL and the clean production alias succeeds") &&
       result.text.includes("print DEPLOYED_PRODUCTION") &&
       result.text.includes("print CLEAN_PRODUCTION") &&
       result.text.includes("print smoke handoff command") &&
@@ -546,6 +548,7 @@ const checks = [
       result.text.includes('"quotaRetryOverrideEnv":"TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true"') &&
       result.text.includes('"quotaRetryOverrideFlag":"--force-quota-retry"') &&
       result.text.includes('"quotaUploadWarning"') &&
+      result.text.includes('"quotaMarkerClearCondition"') &&
       result.text.includes("rolling 24-hour quota reset") &&
       result.text.includes("Vercel can still upload files before returning the quota error") &&
       result.text.includes("deployed URL output") &&
@@ -553,6 +556,8 @@ const checks = [
       result.text.includes('"sequence"') &&
       result.text.includes("remove unwanted truely-collectables-tt3b.vercel.app alias") &&
       result.text.includes("set clean production alias") &&
+      result.text.includes("clear local quota marker after clean alias succeeds") &&
+      result.text.includes("Clear the local quota marker only after Vercel returns a parsed deployment URL and the clean production alias succeeds") &&
       result.text.includes("print DEPLOYED_PRODUCTION") &&
       result.text.includes("print CLEAN_PRODUCTION") &&
       result.text.includes("print smoke handoff command") &&
@@ -593,6 +598,8 @@ const checks = [
       result.text.includes("Protected deploy sequence:") &&
       result.text.includes("remove unwanted truely-collectables-tt3b.vercel.app alias") &&
       result.text.includes("set clean production alias") &&
+      result.text.includes("clear local quota marker after clean alias succeeds") &&
+      result.text.includes("Clear the local quota marker only after Vercel returns a parsed deployment URL and the clean production alias succeeds") &&
       result.text.includes("print DEPLOYED_PRODUCTION") &&
       result.text.includes("print CLEAN_PRODUCTION") &&
       result.text.includes("print smoke handoff command") &&

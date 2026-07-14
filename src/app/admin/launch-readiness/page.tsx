@@ -1210,6 +1210,8 @@ export default async function LaunchReadinessPage() {
                 {DEPLOY_SAFETY.smokeCommand}
               </code>{" "}
               handoff intact.
+              {" "}
+              {DEPLOY_SAFETY.quotaMarkerClearCondition}
             </p>
           </div>
           <a
@@ -1228,7 +1230,7 @@ export default async function LaunchReadinessPage() {
 
         <div className="mt-4 rounded border border-blue-200 bg-white p-4">
           <h3 className="font-bold">Protected deploy sequence</h3>
-          <ol className="mt-3 grid gap-2 text-sm font-semibold text-blue-950 md:grid-cols-5">
+          <ol className="mt-3 grid gap-2 text-sm font-semibold text-blue-950 md:grid-cols-3 xl:grid-cols-6">
             {DEPLOY_SAFETY.sequence.map((step, index) => (
               <li key={step} className="rounded border border-blue-100 bg-blue-50 p-3">
                 <span className="mr-2 rounded bg-white px-2 py-1 text-xs font-black">
