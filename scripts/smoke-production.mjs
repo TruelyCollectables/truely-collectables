@@ -518,7 +518,7 @@ const checks = [
       "Seller Protection Reconciliation",
       "Shipping Claims Cockpit",
       "Standard Envelope evidence validator",
-      "Live Shipping Launch Gate with Purchase-Audit Key Drift card",
+      "Live Shipping Launch Gate with Shipping Provider Unlock Action Plan and Purchase-Audit Key Drift card",
       "Shipping Simulation Lab with nineteen policy/adapter scenarios plus five provider purchase-audit scenarios",
       "Shipping purchase-attempt audit simulations for live-gate, missing-setup, dry-run, and packet-output text",
       "Shipping simulation API POST with scenario count, manifest, and drift-field checks",
@@ -553,7 +553,7 @@ const checks = [
       result.text.includes("Seller Protection Reconciliation") &&
       result.text.includes("Shipping Claims Cockpit") &&
       result.text.includes("Standard Envelope evidence validator") &&
-      result.text.includes("Live Shipping Launch Gate with Purchase-Audit Key Drift card") &&
+      result.text.includes("Live Shipping Launch Gate with Shipping Provider Unlock Action Plan and Purchase-Audit Key Drift card") &&
       result.text.includes(
         "Shipping Simulation Lab with nineteen policy/adapter scenarios plus five provider purchase-audit scenarios",
       ) &&
@@ -694,6 +694,11 @@ const checks = [
         pageText.includes("Live Shipping Launch Gate") &&
         pageText.includes("Provider secrets and live-adapter evidence") &&
         pageText.includes("Provider verdict") &&
+        pageText.includes("Shipping Provider Unlock Action Plan") &&
+        pageText.includes("Choose provider accounts") &&
+        pageText.includes("Stage Vercel environment names") &&
+        pageText.includes("Keep shipping runtime locked") &&
+        pageText.includes("Operator Checklist") &&
         pageText.includes("Standard Envelope Evidence + Under-$20 Protection Contract") &&
         pageText.includes("LetterTrack / USPS IMb is delivery evidence, not insurance") &&
         pageText.includes("Runtime gate validator: ready") &&
