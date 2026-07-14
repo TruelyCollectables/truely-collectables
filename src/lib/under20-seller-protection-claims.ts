@@ -86,6 +86,19 @@ export type Under20SellerProtectionSellerVisibilitySummary = {
   sellerResponsibility: string;
 };
 
+export function under20SellerProtectionSkippedRowReasonLabel(
+  reason: Under20SellerProtectionSkippedReimbursementRow["reason"] | string,
+) {
+  if (reason === "cap_reached") return "Skipped because the $20 cap was reached";
+  if (reason === "missing_seller_account") return "Skipped because seller account is missing";
+  if (reason === "not_eligible_under20_seller_protection") {
+    return "Skipped because the row is not eligible under TCOS Under-$20 Seller Protection";
+  }
+  if (reason === "no_covered_amount") return "Skipped because covered amount is $0";
+
+  return "Skipped reason not recorded";
+}
+
 function moneyNumber(value: unknown) {
   const parsed = Number(value || 0);
   return Number.isFinite(parsed) ? Math.round(parsed * 100) / 100 : 0;

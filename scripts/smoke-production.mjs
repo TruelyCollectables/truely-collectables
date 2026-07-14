@@ -932,7 +932,7 @@ const checks = [
       "Mixed under-$20 claim rows cap reimbursement at $20",
       "Seller order views can show under-$20 protection status, 2% reserve, protected item cap, unprotected row liability, and shipping excluded from reimbursement",
       "Seller-protection Mark Paid allocation creates credits only for eligible payable seller rows",
-      "records skip reasons for unprotected/forged/missing-seller rows",
+      "records operator-readable skip reasons for unprotected/forged/missing-seller rows",
       "Under-$20 seller-protection Mark Paid requires a current or previously saved internal note confirming buyer refund evidence",
       "Provider setup exports state that LetterTrack / USPS IMb supplies trackable delivery evidence",
       "LetterTrack CSV rows carry the under-$20 seller-protection contract",
@@ -959,7 +959,7 @@ const checks = [
         "Seller-protection Mark Paid allocation creates credits only for eligible payable seller rows",
       ) &&
       result.text.includes(
-        "records skip reasons for unprotected/forged/missing-seller rows",
+        "records operator-readable skip reasons for unprotected/forged/missing-seller rows",
       ) &&
       result.text.includes(
         "Under-$20 seller-protection Mark Paid requires a current or previously saved internal note confirming buyer refund evidence",

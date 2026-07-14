@@ -29,6 +29,7 @@ import {
   buildUnder20SellerProtectionSellerVisibilitySummary,
   evaluateUnder20SellerProtectionBuyerRefundGate,
   evaluateUnder20SellerProtectionBuyerRefundMetadataGate,
+  under20SellerProtectionSkippedRowReasonLabel,
 } from "./under20-seller-protection-claims";
 
 export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-14.5";
@@ -397,10 +398,13 @@ export async function runShippingSimulationSuite() {
           (row) =>
             row.rowId === "sim-ledger-protected-missing-seller" &&
             row.reason === "missing_seller_account",
-        ),
+        ) &&
+        under20SellerProtectionSkippedRowReasonLabel(
+          "missing_seller_account",
+        ).includes("seller account is missing"),
     ),
     detail:
-      "Seller-protection Mark Paid allocation creates credits only for eligible payable seller rows, stops at the $20 cap, records skip reasons for unprotected/forged/missing-seller rows, and keeps shipping excluded.",
+      "Seller-protection Mark Paid allocation creates credits only for eligible payable seller rows, stops at the $20 cap, records operator-readable skip reasons for unprotected/forged/missing-seller rows, and keeps shipping excluded.",
     assertions: {
       allocation_plan: allocationPlan,
     },

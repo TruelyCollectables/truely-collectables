@@ -11,6 +11,7 @@ import {
 } from "../../../../../../lib/shipping-dry-run";
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
+import { under20SellerProtectionSkippedRowReasonLabel } from "../../../../../../lib/under20-seller-protection-claims";
 
 export const dynamic = "force-dynamic";
 
@@ -507,8 +508,10 @@ function buildReport(input: {
                   .map((entry) => {
                     const row = recordValue(entry);
 
-                    return `${String(row.rowId || "unknown")}: ${String(
-                      row.reason || "not recorded",
+                    return `${String(
+                      row.rowId || "unknown",
+                    )}: ${under20SellerProtectionSkippedRowReasonLabel(
+                      String(row.reason || ""),
                     )}`;
                   })
                   .join(", ")

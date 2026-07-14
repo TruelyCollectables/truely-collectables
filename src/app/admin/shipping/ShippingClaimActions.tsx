@@ -1,7 +1,10 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { evaluateUnder20SellerProtectionBuyerRefundMetadataGate } from "../../../lib/under20-seller-protection-claims";
+import {
+  evaluateUnder20SellerProtectionBuyerRefundMetadataGate,
+  under20SellerProtectionSkippedRowReasonLabel,
+} from "../../../lib/under20-seller-protection-claims";
 
 type ClaimStatus =
   | "draft"
@@ -243,8 +246,10 @@ function reimbursementAllocationCard(
                   .map((entry) => {
                     const row = recordValue(entry);
 
-                    return `${String(row.rowId || "unknown")}: ${String(
-                      row.reason || "not recorded",
+                    return `${String(
+                      row.rowId || "unknown",
+                    )}: ${under20SellerProtectionSkippedRowReasonLabel(
+                      String(row.reason || ""),
                     )}`;
                   })
                   .join(", ")
