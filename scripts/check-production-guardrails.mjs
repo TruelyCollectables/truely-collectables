@@ -2036,6 +2036,7 @@ assertFileIncludes(
   "src/app/seller/marketplaces/SellerConnectionsPanel.tsx",
   [
     "type SellerMarketplaceOperationReceipt",
+    "type SellerMarketplaceOperationReceiptHistoryEntry",
     "class SellerMarketplaceOperationError",
     "function operationReceiptFromError",
     "rememberOperationErrorReceipt",
@@ -2044,6 +2045,9 @@ assertFileIncludes(
     "Copy Safe Receipt",
     "Safe marketplace API receipt copied.",
     "function SellerMarketplaceOperationReceiptCard",
+    "function SellerMarketplaceOperationReceiptHistory",
+    "marketplaceOperationReceiptHistory",
+    "Recent Marketplace API Receipts",
     "Latest Marketplace API Receipt",
     "setLatestMarketplaceOperationReceipt",
     "sellerMarketplaceEbayAuthReceipt",

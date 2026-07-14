@@ -171,6 +171,11 @@ type SellerMarketplaceOperationReceipt = {
   details: Array<{ label: string; value: string }>;
 };
 
+type SellerMarketplaceOperationReceiptHistoryEntry =
+  SellerMarketplaceOperationReceipt & {
+    historyKey: string;
+  };
+
 class SellerMarketplaceOperationError extends Error {
   operationReceipt: SellerMarketplaceOperationReceipt | null;
 
@@ -780,6 +785,48 @@ function SellerMarketplaceOperationReceiptCard({
           </div>
         ))}
       </dl>
+    </div>
+  );
+}
+
+function SellerMarketplaceOperationReceiptHistory({
+  receipts,
+  onCopyReceipt,
+}: {
+  receipts: SellerMarketplaceOperationReceiptHistoryEntry[];
+  onCopyReceipt: (receipt: SellerMarketplaceOperationReceipt) => void;
+}) {
+  if (receipts.length === 0) return null;
+
+  return (
+    <div className="border-b border-neutral-200 bg-white p-4">
+      <p className="text-xs font-black uppercase tracking-[0.12em] text-neutral-500">
+        Recent Marketplace API Receipts
+      </p>
+      <div className="mt-3 grid gap-2 md:grid-cols-2">
+        {receipts.map((receipt) => (
+          <div
+            key={receipt.historyKey}
+            className={`rounded-md border px-3 py-2 ${operationReceiptToneClass(receipt.tone)}`}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-black">{receipt.title}</p>
+                <p className="mt-1 text-xs font-semibold leading-5">
+                  {receipt.summary}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => onCopyReceipt(receipt)}
+                className="shrink-0 rounded border border-current bg-white/70 px-2 py-1 text-[11px] font-black uppercase tracking-[0.08em] hover:bg-white"
+              >
+                Copy
+              </button>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -2128,6 +2175,11 @@ export default function SellerConnectionsPanel({
     latestMarketplaceOperationReceipt,
     setLatestMarketplaceOperationReceipt,
   ] = useState<SellerMarketplaceOperationReceipt | null>(null);
+  const marketplaceOperationReceiptSequenceRef = useRef(0);
+  const [
+    marketplaceOperationReceiptHistory,
+    setMarketplaceOperationReceiptHistory,
+  ] = useState<SellerMarketplaceOperationReceiptHistoryEntry[]>([]);
   const stageAllStopRequestedRef = useRef(false);
   const [updatingStageItemId, setUpdatingStageItemId] = useState("");
   const [editingReviewItemId, setEditingReviewItemId] = useState("");
@@ -2181,6 +2233,20 @@ export default function SellerConnectionsPanel({
       setLatestMarketplaceOperationReceipt(operationReceipt);
     }
   }, []);
+
+  useEffect(() => {
+    if (!latestMarketplaceOperationReceipt) return;
+
+    marketplaceOperationReceiptSequenceRef.current += 1;
+    const historyEntry = {
+      ...latestMarketplaceOperationReceipt,
+      historyKey: `seller-marketplace-receipt-${marketplaceOperationReceiptSequenceRef.current}`,
+    } satisfies SellerMarketplaceOperationReceiptHistoryEntry;
+
+    setMarketplaceOperationReceiptHistory((current) =>
+      [historyEntry, ...current].slice(0, 5),
+    );
+  }, [latestMarketplaceOperationReceipt]);
 
   const refreshSellerStageState = useCallback(async (
     accessToken: string,
@@ -3928,6 +3994,13 @@ export default function SellerConnectionsPanel({
           }
         />
       ) : null}
+
+      <SellerMarketplaceOperationReceiptHistory
+        receipts={marketplaceOperationReceiptHistory.slice(1)}
+        onCopyReceipt={(receipt) =>
+          void copyMarketplaceOperationReceipt(receipt)
+        }
+      />
 
       {ebayRevocationProtectionReady ? (
         <div className="border-b border-emerald-200 bg-emerald-50 p-4">
