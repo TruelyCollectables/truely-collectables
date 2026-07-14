@@ -73,6 +73,7 @@ The read-only quota status helper:
 - prints the exact blocked/retry timestamps, approximate remaining cooldown, marker path, local retry verdict, and `Vercel upload started: no`;
 - is the safe quota check between recurring development blocks.
 - fails closed when the marker is malformed or unreadable: it reports `state: invalid_marker`, starts no Vercel upload, and requires inspection/restoration or an intentional override after independent quota-reset confirmation.
+- fails closed when `TCOS_VERCEL_QUOTA_COOLDOWN_HOURS` is zero, negative, or nonnumeric: it reports `state: invalid_configuration` and cannot silently disable the deployment guard.
 - protects the real `.codex-run/vercel-quota-block.json` marker by refusing cooldown self-tests unless `TCOS_VERCEL_QUOTA_MARKER_PATH` names an explicit temporary file.
 - publishes the shared `quotaStatusCommand` and read-only description through launch-readiness JSON/Markdown, the handoff bundle, Launch Readiness, and Production Smoke Report surfaces; production smoke guards the handoff.
 

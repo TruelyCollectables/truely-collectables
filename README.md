@@ -48,6 +48,8 @@ During recurring development blocks, `npm run status:production` is the read-onl
 
 A malformed or unreadable marker fails closed: status reports `state: invalid_marker`, deployment remains blocked, and no Vercel upload starts. Inspect or restore the marker; override only after independently confirming the quota reset.
 
+A zero, negative, or nonnumeric cooldown value also fails closed as `state: invalid_configuration`; it cannot disable the guard. Correct `TCOS_VERCEL_QUOTA_COOLDOWN_HOURS`, or use the explicit retry override only after independently confirming the quota reset.
+
 Launch-readiness JSON/Markdown, the handoff bundle, the Launch Readiness page, and the Production Smoke Report all publish the shared read-only quota command and description. Production smoke protects that operator handoff from drifting.
 
 For operator handoff, `/api/admin/launch-readiness` exposes `brief.deploySafety` in JSON, including `brief.deploySafety.sequence`, local quota cooldown marker path, and intentional retry override env/flag. It also exposes `brief.sellerMarketplaceReceiptHandoff` with the Seller Connections proof route, proof text, required receipt controls, covered operations, and safe-use boundary. `/api/admin/launch-readiness?format=markdown` plus `/api/admin/launch-readiness?format=handoff-bundle` include the same `Production Deploy Safety`, Seller Marketplace Receipt Handoff, and go/no-go reminders.

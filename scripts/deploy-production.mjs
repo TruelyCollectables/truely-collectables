@@ -153,9 +153,9 @@ function getQuotaCooldownStatus(nowMs = Date.now()) {
 
   if (!Number.isFinite(quotaCooldownHours) || quotaCooldownHours <= 0) {
     return {
-      state: "disabled",
-      canRetry: true,
-      reason: "local cooldown disabled",
+      state: "invalid_configuration",
+      canRetry: false,
+      reason: "TCOS_VERCEL_QUOTA_COOLDOWN_HOURS must be a positive number",
       blockedAt: null,
       retryAt: null,
       remaining: null,
@@ -206,11 +206,13 @@ function printQuotaCooldownStatus() {
   console.log(`- marker: ${quotaBlockMarkerPath}`);
   console.log("- Vercel upload started: no");
   console.log(
-    status.state === "invalid_marker"
-      ? "- next: inspect or restore the quota marker; do not deploy unless the quota reset is independently confirmed"
-      : status.canRetry
-        ? "- next: run npm run launch:production after normal verification"
-        : "- next: keep building locally and rerun npm run status:production after the retry time",
+    status.state === "invalid_configuration"
+      ? "- next: set TCOS_VERCEL_QUOTA_COOLDOWN_HOURS to a positive number; do not deploy unless the quota reset is independently confirmed"
+      : status.state === "invalid_marker"
+        ? "- next: inspect or restore the quota marker; do not deploy unless the quota reset is independently confirmed"
+        : status.canRetry
+          ? "- next: run npm run launch:production after normal verification"
+          : "- next: keep building locally and rerun npm run status:production after the retry time",
   );
 }
 
@@ -224,9 +226,10 @@ function assertNoRecentQuotaBlock() {
     return;
   }
 
-  if (status.state === "disabled") {
-    console.log("Local Vercel quota cooldown disabled by TCOS_VERCEL_QUOTA_COOLDOWN_HOURS.");
-    return;
+  if (status.state === "invalid_configuration") {
+    throw new Error(
+      `Invalid TCOS_VERCEL_QUOTA_COOLDOWN_HOURS value. The cooldown must be a positive number. No Vercel upload was started. Correct the value, or use TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true / --force-quota-retry only after independently confirming the quota reset.`,
+    );
   }
 
   if (status.state === "expired") {
@@ -252,6 +255,39 @@ function runQuotaCooldownSelfTest() {
     throw new Error(
       "Refusing quota cooldown self-test against the production marker path. Set TCOS_VERCEL_QUOTA_MARKER_PATH to an explicit temporary test file.",
     );
+  }
+
+  if (!Number.isFinite(quotaCooldownHours) || quotaCooldownHours <= 0) {
+    const invalidConfigurationStatus = getQuotaCooldownStatus();
+    if (
+      invalidConfigurationStatus.state !== "invalid_configuration" ||
+      invalidConfigurationStatus.canRetry
+    ) {
+      throw new Error(
+        `Quota cooldown self-test failed open for invalid configuration: ${JSON.stringify(invalidConfigurationStatus)}`,
+      );
+    }
+
+    try {
+      assertNoRecentQuotaBlock();
+      throw new Error(
+        "Quota cooldown self-test did not block invalid configuration.",
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+
+      if (
+        !message.includes("Invalid TCOS_VERCEL_QUOTA_COOLDOWN_HOURS value") ||
+        !message.includes("No Vercel upload was started")
+      ) {
+        throw error;
+      }
+    }
+
+    console.log(
+      "Production deploy quota cooldown invalid-configuration self-test passed.",
+    );
+    return;
   }
 
   removeQuotaBlockMarker();

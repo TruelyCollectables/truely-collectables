@@ -254,6 +254,24 @@ runExpectedSuccess(
       "/tmp/tcos-vercel-quota-block-self-test.json",
   },
 );
+runExpectedSuccess(
+  "deploy helper rejects zero quota cooldown",
+  ["scripts/deploy-production.mjs", "--self-test-quota-cooldown"],
+  {
+    TCOS_VERCEL_QUOTA_MARKER_PATH:
+      "/tmp/tcos-vercel-zero-quota-cooldown-self-test.json",
+    TCOS_VERCEL_QUOTA_COOLDOWN_HOURS: "0",
+  },
+);
+runExpectedSuccess(
+  "deploy helper rejects malformed quota cooldown",
+  ["scripts/deploy-production.mjs", "--self-test-quota-cooldown"],
+  {
+    TCOS_VERCEL_QUOTA_MARKER_PATH:
+      "/tmp/tcos-vercel-malformed-quota-cooldown-self-test.json",
+    TCOS_VERCEL_QUOTA_COOLDOWN_HOURS: "not-a-number",
+  },
+);
 runExpectedFailure(
   "deploy helper protects production quota marker from self-test",
   ["scripts/deploy-production.mjs", "--self-test-quota-cooldown"],
@@ -286,6 +304,11 @@ assertFileIncludes(
     "No Vercel upload was started",
     "do not deploy unless the quota reset is independently confirmed",
     "Quota cooldown self-test failed open for an invalid marker",
+    'state: "invalid_configuration"',
+    "canRetry: false",
+    "TCOS_VERCEL_QUOTA_COOLDOWN_HOURS must be a positive number",
+    "Quota cooldown self-test failed open for invalid configuration",
+    "Production deploy quota cooldown invalid-configuration self-test passed",
   ],
 );
 assertFileIncludes("quota status runbook instructions", "docs/PRODUCTION_DEPLOY_RUNBOOK.md", [
@@ -296,6 +319,7 @@ assertFileIncludes("quota status runbook instructions", "docs/PRODUCTION_DEPLOY_
   "TCOS_PRODUCTION_QUOTA_STATUS_ONLY=true",
   "self-test refuses to run against `.codex-run/vercel-quota-block.json`",
   "malformed or unreadable marker fails closed",
+  "zero, negative, or nonnumeric cooldown value also fails closed",
 ]);
 assertFileIncludes("quota status README instructions", "README.md", [
   "npm run status:production",
@@ -303,6 +327,7 @@ assertFileIncludes("quota status README instructions", "README.md", [
   "exact blocked/retry timestamps",
   "Vercel upload started: no",
   "malformed or unreadable marker fails closed",
+  "zero, negative, or nonnumeric cooldown value also fails closed",
 ]);
 assertFileIncludes("quota status shared deploy contract", "src/lib/deploy-safety.ts", [
   'quotaStatusCommand: "npm run status:production"',
@@ -350,6 +375,7 @@ assertFileIncludes("quota status operator instructions", "docs/TCOS_OPERATOR_MAN
   "Vercel upload started: no",
   "TCOS_PRODUCTION_QUOTA_STATUS_ONLY=true",
   "malformed or unreadable marker fails closed",
+  "zero, negative, or nonnumeric cooldown value also fails closed",
   "self-test must never use the production marker path",
   "launch-readiness JSON and Markdown",
   "Production smoke verifies those surfaces retain `npm run status:production`",
@@ -363,6 +389,7 @@ assertFileIncludes(
     "Vercel upload started: no",
     "TCOS_PRODUCTION_QUOTA_STATUS_ONLY=true",
     "malformed or unreadable marker fails closed",
+    "zero, negative, or nonnumeric cooldown value also fails closed",
     "self-test must never use the production marker path",
     "launch-readiness JSON and Markdown",
     "Production smoke verifies those surfaces retain <code>npm run status:production</code>",
