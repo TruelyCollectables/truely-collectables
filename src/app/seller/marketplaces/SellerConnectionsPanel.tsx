@@ -176,6 +176,10 @@ type SellerMarketplaceOperationReceiptHistoryEntry =
     historyKey: string;
   };
 
+const SELLER_MARKETPLACE_RECEIPT_HISTORY_LIMIT = 5;
+const SELLER_MARKETPLACE_RECEIPT_HISTORY_STORAGE_KEY =
+  "tcos.sellerMarketplaceOperationReceiptHistory.v1";
+
 class SellerMarketplaceOperationError extends Error {
   operationReceipt: SellerMarketplaceOperationReceipt | null;
 
@@ -745,6 +749,95 @@ function formatSellerMarketplaceOperationReceipt(
   ].join("\n");
 }
 
+function formatSellerMarketplaceOperationReceiptHistory(
+  receipts: SellerMarketplaceOperationReceipt[],
+) {
+  return [
+    "TCOS Seller Marketplace API Receipt Trail",
+    `Receipt count: ${receipts.length}`,
+    ...receipts.flatMap((receipt, index) => [
+      "",
+      `Receipt ${index + 1}`,
+      formatSellerMarketplaceOperationReceipt(receipt),
+    ]),
+  ].join("\n");
+}
+
+function isSellerMarketplaceOperationReceipt(
+  value: unknown,
+): value is SellerMarketplaceOperationReceipt {
+  if (!value || typeof value !== "object") return false;
+
+  const receipt = value as Partial<SellerMarketplaceOperationReceipt>;
+  const validTone =
+    receipt.tone === "neutral" ||
+    receipt.tone === "emerald" ||
+    receipt.tone === "amber" ||
+    receipt.tone === "rose" ||
+    receipt.tone === "sky";
+
+  return (
+    typeof receipt.title === "string" &&
+    typeof receipt.summary === "string" &&
+    validTone &&
+    Array.isArray(receipt.details) &&
+    receipt.details.every(
+      (detail) =>
+        detail &&
+        typeof detail === "object" &&
+        typeof (detail as { label?: unknown }).label === "string" &&
+        typeof (detail as { value?: unknown }).value === "string",
+    )
+  );
+}
+
+function sellerMarketplaceOperationReceiptHistoryFromSession() {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const stored = window.sessionStorage.getItem(
+      SELLER_MARKETPLACE_RECEIPT_HISTORY_STORAGE_KEY,
+    );
+    if (!stored) return [];
+
+    const parsed = JSON.parse(stored);
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed
+      .filter(
+        (receipt): receipt is SellerMarketplaceOperationReceiptHistoryEntry =>
+          isSellerMarketplaceOperationReceipt(receipt) &&
+          typeof (receipt as { historyKey?: unknown }).historyKey ===
+            "string",
+      )
+      .slice(0, SELLER_MARKETPLACE_RECEIPT_HISTORY_LIMIT);
+  } catch {
+    return [];
+  }
+}
+
+function saveSellerMarketplaceOperationReceiptHistoryToSession(
+  receipts: SellerMarketplaceOperationReceiptHistoryEntry[],
+) {
+  if (typeof window === "undefined") return;
+
+  try {
+    if (receipts.length === 0) {
+      window.sessionStorage.removeItem(
+        SELLER_MARKETPLACE_RECEIPT_HISTORY_STORAGE_KEY,
+      );
+      return;
+    }
+
+    window.sessionStorage.setItem(
+      SELLER_MARKETPLACE_RECEIPT_HISTORY_STORAGE_KEY,
+      JSON.stringify(receipts.slice(0, SELLER_MARKETPLACE_RECEIPT_HISTORY_LIMIT)),
+    );
+  } catch {
+    // Browser storage can be blocked or full; receipt copy still works in memory.
+  }
+}
+
 function SellerMarketplaceOperationReceiptCard({
   receipt,
   onCopyReceipt,
@@ -792,17 +885,44 @@ function SellerMarketplaceOperationReceiptCard({
 function SellerMarketplaceOperationReceiptHistory({
   receipts,
   onCopyReceipt,
+  onCopyReceiptTrail,
+  onClearReceiptTrail,
 }: {
   receipts: SellerMarketplaceOperationReceiptHistoryEntry[];
   onCopyReceipt: (receipt: SellerMarketplaceOperationReceipt) => void;
+  onCopyReceiptTrail: () => void;
+  onClearReceiptTrail: () => void;
 }) {
   if (receipts.length === 0) return null;
 
   return (
     <div className="border-b border-neutral-200 bg-white p-4">
-      <p className="text-xs font-black uppercase tracking-[0.12em] text-neutral-500">
-        Recent Marketplace API Receipts
-      </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.12em] text-neutral-500">
+            Recent Marketplace API Receipts
+          </p>
+          <p className="mt-1 text-xs font-semibold leading-5 text-neutral-500">
+            Session-saved in this browser tab for operator handoff.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={onCopyReceiptTrail}
+            className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-xs font-black uppercase tracking-[0.08em] text-neutral-700 hover:bg-neutral-50"
+          >
+            Copy Trail
+          </button>
+          <button
+            type="button"
+            onClick={onClearReceiptTrail}
+            className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-xs font-black uppercase tracking-[0.08em] text-neutral-700 hover:bg-neutral-50"
+          >
+            Clear Trail
+          </button>
+        </div>
+      </div>
       <div className="mt-3 grid gap-2 md:grid-cols-2">
         {receipts.map((receipt) => (
           <div
@@ -2179,7 +2299,9 @@ export default function SellerConnectionsPanel({
   const [
     marketplaceOperationReceiptHistory,
     setMarketplaceOperationReceiptHistory,
-  ] = useState<SellerMarketplaceOperationReceiptHistoryEntry[]>([]);
+  ] = useState<SellerMarketplaceOperationReceiptHistoryEntry[]>(
+    sellerMarketplaceOperationReceiptHistoryFromSession,
+  );
   const stageAllStopRequestedRef = useRef(false);
   const [updatingStageItemId, setUpdatingStageItemId] = useState("");
   const [editingReviewItemId, setEditingReviewItemId] = useState("");
@@ -2244,9 +2366,18 @@ export default function SellerConnectionsPanel({
     } satisfies SellerMarketplaceOperationReceiptHistoryEntry;
 
     setMarketplaceOperationReceiptHistory((current) =>
-      [historyEntry, ...current].slice(0, 5),
+      [historyEntry, ...current].slice(
+        0,
+        SELLER_MARKETPLACE_RECEIPT_HISTORY_LIMIT,
+      ),
     );
   }, [latestMarketplaceOperationReceipt]);
+
+  useEffect(() => {
+    saveSellerMarketplaceOperationReceiptHistoryToSession(
+      marketplaceOperationReceiptHistory,
+    );
+  }, [marketplaceOperationReceiptHistory]);
 
   const refreshSellerStageState = useCallback(async (
     accessToken: string,
@@ -3719,6 +3850,25 @@ export default function SellerConnectionsPanel({
     }
   }
 
+  async function copyMarketplaceOperationReceiptTrail() {
+    try {
+      await copyTextToClipboard(
+        formatSellerMarketplaceOperationReceiptHistory(
+          marketplaceOperationReceiptHistory,
+        ),
+      );
+      setMessage("Safe marketplace API receipt trail copied.");
+    } catch {
+      setMessage("Could not copy marketplace API receipt trail.");
+    }
+  }
+
+  function clearMarketplaceOperationReceiptTrail() {
+    setLatestMarketplaceOperationReceipt(null);
+    setMarketplaceOperationReceiptHistory([]);
+    setMessage("Marketplace API receipt trail cleared.");
+  }
+
   async function focusImportRunWithSelection(
     importJobId: string | null,
     filter: StageFilter | "unresolved",
@@ -3996,10 +4146,16 @@ export default function SellerConnectionsPanel({
       ) : null}
 
       <SellerMarketplaceOperationReceiptHistory
-        receipts={marketplaceOperationReceiptHistory.slice(1)}
+        receipts={
+          latestMarketplaceOperationReceipt
+            ? marketplaceOperationReceiptHistory.slice(1)
+            : marketplaceOperationReceiptHistory
+        }
         onCopyReceipt={(receipt) =>
           void copyMarketplaceOperationReceipt(receipt)
         }
+        onCopyReceiptTrail={() => void copyMarketplaceOperationReceiptTrail()}
+        onClearReceiptTrail={clearMarketplaceOperationReceiptTrail}
       />
 
       {ebayRevocationProtectionReady ? (
