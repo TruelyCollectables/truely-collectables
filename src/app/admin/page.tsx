@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { PLATFORM_SOFTWARE_NAME } from "../../lib/legal";
-import { buildShippingProviderSetupPacket } from "../../lib/shipping-provider-setup";
+import {
+  buildShippingProviderSetupPacket,
+  type ProviderSetupActionPlanStep,
+} from "../../lib/shipping-provider-setup";
 import {
   runLaunchGateDrill,
   type LaunchGatePostureStatus,
@@ -791,6 +794,9 @@ export default async function AdminDashboard() {
                   ))}
                 </div>
               ) : null}
+              <ShippingProviderUnlockPlan
+                actionPlan={shippingProviderSetup.actionPlan}
+              />
               <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
                 <LinkButton href="/admin/shipping" label="Shipping Ops" />
                 <LinkButton href="/admin/launch-readiness" label="Readiness" />
@@ -1009,6 +1015,57 @@ function MetricTile({
       <p className="text-sm font-bold uppercase text-neutral-500">{label}</p>
       <p className="mt-3 text-3xl font-black tracking-tight">{value}</p>
       <p className="mt-2 text-sm text-neutral-600">{detail}</p>
+    </div>
+  );
+}
+
+function ShippingProviderUnlockPlan({
+  actionPlan,
+}: {
+  actionPlan: ProviderSetupActionPlanStep[];
+}) {
+  return (
+    <div className="mt-4 rounded border border-indigo-200 bg-indigo-50 p-3 text-indigo-950">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <p className="text-[11px] font-black uppercase tracking-widest opacity-70">
+            No-secret handoff
+          </p>
+          <h3 className="mt-1 text-sm font-black">
+            Shipping Provider Unlock Action Plan
+          </h3>
+        </div>
+        <Link
+          href="/api/admin/shipping/provider-setup?format=operator-checklist"
+          className="rounded border border-indigo-300 bg-white px-2 py-1 text-[11px] font-black"
+        >
+          Checklist
+        </Link>
+      </div>
+      <ol className="mt-3 space-y-2">
+        {actionPlan.slice(0, 3).map((step) => (
+          <li
+            key={step.order}
+            className="rounded border border-indigo-100 bg-white p-2"
+          >
+            <div className="flex items-start justify-between gap-2">
+              <p className="text-xs font-black">
+                {step.order}. {step.title}
+              </p>
+              <span className="rounded border border-current px-1.5 py-0.5 text-[10px] font-black uppercase">
+                {step.status}
+              </span>
+            </div>
+            <p className="mt-1 text-[11px] font-semibold opacity-80">
+              {step.action}
+            </p>
+          </li>
+        ))}
+      </ol>
+      <p className="mt-3 text-[11px] font-bold opacity-80">
+        Open Shipping Ops, Launch Readiness, Live Shipping Gate, or Gate Drill
+        for the full five-step unlock sequence.
+      </p>
     </div>
   );
 }

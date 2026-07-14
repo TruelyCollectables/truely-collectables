@@ -6,7 +6,7 @@ export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 const smokeChecks = [
-  "Admin login and dashboard render",
+  "Admin login and dashboard render with Shipping Provider Unlock Action Plan",
   "Launch readiness page, JSON brief, Markdown brief, and handoff bundle",
   "Launch readiness and handoff exports show missing/unexpected purchase-audit key drift",
   SELLER_PROTECTION_SMOKE_COVERAGE_LINE,

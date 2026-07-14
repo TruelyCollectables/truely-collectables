@@ -351,6 +351,10 @@ const checks = [
     path: "/admin",
     expect: (result) =>
       result.text.includes("Shipping Setup") &&
+      result.text.includes("Shipping Provider Unlock Action Plan") &&
+      result.text.includes("Choose provider accounts") &&
+      result.text.includes("Stage Vercel environment names") &&
+      result.text.includes("Keep shipping runtime locked") &&
       result.text.includes("Standard Envelope evidence validator") &&
       result.text.includes("Purchase-audit key drift") &&
       result.text.includes("unexpected"),
@@ -524,6 +528,7 @@ const checks = [
     requiredText: [
       "Production Smoke Report",
       "Smoke coverage",
+      "Admin login and dashboard render with Shipping Provider Unlock Action Plan",
       "Under-$20 Seller Protection launch handoff",
       "Launch Gate Drill page, JSON report, Markdown operator report, Shipping Provider Unlock Action Plan, and Standard Envelope evidence validator",
       "Launch readiness and handoff exports show missing/unexpected purchase-audit key drift",
