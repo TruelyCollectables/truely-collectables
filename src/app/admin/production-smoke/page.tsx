@@ -22,6 +22,7 @@ const smokeChecks = [
   "LetterTrack Standard Envelope CSV export",
   "Seller marketplace packet intake guardrail for cross-list prep only, no postage purchase, no Coverage policy creation, no payout release, no order fulfillment, and no automatic under-$20 protection activation",
   "Seller marketplace page renders Marketplace Packet Intake guidance, ready-row handoff, needs-work handoff, and prep-only export wording",
+  "Seller marketplace receipt handoff controls for Copy Safe Receipt, Download Safe Receipt, Copy Trail, Download Trail, and Clear Trail",
   "Seller inventory, order, and payout workspaces render login gates before exposing seller-owned data",
   "Clean production domain",
   `Unwanted ${DEPLOY_SAFETY.unwantedAlias} alias absence`,
@@ -97,6 +98,14 @@ const manualVerificationChecks = [
       "Seller Connections shows the Marketplace Packet Intake card and states packets are cross-list prep only, with no publishing, postage purchase, Coverage policy creation, payout release, fulfillment, insurance, or automatic under-$20 protection activation.",
     ifBlocked:
       "Keep marketplace packets as internal prep files only and send sellers back through ready or needs-work Seller Inventory rows before any external marketplace action.",
+  },
+  {
+    label: "Seller marketplace receipt handoff",
+    href: "/seller/marketplaces",
+    proof:
+      "Seller Connections shows Copy Safe Receipt, Download Safe Receipt, Copy Trail, Download Trail, and Clear Trail in the receipt handoff proof text before operators rely on marketplace API receipt handoffs.",
+    ifBlocked:
+      "Do not rely on chat history or raw provider errors for marketplace debugging; capture a safe receipt or trail only after the deployed Seller Connections page shows the handoff controls.",
   },
 ];
 

@@ -582,6 +582,7 @@ const checks = [
       "Shipping provider setup JSON and export packets with Standard Envelope evidence readiness",
       "Seller marketplace packet intake guardrail for cross-list prep only, no postage purchase, no Coverage policy creation, no payout release, no order fulfillment, and no automatic under-$20 protection activation",
       "Seller marketplace page renders Marketplace Packet Intake guidance, ready-row handoff, needs-work handoff, and prep-only export wording",
+      "Seller marketplace receipt handoff controls for Copy Safe Receipt, Download Safe Receipt, Copy Trail, Download Trail, and Clear Trail",
       "Seller inventory, order, and payout workspaces render login gates before exposing seller-owned data",
       "Queued launch feature failure(s)",
       "Unwanted truely-collectables-tt3b.vercel.app alias absence",
@@ -607,6 +608,7 @@ const checks = [
       "Seller protection money trail",
       "Shipping operations exports",
       "Seller marketplace packet intake",
+      "Seller marketplace receipt handoff",
       "deployed URL output",
       "clean URL output",
       "npm run launch:production",
@@ -646,6 +648,9 @@ const checks = [
         "Seller marketplace page renders Marketplace Packet Intake guidance, ready-row handoff, needs-work handoff, and prep-only export wording",
       ) &&
       result.text.includes(
+        "Seller marketplace receipt handoff controls for Copy Safe Receipt, Download Safe Receipt, Copy Trail, Download Trail, and Clear Trail",
+      ) &&
+      result.text.includes(
         "Seller inventory, order, and payout workspaces render login gates before exposing seller-owned data",
       ) &&
       result.text.includes("Queued launch feature failure(s)") &&
@@ -674,6 +679,7 @@ const checks = [
       result.text.includes("Seller protection money trail") &&
       result.text.includes("Shipping operations exports") &&
       result.text.includes("Seller marketplace packet intake") &&
+      result.text.includes("Seller marketplace receipt handoff") &&
       result.text.includes("remove unwanted truely-collectables-tt3b.vercel.app alias") &&
       result.text.includes("set clean production alias") &&
       result.text.includes("print DEPLOYED_PRODUCTION") &&
