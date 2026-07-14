@@ -317,6 +317,7 @@ assertFileIncludes("production smoke page contract", "scripts/smoke-production.m
   "Seller Protection Reconciliation",
   "Shipping Claims Cockpit",
   "Standard Envelope evidence validator",
+  "Shipping Simulation Lab with nineteen policy/adapter scenarios plus five provider purchase-audit scenarios",
   "Shipping purchase-attempt audit simulations for live-gate, missing-setup, dry-run, and packet-output text",
   "Shipping simulation API POST with scenario count, manifest, and drift-field checks",
   "Shipping provider setup JSON and export packets with Standard Envelope evidence readiness",

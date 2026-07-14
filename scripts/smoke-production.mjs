@@ -496,6 +496,7 @@ const checks = [
       "Seller Protection Reconciliation",
       "Shipping Claims Cockpit",
       "Standard Envelope evidence validator",
+      "Shipping Simulation Lab with nineteen policy/adapter scenarios plus five provider purchase-audit scenarios",
       "Shipping purchase-attempt audit simulations for live-gate, missing-setup, dry-run, and packet-output text",
       "Shipping simulation API POST with scenario count, manifest, and drift-field checks",
       "Shipping provider setup JSON and export packets with Standard Envelope evidence readiness",
@@ -521,6 +522,9 @@ const checks = [
       result.text.includes("Seller Protection Reconciliation") &&
       result.text.includes("Shipping Claims Cockpit") &&
       result.text.includes("Standard Envelope evidence validator") &&
+      result.text.includes(
+        "Shipping Simulation Lab with nineteen policy/adapter scenarios plus five provider purchase-audit scenarios",
+      ) &&
       result.text.includes(
         "Shipping purchase-attempt audit simulations for live-gate, missing-setup, dry-run, and packet-output text",
       ) &&
