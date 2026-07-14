@@ -140,6 +140,10 @@ function percent(part: number, whole: number) {
   return `${Math.round((part / whole) * 100)}%`;
 }
 
+function listValue(items: string[]) {
+  return items.length > 0 ? items.join(", ") : "none";
+}
+
 function isPaid(order: OrderRow) {
   return isPaidOrderStatus(order.status);
 }
@@ -689,6 +693,19 @@ export default async function AdminDashboard() {
                     {launchGateDrill.shipping.standardEnvelopeEvidenceContractReady
                       ? "ready"
                       : "blocked"}
+                    .
+                  </p>
+                  <p className="mt-1 text-xs font-black text-neutral-700">
+                    Purchase-audit key drift: missing{" "}
+                    {listValue(
+                      launchGateDrill.shipping
+                        .purchaseAttemptAuditMissingScenarioKeys,
+                    )}
+                    ; unexpected{" "}
+                    {listValue(
+                      launchGateDrill.shipping
+                        .purchaseAttemptAuditUnexpectedScenarioKeys,
+                    )}
                     .
                   </p>
                 </div>

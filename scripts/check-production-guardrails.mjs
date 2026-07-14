@@ -204,11 +204,16 @@ assertFileIncludes("launch dashboard smoke contract", "scripts/smoke-production.
   'path: "/admin"',
   "Shipping Setup",
   "Standard Envelope evidence validator",
+  "Purchase-audit key drift",
+  "unexpected",
 ]);
 assertFileIncludes("admin dashboard shipping evidence validator source", "src/app/admin/page.tsx", [
   "launchGateDrill.shipping.standardEnvelopeEvidenceContractReady",
+  "purchaseAttemptAuditMissingScenarioKeys",
+  "purchaseAttemptAuditUnexpectedScenarioKeys",
   "shippingProviderSetup.standardEnvelopeEvidenceContractReady",
   "Standard Envelope evidence validator",
+  "Purchase-audit key drift",
 ]);
 assertFileIncludes("launch readiness smoke contract", "scripts/smoke-production.mjs", [
   'name: "launch readiness page"',

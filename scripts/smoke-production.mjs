@@ -347,7 +347,9 @@ const checks = [
     path: "/admin",
     expect: (result) =>
       result.text.includes("Shipping Setup") &&
-      result.text.includes("Standard Envelope evidence validator"),
+      result.text.includes("Standard Envelope evidence validator") &&
+      result.text.includes("Purchase-audit key drift") &&
+      result.text.includes("unexpected"),
   },
   {
     name: "launch readiness page",
