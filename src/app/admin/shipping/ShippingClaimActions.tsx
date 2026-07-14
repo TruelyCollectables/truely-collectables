@@ -113,6 +113,10 @@ function yesNo(value: unknown) {
   return value === true ? "Yes" : "No";
 }
 
+function money(value: unknown) {
+  return `$${Number(value || 0).toFixed(2)}`;
+}
+
 function gateTone(evidence: Record<string, unknown>) {
   if (evidence.deliveredEvidencePresent === true) {
     return "border-red-200 bg-red-50 text-red-950";
@@ -178,6 +182,85 @@ function evidenceCard(params: {
   );
 }
 
+function reimbursementAllocationCard(
+  reimbursement: Record<string, unknown>,
+  plan: Record<string, unknown>,
+) {
+  const allocations = Array.isArray(plan.allocations) ? plan.allocations : [];
+  const skippedRowIds = Array.isArray(plan.skippedRowIds)
+    ? plan.skippedRowIds
+    : [];
+
+  return (
+    <div className="rounded border border-green-200 bg-green-50 p-3 text-xs font-semibold text-green-950">
+      <p className="font-black uppercase tracking-widest">
+        Seller-protection reimbursement allocation
+      </p>
+      <p className="mt-1">
+        Saved after Mark Paid created or reused TCOS internal seller-protection
+        reimbursement credits. Shipping stays excluded from reimbursement.
+      </p>
+      <dl className="mt-2 grid grid-cols-1 gap-1 sm:grid-cols-2">
+        <div>
+          <dt className="text-[10px] uppercase tracking-widest opacity-70">
+            Inserted credits
+          </dt>
+          <dd>{String(reimbursement.insertedCount ?? "0")}</dd>
+        </div>
+        <div>
+          <dt className="text-[10px] uppercase tracking-widest opacity-70">
+            Reimbursed amount
+          </dt>
+          <dd>{money(reimbursement.reimbursedAmount)}</dd>
+        </div>
+        <div>
+          <dt className="text-[10px] uppercase tracking-widest opacity-70">
+            Requested plan
+          </dt>
+          <dd>{money(plan.requestedReimbursableAmount)}</dd>
+        </div>
+        <div>
+          <dt className="text-[10px] uppercase tracking-widest opacity-70">
+            Remaining plan
+          </dt>
+          <dd>{money(plan.remainingAmount)}</dd>
+        </div>
+        <div>
+          <dt className="text-[10px] uppercase tracking-widest opacity-70">
+            Allocation rows
+          </dt>
+          <dd>{allocations.length}</dd>
+        </div>
+        <div>
+          <dt className="text-[10px] uppercase tracking-widest opacity-70">
+            Skipped rows
+          </dt>
+          <dd>{skippedRowIds.length > 0 ? skippedRowIds.join(", ") : "None"}</dd>
+        </div>
+      </dl>
+      {allocations.length > 0 ? (
+        <div className="mt-2 space-y-1">
+          {allocations.map((allocation, index) => {
+            const row = recordValue(allocation);
+
+            return (
+              <p key={`${String(row.rowId || "allocation")}-${index}`}>
+                Row {String(row.rowId || index + 1)} / seller{" "}
+                {String(row.sellerAccountId || "Not saved")} / credit{" "}
+                {money(row.amount)} / shipping excluded{" "}
+                {money(row.shippingExcludedAmount)}
+              </p>
+            );
+          })}
+        </div>
+      ) : null}
+      {reimbursement.detail ? (
+        <p className="mt-2">{String(reimbursement.detail)}</p>
+      ) : null}
+    </div>
+  );
+}
+
 export default function ShippingClaimActions({
   claimId,
   claimStatus,
@@ -213,6 +296,12 @@ export default function ShippingClaimActions({
     recordValue(claimMetadata).latest_lettertrack_seller_protection_payment_gate,
   );
   const paymentGateDecision = recordValue(paymentGate.gate);
+  const latestReimbursement = recordValue(
+    recordValue(claimMetadata).latest_seller_protection_reimbursement,
+  );
+  const latestReimbursementPlan = recordValue(
+    latestReimbursement.reimbursementPlan,
+  );
   const currentPaymentGateDecision = recordValue(currentLetterTrackPaymentGate);
   const isUnder20SellerProtection = under20Claim.eligible === true;
   const hasLetterTrackEvidence = Object.keys(letterTrackEvidence).length > 0;
@@ -220,6 +309,7 @@ export default function ShippingClaimActions({
     Object.keys(latestEvidenceReviewSummary).length > 0;
   const hasCurrentLetterTrackEvidence =
     Number(recordValue(currentLetterTrackEvidence).eventCount || 0) > 0;
+  const hasLatestReimbursement = Object.keys(latestReimbursement).length > 0;
   const [pendingStatus, setPendingStatus] = useState("");
   const [message, setMessage] = useState("");
   const [note, setNote] = useState("");
@@ -263,6 +353,9 @@ export default function ShippingClaimActions({
             "Recalculated from the latest tracking events loaded on this admin page.",
         })
       : null;
+  const reimbursementCard = hasLatestReimbursement
+    ? reimbursementAllocationCard(latestReimbursement, latestReimbursementPlan)
+    : null;
   const packetLink = (
     <a
       href={`/api/admin/shipping-claims/${claimId}/packet`}
@@ -310,6 +403,7 @@ export default function ShippingClaimActions({
     return (
       <div className="mt-3 space-y-2 rounded border bg-neutral-50 p-3">
         {packetLink}
+        {reimbursementCard}
         {currentEvidenceCard}
         {latestEvidenceReviewCard}
         {savedEvidenceCard}
@@ -323,6 +417,7 @@ export default function ShippingClaimActions({
   return (
     <div className="mt-3 space-y-2 rounded border bg-neutral-50 p-3">
       {packetLink}
+      {reimbursementCard}
       {currentEvidenceCard}
       {latestEvidenceReviewCard}
       {savedEvidenceCard}

@@ -391,6 +391,21 @@ assertFileIncludes(
     "Mark Paid creates or reuses TCOS internal seller-protection reimbursement credits",
   ],
 );
+assertFileIncludes(
+  "seller protection reimbursement admin card contract",
+  "src/app/admin/shipping/ShippingClaimActions.tsx",
+  [
+    "Seller-protection reimbursement allocation",
+    "latest_seller_protection_reimbursement",
+    "reimbursementPlan",
+    "Inserted credits",
+    "Requested plan",
+    "Allocation rows",
+    "Skipped rows",
+    "shipping excluded",
+    "Saved after Mark Paid created or reused TCOS internal seller-protection",
+  ],
+);
 assertFileIncludes("queued-feature smoke manifest", "scripts/smoke-production.mjs", [
   "const queuedFeatureCheckNames = [",
   "Queued feature smoke manifest references unknown check(s):",
