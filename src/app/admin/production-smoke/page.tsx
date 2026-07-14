@@ -1,9 +1,19 @@
 import Link from "next/link";
 import { DEPLOY_SAFETY } from "../../../lib/deploy-safety";
+import { buildSellerMarketplaceReceiptHandoffContract } from "../../../lib/seller-marketplace-receipt-handoff";
 import { SELLER_PROTECTION_SMOKE_COVERAGE_LINE } from "../../../lib/seller-protection-launch-contract";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+const sellerMarketplaceReceiptHandoff =
+  buildSellerMarketplaceReceiptHandoffContract();
+const sellerMarketplaceReceiptHandoffControlsText =
+  sellerMarketplaceReceiptHandoff.controls.length > 1
+    ? `${sellerMarketplaceReceiptHandoff.controls
+        .slice(0, -1)
+        .join(", ")}, and ${sellerMarketplaceReceiptHandoff.controls.at(-1)}`
+    : sellerMarketplaceReceiptHandoff.controls.join(", ");
 
 const smokeChecks = [
   "Admin login and dashboard render with Shipping Provider Unlock Action Plan",
@@ -22,7 +32,7 @@ const smokeChecks = [
   "LetterTrack Standard Envelope CSV export",
   "Seller marketplace packet intake guardrail for cross-list prep only, no postage purchase, no Coverage policy creation, no payout release, no order fulfillment, and no automatic under-$20 protection activation",
   "Seller marketplace page renders Marketplace Packet Intake guidance, ready-row handoff, needs-work handoff, and prep-only export wording",
-  "Seller marketplace receipt handoff controls for Copy Safe Receipt, Download Safe Receipt, Copy Trail, Download Trail, and Clear Trail",
+  `Seller marketplace receipt handoff controls for ${sellerMarketplaceReceiptHandoffControlsText}`,
   "Seller inventory, order, and payout workspaces render login gates before exposing seller-owned data",
   "Clean production domain",
   `Unwanted ${DEPLOY_SAFETY.unwantedAlias} alias absence`,
@@ -101,9 +111,9 @@ const manualVerificationChecks = [
   },
   {
     label: "Seller marketplace receipt handoff",
-    href: "/seller/marketplaces",
+    href: sellerMarketplaceReceiptHandoff.route,
     proof:
-      "Seller Connections shows Copy Safe Receipt, Download Safe Receipt, Copy Trail, Download Trail, and Clear Trail in the receipt handoff proof text before operators rely on marketplace API receipt handoffs.",
+      `Seller Connections shows ${sellerMarketplaceReceiptHandoffControlsText} in the ${sellerMarketplaceReceiptHandoff.proofText} before operators rely on marketplace API receipt handoffs.`,
     ifBlocked:
       "Do not rely on chat history or raw provider errors for marketplace debugging; capture a safe receipt or trail only after the deployed Seller Connections page shows the handoff controls.",
   },
@@ -226,6 +236,50 @@ export default function ProductionSmokePage() {
               ))}
             </div>
           </article>
+        </section>
+
+        <section className="mb-8 rounded border border-emerald-200 bg-emerald-50 p-6 text-emerald-950">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h2 className="text-xl font-black">
+                {sellerMarketplaceReceiptHandoff.title}
+              </h2>
+              <p className="mt-2 max-w-4xl text-sm leading-6">
+                Production smoke uses the shared seller marketplace receipt
+                handoff contract. The proof target is{" "}
+                <code>{sellerMarketplaceReceiptHandoff.route}</code>, and the
+                page must show {sellerMarketplaceReceiptHandoff.proofText} plus
+                every required receipt control before operators use downloaded
+                marketplace API receipt handoffs.
+              </p>
+            </div>
+            <Link
+              href={sellerMarketplaceReceiptHandoff.route}
+              className="rounded border border-emerald-300 bg-white px-4 py-2 text-sm font-bold"
+            >
+              Open Seller Marketplaces
+            </Link>
+          </div>
+          <div className="mt-4 grid gap-3 lg:grid-cols-3">
+            <div className="rounded border border-emerald-200 bg-white p-4">
+              <h3 className="font-black">Required controls</h3>
+              <p className="mt-2 text-sm font-semibold">
+                {sellerMarketplaceReceiptHandoffControlsText}
+              </p>
+            </div>
+            <div className="rounded border border-emerald-200 bg-white p-4">
+              <h3 className="font-black">Covered operations</h3>
+              <p className="mt-2 text-sm font-semibold">
+                {sellerMarketplaceReceiptHandoff.operations.join(", ")}
+              </p>
+            </div>
+            <div className="rounded border border-emerald-200 bg-white p-4">
+              <h3 className="font-black">Safe-use boundary</h3>
+              <p className="mt-2 text-sm font-semibold">
+                {sellerMarketplaceReceiptHandoff.safeUseBoundary}
+              </p>
+            </div>
+          </div>
         </section>
 
         <section className="rounded border bg-white p-6">
