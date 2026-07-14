@@ -73,9 +73,16 @@ type SellerInventoryResponseItem = {
     coverageRequired: boolean;
     coverageType: string;
     sellerProtectionOptedIn: boolean;
+    sellerProtectionProvider: string;
+    sellerProtectionRate: number;
+    sellerProtectionMaxCoverage: number;
     sellerProtectionFeeEstimate: number;
     sellerProtectionCoveredAmount: number;
+    sellerProtectionCoverageBasis: string;
     sellerProtectionClaimRule: string;
+    sellerProtectionRefundRule: string;
+    sellerProtectionReimbursesShipping: boolean;
+    sellerProtectionLegalLabel: string;
     reason: string | null;
   };
   instaComp: {
@@ -178,9 +185,16 @@ function sellerInventoryShippingPlan(
     coverageRequired: coverage.required,
     coverageType: coverage.coverageType,
     sellerProtectionOptedIn,
+    sellerProtectionProvider: sellerProtection.provider,
+    sellerProtectionRate: sellerProtection.rate,
+    sellerProtectionMaxCoverage: sellerProtection.maxCoverage,
     sellerProtectionFeeEstimate: sellerProtection.feeAmount,
     sellerProtectionCoveredAmount: sellerProtection.coveredAmount,
+    sellerProtectionCoverageBasis: sellerProtection.coverageBasis,
     sellerProtectionClaimRule: sellerProtection.claimTrigger,
+    sellerProtectionRefundRule: sellerProtection.sellerRefundRule,
+    sellerProtectionReimbursesShipping: sellerProtection.reimbursesShipping,
+    sellerProtectionLegalLabel: sellerProtection.legalLabel,
     reason: resolved.reason,
   };
 }

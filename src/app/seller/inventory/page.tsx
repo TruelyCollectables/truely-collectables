@@ -55,9 +55,16 @@ type SellerInventoryItem = {
     coverageRequired: boolean;
     coverageType: string;
     sellerProtectionOptedIn: boolean;
+    sellerProtectionProvider: string;
+    sellerProtectionRate: number;
+    sellerProtectionMaxCoverage: number;
     sellerProtectionFeeEstimate: number;
     sellerProtectionCoveredAmount: number;
+    sellerProtectionCoverageBasis: string;
     sellerProtectionClaimRule: string;
+    sellerProtectionRefundRule: string;
+    sellerProtectionReimbursesShipping: boolean;
+    sellerProtectionLegalLabel: string;
     reason: string | null;
   };
   instaComp?: {
@@ -215,12 +222,16 @@ const marketplaceExportWarning =
   "Outbound marketplace packet only. Verify platform category, shipping, item specifics, and final listing rules before publishing externally.";
 
 const marketplaceExportShippingWarning =
-  "Shipping values are planning estimates only. This export does not buy postage, create Coverage policies, or publish to an external marketplace.";
+  "Shipping values are planning estimates only. This export does not buy postage, create Coverage policies, activate TCOS Under-$20 Seller Protection, reimburse shipping, or publish to an external marketplace.";
+
+const marketplaceExportSellerProtectionWarning =
+  "TCOS Under-$20 Seller Protection is an optional internal seller program, not insurance. It only applies when the seller opted in for the Standard Envelope shipment before fulfillment, delivery evidence does not show delivered under TCOS rules, and the seller/buyer refund is processed. Reimbursement is limited to the item sale amount up to $20; shipping is excluded.";
 
 const marketplaceExportChecklist = [
   "Verify the external marketplace category and item specifics before publishing.",
   "Recheck title, description, condition, authenticity, image, price, and quantity on the destination platform.",
   "Recalculate shipping on the destination platform or in TCOS checkout before any buyer purchase.",
+  "Confirm any TCOS Under-$20 Seller Protection opt-in before fulfillment; marketplace exports do not activate protection or reimburse shipping.",
   "Do not treat this packet as permission to publish externally, buy postage, create Coverage, or release payouts.",
 ];
 
@@ -292,11 +303,27 @@ function marketplaceExportRows(items: SellerInventoryItem[]) {
     shippingCoverageProvider: item.shippingPlan.coverageProvider,
     shippingCoverageRequired: item.shippingPlan.coverageRequired,
     shippingCoverageType: item.shippingPlan.coverageType,
+    standardEnvelopeDeliveryEvidenceRequirement:
+      item.shippingPlan.method === "STANDARD_ENVELOPE"
+        ? "LetterTrack/USPS IMb delivery evidence must be able to show delivered; delivered evidence blocks TCOS under-$20 seller-protection reimbursement."
+        : "",
     under20SellerProtectionOptedIn: item.shippingPlan.sellerProtectionOptedIn,
+    under20SellerProtectionProvider: item.shippingPlan.sellerProtectionProvider,
+    under20SellerProtectionRate: item.shippingPlan.sellerProtectionRate,
+    under20SellerProtectionMaxCoverage:
+      item.shippingPlan.sellerProtectionMaxCoverage,
     under20SellerProtectionFeeEstimate:
       item.shippingPlan.sellerProtectionFeeEstimate,
     under20SellerProtectionCoveredAmount:
       item.shippingPlan.sellerProtectionCoveredAmount,
+    under20SellerProtectionCoverageBasis:
+      item.shippingPlan.sellerProtectionCoverageBasis,
+    under20SellerProtectionClaimRule: item.shippingPlan.sellerProtectionClaimRule,
+    under20SellerProtectionRefundRule: item.shippingPlan.sellerProtectionRefundRule,
+    under20SellerProtectionReimbursesShipping:
+      item.shippingPlan.sellerProtectionReimbursesShipping,
+    under20SellerProtectionLegalLabel: item.shippingPlan.sellerProtectionLegalLabel,
+    under20SellerProtectionWarning: marketplaceExportSellerProtectionWarning,
     shippingPlanNote: item.shippingPlan.reason || "",
     shippingPurchaseIncluded: false,
     shippingPurchaseMode: "not_included_in_marketplace_export",
@@ -305,6 +332,7 @@ function marketplaceExportRows(items: SellerInventoryItem[]) {
     sellerPayoutReleaseProhibited: true,
     orderFulfillmentProhibited: true,
     shippingWarning: marketplaceExportShippingWarning,
+    sellerProtectionWarning: marketplaceExportSellerProtectionWarning,
     operatorChecklist: marketplaceExportChecklist.join(" | "),
     instacompScanId: item.instaComp?.scanId || "",
     serialNumber: item.instaComp?.serialNumber || "",
@@ -345,6 +373,7 @@ function marketplaceExportPacket(
     shippingPurchaseIncluded: false,
     warning: marketplaceExportWarning,
     shippingWarning: marketplaceExportShippingWarning,
+    sellerProtectionWarning: marketplaceExportSellerProtectionWarning,
     operatorChecklist: marketplaceExportChecklist,
     prohibitedActions: [
       "external_marketplace_publish",
@@ -2905,6 +2934,13 @@ export default function SellerInventoryPage() {
                         {item.shippingPlan.sellerProtectionOptedIn
                           ? "Seller opted into TCOS Under-$20 Seller Protection for this listing. The 2% reserve is withheld from payout if this ships by Standard Envelope. If a covered refund is required, TCOS reimburses the item sale amount up to $20; shipping is not reimbursed."
                           : "Seller has not opted in. If this Standard Envelope shipment is lost or cannot show delivered status, the seller is responsible for refunding the buyer in full."}
+                      </p>
+                    ) : null}
+                    {item.shippingPlan.method === "STANDARD_ENVELOPE" ? (
+                      <p className="mt-2 text-xs font-semibold text-emerald-950">
+                        Not insurance: LetterTrack/USPS IMb is delivery evidence;
+                        TCOS protection is an internal optional seller program
+                        and shipping is excluded from reimbursement.
                       </p>
                     ) : null}
                     {item.shippingPlan.reason ? (

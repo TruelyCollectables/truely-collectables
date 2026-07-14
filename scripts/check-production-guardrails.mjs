@@ -990,6 +990,50 @@ assertFileIncludes(
   ],
 );
 assertFileIncludes(
+  "seller inventory marketplace export seller protection contract",
+  "src/app/seller/inventory/page.tsx",
+  [
+    "marketplaceExportSellerProtectionWarning",
+    "not insurance",
+    "delivery evidence does not show delivered",
+    "shipping is excluded",
+    "Confirm any TCOS Under-$20 Seller Protection opt-in before fulfillment",
+    "standardEnvelopeDeliveryEvidenceRequirement",
+    "delivered evidence blocks TCOS under-$20 seller-protection reimbursement",
+    "under20SellerProtectionProvider",
+    "under20SellerProtectionRate",
+    "under20SellerProtectionMaxCoverage",
+    "under20SellerProtectionCoverageBasis",
+    "under20SellerProtectionClaimRule",
+    "under20SellerProtectionRefundRule",
+    "under20SellerProtectionReimbursesShipping",
+    "under20SellerProtectionLegalLabel",
+    "under20SellerProtectionWarning",
+    "sellerProtectionWarning",
+    "Not insurance: LetterTrack/USPS IMb is delivery evidence",
+  ],
+);
+assertFileIncludes(
+  "seller inventory API seller protection export contract",
+  "src/app/api/account/seller/inventory/route.ts",
+  [
+    "sellerProtectionProvider",
+    "sellerProtectionRate",
+    "sellerProtectionMaxCoverage",
+    "sellerProtectionCoverageBasis",
+    "sellerProtectionRefundRule",
+    "sellerProtectionReimbursesShipping",
+    "sellerProtectionLegalLabel",
+    "sellerProtection.provider",
+    "sellerProtection.rate",
+    "sellerProtection.maxCoverage",
+    "sellerProtection.coverageBasis",
+    "sellerProtection.sellerRefundRule",
+    "sellerProtection.reimbursesShipping",
+    "sellerProtection.legalLabel",
+  ],
+);
+assertFileIncludes(
   "seller protection seller order detail UI visibility contract",
   "src/app/seller/orders/[id]/page.tsx",
   [

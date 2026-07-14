@@ -3935,6 +3935,7 @@ Every Seller Inventory row also shows a default single-unit shipping plan derive
 - cards at `$20.00` or less default to Standard Envelope
 - cards at `$20.01` or higher default to Ground Advantage
 - the row shows the estimated postage, estimated ounces, Coverage provider, Coverage requirement, and Coverage type
+- Standard Envelope rows also show whether the seller opted into TCOS Under-$20 Seller Protection, the 2% reserve estimate, the protected item cap, and the not-insurance reminder that LetterTrack/USPS IMb is delivery evidence while shipping is excluded from reimbursement
 - if the rules force a method change, the reason appears under the shipping plan
 
 This Seller Inventory plan is a listing handoff aid. Final checkout/order shipping can still recalculate for multi-card carts or operator-entered package details.
@@ -3960,9 +3961,10 @@ Marketplace packet controls in Seller Inventory:
 - `Download Marketplace CSV` downloads selected ready rows in spreadsheet form
 - the Bulk Controls panel displays visible guardrails before export: cross-list prep only, no external publishing, no postage purchase, and the ready-row export count
 - only activation-ready selected rows are included
-- the export contains TCOS inventory ID, SKU, title, price, quantity, category, condition, description, image URL, shipping method, postage estimate, Coverage fields, shipping-purchase guardrail fields, InstaComp scan ID, serial number, market/listing price evidence, and readiness blockers
-- copied/downloaded JSON packets also include packet-level `crosslist_prep_only`, `externalPublishingApproved = false`, `shippingPurchaseIncluded = false`, shipping warning metadata, an operator checklist, a prohibited-action manifest, and export context with selected count, ready count, visible count, active filters, and search text
+- the export contains TCOS inventory ID, SKU, title, price, quantity, category, condition, description, image URL, shipping method, postage estimate, Coverage fields, Standard Envelope delivery-evidence requirement, under-$20 seller-protection provider/rate/max/cap/claim/refund/not-insurance fields, shipping-purchase guardrail fields, InstaComp scan ID, serial number, market/listing price evidence, and readiness blockers
+- copied/downloaded JSON packets also include packet-level `crosslist_prep_only`, `externalPublishingApproved = false`, `shippingPurchaseIncluded = false`, shipping warning metadata, seller-protection warning metadata, an operator checklist, a prohibited-action manifest, and export context with selected count, ready count, visible count, active filters, and search text
 - downloaded marketplace CSV rows include matching prohibited-action columns for external publishing, postage purchase, Coverage policy creation, seller payout release, and order fulfillment
+- marketplace exports do not opt the seller into TCOS Under-$20 Seller Protection, create insurance, buy postage, or reimburse shipping; the opt-in must exist before fulfillment and a seller-protection reimbursement requires LetterTrack/USPS IMb delivery evidence that does not show delivered under TCOS rules
 - downloaded marketplace packet/CSV filenames include ready-row count plus current status, readiness, source, and search context so saved files can be matched back to the seller inventory view that produced them
 
 These packet controls are outbound preparation only. They do not publish to eBay, Whatnot, Shopify, COMC, or another external storefront. Before any real external publishing connector is enabled, implement and test platform-specific listing rules, seller authorization, idempotency, duplicate prevention, fee/shipping mapping, image upload rules, and external-listing reconciliation.
@@ -4790,7 +4792,7 @@ Recent seller workspace wording cleanup:
 - InstaComp draft success links now open the Seller Inventory InstaComp lane directly through `Open InstaComp Drafts` and `Open in InstaComp drafts`.
 - Seller Inventory now has a `Source` filter with an `InstaComp` lane, InstaComp item badges, scan/serial/price-source details, and ready-row marketplace packet export controls.
 - InstaComp draft titles now prefer serial-run display such as `/50` instead of exact copy-number display such as `07/50`; true one-of-one cards remain `1/1`. Admin, test, and comp-search title generation share the same serial-run display helper so the behavior does not drift.
-- Seller Inventory rows now show the default Standard Envelope/Ground Advantage shipping plan, estimated postage, Coverage requirement, and Coverage type; selected rows now show a shipping mix summary before activation or marketplace export, and selected ready-row marketplace packets include those shipping fields.
+- Seller Inventory rows now show the default Standard Envelope/Ground Advantage shipping plan, estimated postage, Coverage requirement, Coverage type, and Standard Envelope under-$20 seller-protection warning; selected rows now show a shipping mix summary before activation or marketplace export, and selected ready-row marketplace packets include self-contained 2% reserve, `$20.00` cap, claim trigger, not-insurance, and shipping-excluded reimbursement fields.
 - Seller Inventory Selection Summary now shows a selected-row activation check with activatable, needs-work, active, archived, and top-blocker counts before `Activate Ready`.
 - Seller Inventory Bulk Action Follow-Up now groups failed rows by blocker reason and lets operators keep only a specific blocker group selected for cleanup.
 - Seller Inventory Bulk Action Follow-Up now shows `Retry Corrected` when failed rows have become eligible for the same activation/archive action.
