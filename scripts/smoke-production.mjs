@@ -264,6 +264,10 @@ function runRedactionSelfTest() {
   console.log("Production smoke redaction self-test passed.");
 }
 
+function missingRequiredText(result, check) {
+  return (check.requiredText || []).filter((text) => !result.text.includes(text));
+}
+
 if (redactionSelfTest) {
   runRedactionSelfTest();
   process.exit(0);
@@ -484,6 +488,13 @@ const checks = [
   {
     name: "admin shipping lettertrack controls",
     path: "/admin/shipping",
+    requiredText: [
+      "Export LetterTrack CSV",
+      "LetterTrack IMb Recording",
+      "LetterTrack Delivery Evidence",
+      "Seller Protection Refund Proof Missing",
+      "Seller Protection Payout Blocked",
+    ],
     expect: (result) =>
       result.text.includes("Export LetterTrack CSV") &&
       result.text.includes("LetterTrack IMb Recording") &&
@@ -687,6 +698,7 @@ const results = [
     durationMs: login.durationMs,
     contentType: login.contentType,
     snippet: safeSnippet(login.text, login.error),
+    missingText: "",
     passed: login.ok && Boolean(cookie),
   },
 ];
@@ -696,6 +708,7 @@ for (const check of checks) {
     ...check.options,
     headers: { ...authHeaders, ...(check.options?.headers || {}) },
   });
+  const missingText = missingRequiredText(result, check);
   results.push({
     name: check.name,
     path: check.path,
@@ -703,7 +716,8 @@ for (const check of checks) {
     durationMs: result.durationMs,
     contentType: result.contentType,
     snippet: safeSnippet(result.text, result.error),
-    passed: result.ok && check.expect(result),
+    missingText: missingText.join(" | "),
+    passed: result.ok && check.expect(result) && missingText.length === 0,
   });
 }
 
@@ -717,6 +731,7 @@ results.push({
   snippet:
     safeSnippet(unwantedAlias.text, unwantedAlias.error) ||
     "alias did not return content",
+  missingText: "",
   passed: !unwantedAlias.ok,
 });
 
@@ -751,6 +766,7 @@ if (failed.length > 0) {
       status: result.status,
       durationMs: result.durationMs,
       contentType: result.contentType || "none",
+      missingText: result.missingText || "none",
       snippet: result.snippet || "empty response",
     })),
   );

@@ -1830,6 +1830,7 @@ Current seller payout verification foundation:
 - the Under-$20 Seller Protection launch handoff contract is now centralized in `src/lib/seller-protection-launch-contract.ts`, so `/api/admin/launch-readiness` and `/admin/production-smoke` share the same reserve, cap, evidence, ledger, migration, and handoff-link source
 - `/admin/shipping` now keeps the Seller Protection Refund Proof Missing and Seller Protection Payout Blocked guardrails visible even when there are no current matching claims, so production smoke can verify the seller-protection control plane on an empty queue
 - production guardrails now protect the always-visible `/admin/shipping` Under-$20 Seller Protection Guardrails text, keeping empty-queue smoke coverage tied to source code instead of only the smoke runner
+- production smoke now reports missing expected text for the `/admin/shipping` LetterTrack and seller-protection controls check, so failed smoke output names the absent launch strings instead of only showing a clipped HTML snippet
 - `/admin/seller-payouts` now shows an admin Under-$20 Protection Reserve view across loaded payout ledger rows that carry TCOS under-$20 protection metadata, including 2% reserve withheld, protected item amount, protected/liability row counts, and shipping excluded from reimbursement
 - `/admin/seller-payouts` seller payout ledger rows now also show row-level under-$20 protection chips for Standard Envelope rows with protection metadata, so operators can see protected/liability status and reserve math before releasing or holding a payout row
 - the Seller Cash-Out panel now breaks held funds into pending-fulfillment holds, dispute holds, reserved open requests, and cancelled/reversed rows so sellers can see what is truly cash-out ready
@@ -4338,6 +4339,7 @@ Parcel rules currently embedded in TCOS:
 - `src/lib/seller-protection-launch-contract.ts` is the shared launch-handoff source for the Under-$20 Seller Protection contract; update that file first before changing launch-readiness or production-smoke wording
 - `/admin/shipping` renders an always-visible Under-$20 Seller Protection Guardrails note so refund-proof and payout-blocker controls remain discoverable even before any claim creates a live exception row
 - the production guardrail script checks that `/admin/shipping` keeps the Under-$20 Seller Protection Guardrails source text, so the production smoke expectation remains backed by a page-level contract
+- failed production smoke rows now include a `missingText` field for required text checks, starting with the `/admin/shipping` LetterTrack and seller-protection controls smoke
 - when a seller does not opt in for a Standard Envelope shipment, no 2% reserve is withheld and the seller is responsible for refunding the buyer in full if the shipment is lost or cannot satisfy TCOS delivery-evidence rules
 - parcel Coverage is required for Ground Advantage and Priority shipments
 - current buyer charge for Coverage is zero

@@ -335,6 +335,9 @@ assertFileIncludes("shipping simulation API smoke contract", "scripts/smoke-prod
 assertFileIncludes("admin shipping controls smoke contract", "scripts/smoke-production.mjs", [
   'name: "admin shipping lettertrack controls"',
   'path: "/admin/shipping"',
+  "requiredText:",
+  "missingRequiredText",
+  "missingText",
   "Export LetterTrack CSV",
   "LetterTrack IMb Recording",
   "LetterTrack Delivery Evidence",
