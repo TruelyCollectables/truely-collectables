@@ -4418,7 +4418,7 @@ Provider purchase attempts in `/api/admin/orders/[id]/shipping-labels` now check
 
 `/admin/launch-readiness` also includes the same Shipping Setup Verdict, the live-shipping launch gate status, the Standard Envelope evidence validator state, and database checks for `live_shipping_launch_gates` plus `live_shipping_launch_events`. Treat this as the production-readiness warning surface; it does not mean live postage buying is enabled.
 
-The same `/admin/launch-gate-drill` report also checks the live-shipping runtime lock without quoting, buying, voiding, or recording a provider label. In dry-run mode, the expected safe result is that the dry-run shipping path remains available while live postage remains locked. In live mode, the drill expects the runtime gate to match the live-shipping launch report.
+The same `/admin/launch-gate-drill` report also checks the live-shipping runtime lock without quoting, buying, voiding, or recording a provider label. In dry-run mode, the expected safe result is that the dry-run shipping path remains available while live postage remains locked. In live mode, the drill expects the runtime gate to match the live-shipping launch report. The drill page, JSON, and Markdown report also show the Standard Envelope evidence validator state so operators can confirm the under-$20 card-shipping contract stayed intact during the no-postage runtime smoke.
 
 The drill's Shipping Launch Posture card lists the blocked live-shipping checks and next actions, such as configuring provider credentials, building the live quote/buy/void adapter, proving Coverage purchase, and wiring provider webhook reconciliation. Keep shipping in `Locked Safe` until those items are actually ready.
 

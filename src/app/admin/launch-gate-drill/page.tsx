@@ -120,6 +120,10 @@ export default async function LaunchGateDrillPage() {
               <dd>
                 {report.shipping.purchaseMode.toUpperCase()} mode, live shipping{" "}
                 {report.shipping.liveShippingEnabled ? "enabled" : "locked"}.
+                Standard Envelope evidence validator is{" "}
+                {report.shipping.standardEnvelopeEvidenceContractReady
+                  ? "ready"
+                  : "blocked"}.
               </dd>
             </div>
           </dl>

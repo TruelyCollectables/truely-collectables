@@ -51,6 +51,7 @@ function reportMarkdown(report: LaunchGateDrillReport) {
     `- Failed: ${report.summary.failed}`,
     `- Payment runtime: ${report.payment.paymentMode}; live payments ${report.payment.livePaymentsEnabled ? "enabled" : "locked"}`,
     `- Shipping runtime: ${report.shipping.purchaseMode}; live shipping ${report.shipping.liveShippingEnabled ? "enabled" : "locked"}`,
+    `- Standard Envelope evidence validator: ${report.shipping.standardEnvelopeEvidenceContractReady ? "ready" : "blocked"}`,
     "",
     postureMarkdown("Payment Launch Posture", report.posture.payment),
     postureMarkdown("Shipping Launch Posture", report.posture.shipping),

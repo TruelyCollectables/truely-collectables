@@ -257,18 +257,26 @@ assertFileIncludes("launch gate drill smoke contract", "scripts/smoke-production
   "Launch Gate Drill",
   "No-money runtime smoke",
   "Download Drill Report",
+  "Standard Envelope evidence validator is ready",
   "Not allowed during this drill",
   'name: "launch gate drill json"',
   'path: "/api/admin/launch-gate-drill"',
   'result.contentType.includes("application/json")',
+  '"standardEnvelopeEvidenceContractReady":true',
   '"sideEffectPolicy"',
   '"forbiddenOperations"',
   'name: "launch gate drill markdown"',
   'path: "/api/admin/launch-gate-drill?format=markdown"',
   'result.contentType.includes("text/markdown")',
   "# TCOS Launch Gate Drill Report",
+  "Standard Envelope evidence validator: ready",
   "## Side-effect Guardrails",
   "### Forbidden Operations",
+]);
+assertFileIncludes("launch gate drill shipping evidence source", "src/lib/launch-gate-drill.ts", [
+  "standardEnvelopeEvidenceContractReady: boolean",
+  "shippingReport.standardEnvelopeEvidenceContractReady",
+  "Standard Envelope evidence validator is",
 ]);
 assertFileIncludes("production smoke page contract", "scripts/smoke-production.mjs", [
   'name: "production smoke report page"',

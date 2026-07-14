@@ -449,6 +449,7 @@ const checks = [
       result.text.includes("Launch Gate Drill") &&
       result.text.includes("No-money runtime smoke") &&
       result.text.includes("Download Drill Report") &&
+      result.text.includes("Standard Envelope evidence validator is ready") &&
       result.text.includes("Side-effect Guardrails") &&
       result.text.includes("Not allowed during this drill"),
   },
@@ -457,6 +458,7 @@ const checks = [
     path: "/api/admin/launch-gate-drill",
     expect: (result) =>
       result.contentType.includes("application/json") &&
+      result.text.includes('"standardEnvelopeEvidenceContractReady":true') &&
       result.text.includes('"sideEffectPolicy"') &&
       result.text.includes('"forbiddenOperations"'),
   },
@@ -466,6 +468,7 @@ const checks = [
     expect: (result) =>
       result.contentType.includes("text/markdown") &&
       result.text.includes("# TCOS Launch Gate Drill Report") &&
+      result.text.includes("Standard Envelope evidence validator: ready") &&
       result.text.includes("## Side-effect Guardrails") &&
       result.text.includes("### Forbidden Operations"),
   },

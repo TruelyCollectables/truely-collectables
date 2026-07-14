@@ -35,6 +35,7 @@ export type LaunchGateDrillReport = {
   shipping: {
     liveShippingEnabled: boolean;
     purchaseMode: string;
+    standardEnvelopeEvidenceContractReady: boolean;
   };
   posture: {
     payment: LaunchGatePosture;
@@ -159,6 +160,7 @@ function buildShippingPosture(params: {
   approvalReady: boolean;
   liveShippingEnabled: boolean;
   purchaseMode: string;
+  standardEnvelopeEvidenceContractReady: boolean;
   blockedChecks: string[];
   warningChecks: string[];
 }): LaunchGatePosture {
@@ -182,7 +184,7 @@ function buildShippingPosture(params: {
       status: "ready",
       label: "Live Shipping Open",
       detail:
-        "The live-shipping runtime lock is open and the no-postage drill matches the live-shipping launch report.",
+        `The live-shipping runtime lock is open and the no-postage drill matches the live-shipping launch report. Standard Envelope evidence validator is ${params.standardEnvelopeEvidenceContractReady ? "ready" : "blocked"}.`,
       blockedChecks: params.blockedChecks,
       warningChecks: params.warningChecks,
       nextActions: [
@@ -197,7 +199,7 @@ function buildShippingPosture(params: {
       status: "locked",
       label: "Shipping Safely Locked",
       detail:
-        "Shipping is intentionally limited to dry-run planning and manual external label records. TCOS is not allowed to buy live postage.",
+        `Shipping is intentionally limited to dry-run planning and manual external label records. TCOS is not allowed to buy live postage. Standard Envelope evidence validator is ${params.standardEnvelopeEvidenceContractReady ? "ready" : "blocked"}.`,
       blockedChecks: params.blockedChecks,
       warningChecks: params.warningChecks,
       nextActions: [
@@ -212,7 +214,7 @@ function buildShippingPosture(params: {
     status: "blocked",
     label: "Shipping Gate Blocked",
     detail:
-      "Live shipping is not ready. The runtime should remain closed until provider setup, simulations, live requirements, and admin approval all pass.",
+      `Live shipping is not ready. Standard Envelope evidence validator is ${params.standardEnvelopeEvidenceContractReady ? "ready" : "blocked"}. The runtime should remain closed until provider setup, simulations, live requirements, and admin approval all pass.`,
     blockedChecks: params.blockedChecks,
     warningChecks: params.warningChecks,
     nextActions: [
@@ -362,6 +364,8 @@ export async function runLaunchGateDrill(params?: {
     shipping: {
       liveShippingEnabled: shippingReport.liveShippingEnabled,
       purchaseMode: shippingReport.purchaseMode,
+      standardEnvelopeEvidenceContractReady:
+        shippingReport.standardEnvelopeEvidenceContractReady,
     },
     posture: {
       payment: buildPaymentPosture({
@@ -377,6 +381,8 @@ export async function runLaunchGateDrill(params?: {
         approvalReady: shippingReport.approvalReady,
         liveShippingEnabled: shippingReport.liveShippingEnabled,
         purchaseMode: shippingReport.purchaseMode,
+        standardEnvelopeEvidenceContractReady:
+          shippingReport.standardEnvelopeEvidenceContractReady,
         blockedChecks: shippingBlockedChecks,
         warningChecks: shippingWarningChecks,
       }),
