@@ -163,6 +163,15 @@ function runExpectedFailure(name, args, env, expectedText) {
 
 runGuardrailRedactionSelfTest();
 
+assertFileIncludes("generated Next artifact ignores", ".gitignore", [
+  "/.next/",
+  "/.next-*/",
+]);
+assertFileIncludes("generated Next artifact lint ignores", "eslint.config.mjs", [
+  ".next/**",
+  ".next-*/**",
+]);
+
 runExpectedSuccess("deploy helper syntax check", [
   "--check",
   "scripts/deploy-production.mjs",
