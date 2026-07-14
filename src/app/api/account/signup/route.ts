@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import {
+  accountAuthResponseHeaders,
   createOrUpdateAccountProfile,
   ensureAccountStoreMembership,
   recordAccountAuthEvent,
@@ -43,21 +44,48 @@ export async function POST(request: Request) {
     if (!email || !password) {
       return NextResponse.json(
         { error: "Email and password are required" },
-        { status: 400 },
+        {
+          status: 400,
+          headers: accountAuthResponseHeaders({
+            action: "signup",
+            status: "missing_credentials",
+            cardVerification: cardVerificationRequired ? "required" : "not_required",
+            session: "not_issued",
+            membership: "none",
+          }),
+        },
       );
     }
 
     if (password.length < 10) {
       return NextResponse.json(
         { error: "Password must be at least 10 characters" },
-        { status: 400 },
+        {
+          status: 400,
+          headers: accountAuthResponseHeaders({
+            action: "signup",
+            status: "weak_password",
+            cardVerification: cardVerificationRequired ? "required" : "not_required",
+            session: "not_issued",
+            membership: "none",
+          }),
+        },
       );
     }
 
     if (!tosAccepted) {
       return NextResponse.json(
         { error: "Terms of Service must be accepted before creating an account" },
-        { status: 400 },
+        {
+          status: 400,
+          headers: accountAuthResponseHeaders({
+            action: "signup",
+            status: "terms_required",
+            cardVerification: cardVerificationRequired ? "required" : "not_required",
+            session: "not_issued",
+            membership: "none",
+          }),
+        },
       );
     }
 
@@ -81,7 +109,16 @@ export async function POST(request: Request) {
       const blocked = accountAuthBlockedResponse(securityCheck);
       return NextResponse.json(
         { error: blocked.error },
-        { status: blocked.status },
+        {
+          status: blocked.status,
+          headers: accountAuthResponseHeaders({
+            action: "signup",
+            status: "blocked",
+            cardVerification: cardVerificationRequired ? "required" : "not_required",
+            session: "not_issued",
+            membership: "none",
+          }),
+        },
       );
     }
 
@@ -95,7 +132,16 @@ export async function POST(request: Request) {
       if (!stripeRuntime.allowed || !stripeRuntime.stripeKey) {
         return NextResponse.json(
           { error: stripeRuntime.reason },
-          { status: 503 },
+          {
+            status: 503,
+            headers: accountAuthResponseHeaders({
+              action: "signup",
+              status: "payment_runtime_unavailable",
+              cardVerification: "required",
+              session: "not_issued",
+              membership: "none",
+            }),
+          },
         );
       }
       stripeKey = stripeRuntime.stripeKey;
@@ -123,7 +169,16 @@ export async function POST(request: Request) {
 
       return NextResponse.json(
         { error: error?.message || "Account signup failed" },
-        { status: 400 },
+        {
+          status: 400,
+          headers: accountAuthResponseHeaders({
+            action: "signup",
+            status: "signup_failed",
+            cardVerification: cardVerificationRequired ? "required" : "not_required",
+            session: "not_issued",
+            membership: "none",
+          }),
+        },
       );
     }
 
@@ -189,17 +244,31 @@ export async function POST(request: Request) {
       cardVerificationUrl = session.url;
     }
 
-    return NextResponse.json({
-      success: true,
-      userId: data.user.id,
-      email,
-      emailConfirmationRequired: !data.session,
-      accountStatus,
-      cardVerificationRequired,
-      stripeSessionId,
-      cardVerificationUrl,
-      session: cardVerificationRequired ? null : data.session,
-    });
+    return NextResponse.json(
+      {
+        success: true,
+        userId: data.user.id,
+        email,
+        emailConfirmationRequired: !data.session,
+        accountStatus,
+        cardVerificationRequired,
+        stripeSessionId,
+        cardVerificationUrl,
+        session: cardVerificationRequired ? null : data.session,
+      },
+      {
+        headers: accountAuthResponseHeaders({
+          action: "signup",
+          status: cardVerificationRequired
+            ? "created_pending_card_verification"
+            : "created_active",
+          cardVerification: cardVerificationRequired ? "required" : "not_required",
+          session:
+            !cardVerificationRequired && data.session ? "issued" : "not_issued",
+          membership: "buyer",
+        }),
+      },
+    );
   } catch (error: any) {
     await recordAccountAuthEvent({
       request,
@@ -211,7 +280,16 @@ export async function POST(request: Request) {
 
     return NextResponse.json(
       { error: error.message || "Account signup failed" },
-      { status: 500 },
+      {
+        status: 500,
+        headers: accountAuthResponseHeaders({
+          action: "signup",
+          status: "error",
+          cardVerification: "unknown",
+          session: "not_issued",
+          membership: "none",
+        }),
+      },
     );
   }
 }

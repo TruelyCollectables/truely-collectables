@@ -1269,6 +1269,70 @@ assertFileIncludes(
   ],
 );
 assertFileIncludes(
+  "account auth response header helper",
+  "src/lib/account-auth.ts",
+  [
+    "function accountAuthResponseHeaders",
+    "X-TCOS-Account-Auth-Action",
+    "X-TCOS-Account-Auth-Status",
+    "X-TCOS-Account-Auth-Card-Verification",
+    "X-TCOS-Account-Auth-Session",
+    "X-TCOS-Account-Auth-Membership",
+  ],
+);
+assertFileIncludes(
+  "account login response contract",
+  "src/app/api/account/login/route.ts",
+  [
+    "accountAuthResponseHeaders",
+    'action: "login"',
+    'status: "missing_credentials"',
+    'status: "blocked"',
+    'status: "invalid_credentials"',
+    'status: "payment_verification_required"',
+    'status: "inactive"',
+    'status: "authenticated"',
+    'cardVerification: "required"',
+    'cardVerification: profile?.card_verified ? "verified" : "active"',
+    'session: "issued"',
+    'membership: "buyer"',
+  ],
+);
+assertFileIncludes(
+  "account signup response contract",
+  "src/app/api/account/signup/route.ts",
+  [
+    "accountAuthResponseHeaders",
+    'action: "signup"',
+    'status: "missing_credentials"',
+    'status: "weak_password"',
+    'status: "terms_required"',
+    'status: "blocked"',
+    'status: "payment_runtime_unavailable"',
+    'status: "signup_failed"',
+    '"created_pending_card_verification"',
+    '"created_active"',
+    "stripeSessionId",
+    "cardVerificationUrl",
+    '!cardVerificationRequired && data.session ? "issued" : "not_issued"',
+    'membership: "buyer"',
+  ],
+);
+assertFileIncludes(
+  "account auth operator manual contract",
+  "docs/TCOS_OPERATOR_MANUAL.md",
+  [
+    "/api/account/login",
+    "/api/account/signup",
+    "X-TCOS-Account-Auth-Action",
+    "X-TCOS-Account-Auth-Status",
+    "X-TCOS-Account-Auth-Card-Verification",
+    "X-TCOS-Account-Auth-Session",
+    "X-TCOS-Account-Auth-Membership",
+    "without exposing emails, account IDs, auth sessions, Stripe session IDs, or card data",
+  ],
+);
+assertFileIncludes(
   "account dashboard operator manual contract",
   "docs/TCOS_OPERATOR_MANUAL.md",
   [

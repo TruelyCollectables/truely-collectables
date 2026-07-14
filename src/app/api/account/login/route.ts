@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import {
+  accountAuthResponseHeaders,
   createOrUpdateAccountProfile,
   ensureAccountStoreMembership,
   recordAccountAuthEvent,
@@ -27,7 +28,16 @@ export async function POST(request: Request) {
     if (!email || !password) {
       return NextResponse.json(
         { error: "Email and password are required" },
-        { status: 400 },
+        {
+          status: 400,
+          headers: accountAuthResponseHeaders({
+            action: "login",
+            status: "missing_credentials",
+            cardVerification: "unknown",
+            session: "not_issued",
+            membership: "none",
+          }),
+        },
       );
     }
 
@@ -50,7 +60,16 @@ export async function POST(request: Request) {
       const blocked = accountAuthBlockedResponse(securityCheck);
       return NextResponse.json(
         { error: blocked.error },
-        { status: blocked.status },
+        {
+          status: blocked.status,
+          headers: accountAuthResponseHeaders({
+            action: "login",
+            status: "blocked",
+            cardVerification: "unknown",
+            session: "not_issued",
+            membership: "none",
+          }),
+        },
       );
     }
 
@@ -71,7 +90,16 @@ export async function POST(request: Request) {
 
       return NextResponse.json(
         { error: error?.message || "Account login failed" },
-        { status: 401 },
+        {
+          status: 401,
+          headers: accountAuthResponseHeaders({
+            action: "login",
+            status: "invalid_credentials",
+            cardVerification: "unknown",
+            session: "not_issued",
+            membership: "none",
+          }),
+        },
       );
     }
 
@@ -102,7 +130,16 @@ export async function POST(request: Request) {
               ? "Card verification did not meet TCOS policy. Use a valid payment card with a complete US billing address before logging in."
               : "Card and US billing address verification must be completed before this account can log in.",
         },
-        { status: 403 },
+        {
+          status: 403,
+          headers: accountAuthResponseHeaders({
+            action: "login",
+            status: "payment_verification_required",
+            cardVerification: "required",
+            session: "not_issued",
+            membership: "none",
+          }),
+        },
       );
     }
 
@@ -118,7 +155,16 @@ export async function POST(request: Request) {
 
       return NextResponse.json(
         { error: "This account is not active." },
-        { status: 403 },
+        {
+          status: 403,
+          headers: accountAuthResponseHeaders({
+            action: "login",
+            status: "inactive",
+            cardVerification: "unknown",
+            session: "not_issued",
+            membership: "none",
+          }),
+        },
       );
     }
 
@@ -135,12 +181,23 @@ export async function POST(request: Request) {
       success: true,
     });
 
-    return NextResponse.json({
-      success: true,
-      userId: data.user.id,
-      email,
-      session: data.session,
-    });
+    return NextResponse.json(
+      {
+        success: true,
+        userId: data.user.id,
+        email,
+        session: data.session,
+      },
+      {
+        headers: accountAuthResponseHeaders({
+          action: "login",
+          status: "authenticated",
+          cardVerification: profile?.card_verified ? "verified" : "active",
+          session: "issued",
+          membership: "buyer",
+        }),
+      },
+    );
   } catch (error: any) {
     await recordAccountAuthEvent({
       request,
@@ -152,7 +209,16 @@ export async function POST(request: Request) {
 
     return NextResponse.json(
       { error: error.message || "Account login failed" },
-      { status: 500 },
+      {
+        status: 500,
+        headers: accountAuthResponseHeaders({
+          action: "login",
+          status: "error",
+          cardVerification: "unknown",
+          session: "not_issued",
+          membership: "none",
+        }),
+      },
     );
   }
 }

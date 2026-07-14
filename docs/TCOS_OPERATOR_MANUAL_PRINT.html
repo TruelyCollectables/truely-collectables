@@ -1745,6 +1745,7 @@ src/app/api/admin/files/[id]/download/route.ts</code></pre>
 <li>signup/login checks recent failed attempts by IP and email before calling Supabase Auth</li>
 <li>six failed signup or login attempts inside 15 minutes triggers a 15-minute account auth lockout</li>
 <li>account auth failures store <code>failure_reason</code> and <code>lockout_until</code> when the lockout migration exists</li>
+<li><code>/api/account/login</code> and <code>/api/account/signup</code> responses include <code>X-TCOS-Account-Auth-Action</code>, <code>X-TCOS-Account-Auth-Status</code>, <code>X-TCOS-Account-Auth-Card-Verification</code>, <code>X-TCOS-Account-Auth-Session</code>, and <code>X-TCOS-Account-Auth-Membership</code> headers so support can distinguish active, blocked, pending-verification, and failed auth outcomes without exposing emails, account IDs, auth sessions, Stripe session IDs, or card data</li>
 <li>logged-in checkout and offer flows attach the account ID to Stripe metadata</li>
 <li>completed Stripe webhooks save <code>orders.account_id</code> when account metadata is present</li>
 <li>customer-created offers save <code>offers.account_id</code> when the customer is logged in</li>

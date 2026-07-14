@@ -1527,6 +1527,7 @@ Current behavior:
 - signup/login checks recent failed attempts by IP and email before calling Supabase Auth
 - six failed signup or login attempts inside 15 minutes triggers a 15-minute account auth lockout
 - account auth failures store `failure_reason` and `lockout_until` when the lockout migration exists
+- `/api/account/login` and `/api/account/signup` responses include `X-TCOS-Account-Auth-Action`, `X-TCOS-Account-Auth-Status`, `X-TCOS-Account-Auth-Card-Verification`, `X-TCOS-Account-Auth-Session`, and `X-TCOS-Account-Auth-Membership` headers so support can distinguish active, blocked, pending-verification, and failed auth outcomes without exposing emails, account IDs, auth sessions, Stripe session IDs, or card data
 - logged-in checkout and offer flows attach the account ID to Stripe metadata
 - completed Stripe webhooks save `orders.account_id` when account metadata is present
 - customer-created offers save `offers.account_id` when the customer is logged in

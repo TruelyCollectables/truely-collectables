@@ -31,6 +31,22 @@ export type AuthenticatedAccount = {
   email: string | null;
 };
 
+export function accountAuthResponseHeaders(params: {
+  action: "login" | "signup";
+  status: string;
+  cardVerification: string;
+  session: "issued" | "not_issued";
+  membership: "buyer" | "none";
+}): HeadersInit {
+  return {
+    "X-TCOS-Account-Auth-Action": params.action,
+    "X-TCOS-Account-Auth-Status": params.status,
+    "X-TCOS-Account-Auth-Card-Verification": params.cardVerification,
+    "X-TCOS-Account-Auth-Session": params.session,
+    "X-TCOS-Account-Auth-Membership": params.membership,
+  };
+}
+
 function getSupabaseClient(): SupabaseClient {
   return createSupabaseServerClient({ admin: true });
 }
