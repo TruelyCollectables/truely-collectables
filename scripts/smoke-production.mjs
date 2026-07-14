@@ -397,6 +397,24 @@ const checks = [
   {
     name: "production smoke report page",
     path: "/admin/production-smoke",
+    requiredText: [
+      "Production Smoke Report",
+      "Smoke coverage",
+      "Under-$20 Seller Protection launch handoff",
+      "Seller Protection Handoff Bundle",
+      "Seller Protection Reconciliation",
+      "Shipping Claims Cockpit",
+      "Shipping simulation API POST with scenario count, manifest, and drift-field checks",
+      "Queued launch feature failure(s)",
+      "Unwanted truely-collectables-tt3b.vercel.app alias absence",
+      "Deploy live safety contract",
+      "api-deployments-free-per-day",
+      "rolling 24-hour quota reset",
+      "Protected deploy sequence",
+      "deployed URL output",
+      "clean URL output",
+      "npm run launch:production",
+    ],
     expect: (result) =>
       result.text.includes("Production Smoke Report") &&
       result.text.includes("Smoke coverage") &&
@@ -431,6 +449,30 @@ const checks = [
   {
     name: "launch handoff bundle",
     path: "/api/admin/launch-readiness?format=handoff-bundle",
+    requiredText: [
+      "# TCOS Launch Hand-off Bundle",
+      "## Under-$20 Seller Protection",
+      "2% of the protected sale withheld",
+      "$20.00 protected item amount cap",
+      "LetterTrack/USPS IMb evidence must not show delivered",
+      "20260712174000_add_seller_protection_financial_adjustments.sql",
+      "## Git Tip Verification",
+      "git fetch origin main",
+      "git rev-parse --short HEAD",
+      "git rev-parse --short origin/main",
+      "git log -5 --oneline",
+      "## Production Deploy Commands",
+      "npm run verify:production",
+      "npm run launch:production",
+      "npm run deploy:production",
+      "npm run smoke:production",
+      "api-deployments-free-per-day",
+      "rolling 24-hour quota reset",
+      "deploy live safety contract",
+      "Protected deploy sequence:",
+      "production smoke POSTs `/api/admin/shipping/simulations`",
+      "no missing or unexpected scenario keys",
+    ],
     expect: (result) =>
       result.text.includes("# TCOS Launch Hand-off Bundle") &&
       result.text.includes("## Under-$20 Seller Protection") &&
@@ -505,6 +547,22 @@ const checks = [
   {
     name: "shipping simulation lab",
     path: "/admin/shipping/simulations",
+    requiredText: [
+      "Shipping Simulation Lab",
+      "Scenario Coverage",
+      "Scenario Keys",
+      "Scenario coverage guardrail",
+      "Missing Scenario Keys",
+      "Unexpected Scenario Keys",
+      "18",
+      "Mixed under-$20 claim rows cap reimbursement at $20",
+      "Seller order views can show under-$20 protection status, 2% reserve, protected item cap, unprotected row liability, and shipping excluded from reimbursement",
+      "Seller-protection Mark Paid allocation creates credits only for payable seller rows",
+      "Under-$20 seller-protection Mark Paid requires a current or previously saved internal note confirming buyer refund evidence",
+      "LetterTrack CSV rows carry the under-$20 seller-protection contract",
+      "Under-$20 seller-protection payout blocks delivered LetterTrack evidence, allows not-delivered review evidence, and accepts a current or previously saved explicit override note",
+      "DRY RUN STANDARD ENVELOPE PURCHASE",
+    ],
     expect: (result) =>
       result.text.includes("Shipping Simulation Lab") &&
       result.text.includes("Scenario Coverage") &&

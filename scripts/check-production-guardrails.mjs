@@ -246,6 +246,7 @@ assertFileIncludes("launch gate drill smoke contract", "scripts/smoke-production
 assertFileIncludes("production smoke page contract", "scripts/smoke-production.mjs", [
   'name: "production smoke report page"',
   'path: "/admin/production-smoke"',
+  "requiredText:",
   "Production Smoke Report",
   "Smoke coverage",
   "Under-$20 Seller Protection launch handoff",
@@ -287,6 +288,7 @@ assertFileIncludes(
 assertFileIncludes("launch handoff smoke contract", "scripts/smoke-production.mjs", [
   'name: "launch handoff bundle"',
   'path: "/api/admin/launch-readiness?format=handoff-bundle"',
+  "requiredText:",
   "# TCOS Launch Hand-off Bundle",
   "## Git Tip Verification",
   "git fetch origin main",
@@ -359,6 +361,7 @@ assertFileIncludes(
 assertFileIncludes("shipping simulation lab smoke contract", "scripts/smoke-production.mjs", [
   'name: "shipping simulation lab"',
   'path: "/admin/shipping/simulations"',
+  "requiredText:",
   "Scenario Coverage",
   "Scenario Keys",
   "Scenario coverage guardrail",
