@@ -45,6 +45,12 @@ function money(value: unknown) {
   return Number.isFinite(parsed) ? roundMoney(parsed) : 0;
 }
 
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
 function sourceId(value: unknown) {
   if (typeof value === "string") return value || null;
   if (value && typeof value === "object" && "id" in value) {
@@ -168,7 +174,8 @@ async function loadInternalWindow(params: {
   start: string;
   end: string;
 }) {
-  const [orders, objects, fees, payables, payouts] = await Promise.all([
+  const [orders, objects, fees, payables, payouts, adjustments] =
+    await Promise.all([
     params.supabase
       .from("orders")
       .select("id,total,stripe_charge_id,stripe_payment_intent_id,created_at")
@@ -202,9 +209,17 @@ async function loadInternalWindow(params: {
       .not("provider_payout_reference", "is", null)
       .gte("completed_at", params.start)
       .lt("completed_at", params.end),
+    params.supabase
+      .from("financial_adjustment_ledger_entries")
+      .select("entry_type,amount,metadata,created_at")
+      .eq("store_id", params.storeId)
+      .eq("provider", "tcos_internal")
+      .eq("entry_type", "seller_protection_reimbursement")
+      .gte("created_at", params.start)
+      .lt("created_at", params.end),
   ]);
 
-  for (const result of [orders, objects, fees, payables, payouts]) {
+  for (const result of [orders, objects, fees, payables, payouts, adjustments]) {
     if (result.error) throw result.error;
   }
 
@@ -214,6 +229,7 @@ async function loadInternalWindow(params: {
     fees: fees.data || [],
     payables: payables.data || [],
     payouts: payouts.data || [],
+    adjustments: adjustments.data || [],
   };
 }
 
@@ -495,6 +511,26 @@ export async function reconcileStripeDaily(params: {
     const tcosSellerPayable = roundMoney(
       internal.payables.reduce((sum, row) => sum + money(row.seller_payable_amount), 0),
     );
+    const tcosSellerProtectionReimbursements = roundMoney(
+      internal.adjustments.reduce((sum, row) => sum + money(row.amount), 0),
+    );
+    const tcosSellerProtectionShippingExcluded = roundMoney(
+      internal.adjustments.reduce(
+        (sum, row) =>
+          sum + money(recordValue(row.metadata).shipping_excluded_amount),
+        0,
+      ),
+    );
+    const tcosSellerProtectionAllocationCount = internal.adjustments.reduce(
+      (sum, row) => {
+        const reimbursementPlan = recordValue(
+          recordValue(row.metadata).reimbursement_plan,
+        );
+        const allocations = reimbursementPlan.allocations;
+        return sum + (Array.isArray(allocations) ? allocations.length : 0);
+      },
+      0,
+    );
     const netDifference = roundMoney(stripeNet - expectedInternalNet);
 
     if (Math.abs(netDifference) > MONEY_TOLERANCE) {
@@ -532,6 +568,13 @@ export async function reconcileStripeDaily(params: {
         return totals;
       }, {} as Record<string, number>),
       expected_internal_net: expectedInternalNet,
+      tcos_seller_protection_reimbursements:
+        tcosSellerProtectionReimbursements,
+      tcos_seller_protection_shipping_excluded:
+        tcosSellerProtectionShippingExcluded,
+      tcos_seller_protection_adjustment_count: internal.adjustments.length,
+      tcos_seller_protection_allocation_count:
+        tcosSellerProtectionAllocationCount,
     };
     const status = items.length === 0 ? "balanced" : "differences_found";
     const completedAt = new Date().toISOString();

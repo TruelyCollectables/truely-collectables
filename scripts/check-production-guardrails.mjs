@@ -626,10 +626,25 @@ assertFileIncludes(
   [
     "Seller-Protection Reimbursement Adjustments",
     "TCOS Internal Money Context",
+    "Latest Run Reimbursed",
+    "Latest Run Excluded",
+    "tcos_seller_protection_reimbursements",
     "seller_protection_reimbursement",
     "Shipping Excluded",
     "Review Payouts",
     "financial_adjustment_ledger_entries",
+  ],
+);
+assertFileIncludes(
+  "seller protection reconciliation summary contract",
+  "src/lib/stripe-reconciliation.ts",
+  [
+    "financial_adjustment_ledger_entries",
+    "seller_protection_reimbursement",
+    "tcos_seller_protection_reimbursements",
+    "tcos_seller_protection_shipping_excluded",
+    "tcos_seller_protection_adjustment_count",
+    "tcos_seller_protection_allocation_count",
   ],
 );
 assertFileIncludes(

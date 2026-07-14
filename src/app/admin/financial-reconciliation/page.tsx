@@ -41,6 +41,11 @@ function metadataRecord(value: unknown): Record<string, unknown> {
     : {};
 }
 
+function summaryNumber(summary: Record<string, unknown>, key: string) {
+  const parsed = Number(summary[key] || 0);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 function sellerProtectionShippingExcluded(
   adjustment: SellerProtectionAdjustment,
 ) {
@@ -100,6 +105,7 @@ export default async function FinancialReconciliationPage() {
 
   const latest = runs.data?.[0] || null;
   const openItems = items.data || [];
+  const latestSummary = metadataRecord(latest?.summary);
   const sellerProtectionAdjustments =
     (sellerProtectionAdjustmentsResult.data || []) as SellerProtectionAdjustment[];
   const sellerProtectionReimbursedTotal = sellerProtectionAdjustments.reduce(
@@ -172,7 +178,61 @@ export default async function FinancialReconciliationPage() {
         </div>
         <dl className="mt-4 grid gap-3 text-sm md:grid-cols-4">
           <div className="rounded border border-sky-200 bg-white/70 p-3">
-            <dt className="font-black uppercase opacity-70">Credits</dt>
+            <dt className="font-black uppercase opacity-70">
+              Latest Run Reimbursed
+            </dt>
+            <dd className="mt-1 text-xl font-black">
+              {money(
+                summaryNumber(
+                  latestSummary,
+                  "tcos_seller_protection_reimbursements",
+                ),
+              )}
+            </dd>
+          </div>
+          <div className="rounded border border-sky-200 bg-white/70 p-3">
+            <dt className="font-black uppercase opacity-70">
+              Latest Run Excluded
+            </dt>
+            <dd className="mt-1 text-xl font-black">
+              {money(
+                summaryNumber(
+                  latestSummary,
+                  "tcos_seller_protection_shipping_excluded",
+                ),
+              )}
+            </dd>
+          </div>
+          <div className="rounded border border-sky-200 bg-white/70 p-3">
+            <dt className="font-black uppercase opacity-70">
+              Latest Run Adjustments
+            </dt>
+            <dd className="mt-1 text-xl font-black">
+              {String(
+                summaryNumber(
+                  latestSummary,
+                  "tcos_seller_protection_adjustment_count",
+                ),
+              )}
+            </dd>
+          </div>
+          <div className="rounded border border-sky-200 bg-white/70 p-3">
+            <dt className="font-black uppercase opacity-70">
+              Latest Run Allocations
+            </dt>
+            <dd className="mt-1 text-xl font-black">
+              {String(
+                summaryNumber(
+                  latestSummary,
+                  "tcos_seller_protection_allocation_count",
+                ),
+              )}
+            </dd>
+          </div>
+        </dl>
+        <dl className="mt-3 grid gap-3 text-sm md:grid-cols-4">
+          <div className="rounded border border-sky-200 bg-white/70 p-3">
+            <dt className="font-black uppercase opacity-70">Recent Credits</dt>
             <dd className="mt-1 text-xl font-black">
               {String(sellerProtectionAdjustments.length)}
             </dd>
