@@ -815,6 +815,11 @@ assertFileIncludes("shipping export smoke contract", "scripts/smoke-production.m
   "action_needed",
   "claim_id",
   "dry_run_warning",
+  'result.response?.headers.get("x-tcos-shipping-exceptions-rows") !==',
+  'result.response?.headers.get("x-tcos-shipping-exceptions-critical") !==',
+  'result.response?.headers.get("x-tcos-shipping-exceptions-warning") !==',
+  'result.response?.headers.get("x-tcos-shipping-exceptions-watch") !==',
+  'result.response?.headers.get("x-tcos-shipping-exceptions-summary") !==',
   'name: "lettertrack standard envelope export"',
   'path: "/api/admin/shipping/lettertrack-export"',
   "orderNumber,labelId,recipientName",
@@ -847,6 +852,9 @@ assertFileIncludes("shipping blocked purchase evidence audit source", "src/app/a
 assertFileIncludes("shipping exceptions evidence audit export source", "src/app/api/admin/shipping/exceptions/route.ts", [
   "shippingPurchaseAttemptAuditSentence",
   "raw_payload",
+  "shippingExceptionSummary",
+  "X-TCOS-Shipping-Exceptions-Rows",
+  "X-TCOS-Shipping-Exceptions-Summary",
 ]);
 assertFileIncludes("shipping purchase attempt audit helper source", "src/lib/shipping-purchase-attempt-audit.ts", [
   "buildShippingPurchaseAttemptAudit",

@@ -100,6 +100,22 @@ type ExceptionCsvRow = {
   admin_url: string;
 };
 
+function shippingExceptionSummary(rows: ExceptionCsvRow[]) {
+  const counts = rows.reduce(
+    (summary, row) => {
+      summary[row.severity] += 1;
+      return summary;
+    },
+    { critical: 0, warning: 0, watch: 0 },
+  );
+
+  return {
+    ...counts,
+    total: rows.length,
+    label: `critical:${counts.critical}; warning:${counts.warning}; watch:${counts.watch}`,
+  };
+}
+
 function csvCell(value: unknown) {
   const text = String(value ?? "");
   return `"${text.replaceAll('"', '""')}"`;
@@ -160,6 +176,7 @@ function labelFor(
 }
 
 function csvResponse(rows: ExceptionCsvRow[]) {
+  const summary = shippingExceptionSummary(rows);
   const headers = [
     "priority_rank",
     "exception_key",
@@ -203,6 +220,11 @@ function csvResponse(rows: ExceptionCsvRow[]) {
       "Content-Type": "text/csv; charset=utf-8",
       "Content-Disposition": `attachment; filename="tcos-shipping-exceptions-${exportedAt}.csv"`,
       "Cache-Control": "no-store",
+      "X-TCOS-Shipping-Exceptions-Rows": String(summary.total),
+      "X-TCOS-Shipping-Exceptions-Critical": String(summary.critical),
+      "X-TCOS-Shipping-Exceptions-Warning": String(summary.warning),
+      "X-TCOS-Shipping-Exceptions-Watch": String(summary.watch),
+      "X-TCOS-Shipping-Exceptions-Summary": summary.label,
     },
   });
 }

@@ -1019,6 +1019,16 @@ const checks = [
       result.text.includes("action_needed") &&
       result.text.includes("claim_id") &&
       result.text.includes("dry_run_warning") &&
+      result.response?.headers.get("x-tcos-shipping-exceptions-rows") !==
+        null &&
+      result.response?.headers.get("x-tcos-shipping-exceptions-critical") !==
+        null &&
+      result.response?.headers.get("x-tcos-shipping-exceptions-warning") !==
+        null &&
+      result.response?.headers.get("x-tcos-shipping-exceptions-watch") !==
+        null &&
+      result.response?.headers.get("x-tcos-shipping-exceptions-summary") !==
+        null &&
       !result.text.includes("sk_live_") &&
       !result.text.includes("whsec_"),
   },
