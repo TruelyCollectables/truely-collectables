@@ -154,6 +154,27 @@ function isMissingSellerOrderTables(error: { code?: string; message?: string }) 
   );
 }
 
+function sellerOrderDetailHeaders(params: {
+  sellerItemCount: number;
+  activeCaseCount: number;
+  heldPayoutRowCount: number;
+  cashOutRequestCount: number;
+  dryRunShippingBlocked: boolean;
+}) {
+  return {
+    "X-TCOS-Seller-Order-Detail": "loaded",
+    "X-TCOS-Seller-Order-Items": String(params.sellerItemCount),
+    "X-TCOS-Seller-Order-Active-Cases": String(params.activeCaseCount),
+    "X-TCOS-Seller-Order-Held-Payout-Rows": String(params.heldPayoutRowCount),
+    "X-TCOS-Seller-Order-Cash-Out-Requests": String(
+      params.cashOutRequestCount,
+    ),
+    "X-TCOS-Seller-Order-Dry-Run-Shipping-Blocked": String(
+      params.dryRunShippingBlocked,
+    ),
+  };
+}
+
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> },
@@ -442,87 +463,101 @@ export async function GET(
     });
     const sellerProtectionSummary =
       buildUnder20SellerProtectionSellerVisibilitySummary(payoutRows);
+    const heldPayoutRowCount = payoutRows.filter((payoutRow) =>
+      String(payoutRow.payout_status || "").startsWith("hold_"),
+    ).length;
 
-    return NextResponse.json({
-      success: true,
-      order: {
-        orderId,
-        createdAt: order.created_at,
-        orderTotal: moneyNumber(order.total),
-        paymentStatus: order.status || "unknown",
-        fulfillmentStatus: order.fulfillment_status || "unknown",
-        shippingName: order.shipping_name || null,
-        shippingAmount: moneyNumber(order.shipping_amount),
-        trackingNumber: safeTrackingNumber,
-        carrier: safeCarrier,
-        dryRunShippingBlocked: dryRunShipping,
-        shippedAt: order.shipped_at,
-        sellerItemCount: sellerOrderItems.length,
-        sellerUnitCount: sellerOrderItems.reduce(
-          (sum, itemRow) => sum + Number(itemRow.quantity || 0),
-          0,
-        ),
-        sellerGrossAmount: sellerOrderItems.reduce(
-          (sum, itemRow) =>
-            sum + moneyNumber(itemRow.price) * Number(itemRow.quantity || 0),
-          0,
-        ),
-        sellerPayableAmount: payoutRows.reduce(
-          (sum, payoutRow) => sum + moneyNumber(payoutRow.seller_payable_amount),
-          0,
-        ),
-        platformFeeAmount: payoutRows.reduce(
-          (sum, payoutRow) => sum + moneyNumber(payoutRow.platform_fee_amount),
-          0,
-        ),
-        heldPayoutRowCount: payoutRows.filter((payoutRow) =>
-          String(payoutRow.payout_status || "").startsWith("hold_"),
-        ).length,
-        activeCaseCount: activeCases.length,
-        sellerProtection: sellerProtectionSummary,
+    return NextResponse.json(
+      {
+        success: true,
+        order: {
+          orderId,
+          createdAt: order.created_at,
+          orderTotal: moneyNumber(order.total),
+          paymentStatus: order.status || "unknown",
+          fulfillmentStatus: order.fulfillment_status || "unknown",
+          shippingName: order.shipping_name || null,
+          shippingAmount: moneyNumber(order.shipping_amount),
+          trackingNumber: safeTrackingNumber,
+          carrier: safeCarrier,
+          dryRunShippingBlocked: dryRunShipping,
+          shippedAt: order.shipped_at,
+          sellerItemCount: sellerOrderItems.length,
+          sellerUnitCount: sellerOrderItems.reduce(
+            (sum, itemRow) => sum + Number(itemRow.quantity || 0),
+            0,
+          ),
+          sellerGrossAmount: sellerOrderItems.reduce(
+            (sum, itemRow) =>
+              sum + moneyNumber(itemRow.price) * Number(itemRow.quantity || 0),
+            0,
+          ),
+          sellerPayableAmount: payoutRows.reduce(
+            (sum, payoutRow) => sum + moneyNumber(payoutRow.seller_payable_amount),
+            0,
+          ),
+          platformFeeAmount: payoutRows.reduce(
+            (sum, payoutRow) => sum + moneyNumber(payoutRow.platform_fee_amount),
+            0,
+          ),
+          heldPayoutRowCount,
+          activeCaseCount: activeCases.length,
+          sellerProtection: sellerProtectionSummary,
+        },
+        items: sellerOrderItems.map((itemRow) => ({
+          id: itemRow.id,
+          title: itemRow.title || "Untitled item",
+          quantity: Number(itemRow.quantity || 0),
+          price: moneyNumber(itemRow.price),
+          lineTotal:
+            moneyNumber(itemRow.price) * Number(itemRow.quantity || 0),
+          sellerProtection: buildUnder20SellerProtectionSellerVisibilitySummary(
+            payoutRows.filter(
+              (payoutRow) => payoutRow.order_item_id === itemRow.id,
+            ),
+          ),
+        })),
+        payoutRows: payoutRows.map((payoutRow) => ({
+          id: payoutRow.id,
+          orderItemId: payoutRow.order_item_id,
+          itemTitle:
+            itemRowsById.get(payoutRow.order_item_id)?.title || "Untitled item",
+          grossItemAmount: moneyNumber(payoutRow.gross_item_amount),
+          shippingAllocatedAmount: moneyNumber(
+            payoutRow.shipping_allocated_amount,
+          ),
+          platformFeeAmount: moneyNumber(payoutRow.platform_fee_amount),
+          sellerPayableAmount: moneyNumber(payoutRow.seller_payable_amount),
+          payoutStatus: payoutRow.payout_status || "unknown",
+          createdAt: payoutRow.created_at,
+          sellerProtection: buildUnder20SellerProtectionSellerVisibilitySummary([
+            payoutRow,
+          ]),
+        })),
+        cashOutRequests,
+        reviewCases: reviewCases.map((reviewCase) => ({
+          id: reviewCase.id,
+          title: reviewCase.title || `Order #${orderId} case`,
+          caseType: reviewCase.case_type || "other",
+          status: reviewCase.status || "open",
+          severity: reviewCase.severity || "medium",
+          description: reviewCase.description || null,
+          outcomeSummary: reviewCase.outcome_summary || null,
+          updatedAt: reviewCase.updated_at,
+          sellerScoped: reviewCase.seller_account_id === account.id,
+        })),
+        recentSignals,
       },
-      items: sellerOrderItems.map((itemRow) => ({
-        id: itemRow.id,
-        title: itemRow.title || "Untitled item",
-        quantity: Number(itemRow.quantity || 0),
-        price: moneyNumber(itemRow.price),
-        lineTotal:
-          moneyNumber(itemRow.price) * Number(itemRow.quantity || 0),
-        sellerProtection: buildUnder20SellerProtectionSellerVisibilitySummary(
-          payoutRows.filter((payoutRow) => payoutRow.order_item_id === itemRow.id),
-        ),
-      })),
-      payoutRows: payoutRows.map((payoutRow) => ({
-        id: payoutRow.id,
-        orderItemId: payoutRow.order_item_id,
-        itemTitle:
-          itemRowsById.get(payoutRow.order_item_id)?.title || "Untitled item",
-        grossItemAmount: moneyNumber(payoutRow.gross_item_amount),
-        shippingAllocatedAmount: moneyNumber(
-          payoutRow.shipping_allocated_amount,
-        ),
-        platformFeeAmount: moneyNumber(payoutRow.platform_fee_amount),
-        sellerPayableAmount: moneyNumber(payoutRow.seller_payable_amount),
-        payoutStatus: payoutRow.payout_status || "unknown",
-        createdAt: payoutRow.created_at,
-        sellerProtection: buildUnder20SellerProtectionSellerVisibilitySummary([
-          payoutRow,
-        ]),
-      })),
-      cashOutRequests,
-      reviewCases: reviewCases.map((reviewCase) => ({
-        id: reviewCase.id,
-        title: reviewCase.title || `Order #${orderId} case`,
-        caseType: reviewCase.case_type || "other",
-        status: reviewCase.status || "open",
-        severity: reviewCase.severity || "medium",
-        description: reviewCase.description || null,
-        outcomeSummary: reviewCase.outcome_summary || null,
-        updatedAt: reviewCase.updated_at,
-        sellerScoped: reviewCase.seller_account_id === account.id,
-      })),
-      recentSignals,
-    });
+      {
+        headers: sellerOrderDetailHeaders({
+          sellerItemCount: sellerOrderItems.length,
+          activeCaseCount: activeCases.length,
+          heldPayoutRowCount,
+          cashOutRequestCount: cashOutRequests.length,
+          dryRunShippingBlocked: dryRunShipping,
+        }),
+      },
+    );
   } catch (error: any) {
     if (isMissingSellerOrderTables(error)) {
       return NextResponse.json(

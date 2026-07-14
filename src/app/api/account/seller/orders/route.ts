@@ -151,6 +151,26 @@ function orderAnchor(orderId: number) {
   return `seller-order-${orderId}`;
 }
 
+function sellerOrdersHeaders(params: {
+  orderCount: number;
+  activeCaseCount: number;
+  heldOrderCount: number;
+  openCashOutRequestCount: number;
+  dryRunShippingBlockedCount: number;
+}) {
+  return {
+    "X-TCOS-Seller-Orders": String(params.orderCount),
+    "X-TCOS-Seller-Orders-Active-Cases": String(params.activeCaseCount),
+    "X-TCOS-Seller-Orders-Held": String(params.heldOrderCount),
+    "X-TCOS-Seller-Orders-Open-Cash-Out": String(
+      params.openCashOutRequestCount,
+    ),
+    "X-TCOS-Seller-Orders-Dry-Run-Shipping-Blocked": String(
+      params.dryRunShippingBlockedCount,
+    ),
+  };
+}
+
 export async function GET(request: Request) {
   try {
     const account = await getAuthenticatedAccountFromRequest(request);
@@ -179,17 +199,28 @@ export async function GET(request: Request) {
     );
 
     if (orderIds.length === 0) {
-      return NextResponse.json({
-        success: true,
-        summary: {
-          orderCount: 0,
-          activeCaseCount: 0,
-          heldOrderCount: 0,
-          openCashOutRequestCount: 0,
-          sellerPayableAmount: 0,
+      return NextResponse.json(
+        {
+          success: true,
+          summary: {
+            orderCount: 0,
+            activeCaseCount: 0,
+            heldOrderCount: 0,
+            openCashOutRequestCount: 0,
+            sellerPayableAmount: 0,
+          },
+          orders: [],
         },
-        orders: [],
-      });
+        {
+          headers: sellerOrdersHeaders({
+            orderCount: 0,
+            activeCaseCount: 0,
+            heldOrderCount: 0,
+            openCashOutRequestCount: 0,
+            dryRunShippingBlockedCount: 0,
+          }),
+        },
+      );
     }
 
     const [
@@ -550,37 +581,50 @@ export async function GET(request: Request) {
         return bTime - aTime;
       });
 
-    return NextResponse.json({
-      success: true,
-      summary: {
-        orderCount: orderActivity.length,
-        activeCaseCount: orderActivity.reduce(
-          (sum, order) => sum + order.activeCaseCount,
-          0,
-        ),
-        heldOrderCount: orderActivity.filter((order) => order.heldPayoutRowCount > 0)
-          .length,
-        openCashOutRequestCount: orderActivity.reduce(
-          (sum, order) => sum + order.openCashOutRequestCount,
-          0,
-        ),
-        sellerPayableAmount: orderActivity.reduce(
-          (sum, order) => sum + order.sellerPayableAmount,
-          0,
-        ),
-      },
-      recentSignals: sortSellerOrderSignals(
-        orderActivity.flatMap((order) =>
-          order.recentSignals.map((signal) => ({
-            ...signal,
-            orderId: order.orderId,
-            anchor: order.anchor,
-          })),
-        ),
-        10,
+    const summary = {
+      orderCount: orderActivity.length,
+      activeCaseCount: orderActivity.reduce(
+        (sum, order) => sum + order.activeCaseCount,
+        0,
       ),
-      orders: orderActivity,
-    });
+      heldOrderCount: orderActivity.filter((order) => order.heldPayoutRowCount > 0)
+        .length,
+      openCashOutRequestCount: orderActivity.reduce(
+        (sum, order) => sum + order.openCashOutRequestCount,
+        0,
+      ),
+      sellerPayableAmount: orderActivity.reduce(
+        (sum, order) => sum + order.sellerPayableAmount,
+        0,
+      ),
+    };
+    const dryRunShippingBlockedCount = orderActivity.filter(
+      (order) => order.dryRunShippingBlocked,
+    ).length;
+
+    return NextResponse.json(
+      {
+        success: true,
+        summary,
+        recentSignals: sortSellerOrderSignals(
+          orderActivity.flatMap((order) =>
+            order.recentSignals.map((signal) => ({
+              ...signal,
+              orderId: order.orderId,
+              anchor: order.anchor,
+            })),
+          ),
+          10,
+        ),
+        orders: orderActivity,
+      },
+      {
+        headers: sellerOrdersHeaders({
+          ...summary,
+          dryRunShippingBlockedCount,
+        }),
+      },
+    );
   } catch (error: any) {
     if (isMissingSellerOrderTables(error)) {
       return NextResponse.json(
