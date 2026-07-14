@@ -1834,6 +1834,7 @@ Current seller payout verification foundation:
 - production smoke now also reports missing expected text for the production-smoke report page, launch handoff bundle, and shipping simulation lab checks, covering the string-heavy launch surfaces most likely to drift after a delayed deploy
 - `/api/admin/launch-readiness` now includes a Deployment Source fingerprint in JSON, Markdown, and handoff exports with Vercel environment, deployment URL, Git commit SHA/ref/repo, clean production domain, and the operator instruction to compare that SHA against `origin/main`
 - production smoke now parses the launch-readiness Deployment Source JSON and fails if production's reported Git commit SHA/short SHA/ref/domain does not match the refreshed `origin/main` deployment target
+- production smoke failure output now includes a `diagnostic` column for the launch-readiness Deployment Source check, showing the exact production Git SHA/ref/domain versus the refreshed `origin/main` values when Vercel is behind GitHub
 - `/admin/seller-payouts` now shows an admin Under-$20 Protection Reserve view across loaded payout ledger rows that carry TCOS under-$20 protection metadata, including 2% reserve withheld, protected item amount, protected/liability row counts, and shipping excluded from reimbursement
 - `/admin/seller-payouts` seller payout ledger rows now also show row-level under-$20 protection chips for Standard Envelope rows with protection metadata, so operators can see protected/liability status and reserve math before releasing or holding a payout row
 - the Seller Cash-Out panel now breaks held funds into pending-fulfillment holds, dispute holds, reserved open requests, and cancelled/reversed rows so sellers can see what is truly cash-out ready
@@ -4346,6 +4347,7 @@ Parcel rules currently embedded in TCOS:
 - the `missingText` smoke diagnostics now cover `/admin/production-smoke`, `/api/admin/launch-readiness?format=handoff-bundle`, and `/admin/shipping/simulations` as well as the admin shipping controls check
 - the launch-readiness Deployment Source section uses non-secret Vercel/Git metadata (`VERCEL_GIT_COMMIT_SHA`, `VERCEL_GIT_COMMIT_REF`, `VERCEL_GIT_REPO_OWNER`, `VERCEL_GIT_REPO_SLUG`, `VERCEL_URL`, and `VERCEL_ENV`) so operators can tell whether production is behind GitHub after a quota-delayed deploy
 - production smoke refreshes `origin/main`, reads its full SHA, and requires `/api/admin/launch-readiness` to report the same `deployment.gitCommitSha`, short SHA, `main` ref, and clean production domain before treating the deployment as current
+- when that Deployment Source assertion fails, production smoke prints `Deployment source mismatch` details for each mismatched value instead of forcing operators to inspect the JSON payload manually
 - when a seller does not opt in for a Standard Envelope shipment, no 2% reserve is withheld and the seller is responsible for refunding the buyer in full if the shipment is lost or cannot satisfy TCOS delivery-evidence rules
 - parcel Coverage is required for Ground Advantage and Priority shipments
 - current buyer charge for Coverage is zero

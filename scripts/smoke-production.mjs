@@ -296,6 +296,38 @@ function launchReadinessDeploymentMatchesOriginMain(result) {
   );
 }
 
+function launchReadinessDeploymentDiagnostic(result) {
+  const payload = parseJson(result.text);
+  const deployment = payload?.brief?.deployment;
+
+  if (!remoteFullHead) {
+    return "origin/main full SHA is unavailable; run git fetch origin main and retry smoke";
+  }
+
+  if (!deployment) {
+    return "launch-readiness JSON did not include brief.deployment source metadata";
+  }
+
+  const mismatches = [
+    deployment.gitCommitSha === remoteFullHead
+      ? ""
+      : `gitCommitSha production=${deployment.gitCommitSha || "missing"} origin/main=${remoteFullHead}`,
+    deployment.gitCommitShortSha === remoteHead
+      ? ""
+      : `gitCommitShortSha production=${deployment.gitCommitShortSha || "missing"} origin/main=${remoteHead || "unknown"}`,
+    deployment.gitCommitRef === "main"
+      ? ""
+      : `gitCommitRef production=${deployment.gitCommitRef || "missing"} expected=main`,
+    deployment.cleanProductionDomain === baseUrl
+      ? ""
+      : `cleanProductionDomain production=${deployment.cleanProductionDomain || "missing"} expected=${baseUrl}`,
+  ].filter(Boolean);
+
+  return mismatches.length > 0
+    ? `Deployment source mismatch: ${mismatches.join("; ")}`
+    : "Deployment source matches origin/main.";
+}
+
 if (redactionSelfTest) {
   runRedactionSelfTest();
   process.exit(0);
@@ -378,6 +410,7 @@ const checks = [
       result.text.includes("npm run smoke:production handoff") &&
       launchReadinessDeploymentMatchesOriginMain(result),
     requiredText: remoteFullHead ? [remoteFullHead] : [],
+    diagnostic: launchReadinessDeploymentDiagnostic,
   },
   {
     name: "launch readiness markdown",
@@ -799,6 +832,7 @@ const results = [
     contentType: login.contentType,
     snippet: safeSnippet(login.text, login.error),
     missingText: "",
+    diagnostic: login.ok && Boolean(cookie) ? "" : "admin login failed or did not return a session cookie",
     passed: login.ok && Boolean(cookie),
   },
 ];
@@ -809,6 +843,7 @@ for (const check of checks) {
     headers: { ...authHeaders, ...(check.options?.headers || {}) },
   });
   const missingText = missingRequiredText(result, check);
+  const passed = result.ok && check.expect(result) && missingText.length === 0;
   results.push({
     name: check.name,
     path: check.path,
@@ -817,7 +852,8 @@ for (const check of checks) {
     contentType: result.contentType,
     snippet: safeSnippet(result.text, result.error),
     missingText: missingText.join(" | "),
-    passed: result.ok && check.expect(result) && missingText.length === 0,
+    diagnostic: passed ? "" : check.diagnostic?.(result) || "",
+    passed,
   });
 }
 
@@ -832,6 +868,9 @@ results.push({
     safeSnippet(unwantedAlias.text, unwantedAlias.error) ||
     "alias did not return content",
   missingText: "",
+  diagnostic: unwantedAlias.ok
+    ? "unwanted Vercel alias is still reachable and should be removed"
+    : "",
   passed: !unwantedAlias.ok,
 });
 
@@ -867,6 +906,7 @@ if (failed.length > 0) {
       durationMs: result.durationMs,
       contentType: result.contentType || "none",
       missingText: result.missingText || "none",
+      diagnostic: result.diagnostic || "none",
       snippet: result.snippet || "empty response",
     })),
   );
