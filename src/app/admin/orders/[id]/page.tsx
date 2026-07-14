@@ -3,6 +3,7 @@ import { getActiveStoreId } from "../../../../lib/stores";
 import { getAccountProfilesByIds } from "../../../../lib/account-profiles";
 import { isOrderReviewStatus } from "../../../../lib/order-status";
 import { isDryRunShippingLabel as isDryRunShippingLabelRecord } from "../../../../lib/shipping-dry-run";
+import { buildShippingPurchaseAttemptAudit } from "../../../../lib/shipping-purchase-attempt-audit";
 import { getShippingProviderReadiness } from "../../../../lib/shipping-provider-readiness";
 import {
   buildLetterTrackDeliveryEvidenceSummary,
@@ -1044,6 +1045,9 @@ export default async function AdminOrderDetailPage({
               );
               const adapterProfile =
                 shippingAdapterProfileDetails(shippingLabel.metadata);
+              const purchaseAttemptAudit = buildShippingPurchaseAttemptAudit(
+                shippingLabel.metadata?.latest_purchase_attempt,
+              );
 
               return (
               <div key={shippingLabel.id} className="rounded border p-4">
@@ -1098,6 +1102,32 @@ export default async function AdminOrderDetailPage({
                           <p className="mt-1 text-xs font-bold">
                             {adapterProfile.liveBlockReason}
                           </p>
+                        ) : null}
+                      </div>
+                    ) : null}
+                    {purchaseAttemptAudit.present ? (
+                      <div
+                        className={`mt-2 rounded border p-2 text-sm ${
+                          purchaseAttemptAudit.standardEnvelopeEvidenceContractReady
+                            ? "border-green-200 bg-green-50 text-green-950"
+                            : "border-amber-200 bg-amber-50 text-amber-950"
+                        }`}
+                      >
+                        <p className="font-black">
+                          Latest provider purchase attempt
+                        </p>
+                        <p className="mt-1 font-semibold">
+                          {purchaseAttemptAudit.evidenceSummary ||
+                            "Standard Envelope evidence validator: Not saved."}
+                        </p>
+                        {purchaseAttemptAudit.details.length > 0 ? (
+                          <ul className="mt-2 list-disc space-y-1 pl-4 text-xs font-bold">
+                            {purchaseAttemptAudit.details
+                              .slice(0, 4)
+                              .map((detail) => (
+                                <li key={detail}>{detail}</li>
+                              ))}
+                          </ul>
                         ) : null}
                       </div>
                     ) : null}

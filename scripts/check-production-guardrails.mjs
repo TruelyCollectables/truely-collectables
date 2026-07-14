@@ -604,6 +604,12 @@ assertFileIncludes("admin shipping blocked attempt evidence audit source", "src/
   "purchaseAttemptAudit.evidenceSummary",
   "purchaseAttemptAudit.standardEnvelopeEvidenceContractReady",
 ]);
+assertFileIncludes("admin order label purchase attempt evidence audit source", "src/app/admin/orders/[id]/page.tsx", [
+  "buildShippingPurchaseAttemptAudit",
+  "Latest provider purchase attempt",
+  "purchaseAttemptAudit.evidenceSummary",
+  "purchaseAttemptAudit.standardEnvelopeEvidenceContractReady",
+]);
 assertFileIncludes(
   "seller protection reimbursement packet contract",
   "src/app/api/admin/shipping-claims/[id]/packet/route.ts",
