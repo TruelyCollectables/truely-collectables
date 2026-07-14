@@ -596,6 +596,117 @@ function sellerMarketplaceOrderImportReceipt(
   };
 }
 
+function sellerMarketplaceStagedReceipt(
+  headers: Headers,
+): SellerMarketplaceOperationReceipt | null {
+  const mutation = headers.get("X-TCOS-Seller-Marketplace-Staged-Mutation");
+  const rows = headers.get("X-TCOS-Seller-Marketplace-Staged-Rows");
+
+  if (!mutation && !rows) return null;
+
+  const ready = headerNumber(headers, "X-TCOS-Seller-Marketplace-Staged-Ready");
+  const needsReview = headerNumber(
+    headers,
+    "X-TCOS-Seller-Marketplace-Staged-Needs-Review",
+  );
+  const blocked = headerNumber(
+    headers,
+    "X-TCOS-Seller-Marketplace-Staged-Blocked",
+  );
+
+  if (mutation) {
+    const stagedCount = headerNumber(
+      headers,
+      "X-TCOS-Seller-Marketplace-Staged-Count",
+    );
+    const skippedCount = headerNumber(
+      headers,
+      "X-TCOS-Seller-Marketplace-Staged-Skipped",
+    );
+    const updatedCount = headerNumber(
+      headers,
+      "X-TCOS-Seller-Marketplace-Staged-Updated",
+    );
+    const targetStatus = headerText(
+      headers,
+      "X-TCOS-Seller-Marketplace-Staged-Target-Status",
+      "metadata",
+    );
+
+    return {
+      title: "Staged-row mutation receipt",
+      summary: `${label(mutation)} touched ${updatedCount || stagedCount} row(s); ${skippedCount} skipped.`,
+      tone: skippedCount > 0 || targetStatus === "needs_review" ? "amber" : "emerald",
+      details: [
+        { label: "Mutation", value: label(mutation) },
+        { label: "Staged", value: String(stagedCount) },
+        { label: "Updated", value: String(updatedCount) },
+        { label: "Target", value: label(targetStatus) },
+        {
+          label: "Has More",
+          value: headerBoolean(headers, "X-TCOS-Seller-Marketplace-Staged-Has-More")
+            ? "Yes"
+            : "No",
+        },
+      ],
+    };
+  }
+
+  return {
+    title: "Staged-row workspace receipt",
+    summary: `${headerNumber(headers, "X-TCOS-Seller-Marketplace-Staged-Rows")} staged rows; ${ready} ready, ${needsReview} review, ${blocked} blocked.`,
+    tone: blocked > 0 || needsReview > 0 ? "amber" : ready > 0 ? "emerald" : "neutral",
+    details: [
+      { label: "Ready", value: String(ready) },
+      { label: "Draft Cleanup", value: headerText(headers, "X-TCOS-Seller-Marketplace-Staged-Draft-Cleanup") },
+      { label: "Needs Review", value: String(needsReview) },
+      { label: "Mapped", value: headerText(headers, "X-TCOS-Seller-Marketplace-Staged-Mapped") },
+      { label: "Skipped", value: headerText(headers, "X-TCOS-Seller-Marketplace-Staged-Skipped") },
+      { label: "Blocked", value: String(blocked) },
+      { label: "Promoted", value: headerText(headers, "X-TCOS-Seller-Marketplace-Staged-Promoted") },
+      { label: "Import Jobs", value: headerText(headers, "X-TCOS-Seller-Marketplace-Import-Jobs") },
+    ],
+  };
+}
+
+function sellerMarketplacePromotionReceipt(
+  headers: Headers,
+): SellerMarketplaceOperationReceipt | null {
+  const mutation = headers.get("X-TCOS-Seller-Marketplace-Promote-Mutation");
+  if (!mutation) return null;
+
+  const status = headerText(headers, "X-TCOS-Seller-Marketplace-Promote-Status");
+  const requested = headerNumber(
+    headers,
+    "X-TCOS-Seller-Marketplace-Promote-Requested",
+  );
+  const succeeded = headerNumber(
+    headers,
+    "X-TCOS-Seller-Marketplace-Promote-Succeeded",
+  );
+  const failed = headerNumber(
+    headers,
+    "X-TCOS-Seller-Marketplace-Promote-Failed",
+  );
+
+  return {
+    title: "Staged promotion receipt",
+    summary: `${succeeded} of ${requested} staged row(s) promoted; ${failed} failed.`,
+    tone: failed > 0 ? (succeeded > 0 ? "amber" : "rose") : "emerald",
+    details: [
+      { label: "Mutation", value: label(mutation) },
+      { label: "Mode", value: label(headerText(headers, "X-TCOS-Seller-Marketplace-Promote-Mode")) },
+      { label: "Status", value: label(status) },
+      {
+        label: "Partial",
+        value: headerBoolean(headers, "X-TCOS-Seller-Marketplace-Promote-Partial")
+          ? "Yes"
+          : "No",
+      },
+    ],
+  };
+}
+
 function SellerMarketplaceOperationReceiptCard({
   receipt,
 }: {
@@ -1595,6 +1706,7 @@ async function fetchSellerStagedItems(
     stagedItems: (data.stagedItems || []) as SellerStagedItem[],
     latestImportJob: (data.latestImportJob || null) as SellerImportJob | null,
     recentImportJobs: (data.recentImportJobs || []) as SellerImportJob[],
+    operationReceipt: sellerMarketplaceStagedReceipt(response.headers),
   };
 }
 
@@ -1622,7 +1734,8 @@ async function stageSellerItems(
     throw new Error(data.error || "Could not stage seller eBay listings.");
   }
 
-  return data.result as {
+  return {
+    ...(data.result as {
     importJobId: string | null;
     offset: number;
     nextOffset: number;
@@ -1632,6 +1745,8 @@ async function stageSellerItems(
     totalAvailable: number | null;
     fetchedAt: string;
     sampleItems: SellerEbayPreviewItem[];
+    }),
+    operationReceipt: sellerMarketplaceStagedReceipt(response.headers),
   };
 }
 
@@ -1788,6 +1903,7 @@ async function updateSellerStagedItemStatus(params: {
     stagedItem: (data.stagedItem || null) as SellerStagedItem | null,
     stagedItems: (data.stagedItems || []) as SellerStagedItem[],
     updatedCount: Number(data.updatedCount || 0),
+    operationReceipt: sellerMarketplaceStagedReceipt(response.headers),
   };
 }
 
@@ -1822,6 +1938,7 @@ async function updateSellerStagedItemReview(params: {
     stagedItem: (data.stagedItem || null) as SellerStagedItem | null,
     stagedItems: (data.stagedItems || []) as SellerStagedItem[],
     updatedCount: Number(data.updatedCount || 0),
+    operationReceipt: sellerMarketplaceStagedReceipt(response.headers),
   };
 }
 
@@ -1867,6 +1984,7 @@ async function promoteSellerStagedItem(params: {
       stagedItemId: string;
       error: string;
     }>,
+    operationReceipt: sellerMarketplacePromotionReceipt(response.headers),
   };
 }
 
@@ -1987,6 +2105,9 @@ export default function SellerConnectionsPanel({
       setStagedItems(data.stagedItems);
       setLatestImportJob(data.latestImportJob);
       setRecentImportJobs(data.recentImportJobs);
+      if (!options?.silent) {
+        setLatestMarketplaceOperationReceipt(data.operationReceipt);
+      }
       setActiveImportJobId(
         requestedImportJobId &&
           data.stagedItems.some((item) => item.import_job_id === requestedImportJobId)
@@ -2366,6 +2487,7 @@ export default function SellerConnectionsPanel({
       const result = await stageSellerItems(session.access_token, {
         resetCursor,
       });
+      setLatestMarketplaceOperationReceipt(result.operationReceipt);
       const batchRange =
         result.nextOffset > result.offset
           ? `Remote listings ${result.offset + 1}-${result.nextOffset}`
@@ -2408,6 +2530,7 @@ export default function SellerConnectionsPanel({
     let nextOffset = latestStageNextOffset || 0;
     let totalAvailable: number | null = null;
     let stopped = false;
+    let latestReceipt: SellerMarketplaceOperationReceipt | null = null;
 
     stageAllStopRequestedRef.current = false;
     setStageAllStopRequested(false);
@@ -2448,6 +2571,7 @@ export default function SellerConnectionsPanel({
         nextOffset = result.nextOffset;
         totalAvailable = result.totalAvailable;
         hasMore = result.hasMore;
+        latestReceipt = result.operationReceipt;
 
         const progress = {
           batchesCompleted,
@@ -2481,10 +2605,12 @@ export default function SellerConnectionsPanel({
       }
 
       if (stopped) {
+        setLatestMarketplaceOperationReceipt(latestReceipt);
         setMessage(
           `Seller eBay staging stopped safely after ${processedCount} listing${processedCount === 1 ? "" : "s"} in ${batchesCompleted} completed batch${batchesCompleted === 1 ? "" : "es"}. Run Stage All Remaining to resume at listing ${nextOffset + 1}.`,
         );
       } else {
+        setLatestMarketplaceOperationReceipt(latestReceipt);
         setMessage(
           `Seller eBay staging complete. ${processedCount} listing${processedCount === 1 ? "" : "s"} processed across ${batchesCompleted} batch${batchesCompleted === 1 ? "" : "es"}; ${stagedCount} captured and ${skippedCount} skipped.`,
         );
@@ -2714,11 +2840,12 @@ export default function SellerConnectionsPanel({
     setMessage("");
 
     try {
-      await updateSellerStagedItemStatus({
+      const result = await updateSellerStagedItemStatus({
         accessToken: session.access_token,
         stagedItemId,
         stageStatus,
       });
+      setLatestMarketplaceOperationReceipt(result.operationReceipt);
       setLastBulkPromotionSuccesses([]);
       setLastBulkPromotionErrors([]);
       await refreshSellerStageState(session.access_token, { silent: true });
@@ -2770,7 +2897,7 @@ export default function SellerConnectionsPanel({
     setMessage("");
 
     try {
-      await updateSellerStagedItemReview({
+      const result = await updateSellerStagedItemReview({
         accessToken: session.access_token,
         stagedItemId: itemId,
         categoryHint: reviewCategoryHint,
@@ -2784,6 +2911,7 @@ export default function SellerConnectionsPanel({
           authenticityNotes: reviewAuthenticityNotes,
         }),
       });
+      setLatestMarketplaceOperationReceipt(result.operationReceipt);
       await refreshSellerStageState(session.access_token, { silent: true });
       closeStageReviewEditor();
       setMessage("Staged listing review details saved.");
@@ -2825,6 +2953,7 @@ export default function SellerConnectionsPanel({
         accessToken: session.access_token,
         stagedItemId,
       });
+      setLatestMarketplaceOperationReceipt(result.operationReceipt);
       if (result.promotedItem?.legacyProductId) {
         setLastBulkPromotionSuccesses([
           {
@@ -2925,6 +3054,7 @@ export default function SellerConnectionsPanel({
       inventoryItemId: string | null;
     }> = [];
     let promotionErrors: Array<{ stagedItemId: string; error: string }> = [];
+    let operationReceipt: SellerMarketplaceOperationReceipt | null = null;
 
     try {
       const result = await promoteSellerStagedItem({
@@ -2936,6 +3066,7 @@ export default function SellerConnectionsPanel({
       promotedItems = result.promotedItems;
       promotionErrors = result.errors;
       firstError = result.errors[0]?.error || "";
+      operationReceipt = result.operationReceipt;
     } catch (error: any) {
       firstError = error.message || "Could not bulk promote seller staged items.";
     }
@@ -2952,6 +3083,7 @@ export default function SellerConnectionsPanel({
     }
     setLastBulkPromotionSuccesses(promotedItems);
     setLastBulkPromotionErrors(promotionErrors);
+    setLatestMarketplaceOperationReceipt(operationReceipt);
 
     if (firstError && promotedCount > 0) {
       setMessage(
@@ -2994,6 +3126,7 @@ export default function SellerConnectionsPanel({
         stagedItemIds: stageItemIds,
         stageStatus,
       });
+      setLatestMarketplaceOperationReceipt(result.operationReceipt);
       await refreshSellerStageState(session.access_token, { silent: true });
       await refreshSellerInventoryState(session.access_token, { silent: true });
       setSelectedStageItemIds((current) =>

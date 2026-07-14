@@ -2046,6 +2046,8 @@ assertFileIncludes(
     "sellerMarketplaceImportPreviewReceipt",
     "sellerMarketplaceReconciliationReceipt",
     "sellerMarketplaceOrderImportReceipt",
+    "sellerMarketplaceStagedReceipt",
+    "sellerMarketplacePromotionReceipt",
     "X-TCOS-Seller-Marketplace-Ebay-Auth-Mutation",
     "X-TCOS-Seller-Marketplace-Ebay-Status-Mutation",
     "X-TCOS-Seller-Marketplace-Sync-Control-Mutation",
@@ -2053,6 +2055,10 @@ assertFileIncludes(
     "X-TCOS-Seller-Marketplace-Import-Preview-Status",
     "X-TCOS-Seller-Marketplace-Reconcile-Mutation",
     "X-TCOS-Seller-Marketplace-Order-Import-Mutation",
+    "X-TCOS-Seller-Marketplace-Staged-Mutation",
+    "X-TCOS-Seller-Marketplace-Staged-Rows",
+    "X-TCOS-Seller-Marketplace-Promote-Mutation",
+    "X-TCOS-Seller-Marketplace-Promote-Status",
   ],
 );
 assertFileIncludes(
