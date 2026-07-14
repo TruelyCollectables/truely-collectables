@@ -565,6 +565,7 @@ const checks = [
       "Git commit SHA:",
       "Smoke comparison:",
       "production smoke POSTs `/api/admin/shipping/simulations`",
+      "five expected purchase-audit scenarios",
       "no missing or unexpected scenario keys",
     ],
     expect: (result) =>
@@ -598,6 +599,7 @@ const checks = [
       result.text.includes(
         "production smoke POSTs `/api/admin/shipping/simulations`",
       ) &&
+      result.text.includes("five expected purchase-audit scenarios") &&
       result.text.includes("no missing or unexpected scenario keys") &&
       result.text.includes("truely-collectables-tt3b.vercel.app"),
   },

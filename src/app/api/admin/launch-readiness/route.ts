@@ -297,7 +297,7 @@ function markdownForHandoffBundle(
     "- Confirm `/api/admin/launch-readiness?format=handoff-bundle` downloads this bundle.",
     "- Confirm `/admin/live-payment-launch` still shows live payments open.",
     "- Confirm `/admin/live-shipping-launch` still shows shipping locked until provider work is complete.",
-    "- Confirm production smoke POSTs `/api/admin/shipping/simulations` and verifies nineteen expected scenarios, passed scenario key coverage, and no missing or unexpected scenario keys.",
+    "- Confirm production smoke POSTs `/api/admin/shipping/simulations` and verifies nineteen expected shipping scenarios, five expected purchase-audit scenarios, passed key coverage, and no missing or unexpected scenario keys.",
     "- Confirm `/api/admin/shipping/provider-setup` exposes export links and credential groups.",
     "- Confirm the clean production domain points at the latest deployment.",
     "",

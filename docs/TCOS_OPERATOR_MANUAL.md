@@ -358,7 +358,7 @@ Daily production safety order:
 | `/api/admin/shipping-claims/[id]` | Updates shipping claim status and provider references |
 | `/api/admin/shipping-claims/[id]/packet` | Downloads a shipping claim evidence packet |
 | `/api/admin/shipping/exceptions` | Exports the ranked shipping exception queue as CSV |
-| `/api/admin/shipping/simulations` | Runs shipping eligibility and dry-run adapter simulations |
+| `/api/admin/shipping/simulations` | Runs shipping eligibility, dry-run adapter, and provider purchase-attempt audit simulations |
 | `/api/account/signup` | Creates customer account through Supabase Auth |
 | `/api/account/login` | Logs customer account in through Supabase Auth |
 | `/api/account/orders` | Returns logged-in customer order history for the active store |
@@ -4402,7 +4402,7 @@ The same decision appears in the `/admin/shipping` Provider Setup Checklist as t
 - what must be built before TCOS can buy postage: quote, buy, void, Coverage purchase, webhook reconciliation, and audit-packet proof
 - what must not happen: mailing dry-run labels, marking dry-run tracking as shipped, or enabling live mode before launch readiness and simulations are clean
 
-The Live Shipping Runway now includes a Live Adapter Approval Checklist. The provider setup packet and `/admin/shipping` must show all of these gates ready before TCOS treats live postage or Coverage purchase as approved: provider credentials, live adapter implementation, quote/buy/void tests, Coverage purchase tests, provider webhook plus reconciliation approval, nineteen-scenario shipping simulation pass evidence, and explicit admin live-shipping approval. Secret presence alone is not enough to enable live postage.
+The Live Shipping Runway now includes a Live Adapter Approval Checklist. The provider setup packet and `/admin/shipping` must show all of these gates ready before TCOS treats live postage or Coverage purchase as approved: provider credentials, live adapter implementation, quote/buy/void tests, Coverage purchase tests, provider webhook plus reconciliation approval, nineteen-scenario shipping simulation pass evidence, five-scenario provider purchase-attempt audit pass evidence, and explicit admin live-shipping approval. Secret presence alone is not enough to enable live postage.
 
 `/admin/live-shipping-launch` is the auditable live-shipping database lock. It evaluates the current live-shipping approval version, `TCOS_LIVE_SHIPPING_ENABLED`, `TCOS_SHIPPING_PURCHASE_MODE`, provider setup, the Standard Envelope evidence/protection contract, live requirement checklist, shipping simulations, live approval report, and dry-run cleanup status. Approval writes to `live_shipping_launch_gates` and appends immutable `live_shipping_launch_events`; revocation clears the approval side of the lock. Live shipping still requires both this database approval and the environment/runtime switches, and the current dry-run-only provider adapter still blocks live postage execution.
 

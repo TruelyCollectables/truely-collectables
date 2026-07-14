@@ -353,6 +353,7 @@ assertFileIncludes("launch handoff smoke contract", "scripts/smoke-production.mj
   "npm run deploy:production",
   "npm run smoke:production",
   "production smoke POSTs `/api/admin/shipping/simulations`",
+  "five expected purchase-audit scenarios",
   "no missing or unexpected scenario keys",
 ]);
 assertFileIncludes("live launch gate smoke contract", "scripts/smoke-production.mjs", [
@@ -650,6 +651,11 @@ assertFileIncludes("admin order label purchase attempt evidence audit source", "
   "Latest provider purchase attempt",
   "purchaseAttemptAudit.evidenceSummary",
   "purchaseAttemptAudit.standardEnvelopeEvidenceContractReady",
+]);
+assertFileIncludes("operator manual purchase audit simulation contract", "docs/TCOS_OPERATOR_MANUAL.md", [
+  "Runs shipping eligibility, dry-run adapter, and provider purchase-attempt audit simulations",
+  "five-scenario provider purchase-attempt audit pass evidence",
+  "Require all nineteen policy/adapter assertions plus the five provider purchase-attempt audit assertions",
 ]);
 assertFileIncludes(
   "seller protection reimbursement packet contract",

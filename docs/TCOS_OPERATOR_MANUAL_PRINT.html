@@ -670,7 +670,7 @@
 </tr>
 <tr>
 <td><code>/api/admin/shipping/simulations</code></td>
-<td>Runs shipping eligibility and dry-run adapter simulations</td>
+<td>Runs shipping eligibility, dry-run adapter, and provider purchase-attempt audit simulations</td>
 </tr>
 <tr>
 <td><code>/api/account/signup</code></td>
@@ -4179,7 +4179,7 @@ charge.dispute.funds_reinstated</code></pre>
 <li>what must be built before TCOS can buy postage: quote, buy, void, Coverage purchase, webhook reconciliation, and audit-packet proof</li>
 <li>what must not happen: mailing dry-run labels, marking dry-run tracking as shipped, or enabling live mode before launch readiness and simulations are clean</li>
 </ul>
-<p>The Live Shipping Runway now includes a Live Adapter Approval Checklist. The provider setup packet and <code>/admin/shipping</code> must show all of these gates ready before TCOS treats live postage or Coverage purchase as approved: provider credentials, live adapter implementation, quote/buy/void tests, Coverage purchase tests, provider webhook plus reconciliation approval, nineteen-scenario shipping simulation pass evidence, and explicit admin live-shipping approval. Secret presence alone is not enough to enable live postage.</p>
+<p>The Live Shipping Runway now includes a Live Adapter Approval Checklist. The provider setup packet and <code>/admin/shipping</code> must show all of these gates ready before TCOS treats live postage or Coverage purchase as approved: provider credentials, live adapter implementation, quote/buy/void tests, Coverage purchase tests, provider webhook plus reconciliation approval, nineteen-scenario shipping simulation pass evidence, five-scenario provider purchase-attempt audit pass evidence, and explicit admin live-shipping approval. Secret presence alone is not enough to enable live postage.</p>
 <p><code>/admin/live-shipping-launch</code> is the auditable live-shipping database lock. It evaluates the current live-shipping approval version, <code>TCOS_LIVE_SHIPPING_ENABLED</code>, <code>TCOS_SHIPPING_PURCHASE_MODE</code>, provider setup, the Standard Envelope evidence/protection contract, live requirement checklist, shipping simulations, live approval report, and dry-run cleanup status. Approval writes to <code>live_shipping_launch_gates</code> and appends immutable <code>live_shipping_launch_events</code>; revocation clears the approval side of the lock. Live shipping still requires both this database approval and the environment/runtime switches, and the current dry-run-only provider adapter still blocks live postage execution.</p>
 <p>The live-shipping report now includes a dedicated Standard Envelope Evidence Contract check. It must show that LetterTrack / USPS IMb is delivery evidence that can show delivered, while TCOS Under-$20 Seller Protection is an optional internal seller program with seller opt-in required, 2% reserve, <code>$20.00</code> item-only cap, no shipping reimbursement, and no third-party insurance claim.</p>
 <p>The live-shipping launch page and <code>/api/admin/live-shipping-launch</code> JSON report also expose the shared Standard Envelope runtime gate validator result, so operators can confirm the same <code>standardEnvelopeEvidenceContractReady</code> state that appears in the provider setup exports before approving live postage.</p>
