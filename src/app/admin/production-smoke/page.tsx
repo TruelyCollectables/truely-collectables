@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { DEPLOY_SAFETY } from "../../../lib/deploy-safety";
+import { SELLER_PROTECTION_SMOKE_COVERAGE_LINE } from "../../../lib/seller-protection-launch-contract";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -7,7 +8,7 @@ export const revalidate = 0;
 const smokeChecks = [
   "Admin login and dashboard render",
   "Launch readiness page, JSON brief, Markdown brief, and handoff bundle",
-  "Under-$20 Seller Protection launch handoff with internal-only model, 2% reserve, $20 item cap, shipping exclusion, LetterTrack/USPS IMb evidence rule, and reimbursement ledger path",
+  SELLER_PROTECTION_SMOKE_COVERAGE_LINE,
   "Launch Gate Drill page, JSON report, and Markdown operator report",
   "Live Payment Launch Gate",
   "Live Shipping Launch Gate",
