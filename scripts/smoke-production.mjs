@@ -327,6 +327,12 @@ const checks = [
       result.contentType.includes("application/json") &&
       result.text.includes('"brief"') &&
       result.text.includes('"deploySafety"') &&
+      result.text.includes('"deployment"') &&
+      result.text.includes('"gitCommitSha"') &&
+      result.text.includes('"gitCommitRef"') &&
+      result.text.includes('"vercelUrl"') &&
+      result.text.includes('"cleanProductionDomain"') &&
+      result.text.includes("Compare this Git commit SHA with origin/main") &&
       result.text.includes('"sellerProtection"') &&
       result.text.includes('"reimbursementEntryType":"seller_protection_reimbursement"') &&
       result.text.includes('"financialAdjustmentTable":"financial_adjustment_ledger_entries"') &&
@@ -353,6 +359,9 @@ const checks = [
       result.text.includes("seller_protection_reimbursement") &&
       result.text.includes("financial_adjustment_ledger_entries") &&
       result.text.includes("shipping is excluded and is not reimbursed") &&
+      result.text.includes("## Deployment Source") &&
+      result.text.includes("Git commit SHA:") &&
+      result.text.includes("Smoke comparison:") &&
       result.text.includes("## Production Deploy Safety") &&
       result.text.includes("api-deployments-free-per-day") &&
       result.text.includes("rolling 24-hour quota reset") &&
@@ -470,6 +479,9 @@ const checks = [
       "rolling 24-hour quota reset",
       "deploy live safety contract",
       "Protected deploy sequence:",
+      "## Deployment Source",
+      "Git commit SHA:",
+      "Smoke comparison:",
       "production smoke POSTs `/api/admin/shipping/simulations`",
       "no missing or unexpected scenario keys",
     ],

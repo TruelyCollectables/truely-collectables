@@ -135,6 +135,22 @@ function deploySafetyMarkdownLines() {
   ];
 }
 
+function deploymentSourceMarkdownLines(
+  deployment: Awaited<ReturnType<typeof buildBrief>>["deployment"],
+) {
+  return [
+    "## Deployment Source",
+    "",
+    `- Vercel environment: ${deployment.vercelEnv}`,
+    `- Vercel URL: ${deployment.vercelUrl}`,
+    `- Git commit SHA: ${deployment.gitCommitSha}`,
+    `- Git ref: ${deployment.gitCommitRef}`,
+    `- Git repo: ${deployment.gitRepo}`,
+    `- Clean production domain: ${deployment.cleanProductionDomain}`,
+    `- Smoke comparison: ${deployment.smokeComparison}`,
+  ];
+}
+
 function markdownForBrief(brief: Awaited<ReturnType<typeof buildBrief>>) {
   return [
     "# TCOS Launch Readiness Brief",
@@ -177,6 +193,8 @@ function markdownForBrief(brief: Awaited<ReturnType<typeof buildBrief>>) {
     "## Attention Items",
     "",
     cleanMarkdownListWithLinks(brief.attentionItems),
+    "",
+    ...deploymentSourceMarkdownLines(brief.deployment),
     "",
     ...deploySafetyMarkdownLines(),
     "",
@@ -242,6 +260,8 @@ function markdownForHandoffBundle(
     "",
     cleanMarkdownListWithLinks(brief.attentionItems),
     "",
+    ...deploymentSourceMarkdownLines(brief.deployment),
+    "",
     "## Git Tip Verification",
     "",
     "- Before deployment, confirm the local worktree is clean and the local commit matches GitHub:",
@@ -290,6 +310,29 @@ function absoluteUrl(origin: string | null, href: string | undefined) {
   } catch {
     return undefined;
   }
+}
+
+function buildDeploymentSource(origin: string | null) {
+  const vercelUrl = process.env.VERCEL_URL
+    ? `https://${process.env.VERCEL_URL}`
+    : origin || "local";
+  const gitOwner = process.env.VERCEL_GIT_REPO_OWNER || "unknown-owner";
+  const gitRepoSlug = process.env.VERCEL_GIT_REPO_SLUG || "unknown-repo";
+  const gitCommitSha = process.env.VERCEL_GIT_COMMIT_SHA || "local-unknown";
+  const gitCommitRef = process.env.VERCEL_GIT_COMMIT_REF || "local";
+
+  return {
+    vercelEnv: process.env.VERCEL_ENV || "local",
+    vercelUrl,
+    gitCommitSha,
+    gitCommitShortSha:
+      gitCommitSha.length >= 7 ? gitCommitSha.slice(0, 7) : gitCommitSha,
+    gitCommitRef,
+    gitRepo: `${gitOwner}/${gitRepoSlug}`,
+    cleanProductionDomain: DEPLOY_SAFETY.cleanProductionDomain,
+    smokeComparison:
+      "Compare this Git commit SHA with origin/main before treating production smoke as current.",
+  };
 }
 
 function buildOperatorStatus(params: {
@@ -473,6 +516,7 @@ async function buildBrief(origin: string | null = null) {
       ...operatorStatus,
       url: absoluteUrl(origin, operatorStatus.href),
     },
+    deployment: buildDeploymentSource(origin),
     deploySafety: DEPLOY_SAFETY,
     summary,
     payment: {
