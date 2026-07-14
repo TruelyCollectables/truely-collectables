@@ -2889,6 +2889,8 @@ assertFileIncludes("deploy live safety runbook", "docs/PRODUCTION_DEPLOY_RUNBOOK
   "Do not rapid-fire retries while capped",
   "Vercel can still accept the upload stream before returning the quota error",
   "smoke/deploy/guardrail diagnostic redaction self-tests",
+  "Queued launch feature failure(s):",
+  "failed check name, path, HTTP status, missing required text, diagnostic, and redacted snippet",
   "admin dashboard, launch readiness page/JSON/Markdown, Launch Gate Drill page/JSON/Markdown",
   "live payment gate, live shipping gate, admin shipping LetterTrack controls",
 ]);
