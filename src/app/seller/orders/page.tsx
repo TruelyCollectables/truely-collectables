@@ -31,6 +31,24 @@ type SellerOrderItem = {
   title: string;
   quantity: number;
   price: number;
+  sellerProtection: SellerProtectionSummary;
+};
+
+type SellerProtectionSummary = {
+  program: string;
+  reserveRate: number;
+  maxCoverage: number;
+  protectedRowCount: number;
+  unprotectedRowCount: number;
+  protectedItemAmount: number;
+  reimbursableItemAmount: number;
+  shippingExcludedAmount: number;
+  reserveAmount: number;
+  reimbursesShipping: false;
+  status: "protected" | "unprotected" | "mixed" | "not_applicable";
+  label: string;
+  detail: string;
+  sellerResponsibility: string;
 };
 
 type SellerOrderCashOutRequest = {
@@ -69,6 +87,7 @@ type SellerOrderActivity = {
   blockedByReview: boolean;
   payoutStatuses: string[];
   items: SellerOrderItem[];
+  sellerProtection: SellerProtectionSummary;
   cashOutRequests: SellerOrderCashOutRequest[];
   cases: SellerOrderCase[];
   recentSignals: SellerOrderSignal[];
@@ -195,6 +214,22 @@ function signalTone(tone: SellerOrderSignal["tone"]) {
   }
 
   return "border-neutral-200 bg-neutral-100 text-neutral-800";
+}
+
+function sellerProtectionTone(status: SellerProtectionSummary["status"]) {
+  if (status === "protected") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-950";
+  }
+
+  if (status === "mixed") {
+    return "border-amber-200 bg-amber-50 text-amber-950";
+  }
+
+  if (status === "unprotected") {
+    return "border-rose-200 bg-rose-50 text-rose-950";
+  }
+
+  return "border-neutral-200 bg-neutral-50 text-neutral-800";
 }
 
 function queueFilterForSignalKind(kind: SellerOrderSignal["kind"]): QueueFilter {
@@ -1287,6 +1322,11 @@ export default function SellerOrdersPage() {
                       />
                     </div>
 
+                    <SellerProtectionCard
+                      summary={order.sellerProtection}
+                      compact
+                    />
+
                     {order.recentSignals.length > 0 ? (
                       <div className="mt-4 rounded-md border border-neutral-200 bg-neutral-50 p-4">
                         <div className="flex items-center justify-between gap-3">
@@ -1383,6 +1423,21 @@ export default function SellerOrdersPage() {
                               <span className="font-bold text-neutral-950">
                                 {formatCurrency(item.price)}
                               </span>
+                            </div>
+                            <div
+                              className={`mt-3 rounded-md border px-3 py-2 text-xs font-semibold ${sellerProtectionTone(
+                                item.sellerProtection.status,
+                              )}`}
+                            >
+                              <span className="font-black">
+                                {item.sellerProtection.label}
+                              </span>{" "}
+                              / Reserve{" "}
+                              {formatCurrency(item.sellerProtection.reserveAmount)}
+                              {" / "}Covered{" "}
+                              {formatCurrency(
+                                item.sellerProtection.reimbursableItemAmount,
+                              )}
                             </div>
                             <div className="mt-3 flex flex-wrap gap-2">
                               <Link
@@ -1668,6 +1723,48 @@ function Info({ label, value }: { label: string; value: string }) {
       <dt className="text-xs font-black uppercase text-neutral-500">{label}</dt>
       <dd className="mt-1 break-words font-bold text-neutral-900">{value}</dd>
     </div>
+  );
+}
+
+function SellerProtectionCard({
+  summary,
+  compact,
+}: {
+  summary: SellerProtectionSummary;
+  compact?: boolean;
+}) {
+  return (
+    <section
+      className={`mt-4 rounded-md border p-4 ${sellerProtectionTone(summary.status)}`}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.14em] opacity-70">
+            Under-$20 Seller Protection
+          </p>
+          <h4 className="mt-1 text-lg font-black">{summary.label}</h4>
+        </div>
+        <span className="rounded border border-current/20 px-2 py-1 text-xs font-black">
+          2% reserve / $20 max
+        </span>
+      </div>
+      <dl className="mt-3 grid grid-cols-2 gap-3 text-sm md:grid-cols-4">
+        <Info label="Reserve" value={formatCurrency(summary.reserveAmount)} />
+        <Info
+          label="Covered Items"
+          value={formatCurrency(summary.reimbursableItemAmount)}
+        />
+        <Info
+          label="Shipping Excluded"
+          value={formatCurrency(summary.shippingExcludedAmount)}
+        />
+        <Info
+          label="Rows"
+          value={`${summary.protectedRowCount} protected / ${summary.unprotectedRowCount} liable`}
+        />
+      </dl>
+      {!compact ? <p className="mt-3 text-sm opacity-85">{summary.detail}</p> : null}
+    </section>
   );
 }
 

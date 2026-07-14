@@ -23,6 +23,7 @@ import {
 import {
   buildUnder20SellerProtectionClaimSummary,
   buildUnder20SellerProtectionReimbursementPlan,
+  buildUnder20SellerProtectionSellerVisibilitySummary,
   evaluateUnder20SellerProtectionBuyerRefundGate,
   evaluateUnder20SellerProtectionBuyerRefundMetadataGate,
 } from "./under20-seller-protection-claims";
@@ -36,6 +37,7 @@ export const SHIPPING_SIMULATION_EXPECTED_SCENARIO_KEYS = [
   "under_20_seller_protection_opted_in_item_only",
   "under_20_seller_protection_not_opted_in_seller_liability",
   "under_20_seller_protection_caps_mixed_rows",
+  "under_20_seller_protection_seller_order_visibility",
   "under_20_seller_protection_reimbursement_allocation",
   "under_20_seller_protection_buyer_refund_gate",
   "shipping_adapter_profiles_are_auditable",
@@ -303,6 +305,24 @@ export async function runShippingSimulationSuite() {
       protected_fee_total:
         cappedProtectedA.feeAmount + cappedProtectedB.feeAmount,
       unprotected_fee: cappedUnprotected.feeAmount,
+    },
+  });
+  const sellerVisibleProtection =
+    buildUnder20SellerProtectionSellerVisibilitySummary(cappedRows);
+  scenarios.push({
+    scenario_key: "under_20_seller_protection_seller_order_visibility",
+    scenario_status: pass(
+      sellerVisibleProtection.status === "mixed" &&
+        sellerVisibleProtection.reserveAmount === 0.54 &&
+        sellerVisibleProtection.protectedRowCount === 2 &&
+        sellerVisibleProtection.unprotectedRowCount === 1 &&
+        sellerVisibleProtection.reimbursableItemAmount === 20 &&
+        sellerVisibleProtection.shippingExcludedAmount === 1.36,
+    ),
+    detail:
+      "Seller order views can show under-$20 protection status, 2% reserve, protected item cap, unprotected row liability, and shipping excluded from reimbursement.",
+    assertions: {
+      seller_visible_protection: sellerVisibleProtection,
     },
   });
   const allocationPlan = buildUnder20SellerProtectionReimbursementPlan({

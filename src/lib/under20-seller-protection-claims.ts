@@ -59,6 +59,23 @@ export type Under20SellerProtectionBuyerRefundGate = {
   reason: string;
 };
 
+export type Under20SellerProtectionSellerVisibilitySummary = {
+  program: string;
+  reserveRate: number;
+  maxCoverage: number;
+  protectedRowCount: number;
+  unprotectedRowCount: number;
+  protectedItemAmount: number;
+  reimbursableItemAmount: number;
+  shippingExcludedAmount: number;
+  reserveAmount: number;
+  reimbursesShipping: false;
+  status: "protected" | "unprotected" | "mixed" | "not_applicable";
+  label: string;
+  detail: string;
+  sellerResponsibility: string;
+};
+
 function moneyNumber(value: unknown) {
   const parsed = Number(value || 0);
   return Number.isFinite(parsed) ? Math.round(parsed * 100) / 100 : 0;
@@ -90,6 +107,64 @@ function metadataRecord(value: unknown): Record<string, unknown> {
 
 export function under20ProtectionFromMetadata(metadata: unknown) {
   return metadataRecord(metadataRecord(metadata).under_20_seller_protection);
+}
+
+export function buildUnder20SellerProtectionSellerVisibilitySummary(
+  rows: Under20SellerProtectionLedgerRow[],
+): Under20SellerProtectionSellerVisibilitySummary {
+  const claim = buildUnder20SellerProtectionClaimSummary(rows);
+  const reserveAmount = rows.reduce((sum, row) => {
+    const metadata = metadataRecord(row.metadata);
+    const directFee = moneyNumber(metadata.seller_protection_fee_amount);
+    const protectionFee = moneyNumber(
+      metadataRecord(metadata.under_20_seller_protection).feeAmount,
+    );
+
+    return sum + (directFee || protectionFee);
+  }, 0);
+  const protectedRowCount = claim.protectedLedgerEntryIds.length;
+  const unprotectedRowCount = claim.unprotectedLedgerEntryIds.length;
+  const status =
+    protectedRowCount > 0 && unprotectedRowCount > 0
+      ? "mixed"
+      : protectedRowCount > 0
+        ? "protected"
+        : unprotectedRowCount > 0
+          ? "unprotected"
+          : "not_applicable";
+  const label =
+    status === "protected"
+      ? "Protected"
+      : status === "mixed"
+        ? "Mixed protection"
+        : status === "unprotected"
+          ? "Seller liable"
+          : "Not applicable";
+  const detail =
+    status === "protected"
+      ? "This order has opted-in TCOS Under-$20 Seller Protection. TCOS withheld the 2% reserve and can reimburse protected item sale amount up to $20 after buyer refund proof and delivery-evidence rules are satisfied. Shipping is excluded."
+      : status === "mixed"
+        ? "This order has both protected and unprotected seller rows. TCOS reimbursement only applies to opted-in protected item sale amount up to $20; shipping and unprotected rows stay seller responsibility."
+        : status === "unprotected"
+          ? "Seller did not opt into TCOS Under-$20 Seller Protection for these Standard Envelope seller rows. If delivery cannot show delivered and the buyer must be refunded, seller is responsible for the refund."
+          : "No under-$20 Standard Envelope seller-protection ledger rows are attached to this seller scope.";
+
+  return {
+    program: claim.program,
+    reserveRate: claim.reserveRate,
+    maxCoverage: claim.maxCoverage,
+    protectedRowCount,
+    unprotectedRowCount,
+    protectedItemAmount: claim.protectedItemAmount,
+    reimbursableItemAmount: claim.reimbursableItemAmount,
+    shippingExcludedAmount: claim.shippingExcludedAmount,
+    reserveAmount: moneyNumber(reserveAmount),
+    reimbursesShipping: false,
+    status,
+    label,
+    detail,
+    sellerResponsibility: claim.sellerRefundResponsibility,
+  };
 }
 
 export function buildUnder20SellerProtectionClaimSummary(

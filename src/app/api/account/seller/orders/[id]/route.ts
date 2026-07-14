@@ -9,6 +9,7 @@ import {
 import { isDryRunShippingReference } from "../../../../../../lib/shipping-dry-run";
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
+import { buildUnder20SellerProtectionSellerVisibilitySummary } from "../../../../../../lib/under20-seller-protection-claims";
 
 export const dynamic = "force-dynamic";
 
@@ -45,6 +46,7 @@ type SellerPayoutLedgerRow = {
   platform_fee_amount: number | string | null;
   payout_status: string | null;
   created_at: string | null;
+  metadata?: Record<string, unknown> | null;
 };
 
 type OrderReviewCaseRow = {
@@ -214,7 +216,7 @@ export async function GET(
       supabase
         .from("seller_payout_ledger_entries")
         .select(
-          "id,order_id,order_item_id,seller_payable_amount,gross_item_amount,shipping_allocated_amount,platform_fee_amount,payout_status,created_at",
+          "id,order_id,order_item_id,seller_payable_amount,gross_item_amount,shipping_allocated_amount,platform_fee_amount,payout_status,created_at,metadata",
         )
         .eq("store_id", storeId)
         .eq("seller_account_id", account.id)
@@ -438,6 +440,8 @@ export async function GET(
         updatedAt: reviewCase.updated_at,
       })),
     });
+    const sellerProtectionSummary =
+      buildUnder20SellerProtectionSellerVisibilitySummary(payoutRows);
 
     return NextResponse.json({
       success: true,
@@ -475,6 +479,7 @@ export async function GET(
           String(payoutRow.payout_status || "").startsWith("hold_"),
         ).length,
         activeCaseCount: activeCases.length,
+        sellerProtection: sellerProtectionSummary,
       },
       items: sellerOrderItems.map((itemRow) => ({
         id: itemRow.id,
@@ -483,6 +488,9 @@ export async function GET(
         price: moneyNumber(itemRow.price),
         lineTotal:
           moneyNumber(itemRow.price) * Number(itemRow.quantity || 0),
+        sellerProtection: buildUnder20SellerProtectionSellerVisibilitySummary(
+          payoutRows.filter((payoutRow) => payoutRow.order_item_id === itemRow.id),
+        ),
       })),
       payoutRows: payoutRows.map((payoutRow) => ({
         id: payoutRow.id,
@@ -497,6 +505,9 @@ export async function GET(
         sellerPayableAmount: moneyNumber(payoutRow.seller_payable_amount),
         payoutStatus: payoutRow.payout_status || "unknown",
         createdAt: payoutRow.created_at,
+        sellerProtection: buildUnder20SellerProtectionSellerVisibilitySummary([
+          payoutRow,
+        ]),
       })),
       cashOutRequests,
       reviewCases: reviewCases.map((reviewCase) => ({

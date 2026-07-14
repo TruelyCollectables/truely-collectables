@@ -12,6 +12,7 @@ import {
 import { isDryRunShippingReference } from "../../../../../lib/shipping-dry-run";
 import { getActiveStoreId } from "../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
+import { buildUnder20SellerProtectionSellerVisibilitySummary } from "../../../../../lib/under20-seller-protection-claims";
 
 export const dynamic = "force-dynamic";
 
@@ -39,10 +40,14 @@ type OrderRow = {
 type SellerPayoutLedgerRow = {
   id: string;
   order_id: number;
+  order_item_id: number;
+  gross_item_amount: number | string | null;
+  shipping_allocated_amount: number | string | null;
   seller_payable_amount: number | string | null;
   platform_fee_amount: number | string | null;
   payout_status: string | null;
   created_at: string | null;
+  metadata?: Record<string, unknown> | null;
 };
 
 type OrderReviewCaseRow = {
@@ -203,7 +208,7 @@ export async function GET(request: Request) {
       supabase
         .from("seller_payout_ledger_entries")
         .select(
-          "id,order_id,seller_payable_amount,platform_fee_amount,payout_status,created_at",
+          "id,order_id,order_item_id,gross_item_amount,shipping_allocated_amount,seller_payable_amount,platform_fee_amount,payout_status,created_at,metadata",
         )
         .eq("store_id", storeId)
         .eq("seller_account_id", account.id)
@@ -384,6 +389,8 @@ export async function GET(request: Request) {
           (sum, row) => sum + moneyNumber(row.platform_fee_amount),
           0,
         );
+        const sellerProtectionSummary =
+          buildUnder20SellerProtectionSellerVisibilitySummary(scopedPayoutRows);
         const scopedRequestEntries = payoutRequestEntries.filter((entry) => {
           const payoutRow = payoutRowsById.get(entry.seller_payout_ledger_entry_id);
           return payoutRow?.order_id === orderId;
@@ -514,11 +521,16 @@ export async function GET(request: Request) {
             new Set(scopedPayoutRows.map((row) => row.payout_status || "unknown")),
           ),
           items: scopedItems.map((item) => ({
+            sellerProtection:
+              buildUnder20SellerProtectionSellerVisibilitySummary(
+                scopedPayoutRows.filter((row) => row.order_item_id === item.id),
+              ),
             id: item.id,
             title: item.title || "Untitled item",
             quantity: Number(item.quantity || 0),
             price: moneyNumber(item.price),
           })),
+          sellerProtection: sellerProtectionSummary,
           cashOutRequests: scopedCashOutRequests,
           cases: activeCases.slice(0, 5).map((reviewCase) => ({
             id: reviewCase.id,
