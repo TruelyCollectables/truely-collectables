@@ -15,6 +15,32 @@ const requestTimeoutMs = Math.max(
   Number(process.env.SMOKE_REQUEST_TIMEOUT_MS || 15000) || 15000,
 );
 const redactionSelfTest = process.argv.includes("--self-test-redaction");
+const sellerMarketplaceReceiptHandoffSmoke = {
+  title: "Seller Marketplace Receipt Handoff",
+  route: "/seller/marketplaces",
+  proofText: "Seller marketplace receipt handoff proof text",
+  controls: [
+    "Copy Safe Receipt",
+    "Download Safe Receipt",
+    "Copy Trail",
+    "Download Trail",
+    "Clear Trail",
+  ],
+  safeUseBoundary:
+    "Treat the receipt trail as a safe operator handoff aid, not an audit ledger, payment record, fulfillment proof, or provider reconciliation source of truth.",
+  safeUseBoundaryProof:
+    "not an audit ledger, payment record, fulfillment proof, or provider reconciliation source of truth",
+};
+const sellerMarketplaceReceiptHandoffControlsText =
+  sellerMarketplaceReceiptHandoffSmoke.controls.join(", ");
+const sellerMarketplaceReceiptHandoffCoverageLine =
+  `Seller marketplace receipt handoff controls for ${sellerMarketplaceReceiptHandoffControlsText}`;
+const sellerMarketplaceReceiptHandoffBundleText = [
+  `## ${sellerMarketplaceReceiptHandoffSmoke.title}`,
+  sellerMarketplaceReceiptHandoffSmoke.proofText,
+  ...sellerMarketplaceReceiptHandoffSmoke.controls,
+  sellerMarketplaceReceiptHandoffSmoke.safeUseBoundaryProof,
+];
 
 function optionalRunResult(command, args) {
   const result = spawnSync(command, args, {
@@ -105,6 +131,51 @@ function hasAttachmentFilename(result, filenameText) {
     contentDisposition.toLowerCase().includes("attachment") &&
     contentDisposition.includes(filenameText)
   );
+}
+
+function includesAll(text, entries) {
+  return entries.every((entry) => text.includes(entry));
+}
+
+function hasJsonField(text, key, value) {
+  return text.includes(`"${key}":${JSON.stringify(value)}`);
+}
+
+function hasSellerMarketplaceReceiptHandoffSmokeText(text) {
+  return includesAll(text, [
+    sellerMarketplaceReceiptHandoffSmoke.title,
+    sellerMarketplaceReceiptHandoffSmoke.proofText,
+    ...sellerMarketplaceReceiptHandoffSmoke.controls,
+    "not an audit ledger",
+    sellerMarketplaceReceiptHandoffSmoke.route,
+  ]);
+}
+
+function hasSellerMarketplaceReceiptHandoffJson(text) {
+  return (
+    hasJsonField(text, "title", sellerMarketplaceReceiptHandoffSmoke.title) &&
+    hasJsonField(text, "route", sellerMarketplaceReceiptHandoffSmoke.route) &&
+    hasJsonField(
+      text,
+      "proofText",
+      sellerMarketplaceReceiptHandoffSmoke.proofText,
+    ) &&
+    hasJsonField(text, "controls", sellerMarketplaceReceiptHandoffSmoke.controls) &&
+    hasJsonField(
+      text,
+      "safeUseBoundary",
+      sellerMarketplaceReceiptHandoffSmoke.safeUseBoundary,
+    )
+  );
+}
+
+function hasSellerMarketplaceReceiptHandoffMarkdown(text) {
+  return includesAll(text, [
+    `## ${sellerMarketplaceReceiptHandoffSmoke.title}`,
+    `Proof text: ${sellerMarketplaceReceiptHandoffSmoke.proofText}`,
+    `Controls: ${sellerMarketplaceReceiptHandoffControlsText}`,
+    `Safe-use boundary: ${sellerMarketplaceReceiptHandoffSmoke.safeUseBoundary}`,
+  ]);
 }
 
 if (hostFor(baseUrl) && hostFor(baseUrl) === hostFor(unwantedAliasUrl)) {
@@ -376,15 +447,7 @@ const checks = [
     expect: (result) =>
       result.text.includes("Shipping Setup") &&
       result.text.includes("Shipping Provider Unlock Action Plan") &&
-      result.text.includes("Seller Marketplace Receipt Handoff") &&
-      result.text.includes("Seller marketplace receipt handoff proof text") &&
-      result.text.includes("Copy Safe Receipt") &&
-      result.text.includes("Download Safe Receipt") &&
-      result.text.includes("Copy Trail") &&
-      result.text.includes("Download Trail") &&
-      result.text.includes("Clear Trail") &&
-      result.text.includes("not an audit ledger") &&
-      result.text.includes("/seller/marketplaces") &&
+      hasSellerMarketplaceReceiptHandoffSmokeText(result.text) &&
       result.text.includes("Choose provider accounts") &&
       result.text.includes("Stage Vercel environment names") &&
       result.text.includes("Keep shipping runtime locked") &&
@@ -453,11 +516,7 @@ const checks = [
       result.text.includes("Compare this Git commit SHA with origin/main") &&
       result.text.includes('"sellerProtection"') &&
       result.text.includes('"sellerMarketplaceReceiptHandoff"') &&
-      result.text.includes('"title":"Seller Marketplace Receipt Handoff"') &&
-      result.text.includes('"route":"/seller/marketplaces"') &&
-      result.text.includes('"proofText":"Seller marketplace receipt handoff proof text"') &&
-      result.text.includes('"controls":["Copy Safe Receipt","Download Safe Receipt","Copy Trail","Download Trail","Clear Trail"]') &&
-      result.text.includes('"safeUseBoundary":"Treat the receipt trail as a safe operator handoff aid, not an audit ledger, payment record, fulfillment proof, or provider reconciliation source of truth."') &&
+      hasSellerMarketplaceReceiptHandoffJson(result.text) &&
       result.text.includes('"standardEnvelopeEvidenceContractReady":true') &&
       result.text.includes('"reimbursementEntryType":"seller_protection_reimbursement"') &&
       result.text.includes('"financialAdjustmentTable":"financial_adjustment_ledger_entries"') &&
@@ -498,10 +557,7 @@ const checks = [
       result.text.includes("seller_protection_reimbursement") &&
       result.text.includes("financial_adjustment_ledger_entries") &&
       result.text.includes("shipping is excluded and is not reimbursed") &&
-      result.text.includes("## Seller Marketplace Receipt Handoff") &&
-      result.text.includes("Proof text: Seller marketplace receipt handoff proof text") &&
-      result.text.includes("Controls: Copy Safe Receipt, Download Safe Receipt, Copy Trail, Download Trail, Clear Trail") &&
-      result.text.includes("Safe-use boundary: Treat the receipt trail as a safe operator handoff aid, not an audit ledger, payment record, fulfillment proof, or provider reconciliation source of truth.") &&
+      hasSellerMarketplaceReceiptHandoffMarkdown(result.text) &&
       result.text.includes("Standard Envelope evidence validator: ready") &&
       result.text.includes("Provider purchase-attempt audit suite: passed; 5/5 scenarios; key coverage passed") &&
       result.text.includes("Missing purchase audit keys: none") &&
@@ -601,7 +657,7 @@ const checks = [
       "Shipping provider setup JSON and export packets with Standard Envelope evidence readiness",
       "Seller marketplace packet intake guardrail for cross-list prep only, no postage purchase, no Coverage policy creation, no payout release, no order fulfillment, and no automatic under-$20 protection activation",
       "Seller marketplace page renders Marketplace Packet Intake guidance, ready-row handoff, needs-work handoff, and prep-only export wording",
-      "Seller marketplace receipt handoff controls for Copy Safe Receipt, Download Safe Receipt, Copy Trail, Download Trail, and Clear Trail",
+      sellerMarketplaceReceiptHandoffCoverageLine,
       "Seller inventory, order, and payout workspaces render login gates before exposing seller-owned data",
       "Queued launch feature failure(s)",
       "Unwanted truely-collectables-tt3b.vercel.app alias absence",
@@ -666,9 +722,7 @@ const checks = [
       result.text.includes(
         "Seller marketplace page renders Marketplace Packet Intake guidance, ready-row handoff, needs-work handoff, and prep-only export wording",
       ) &&
-      result.text.includes(
-        "Seller marketplace receipt handoff controls for Copy Safe Receipt, Download Safe Receipt, Copy Trail, Download Trail, and Clear Trail",
-      ) &&
+      result.text.includes(sellerMarketplaceReceiptHandoffCoverageLine) &&
       result.text.includes(
         "Seller inventory, order, and payout workspaces render login gates before exposing seller-owned data",
       ) &&
@@ -723,11 +777,7 @@ const checks = [
       "Open Needs-Work Inventory",
       "Seller marketplace packet intake guidance",
       "Seller marketplace receipt handoff",
-      "Copy Safe Receipt",
-      "Download Safe Receipt",
-      "Copy Trail",
-      "Download Trail",
-      "Clear Trail",
+      ...sellerMarketplaceReceiptHandoffSmoke.controls,
     ],
     expect: (result) =>
       result.text.includes("Seller Connections") &&
@@ -741,11 +791,7 @@ const checks = [
       result.text.includes("Open Needs-Work Inventory") &&
       result.text.includes("Seller marketplace packet intake guidance") &&
       result.text.includes("Seller marketplace receipt handoff") &&
-      result.text.includes("Copy Safe Receipt") &&
-      result.text.includes("Download Safe Receipt") &&
-      result.text.includes("Copy Trail") &&
-      result.text.includes("Download Trail") &&
-      result.text.includes("Clear Trail") &&
+      includesAll(result.text, sellerMarketplaceReceiptHandoffSmoke.controls) &&
       result.text.includes("prep-only JSON/CSV handoffs") &&
       !result.text.includes("sk_live_") &&
       !result.text.includes("whsec_"),
@@ -845,14 +891,7 @@ const checks = [
       "five expected purchase-audit scenarios",
       "no missing or unexpected scenario keys",
       "no missing/unexpected purchase-audit keys",
-      "## Seller Marketplace Receipt Handoff",
-      "Seller marketplace receipt handoff proof text",
-      "Copy Safe Receipt",
-      "Download Safe Receipt",
-      "Copy Trail",
-      "Download Trail",
-      "Clear Trail",
-      "not an audit ledger, payment record, fulfillment proof, or provider reconciliation source of truth",
+      ...sellerMarketplaceReceiptHandoffBundleText,
     ],
     expect: (result) =>
       hasAttachmentFilename(result, "tcos-launch-handoff-bundle.md") &&
@@ -902,16 +941,7 @@ const checks = [
       result.text.includes("five expected purchase-audit scenarios") &&
       result.text.includes("no missing or unexpected scenario keys") &&
       result.text.includes("no missing/unexpected purchase-audit keys") &&
-      result.text.includes("## Seller Marketplace Receipt Handoff") &&
-      result.text.includes("Seller marketplace receipt handoff proof text") &&
-      result.text.includes("Copy Safe Receipt") &&
-      result.text.includes("Download Safe Receipt") &&
-      result.text.includes("Copy Trail") &&
-      result.text.includes("Download Trail") &&
-      result.text.includes("Clear Trail") &&
-      result.text.includes(
-        "not an audit ledger, payment record, fulfillment proof, or provider reconciliation source of truth",
-      ) &&
+      includesAll(result.text, sellerMarketplaceReceiptHandoffBundleText) &&
       result.text.includes("truely-collectables-tt3b.vercel.app"),
   },
   {
