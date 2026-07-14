@@ -452,6 +452,12 @@ const checks = [
       result.text.includes('"cleanProductionDomain"') &&
       result.text.includes("Compare this Git commit SHA with origin/main") &&
       result.text.includes('"sellerProtection"') &&
+      result.text.includes('"sellerMarketplaceReceiptHandoff"') &&
+      result.text.includes('"title":"Seller Marketplace Receipt Handoff"') &&
+      result.text.includes('"route":"/seller/marketplaces"') &&
+      result.text.includes('"proofText":"Seller marketplace receipt handoff proof text"') &&
+      result.text.includes('"controls":["Copy Safe Receipt","Download Safe Receipt","Copy Trail","Download Trail","Clear Trail"]') &&
+      result.text.includes('"safeUseBoundary":"Treat the receipt trail as a safe operator handoff aid, not an audit ledger, payment record, fulfillment proof, or provider reconciliation source of truth."') &&
       result.text.includes('"standardEnvelopeEvidenceContractReady":true') &&
       result.text.includes('"reimbursementEntryType":"seller_protection_reimbursement"') &&
       result.text.includes('"financialAdjustmentTable":"financial_adjustment_ledger_entries"') &&
@@ -492,6 +498,10 @@ const checks = [
       result.text.includes("seller_protection_reimbursement") &&
       result.text.includes("financial_adjustment_ledger_entries") &&
       result.text.includes("shipping is excluded and is not reimbursed") &&
+      result.text.includes("## Seller Marketplace Receipt Handoff") &&
+      result.text.includes("Proof text: Seller marketplace receipt handoff proof text") &&
+      result.text.includes("Controls: Copy Safe Receipt, Download Safe Receipt, Copy Trail, Download Trail, Clear Trail") &&
+      result.text.includes("Safe-use boundary: Treat the receipt trail as a safe operator handoff aid, not an audit ledger, payment record, fulfillment proof, or provider reconciliation source of truth.") &&
       result.text.includes("Standard Envelope evidence validator: ready") &&
       result.text.includes("Provider purchase-attempt audit suite: passed; 5/5 scenarios; key coverage passed") &&
       result.text.includes("Missing purchase audit keys: none") &&

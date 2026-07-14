@@ -16,6 +16,10 @@ import {
   buildSellerProtectionLaunchContract,
   sellerProtectionLaunchMarkdownLines,
 } from "../../../../lib/seller-protection-launch-contract";
+import {
+  buildSellerMarketplaceReceiptHandoffContract,
+  sellerMarketplaceReceiptHandoffMarkdownLines,
+} from "../../../../lib/seller-marketplace-receipt-handoff";
 
 export const dynamic = "force-dynamic";
 
@@ -214,6 +218,10 @@ function markdownForBrief(brief: Awaited<ReturnType<typeof buildBrief>>) {
     ]),
     ...sellerProtectionLaunchMarkdownLines(brief.sellerProtection),
     "",
+    ...sellerMarketplaceReceiptHandoffMarkdownLines(
+      brief.sellerMarketplaceReceiptHandoff,
+    ),
+    "",
     "## Attention Items",
     "",
     cleanMarkdownListWithLinks(brief.attentionItems),
@@ -341,12 +349,9 @@ function markdownForHandoffBundle(
     "- Confirm production smoke POSTs `/api/admin/shipping/simulations` and verifies nineteen expected shipping scenarios, five expected purchase-audit scenarios, passed key coverage, no missing or unexpected scenario keys, and no missing/unexpected purchase-audit keys.",
     "- Confirm `/api/admin/shipping/provider-setup` exposes export links and credential groups.",
     "",
-    "## Seller Marketplace Receipt Handoff",
-    "",
-    "- Confirm `/seller/marketplaces` shows the Seller marketplace receipt handoff proof text.",
-    "- Confirm the handoff names `Copy Safe Receipt`, `Download Safe Receipt`, `Copy Trail`, `Download Trail`, and `Clear Trail` before operators rely on marketplace API receipt handoffs.",
-    "- Treat the receipt trail as a safe operator handoff aid, not an audit ledger, payment record, fulfillment proof, or provider reconciliation source of truth.",
-    "- Use a copied or downloaded safe receipt/trail after auth, import, staging, reconcile, order-import, or promotion debugging instead of raw provider errors or chat history.",
+    ...sellerMarketplaceReceiptHandoffMarkdownLines(
+      brief.sellerMarketplaceReceiptHandoff,
+    ),
     "",
     "- Confirm the clean production domain points at the latest deployment.",
     "",
@@ -624,6 +629,8 @@ async function buildBrief(origin: string | null = null) {
       ),
     },
     sellerProtection: buildSellerProtectionLaunchContract(origin),
+    sellerMarketplaceReceiptHandoff:
+      buildSellerMarketplaceReceiptHandoffContract(origin),
     drill: {
       passed: drillReport.summary.passed,
       warning: drillReport.summary.warning,

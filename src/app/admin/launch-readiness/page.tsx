@@ -27,6 +27,7 @@ import {
   getStripeTestSecretKey,
   getStripeTestWebhookSecret,
 } from "../../../lib/stripe-credentials";
+import { buildSellerMarketplaceReceiptHandoffContract } from "../../../lib/seller-marketplace-receipt-handoff";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -1473,20 +1474,14 @@ ${DEPLOY_SAFETY.smokeCommand}`}
 }
 
 function SellerMarketplaceReceiptHandoff() {
-  const controls = [
-    "Copy Safe Receipt",
-    "Download Safe Receipt",
-    "Copy Trail",
-    "Download Trail",
-    "Clear Trail",
-  ];
+  const handoff = buildSellerMarketplaceReceiptHandoffContract();
 
   return (
     <section className="mb-8 rounded border border-emerald-200 bg-emerald-50 p-6 text-emerald-950">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h2 className="text-2xl font-bold">
-            Seller Marketplace Receipt Handoff
+            {handoff.title}
           </h2>
           <p className="mt-1 max-w-3xl text-sm font-semibold">
             Launch readiness also verifies the seller marketplace page exposes
@@ -1495,7 +1490,7 @@ function SellerMarketplaceReceiptHandoff() {
           </p>
         </div>
         <Link
-          href="/seller/marketplaces"
+          href={handoff.route}
           className="rounded border border-emerald-300 bg-white px-4 py-2 text-sm font-bold"
         >
           Open Seller Marketplaces
@@ -1506,14 +1501,14 @@ function SellerMarketplaceReceiptHandoff() {
         <div className="rounded border border-emerald-200 bg-white p-4">
           <h3 className="font-bold">Required proof text</h3>
           <p className="mt-2 text-sm font-semibold">
-            The seller workspace must show Seller marketplace receipt handoff
-            proof text before operators rely on copied or downloaded receipts.
+            The seller workspace must show {handoff.proofText} before
+            operators rely on copied or downloaded receipts.
           </p>
         </div>
         <div className="rounded border border-emerald-200 bg-white p-4">
           <h3 className="font-bold">Required controls</h3>
           <ul className="mt-2 list-disc space-y-1 pl-4 text-sm font-semibold">
-            {controls.map((control) => (
+            {handoff.controls.map((control) => (
               <li key={control}>{control}</li>
             ))}
           </ul>
@@ -1521,9 +1516,7 @@ function SellerMarketplaceReceiptHandoff() {
         <div className="rounded border border-emerald-200 bg-white p-4">
           <h3 className="font-bold">Safe-use boundary</h3>
           <p className="mt-2 text-sm font-semibold">
-            Treat the receipt trail as a safe operator handoff aid, not an audit
-            ledger, payment record, fulfillment proof, or provider
-            reconciliation source of truth.
+            {handoff.safeUseBoundary}
           </p>
         </div>
       </div>
