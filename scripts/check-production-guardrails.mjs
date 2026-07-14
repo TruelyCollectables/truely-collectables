@@ -360,18 +360,11 @@ assertFileIncludes("live launch gate smoke contract", "scripts/smoke-production.
   '"Standard Envelope Evidence Contract"',
 ]);
 assertFileIncludes("live shipping evidence contract report source", "src/lib/live-shipping-launch.ts", [
-  "standardEnvelopeEvidenceContractReady",
+  "isStandardEnvelopeEvidenceContractReady",
   "StandardEnvelopeEvidenceContract",
   "standardEnvelopeEvidenceContract: StandardEnvelopeEvidenceContract",
   "standard_envelope_evidence_contract",
   "Standard Envelope Evidence Contract",
-  "LetterTrack / USPS IMb",
-  "show delivered",
-  "optional internal seller program",
-  "Seller must opt in per shipment",
-  'reserveRate === "2%"',
-  'itemReimbursementCap === "$20.00"',
-  'reimbursesShipping === "no"',
   "not third-party insurance",
   "Live shipping is blocked because the Standard Envelope evidence/protection contract is incomplete or unsafe.",
   "standardEnvelopeEvidenceContract,",
@@ -400,6 +393,14 @@ assertFileIncludes("shipping simulation API smoke contract", "scripts/smoke-prod
   '"under_20_seller_protection_reimbursement_allocation"',
   '"under_20_seller_protection_buyer_refund_gate"',
   '"lettertrack_csv_seller_protection_contract"',
+]);
+assertFileIncludes("shipping simulation evidence contract validator", "src/lib/shipping-simulations.ts", [
+  "isStandardEnvelopeEvidenceContractReady",
+  "unsafeStandardEnvelopeEvidenceContract",
+  "approved third-party insurance",
+  "runtime_gate_contract_ready",
+  "unsafe_contract_rejected",
+  "shared live gate validator rejects unsafe contract drift",
 ]);
 assertFileIncludes("admin shipping controls smoke contract", "scripts/smoke-production.mjs", [
   'name: "admin shipping lettertrack controls"',
@@ -493,6 +494,7 @@ assertFileIncludes("shipping provider setup smoke contract", "scripts/smoke-prod
 assertFileIncludes("shipping provider standard envelope evidence contract source", "src/lib/shipping-provider-setup.ts", [
   "StandardEnvelopeEvidenceContract",
   "STANDARD_ENVELOPE_EVIDENCE_CONTRACT",
+  "isStandardEnvelopeEvidenceContractReady",
   "LetterTrack / USPS IMb",
   "Provides trackable USPS IMb delivery evidence",
   "TCOS only needs provider evidence that can show delivered",

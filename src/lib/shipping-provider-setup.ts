@@ -244,6 +244,22 @@ export const STANDARD_ENVELOPE_EVIDENCE_CONTRACT: StandardEnvelopeEvidenceContra
     ],
   };
 
+export function isStandardEnvelopeEvidenceContractReady(
+  contract: StandardEnvelopeEvidenceContract,
+) {
+  return (
+    contract.evidenceProvider === "LetterTrack / USPS IMb" &&
+    contract.trackableRequirement.includes("show delivered") &&
+    contract.under20ProtectionModel.includes("optional internal seller program") &&
+    contract.sellerOptInRule.includes("Seller must opt in per shipment") &&
+    contract.reserveRate === "2%" &&
+    contract.itemReimbursementCap === "$20.00" &&
+    contract.reimbursementBasis === "item_sale_amount_excluding_shipping" &&
+    contract.reimbursesShipping === "no" &&
+    contract.notInsuranceNotice.includes("not third-party insurance")
+  );
+}
+
 function unique(values: string[]) {
   return Array.from(new Set(values.filter(Boolean)));
 }

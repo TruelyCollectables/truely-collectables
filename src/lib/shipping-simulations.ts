@@ -8,7 +8,10 @@ import {
   getShippingProviderAdapterProfile,
   purchaseShippingLabel,
 } from "./shipping-provider-adapter";
-import { buildShippingProviderSetupPacket } from "./shipping-provider-setup";
+import {
+  buildShippingProviderSetupPacket,
+  isStandardEnvelopeEvidenceContractReady,
+} from "./shipping-provider-setup";
 import {
   buildLetterTrackExport,
   letterTrackCsvContent,
@@ -426,6 +429,11 @@ export async function runShippingSimulationSuite() {
 
   const standardEnvelopeEvidenceContract =
     providerSetup.standardEnvelopeEvidenceContract;
+  const unsafeStandardEnvelopeEvidenceContract = {
+    ...standardEnvelopeEvidenceContract,
+    notInsuranceNotice:
+      "LetterTrack / USPS IMb is approved third-party insurance for Standard Envelope claims.",
+  };
   scenarios.push({
     scenario_key: "provider_setup_standard_envelope_evidence_contract",
     scenario_status: pass(
@@ -447,11 +455,25 @@ export async function runShippingSimulationSuite() {
         standardEnvelopeEvidenceContract.reimbursesShipping === "no" &&
         standardEnvelopeEvidenceContract.notInsuranceNotice.includes(
           "not third-party insurance",
+        ) &&
+        isStandardEnvelopeEvidenceContractReady(
+          standardEnvelopeEvidenceContract,
+        ) &&
+        !isStandardEnvelopeEvidenceContractReady(
+          unsafeStandardEnvelopeEvidenceContract,
         ),
     ),
     detail:
-      "Provider setup exports state that LetterTrack / USPS IMb supplies trackable delivery evidence while TCOS Under-$20 Seller Protection remains an optional internal, item-only, non-insurance program.",
-    assertions: standardEnvelopeEvidenceContract,
+      "Provider setup exports state that LetterTrack / USPS IMb supplies trackable delivery evidence while TCOS Under-$20 Seller Protection remains an optional internal, item-only, non-insurance program, and the shared live gate validator rejects unsafe contract drift.",
+    assertions: {
+      ...standardEnvelopeEvidenceContract,
+      runtime_gate_contract_ready: isStandardEnvelopeEvidenceContractReady(
+        standardEnvelopeEvidenceContract,
+      ),
+      unsafe_contract_rejected: !isStandardEnvelopeEvidenceContractReady(
+        unsafeStandardEnvelopeEvidenceContract,
+      ),
+    },
   });
 
   const letterTrackExport = buildLetterTrackExport({

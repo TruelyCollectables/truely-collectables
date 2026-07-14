@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getDryRunShippingCleanupSummary } from "./shipping-dry-run-cleanup";
 import {
   buildShippingProviderSetupPacket,
+  isStandardEnvelopeEvidenceContractReady,
   type StandardEnvelopeEvidenceContract,
 } from "./shipping-provider-setup";
 import { runShippingSimulationSuite } from "./shipping-simulations";
@@ -50,22 +51,6 @@ function shippingPurchaseMode() {
   return process.env.TCOS_SHIPPING_PURCHASE_MODE === "live"
     ? ("live" as const)
     : ("dry_run" as const);
-}
-
-function standardEnvelopeEvidenceContractReady(
-  contract: StandardEnvelopeEvidenceContract,
-) {
-  return (
-    contract.evidenceProvider === "LetterTrack / USPS IMb" &&
-    contract.trackableRequirement.includes("show delivered") &&
-    contract.under20ProtectionModel.includes("optional internal seller program") &&
-    contract.sellerOptInRule.includes("Seller must opt in per shipment") &&
-    contract.reserveRate === "2%" &&
-    contract.itemReimbursementCap === "$20.00" &&
-    contract.reimbursementBasis === "item_sale_amount_excluding_shipping" &&
-    contract.reimbursesShipping === "no" &&
-    contract.notInsuranceNotice.includes("not third-party insurance")
-  );
 }
 
 export function getLiveShippingGateErrorDetail(error: {
@@ -149,7 +134,9 @@ export async function getLiveShippingRuntimeGate(params?: {
   const providerSetup = buildShippingProviderSetupPacket();
   const standardEnvelopeEvidenceContract =
     providerSetup.standardEnvelopeEvidenceContract;
-  if (!standardEnvelopeEvidenceContractReady(standardEnvelopeEvidenceContract)) {
+  if (
+    !isStandardEnvelopeEvidenceContractReady(standardEnvelopeEvidenceContract)
+  ) {
     return {
       allowed: false,
       mode: "live" as const,
@@ -291,7 +278,7 @@ export async function evaluateLiveShippingLaunch(params?: {
     check(
       "standard_envelope_evidence_contract",
       "Standard Envelope Evidence Contract",
-      standardEnvelopeEvidenceContractReady(standardEnvelopeEvidenceContract)
+      isStandardEnvelopeEvidenceContractReady(standardEnvelopeEvidenceContract)
         ? "passed"
         : "blocked",
       `${standardEnvelopeEvidenceContract.evidenceProvider} supplies trackable delivery evidence that can show delivered; TCOS Under-$20 Seller Protection is internal, optional per seller shipment, item-only, and not third-party insurance. ${standardEnvelopeEvidenceContract.notInsuranceNotice}`,
