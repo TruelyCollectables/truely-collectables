@@ -373,6 +373,7 @@ assertFileIncludes("live shipping evidence contract report source", "src/lib/liv
   'itemReimbursementCap === "$20.00"',
   'reimbursesShipping === "no"',
   "not third-party insurance",
+  "Live shipping is blocked because the Standard Envelope evidence/protection contract is incomplete or unsafe.",
   "standardEnvelopeEvidenceContract,",
 ]);
 assertFileIncludes("live shipping evidence contract page source", "src/app/admin/live-shipping-launch/page.tsx", [

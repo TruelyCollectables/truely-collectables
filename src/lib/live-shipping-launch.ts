@@ -147,6 +147,17 @@ export async function getLiveShippingRuntimeGate(params?: {
   }
 
   const providerSetup = buildShippingProviderSetupPacket();
+  const standardEnvelopeEvidenceContract =
+    providerSetup.standardEnvelopeEvidenceContract;
+  if (!standardEnvelopeEvidenceContractReady(standardEnvelopeEvidenceContract)) {
+    return {
+      allowed: false,
+      mode: "live" as const,
+      reason:
+        "Live shipping is blocked because the Standard Envelope evidence/protection contract is incomplete or unsafe.",
+    };
+  }
+
   const requirementBlockers = providerSetup.liveRequirements
     .filter((requirement) => requirement.status !== "ready")
     .map((requirement) => requirement.label);
