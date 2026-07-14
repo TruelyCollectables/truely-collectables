@@ -323,6 +323,10 @@ const checks = [
       result.contentType.includes("application/json") &&
       result.text.includes('"brief"') &&
       result.text.includes('"deploySafety"') &&
+      result.text.includes('"sellerProtection"') &&
+      result.text.includes('"reimbursementEntryType":"seller_protection_reimbursement"') &&
+      result.text.includes('"financialAdjustmentTable":"financial_adjustment_ledger_entries"') &&
+      result.text.includes("Optional TCOS internal Standard Envelope seller protection") &&
       result.text.includes('"quotaBlockCode":"api-deployments-free-per-day"') &&
       result.text.includes("rolling 24-hour quota reset") &&
       result.text.includes("deployed URL output") &&
@@ -340,6 +344,11 @@ const checks = [
     path: "/api/admin/launch-readiness?format=markdown",
     expect: (result) =>
       result.text.includes("# TCOS Launch Readiness Brief") &&
+      result.text.includes("## Under-$20 Seller Protection") &&
+      result.text.includes("TCOS Under-$20 Seller Protection") &&
+      result.text.includes("seller_protection_reimbursement") &&
+      result.text.includes("financial_adjustment_ledger_entries") &&
+      result.text.includes("shipping is excluded and is not reimbursed") &&
       result.text.includes("## Production Deploy Safety") &&
       result.text.includes("api-deployments-free-per-day") &&
       result.text.includes("rolling 24-hour quota reset") &&
@@ -412,6 +421,11 @@ const checks = [
     path: "/api/admin/launch-readiness?format=handoff-bundle",
     expect: (result) =>
       result.text.includes("# TCOS Launch Hand-off Bundle") &&
+      result.text.includes("## Under-$20 Seller Protection") &&
+      result.text.includes("2% of the protected sale withheld") &&
+      result.text.includes("$20.00 protected item amount cap") &&
+      result.text.includes("LetterTrack/USPS IMb evidence must not show delivered") &&
+      result.text.includes("20260712174000_add_seller_protection_financial_adjustments.sql") &&
       result.text.includes("## Git Tip Verification") &&
       result.text.includes("git fetch origin main") &&
       result.text.includes("git rev-parse --short HEAD") &&

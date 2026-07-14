@@ -659,6 +659,26 @@ assertFileIncludes(
   ],
 );
 assertFileIncludes(
+  "seller protection launch readiness brief contract",
+  "src/app/api/admin/launch-readiness/route.ts",
+  [
+    "sellerProtectionMarkdownLines",
+    "## Under-$20 Seller Protection",
+    "TCOS Under-$20 Seller Protection",
+    "Optional TCOS internal Standard Envelope seller protection; it is not third-party insurance.",
+    "2% of the protected sale withheld from the seller payout row",
+    "$20.00 protected item amount cap",
+    "seller_protection_reimbursement",
+    "financial_adjustment_ledger_entries",
+    "20260712174000_add_seller_protection_financial_adjustments.sql",
+    "LetterTrack/USPS IMb evidence must not show delivered",
+    "Protected item sale amount only; shipping is excluded and is not reimbursed.",
+    "launchReadinessHref",
+    "reconciliationHref",
+    "claimOpsHref",
+  ],
+);
+assertFileIncludes(
   "seller protection buyer refund packet contract",
   "src/app/api/admin/shipping-claims/[id]/packet/route.ts",
   [

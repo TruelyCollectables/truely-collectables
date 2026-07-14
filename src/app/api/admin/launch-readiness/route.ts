@@ -131,6 +131,27 @@ function deploySafetyMarkdownLines() {
   ];
 }
 
+function sellerProtectionMarkdownLines(
+  sellerProtection: Awaited<ReturnType<typeof buildBrief>>["sellerProtection"],
+) {
+  return [
+    "## Under-$20 Seller Protection",
+    "",
+    `- Program: ${sellerProtection.program}`,
+    `- Coverage model: ${sellerProtection.coverageModel}`,
+    `- Seller reserve: ${sellerProtection.reserveRate}`,
+    `- Item reimbursement cap: ${sellerProtection.itemReimbursementCap}`,
+    `- Reimbursement scope: ${sellerProtection.reimbursementScope}`,
+    `- Delivery evidence rule: ${sellerProtection.deliveryEvidenceRule}`,
+    `- Ledger entry type: ${sellerProtection.reimbursementEntryType}`,
+    `- Ledger table: ${sellerProtection.financialAdjustmentTable}`,
+    `- Required migration: ${sellerProtection.migration}`,
+    `- Launch readiness: ${sellerProtection.launchReadinessUrl || sellerProtection.launchReadinessHref}`,
+    `- Reconciliation: ${sellerProtection.reconciliationUrl || sellerProtection.reconciliationHref}`,
+    `- Claims ops: ${sellerProtection.claimOpsUrl || sellerProtection.claimOpsHref}`,
+  ];
+}
+
 function markdownForBrief(brief: Awaited<ReturnType<typeof buildBrief>>) {
   return [
     "# TCOS Launch Readiness Brief",
@@ -167,6 +188,8 @@ function markdownForBrief(brief: Awaited<ReturnType<typeof buildBrief>>) {
     `- Provider env template: ${brief.shipping.providerSetupEnvTemplateUrl || brief.shipping.providerSetupEnvTemplateHref}`,
     `- Provider Vercel commands: ${brief.shipping.providerSetupVercelCommandsUrl || brief.shipping.providerSetupVercelCommandsHref}`,
     `- Provider operator checklist: ${brief.shipping.providerSetupOperatorChecklistUrl || brief.shipping.providerSetupOperatorChecklistHref}`,
+    "",
+    ...sellerProtectionMarkdownLines(brief.sellerProtection),
     "",
     "## Attention Items",
     "",
@@ -217,6 +240,8 @@ function markdownForHandoffBundle(
     `- Dry-run cleanup: ${brief.shipping.dryRunCleanup}`,
     `- Provider setup status: ${brief.shipping.providerSetupStatus}`,
     `- Provider setup summary: ${brief.shipping.providerSetupSummary}`,
+    "",
+    ...sellerProtectionMarkdownLines(brief.sellerProtection),
     "",
     "## Shipping Setup Exports",
     "",
@@ -499,6 +524,29 @@ async function buildBrief(origin: string | null = null) {
         origin,
         SHIPPING_PROVIDER_OPERATOR_CHECKLIST_HREF,
       ),
+    },
+    sellerProtection: {
+      program: "TCOS Under-$20 Seller Protection",
+      coverageModel:
+        "Optional TCOS internal Standard Envelope seller protection; it is not third-party insurance.",
+      reserveRate: "2% of the protected sale withheld from the seller payout row",
+      itemReimbursementCap: "$20.00 protected item amount cap",
+      reimbursementScope:
+        "Protected item sale amount only; shipping is excluded and is not reimbursed.",
+      deliveryEvidenceRule:
+        "LetterTrack/USPS IMb evidence must not show delivered before TCOS reimburses an opted-in seller; delivered evidence blocks payout unless an operator saves an explicit override.",
+      reimbursementEntryType: "seller_protection_reimbursement",
+      financialAdjustmentTable: "financial_adjustment_ledger_entries",
+      migration: "20260712174000_add_seller_protection_financial_adjustments.sql",
+      launchReadinessHref: "/admin/launch-readiness#database-readiness",
+      launchReadinessUrl: absoluteUrl(
+        origin,
+        "/admin/launch-readiness#database-readiness",
+      ),
+      reconciliationHref: "/admin/financial-reconciliation",
+      reconciliationUrl: absoluteUrl(origin, "/admin/financial-reconciliation"),
+      claimOpsHref: "/admin/shipping",
+      claimOpsUrl: absoluteUrl(origin, "/admin/shipping"),
     },
     drill: {
       passed: drillReport.summary.passed,
