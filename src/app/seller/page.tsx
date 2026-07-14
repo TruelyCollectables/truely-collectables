@@ -38,6 +38,24 @@ type SellerPayoutBalance = {
   openRequestCount: number;
   blockedRequestCount: number;
   paidAmount: number;
+  sellerProtection?: SellerProtectionSummary;
+};
+
+type SellerProtectionSummary = {
+  program: string;
+  reserveRate: number;
+  maxCoverage: number;
+  protectedRowCount: number;
+  unprotectedRowCount: number;
+  protectedItemAmount: number;
+  reimbursableItemAmount: number;
+  shippingExcludedAmount: number;
+  reserveAmount: number;
+  reimbursesShipping: false;
+  status: "protected" | "unprotected" | "mixed" | "not_applicable";
+  label: string;
+  detail: string;
+  sellerResponsibility: string;
 };
 
 type SellerPayoutRequest = {
@@ -53,7 +71,9 @@ type SellerPayoutRequest = {
     activeCaseCount: number;
     blockedLedgerRowCount: number;
     dryRunShippingBlocked: boolean;
+    sellerProtection?: SellerProtectionSummary;
   }>;
+  sellerProtection?: SellerProtectionSummary;
 };
 
 type SellerOrderSummary = {
@@ -215,6 +235,24 @@ function statusTone(value: string | null | undefined) {
   }
 
   return "border-neutral-200 bg-neutral-100 text-neutral-700";
+}
+
+function sellerProtectionTone(
+  status: SellerProtectionSummary["status"] | undefined,
+) {
+  if (status === "protected") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-950";
+  }
+
+  if (status === "mixed") {
+    return "border-amber-200 bg-amber-50 text-amber-950";
+  }
+
+  if (status === "unprotected") {
+    return "border-rose-200 bg-rose-50 text-rose-950";
+  }
+
+  return "border-neutral-200 bg-neutral-50 text-neutral-800";
 }
 
 function readinessBlockerLabel(value: string) {
@@ -887,7 +925,9 @@ export default function SellerPage() {
         detail: dashboard.payoutBalance
           ? `${formatCurrency(
               dashboard.payoutBalance.availableToRequestAmount,
-            )} available to request right now.`
+            )} available to request right now; ${formatCurrency(
+              dashboard.payoutBalance.sellerProtection?.reserveAmount || 0,
+            )} is withheld as under-$20 protection reserve.`
           : "Review Stripe verification, holds, and cash-out readiness.",
         href: payoutWorkspaceLink.href,
         label: `Open ${payoutWorkspaceLink.label}`,
@@ -990,7 +1030,7 @@ export default function SellerPage() {
       </section>
 
       <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
-        <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-7">
+        <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-8">
           <Metric
             label="Draft Ready"
             value={
@@ -1022,6 +1062,16 @@ export default function SellerPage() {
                 ? "..."
                 : formatCurrency(
                     dashboard.payoutBalance?.availableToRequestAmount || 0,
+                  )
+            }
+          />
+          <Metric
+            label="Protection Reserve"
+            value={
+              loading
+                ? "..."
+                : formatCurrency(
+                    dashboard.payoutBalance?.sellerProtection?.reserveAmount || 0,
                   )
             }
           />
@@ -1542,6 +1592,12 @@ export default function SellerPage() {
                   value={formatCurrency(dashboard.payoutBalance?.paidAmount || 0)}
                 />
               </div>
+              {dashboard.payoutBalance?.sellerProtection ? (
+                <SellerProtectionCard
+                  summary={dashboard.payoutBalance.sellerProtection}
+                  title="Under-$20 Protection Reserve"
+                />
+              ) : null}
               <Link
                 href={payoutWorkspaceLink.href}
                 className="mt-4 inline-flex rounded-md border border-neutral-300 px-3 py-2 text-sm font-bold hover:bg-neutral-50"
@@ -1571,6 +1627,51 @@ function Info({ label, value }: { label: string; value: string }) {
       <dt className="text-xs font-black uppercase text-neutral-500">{label}</dt>
       <dd className="mt-1 break-words font-bold text-neutral-900">{value}</dd>
     </div>
+  );
+}
+
+function SellerProtectionCard({
+  summary,
+  title,
+}: {
+  summary: SellerProtectionSummary;
+  title: string;
+}) {
+  return (
+    <section
+      className={`mt-4 rounded-md border p-4 ${sellerProtectionTone(summary.status)}`}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.14em] opacity-70">
+            {title}
+          </p>
+          <h3 className="mt-1 text-lg font-black">{summary.label}</h3>
+        </div>
+        <span className="rounded border border-current/20 px-2 py-1 text-xs font-black">
+          2% reserve / $20 max / shipping excluded
+        </span>
+      </div>
+      <dl className="mt-3 grid grid-cols-2 gap-3 text-sm">
+        <Info label="Reserve" value={formatCurrency(summary.reserveAmount)} />
+        <Info
+          label="Covered Items"
+          value={formatCurrency(summary.reimbursableItemAmount)}
+        />
+        <Info
+          label="Shipping Excluded"
+          value={formatCurrency(summary.shippingExcludedAmount)}
+        />
+        <Info
+          label="Rows"
+          value={`${summary.protectedRowCount} protected / ${summary.unprotectedRowCount} liable`}
+        />
+      </dl>
+      <p className="mt-3 text-sm opacity-85">{summary.detail}</p>
+      <p className="mt-2 text-xs font-semibold opacity-80">
+        {summary.sellerResponsibility}
+      </p>
+    </section>
   );
 }
 

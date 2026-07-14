@@ -164,6 +164,23 @@ type SellerPayout = {
   updatedAt: string | null;
 };
 
+type SellerProtectionSummary = {
+  program: string;
+  reserveRate: number;
+  maxCoverage: number;
+  protectedRowCount: number;
+  unprotectedRowCount: number;
+  protectedItemAmount: number;
+  reimbursableItemAmount: number;
+  shippingExcludedAmount: number;
+  reserveAmount: number;
+  reimbursesShipping: false;
+  status: "protected" | "unprotected" | "mixed" | "not_applicable";
+  label: string;
+  detail: string;
+  sellerResponsibility: string;
+};
+
 type SellerPayoutBalance = {
   heldAmount: number;
   pendingFulfillmentAmount: number;
@@ -181,6 +198,7 @@ type SellerPayoutBalance = {
   requestCount: number;
   blockedRequestCount: number;
   reviewGuardUnavailable?: boolean;
+  sellerProtection?: SellerProtectionSummary;
 };
 
 type SellerPayoutRequest = {
@@ -203,6 +221,7 @@ type SellerPayoutRequest = {
   affectedOrderIds?: number[];
   activeCaseCount?: number;
   blockedLedgerRowCount?: number;
+  sellerProtection?: SellerProtectionSummary;
 };
 
 type SellerMarketplaceStageFilter =
@@ -1802,6 +1821,14 @@ export default function AccountPage() {
                 </p>
               </div>
 
+              {sellerPayoutBalance?.sellerProtection ? (
+                <SellerProtectionCard
+                  summary={sellerPayoutBalance.sellerProtection}
+                  title="Under-$20 Protection Reserve"
+                  detail="Optional seller coverage withholds 2% from protected Standard Envelope card shipments, caps reimbursement at $20 in item value, and excludes shipping from reimbursement."
+                />
+              ) : null}
+
               <form
                 onSubmit={(event) => {
                   event.preventDefault();
@@ -1875,6 +1902,13 @@ export default function AccountPage() {
                             Net {formatCurrency(request.finalNetAmount)} / Fee{" "}
                             {formatCurrency(request.finalProcessorFeeAmount)}
                           </p>
+                        ) : null}
+                        {request.sellerProtection ? (
+                          <SellerProtectionCard
+                            summary={request.sellerProtection}
+                            title="Request Protection Snapshot"
+                            compact
+                          />
                         ) : null}
                         <div className="mt-2 flex flex-wrap gap-2">
                           <Link
@@ -3234,6 +3268,61 @@ function Info({ label, value }: { label: string; value: string }) {
   );
 }
 
+function SellerProtectionCard({
+  summary,
+  title,
+  detail,
+  compact,
+}: {
+  summary: SellerProtectionSummary;
+  title: string;
+  detail?: string;
+  compact?: boolean;
+}) {
+  return (
+    <section
+      className={`mt-4 rounded border p-3 ${sellerProtectionTone(summary.status)}`}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <p className="text-[11px] font-black uppercase tracking-[0.14em] opacity-70">
+            {title}
+          </p>
+          <h4 className="mt-1 font-black">{summary.label}</h4>
+        </div>
+        <span className="rounded border border-current/20 px-2 py-1 text-[11px] font-black">
+          2% reserve / $20 max / shipping excluded
+        </span>
+      </div>
+      <dl className="mt-3 grid grid-cols-2 gap-2 text-xs">
+        <Info label="Reserve" value={formatCurrency(summary.reserveAmount)} />
+        <Info
+          label="Covered"
+          value={formatCurrency(summary.reimbursableItemAmount)}
+        />
+        <Info
+          label="Excluded"
+          value={formatCurrency(summary.shippingExcludedAmount)}
+        />
+        <Info
+          label="Rows"
+          value={`${summary.protectedRowCount} / ${summary.unprotectedRowCount}`}
+        />
+      </dl>
+      {!compact ? (
+        <>
+          <p className="mt-3 text-xs leading-5 opacity-85">
+            {detail || summary.detail}
+          </p>
+          <p className="mt-2 text-xs font-semibold opacity-80">
+            {summary.sellerResponsibility}
+          </p>
+        </>
+      ) : null}
+    </section>
+  );
+}
+
 function SocialCollectorRow({
   profile,
   relationship,
@@ -3409,6 +3498,24 @@ function formatCurrency(value: number | null) {
     style: "currency",
     currency: "USD",
   }).format(Number(value || 0));
+}
+
+function sellerProtectionTone(
+  status: SellerProtectionSummary["status"] | undefined,
+) {
+  if (status === "protected") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-950";
+  }
+
+  if (status === "mixed") {
+    return "border-amber-200 bg-amber-50 text-amber-950";
+  }
+
+  if (status === "unprotected") {
+    return "border-rose-200 bg-rose-50 text-rose-950";
+  }
+
+  return "border-neutral-200 bg-neutral-50 text-neutral-800";
 }
 
 function sellerPayoutLabel(value: string) {

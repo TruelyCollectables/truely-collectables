@@ -586,6 +586,28 @@ assertFileIncludes(
   ],
 );
 assertFileIncludes(
+  "seller protection account cash-out UI visibility contract",
+  "src/app/account/page.tsx",
+  [
+    "Under-$20 Protection Reserve",
+    "Request Protection Snapshot",
+    "2% reserve / $20 max / shipping excluded",
+    "SellerProtectionCard",
+    "sellerProtectionTone",
+  ],
+);
+assertFileIncludes(
+  "seller protection command center UI visibility contract",
+  "src/app/seller/page.tsx",
+  [
+    "Protection Reserve",
+    "Under-$20 Protection Reserve",
+    "2% reserve / $20 max / shipping excluded",
+    "SellerProtectionCard",
+    "sellerProtectionTone",
+  ],
+);
+assertFileIncludes(
   "seller protection buyer refund packet contract",
   "src/app/api/admin/shipping-claims/[id]/packet/route.ts",
   [
