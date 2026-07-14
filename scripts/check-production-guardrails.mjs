@@ -177,8 +177,15 @@ runExpectedSuccess("shipping simulation runner syntax check", [
   "--check",
   "scripts/run-shipping-simulations.ts",
 ]);
+runExpectedSuccess("shipping purchase audit simulation runner syntax check", [
+  "--import",
+  "tsx",
+  "--check",
+  "scripts/run-shipping-purchase-audit-simulations.ts",
+]);
 assertScriptIncludes("verify:shipping", [
   "simulate:lettertrack-evidence",
+  "simulate:shipping-purchase-audit",
   "simulate:shipping",
 ]);
 assertScriptIncludes("verify:production", [
@@ -592,6 +599,13 @@ assertFileIncludes("shipping purchase attempt audit helper source", "src/lib/shi
   "standard_envelope_evidence_contract_ready",
   "Standard Envelope evidence validator:",
   "attempted_by_identity",
+]);
+assertFileIncludes("shipping purchase attempt audit simulation source", "scripts/run-shipping-purchase-audit-simulations.ts", [
+  "live gate blocker audit keeps Standard Envelope evidence readiness",
+  "provider setup blocker audit flags blocked evidence validator and identity risk",
+  "dry-run purchase audit sentence includes provider readiness and purchase mode",
+  "empty purchase attempt audit lines are explicit for packets",
+  "packet purchase attempt audit lines include summary and details",
 ]);
 assertFileIncludes("shipping label packet purchase attempt audit source", "src/app/api/admin/shipping-labels/[id]/packet/route.ts", [
   "Provider Purchase Attempt Audit",
