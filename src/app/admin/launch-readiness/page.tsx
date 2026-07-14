@@ -299,9 +299,9 @@ function buildReadinessItems(
     {
       label: "Shipping Simulation Lab",
       status: "ready" as const,
-      detail: `Shipping simulation suite ${SHIPPING_SIMULATION_SUITE_VERSION} covers thirteen Standard Envelope, Ground Advantage, under-$20 seller-protection, LetterTrack evidence-review audit, adapter-profile, and dry-run provider purchase assertions.`,
+      detail: `Shipping simulation suite ${SHIPPING_SIMULATION_SUITE_VERSION} covers nineteen Standard Envelope, Ground Advantage, under-$20 seller-protection, LetterTrack evidence-review audit, adapter-profile, and dry-run provider purchase assertions. npm run verify:shipping also covers provider purchase-attempt audit text for live-gate, missing-setup, dry-run, and packet-output cases.`,
       action:
-        "Run /admin/shipping/simulations or npm run simulate:shipping before enabling any live shipping provider purchase workflow.",
+        "Run /admin/shipping/simulations and npm run verify:shipping before enabling any live shipping provider purchase workflow.",
     },
     {
       label: "AI Product Helpers",
@@ -1228,7 +1228,7 @@ npm run preflight:production`}
               before production deploy. The deploy helper also blocks
               uncommitted deploy-relevant files, and the preflight command
               checks that without starting a Vercel deployment. Use verify to
-              run lint, InstaComp regressions, LetterTrack evidence checks, the
+              run lint, InstaComp regressions, LetterTrack evidence checks, shipping purchase-attempt audit simulations, the
               nineteen-scenario shipping simulation suite, build, production
               guardrail checks, and production preflight together. Production
               smoke also POSTs <code>/api/admin/shipping/simulations</code> to

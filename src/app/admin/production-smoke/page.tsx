@@ -14,6 +14,7 @@ const smokeChecks = [
   "Live Shipping Launch Gate",
   "Admin shipping cockpit LetterTrack export, IMb, and delivery-evidence controls",
   "Shipping Simulation Lab with nineteen policy/adapter scenarios",
+  "Shipping purchase-attempt audit simulations for live-gate, missing-setup, dry-run, and packet-output text",
   "Shipping simulation API POST with scenario count, manifest, and drift-field checks",
   "Shipping provider setup JSON and export packets with Standard Envelope evidence readiness",
   "Ranked shipping exceptions CSV, including seller-protection refund-proof and payout blocker support",

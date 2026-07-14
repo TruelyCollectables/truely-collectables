@@ -365,6 +365,7 @@ const checks = [
       result.text.includes("npm run launch:production") &&
       result.text.includes("nineteen-scenario shipping simulation suite") &&
       result.text.includes("LetterTrack evidence checks") &&
+      result.text.includes("shipping purchase-attempt audit simulations") &&
       result.text.includes("Standard Envelope evidence validator is ready") &&
       result.text.includes("/api/admin/shipping/simulations") &&
       result.text.includes("no missing/unexpected shipping simulation keys") &&
@@ -485,6 +486,7 @@ const checks = [
       "Seller Protection Reconciliation",
       "Shipping Claims Cockpit",
       "Standard Envelope evidence validator",
+      "Shipping purchase-attempt audit simulations for live-gate, missing-setup, dry-run, and packet-output text",
       "Shipping simulation API POST with scenario count, manifest, and drift-field checks",
       "Shipping provider setup JSON and export packets with Standard Envelope evidence readiness",
       "Queued launch feature failure(s)",
@@ -509,6 +511,9 @@ const checks = [
       result.text.includes("Seller Protection Reconciliation") &&
       result.text.includes("Shipping Claims Cockpit") &&
       result.text.includes("Standard Envelope evidence validator") &&
+      result.text.includes(
+        "Shipping purchase-attempt audit simulations for live-gate, missing-setup, dry-run, and packet-output text",
+      ) &&
       result.text.includes(
         "Shipping simulation API POST with scenario count, manifest, and drift-field checks",
       ) &&
