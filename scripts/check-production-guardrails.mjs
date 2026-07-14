@@ -1247,6 +1247,44 @@ assertFileIncludes(
   ],
 );
 assertFileIncludes(
+  "collector import response contract",
+  "src/app/api/account/collector/imports/route.ts",
+  [
+    "function collectorImportHeaders",
+    "X-TCOS-Collector-Import-Source",
+    "X-TCOS-Collector-Import-Rows",
+    "X-TCOS-Collector-Import-Imported",
+    "X-TCOS-Collector-Import-Skipped",
+    "X-TCOS-Collector-Import-Errors",
+    "X-TCOS-Collector-Import-Job",
+    "sourceMarketplace",
+    "rowCount: rows.length",
+    "importedCount: importedItems.length",
+    "skippedCount: skipped.length",
+    "errorCount: errors.length",
+    "importJobId",
+    "account_collection_import_jobs",
+    "row_count: params.rowCount",
+    "imported_count: params.importedCount",
+    "skipped_count: params.skippedCount",
+    "error_count: params.errorCount",
+  ],
+);
+assertFileIncludes(
+  "collector import operator manual contract",
+  "docs/TCOS_OPERATOR_MANUAL.md",
+  [
+    "/api/account/collector/imports",
+    "account_collection_import_jobs",
+    "X-TCOS-Collector-Import-Source",
+    "X-TCOS-Collector-Import-Rows",
+    "X-TCOS-Collector-Import-Imported",
+    "X-TCOS-Collector-Import-Skipped",
+    "X-TCOS-Collector-Import-Errors",
+    "X-TCOS-Collector-Import-Job",
+  ],
+);
+assertFileIncludes(
   "seller marketplace packet intake contract",
   "src/app/seller/marketplaces/SellerConnectionsPanel.tsx",
   [

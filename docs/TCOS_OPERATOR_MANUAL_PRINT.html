@@ -1883,6 +1883,7 @@ account_wish_list_matches</code></pre>
 <li>imports do not create storefront products, sellable TCOS inventory, eBay listings, orders, offers, checkout rows, or Stripe activity</li>
 <li>duplicate checks use source marketplace plus source item ID when available, then title/category/certification fallback matching</li>
 <li><code>account_collection_import_jobs</code> stores row, import, skip, and error counts when the migration is available</li>
+<li>successful import responses include <code>X-TCOS-Collector-Import-Source</code>, <code>X-TCOS-Collector-Import-Rows</code>, <code>X-TCOS-Collector-Import-Imported</code>, <code>X-TCOS-Collector-Import-Skipped</code>, <code>X-TCOS-Collector-Import-Errors</code>, and <code>X-TCOS-Collector-Import-Job</code> headers so the browser response can be reconciled with the import job audit row</li>
 </ul>
 <p>Messaging foundation:</p>
 <ul>

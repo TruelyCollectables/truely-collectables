@@ -362,6 +362,24 @@ async function updateImportJob(params: {
   }
 }
 
+function collectorImportHeaders(params: {
+  sourceMarketplace: string;
+  rowCount: number;
+  importedCount: number;
+  skippedCount: number;
+  errorCount: number;
+  importJobId: string | null;
+}) {
+  return {
+    "X-TCOS-Collector-Import-Source": params.sourceMarketplace,
+    "X-TCOS-Collector-Import-Rows": String(params.rowCount),
+    "X-TCOS-Collector-Import-Imported": String(params.importedCount),
+    "X-TCOS-Collector-Import-Skipped": String(params.skippedCount),
+    "X-TCOS-Collector-Import-Errors": String(params.errorCount),
+    "X-TCOS-Collector-Import-Job": params.importJobId || "none",
+  };
+}
+
 export async function POST(request: Request) {
   try {
     const account = await getAuthenticatedAccountFromRequest(request);
@@ -529,19 +547,31 @@ export async function POST(request: Request) {
       errors,
     });
 
-    return Response.json({
-      success: true,
-      importJobId,
-      summary: {
-        rows: rows.length,
-        imported: importedItems.length,
-        skipped: skipped.length,
-        errors: errors.length,
+    return Response.json(
+      {
+        success: true,
+        importJobId,
+        summary: {
+          rows: rows.length,
+          imported: importedItems.length,
+          skipped: skipped.length,
+          errors: errors.length,
+        },
+        importedItems,
+        skipped: skipped.slice(0, 25),
+        errors: errors.slice(0, 25),
       },
-      importedItems,
-      skipped: skipped.slice(0, 25),
-      errors: errors.slice(0, 25),
-    });
+      {
+        headers: collectorImportHeaders({
+          sourceMarketplace,
+          rowCount: rows.length,
+          importedCount: importedItems.length,
+          skippedCount: skipped.length,
+          errorCount: errors.length,
+          importJobId,
+        }),
+      },
+    );
   } catch (error: any) {
     return Response.json(
       { error: error.message || "Could not import collection CSV" },

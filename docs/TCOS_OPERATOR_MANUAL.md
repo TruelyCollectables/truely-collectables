@@ -1676,6 +1676,7 @@ Collection imports:
 - imports do not create storefront products, sellable TCOS inventory, eBay listings, orders, offers, checkout rows, or Stripe activity
 - duplicate checks use source marketplace plus source item ID when available, then title/category/certification fallback matching
 - `account_collection_import_jobs` stores row, import, skip, and error counts when the migration is available
+- successful import responses include `X-TCOS-Collector-Import-Source`, `X-TCOS-Collector-Import-Rows`, `X-TCOS-Collector-Import-Imported`, `X-TCOS-Collector-Import-Skipped`, `X-TCOS-Collector-Import-Errors`, and `X-TCOS-Collector-Import-Job` headers so the browser response can be reconciled with the import job audit row
 
 Messaging foundation:
 
