@@ -341,6 +341,18 @@ assertFileIncludes("admin shipping controls smoke contract", "scripts/smoke-prod
   "Seller Protection Refund Proof Missing",
   "Seller Protection Payout Blocked",
 ]);
+assertFileIncludes(
+  "admin shipping seller protection static guardrail",
+  "src/app/admin/shipping/page.tsx",
+  [
+    "Under-$20 Seller Protection Guardrails",
+    "Seller Protection Refund Proof Missing",
+    "Seller Protection Payout",
+    "Approved under-$20 Standard",
+    "LetterTrack/USPS",
+    "seller-protection reimbursement",
+  ],
+);
 assertFileIncludes("shipping simulation lab smoke contract", "scripts/smoke-production.mjs", [
   'name: "shipping simulation lab"',
   'path: "/admin/shipping/simulations"',
