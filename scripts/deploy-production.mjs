@@ -97,7 +97,9 @@ function readQuotaBlockMarker() {
   try {
     return JSON.parse(fs.readFileSync(quotaBlockMarkerPath, "utf8"));
   } catch {
-    return null;
+    return fs.existsSync(quotaBlockMarkerPath)
+      ? { invalidMarker: true }
+      : null;
   }
 }
 
@@ -169,7 +171,7 @@ function getQuotaCooldownStatus(nowMs = Date.now()) {
   if (!Number.isFinite(blockedAt)) {
     return {
       state: marker ? "invalid_marker" : "open",
-      canRetry: true,
+      canRetry: !marker,
       reason: marker ? "quota marker has no valid blockedAt timestamp" : "no quota marker",
       blockedAt: null,
       retryAt: null,
@@ -204,9 +206,11 @@ function printQuotaCooldownStatus() {
   console.log(`- marker: ${quotaBlockMarkerPath}`);
   console.log("- Vercel upload started: no");
   console.log(
-    status.canRetry
-      ? "- next: run npm run launch:production after normal verification"
-      : "- next: keep building locally and rerun npm run status:production after the retry time",
+    status.state === "invalid_marker"
+      ? "- next: inspect or restore the quota marker; do not deploy unless the quota reset is independently confirmed"
+      : status.canRetry
+        ? "- next: run npm run launch:production after normal verification"
+        : "- next: keep building locally and rerun npm run status:production after the retry time",
   );
 }
 
@@ -230,6 +234,12 @@ function assertNoRecentQuotaBlock() {
     return;
   }
 
+  if (status.state === "invalid_marker") {
+    throw new Error(
+      `Local Vercel quota marker is invalid at ${quotaBlockMarkerPath}. No Vercel upload was started. Inspect or restore the marker, or use TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true / --force-quota-retry only after independently confirming the quota reset.`,
+    );
+  }
+
   if (status.canRetry) return;
 
   throw new Error(
@@ -246,6 +256,29 @@ function runQuotaCooldownSelfTest() {
 
   removeQuotaBlockMarker();
   fs.mkdirSync(path.dirname(quotaBlockMarkerPath), { recursive: true });
+  fs.writeFileSync(quotaBlockMarkerPath, "{invalid-json\n");
+
+  const invalidStatus = getQuotaCooldownStatus();
+  if (invalidStatus.state !== "invalid_marker" || invalidStatus.canRetry) {
+    throw new Error(
+      `Quota cooldown self-test failed open for an invalid marker: ${JSON.stringify(invalidStatus)}`,
+    );
+  }
+
+  try {
+    assertNoRecentQuotaBlock();
+    throw new Error("Quota cooldown self-test did not block an invalid marker.");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    if (
+      !message.includes("Local Vercel quota marker is invalid") ||
+      !message.includes("No Vercel upload was started")
+    ) {
+      throw error;
+    }
+  }
+
   fs.writeFileSync(
     quotaBlockMarkerPath,
     `${JSON.stringify({

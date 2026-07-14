@@ -40,6 +40,8 @@ npm run status:production
 
 This prints whether the local cooldown permits a retry, the recorded quota reason, exact blocked/retry timestamps, approximate remaining time, marker path, and an explicit `Vercel upload started: no` confirmation. The command is the safe check for recurring development blocks; keep building locally while it reports `state: blocked`. `TCOS_PRODUCTION_QUOTA_STATUS_ONLY=true node scripts/deploy-production.mjs` is the environment-flag equivalent.
 
+A malformed or unreadable marker fails closed as `state: invalid_marker`: the helper starts no Vercel upload and blocks deployment. Inspect or restore the marker before continuing. Use `TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true` or `--force-quota-retry` only after independently confirming that the rolling quota window has reset.
+
 The shared deploy-safety contract publishes `quotaStatusCommand` and its read-only description through launch-readiness JSON, Markdown, the handoff bundle, the Launch Readiness page, and the Production Smoke Report. Production smoke requires these surfaces to preserve `npm run status:production` before a queued release can pass.
 
 The internal quota cooldown self-test refuses to run against `.codex-run/vercel-quota-block.json`; it requires `TCOS_VERCEL_QUOTA_MARKER_PATH` to name an explicit temporary test file so validation cannot erase the real cooldown record.

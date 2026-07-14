@@ -26,6 +26,8 @@ Next.js and `eslint-config-next` are aligned on `16.2.10`. Next.js still declare
 
 Use `npm run status:production` during recurring build blocks to inspect the local Vercel quota cooldown without fetching Git, building, uploading, or starting a deployment. The output includes the exact block and retry timestamps, approximate remaining cooldown, marker path, whether a retry is locally allowed, and the explicit line `Vercel upload started: no`. The environment-flag equivalent is `TCOS_PRODUCTION_QUOTA_STATUS_ONLY=true node scripts/deploy-production.mjs`.
 
+A malformed or unreadable marker fails closed as `state: invalid_marker`: the helper starts no Vercel upload and blocks deployment. Inspect or restore the marker before continuing. Use `TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true` or `--force-quota-retry` only after independently confirming that the rolling quota window has reset.
+
 The shared deploy-safety contract exposes `quotaStatusCommand` and its read-only description in launch-readiness JSON and Markdown, the launch handoff bundle, the Launch Readiness page, and the Production Smoke Report. Production smoke verifies those surfaces retain `npm run status:production`, so an operator does not have to rely on chat history to decide whether a deployment retry is safe.
 
 The quota cooldown self-test must never use the production marker path. The helper refuses `--self-test-quota-cooldown` unless `TCOS_VERCEL_QUOTA_MARKER_PATH` points to an explicit temporary test file, preventing a validation run from deleting or replacing the actual quota record.

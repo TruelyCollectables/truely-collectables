@@ -280,6 +280,12 @@ assertFileIncludes(
     "approximate remaining:",
     "Vercel upload started: no",
     "npm run status:production",
+    'state: marker ? "invalid_marker" : "open"',
+    "canRetry: !marker",
+    "Local Vercel quota marker is invalid",
+    "No Vercel upload was started",
+    "do not deploy unless the quota reset is independently confirmed",
+    "Quota cooldown self-test failed open for an invalid marker",
   ],
 );
 assertFileIncludes("quota status runbook instructions", "docs/PRODUCTION_DEPLOY_RUNBOOK.md", [
@@ -289,12 +295,14 @@ assertFileIncludes("quota status runbook instructions", "docs/PRODUCTION_DEPLOY_
   "Vercel upload started: no",
   "TCOS_PRODUCTION_QUOTA_STATUS_ONLY=true",
   "self-test refuses to run against `.codex-run/vercel-quota-block.json`",
+  "malformed or unreadable marker fails closed",
 ]);
 assertFileIncludes("quota status README instructions", "README.md", [
   "npm run status:production",
   "read-only quota check",
   "exact blocked/retry timestamps",
   "Vercel upload started: no",
+  "malformed or unreadable marker fails closed",
 ]);
 assertFileIncludes("quota status shared deploy contract", "src/lib/deploy-safety.ts", [
   'quotaStatusCommand: "npm run status:production"',
@@ -341,6 +349,7 @@ assertFileIncludes("quota status operator instructions", "docs/TCOS_OPERATOR_MAN
   "exact block and retry timestamps",
   "Vercel upload started: no",
   "TCOS_PRODUCTION_QUOTA_STATUS_ONLY=true",
+  "malformed or unreadable marker fails closed",
   "self-test must never use the production marker path",
   "launch-readiness JSON and Markdown",
   "Production smoke verifies those surfaces retain `npm run status:production`",
@@ -353,6 +362,7 @@ assertFileIncludes(
     "exact block and retry timestamps",
     "Vercel upload started: no",
     "TCOS_PRODUCTION_QUOTA_STATUS_ONLY=true",
+    "malformed or unreadable marker fails closed",
     "self-test must never use the production marker path",
     "launch-readiness JSON and Markdown",
     "Production smoke verifies those surfaces retain <code>npm run status:production</code>",
