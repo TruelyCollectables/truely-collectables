@@ -2081,6 +2081,22 @@ assertFileIncludes(
   ],
 );
 assertFileIncludes(
+  "seller marketplace UI operation receipt operator manual contract",
+  "docs/TCOS_OPERATOR_MANUAL.md",
+  [
+    "Latest Marketplace API Receipt",
+    "Recent Marketplace API Receipts",
+    "Copy Safe Receipt",
+    "Copy Trail",
+    "Clear Trail",
+    "sessionStorage",
+    "limited to five safe receipt summaries",
+    "operator handoff aid, not an audit ledger",
+    "without exposing OAuth tokens, seller account IDs, row IDs, listing IDs, SKUs, titles, order IDs, buyer data, or raw provider errors",
+    "auth, status, sync-control, disconnect, preview, staging, reconciliation, outside-order import, and staged-promotion actions",
+  ],
+);
+assertFileIncludes(
   "seller inventory API seller protection export contract",
   "src/app/api/account/seller/inventory/route.ts",
   [
