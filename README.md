@@ -79,7 +79,7 @@ That command is deploy-safe: it runs lint, InstaComp regressions, LetterTrack ev
 - Do not override `SMOKE_BASE_URL` to `truely-collectables-tt3b.vercel.app`; production smoke refuses that host.
 - Commit and push all launch-bound work before production deploy.
 - Use `npm run launch:production` only when Vercel deploy quota is available and a real production deploy is intended.
-- If Vercel reports `api-deployments-free-per-day`, wait for the rolling 24-hour quota reset before retrying the launch helper; repeated retries can still upload files before Vercel returns the quota error.
+- If Vercel reports `api-deployments-free-per-day`, wait for the rolling 24-hour quota reset before retrying the launch helper; repeated retries can still upload files before Vercel returns the quota error. The deploy helper records `.codex-run/vercel-quota-block.json` and stops later attempts before upload unless `TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true` or `--force-quota-retry` is used intentionally.
 
 ## Production deployment
 

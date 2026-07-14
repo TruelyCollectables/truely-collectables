@@ -167,6 +167,14 @@ runExpectedSuccess("deploy helper syntax check", [
   "--check",
   "scripts/deploy-production.mjs",
 ]);
+runExpectedSuccess(
+  "deploy helper quota cooldown self-test",
+  ["scripts/deploy-production.mjs", "--self-test-quota-cooldown"],
+  {
+    TCOS_VERCEL_QUOTA_MARKER_PATH:
+      "/tmp/tcos-vercel-quota-block-self-test.json",
+  },
+);
 runExpectedSuccess("smoke helper syntax check", [
   "--check",
   "scripts/smoke-production.mjs",
@@ -1360,6 +1368,10 @@ assertFileIncludes("deploy git preflight diagnostics", "scripts/deploy-productio
 assertFileIncludes("deploy live safety contract", "scripts/deploy-production.mjs", [
   "api-deployments-free-per-day",
   "Wait for the rolling 24-hour quota to reset",
+  ".codex-run/vercel-quota-block.json",
+  "No Vercel upload was started",
+  "TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true",
+  "--force-quota-retry",
   "Removing unwanted ${unwantedAlias} alias if present",
   '"alias", "rm", unwantedAlias',
   '"alias", "set", deploymentUrl, cleanDomain',
@@ -1377,7 +1389,9 @@ assertFileIncludes("deploy helper production target defaults", "scripts/deploy-p
 
 assertFileIncludes("deploy helper quota block defaults", "scripts/deploy-production.mjs", [
   "deployOutput.includes(\"api-deployments-free-per-day\")",
+  "recordQuotaBlock();",
   "Vercel deployment quota is still capped",
+  "A local cooldown marker was written",
   "Wait for the rolling 24-hour quota to reset",
   "rerun npm run launch:production",
 ]);
@@ -1695,6 +1709,9 @@ assertFileIncludes("deploy live safety README", "README.md", [
   "api-deployments-free-per-day",
   "rolling 24-hour quota reset",
   "repeated retries can still upload files before Vercel returns the quota error",
+  ".codex-run/vercel-quota-block.json",
+  "TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true",
+  "--force-quota-retry",
   "Production smoke and deploy/guardrail diagnostics redact secret-shaped Stripe",
   "auth-header, token, API-key, password, and JWT values",
 ]);
@@ -1712,6 +1729,9 @@ assertFileIncludes("deploy live safety operator manual", "docs/TCOS_OPERATOR_MAN
   "launch only when quota is open",
   "halt if Vercel reports",
   "avoid rapid-fire deploy retries because Vercel can still upload files before returning the quota error",
+  "let the deploy helper's `.codex-run/vercel-quota-block.json` cooldown marker stop later attempts before upload",
+  "TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true",
+  "--force-quota-retry",
   "ship only after smoke passes the clean production domain",
   "Vercel quota messaging",
   "unwanted `truely-collectables-tt3b.vercel.app` alias removal",
@@ -1747,6 +1767,9 @@ assertFileIncludes(
     "launch only when quota is open",
     "halt if Vercel reports",
     "avoid rapid-fire deploy retries because Vercel can still upload files before returning the quota error",
+    "let the deploy helper's <code>.codex-run/vercel-quota-block.json</code> cooldown marker stop later attempts before upload",
+    "TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true",
+    "--force-quota-retry",
     "ship only after smoke passes the clean production domain",
     "Vercel quota messaging",
     "unwanted <code>truely-collectables-tt3b.vercel.app</code> alias removal",

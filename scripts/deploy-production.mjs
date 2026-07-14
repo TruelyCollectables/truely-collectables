@@ -1,4 +1,6 @@
 import { spawnSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
 
 const scope = process.env.VERCEL_SCOPE || "truelycollectables-projects";
 const cleanDomain =
@@ -15,6 +17,18 @@ const preflightOnly =
   process.argv.includes("--preflight-only") ||
   process.env.TCOS_PRODUCTION_PREFLIGHT_ONLY === "true";
 const redactionSelfTest = process.argv.includes("--self-test-redaction");
+const quotaCooldownSelfTest = process.argv.includes("--self-test-quota-cooldown");
+const quotaRetryOverride =
+  process.argv.includes("--force-quota-retry") ||
+  process.env.TCOS_VERCEL_QUOTA_RETRY_OVERRIDE === "true";
+const quotaCooldownHours = Number(
+  process.env.TCOS_VERCEL_QUOTA_COOLDOWN_HOURS || "24",
+);
+const quotaBlockMarkerPath = path.resolve(
+  process.cwd(),
+  process.env.TCOS_VERCEL_QUOTA_MARKER_PATH ||
+    ".codex-run/vercel-quota-block.json",
+);
 
 function normalizeVercelHost(value, label) {
   const trimmed = value.trim();
@@ -70,6 +84,123 @@ function diagnosticSnippet(text) {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 2000);
+}
+
+function readQuotaBlockMarker() {
+  try {
+    return JSON.parse(fs.readFileSync(quotaBlockMarkerPath, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function removeQuotaBlockMarker() {
+  try {
+    fs.rmSync(quotaBlockMarkerPath, { force: true });
+  } catch {
+    // Best-effort scratch cleanup only.
+  }
+}
+
+function recordQuotaBlock() {
+  fs.mkdirSync(path.dirname(quotaBlockMarkerPath), { recursive: true });
+  fs.writeFileSync(
+    quotaBlockMarkerPath,
+    `${JSON.stringify(
+      {
+        blockedAt: new Date().toISOString(),
+        scope,
+        cleanDomain,
+        reason: "api-deployments-free-per-day",
+        next: "Wait for the rolling 24-hour quota reset before retrying npm run launch:production.",
+      },
+      null,
+      2,
+    )}\n`,
+  );
+}
+
+function formatCooldownRemaining(remainingMs) {
+  const totalMinutes = Math.max(1, Math.ceil(remainingMs / 60_000));
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+
+  if (hours <= 0) return `${minutes}m`;
+  if (minutes === 0) return `${hours}h`;
+  return `${hours}h ${minutes}m`;
+}
+
+function assertNoRecentQuotaBlock() {
+  if (quotaRetryOverride) {
+    console.log(
+      "Bypassing local Vercel quota cooldown because TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true or --force-quota-retry was provided.",
+    );
+    return;
+  }
+
+  if (!Number.isFinite(quotaCooldownHours) || quotaCooldownHours <= 0) {
+    console.log("Local Vercel quota cooldown disabled by TCOS_VERCEL_QUOTA_COOLDOWN_HOURS.");
+    return;
+  }
+
+  const marker = readQuotaBlockMarker();
+  const blockedAt =
+    marker && typeof marker.blockedAt === "string"
+      ? Date.parse(marker.blockedAt)
+      : NaN;
+
+  if (!Number.isFinite(blockedAt)) return;
+
+  const cooldownMs = quotaCooldownHours * 60 * 60 * 1000;
+  const ageMs = Date.now() - blockedAt;
+
+  if (ageMs >= cooldownMs) {
+    console.log("Local Vercel quota cooldown marker has expired; retrying deploy.");
+    return;
+  }
+
+  const remaining = formatCooldownRemaining(cooldownMs - ageMs);
+
+  throw new Error(
+    `Recent Vercel deployment quota block recorded at ${new Date(blockedAt).toISOString()} (${marker.reason || "quota"}). No Vercel upload was started. Wait about ${remaining}, or set TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true / pass --force-quota-retry if you intentionally want to retry sooner.`,
+  );
+}
+
+function runQuotaCooldownSelfTest() {
+  removeQuotaBlockMarker();
+  fs.mkdirSync(path.dirname(quotaBlockMarkerPath), { recursive: true });
+  fs.writeFileSync(
+    quotaBlockMarkerPath,
+    `${JSON.stringify({
+      blockedAt: new Date().toISOString(),
+      reason: "api-deployments-free-per-day",
+    })}\n`,
+  );
+
+  try {
+    assertNoRecentQuotaBlock();
+    throw new Error("Quota cooldown self-test did not block a recent marker.");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    if (
+      !message.includes("No Vercel upload was started") ||
+      !message.includes("TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true")
+    ) {
+      throw error;
+    }
+  }
+
+  fs.writeFileSync(
+    quotaBlockMarkerPath,
+    `${JSON.stringify({
+      blockedAt: new Date(Date.now() - (quotaCooldownHours + 1) * 60 * 60 * 1000).toISOString(),
+      reason: "api-deployments-free-per-day",
+    })}\n`,
+  );
+  assertNoRecentQuotaBlock();
+  removeQuotaBlockMarker();
+  console.log("Production deploy quota cooldown self-test passed.");
 }
 
 function runRedactionSelfTest() {
@@ -205,12 +336,19 @@ if (redactionSelfTest) {
   process.exit(0);
 }
 
+if (quotaCooldownSelfTest) {
+  runQuotaCooldownSelfTest();
+  process.exit(0);
+}
+
 gitPreflight();
 
 if (preflightOnly) {
   console.log("Production deploy preflight passed. No Vercel deployment was started.");
   process.exit(0);
 }
+
+assertNoRecentQuotaBlock();
 
 console.log(`Deploying production with Vercel scope ${scope}...`);
 
@@ -219,12 +357,15 @@ const deployOutput = run("vercel", ["--prod", "--yes", "--scope", scope], {
 });
 
 if (deployOutput.includes("api-deployments-free-per-day")) {
+  recordQuotaBlock();
   throw new Error(
-    "Vercel deployment quota is still capped (api-deployments-free-per-day). Wait for the rolling 24-hour quota to reset, then rerun npm run launch:production.",
+    "Vercel deployment quota is still capped (api-deployments-free-per-day). A local cooldown marker was written so the next deploy attempt can stop before uploading. Wait for the rolling 24-hour quota to reset, then rerun npm run launch:production.",
   );
 }
 
 const deploymentUrl = parseDeploymentUrl(deployOutput);
+
+removeQuotaBlockMarker();
 
 if (!deploymentUrl) {
   throw new Error(
