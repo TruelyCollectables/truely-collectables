@@ -389,6 +389,10 @@ const checks = [
       result.text.includes("npm run deploy:production") &&
       result.text.includes("npm run smoke:production") &&
       result.text.includes("rolling 24-hour quota reset") &&
+      result.text.includes("Vercel can still upload files before returning the quota error") &&
+      result.text.includes(".codex-run/vercel-quota-block.json") &&
+      result.text.includes("TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true") &&
+      result.text.includes("--force-quota-retry") &&
       result.text.includes("deploy live safety contract") &&
       result.text.includes("Protected deploy sequence") &&
       result.text.includes("remove unwanted truely-collectables-tt3b.vercel.app alias") &&
@@ -425,7 +429,12 @@ const checks = [
       result.text.includes('"purchaseAttemptAuditMissingScenarioKeys":[]') &&
       result.text.includes('"purchaseAttemptAuditUnexpectedScenarioKeys":[]') &&
       result.text.includes('"quotaBlockCode":"api-deployments-free-per-day"') &&
+      result.text.includes('"quotaCooldownMarkerPath":".codex-run/vercel-quota-block.json"') &&
+      result.text.includes('"quotaRetryOverrideEnv":"TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true"') &&
+      result.text.includes('"quotaRetryOverrideFlag":"--force-quota-retry"') &&
+      result.text.includes('"quotaUploadWarning"') &&
       result.text.includes("rolling 24-hour quota reset") &&
+      result.text.includes("Vercel can still upload files before returning the quota error") &&
       result.text.includes("deployed URL output") &&
       result.text.includes("clean URL output") &&
       result.text.includes('"sequence"') &&
@@ -459,6 +468,10 @@ const checks = [
       result.text.includes("## Production Deploy Safety") &&
       result.text.includes("api-deployments-free-per-day") &&
       result.text.includes("rolling 24-hour quota reset") &&
+      result.text.includes("Vercel can still upload files before returning the quota error") &&
+      result.text.includes(".codex-run/vercel-quota-block.json") &&
+      result.text.includes("TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true") &&
+      result.text.includes("--force-quota-retry") &&
       result.text.includes("deploy live safety contract") &&
       result.text.includes("Protected deploy sequence:") &&
       result.text.includes("remove unwanted truely-collectables-tt3b.vercel.app alias") &&
@@ -554,6 +567,10 @@ const checks = [
       "Ship only after smoke passes clean production",
       "api-deployments-free-per-day",
       "rolling 24-hour quota reset",
+      "Vercel can still upload files before returning the quota error",
+      ".codex-run/vercel-quota-block.json",
+      "TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true",
+      "--force-quota-retry",
       "Protected deploy sequence",
       "Post-smoke manual verification checklist",
       "Proof to capture:",
@@ -617,6 +634,10 @@ const checks = [
       result.text.includes("Ship only after smoke passes clean production") &&
       result.text.includes("api-deployments-free-per-day") &&
       result.text.includes("rolling 24-hour quota reset") &&
+      result.text.includes("Vercel can still upload files before returning the quota error") &&
+      result.text.includes(".codex-run/vercel-quota-block.json") &&
+      result.text.includes("TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true") &&
+      result.text.includes("--force-quota-retry") &&
       result.text.includes("Protected deploy sequence") &&
       result.text.includes("Post-smoke manual verification checklist") &&
       result.text.includes("Proof to capture:") &&
