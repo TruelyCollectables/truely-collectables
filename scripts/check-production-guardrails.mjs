@@ -582,10 +582,27 @@ assertFileIncludes("shipping blocked purchase evidence audit source", "src/app/a
   "provider_purchase_blocked",
 ]);
 assertFileIncludes("shipping exceptions evidence audit export source", "src/app/api/admin/shipping/exceptions/route.ts", [
-  "standardEnvelopeEvidenceDetail",
+  "shippingPurchaseAttemptAuditSentence",
+  "raw_payload",
+]);
+assertFileIncludes("shipping purchase attempt audit helper source", "src/lib/shipping-purchase-attempt-audit.ts", [
+  "buildShippingPurchaseAttemptAudit",
+  "shippingPurchaseAttemptAuditSentence",
+  "shippingPurchaseAttemptAuditLines",
   "standard_envelope_evidence_contract_ready",
   "Standard Envelope evidence validator:",
-  "raw_payload",
+  "attempted_by_identity",
+]);
+assertFileIncludes("shipping label packet purchase attempt audit source", "src/app/api/admin/shipping-labels/[id]/packet/route.ts", [
+  "Provider Purchase Attempt Audit",
+  "shippingPurchaseAttemptAuditLines",
+  "latest_purchase_attempt",
+  "provider_purchase_blocked",
+]);
+assertFileIncludes("admin shipping blocked attempt evidence audit source", "src/app/admin/shipping/page.tsx", [
+  "buildShippingPurchaseAttemptAudit",
+  "purchaseAttemptAudit.evidenceSummary",
+  "purchaseAttemptAudit.standardEnvelopeEvidenceContractReady",
 ]);
 assertFileIncludes(
   "seller protection reimbursement packet contract",

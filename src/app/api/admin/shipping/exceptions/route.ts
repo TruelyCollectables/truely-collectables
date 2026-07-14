@@ -3,6 +3,7 @@ import {
   evaluateLetterTrackSellerProtectionPaymentMetadataGate,
 } from "../../../../../lib/lettertrack-delivery-evidence";
 import { isDryRunShippingLabel as isDryRunShippingLabelRecord } from "../../../../../lib/shipping-dry-run";
+import { shippingPurchaseAttemptAuditSentence } from "../../../../../lib/shipping-purchase-attempt-audit";
 import { getActiveStoreId } from "../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
 import { evaluateUnder20SellerProtectionBuyerRefundMetadataGate } from "../../../../../lib/under20-seller-protection-claims";
@@ -112,18 +113,6 @@ function recordValue(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
-}
-
-function standardEnvelopeEvidenceDetail(payload: unknown) {
-  const rawPayload = recordValue(payload);
-  const ready = rawPayload.standard_envelope_evidence_contract_ready;
-  const provider = rawPayload.standard_envelope_evidence_provider;
-
-  if (typeof ready !== "boolean") return "";
-
-  return ` Standard Envelope evidence validator: ${
-    ready ? "ready" : "blocked"
-  }${typeof provider === "string" ? ` (${provider})` : ""}.`;
 }
 
 function isDryRunLabel(
@@ -400,7 +389,7 @@ export async function GET(request: Request) {
         postage_amount: money(label?.postage_amount),
         dry_run_record: dryRun ? "yes" : "no",
         dry_run_warning: dryRunWarning(dryRun),
-        issue_detail: `${event.message || "Provider purchase was blocked."}${standardEnvelopeEvidenceDetail(event.raw_payload)}`,
+        issue_detail: `${event.message || "Provider purchase was blocked."}${shippingPurchaseAttemptAuditSentence(event.raw_payload)}`,
         oldest_at: event.occurred_at,
         admin_url: `${url.origin}/admin/orders/${event.order_id}`,
       });

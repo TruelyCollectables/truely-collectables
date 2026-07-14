@@ -14,6 +14,7 @@ import {
   type ProviderSetupDecision,
 } from "../../../lib/shipping-provider-setup";
 import { isDryRunShippingLabel as isDryRunShippingLabelRecord } from "../../../lib/shipping-dry-run";
+import { buildShippingPurchaseAttemptAudit } from "../../../lib/shipping-purchase-attempt-audit";
 import { getDryRunShippingProofByOrder } from "../../../lib/shipping-dry-run-cleanup";
 import { getActiveStoreId } from "../../../lib/stores";
 import { createSupabaseServerClient } from "../../../lib/supabase-server";
@@ -1851,6 +1852,11 @@ function LabelIssueCard({
 }
 
 function EventCard({ event }: { event: TrackingEventRow }) {
+  const purchaseAttemptAudit =
+    event.event_type === "provider_purchase_blocked"
+      ? buildShippingPurchaseAttemptAudit(event.raw_payload)
+      : null;
+
   return (
     <div className="p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -1869,6 +1875,24 @@ function EventCard({ event }: { event: TrackingEventRow }) {
       <p className="mt-1 text-sm text-neutral-600">
         {event.message || event.event_code || "Tracking update"}
       </p>
+      {purchaseAttemptAudit?.evidenceSummary ? (
+        <div
+          className={`mt-3 rounded border p-3 text-xs font-bold ${
+            purchaseAttemptAudit.standardEnvelopeEvidenceContractReady
+              ? "border-green-200 bg-green-50 text-green-950"
+              : "border-red-200 bg-red-50 text-red-950"
+          }`}
+        >
+          <p>{purchaseAttemptAudit.evidenceSummary}</p>
+          {purchaseAttemptAudit.details.length > 0 ? (
+            <ul className="mt-2 list-disc space-y-1 pl-4">
+              {purchaseAttemptAudit.details.slice(0, 4).map((detail) => (
+                <li key={detail}>{detail}</li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      ) : null}
       <p className="mt-2 text-xs font-bold text-neutral-500">
         {shortDate(event.occurred_at)}
         {event.location ? ` / ${event.location}` : ""}

@@ -4,6 +4,7 @@ import {
   isDryRunShippingLabel,
   isDryRunShippingReference,
 } from "../../../../../../lib/shipping-dry-run";
+import { shippingPurchaseAttemptAuditLines } from "../../../../../../lib/shipping-purchase-attempt-audit";
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
 
@@ -236,6 +237,10 @@ function buildReport(input: {
     line("Coverage Policy ID", labelRow.coverage_policy_id),
     line("Coverage Claim ID", labelRow.coverage_claim_id),
     line("Coverage Claim Status", label(labelRow.coverage_claim_status)),
+    ...section("Provider Purchase Attempt Audit"),
+    ...shippingPurchaseAttemptAuditLines(
+      labelRow.metadata?.latest_purchase_attempt,
+    ),
     ...section("Order Snapshot"),
   ];
 
@@ -293,6 +298,14 @@ function buildReport(input: {
         line("Code", event.event_code),
         line("Location", event.location),
         line("Message", event.message),
+        ...(event.event_type === "provider_purchase_blocked"
+          ? [
+              "Provider Purchase Attempt Audit:",
+              ...shippingPurchaseAttemptAuditLines(event.raw_payload).map(
+                (auditLine) => `- ${auditLine}`,
+              ),
+            ]
+          : []),
         line("Raw Payload", safeJson(event.raw_payload)),
         "",
       );
