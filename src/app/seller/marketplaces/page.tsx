@@ -95,7 +95,8 @@ const buildQueue: BuildQueueStep[] = [
   {
     name: "Seller marketplace packet intake guidance",
     status: "completed",
-    detail: "Seller Connections now explains that Seller Inventory marketplace packets are prep-only JSON/CSV handoffs with no external publishing, no postage purchase, and no Coverage policy creation until platform-specific connectors are approved.",
+    detail:
+      "Seller Connections now explains that Seller Inventory marketplace packets are prep-only JSON/CSV handoffs with no external publishing, no postage purchase, no Coverage policy creation, no payout release, no order fulfillment, and no automatic under-$20 protection activation until platform-specific connectors are approved.",
   },
   {
     name: "Shipping provider setup go/no-go",
@@ -1182,6 +1183,15 @@ export default async function SellerMarketplacesPage() {
                 </span>
                 <span className="rounded border border-sky-300 bg-white px-2 py-1 text-[11px] font-black uppercase">
                   No Coverage policy creation
+                </span>
+                <span className="rounded border border-sky-300 bg-white px-2 py-1 text-[11px] font-black uppercase">
+                  No payout release
+                </span>
+                <span className="rounded border border-sky-300 bg-white px-2 py-1 text-[11px] font-black uppercase">
+                  No order fulfillment
+                </span>
+                <span className="rounded border border-sky-300 bg-white px-2 py-1 text-[11px] font-black uppercase">
+                  No automatic under-$20 protection activation
                 </span>
               </div>
             </div>

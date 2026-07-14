@@ -785,6 +785,9 @@ const checks = [
       "No external publishing",
       "No postage purchase",
       "No Coverage policy creation",
+      "No payout release",
+      "No order fulfillment",
+      "No automatic under-$20 protection activation",
       "Open Ready Inventory",
       "Open Needs-Work Inventory",
       "Seller marketplace packet intake guidance",
@@ -799,6 +802,9 @@ const checks = [
       result.text.includes("No external publishing") &&
       result.text.includes("No postage purchase") &&
       result.text.includes("No Coverage policy creation") &&
+      result.text.includes("No payout release") &&
+      result.text.includes("No order fulfillment") &&
+      result.text.includes("No automatic under-$20 protection activation") &&
       result.text.includes("Open Ready Inventory") &&
       result.text.includes("Open Needs-Work Inventory") &&
       result.text.includes("Seller marketplace packet intake guidance") &&
