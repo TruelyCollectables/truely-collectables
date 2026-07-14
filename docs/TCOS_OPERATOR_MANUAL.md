@@ -1654,6 +1654,7 @@ Brag post share links:
 - preserve `src` so traffic can be attributed to feed, X, Facebook, copied links, direct links, or future channels
 - increment `account_brag_posts.click_count`
 - save click audit data with source, referrer, user agent, observed IP, and timestamp
+- redirect responses include `X-TCOS-Brag-Share-Slug`, `X-TCOS-Brag-Share-Source`, `X-TCOS-Brag-Click-Tracking`, and `X-TCOS-Brag-Redirect-Destination` headers so share-link tracking can be verified without exposing collector account IDs
 - display the TCOS/TotallyCollectibles.com link in the brag feed so shared posts can bring customers back to the marketplace
 
 Weekly brag stats:
@@ -1663,6 +1664,7 @@ Weekly brag stats:
 - falls back to saving the weekly report row if email is not configured or email fails
 - stores report history in `account_brag_weekly_reports`
 - includes tracked traffic by source so weekly email can show which social/link channel brought visitors back
+- `/api/admin/brag-weekly-report` success responses include `X-TCOS-Brag-Weekly-Report-Id`, `X-TCOS-Brag-Weekly-Posts`, `X-TCOS-Brag-Weekly-Clicks`, `X-TCOS-Brag-Weekly-Emailed`, and `X-TCOS-Brag-Weekly-Email-Status` headers so report jobs can be reconciled with saved rows and email configuration
 - should be scheduled once per week by the deployment scheduler or admin automation
 
 Collection dashboard API:

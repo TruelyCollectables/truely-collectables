@@ -39,6 +39,22 @@ function isMissingReportTables(error: { code?: string; message?: string }) {
   );
 }
 
+function bragWeeklyReportHeaders(params: {
+  reportId: string | null;
+  postCount: number;
+  clickCount: number;
+  emailed: boolean;
+  emailStatus: "sent" | "not_configured" | "failed";
+}) {
+  return {
+    "X-TCOS-Brag-Weekly-Report-Id": params.reportId || "none",
+    "X-TCOS-Brag-Weekly-Posts": String(params.postCount),
+    "X-TCOS-Brag-Weekly-Clicks": String(params.clickCount),
+    "X-TCOS-Brag-Weekly-Emailed": String(params.emailed),
+    "X-TCOS-Brag-Weekly-Email-Status": params.emailStatus,
+  };
+}
+
 export async function GET() {
   try {
     const supabase = getSupabaseClient();
@@ -207,13 +223,31 @@ export async function GET() {
       throw reportError;
     }
 
-    return NextResponse.json({
-      success: true,
-      report,
-      emailed: Boolean(emailedAt),
-      emailError,
-      summary: reportJson,
-    });
+    const emailed = Boolean(emailedAt);
+    const emailStatus = emailed
+      ? "sent"
+      : emailError?.includes("configured")
+        ? "not_configured"
+        : "failed";
+
+    return NextResponse.json(
+      {
+        success: true,
+        report,
+        emailed,
+        emailError,
+        summary: reportJson,
+      },
+      {
+        headers: bragWeeklyReportHeaders({
+          reportId: report.id,
+          postCount: reportJson.postCount,
+          clickCount: reportJson.clickCount,
+          emailed,
+          emailStatus,
+        }),
+      },
+    );
   } catch (error: any) {
     return NextResponse.json(
       { error: error.message || "Could not build brag weekly report" },

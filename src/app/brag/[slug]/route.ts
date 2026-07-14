@@ -40,6 +40,25 @@ function firstHeaderIp(headers: Headers) {
   return forwarded.split(",")[0].trim().replace(/^::ffff:/i, "") || null;
 }
 
+function bragRedirectResponse(params: {
+  redirectUrl: URL;
+  slug: string | null;
+  source: string;
+  trackingStatus: "invalid_slug" | "tracked" | "not_found" | "failed";
+}) {
+  const response = NextResponse.redirect(params.redirectUrl);
+
+  response.headers.set("X-TCOS-Brag-Share-Slug", params.slug || "none");
+  response.headers.set("X-TCOS-Brag-Share-Source", params.source);
+  response.headers.set("X-TCOS-Brag-Click-Tracking", params.trackingStatus);
+  response.headers.set(
+    "X-TCOS-Brag-Redirect-Destination",
+    `${params.redirectUrl.pathname}${params.redirectUrl.search}`,
+  );
+
+  return response;
+}
+
 export async function GET(
   request: Request,
   context: { params: Promise<{ slug: string }> },
@@ -56,8 +75,15 @@ export async function GET(
   }
 
   if (!slug) {
-    return NextResponse.redirect(redirectUrl);
+    return bragRedirectResponse({
+      redirectUrl,
+      slug: null,
+      source,
+      trackingStatus: "invalid_slug",
+    });
   }
+
+  let trackingStatus: "tracked" | "not_found" | "failed" = "not_found";
 
   try {
     const supabase = getSupabaseClient();
@@ -92,10 +118,18 @@ export async function GET(
           .eq("id", post.id)
           .eq("store_id", storeId),
       ]);
+
+      trackingStatus = "tracked";
     }
   } catch (error) {
+    trackingStatus = "failed";
     console.error("Brag click tracking failed:", error);
   }
 
-  return NextResponse.redirect(redirectUrl);
+  return bragRedirectResponse({
+    redirectUrl,
+    slug,
+    source,
+    trackingStatus,
+  });
 }

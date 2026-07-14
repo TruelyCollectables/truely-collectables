@@ -1341,6 +1341,57 @@ assertFileIncludes(
   ],
 );
 assertFileIncludes(
+  "brag share redirect response contract",
+  "src/app/brag/[slug]/route.ts",
+  [
+    "function bragRedirectResponse",
+    "X-TCOS-Brag-Share-Slug",
+    "X-TCOS-Brag-Share-Source",
+    "X-TCOS-Brag-Click-Tracking",
+    "X-TCOS-Brag-Redirect-Destination",
+    'trackingStatus: "invalid_slug"',
+    'let trackingStatus: "tracked" | "not_found" | "failed" = "not_found"',
+    'trackingStatus = "tracked"',
+    'trackingStatus = "failed"',
+    "account_brag_post_clicks",
+    "account_brag_posts",
+  ],
+);
+assertFileIncludes(
+  "brag weekly report response contract",
+  "src/app/api/admin/brag-weekly-report/route.ts",
+  [
+    "function bragWeeklyReportHeaders",
+    "X-TCOS-Brag-Weekly-Report-Id",
+    "X-TCOS-Brag-Weekly-Posts",
+    "X-TCOS-Brag-Weekly-Clicks",
+    "X-TCOS-Brag-Weekly-Emailed",
+    "X-TCOS-Brag-Weekly-Email-Status",
+    "postCount: reportJson.postCount",
+    "clickCount: reportJson.clickCount",
+    "emailStatus",
+    "account_brag_weekly_reports",
+    "account_brag_post_clicks",
+  ],
+);
+assertFileIncludes(
+  "brag share operator manual contract",
+  "docs/TCOS_OPERATOR_MANUAL.md",
+  [
+    "X-TCOS-Brag-Share-Slug",
+    "X-TCOS-Brag-Share-Source",
+    "X-TCOS-Brag-Click-Tracking",
+    "X-TCOS-Brag-Redirect-Destination",
+    "without exposing collector account IDs",
+    "/api/admin/brag-weekly-report",
+    "X-TCOS-Brag-Weekly-Report-Id",
+    "X-TCOS-Brag-Weekly-Posts",
+    "X-TCOS-Brag-Weekly-Clicks",
+    "X-TCOS-Brag-Weekly-Emailed",
+    "X-TCOS-Brag-Weekly-Email-Status",
+  ],
+);
+assertFileIncludes(
   "collector export operator manual contract",
   "docs/TCOS_OPERATOR_MANUAL.md",
   [

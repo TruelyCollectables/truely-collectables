@@ -1861,6 +1861,7 @@ account_wish_list_matches</code></pre>
 <li>preserve <code>src</code> so traffic can be attributed to feed, X, Facebook, copied links, direct links, or future channels</li>
 <li>increment <code>account_brag_posts.click_count</code></li>
 <li>save click audit data with source, referrer, user agent, observed IP, and timestamp</li>
+<li>redirect responses include <code>X-TCOS-Brag-Share-Slug</code>, <code>X-TCOS-Brag-Share-Source</code>, <code>X-TCOS-Brag-Click-Tracking</code>, and <code>X-TCOS-Brag-Redirect-Destination</code> headers so share-link tracking can be verified without exposing collector account IDs</li>
 <li>display the TCOS/TotallyCollectibles.com link in the brag feed so shared posts can bring customers back to the marketplace</li>
 </ul>
 <p>Weekly brag stats:</p>
@@ -1870,6 +1871,7 @@ account_wish_list_matches</code></pre>
 <li>falls back to saving the weekly report row if email is not configured or email fails</li>
 <li>stores report history in <code>account_brag_weekly_reports</code></li>
 <li>includes tracked traffic by source so weekly email can show which social/link channel brought visitors back</li>
+<li><code>/api/admin/brag-weekly-report</code> success responses include <code>X-TCOS-Brag-Weekly-Report-Id</code>, <code>X-TCOS-Brag-Weekly-Posts</code>, <code>X-TCOS-Brag-Weekly-Clicks</code>, <code>X-TCOS-Brag-Weekly-Emailed</code>, and <code>X-TCOS-Brag-Weekly-Email-Status</code> headers so report jobs can be reconciled with saved rows and email configuration</li>
 <li>should be scheduled once per week by the deployment scheduler or admin automation</li>
 </ul>
 <p>Collection dashboard API:</p>
