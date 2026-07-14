@@ -164,6 +164,13 @@ type SellerOutsideOrderImportResult = {
   failedItemCount: number;
 };
 
+type SellerMarketplaceOperationReceipt = {
+  title: string;
+  summary: string;
+  tone: "neutral" | "emerald" | "amber" | "rose" | "sky";
+  details: Array<{ label: string; value: string }>;
+};
+
 type SellerInventorySummary = {
   totalItems: number;
   draftCount: number;
@@ -320,6 +327,308 @@ function statusTone(value: string | null | undefined) {
   }
 
   return "border-neutral-200 bg-neutral-100 text-neutral-700";
+}
+
+function operationReceiptToneClass(
+  tone: SellerMarketplaceOperationReceipt["tone"],
+) {
+  if (tone === "emerald") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-900";
+  }
+
+  if (tone === "amber") {
+    return "border-amber-200 bg-amber-50 text-amber-950";
+  }
+
+  if (tone === "rose") {
+    return "border-rose-200 bg-rose-50 text-rose-900";
+  }
+
+  if (tone === "sky") {
+    return "border-sky-200 bg-sky-50 text-sky-950";
+  }
+
+  return "border-neutral-200 bg-neutral-50 text-neutral-800";
+}
+
+function headerText(headers: Headers, name: string, fallback = "—") {
+  const value = headers.get(name);
+  return value && value.trim().length > 0 ? value : fallback;
+}
+
+function headerNumber(headers: Headers, name: string) {
+  const value = Number(headers.get(name));
+  return Number.isFinite(value) ? value : 0;
+}
+
+function headerBoolean(headers: Headers, name: string) {
+  return headers.get(name) === "true";
+}
+
+function sellerMarketplaceEbayAuthReceipt(
+  headers: Headers,
+): SellerMarketplaceOperationReceipt | null {
+  const mutation = headers.get("X-TCOS-Seller-Marketplace-Ebay-Auth-Mutation");
+  if (!mutation) return null;
+
+  const status = headerText(headers, "X-TCOS-Seller-Marketplace-Ebay-Auth-Status");
+  const storeSync = headerText(
+    headers,
+    "X-TCOS-Seller-Marketplace-Ebay-Auth-Store-Sync",
+  );
+  const connectionStatus = headerText(
+    headers,
+    "X-TCOS-Seller-Marketplace-Ebay-Auth-Connection-Status",
+  );
+
+  return {
+    title: "eBay OAuth start receipt",
+    summary: `${label(status)} auth request with store sync ${label(storeSync)}.`,
+    tone:
+      status === "ready" || status === "connected" || status === "redirect"
+        ? "sky"
+        : status === "blocked"
+          ? "rose"
+          : "amber",
+    details: [
+      { label: "Mutation", value: label(mutation) },
+      { label: "Provider", value: headerText(headers, "X-TCOS-Seller-Marketplace-Ebay-Auth-Provider") },
+      { label: "Connection", value: label(connectionStatus) },
+      { label: "Sync", value: label(headerText(headers, "X-TCOS-Seller-Marketplace-Ebay-Auth-Sync-Status")) },
+    ],
+  };
+}
+
+function sellerMarketplaceEbayStatusReceipt(
+  headers: Headers,
+): SellerMarketplaceOperationReceipt | null {
+  const mutation = headers.get("X-TCOS-Seller-Marketplace-Ebay-Status-Mutation");
+  if (!mutation) return null;
+
+  const status = headerText(headers, "X-TCOS-Seller-Marketplace-Ebay-Status");
+  const identityVerified = headerBoolean(
+    headers,
+    "X-TCOS-Seller-Marketplace-Ebay-Identity-Verified",
+  );
+  const warning = headerText(
+    headers,
+    "X-TCOS-Seller-Marketplace-Ebay-Identity-Warning",
+    "none",
+  );
+
+  return {
+    title: "eBay status receipt",
+    summary: `${label(status)} refresh; identity ${identityVerified ? "verified" : "needs review"}.`,
+    tone: warning !== "none" ? "amber" : status === "ok" ? "emerald" : "neutral",
+    details: [
+      { label: "Mutation", value: label(mutation) },
+      { label: "Status", value: label(status) },
+      { label: "Identity", value: identityVerified ? "Verified" : "Needs Review" },
+      { label: "Warning", value: label(warning) },
+    ],
+  };
+}
+
+function sellerMarketplaceSyncControlReceipt(
+  headers: Headers,
+): SellerMarketplaceOperationReceipt | null {
+  const mutation = headers.get(
+    "X-TCOS-Seller-Marketplace-Sync-Control-Mutation",
+  );
+  if (!mutation) return null;
+
+  const action = headerText(headers, "X-TCOS-Seller-Marketplace-Sync-Control-Action");
+  const result = headerText(headers, "X-TCOS-Seller-Marketplace-Sync-Control-Result");
+
+  return {
+    title: "eBay sync-control receipt",
+    summary: `${label(action)} request ${label(result)}.`,
+    tone: result === "updated" || result === "unchanged" ? "emerald" : "amber",
+    details: [
+      { label: "Mutation", value: label(mutation) },
+      { label: "Unchanged", value: headerBoolean(headers, "X-TCOS-Seller-Marketplace-Sync-Control-Unchanged") ? "Yes" : "No" },
+      { label: "Connection", value: label(headerText(headers, "X-TCOS-Seller-Marketplace-Sync-Control-Connection-Status")) },
+      { label: "Sync", value: label(headerText(headers, "X-TCOS-Seller-Marketplace-Sync-Control-Sync-Status")) },
+    ],
+  };
+}
+
+function sellerMarketplaceEbayDisconnectReceipt(
+  headers: Headers,
+): SellerMarketplaceOperationReceipt | null {
+  const mutation = headers.get(
+    "X-TCOS-Seller-Marketplace-Ebay-Disconnect-Mutation",
+  );
+  if (!mutation) return null;
+
+  const result = headerText(
+    headers,
+    "X-TCOS-Seller-Marketplace-Ebay-Disconnect-Result",
+  );
+  const credentialsDeleted = headerBoolean(
+    headers,
+    "X-TCOS-Seller-Marketplace-Ebay-Disconnect-Credentials-Deleted",
+  );
+
+  return {
+    title: "eBay disconnect receipt",
+    summary: `${label(result)}; credentials ${credentialsDeleted ? "deleted" : "already absent"}.`,
+    tone: result === "disconnected" || result === "already_disconnected" ? "emerald" : "amber",
+    details: [
+      { label: "Mutation", value: label(mutation) },
+      { label: "Already", value: headerBoolean(headers, "X-TCOS-Seller-Marketplace-Ebay-Disconnect-Already") ? "Yes" : "No" },
+      { label: "Connection", value: label(headerText(headers, "X-TCOS-Seller-Marketplace-Ebay-Disconnect-Connection-Status")) },
+      { label: "Sync", value: label(headerText(headers, "X-TCOS-Seller-Marketplace-Ebay-Disconnect-Sync-Status")) },
+    ],
+  };
+}
+
+function sellerMarketplaceImportPreviewReceipt(
+  headers: Headers,
+): SellerMarketplaceOperationReceipt | null {
+  const status = headers.get("X-TCOS-Seller-Marketplace-Import-Preview-Status");
+  if (!status) return null;
+
+  const sampled = headerNumber(
+    headers,
+    "X-TCOS-Seller-Marketplace-Import-Preview-Sampled",
+  );
+  const totalAvailable = headerText(
+    headers,
+    "X-TCOS-Seller-Marketplace-Import-Preview-Total-Available",
+    "unknown",
+  );
+  const writeBlocked = headerBoolean(
+    headers,
+    "X-TCOS-Seller-Marketplace-Import-Preview-Write-Blocked",
+  );
+  const needsReview = headerNumber(
+    headers,
+    "X-TCOS-Seller-Marketplace-Import-Preview-Needs-Review",
+  );
+
+  return {
+    title: "Import preview receipt",
+    summary: `${sampled} sampled from ${totalAvailable} available; ${needsReview} need review.`,
+    tone: writeBlocked || needsReview > 0 ? "amber" : "emerald",
+    details: [
+      { label: "Status", value: label(status) },
+      { label: "Requested Limit", value: headerText(headers, "X-TCOS-Seller-Marketplace-Import-Preview-Requested-Limit") },
+      { label: "Ready", value: headerText(headers, "X-TCOS-Seller-Marketplace-Import-Preview-Ready") },
+      { label: "Has More", value: headerBoolean(headers, "X-TCOS-Seller-Marketplace-Import-Preview-Has-More") ? "Yes" : "No" },
+      { label: "Write Blocked", value: writeBlocked ? "Yes" : "No" },
+      { label: "Missing SKU", value: headerText(headers, "X-TCOS-Seller-Marketplace-Import-Preview-Missing-SKU") },
+      { label: "Missing Listing ID", value: headerText(headers, "X-TCOS-Seller-Marketplace-Import-Preview-Missing-Listing-ID") },
+      { label: "Missing Image", value: headerText(headers, "X-TCOS-Seller-Marketplace-Import-Preview-Missing-Image") },
+    ],
+  };
+}
+
+function sellerMarketplaceReconciliationReceipt(
+  headers: Headers,
+): SellerMarketplaceOperationReceipt | null {
+  const mutation = headers.get("X-TCOS-Seller-Marketplace-Reconcile-Mutation");
+  if (!mutation) return null;
+
+  const status = headerText(headers, "X-TCOS-Seller-Marketplace-Reconcile-Status");
+  const scanned = headerNumber(headers, "X-TCOS-Seller-Marketplace-Reconcile-Scanned");
+  const reduced = headerNumber(
+    headers,
+    "X-TCOS-Seller-Marketplace-Reconcile-Quantity-Reduced",
+  );
+  const sold = headerNumber(headers, "X-TCOS-Seller-Marketplace-Reconcile-Sold");
+  const review = headerNumber(headers, "X-TCOS-Seller-Marketplace-Reconcile-Review");
+  const failed = headerNumber(headers, "X-TCOS-Seller-Marketplace-Reconcile-Failed");
+
+  return {
+    title: "Inventory reconciliation receipt",
+    summary: `${scanned} scanned; ${reduced} reduced, ${sold} sold, ${review} review, ${failed} failed.`,
+    tone: failed > 0 ? "rose" : review > 0 ? "amber" : "emerald",
+    details: [
+      { label: "Mutation", value: label(mutation) },
+      { label: "Status", value: label(status) },
+      { label: "Linked", value: headerText(headers, "X-TCOS-Seller-Marketplace-Reconcile-Linked") },
+      { label: "Matched", value: headerText(headers, "X-TCOS-Seller-Marketplace-Reconcile-Matched") },
+      { label: "Has More", value: headerBoolean(headers, "X-TCOS-Seller-Marketplace-Reconcile-Has-More") ? "Yes" : "No" },
+      { label: "Reset Cursor", value: headerBoolean(headers, "X-TCOS-Seller-Marketplace-Reconcile-Reset-Cursor") ? "Yes" : "No" },
+    ],
+  };
+}
+
+function sellerMarketplaceOrderImportReceipt(
+  headers: Headers,
+): SellerMarketplaceOperationReceipt | null {
+  const mutation = headers.get("X-TCOS-Seller-Marketplace-Order-Import-Mutation");
+  if (!mutation) return null;
+
+  const status = headerText(headers, "X-TCOS-Seller-Marketplace-Order-Import-Status");
+  const importedOrders = headerNumber(
+    headers,
+    "X-TCOS-Seller-Marketplace-Order-Import-Imported-Orders",
+  );
+  const importedItems = headerNumber(
+    headers,
+    "X-TCOS-Seller-Marketplace-Order-Import-Imported-Items",
+  );
+  const reduced = headerNumber(
+    headers,
+    "X-TCOS-Seller-Marketplace-Order-Import-Inventory-Reduced",
+  );
+  const failed = headerNumber(
+    headers,
+    "X-TCOS-Seller-Marketplace-Order-Import-Failed-Items",
+  );
+
+  return {
+    title: "Outside eBay order receipt",
+    summary: `${importedOrders} orders / ${importedItems} items imported; ${reduced} quantities reduced.`,
+    tone: failed > 0 ? "rose" : "emerald",
+    details: [
+      { label: "Mutation", value: label(mutation) },
+      { label: "Status", value: label(status) },
+      { label: "Paid", value: headerText(headers, "X-TCOS-Seller-Marketplace-Order-Import-Paid") },
+      { label: "Refunded", value: headerText(headers, "X-TCOS-Seller-Marketplace-Order-Import-Refunded") },
+      { label: "Unmatched", value: headerText(headers, "X-TCOS-Seller-Marketplace-Order-Import-Unmatched") },
+      { label: "Review", value: headerText(headers, "X-TCOS-Seller-Marketplace-Order-Import-Review") },
+      { label: "Has More", value: headerBoolean(headers, "X-TCOS-Seller-Marketplace-Order-Import-Has-More") ? "Yes" : "No" },
+      { label: "Reset Cursor", value: headerBoolean(headers, "X-TCOS-Seller-Marketplace-Order-Import-Reset-Cursor") ? "Yes" : "No" },
+    ],
+  };
+}
+
+function SellerMarketplaceOperationReceiptCard({
+  receipt,
+}: {
+  receipt: SellerMarketplaceOperationReceipt;
+}) {
+  return (
+    <div
+      className={`border-b p-4 ${operationReceiptToneClass(receipt.tone)}`}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.12em]">
+            Latest Marketplace API Receipt
+          </p>
+          <p className="mt-1 text-sm font-black">{receipt.title}</p>
+          <p className="mt-1 text-sm leading-6">{receipt.summary}</p>
+        </div>
+      </div>
+      <dl className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
+        {receipt.details.map((detail) => (
+          <div
+            key={`${receipt.title}-${detail.label}`}
+            className="rounded-md bg-white/70 px-3 py-2"
+          >
+            <dt className="text-[11px] font-black uppercase tracking-[0.08em] opacity-70">
+              {detail.label}
+            </dt>
+            <dd className="mt-1 text-sm font-black">{detail.value}</dd>
+          </div>
+        ))}
+      </dl>
+    </div>
+  );
 }
 
 function metadataTextValue(
@@ -1249,7 +1558,10 @@ async function fetchSellerEbayPreview(accessToken: string) {
     throw new Error(data.error || "Could not load seller eBay import preview.");
   }
 
-  return data.preview as SellerEbayInventoryPreview;
+  return {
+    preview: data.preview as SellerEbayInventoryPreview,
+    operationReceipt: sellerMarketplaceImportPreviewReceipt(response.headers),
+  };
 }
 
 async function fetchSellerStagedItems(
@@ -1362,7 +1674,10 @@ async function fetchSellerReconciliationStatus(accessToken: string) {
     linkedCount: Number(data.linkedCount || 0),
     latestRun: (data.latestRun || null) as SellerReconciliationRun | null,
     recentRuns: (data.recentRuns || []) as SellerReconciliationRun[],
-  } satisfies SellerReconciliationStatus;
+    operationReceipt: sellerMarketplaceReconciliationReceipt(response.headers),
+  } satisfies SellerReconciliationStatus & {
+    operationReceipt: SellerMarketplaceOperationReceipt | null;
+  };
 }
 
 async function runSellerReconciliationBatch(
@@ -1386,7 +1701,10 @@ async function runSellerReconciliationBatch(
     throw new Error(data.error || "Could not reconcile seller eBay inventory.");
   }
 
-  return data.result as SellerReconciliationResult;
+  return {
+    ...(data.result as SellerReconciliationResult),
+    operationReceipt: sellerMarketplaceReconciliationReceipt(response.headers),
+  };
 }
 
 async function fetchSellerOutsideOrderStatus(accessToken: string) {
@@ -1406,7 +1724,10 @@ async function fetchSellerOutsideOrderStatus(accessToken: string) {
     refundedCount: Number(data.refundedCount || 0),
     unmatchedItemCount: Number(data.unmatchedItemCount || 0),
     latestImportedAt: data.latestImportedAt || null,
-  } satisfies SellerOutsideOrderStatus;
+    operationReceipt: sellerMarketplaceOrderImportReceipt(response.headers),
+  } satisfies SellerOutsideOrderStatus & {
+    operationReceipt: SellerMarketplaceOperationReceipt | null;
+  };
 }
 
 async function runSellerOutsideOrderImportBatch(
@@ -1430,7 +1751,10 @@ async function runSellerOutsideOrderImportBatch(
     throw new Error(data.error || "Could not import outside eBay orders.");
   }
 
-  return data.result as SellerOutsideOrderImportResult;
+  return {
+    ...(data.result as SellerOutsideOrderImportResult),
+    operationReceipt: sellerMarketplaceOrderImportReceipt(response.headers),
+  };
 }
 
 async function updateSellerStagedItemStatus(params: {
@@ -1598,6 +1922,10 @@ export default function SellerConnectionsPanel({
     useState(false);
   const [isImportingAllOutsideOrders, setIsImportingAllOutsideOrders] =
     useState(false);
+  const [
+    latestMarketplaceOperationReceipt,
+    setLatestMarketplaceOperationReceipt,
+  ] = useState<SellerMarketplaceOperationReceipt | null>(null);
   const stageAllStopRequestedRef = useRef(false);
   const [updatingStageItemId, setUpdatingStageItemId] = useState("");
   const [editingReviewItemId, setEditingReviewItemId] = useState("");
@@ -1711,6 +2039,9 @@ export default function SellerConnectionsPanel({
     try {
       const status = await fetchSellerReconciliationStatus(accessToken);
       setReconciliationStatus(status);
+      if (!options?.silent) {
+        setLatestMarketplaceOperationReceipt(status.operationReceipt);
+      }
       return status;
     } catch (error: any) {
       if (!options?.silent) {
@@ -1729,6 +2060,9 @@ export default function SellerConnectionsPanel({
     try {
       const status = await fetchSellerOutsideOrderStatus(accessToken);
       setOutsideOrderStatus(status);
+      if (!options?.silent) {
+        setLatestMarketplaceOperationReceipt(status.operationReceipt);
+      }
       return status;
     } catch (error: any) {
       if (!options?.silent) {
@@ -1844,6 +2178,12 @@ export default function SellerConnectionsPanel({
         );
       }
 
+      if (provider === "ebay") {
+        setLatestMarketplaceOperationReceipt(
+          sellerMarketplaceEbayAuthReceipt(response.headers),
+        );
+      }
+
       if (provider === "ebay" && data.authorizationUrl) {
         window.location.assign(data.authorizationUrl);
         return;
@@ -1883,6 +2223,9 @@ export default function SellerConnectionsPanel({
         throw new Error(data.error || "Could not refresh seller eBay status.");
       }
 
+      setLatestMarketplaceOperationReceipt(
+        sellerMarketplaceEbayStatusReceipt(response.headers),
+      );
       setMessage("Seller eBay status refreshed.");
       const nextConnections = await fetchSellerConnections(session.access_token);
       setConnections(nextConnections);
@@ -1931,6 +2274,9 @@ export default function SellerConnectionsPanel({
         setStageAllProgress(null);
       }
 
+      setLatestMarketplaceOperationReceipt(
+        sellerMarketplaceSyncControlReceipt(response.headers),
+      );
       setMessage(
         paused
           ? "Seller eBay sync paused. Credentials and imported work remain safe."
@@ -1975,6 +2321,9 @@ export default function SellerConnectionsPanel({
 
       setPreview(null);
       setStageAllProgress(null);
+      setLatestMarketplaceOperationReceipt(
+        sellerMarketplaceEbayDisconnectReceipt(response.headers),
+      );
       setMessage(
         "Seller eBay disconnected and TCOS credentials deleted. To invalidate eBay's authorization immediately, also remove TCOS under eBay Third-party app access.",
       );
@@ -1995,7 +2344,8 @@ export default function SellerConnectionsPanel({
 
     try {
       const nextPreview = await fetchSellerEbayPreview(session.access_token);
-      setPreview(nextPreview);
+      setPreview(nextPreview.preview);
+      setLatestMarketplaceOperationReceipt(nextPreview.operationReceipt);
       setMessage("Seller eBay preview loaded.");
       const nextConnections = await fetchSellerConnections(session.access_token);
       setConnections(nextConnections);
@@ -2192,6 +2542,7 @@ export default function SellerConnectionsPanel({
     let failed = 0;
     let hasMore = true;
     let resetCursor = options.resetCursor === true;
+    let latestReceipt: SellerMarketplaceOperationReceipt | null = null;
 
     setIsImportingOutsideOrders(true);
     setIsImportingAllOutsideOrders(options.all);
@@ -2221,10 +2572,12 @@ export default function SellerConnectionsPanel({
         review += result.reviewCount + result.unmatchedItemCount;
         failed += result.failedItemCount;
         hasMore = result.hasMore;
+        latestReceipt = result.operationReceipt;
 
         if (!options.all) break;
       }
 
+      setLatestMarketplaceOperationReceipt(latestReceipt);
       setMessage(
         `Outside eBay order import ${hasMore ? "batch complete" : "complete"}. ${importedOrders} order${importedOrders === 1 ? "" : "s"} and ${importedItems} line item${importedItems === 1 ? "" : "s"} recorded; ${reduced} quantities reduced, ${sold} marked sold, ${review} need review, and ${failed} failed. TCOS fees and payouts were not touched.`,
       );
@@ -2267,6 +2620,7 @@ export default function SellerConnectionsPanel({
     let nextOffset = 0;
     let totalLinked = reconciliationStatus?.linkedCount || 0;
     let resetCursor = options.resetCursor === true;
+    let latestReceipt: SellerMarketplaceOperationReceipt | null = null;
 
     setIsReconciling(true);
     setIsReconcilingAll(options.all);
@@ -2307,6 +2661,7 @@ export default function SellerConnectionsPanel({
         nextOffset = result.nextOffset;
         totalLinked = result.totalLinked;
         hasMore = result.hasMore;
+        latestReceipt = result.operationReceipt;
 
         setReconciliationProgress({
           batchesCompleted,
@@ -2323,6 +2678,7 @@ export default function SellerConnectionsPanel({
         if (!options.all) break;
       }
 
+      setLatestMarketplaceOperationReceipt(latestReceipt);
       setMessage(
         `Seller eBay reconciliation ${hasMore ? "batch complete" : "complete"}. ${scannedCount} linked item${scannedCount === 1 ? "" : "s"} checked; ${quantityReducedCount} reduced, ${soldCount} marked sold, ${reviewCount} flagged for review, and ${failedCount} failed. No TCOS fee was created for outside sales.`,
       );
@@ -3290,6 +3646,12 @@ export default function SellerConnectionsPanel({
         <div className="border-b border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-900">
           {message}
         </div>
+      ) : null}
+
+      {latestMarketplaceOperationReceipt ? (
+        <SellerMarketplaceOperationReceiptCard
+          receipt={latestMarketplaceOperationReceipt}
+        />
       ) : null}
 
       {ebayRevocationProtectionReady ? (

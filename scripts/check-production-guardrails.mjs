@@ -2032,6 +2032,30 @@ assertFileIncludes(
   ],
 );
 assertFileIncludes(
+  "seller marketplace UI operation receipt contract",
+  "src/app/seller/marketplaces/SellerConnectionsPanel.tsx",
+  [
+    "type SellerMarketplaceOperationReceipt",
+    "function SellerMarketplaceOperationReceiptCard",
+    "Latest Marketplace API Receipt",
+    "setLatestMarketplaceOperationReceipt",
+    "sellerMarketplaceEbayAuthReceipt",
+    "sellerMarketplaceEbayStatusReceipt",
+    "sellerMarketplaceSyncControlReceipt",
+    "sellerMarketplaceEbayDisconnectReceipt",
+    "sellerMarketplaceImportPreviewReceipt",
+    "sellerMarketplaceReconciliationReceipt",
+    "sellerMarketplaceOrderImportReceipt",
+    "X-TCOS-Seller-Marketplace-Ebay-Auth-Mutation",
+    "X-TCOS-Seller-Marketplace-Ebay-Status-Mutation",
+    "X-TCOS-Seller-Marketplace-Sync-Control-Mutation",
+    "X-TCOS-Seller-Marketplace-Ebay-Disconnect-Mutation",
+    "X-TCOS-Seller-Marketplace-Import-Preview-Status",
+    "X-TCOS-Seller-Marketplace-Reconcile-Mutation",
+    "X-TCOS-Seller-Marketplace-Order-Import-Mutation",
+  ],
+);
+assertFileIncludes(
   "seller inventory API seller protection export contract",
   "src/app/api/account/seller/inventory/route.ts",
   [
