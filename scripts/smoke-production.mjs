@@ -196,10 +196,7 @@ async function requestUrl(url, options = {}) {
 }
 
 function diagnosticSnippet(text) {
-  return text
-    .replace(/<script[\s\S]*?<\/script>/gi, "")
-    .replace(/<style[\s\S]*?<\/style>/gi, "")
-    .replace(/<[^>]+>/g, " ")
+  return visibleText(text)
     .replace(/\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9_=-]{8,}\b/g, "[redacted-stripe-secret]")
     .replace(/\bpk_(?:live|test)_[A-Za-z0-9_=-]{8,}\b/g, "[redacted-stripe-publishable]")
     .replace(/\bwhsec_[A-Za-z0-9_=-]{8,}\b/g, "[redacted-stripe-webhook]")
@@ -214,9 +211,16 @@ function diagnosticSnippet(text) {
       '"$1":"[redacted-secret]"',
     )
     .replace(/\beyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\b/g, "[redacted-jwt]")
-    .replace(/\s+/g, " ")
-    .trim()
     .slice(0, 240);
+}
+
+function visibleText(text) {
+  return text
+    .replace(/<script[\s\S]*?<\/script>/gi, "")
+    .replace(/<style[\s\S]*?<\/style>/gi, "")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function safeSnippet(text, error = "") {
@@ -670,20 +674,25 @@ const checks = [
   {
     name: "live shipping gate",
     path: "/admin/live-shipping-launch",
-    expect: (result) =>
-      result.text.includes("Live Shipping Launch Gate") &&
-      result.text.includes("Provider secrets and live-adapter evidence") &&
-      result.text.includes("Provider verdict") &&
-      result.text.includes("Standard Envelope Evidence + Under-$20 Protection Contract") &&
-      result.text.includes("LetterTrack / USPS IMb is delivery evidence, not insurance") &&
-      result.text.includes("Runtime gate validator: ready") &&
-      result.text.includes("Provider Purchase-Attempt Audit Suite") &&
-      result.text.includes("Purchase-Audit Key Drift") &&
-      result.text.includes("Missing Purchase Audit Keys") &&
-      result.text.includes("Unexpected Purchase Audit Keys") &&
-      result.text.includes("Not insurance: LetterTrack / USPS IMb is delivery-evidence tracking") &&
-      result.text.includes("Immutable Shipping Approval History") &&
-      result.text.includes("Shipping Lab"),
+    expect: (result) => {
+      const pageText = visibleText(result.text);
+
+      return (
+        pageText.includes("Live Shipping Launch Gate") &&
+        pageText.includes("Provider secrets and live-adapter evidence") &&
+        pageText.includes("Provider verdict") &&
+        pageText.includes("Standard Envelope Evidence + Under-$20 Protection Contract") &&
+        pageText.includes("LetterTrack / USPS IMb is delivery evidence, not insurance") &&
+        pageText.includes("Runtime gate validator: ready") &&
+        pageText.includes("Provider Purchase-Attempt Audit Suite") &&
+        pageText.includes("Purchase-Audit Key Drift") &&
+        pageText.includes("Missing Purchase Audit Keys") &&
+        pageText.includes("Unexpected Purchase Audit Keys") &&
+        pageText.includes("Not insurance: LetterTrack / USPS IMb is delivery-evidence tracking") &&
+        pageText.includes("Immutable Shipping Approval History") &&
+        pageText.includes("Shipping Lab")
+      );
+    },
   },
   {
     name: "live shipping gate json",

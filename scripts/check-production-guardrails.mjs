@@ -411,6 +411,7 @@ assertFileIncludes("live launch gate smoke contract", "scripts/smoke-production.
   "Payment Lab",
   'name: "live shipping gate"',
   'path: "/admin/live-shipping-launch"',
+  "const pageText = visibleText(result.text)",
   "Live Shipping Launch Gate",
   "Provider secrets and live-adapter evidence",
   "Provider verdict",
