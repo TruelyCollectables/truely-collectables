@@ -826,6 +826,14 @@ const checks = [
       "five expected purchase-audit scenarios",
       "no missing or unexpected scenario keys",
       "no missing/unexpected purchase-audit keys",
+      "## Seller Marketplace Receipt Handoff",
+      "Seller marketplace receipt handoff proof text",
+      "Copy Safe Receipt",
+      "Download Safe Receipt",
+      "Copy Trail",
+      "Download Trail",
+      "Clear Trail",
+      "not an audit ledger, payment record, fulfillment proof, or provider reconciliation source of truth",
     ],
     expect: (result) =>
       hasAttachmentFilename(result, "tcos-launch-handoff-bundle.md") &&
@@ -875,6 +883,16 @@ const checks = [
       result.text.includes("five expected purchase-audit scenarios") &&
       result.text.includes("no missing or unexpected scenario keys") &&
       result.text.includes("no missing/unexpected purchase-audit keys") &&
+      result.text.includes("## Seller Marketplace Receipt Handoff") &&
+      result.text.includes("Seller marketplace receipt handoff proof text") &&
+      result.text.includes("Copy Safe Receipt") &&
+      result.text.includes("Download Safe Receipt") &&
+      result.text.includes("Copy Trail") &&
+      result.text.includes("Download Trail") &&
+      result.text.includes("Clear Trail") &&
+      result.text.includes(
+        "not an audit ledger, payment record, fulfillment proof, or provider reconciliation source of truth",
+      ) &&
       result.text.includes("truely-collectables-tt3b.vercel.app"),
   },
   {
