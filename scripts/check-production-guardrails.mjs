@@ -2980,6 +2980,14 @@ assertFileIncludes("operator manual PDF generator portability guardrail", "scrip
   "Manual PDF written:",
 ]);
 
+assertFileIncludes("operator manual PDF generator instructions", "docs/TCOS_OPERATOR_MANUAL.md", [
+  "The manual PDF generator looks for local Chrome, Edge, Chromium, and Brave binaries on macOS, Linux, and Windows.",
+  "TCOS_MANUAL_BROWSER_PATH",
+  "TCOS_MANUAL_PDF_BROWSER_TIMEOUT_MS",
+  "the generator treats a freshly written PDF as success and exits cleanly",
+  "the generator verifies the PDF timestamp and size before accepting that timeout as success",
+]);
+
 assertFileIncludes("chat handoff current launch stack", "CHAT_HANDOFF.md", [
   "/Users/davidbakanas/Documents/GitHub/truely-collectables",
   "Treat those commands as the source of truth for the current Git tip.",

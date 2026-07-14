@@ -212,6 +212,8 @@ The PDF is regenerated with:
 npm run manual:pdf
 ```
 
+The manual PDF generator looks for local Chrome, Edge, Chromium, and Brave binaries on macOS, Linux, and Windows. If the browser lives somewhere custom, set `TCOS_MANUAL_BROWSER_PATH` to the executable path before running `npm run manual:pdf`. If a headless browser writes the PDF but hangs during shutdown, set `TCOS_MANUAL_PDF_BROWSER_TIMEOUT_MS` to a shorter timeout; the generator treats a freshly written PDF as success and exits cleanly.
+
 Links in this manual are clickable in both Markdown and PDF form. Use them for direct lookup, examples, API docs, and troubleshooting references.
 
 ## Current V2 UI Baseline
@@ -3260,6 +3262,8 @@ Expected:
 - all InstaComp queue state simulations succeed
 - `docs/TCOS_OPERATOR_MANUAL_PRINT.html` is regenerated
 - `docs/TCOS_OPERATOR_MANUAL.pdf` is regenerated with the ownership watermark
+- `TCOS_MANUAL_BROWSER_PATH` can point the manual PDF generator at a custom local browser executable
+- `TCOS_MANUAL_PDF_BROWSER_TIMEOUT_MS` can shorten headless-browser shutdown waits while preserving a freshly written PDF
 
 For PaddleOCR service changes, also run:
 
@@ -4814,6 +4818,8 @@ After code, migrations, environment variables, OCR models, or this manual change
 When a feature changes, update this manual in the same work session.
 
 PDF generation can wait until the end of a completed module or slice so development can move faster. Keep the Markdown manual current during implementation, then run `npm run manual:pdf` at the module checkpoint.
+
+If the local browser is installed in a nonstandard location, run `TCOS_MANUAL_BROWSER_PATH=/path/to/browser npm run manual:pdf`. If Chrome writes the PDF and then hangs in updater or crash-handler cleanup, rerun with a shorter `TCOS_MANUAL_PDF_BROWSER_TIMEOUT_MS`; the generator verifies the PDF timestamp and size before accepting that timeout as success.
 
 Every generated manual PDF, including the future separate mobile app manual PDF, must watermark each page with `Property of Dag Danky Holdings LLC.`.
 

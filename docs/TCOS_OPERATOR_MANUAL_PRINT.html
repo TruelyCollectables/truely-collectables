@@ -321,6 +321,7 @@
 </ul>
 <p>The PDF is regenerated with:</p>
 <pre><code>npm run manual:pdf</code></pre>
+<p>The manual PDF generator looks for local Chrome, Edge, Chromium, and Brave binaries on macOS, Linux, and Windows. If the browser lives somewhere custom, set <code>TCOS_MANUAL_BROWSER_PATH</code> to the executable path before running <code>npm run manual:pdf</code>. If a headless browser writes the PDF but hangs during shutdown, set <code>TCOS_MANUAL_PDF_BROWSER_TIMEOUT_MS</code> to a shorter timeout; the generator treats a freshly written PDF as success and exits cleanly.</p>
 <p>Links in this manual are clickable in both Markdown and PDF form. Use them for direct lookup, examples, API docs, and troubleshooting references.</p>
 <h2>Current V2 UI Baseline</h2>
 <p>The public storefront has been moved away from the default scaffold look.</p>
@@ -3325,6 +3326,8 @@ npm run manual:pdf</code></pre>
 <li>all InstaComp queue state simulations succeed</li>
 <li><code>docs/TCOS_OPERATOR_MANUAL_PRINT.html</code> is regenerated</li>
 <li><code>docs/TCOS_OPERATOR_MANUAL.pdf</code> is regenerated with the ownership watermark</li>
+<li><code>TCOS_MANUAL_BROWSER_PATH</code> can point the manual PDF generator at a custom local browser executable</li>
+<li><code>TCOS_MANUAL_PDF_BROWSER_TIMEOUT_MS</code> can shorten headless-browser shutdown waits while preserving a freshly written PDF</li>
 </ul>
 <p>For PaddleOCR service changes, also run:</p>
 <pre><code>cd C:\Projects\truely-collectables\services\paddleocr-service
@@ -4504,6 +4507,7 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3000/admin/login</code></pre
 <h2>37. Maintenance Rule</h2>
 <p>When a feature changes, update this manual in the same work session.</p>
 <p>PDF generation can wait until the end of a completed module or slice so development can move faster. Keep the Markdown manual current during implementation, then run <code>npm run manual:pdf</code> at the module checkpoint.</p>
+<p>If the local browser is installed in a nonstandard location, run <code>TCOS_MANUAL_BROWSER_PATH=/path/to/browser npm run manual:pdf</code>. If Chrome writes the PDF and then hangs in updater or crash-handler cleanup, rerun with a shorter <code>TCOS_MANUAL_PDF_BROWSER_TIMEOUT_MS</code>; the generator verifies the PDF timestamp and size before accepting that timeout as success.</p>
 <p>Every generated manual PDF, including the future separate mobile app manual PDF, must watermark each page with <code>Property of Dag Danky Holdings LLC.</code>.</p>
 <p>Checklist for future changes:</p>
 <ol>
