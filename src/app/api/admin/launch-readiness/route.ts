@@ -139,7 +139,7 @@ function deploySafetyMarkdownLines() {
   return [
     `## ${DEPLOY_SAFETY.section}`,
     "",
-    "- Run `npm run verify:production` before launch work; it covers InstaComp regressions, LetterTrack evidence checks, shipping purchase-attempt audit simulations, the nineteen-scenario shipping simulation suite, build, production guardrails, and production preflight.",
+    "- Run `npm run verify:production` before launch work; it covers InstaComp regressions, LetterTrack evidence checks, shipping purchase-attempt audit simulations, the twenty-scenario shipping simulation suite, build, production guardrails, and production preflight.",
     `- If Vercel reports \`${DEPLOY_SAFETY.quotaBlockCode}\`, ${DEPLOY_SAFETY.quotaResetInstruction.replace("npm run launch:production", "`npm run launch:production`")}`,
     `- ${DEPLOY_SAFETY.quotaUploadWarning} Marker: \`${DEPLOY_SAFETY.quotaCooldownMarkerPath}\`. Override only intentionally with \`${DEPLOY_SAFETY.quotaRetryOverrideEnv}\` or \`${DEPLOY_SAFETY.quotaRetryOverrideFlag}\`.`,
     `- The deploy live safety contract must keep ${deploySafetyContractMarkdown()} intact.`,
@@ -325,7 +325,7 @@ function markdownForHandoffBundle(
     "",
     "## Production Deploy Commands",
     "",
-    "- Before deploying, run `npm run verify:production`; it covers InstaComp regressions, LetterTrack evidence checks, shipping purchase-attempt audit simulations, the nineteen-scenario shipping simulation suite, build, production guardrails, and production preflight.",
+    "- Before deploying, run `npm run verify:production`; it covers InstaComp regressions, LetterTrack evidence checks, shipping purchase-attempt audit simulations, the twenty-scenario shipping simulation suite, build, production guardrails, and production preflight.",
     "- If Vercel deploy quota is open, run `npm run launch:production`.",
     `- If Vercel reports \`${DEPLOY_SAFETY.quotaBlockCode}\`, ${DEPLOY_SAFETY.quotaResetInstruction.replace("npm run launch:production", "the launch helper")}`,
     `- If the launch helper must be split up, run \`npm run deploy:production\` and then \`${DEPLOY_SAFETY.smokeCommand}\`.`,
@@ -346,7 +346,7 @@ function markdownForHandoffBundle(
     "- Confirm `/api/admin/launch-readiness?format=handoff-bundle` downloads this bundle.",
     "- Confirm `/admin/live-payment-launch` still shows live payments open.",
     "- Confirm `/admin/live-shipping-launch` still shows shipping locked until provider work is complete.",
-    "- Confirm production smoke POSTs `/api/admin/shipping/simulations` and verifies nineteen expected shipping scenarios, five expected purchase-audit scenarios, passed key coverage, no missing or unexpected scenario keys, and no missing/unexpected purchase-audit keys.",
+    "- Confirm production smoke POSTs `/api/admin/shipping/simulations` and verifies twenty expected shipping scenarios, five expected purchase-audit scenarios, passed key coverage, no missing or unexpected scenario keys, and no missing/unexpected purchase-audit keys.",
     "- Confirm `/api/admin/shipping/provider-setup` exposes export links and credential groups.",
     "",
     ...sellerMarketplaceReceiptHandoffMarkdownLines(

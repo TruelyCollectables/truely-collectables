@@ -33,7 +33,7 @@ import {
   under20SellerProtectionSkippedRowReasonLabel,
 } from "./under20-seller-protection-claims";
 
-export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-14.5";
+export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-14.6";
 export const SHIPPING_SIMULATION_EXPECTED_SCENARIO_KEYS = [
   "standard_envelope_under_20_and_3oz",
   "standard_envelope_over_20_forces_ground_advantage",
@@ -44,6 +44,7 @@ export const SHIPPING_SIMULATION_EXPECTED_SCENARIO_KEYS = [
   "under_20_seller_protection_caps_mixed_rows",
   "under_20_seller_protection_seller_order_visibility",
   "under_20_seller_protection_reimbursement_allocation",
+  "under_20_seller_protection_item_only_allocation_vs_seller_liability",
   "under_20_seller_protection_buyer_refund_gate",
   "shipping_adapter_profiles_are_auditable",
   "provider_setup_standard_envelope_evidence_contract",
@@ -461,6 +462,80 @@ export async function runShippingSimulationSuite() {
       "Seller-protection Mark Paid allocation creates credits only for eligible payable seller rows, stops at the $20 cap, records operator-readable skip reasons for unprotected/forged/missing-seller/zero-covered/cap-reached rows, and keeps shipping excluded.",
     assertions: {
       allocation_plan: allocationPlan,
+    },
+  });
+  const optedInItemOnlyRow = {
+    id: "sim-ledger-item-only-protected",
+    order_item_id: 2010,
+    seller_account_id: "seller-item-only",
+    gross_item_amount: 19.99,
+    shipping_allocated_amount: 1.36,
+    metadata: {
+      under_20_seller_protection: getUnder20SellerProtection({
+        method: "STANDARD_ENVELOPE",
+        subtotal: 19.99,
+        sellerOptedIn: true,
+      }),
+    },
+  };
+  const sellerLiabilityRow = {
+    id: "sim-ledger-no-opt-in-liability",
+    order_item_id: 2011,
+    seller_account_id: "seller-liable",
+    gross_item_amount: 17.5,
+    shipping_allocated_amount: 1.07,
+    metadata: {
+      under_20_seller_protection: getUnder20SellerProtection({
+        method: "STANDARD_ENVELOPE",
+        subtotal: 17.5,
+        sellerOptedIn: false,
+      }),
+    },
+  };
+  const itemOnlyClaim = buildUnder20SellerProtectionClaimSummary([
+    optedInItemOnlyRow,
+    sellerLiabilityRow,
+  ]);
+  const itemOnlyPlan = buildUnder20SellerProtectionReimbursementPlan({
+    rows: [sellerLiabilityRow, optedInItemOnlyRow],
+    reimbursableAmount: itemOnlyClaim.reimbursableItemAmount,
+  });
+  const liabilityVisibility = buildUnder20SellerProtectionSellerVisibilitySummary([
+    sellerLiabilityRow,
+  ]);
+  scenarios.push({
+    scenario_key:
+      "under_20_seller_protection_item_only_allocation_vs_seller_liability",
+    scenario_status: pass(
+      itemOnlyClaim.protectedItemAmount === 19.99 &&
+        itemOnlyClaim.reimbursableItemAmount === 19.99 &&
+        itemOnlyClaim.shippingExcludedAmount === 1.36 &&
+        itemOnlyClaim.unprotectedLedgerEntryIds.includes(
+          "sim-ledger-no-opt-in-liability",
+        ) &&
+        itemOnlyPlan.allocations.length === 1 &&
+        itemOnlyPlan.allocations[0]?.rowId ===
+          "sim-ledger-item-only-protected" &&
+        itemOnlyPlan.allocations[0]?.amount === 19.99 &&
+        itemOnlyPlan.allocations[0]?.shippingExcludedAmount === 1.36 &&
+        itemOnlyPlan.reimbursedAmount === 19.99 &&
+        itemOnlyPlan.skippedRows.some(
+          (row) =>
+            row.rowId === "sim-ledger-no-opt-in-liability" &&
+            row.reason === "not_eligible_under20_seller_protection",
+        ) &&
+        liabilityVisibility.status === "unprotected" &&
+        liabilityVisibility.reimbursableItemAmount === 0 &&
+        liabilityVisibility.sellerResponsibility
+          .toLowerCase()
+          .includes("seller is responsible"),
+    ),
+    detail:
+      "Opted-in under-$20 Standard Envelope reimbursement allocates item sale amount only and records excluded shipping, while a non-opted-in seller row receives no TCOS allocation and remains responsible for the buyer refund.",
+    assertions: {
+      claim: itemOnlyClaim,
+      reimbursement_plan: itemOnlyPlan,
+      non_opted_in_seller_visibility: liabilityVisibility,
     },
   });
   const missingBuyerRefundGate = evaluateUnder20SellerProtectionBuyerRefundGate({

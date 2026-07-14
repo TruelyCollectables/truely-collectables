@@ -305,7 +305,7 @@ function buildReadinessItems(
     {
       label: "Shipping Simulation Lab",
       status: "ready" as const,
-      detail: `Shipping simulation suite ${SHIPPING_SIMULATION_SUITE_VERSION} covers nineteen Standard Envelope, Ground Advantage, under-$20 seller-protection, LetterTrack evidence-review audit, adapter-profile, and dry-run provider purchase assertions. npm run verify:shipping also covers the five-scenario provider purchase-attempt audit suite for live-gate, missing-setup, dry-run, empty-packet, and packet-output cases.`,
+      detail: `Shipping simulation suite ${SHIPPING_SIMULATION_SUITE_VERSION} covers twenty Standard Envelope, Ground Advantage, under-$20 seller-protection, LetterTrack evidence-review audit, adapter-profile, and dry-run provider purchase assertions. npm run verify:shipping also covers the five-scenario provider purchase-attempt audit suite for live-gate, missing-setup, dry-run, empty-packet, and packet-output cases.`,
       action:
         "Run /admin/shipping/simulations and npm run verify:shipping before enabling any live shipping provider purchase workflow.",
     },
@@ -1254,10 +1254,10 @@ npm run preflight:production`}
               uncommitted deploy-relevant files, and the preflight command
               checks that without starting a Vercel deployment. Use verify to
               run lint, InstaComp regressions, LetterTrack evidence checks, shipping purchase-attempt audit simulations, the
-              nineteen-scenario shipping simulation suite, build, production
+              twenty-scenario shipping simulation suite, build, production
               guardrail checks, and production preflight together. Production
               smoke also POSTs <code>/api/admin/shipping/simulations</code> to
-              verify nineteen expected shipping scenarios, five expected
+              verify twenty expected shipping scenarios, five expected
               purchase-audit scenarios, scenario key coverage, and no
               missing/unexpected simulation keys.
             </p>

@@ -20,7 +20,7 @@ const smokeChecks = [
   "Live Payment Launch Gate",
   "Live Shipping Launch Gate with Shipping Provider Unlock Action Plan and Purchase-Audit Key Drift card",
   "Admin shipping cockpit LetterTrack export, IMb, and delivery-evidence controls",
-  "Shipping Simulation Lab with nineteen policy/adapter scenarios plus five provider purchase-audit scenarios",
+  "Shipping Simulation Lab with twenty policy/adapter scenarios plus five provider purchase-audit scenarios",
   "Shipping purchase-attempt audit simulations for live-gate, missing-setup, dry-run, and packet-output text",
   "Shipping simulation API POST with scenario count, manifest, and drift-field checks",
   "Shipping provider setup JSON and export packets with Standard Envelope evidence readiness",

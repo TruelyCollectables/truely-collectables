@@ -486,12 +486,12 @@ const checks = [
       result.text.includes("npm run check:production-guardrails") &&
       result.text.includes("npm run preflight:production") &&
       result.text.includes("npm run launch:production") &&
-      result.text.includes("nineteen-scenario shipping simulation suite") &&
+      result.text.includes("twenty-scenario shipping simulation suite") &&
       result.text.includes("LetterTrack evidence checks") &&
       result.text.includes("shipping purchase-attempt audit simulations") &&
       result.text.includes("Standard Envelope evidence validator is ready") &&
       result.text.includes("/api/admin/shipping/simulations") &&
-      result.text.includes("nineteen expected shipping scenarios") &&
+      result.text.includes("twenty expected shipping scenarios") &&
       result.text.includes("five expected purchase-audit scenarios") &&
       result.text.includes("no missing/unexpected simulation keys") &&
       result.text.includes("npm run deploy:production") &&
@@ -663,7 +663,7 @@ const checks = [
       "Shipping Claims Cockpit",
       "Standard Envelope evidence validator",
       "Live Shipping Launch Gate with Shipping Provider Unlock Action Plan and Purchase-Audit Key Drift card",
-      "Shipping Simulation Lab with nineteen policy/adapter scenarios plus five provider purchase-audit scenarios",
+      "Shipping Simulation Lab with twenty policy/adapter scenarios plus five provider purchase-audit scenarios",
       "Shipping purchase-attempt audit simulations for live-gate, missing-setup, dry-run, and packet-output text",
       "Shipping simulation API POST with scenario count, manifest, and drift-field checks",
       "Shipping provider setup JSON and export packets with Standard Envelope evidence readiness",
@@ -717,7 +717,7 @@ const checks = [
       result.text.includes("Standard Envelope evidence validator") &&
       result.text.includes("Live Shipping Launch Gate with Shipping Provider Unlock Action Plan and Purchase-Audit Key Drift card") &&
       result.text.includes(
-        "Shipping Simulation Lab with nineteen policy/adapter scenarios plus five provider purchase-audit scenarios",
+        "Shipping Simulation Lab with twenty policy/adapter scenarios plus five provider purchase-audit scenarios",
       ) &&
       result.text.includes(
         "Shipping purchase-attempt audit simulations for live-gate, missing-setup, dry-run, and packet-output text",
@@ -1052,11 +1052,12 @@ const checks = [
       "Scenario coverage guardrail",
       "Missing Scenario Keys",
       "Unexpected Scenario Keys",
-      "19",
+      "20",
       "Mixed under-$20 claim rows cap reimbursement at $20",
       "Seller order views can show under-$20 protection status, 2% reserve, protected item cap, unprotected row liability, and shipping excluded from reimbursement",
       "Seller-protection Mark Paid allocation creates credits only for eligible payable seller rows",
       "records operator-readable skip reasons for unprotected/forged/missing-seller/zero-covered/cap-reached rows",
+      "Opted-in under-$20 Standard Envelope reimbursement allocates item sale amount only and records excluded shipping",
       "Under-$20 seller-protection Mark Paid requires a current or previously saved internal note confirming buyer refund evidence",
       "Provider setup exports state that LetterTrack / USPS IMb supplies trackable delivery evidence",
       "LetterTrack CSV rows carry the under-$20 seller-protection contract",
@@ -1072,7 +1073,7 @@ const checks = [
       result.text.includes("Scenario coverage guardrail") &&
       result.text.includes("Missing Scenario Keys") &&
       result.text.includes("Unexpected Scenario Keys") &&
-      result.text.includes("19") &&
+      result.text.includes("20") &&
       result.text.includes(
         "Mixed under-$20 claim rows cap reimbursement at $20",
       ) &&
@@ -1084,6 +1085,9 @@ const checks = [
       ) &&
       result.text.includes(
         "records operator-readable skip reasons for unprotected/forged/missing-seller/zero-covered/cap-reached rows",
+      ) &&
+      result.text.includes(
+        "Opted-in under-$20 Standard Envelope reimbursement allocates item sale amount only and records excluded shipping",
       ) &&
       result.text.includes(
         "Under-$20 seller-protection Mark Paid requires a current or previously saved internal note confirming buyer refund evidence",
@@ -1112,8 +1116,8 @@ const checks = [
     expect: (result) =>
       result.contentType.includes("application/json") &&
       result.text.includes('"success":true') &&
-      result.text.includes('"scenario_count":19') &&
-      result.text.includes('"expected_scenario_count":19') &&
+      result.text.includes('"scenario_count":20') &&
+      result.text.includes('"expected_scenario_count":20') &&
       result.text.includes('"scenario_coverage_status":"passed"') &&
       result.text.includes('"scenario_key_coverage_status":"passed"') &&
       result.text.includes('"missing_scenario_keys":[]') &&
@@ -1122,6 +1126,9 @@ const checks = [
       result.text.includes('"under_20_seller_protection_caps_mixed_rows"') &&
       result.text.includes('"under_20_seller_protection_seller_order_visibility"') &&
       result.text.includes('"under_20_seller_protection_reimbursement_allocation"') &&
+      result.text.includes(
+        '"under_20_seller_protection_item_only_allocation_vs_seller_liability"',
+      ) &&
       result.text.includes('"under_20_seller_protection_buyer_refund_gate"') &&
       result.text.includes('"lettertrack_csv_seller_protection_contract"') &&
       result.text.includes('"lettertrack_seller_protection_evidence_review_audit"') &&
