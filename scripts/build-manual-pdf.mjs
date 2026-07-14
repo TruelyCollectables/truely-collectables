@@ -2,6 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawnSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
 
 const root = process.cwd();
 const manualPath = path.join(root, "docs", "TCOS_OPERATOR_MANUAL.md");
@@ -163,12 +164,22 @@ function renderMarkdown(source) {
   return output.join("\n");
 }
 
-const browserCandidates = [
+const browserCandidates = Array.from(new Set([
+  process.env.TCOS_MANUAL_BROWSER_PATH,
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  "/Applications/Microsoft Edge.app/Contents/MacOS/Microsoft Edge",
+  "/Applications/Chromium.app/Contents/MacOS/Chromium",
+  "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser",
+  "/usr/bin/google-chrome",
+  "/usr/bin/google-chrome-stable",
+  "/usr/bin/chromium",
+  "/usr/bin/chromium-browser",
+  "/usr/bin/microsoft-edge",
   "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe",
   "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
   "C:\\Program Files\\Microsoft\\Edge\\Application\\msedge.exe",
   "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe",
-];
+].filter(Boolean)));
 
 const body = renderMarkdown(markdown);
 const generatedAt = new Date().toISOString().slice(0, 10);
@@ -327,17 +338,22 @@ fs.writeFileSync(htmlPath, html);
 console.log(`Manual HTML written: ${htmlPath}`);
 
 const availableBrowsers = browserCandidates.filter((candidate) => fs.existsSync(candidate));
+const browserTimeoutMs = Number.parseInt(
+  process.env.TCOS_MANUAL_PDF_BROWSER_TIMEOUT_MS ?? "45000",
+  10,
+);
 
 if (availableBrowsers.length === 0) {
   console.warn("No supported browser was found. PDF was not generated.");
   process.exit(0);
 }
 
-const fileUrl = `file:///${htmlPath.replaceAll("\\", "/")}`;
+const fileUrl = pathToFileURL(htmlPath).href;
 let lastStatus = 1;
 
 for (const browserPath of availableBrowsers) {
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), "tcos-manual-browser-"));
+  const renderStartedAtMs = Date.now();
   const result = spawnSync(
     browserPath,
     [
@@ -347,7 +363,13 @@ for (const browserPath of availableBrowsers) {
       "--disable-software-rasterizer",
       "--disable-accelerated-2d-canvas",
       "--disable-dev-shm-usage",
+      "--disable-background-networking",
+      "--disable-component-update",
+      "--disable-default-apps",
+      "--disable-extensions",
       "--disable-features=UseSkiaRenderer,VizDisplayCompositor",
+      "--disable-sync",
+      "--metrics-recording-only",
       "--no-first-run",
       "--no-default-browser-check",
       "--no-pdf-header-footer",
@@ -355,7 +377,7 @@ for (const browserPath of availableBrowsers) {
       `--print-to-pdf=${pdfPath}`,
       fileUrl,
     ],
-    { stdio: "inherit" },
+    { stdio: "inherit", timeout: browserTimeoutMs },
   );
 
   try {
@@ -364,7 +386,21 @@ for (const browserPath of availableBrowsers) {
     // Temporary browser profiles are best-effort cleanup only.
   }
 
-  if (result.status === 0) {
+  const pdfWasRefreshed = (() => {
+    try {
+      const pdfStats = fs.statSync(pdfPath);
+      return pdfStats.size > 10_000 && pdfStats.mtimeMs >= renderStartedAtMs - 1000;
+    } catch {
+      return false;
+    }
+  })();
+
+  if (result.status === 0 || pdfWasRefreshed) {
+    if (result.status !== 0) {
+      console.warn(
+        `Browser did not exit cleanly (${result.error?.message ?? result.signal ?? `exit code ${result.status ?? 1}`}), but a fresh PDF was written.`,
+      );
+    }
     lastStatus = 0;
     break;
   }

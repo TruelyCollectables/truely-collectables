@@ -2969,6 +2969,17 @@ assertFileIncludes("deploy live safety README", "README.md", [
   "auth-header, token, API-key, password, and JWT values",
 ]);
 
+assertFileIncludes("operator manual PDF generator portability guardrail", "scripts/build-manual-pdf.mjs", [
+  "pathToFileURL",
+  "TCOS_MANUAL_BROWSER_PATH",
+  "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  "/usr/bin/google-chrome",
+  "TCOS_MANUAL_PDF_BROWSER_TIMEOUT_MS",
+  "timeout: browserTimeoutMs",
+  "pdfWasRefreshed",
+  "Manual PDF written:",
+]);
+
 assertFileIncludes("deploy live safety operator manual", "docs/TCOS_OPERATOR_MANUAL.md", [
   "live deploy safety contract",
   "/admin/production-smoke",
