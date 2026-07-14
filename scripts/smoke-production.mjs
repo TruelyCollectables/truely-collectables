@@ -709,7 +709,7 @@ for (const check of checks) {
 
 const unwantedAlias = await requestUrl(unwantedAliasUrl);
 results.push({
-  name: `unwanted ${unwantedAlias.url.hostname} alias absent`,
+  name: `unwanted ${new URL(unwantedAliasUrl).hostname} alias absent`,
   path: unwantedAlias.path,
   status: unwantedAlias.status,
   durationMs: unwantedAlias.durationMs,

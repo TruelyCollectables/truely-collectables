@@ -731,7 +731,7 @@ assertFileIncludes("queued-feature smoke manifest", "scripts/smoke-production.mj
   "Queued launch feature failure(s):",
 ]);
 assertFileIncludes("smoke unwanted alias label", "scripts/smoke-production.mjs", [
-  "unwanted ${unwantedAlias.url.hostname} alias absent",
+  "unwanted ${new URL(unwantedAliasUrl).hostname} alias absent",
   "SMOKE_UNWANTED_ALIAS_URL",
   "truely-collectables-tt3b.vercel.app",
 ]);
