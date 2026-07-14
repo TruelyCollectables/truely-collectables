@@ -42,6 +42,49 @@ function cleanProvider(value: unknown): SellerMarketplaceProvider | null {
     : null;
 }
 
+function sellerMarketplaceConnectionHeaders(
+  connections: SellerMarketplaceConnectionRow[],
+) {
+  const connectedCount = connections.filter((connection) =>
+    ["connected", "active"].includes(connection.connection_status || ""),
+  ).length;
+  const requestedCount = connections.filter(
+    (connection) => connection.connection_status === "connect_requested",
+  ).length;
+  const syncErrorCount = connections.filter(
+    (connection) =>
+      Boolean(connection.last_sync_error) ||
+      ["failed", "error"].includes(connection.sync_status || ""),
+  ).length;
+  const providerList = Array.from(
+    new Set(connections.map((connection) => connection.provider).filter(Boolean)),
+  )
+    .sort()
+    .join(",");
+
+  return {
+    "X-TCOS-Seller-Marketplace-Connections": String(connections.length),
+    "X-TCOS-Seller-Marketplace-Connected": String(connectedCount),
+    "X-TCOS-Seller-Marketplace-Requested": String(requestedCount),
+    "X-TCOS-Seller-Marketplace-Sync-Errors": String(syncErrorCount),
+    "X-TCOS-Seller-Marketplace-Providers": providerList || "none",
+  };
+}
+
+function sellerMarketplaceConnectionMutationHeaders(params: {
+  action: "saved";
+  provider: SellerMarketplaceProvider;
+  connectionStatus: string;
+  syncStatus: string;
+}) {
+  return {
+    "X-TCOS-Seller-Marketplace-Connection-Mutation": params.action,
+    "X-TCOS-Seller-Marketplace-Connection-Provider": params.provider,
+    "X-TCOS-Seller-Marketplace-Connection-Status": params.connectionStatus,
+    "X-TCOS-Seller-Marketplace-Sync-Status": params.syncStatus,
+  };
+}
+
 export async function GET(request: Request) {
   try {
     const account = await getAuthenticatedAccountFromRequest(request);
@@ -85,11 +128,17 @@ export async function GET(request: Request) {
       throw error;
     }
 
-    return Response.json({
-      success: true,
-      connections: ((data || []) as unknown as SellerMarketplaceConnectionRow[])
-        .map(publicSellerMarketplaceConnection),
-    });
+    const connections = (data || []) as unknown as SellerMarketplaceConnectionRow[];
+
+    return Response.json(
+      {
+        success: true,
+        connections: connections.map(publicSellerMarketplaceConnection),
+      },
+      {
+        headers: sellerMarketplaceConnectionHeaders(connections),
+      },
+    );
   } catch (error: any) {
     return Response.json(
       {
@@ -176,12 +225,22 @@ export async function POST(request: Request) {
       throw error;
     }
 
-    return Response.json({
-      success: true,
-      connection: publicSellerMarketplaceConnection(
-        data as unknown as SellerMarketplaceConnectionRow,
-      ),
-    });
+    const connection = data as unknown as SellerMarketplaceConnectionRow;
+
+    return Response.json(
+      {
+        success: true,
+        connection: publicSellerMarketplaceConnection(connection),
+      },
+      {
+        headers: sellerMarketplaceConnectionMutationHeaders({
+          action: "saved",
+          provider: connection.provider,
+          connectionStatus: connection.connection_status,
+          syncStatus: connection.sync_status,
+        }),
+      },
+    );
   } catch (error: any) {
     return Response.json(
       {

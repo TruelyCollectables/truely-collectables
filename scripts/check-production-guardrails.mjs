@@ -1674,6 +1674,42 @@ assertFileIncludes(
   ],
 );
 assertFileIncludes(
+  "seller marketplace connection response metadata contract",
+  "src/app/api/account/seller/marketplace-connections/route.ts",
+  [
+    "function sellerMarketplaceConnectionHeaders",
+    "function sellerMarketplaceConnectionMutationHeaders",
+    "X-TCOS-Seller-Marketplace-Connections",
+    "X-TCOS-Seller-Marketplace-Connected",
+    "X-TCOS-Seller-Marketplace-Requested",
+    "X-TCOS-Seller-Marketplace-Sync-Errors",
+    "X-TCOS-Seller-Marketplace-Providers",
+    "X-TCOS-Seller-Marketplace-Connection-Mutation",
+    "X-TCOS-Seller-Marketplace-Connection-Provider",
+    "X-TCOS-Seller-Marketplace-Connection-Status",
+    "X-TCOS-Seller-Marketplace-Sync-Status",
+    "providerList || \"none\"",
+    "connections.map(publicSellerMarketplaceConnection)",
+  ],
+);
+assertFileIncludes(
+  "seller marketplace connection response metadata operator manual contract",
+  "docs/TCOS_OPERATOR_MANUAL.md",
+  [
+    "/api/account/seller/marketplace-connections",
+    "X-TCOS-Seller-Marketplace-Connections",
+    "X-TCOS-Seller-Marketplace-Connected",
+    "X-TCOS-Seller-Marketplace-Requested",
+    "X-TCOS-Seller-Marketplace-Sync-Errors",
+    "X-TCOS-Seller-Marketplace-Providers",
+    "X-TCOS-Seller-Marketplace-Connection-Mutation",
+    "X-TCOS-Seller-Marketplace-Connection-Provider",
+    "X-TCOS-Seller-Marketplace-Connection-Status",
+    "X-TCOS-Seller-Marketplace-Sync-Status",
+    "without exposing connection IDs, provider account IDs, provider account labels, OAuth scopes, token timestamps, sync error text, or seller account IDs in headers",
+  ],
+);
+assertFileIncludes(
   "seller inventory API seller protection export contract",
   "src/app/api/account/seller/inventory/route.ts",
   [
