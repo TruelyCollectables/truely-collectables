@@ -1643,6 +1643,11 @@ Collector social supports:
 - source-tagged share actions for feed links, X, Facebook, and copied links
 - weekly brag performance report foundation through `/api/admin/brag-weekly-report`
 
+Collector social API:
+
+- `/api/account/collector/social` list responses include `X-TCOS-Collector-Social-Collectors`, `X-TCOS-Collector-Social-Following`, `X-TCOS-Collector-Social-Friends`, `X-TCOS-Collector-Social-Incoming-Friend-Requests`, `X-TCOS-Collector-Social-Outgoing-Friend-Requests`, and `X-TCOS-Collector-Social-Feed` headers so the dashboard arrays can be reconciled without parsing the body
+- follow, friend-request, accept-friend, create-brag, and remove-connection responses include `X-TCOS-Collector-Social-Action`, `X-TCOS-Collector-Social-Status`, `X-TCOS-Collector-Social-Connection-Type`, and `X-TCOS-Collector-Social-Resource-Id` headers without exposing target collector account IDs
+
 Brag post share links:
 
 - redirect to `/shop?brag=[slug]`

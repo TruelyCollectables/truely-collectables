@@ -1295,6 +1295,52 @@ assertFileIncludes(
   ],
 );
 assertFileIncludes(
+  "collector social response contract",
+  "src/app/api/account/collector/social/route.ts",
+  [
+    "function collectorSocialListHeaders",
+    "function collectorSocialMutationHeaders",
+    "X-TCOS-Collector-Social-Collectors",
+    "X-TCOS-Collector-Social-Following",
+    "X-TCOS-Collector-Social-Friends",
+    "X-TCOS-Collector-Social-Incoming-Friend-Requests",
+    "X-TCOS-Collector-Social-Outgoing-Friend-Requests",
+    "X-TCOS-Collector-Social-Feed",
+    "X-TCOS-Collector-Social-Action",
+    "X-TCOS-Collector-Social-Status",
+    "X-TCOS-Collector-Social-Connection-Type",
+    "X-TCOS-Collector-Social-Resource-Id",
+    "collectorCount: collectors.length",
+    "followingCount: following.length",
+    "friendCount: friends.length",
+    "incomingFriendRequestCount: incomingFriendRequests.length",
+    "outgoingFriendRequestCount: outgoingFriendRequests.length",
+    "feedCount: feedItems.length",
+    'action: "remove_connection"',
+    'connectionType: "brag"',
+    "account_social_connections",
+    "account_brag_posts",
+  ],
+);
+assertFileIncludes(
+  "collector social operator manual contract",
+  "docs/TCOS_OPERATOR_MANUAL.md",
+  [
+    "/api/account/collector/social",
+    "X-TCOS-Collector-Social-Collectors",
+    "X-TCOS-Collector-Social-Following",
+    "X-TCOS-Collector-Social-Friends",
+    "X-TCOS-Collector-Social-Incoming-Friend-Requests",
+    "X-TCOS-Collector-Social-Outgoing-Friend-Requests",
+    "X-TCOS-Collector-Social-Feed",
+    "X-TCOS-Collector-Social-Action",
+    "X-TCOS-Collector-Social-Status",
+    "X-TCOS-Collector-Social-Connection-Type",
+    "X-TCOS-Collector-Social-Resource-Id",
+    "without exposing target collector account IDs",
+  ],
+);
+assertFileIncludes(
   "collector export operator manual contract",
   "docs/TCOS_OPERATOR_MANUAL.md",
   [

@@ -81,6 +81,47 @@ function socialUnavailableResponse() {
   );
 }
 
+function collectorSocialListHeaders(params: {
+  collectorCount: number;
+  followingCount: number;
+  friendCount: number;
+  incomingFriendRequestCount: number;
+  outgoingFriendRequestCount: number;
+  feedCount: number;
+}) {
+  return {
+    "X-TCOS-Collector-Social-Collectors": String(params.collectorCount),
+    "X-TCOS-Collector-Social-Following": String(params.followingCount),
+    "X-TCOS-Collector-Social-Friends": String(params.friendCount),
+    "X-TCOS-Collector-Social-Incoming-Friend-Requests": String(
+      params.incomingFriendRequestCount,
+    ),
+    "X-TCOS-Collector-Social-Outgoing-Friend-Requests": String(
+      params.outgoingFriendRequestCount,
+    ),
+    "X-TCOS-Collector-Social-Feed": String(params.feedCount),
+  };
+}
+
+function collectorSocialMutationHeaders(params: {
+  action:
+    | "follow"
+    | "friend_request"
+    | "accept_friend"
+    | "create_brag"
+    | "remove_connection";
+  status: string;
+  connectionType: "follow" | "friend" | "brag";
+  resourceId: string | null;
+}) {
+  return {
+    "X-TCOS-Collector-Social-Action": params.action,
+    "X-TCOS-Collector-Social-Status": params.status,
+    "X-TCOS-Collector-Social-Connection-Type": params.connectionType,
+    "X-TCOS-Collector-Social-Resource-Id": params.resourceId || "none",
+  };
+}
+
 function profileLabel(profile: CollectorProfileRow | undefined, fallback: string) {
   return profile?.collector_handle || fallback;
 }
@@ -203,7 +244,7 @@ export async function GET(request: Request) {
     const feedAuthorIds = Array.from(
       new Set([account.id, ...followingIds, ...friendIds]),
     );
-      const { data: feedRows, error: feedError } = await supabase
+    const { data: feedRows, error: feedError } = await supabase
       .from("account_brag_posts")
       .select(
         "id,account_id,order_id,collection_item_id,product_id,title,body,image_url,share_slug,share_url,visibility,reaction_count,comment_count,click_count,created_at",
@@ -238,37 +279,56 @@ export async function GET(request: Request) {
       );
     }
 
-    return NextResponse.json({
-      success: true,
-      collectors: discoverProfiles
-        .filter((profile) => profile.account_id !== account.id)
-        .map((profile) => ({
-          ...profile,
-          relationship: relationshipByAccountId.get(profile.account_id) || null,
-        })),
-      following: serializedConnections.filter(
-        (connection) => connection.type === "follow" && connection.status === "active",
-      ),
-      friends: serializedConnections.filter(
-        (connection) => connection.type === "friend" && connection.status === "accepted",
-      ),
-      incomingFriendRequests: serializedConnections.filter(
-        (connection) =>
-          connection.type === "friend" &&
-          connection.status === "pending" &&
-          connection.direction === "incoming",
-      ),
-      outgoingFriendRequests: serializedConnections.filter(
-        (connection) =>
-          connection.type === "friend" &&
-          connection.status === "pending" &&
-          connection.direction === "outgoing",
-      ),
-      feed: feed.map((post) => ({
-        ...post,
-        authorLabel: profileLabel(profiles.get(post.account_id), "Collector"),
-      })),
-    });
+    const collectors = discoverProfiles
+      .filter((profile) => profile.account_id !== account.id)
+      .map((profile) => ({
+        ...profile,
+        relationship: relationshipByAccountId.get(profile.account_id) || null,
+      }));
+    const following = serializedConnections.filter(
+      (connection) => connection.type === "follow" && connection.status === "active",
+    );
+    const friends = serializedConnections.filter(
+      (connection) => connection.type === "friend" && connection.status === "accepted",
+    );
+    const incomingFriendRequests = serializedConnections.filter(
+      (connection) =>
+        connection.type === "friend" &&
+        connection.status === "pending" &&
+        connection.direction === "incoming",
+    );
+    const outgoingFriendRequests = serializedConnections.filter(
+      (connection) =>
+        connection.type === "friend" &&
+        connection.status === "pending" &&
+        connection.direction === "outgoing",
+    );
+    const feedItems = feed.map((post) => ({
+      ...post,
+      authorLabel: profileLabel(profiles.get(post.account_id), "Collector"),
+    }));
+
+    return NextResponse.json(
+      {
+        success: true,
+        collectors,
+        following,
+        friends,
+        incomingFriendRequests,
+        outgoingFriendRequests,
+        feed: feedItems,
+      },
+      {
+        headers: collectorSocialListHeaders({
+          collectorCount: collectors.length,
+          followingCount: following.length,
+          friendCount: friends.length,
+          incomingFriendRequestCount: incomingFriendRequests.length,
+          outgoingFriendRequestCount: outgoingFriendRequests.length,
+          feedCount: feedItems.length,
+        }),
+      },
+    );
   } catch (error: any) {
     return NextResponse.json(
       { error: error.message || "Could not load collector social data" },
@@ -320,7 +380,17 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: error.message }, { status: 400 });
       }
 
-      return NextResponse.json({ success: true, connection: data });
+      return NextResponse.json(
+        { success: true, connection: data },
+        {
+          headers: collectorSocialMutationHeaders({
+            action,
+            status: "active",
+            connectionType: "follow",
+            resourceId: String(data.id),
+          }),
+        },
+      );
     }
 
     if (action === "friend_request") {
@@ -376,7 +446,17 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: error.message }, { status: 400 });
       }
 
-      return NextResponse.json({ success: true, connection: data });
+      return NextResponse.json(
+        { success: true, connection: data },
+        {
+          headers: collectorSocialMutationHeaders({
+            action,
+            status,
+            connectionType: "friend",
+            resourceId: String(data.id),
+          }),
+        },
+      );
     }
 
     if (action === "accept_friend") {
@@ -432,7 +512,17 @@ export async function POST(request: Request) {
         },
       );
 
-      return NextResponse.json({ success: true });
+      return NextResponse.json(
+        { success: true },
+        {
+          headers: collectorSocialMutationHeaders({
+            action,
+            status: "accepted",
+            connectionType: "friend",
+            resourceId: connectionId,
+          }),
+        },
+      );
     }
 
     if (action === "create_brag") {
@@ -500,7 +590,17 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: error.message }, { status: 400 });
       }
 
-      return NextResponse.json({ success: true, bragPost: data });
+      return NextResponse.json(
+        { success: true, bragPost: data },
+        {
+          headers: collectorSocialMutationHeaders({
+            action,
+            status: data.visibility || visibility,
+            connectionType: "brag",
+            resourceId: data.share_slug || data.id,
+          }),
+        },
+      );
     }
 
     return NextResponse.json({ error: "Unsupported social action" }, { status: 400 });
@@ -544,7 +644,17 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 400 });
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json(
+      { success: true },
+      {
+        headers: collectorSocialMutationHeaders({
+          action: "remove_connection",
+          status: "removed",
+          connectionType: connectionType as "follow" | "friend",
+          resourceId: null,
+        }),
+      },
+    );
   } catch (error: any) {
     return NextResponse.json(
       { error: error.message || "Could not remove collector connection" },

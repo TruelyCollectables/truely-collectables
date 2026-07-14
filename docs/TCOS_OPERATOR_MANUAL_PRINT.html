@@ -1850,6 +1850,11 @@ account_wish_list_matches</code></pre>
 <li>source-tagged share actions for feed links, X, Facebook, and copied links</li>
 <li>weekly brag performance report foundation through <code>/api/admin/brag-weekly-report</code></li>
 </ul>
+<p>Collector social API:</p>
+<ul>
+<li><code>/api/account/collector/social</code> list responses include <code>X-TCOS-Collector-Social-Collectors</code>, <code>X-TCOS-Collector-Social-Following</code>, <code>X-TCOS-Collector-Social-Friends</code>, <code>X-TCOS-Collector-Social-Incoming-Friend-Requests</code>, <code>X-TCOS-Collector-Social-Outgoing-Friend-Requests</code>, and <code>X-TCOS-Collector-Social-Feed</code> headers so the dashboard arrays can be reconciled without parsing the body</li>
+<li>follow, friend-request, accept-friend, create-brag, and remove-connection responses include <code>X-TCOS-Collector-Social-Action</code>, <code>X-TCOS-Collector-Social-Status</code>, <code>X-TCOS-Collector-Social-Connection-Type</code>, and <code>X-TCOS-Collector-Social-Resource-Id</code> headers without exposing target collector account IDs</li>
+</ul>
 <p>Brag post share links:</p>
 <ul>
 <li>redirect to <code>/shop?brag=[slug]</code></li>
