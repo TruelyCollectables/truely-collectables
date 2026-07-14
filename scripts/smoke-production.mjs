@@ -698,6 +698,8 @@ const checks = [
       "Provider setup exports state that LetterTrack / USPS IMb supplies trackable delivery evidence",
       "LetterTrack CSV rows carry the under-$20 seller-protection contract",
       "Under-$20 seller-protection payout blocks delivered LetterTrack evidence, allows not-delivered review evidence, and accepts a current or previously saved explicit override note",
+      "Missing Purchase Audit Keys",
+      "Unexpected Purchase Audit Keys",
       "DRY RUN STANDARD ENVELOPE PURCHASE",
     ],
     expect: (result) =>
@@ -724,6 +726,8 @@ const checks = [
         "Provider setup exports state that LetterTrack / USPS IMb supplies trackable delivery evidence",
       ) &&
       result.text.includes("Purchase Attempt Audit Coverage") &&
+      result.text.includes("Missing Purchase Audit Keys") &&
+      result.text.includes("Unexpected Purchase Audit Keys") &&
       result.text.includes("live_gate_blocker_evidence_ready") &&
       result.text.includes("provider_setup_blocker_evidence_blocked") &&
       result.text.includes("packet_purchase_attempt_audit_lines") &&

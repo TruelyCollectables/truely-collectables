@@ -4256,7 +4256,7 @@ dryrun-</code></pre>
 <li>Treat paid, denied, and cancelled claims as audit-locked.</li>
 </ol>
 <h3>Shipping simulation runbook</h3>
-<p>Open <code>/admin/shipping/simulations</code> or run <code>npm run verify:shipping</code>. Require all nineteen policy/adapter assertions plus the five provider purchase-attempt audit assertions. The page and <code>POST /api/admin/shipping/simulations</code> now expose both the shipping scenario suite and a <code>purchase_audit</code> suite so operators can confirm blocked live-gate, missing-setup, dry-run, empty-packet, and packet-line audit text before launch.</p>
+<p>Open <code>/admin/shipping/simulations</code> or run <code>npm run verify:shipping</code>. Require all nineteen policy/adapter assertions plus the five provider purchase-attempt audit assertions. The page and <code>POST /api/admin/shipping/simulations</code> now expose both the shipping scenario suite and a <code>purchase_audit</code> suite so operators can confirm blocked live-gate, missing-setup, dry-run, empty-packet, and packet-line audit text before launch. The page shows missing and unexpected keys for both the shipping manifest and the purchase-audit manifest so drift can be diagnosed without reading raw JSON first.</p>
 <ul>
 <li><code>$19.99</code> and 3 oz stays Standard Envelope</li>
 <li><code>$20.01</code> forces Ground Advantage</li>

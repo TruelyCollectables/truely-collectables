@@ -513,6 +513,8 @@ assertFileIncludes("shipping simulation lab smoke contract", "scripts/smoke-prod
   "LetterTrack CSV rows carry the under-$20 seller-protection contract",
   "Provider setup exports state that LetterTrack / USPS IMb supplies trackable delivery evidence",
   "Purchase Attempt Audit Coverage",
+  "Missing Purchase Audit Keys",
+  "Unexpected Purchase Audit Keys",
   "live_gate_blocker_evidence_ready",
   "provider_setup_blocker_evidence_blocked",
   "packet_purchase_attempt_audit_lines",
@@ -521,6 +523,10 @@ assertFileIncludes("shipping simulation lab smoke contract", "scripts/smoke-prod
 assertFileIncludes("shipping simulation lab purchase audit source", "src/app/admin/shipping/simulations/page.tsx", [
   "runShippingPurchaseAttemptAuditSimulationSuite",
   "Purchase Attempt Audit Coverage",
+  "Missing Purchase Audit Keys",
+  "Unexpected Purchase Audit Keys",
+  "purchaseAudit.missing_scenario_keys",
+  "purchaseAudit.unexpected_scenario_keys",
   "Expected purchase audit scenario key manifest",
   "purchaseAudit.scenarios.map",
 ]);

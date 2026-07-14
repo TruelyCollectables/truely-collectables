@@ -180,6 +180,17 @@ export default async function ShippingSimulationsPage() {
             <Metric label="Audit Failed" value={String(purchaseAudit.failed_count)} />
           </div>
 
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <Metric
+              label="Missing Purchase Audit Keys"
+              value={listValue(purchaseAudit.missing_scenario_keys)}
+            />
+            <Metric
+              label="Unexpected Purchase Audit Keys"
+              value={listValue(purchaseAudit.unexpected_scenario_keys)}
+            />
+          </div>
+
           <details className="mt-4 rounded border border-current bg-white/60 p-3 text-sm">
             <summary className="cursor-pointer font-black">
               Expected purchase audit scenario key manifest

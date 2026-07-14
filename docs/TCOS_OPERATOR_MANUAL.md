@@ -4523,7 +4523,7 @@ The shipping queue also supports priority sorting, external void records, claim 
 
 ### Shipping simulation runbook
 
-Open `/admin/shipping/simulations` or run `npm run verify:shipping`. Require all nineteen policy/adapter assertions plus the five provider purchase-attempt audit assertions. The page and `POST /api/admin/shipping/simulations` now expose both the shipping scenario suite and a `purchase_audit` suite so operators can confirm blocked live-gate, missing-setup, dry-run, empty-packet, and packet-line audit text before launch.
+Open `/admin/shipping/simulations` or run `npm run verify:shipping`. Require all nineteen policy/adapter assertions plus the five provider purchase-attempt audit assertions. The page and `POST /api/admin/shipping/simulations` now expose both the shipping scenario suite and a `purchase_audit` suite so operators can confirm blocked live-gate, missing-setup, dry-run, empty-packet, and packet-line audit text before launch. The page shows missing and unexpected keys for both the shipping manifest and the purchase-audit manifest so drift can be diagnosed without reading raw JSON first.
 
 - `$19.99` and 3 oz stays Standard Envelope
 - `$20.01` forces Ground Advantage
