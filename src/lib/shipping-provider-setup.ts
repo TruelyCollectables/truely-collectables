@@ -329,7 +329,7 @@ function liveShippingRequirements(params: {
         ? "ready"
         : "blocked",
       detail:
-        "TCOS shipping simulations must pass all fourteen Standard Envelope, Ground Advantage, Coverage, under-$20 seller-protection, LetterTrack CSV/evidence-review audit, adapter-profile, and dry-run guardrail assertions.",
+        "TCOS shipping simulations must pass all fifteen Standard Envelope, Ground Advantage, Coverage, under-$20 seller-protection cap, LetterTrack CSV/evidence-review audit, adapter-profile, and dry-run guardrail assertions.",
       action:
         "Run /admin/shipping/simulations or npm run simulate:shipping after adapter work and save the pass evidence.",
       evidence: ["TCOS_LIVE_SHIPPING_SIMULATIONS_PASSED=true"],

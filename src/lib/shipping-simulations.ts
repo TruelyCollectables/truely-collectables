@@ -21,7 +21,7 @@ import {
 } from "./lettertrack-delivery-evidence";
 import { buildUnder20SellerProtectionClaimSummary } from "./under20-seller-protection-claims";
 
-export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-14.1";
+export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-14.2";
 export const SHIPPING_SIMULATION_EXPECTED_SCENARIO_KEYS = [
   "standard_envelope_under_20_and_3oz",
   "standard_envelope_over_20_forces_ground_advantage",
@@ -29,6 +29,7 @@ export const SHIPPING_SIMULATION_EXPECTED_SCENARIO_KEYS = [
   "coverage_required_for_standard_and_ground",
   "under_20_seller_protection_opted_in_item_only",
   "under_20_seller_protection_not_opted_in_seller_liability",
+  "under_20_seller_protection_caps_mixed_rows",
   "shipping_adapter_profiles_are_auditable",
   "lettertrack_standard_envelope_export",
   "lettertrack_csv_seller_protection_contract",
@@ -227,6 +228,68 @@ export async function runShippingSimulationSuite() {
       claim: notOptedInClaim,
     },
   });
+  const cappedProtectedA = getUnder20SellerProtection({
+    method: "STANDARD_ENVELOPE",
+    subtotal: 14.25,
+    sellerOptedIn: true,
+  });
+  const cappedProtectedB = getUnder20SellerProtection({
+    method: "STANDARD_ENVELOPE",
+    subtotal: 12.5,
+    sellerOptedIn: true,
+  });
+  const cappedUnprotected = getUnder20SellerProtection({
+    method: "STANDARD_ENVELOPE",
+    subtotal: 6.75,
+    sellerOptedIn: false,
+  });
+  const cappedClaim = buildUnder20SellerProtectionClaimSummary([
+    {
+      id: "sim-ledger-protected-a",
+      gross_item_amount: 14.25,
+      shipping_allocated_amount: 0.78,
+      metadata: {
+        under_20_seller_protection: cappedProtectedA,
+      },
+    },
+    {
+      id: "sim-ledger-protected-b",
+      gross_item_amount: 12.5,
+      shipping_allocated_amount: 0.58,
+      metadata: {
+        under_20_seller_protection: cappedProtectedB,
+      },
+    },
+    {
+      id: "sim-ledger-unprotected-mixed",
+      gross_item_amount: 6.75,
+      shipping_allocated_amount: 0.23,
+      metadata: {
+        under_20_seller_protection: cappedUnprotected,
+      },
+    },
+  ]);
+  scenarios.push({
+    scenario_key: "under_20_seller_protection_caps_mixed_rows",
+    scenario_status: pass(
+      cappedClaim.protectedItemAmount === 26.75 &&
+        cappedClaim.reimbursableItemAmount === 20 &&
+        cappedClaim.shippingExcludedAmount === 1.36 &&
+        cappedClaim.protectedLedgerEntryIds.length === 2 &&
+        cappedClaim.unprotectedLedgerEntryIds.includes(
+          "sim-ledger-unprotected-mixed",
+        ) &&
+        cappedClaim.reimbursesShipping === false,
+    ),
+    detail:
+      "Mixed under-$20 claim rows cap reimbursement at $20, include only opted-in protected item amounts, track excluded shipping, and leave unprotected rows out of TCOS reimbursement.",
+    assertions: {
+      claim: cappedClaim,
+      protected_fee_total:
+        cappedProtectedA.feeAmount + cappedProtectedB.feeAmount,
+      unprotected_fee: cappedUnprotected.feeAmount,
+    },
+  });
 
   const standardEnvelopeProfile =
     getShippingProviderAdapterProfile("STANDARD_ENVELOPE");
@@ -291,7 +354,7 @@ export async function runShippingSimulationSuite() {
   scenarios.push({
     scenario_key: "lettertrack_standard_envelope_export",
     scenario_status: pass(
-        letterTrackExport.rows.length === 1 &&
+      letterTrackExport.rows.length === 1 &&
         letterTrackExport.skipped.length === 0 &&
         letterTrackCsv.includes("LetterTrack / USPS Informed Visibility IMb") &&
         letterTrackCsv.includes("sellerProtectionReserveRate") &&
