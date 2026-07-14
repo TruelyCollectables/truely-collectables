@@ -1214,6 +1214,10 @@ export default async function LaunchReadinessPage() {
               {DEPLOY_SAFETY.quotaMarkerClearCondition}
               {" "}
               {DEPLOY_SAFETY.deployResultRequirement}
+              {" "}
+              {DEPLOY_SAFETY.vercelCliRequirement}
+              {" "}
+              {DEPLOY_SAFETY.unwantedAliasCleanupRequirement}
             </p>
           </div>
           <a

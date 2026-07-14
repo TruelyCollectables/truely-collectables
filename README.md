@@ -42,6 +42,8 @@ The verify helper runs lint, InstaComp queue and accuracy simulations, LetterTra
 
 Production uses `next build --webpack`. Tailwind 4 automatic source discovery is disabled with `source(none)` and replaced by an explicit `src/**` source rule, keeping cold builds from recursively scanning the macOS FileProvider workspace while retaining complete application-class coverage.
 
+Production launch command-pins Vercel CLI `56.2.0` through isolated `npm exec --package=vercel@56.2.0`. Preflight verifies that exact CLI before upload, while its operating-system temporary cache stays outside application `node_modules` and the lockfile. Every Vercel call receives `--cwd` with the repository root, so tool isolation cannot change the deployment target. A clean checkout can therefore deploy reproducibly without a machine-global `vercel` command.
+
 The protected live deploy sequence removes the unwanted `truely-collectables-tt3b.vercel.app` alias, sets the clean production alias, clears the local quota marker only after that alias succeeds, prints `DEPLOYED_PRODUCTION=`, prints `CLEAN_PRODUCTION=https://`, then prints the smoke handoff command.
 
 The production go/no-go ladder is: verify the pushed stack with `npm run verify:production`, launch only when quota is open with `npm run launch:production`, halt if Vercel reports `api-deployments-free-per-day`, avoid rapid-fire deploy retries because Vercel can still upload files before returning the quota error, let `.codex-run/vercel-quota-block.json` stop later attempts before upload unless `TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true` or `--force-quota-retry` is used intentionally, use split `npm run deploy:production` plus `npm run smoke:production` only intentionally, and ship only after smoke passes the clean production domain.
@@ -55,6 +57,8 @@ A zero, negative, or nonnumeric cooldown value also fails closed as `state: inva
 Quota markers are success-cleared, not attempt-cleared. Failed override retries, unparseable Vercel responses, and clean-alias failures preserve the marker; it is removed only after a parsed deployment URL and successful clean alias.
 
 Nonzero `vercel --prod` results are rejected before URL parsing, alias changes, or marker clearing. A `.vercel.app` URL printed in failed command output is never accepted as a deployment.
+
+Unwanted-alias cleanup must succeed or return Vercel CLI's explicit alias-not-found result before clean-domain aliasing. Authentication, scope, network, or other cleanup failures stop the launch and preserve the quota marker.
 
 Launch-readiness JSON/Markdown, the handoff bundle, the Launch Readiness page, and the Production Smoke Report all publish the shared read-only quota command and description. Production smoke protects that operator handoff from drifting.
 

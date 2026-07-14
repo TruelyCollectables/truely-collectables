@@ -58,11 +58,13 @@ The deploy helper:
 - refreshes `origin/main`;
 - blocks uncommitted deploy-relevant local changes;
 - checks local Git state against `origin/main`;
+- verifies command-pinned Vercel CLI `56.2.0` through isolated `npm exec --package=vercel@56.2.0` before any possible upload; the CLI cache stays under the OS temporary directory, outside application `node_modules` and the lockfile, and every Vercel call receives `--cwd` with the repository root;
 - normalizes `VERCEL_CLEAN_DOMAIN` and `VERCEL_UNWANTED_ALIAS` from hostnames or URLs;
 - stops early when the local Vercel quota cooldown marker is still active;
 - deploys production through Vercel only when the checks pass;
 - fails clearly if Vercel quota is still capped;
 - removes the unwanted `truely-collectables-tt3b.vercel.app` alias if present;
+- stops before clean-domain aliasing unless unwanted-alias removal succeeds or Vercel CLI explicitly reports that alias already absent;
 - points `https://truely-collectables.vercel.app` at the new production deployment;
 - prints deployed/clean URL output and the `npm run smoke:production` handoff.
 
@@ -76,6 +78,7 @@ The read-only quota status helper:
 - fails closed when `TCOS_VERCEL_QUOTA_COOLDOWN_HOURS` is zero, negative, or nonnumeric: it reports `state: invalid_configuration` and cannot silently disable the deployment guard.
 - preserves the marker across failed override retries, unparseable Vercel responses, and clean-alias failures; removal happens only after a parsed deployment URL and successful clean alias.
 - requires `vercel --prod` exit status 0 before URL parsing, alias commands, or marker clearing; failure output cannot become a deployment merely because it contains a `.vercel.app` URL.
+- preserves the marker and clean-domain target when unwanted-alias cleanup fails for authentication, scope, network, or any result other than explicit alias-not-found.
 - protects the real `.codex-run/vercel-quota-block.json` marker by refusing cooldown self-tests unless `TCOS_VERCEL_QUOTA_MARKER_PATH` names an explicit temporary file.
 - publishes the shared `quotaStatusCommand` and read-only description through launch-readiness JSON/Markdown, the handoff bundle, Launch Readiness, and Production Smoke Report surfaces; production smoke guards the handoff.
 
@@ -199,6 +202,7 @@ Recent queued work added or hardened:
 - portable operator manual PDF generation.
 - network-independent local Geist font loading and a direct `tsx` verification dependency.
 - bounded Tailwind 4 source detection across `src/**`, preventing cold production builds from recursively scanning FileProvider workspace metadata, generated caches, documentation artifacts, and dependencies.
+- command-pinned Vercel CLI `56.2.0` preflight and fail-closed unwanted-alias cleanup before clean-domain aliasing.
 
 These may fail production smoke until a successful Vercel deploy lands the queued commits.
 

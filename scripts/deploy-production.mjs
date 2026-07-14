@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 
 const scope = process.env.VERCEL_SCOPE || "truelycollectables-projects";
@@ -22,6 +23,13 @@ const quotaStatusOnly =
 const redactionSelfTest = process.argv.includes("--self-test-redaction");
 const quotaCooldownSelfTest = process.argv.includes("--self-test-quota-cooldown");
 const deployResultSelfTest = process.argv.includes("--self-test-deploy-result");
+const aliasRemovalSelfTest = process.argv.includes("--self-test-alias-removal");
+const vercelCliVersion = "56.2.0";
+const vercelCliPackage = `vercel@${vercelCliVersion}`;
+const vercelCliCacheDir = path.join(
+  os.tmpdir(),
+  `tcos-vercel-cli-${vercelCliVersion}`,
+);
 const quotaRetryOverride =
   process.argv.includes("--force-quota-retry") ||
   process.env.TCOS_VERCEL_QUOTA_RETRY_OVERRIDE === "true";
@@ -439,10 +447,59 @@ function run(command, args, options = {}) {
       output,
       status: result.status,
       signal: result.signal,
+      error: result.error,
     };
   }
 
   return output;
+}
+
+function runVercel(args, options = {}) {
+  fs.mkdirSync(vercelCliCacheDir, { recursive: true });
+  return run(
+    "npm",
+    [
+      "--prefix",
+      vercelCliCacheDir,
+      "exec",
+      "--yes",
+      `--package=${vercelCliPackage}`,
+      "--",
+      "vercel",
+      "--cwd",
+      process.cwd(),
+      ...args,
+    ],
+    options,
+  );
+}
+
+function vercelCliPreflight() {
+  const result = runVercel(["--version"], {
+    allowFailure: true,
+    captureResult: true,
+    print: false,
+  });
+
+  if (result.status !== 0) {
+    const spawnReason = result.error?.message
+      ? ` (${result.error.message})`
+      : "";
+    throw new Error(
+      `Command-pinned Vercel CLI ${vercelCliVersion} is unavailable${spawnReason}. Check npm registry access before production preflight. No Vercel upload was started.`,
+    );
+  }
+
+  const installedVersions = result.output.match(/\b\d+\.\d+\.\d+\b/g) || [];
+  if (!installedVersions.includes(vercelCliVersion)) {
+    throw new Error(
+      `Vercel CLI version mismatch. The launch helper requires ${vercelCliVersion}, but the active command reported ${installedVersions.join(", ") || "no version"}. No Vercel upload was started.`,
+    );
+  }
+
+  console.log(
+    `Vercel CLI preflight: command-pinned ${vercelCliVersion} via isolated npm exec (${vercelCliPackage})`,
+  );
 }
 
 function deployRelevantStatus(status) {
@@ -481,6 +538,29 @@ function assertSuccessfulDeployResult(deployResult) {
 
   throw new Error(
     `Vercel production deploy failed with ${exitDescription}. No alias command was started, and the local quota marker was preserved. A URL printed by a failed command is not accepted as a deployment.\n${diagnosticSnippet(deployResult.output)}`,
+  );
+}
+
+function assertUnwantedAliasRemovalResult(aliasResult) {
+  if (aliasResult.status === 0) return "removed";
+
+  const explicitAbsentMessage = `Alias not found by "${unwantedAlias}" under`;
+  const explicitAbsentInstruction = "Run vercel alias ls to see your aliases.";
+  if (
+    aliasResult.status === 1 &&
+    aliasResult.output.includes(explicitAbsentMessage) &&
+    aliasResult.output.includes(explicitAbsentInstruction)
+  ) {
+    return "already_absent";
+  }
+
+  const exitDescription =
+    aliasResult.status === null
+      ? `signal ${aliasResult.signal || "unknown"}`
+      : `exit ${aliasResult.status}`;
+
+  throw new Error(
+    `Unwanted production alias cleanup failed with ${exitDescription}. The clean production alias was not changed, and the local quota marker was preserved. Only Vercel CLI's explicit alias-not-found result is safe to continue past.\n${diagnosticSnippet(aliasResult.output)}`,
   );
 }
 
@@ -539,6 +619,70 @@ function runDeployResultSelfTest() {
   console.log("Production deploy result self-test passed.");
 }
 
+function runAliasRemovalSelfTest() {
+  if (quotaBlockMarkerPath === defaultQuotaBlockMarkerPath) {
+    throw new Error(
+      "Refusing alias-removal self-test against the production marker path. Set TCOS_VERCEL_QUOTA_MARKER_PATH to an explicit temporary test file.",
+    );
+  }
+
+  removeQuotaBlockMarker();
+  fs.mkdirSync(path.dirname(quotaBlockMarkerPath), { recursive: true });
+  fs.writeFileSync(
+    quotaBlockMarkerPath,
+    `${JSON.stringify({
+      blockedAt: new Date().toISOString(),
+      reason: "api-deployments-free-per-day",
+    })}\n`,
+  );
+
+  const alreadyAbsent = assertUnwantedAliasRemovalResult({
+    output: `Error: Alias not found by "${unwantedAlias}" under truelycollectables-projects\nRun vercel alias ls to see your aliases.`,
+    status: 1,
+    signal: null,
+  });
+  if (alreadyAbsent !== "already_absent") {
+    throw new Error(
+      "Alias-removal self-test did not accept the explicit already-absent result.",
+    );
+  }
+
+  try {
+    assertUnwantedAliasRemovalResult({
+      output: "Error: Authentication failed while removing alias.",
+      status: 1,
+      signal: null,
+    });
+    throw new Error("Alias-removal self-test accepted a cleanup failure.");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (
+      !message.includes("Unwanted production alias cleanup failed with exit 1") ||
+      !message.includes("clean production alias was not changed") ||
+      !message.includes("local quota marker was preserved") ||
+      !message.includes("Only Vercel CLI's explicit alias-not-found result")
+    ) {
+      throw error;
+    }
+  }
+
+  if (!fs.existsSync(quotaBlockMarkerPath)) {
+    throw new Error("Alias-removal self-test removed the quota marker on failure.");
+  }
+
+  const removed = assertUnwantedAliasRemovalResult({
+    output: `Success! Alias ${unwantedAlias} removed`,
+    status: 0,
+    signal: null,
+  });
+  if (removed !== "removed") {
+    throw new Error("Alias-removal self-test rejected successful cleanup.");
+  }
+
+  removeQuotaBlockMarker();
+  console.log("Production unwanted-alias removal self-test passed.");
+}
+
 function gitPreflight() {
   console.log("Refreshing origin/main before deploy...");
   run("git", ["fetch", "origin", "main"]);
@@ -593,11 +737,17 @@ if (deployResultSelfTest) {
   process.exit(0);
 }
 
+if (aliasRemovalSelfTest) {
+  runAliasRemovalSelfTest();
+  process.exit(0);
+}
+
 if (quotaStatusOnly) {
   printQuotaCooldownStatus();
   process.exit(0);
 }
 
+vercelCliPreflight();
 gitPreflight();
 
 if (preflightOnly) {
@@ -609,7 +759,7 @@ assertNoRecentQuotaBlock();
 
 console.log(`Deploying production with Vercel scope ${scope}...`);
 
-const deployResult = run("vercel", ["--prod", "--yes", "--scope", scope], {
+const deployResult = runVercel(["--prod", "--yes", "--scope", scope], {
   allowFailure: true,
   captureResult: true,
 });
@@ -634,14 +784,19 @@ if (!deploymentUrl) {
 
 console.log(`Parsed deployment URL: ${deploymentUrl}`);
 console.log(`Removing unwanted ${unwantedAlias} alias if present`);
-run(
-  "vercel",
-  ["alias", "rm", unwantedAlias, "--yes", "--scope", scope],
-  { allowFailure: true },
+const aliasRemovalResult = runVercel(
+  ["alias", "rm", unwantedAlias, "--yes", "--scope", scope, "--no-color"],
+  { allowFailure: true, captureResult: true },
+);
+const aliasRemovalState = assertUnwantedAliasRemovalResult(aliasRemovalResult);
+console.log(
+  aliasRemovalState === "removed"
+    ? `Confirmed unwanted alias ${unwantedAlias} was removed.`
+    : `Confirmed unwanted alias ${unwantedAlias} was already absent.`,
 );
 
 console.log(`Pointing https://${cleanDomain} at ${deploymentUrl}`);
-run("vercel", ["alias", "set", deploymentUrl, cleanDomain, "--scope", scope]);
+runVercel(["alias", "set", deploymentUrl, cleanDomain, "--scope", scope]);
 
 console.log(
   "Production deployment URL and clean alias succeeded; clearing local quota marker.",

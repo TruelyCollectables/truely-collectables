@@ -48,6 +48,10 @@ The quota marker is success-cleared, not attempt-cleared. A failed override retr
 
 The helper also requires `vercel --prod` to exit successfully before it parses the deployment URL, runs either alias command, or clears the quota marker. A URL printed by a failed Vercel command is diagnostic output, not a deployable result.
 
+The deploy helper command-pins Vercel CLI `56.2.0` through isolated `npm exec --package=vercel@56.2.0`. Its cache lives under the operating system temporary directory, outside the application lockfile and `node_modules`; every Vercel call also receives `--cwd` with the TCOS repository root so the isolated prefix cannot change the deployment target. Production preflight runs that exact command, verifies its reported version, and stops before Vercel upload when npm registry access fails or the CLI is mismatched. The project does not rely on an unverified global CLI.
+
+Unwanted-alias cleanup must succeed or return Vercel CLI's explicit `Alias not found by` result before the helper can move the clean domain. Authentication, scope, network, and all other cleanup failures stop before clean-domain aliasing and preserve the local quota marker.
+
 The shared deploy-safety contract publishes `quotaStatusCommand` and its read-only description through launch-readiness JSON, Markdown, the handoff bundle, the Launch Readiness page, and the Production Smoke Report. Production smoke requires these surfaces to preserve `npm run status:production` before a queued release can pass.
 
 The internal quota cooldown self-test refuses to run against `.codex-run/vercel-quota-block.json`; it requires `TCOS_VERCEL_QUOTA_MARKER_PATH` to name an explicit temporary test file so validation cannot erase the real cooldown record.
@@ -92,6 +96,7 @@ The deploy helper:
 - points `https://truely-collectables.vercel.app` at the new production deployment.
 - clears the local quota marker only after the deployment URL is parsed and the clean production alias succeeds.
 - rejects nonzero `vercel --prod` results before URL parsing or alias changes, even when failure output contains a `.vercel.app` URL.
+- requires unwanted-alias removal success or an explicit alias-not-found result before clean-domain aliasing; every other cleanup failure preserves the quota marker and stops.
 
 The production guardrail suite locks this live deploy behavior in place: quota blocks must mention `api-deployments-free-per-day` and tell the operator to wait for the rolling 24-hour reset, the helper must write the local quota cooldown marker and stop future attempts before upload unless `TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true` or `--force-quota-retry` is set, the unwanted alias removal command must stay wired, the clean production alias command must stay wired, and the helper must keep printing the deployed/clean URLs before handing off to `npm run smoke:production`. The protected live deploy sequence is: remove the unwanted `truely-collectables-tt3b.vercel.app` alias, set the clean production alias, clear the local quota marker only after that alias succeeds, print `DEPLOYED_PRODUCTION=`, print `CLEAN_PRODUCTION=https://`, then print the smoke handoff command.
 

@@ -26,6 +26,8 @@ Next.js and `eslint-config-next` are aligned on `16.2.10`. Next.js still declare
 
 Tailwind source detection is explicitly bounded in `src/app/globals.css`: `source(none)` disables automatic workspace discovery and `@source "../**/*.{js,ts,jsx,tsx,mdx}"` scans the complete application source tree. This prevents cold builds on the FileProvider-backed workspace from recursively scanning generated build caches, operator artifacts, Git metadata, or dependencies without reducing application source coverage.
 
+The production deploy helper command-pins Vercel CLI `56.2.0` through isolated `npm exec --package=vercel@56.2.0`; it does not rely on an undocumented machine-global CLI or add Vercel's deployment-only transitive tree to the application lockfile or `node_modules`. The CLI cache lives under the operating system temporary directory, while every Vercel invocation receives `--cwd` with the TCOS repository root so isolation cannot change the deployment target. `npm run preflight:production` runs the exact command and verifies its reported version before Git fetch or any possible Vercel upload. Missing npm registry access or a mismatched CLI fails closed with `No Vercel upload was started`.
+
 Use `npm run status:production` during recurring build blocks to inspect the local Vercel quota cooldown without fetching Git, building, uploading, or starting a deployment. The output includes the exact block and retry timestamps, approximate remaining cooldown, marker path, whether a retry is locally allowed, and the explicit line `Vercel upload started: no`. The environment-flag equivalent is `TCOS_PRODUCTION_QUOTA_STATUS_ONLY=true node scripts/deploy-production.mjs`.
 
 A malformed or unreadable marker fails closed as `state: invalid_marker`: the helper starts no Vercel upload and blocks deployment. Inspect or restore the marker before continuing. Use `TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true` or `--force-quota-retry` only after independently confirming that the rolling quota window has reset.
@@ -35,6 +37,8 @@ A zero, negative, or nonnumeric cooldown value also fails closed as `state: inva
 The quota marker is success-cleared, not attempt-cleared. A failed override retry, unparseable Vercel response, or clean-alias failure preserves the marker. The helper removes it only after Vercel returns a parsed deployment URL and the clean production alias succeeds.
 
 The helper also requires `vercel --prod` to exit successfully before it parses the deployment URL, runs either alias command, or clears the quota marker. A URL printed by a failed Vercel command is diagnostic output, not a deployable result.
+
+Unwanted-alias cleanup is also fail closed. Before moving the clean production domain, the helper requires `vercel alias rm truely-collectables-tt3b.vercel.app` to succeed or return Vercel CLI's explicit `Alias not found by` result. Authentication, scope, network, or other cleanup failures stop the launch before clean-domain aliasing and preserve the local quota marker.
 
 The shared deploy-safety contract exposes `quotaStatusCommand` and its read-only description in launch-readiness JSON and Markdown, the launch handoff bundle, the Launch Readiness page, and the Production Smoke Report. Production smoke verifies those surfaces retain `npm run status:production`, so an operator does not have to rely on chat history to decide whether a deployment retry is safe.
 

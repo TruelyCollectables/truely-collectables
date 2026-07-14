@@ -19,6 +19,10 @@ export const DEPLOY_SAFETY = {
     "Clear the local quota marker only after Vercel returns a parsed deployment URL and the clean production alias succeeds.",
   deployResultRequirement:
     "Require vercel --prod to exit successfully before parsing its deployment URL, running alias commands, or clearing the quota marker.",
+  vercelCliRequirement:
+    "Use command-pinned Vercel CLI 56.2.0 through isolated npm exec and fail production preflight before upload when the exact CLI cannot run.",
+  unwantedAliasCleanupRequirement:
+    "Require unwanted-alias removal to succeed or return Vercel CLI's explicit alias-not-found result before clean-domain aliasing or quota-marker clearing.",
   contract: [
     "Vercel quota messaging",
     "local Vercel quota cooldown marker",
@@ -27,6 +31,8 @@ export const DEPLOY_SAFETY = {
     "clean-domain aliasing",
     "success-only quota marker clearing",
     "successful Vercel deploy exit before URL and alias handling",
+    "command-pinned Vercel CLI preflight",
+    "fail-closed unwanted-alias cleanup",
     "deployed URL output",
     "clean URL output",
     `${DEPLOY_SAFETY_SMOKE_COMMAND} handoff`,
