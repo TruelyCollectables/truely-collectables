@@ -22,6 +22,8 @@ This revision includes the durable InstaComp batch queue and PaddleOCR worker, I
 
 TCOS loads Geist Sans and Geist Mono from the installed `geist` package. The font files are bundled locally through `next/font/local`; production and local builds do not fetch CSS or font files from Google Fonts. This keeps `npm run build` deterministic in restricted or temporarily offline build environments while preserving the existing Geist typography and CSS variable names. The `tsx` runner used by shipping verification is also a direct development dependency rather than an accidental transitive dependency, so a clean install can run the full production verification stack.
 
+Next.js and `eslint-config-next` are aligned on `16.2.10`. Next.js still declares PostCSS `8.4.31`, which is affected by GHSA-qx2v-qp2m-jg93, so `package.json` overrides PostCSS to `8.5.15`. Keep the override until a later verified Next.js release directly depends on a fixed PostCSS version. `npm audit --omit=dev` must report zero production vulnerabilities before removing or changing this protection. Production builds use the supported `next build --webpack` opt-out because Turbopack 16.2.10 stalled during compilation with the fixed PostCSS override; development can continue using Turbopack through `next dev`.
+
 TCOS means Totally Collectibles OS. It is the multi-store software platform, admin system, order system, inventory engine, marketplace layer, and pricing/helper system. Truely Collectables is the flagship store inside TCOS, not a separate rebuild.
 
 ## Ownership And Account Separation

@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start",
     "manual:pdf": "node scripts/build-manual-pdf.mjs",
     "simulate:instacomp-jobs": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-instacomp-job-simulations.mjs",
@@ -25,7 +25,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.108.1",
     "geist": "^1.7.2",
-    "next": "16.2.9",
+    "next": "16.2.10",
     "react": "19.2.4",
     "react-dom": "19.2.4",
     "resend": "^6.14.0",
@@ -37,9 +37,12 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "16.2.9",
+    "eslint-config-next": "16.2.10",
     "tailwindcss": "^4",
     "tsx": "^4.23.1",
     "typescript": "^5"
+  },
+  "overrides": {
+    "postcss": "8.5.15"
   }
 }

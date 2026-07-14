@@ -190,6 +190,23 @@ if (!packageJson.devDependencies?.tsx) {
 }
 console.log("PASS direct tsx verification dependency");
 
+if (
+  packageJson.dependencies?.next !== "16.2.10" ||
+  packageJson.devDependencies?.["eslint-config-next"] !== "16.2.10"
+) {
+  throw new Error(
+    "Next.js and eslint-config-next must stay aligned on patched release 16.2.10.",
+  );
+}
+if (packageJson.overrides?.postcss !== "8.5.15") {
+  throw new Error(
+    "package.json must keep PostCSS 8.5.15 overridden until Next.js stops pinning the vulnerable 8.4.31 release.",
+  );
+}
+console.log("PASS patched Next.js and PostCSS dependency contract");
+
+assertScriptIncludes("build", ["next build --webpack"]);
+
 assertFileIncludes("local application font source", "src/app/layout.tsx", [
   'from "geist/font/mono"',
   'from "geist/font/sans"',

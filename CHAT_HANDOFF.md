@@ -109,6 +109,12 @@ npm run preflight:production
 
 Most recent notable validation:
 
+- Current dependency-security block:
+  - Updated Next.js and `eslint-config-next` from 16.2.9 to 16.2.10.
+  - Overrode Next's vulnerable PostCSS 8.4.31 dependency with PostCSS 8.5.15 for GHSA-qx2v-qp2m-jg93.
+  - Pinned production builds to the supported `next build --webpack` path after Turbopack 16.2.10 stalled with the fixed PostCSS override; `next dev` still uses Turbopack.
+  - `npm audit --omit=dev` reports zero vulnerabilities after the override.
+  - Production guardrails pin the aligned Next.js versions and PostCSS override until a later verified Next.js release carries the fix directly.
 - Current 30-minute build block:
   - Replaced `next/font/google` with the locally packaged `geist` font exports while preserving the existing Geist CSS variables and typography.
   - Added `tsx` as a direct development dependency because shipping verification imports it; clean installs no longer depend on an accidental transitive package.
