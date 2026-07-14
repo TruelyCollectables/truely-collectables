@@ -706,6 +706,10 @@ const checks = [
     expect: (result) =>
       result.contentType.includes("application/json") &&
       result.text.includes('"credentialGroups"') &&
+      result.text.includes('"standardEnvelopeEvidenceContract"') &&
+      result.text.includes('"evidenceProvider":"LetterTrack / USPS IMb"') &&
+      result.text.includes('"trackableRequirement"') &&
+      result.text.includes('"notInsuranceNotice"') &&
       result.text.includes('"exports"') &&
       result.text.includes('"csv"') &&
       result.text.includes('"envTemplate"') &&
@@ -720,6 +724,10 @@ const checks = [
     expect: (result) =>
       result.contentType.includes("text/csv") &&
       result.text.includes("decisionStatus,decisionSummary,decisionNextAction") &&
+      result.text.includes("standardEnvelopeEvidenceProvider") &&
+      result.text.includes("under20ProtectionNotInsurance") &&
+      result.text.includes("LetterTrack / USPS IMb") &&
+      result.text.includes("not third-party insurance") &&
       result.text.includes("liveRequirementBlockers") &&
       result.text.includes("missingCredentialKeys") &&
       !result.text.includes("sk_live_") &&
@@ -731,6 +739,10 @@ const checks = [
     expect: (result) =>
       result.contentType.includes("text/plain") &&
       result.text.includes("TCOS shipping provider setup template") &&
+      result.text.includes("Standard Envelope evidence/protection contract") &&
+      result.text.includes("Evidence provider: LetterTrack / USPS IMb") &&
+      result.text.includes("TCOS Under-$20 Seller Protection is an optional internal seller program") &&
+      result.text.includes("Not insurance: LetterTrack / USPS IMb is delivery-evidence tracking") &&
       result.text.includes("TCOS_SHIPPING_PURCHASE_MODE=dry_run") &&
       result.text.includes("TCOS_LIVE_SHIPPING_ENABLED=false") &&
       !result.text.includes("sk_live_") &&
@@ -753,6 +765,10 @@ const checks = [
     expect: (result) =>
       result.contentType.includes("text/markdown") &&
       result.text.includes("# TCOS Shipping Provider Operator Checklist") &&
+      result.text.includes("## Standard Envelope Evidence + Under-$20 Protection Contract") &&
+      result.text.includes("Evidence provider: LetterTrack / USPS IMb") &&
+      result.text.includes("TCOS Under-$20 Seller Protection is an optional internal seller program") &&
+      result.text.includes("Not insurance: LetterTrack / USPS IMb is delivery-evidence tracking") &&
       result.text.includes("Keep TCOS_SHIPPING_PURCHASE_MODE=dry_run") &&
       result.text.includes("Keep TCOS_LIVE_SHIPPING_ENABLED=false") &&
       !result.text.includes("sk_live_") &&

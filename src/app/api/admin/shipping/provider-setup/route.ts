@@ -4,6 +4,7 @@ import {
   type ProviderCredentialGroup,
   type ProviderSetupDecision,
   type ProviderSetupLane,
+  type StandardEnvelopeEvidenceContract,
 } from "../../../../../lib/shipping-provider-setup";
 
 export const dynamic = "force-dynamic";
@@ -17,6 +18,7 @@ function csvResponse(params: {
   lanes: ProviderSetupLane[];
   decision: ProviderSetupDecision;
   liveRequirements: LiveShippingRequirement[];
+  standardEnvelopeEvidenceContract: StandardEnvelopeEvidenceContract;
 }) {
   const headers = [
     "decisionStatus",
@@ -42,6 +44,12 @@ function csvResponse(params: {
     "configuredCoverageCredentialKeys",
     "missingCoverageCredentialKeys",
     "manualPurchaseRequired",
+    "standardEnvelopeEvidenceProvider",
+    "standardEnvelopeTrackableRequirement",
+    "under20ProtectionModel",
+    "under20ProtectionNotInsurance",
+    "under20ProtectionReserveRate",
+    "under20ProtectionReimbursesShipping",
   ] as const;
   const decision = {
     decisionStatus: params.decision.status,
@@ -51,6 +59,18 @@ function csvResponse(params: {
     liveRequirementBlockers: params.liveRequirements
       .filter((requirement) => requirement.status !== "ready")
       .map((requirement) => requirement.label),
+    standardEnvelopeEvidenceProvider:
+      params.standardEnvelopeEvidenceContract.evidenceProvider,
+    standardEnvelopeTrackableRequirement:
+      params.standardEnvelopeEvidenceContract.trackableRequirement,
+    under20ProtectionModel:
+      params.standardEnvelopeEvidenceContract.under20ProtectionModel,
+    under20ProtectionNotInsurance:
+      params.standardEnvelopeEvidenceContract.notInsuranceNotice,
+    under20ProtectionReserveRate:
+      params.standardEnvelopeEvidenceContract.reserveRate,
+    under20ProtectionReimbursesShipping:
+      params.standardEnvelopeEvidenceContract.reimbursesShipping,
   };
   const body = [
     headers.join(","),
@@ -100,6 +120,7 @@ function envTemplateResponse(params: {
   lanes: ProviderSetupLane[];
   decision: ProviderSetupDecision;
   liveRequirements: LiveShippingRequirement[];
+  standardEnvelopeEvidenceContract: StandardEnvelopeEvidenceContract;
 }) {
   const requiredCredentialKeys = unique(
     params.lanes.flatMap((lane) => [
@@ -138,6 +159,17 @@ function envTemplateResponse(params: {
     "# Safe shipping runtime defaults",
     "TCOS_SHIPPING_PURCHASE_MODE=dry_run",
     "TCOS_LIVE_SHIPPING_ENABLED=false",
+    "",
+    "# Standard Envelope evidence/protection contract",
+    `# Evidence provider: ${params.standardEnvelopeEvidenceContract.evidenceProvider}`,
+    `# Trackable requirement: ${params.standardEnvelopeEvidenceContract.trackableRequirement}`,
+    `# Under-$20 protection model: ${params.standardEnvelopeEvidenceContract.under20ProtectionModel}`,
+    `# Seller opt-in rule: ${params.standardEnvelopeEvidenceContract.sellerOptInRule}`,
+    `# Reserve rate: ${params.standardEnvelopeEvidenceContract.reserveRate}`,
+    `# Item reimbursement cap: ${params.standardEnvelopeEvidenceContract.itemReimbursementCap}`,
+    `# Reimbursement basis: ${params.standardEnvelopeEvidenceContract.reimbursementBasis}`,
+    `# Reimburses shipping: ${params.standardEnvelopeEvidenceContract.reimbursesShipping}`,
+    `# Not insurance: ${params.standardEnvelopeEvidenceContract.notInsuranceNotice}`,
     "",
     "# Provider credential groups",
     "# Single-key groups are required. Multi-key groups are alternatives; set the one your approved provider adapter uses.",
@@ -235,6 +267,7 @@ function operatorChecklistResponse(params: {
   lanes: ProviderSetupLane[];
   decision: ProviderSetupDecision;
   liveRequirements: LiveShippingRequirement[];
+  standardEnvelopeEvidenceContract: StandardEnvelopeEvidenceContract;
 }) {
   const missingCredentialGroups = unique(
     params.lanes.flatMap((lane) => [
@@ -255,6 +288,25 @@ function operatorChecklistResponse(params: {
     `- Status: ${params.decision.status}`,
     `- Summary: ${params.decision.summary}`,
     `- Next action: ${params.decision.nextAction}`,
+    "",
+    "## Standard Envelope Evidence + Under-$20 Protection Contract",
+    "",
+    `- Evidence provider: ${params.standardEnvelopeEvidenceContract.evidenceProvider}`,
+    `- Evidence purpose: ${params.standardEnvelopeEvidenceContract.evidencePurpose}`,
+    `- Trackable requirement: ${params.standardEnvelopeEvidenceContract.trackableRequirement}`,
+    `- Under-$20 protection model: ${params.standardEnvelopeEvidenceContract.under20ProtectionModel}`,
+    `- Seller opt-in rule: ${params.standardEnvelopeEvidenceContract.sellerOptInRule}`,
+    `- Reserve rate: ${params.standardEnvelopeEvidenceContract.reserveRate}`,
+    `- Item reimbursement cap: ${params.standardEnvelopeEvidenceContract.itemReimbursementCap}`,
+    `- Reimbursement basis: ${params.standardEnvelopeEvidenceContract.reimbursementBasis}`,
+    `- Reimburses shipping: ${params.standardEnvelopeEvidenceContract.reimbursesShipping}`,
+    `- Not insurance: ${params.standardEnvelopeEvidenceContract.notInsuranceNotice}`,
+    "",
+    "### Operator Handoff",
+    "",
+    ...params.standardEnvelopeEvidenceContract.operatorHandoff.map(
+      (step) => `- ${step}`,
+    ),
     "",
     "## Provider Credentials To Gather",
     "",
@@ -313,6 +365,8 @@ export async function GET(request: Request) {
         lanes: packet.lanes,
         decision: packet.decision,
         liveRequirements: packet.liveRequirements,
+        standardEnvelopeEvidenceContract:
+          packet.standardEnvelopeEvidenceContract,
       });
     }
 
@@ -322,6 +376,8 @@ export async function GET(request: Request) {
         lanes: packet.lanes,
         decision: packet.decision,
         liveRequirements: packet.liveRequirements,
+        standardEnvelopeEvidenceContract:
+          packet.standardEnvelopeEvidenceContract,
       });
     }
 
@@ -339,6 +395,8 @@ export async function GET(request: Request) {
         lanes: packet.lanes,
         decision: packet.decision,
         liveRequirements: packet.liveRequirements,
+        standardEnvelopeEvidenceContract:
+          packet.standardEnvelopeEvidenceContract,
       });
     }
 

@@ -39,6 +39,21 @@ export type ProviderSetupDecision = {
   blockers: string[];
 };
 
+export type StandardEnvelopeEvidenceContract = {
+  lane: "STANDARD_ENVELOPE";
+  evidenceProvider: "LetterTrack / USPS IMb";
+  evidencePurpose: string;
+  trackableRequirement: string;
+  under20ProtectionModel: string;
+  sellerOptInRule: string;
+  reserveRate: "2%";
+  itemReimbursementCap: "$20.00";
+  reimbursementBasis: "item_sale_amount_excluding_shipping";
+  reimbursesShipping: "no";
+  notInsuranceNotice: string;
+  operatorHandoff: string[];
+};
+
 export type LiveShippingRequirement = {
   key: string;
   label: string;
@@ -65,6 +80,7 @@ export type ProviderSetupPacket = {
   decision: ProviderSetupDecision;
   liveRequirements: LiveShippingRequirement[];
   credentialGroups: ProviderCredentialGroup[];
+  standardEnvelopeEvidenceContract: StandardEnvelopeEvidenceContract;
   readinessSummary: ReturnType<typeof shippingProviderSummary>;
   readiness: ReturnType<typeof getShippingProviderReadiness>;
   lanes: ProviderSetupLane[];
@@ -201,6 +217,32 @@ const providerCredentialGroupDefinitions = [
     keys: ["TCOS_SHIPPING_COVERAGE_API_KEY", "COVERAGE_API_KEY"],
   },
 ] as const;
+
+export const STANDARD_ENVELOPE_EVIDENCE_CONTRACT: StandardEnvelopeEvidenceContract =
+  {
+    lane: "STANDARD_ENVELOPE",
+    evidenceProvider: "LetterTrack / USPS IMb",
+    evidencePurpose:
+      "Provides trackable USPS IMb delivery evidence for Standard Envelope card shipments.",
+    trackableRequirement:
+      "TCOS only needs provider evidence that can show delivered, not a parcel-level insurance policy.",
+    under20ProtectionModel:
+      "TCOS Under-$20 Seller Protection is an optional internal seller program for eligible Standard Envelope card shipments.",
+    sellerOptInRule:
+      "Seller must opt in per shipment; otherwise the seller remains responsible for buyer refund liability if delivery evidence does not satisfy TCOS rules.",
+    reserveRate: "2%",
+    itemReimbursementCap: "$20.00",
+    reimbursementBasis: "item_sale_amount_excluding_shipping",
+    reimbursesShipping: "no",
+    notInsuranceNotice:
+      "LetterTrack / USPS IMb is delivery-evidence tracking for this lane; TCOS Under-$20 Seller Protection is internal and is not third-party insurance.",
+    operatorHandoff: [
+      "Export eligible Standard Envelope rows to LetterTrack CSV.",
+      "Import/print in LetterTrack and record the assigned IMb back into TCOS.",
+      "Record LetterTrack delivery evidence before deciding under-$20 seller-protection payout.",
+      "Refund the buyer first and document refund evidence before reimbursing an opted-in seller.",
+    ],
+  };
 
 function unique(values: string[]) {
   return Array.from(new Set(values.filter(Boolean)));
@@ -388,6 +430,7 @@ export function buildShippingProviderSetupPacket(): ProviderSetupPacket {
     decision,
     liveRequirements,
     credentialGroups,
+    standardEnvelopeEvidenceContract: STANDARD_ENVELOPE_EVIDENCE_CONTRACT,
     readinessSummary: shippingProviderSummary(readiness),
     readiness,
     lanes,
