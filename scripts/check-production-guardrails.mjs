@@ -659,6 +659,10 @@ assertFileIncludes("shipping purchase attempt audit simulation source", "src/lib
 assertFileIncludes("shipping purchase attempt audit simulation runner", "scripts/run-shipping-purchase-audit-simulations.ts", [
   "runShippingPurchaseAttemptAuditSimulationSuite",
   "Shipping purchase audit simulations:",
+  "shipping_purchase_audit_expected_scenario_count",
+  "shipping_purchase_audit_expected_scenario_keys",
+  "missing_scenario_keys",
+  "unexpected_scenario_keys",
 ]);
 assertFileIncludes("shipping label packet purchase attempt audit source", "src/app/api/admin/shipping-labels/[id]/packet/route.ts", [
   "Provider Purchase Attempt Audit",
