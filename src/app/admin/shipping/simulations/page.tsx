@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { runShippingPurchaseAttemptAuditSimulationSuite } from "../../../../lib/shipping-purchase-attempt-audit-simulations";
 import { runShippingSimulationSuite } from "../../../../lib/shipping-simulations";
 
 export const dynamic = "force-dynamic";
@@ -20,9 +21,13 @@ function listValue(values: readonly string[]) {
 
 export default async function ShippingSimulationsPage() {
   const result = await runShippingSimulationSuite();
+  const purchaseAudit = runShippingPurchaseAttemptAuditSimulationSuite();
   const scenarioCoveragePassed =
     result.scenario_coverage_status === "passed" &&
     result.scenario_key_coverage_status === "passed";
+  const purchaseAuditCoveragePassed =
+    purchaseAudit.scenario_coverage_status === "passed" &&
+    purchaseAudit.scenario_key_coverage_status === "passed";
 
   return (
     <main className="min-h-screen bg-neutral-50 p-8 text-neutral-950">
@@ -36,7 +41,9 @@ export default async function ShippingSimulationsPage() {
             <p className="mt-2 max-w-3xl text-neutral-600">
               Deterministic no-postage checks for Standard Envelope routing,
               Ground Advantage fallback, seller coverage, adapter profiles, and
-              dry-run provider purchase plumbing.
+              dry-run provider purchase plumbing. It also checks provider
+              purchase-attempt audit text for live-gate, missing-setup, dry-run,
+              and packet-output cases.
             </p>
           </div>
           <div className="flex flex-wrap gap-3">
@@ -127,6 +134,82 @@ export default async function ShippingSimulationsPage() {
               ))}
             </ol>
           </details>
+        </section>
+
+        <section
+          className={`rounded border p-5 ${
+            purchaseAuditCoveragePassed
+              ? "border-emerald-200 bg-emerald-50 text-emerald-950"
+              : "border-rose-200 bg-rose-50 text-rose-950"
+          }`}
+        >
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-black uppercase tracking-widest opacity-75">
+                Purchase Attempt Audit Coverage
+              </p>
+              <h2 className="mt-1 text-2xl font-black">
+                {purchaseAuditCoveragePassed
+                  ? "Audit manifest confirmed"
+                  : "Purchase audit drift detected"}
+              </h2>
+              <p className="mt-2 max-w-4xl text-sm font-semibold">
+                These no-postage checks protect the provider purchase-attempt
+                audit text shown in blocked-event cards, order label cards,
+                shipping exception CSV rows, and label packets.
+              </p>
+            </div>
+            <div className="grid min-w-64 grid-cols-2 gap-2 text-sm">
+              <Metric
+                label="Audit Expected"
+                value={String(purchaseAudit.expected_scenario_count)}
+              />
+              <Metric
+                label="Audit Actual"
+                value={String(purchaseAudit.scenario_count)}
+              />
+            </div>
+          </div>
+
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <Metric label="Audit Status" value={label(purchaseAudit.run_status)} />
+            <Metric
+              label="Audit Scenario Keys"
+              value={label(purchaseAudit.scenario_key_coverage_status)}
+            />
+            <Metric label="Audit Failed" value={String(purchaseAudit.failed_count)} />
+          </div>
+
+          <details className="mt-4 rounded border border-current bg-white/60 p-3 text-sm">
+            <summary className="cursor-pointer font-black">
+              Expected purchase audit scenario key manifest
+            </summary>
+            <ol className="mt-3 list-decimal space-y-1 pl-5 font-semibold">
+              {purchaseAudit.expected_scenario_keys.map((scenarioKey) => (
+                <li key={scenarioKey}>{scenarioKey}</li>
+              ))}
+            </ol>
+          </details>
+
+          <div className="mt-4 grid gap-4 lg:grid-cols-2">
+            {purchaseAudit.scenarios.map((scenario) => (
+              <article
+                key={scenario.scenario_key}
+                className={`rounded border p-4 ${tone(scenario.scenario_status)}`}
+              >
+                <p className="text-xs font-black uppercase">
+                  {label(scenario.scenario_status)} / {label(scenario.scenario_key)}
+                </p>
+                <p className="mt-2 text-sm font-semibold">{scenario.detail}</p>
+                <details className="mt-3 text-xs">
+                  <summary className="cursor-pointer font-black">Assertions</summary>
+                  <pre className="mt-2 overflow-x-auto whitespace-pre-wrap">
+                    {JSON.stringify(scenario.assertions, null, 2)}
+                  </pre>
+                </details>
+              </article>
+            ))}
+          </div>
         </section>
 
         <section

@@ -4255,7 +4255,7 @@ dryrun-</code></pre>
 <li>Treat paid, denied, and cancelled claims as audit-locked.</li>
 </ol>
 <h3>Shipping simulation runbook</h3>
-<p>Open <code>/admin/shipping/simulations</code> or run <code>npm run simulate:shipping</code>. Require all nineteen policy/adapter assertions:</p>
+<p>Open <code>/admin/shipping/simulations</code> or run <code>npm run verify:shipping</code>. Require all nineteen policy/adapter assertions plus the five provider purchase-attempt audit assertions. The page and <code>POST /api/admin/shipping/simulations</code> now expose both the shipping scenario suite and a <code>purchase_audit</code> suite so operators can confirm blocked live-gate, missing-setup, dry-run, empty-packet, and packet-line audit text before launch.</p>
 <ul>
 <li><code>$19.99</code> and 3 oz stays Standard Envelope</li>
 <li><code>$20.01</code> forces Ground Advantage</li>
@@ -4275,9 +4275,10 @@ dryrun-</code></pre>
 <li>under-$20 seller-protection payout blocks delivered LetterTrack evidence, allows not-delivered review evidence, and accepts a current or previously saved explicit override note for exceptions</li>
 <li>under-$20 seller-protection status changes save LetterTrack evidence-review audit records on submitted, under-review, approved, paid, and denied statuses</li>
 <li>dry-run Standard Envelope and Ground Advantage adapter purchases behave as dry runs</li>
+<li>provider purchase-attempt audit lines preserve Standard Envelope evidence readiness, live-gate reasons, missing credential blockers, dry-run purchase status, and packet fallback text</li>
 </ul>
 <p>The dry-run Standard Envelope purchase assertion uses the active Standard Envelope rate table at run time, so it should follow the July 12, 2026 rate change without hardcoded stale postage.</p>
-<p>The page also shows a Live Shipping Approval Report. Live shipping must remain blocked unless the report says <code>ready_to_request_live_mode</code>, the setup verdict is acceptable, every live requirement is ready, and there are zero blockers. This page does not contact USPS or Coverage and does not buy postage.</p>
+<p>The page also shows Purchase Attempt Audit Coverage and a Live Shipping Approval Report. Live shipping must remain blocked unless the report says <code>ready_to_request_live_mode</code>, the setup verdict is acceptable, every live requirement is ready, and there are zero blockers. This page does not contact USPS or Coverage and does not buy postage.</p>
 <h2>35. Seller eBay Connection, Staging, Outside Orders, And Reconciliation</h2>
 <p>Seller-scoped eBay tokens and workflows are separate from the Store #1 global <code>ebay_tokens</code> connection.</p>
 <h3>Connect and stage inventory</h3>

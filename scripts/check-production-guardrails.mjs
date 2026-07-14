@@ -428,6 +428,16 @@ assertFileIncludes("shipping simulation API smoke contract", "scripts/smoke-prod
   '"under_20_seller_protection_reimbursement_allocation"',
   '"under_20_seller_protection_buyer_refund_gate"',
   '"lettertrack_csv_seller_protection_contract"',
+  '"purchase_audit"',
+  '"expected_scenario_count":5',
+  '"live_gate_blocker_evidence_ready"',
+  '"provider_setup_blocker_evidence_blocked"',
+  '"dry_run_purchase_attempt_audit_sentence"',
+  '"packet_purchase_attempt_audit_lines"',
+]);
+assertFileIncludes("shipping simulation API purchase audit source", "src/app/api/admin/shipping/simulations/route.ts", [
+  "runShippingPurchaseAttemptAuditSimulationSuite",
+  "purchase_audit",
 ]);
 assertFileIncludes("shipping simulation evidence contract validator", "src/lib/shipping-simulations.ts", [
   "isStandardEnvelopeEvidenceContractReady",
@@ -476,7 +486,17 @@ assertFileIncludes("shipping simulation lab smoke contract", "scripts/smoke-prod
   "Under-$20 seller-protection payout blocks delivered LetterTrack evidence, allows not-delivered review evidence, and accepts a current or previously saved explicit override note",
   "LetterTrack CSV rows carry the under-$20 seller-protection contract",
   "Provider setup exports state that LetterTrack / USPS IMb supplies trackable delivery evidence",
+  "Purchase Attempt Audit Coverage",
+  "live_gate_blocker_evidence_ready",
+  "provider_setup_blocker_evidence_blocked",
+  "packet_purchase_attempt_audit_lines",
   "DRY RUN STANDARD ENVELOPE PURCHASE",
+]);
+assertFileIncludes("shipping simulation lab purchase audit source", "src/app/admin/shipping/simulations/page.tsx", [
+  "runShippingPurchaseAttemptAuditSimulationSuite",
+  "Purchase Attempt Audit Coverage",
+  "Expected purchase audit scenario key manifest",
+  "purchaseAudit.scenarios.map",
 ]);
 assertFileIncludes("shipping provider setup smoke contract", "scripts/smoke-production.mjs", [
   'name: "shipping provider setup json"',
@@ -602,12 +622,17 @@ assertFileIncludes("shipping purchase attempt audit helper source", "src/lib/shi
   "Standard Envelope evidence validator:",
   "attempted_by_identity",
 ]);
-assertFileIncludes("shipping purchase attempt audit simulation source", "scripts/run-shipping-purchase-audit-simulations.ts", [
-  "live gate blocker audit keeps Standard Envelope evidence readiness",
-  "provider setup blocker audit flags blocked evidence validator and identity risk",
-  "dry-run purchase audit sentence includes provider readiness and purchase mode",
-  "empty purchase attempt audit lines are explicit for packets",
-  "packet purchase attempt audit lines include summary and details",
+assertFileIncludes("shipping purchase attempt audit simulation source", "src/lib/shipping-purchase-attempt-audit-simulations.ts", [
+  "live_gate_blocker_evidence_ready",
+  "provider_setup_blocker_evidence_blocked",
+  "dry_run_purchase_attempt_audit_sentence",
+  "empty_purchase_attempt_audit_lines",
+  "packet_purchase_attempt_audit_lines",
+  "runShippingPurchaseAttemptAuditSimulationSuite",
+]);
+assertFileIncludes("shipping purchase attempt audit simulation runner", "scripts/run-shipping-purchase-audit-simulations.ts", [
+  "runShippingPurchaseAttemptAuditSimulationSuite",
+  "Shipping purchase audit simulations:",
 ]);
 assertFileIncludes("shipping label packet purchase attempt audit source", "src/app/api/admin/shipping-labels/[id]/packet/route.ts", [
   "Provider Purchase Attempt Audit",

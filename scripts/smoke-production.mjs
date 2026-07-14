@@ -703,6 +703,10 @@ const checks = [
       result.text.includes(
         "Provider setup exports state that LetterTrack / USPS IMb supplies trackable delivery evidence",
       ) &&
+      result.text.includes("Purchase Attempt Audit Coverage") &&
+      result.text.includes("live_gate_blocker_evidence_ready") &&
+      result.text.includes("provider_setup_blocker_evidence_blocked") &&
+      result.text.includes("packet_purchase_attempt_audit_lines") &&
       result.text.includes(
         "LetterTrack CSV rows carry the under-$20 seller-protection contract",
       ) &&
@@ -731,7 +735,13 @@ const checks = [
       result.text.includes('"under_20_seller_protection_buyer_refund_gate"') &&
       result.text.includes('"lettertrack_csv_seller_protection_contract"') &&
       result.text.includes('"lettertrack_seller_protection_evidence_review_audit"') &&
-      result.text.includes('"dry_run_standard_envelope_purchase"'),
+      result.text.includes('"dry_run_standard_envelope_purchase"') &&
+      result.text.includes('"purchase_audit"') &&
+      result.text.includes('"expected_scenario_count":5') &&
+      result.text.includes('"live_gate_blocker_evidence_ready"') &&
+      result.text.includes('"provider_setup_blocker_evidence_blocked"') &&
+      result.text.includes('"dry_run_purchase_attempt_audit_sentence"') &&
+      result.text.includes('"packet_purchase_attempt_audit_lines"'),
   },
   {
     name: "shipping exceptions export",

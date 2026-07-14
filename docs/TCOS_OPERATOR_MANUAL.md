@@ -4521,7 +4521,7 @@ The shipping queue also supports priority sorting, external void records, claim 
 
 ### Shipping simulation runbook
 
-Open `/admin/shipping/simulations` or run `npm run simulate:shipping`. Require all nineteen policy/adapter assertions:
+Open `/admin/shipping/simulations` or run `npm run verify:shipping`. Require all nineteen policy/adapter assertions plus the five provider purchase-attempt audit assertions. The page and `POST /api/admin/shipping/simulations` now expose both the shipping scenario suite and a `purchase_audit` suite so operators can confirm blocked live-gate, missing-setup, dry-run, empty-packet, and packet-line audit text before launch.
 
 - `$19.99` and 3 oz stays Standard Envelope
 - `$20.01` forces Ground Advantage
@@ -4541,10 +4541,11 @@ Open `/admin/shipping/simulations` or run `npm run simulate:shipping`. Require a
 - under-$20 seller-protection payout blocks delivered LetterTrack evidence, allows not-delivered review evidence, and accepts a current or previously saved explicit override note for exceptions
 - under-$20 seller-protection status changes save LetterTrack evidence-review audit records on submitted, under-review, approved, paid, and denied statuses
 - dry-run Standard Envelope and Ground Advantage adapter purchases behave as dry runs
+- provider purchase-attempt audit lines preserve Standard Envelope evidence readiness, live-gate reasons, missing credential blockers, dry-run purchase status, and packet fallback text
 
 The dry-run Standard Envelope purchase assertion uses the active Standard Envelope rate table at run time, so it should follow the July 12, 2026 rate change without hardcoded stale postage.
 
-The page also shows a Live Shipping Approval Report. Live shipping must remain blocked unless the report says `ready_to_request_live_mode`, the setup verdict is acceptable, every live requirement is ready, and there are zero blockers. This page does not contact USPS or Coverage and does not buy postage.
+The page also shows Purchase Attempt Audit Coverage and a Live Shipping Approval Report. Live shipping must remain blocked unless the report says `ready_to_request_live_mode`, the setup verdict is acceptable, every live requirement is ready, and there are zero blockers. This page does not contact USPS or Coverage and does not buy postage.
 
 ## 35. Seller eBay Connection, Staging, Outside Orders, And Reconciliation
 
