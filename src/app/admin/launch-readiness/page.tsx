@@ -1181,6 +1181,11 @@ export default async function LaunchReadinessPage() {
                 {DEPLOY_SAFETY.quotaBlockCode}
               </code>
               , {DEPLOY_SAFETY.quotaResetInstruction}{" "}
+              Check the exact local retry time with{" "}
+              <code className="rounded bg-white px-1 py-0.5">
+                {DEPLOY_SAFETY.quotaStatusCommand}
+              </code>
+              . {DEPLOY_SAFETY.quotaStatusDescription}{" "}
               {DEPLOY_SAFETY.quotaUploadWarning} Marker:{" "}
               <code className="rounded bg-white px-1 py-0.5">
                 {DEPLOY_SAFETY.quotaCooldownMarkerPath}
@@ -1244,6 +1249,7 @@ git status --short
 git rev-parse --short HEAD
 git rev-parse --short origin/main
 git log -5 --oneline
+npm run status:production
 npm run verify:production
 npm run check:production-guardrails
 npm run preflight:production`}
@@ -1265,6 +1271,12 @@ npm run preflight:production`}
 
           <div className="rounded border border-blue-200 bg-white p-4">
             <h3 className="font-bold">2. Deploy and smoke production</h3>
+            <p className="mt-3 text-sm font-semibold">
+              Before the retry time, use the read-only quota check:
+            </p>
+            <pre className="mt-3 overflow-x-auto rounded bg-neutral-950 p-3 text-xs text-neutral-50">
+              {DEPLOY_SAFETY.quotaStatusCommand}
+            </pre>
             <pre className="mt-3 overflow-x-auto rounded bg-neutral-950 p-3 text-xs text-neutral-50">
               {`npm run launch:production`}
             </pre>

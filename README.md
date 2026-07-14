@@ -46,6 +46,8 @@ The production go/no-go ladder is: verify the pushed stack with `npm run verify:
 
 During recurring development blocks, `npm run status:production` is the read-only quota check. It prints the exact blocked/retry timestamps, approximate remaining cooldown, marker path, and `Vercel upload started: no` without fetching Git or starting a deployment.
 
+Launch-readiness JSON/Markdown, the handoff bundle, the Launch Readiness page, and the Production Smoke Report all publish the shared read-only quota command and description. Production smoke protects that operator handoff from drifting.
+
 For operator handoff, `/api/admin/launch-readiness` exposes `brief.deploySafety` in JSON, including `brief.deploySafety.sequence`, local quota cooldown marker path, and intentional retry override env/flag. It also exposes `brief.sellerMarketplaceReceiptHandoff` with the Seller Connections proof route, proof text, required receipt controls, covered operations, and safe-use boundary. `/api/admin/launch-readiness?format=markdown` plus `/api/admin/launch-readiness?format=handoff-bundle` include the same `Production Deploy Safety`, Seller Marketplace Receipt Handoff, and go/no-go reminders.
 
 ## Local development

@@ -485,6 +485,7 @@ const checks = [
       result.text.includes("git log -5 --oneline") &&
       result.text.includes("npm run check:production-guardrails") &&
       result.text.includes("npm run preflight:production") &&
+      result.text.includes("npm run status:production") &&
       result.text.includes("npm run launch:production") &&
       result.text.includes("twenty-scenario shipping simulation suite") &&
       result.text.includes("LetterTrack evidence checks") &&
@@ -540,6 +541,8 @@ const checks = [
       result.text.includes('"purchaseAttemptAuditUnexpectedScenarioKeys":[]') &&
       result.text.includes('"quotaBlockCode":"api-deployments-free-per-day"') &&
       result.text.includes('"quotaCooldownMarkerPath":".codex-run/vercel-quota-block.json"') &&
+      result.text.includes('"quotaStatusCommand":"npm run status:production"') &&
+      result.text.includes('"quotaStatusDescription"') &&
       result.text.includes('"quotaRetryOverrideEnv":"TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true"') &&
       result.text.includes('"quotaRetryOverrideFlag":"--force-quota-retry"') &&
       result.text.includes('"quotaUploadWarning"') &&
@@ -582,6 +585,8 @@ const checks = [
       result.text.includes("rolling 24-hour quota reset") &&
       result.text.includes("Vercel can still upload files before returning the quota error") &&
       result.text.includes(".codex-run/vercel-quota-block.json") &&
+      result.text.includes("npm run status:production") &&
+      result.text.includes("Read-only local cooldown check with exact blocked/retry timestamps") &&
       result.text.includes("TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true") &&
       result.text.includes("--force-quota-retry") &&
       result.text.includes("deploy live safety contract") &&
@@ -682,6 +687,8 @@ const checks = [
       "api-deployments-free-per-day",
       "rolling 24-hour quota reset",
       "Vercel can still upload files before returning the quota error",
+      "npm run status:production",
+      "Read-only local cooldown check with exact blocked/retry timestamps",
       ".codex-run/vercel-quota-block.json",
       "TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true",
       "--force-quota-retry",
@@ -699,6 +706,7 @@ const checks = [
       "deployed URL output",
       "clean URL output",
       "npm run launch:production",
+      "npm run status:production",
     ],
     expect: (result) =>
       result.text.includes("Production Smoke Report") &&
@@ -882,6 +890,7 @@ const checks = [
       "git log -5 --oneline",
       "## Production Deploy Commands",
       "npm run verify:production",
+      "npm run status:production",
       "npm run launch:production",
       "npm run deploy:production",
       "npm run smoke:production",
@@ -927,6 +936,7 @@ const checks = [
       result.text.includes("## Production Deploy Commands") &&
       result.text.includes("npm run verify:production") &&
       result.text.includes("npm run launch:production") &&
+      result.text.includes("npm run status:production") &&
       result.text.includes("npm run deploy:production") &&
       result.text.includes("npm run smoke:production") &&
       result.text.includes("api-deployments-free-per-day") &&

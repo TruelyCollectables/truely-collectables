@@ -73,6 +73,7 @@ The read-only quota status helper:
 - prints the exact blocked/retry timestamps, approximate remaining cooldown, marker path, local retry verdict, and `Vercel upload started: no`;
 - is the safe quota check between recurring development blocks.
 - protects the real `.codex-run/vercel-quota-block.json` marker by refusing cooldown self-tests unless `TCOS_VERCEL_QUOTA_MARKER_PATH` names an explicit temporary file.
+- publishes the shared `quotaStatusCommand` and read-only description through launch-readiness JSON/Markdown, the handoff bundle, Launch Readiness, and Production Smoke Report surfaces; production smoke guards the handoff.
 
 The preflight helper:
 

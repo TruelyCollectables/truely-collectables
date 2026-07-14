@@ -296,12 +296,54 @@ assertFileIncludes("quota status README instructions", "README.md", [
   "exact blocked/retry timestamps",
   "Vercel upload started: no",
 ]);
+assertFileIncludes("quota status shared deploy contract", "src/lib/deploy-safety.ts", [
+  'quotaStatusCommand: "npm run status:production"',
+  "quotaStatusDescription:",
+  "Read-only local cooldown check with exact blocked/retry timestamps and no Git fetch, build, Vercel upload, or deployment.",
+  "read-only quota status via npm run status:production",
+]);
+assertFileIncludes(
+  "quota status launch readiness exports",
+  "src/app/api/admin/launch-readiness/route.ts",
+  [
+    "DEPLOY_SAFETY.quotaStatusCommand",
+    "DEPLOY_SAFETY.quotaStatusDescription",
+    "Check the local Vercel cooldown",
+    "starts no upload or deployment",
+  ],
+);
+assertFileIncludes(
+  "quota status launch readiness page",
+  "src/app/admin/launch-readiness/page.tsx",
+  [
+    "DEPLOY_SAFETY.quotaStatusCommand",
+    "DEPLOY_SAFETY.quotaStatusDescription",
+    "Before the retry time, use the read-only quota check",
+  ],
+);
+assertFileIncludes(
+  "quota status production smoke page",
+  "src/app/admin/production-smoke/page.tsx",
+  [
+    "DEPLOY_SAFETY.quotaStatusCommand",
+    "DEPLOY_SAFETY.quotaStatusDescription",
+    "exact read-only local retry status",
+  ],
+);
+assertFileIncludes("quota status production smoke coverage", "scripts/smoke-production.mjs", [
+  '"quotaStatusCommand":"npm run status:production"',
+  '"quotaStatusDescription"',
+  "Read-only local cooldown check with exact blocked/retry timestamps",
+  "npm run status:production",
+]);
 assertFileIncludes("quota status operator instructions", "docs/TCOS_OPERATOR_MANUAL.md", [
   "npm run status:production",
   "exact block and retry timestamps",
   "Vercel upload started: no",
   "TCOS_PRODUCTION_QUOTA_STATUS_ONLY=true",
   "self-test must never use the production marker path",
+  "launch-readiness JSON and Markdown",
+  "Production smoke verifies those surfaces retain `npm run status:production`",
 ]);
 assertFileIncludes(
   "printable quota status operator instructions",
@@ -312,6 +354,8 @@ assertFileIncludes(
     "Vercel upload started: no",
     "TCOS_PRODUCTION_QUOTA_STATUS_ONLY=true",
     "self-test must never use the production marker path",
+    "launch-readiness JSON and Markdown",
+    "Production smoke verifies those surfaces retain <code>npm run status:production</code>",
   ],
 );
 runExpectedSuccess("smoke helper syntax check", [

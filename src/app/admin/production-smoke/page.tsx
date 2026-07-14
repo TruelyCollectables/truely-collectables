@@ -172,6 +172,9 @@ export default function ProductionSmokePage() {
             <code>{DEPLOY_SAFETY.smokeCommand}</code> handoff intact. If Vercel returns{" "}
             <code>{DEPLOY_SAFETY.quotaBlockCode}</code>,{" "}
             {DEPLOY_SAFETY.quotaResetInstruction}{" "}
+            Use the exact read-only local retry status command{" "}
+            <code>{DEPLOY_SAFETY.quotaStatusCommand}</code>.{" "}
+            {DEPLOY_SAFETY.quotaStatusDescription}{" "}
             {DEPLOY_SAFETY.quotaUploadWarning} Marker:{" "}
             <code>{DEPLOY_SAFETY.quotaCooldownMarkerPath}</code>. Override only
             intentionally with <code>{DEPLOY_SAFETY.quotaRetryOverrideEnv}</code>{" "}

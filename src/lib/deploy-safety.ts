@@ -8,6 +8,9 @@ export const DEPLOY_SAFETY = {
   quotaResetInstruction:
     "Wait for the rolling 24-hour quota reset before retrying npm run launch:production.",
   quotaCooldownMarkerPath: ".codex-run/vercel-quota-block.json",
+  quotaStatusCommand: "npm run status:production",
+  quotaStatusDescription:
+    "Read-only local cooldown check with exact blocked/retry timestamps and no Git fetch, build, Vercel upload, or deployment.",
   quotaRetryOverrideEnv: "TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true",
   quotaRetryOverrideFlag: "--force-quota-retry",
   quotaUploadWarning:
@@ -15,6 +18,7 @@ export const DEPLOY_SAFETY = {
   contract: [
     "Vercel quota messaging",
     "local Vercel quota cooldown marker",
+    "read-only quota status via npm run status:production",
     "unwanted alias removal for truely-collectables-tt3b.vercel.app",
     "clean-domain aliasing",
     "deployed URL output",
