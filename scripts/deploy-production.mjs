@@ -16,6 +16,9 @@ const unwantedAlias =
 const preflightOnly =
   process.argv.includes("--preflight-only") ||
   process.env.TCOS_PRODUCTION_PREFLIGHT_ONLY === "true";
+const quotaStatusOnly =
+  process.argv.includes("--quota-status") ||
+  process.env.TCOS_PRODUCTION_QUOTA_STATUS_ONLY === "true";
 const redactionSelfTest = process.argv.includes("--self-test-redaction");
 const quotaCooldownSelfTest = process.argv.includes("--self-test-quota-cooldown");
 const quotaRetryOverride =
@@ -130,17 +133,27 @@ function formatCooldownRemaining(remainingMs) {
   return `${hours}h ${minutes}m`;
 }
 
-function assertNoRecentQuotaBlock() {
+function getQuotaCooldownStatus(nowMs = Date.now()) {
   if (quotaRetryOverride) {
-    console.log(
-      "Bypassing local Vercel quota cooldown because TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true or --force-quota-retry was provided.",
-    );
-    return;
+    return {
+      state: "override",
+      canRetry: true,
+      reason: "intentional retry override",
+      blockedAt: null,
+      retryAt: null,
+      remaining: null,
+    };
   }
 
   if (!Number.isFinite(quotaCooldownHours) || quotaCooldownHours <= 0) {
-    console.log("Local Vercel quota cooldown disabled by TCOS_VERCEL_QUOTA_COOLDOWN_HOURS.");
-    return;
+    return {
+      state: "disabled",
+      canRetry: true,
+      reason: "local cooldown disabled",
+      blockedAt: null,
+      retryAt: null,
+      remaining: null,
+    };
   }
 
   const marker = readQuotaBlockMarker();
@@ -149,20 +162,74 @@ function assertNoRecentQuotaBlock() {
       ? Date.parse(marker.blockedAt)
       : NaN;
 
-  if (!Number.isFinite(blockedAt)) return;
+  if (!Number.isFinite(blockedAt)) {
+    return {
+      state: marker ? "invalid_marker" : "open",
+      canRetry: true,
+      reason: marker ? "quota marker has no valid blockedAt timestamp" : "no quota marker",
+      blockedAt: null,
+      retryAt: null,
+      remaining: null,
+    };
+  }
 
   const cooldownMs = quotaCooldownHours * 60 * 60 * 1000;
-  const ageMs = Date.now() - blockedAt;
+  const retryAt = blockedAt + cooldownMs;
+  const remainingMs = retryAt - nowMs;
 
-  if (ageMs >= cooldownMs) {
+  return {
+    state: remainingMs > 0 ? "blocked" : "expired",
+    canRetry: remainingMs <= 0,
+    reason: marker.reason || "quota",
+    blockedAt: new Date(blockedAt).toISOString(),
+    retryAt: new Date(retryAt).toISOString(),
+    remaining: remainingMs > 0 ? formatCooldownRemaining(remainingMs) : null,
+  };
+}
+
+function printQuotaCooldownStatus() {
+  const status = getQuotaCooldownStatus();
+
+  console.log("Production deploy quota status:");
+  console.log(`- state: ${status.state}`);
+  console.log(`- deployment retry allowed by local cooldown: ${status.canRetry ? "yes" : "no"}`);
+  console.log(`- reason: ${status.reason}`);
+  if (status.blockedAt) console.log(`- blocked at: ${status.blockedAt}`);
+  if (status.retryAt) console.log(`- retry at or after: ${status.retryAt}`);
+  if (status.remaining) console.log(`- approximate remaining: ${status.remaining}`);
+  console.log(`- marker: ${quotaBlockMarkerPath}`);
+  console.log("- Vercel upload started: no");
+  console.log(
+    status.canRetry
+      ? "- next: run npm run launch:production after normal verification"
+      : "- next: keep building locally and rerun npm run status:production after the retry time",
+  );
+}
+
+function assertNoRecentQuotaBlock() {
+  const status = getQuotaCooldownStatus();
+
+  if (status.state === "override") {
+    console.log(
+      "Bypassing local Vercel quota cooldown because TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true or --force-quota-retry was provided.",
+    );
+    return;
+  }
+
+  if (status.state === "disabled") {
+    console.log("Local Vercel quota cooldown disabled by TCOS_VERCEL_QUOTA_COOLDOWN_HOURS.");
+    return;
+  }
+
+  if (status.state === "expired") {
     console.log("Local Vercel quota cooldown marker has expired; retrying deploy.");
     return;
   }
 
-  const remaining = formatCooldownRemaining(cooldownMs - ageMs);
+  if (status.canRetry) return;
 
   throw new Error(
-    `Recent Vercel deployment quota block recorded at ${new Date(blockedAt).toISOString()} (${marker.reason || "quota"}). No Vercel upload was started. Wait about ${remaining}, or set TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true / pass --force-quota-retry if you intentionally want to retry sooner.`,
+    `Recent Vercel deployment quota block recorded at ${status.blockedAt} (${status.reason}). No Vercel upload was started. Retry at or after ${status.retryAt} (about ${status.remaining}), or set TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true / pass --force-quota-retry if you intentionally want to retry sooner.`,
   );
 }
 
@@ -176,6 +243,18 @@ function runQuotaCooldownSelfTest() {
       reason: "api-deployments-free-per-day",
     })}\n`,
   );
+
+  const activeStatus = getQuotaCooldownStatus();
+  if (
+    activeStatus.state !== "blocked" ||
+    activeStatus.canRetry ||
+    !activeStatus.retryAt ||
+    !activeStatus.remaining
+  ) {
+    throw new Error(
+      `Quota cooldown self-test returned invalid active status: ${JSON.stringify(activeStatus)}`,
+    );
+  }
 
   try {
     assertNoRecentQuotaBlock();
@@ -198,6 +277,12 @@ function runQuotaCooldownSelfTest() {
       reason: "api-deployments-free-per-day",
     })}\n`,
   );
+  const expiredStatus = getQuotaCooldownStatus();
+  if (expiredStatus.state !== "expired" || !expiredStatus.canRetry) {
+    throw new Error(
+      `Quota cooldown self-test returned invalid expired status: ${JSON.stringify(expiredStatus)}`,
+    );
+  }
   assertNoRecentQuotaBlock();
   removeQuotaBlockMarker();
   console.log("Production deploy quota cooldown self-test passed.");
@@ -338,6 +423,11 @@ if (redactionSelfTest) {
 
 if (quotaCooldownSelfTest) {
   runQuotaCooldownSelfTest();
+  process.exit(0);
+}
+
+if (quotaStatusOnly) {
+  printQuotaCooldownStatus();
   process.exit(0);
 }
 

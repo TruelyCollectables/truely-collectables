@@ -254,6 +254,57 @@ runExpectedSuccess(
       "/tmp/tcos-vercel-quota-block-self-test.json",
   },
 );
+runExpectedSuccess(
+  "deploy helper read-only quota status",
+  ["scripts/deploy-production.mjs", "--quota-status"],
+  {
+    TCOS_VERCEL_QUOTA_MARKER_PATH:
+      "/tmp/tcos-vercel-quota-status-guardrail.json",
+  },
+);
+assertFileIncludes(
+  "deploy helper read-only quota status contract",
+  "scripts/deploy-production.mjs",
+  [
+    "--quota-status",
+    "TCOS_PRODUCTION_QUOTA_STATUS_ONLY",
+    "Production deploy quota status:",
+    "deployment retry allowed by local cooldown",
+    "retry at or after:",
+    "approximate remaining:",
+    "Vercel upload started: no",
+    "npm run status:production",
+  ],
+);
+assertFileIncludes("quota status runbook instructions", "docs/PRODUCTION_DEPLOY_RUNBOOK.md", [
+  "npm run status:production",
+  "without fetching Git, building, uploading, or starting a deployment",
+  "exact blocked/retry timestamps",
+  "Vercel upload started: no",
+  "TCOS_PRODUCTION_QUOTA_STATUS_ONLY=true",
+]);
+assertFileIncludes("quota status README instructions", "README.md", [
+  "npm run status:production",
+  "read-only quota check",
+  "exact blocked/retry timestamps",
+  "Vercel upload started: no",
+]);
+assertFileIncludes("quota status operator instructions", "docs/TCOS_OPERATOR_MANUAL.md", [
+  "npm run status:production",
+  "exact block and retry timestamps",
+  "Vercel upload started: no",
+  "TCOS_PRODUCTION_QUOTA_STATUS_ONLY=true",
+]);
+assertFileIncludes(
+  "printable quota status operator instructions",
+  "docs/TCOS_OPERATOR_MANUAL_PRINT.html",
+  [
+    "npm run status:production",
+    "exact block and retry timestamps",
+    "Vercel upload started: no",
+    "TCOS_PRODUCTION_QUOTA_STATUS_ONLY=true",
+  ],
+);
 runExpectedSuccess("smoke helper syntax check", [
   "--check",
   "scripts/smoke-production.mjs",
@@ -274,6 +325,9 @@ assertScriptIncludes("verify:shipping", [
   "simulate:lettertrack-evidence",
   "simulate:shipping-purchase-audit",
   "simulate:shipping",
+]);
+assertScriptIncludes("status:production", [
+  "node scripts/deploy-production.mjs --quota-status",
 ]);
 assertScriptIncludes("verify:production", [
   "verify:instacomp",

@@ -32,6 +32,14 @@ npm run preflight:production
 This refreshes `origin/main`, blocks uncommitted deploy-relevant changes, and confirms local `HEAD` matches GitHub without starting a deployment.
 The deploy helper also honors `TCOS_PRODUCTION_PREFLIGHT_ONLY=true` as an environment-flag equivalent to `--preflight-only`; production guardrails protect that no-deploy path.
 
+To check the local Vercel quota cooldown without fetching Git, building, uploading, or starting a deployment:
+
+```bash
+npm run status:production
+```
+
+This prints whether the local cooldown permits a retry, the recorded quota reason, exact blocked/retry timestamps, approximate remaining time, marker path, and an explicit `Vercel upload started: no` confirmation. The command is the safe check for recurring development blocks; keep building locally while it reports `state: blocked`. `TCOS_PRODUCTION_QUOTA_STATUS_ONLY=true node scripts/deploy-production.mjs` is the environment-flag equivalent.
+
 To run the full quota-safe production readiness check:
 
 ```bash
@@ -72,6 +80,8 @@ The deploy helper:
 The production guardrail suite locks this live deploy behavior in place: quota blocks must mention `api-deployments-free-per-day` and tell the operator to wait for the rolling 24-hour reset, the helper must write the local quota cooldown marker and stop future attempts before upload unless `TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true` or `--force-quota-retry` is set, the unwanted alias removal command must stay wired, the clean production alias command must stay wired, and the helper must keep printing the deployed/clean URLs before handing off to `npm run smoke:production`. The protected live deploy sequence is: remove the unwanted `truely-collectables-tt3b.vercel.app` alias, set the clean production alias, print `DEPLOYED_PRODUCTION=`, print `CLEAN_PRODUCTION=https://`, then print the smoke handoff command.
 
 If Vercel reports `api-deployments-free-per-day`, wait for the rolling quota window to reset, then rerun the same command. Do not rapid-fire retries while capped; Vercel can still accept the upload stream before returning the quota error, so repeated attempts waste operator time without producing a deploy. If a recent quota marker exists, the deploy helper exits before calling `vercel --prod`; override only when you intentionally want to test whether the rolling window reopened early.
+
+Use `npm run status:production` between development blocks to see the exact retry timestamp without consuming deployment quota.
 
 ## Production go/no-go ladder
 

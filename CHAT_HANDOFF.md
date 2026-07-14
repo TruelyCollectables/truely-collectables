@@ -66,6 +66,13 @@ The deploy helper:
 - points `https://truely-collectables.vercel.app` at the new production deployment;
 - prints deployed/clean URL output and the `npm run smoke:production` handoff.
 
+The read-only quota status helper:
+
+- runs through `npm run status:production`;
+- reads only the local quota marker and starts no Git fetch, build, Vercel upload, or deployment;
+- prints the exact blocked/retry timestamps, approximate remaining cooldown, marker path, local retry verdict, and `Vercel upload started: no`;
+- is the safe quota check between recurring development blocks.
+
 The preflight helper:
 
 - runs the same Git/clean-worktree checks through `npm run preflight:production`;
