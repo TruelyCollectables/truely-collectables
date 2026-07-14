@@ -38,7 +38,7 @@ To run the full quota-safe production readiness check:
 npm run verify:production
 ```
 
-This runs lint, the InstaComp queue and accuracy simulations, the LetterTrack evidence checks, the fifteen-scenario shipping simulation suite, build, and the production preflight without starting a Vercel deployment.
+This runs lint, the InstaComp queue and accuracy simulations, the LetterTrack evidence checks, the sixteen-scenario shipping simulation suite, build, and the production preflight without starting a Vercel deployment.
 It also runs `npm run check:production-guardrails`, which syntax-checks the production deploy/smoke helpers and shipping simulation runner, verifies the package script chain still includes the required shipping/production/launch commands, verifies the named smoke contracts for launch readiness, Launch Gate Drill, production smoke, live payment/shipping gates, admin shipping controls, shipping simulations, shipping provider exports, LetterTrack CSV, and shipping exceptions, verifies the named `queued-feature smoke manifest` rejects unknown or duplicate check names, verifies the deploy preflight env-flag path, verifies the live deploy safety contract for Vercel quota messaging, unwanted alias removal, clean-domain aliasing, and post-deploy smoke handoff, verifies smoke/deploy/guardrail diagnostic redaction self-tests, and verifies the clean production domain cannot be confused with the unwanted `truely-collectables-tt3b.vercel.app` alias.
 
 ## Deploy
@@ -49,7 +49,7 @@ For the normal launch path, run the one-shot command:
 npm run launch:production
 ```
 
-This runs lint, InstaComp regression simulations, LetterTrack evidence checks, the fifteen-scenario shipping simulation suite, build, production guardrail checks, production preflight, production deploy, and production smoke in order.
+This runs lint, InstaComp regression simulations, LetterTrack evidence checks, the sixteen-scenario shipping simulation suite, build, production guardrail checks, production preflight, production deploy, and production smoke in order.
 
 If you need to run the steps separately, deploy first:
 
@@ -80,7 +80,7 @@ After a successful deploy:
 npm run smoke:production
 ```
 
-The smoke helper logs in with `SMOKE_ADMIN_PASSWORD`, `ADMIN_PASSWORD`, or the local `.env.local` `ADMIN_PASSWORD`, then checks the production admin/readiness/shipping launch surfaces, including the Shipping Simulation Lab page that renders the fifteen policy/adapter scenarios. It also POSTs `/api/admin/shipping/simulations` and requires the JSON response to report fifteen expected scenarios, passed count/key coverage, no missing or unexpected scenario keys, and the under-$20 cap math, LetterTrack seller-protection CSV contract, evidence-audit, plus dry-run envelope purchase scenarios.
+The smoke helper logs in with `SMOKE_ADMIN_PASSWORD`, `ADMIN_PASSWORD`, or the local `.env.local` `ADMIN_PASSWORD`, then checks the production admin/readiness/shipping launch surfaces, including the Shipping Simulation Lab page that renders the sixteen policy/adapter scenarios. It also POSTs `/api/admin/shipping/simulations` and requires the JSON response to report sixteen expected scenarios, passed count/key coverage, no missing or unexpected scenario keys, and the under-$20 cap/allocation math, LetterTrack seller-protection CSV contract, evidence-audit, plus dry-run envelope purchase scenarios.
 
 Before reporting commit context, smoke refreshes `origin/main` with `git fetch origin main`. Smoke requests default to a 15-second timeout and report per-check, slowest-check, and total request duration. Override with `SMOKE_REQUEST_TIMEOUT_MS` if production is slow but still healthy. Failed-check response/error snippets redact key-shaped Stripe, webhook, JWT, Resend, auth-header, query-token, and JSON secret values before printing. The deploy and production guardrail helpers run the same diagnostic-redaction self-test family so command-output failures also avoid leaking secret-shaped values.
 

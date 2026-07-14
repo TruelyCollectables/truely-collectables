@@ -19,9 +19,12 @@ import {
   evaluateLetterTrackSellerProtectionPaymentGate,
   shouldRecordLetterTrackSellerProtectionEvidenceReview,
 } from "./lettertrack-delivery-evidence";
-import { buildUnder20SellerProtectionClaimSummary } from "./under20-seller-protection-claims";
+import {
+  buildUnder20SellerProtectionClaimSummary,
+  buildUnder20SellerProtectionReimbursementPlan,
+} from "./under20-seller-protection-claims";
 
-export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-14.2";
+export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-14.3";
 export const SHIPPING_SIMULATION_EXPECTED_SCENARIO_KEYS = [
   "standard_envelope_under_20_and_3oz",
   "standard_envelope_over_20_forces_ground_advantage",
@@ -30,6 +33,7 @@ export const SHIPPING_SIMULATION_EXPECTED_SCENARIO_KEYS = [
   "under_20_seller_protection_opted_in_item_only",
   "under_20_seller_protection_not_opted_in_seller_liability",
   "under_20_seller_protection_caps_mixed_rows",
+  "under_20_seller_protection_reimbursement_allocation",
   "shipping_adapter_profiles_are_auditable",
   "lettertrack_standard_envelope_export",
   "lettertrack_csv_seller_protection_contract",
@@ -243,9 +247,11 @@ export async function runShippingSimulationSuite() {
     subtotal: 6.75,
     sellerOptedIn: false,
   });
-  const cappedClaim = buildUnder20SellerProtectionClaimSummary([
+  const cappedRows = [
     {
       id: "sim-ledger-protected-a",
+      order_item_id: 2001,
+      seller_account_id: "seller-a",
       gross_item_amount: 14.25,
       shipping_allocated_amount: 0.78,
       metadata: {
@@ -254,6 +260,8 @@ export async function runShippingSimulationSuite() {
     },
     {
       id: "sim-ledger-protected-b",
+      order_item_id: 2002,
+      seller_account_id: "seller-b",
       gross_item_amount: 12.5,
       shipping_allocated_amount: 0.58,
       metadata: {
@@ -262,13 +270,16 @@ export async function runShippingSimulationSuite() {
     },
     {
       id: "sim-ledger-unprotected-mixed",
+      order_item_id: 2003,
+      seller_account_id: "seller-c",
       gross_item_amount: 6.75,
       shipping_allocated_amount: 0.23,
       metadata: {
         under_20_seller_protection: cappedUnprotected,
       },
     },
-  ]);
+  ];
+  const cappedClaim = buildUnder20SellerProtectionClaimSummary(cappedRows);
   scenarios.push({
     scenario_key: "under_20_seller_protection_caps_mixed_rows",
     scenario_status: pass(
@@ -288,6 +299,51 @@ export async function runShippingSimulationSuite() {
       protected_fee_total:
         cappedProtectedA.feeAmount + cappedProtectedB.feeAmount,
       unprotected_fee: cappedUnprotected.feeAmount,
+    },
+  });
+  const allocationPlan = buildUnder20SellerProtectionReimbursementPlan({
+    rows: [
+      cappedRows[0],
+      cappedRows[2],
+      {
+        id: "sim-ledger-protected-missing-seller",
+        order_item_id: 2004,
+        seller_account_id: null,
+        gross_item_amount: 9.75,
+        shipping_allocated_amount: 0.42,
+        metadata: {
+          under_20_seller_protection: getUnder20SellerProtection({
+            method: "STANDARD_ENVELOPE",
+            subtotal: 9.75,
+            sellerOptedIn: true,
+          }),
+        },
+      },
+      cappedRows[1],
+    ],
+    reimbursableAmount: cappedClaim.reimbursableItemAmount,
+  });
+  scenarios.push({
+    scenario_key: "under_20_seller_protection_reimbursement_allocation",
+    scenario_status: pass(
+      allocationPlan.requestedReimbursableAmount === 20 &&
+        allocationPlan.reimbursedAmount === 20 &&
+        allocationPlan.remainingAmount === 0 &&
+        allocationPlan.allocations.length === 2 &&
+        allocationPlan.allocations[0]?.amount === 14.25 &&
+        allocationPlan.allocations[1]?.amount === 5.75 &&
+        allocationPlan.allocations.every(
+          (allocation) => allocation.sellerAccountId.length > 0,
+        ) &&
+        allocationPlan.skippedRowIds.includes("sim-ledger-unprotected-mixed") &&
+        allocationPlan.skippedRowIds.includes(
+          "sim-ledger-protected-missing-seller",
+        ),
+    ),
+    detail:
+      "Seller-protection Mark Paid allocation creates credits only for payable seller rows, stops at the $20 cap, skips unprotected/missing-seller rows, and keeps shipping excluded.",
+    assertions: {
+      allocation_plan: allocationPlan,
     },
   });
 

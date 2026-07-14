@@ -12,7 +12,10 @@ import {
 import { isDryRunShippingLabel } from "../../../../../lib/shipping-dry-run";
 import { getActiveStoreId } from "../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
-import { under20ProtectionFromMetadata } from "../../../../../lib/under20-seller-protection-claims";
+import {
+  buildUnder20SellerProtectionReimbursementPlan,
+  type Under20SellerProtectionReimbursementRow,
+} from "../../../../../lib/under20-seller-protection-claims";
 
 export const dynamic = "force-dynamic";
 
@@ -208,47 +211,39 @@ async function createSellerProtectionReimbursement(params: {
     );
   }
 
-  let remaining = reimbursableAmount;
   let insertedCount = 0;
-  let reimbursedAmount = 0;
+  const reimbursementPlan = buildUnder20SellerProtectionReimbursementPlan({
+    rows: rows as Under20SellerProtectionReimbursementRow[],
+    reimbursableAmount,
+  });
 
-  for (const row of rows) {
-    if (remaining <= 0) break;
-
-    const protection = under20ProtectionFromMetadata(row.metadata);
-    const rowAmount = Math.min(
-      moneyNumber(protection.coveredAmount),
-      remaining,
-    );
-
-    if (rowAmount <= 0 || !row.seller_account_id) continue;
-
+  for (const allocation of reimbursementPlan.allocations) {
     const { data: inserted, error: insertError } = await params.supabase
       .from("financial_adjustment_ledger_entries")
       .upsert(
         {
           store_id: params.storeId,
           order_id: params.claim.order_id,
-          order_item_id: row.order_item_id,
-          seller_account_id: row.seller_account_id,
+          order_item_id: allocation.orderItemId,
+          seller_account_id: allocation.sellerAccountId,
           provider: "tcos_internal",
           provider_event_id: `coverage_claim:${params.claim.id}:paid`,
           provider_object_id:
             params.claim.provider_claim_id || params.claim.id,
-          economic_key: `seller_protection:${params.claim.id}:${row.id}`,
+          economic_key: `seller_protection:${params.claim.id}:${allocation.rowId}`,
           entry_type: "seller_protection_reimbursement",
           ledger_account: "seller_payable",
           balance_effect: "credit",
-          amount: rowAmount,
+          amount: allocation.amount,
           currency: "USD",
           metadata: {
             claim_id: params.claim.id,
-            base_seller_payout_row_id: row.id,
+            base_seller_payout_row_id: allocation.rowId,
             coverage_basis: "item_sale_amount_excluding_shipping",
             reimburses_shipping: false,
-            shipping_excluded_amount: moneyNumber(
-              row.shipping_allocated_amount,
-            ),
+            shipping_excluded_amount: allocation.shippingExcludedAmount,
+            protected_row_covered_amount: allocation.coveredAmount,
+            reimbursement_plan: reimbursementPlan,
             created_by_identity: params.identity,
             created_at: params.now,
           },
@@ -261,14 +256,13 @@ async function createSellerProtectionReimbursement(params: {
     if (insertError) throw insertError;
 
     if (inserted?.id) insertedCount += 1;
-    reimbursedAmount += rowAmount;
-    remaining = moneyNumber(remaining - rowAmount);
   }
 
   return {
     required: true,
     insertedCount,
-    reimbursedAmount: moneyNumber(reimbursedAmount),
+    reimbursedAmount: reimbursementPlan.reimbursedAmount,
+    reimbursementPlan,
     detail:
       insertedCount > 0
         ? "TCOS seller-protection reimbursement adjustment was created for protected item amount only. Shipping was excluded."
