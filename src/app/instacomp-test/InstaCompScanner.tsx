@@ -5,7 +5,7 @@ import {
   getAccountSession,
   type StoredAccountSession,
 } from "@/src/app/account/account-session";
-import { serialRunDisplayLabel } from "@/src/lib/instacomp-serial";
+import { buildInstaCompDraftTitle } from "@/src/lib/instacomp-draft-title";
 
 type AiResult = {
   player: string | null;
@@ -1348,21 +1348,7 @@ function shortDateTime(value: string | null | undefined) {
 
 function cardResultTitle(result: ScanResponse | null, fallback: string) {
   if (!result) return fallback;
-  const serialRun = serialRunDisplayLabel(result.ai.serialNumber);
-
-  return (
-    [
-      result.ai.year,
-      result.ai.brand,
-      result.ai.setName,
-      result.ai.player,
-      result.ai.parallel,
-      result.ai.cardNumber ? `#${result.ai.cardNumber}` : null,
-      serialRun,
-    ]
-      .filter(Boolean)
-      .join(" ") || fallback
-  );
+  return buildInstaCompDraftTitle(result.ai, fallback);
 }
 
 function draftTitleForCard(card: BatchCard) {

@@ -792,6 +792,31 @@ assertFileIncludes("shipping purchase attempt audit simulation runner", "scripts
   "missing_scenario_keys",
   "unexpected_scenario_keys",
 ]);
+assertFileIncludes("instacomp shared draft title contract", "src/lib/instacomp-draft-title.ts", [
+  "buildInstaCompDraftTitle",
+  "serialRunDisplayLabel",
+  "ai?.isRookie ? \"Rookie\"",
+  "serialRun",
+]);
+assertFileIncludes("instacomp server draft title contract", "src/app/api/instacomp/draft-listings/route.ts", [
+  "buildInstaCompDraftTitle",
+  "function titleFromAi",
+  "return buildInstaCompDraftTitle(ai, fallback);",
+]);
+assertFileIncludes("instacomp scanner draft title callers", "src/app/admin/instacomp/InstaCompScanner.tsx", [
+  "buildInstaCompDraftTitle",
+  "return buildInstaCompDraftTitle(result.ai, fallback);",
+]);
+assertFileIncludes("instacomp test scanner draft title callers", "src/app/instacomp-test/InstaCompScanner.tsx", [
+  "buildInstaCompDraftTitle",
+  "return buildInstaCompDraftTitle(result.ai, fallback);",
+]);
+assertFileIncludes("instacomp accuracy draft title simulations", "scripts/run-instacomp-accuracy-simulations.mjs", [
+  "buildInstaCompDraftTitle",
+  "draft title uses print run instead of exact serial",
+  "draft title preserves true one-of-one",
+  "invalid serial is omitted from draft title",
+]);
 assertFileIncludes("shipping label packet purchase attempt audit source", "src/app/api/admin/shipping-labels/[id]/packet/route.ts", [
   "Provider Purchase Attempt Audit",
   "shippingPurchaseAttemptAuditLines",

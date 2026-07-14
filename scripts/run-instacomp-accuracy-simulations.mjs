@@ -7,7 +7,15 @@ import ts from "typescript";
 
 const instacompSourceUrl = new URL("../src/lib/instacomp.ts", import.meta.url);
 const serialSourceUrl = new URL("../src/lib/instacomp-serial.ts", import.meta.url);
+const draftTitleSourceUrl = new URL(
+  "../src/lib/instacomp-draft-title.ts",
+  import.meta.url
+);
 const instacompSource = (await readFile(instacompSourceUrl, "utf8")).replace(
+  '"./instacomp-serial"',
+  JSON.stringify(serialSourceUrl.href)
+);
+const draftTitleSource = (await readFile(draftTitleSourceUrl, "utf8")).replace(
   '"./instacomp-serial"',
   JSON.stringify(serialSourceUrl.href)
 );
@@ -17,14 +25,24 @@ const transpiledInstaCompSource = ts.transpileModule(instacompSource, {
     target: ts.ScriptTarget.ES2022,
   },
 }).outputText;
+const transpiledDraftTitleSource = ts.transpileModule(draftTitleSource, {
+  compilerOptions: {
+    module: ts.ModuleKind.ESNext,
+    target: ts.ScriptTarget.ES2022,
+  },
+}).outputText;
 const instacompModuleUrl = `data:text/javascript;base64,${Buffer.from(
   transpiledInstaCompSource
+).toString("base64")}`;
+const draftTitleModuleUrl = `data:text/javascript;base64,${Buffer.from(
+  transpiledDraftTitleSource
 ).toString("base64")}`;
 const {
   buildInstaCompQueries,
   filterAndRankExactMatches,
   filterAndRankGuidanceMatches,
 } = await import(instacompModuleUrl);
+const { buildInstaCompDraftTitle } = await import(draftTitleModuleUrl);
 
 const cases = [
   { input: "Serial 07/50", exact: "07/50", run: "/50" },
@@ -92,6 +110,33 @@ const comp = (title, price) => ({
 
 const query = buildInstaCompQueries(target);
 check("query uses print run instead of exact serial", query.primary.includes("/50") && !query.primary.includes("07/50"), query.primary);
+
+const draftTitle = buildInstaCompDraftTitle(target, "fallback.jpg");
+check(
+  "draft title uses print run instead of exact serial",
+  draftTitle.includes("/50") && !draftTitle.includes("07/50"),
+  draftTitle
+);
+
+const oneOfOneDraftTitle = buildInstaCompDraftTitle(
+  { ...target, serialNumber: "1/1", parallel: "Black Superfractor" },
+  "fallback.jpg"
+);
+check(
+  "draft title preserves true one-of-one",
+  oneOfOneDraftTitle.includes("1/1"),
+  oneOfOneDraftTitle
+);
+
+const invalidSerialDraftTitle = buildInstaCompDraftTitle(
+  { ...target, serialNumber: "99/25" },
+  "fallback.jpg"
+);
+check(
+  "invalid serial is omitted from draft title",
+  !invalidSerialDraftTitle.includes("/25") && !invalidSerialDraftTitle.includes("99/25"),
+  invalidSerialDraftTitle
+);
 
 const invalidSerialQuery = buildInstaCompQueries({ ...target, serialNumber: "99/25" });
 check("invalid serial cannot constrain comp search", !invalidSerialQuery.primary.includes("/25"), invalidSerialQuery.primary);

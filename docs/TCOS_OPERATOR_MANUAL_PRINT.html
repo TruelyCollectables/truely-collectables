@@ -3757,6 +3757,7 @@ services/paddleocr-service/README.md</code></pre>
 <li>reserves each persistent queue row in the database before creating inventory, so simultaneous draft clicks cannot create two listings for the same saved row</li>
 <li>copies the saved high-resolution derivatives from private job Storage into inventory media</li>
 <li>rechecks saved image size and SHA-256 immediately before draft promotion, so listing photos cannot silently differ from the analyzed photos</li>
+<li>builds server-side draft titles with the shared InstaComp title helper, so numbered cards use the print run such as <code>/50</code>, invalid serial fractions are omitted, and true one-of-one cards keep <code>1/1</code></li>
 <li>enforces a 3 MB per-saved-image limit after high-resolution browser normalization</li>
 <li>sends persistent draft rows individually with browser concurrency limited to two</li>
 <li>checks SKU, dedupe key, client ID, and scan ID before reusing an existing draft</li>
@@ -4479,7 +4480,7 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3000/admin/login</code></pre
 <ul>
 <li>InstaComp draft success links now open the Seller Inventory InstaComp lane directly through <code>Open InstaComp Drafts</code> and <code>Open in InstaComp drafts</code>.</li>
 <li>Seller Inventory now has a <code>Source</code> filter with an <code>InstaComp</code> lane, InstaComp item badges, scan/serial/price-source details, and ready-row marketplace packet export controls.</li>
-<li>InstaComp draft titles now prefer serial-run display such as <code>/50</code> instead of exact copy-number display such as <code>07/50</code>; true one-of-one cards remain <code>1/1</code>. Admin, test, and comp-search title generation share the same serial-run display helper so the behavior does not drift.</li>
+<li>InstaComp draft titles now prefer serial-run display such as <code>/50</code> instead of exact copy-number display such as <code>07/50</code>; true one-of-one cards remain <code>1/1</code>. Admin scanner, test scanner, server draft creation, and comp-search title generation share the same draft-title/serial-run helpers so the behavior does not drift.</li>
 <li>Seller Inventory rows now show the default Standard Envelope/Ground Advantage shipping plan, estimated postage, Coverage requirement, Coverage type, and Standard Envelope under-$20 seller-protection warning; selected rows now show a shipping mix summary before activation or marketplace export, and selected ready-row marketplace packets include self-contained 2% reserve, <code>$20.00</code> cap, claim trigger, not-insurance, and shipping-excluded reimbursement fields.</li>
 <li>Seller Inventory Selection Summary now shows a selected-row activation check with activatable, needs-work, active, archived, and top-blocker counts before <code>Activate Ready</code>.</li>
 <li>Seller Inventory Bulk Action Follow-Up now groups failed rows by blocker reason and lets operators keep only a specific blocker group selected for cleanup.</li>

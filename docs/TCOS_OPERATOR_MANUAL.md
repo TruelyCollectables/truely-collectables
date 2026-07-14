@@ -3911,6 +3911,7 @@ Draft creation facts:
 - reserves each persistent queue row in the database before creating inventory, so simultaneous draft clicks cannot create two listings for the same saved row
 - copies the saved high-resolution derivatives from private job Storage into inventory media
 - rechecks saved image size and SHA-256 immediately before draft promotion, so listing photos cannot silently differ from the analyzed photos
+- builds server-side draft titles with the shared InstaComp title helper, so numbered cards use the print run such as `/50`, invalid serial fractions are omitted, and true one-of-one cards keep `1/1`
 - enforces a 3 MB per-saved-image limit after high-resolution browser normalization
 - sends persistent draft rows individually with browser concurrency limited to two
 - checks SKU, dedupe key, client ID, and scan ID before reusing an existing draft
@@ -4791,7 +4792,7 @@ Recent seller workspace wording cleanup:
 
 - InstaComp draft success links now open the Seller Inventory InstaComp lane directly through `Open InstaComp Drafts` and `Open in InstaComp drafts`.
 - Seller Inventory now has a `Source` filter with an `InstaComp` lane, InstaComp item badges, scan/serial/price-source details, and ready-row marketplace packet export controls.
-- InstaComp draft titles now prefer serial-run display such as `/50` instead of exact copy-number display such as `07/50`; true one-of-one cards remain `1/1`. Admin, test, and comp-search title generation share the same serial-run display helper so the behavior does not drift.
+- InstaComp draft titles now prefer serial-run display such as `/50` instead of exact copy-number display such as `07/50`; true one-of-one cards remain `1/1`. Admin scanner, test scanner, server draft creation, and comp-search title generation share the same draft-title/serial-run helpers so the behavior does not drift.
 - Seller Inventory rows now show the default Standard Envelope/Ground Advantage shipping plan, estimated postage, Coverage requirement, Coverage type, and Standard Envelope under-$20 seller-protection warning; selected rows now show a shipping mix summary before activation or marketplace export, and selected ready-row marketplace packets include self-contained 2% reserve, `$20.00` cap, claim trigger, not-insurance, and shipping-excluded reimbursement fields.
 - Seller Inventory Selection Summary now shows a selected-row activation check with activatable, needs-work, active, archived, and top-blocker counts before `Activate Ready`.
 - Seller Inventory Bulk Action Follow-Up now groups failed rows by blocker reason and lets operators keep only a specific blocker group selected for cleanup.

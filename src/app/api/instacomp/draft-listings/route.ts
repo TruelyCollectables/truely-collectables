@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "crypto";
 import { sanitizeAuthenticityProfile } from "../../../../lib/authenticity";
+import { buildInstaCompDraftTitle } from "../../../../lib/instacomp-draft-title";
 import { getActiveStoreId } from "../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 import {
@@ -524,21 +525,7 @@ async function releasePersistentItemDraftReservation(params: {
 }
 
 function titleFromAi(ai: InstaCompDraftAi | null | undefined, fallback: string) {
-  const title = [
-    cleanText(ai?.year, 24),
-    cleanText(ai?.brand, 80),
-    cleanText(ai?.setName, 120),
-    cleanText(ai?.player, 120),
-    ai?.isRookie ? "Rookie" : null,
-    cleanText(ai?.parallel, 120),
-    ai?.cardNumber ? `#${cleanText(ai.cardNumber, 40)}` : null,
-  ]
-    .filter(Boolean)
-    .join(" ")
-    .replace(/\s+/g, " ")
-    .trim();
-
-  return title || fallback;
+  return buildInstaCompDraftTitle(ai, fallback);
 }
 
 function categoryFromAi(ai: InstaCompDraftAi | null | undefined) {
