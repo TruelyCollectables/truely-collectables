@@ -97,6 +97,16 @@ function hasShippingProviderSetupHeaders(result) {
   );
 }
 
+function hasAttachmentFilename(result, filenameText) {
+  const contentDisposition =
+    result.response?.headers.get("content-disposition") || "";
+
+  return (
+    contentDisposition.toLowerCase().includes("attachment") &&
+    contentDisposition.includes(filenameText)
+  );
+}
+
 if (hostFor(baseUrl) && hostFor(baseUrl) === hostFor(unwantedAliasUrl)) {
   console.error(
     `Refusing to smoke test the unwanted production alias: ${baseUrl}. Use the clean production domain instead.`,
@@ -466,6 +476,7 @@ const checks = [
     name: "launch readiness markdown",
     path: "/api/admin/launch-readiness?format=markdown",
     expect: (result) =>
+      hasAttachmentFilename(result, "tcos-launch-readiness-brief.md") &&
       result.text.includes("# TCOS Launch Readiness Brief") &&
       result.text.includes("## Under-$20 Seller Protection") &&
       result.text.includes("TCOS Under-$20 Seller Protection") &&
@@ -537,6 +548,7 @@ const checks = [
     path: "/api/admin/launch-gate-drill?format=markdown",
     expect: (result) =>
       result.contentType.includes("text/markdown") &&
+      hasAttachmentFilename(result, "tcos-launch-gate-drill-report.md") &&
       result.text.includes("# TCOS Launch Gate Drill Report") &&
       result.text.includes("Standard Envelope evidence validator: ready") &&
       result.text.includes("Provider purchase-attempt audit suite: passed; 5/5 scenarios; key coverage passed") &&
@@ -798,6 +810,7 @@ const checks = [
       "no missing/unexpected purchase-audit keys",
     ],
     expect: (result) =>
+      hasAttachmentFilename(result, "tcos-launch-handoff-bundle.md") &&
       result.text.includes("# TCOS Launch Hand-off Bundle") &&
       result.text.includes("## Under-$20 Seller Protection") &&
       result.text.includes("2% of the protected sale withheld") &&
@@ -1028,6 +1041,7 @@ const checks = [
     path: "/api/admin/shipping/exceptions",
     expect: (result) =>
       result.contentType.includes("text/csv") &&
+      hasAttachmentFilename(result, "tcos-shipping-exceptions-") &&
       result.text.includes("priority_rank,exception_key,severity") &&
       result.text.includes("exception_type") &&
       result.text.includes("action_needed") &&
@@ -1075,6 +1089,7 @@ const checks = [
     path: "/api/admin/shipping/provider-setup?format=csv",
     expect: (result) =>
       result.contentType.includes("text/csv") &&
+      hasAttachmentFilename(result, "tcos-shipping-provider-setup-") &&
       result.text.includes("decisionStatus,decisionSummary,decisionNextAction") &&
       result.text.includes("setupActionPlan") &&
       result.text.includes("Choose provider accounts") &&
@@ -1094,6 +1109,7 @@ const checks = [
     path: "/api/admin/shipping/provider-setup?format=env-template",
     expect: (result) =>
       result.contentType.includes("text/plain") &&
+      hasAttachmentFilename(result, "tcos-shipping-provider-env-template-") &&
       result.text.includes("TCOS shipping provider setup template") &&
       result.text.includes("Shipping provider unlock action plan") &&
       result.text.includes("Choose provider accounts") &&
@@ -1114,6 +1130,7 @@ const checks = [
     path: "/api/admin/shipping/provider-setup?format=vercel-commands",
     expect: (result) =>
       result.contentType.includes("text/plain") &&
+      hasAttachmentFilename(result, "tcos-shipping-provider-vercel-env-") &&
       result.text.includes("vercel env add") &&
       result.text.includes("Shipping provider unlock action plan") &&
       result.text.includes("Stage Vercel environment names") &&
@@ -1128,6 +1145,7 @@ const checks = [
     path: "/api/admin/shipping/provider-setup?format=operator-checklist",
     expect: (result) =>
       result.contentType.includes("text/markdown") &&
+      hasAttachmentFilename(result, "tcos-shipping-provider-operator-checklist-") &&
       result.text.includes("# TCOS Shipping Provider Operator Checklist") &&
       result.text.includes("## Shipping Provider Unlock Action Plan") &&
       result.text.includes("Choose provider accounts") &&
@@ -1149,6 +1167,7 @@ const checks = [
     path: "/api/admin/shipping/lettertrack-export",
     expect: (result) =>
       result.contentType.includes("text/csv") &&
+      hasAttachmentFilename(result, "tcos-lettertrack-standard-envelope-") &&
       result.text.includes("orderNumber,labelId,recipientName") &&
       result.text.includes("sellerProtectionReserveRate") &&
       result.text.includes("sellerProtectionReimbursesShipping") &&

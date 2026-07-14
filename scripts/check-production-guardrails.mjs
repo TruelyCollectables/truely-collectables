@@ -298,6 +298,7 @@ assertFileIncludes("launch readiness smoke contract", "scripts/smoke-production.
   "npm run smoke:production handoff",
   'name: "launch readiness markdown"',
   'path: "/api/admin/launch-readiness?format=markdown"',
+  'hasAttachmentFilename(result, "tcos-launch-readiness-brief.md")',
   "# TCOS Launch Readiness Brief",
   "Standard Envelope evidence validator: ready",
   "Provider purchase-attempt audit suite: passed; 5/5 scenarios; key coverage passed",
@@ -340,6 +341,7 @@ assertFileIncludes("launch gate drill smoke contract", "scripts/smoke-production
   'name: "launch gate drill markdown"',
   'path: "/api/admin/launch-gate-drill?format=markdown"',
   'result.contentType.includes("text/markdown")',
+  'hasAttachmentFilename(result, "tcos-launch-gate-drill-report.md")',
   "# TCOS Launch Gate Drill Report",
   "Standard Envelope evidence validator: ready",
   "## Side-effect Guardrails",
@@ -482,6 +484,7 @@ assertFileIncludes("launch handoff smoke contract", "scripts/smoke-production.mj
   'name: "launch handoff bundle"',
   'path: "/api/admin/launch-readiness?format=handoff-bundle"',
   "requiredText:",
+  'hasAttachmentFilename(result, "tcos-launch-handoff-bundle.md")',
   "# TCOS Launch Hand-off Bundle",
   "## Git Tip Verification",
   "git fetch origin main",
@@ -720,6 +723,7 @@ assertFileIncludes("shipping provider setup smoke contract", "scripts/smoke-prod
   '!result.text.includes("whsec_")',
   'name: "shipping provider setup csv"',
   'path: "/api/admin/shipping/provider-setup?format=csv"',
+  'hasAttachmentFilename(result, "tcos-shipping-provider-setup-")',
   "decisionStatus,decisionSummary,decisionNextAction",
   "setupActionPlan",
   "Choose provider accounts",
@@ -745,6 +749,7 @@ assertFileIncludes("shipping provider setup smoke contract", "scripts/smoke-prod
   "TCOS_SHIPPING_PURCHASE_MODE=dry_run",
   "TCOS_LIVE_SHIPPING_ENABLED=false",
   "hasShippingProviderSetupHeaders(result)",
+  'hasAttachmentFilename(result, "tcos-shipping-provider-env-template-")',
   'name: "shipping provider vercel commands"',
   'path: "/api/admin/shipping/provider-setup?format=vercel-commands"',
   "Shipping provider unlock action plan",
@@ -752,6 +757,7 @@ assertFileIncludes("shipping provider setup smoke contract", "scripts/smoke-prod
   "# Production environment",
   "TCOS_LIVE_SHIPPING_ENABLED",
   "hasShippingProviderSetupHeaders(result)",
+  'hasAttachmentFilename(result, "tcos-shipping-provider-vercel-env-")',
   'name: "shipping provider operator checklist"',
   'path: "/api/admin/shipping/provider-setup?format=operator-checklist"',
   'result.contentType.includes("text/markdown")',
@@ -767,6 +773,7 @@ assertFileIncludes("shipping provider setup smoke contract", "scripts/smoke-prod
   "Keep TCOS_SHIPPING_PURCHASE_MODE=dry_run",
   "Keep TCOS_LIVE_SHIPPING_ENABLED=false",
   "hasShippingProviderSetupHeaders(result)",
+  'hasAttachmentFilename(result, "tcos-shipping-provider-operator-checklist-")',
 ]);
 
 assertFileIncludes("shipping provider setup response header source", "src/app/api/admin/shipping/provider-setup/route.ts", [
@@ -785,6 +792,13 @@ assertFileIncludes("shipping provider setup smoke header helper", "scripts/smoke
   'result.response?.headers.get("x-tcos-shipping-provider-live-blockers") !==',
   'result.response?.headers.get("x-tcos-shipping-provider-contract-ready") ===',
   'result.response?.headers.get("x-tcos-shipping-provider-summary") !==',
+]);
+
+assertFileIncludes("production smoke attachment filename helper", "scripts/smoke-production.mjs", [
+  "function hasAttachmentFilename(result, filenameText)",
+  'result.response?.headers.get("content-disposition")',
+  'contentDisposition.toLowerCase().includes("attachment")',
+  "contentDisposition.includes(filenameText)",
 ]);
 
 assertFileIncludes("shipping provider standard envelope evidence contract source", "src/lib/shipping-provider-setup.ts", [
@@ -833,6 +847,7 @@ assertFileIncludes("shipping export smoke contract", "scripts/smoke-production.m
   'name: "shipping exceptions export"',
   'path: "/api/admin/shipping/exceptions"',
   'result.contentType.includes("text/csv")',
+  'hasAttachmentFilename(result, "tcos-shipping-exceptions-")',
   "priority_rank,exception_key,severity",
   "exception_type",
   "action_needed",
@@ -845,6 +860,7 @@ assertFileIncludes("shipping export smoke contract", "scripts/smoke-production.m
   'result.response?.headers.get("x-tcos-shipping-exceptions-summary") !==',
   'name: "lettertrack standard envelope export"',
   'path: "/api/admin/shipping/lettertrack-export"',
+  'hasAttachmentFilename(result, "tcos-lettertrack-standard-envelope-")',
   "orderNumber,labelId,recipientName",
   "sellerProtectionReserveRate",
   "sellerProtectionReimbursesShipping",
