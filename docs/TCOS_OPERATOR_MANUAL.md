@@ -18,6 +18,10 @@ This is the working manual for Totally Collectibles OS (TCOS). It must stay curr
 
 This revision includes the durable InstaComp batch queue and PaddleOCR worker, InstaComp-to-seller-draft handoff, seller inventory InstaComp lane, seller marketplace export packets, seller eBay staging and reconciliation, Stripe payment reliability controls, seller payout guards, shipping/coverage operations, and complete laptop-failure disaster recovery. Procedures labeled `dry run`, `draft`, `review`, `export`, or `not configured` are not production completion claims.
 
+## Deterministic Application Fonts
+
+TCOS loads Geist Sans and Geist Mono from the installed `geist` package. The font files are bundled locally through `next/font/local`; production and local builds do not fetch CSS or font files from Google Fonts. This keeps `npm run build` deterministic in restricted or temporarily offline build environments while preserving the existing Geist typography and CSS variable names. The `tsx` runner used by shipping verification is also a direct development dependency rather than an accidental transitive dependency, so a clean install can run the full production verification stack.
+
 TCOS means Totally Collectibles OS. It is the multi-store software platform, admin system, order system, inventory engine, marketplace layer, and pricing/helper system. Truely Collectables is the flagship store inside TCOS, not a separate rebuild.
 
 ## Ownership And Account Separation

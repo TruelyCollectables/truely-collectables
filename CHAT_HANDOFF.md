@@ -109,6 +109,11 @@ npm run preflight:production
 
 Most recent notable validation:
 
+- Current 30-minute build block:
+  - Replaced `next/font/google` with the locally packaged `geist` font exports while preserving the existing Geist CSS variables and typography.
+  - Added `tsx` as a direct development dependency because shipping verification imports it; clean installs no longer depend on an accidental transitive package.
+  - Added production guardrails for both build-reliability contracts.
+  - A sandboxed `npm run build` passed without Google Fonts network access; lint, InstaComp verification, shipping verification, production guardrails, and regenerated manual HTML/PDF also passed.
 - `cc36a5b Harden marketplace packet intake guardrails`
   - Added visible `/seller/marketplaces` no-op chips for no payout release, no order fulfillment, and no automatic under-$20 protection activation.
   - Updated production smoke and guardrails.
@@ -173,6 +178,7 @@ Recent queued work added or hardened:
 - shipping provider operator checklist;
 - provider credential groups displayed in the shipping gate/setup flow;
 - portable operator manual PDF generation.
+- network-independent local Geist font loading and a direct `tsx` verification dependency.
 
 These may fail production smoke until a successful Vercel deploy lands the queued commits.
 

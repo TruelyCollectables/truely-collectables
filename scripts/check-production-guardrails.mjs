@@ -102,6 +102,19 @@ function assertFileIncludes(name, filePath, expectedParts) {
   console.log(`PASS ${name} includes ${expectedParts.join(", ")}`);
 }
 
+function assertFileExcludes(name, filePath, forbiddenParts) {
+  const text = fs.readFileSync(filePath, "utf8");
+  const found = forbiddenParts.filter((part) => text.includes(part));
+
+  if (found.length > 0) {
+    throw new Error(
+      `${name} in ${filePath} contains forbidden production text: ${found.join(", ")}`,
+    );
+  }
+
+  console.log(`PASS ${name} excludes ${forbiddenParts.join(", ")}`);
+}
+
 function assertFileOrder(name, filePath, orderedParts) {
   const text = fs.readFileSync(filePath, "utf8");
   let cursor = -1;
@@ -162,6 +175,46 @@ function runExpectedFailure(name, args, env, expectedText) {
 }
 
 runGuardrailRedactionSelfTest();
+
+if (!packageJson.dependencies?.geist) {
+  throw new Error(
+    "package.json must keep the local geist dependency so builds do not fetch Google Fonts.",
+  );
+}
+console.log("PASS local Geist font dependency");
+
+if (!packageJson.devDependencies?.tsx) {
+  throw new Error(
+    "package.json must declare tsx directly because shipping verification imports it.",
+  );
+}
+console.log("PASS direct tsx verification dependency");
+
+assertFileIncludes("local application font source", "src/app/layout.tsx", [
+  'from "geist/font/mono"',
+  'from "geist/font/sans"',
+  "GeistSans.variable",
+  "GeistMono.variable",
+]);
+assertFileExcludes("application font network independence", "src/app/layout.tsx", [
+  'from "next/font/google"',
+]);
+assertFileIncludes("local application font instructions", "docs/TCOS_OPERATOR_MANUAL.md", [
+  "Deterministic Application Fonts",
+  "installed `geist` package",
+  "bundled locally through `next/font/local`",
+  "do not fetch CSS or font files from Google Fonts",
+]);
+assertFileIncludes(
+  "printable local application font instructions",
+  "docs/TCOS_OPERATOR_MANUAL_PRINT.html",
+  [
+    "Deterministic Application Fonts",
+    "installed <code>geist</code> package",
+    "bundled locally through <code>next/font/local</code>",
+    "do not fetch CSS or font files from Google Fonts",
+  ],
+);
 
 assertFileIncludes("generated Next artifact ignores", ".gitignore", [
   "/.next/",
