@@ -718,6 +718,7 @@ assertFileIncludes("operator manual purchase audit simulation contract", "docs/T
   "Runs shipping eligibility, dry-run adapter, and provider purchase-attempt audit simulations",
   "five-scenario provider purchase-attempt audit pass evidence",
   "provider purchase-attempt audit suite status/count/key coverage",
+  "missing/unexpected purchase-audit key lists",
   "Provider Purchase-Attempt Audit Suite check",
   "before `approvalReady` can become true",
   "Require all nineteen policy/adapter assertions plus the five provider purchase-attempt audit assertions",
