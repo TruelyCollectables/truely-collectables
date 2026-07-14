@@ -369,6 +369,16 @@ function missingRequiredText(result, check) {
   return (check.requiredText || []).filter((text) => !result.text.includes(text));
 }
 
+function smokeFailureDetail(result) {
+  const details = [
+    `status=${result.status}`,
+    `missingText=${result.missingText || "none"}`,
+    `diagnostic=${result.diagnostic || "none"}`,
+  ];
+
+  return `${result.name} (${details.join("; ")})`;
+}
+
 function parseJson(text) {
   try {
     return JSON.parse(text);
@@ -1414,7 +1424,7 @@ if (failed.length > 0) {
     );
     console.error(
       `Queued launch feature failure(s): ${queuedFeatureFailures
-        .map((result) => result.name)
+        .map(smokeFailureDetail)
         .join(", ")}`,
     );
   }
