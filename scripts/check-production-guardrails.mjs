@@ -680,6 +680,10 @@ assertFileIncludes("shipping simulation API smoke contract", "scripts/smoke-prod
   '"scenario_key_coverage_status":"passed"',
   '"missing_scenario_keys":[]',
   '"unexpected_scenario_keys":[]',
+  '"seller_protection_allocation_contract"',
+  '"itemOnlyReimbursementRule"',
+  '"shippingExclusionRule"',
+  '"nonOptedInSellerLiabilityRule"',
   '"provider_setup_standard_envelope_evidence_contract"',
   '"under_20_seller_protection_caps_mixed_rows"',
   '"under_20_seller_protection_seller_order_visibility"',
@@ -741,6 +745,11 @@ assertFileIncludes("shipping simulation lab smoke contract", "scripts/smoke-prod
   "Scenario Coverage",
   "Scenario Keys",
   "Scenario coverage guardrail",
+  "Seller-protection money trail",
+  "Under-$20 Seller Protection Allocation Contract",
+  "Item-only reimbursement",
+  "Shipping exclusion",
+  "No opt-in liability",
   "20",
   "Mixed under-$20 claim rows cap reimbursement at $20",
   "Seller order views can show under-$20 protection status, 2% reserve, protected item cap, unprotected row liability, and shipping excluded from reimbursement",
@@ -761,6 +770,7 @@ assertFileIncludes("shipping simulation lab smoke contract", "scripts/smoke-prod
 ]);
 assertFileIncludes("shipping simulation lab purchase audit source", "src/app/admin/shipping/simulations/page.tsx", [
   "runShippingPurchaseAttemptAuditSimulationSuite",
+  "seller_protection_allocation_contract",
   "Purchase Attempt Audit Coverage",
   "Missing Purchase Audit Keys",
   "Unexpected Purchase Audit Keys",
@@ -1038,6 +1048,9 @@ assertFileIncludes("operator manual purchase audit simulation contract", "docs/T
   "Provider Purchase-Attempt Audit Suite check",
   "before `approvalReady` can become true",
   "Require all twenty policy/adapter assertions plus the five provider purchase-attempt audit assertions",
+  "first-class Under-$20 Seller Protection Allocation Contract panel",
+  "seller_protection_allocation_contract",
+  "item-only reimbursement, shipping exclusion, and non-opted-in seller liability",
 ]);
 assertFileIncludes(
   "seller protection reimbursement packet contract",

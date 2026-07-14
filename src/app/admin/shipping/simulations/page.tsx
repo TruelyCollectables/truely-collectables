@@ -136,6 +136,52 @@ export default async function ShippingSimulationsPage() {
           </details>
         </section>
 
+        <section className="rounded border border-indigo-200 bg-indigo-50 p-5 text-indigo-950">
+          <p className="text-xs font-black uppercase tracking-widest opacity-75">
+            Seller-protection money trail
+          </p>
+          <h2 className="mt-1 text-2xl font-black">
+            {result.seller_protection_allocation_contract.title}
+          </h2>
+          <p className="mt-2 max-w-4xl text-sm font-semibold">
+            This first-class contract makes the under-$20 Standard Envelope
+            allocation rule visible before launch: opted-in sellers can be
+            reimbursed for protected item sale amount only, shipping stays
+            excluded, and non-opted-in sellers remain liable for buyer refunds
+            when delivery evidence fails TCOS rules.
+          </p>
+          <div className="mt-4 grid gap-3 md:grid-cols-2">
+            <Metric
+              label="Scenario Proof"
+              value={result.seller_protection_allocation_contract.scenarioKey}
+            />
+            <Metric
+              label="Item-only reimbursement"
+              value={
+                result.seller_protection_allocation_contract
+                  .itemOnlyReimbursementRule
+              }
+            />
+            <Metric
+              label="Shipping exclusion"
+              value={
+                result.seller_protection_allocation_contract
+                  .shippingExclusionRule
+              }
+            />
+            <Metric
+              label="No opt-in liability"
+              value={
+                result.seller_protection_allocation_contract
+                  .nonOptedInSellerLiabilityRule
+              }
+            />
+          </div>
+          <p className="mt-4 rounded border border-indigo-300 bg-white p-3 text-sm font-bold">
+            {result.seller_protection_allocation_contract.operatorProof}
+          </p>
+        </section>
+
         <section
           className={`rounded border p-5 ${
             purchaseAuditCoveragePassed

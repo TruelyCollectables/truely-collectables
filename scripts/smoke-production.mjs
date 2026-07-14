@@ -1052,6 +1052,11 @@ const checks = [
       "Scenario coverage guardrail",
       "Missing Scenario Keys",
       "Unexpected Scenario Keys",
+      "Seller-protection money trail",
+      "Under-$20 Seller Protection Allocation Contract",
+      "Item-only reimbursement",
+      "Shipping exclusion",
+      "No opt-in liability",
       "20",
       "Mixed under-$20 claim rows cap reimbursement at $20",
       "Seller order views can show under-$20 protection status, 2% reserve, protected item cap, unprotected row liability, and shipping excluded from reimbursement",
@@ -1073,6 +1078,11 @@ const checks = [
       result.text.includes("Scenario coverage guardrail") &&
       result.text.includes("Missing Scenario Keys") &&
       result.text.includes("Unexpected Scenario Keys") &&
+      result.text.includes("Seller-protection money trail") &&
+      result.text.includes("Under-$20 Seller Protection Allocation Contract") &&
+      result.text.includes("Item-only reimbursement") &&
+      result.text.includes("Shipping exclusion") &&
+      result.text.includes("No opt-in liability") &&
       result.text.includes("20") &&
       result.text.includes(
         "Mixed under-$20 claim rows cap reimbursement at $20",
@@ -1122,6 +1132,10 @@ const checks = [
       result.text.includes('"scenario_key_coverage_status":"passed"') &&
       result.text.includes('"missing_scenario_keys":[]') &&
       result.text.includes('"unexpected_scenario_keys":[]') &&
+      result.text.includes('"seller_protection_allocation_contract"') &&
+      result.text.includes('"itemOnlyReimbursementRule"') &&
+      result.text.includes('"shippingExclusionRule"') &&
+      result.text.includes('"nonOptedInSellerLiabilityRule"') &&
       result.text.includes('"provider_setup_standard_envelope_evidence_contract"') &&
       result.text.includes('"under_20_seller_protection_caps_mixed_rows"') &&
       result.text.includes('"under_20_seller_protection_seller_order_visibility"') &&

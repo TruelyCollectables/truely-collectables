@@ -59,6 +59,20 @@ export const SHIPPING_SIMULATION_EXPECTED_SCENARIO_KEYS = [
 export const SHIPPING_SIMULATION_EXPECTED_SCENARIO_COUNT =
   SHIPPING_SIMULATION_EXPECTED_SCENARIO_KEYS.length;
 
+export const UNDER20_SELLER_PROTECTION_ALLOCATION_CONTRACT = {
+  title: "Under-$20 Seller Protection Allocation Contract",
+  scenarioKey:
+    "under_20_seller_protection_item_only_allocation_vs_seller_liability",
+  itemOnlyReimbursementRule:
+    "Opted-in under-$20 Standard Envelope reimbursement allocates protected item sale amount only.",
+  shippingExclusionRule:
+    "Shipping is excluded from TCOS seller-protection reimbursement and is recorded as excluded shipping evidence.",
+  nonOptedInSellerLiabilityRule:
+    "A non-opted-in seller row receives no TCOS allocation and remains responsible for the buyer refund when delivery evidence fails TCOS rules.",
+  operatorProof:
+    "The shipping simulation suite must pass this allocation-vs-liability scenario before production smoke can treat the under-$20 seller-protection money trail as guarded.",
+} as const;
+
 export type ShippingSimulationScenario = {
   scenario_key: string;
   scenario_status: "passed" | "failed";
@@ -1039,6 +1053,8 @@ export async function runShippingSimulationSuite() {
     missing_scenario_keys: missingScenarioKeys,
     unexpected_scenario_keys: unexpectedScenarioKeys,
     scenario_key_coverage_status: scenarioKeysMatch ? "passed" : "failed",
+    seller_protection_allocation_contract:
+      UNDER20_SELLER_PROTECTION_ALLOCATION_CONTRACT,
     scenario_count: scenarios.length,
     passed_count: scenarios.length - scenarioFailures,
     failed_count: failed,
