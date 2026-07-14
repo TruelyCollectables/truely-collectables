@@ -83,6 +83,12 @@ function buildConnectors(storeDisplayName: string): Connector[] {
 
 const buildQueue: BuildQueueStep[] = [
   {
+    name: "Seller marketplace receipt handoff",
+    status: "completed",
+    detail:
+      "Seller Connections now exposes safe marketplace API receipt handoffs with Copy Safe Receipt, Download Safe Receipt, Copy Trail, Download Trail, and Clear Trail controls for auth, import, staging, reconcile, order-import, and promotion debugging.",
+  },
+  {
     name: "Seller marketplace packet intake guidance",
     status: "completed",
     detail: "Seller Connections now explains that Seller Inventory marketplace packets are prep-only JSON/CSV handoffs with no external publishing, no postage purchase, and no Coverage policy creation until platform-specific connectors are approved.",

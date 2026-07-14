@@ -442,6 +442,12 @@ assertFileIncludes("seller marketplace packet intake smoke contract", "scripts/s
   "Open Ready Inventory",
   "Open Needs-Work Inventory",
   "Seller marketplace packet intake guidance",
+  "Seller marketplace receipt handoff",
+  "Copy Safe Receipt",
+  "Download Safe Receipt",
+  "Copy Trail",
+  "Download Trail",
+  "Clear Trail",
   "prep-only JSON/CSV handoffs",
 ]);
 assertFileIncludes("seller workspace auth gate smoke contract", "scripts/smoke-production.mjs", [
@@ -1671,6 +1677,20 @@ assertFileIncludes(
     "does not activate TCOS Under-$20 Seller Protection",
     "/seller/inventory?status=draft&readiness=ready",
     "/seller/inventory?status=draft&readiness=needs_work",
+  ],
+);
+assertFileIncludes(
+  "seller marketplace receipt handoff build queue contract",
+  "src/app/seller/marketplaces/page.tsx",
+  [
+    "Seller marketplace receipt handoff",
+    "safe marketplace API receipt handoffs",
+    "Copy Safe Receipt",
+    "Download Safe Receipt",
+    "Copy Trail",
+    "Download Trail",
+    "Clear Trail",
+    "auth, import, staging, reconcile, order-import, and promotion debugging",
   ],
 );
 assertFileIncludes(

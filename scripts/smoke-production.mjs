@@ -697,6 +697,12 @@ const checks = [
       "Open Ready Inventory",
       "Open Needs-Work Inventory",
       "Seller marketplace packet intake guidance",
+      "Seller marketplace receipt handoff",
+      "Copy Safe Receipt",
+      "Download Safe Receipt",
+      "Copy Trail",
+      "Download Trail",
+      "Clear Trail",
     ],
     expect: (result) =>
       result.text.includes("Seller Connections") &&
@@ -709,6 +715,12 @@ const checks = [
       result.text.includes("Open Ready Inventory") &&
       result.text.includes("Open Needs-Work Inventory") &&
       result.text.includes("Seller marketplace packet intake guidance") &&
+      result.text.includes("Seller marketplace receipt handoff") &&
+      result.text.includes("Copy Safe Receipt") &&
+      result.text.includes("Download Safe Receipt") &&
+      result.text.includes("Copy Trail") &&
+      result.text.includes("Download Trail") &&
+      result.text.includes("Clear Trail") &&
       result.text.includes("prep-only JSON/CSV handoffs") &&
       !result.text.includes("sk_live_") &&
       !result.text.includes("whsec_"),
