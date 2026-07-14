@@ -1721,6 +1721,7 @@ assertFileIncludes("deploy live safety operator manual", "docs/TCOS_OPERATOR_MAN
   "CLEAN_PRODUCTION=https://",
   "npm run smoke:production",
   "smoke/deploy/guardrail diagnostic redaction self-tests",
+  "the seller marketplace packet intake route, and the seller inventory/order/payout auth gates",
   "launch readiness, Launch Gate Drill, production smoke, live payment/shipping gates",
   "admin dashboard, launch readiness page/JSON/Markdown, Launch Gate Drill page/JSON/Markdown",
   "live payment gate, live shipping gate, admin shipping LetterTrack controls",
@@ -1753,6 +1754,7 @@ assertFileIncludes(
     "DEPLOYED_PRODUCTION=",
     "CLEAN_PRODUCTION=https://",
     "npm run smoke:production",
+    "the seller marketplace packet intake route, and the seller inventory/order/payout auth gates",
   ],
 );
 
