@@ -608,6 +608,19 @@ assertFileIncludes(
   ],
 );
 assertFileIncludes(
+  "seller protection admin payout UI visibility contract",
+  "src/app/admin/seller-payouts/page.tsx",
+  [
+    "Admin Under-$20 Protection Reserve",
+    "Protection Reserve",
+    "Under-$20 Protection",
+    "2% reserve / $20 max / shipping excluded",
+    "under20ProtectionFromMetadata",
+    "SellerProtectionMiniCard",
+    "sellerProtectionTone",
+  ],
+);
+assertFileIncludes(
   "seller protection buyer refund packet contract",
   "src/app/api/admin/shipping-claims/[id]/packet/route.ts",
   [

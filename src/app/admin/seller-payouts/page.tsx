@@ -8,6 +8,11 @@ import {
   loadSellerPayoutRequestReviewBlockers,
   type SellerPayoutRequestReviewBlocker,
 } from "../../../lib/seller-payout-review-blocks";
+import {
+  buildUnder20SellerProtectionSellerVisibilitySummary,
+  under20ProtectionFromMetadata,
+  type Under20SellerProtectionSellerVisibilitySummary,
+} from "../../../lib/under20-seller-protection-claims";
 import PayoutLedgerActions from "./PayoutLedgerActions";
 import PayoutRequestActions from "./PayoutRequestActions";
 import ConnectRefreshActions from "./ConnectRefreshActions";
@@ -30,6 +35,7 @@ type SellerPayoutLedgerEntry = {
   payout_status: string | null;
   stripe_session_id: string | null;
   stripe_payment_intent_id: string | null;
+  metadata: Record<string, unknown> | null;
   created_at: string;
   updated_at: string | null;
 };
@@ -174,6 +180,31 @@ function statusTone(status: string | null | undefined) {
   return "border-neutral-200 bg-neutral-100 text-neutral-700";
 }
 
+function sellerProtectionTone(
+  status: Under20SellerProtectionSellerVisibilitySummary["status"] | undefined,
+) {
+  if (status === "protected") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-950";
+  }
+
+  if (status === "mixed") {
+    return "border-amber-200 bg-amber-50 text-amber-950";
+  }
+
+  if (status === "unprotected") {
+    return "border-rose-200 bg-rose-50 text-rose-950";
+  }
+
+  return "border-neutral-200 bg-neutral-50 text-neutral-800";
+}
+
+function hasUnder20SellerProtectionMetadata(
+  entry: Pick<SellerPayoutLedgerEntry, "metadata">,
+) {
+  const protection = under20ProtectionFromMetadata(entry.metadata);
+  return Object.keys(protection).length > 0;
+}
+
 function connectStatusTone(status: string | null | undefined) {
   if (status === "active") return "border-emerald-200 bg-emerald-50 text-emerald-800";
   if (status === "pending_provider_review") return "border-sky-200 bg-sky-50 text-sky-800";
@@ -282,6 +313,7 @@ export default async function AdminSellerPayoutsPage() {
       payout_status,
       stripe_session_id,
       stripe_payment_intent_id,
+      metadata,
       created_at,
       updated_at
     `,
@@ -467,6 +499,11 @@ export default async function AdminSellerPayoutsPage() {
   const blockedOpenPayoutRequests = openPayoutRequests.filter(
     (request) => payoutRequestBlockers.get(request.id)?.isBlocked,
   );
+  const sellerProtectionEntries = entries.filter(
+    hasUnder20SellerProtectionMetadata,
+  );
+  const sellerProtectionSummary =
+    buildUnder20SellerProtectionSellerVisibilitySummary(sellerProtectionEntries);
   const activePayoutAccounts = payoutAccounts.filter(
     (account) =>
       account.onboarding_status === "active" &&
@@ -583,7 +620,7 @@ export default async function AdminSellerPayoutsPage() {
           </section>
         ) : null}
 
-        <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-6">
+        <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-7">
           <MetricTile
             label="Connect Active"
             value={String(activePayoutAccounts.length)}
@@ -610,11 +647,22 @@ export default async function AdminSellerPayoutsPage() {
             detail={`${platformFeeEntries.length} TCOS checkout fee row(s)`}
           />
           <MetricTile
+            label="Protection Reserve"
+            value={money(sellerProtectionSummary.reserveAmount)}
+            detail={`${sellerProtectionSummary.protectedRowCount} protected / ${sellerProtectionSummary.unprotectedRowCount} liable row(s)`}
+          />
+          <MetricTile
             label="Blocked Requests"
             value={String(blockedOpenPayoutRequests.length)}
             detail={`${openPayoutRequests.length} open cash-out request(s)`}
           />
         </section>
+
+        <SellerProtectionCard
+          summary={sellerProtectionSummary}
+          title="Admin Under-$20 Protection Reserve"
+          detail="Operator view of TCOS internal Standard Envelope seller-protection reserves across loaded payout ledger rows that carry under-$20 protection metadata. Shipping is excluded from reimbursement and protected item reimbursement remains capped at $20."
+        />
 
         <section className="rounded-md border border-neutral-200 bg-white">
           <div className="flex flex-wrap items-start justify-between gap-3 border-b border-neutral-200 p-5">
@@ -1080,6 +1128,10 @@ export default async function AdminSellerPayoutsPage() {
                       ledgerOrdersById.get(entry.order_id),
                       activeCaseCountByOrderId.get(entry.order_id) || 0,
                     );
+                const rowSellerProtectionSummary =
+                  hasUnder20SellerProtectionMetadata(entry)
+                    ? buildUnder20SellerProtectionSellerVisibilitySummary([entry])
+                    : null;
 
                 return (
                   <div
@@ -1161,6 +1213,11 @@ export default async function AdminSellerPayoutsPage() {
                         {(Number(entry.platform_fee_rate || 0) * 100).toFixed(2)}
                         %
                       </p>
+                      {rowSellerProtectionSummary ? (
+                        <SellerProtectionMiniCard
+                          summary={rowSellerProtectionSummary}
+                        />
+                      ) : null}
                       <PayoutLedgerActions
                         ledgerEntryId={entry.id}
                         status={entry.payout_status}
@@ -1193,6 +1250,89 @@ function MetricTile({
       <p className="text-sm font-bold uppercase text-neutral-500">{label}</p>
       <p className="mt-3 text-3xl font-black tracking-tight">{value}</p>
       <p className="mt-2 text-sm text-neutral-600">{detail}</p>
+    </div>
+  );
+}
+
+function SellerProtectionCard({
+  summary,
+  title,
+  detail,
+}: {
+  summary: Under20SellerProtectionSellerVisibilitySummary;
+  title: string;
+  detail: string;
+}) {
+  return (
+    <section
+      className={`rounded-md border p-5 ${sellerProtectionTone(summary.status)}`}
+    >
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.14em] opacity-70">
+            {title}
+          </p>
+          <h2 className="mt-1 text-2xl font-black">{summary.label}</h2>
+        </div>
+        <span className="rounded border border-current/20 px-2 py-1 text-xs font-black">
+          2% reserve / $20 max / shipping excluded
+        </span>
+      </div>
+      <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-4">
+        <div>
+          <dt className="font-black uppercase opacity-70">Reserve</dt>
+          <dd className="mt-1 text-lg font-black">
+            {money(summary.reserveAmount)}
+          </dd>
+        </div>
+        <div>
+          <dt className="font-black uppercase opacity-70">Covered Items</dt>
+          <dd className="mt-1 text-lg font-black">
+            {money(summary.reimbursableItemAmount)}
+          </dd>
+        </div>
+        <div>
+          <dt className="font-black uppercase opacity-70">Shipping Excluded</dt>
+          <dd className="mt-1 text-lg font-black">
+            {money(summary.shippingExcludedAmount)}
+          </dd>
+        </div>
+        <div>
+          <dt className="font-black uppercase opacity-70">Rows</dt>
+          <dd className="mt-1 text-lg font-black">
+            {summary.protectedRowCount} protected /{" "}
+            {summary.unprotectedRowCount} liable
+          </dd>
+        </div>
+      </dl>
+      <p className="mt-4 text-sm opacity-85">{detail}</p>
+      {summary.status !== "not_applicable" ? (
+        <p className="mt-2 text-xs font-semibold opacity-80">
+          {summary.sellerResponsibility}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+function SellerProtectionMiniCard({
+  summary,
+}: {
+  summary: Under20SellerProtectionSellerVisibilitySummary;
+}) {
+  return (
+    <div
+      className={`rounded border p-2 text-xs ${sellerProtectionTone(summary.status)}`}
+    >
+      <p className="font-black">Under-$20 Protection</p>
+      <p className="mt-1 font-semibold">{summary.label}</p>
+      <p className="mt-1">
+        Reserve {money(summary.reserveAmount)} / Covered{" "}
+        {money(summary.reimbursableItemAmount)}
+      </p>
+      <p className="mt-1 font-semibold">
+        Shipping excluded: {money(summary.shippingExcludedAmount)}
+      </p>
     </div>
   );
 }
