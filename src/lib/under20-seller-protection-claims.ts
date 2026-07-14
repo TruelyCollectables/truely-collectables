@@ -109,6 +109,15 @@ export function under20ProtectionFromMetadata(metadata: unknown) {
   return metadataRecord(metadataRecord(metadata).under_20_seller_protection);
 }
 
+function isEligibleUnder20SellerProtection(protection: Record<string, unknown>) {
+  return (
+    protection.eligible === true &&
+    protection.provider === UNDER_20_SELLER_PROTECTION_PROVIDER &&
+    protection.coverageBasis === "item_sale_amount_excluding_shipping" &&
+    protection.reimbursesShipping === false
+  );
+}
+
 export function buildUnder20SellerProtectionSellerVisibilitySummary(
   rows: Under20SellerProtectionLedgerRow[],
 ): Under20SellerProtectionSellerVisibilitySummary {
@@ -177,7 +186,7 @@ export function buildUnder20SellerProtectionClaimSummary(
 
   for (const row of rows) {
     const protection = under20ProtectionFromMetadata(row.metadata);
-    const eligible = protection.eligible === true;
+    const eligible = isEligibleUnder20SellerProtection(protection);
     const coveredAmount = moneyNumber(protection.coveredAmount);
 
     if (eligible && coveredAmount > 0) {
@@ -282,10 +291,11 @@ export function buildUnder20SellerProtectionReimbursementPlan({
     }
 
     const protection = under20ProtectionFromMetadata(row.metadata);
+    const eligible = isEligibleUnder20SellerProtection(protection);
     const coveredAmount = moneyNumber(protection.coveredAmount);
     const amount = Math.min(coveredAmount, remaining);
 
-    if (amount <= 0 || !row.seller_account_id) {
+    if (!eligible || amount <= 0 || !row.seller_account_id) {
       skippedRowIds.push(row.id);
       continue;
     }

@@ -673,7 +673,7 @@ assertFileIncludes("shipping simulation lab smoke contract", "scripts/smoke-prod
   "19",
   "Mixed under-$20 claim rows cap reimbursement at $20",
   "Seller order views can show under-$20 protection status, 2% reserve, protected item cap, unprotected row liability, and shipping excluded from reimbursement",
-  "Seller-protection Mark Paid allocation creates credits only for payable seller rows",
+  "Seller-protection Mark Paid allocation creates credits only for eligible payable seller rows",
   "Under-$20 seller-protection Mark Paid requires a current or previously saved internal note confirming buyer refund evidence",
   "Under-$20 seller-protection payout blocks delivered LetterTrack evidence, allows not-delivered review evidence, and accepts a current or previously saved explicit override note",
   "LetterTrack CSV rows carry the under-$20 seller-protection contract",
@@ -1036,6 +1036,7 @@ assertFileIncludes(
   [
     "evaluateUnder20SellerProtectionBuyerRefundGate",
     "evaluateUnder20SellerProtectionBuyerRefundMetadataGate",
+    "isEligibleUnder20SellerProtection",
     "latest_admin_status_change",
     "Before Mark Paid",
     "buyer/customer refund evidence",
