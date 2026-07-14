@@ -760,6 +760,10 @@ const checks = [
       "npm run smoke:production",
       "api-deployments-free-per-day",
       "rolling 24-hour quota reset",
+      "Vercel can still upload files before returning the quota error",
+      ".codex-run/vercel-quota-block.json",
+      "TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true",
+      "--force-quota-retry",
       "deploy live safety contract",
       "## Production Go/No-Go Ladder",
       "Verify the pushed stack",
@@ -798,6 +802,10 @@ const checks = [
       result.text.includes("npm run smoke:production") &&
       result.text.includes("api-deployments-free-per-day") &&
       result.text.includes("rolling 24-hour quota reset") &&
+      result.text.includes("Vercel can still upload files before returning the quota error") &&
+      result.text.includes(".codex-run/vercel-quota-block.json") &&
+      result.text.includes("TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true") &&
+      result.text.includes("--force-quota-retry") &&
       result.text.includes("deploy live safety contract") &&
       result.text.includes("## Production Go/No-Go Ladder") &&
       result.text.includes("Verify the pushed stack") &&
