@@ -1,6 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getDryRunShippingCleanupSummary } from "./shipping-dry-run-cleanup";
-import { buildShippingProviderSetupPacket } from "./shipping-provider-setup";
+import {
+  buildShippingProviderSetupPacket,
+  type StandardEnvelopeEvidenceContract,
+} from "./shipping-provider-setup";
 import { runShippingSimulationSuite } from "./shipping-simulations";
 import { getActiveStoreId } from "./stores";
 import { createSupabaseServerClient } from "./supabase-server";
@@ -23,6 +26,7 @@ export type LiveShippingLaunchReport = {
   approvalDatabaseReady: boolean;
   approvalReady: boolean;
   liveShippingEnabled: boolean;
+  standardEnvelopeEvidenceContract: StandardEnvelopeEvidenceContract;
   checks: LiveShippingLaunchCheck[];
 };
 
@@ -46,6 +50,22 @@ function shippingPurchaseMode() {
   return process.env.TCOS_SHIPPING_PURCHASE_MODE === "live"
     ? ("live" as const)
     : ("dry_run" as const);
+}
+
+function standardEnvelopeEvidenceContractReady(
+  contract: StandardEnvelopeEvidenceContract,
+) {
+  return (
+    contract.evidenceProvider === "LetterTrack / USPS IMb" &&
+    contract.trackableRequirement.includes("show delivered") &&
+    contract.under20ProtectionModel.includes("optional internal seller program") &&
+    contract.sellerOptInRule.includes("Seller must opt in per shipment") &&
+    contract.reserveRate === "2%" &&
+    contract.itemReimbursementCap === "$20.00" &&
+    contract.reimbursementBasis === "item_sale_amount_excluding_shipping" &&
+    contract.reimbursesShipping === "no" &&
+    contract.notInsuranceNotice.includes("not third-party insurance")
+  );
 }
 
 export function getLiveShippingGateErrorDetail(error: {
@@ -254,6 +274,19 @@ export async function evaluateLiveShippingLaunch(params?: {
     ),
   );
 
+  const standardEnvelopeEvidenceContract =
+    providerSetup.standardEnvelopeEvidenceContract;
+  checks.push(
+    check(
+      "standard_envelope_evidence_contract",
+      "Standard Envelope Evidence Contract",
+      standardEnvelopeEvidenceContractReady(standardEnvelopeEvidenceContract)
+        ? "passed"
+        : "blocked",
+      `${standardEnvelopeEvidenceContract.evidenceProvider} supplies trackable delivery evidence that can show delivered; TCOS Under-$20 Seller Protection is internal, optional per seller shipment, item-only, and not third-party insurance. ${standardEnvelopeEvidenceContract.notInsuranceNotice}`,
+    ),
+  );
+
   checks.push(
     check(
       "live_requirements",
@@ -325,6 +358,7 @@ export async function evaluateLiveShippingLaunch(params?: {
     approvalDatabaseReady,
     approvalReady,
     liveShippingEnabled,
+    standardEnvelopeEvidenceContract,
     checks,
   };
 }

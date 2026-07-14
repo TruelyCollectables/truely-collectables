@@ -599,8 +599,28 @@ const checks = [
       result.text.includes("Live Shipping Launch Gate") &&
       result.text.includes("Provider secrets and live-adapter evidence") &&
       result.text.includes("Provider verdict") &&
+      result.text.includes("Standard Envelope Evidence + Under-$20 Protection Contract") &&
+      result.text.includes("LetterTrack / USPS IMb is delivery evidence, not insurance") &&
+      result.text.includes("Not insurance: LetterTrack / USPS IMb is delivery-evidence tracking") &&
       result.text.includes("Immutable Shipping Approval History") &&
       result.text.includes("Shipping Lab"),
+  },
+  {
+    name: "live shipping gate json",
+    path: "/api/admin/live-shipping-launch",
+    expect: (result) =>
+      result.contentType.includes("application/json") &&
+      result.text.includes('"standardEnvelopeEvidenceContract"') &&
+      result.text.includes('"evidenceProvider":"LetterTrack / USPS IMb"') &&
+      result.text.includes('"trackableRequirement"') &&
+      result.text.includes('"under20ProtectionModel"') &&
+      result.text.includes('"sellerOptInRule"') &&
+      result.text.includes('"reserveRate":"2%"') &&
+      result.text.includes('"itemReimbursementCap":"$20.00"') &&
+      result.text.includes('"reimbursesShipping":"no"') &&
+      result.text.includes('"notInsuranceNotice"') &&
+      result.text.includes('"standard_envelope_evidence_contract"') &&
+      result.text.includes('"Standard Envelope Evidence Contract"'),
   },
   {
     name: "admin shipping lettertrack controls",
@@ -807,6 +827,7 @@ const queuedFeatureCheckNames = [
   "production smoke report page",
   "live payment gate",
   "live shipping gate",
+  "live shipping gate json",
   "admin shipping lettertrack controls",
   "shipping simulation lab",
   "shipping simulation api",

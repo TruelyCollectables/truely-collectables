@@ -48,6 +48,7 @@ export default async function LiveShippingLaunchPage() {
   const readyRequirements = providerSetupPacket.liveRequirements.filter(
     (requirement) => requirement.status === "ready",
   ).length;
+  const evidenceContract = providerSetupPacket.standardEnvelopeEvidenceContract;
 
   return (
     <main className="min-h-screen bg-neutral-50 p-8 text-neutral-950">
@@ -242,6 +243,42 @@ export default async function LiveShippingLaunchPage() {
               </ul>
             </article>
           </div>
+
+          <article className="mt-5 rounded border border-amber-300 bg-white p-5">
+            <p className="text-xs font-black uppercase text-neutral-500">
+              Standard Envelope Evidence + Under-$20 Protection Contract
+            </p>
+            <h3 className="mt-2 text-xl font-black">
+              {evidenceContract.evidenceProvider} is delivery evidence, not insurance
+            </h3>
+            <p className="mt-2 text-sm leading-6">
+              {evidenceContract.trackableRequirement}{" "}
+              {evidenceContract.under20ProtectionModel}
+            </p>
+            <div className="mt-4 grid gap-3 text-sm md:grid-cols-3">
+              <div className="rounded border border-amber-200 bg-amber-50 p-3">
+                <p className="text-xs font-black uppercase">Seller opt-in</p>
+                <p className="mt-1">{evidenceContract.sellerOptInRule}</p>
+              </div>
+              <div className="rounded border border-amber-200 bg-amber-50 p-3">
+                <p className="text-xs font-black uppercase">Reserve / cap</p>
+                <p className="mt-1">
+                  {evidenceContract.reserveRate} reserve;{" "}
+                  {evidenceContract.itemReimbursementCap} item-only cap
+                </p>
+              </div>
+              <div className="rounded border border-amber-200 bg-amber-50 p-3">
+                <p className="text-xs font-black uppercase">Shipping</p>
+                <p className="mt-1">
+                  Reimburses shipping: {evidenceContract.reimbursesShipping}.
+                  Basis: {evidenceContract.reimbursementBasis}.
+                </p>
+              </div>
+            </div>
+            <p className="mt-4 rounded border border-red-200 bg-red-50 p-3 text-sm font-bold text-red-900">
+              Not insurance: {evidenceContract.notInsuranceNotice}
+            </p>
+          </article>
         </section>
 
         <section className="grid gap-4 md:grid-cols-2">
