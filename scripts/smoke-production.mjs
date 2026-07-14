@@ -1052,6 +1052,16 @@ const checks = [
       result.text.includes('"envTemplate"') &&
       result.text.includes('"vercelCommands"') &&
       result.text.includes('"operatorChecklist"') &&
+      result.response?.headers.get("x-tcos-shipping-provider-decision") !==
+        null &&
+      result.response?.headers.get("x-tcos-shipping-provider-missing-groups") !==
+        null &&
+      result.response?.headers.get("x-tcos-shipping-provider-live-blockers") !==
+        null &&
+      result.response?.headers.get("x-tcos-shipping-provider-contract-ready") ===
+        "ready" &&
+      result.response?.headers.get("x-tcos-shipping-provider-summary") !==
+        null &&
       !result.text.includes("sk_live_") &&
       !result.text.includes("whsec_"),
   },
@@ -1070,6 +1080,16 @@ const checks = [
       result.text.includes("not third-party insurance") &&
       result.text.includes("liveRequirementBlockers") &&
       result.text.includes("missingCredentialKeys") &&
+      result.response?.headers.get("x-tcos-shipping-provider-decision") !==
+        null &&
+      result.response?.headers.get("x-tcos-shipping-provider-missing-groups") !==
+        null &&
+      result.response?.headers.get("x-tcos-shipping-provider-live-blockers") !==
+        null &&
+      result.response?.headers.get("x-tcos-shipping-provider-contract-ready") ===
+        "ready" &&
+      result.response?.headers.get("x-tcos-shipping-provider-summary") !==
+        null &&
       !result.text.includes("sk_live_") &&
       !result.text.includes("whsec_"),
   },

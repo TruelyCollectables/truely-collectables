@@ -715,6 +715,11 @@ assertFileIncludes("shipping provider setup smoke contract", "scripts/smoke-prod
   '"envTemplate"',
   '"vercelCommands"',
   '"operatorChecklist"',
+  'result.response?.headers.get("x-tcos-shipping-provider-decision") !==',
+  'result.response?.headers.get("x-tcos-shipping-provider-missing-groups") !==',
+  'result.response?.headers.get("x-tcos-shipping-provider-live-blockers") !==',
+  'result.response?.headers.get("x-tcos-shipping-provider-contract-ready") ===',
+  'result.response?.headers.get("x-tcos-shipping-provider-summary") !==',
   '!result.text.includes("sk_live_")',
   '!result.text.includes("whsec_")',
   'name: "shipping provider setup csv"',
@@ -729,6 +734,8 @@ assertFileIncludes("shipping provider setup smoke contract", "scripts/smoke-prod
   "not third-party insurance",
   "liveRequirementBlockers",
   "missingCredentialKeys",
+  'result.response?.headers.get("x-tcos-shipping-provider-decision") !==',
+  'result.response?.headers.get("x-tcos-shipping-provider-contract-ready") ===',
   'name: "shipping provider env template"',
   'path: "/api/admin/shipping/provider-setup?format=env-template"',
   'result.contentType.includes("text/plain")',
@@ -762,6 +769,15 @@ assertFileIncludes("shipping provider setup smoke contract", "scripts/smoke-prod
   "Not insurance: LetterTrack / USPS IMb is delivery-evidence tracking",
   "Keep TCOS_SHIPPING_PURCHASE_MODE=dry_run",
   "Keep TCOS_LIVE_SHIPPING_ENABLED=false",
+]);
+
+assertFileIncludes("shipping provider setup response header source", "src/app/api/admin/shipping/provider-setup/route.ts", [
+  "providerSetupResponseHeaders",
+  "X-TCOS-Shipping-Provider-Decision",
+  "X-TCOS-Shipping-Provider-Missing-Groups",
+  "X-TCOS-Shipping-Provider-Live-Blockers",
+  "X-TCOS-Shipping-Provider-Contract-Ready",
+  "X-TCOS-Shipping-Provider-Summary",
 ]);
 
 assertFileIncludes("shipping provider standard envelope evidence contract source", "src/lib/shipping-provider-setup.ts", [

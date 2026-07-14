@@ -15,6 +15,38 @@ function csvCell(value: unknown) {
   return `"${text.replaceAll('"', '""')}"`;
 }
 
+function providerSetupResponseHeaders(params: {
+  lanes: ProviderSetupLane[];
+  decision: ProviderSetupDecision;
+  liveRequirements: LiveShippingRequirement[];
+  standardEnvelopeEvidenceContractReady: boolean;
+}) {
+  const missingCredentialGroups = unique(
+    params.lanes.flatMap((lane) => [
+      ...lane.missingCredentialKeys,
+      ...lane.missingCoverageCredentialKeys,
+    ]),
+  );
+  const liveRequirementBlockers = params.liveRequirements.filter(
+    (requirement) => requirement.status !== "ready",
+  );
+  const contractState = params.standardEnvelopeEvidenceContractReady
+    ? "ready"
+    : "blocked";
+
+  return {
+    "X-TCOS-Shipping-Provider-Decision": params.decision.status,
+    "X-TCOS-Shipping-Provider-Missing-Groups": String(
+      missingCredentialGroups.length,
+    ),
+    "X-TCOS-Shipping-Provider-Live-Blockers": String(
+      liveRequirementBlockers.length,
+    ),
+    "X-TCOS-Shipping-Provider-Contract-Ready": contractState,
+    "X-TCOS-Shipping-Provider-Summary": `decision:${params.decision.status}; missingGroups:${missingCredentialGroups.length}; liveBlockers:${liveRequirementBlockers.length}; standardEnvelope:${contractState}`,
+  };
+}
+
 function csvResponse(params: {
   lanes: ProviderSetupLane[];
   decision: ProviderSetupDecision;
@@ -104,6 +136,7 @@ function csvResponse(params: {
       "Content-Type": "text/csv; charset=utf-8",
       "Content-Disposition": `attachment; filename="tcos-shipping-provider-setup-${exportedAt}.csv"`,
       "Cache-Control": "no-store",
+      ...providerSetupResponseHeaders(params),
     },
   });
 }
@@ -219,6 +252,7 @@ function envTemplateResponse(params: {
       "Content-Type": "text/plain; charset=utf-8",
       "Content-Disposition": `attachment; filename="tcos-shipping-provider-env-template-${exportedAt}.env"`,
       "Cache-Control": "no-store",
+      ...providerSetupResponseHeaders(params),
     },
   });
 }
@@ -228,6 +262,7 @@ function vercelCommandsResponse(params: {
   decision: ProviderSetupDecision;
   liveRequirements: LiveShippingRequirement[];
   actionPlan: ProviderSetupActionPlanStep[];
+  standardEnvelopeEvidenceContractReady: boolean;
 }) {
   const requiredCredentialKeys = unique(
     params.lanes.flatMap((lane) => [
@@ -286,6 +321,7 @@ function vercelCommandsResponse(params: {
       "Content-Type": "text/plain; charset=utf-8",
       "Content-Disposition": `attachment; filename="tcos-shipping-provider-vercel-env-${exportedAt}.sh"`,
       "Cache-Control": "no-store",
+      ...providerSetupResponseHeaders(params),
     },
   });
 }
@@ -393,6 +429,7 @@ function operatorChecklistResponse(params: {
       "Content-Type": "text/markdown; charset=utf-8",
       "Content-Disposition": `attachment; filename="tcos-shipping-provider-operator-checklist-${exportedAt}.md"`,
       "Cache-Control": "no-store",
+      ...providerSetupResponseHeaders(params),
     },
   });
 }
@@ -435,6 +472,8 @@ export async function GET(request: Request) {
         decision: packet.decision,
         liveRequirements: packet.liveRequirements,
         actionPlan: packet.actionPlan,
+        standardEnvelopeEvidenceContractReady:
+          packet.standardEnvelopeEvidenceContractReady,
       });
     }
 
@@ -460,6 +499,13 @@ export async function GET(request: Request) {
       {
         headers: {
           "Cache-Control": "no-store",
+          ...providerSetupResponseHeaders({
+            lanes: packet.lanes,
+            decision: packet.decision,
+            liveRequirements: packet.liveRequirements,
+            standardEnvelopeEvidenceContractReady:
+              packet.standardEnvelopeEvidenceContractReady,
+          }),
         },
       },
     );
