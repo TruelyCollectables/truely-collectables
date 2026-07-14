@@ -1710,6 +1710,63 @@ assertFileIncludes(
   ],
 );
 assertFileIncludes(
+  "seller marketplace ebay auth response metadata contract",
+  "src/app/api/account/seller/marketplace-connections/ebay/auth/route.ts",
+  [
+    "function sellerMarketplaceEbayAuthHeaders",
+    "X-TCOS-Seller-Marketplace-Ebay-Auth-Mutation",
+    "X-TCOS-Seller-Marketplace-Ebay-Auth-Status",
+    "X-TCOS-Seller-Marketplace-Ebay-Auth-Provider",
+    "X-TCOS-Seller-Marketplace-Ebay-Auth-Store-Sync",
+    "X-TCOS-Seller-Marketplace-Ebay-Auth-Connection-Status",
+    "X-TCOS-Seller-Marketplace-Ebay-Auth-Sync-Status",
+    "status: \"requested\"",
+    "status: \"misconfigured\"",
+    "status: \"blocked\"",
+    "status: \"failed\"",
+    "const { error: connectionError }",
+  ],
+);
+assertFileIncludes(
+  "seller marketplace ebay disconnect response metadata contract",
+  "src/app/api/account/seller/marketplace-connections/ebay/disconnect/route.ts",
+  [
+    "function sellerMarketplaceEbayDisconnectHeaders",
+    "X-TCOS-Seller-Marketplace-Ebay-Disconnect-Mutation",
+    "X-TCOS-Seller-Marketplace-Ebay-Disconnect-Result",
+    "X-TCOS-Seller-Marketplace-Ebay-Disconnect-Already",
+    "X-TCOS-Seller-Marketplace-Ebay-Disconnect-Connection-Status",
+    "X-TCOS-Seller-Marketplace-Ebay-Disconnect-Sync-Status",
+    "X-TCOS-Seller-Marketplace-Ebay-Disconnect-Credentials-Deleted",
+    "result: \"already_disconnected\"",
+    "result: \"disconnected\"",
+    "result: \"failed\"",
+    "localCredentialsDeleted: true",
+  ],
+);
+assertFileIncludes(
+  "seller marketplace ebay auth and disconnect response metadata operator manual contract",
+  "docs/TCOS_OPERATOR_MANUAL.md",
+  [
+    "/api/account/seller/marketplace-connections/ebay/auth",
+    "X-TCOS-Seller-Marketplace-Ebay-Auth-Mutation",
+    "X-TCOS-Seller-Marketplace-Ebay-Auth-Status",
+    "X-TCOS-Seller-Marketplace-Ebay-Auth-Provider",
+    "X-TCOS-Seller-Marketplace-Ebay-Auth-Store-Sync",
+    "X-TCOS-Seller-Marketplace-Ebay-Auth-Connection-Status",
+    "X-TCOS-Seller-Marketplace-Ebay-Auth-Sync-Status",
+    "without exposing authorization URLs, signed OAuth state, eBay client IDs, OAuth scopes, connection IDs, provider account IDs, provider account labels, token data, or seller account IDs in headers",
+    "/api/account/seller/marketplace-connections/ebay/disconnect",
+    "X-TCOS-Seller-Marketplace-Ebay-Disconnect-Mutation",
+    "X-TCOS-Seller-Marketplace-Ebay-Disconnect-Result",
+    "X-TCOS-Seller-Marketplace-Ebay-Disconnect-Already",
+    "X-TCOS-Seller-Marketplace-Ebay-Disconnect-Connection-Status",
+    "X-TCOS-Seller-Marketplace-Ebay-Disconnect-Sync-Status",
+    "X-TCOS-Seller-Marketplace-Ebay-Disconnect-Credentials-Deleted",
+    "without exposing connection IDs, provider account IDs, provider account labels, OAuth scopes, token IDs, token timestamps, stored token keys, provider metadata, or seller account IDs in headers",
+  ],
+);
+assertFileIncludes(
   "seller marketplace ebay status response metadata contract",
   "src/app/api/account/seller/marketplace-connections/ebay/status/route.ts",
   [

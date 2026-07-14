@@ -45,6 +45,28 @@ function recordValue(value: unknown): Record<string, unknown> {
     : {};
 }
 
+function sellerMarketplaceEbayDisconnectHeaders(params: {
+  result: "disconnected" | "already_disconnected" | "failed";
+  alreadyDisconnected: boolean;
+  connectionStatus: string | null;
+  syncStatus: string | null;
+  localCredentialsDeleted: boolean;
+}) {
+  return {
+    "X-TCOS-Seller-Marketplace-Ebay-Disconnect-Mutation": "disconnect",
+    "X-TCOS-Seller-Marketplace-Ebay-Disconnect-Result": params.result,
+    "X-TCOS-Seller-Marketplace-Ebay-Disconnect-Already": params.alreadyDisconnected
+      ? "true"
+      : "false",
+    "X-TCOS-Seller-Marketplace-Ebay-Disconnect-Connection-Status":
+      params.connectionStatus || "none",
+    "X-TCOS-Seller-Marketplace-Ebay-Disconnect-Sync-Status":
+      params.syncStatus || "none",
+    "X-TCOS-Seller-Marketplace-Ebay-Disconnect-Credentials-Deleted":
+      params.localCredentialsDeleted ? "true" : "false",
+  };
+}
+
 export async function DELETE(request: Request) {
   try {
     const account = await getAuthenticatedAccountFromRequest(request);
@@ -78,6 +100,14 @@ export async function DELETE(request: Request) {
         success: true,
         alreadyDisconnected: true,
         connection: null,
+      }, {
+        headers: sellerMarketplaceEbayDisconnectHeaders({
+          result: "already_disconnected",
+          alreadyDisconnected: true,
+          connectionStatus: null,
+          syncStatus: null,
+          localCredentialsDeleted: false,
+        }),
       });
     }
 
@@ -132,11 +162,28 @@ export async function DELETE(request: Request) {
       connection: publicSellerMarketplaceConnection(
         disconnectedConnection as unknown as SellerMarketplaceConnectionRow,
       ),
+    }, {
+      headers: sellerMarketplaceEbayDisconnectHeaders({
+        result: "disconnected",
+        alreadyDisconnected: false,
+        connectionStatus: "revoked",
+        syncStatus: "paused",
+        localCredentialsDeleted: true,
+      }),
     });
   } catch (error: any) {
     return Response.json(
       { error: error.message || "Could not disconnect seller eBay" },
-      { status: 500 },
+      {
+        status: 500,
+        headers: sellerMarketplaceEbayDisconnectHeaders({
+          result: "failed",
+          alreadyDisconnected: false,
+          connectionStatus: null,
+          syncStatus: null,
+          localCredentialsDeleted: false,
+        }),
+      },
     );
   }
 }

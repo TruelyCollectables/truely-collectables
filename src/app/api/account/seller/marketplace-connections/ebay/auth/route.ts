@@ -21,7 +21,26 @@ function getSupabaseClient() {
   return createSupabaseServerClient({ admin: true });
 }
 
+function sellerMarketplaceEbayAuthHeaders(params: {
+  status: "requested" | "misconfigured" | "blocked" | "failed";
+  storeSyncStatus: "enabled" | "disabled" | "unknown";
+  connectionStatus: "connect_requested" | "not_requested";
+  syncStatus: "not_started" | "unknown";
+}) {
+  return {
+    "X-TCOS-Seller-Marketplace-Ebay-Auth-Mutation": "start_oauth",
+    "X-TCOS-Seller-Marketplace-Ebay-Auth-Status": params.status,
+    "X-TCOS-Seller-Marketplace-Ebay-Auth-Provider": "ebay",
+    "X-TCOS-Seller-Marketplace-Ebay-Auth-Store-Sync": params.storeSyncStatus,
+    "X-TCOS-Seller-Marketplace-Ebay-Auth-Connection-Status":
+      params.connectionStatus,
+    "X-TCOS-Seller-Marketplace-Ebay-Auth-Sync-Status": params.syncStatus,
+  };
+}
+
 export async function POST(request: Request) {
+  let storeSyncStatus: "enabled" | "disabled" | "unknown" = "unknown";
+
   try {
     const account = await getAuthenticatedAccountFromRequest(request);
 
@@ -34,18 +53,35 @@ export async function POST(request: Request) {
     if (!clientId) {
       return Response.json(
         { error: "Missing eBay client credentials" },
-        { status: 500 },
+        {
+          status: 500,
+          headers: sellerMarketplaceEbayAuthHeaders({
+            status: "misconfigured",
+            storeSyncStatus,
+            connectionStatus: "not_requested",
+            syncStatus: "unknown",
+          }),
+        },
       );
     }
 
     const supabase = getSupabaseClient();
     const storeId = getActiveStoreId();
     const storeSettings = await getStoreSettings(supabase, storeId);
+    storeSyncStatus = storeSettings.ebaySyncEnabled ? "enabled" : "disabled";
 
     if (!storeSettings.ebaySyncEnabled) {
       return Response.json(
         { error: "eBay sync is disabled for this store" },
-        { status: 403 },
+        {
+          status: 403,
+          headers: sellerMarketplaceEbayAuthHeaders({
+            status: "blocked",
+            storeSyncStatus,
+            connectionStatus: "not_requested",
+            syncStatus: "unknown",
+          }),
+        },
       );
     }
 
@@ -55,7 +91,9 @@ export async function POST(request: Request) {
       status: "active",
     });
 
-    await supabase.from("seller_marketplace_connections").upsert(
+    const { error: connectionError } = await supabase
+      .from("seller_marketplace_connections")
+      .upsert(
       {
         account_id: account.id,
         store_id: storeId,
@@ -71,6 +109,10 @@ export async function POST(request: Request) {
       },
       { onConflict: "store_id,account_id,provider" },
     );
+
+    if (connectionError) {
+      throw connectionError;
+    }
 
     const state = createSellerMarketplaceOAuthState({
       accountId: account.id,
@@ -93,13 +135,28 @@ export async function POST(request: Request) {
     return Response.json({
       success: true,
       authorizationUrl,
+    }, {
+      headers: sellerMarketplaceEbayAuthHeaders({
+        status: "requested",
+        storeSyncStatus,
+        connectionStatus: "connect_requested",
+        syncStatus: "not_started",
+      }),
     });
   } catch (error: any) {
     return Response.json(
       {
         error: error.message || "Could not start seller eBay authorization",
       },
-      { status: 500 },
+      {
+        status: 500,
+        headers: sellerMarketplaceEbayAuthHeaders({
+          status: "failed",
+          storeSyncStatus,
+          connectionStatus: "not_requested",
+          syncStatus: "unknown",
+        }),
+      },
     );
   }
 }
