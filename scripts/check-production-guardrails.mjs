@@ -5,6 +5,72 @@ const node = process.execPath;
 const packageJson = JSON.parse(fs.readFileSync("package.json", "utf8"));
 const scripts = packageJson.scripts || {};
 
+function redactSecrets(text) {
+  return text
+    .replace(/\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9_=-]{8,}\b/g, "[redacted-stripe-secret]")
+    .replace(/\bpk_(?:live|test)_[A-Za-z0-9_=-]{8,}\b/g, "[redacted-stripe-publishable]")
+    .replace(/\bwhsec_[A-Za-z0-9_=-]{8,}\b/g, "[redacted-stripe-webhook]")
+    .replace(/\bre_[A-Za-z0-9_=-]{8,}\b/g, "[redacted-resend-key]")
+    .replace(/\b(?:Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{12,}\b/gi, "[redacted-auth-header]")
+    .replace(
+      /\b(access_token|refresh_token|api_key|apikey|client_secret|secret|token|password)=([^&\s"'<>]+)/gi,
+      "$1=[redacted-secret]",
+    )
+    .replace(
+      /"((?:access_)?token|refresh_token|api_key|apikey|client_secret|secret|password)"\s*:\s*"[^"]{6,}"/gi,
+      '"$1":"[redacted-secret]"',
+    )
+    .replace(/\beyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\b/g, "[redacted-jwt]");
+}
+
+function diagnosticOutput(text) {
+  return redactSecrets(text)
+    .replace(/\s+$/g, "")
+    .slice(0, 4000);
+}
+
+function runGuardrailRedactionSelfTest() {
+  const sample = [
+    "sk_live_fakeSecret123456789",
+    "rk_live_fakeRestricted123456789",
+    "pk_live_fakePublishable123456789",
+    "whsec_fakeWebhook123456789",
+    "re_fakeResend123456789",
+    "Bearer abcdefghijklmnopqrstuvwxyz123456",
+    "Basic QWxhZGRpbjpvcGVuIHNlc2FtZTEyMzQ1Ng==",
+    "access_token=abc123456789",
+    "client_secret=clientSecret123456789",
+    "api_key=apiKey123456789",
+    '"refresh_token":"refresh123456789"',
+    '"password":"password123456789"',
+    "eyJabcdefghijklmnopqrstuv.eyJabcdefghijklmnopqrstuv.signatureabcdefghijklmnopqrstuv",
+  ].join(" ");
+  const snippet = diagnosticOutput(sample);
+  const leakedMarkers = [
+    "sk_live_",
+    "rk_live_",
+    "pk_live_",
+    "whsec_",
+    "re_fake",
+    "Bearer ",
+    "Basic ",
+    "abc123456789",
+    "clientSecret123456789",
+    "apiKey123456789",
+    "refresh123456789",
+    "password123456789",
+    "eyJabcdefghijklmnopqrstuv",
+  ].filter((marker) => snippet.includes(marker));
+
+  if (leakedMarkers.length > 0) {
+    throw new Error(
+      `Production guardrail redaction self-test leaked marker(s): ${leakedMarkers.join(", ")}`,
+    );
+  }
+
+  console.log("PASS production guardrail redaction self-test");
+}
+
 function assertScriptIncludes(scriptName, expectedParts) {
   const script = scripts[scriptName];
 
@@ -66,7 +132,7 @@ function runExpectedSuccess(name, args, env = {}) {
   const output = `${result.stdout || ""}${result.stderr || ""}`;
 
   if (result.status !== 0) {
-    throw new Error(`${name} failed unexpectedly.\n${output}`);
+    throw new Error(`${name} failed unexpectedly.\n${diagnosticOutput(output)}`);
   }
 
   console.log(`PASS ${name}`);
@@ -83,17 +149,19 @@ function runExpectedFailure(name, args, env, expectedText) {
   const output = `${result.stdout || ""}${result.stderr || ""}`;
 
   if (result.status === 0) {
-    throw new Error(`${name} unexpectedly passed.\n${output}`);
+    throw new Error(`${name} unexpectedly passed.\n${diagnosticOutput(output)}`);
   }
 
   if (!output.includes(expectedText)) {
     throw new Error(
-      `${name} failed, but did not print the expected guardrail message.\nExpected: ${expectedText}\nActual:\n${output}`,
+      `${name} failed, but did not print the expected guardrail message.\nExpected: ${expectedText}\nActual:\n${diagnosticOutput(output)}`,
     );
   }
 
   console.log(`PASS ${name}`);
 }
+
+runGuardrailRedactionSelfTest();
 
 runExpectedSuccess("deploy helper syntax check", [
   "--check",
@@ -334,6 +402,19 @@ runExpectedSuccess(
 runExpectedSuccess("deploy diagnostic redaction self-test", [
   "scripts/deploy-production.mjs",
   "--self-test-redaction",
+]);
+assertFileIncludes("production guardrail diagnostic redaction coverage", "scripts/check-production-guardrails.mjs", [
+  "function redactSecrets(text)",
+  "function diagnosticOutput(text)",
+  "function runGuardrailRedactionSelfTest()",
+  "Production guardrail redaction self-test leaked marker(s)",
+  "PASS production guardrail redaction self-test",
+  "rk_live_fakeRestricted123456789",
+  "Basic QWxhZGRpbjpvcGVuIHNlc2FtZTEyMzQ1Ng==",
+  "client_secret=clientSecret123456789",
+  "api_key=apiKey123456789",
+  '"password":"password123456789"',
+  "diagnosticOutput(output)",
 ]);
 assertFileIncludes("smoke diagnostic redaction coverage", "scripts/smoke-production.mjs", [
   "rk_live_fakeRestricted123456789",
