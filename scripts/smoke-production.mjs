@@ -432,12 +432,22 @@ const checks = [
   {
     name: "live payment gate",
     path: "/admin/live-payment-launch",
-    expect: (result) => result.text.includes("Live Payment Launch Gate"),
+    expect: (result) =>
+      result.text.includes("Live Payment Launch Gate") &&
+      result.text.includes("Stripe Mode") &&
+      result.text.includes("Approval version") &&
+      result.text.includes("Approve Live Payments") &&
+      result.text.includes("Payment Lab"),
   },
   {
     name: "live shipping gate",
     path: "/admin/live-shipping-launch",
-    expect: (result) => result.text.includes("Live Shipping Launch Gate"),
+    expect: (result) =>
+      result.text.includes("Live Shipping Launch Gate") &&
+      result.text.includes("Provider secrets and live-adapter evidence") &&
+      result.text.includes("Provider verdict") &&
+      result.text.includes("Immutable Shipping Approval History") &&
+      result.text.includes("Shipping Lab"),
   },
   {
     name: "admin shipping lettertrack controls",
