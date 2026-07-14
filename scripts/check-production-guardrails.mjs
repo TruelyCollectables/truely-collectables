@@ -1410,6 +1410,7 @@ assertFileIncludes("deploy live safety README", "README.md", [
   "LetterTrack evidence checks",
   "shipping purchase-attempt audit simulations",
   "nineteen-scenario shipping simulation suite",
+  "visible missing/unexpected purchase-audit key drift checks",
   "Vercel quota messaging",
   "unwanted `truely-collectables-tt3b.vercel.app` alias",
   "deployed and clean URLs",
