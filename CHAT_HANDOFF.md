@@ -60,7 +60,9 @@ The deploy helper:
 - checks local Git state against `origin/main`;
 - verifies command-pinned Vercel CLI `56.2.0` through isolated `npm exec --package=vercel@56.2.0` before any possible upload; the CLI cache stays under the OS temporary directory, outside application `node_modules` and the lockfile, and every Vercel call receives `--cwd` with the repository root;
 - normalizes `VERCEL_CLEAN_DOMAIN` and `VERCEL_UNWANTED_ALIAS` from hostnames or URLs;
+- rejects credentials, ports, paths, queries, fragments, IPs, single-label names, and malformed DNS labels without echoing rejected target values;
 - stops early when the local Vercel quota cooldown marker is still active;
+- checks that cooldown before command-pinned npm exec or Git fetch on normal deploys, while preflight-only remains quota-independent;
 - deploys production through Vercel only when the checks pass;
 - fails clearly if Vercel quota is still capped;
 - removes the unwanted `truely-collectables-tt3b.vercel.app` alias if present;
@@ -203,6 +205,7 @@ Recent queued work added or hardened:
 - network-independent local Geist font loading and a direct `tsx` verification dependency.
 - bounded Tailwind 4 source detection across `src/**`, preventing cold production builds from recursively scanning FileProvider workspace metadata, generated caches, documentation artifacts, and dependencies.
 - command-pinned Vercel CLI `56.2.0` preflight and fail-closed unwanted-alias cleanup before clean-domain aliasing.
+- strict production target-host validation and a pre-CLI/pre-Git normal-deploy quota stop.
 
 These may fail production smoke until a successful Vercel deploy lands the queued commits.
 

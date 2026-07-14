@@ -7,7 +7,7 @@ Use this when the queued launch work is ready to ship to production.
 - Clean production URL: `https://truely-collectables.vercel.app`
 - Unwanted preview-style alias that must not return: `truely-collectables-tt3b.vercel.app`
 
-Do not point production deploy or smoke overrides at the unwanted alias. The deploy helper normalizes `VERCEL_CLEAN_DOMAIN` and `VERCEL_UNWANTED_ALIAS` from either hostnames or URLs, refuses a clean-domain configuration that equals the unwanted alias, and the smoke helper normalizes `SMOKE_BASE_URL` plus `SMOKE_UNWANTED_ALIAS_URL` before refusing any target that resolves to that alias.
+Do not point production deploy or smoke overrides at the unwanted alias. The deploy helper accepts `VERCEL_CLEAN_DOMAIN` and `VERCEL_UNWANTED_ALIAS` only as valid bare DNS hostnames or root HTTP(S) URLs, refuses credentials, ports, paths, queries, fragments, IPs, single-label names, and malformed DNS labels, and refuses a clean-domain configuration that equals the unwanted alias. Rejected values are not echoed. The smoke helper normalizes `SMOKE_BASE_URL` plus `SMOKE_UNWANTED_ALIAS_URL` before refusing any target that resolves to that alias.
 
 ## Before deploying
 
@@ -49,6 +49,8 @@ The quota marker is success-cleared, not attempt-cleared. A failed override retr
 The helper also requires `vercel --prod` to exit successfully before it parses the deployment URL, runs either alias command, or clears the quota marker. A URL printed by a failed Vercel command is diagnostic output, not a deployable result.
 
 The deploy helper command-pins Vercel CLI `56.2.0` through isolated `npm exec --package=vercel@56.2.0`. Its cache lives under the operating system temporary directory, outside the application lockfile and `node_modules`; every Vercel call also receives `--cwd` with the TCOS repository root so the isolated prefix cannot change the deployment target. Production preflight runs that exact command, verifies its reported version, and stops before Vercel upload when npm registry access fails or the CLI is mismatched. The project does not rely on an unverified global CLI.
+
+For a normal deploy, the local quota cooldown check runs before command-pinned npm exec or Git fetch. Active, invalid, and invalidly configured cooldown states therefore stop before any external launch work. Preflight-only deliberately skips the quota gate so it can verify the CLI and Git state without deploying while the cooldown is active.
 
 Unwanted-alias cleanup must succeed or return Vercel CLI's explicit `Alias not found by` result before the helper can move the clean domain. Authentication, scope, network, and all other cleanup failures stop before clean-domain aliasing and preserve the local quota marker.
 

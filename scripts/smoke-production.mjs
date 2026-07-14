@@ -511,6 +511,8 @@ const checks = [
       result.text.includes("Require vercel --prod to exit successfully before parsing its deployment URL, running alias commands, or clearing the quota marker") &&
       result.text.includes("Use command-pinned Vercel CLI 56.2.0 through isolated npm exec") &&
       result.text.includes("Require unwanted-alias removal to succeed or return Vercel CLI's explicit alias-not-found result") &&
+      result.text.includes("Accept production target overrides only as valid DNS hostnames or root HTTP(S) URLs") &&
+      result.text.includes("On normal deploys, enforce the local quota cooldown before npm exec, Git fetch, build, upload, or deployment") &&
       result.text.includes("print DEPLOYED_PRODUCTION") &&
       result.text.includes("print CLEAN_PRODUCTION") &&
       result.text.includes("print smoke handoff command") &&
@@ -555,6 +557,8 @@ const checks = [
       result.text.includes('"deployResultRequirement"') &&
       result.text.includes('"vercelCliRequirement"') &&
       result.text.includes('"unwantedAliasCleanupRequirement"') &&
+      result.text.includes('"targetHostRequirement"') &&
+      result.text.includes('"quotaEarlyStopRequirement"') &&
       result.text.includes("rolling 24-hour quota reset") &&
       result.text.includes("Vercel can still upload files before returning the quota error") &&
       result.text.includes("deployed URL output") &&
@@ -567,6 +571,8 @@ const checks = [
       result.text.includes("Require vercel --prod to exit successfully before parsing its deployment URL, running alias commands, or clearing the quota marker") &&
       result.text.includes("Use command-pinned Vercel CLI 56.2.0 through isolated npm exec") &&
       result.text.includes("Require unwanted-alias removal to succeed or return Vercel CLI's explicit alias-not-found result") &&
+      result.text.includes("Accept production target overrides only as valid DNS hostnames or root HTTP(S) URLs") &&
+      result.text.includes("On normal deploys, enforce the local quota cooldown before npm exec, Git fetch, build, upload, or deployment") &&
       result.text.includes("print DEPLOYED_PRODUCTION") &&
       result.text.includes("print CLEAN_PRODUCTION") &&
       result.text.includes("print smoke handoff command") &&
@@ -612,6 +618,8 @@ const checks = [
       result.text.includes("Require vercel --prod to exit successfully before parsing its deployment URL, running alias commands, or clearing the quota marker") &&
       result.text.includes("Use command-pinned Vercel CLI 56.2.0 through isolated npm exec") &&
       result.text.includes("Require unwanted-alias removal to succeed or return Vercel CLI's explicit alias-not-found result") &&
+      result.text.includes("Accept production target overrides only as valid DNS hostnames or root HTTP(S) URLs") &&
+      result.text.includes("On normal deploys, enforce the local quota cooldown before npm exec, Git fetch, build, upload, or deployment") &&
       result.text.includes("print DEPLOYED_PRODUCTION") &&
       result.text.includes("print CLEAN_PRODUCTION") &&
       result.text.includes("print smoke handoff command") &&
@@ -711,6 +719,8 @@ const checks = [
       "Require vercel --prod to exit successfully before parsing its deployment URL, running alias commands, or clearing the quota marker",
       "Use command-pinned Vercel CLI 56.2.0 through isolated npm exec",
       "Require unwanted-alias removal to succeed or return Vercel CLI's explicit alias-not-found result",
+      "Accept production target overrides only as valid DNS hostnames or root HTTP(S) URLs",
+      "On normal deploys, enforce the local quota cooldown before npm exec, Git fetch, build, upload, or deployment",
       ".codex-run/vercel-quota-block.json",
       "TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true",
       "--force-quota-retry",
@@ -925,6 +935,8 @@ const checks = [
       "Require vercel --prod to exit successfully before parsing its deployment URL, running alias commands, or clearing the quota marker",
       "Use command-pinned Vercel CLI 56.2.0 through isolated npm exec",
       "Require unwanted-alias removal to succeed or return Vercel CLI's explicit alias-not-found result",
+      "Accept production target overrides only as valid DNS hostnames or root HTTP(S) URLs",
+      "On normal deploys, enforce the local quota cooldown before npm exec, Git fetch, build, upload, or deployment",
       "deploy live safety contract",
       "## Production Go/No-Go Ladder",
       "Verify the pushed stack",

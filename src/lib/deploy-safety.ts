@@ -23,6 +23,10 @@ export const DEPLOY_SAFETY = {
     "Use command-pinned Vercel CLI 56.2.0 through isolated npm exec and fail production preflight before upload when the exact CLI cannot run.",
   unwantedAliasCleanupRequirement:
     "Require unwanted-alias removal to succeed or return Vercel CLI's explicit alias-not-found result before clean-domain aliasing or quota-marker clearing.",
+  targetHostRequirement:
+    "Accept production target overrides only as valid DNS hostnames or root HTTP(S) URLs without credentials, ports, paths, queries, fragments, IP addresses, or single-label names.",
+  quotaEarlyStopRequirement:
+    "On normal deploys, enforce the local quota cooldown before npm exec, Git fetch, build, upload, or deployment; preflight-only remains quota-independent.",
   contract: [
     "Vercel quota messaging",
     "local Vercel quota cooldown marker",
@@ -33,6 +37,8 @@ export const DEPLOY_SAFETY = {
     "successful Vercel deploy exit before URL and alias handling",
     "command-pinned Vercel CLI preflight",
     "fail-closed unwanted-alias cleanup",
+    "strict production target-host validation",
+    "pre-CLI normal-deploy quota stop",
     "deployed URL output",
     "clean URL output",
     `${DEPLOY_SAFETY_SMOKE_COMMAND} handoff`,

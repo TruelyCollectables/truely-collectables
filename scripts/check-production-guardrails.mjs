@@ -205,6 +205,8 @@ assertFileIncludes("command-pinned Vercel CLI README", "README.md", [
   "without a machine-global `vercel` command",
   "temporary cache stays outside application `node_modules` and the lockfile",
   "Every Vercel call receives `--cwd` with the repository root",
+  "Production target overrides accept only valid DNS hostnames or root HTTP(S) URLs",
+  "Normal deploys also enforce the local quota cooldown before npm exec or Git fetch",
   "Unwanted-alias cleanup must succeed",
 ]);
 assertFileIncludes(
@@ -215,6 +217,8 @@ assertFileIncludes(
     "isolated `npm exec --package=vercel@56.2.0`",
     "outside the application lockfile and `node_modules`",
     "every Vercel call also receives `--cwd` with the TCOS repository root",
+    "accepts `VERCEL_CLEAN_DOMAIN` and `VERCEL_UNWANTED_ALIAS` only as valid bare DNS hostnames or root HTTP(S) URLs",
+    "local quota cooldown check runs before command-pinned npm exec or Git fetch",
     "Unwanted-alias cleanup must succeed",
   ],
 );
@@ -223,6 +227,8 @@ assertFileIncludes("command-pinned Vercel CLI handoff", "CHAT_HANDOFF.md", [
   "isolated `npm exec --package=vercel@56.2.0`",
   "outside application `node_modules` and the lockfile",
   "every Vercel call receives `--cwd` with the repository root",
+  "rejects credentials, ports, paths, queries, fragments, IPs, single-label names, and malformed DNS labels",
+  "checks that cooldown before command-pinned npm exec or Git fetch on normal deploys",
   "unwanted-alias removal succeeds",
   "preserves the marker and clean-domain target",
 ]);
@@ -303,6 +309,27 @@ runExpectedSuccess("deploy helper syntax check", [
   "--check",
   "scripts/deploy-production.mjs",
 ]);
+runExpectedSuccess("deploy helper target-host normalization self-test", [
+  "scripts/deploy-production.mjs",
+  "--self-test-target-hosts",
+]);
+runExpectedFailure(
+  "deploy helper rejects target URL paths",
+  ["scripts/deploy-production.mjs", "--quota-status"],
+  {
+    VERCEL_CLEAN_DOMAIN: "https://truely-collectables.vercel.app/path",
+  },
+  "VERCEL_CLEAN_DOMAIN must be a root HTTP(S) URL without credentials, port, path, query, or fragment",
+);
+runExpectedFailure(
+  "deploy helper rejects target URL credentials",
+  ["scripts/deploy-production.mjs", "--quota-status"],
+  {
+    VERCEL_UNWANTED_ALIAS:
+      "https://operator:self-test-secret@truely-collectables-tt3b.vercel.app/",
+  },
+  "VERCEL_UNWANTED_ALIAS must be a root HTTP(S) URL without credentials, port, path, query, or fragment",
+);
 runExpectedSuccess(
   "deploy helper quota cooldown self-test",
   ["scripts/deploy-production.mjs", "--self-test-quota-cooldown"],
@@ -407,6 +434,13 @@ assertFileIncludes(
     "Only Vercel CLI's explicit alias-not-found result is safe to continue past",
     "Alias-removal self-test removed the quota marker on failure",
     "Production unwanted-alias removal self-test passed",
+    "--self-test-target-hosts",
+    "Production target-host normalization self-test passed",
+    "must be a valid DNS hostname or root HTTP(S) URL",
+    "must be a root HTTP(S) URL without credentials, port, path, query, or fragment",
+    "must be a bare DNS hostname or root HTTP(S) URL",
+    "must resolve to a valid DNS hostname with at least two labels",
+    "message.includes(\"user-secret\")",
   ],
 );
 assertFileIncludes("quota status runbook instructions", "docs/PRODUCTION_DEPLOY_RUNBOOK.md", [
@@ -445,6 +479,8 @@ assertFileIncludes(
     "DEPLOY_SAFETY.deployResultRequirement",
     "DEPLOY_SAFETY.vercelCliRequirement",
     "DEPLOY_SAFETY.unwantedAliasCleanupRequirement",
+    "DEPLOY_SAFETY.targetHostRequirement",
+    "DEPLOY_SAFETY.quotaEarlyStopRequirement",
     "Check the local Vercel cooldown",
     "starts no upload or deployment",
   ],
@@ -459,6 +495,8 @@ assertFileIncludes(
     "DEPLOY_SAFETY.deployResultRequirement",
     "DEPLOY_SAFETY.vercelCliRequirement",
     "DEPLOY_SAFETY.unwantedAliasCleanupRequirement",
+    "DEPLOY_SAFETY.targetHostRequirement",
+    "DEPLOY_SAFETY.quotaEarlyStopRequirement",
     "Before the retry time, use the read-only quota check",
   ],
 );
@@ -472,6 +510,8 @@ assertFileIncludes(
     "DEPLOY_SAFETY.deployResultRequirement",
     "DEPLOY_SAFETY.vercelCliRequirement",
     "DEPLOY_SAFETY.unwantedAliasCleanupRequirement",
+    "DEPLOY_SAFETY.targetHostRequirement",
+    "DEPLOY_SAFETY.quotaEarlyStopRequirement",
     "exact read-only local retry status",
   ],
 );
@@ -483,10 +523,14 @@ assertFileIncludes("quota status production smoke coverage", "scripts/smoke-prod
   '"deployResultRequirement"',
   '"vercelCliRequirement"',
   '"unwantedAliasCleanupRequirement"',
+  '"targetHostRequirement"',
+  '"quotaEarlyStopRequirement"',
   "Clear the local quota marker only after Vercel returns a parsed deployment URL and the clean production alias succeeds",
   "Require vercel --prod to exit successfully before parsing its deployment URL, running alias commands, or clearing the quota marker",
   "Use command-pinned Vercel CLI 56.2.0 through isolated npm exec",
   "Require unwanted-alias removal to succeed or return Vercel CLI's explicit alias-not-found result",
+  "Accept production target overrides only as valid DNS hostnames or root HTTP(S) URLs",
+  "On normal deploys, enforce the local quota cooldown before npm exec, Git fetch, build, upload, or deployment",
   "npm run status:production",
 ]);
 assertFileIncludes("quota status operator instructions", "docs/TCOS_OPERATOR_MANUAL.md", [
@@ -500,6 +544,8 @@ assertFileIncludes("quota status operator instructions", "docs/TCOS_OPERATOR_MAN
   "requires `vercel --prod` to exit successfully before it parses the deployment URL",
   "command-pins Vercel CLI `56.2.0` through isolated `npm exec --package=vercel@56.2.0`",
   "Unwanted-alias cleanup is also fail closed",
+  "Production target overrides are strict",
+  "normal deploy path checks this local cooldown before command-pinned npm exec, Git fetch, build, Vercel upload, or deployment",
   "self-test must never use the production marker path",
   "launch-readiness JSON and Markdown",
   "Production smoke verifies those surfaces retain `npm run status:production`",
@@ -518,6 +564,8 @@ assertFileIncludes(
     "requires <code>vercel --prod</code> to exit successfully before it parses the deployment URL",
     "command-pins Vercel CLI <code>56.2.0</code> through isolated <code>npm exec --package=vercel@56.2.0</code>",
     "Unwanted-alias cleanup is also fail closed",
+    "Production target overrides are strict",
+    "normal deploy path checks this local cooldown before command-pinned npm exec, Git fetch, build, Vercel upload, or deployment",
     "self-test must never use the production marker path",
     "launch-readiness JSON and Markdown",
     "Production smoke verifies those surfaces retain <code>npm run status:production</code>",
@@ -2886,6 +2934,16 @@ assertFileIncludes("deploy preflight env flag", "scripts/deploy-production.mjs",
   "Production deploy preflight passed. No Vercel deployment was started.",
 ]);
 
+assertFileOrder("normal deploy early quota stop", "scripts/deploy-production.mjs", [
+  "if (!preflightOnly)",
+  "assertNoRecentQuotaBlock();",
+  "vercelCliPreflight();",
+  "gitPreflight();",
+  "if (preflightOnly)",
+  "Production deploy preflight passed. No Vercel deployment was started.",
+  "Deploying production with Vercel scope ${scope}",
+]);
+
 assertFileIncludes("deploy git preflight diagnostics", "scripts/deploy-production.mjs", [
   "Refreshing origin/main before deploy",
   "working tree has deploy-relevant local changes",
@@ -2917,6 +2975,11 @@ assertFileIncludes("deploy helper production target defaults", "scripts/deploy-p
   '"truely-collectables-tt3b.vercel.app"',
   "VERCEL_CLEAN_DOMAIN",
   "VERCEL_UNWANTED_ALIAS",
+  "normalizeVercelHost",
+  "valid DNS hostname or root HTTP(S) URL",
+  "root HTTP(S) URL without credentials, port, path, query, or fragment",
+  "valid DNS hostname with at least two labels",
+  "isIP(hostname) !== 0",
 ]);
 
 assertFileIncludes("deploy helper quota block defaults", "scripts/deploy-production.mjs", [
@@ -2983,6 +3046,8 @@ assertFileIncludes("deploy live safety centralized source", "src/lib/deploy-safe
   "quotaUploadWarning",
   "vercelCliRequirement",
   "unwantedAliasCleanupRequirement",
+  "targetHostRequirement",
+  "quotaEarlyStopRequirement",
   "local Vercel quota cooldown marker",
   "Ship only after smoke passes clean production",
   "smokeCommand: DEPLOY_SAFETY_SMOKE_COMMAND",
@@ -3073,6 +3138,12 @@ assertFileIncludes(
     "Require unwanted-alias removal to succeed or return Vercel CLI's explicit alias-not-found result before clean-domain aliasing or quota-marker clearing.",
     "command-pinned Vercel CLI preflight",
     "fail-closed unwanted-alias cleanup",
+    "targetHostRequirement:",
+    "Accept production target overrides only as valid DNS hostnames or root HTTP(S) URLs without credentials, ports, paths, queries, fragments, IP addresses, or single-label names.",
+    "quotaEarlyStopRequirement:",
+    "On normal deploys, enforce the local quota cooldown before npm exec, Git fetch, build, upload, or deployment; preflight-only remains quota-independent.",
+    "strict production target-host validation",
+    "pre-CLI normal-deploy quota stop",
   ],
 );
 

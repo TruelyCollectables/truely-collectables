@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import fs from "node:fs";
+import { isIP } from "node:net";
 import os from "node:os";
 import path from "node:path";
 
@@ -24,6 +25,7 @@ const redactionSelfTest = process.argv.includes("--self-test-redaction");
 const quotaCooldownSelfTest = process.argv.includes("--self-test-quota-cooldown");
 const deployResultSelfTest = process.argv.includes("--self-test-deploy-result");
 const aliasRemovalSelfTest = process.argv.includes("--self-test-alias-removal");
+const targetHostSelfTest = process.argv.includes("--self-test-target-hosts");
 const vercelCliVersion = "56.2.0";
 const vercelCliPackage = `vercel@${vercelCliVersion}`;
 const vercelCliCacheDir = path.join(
@@ -53,11 +55,60 @@ function normalizeVercelHost(value, label) {
     throw new Error(`${label} cannot be empty.`);
   }
 
-  try {
-    return new URL(trimmed).host.toLowerCase();
-  } catch {
-    return trimmed.replace(/^https?:\/\//i, "").split("/")[0].toLowerCase();
+  let hostname = trimmed.toLowerCase();
+
+  if (/^[a-z][a-z\d+.-]*:\/\//i.test(trimmed)) {
+    let url;
+    try {
+      url = new URL(trimmed);
+    } catch {
+      throw new Error(
+        `${label} must be a valid DNS hostname or root HTTP(S) URL.`,
+      );
+    }
+
+    if (
+      (url.protocol !== "https:" && url.protocol !== "http:") ||
+      url.username ||
+      url.password ||
+      url.port ||
+      (url.pathname && url.pathname !== "/") ||
+      url.search ||
+      url.hash
+    ) {
+      throw new Error(
+        `${label} must be a root HTTP(S) URL without credentials, port, path, query, or fragment.`,
+      );
+    }
+
+    hostname = url.hostname.toLowerCase();
+  } else if (/[\s\/:?#@]/.test(trimmed)) {
+    throw new Error(
+      `${label} must be a bare DNS hostname or root HTTP(S) URL.`,
+    );
   }
+
+  const labels = hostname.split(".");
+  const validDnsLabels = labels.every(
+    (part) =>
+      part.length >= 1 &&
+      part.length <= 63 &&
+      /^[a-z\d](?:[a-z\d-]*[a-z\d])?$/.test(part),
+  );
+
+  if (
+    hostname.length > 253 ||
+    labels.length < 2 ||
+    hostname.endsWith(".") ||
+    isIP(hostname) !== 0 ||
+    !validDnsLabels
+  ) {
+    throw new Error(
+      `${label} must resolve to a valid DNS hostname with at least two labels.`,
+    );
+  }
+
+  return hostname;
 }
 
 if (cleanDomain === unwantedAlias) {
@@ -418,6 +469,59 @@ function runRedactionSelfTest() {
   console.log("Production deploy redaction self-test passed.");
 }
 
+function runTargetHostSelfTest() {
+  const validCases = [
+    ["TRUELY-COLLECTABLES.VERCEL.APP", "truely-collectables.vercel.app"],
+    ["https://Truely-Collectables.Vercel.App/", "truely-collectables.vercel.app"],
+    ["http://launch.example.com/", "launch.example.com"],
+  ];
+
+  for (const [input, expected] of validCases) {
+    const actual = normalizeVercelHost(input, "SELF_TEST_TARGET");
+    if (actual !== expected) {
+      throw new Error(
+        `Target-host self-test normalized ${input} to ${actual}; expected ${expected}.`,
+      );
+    }
+  }
+
+  const invalidCases = [
+    "",
+    "https://",
+    "ftp://launch.example.com",
+    "https://operator:user-secret@launch.example.com/",
+    "https://launch.example.com:444/",
+    "https://launch.example.com/path",
+    "https://launch.example.com/?target=other.example.com",
+    "https://launch.example.com/#fragment",
+    "launch.example.com/path",
+    "launch_example.com",
+    "-launch.example.com",
+    "launch..example.com",
+    "launch.example.com.",
+    "127.0.0.1",
+    "localhost",
+  ];
+
+  for (const input of invalidCases) {
+    try {
+      normalizeVercelHost(input, "SELF_TEST_TARGET");
+      throw new Error(`Target-host self-test accepted invalid input: ${input}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (
+        message.includes("accepted invalid input") ||
+        !message.includes("SELF_TEST_TARGET") ||
+        message.includes("user-secret")
+      ) {
+        throw error;
+      }
+    }
+  }
+
+  console.log("Production target-host normalization self-test passed.");
+}
+
 function run(command, args, options = {}) {
   const {
     allowFailure = false,
@@ -727,6 +831,11 @@ if (redactionSelfTest) {
   process.exit(0);
 }
 
+if (targetHostSelfTest) {
+  runTargetHostSelfTest();
+  process.exit(0);
+}
+
 if (quotaCooldownSelfTest) {
   runQuotaCooldownSelfTest();
   process.exit(0);
@@ -747,6 +856,10 @@ if (quotaStatusOnly) {
   process.exit(0);
 }
 
+if (!preflightOnly) {
+  assertNoRecentQuotaBlock();
+}
+
 vercelCliPreflight();
 gitPreflight();
 
@@ -754,8 +867,6 @@ if (preflightOnly) {
   console.log("Production deploy preflight passed. No Vercel deployment was started.");
   process.exit(0);
 }
-
-assertNoRecentQuotaBlock();
 
 console.log(`Deploying production with Vercel scope ${scope}...`);
 

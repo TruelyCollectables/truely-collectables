@@ -1218,6 +1218,10 @@ export default async function LaunchReadinessPage() {
               {DEPLOY_SAFETY.vercelCliRequirement}
               {" "}
               {DEPLOY_SAFETY.unwantedAliasCleanupRequirement}
+              {" "}
+              {DEPLOY_SAFETY.targetHostRequirement}
+              {" "}
+              {DEPLOY_SAFETY.quotaEarlyStopRequirement}
             </p>
           </div>
           <a
