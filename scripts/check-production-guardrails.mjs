@@ -1211,6 +1211,42 @@ assertFileIncludes(
   ],
 );
 assertFileIncludes(
+  "collector export download contract",
+  "src/app/api/account/collector/exports/route.ts",
+  [
+    'type ExportFormat = "csv" | "catalog_json"',
+    "function downloadResponse",
+    '"Content-Disposition": `attachment; filename="${params.fileName}"`',
+    '"Cache-Control": "no-store"',
+    "X-TCOS-Collector-Export-Format",
+    "X-TCOS-Collector-Export-Items",
+    "X-TCOS-Collector-Export-Wish-List",
+    "X-TCOS-Collector-Exported-At",
+    "tcos-collection-catalog-",
+    "tcos-collection-",
+    "account_collection_export_jobs",
+    "wish_list_count: wishListItems.length",
+    "generated_inline: true",
+    'contentType: "application/json; charset=utf-8"',
+    'contentType: "text/csv; charset=utf-8"',
+    "media_manifest",
+    "collectionCsv(collectionItems)",
+  ],
+);
+assertFileIncludes(
+  "collector export operator manual contract",
+  "docs/TCOS_OPERATOR_MANUAL.md",
+  [
+    "/api/account/collector/exports?format=csv",
+    "/api/account/collector/exports?format=catalog_json",
+    "account_collection_export_jobs",
+    "X-TCOS-Collector-Export-Format",
+    "X-TCOS-Collector-Export-Items",
+    "X-TCOS-Collector-Export-Wish-List",
+    "X-TCOS-Collector-Exported-At",
+  ],
+);
+assertFileIncludes(
   "seller marketplace packet intake contract",
   "src/app/seller/marketplaces/SellerConnectionsPanel.tsx",
   [

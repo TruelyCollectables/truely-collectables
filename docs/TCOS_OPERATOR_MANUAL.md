@@ -1665,6 +1665,7 @@ Collection exports:
 - `/api/account/collector/exports?format=csv` downloads a spreadsheet-friendly collection backup
 - `/api/account/collector/exports?format=catalog_json` downloads profile, collection items, wish list items, pricing fields, descriptions/notes, image URLs, and a media manifest
 - each export writes an `account_collection_export_jobs` audit row when the migration is available
+- export responses include `X-TCOS-Collector-Export-Format`, `X-TCOS-Collector-Export-Items`, `X-TCOS-Collector-Export-Wish-List`, and `X-TCOS-Collector-Exported-At` headers so a saved backup can be matched to its export metadata without parsing the file body
 
 Collection imports:
 

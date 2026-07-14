@@ -1872,6 +1872,7 @@ account_wish_list_matches</code></pre>
 <li><code>/api/account/collector/exports?format=csv</code> downloads a spreadsheet-friendly collection backup</li>
 <li><code>/api/account/collector/exports?format=catalog_json</code> downloads profile, collection items, wish list items, pricing fields, descriptions/notes, image URLs, and a media manifest</li>
 <li>each export writes an <code>account_collection_export_jobs</code> audit row when the migration is available</li>
+<li>export responses include <code>X-TCOS-Collector-Export-Format</code>, <code>X-TCOS-Collector-Export-Items</code>, <code>X-TCOS-Collector-Export-Wish-List</code>, and <code>X-TCOS-Collector-Exported-At</code> headers so a saved backup can be matched to its export metadata without parsing the file body</li>
 </ul>
 <p>Collection imports:</p>
 <ul>

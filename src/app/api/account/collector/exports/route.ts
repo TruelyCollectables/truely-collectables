@@ -43,6 +43,10 @@ function downloadResponse(params: {
   body: string;
   contentType: string;
   fileName: string;
+  exportFormat: ExportFormat;
+  collectionItemCount: number;
+  wishListItemCount: number;
+  exportedAt: string;
 }) {
   return new Response(params.body, {
     status: 200,
@@ -50,6 +54,10 @@ function downloadResponse(params: {
       "Content-Type": params.contentType,
       "Content-Disposition": `attachment; filename="${params.fileName}"`,
       "Cache-Control": "no-store",
+      "X-TCOS-Collector-Export-Format": params.exportFormat,
+      "X-TCOS-Collector-Export-Items": String(params.collectionItemCount),
+      "X-TCOS-Collector-Export-Wish-List": String(params.wishListItemCount),
+      "X-TCOS-Collector-Exported-At": params.exportedAt,
     },
   });
 }
@@ -145,6 +153,10 @@ export async function GET(request: Request) {
     if (format === "catalog_json") {
       return downloadResponse({
         fileName,
+        exportFormat: format,
+        collectionItemCount: collectionItems.length,
+        wishListItemCount: wishListItems.length,
+        exportedAt,
         contentType: "application/json; charset=utf-8",
         body: JSON.stringify(
           {
@@ -170,6 +182,10 @@ export async function GET(request: Request) {
 
     return downloadResponse({
       fileName,
+      exportFormat: format,
+      collectionItemCount: collectionItems.length,
+      wishListItemCount: wishListItems.length,
+      exportedAt,
       contentType: "text/csv; charset=utf-8",
       body: collectionCsv(collectionItems),
     });
