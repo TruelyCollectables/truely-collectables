@@ -49,6 +49,8 @@ export default async function LiveShippingLaunchPage() {
     (requirement) => requirement.status === "ready",
   ).length;
   const evidenceContract = providerSetupPacket.standardEnvelopeEvidenceContract;
+  const evidenceContractReady =
+    providerSetupPacket.standardEnvelopeEvidenceContractReady;
 
   return (
     <main className="min-h-screen bg-neutral-50 p-8 text-neutral-950">
@@ -251,6 +253,15 @@ export default async function LiveShippingLaunchPage() {
             <h3 className="mt-2 text-xl font-black">
               {evidenceContract.evidenceProvider} is delivery evidence, not insurance
             </h3>
+            <p
+              className={`mt-3 inline-flex rounded border px-3 py-1 text-xs font-black uppercase ${
+                evidenceContractReady
+                  ? "border-green-200 bg-green-50 text-green-900"
+                  : "border-red-200 bg-red-50 text-red-900"
+              }`}
+            >
+              Runtime gate validator: {evidenceContractReady ? "ready" : "blocked"}
+            </p>
             <p className="mt-2 text-sm leading-6">
               {evidenceContract.trackableRequirement}{" "}
               {evidenceContract.under20ProtectionModel}

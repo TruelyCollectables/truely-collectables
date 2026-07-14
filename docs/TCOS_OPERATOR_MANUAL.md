@@ -4408,6 +4408,8 @@ The Live Shipping Runway now includes a Live Adapter Approval Checklist. The pro
 
 The live-shipping report now includes a dedicated Standard Envelope Evidence Contract check. It must show that LetterTrack / USPS IMb is delivery evidence that can show delivered, while TCOS Under-$20 Seller Protection is an optional internal seller program with seller opt-in required, 2% reserve, `$20.00` item-only cap, no shipping reimbursement, and no third-party insurance claim.
 
+The live-shipping launch page and `/api/admin/live-shipping-launch` JSON report also expose the shared Standard Envelope runtime gate validator result, so operators can confirm the same `standardEnvelopeEvidenceContractReady` state that appears in the provider setup exports before approving live postage.
+
 If the live-shipping approval migration is missing, the runtime gate fails closed and tells the operator to apply `supabase/migrations/20260711185500_create_live_shipping_launch_gate.sql`. Do not switch `TCOS_SHIPPING_PURCHASE_MODE` to `live` until `/admin/launch-readiness` shows the live-shipping gate and immutable event tables available and `/admin/live-shipping-launch` shows the approval report is safe.
 
 The live-shipping approval button is disabled when the approval database check cannot run, and `/api/admin/live-shipping-launch` returns a blocked `409` response instead of recording approval or surfacing an unclear write error. Missing approval tables are a migration problem, not an operator override problem.

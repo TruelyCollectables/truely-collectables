@@ -28,6 +28,7 @@ export type LiveShippingLaunchReport = {
   approvalReady: boolean;
   liveShippingEnabled: boolean;
   standardEnvelopeEvidenceContract: StandardEnvelopeEvidenceContract;
+  standardEnvelopeEvidenceContractReady: boolean;
   checks: LiveShippingLaunchCheck[];
 };
 
@@ -274,11 +275,13 @@ export async function evaluateLiveShippingLaunch(params?: {
 
   const standardEnvelopeEvidenceContract =
     providerSetup.standardEnvelopeEvidenceContract;
+  const standardEnvelopeEvidenceContractReady =
+    providerSetup.standardEnvelopeEvidenceContractReady;
   checks.push(
     check(
       "standard_envelope_evidence_contract",
       "Standard Envelope Evidence Contract",
-      isStandardEnvelopeEvidenceContractReady(standardEnvelopeEvidenceContract)
+      standardEnvelopeEvidenceContractReady
         ? "passed"
         : "blocked",
       `${standardEnvelopeEvidenceContract.evidenceProvider} supplies trackable delivery evidence that can show delivered; TCOS Under-$20 Seller Protection is internal, optional per seller shipment, item-only, and not third-party insurance. ${standardEnvelopeEvidenceContract.notInsuranceNotice}`,
@@ -357,6 +360,7 @@ export async function evaluateLiveShippingLaunch(params?: {
     approvalReady,
     liveShippingEnabled,
     standardEnvelopeEvidenceContract,
+    standardEnvelopeEvidenceContractReady,
     checks,
   };
 }

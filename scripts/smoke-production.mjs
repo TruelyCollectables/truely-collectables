@@ -601,6 +601,7 @@ const checks = [
       result.text.includes("Provider verdict") &&
       result.text.includes("Standard Envelope Evidence + Under-$20 Protection Contract") &&
       result.text.includes("LetterTrack / USPS IMb is delivery evidence, not insurance") &&
+      result.text.includes("Runtime gate validator: ready") &&
       result.text.includes("Not insurance: LetterTrack / USPS IMb is delivery-evidence tracking") &&
       result.text.includes("Immutable Shipping Approval History") &&
       result.text.includes("Shipping Lab"),
@@ -611,6 +612,7 @@ const checks = [
     expect: (result) =>
       result.contentType.includes("application/json") &&
       result.text.includes('"standardEnvelopeEvidenceContract"') &&
+      result.text.includes('"standardEnvelopeEvidenceContractReady":true') &&
       result.text.includes('"evidenceProvider":"LetterTrack / USPS IMb"') &&
       result.text.includes('"trackableRequirement"') &&
       result.text.includes('"under20ProtectionModel"') &&
