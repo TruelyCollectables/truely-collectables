@@ -345,7 +345,9 @@ const checks = [
   {
     name: "admin dashboard",
     path: "/admin",
-    expect: (result) => result.text.includes("Shipping Setup"),
+    expect: (result) =>
+      result.text.includes("Shipping Setup") &&
+      result.text.includes("Standard Envelope evidence validator"),
   },
   {
     name: "launch readiness page",
@@ -482,7 +484,9 @@ const checks = [
       "Seller Protection Handoff Bundle",
       "Seller Protection Reconciliation",
       "Shipping Claims Cockpit",
+      "Standard Envelope evidence validator",
       "Shipping simulation API POST with scenario count, manifest, and drift-field checks",
+      "Shipping provider setup JSON and export packets with Standard Envelope evidence readiness",
       "Queued launch feature failure(s)",
       "Unwanted truely-collectables-tt3b.vercel.app alias absence",
       "Deploy live safety contract",
@@ -504,8 +508,12 @@ const checks = [
       result.text.includes("Seller Protection Handoff Bundle") &&
       result.text.includes("Seller Protection Reconciliation") &&
       result.text.includes("Shipping Claims Cockpit") &&
+      result.text.includes("Standard Envelope evidence validator") &&
       result.text.includes(
         "Shipping simulation API POST with scenario count, manifest, and drift-field checks",
+      ) &&
+      result.text.includes(
+        "Shipping provider setup JSON and export packets with Standard Envelope evidence readiness",
       ) &&
       result.text.includes("Queued launch feature failure(s)") &&
       result.text.includes(

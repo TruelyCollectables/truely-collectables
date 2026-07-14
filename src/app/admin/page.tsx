@@ -684,6 +684,13 @@ export default async function AdminDashboard() {
                       : "locked"}
                     .
                   </p>
+                  <p className="mt-1 text-xs font-black text-neutral-700">
+                    Standard Envelope evidence validator is{" "}
+                    {launchGateDrill.shipping.standardEnvelopeEvidenceContractReady
+                      ? "ready"
+                      : "blocked"}
+                    .
+                  </p>
                 </div>
               </div>
 
@@ -747,6 +754,13 @@ export default async function AdminDashboard() {
               </p>
               <p className="mt-2 text-xs font-bold text-neutral-600">
                 {shippingDecision.nextAction}
+              </p>
+              <p className="mt-2 text-xs font-black text-neutral-700">
+                Standard Envelope evidence validator:{" "}
+                {shippingProviderSetup.standardEnvelopeEvidenceContractReady
+                  ? "ready"
+                  : "blocked"}
+                .
               </p>
               {shippingDecision.blockers.length > 0 ? (
                 <div className="mt-3 flex flex-wrap gap-2">

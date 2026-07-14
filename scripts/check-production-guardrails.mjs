@@ -196,6 +196,12 @@ assertFileIncludes("launch dashboard smoke contract", "scripts/smoke-production.
   'name: "admin dashboard"',
   'path: "/admin"',
   "Shipping Setup",
+  "Standard Envelope evidence validator",
+]);
+assertFileIncludes("admin dashboard shipping evidence validator source", "src/app/admin/page.tsx", [
+  "launchGateDrill.shipping.standardEnvelopeEvidenceContractReady",
+  "shippingProviderSetup.standardEnvelopeEvidenceContractReady",
+  "Standard Envelope evidence validator",
 ]);
 assertFileIncludes("launch readiness smoke contract", "scripts/smoke-production.mjs", [
   'name: "launch readiness page"',
@@ -288,7 +294,9 @@ assertFileIncludes("production smoke page contract", "scripts/smoke-production.m
   "Seller Protection Handoff Bundle",
   "Seller Protection Reconciliation",
   "Shipping Claims Cockpit",
+  "Standard Envelope evidence validator",
   "Shipping simulation API POST with scenario count, manifest, and drift-field checks",
+  "Shipping provider setup JSON and export packets with Standard Envelope evidence readiness",
   "Queued launch feature failure(s)",
   "Unwanted truely-collectables-tt3b.vercel.app alias absence",
   "Deploy live safety contract",
