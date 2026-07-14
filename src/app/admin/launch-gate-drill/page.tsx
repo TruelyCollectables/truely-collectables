@@ -5,6 +5,7 @@ import {
   type LaunchGatePostureStatus,
   type LaunchGateDrillStatus,
 } from "../../../lib/launch-gate-drill";
+import type { ProviderSetupActionPlanStep } from "../../../lib/shipping-provider-setup";
 import { getActiveStoreId } from "../../../lib/stores";
 import { createSupabaseServerClient } from "../../../lib/supabase-server";
 
@@ -153,6 +154,10 @@ export default async function LaunchGateDrillPage() {
           <PostureCard title="Shipping Launch Posture" posture={report.posture.shipping} />
         </section>
 
+        <ShippingProviderUnlockPlan
+          actionPlan={report.shipping.providerSetupActionPlan}
+        />
+
         <section className="grid gap-4 md:grid-cols-2">
           {report.checks.map((item) => (
             <article key={item.key} className={`rounded border p-5 ${tone(item.status)}`}>
@@ -211,6 +216,85 @@ export default async function LaunchGateDrillPage() {
         </section>
       </div>
     </main>
+  );
+}
+
+function ShippingProviderUnlockPlan({
+  actionPlan,
+}: {
+  actionPlan: ProviderSetupActionPlanStep[];
+}) {
+  return (
+    <section className="mb-8 rounded border border-indigo-200 bg-indigo-50 p-6 text-indigo-950">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p className="text-xs font-black uppercase tracking-widest">
+            Runtime-smoke shipping handoff
+          </p>
+          <h2 className="mt-1 text-xl font-black">
+            Shipping Provider Unlock Action Plan
+          </h2>
+          <p className="mt-2 max-w-4xl text-sm font-semibold leading-6">
+            The drill is no-money and no-postage, but it still repeats the
+            no-secret provider setup sequence so operators know why shipping is
+            locked safe after the runtime checks pass.
+          </p>
+        </div>
+        <Link
+          href="/api/admin/shipping/provider-setup?format=operator-checklist"
+          className="rounded border border-indigo-300 bg-white px-4 py-2 text-sm font-black"
+        >
+          Operator Checklist
+        </Link>
+      </div>
+
+      <ol className="mt-4 grid gap-3 lg:grid-cols-5">
+        {actionPlan.map((step) => (
+          <li
+            key={step.order}
+            className={`rounded border p-3 ${
+              step.status === "ready"
+                ? "border-green-200 bg-green-50 text-green-950"
+                : step.status === "guarded"
+                  ? "border-red-200 bg-white text-red-950"
+                  : "border-amber-200 bg-white text-amber-950"
+            }`}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <h3 className="font-black">
+                {step.order}. {step.title}
+              </h3>
+              <span className="rounded border border-current px-2 py-1 text-[10px] font-black uppercase">
+                {step.status}
+              </span>
+            </div>
+            <p className="mt-2 text-xs font-semibold">{step.detail}</p>
+            <p className="mt-2 text-xs font-black">{step.action}</p>
+          </li>
+        ))}
+      </ol>
+
+      <div className="mt-4 flex flex-wrap gap-3 text-sm font-black">
+        <Link
+          href="/api/admin/shipping/provider-setup?format=env-template"
+          className="rounded border border-indigo-300 bg-white px-3 py-2"
+        >
+          Env Template
+        </Link>
+        <Link
+          href="/api/admin/shipping/provider-setup?format=vercel-commands"
+          className="rounded border border-indigo-300 bg-white px-3 py-2"
+        >
+          Vercel Commands
+        </Link>
+        <Link
+          href="/admin/live-shipping-launch"
+          className="rounded border border-indigo-300 bg-white px-3 py-2"
+        >
+          Live Shipping Gate
+        </Link>
+      </div>
+    </section>
   );
 }
 

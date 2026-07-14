@@ -7,6 +7,10 @@ import {
   evaluateLiveShippingLaunch,
   getLiveShippingRuntimeGate,
 } from "./live-shipping-launch";
+import {
+  buildShippingProviderSetupPacket,
+  type ProviderSetupActionPlanStep,
+} from "./shipping-provider-setup";
 import { getActiveStoreId } from "./stores";
 import { createSupabaseServerClient } from "./supabase-server";
 
@@ -42,6 +46,7 @@ export type LaunchGateDrillReport = {
     purchaseAttemptAuditKeyCoverageStatus: "passed" | "failed";
     purchaseAttemptAuditMissingScenarioKeys: string[];
     purchaseAttemptAuditUnexpectedScenarioKeys: string[];
+    providerSetupActionPlan: ProviderSetupActionPlanStep[];
   };
   posture: {
     payment: LaunchGatePosture;
@@ -244,6 +249,7 @@ export async function runLaunchGateDrill(params?: {
   const [
     paymentReport,
     shippingReport,
+    shippingProviderSetup,
     paymentTestRuntime,
     paymentInvalidRuntime,
     paymentLiveRuntime,
@@ -251,6 +257,7 @@ export async function runLaunchGateDrill(params?: {
   ] = await Promise.all([
     evaluateLivePaymentLaunch({ supabase, storeId }),
     evaluateLiveShippingLaunch({ supabase, storeId }),
+    Promise.resolve(buildShippingProviderSetupPacket()),
     getLivePaymentRuntimeGate({
       stripeKey: "sk_test_tcos_gate_drill_no_charge",
       supabase,
@@ -388,6 +395,7 @@ export async function runLaunchGateDrill(params?: {
         shippingReport.purchaseAttemptAuditSimulation.missing_scenario_keys,
       purchaseAttemptAuditUnexpectedScenarioKeys:
         shippingReport.purchaseAttemptAuditSimulation.unexpected_scenario_keys,
+      providerSetupActionPlan: shippingProviderSetup.actionPlan,
     },
     posture: {
       payment: buildPaymentPosture({

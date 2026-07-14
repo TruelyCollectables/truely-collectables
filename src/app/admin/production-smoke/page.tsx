@@ -10,7 +10,7 @@ const smokeChecks = [
   "Launch readiness page, JSON brief, Markdown brief, and handoff bundle",
   "Launch readiness and handoff exports show missing/unexpected purchase-audit key drift",
   SELLER_PROTECTION_SMOKE_COVERAGE_LINE,
-  "Launch Gate Drill page, JSON report, Markdown operator report, and Standard Envelope evidence validator",
+  "Launch Gate Drill page, JSON report, Markdown operator report, Shipping Provider Unlock Action Plan, and Standard Envelope evidence validator",
   "Live Payment Launch Gate",
   "Live Shipping Launch Gate with Shipping Provider Unlock Action Plan and Purchase-Audit Key Drift card",
   "Admin shipping cockpit LetterTrack export, IMb, and delivery-evidence controls",

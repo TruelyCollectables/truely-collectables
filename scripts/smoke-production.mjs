@@ -475,6 +475,10 @@ const checks = [
       result.text.includes("Download Drill Report") &&
       result.text.includes("Standard Envelope evidence validator is ready") &&
       result.text.includes("Provider Purchase-Attempt Audit Suite") &&
+      result.text.includes("Shipping Provider Unlock Action Plan") &&
+      result.text.includes("Choose provider accounts") &&
+      result.text.includes("Stage Vercel environment names") &&
+      result.text.includes("Keep shipping runtime locked") &&
       result.text.includes("Missing purchase audit keys:") &&
       result.text.includes("Unexpected purchase audit keys:") &&
       result.text.includes("Side-effect Guardrails") &&
@@ -490,6 +494,10 @@ const checks = [
       result.text.includes('"purchaseAttemptAuditExpectedScenarioCount":5') &&
       result.text.includes('"purchaseAttemptAuditMissingScenarioKeys":[]') &&
       result.text.includes('"purchaseAttemptAuditUnexpectedScenarioKeys":[]') &&
+      result.text.includes('"providerSetupActionPlan"') &&
+      result.text.includes('"Choose provider accounts"') &&
+      result.text.includes('"Stage Vercel environment names"') &&
+      result.text.includes('"Keep shipping runtime locked"') &&
       result.text.includes('"sideEffectPolicy"') &&
       result.text.includes('"forbiddenOperations"'),
   },
@@ -503,6 +511,10 @@ const checks = [
       result.text.includes("Provider purchase-attempt audit suite: passed; 5/5 scenarios; key coverage passed") &&
       result.text.includes("Missing purchase audit keys: none") &&
       result.text.includes("Unexpected purchase audit keys: none") &&
+      result.text.includes("## Shipping Provider Unlock Action Plan") &&
+      result.text.includes("Choose provider accounts") &&
+      result.text.includes("Stage Vercel environment names") &&
+      result.text.includes("Keep shipping runtime locked") &&
       result.text.includes("## Side-effect Guardrails") &&
       result.text.includes("### Forbidden Operations"),
   },
@@ -513,6 +525,7 @@ const checks = [
       "Production Smoke Report",
       "Smoke coverage",
       "Under-$20 Seller Protection launch handoff",
+      "Launch Gate Drill page, JSON report, Markdown operator report, Shipping Provider Unlock Action Plan, and Standard Envelope evidence validator",
       "Launch readiness and handoff exports show missing/unexpected purchase-audit key drift",
       "Seller Protection Handoff Bundle",
       "Seller Protection Reconciliation",

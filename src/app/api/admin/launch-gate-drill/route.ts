@@ -41,6 +41,24 @@ function postureMarkdown(title: string, posture: LaunchGatePosture) {
   ].join("\n");
 }
 
+function providerUnlockActionPlanMarkdown(report: LaunchGateDrillReport) {
+  return [
+    "## Shipping Provider Unlock Action Plan",
+    "",
+    "The drill is no-money and no-postage, but this shared no-secret sequence explains why shipping remains locked safe until provider setup is complete.",
+    "",
+    ...report.shipping.providerSetupActionPlan.flatMap((step) => [
+      `### ${step.order}. ${step.title}`,
+      "",
+      `- Status: ${step.status}`,
+      `- Detail: ${step.detail}`,
+      `- Action: ${step.action}`,
+      `- Evidence: ${inlineList(step.evidence)}`,
+      "",
+    ]),
+  ].join("\n");
+}
+
 function reportMarkdown(report: LaunchGateDrillReport) {
   return [
     "# TCOS Launch Gate Drill Report",
@@ -62,6 +80,7 @@ function reportMarkdown(report: LaunchGateDrillReport) {
     "",
     postureMarkdown("Payment Launch Posture", report.posture.payment),
     postureMarkdown("Shipping Launch Posture", report.posture.shipping),
+    providerUnlockActionPlanMarkdown(report),
     "## Drill Checks",
     "",
     ...report.checks.flatMap((check) => [
