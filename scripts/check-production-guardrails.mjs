@@ -1047,6 +1047,24 @@ assertFileIncludes(
   ],
 );
 assertFileIncludes(
+  "seller marketplace packet intake contract",
+  "src/app/seller/marketplaces/SellerConnectionsPanel.tsx",
+  [
+    "Marketplace Packet Intake",
+    "Seller Inventory packet handoff",
+    "cross-list prep only",
+    "no external publishing",
+    "No postage purchase",
+    "no Coverage policy creation",
+    "no seller payout release",
+    "no order fulfillment",
+    "Not insurance",
+    "does not activate TCOS Under-$20 Seller Protection",
+    "/seller/inventory?status=draft&readiness=ready",
+    "/seller/inventory?status=draft&readiness=needs_work",
+  ],
+);
+assertFileIncludes(
   "seller inventory API seller protection export contract",
   "src/app/api/account/seller/inventory/route.ts",
   [

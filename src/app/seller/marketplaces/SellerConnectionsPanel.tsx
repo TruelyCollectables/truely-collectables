@@ -268,6 +268,13 @@ const requestableProviders: Array<{
   },
 ];
 
+const marketplacePacketIntakeGuardrails = [
+  "Cross-list prep only; no external publishing is approved from packet intake.",
+  "No postage purchase, no Coverage policy creation, no seller payout release, and no order fulfillment.",
+  "Use ready or needs-work Seller Inventory rows as the source of truth before importing packet files.",
+  "Not insurance: packet intake does not activate TCOS Under-$20 Seller Protection or reimburse shipping.",
+];
+
 const EBAY_THIRD_PARTY_ACCESS_URL =
   "https://accounts.ebay.com/acctsec/security-center/third-party-app-access";
 const EBAY_IDENTITY_SCOPE =
@@ -3232,6 +3239,51 @@ export default function SellerConnectionsPanel({
             </p>
           </button>
         ))}
+      </div>
+
+      <div className="border-b border-sky-200 bg-sky-50 p-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="max-w-3xl">
+            <p className="text-xs font-black uppercase tracking-[0.14em] text-sky-800">
+              Marketplace Packet Intake
+            </p>
+            <h3 className="mt-1 text-lg font-black text-sky-950">
+              Seller Inventory packet handoff
+            </h3>
+            <p className="mt-2 text-sm leading-6 text-sky-900">
+              Seller Inventory marketplace packets are cross-list prep only.
+              They are receiving-side notes for sellers and operators, not a
+              live marketplace connector, postage workflow, Coverage workflow,
+              payout workflow, or fulfillment trigger.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href="/seller/inventory?status=draft&readiness=ready"
+              className="rounded-md bg-sky-950 px-3 py-2 text-xs font-black uppercase tracking-[0.12em] text-white hover:bg-sky-800"
+            >
+              Open Ready Rows
+            </Link>
+            <Link
+              href="/seller/inventory?status=draft&readiness=needs_work"
+              className="rounded-md border border-sky-300 bg-white px-3 py-2 text-xs font-black uppercase tracking-[0.12em] text-sky-950 hover:bg-sky-100"
+            >
+              Open Needs-Work Rows
+            </Link>
+          </div>
+        </div>
+        <ul className="mt-4 grid gap-2 text-sm font-semibold leading-6 text-sky-950 md:grid-cols-2">
+          {marketplacePacketIntakeGuardrails.map((guardrail) => (
+            <li key={guardrail} className="rounded-md bg-white/80 p-3">
+              {guardrail}
+            </li>
+          ))}
+        </ul>
+        <p className="mt-3 rounded-md border border-sky-200 bg-white p-3 text-xs font-bold uppercase tracking-[0.1em] text-sky-900">
+          Packet intake does not publish externally, buy postage, create
+          Coverage policies, activate seller protection, reimburse shipping,
+          release payouts, or fulfill orders.
+        </p>
       </div>
 
       {message ? (
