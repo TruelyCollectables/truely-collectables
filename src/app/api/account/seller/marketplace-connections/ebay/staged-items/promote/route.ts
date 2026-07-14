@@ -116,6 +116,31 @@ function unavailableResponse() {
   );
 }
 
+function sellerMarketplacePromoteHeaders(params: {
+  mode: "empty" | "single" | "batch";
+  requestedCount: number;
+  promotedCount: number;
+  errorCount: number;
+}) {
+  const status =
+    params.errorCount === 0 && params.promotedCount > 0
+      ? "success"
+      : params.promotedCount > 0
+        ? "partial"
+        : "failed";
+
+  return {
+    "X-TCOS-Seller-Marketplace-Promote-Mutation": "promote",
+    "X-TCOS-Seller-Marketplace-Promote-Mode": params.mode,
+    "X-TCOS-Seller-Marketplace-Promote-Requested": String(params.requestedCount),
+    "X-TCOS-Seller-Marketplace-Promote-Succeeded": String(params.promotedCount),
+    "X-TCOS-Seller-Marketplace-Promote-Failed": String(params.errorCount),
+    "X-TCOS-Seller-Marketplace-Promote-Partial":
+      params.promotedCount > 0 && params.errorCount > 0 ? "true" : "false",
+    "X-TCOS-Seller-Marketplace-Promote-Status": status,
+  };
+}
+
 async function loadStagedItem(params: {
   supabase: ReturnType<typeof getSupabaseClient>;
   storeId: string;
@@ -238,6 +263,9 @@ async function promoteOneSellerStagedItem(params: {
 }
 
 export async function POST(request: Request) {
+  let requestedPromotionCount = 0;
+  let promotionMode: "empty" | "single" | "batch" = "empty";
+
   try {
     const account = await getAuthenticatedAccountFromRequest(request);
 
@@ -259,11 +287,22 @@ export async function POST(request: Request) {
       : stagedItemId
         ? [stagedItemId]
         : [];
+    requestedPromotionCount = targetIds.length;
+    promotionMode =
+      targetIds.length > 1 ? "batch" : targetIds.length === 1 ? "single" : "empty";
 
     if (targetIds.length === 0) {
       return Response.json(
         { error: "A staged item ID is required." },
-        { status: 400 },
+        {
+          status: 400,
+          headers: sellerMarketplacePromoteHeaders({
+            mode: "empty",
+            requestedCount: 0,
+            promotedCount: 0,
+            errorCount: 1,
+          }),
+        },
       );
     }
 
@@ -287,6 +326,13 @@ export async function POST(request: Request) {
         success: true,
         promotedItem: result.promotedItem,
         stagedItem: result.stagedItem,
+      }, {
+        headers: sellerMarketplacePromoteHeaders({
+          mode: "single",
+          requestedCount: 1,
+          promotedCount: 1,
+          errorCount: 0,
+        }),
       });
     }
 
@@ -329,6 +375,13 @@ export async function POST(request: Request) {
       promotedCount: promotedItems.length,
       errorCount: errors.length,
       errors,
+    }, {
+      headers: sellerMarketplacePromoteHeaders({
+        mode: "batch",
+        requestedCount: targetIds.length,
+        promotedCount: promotedItems.length,
+        errorCount: errors.length,
+      }),
     });
   } catch (error: any) {
     if (isMissingSellerStagingTables(error)) {
@@ -336,14 +389,33 @@ export async function POST(request: Request) {
     }
 
     if (error instanceof InventoryEngineError) {
-      return Response.json({ error: error.message }, { status: error.statusCode });
+      return Response.json(
+        { error: error.message },
+        {
+          status: error.statusCode,
+          headers: sellerMarketplacePromoteHeaders({
+            mode: promotionMode,
+            requestedCount: requestedPromotionCount,
+            promotedCount: 0,
+            errorCount: 1,
+          }),
+        },
+      );
     }
 
     return Response.json(
       {
         error: error.message || "Could not promote seller staged item",
       },
-      { status: 500 },
+      {
+        status: 500,
+        headers: sellerMarketplacePromoteHeaders({
+          mode: promotionMode,
+          requestedCount: requestedPromotionCount,
+          promotedCount: 0,
+          errorCount: 1,
+        }),
+      },
     );
   }
 }

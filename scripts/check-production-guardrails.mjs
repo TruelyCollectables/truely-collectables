@@ -1758,6 +1758,41 @@ assertFileIncludes(
   ],
 );
 assertFileIncludes(
+  "seller marketplace staged-items promote response metadata contract",
+  "src/app/api/account/seller/marketplace-connections/ebay/staged-items/promote/route.ts",
+  [
+    "function sellerMarketplacePromoteHeaders",
+    "X-TCOS-Seller-Marketplace-Promote-Mutation",
+    "X-TCOS-Seller-Marketplace-Promote-Mode",
+    "X-TCOS-Seller-Marketplace-Promote-Requested",
+    "X-TCOS-Seller-Marketplace-Promote-Succeeded",
+    "X-TCOS-Seller-Marketplace-Promote-Failed",
+    "X-TCOS-Seller-Marketplace-Promote-Partial",
+    "X-TCOS-Seller-Marketplace-Promote-Status",
+    "requestedPromotionCount",
+    "promotionMode",
+    "mode: \"single\"",
+    "mode: \"batch\"",
+    "promotedCount: promotedItems.length",
+    "errorCount: errors.length",
+  ],
+);
+assertFileIncludes(
+  "seller marketplace staged-items promote response metadata operator manual contract",
+  "docs/TCOS_OPERATOR_MANUAL.md",
+  [
+    "/api/account/seller/marketplace-connections/ebay/staged-items/promote",
+    "X-TCOS-Seller-Marketplace-Promote-Mutation",
+    "X-TCOS-Seller-Marketplace-Promote-Mode",
+    "X-TCOS-Seller-Marketplace-Promote-Requested",
+    "X-TCOS-Seller-Marketplace-Promote-Succeeded",
+    "X-TCOS-Seller-Marketplace-Promote-Failed",
+    "X-TCOS-Seller-Marketplace-Promote-Partial",
+    "X-TCOS-Seller-Marketplace-Promote-Status",
+    "without exposing staged row IDs, source listing IDs, SKUs, titles, draft product IDs, inventory item IDs, or seller account IDs in headers",
+  ],
+);
+assertFileIncludes(
   "seller inventory API seller protection export contract",
   "src/app/api/account/seller/inventory/route.ts",
   [
