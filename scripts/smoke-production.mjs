@@ -542,6 +542,7 @@ const checks = [
       "Shipping simulation API POST with scenario count, manifest, and drift-field checks",
       "Shipping provider setup JSON and export packets with Standard Envelope evidence readiness",
       "Seller marketplace packet intake guardrail for cross-list prep only, no postage purchase, no Coverage policy creation, no payout release, no order fulfillment, and no automatic under-$20 protection activation",
+      "Seller marketplace page renders Marketplace Packet Intake guidance, ready-row handoff, needs-work handoff, and prep-only export wording",
       "Queued launch feature failure(s)",
       "Unwanted truely-collectables-tt3b.vercel.app alias absence",
       "Deploy live safety contract",
@@ -597,6 +598,9 @@ const checks = [
       result.text.includes(
         "Seller marketplace packet intake guardrail for cross-list prep only, no postage purchase, no Coverage policy creation, no payout release, no order fulfillment, and no automatic under-$20 protection activation",
       ) &&
+      result.text.includes(
+        "Seller marketplace page renders Marketplace Packet Intake guidance, ready-row handoff, needs-work handoff, and prep-only export wording",
+      ) &&
       result.text.includes("Queued launch feature failure(s)") &&
       result.text.includes(
         "Unwanted truely-collectables-tt3b.vercel.app alias absence",
@@ -627,6 +631,36 @@ const checks = [
       result.text.includes("deployed URL output") &&
       result.text.includes("clean URL output") &&
       result.text.includes("npm run launch:production"),
+  },
+  {
+    name: "seller marketplace packet intake",
+    path: "/seller/marketplaces",
+    requiredText: [
+      "Seller Connections",
+      "Marketplace Packet Intake",
+      "Seller Inventory exports are prep files, not live publishing.",
+      "Cross-list prep only",
+      "No external publishing",
+      "No postage purchase",
+      "No Coverage policy creation",
+      "Open Ready Inventory",
+      "Open Needs-Work Inventory",
+      "Seller marketplace packet intake guidance",
+    ],
+    expect: (result) =>
+      result.text.includes("Seller Connections") &&
+      result.text.includes("Marketplace Packet Intake") &&
+      result.text.includes("Seller Inventory exports are prep files, not live publishing.") &&
+      result.text.includes("Cross-list prep only") &&
+      result.text.includes("No external publishing") &&
+      result.text.includes("No postage purchase") &&
+      result.text.includes("No Coverage policy creation") &&
+      result.text.includes("Open Ready Inventory") &&
+      result.text.includes("Open Needs-Work Inventory") &&
+      result.text.includes("Seller marketplace packet intake guidance") &&
+      result.text.includes("prep-only JSON/CSV handoffs") &&
+      !result.text.includes("sk_live_") &&
+      !result.text.includes("whsec_"),
   },
   {
     name: "launch handoff bundle",
@@ -1019,6 +1053,7 @@ const queuedFeatureCheckNames = [
   "launch gate drill json",
   "launch gate drill markdown",
   "production smoke report page",
+  "seller marketplace packet intake",
   "live payment gate",
   "live shipping gate",
   "live shipping gate json",

@@ -380,6 +380,7 @@ assertFileIncludes("production smoke page contract", "scripts/smoke-production.m
   "Shipping simulation API POST with scenario count, manifest, and drift-field checks",
   "Shipping provider setup JSON and export packets with Standard Envelope evidence readiness",
   "Seller marketplace packet intake guardrail for cross-list prep only, no postage purchase, no Coverage policy creation, no payout release, no order fulfillment, and no automatic under-$20 protection activation",
+  "Seller marketplace page renders Marketplace Packet Intake guidance, ready-row handoff, needs-work handoff, and prep-only export wording",
   "Queued launch feature failure(s)",
   "Unwanted truely-collectables-tt3b.vercel.app alias absence",
   "Deploy live safety contract",
@@ -403,6 +404,22 @@ assertFileIncludes("production smoke page contract", "scripts/smoke-production.m
   "deployed URL output",
   "clean URL output",
   "npm run launch:production",
+]);
+assertFileIncludes("seller marketplace packet intake smoke contract", "scripts/smoke-production.mjs", [
+  'name: "seller marketplace packet intake"',
+  'path: "/seller/marketplaces"',
+  "requiredText:",
+  "Seller Connections",
+  "Marketplace Packet Intake",
+  "Seller Inventory exports are prep files, not live publishing.",
+  "Cross-list prep only",
+  "No external publishing",
+  "No postage purchase",
+  "No Coverage policy creation",
+  "Open Ready Inventory",
+  "Open Needs-Work Inventory",
+  "Seller marketplace packet intake guidance",
+  "prep-only JSON/CSV handoffs",
 ]);
 assertFileIncludes(
   "seller protection launch contract shared source",
@@ -1224,6 +1241,7 @@ assertFileIncludes("queued-feature smoke manifest", "scripts/smoke-production.mj
   '"launch gate drill json"',
   '"launch gate drill markdown"',
   '"production smoke report page"',
+  '"seller marketplace packet intake"',
   '"live payment gate"',
   '"live shipping gate"',
   '"live shipping gate json"',
