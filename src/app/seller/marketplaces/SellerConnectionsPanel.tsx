@@ -179,6 +179,7 @@ type SellerMarketplaceOperationReceiptHistoryEntry =
 const SELLER_MARKETPLACE_RECEIPT_HISTORY_LIMIT = 5;
 const SELLER_MARKETPLACE_RECEIPT_HISTORY_STORAGE_KEY =
   "tcos.sellerMarketplaceOperationReceiptHistory.v1";
+const SELLER_MARKETPLACE_RECEIPT_DOWNLOAD_MIME_TYPE = "text/plain;charset=utf-8";
 
 class SellerMarketplaceOperationError extends Error {
   operationReceipt: SellerMarketplaceOperationReceipt | null;
@@ -838,12 +839,37 @@ function saveSellerMarketplaceOperationReceiptHistoryToSession(
   }
 }
 
+function sellerMarketplaceReceiptFileTimestamp() {
+  return new Date().toISOString().replace(/[:.]/g, "-");
+}
+
+function sellerMarketplaceReceiptFileName(kind: "latest" | "trail") {
+  return `tcos-seller-marketplace-${kind}-receipt-${sellerMarketplaceReceiptFileTimestamp()}.txt`;
+}
+
+function downloadSellerMarketplaceReceiptFile(fileName: string, content: string) {
+  const blob = new Blob([content], {
+    type: SELLER_MARKETPLACE_RECEIPT_DOWNLOAD_MIME_TYPE,
+  });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 function SellerMarketplaceOperationReceiptCard({
   receipt,
   onCopyReceipt,
+  onDownloadReceipt,
 }: {
   receipt: SellerMarketplaceOperationReceipt;
   onCopyReceipt: (receipt: SellerMarketplaceOperationReceipt) => void;
+  onDownloadReceipt: (receipt: SellerMarketplaceOperationReceipt) => void;
 }) {
   return (
     <div
@@ -857,13 +883,22 @@ function SellerMarketplaceOperationReceiptCard({
           <p className="mt-1 text-sm font-black">{receipt.title}</p>
           <p className="mt-1 text-sm leading-6">{receipt.summary}</p>
         </div>
-        <button
-          type="button"
-          onClick={() => onCopyReceipt(receipt)}
-          className="rounded-md border border-current bg-white/70 px-3 py-2 text-xs font-black uppercase tracking-[0.08em] hover:bg-white"
-        >
-          Copy Safe Receipt
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => onCopyReceipt(receipt)}
+            className="rounded-md border border-current bg-white/70 px-3 py-2 text-xs font-black uppercase tracking-[0.08em] hover:bg-white"
+          >
+            Copy Safe Receipt
+          </button>
+          <button
+            type="button"
+            onClick={() => onDownloadReceipt(receipt)}
+            className="rounded-md border border-current bg-white/70 px-3 py-2 text-xs font-black uppercase tracking-[0.08em] hover:bg-white"
+          >
+            Download Safe Receipt
+          </button>
+        </div>
       </div>
       <dl className="mt-3 grid grid-cols-2 gap-2 md:grid-cols-4">
         {receipt.details.map((detail) => (
@@ -886,11 +921,13 @@ function SellerMarketplaceOperationReceiptHistory({
   receipts,
   onCopyReceipt,
   onCopyReceiptTrail,
+  onDownloadReceiptTrail,
   onClearReceiptTrail,
 }: {
   receipts: SellerMarketplaceOperationReceiptHistoryEntry[];
   onCopyReceipt: (receipt: SellerMarketplaceOperationReceipt) => void;
   onCopyReceiptTrail: () => void;
+  onDownloadReceiptTrail: () => void;
   onClearReceiptTrail: () => void;
 }) {
   if (receipts.length === 0) return null;
@@ -913,6 +950,13 @@ function SellerMarketplaceOperationReceiptHistory({
             className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-xs font-black uppercase tracking-[0.08em] text-neutral-700 hover:bg-neutral-50"
           >
             Copy Trail
+          </button>
+          <button
+            type="button"
+            onClick={onDownloadReceiptTrail}
+            className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-xs font-black uppercase tracking-[0.08em] text-neutral-700 hover:bg-neutral-50"
+          >
+            Download Trail
           </button>
           <button
             type="button"
@@ -3863,6 +3907,34 @@ export default function SellerConnectionsPanel({
     }
   }
 
+  function downloadMarketplaceOperationReceipt(
+    receipt: SellerMarketplaceOperationReceipt,
+  ) {
+    try {
+      downloadSellerMarketplaceReceiptFile(
+        sellerMarketplaceReceiptFileName("latest"),
+        formatSellerMarketplaceOperationReceipt(receipt),
+      );
+      setMessage("Safe marketplace API receipt downloaded.");
+    } catch {
+      setMessage("Could not download marketplace API receipt.");
+    }
+  }
+
+  function downloadMarketplaceOperationReceiptTrail() {
+    try {
+      downloadSellerMarketplaceReceiptFile(
+        sellerMarketplaceReceiptFileName("trail"),
+        formatSellerMarketplaceOperationReceiptHistory(
+          marketplaceOperationReceiptHistory,
+        ),
+      );
+      setMessage("Safe marketplace API receipt trail downloaded.");
+    } catch {
+      setMessage("Could not download marketplace API receipt trail.");
+    }
+  }
+
   function clearMarketplaceOperationReceiptTrail() {
     setLatestMarketplaceOperationReceipt(null);
     setMarketplaceOperationReceiptHistory([]);
@@ -4142,6 +4214,7 @@ export default function SellerConnectionsPanel({
           onCopyReceipt={(receipt) =>
             void copyMarketplaceOperationReceipt(receipt)
           }
+          onDownloadReceipt={downloadMarketplaceOperationReceipt}
         />
       ) : null}
 
@@ -4155,6 +4228,7 @@ export default function SellerConnectionsPanel({
           void copyMarketplaceOperationReceipt(receipt)
         }
         onCopyReceiptTrail={() => void copyMarketplaceOperationReceiptTrail()}
+        onDownloadReceiptTrail={downloadMarketplaceOperationReceiptTrail}
         onClearReceiptTrail={clearMarketplaceOperationReceiptTrail}
       />
 
