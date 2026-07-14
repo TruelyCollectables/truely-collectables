@@ -272,6 +272,10 @@ assertFileIncludes("launch gate drill smoke contract", "scripts/smoke-production
   "No-money runtime smoke",
   "Download Drill Report",
   "Standard Envelope evidence validator is ready",
+  "Provider Purchase-Attempt Audit Suite",
+  '"purchaseAttemptAuditRunStatus":"passed"',
+  '"purchaseAttemptAuditExpectedScenarioCount":5',
+  "Provider purchase-attempt audit suite: passed; 5/5 scenarios; key coverage passed",
   "Not allowed during this drill",
   'name: "launch gate drill json"',
   'path: "/api/admin/launch-gate-drill"',
@@ -289,7 +293,11 @@ assertFileIncludes("launch gate drill smoke contract", "scripts/smoke-production
 ]);
 assertFileIncludes("launch gate drill shipping evidence source", "src/lib/launch-gate-drill.ts", [
   "standardEnvelopeEvidenceContractReady: boolean",
+  'purchaseAttemptAuditRunStatus: "passed" | "failed"',
+  "purchaseAttemptAuditExpectedScenarioCount",
+  "purchaseAttemptAuditKeyCoverageStatus",
   "shippingReport.standardEnvelopeEvidenceContractReady",
+  "shippingReport.purchaseAttemptAuditSimulation",
   "Standard Envelope evidence validator is",
 ]);
 assertFileIncludes("production smoke page contract", "scripts/smoke-production.mjs", [
@@ -372,6 +380,7 @@ assertFileIncludes("live launch gate smoke contract", "scripts/smoke-production.
   "Standard Envelope Evidence + Under-$20 Protection Contract",
   "LetterTrack / USPS IMb is delivery evidence, not insurance",
   "Runtime gate validator: ready",
+  "Provider Purchase-Attempt Audit Suite",
   "Not insurance: LetterTrack / USPS IMb is delivery-evidence tracking",
   "Immutable Shipping Approval History",
   "Shipping Lab",
@@ -379,6 +388,9 @@ assertFileIncludes("live launch gate smoke contract", "scripts/smoke-production.
   'path: "/api/admin/live-shipping-launch"',
   '"standardEnvelopeEvidenceContract"',
   '"standardEnvelopeEvidenceContractReady":true',
+  '"purchaseAttemptAuditSimulation"',
+  '"expected_scenario_count":5',
+  '"scenario_key_coverage_status":"passed"',
   '"evidenceProvider":"LetterTrack / USPS IMb"',
   '"trackableRequirement"',
   '"under20ProtectionModel"',
@@ -392,9 +404,15 @@ assertFileIncludes("live launch gate smoke contract", "scripts/smoke-production.
 ]);
 assertFileIncludes("live shipping evidence contract report source", "src/lib/live-shipping-launch.ts", [
   "isStandardEnvelopeEvidenceContractReady",
+  "runShippingPurchaseAttemptAuditSimulationSuite",
   "StandardEnvelopeEvidenceContract",
   "standardEnvelopeEvidenceContract: StandardEnvelopeEvidenceContract",
   "standardEnvelopeEvidenceContractReady: boolean",
+  "purchaseAttemptAuditSimulation",
+  "Provider Purchase-Attempt Audit Suite",
+  "provider_purchase_attempt_audit_simulations",
+  "expected_scenario_count",
+  "scenario_key_coverage_status",
   "standardEnvelopeEvidenceContractReady =",
   "standard_envelope_evidence_contract",
   "Standard Envelope Evidence Contract",
@@ -655,6 +673,8 @@ assertFileIncludes("admin order label purchase attempt evidence audit source", "
 assertFileIncludes("operator manual purchase audit simulation contract", "docs/TCOS_OPERATOR_MANUAL.md", [
   "Runs shipping eligibility, dry-run adapter, and provider purchase-attempt audit simulations",
   "five-scenario provider purchase-attempt audit pass evidence",
+  "Provider Purchase-Attempt Audit Suite check",
+  "before `approvalReady` can become true",
   "Require all nineteen policy/adapter assertions plus the five provider purchase-attempt audit assertions",
 ]);
 assertFileIncludes(

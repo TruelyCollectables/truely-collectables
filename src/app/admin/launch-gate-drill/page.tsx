@@ -126,6 +126,16 @@ export default async function LaunchGateDrillPage() {
                   : "blocked"}.
               </dd>
             </div>
+            <div>
+              <dt className="font-black">Provider Purchase-Attempt Audit Suite</dt>
+              <dd>
+                {report.shipping.purchaseAttemptAuditRunStatus.toUpperCase()} —{" "}
+                {report.shipping.purchaseAttemptAuditScenarioCount}/
+                {report.shipping.purchaseAttemptAuditExpectedScenarioCount}{" "}
+                scenarios, key coverage{" "}
+                {report.shipping.purchaseAttemptAuditKeyCoverageStatus}.
+              </dd>
+            </div>
           </dl>
           <p className="mt-5 text-sm">Report generated {report.generatedAt}.</p>
         </section>

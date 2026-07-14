@@ -22,7 +22,7 @@ export type ShippingPurchaseAttemptAuditSimulationScenario = {
   assertions: Record<string, unknown>;
 };
 
-function pass(condition: boolean) {
+function pass(condition: boolean): "passed" | "failed" {
   return condition ? "passed" : "failed";
 }
 
@@ -202,15 +202,15 @@ export function runShippingPurchaseAttemptAuditSimulationSuite() {
   const failedScenarios = scenarios.filter(
     (item) => item.scenario_status !== "passed",
   );
-  const scenarioCoverageStatus =
+  const scenarioCoverageStatus: "passed" | "failed" =
     scenarios.length === SHIPPING_PURCHASE_ATTEMPT_AUDIT_EXPECTED_SCENARIO_COUNT
       ? "passed"
       : "failed";
-  const scenarioKeyCoverageStatus =
+  const scenarioKeyCoverageStatus: "passed" | "failed" =
     missingScenarioKeys.length === 0 && unexpectedScenarioKeys.length === 0
       ? "passed"
       : "failed";
-  const runStatus =
+  const runStatus: "passed" | "failed" =
     failedScenarios.length === 0 &&
     scenarioCoverageStatus === "passed" &&
     scenarioKeyCoverageStatus === "passed"

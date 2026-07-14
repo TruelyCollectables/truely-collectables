@@ -36,6 +36,10 @@ export type LaunchGateDrillReport = {
     liveShippingEnabled: boolean;
     purchaseMode: string;
     standardEnvelopeEvidenceContractReady: boolean;
+    purchaseAttemptAuditRunStatus: "passed" | "failed";
+    purchaseAttemptAuditScenarioCount: number;
+    purchaseAttemptAuditExpectedScenarioCount: number;
+    purchaseAttemptAuditKeyCoverageStatus: "passed" | "failed";
   };
   posture: {
     payment: LaunchGatePosture;
@@ -189,6 +193,7 @@ function buildShippingPosture(params: {
       warningChecks: params.warningChecks,
       nextActions: [
         "Monitor provider quote, buy, void, Coverage, webhook, and reconciliation events.",
+        "Keep the five-scenario provider purchase-attempt audit suite passing before any live provider purchase flow.",
         "Keep dry-run cleanup clear before releasing seller payouts.",
       ],
     };
@@ -205,6 +210,7 @@ function buildShippingPosture(params: {
       nextActions: [
         "Configure Standard Envelope, parcel-label, and Coverage provider credentials.",
         "Build and approve the live adapter quote/buy/void, Coverage purchase, webhook, and reconciliation workflow.",
+        "Keep the provider purchase-attempt audit suite green while live postage remains locked.",
         "Keep TCOS_SHIPPING_PURCHASE_MODE=dry_run until those external-provider checks are complete.",
       ],
     };
@@ -219,6 +225,7 @@ function buildShippingPosture(params: {
     warningChecks: params.warningChecks,
     nextActions: [
       "Open Live Shipping Launch and clear every blocked check.",
+      "Rerun the provider purchase-attempt audit suite and shipping simulation lab after clearing setup blockers.",
       "Do not enable live postage while any provider, simulation, Coverage, webhook, or admin approval blocker remains.",
     ],
   };
@@ -366,6 +373,15 @@ export async function runLaunchGateDrill(params?: {
       purchaseMode: shippingReport.purchaseMode,
       standardEnvelopeEvidenceContractReady:
         shippingReport.standardEnvelopeEvidenceContractReady,
+      purchaseAttemptAuditRunStatus:
+        shippingReport.purchaseAttemptAuditSimulation.run_status,
+      purchaseAttemptAuditScenarioCount:
+        shippingReport.purchaseAttemptAuditSimulation.scenario_count,
+      purchaseAttemptAuditExpectedScenarioCount:
+        shippingReport.purchaseAttemptAuditSimulation.expected_scenario_count,
+      purchaseAttemptAuditKeyCoverageStatus:
+        shippingReport.purchaseAttemptAuditSimulation
+          .scenario_key_coverage_status,
     },
     posture: {
       payment: buildPaymentPosture({

@@ -52,6 +52,7 @@ function reportMarkdown(report: LaunchGateDrillReport) {
     `- Payment runtime: ${report.payment.paymentMode}; live payments ${report.payment.livePaymentsEnabled ? "enabled" : "locked"}`,
     `- Shipping runtime: ${report.shipping.purchaseMode}; live shipping ${report.shipping.liveShippingEnabled ? "enabled" : "locked"}`,
     `- Standard Envelope evidence validator: ${report.shipping.standardEnvelopeEvidenceContractReady ? "ready" : "blocked"}`,
+    `- Provider purchase-attempt audit suite: ${report.shipping.purchaseAttemptAuditRunStatus}; ${report.shipping.purchaseAttemptAuditScenarioCount}/${report.shipping.purchaseAttemptAuditExpectedScenarioCount} scenarios; key coverage ${report.shipping.purchaseAttemptAuditKeyCoverageStatus}`,
     "",
     postureMarkdown("Payment Launch Posture", report.posture.payment),
     postureMarkdown("Shipping Launch Posture", report.posture.shipping),

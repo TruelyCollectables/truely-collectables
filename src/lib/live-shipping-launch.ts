@@ -1,5 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getDryRunShippingCleanupSummary } from "./shipping-dry-run-cleanup";
+import { runShippingPurchaseAttemptAuditSimulationSuite } from "./shipping-purchase-attempt-audit-simulations";
 import {
   buildShippingProviderSetupPacket,
   isStandardEnvelopeEvidenceContractReady,
@@ -29,6 +30,9 @@ export type LiveShippingLaunchReport = {
   liveShippingEnabled: boolean;
   standardEnvelopeEvidenceContract: StandardEnvelopeEvidenceContract;
   standardEnvelopeEvidenceContractReady: boolean;
+  purchaseAttemptAuditSimulation: ReturnType<
+    typeof runShippingPurchaseAttemptAuditSimulationSuite
+  >;
   checks: LiveShippingLaunchCheck[];
 };
 
@@ -201,6 +205,7 @@ export async function evaluateLiveShippingLaunch(params?: {
     approvalEventsResult,
     dryRunShippingCleanup,
     simulationResult,
+    purchaseAttemptAuditSimulation,
   ] = await Promise.all([
     supabase
       .from("live_shipping_launch_gates")
@@ -214,6 +219,7 @@ export async function evaluateLiveShippingLaunch(params?: {
       .limit(1),
     getDryRunShippingCleanupSummary({ supabase, storeId }),
     runShippingSimulationSuite(),
+    runShippingPurchaseAttemptAuditSimulationSuite(),
   ]);
   const providerSetup = buildShippingProviderSetupPacket();
   const gate = (gateResult.data || null) as GateRow | null;
@@ -317,6 +323,23 @@ export async function evaluateLiveShippingLaunch(params?: {
 
   checks.push(
     check(
+      "provider_purchase_attempt_audit_simulations",
+      "Provider Purchase-Attempt Audit Suite",
+      purchaseAttemptAuditSimulation.run_status === "passed"
+        ? "passed"
+        : "blocked",
+      `${purchaseAttemptAuditSimulation.passed_count}/${purchaseAttemptAuditSimulation.scenario_count} provider purchase-attempt audit scenario(s) passed; expected ${purchaseAttemptAuditSimulation.expected_scenario_count}. Key coverage ${purchaseAttemptAuditSimulation.scenario_key_coverage_status}. Missing keys: ${
+        purchaseAttemptAuditSimulation.missing_scenario_keys.join(", ") ||
+        "none"
+      }. Unexpected keys: ${
+        purchaseAttemptAuditSimulation.unexpected_scenario_keys.join(", ") ||
+        "none"
+      }.`,
+    ),
+  );
+
+  checks.push(
+    check(
       "live_approval_report",
       "Live Shipping Approval Report",
       simulationResult.live_approval.approval_status ===
@@ -361,6 +384,7 @@ export async function evaluateLiveShippingLaunch(params?: {
     liveShippingEnabled,
     standardEnvelopeEvidenceContract,
     standardEnvelopeEvidenceContractReady,
+    purchaseAttemptAuditSimulation,
     checks,
   };
 }
