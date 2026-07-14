@@ -4279,7 +4279,7 @@ dryrun-</code></pre>
 <li>opted-in under-$20 Standard Envelope claims reimburse item sale amount only and exclude shipping</li>
 <li>non-opted-in under-$20 Standard Envelope claims reimburse <code>$0.00</code> and leave refund liability with the seller</li>
 <li>mixed protected/unprotected under-$20 claim rows cap TCOS reimbursement at <code>$20.00</code>, exclude shipping, and leave unprotected rows outside reimbursement</li>
-<li>Mark Paid reimbursement allocation creates seller credits only for eligible payable seller rows, stops at the <code>$20.00</code> cap, records operator-readable skip reasons for forged, unprotected, or missing-seller rows, and keeps shipping excluded</li>
+<li>Mark Paid reimbursement allocation creates seller credits only for eligible payable seller rows, stops at the <code>$20.00</code> cap, records operator-readable skip reasons for forged, unprotected, missing-seller, zero-covered, or cap-reached rows, and keeps shipping excluded</li>
 <li>Mark Paid buyer-refund gate accepts a current or previously saved internal note confirming buyer/customer refund evidence or a refund reference before TCOS seller-protection reimbursement</li>
 <li>provider setup exports state that LetterTrack / USPS IMb supplies trackable delivery evidence while TCOS Under-$20 Seller Protection remains an optional internal, item-only, non-insurance program</li>
 <li>Coverage is required for parcel shipping</li>

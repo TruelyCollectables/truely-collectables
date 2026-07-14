@@ -361,7 +361,38 @@ export async function runShippingSimulationSuite() {
           }),
         },
       },
+      {
+        id: "sim-ledger-protected-zero-covered",
+        order_item_id: 2006,
+        seller_account_id: "seller-zero-covered",
+        gross_item_amount: 5.25,
+        shipping_allocated_amount: 0.19,
+        metadata: {
+          under_20_seller_protection: {
+            ...getUnder20SellerProtection({
+              method: "STANDARD_ENVELOPE",
+              subtotal: 5.25,
+              sellerOptedIn: true,
+            }),
+            coveredAmount: 0,
+          },
+        },
+      },
       cappedRows[1],
+      {
+        id: "sim-ledger-protected-after-cap",
+        order_item_id: 2007,
+        seller_account_id: "seller-after-cap",
+        gross_item_amount: 3.25,
+        shipping_allocated_amount: 0.15,
+        metadata: {
+          under_20_seller_protection: getUnder20SellerProtection({
+            method: "STANDARD_ENVELOPE",
+            subtotal: 3.25,
+            sellerOptedIn: true,
+          }),
+        },
+      },
     ],
     reimbursableAmount: cappedClaim.reimbursableItemAmount,
   });
@@ -384,6 +415,12 @@ export async function runShippingSimulationSuite() {
         allocationPlan.skippedRowIds.includes(
           "sim-ledger-protected-missing-seller",
         ) &&
+        allocationPlan.skippedRowIds.includes(
+          "sim-ledger-protected-zero-covered",
+        ) &&
+        allocationPlan.skippedRowIds.includes(
+          "sim-ledger-protected-after-cap",
+        ) &&
         allocationPlan.skippedRows.some(
           (row) =>
             row.rowId === "sim-ledger-unprotected-mixed" &&
@@ -399,12 +436,28 @@ export async function runShippingSimulationSuite() {
             row.rowId === "sim-ledger-protected-missing-seller" &&
             row.reason === "missing_seller_account",
         ) &&
+        allocationPlan.skippedRows.some(
+          (row) =>
+            row.rowId === "sim-ledger-protected-zero-covered" &&
+            row.reason === "no_covered_amount",
+        ) &&
+        allocationPlan.skippedRows.some(
+          (row) =>
+            row.rowId === "sim-ledger-protected-after-cap" &&
+            row.reason === "cap_reached",
+        ) &&
         under20SellerProtectionSkippedRowReasonLabel(
           "missing_seller_account",
-        ).includes("seller account is missing"),
+        ).includes("seller account is missing") &&
+        under20SellerProtectionSkippedRowReasonLabel("no_covered_amount").includes(
+          "covered amount is $0",
+        ) &&
+        under20SellerProtectionSkippedRowReasonLabel("cap_reached").includes(
+          "$20 cap",
+        ),
     ),
     detail:
-      "Seller-protection Mark Paid allocation creates credits only for eligible payable seller rows, stops at the $20 cap, records operator-readable skip reasons for unprotected/forged/missing-seller rows, and keeps shipping excluded.",
+      "Seller-protection Mark Paid allocation creates credits only for eligible payable seller rows, stops at the $20 cap, records operator-readable skip reasons for unprotected/forged/missing-seller/zero-covered/cap-reached rows, and keeps shipping excluded.",
     assertions: {
       allocation_plan: allocationPlan,
     },

@@ -4547,7 +4547,7 @@ Open `/admin/shipping/simulations` or run `npm run verify:shipping`. Require all
 - opted-in under-$20 Standard Envelope claims reimburse item sale amount only and exclude shipping
 - non-opted-in under-$20 Standard Envelope claims reimburse `$0.00` and leave refund liability with the seller
 - mixed protected/unprotected under-$20 claim rows cap TCOS reimbursement at `$20.00`, exclude shipping, and leave unprotected rows outside reimbursement
-- Mark Paid reimbursement allocation creates seller credits only for eligible payable seller rows, stops at the `$20.00` cap, records operator-readable skip reasons for forged, unprotected, or missing-seller rows, and keeps shipping excluded
+- Mark Paid reimbursement allocation creates seller credits only for eligible payable seller rows, stops at the `$20.00` cap, records operator-readable skip reasons for forged, unprotected, missing-seller, zero-covered, or cap-reached rows, and keeps shipping excluded
 - Mark Paid buyer-refund gate accepts a current or previously saved internal note confirming buyer/customer refund evidence or a refund reference before TCOS seller-protection reimbursement
 - provider setup exports state that LetterTrack / USPS IMb supplies trackable delivery evidence while TCOS Under-$20 Seller Protection remains an optional internal, item-only, non-insurance program
 - Coverage is required for parcel shipping
