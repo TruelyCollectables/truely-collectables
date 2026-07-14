@@ -122,6 +122,22 @@ export function letterTrackCsvContent(rows: LetterTrackExportRow[]) {
   ].join("\n");
 }
 
+export function letterTrackSkippedReasonSummary(
+  skipped: LetterTrackExportBuildResult["skipped"],
+) {
+  if (skipped.length === 0) return "none";
+
+  const counts = new Map<string, number>();
+
+  for (const row of skipped) {
+    counts.set(row.reason, (counts.get(row.reason) || 0) + 1);
+  }
+
+  return Array.from(counts.entries())
+    .map(([reason, count]) => `${reason} (${count})`)
+    .join("; ");
+}
+
 export function buildLetterTrackExport(params: {
   labels: LetterTrackExportLabel[];
   ordersById: Map<number, LetterTrackExportOrder>;

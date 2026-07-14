@@ -1,6 +1,7 @@
 import {
   buildLetterTrackExport,
   letterTrackCsvContent,
+  letterTrackSkippedReasonSummary,
   type LetterTrackExportLabel,
   type LetterTrackExportOrder,
 } from "../../../../../lib/lettertrack-export";
@@ -56,6 +57,9 @@ export async function GET() {
       ordersById,
     });
     const csv = letterTrackCsvContent(exportResult.rows);
+    const skippedReasonSummary = letterTrackSkippedReasonSummary(
+      exportResult.skipped,
+    );
     const exportedAt = exportResult.exportedAt.replace(/[:.]/g, "-");
 
     return new Response(csv, {
@@ -66,6 +70,7 @@ export async function GET() {
         "Cache-Control": "no-store",
         "X-TCOS-LetterTrack-Rows": String(exportResult.rows.length),
         "X-TCOS-LetterTrack-Skipped": String(exportResult.skipped.length),
+        "X-TCOS-LetterTrack-Skipped-Reasons": skippedReasonSummary,
       },
     });
   } catch (error: any) {

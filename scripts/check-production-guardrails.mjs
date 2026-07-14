@@ -823,8 +823,18 @@ assertFileIncludes("shipping export smoke contract", "scripts/smoke-production.m
   "deliveryEvidenceRequirement",
   'result.response?.headers.get("x-tcos-lettertrack-rows") !== null',
   'result.response?.headers.get("x-tcos-lettertrack-skipped") !== null',
+  'result.response?.headers.get("x-tcos-lettertrack-skipped-reasons") !==',
   '!result.text.includes("sk_live_")',
   '!result.text.includes("whsec_")',
+]);
+assertFileIncludes("lettertrack skipped reason source", "src/lib/lettertrack-export.ts", [
+  "letterTrackSkippedReasonSummary",
+  "Order row was not found for this Standard Envelope label.",
+  "Recipient name, address line 1, city, state, and postal code are required before LetterTrack export.",
+]);
+assertFileIncludes("lettertrack skipped reason route source", "src/app/api/admin/shipping/lettertrack-export/route.ts", [
+  "letterTrackSkippedReasonSummary",
+  "X-TCOS-LetterTrack-Skipped-Reasons",
 ]);
 assertFileIncludes("shipping blocked purchase evidence audit source", "src/app/api/admin/orders/[id]/shipping-labels/route.ts", [
   "buildShippingProviderSetupPacket",

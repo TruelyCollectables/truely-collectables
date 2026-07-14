@@ -15,6 +15,7 @@ import {
 import {
   buildLetterTrackExport,
   letterTrackCsvContent,
+  letterTrackSkippedReasonSummary,
 } from "./lettertrack-export";
 import {
   buildLetterTrackSellerProtectionEvidenceReview,
@@ -603,20 +604,84 @@ export async function runShippingSimulationSuite() {
     ]),
   });
   const letterTrackCsv = letterTrackCsvContent(letterTrackExport.rows);
+  const skippedLetterTrackExport = buildLetterTrackExport({
+    exportedAt: "2026-07-12T12:00:00.000Z",
+    labels: [
+      {
+        id: "sim-lettertrack-label-missing-order",
+        order_id: 2004,
+        label_status: "planned",
+        requested_shipping_method: "STANDARD_ENVELOPE",
+        resolved_shipping_method: "STANDARD_ENVELOPE",
+        coverage_amount: 10,
+        coverage_status: "required_at_label_purchase",
+        metadata: null,
+        created_at: "2026-07-12T11:05:00.000Z",
+      },
+      {
+        id: "sim-lettertrack-label-missing-address",
+        order_id: 2005,
+        label_status: "planned",
+        requested_shipping_method: "STANDARD_ENVELOPE",
+        resolved_shipping_method: "STANDARD_ENVELOPE",
+        coverage_amount: 11,
+        coverage_status: "required_at_label_purchase",
+        metadata: null,
+        created_at: "2026-07-12T11:06:00.000Z",
+      },
+    ],
+    ordersById: new Map([
+      [
+        2005,
+        {
+          id: 2005,
+          customer_email: "missing-address@example.com",
+          customer_name: "",
+          shipping_name: "",
+          shipping_address_line1: "",
+          shipping_address_line2: "",
+          shipping_city: "Denver",
+          shipping_state: "CO",
+          shipping_postal_code: "80202",
+          shipping_country: "US",
+          subtotal: 11,
+          total: 12.07,
+          item_count: 1,
+        },
+      ],
+    ]),
+  });
+  const skippedLetterTrackReasonSummary = letterTrackSkippedReasonSummary(
+    skippedLetterTrackExport.skipped,
+  );
   scenarios.push({
     scenario_key: "lettertrack_standard_envelope_export",
     scenario_status: pass(
       letterTrackExport.rows.length === 1 &&
         letterTrackExport.skipped.length === 0 &&
+        letterTrackSkippedReasonSummary(letterTrackExport.skipped) === "none" &&
+        skippedLetterTrackExport.rows.length === 0 &&
+        skippedLetterTrackExport.skipped.length === 2 &&
+        skippedLetterTrackReasonSummary.includes(
+          "Order row was not found for this Standard Envelope label. (1)",
+        ) &&
+        skippedLetterTrackReasonSummary.includes(
+          "Recipient name, address line 1, city, state, and postal code are required before LetterTrack export. (1)",
+        ) &&
         letterTrackCsv.includes("LetterTrack / USPS Informed Visibility IMb") &&
         letterTrackCsv.includes("sellerProtectionReserveRate") &&
         letterTrackCsv.includes("TCOS-1003"),
     ),
     detail:
-      "Standard Envelope labels can be exported to a LetterTrack import CSV with recipient address, order reference, value, and IMb recording instructions.",
+      "Standard Envelope labels can be exported to a LetterTrack import CSV with recipient address, order reference, value, IMb recording instructions, and an operator-readable skipped-row reason summary.",
     assertions: {
       row_count: letterTrackExport.rows.length,
       skipped_count: letterTrackExport.skipped.length,
+      skipped_reason_summary: letterTrackSkippedReasonSummary(
+        letterTrackExport.skipped,
+      ),
+      skipped_fixture_count: skippedLetterTrackExport.skipped.length,
+      skipped_fixture_reason_summary: skippedLetterTrackReasonSummary,
       csv_preview: letterTrackCsv.split("\n").slice(0, 2),
     },
   });

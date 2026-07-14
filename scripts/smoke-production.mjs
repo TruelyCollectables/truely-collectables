@@ -1126,6 +1126,8 @@ const checks = [
       result.text.includes("deliveryEvidenceRequirement") &&
       result.response?.headers.get("x-tcos-lettertrack-rows") !== null &&
       result.response?.headers.get("x-tcos-lettertrack-skipped") !== null &&
+      result.response?.headers.get("x-tcos-lettertrack-skipped-reasons") !==
+        null &&
       !result.text.includes("sk_live_") &&
       !result.text.includes("whsec_"),
   },
