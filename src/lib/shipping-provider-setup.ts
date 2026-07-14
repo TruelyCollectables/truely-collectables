@@ -73,6 +73,15 @@ export type ProviderCredentialGroup = {
   missingKeys: string[];
 };
 
+export type ProviderSetupActionPlanStep = {
+  order: number;
+  title: string;
+  status: "ready" | "blocked" | "guarded";
+  detail: string;
+  action: string;
+  evidence: string[];
+};
+
 export type ProviderSetupPacket = {
   exportedAt: string;
   scope: "tcos_shipping_provider_setup_no_secret_values";
@@ -80,6 +89,7 @@ export type ProviderSetupPacket = {
   decision: ProviderSetupDecision;
   liveRequirements: LiveShippingRequirement[];
   credentialGroups: ProviderCredentialGroup[];
+  actionPlan: ProviderSetupActionPlanStep[];
   standardEnvelopeEvidenceContract: StandardEnvelopeEvidenceContract;
   standardEnvelopeEvidenceContractReady: boolean;
   readinessSummary: ReturnType<typeof shippingProviderSummary>;
@@ -408,6 +418,95 @@ function liveShippingRequirements(params: {
   ];
 }
 
+function providerSetupActionPlan(params: {
+  decision: ProviderSetupDecision;
+  credentialGroups: ProviderCredentialGroup[];
+  liveRequirements: LiveShippingRequirement[];
+}): ProviderSetupActionPlanStep[] {
+  const missingGroups = params.credentialGroups.filter(
+    (group) => group.status === "missing",
+  );
+  const blockedLiveRequirements = params.liveRequirements.filter(
+    (requirement) => requirement.status !== "ready",
+  );
+  const credentialsReady = missingGroups.length === 0;
+  const liveEvidenceReady = blockedLiveRequirements.length === 0;
+
+  return [
+    {
+      order: 1,
+      title: "Choose provider accounts",
+      status: credentialsReady ? "ready" : "blocked",
+      detail:
+        "Pick the approved Standard Envelope / IMb, parcel-label, and shipment Coverage provider paths before live adapter work.",
+      action:
+        "Use the provider checklist to decide which alternative key in each credential group TCOS should use.",
+      evidence: missingGroups.length
+        ? missingGroups.map(
+            (group) => `${group.title}: ${group.requirement}`,
+          )
+        : ["All provider credential groups are staged by secret name."],
+    },
+    {
+      order: 2,
+      title: "Stage Vercel environment names",
+      status: credentialsReady ? "ready" : "blocked",
+      detail:
+        "Store provider values only in Vercel environment variables. The TCOS exports list names and commands only, never secret values.",
+      action:
+        "Download the env template and Vercel commands export, then add the selected provider keys in Vercel production/preview.",
+      evidence: missingGroups.length
+        ? missingGroups.flatMap((group) => group.missingKeys)
+        : ["No missing provider credential groups in the current environment."],
+    },
+    {
+      order: 3,
+      title: "Keep shipping runtime locked",
+      status: "guarded",
+      detail:
+        "Provider credentials are not permission to buy postage. TCOS must stay in dry_run with live shipping disabled until adapter evidence and admin approval are complete.",
+      action:
+        "Keep TCOS_SHIPPING_PURCHASE_MODE=dry_run and TCOS_LIVE_SHIPPING_ENABLED=false while setup is in progress.",
+      evidence: [
+        "TCOS_SHIPPING_PURCHASE_MODE=dry_run",
+        "TCOS_LIVE_SHIPPING_ENABLED=false",
+      ],
+    },
+    {
+      order: 4,
+      title: "Prove live adapter evidence",
+      status: liveEvidenceReady ? "ready" : "blocked",
+      detail:
+        "The live adapter must quote, buy, void, purchase Coverage, reconcile webhooks, and preserve audit packets before any money-moving provider call.",
+      action:
+        "Complete every blocked live adapter requirement, then save the evidence before requesting approval.",
+      evidence: blockedLiveRequirements.length
+        ? blockedLiveRequirements.map(
+            (requirement) => `${requirement.label}: ${requirement.action}`,
+          )
+        : ["All live adapter evidence requirements are marked ready."],
+    },
+    {
+      order: 5,
+      title: "Approve, deploy, and smoke",
+      status:
+        params.decision.status === "ready_for_live_adapter_build" &&
+        liveEvidenceReady
+          ? "ready"
+          : "blocked",
+      detail:
+        "Only after provider setup, adapter evidence, simulations, webhooks, reconciliation, and admin approval are ready should live shipping be unlocked.",
+      action:
+        "Use the Live Shipping Gate, run verify/launch, and require production smoke to pass on the clean domain.",
+      evidence: [
+        "Admin Live Shipping Approval ready",
+        "npm run verify:production",
+        "npm run smoke:production",
+      ],
+    },
+  ];
+}
+
 export function buildShippingProviderSetupPacket(): ProviderSetupPacket {
   const readiness = getShippingProviderReadiness();
   const standardEnvelopeProfile =
@@ -439,6 +538,11 @@ export function buildShippingProviderSetupPacket(): ProviderSetupPacket {
     readiness,
     liveRequirements,
   });
+  const actionPlan = providerSetupActionPlan({
+    decision,
+    credentialGroups,
+    liveRequirements,
+  });
 
   return {
     exportedAt: new Date().toISOString(),
@@ -448,6 +552,7 @@ export function buildShippingProviderSetupPacket(): ProviderSetupPacket {
     decision,
     liveRequirements,
     credentialGroups,
+    actionPlan,
     standardEnvelopeEvidenceContract,
     standardEnvelopeEvidenceContractReady:
       isStandardEnvelopeEvidenceContractReady(standardEnvelopeEvidenceContract),

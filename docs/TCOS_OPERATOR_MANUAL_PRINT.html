@@ -4165,6 +4165,14 @@ charge.dispute.funds_reinstated</code></pre>
 <li><code>Setup CSV</code> opens <code>/api/admin/shipping/provider-setup?format=csv</code></li>
 </ul>
 <p>These exports are safe to use for operator setup review because they include secret names and configuration status only, not secret values.</p>
+<p>The provider setup packet now includes a Shipping Provider Unlock Action Plan in JSON, CSV, env-template, Vercel-command, operator-checklist, <code>/admin/shipping</code>, and launch handoff bundle outputs. Work it in order:</p>
+<ol>
+<li>Choose provider accounts for Standard Envelope / IMb, parcel labels, and shipment Coverage.</li>
+<li>Stage the selected Vercel environment names without putting secret values in Git, chat, screenshots, tickets, or exported packets.</li>
+<li>Keep shipping runtime locked with <code>TCOS_SHIPPING_PURCHASE_MODE=dry_run</code> and <code>TCOS_LIVE_SHIPPING_ENABLED=false</code>.</li>
+<li>Prove live adapter evidence for quote, buy, void, Coverage purchase, webhooks, reconciliation, and audit packets.</li>
+<li>Approve, deploy, and smoke only after the live-shipping gate is ready.</li>
+</ol>
 <p>The provider setup packet includes an operator decision:</p>
 <ul>
 <li><code>dry_run_only</code> means provider credential groups appear staged, but TCOS will still only simulate purchases.</li>

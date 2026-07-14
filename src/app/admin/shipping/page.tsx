@@ -10,6 +10,7 @@ import {
 } from "../../../lib/lettertrack-delivery-evidence";
 import {
   buildShippingProviderSetupPacket,
+  type ProviderSetupActionPlanStep,
   type LiveShippingRequirement,
   type ProviderSetupDecision,
 } from "../../../lib/shipping-provider-setup";
@@ -466,6 +467,60 @@ function ProviderGoLiveRunway({
           </a>
         </div>
       </div>
+    </div>
+  );
+}
+
+function ProviderUnlockActionPlan({
+  actionPlan,
+}: {
+  actionPlan: ProviderSetupActionPlanStep[];
+}) {
+  return (
+    <div className="mt-4 rounded border border-indigo-200 bg-indigo-50 p-4 text-indigo-950">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h4 className="text-lg font-black">Shipping Provider Unlock Action Plan</h4>
+          <p className="mt-1 max-w-3xl text-sm font-semibold">
+            Work these steps in order. They name the current provider setup
+            blockers without exposing secret values or calling live providers.
+          </p>
+        </div>
+        <span className="rounded border border-indigo-300 bg-white px-2 py-1 text-xs font-black uppercase">
+          No-secret handoff
+        </span>
+      </div>
+
+      <ol className="mt-3 grid grid-cols-1 gap-3 lg:grid-cols-5">
+        {actionPlan.map((step) => (
+          <li
+            key={step.order}
+            className={`rounded border p-3 ${
+              step.status === "ready"
+                ? "border-green-200 bg-green-50 text-green-950"
+                : step.status === "guarded"
+                  ? "border-red-200 bg-white text-red-950"
+                  : "border-amber-200 bg-white text-amber-950"
+            }`}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <h5 className="font-black">
+                {step.order}. {step.title}
+              </h5>
+              <span className="rounded border border-current px-2 py-1 text-[10px] font-black uppercase">
+                {step.status}
+              </span>
+            </div>
+            <p className="mt-2 text-xs font-semibold">{step.detail}</p>
+            <p className="mt-2 text-xs font-black">{step.action}</p>
+            <ul className="mt-2 list-disc space-y-1 pl-4 text-[11px] font-bold opacity-80">
+              {step.evidence.slice(0, 4).map((evidence) => (
+                <li key={evidence}>{evidence}</li>
+              ))}
+            </ul>
+          </li>
+        ))}
+      </ol>
     </div>
   );
 }
@@ -1095,6 +1150,10 @@ export default async function AdminShippingPage() {
 
             <ProviderSetupDecisionPanel
               decision={providerSetupPacket.decision}
+            />
+
+            <ProviderUnlockActionPlan
+              actionPlan={providerSetupPacket.actionPlan}
             />
 
             <ProviderGoLiveRunway

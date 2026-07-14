@@ -1,6 +1,7 @@
 import {
   buildShippingProviderSetupPacket,
   type LiveShippingRequirement,
+  type ProviderSetupActionPlanStep,
   type ProviderCredentialGroup,
   type ProviderSetupDecision,
   type ProviderSetupLane,
@@ -18,6 +19,7 @@ function csvResponse(params: {
   lanes: ProviderSetupLane[];
   decision: ProviderSetupDecision;
   liveRequirements: LiveShippingRequirement[];
+  actionPlan: ProviderSetupActionPlanStep[];
   standardEnvelopeEvidenceContract: StandardEnvelopeEvidenceContract;
   standardEnvelopeEvidenceContractReady: boolean;
 }) {
@@ -26,6 +28,7 @@ function csvResponse(params: {
     "decisionSummary",
     "decisionNextAction",
     "decisionBlockers",
+    "setupActionPlan",
     "liveRequirementBlockers",
     "lane",
     "adapterKey",
@@ -58,6 +61,9 @@ function csvResponse(params: {
     decisionSummary: params.decision.summary,
     decisionNextAction: params.decision.nextAction,
     decisionBlockers: params.decision.blockers,
+    setupActionPlan: params.actionPlan.map(
+      (step) => `${step.order}. ${step.title} [${step.status}] ${step.action}`,
+    ),
     liveRequirementBlockers: params.liveRequirements
       .filter((requirement) => requirement.status !== "ready")
       .map((requirement) => requirement.label),
@@ -124,6 +130,7 @@ function envTemplateResponse(params: {
   lanes: ProviderSetupLane[];
   decision: ProviderSetupDecision;
   liveRequirements: LiveShippingRequirement[];
+  actionPlan: ProviderSetupActionPlanStep[];
   standardEnvelopeEvidenceContract: StandardEnvelopeEvidenceContract;
   standardEnvelopeEvidenceContractReady: boolean;
 }) {
@@ -180,6 +187,14 @@ function envTemplateResponse(params: {
     "# Provider credential groups",
     "# Single-key groups are required. Multi-key groups are alternatives; set the one your approved provider adapter uses.",
     ...credentialGroupLines,
+    "# Shipping provider unlock action plan",
+    ...params.actionPlan.flatMap((step) => [
+      `# ${step.order}. ${step.title} [${step.status}]`,
+      `# Detail: ${step.detail}`,
+      `# Action: ${step.action}`,
+      ...step.evidence.map((evidence) => `# Evidence: ${evidence}`),
+      "",
+    ]),
     "# All supported credential key names, deduped",
     ...requiredCredentialKeys.map((key) => `# ${key}`),
     "",
@@ -212,6 +227,7 @@ function vercelCommandsResponse(params: {
   lanes: ProviderSetupLane[];
   decision: ProviderSetupDecision;
   liveRequirements: LiveShippingRequirement[];
+  actionPlan: ProviderSetupActionPlanStep[];
 }) {
   const requiredCredentialKeys = unique(
     params.lanes.flatMap((lane) => [
@@ -243,6 +259,12 @@ function vercelCommandsResponse(params: {
     `# Provider decision: ${params.decision.status}`,
     `# Next action: ${params.decision.nextAction}`,
     "",
+    "# Shipping provider unlock action plan",
+    ...params.actionPlan.flatMap((step) => [
+      `# ${step.order}. ${step.title} [${step.status}]`,
+      `# ${step.action}`,
+    ]),
+    "",
     "# Production environment",
     ...commandKeys.map(
       (key) => `vercel env add ${key} production --scope truelycollectables-projects`,
@@ -273,6 +295,7 @@ function operatorChecklistResponse(params: {
   lanes: ProviderSetupLane[];
   decision: ProviderSetupDecision;
   liveRequirements: LiveShippingRequirement[];
+  actionPlan: ProviderSetupActionPlanStep[];
   standardEnvelopeEvidenceContract: StandardEnvelopeEvidenceContract;
   standardEnvelopeEvidenceContractReady: boolean;
 }) {
@@ -296,6 +319,17 @@ function operatorChecklistResponse(params: {
     `- Summary: ${params.decision.summary}`,
     `- Next action: ${params.decision.nextAction}`,
     "",
+    "## Shipping Provider Unlock Action Plan",
+    "",
+    ...params.actionPlan.flatMap((step) => [
+      `### ${step.order}. ${step.title}`,
+      "",
+      `- Status: ${step.status}`,
+      `- Detail: ${step.detail}`,
+      `- Action: ${step.action}`,
+      ...step.evidence.map((evidence) => `- Evidence: ${evidence}`),
+      "",
+    ]),
     "## Standard Envelope Evidence + Under-$20 Protection Contract",
     "",
     `- Runtime gate validator: ${params.standardEnvelopeEvidenceContractReady ? "ready" : "blocked"}`,
@@ -373,6 +407,7 @@ export async function GET(request: Request) {
         lanes: packet.lanes,
         decision: packet.decision,
         liveRequirements: packet.liveRequirements,
+        actionPlan: packet.actionPlan,
         standardEnvelopeEvidenceContract:
           packet.standardEnvelopeEvidenceContract,
         standardEnvelopeEvidenceContractReady:
@@ -386,6 +421,7 @@ export async function GET(request: Request) {
         lanes: packet.lanes,
         decision: packet.decision,
         liveRequirements: packet.liveRequirements,
+        actionPlan: packet.actionPlan,
         standardEnvelopeEvidenceContract:
           packet.standardEnvelopeEvidenceContract,
         standardEnvelopeEvidenceContractReady:
@@ -398,6 +434,7 @@ export async function GET(request: Request) {
         lanes: packet.lanes,
         decision: packet.decision,
         liveRequirements: packet.liveRequirements,
+        actionPlan: packet.actionPlan,
       });
     }
 
@@ -407,6 +444,7 @@ export async function GET(request: Request) {
         lanes: packet.lanes,
         decision: packet.decision,
         liveRequirements: packet.liveRequirements,
+        actionPlan: packet.actionPlan,
         standardEnvelopeEvidenceContract:
           packet.standardEnvelopeEvidenceContract,
         standardEnvelopeEvidenceContractReady:

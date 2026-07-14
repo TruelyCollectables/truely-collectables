@@ -4388,6 +4388,14 @@ Provider setup packets are available from `/admin/shipping`:
 
 These exports are safe to use for operator setup review because they include secret names and configuration status only, not secret values.
 
+The provider setup packet now includes a Shipping Provider Unlock Action Plan in JSON, CSV, env-template, Vercel-command, operator-checklist, `/admin/shipping`, and launch handoff bundle outputs. Work it in order:
+
+1. Choose provider accounts for Standard Envelope / IMb, parcel labels, and shipment Coverage.
+2. Stage the selected Vercel environment names without putting secret values in Git, chat, screenshots, tickets, or exported packets.
+3. Keep shipping runtime locked with `TCOS_SHIPPING_PURCHASE_MODE=dry_run` and `TCOS_LIVE_SHIPPING_ENABLED=false`.
+4. Prove live adapter evidence for quote, buy, void, Coverage purchase, webhooks, reconciliation, and audit packets.
+5. Approve, deploy, and smoke only after the live-shipping gate is ready.
+
 The provider setup packet includes an operator decision:
 
 - `dry_run_only` means provider credential groups appear staged, but TCOS will still only simulate purchases.

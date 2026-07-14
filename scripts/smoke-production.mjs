@@ -611,6 +611,10 @@ const checks = [
       "Launch only when quota is open",
       "Halt on Vercel quota",
       "Ship only after smoke passes clean production",
+      "## Shipping Provider Unlock Action Plan",
+      "Choose provider accounts",
+      "Stage Vercel environment names",
+      "Keep shipping runtime locked",
       "Protected deploy sequence:",
       "## Deployment Source",
       "Git commit SHA:",
@@ -645,6 +649,10 @@ const checks = [
       result.text.includes("Launch only when quota is open") &&
       result.text.includes("Halt on Vercel quota") &&
       result.text.includes("Ship only after smoke passes clean production") &&
+      result.text.includes("## Shipping Provider Unlock Action Plan") &&
+      result.text.includes("Choose provider accounts") &&
+      result.text.includes("Stage Vercel environment names") &&
+      result.text.includes("Keep shipping runtime locked") &&
       result.text.includes("Protected deploy sequence:") &&
       result.text.includes("remove unwanted truely-collectables-tt3b.vercel.app alias") &&
       result.text.includes("set clean production alias") &&
@@ -726,13 +734,21 @@ const checks = [
       "LetterTrack Delivery Evidence",
       "Seller Protection Refund Proof Missing",
       "Seller Protection Payout Blocked",
+      "Shipping Provider Unlock Action Plan",
+      "Choose provider accounts",
+      "Stage Vercel environment names",
+      "Keep shipping runtime locked",
     ],
     expect: (result) =>
       result.text.includes("Export LetterTrack CSV") &&
       result.text.includes("LetterTrack IMb Recording") &&
       result.text.includes("LetterTrack Delivery Evidence") &&
       result.text.includes("Seller Protection Refund Proof Missing") &&
-      result.text.includes("Seller Protection Payout Blocked"),
+      result.text.includes("Seller Protection Payout Blocked") &&
+      result.text.includes("Shipping Provider Unlock Action Plan") &&
+      result.text.includes("Choose provider accounts") &&
+      result.text.includes("Stage Vercel environment names") &&
+      result.text.includes("Keep shipping runtime locked"),
   },
   {
     name: "shipping simulation lab",
@@ -840,6 +856,10 @@ const checks = [
     expect: (result) =>
       result.contentType.includes("application/json") &&
       result.text.includes('"credentialGroups"') &&
+      result.text.includes('"actionPlan"') &&
+      result.text.includes('"Choose provider accounts"') &&
+      result.text.includes('"Stage Vercel environment names"') &&
+      result.text.includes('"Keep shipping runtime locked"') &&
       result.text.includes('"standardEnvelopeEvidenceContract"') &&
       result.text.includes('"standardEnvelopeEvidenceContractReady":true') &&
       result.text.includes('"evidenceProvider":"LetterTrack / USPS IMb"') &&
@@ -859,6 +879,8 @@ const checks = [
     expect: (result) =>
       result.contentType.includes("text/csv") &&
       result.text.includes("decisionStatus,decisionSummary,decisionNextAction") &&
+      result.text.includes("setupActionPlan") &&
+      result.text.includes("Choose provider accounts") &&
       result.text.includes("standardEnvelopeEvidenceProvider") &&
       result.text.includes("under20ProtectionNotInsurance") &&
       result.text.includes("standardEnvelopeEvidenceContractReady") &&
@@ -875,6 +897,9 @@ const checks = [
     expect: (result) =>
       result.contentType.includes("text/plain") &&
       result.text.includes("TCOS shipping provider setup template") &&
+      result.text.includes("Shipping provider unlock action plan") &&
+      result.text.includes("Choose provider accounts") &&
+      result.text.includes("Stage Vercel environment names") &&
       result.text.includes("Standard Envelope evidence/protection contract") &&
       result.text.includes("Runtime gate validator: ready") &&
       result.text.includes("Evidence provider: LetterTrack / USPS IMb") &&
@@ -891,6 +916,8 @@ const checks = [
     expect: (result) =>
       result.contentType.includes("text/plain") &&
       result.text.includes("vercel env add") &&
+      result.text.includes("Shipping provider unlock action plan") &&
+      result.text.includes("Stage Vercel environment names") &&
       result.text.includes("# Production environment") &&
       result.text.includes("TCOS_LIVE_SHIPPING_ENABLED") &&
       !result.text.includes("sk_live_") &&
@@ -902,6 +929,10 @@ const checks = [
     expect: (result) =>
       result.contentType.includes("text/markdown") &&
       result.text.includes("# TCOS Shipping Provider Operator Checklist") &&
+      result.text.includes("## Shipping Provider Unlock Action Plan") &&
+      result.text.includes("Choose provider accounts") &&
+      result.text.includes("Stage Vercel environment names") &&
+      result.text.includes("Keep shipping runtime locked") &&
       result.text.includes("## Standard Envelope Evidence + Under-$20 Protection Contract") &&
       result.text.includes("Runtime gate validator: ready") &&
       result.text.includes("Evidence provider: LetterTrack / USPS IMb") &&
