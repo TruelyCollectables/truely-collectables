@@ -2,10 +2,7 @@ import Link from "next/link";
 import { createSupabaseServerClient } from "../../../lib/supabase-server";
 import { getStoreSettings } from "../../../lib/store-settings";
 import { getActiveStoreId } from "../../../lib/stores";
-import {
-  SELLER_MARKETPLACE_RECEIPT_HANDOFF_CONTROLS,
-  SELLER_MARKETPLACE_RECEIPT_HANDOFF_OPERATIONS,
-} from "../../../lib/seller-marketplace-receipt-handoff";
+import { buildSellerMarketplaceReceiptHandoffContract } from "../../../lib/seller-marketplace-receipt-handoff";
 import SellerConnectionsPanel from "./SellerConnectionsPanel";
 
 export const dynamic = "force-dynamic";
@@ -29,6 +26,9 @@ type CountResult = {
   count: number | null;
   error?: { message?: string } | null;
 };
+
+const sellerMarketplaceReceiptHandoff =
+  buildSellerMarketplaceReceiptHandoffContract();
 
 function buildConnectors(storeDisplayName: string): Connector[] {
   return [
@@ -90,7 +90,7 @@ const buildQueue: BuildQueueStep[] = [
     name: "Seller marketplace receipt handoff",
     status: "completed",
     detail:
-      `Seller Connections now exposes safe marketplace API receipt handoffs with ${SELLER_MARKETPLACE_RECEIPT_HANDOFF_CONTROLS.join(", ")} controls for ${SELLER_MARKETPLACE_RECEIPT_HANDOFF_OPERATIONS.join(", ")} debugging.`,
+      `Seller Connections now exposes safe marketplace API receipt handoffs with ${sellerMarketplaceReceiptHandoff.controlsSentence} controls for ${sellerMarketplaceReceiptHandoff.operations.join(", ")} debugging.`,
   },
   {
     name: "Seller marketplace packet intake guidance",

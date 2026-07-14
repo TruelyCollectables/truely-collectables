@@ -1737,12 +1737,12 @@ assertFileIncludes(
   "seller marketplace receipt handoff build queue contract",
   "src/app/seller/marketplaces/page.tsx",
   [
-    "SELLER_MARKETPLACE_RECEIPT_HANDOFF_CONTROLS",
-    "SELLER_MARKETPLACE_RECEIPT_HANDOFF_OPERATIONS",
+    "buildSellerMarketplaceReceiptHandoffContract",
+    "sellerMarketplaceReceiptHandoff",
+    "sellerMarketplaceReceiptHandoff.controlsSentence",
+    "sellerMarketplaceReceiptHandoff.operations.join",
     "Seller marketplace receipt handoff",
     "safe marketplace API receipt handoffs",
-    "${SELLER_MARKETPLACE_RECEIPT_HANDOFF_CONTROLS.join(\", \")}",
-    "${SELLER_MARKETPLACE_RECEIPT_HANDOFF_OPERATIONS.join(\", \")}",
   ],
 );
 assertFileIncludes(
