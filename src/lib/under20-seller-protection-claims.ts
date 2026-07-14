@@ -160,6 +160,31 @@ export function evaluateUnder20SellerProtectionBuyerRefundGate(params: {
   };
 }
 
+export function evaluateUnder20SellerProtectionBuyerRefundMetadataGate(params: {
+  metadata?: Record<string, unknown> | null;
+  note?: string | null;
+}): Under20SellerProtectionBuyerRefundGate {
+  const metadata = metadataRecord(params.metadata);
+  const latestBuyerRefundEvidence = metadataRecord(
+    metadata.latest_seller_protection_buyer_refund_evidence,
+  );
+  const latestAdminStatusChange = metadataRecord(
+    metadata.latest_admin_status_change,
+  );
+  const combinedNote = [
+    params.note,
+    latestBuyerRefundEvidence.note,
+    latestAdminStatusChange.note,
+  ]
+    .map((entry) => String(entry || "").trim())
+    .filter((entry) => entry.length > 0)
+    .join(" / ");
+
+  return evaluateUnder20SellerProtectionBuyerRefundGate({
+    note: combinedNote,
+  });
+}
+
 export function buildUnder20SellerProtectionReimbursementPlan({
   rows,
   reimbursableAmount,

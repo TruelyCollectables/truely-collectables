@@ -5,6 +5,7 @@ import {
 import { isDryRunShippingLabel as isDryRunShippingLabelRecord } from "../../../../../lib/shipping-dry-run";
 import { getActiveStoreId } from "../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
+import { evaluateUnder20SellerProtectionBuyerRefundMetadataGate } from "../../../../../lib/under20-seller-protection-claims";
 
 export const dynamic = "force-dynamic";
 
@@ -468,6 +469,50 @@ export async function GET(request: Request) {
 
       const order = orderFor(ordersById, claim.order_id);
       const label = labelFor(labelsById, claim.shipping_label_id);
+      const refundGate = evaluateUnder20SellerProtectionBuyerRefundMetadataGate({
+        metadata: claim.metadata,
+      });
+
+      if (!refundGate.allowed) {
+        const dryRun = isDryRunLabel(label, simulatedLabelIds);
+        rows.push({
+          priority_rank: 0,
+          exception_key: exceptionKey({
+            exceptionType: "seller_protection_refund_proof_missing",
+            orderId: claim.order_id,
+            labelId: claim.shipping_label_id,
+            claimId: claim.id,
+          }),
+          severity: "warning",
+          exception_type: "seller_protection_refund_proof_missing",
+          action_needed:
+            "Document buyer/customer refund evidence or a refund reference before Mark Paid.",
+          order_id: claim.order_id,
+          customer_email: order?.customer_email || "",
+          order_status: order?.status || "",
+          fulfillment_status: order?.fulfillment_status || "",
+          order_total: money(order?.total),
+          shipping_label_id: claim.shipping_label_id || "",
+          claim_id: claim.id,
+          provider: claim.provider || label?.provider || "",
+          service: label?.provider_service || order?.shipping_name || "",
+          carrier: label?.carrier || order?.carrier || "",
+          tracking_number:
+            label?.tracking_number || order?.tracking_number || "",
+          label_status: label?.label_status || "",
+          coverage_provider: label?.coverage_provider || claim.provider || "",
+          coverage_status: label?.coverage_status || "",
+          coverage_policy_id: label?.coverage_policy_id || "",
+          coverage_amount: money(label?.coverage_amount || claim.claim_amount),
+          postage_amount: money(label?.postage_amount),
+          dry_run_record: dryRun ? "yes" : "no",
+          dry_run_warning: dryRunWarning(dryRun),
+          issue_detail: refundGate.reason,
+          oldest_at: claim.created_at,
+          admin_url: `${url.origin}/admin/orders/${claim.order_id}`,
+        });
+      }
+
       const liveLetterTrackEvidence = buildLetterTrackDeliveryEvidenceSummary(
         claim.shipping_label_id
           ? eventsByLabelId.get(claim.shipping_label_id) || []

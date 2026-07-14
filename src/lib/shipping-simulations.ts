@@ -23,6 +23,7 @@ import {
   buildUnder20SellerProtectionClaimSummary,
   buildUnder20SellerProtectionReimbursementPlan,
   evaluateUnder20SellerProtectionBuyerRefundGate,
+  evaluateUnder20SellerProtectionBuyerRefundMetadataGate,
 } from "./under20-seller-protection-claims";
 
 export const SHIPPING_SIMULATION_SUITE_VERSION = "2026-07-14.4";
@@ -354,19 +355,29 @@ export async function runShippingSimulationSuite() {
   const acceptedBuyerRefundGate = evaluateUnder20SellerProtectionBuyerRefundGate({
     note: "Buyer refund confirmed in Stripe refund ref re_123 after order review.",
   });
+  const acceptedPriorBuyerRefundGate =
+    evaluateUnder20SellerProtectionBuyerRefundMetadataGate({
+      metadata: {
+        latest_admin_status_change: {
+          note: "Customer refund confirmed against order refund reference re_456 before payout.",
+        },
+      },
+    });
   scenarios.push({
     scenario_key: "under_20_seller_protection_buyer_refund_gate",
     scenario_status: pass(
       missingBuyerRefundGate.allowed === false &&
         missingBuyerRefundGate.reason.includes("Before Mark Paid") &&
         acceptedBuyerRefundGate.allowed === true &&
-        acceptedBuyerRefundGate.reason.includes("Buyer refund evidence"),
+        acceptedBuyerRefundGate.reason.includes("Buyer refund evidence") &&
+        acceptedPriorBuyerRefundGate.allowed === true,
     ),
     detail:
-      "Under-$20 seller-protection Mark Paid requires an internal note confirming buyer refund evidence or a refund reference before TCOS credits the seller.",
+      "Under-$20 seller-protection Mark Paid requires a current or previously saved internal note confirming buyer refund evidence or a refund reference before TCOS credits the seller.",
     assertions: {
       missing_buyer_refund_gate: missingBuyerRefundGate,
       accepted_buyer_refund_gate: acceptedBuyerRefundGate,
+      accepted_prior_buyer_refund_gate: acceptedPriorBuyerRefundGate,
     },
   });
 

@@ -312,6 +312,7 @@ assertFileIncludes("admin shipping controls smoke contract", "scripts/smoke-prod
   "Export LetterTrack CSV",
   "LetterTrack IMb Recording",
   "LetterTrack Delivery Evidence",
+  "Seller Protection Refund Proof Missing",
   "Seller Protection Payout Blocked",
 ]);
 assertFileIncludes("shipping simulation lab smoke contract", "scripts/smoke-production.mjs", [
@@ -323,7 +324,7 @@ assertFileIncludes("shipping simulation lab smoke contract", "scripts/smoke-prod
   "17",
   "Mixed under-$20 claim rows cap reimbursement at $20",
   "Seller-protection Mark Paid allocation creates credits only for payable seller rows",
-  "Under-$20 seller-protection Mark Paid requires an internal note confirming buyer refund evidence",
+  "Under-$20 seller-protection Mark Paid requires a current or previously saved internal note confirming buyer refund evidence",
   "LetterTrack CSV rows carry the under-$20 seller-protection contract",
   "DRY RUN STANDARD ENVELOPE PURCHASE",
 ]);
@@ -413,9 +414,30 @@ assertFileIncludes(
   "seller protection buyer refund gate route contract",
   "src/app/api/admin/shipping-claims/[id]/route.ts",
   [
-    "evaluateUnder20SellerProtectionBuyerRefundGate",
+    "evaluateUnder20SellerProtectionBuyerRefundMetadataGate",
     "latest_seller_protection_buyer_refund_evidence",
     "sellerProtectionBuyerRefundEvidence",
+  ],
+);
+assertFileIncludes(
+  "seller protection refund proof priority board contract",
+  "src/app/admin/shipping/page.tsx",
+  [
+    "evaluateUnder20SellerProtectionBuyerRefundMetadataGate",
+    "approvedSellerProtectionRefundProofBlockers",
+    "seller_protection_refund_proof_missing",
+    "Seller Protection Refund Proof Missing",
+    "buyer/customer refund evidence or a refund reference documented before Mark Paid",
+  ],
+);
+assertFileIncludes(
+  "seller protection refund proof exceptions contract",
+  "src/app/api/admin/shipping/exceptions/route.ts",
+  [
+    "evaluateUnder20SellerProtectionBuyerRefundMetadataGate",
+    "seller_protection_refund_proof_missing",
+    "Document buyer/customer refund evidence or a refund reference before Mark Paid",
+    "refundGate.reason",
   ],
 );
 assertFileIncludes(
@@ -423,6 +445,8 @@ assertFileIncludes(
   "src/lib/under20-seller-protection-claims.ts",
   [
     "evaluateUnder20SellerProtectionBuyerRefundGate",
+    "evaluateUnder20SellerProtectionBuyerRefundMetadataGate",
+    "latest_admin_status_change",
     "Before Mark Paid",
     "buyer/customer refund evidence",
     "Buyer refund evidence was confirmed",

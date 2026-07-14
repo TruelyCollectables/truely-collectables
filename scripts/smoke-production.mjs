@@ -466,6 +466,7 @@ const checks = [
       result.text.includes("Export LetterTrack CSV") &&
       result.text.includes("LetterTrack IMb Recording") &&
       result.text.includes("LetterTrack Delivery Evidence") &&
+      result.text.includes("Seller Protection Refund Proof Missing") &&
       result.text.includes("Seller Protection Payout Blocked"),
   },
   {
@@ -486,7 +487,7 @@ const checks = [
         "Seller-protection Mark Paid allocation creates credits only for payable seller rows",
       ) &&
       result.text.includes(
-        "Under-$20 seller-protection Mark Paid requires an internal note confirming buyer refund evidence",
+        "Under-$20 seller-protection Mark Paid requires a current or previously saved internal note confirming buyer refund evidence",
       ) &&
       result.text.includes(
         "LetterTrack CSV rows carry the under-$20 seller-protection contract",

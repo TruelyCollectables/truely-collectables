@@ -14,7 +14,7 @@ import { getActiveStoreId } from "../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
 import {
   buildUnder20SellerProtectionReimbursementPlan,
-  evaluateUnder20SellerProtectionBuyerRefundGate,
+  evaluateUnder20SellerProtectionBuyerRefundMetadataGate,
   type Under20SellerProtectionBuyerRefundGate,
   type Under20SellerProtectionReimbursementRow,
 } from "../../../../../lib/under20-seller-protection-claims";
@@ -408,7 +408,10 @@ export async function PATCH(
             reviewed_at: now,
             reviewed_by_identity: identity,
             note: note || null,
-            gate: evaluateUnder20SellerProtectionBuyerRefundGate({ note }),
+            gate: evaluateUnder20SellerProtectionBuyerRefundMetadataGate({
+              metadata: claim.metadata,
+              note,
+            }),
           }
         : null;
 

@@ -14,7 +14,7 @@ const smokeChecks = [
   "Shipping Simulation Lab with seventeen policy/adapter scenarios",
   "Shipping simulation API POST with scenario count, manifest, and drift-field checks",
   "Shipping provider setup JSON and export packets",
-  "Ranked shipping exceptions CSV, including seller-protection payout blocker support",
+  "Ranked shipping exceptions CSV, including seller-protection refund-proof and payout blocker support",
   "LetterTrack Standard Envelope CSV export",
   "Clean production domain",
   `Unwanted ${DEPLOY_SAFETY.unwantedAlias} alias absence`,

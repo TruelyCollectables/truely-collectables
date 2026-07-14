@@ -17,6 +17,7 @@ import { isDryRunShippingLabel as isDryRunShippingLabelRecord } from "../../../l
 import { getDryRunShippingProofByOrder } from "../../../lib/shipping-dry-run-cleanup";
 import { getActiveStoreId } from "../../../lib/stores";
 import { createSupabaseServerClient } from "../../../lib/supabase-server";
+import { evaluateUnder20SellerProtectionBuyerRefundMetadataGate } from "../../../lib/under20-seller-protection-claims";
 import DryRunCleanupActions from "./DryRunCleanupActions";
 import ShippingClaimActions from "./ShippingClaimActions";
 import {
@@ -743,6 +744,22 @@ export default async function AdminShippingPage() {
 
     return !gate.allowed;
   });
+  const approvedSellerProtectionRefundProofBlockers = claims.filter((claim) => {
+    if (claim.claim_status !== "approved") return false;
+
+    const under20Claim = metadataRecord(
+      claim.metadata,
+      "under_20_seller_protection_claim",
+    );
+
+    if (under20Claim?.eligible !== true) return false;
+
+    const refundGate = evaluateUnder20SellerProtectionBuyerRefundMetadataGate({
+      metadata: claim.metadata,
+    });
+
+    return !refundGate.allowed;
+  });
   const priorityIssues = [
     {
       key: "blocked_purchase",
@@ -825,6 +842,23 @@ export default async function AdminShippingPage() {
       cta: "Mark shipped",
       oldestAt: oldestDate(
         readyToMarkShippedLabels.map((row) => row.updated_at || row.created_at),
+      ),
+    },
+    {
+      key: "seller_protection_refund_proof_missing",
+      title: "Seller Protection Refund Proof Missing",
+      count: approvedSellerProtectionRefundProofBlockers.length,
+      severity: "warning" as PrioritySeverity,
+      detail:
+        "Approved under-$20 claims need buyer/customer refund evidence or a refund reference documented before Mark Paid.",
+      href: approvedSellerProtectionRefundProofBlockers[0]?.order_id
+        ? `/admin/orders/${approvedSellerProtectionRefundProofBlockers[0].order_id}`
+        : "/admin/shipping",
+      cta: "Add refund proof",
+      oldestAt: oldestDate(
+        approvedSellerProtectionRefundProofBlockers.map(
+          (claim) => claim.created_at,
+        ),
       ),
     },
     {
