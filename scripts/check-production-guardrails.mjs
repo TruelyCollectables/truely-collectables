@@ -621,6 +621,18 @@ assertFileIncludes(
   ],
 );
 assertFileIncludes(
+  "seller protection financial reconciliation visibility contract",
+  "src/app/admin/financial-reconciliation/page.tsx",
+  [
+    "Seller-Protection Reimbursement Adjustments",
+    "TCOS Internal Money Context",
+    "seller_protection_reimbursement",
+    "Shipping Excluded",
+    "Review Payouts",
+    "financial_adjustment_ledger_entries",
+  ],
+);
+assertFileIncludes(
   "seller protection buyer refund packet contract",
   "src/app/api/admin/shipping-claims/[id]/packet/route.ts",
   [
