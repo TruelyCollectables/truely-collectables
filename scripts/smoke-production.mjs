@@ -102,6 +102,7 @@ const originRefresh = redactionSelfTest
   : optionalRunResult("git", ["fetch", "origin", "main"]);
 const localHead = optionalRun("git", ["rev-parse", "--short", "HEAD"]);
 const remoteHead = optionalRun("git", ["rev-parse", "--short", "origin/main"]);
+const remoteFullHead = optionalRun("git", ["rev-parse", "origin/main"]);
 
 console.log(`Production smoke target: ${baseUrl}`);
 if (!redactionSelfTest) {
@@ -111,6 +112,7 @@ if (!redactionSelfTest) {
 }
 console.log(`Local HEAD: ${localHead || "unknown"}`);
 console.log(`origin/main: ${remoteHead || "unknown"}`);
+console.log(`origin/main full SHA: ${remoteFullHead || "unknown"}`);
 console.log(`Request timeout: ${requestTimeoutMs}ms`);
 
 function setCookieHeaderValue(response) {
@@ -268,6 +270,32 @@ function missingRequiredText(result, check) {
   return (check.requiredText || []).filter((text) => !result.text.includes(text));
 }
 
+function parseJson(text) {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return null;
+  }
+}
+
+function launchReadinessDeploymentMatchesOriginMain(result) {
+  const payload = parseJson(result.text);
+  const deployment = payload?.brief?.deployment;
+
+  if (!remoteFullHead || !deployment) {
+    return false;
+  }
+
+  return (
+    deployment.gitCommitSha === remoteFullHead &&
+    deployment.gitCommitShortSha === remoteHead &&
+    deployment.gitCommitRef === "main" &&
+    deployment.cleanProductionDomain === baseUrl &&
+    deployment.smokeComparison ===
+      "Compare this Git commit SHA with origin/main before treating production smoke as current."
+  );
+}
+
 if (redactionSelfTest) {
   runRedactionSelfTest();
   process.exit(0);
@@ -347,7 +375,9 @@ const checks = [
       result.text.includes("print DEPLOYED_PRODUCTION") &&
       result.text.includes("print CLEAN_PRODUCTION") &&
       result.text.includes("print smoke handoff command") &&
-      result.text.includes("npm run smoke:production handoff"),
+      result.text.includes("npm run smoke:production handoff") &&
+      launchReadinessDeploymentMatchesOriginMain(result),
+    requiredText: remoteFullHead ? [remoteFullHead] : [],
   },
   {
     name: "launch readiness markdown",
