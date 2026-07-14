@@ -1764,6 +1764,49 @@ assertFileIncludes(
   ],
 );
 assertFileIncludes(
+  "seller marketplace import-preview response metadata contract",
+  "src/app/api/account/seller/marketplace-connections/ebay/import-preview/route.ts",
+  [
+    "function sellerMarketplaceImportPreviewHeaders",
+    "function summarizeImportPreviewItems",
+    "X-TCOS-Seller-Marketplace-Import-Preview-Status",
+    "X-TCOS-Seller-Marketplace-Import-Preview-Requested-Limit",
+    "X-TCOS-Seller-Marketplace-Import-Preview-Sampled",
+    "X-TCOS-Seller-Marketplace-Import-Preview-Total-Available",
+    "X-TCOS-Seller-Marketplace-Import-Preview-Has-More",
+    "X-TCOS-Seller-Marketplace-Import-Preview-Write-Blocked",
+    "X-TCOS-Seller-Marketplace-Import-Preview-Ready",
+    "X-TCOS-Seller-Marketplace-Import-Preview-Needs-Review",
+    "X-TCOS-Seller-Marketplace-Import-Preview-Missing-SKU",
+    "X-TCOS-Seller-Marketplace-Import-Preview-Missing-Listing-ID",
+    "X-TCOS-Seller-Marketplace-Import-Preview-Missing-Price",
+    "X-TCOS-Seller-Marketplace-Import-Preview-Missing-Image",
+    "summarizeImportPreviewItems(preview.sampleItems)",
+    "status: preview.writeBlocked ? \"blocked\" : \"loaded\"",
+    "status: message.includes(\"disabled\") ? \"blocked\" : \"failed\"",
+  ],
+);
+assertFileIncludes(
+  "seller marketplace import-preview response metadata operator manual contract",
+  "docs/TCOS_OPERATOR_MANUAL.md",
+  [
+    "/api/account/seller/marketplace-connections/ebay/import-preview",
+    "X-TCOS-Seller-Marketplace-Import-Preview-Status",
+    "X-TCOS-Seller-Marketplace-Import-Preview-Requested-Limit",
+    "X-TCOS-Seller-Marketplace-Import-Preview-Sampled",
+    "X-TCOS-Seller-Marketplace-Import-Preview-Total-Available",
+    "X-TCOS-Seller-Marketplace-Import-Preview-Has-More",
+    "X-TCOS-Seller-Marketplace-Import-Preview-Write-Blocked",
+    "X-TCOS-Seller-Marketplace-Import-Preview-Ready",
+    "X-TCOS-Seller-Marketplace-Import-Preview-Needs-Review",
+    "X-TCOS-Seller-Marketplace-Import-Preview-Missing-SKU",
+    "X-TCOS-Seller-Marketplace-Import-Preview-Missing-Listing-ID",
+    "X-TCOS-Seller-Marketplace-Import-Preview-Missing-Price",
+    "X-TCOS-Seller-Marketplace-Import-Preview-Missing-Image",
+    "without exposing preview listing IDs, SKUs, titles, image URLs, prices, provider account IDs, connection IDs, token data, raw eBay error text, or seller account IDs in headers",
+  ],
+);
+assertFileIncludes(
   "seller marketplace staged-items response metadata contract",
   "src/app/api/account/seller/marketplace-connections/ebay/staged-items/route.ts",
   [
