@@ -9,6 +9,23 @@ function getSupabaseClient() {
   return createSupabaseServerClient({ admin: true });
 }
 
+function sellerMarketplaceEbayStatusHeaders(params: {
+  refreshStatus: "refreshed" | "failed";
+  identityVerified: boolean;
+  identityWarning: boolean;
+}) {
+  return {
+    "X-TCOS-Seller-Marketplace-Ebay-Status-Mutation": "refresh_status",
+    "X-TCOS-Seller-Marketplace-Ebay-Status": params.refreshStatus,
+    "X-TCOS-Seller-Marketplace-Ebay-Identity-Verified": params.identityVerified
+      ? "true"
+      : "false",
+    "X-TCOS-Seller-Marketplace-Ebay-Identity-Warning": params.identityWarning
+      ? "true"
+      : "false",
+  };
+}
+
 export async function POST(request: Request) {
   try {
     const account = await getAuthenticatedAccountFromRequest(request);
@@ -28,13 +45,26 @@ export async function POST(request: Request) {
     return Response.json({
       success: true,
       status,
+    }, {
+      headers: sellerMarketplaceEbayStatusHeaders({
+        refreshStatus: "refreshed",
+        identityVerified: Boolean(status.identity),
+        identityWarning: Boolean(status.identityWarning),
+      }),
     });
   } catch (error: any) {
     return Response.json(
       {
         error: error.message || "Could not refresh seller eBay status",
       },
-      { status: 500 },
+      {
+        status: 500,
+        headers: sellerMarketplaceEbayStatusHeaders({
+          refreshStatus: "failed",
+          identityVerified: false,
+          identityWarning: false,
+        }),
+      },
     );
   }
 }

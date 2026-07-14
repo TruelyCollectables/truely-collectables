@@ -1710,6 +1710,60 @@ assertFileIncludes(
   ],
 );
 assertFileIncludes(
+  "seller marketplace ebay status response metadata contract",
+  "src/app/api/account/seller/marketplace-connections/ebay/status/route.ts",
+  [
+    "function sellerMarketplaceEbayStatusHeaders",
+    "X-TCOS-Seller-Marketplace-Ebay-Status-Mutation",
+    "X-TCOS-Seller-Marketplace-Ebay-Status",
+    "X-TCOS-Seller-Marketplace-Ebay-Identity-Verified",
+    "X-TCOS-Seller-Marketplace-Ebay-Identity-Warning",
+    "refreshStatus: \"refreshed\"",
+    "refreshStatus: \"failed\"",
+    "identityVerified: Boolean(status.identity)",
+    "identityWarning: Boolean(status.identityWarning)",
+  ],
+);
+assertFileIncludes(
+  "seller marketplace sync-control response metadata contract",
+  "src/app/api/account/seller/marketplace-connections/ebay/sync-control/route.ts",
+  [
+    "function sellerMarketplaceSyncControlHeaders",
+    "X-TCOS-Seller-Marketplace-Sync-Control-Mutation",
+    "X-TCOS-Seller-Marketplace-Sync-Control-Action",
+    "X-TCOS-Seller-Marketplace-Sync-Control-Result",
+    "X-TCOS-Seller-Marketplace-Sync-Control-Unchanged",
+    "X-TCOS-Seller-Marketplace-Sync-Control-Connection-Status",
+    "X-TCOS-Seller-Marketplace-Sync-Control-Sync-Status",
+    "result: \"changed\"",
+    "result: \"unchanged\"",
+    "result: \"blocked\"",
+    "result: \"missing\"",
+    "result: \"invalid\"",
+    "requestedAction",
+  ],
+);
+assertFileIncludes(
+  "seller marketplace ebay status and sync-control response metadata operator manual contract",
+  "docs/TCOS_OPERATOR_MANUAL.md",
+  [
+    "/api/account/seller/marketplace-connections/ebay/status",
+    "X-TCOS-Seller-Marketplace-Ebay-Status-Mutation",
+    "X-TCOS-Seller-Marketplace-Ebay-Status",
+    "X-TCOS-Seller-Marketplace-Ebay-Identity-Verified",
+    "X-TCOS-Seller-Marketplace-Ebay-Identity-Warning",
+    "without exposing access tokens, refresh tokens, provider account IDs, provider account labels, OAuth scopes, token timestamps, identity usernames, identity user IDs, raw eBay error text, or seller account IDs in headers",
+    "/api/account/seller/marketplace-connections/ebay/sync-control",
+    "X-TCOS-Seller-Marketplace-Sync-Control-Mutation",
+    "X-TCOS-Seller-Marketplace-Sync-Control-Action",
+    "X-TCOS-Seller-Marketplace-Sync-Control-Result",
+    "X-TCOS-Seller-Marketplace-Sync-Control-Unchanged",
+    "X-TCOS-Seller-Marketplace-Sync-Control-Connection-Status",
+    "X-TCOS-Seller-Marketplace-Sync-Control-Sync-Status",
+    "without exposing connection IDs, provider account IDs, provider account labels, token IDs, token timestamps, store settings details, sync error text, or seller account IDs in headers",
+  ],
+);
+assertFileIncludes(
   "seller marketplace staged-items response metadata contract",
   "src/app/api/account/seller/marketplace-connections/ebay/staged-items/route.ts",
   [

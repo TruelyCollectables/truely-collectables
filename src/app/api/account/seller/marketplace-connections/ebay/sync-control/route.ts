@@ -51,7 +51,30 @@ function cleanAction(value: unknown): SyncControlAction | null {
   return value === "pause" || value === "resume" ? value : null;
 }
 
+function sellerMarketplaceSyncControlHeaders(params: {
+  action: SyncControlAction | "invalid" | "unknown";
+  result: "changed" | "unchanged" | "blocked" | "missing" | "invalid" | "failed";
+  unchanged: boolean;
+  connectionStatus?: string | null;
+  syncStatus?: string | null;
+}) {
+  return {
+    "X-TCOS-Seller-Marketplace-Sync-Control-Mutation": "sync_control",
+    "X-TCOS-Seller-Marketplace-Sync-Control-Action": params.action,
+    "X-TCOS-Seller-Marketplace-Sync-Control-Result": params.result,
+    "X-TCOS-Seller-Marketplace-Sync-Control-Unchanged": params.unchanged
+      ? "true"
+      : "false",
+    "X-TCOS-Seller-Marketplace-Sync-Control-Connection-Status":
+      params.connectionStatus || "unknown",
+    "X-TCOS-Seller-Marketplace-Sync-Control-Sync-Status":
+      params.syncStatus || "unknown",
+  };
+}
+
 export async function POST(request: Request) {
+  let requestedAction: SyncControlAction | "invalid" | "unknown" = "unknown";
+
   try {
     const account = await getAuthenticatedAccountFromRequest(request);
 
@@ -61,11 +84,19 @@ export async function POST(request: Request) {
 
     const body = await request.json().catch(() => ({}));
     const action = cleanAction(body.action);
+    requestedAction = action || "invalid";
 
     if (!action) {
       return Response.json(
         { error: "A sync-control action of pause or resume is required." },
-        { status: 400 },
+        {
+          status: 400,
+          headers: sellerMarketplaceSyncControlHeaders({
+            action: "invalid",
+            result: "invalid",
+            unchanged: false,
+          }),
+        },
       );
     }
 
@@ -92,7 +123,14 @@ export async function POST(request: Request) {
     if (!connection) {
       return Response.json(
         { error: "Seller eBay connection was not found." },
-        { status: 404 },
+        {
+          status: 404,
+          headers: sellerMarketplaceSyncControlHeaders({
+            action,
+            result: "missing",
+            unchanged: false,
+          }),
+        },
       );
     }
 
@@ -108,6 +146,14 @@ export async function POST(request: Request) {
         action,
         unchanged: true,
         connection: publicSellerMarketplaceConnection(connectionRow),
+      }, {
+        headers: sellerMarketplaceSyncControlHeaders({
+          action,
+          result: "unchanged",
+          unchanged: true,
+          connectionStatus: connectionRow.connection_status,
+          syncStatus: connectionRow.sync_status,
+        }),
       });
     }
 
@@ -115,7 +161,16 @@ export async function POST(request: Request) {
       if (connectionRow.connection_status !== "connected") {
         return Response.json(
           { error: "Reconnect eBay before resuming seller sync." },
-          { status: 409 },
+          {
+            status: 409,
+            headers: sellerMarketplaceSyncControlHeaders({
+              action,
+              result: "blocked",
+              unchanged: false,
+              connectionStatus: connectionRow.connection_status,
+              syncStatus: connectionRow.sync_status,
+            }),
+          },
         );
       }
 
@@ -124,6 +179,14 @@ export async function POST(request: Request) {
         action,
         unchanged: true,
         connection: publicSellerMarketplaceConnection(connectionRow),
+      }, {
+        headers: sellerMarketplaceSyncControlHeaders({
+          action,
+          result: "unchanged",
+          unchanged: true,
+          connectionStatus: connectionRow.connection_status,
+          syncStatus: connectionRow.sync_status,
+        }),
       });
     }
 
@@ -133,7 +196,16 @@ export async function POST(request: Request) {
     ) {
       return Response.json(
         { error: "Only an active seller eBay connection can be paused." },
-        { status: 409 },
+        {
+          status: 409,
+          headers: sellerMarketplaceSyncControlHeaders({
+            action,
+            result: "blocked",
+            unchanged: false,
+            connectionStatus: connectionRow.connection_status,
+            syncStatus: connectionRow.sync_status,
+          }),
+        },
       );
     }
 
@@ -146,7 +218,16 @@ export async function POST(request: Request) {
             error:
               "Store-wide eBay sync is disabled. A store admin must enable it before seller sync can resume.",
           },
-          { status: 403 },
+          {
+            status: 403,
+            headers: sellerMarketplaceSyncControlHeaders({
+              action,
+              result: "blocked",
+              unchanged: false,
+              connectionStatus: connectionRow.connection_status,
+              syncStatus: connectionRow.sync_status,
+            }),
+          },
         );
       }
 
@@ -166,7 +247,16 @@ export async function POST(request: Request) {
       if (!token) {
         return Response.json(
           { error: "Seller eBay credentials are missing. Reconnect eBay." },
-          { status: 409 },
+          {
+            status: 409,
+            headers: sellerMarketplaceSyncControlHeaders({
+              action,
+              result: "blocked",
+              unchanged: false,
+              connectionStatus: connectionRow.connection_status,
+              syncStatus: connectionRow.sync_status,
+            }),
+          },
         );
       }
     }
@@ -213,11 +303,32 @@ export async function POST(request: Request) {
       connection: publicSellerMarketplaceConnection(
         updatedConnection as unknown as SellerMarketplaceConnectionRow,
       ),
+    }, {
+      headers: sellerMarketplaceSyncControlHeaders({
+        action,
+        result: "changed",
+        unchanged: false,
+        connectionStatus: String(
+          (updatedConnection as unknown as SellerMarketplaceSyncControlRow)
+            .connection_status || "",
+        ),
+        syncStatus: String(
+          (updatedConnection as unknown as SellerMarketplaceSyncControlRow)
+            .sync_status || "",
+        ),
+      }),
     });
   } catch (error: any) {
     return Response.json(
       { error: error.message || "Could not update seller eBay sync" },
-      { status: 500 },
+      {
+        status: 500,
+        headers: sellerMarketplaceSyncControlHeaders({
+          action: requestedAction,
+          result: "failed",
+          unchanged: false,
+        }),
+      },
     );
   }
 }
