@@ -517,6 +517,11 @@ const checks = [
       "Queued launch feature failure(s)",
       "Unwanted truely-collectables-tt3b.vercel.app alias absence",
       "Deploy live safety contract",
+      "Production go/no-go ladder",
+      "Verify the pushed stack",
+      "Launch only when quota is open",
+      "Halt on Vercel quota",
+      "Ship only after smoke passes clean production",
       "api-deployments-free-per-day",
       "rolling 24-hour quota reset",
       "Protected deploy sequence",
@@ -557,6 +562,11 @@ const checks = [
         "Unwanted truely-collectables-tt3b.vercel.app alias absence",
       ) &&
       result.text.includes("Deploy live safety contract") &&
+      result.text.includes("Production go/no-go ladder") &&
+      result.text.includes("Verify the pushed stack") &&
+      result.text.includes("Launch only when quota is open") &&
+      result.text.includes("Halt on Vercel quota") &&
+      result.text.includes("Ship only after smoke passes clean production") &&
       result.text.includes("api-deployments-free-per-day") &&
       result.text.includes("rolling 24-hour quota reset") &&
       result.text.includes("Protected deploy sequence") &&
@@ -592,6 +602,11 @@ const checks = [
       "api-deployments-free-per-day",
       "rolling 24-hour quota reset",
       "deploy live safety contract",
+      "## Production Go/No-Go Ladder",
+      "Verify the pushed stack",
+      "Launch only when quota is open",
+      "Halt on Vercel quota",
+      "Ship only after smoke passes clean production",
       "Protected deploy sequence:",
       "## Deployment Source",
       "Git commit SHA:",
@@ -621,6 +636,11 @@ const checks = [
       result.text.includes("api-deployments-free-per-day") &&
       result.text.includes("rolling 24-hour quota reset") &&
       result.text.includes("deploy live safety contract") &&
+      result.text.includes("## Production Go/No-Go Ladder") &&
+      result.text.includes("Verify the pushed stack") &&
+      result.text.includes("Launch only when quota is open") &&
+      result.text.includes("Halt on Vercel quota") &&
+      result.text.includes("Ship only after smoke passes clean production") &&
       result.text.includes("Protected deploy sequence:") &&
       result.text.includes("remove unwanted truely-collectables-tt3b.vercel.app alias") &&
       result.text.includes("set clean production alias") &&

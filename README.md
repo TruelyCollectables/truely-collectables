@@ -42,7 +42,9 @@ The verify helper runs lint, InstaComp queue and accuracy simulations, LetterTra
 
 The protected live deploy sequence removes the unwanted `truely-collectables-tt3b.vercel.app` alias, sets the clean production alias, prints `DEPLOYED_PRODUCTION=`, prints `CLEAN_PRODUCTION=https://`, then prints the smoke handoff command.
 
-For operator handoff, `/api/admin/launch-readiness` exposes `brief.deploySafety` in JSON, including `brief.deploySafety.sequence`, and `/api/admin/launch-readiness?format=markdown` includes the same `Production Deploy Safety` reminders.
+The production go/no-go ladder is: verify the pushed stack with `npm run verify:production`, launch only when quota is open with `npm run launch:production`, halt if Vercel reports `api-deployments-free-per-day`, use split `npm run deploy:production` plus `npm run smoke:production` only intentionally, and ship only after smoke passes the clean production domain.
+
+For operator handoff, `/api/admin/launch-readiness` exposes `brief.deploySafety` in JSON, including `brief.deploySafety.sequence`, and `/api/admin/launch-readiness?format=markdown` plus `/api/admin/launch-readiness?format=handoff-bundle` include the same `Production Deploy Safety` and go/no-go reminders.
 
 ## Local development
 

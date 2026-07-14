@@ -22,6 +22,38 @@ export const DEPLOY_SAFETY = {
     "print CLEAN_PRODUCTION",
     "print smoke handoff command",
   ],
+  decisionLadder: [
+    {
+      label: "1. Verify the pushed stack",
+      command: "npm run verify:production",
+      outcome:
+        "lint, simulations, build, guardrails, and GitHub preflight pass without touching Vercel",
+    },
+    {
+      label: "2. Launch only when quota is open",
+      command: "npm run launch:production",
+      outcome:
+        "production deploy, clean-domain aliasing, unwanted-alias removal, and smoke run in order",
+    },
+    {
+      label: "3. Halt on Vercel quota",
+      command: "api-deployments-free-per-day",
+      outcome:
+        "do not force alternate deploy paths; wait for the rolling 24-hour reset and rerun the launch helper",
+    },
+    {
+      label: "4. Split only after a successful deploy",
+      command: "npm run deploy:production && npm run smoke:production",
+      outcome:
+        "use the split path only when rerunning deploy and smoke separately is intentional",
+    },
+    {
+      label: "5. Ship only after smoke passes clean production",
+      command: "https://truely-collectables.vercel.app",
+      outcome:
+        "clean URL serves the latest GitHub tip and the unwanted preview-style alias does not respond",
+    },
+  ],
   smokeCommand: DEPLOY_SAFETY_SMOKE_COMMAND,
 } as const;
 
@@ -33,4 +65,10 @@ export function deploySafetyContractMarkdown() {
 
 export function deploySafetySequenceMarkdown() {
   return DEPLOY_SAFETY.sequence.join(" -> ");
+}
+
+export function deploySafetyDecisionLadderMarkdown() {
+  return DEPLOY_SAFETY.decisionLadder
+    .map((step) => `- ${step.label}: \`${step.command}\` — ${step.outcome}.`)
+    .join("\n");
 }

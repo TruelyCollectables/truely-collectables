@@ -9,6 +9,7 @@ import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 import {
   DEPLOY_SAFETY,
   deploySafetyContractMarkdown,
+  deploySafetyDecisionLadderMarkdown,
   deploySafetySequenceMarkdown,
 } from "../../../../lib/deploy-safety";
 import {
@@ -300,6 +301,10 @@ function markdownForHandoffBundle(
     `- Keep \`${DEPLOY_SAFETY.cleanProductionDomain}\` as the clean production domain and reject the unwanted \`${DEPLOY_SAFETY.unwantedAlias}\` alias.`,
     `- The deploy live safety contract must keep ${deploySafetyContractMarkdown()} intact.`,
     `- Protected deploy sequence: ${deploySafetySequenceMarkdown()}.`,
+    "",
+    "## Production Go/No-Go Ladder",
+    "",
+    deploySafetyDecisionLadderMarkdown(),
     "",
     "## Post-deploy Verification",
     "",

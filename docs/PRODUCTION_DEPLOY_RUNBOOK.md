@@ -72,6 +72,14 @@ The production guardrail suite locks this live deploy behavior in place: quota b
 
 If Vercel reports `api-deployments-free-per-day`, wait for the rolling quota window to reset, then rerun the same command.
 
+## Production go/no-go ladder
+
+1. Verify the pushed stack with `npm run verify:production`. This must pass lint, simulations, build, production guardrails, and GitHub preflight without touching Vercel.
+2. Launch only when quota is open with `npm run launch:production`. This should deploy production, set the clean alias, remove the unwanted alias, and run smoke in order.
+3. Halt on Vercel quota. If the deploy reports `api-deployments-free-per-day`, do not force alternate deploy paths; wait for the rolling 24-hour reset and rerun the launch helper.
+4. Split the run only after a successful deploy or when intentionally rerunning steps: `npm run deploy:production` then `npm run smoke:production`.
+5. Ship only after smoke passes `https://truely-collectables.vercel.app` and confirms the unwanted `truely-collectables-tt3b.vercel.app` alias does not respond.
+
 ## Smoke test
 
 After a successful deploy:
@@ -88,7 +96,7 @@ The smoke helper always targets the clean production URL by default. If `SMOKE_B
 
 If the smoke says queued launch features are not visible, production is still behind the GitHub stack. The helper also prints `Queued launch feature failure(s): ...` with the exact failed check names. This now includes failures for the admin dashboard, launch readiness page/JSON/Markdown, Launch Gate Drill page/JSON/Markdown, production smoke report page, launch handoff bundle, live payment gate, live shipping gate, admin shipping LetterTrack controls, Shipping Simulation Lab page, shipping simulation API POST including purchase-audit coverage, shipping provider exports, shipping exceptions export, and LetterTrack CSV export. Rerun the production deploy once Vercel accepts deployments, then run the smoke again.
 
-The compact launch readiness JSON from `/api/admin/launch-readiness` includes `brief.deploySafety` with the clean production domain, unwanted `truely-collectables-tt3b.vercel.app` alias, Vercel quota block code, rolling 24-hour quota reset instruction, deployed/clean URL output contract, `brief.deploySafety.sequence` protected deploy order, and smoke handoff command for automation. The downloadable launch readiness Markdown brief from `/api/admin/launch-readiness?format=markdown` includes a `Production Deploy Safety` section with the quota reset, clean-domain, unwanted-alias, deployed/clean URL output, and smoke handoff reminders. The deeper launch handoff bundle from `/api/admin/launch-readiness?format=handoff-bundle` also includes Git Tip Verification, Production Deploy Commands, and post-deploy purchase-audit key-drift reminders with the `git fetch origin main` refresh, HEAD/origin checks, verify, launch, split deploy/smoke, clean-domain, and unwanted-alias reminders so an operator can hand off the production deploy without relying on chat history.
+The compact launch readiness JSON from `/api/admin/launch-readiness` includes `brief.deploySafety` with the clean production domain, unwanted `truely-collectables-tt3b.vercel.app` alias, Vercel quota block code, rolling 24-hour quota reset instruction, deployed/clean URL output contract, `brief.deploySafety.sequence` protected deploy order, and smoke handoff command for automation. The downloadable launch readiness Markdown brief from `/api/admin/launch-readiness?format=markdown` includes a `Production Deploy Safety` section with the quota reset, clean-domain, unwanted-alias, deployed/clean URL output, and smoke handoff reminders. The deeper launch handoff bundle from `/api/admin/launch-readiness?format=handoff-bundle` also includes Git Tip Verification, Production Deploy Commands, Production Go/No-Go Ladder, and post-deploy purchase-audit key-drift reminders with the `git fetch origin main` refresh, HEAD/origin checks, verify, launch, split deploy/smoke, clean-domain, and unwanted-alias reminders so an operator can hand off the production deploy without relying on chat history.
 
 ## Expected success path
 

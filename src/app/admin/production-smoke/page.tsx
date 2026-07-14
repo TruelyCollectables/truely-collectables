@@ -117,6 +117,27 @@ export default function ProductionSmokePage() {
           </ol>
         </section>
 
+        <section className="mb-8 rounded border border-emerald-200 bg-emerald-50 p-6 text-emerald-950">
+          <h2 className="text-xl font-black">Production go/no-go ladder</h2>
+          <p className="mt-2 max-w-4xl text-sm leading-6">
+            Use this ladder when deciding whether to keep going, split the run,
+            or halt for Vercel quota. It is deliberately conservative: verify
+            first, launch only when quota is open, and ship only after smoke
+            proves the clean production domain.
+          </p>
+          <ol className="mt-4 grid gap-3 lg:grid-cols-5">
+            {DEPLOY_SAFETY.decisionLadder.map((step) => (
+              <li key={step.label} className="rounded border border-emerald-200 bg-white p-4">
+                <h3 className="font-black">{step.label}</h3>
+                <code className="mt-2 block break-words rounded bg-emerald-100 px-2 py-1 text-xs font-bold">
+                  {step.command}
+                </code>
+                <p className="mt-2 text-sm leading-6 text-emerald-900">{step.outcome}.</p>
+              </li>
+            ))}
+          </ol>
+        </section>
+
         <section className="mb-8 grid gap-4 lg:grid-cols-2">
           <article className="rounded border bg-white p-6">
             <h2 className="text-xl font-black">Smoke coverage</h2>
