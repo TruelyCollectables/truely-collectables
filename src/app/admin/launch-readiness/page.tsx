@@ -943,10 +943,10 @@ async function checkLiveShippingLaunchReadiness(): Promise<ReadinessItem> {
       ? "blocked"
       : "warning";
   const detail = report.liveShippingEnabled
-    ? "Live shipping is enabled by both the environment switch and current database approval."
+    ? `Live shipping is enabled by both the environment switch and current database approval. Standard Envelope evidence validator is ${report.standardEnvelopeEvidenceContractReady ? "ready" : "blocked"}.`
     : report.purchaseMode === "live"
-      ? `Live shipping purchase mode is LIVE, but the runtime gate is not fully enabled. Blocked checks: ${blockedLabels}.`
-      : `Live shipping is safely staged in dry-run mode. Database approval is ${databaseApproval?.status || "unknown"}; ${blockedChecks.length} blocked and ${warningChecks.length} warning check(s) remain before live postage.`;
+      ? `Live shipping purchase mode is LIVE, but the runtime gate is not fully enabled. Standard Envelope evidence validator is ${report.standardEnvelopeEvidenceContractReady ? "ready" : "blocked"}. Blocked checks: ${blockedLabels}.`
+      : `Live shipping is safely staged in dry-run mode. Standard Envelope evidence validator is ${report.standardEnvelopeEvidenceContractReady ? "ready" : "blocked"}. Database approval is ${databaseApproval?.status || "unknown"}; ${blockedChecks.length} blocked and ${warningChecks.length} warning check(s) remain before live postage.`;
 
   return {
     label: "Live Shipping Launch Gate",

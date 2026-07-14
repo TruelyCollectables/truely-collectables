@@ -363,6 +363,7 @@ const checks = [
       result.text.includes("npm run launch:production") &&
       result.text.includes("nineteen-scenario shipping simulation suite") &&
       result.text.includes("LetterTrack evidence checks") &&
+      result.text.includes("Standard Envelope evidence validator is ready") &&
       result.text.includes("/api/admin/shipping/simulations") &&
       result.text.includes("no missing/unexpected shipping simulation keys") &&
       result.text.includes("npm run deploy:production") &&
@@ -394,6 +395,7 @@ const checks = [
       result.text.includes('"cleanProductionDomain"') &&
       result.text.includes("Compare this Git commit SHA with origin/main") &&
       result.text.includes('"sellerProtection"') &&
+      result.text.includes('"standardEnvelopeEvidenceContractReady":true') &&
       result.text.includes('"reimbursementEntryType":"seller_protection_reimbursement"') &&
       result.text.includes('"financialAdjustmentTable":"financial_adjustment_ledger_entries"') &&
       result.text.includes("Optional TCOS internal Standard Envelope seller protection") &&
@@ -422,6 +424,7 @@ const checks = [
       result.text.includes("seller_protection_reimbursement") &&
       result.text.includes("financial_adjustment_ledger_entries") &&
       result.text.includes("shipping is excluded and is not reimbursed") &&
+      result.text.includes("Standard Envelope evidence validator: ready") &&
       result.text.includes("## Deployment Source") &&
       result.text.includes("Git commit SHA:") &&
       result.text.includes("Smoke comparison:") &&

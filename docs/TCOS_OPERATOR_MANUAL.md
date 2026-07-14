@@ -4416,7 +4416,7 @@ The live-shipping approval button is disabled when the approval database check c
 
 Provider purchase attempts in `/api/admin/orders/[id]/shipping-labels` now check the live-shipping runtime gate before calling the provider adapter. Manual external label purchase/void recording remains available, but live provider purchase is blocked unless the database gate, immutable event table, `TCOS_LIVE_SHIPPING_ENABLED`, `TCOS_SHIPPING_PURCHASE_MODE`, Standard Envelope evidence/protection contract, live requirements, and dry-run cleanup checks all pass.
 
-`/admin/launch-readiness` also includes the same Shipping Setup Verdict, the live-shipping launch gate status, and database checks for `live_shipping_launch_gates` plus `live_shipping_launch_events`. Treat this as the production-readiness warning surface; it does not mean live postage buying is enabled.
+`/admin/launch-readiness` also includes the same Shipping Setup Verdict, the live-shipping launch gate status, the Standard Envelope evidence validator state, and database checks for `live_shipping_launch_gates` plus `live_shipping_launch_events`. Treat this as the production-readiness warning surface; it does not mean live postage buying is enabled.
 
 The same `/admin/launch-gate-drill` report also checks the live-shipping runtime lock without quoting, buying, voiding, or recording a provider label. In dry-run mode, the expected safe result is that the dry-run shipping path remains available while live postage remains locked. In live mode, the drill expects the runtime gate to match the live-shipping launch report.
 
