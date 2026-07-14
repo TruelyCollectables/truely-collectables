@@ -294,9 +294,18 @@ assertFileIncludes("queued-feature smoke manifest", "scripts/smoke-production.mj
   "const queuedFeatureCheckNames = [",
   "Queued feature smoke manifest references unknown check(s):",
   "Queued feature smoke manifest contains duplicate check(s):",
+  '"admin dashboard"',
   '"launch handoff bundle"',
   '"launch readiness page"',
+  '"launch readiness json"',
+  '"launch readiness markdown"',
+  '"launch gate drill page"',
+  '"launch gate drill json"',
+  '"launch gate drill markdown"',
   '"production smoke report page"',
+  '"live payment gate"',
+  '"live shipping gate"',
+  '"admin shipping lettertrack controls"',
   '"shipping simulation lab"',
   '"shipping simulation api"',
   '"shipping provider setup json"',
@@ -322,6 +331,18 @@ runExpectedSuccess(
     SMOKE_BASE_URL: "https://truely-collectables.vercel.app",
   },
 );
+assertFileIncludes("smoke diagnostic redaction coverage", "scripts/smoke-production.mjs", [
+  "rk_live_fakeRestricted123456789",
+  "Basic QWxhZGRpbjpvcGVuIHNlc2FtZTEyMzQ1Ng==",
+  "client_secret=clientSecret123456789",
+  "api_key=apiKey123456789",
+  '"password":"password123456789"',
+  "rk_live_",
+  "Basic ",
+  "clientSecret123456789",
+  "apiKey123456789",
+  "password123456789",
+]);
 
 runExpectedFailure(
   "deploy refuses clean domain matching unwanted alias",

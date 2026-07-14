@@ -224,24 +224,34 @@ function safeSnippet(text, error = "") {
 function runRedactionSelfTest() {
   const sample = [
     "sk_live_fakeSecret123456789",
+    "rk_live_fakeRestricted123456789",
     "pk_live_fakePublishable123456789",
     "whsec_fakeWebhook123456789",
     "re_fakeResend123456789",
     "Bearer abcdefghijklmnopqrstuvwxyz123456",
+    "Basic QWxhZGRpbjpvcGVuIHNlc2FtZTEyMzQ1Ng==",
     "access_token=abc123456789",
+    "client_secret=clientSecret123456789",
+    "api_key=apiKey123456789",
     '"refresh_token":"refresh123456789"',
+    '"password":"password123456789"',
     "eyJabcdefghijklmnopqrstuv.eyJabcdefghijklmnopqrstuv.signatureabcdefghijklmnopqrstuv",
   ].join(" ");
   const snippet = diagnosticSnippet(sample);
   const errorSnippet = safeSnippet("", sample);
   const leakedMarkers = [
     "sk_live_",
+    "rk_live_",
     "pk_live_",
     "whsec_",
     "re_fake",
     "Bearer ",
+    "Basic ",
     "abc123456789",
+    "clientSecret123456789",
+    "apiKey123456789",
     "refresh123456789",
+    "password123456789",
     "eyJabcdefghijklmnopqrstuv",
   ].filter((marker) => snippet.includes(marker) || errorSnippet.includes(marker));
 
@@ -575,9 +585,18 @@ const checks = [
 ];
 
 const queuedFeatureCheckNames = [
+  "admin dashboard",
   "launch handoff bundle",
   "launch readiness page",
+  "launch readiness json",
+  "launch readiness markdown",
+  "launch gate drill page",
+  "launch gate drill json",
+  "launch gate drill markdown",
   "production smoke report page",
+  "live payment gate",
+  "live shipping gate",
+  "admin shipping lettertrack controls",
   "shipping simulation lab",
   "shipping simulation api",
   "shipping provider setup json",
