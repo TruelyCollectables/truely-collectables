@@ -14,6 +14,7 @@ import {
   getShippingProviderAdapterProfile,
   purchaseShippingLabel,
 } from "../../../../../../lib/shipping-provider-adapter";
+import { buildShippingProviderSetupPacket } from "../../../../../../lib/shipping-provider-setup";
 import { isDryRunShippingReference } from "../../../../../../lib/shipping-dry-run";
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
@@ -674,6 +675,9 @@ export async function PATCH(
     const adapterProfile = getShippingProviderAdapterProfile(
       label.resolved_shipping_method || typedOrder.shipping_method,
     );
+    const shippingProviderSetup = buildShippingProviderSetupPacket();
+    const standardEnvelopeEvidenceContractReady =
+      shippingProviderSetup.standardEnvelopeEvidenceContractReady;
     const now = new Date().toISOString();
     const liveShippingGate = await getLiveShippingRuntimeGate({
       supabase,
@@ -698,6 +702,11 @@ export async function PATCH(
           blocker_type: "live_shipping_runtime_gate",
           live_shipping_gate: liveShippingGate,
           shipping_adapter_profile: adapterProfile,
+          standard_envelope_evidence_contract_ready:
+            standardEnvelopeEvidenceContractReady,
+          standard_envelope_evidence_provider:
+            shippingProviderSetup.standardEnvelopeEvidenceContract
+              .evidenceProvider,
           attempted_by_identity: identity,
         },
       });
@@ -720,6 +729,11 @@ export async function PATCH(
               blocker_type: "live_shipping_runtime_gate",
               live_shipping_gate: liveShippingGate,
               shipping_adapter_profile: adapterProfile,
+              standard_envelope_evidence_contract_ready:
+                standardEnvelopeEvidenceContractReady,
+              standard_envelope_evidence_provider:
+                shippingProviderSetup.standardEnvelopeEvidenceContract
+                  .evidenceProvider,
             },
           },
         })
@@ -756,6 +770,11 @@ export async function PATCH(
         raw_payload: {
           blockers,
           shipping_adapter_profile: adapterProfile,
+          standard_envelope_evidence_contract_ready:
+            standardEnvelopeEvidenceContractReady,
+          standard_envelope_evidence_provider:
+            shippingProviderSetup.standardEnvelopeEvidenceContract
+              .evidenceProvider,
           attempted_by_identity: identity,
         },
       });
@@ -777,6 +796,11 @@ export async function PATCH(
               attempted_by_identity: identity,
               blockers,
               shipping_adapter_profile: adapterProfile,
+              standard_envelope_evidence_contract_ready:
+                standardEnvelopeEvidenceContractReady,
+              standard_envelope_evidence_provider:
+                shippingProviderSetup.standardEnvelopeEvidenceContract
+                  .evidenceProvider,
             },
           },
         })

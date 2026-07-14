@@ -51,6 +51,7 @@ type TrackingEventRow = {
   event_type: string | null;
   event_status: string | null;
   message: string | null;
+  raw_payload: Record<string, unknown> | null;
   occurred_at: string;
 };
 
@@ -111,6 +112,18 @@ function recordValue(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+function standardEnvelopeEvidenceDetail(payload: unknown) {
+  const rawPayload = recordValue(payload);
+  const ready = rawPayload.standard_envelope_evidence_contract_ready;
+  const provider = rawPayload.standard_envelope_evidence_provider;
+
+  if (typeof ready !== "boolean") return "";
+
+  return ` Standard Envelope evidence validator: ${
+    ready ? "ready" : "blocked"
+  }${typeof provider === "string" ? ` (${provider})` : ""}.`;
 }
 
 function isDryRunLabel(
@@ -223,7 +236,7 @@ export async function GET(request: Request) {
       supabase
         .from("order_shipping_tracking_events")
         .select(
-          "id,order_id,shipping_label_id,provider,carrier,tracking_number,event_type,event_status,message,occurred_at",
+          "id,order_id,shipping_label_id,provider,carrier,tracking_number,event_type,event_status,message,raw_payload,occurred_at",
         )
         .eq("store_id", storeId)
         .order("occurred_at", { ascending: false })
@@ -387,7 +400,7 @@ export async function GET(request: Request) {
         postage_amount: money(label?.postage_amount),
         dry_run_record: dryRun ? "yes" : "no",
         dry_run_warning: dryRunWarning(dryRun),
-        issue_detail: event.message || "Provider purchase was blocked.",
+        issue_detail: `${event.message || "Provider purchase was blocked."}${standardEnvelopeEvidenceDetail(event.raw_payload)}`,
         oldest_at: event.occurred_at,
         admin_url: `${url.origin}/admin/orders/${event.order_id}`,
       });

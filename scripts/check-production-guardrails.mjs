@@ -573,6 +573,20 @@ assertFileIncludes("shipping export smoke contract", "scripts/smoke-production.m
   '!result.text.includes("sk_live_")',
   '!result.text.includes("whsec_")',
 ]);
+assertFileIncludes("shipping blocked purchase evidence audit source", "src/app/api/admin/orders/[id]/shipping-labels/route.ts", [
+  "buildShippingProviderSetupPacket",
+  "standardEnvelopeEvidenceContractReady",
+  "standard_envelope_evidence_contract_ready",
+  "standard_envelope_evidence_provider",
+  "latest_purchase_attempt",
+  "provider_purchase_blocked",
+]);
+assertFileIncludes("shipping exceptions evidence audit export source", "src/app/api/admin/shipping/exceptions/route.ts", [
+  "standardEnvelopeEvidenceDetail",
+  "standard_envelope_evidence_contract_ready",
+  "Standard Envelope evidence validator:",
+  "raw_payload",
+]);
 assertFileIncludes(
   "seller protection reimbursement packet contract",
   "src/app/api/admin/shipping-claims/[id]/packet/route.ts",
