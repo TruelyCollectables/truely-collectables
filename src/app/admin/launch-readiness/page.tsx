@@ -1212,6 +1212,8 @@ export default async function LaunchReadinessPage() {
               handoff intact.
               {" "}
               {DEPLOY_SAFETY.quotaMarkerClearCondition}
+              {" "}
+              {DEPLOY_SAFETY.deployResultRequirement}
             </p>
           </div>
           <a

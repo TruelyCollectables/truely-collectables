@@ -206,6 +206,26 @@ if (packageJson.overrides?.postcss !== "8.5.15") {
 console.log("PASS patched Next.js and PostCSS dependency contract");
 
 assertScriptIncludes("build", ["next build --webpack"]);
+assertFileIncludes("bounded Tailwind production scan", "src/app/globals.css", [
+  '@import "tailwindcss" source(none);',
+  '@source "../**/*.{js,ts,jsx,tsx,mdx}";',
+]);
+assertFileIncludes("bounded Tailwind build instructions", "docs/TCOS_OPERATOR_MANUAL.md", [
+  "Tailwind source detection",
+  "source(none)",
+  '@source "../**/*.{js,ts,jsx,tsx,mdx}"',
+  "FileProvider-backed workspace",
+]);
+assertFileIncludes(
+  "printable bounded Tailwind build instructions",
+  "docs/TCOS_OPERATOR_MANUAL_PRINT.html",
+  [
+    "Tailwind source detection",
+    "source(none)",
+    '@source &quot;../**/*.{js,ts,jsx,tsx,mdx}&quot;',
+    "FileProvider-backed workspace",
+  ],
+);
 
 assertFileIncludes("local application font source", "src/app/layout.tsx", [
   'from "geist/font/mono"',
@@ -272,6 +292,20 @@ runExpectedSuccess(
     TCOS_VERCEL_QUOTA_COOLDOWN_HOURS: "not-a-number",
   },
 );
+runExpectedSuccess(
+  "deploy helper rejects failed deploy output with a URL",
+  ["scripts/deploy-production.mjs", "--self-test-deploy-result"],
+  {
+    TCOS_VERCEL_QUOTA_MARKER_PATH:
+      "/tmp/tcos-vercel-deploy-result-self-test.json",
+  },
+);
+runExpectedFailure(
+  "deploy helper protects production marker from deploy-result self-test",
+  ["scripts/deploy-production.mjs", "--self-test-deploy-result"],
+  {},
+  "Refusing deploy-result self-test against the production marker path",
+);
 runExpectedFailure(
   "deploy helper protects production quota marker from self-test",
   ["scripts/deploy-production.mjs", "--self-test-quota-cooldown"],
@@ -309,6 +343,13 @@ assertFileIncludes(
     "TCOS_VERCEL_QUOTA_COOLDOWN_HOURS must be a positive number",
     "Quota cooldown self-test failed open for invalid configuration",
     "Production deploy quota cooldown invalid-configuration self-test passed",
+    "--self-test-deploy-result",
+    "Vercel production deploy failed with",
+    "No alias command was started",
+    "local quota marker was preserved",
+    "A URL printed by a failed command is not accepted as a deployment",
+    "Deploy-result self-test removed the quota marker on failure",
+    "Production deploy result self-test passed",
   ],
 );
 assertFileIncludes("quota status runbook instructions", "docs/PRODUCTION_DEPLOY_RUNBOOK.md", [
@@ -329,6 +370,7 @@ assertFileIncludes("quota status README instructions", "README.md", [
   "malformed or unreadable marker fails closed",
   "zero, negative, or nonnumeric cooldown value also fails closed",
   "Quota markers are success-cleared, not attempt-cleared",
+  "Nonzero `vercel --prod` results are rejected before URL parsing",
 ]);
 assertFileIncludes("quota status shared deploy contract", "src/lib/deploy-safety.ts", [
   'quotaStatusCommand: "npm run status:production"',
@@ -343,6 +385,7 @@ assertFileIncludes(
     "DEPLOY_SAFETY.quotaStatusCommand",
     "DEPLOY_SAFETY.quotaStatusDescription",
     "DEPLOY_SAFETY.quotaMarkerClearCondition",
+    "DEPLOY_SAFETY.deployResultRequirement",
     "Check the local Vercel cooldown",
     "starts no upload or deployment",
   ],
@@ -354,6 +397,7 @@ assertFileIncludes(
     "DEPLOY_SAFETY.quotaStatusCommand",
     "DEPLOY_SAFETY.quotaStatusDescription",
     "DEPLOY_SAFETY.quotaMarkerClearCondition",
+    "DEPLOY_SAFETY.deployResultRequirement",
     "Before the retry time, use the read-only quota check",
   ],
 );
@@ -364,6 +408,7 @@ assertFileIncludes(
     "DEPLOY_SAFETY.quotaStatusCommand",
     "DEPLOY_SAFETY.quotaStatusDescription",
     "DEPLOY_SAFETY.quotaMarkerClearCondition",
+    "DEPLOY_SAFETY.deployResultRequirement",
     "exact read-only local retry status",
   ],
 );
@@ -372,7 +417,9 @@ assertFileIncludes("quota status production smoke coverage", "scripts/smoke-prod
   '"quotaStatusDescription"',
   "Read-only local cooldown check with exact blocked/retry timestamps",
   '"quotaMarkerClearCondition"',
+  '"deployResultRequirement"',
   "Clear the local quota marker only after Vercel returns a parsed deployment URL and the clean production alias succeeds",
+  "Require vercel --prod to exit successfully before parsing its deployment URL, running alias commands, or clearing the quota marker",
   "npm run status:production",
 ]);
 assertFileIncludes("quota status operator instructions", "docs/TCOS_OPERATOR_MANUAL.md", [
@@ -383,6 +430,7 @@ assertFileIncludes("quota status operator instructions", "docs/TCOS_OPERATOR_MAN
   "malformed or unreadable marker fails closed",
   "zero, negative, or nonnumeric cooldown value also fails closed",
   "quota marker is success-cleared, not attempt-cleared",
+  "requires `vercel --prod` to exit successfully before it parses the deployment URL",
   "self-test must never use the production marker path",
   "launch-readiness JSON and Markdown",
   "Production smoke verifies those surfaces retain `npm run status:production`",
@@ -398,6 +446,7 @@ assertFileIncludes(
     "malformed or unreadable marker fails closed",
     "zero, negative, or nonnumeric cooldown value also fails closed",
     "quota marker is success-cleared, not attempt-cleared",
+    "requires <code>vercel --prod</code> to exit successfully before it parses the deployment URL",
     "self-test must never use the production marker path",
     "launch-readiness JSON and Markdown",
     "Production smoke verifies those surfaces retain <code>npm run status:production</code>",
@@ -2813,6 +2862,10 @@ assertFileIncludes("deploy helper smoke handoff", "scripts/deploy-production.mjs
 ]);
 
 assertFileOrder("deploy live safety sequence", "scripts/deploy-production.mjs", [
+  "const deployResult = run",
+  "const deployOutput = deployResult.output",
+  "deployOutput.includes(\"api-deployments-free-per-day\")",
+  "assertSuccessfulDeployResult(deployResult)",
   "const deploymentUrl = parseDeploymentUrl(deployOutput)",
   "if (!deploymentUrl)",
   "Removing unwanted ${unwantedAlias} alias if present",
@@ -2926,6 +2979,9 @@ assertFileIncludes(
     "Clear the local quota marker only after Vercel returns a parsed deployment URL and the clean production alias succeeds.",
     "success-only quota marker clearing",
     "clear local quota marker after clean alias succeeds",
+    "deployResultRequirement:",
+    "Require vercel --prod to exit successfully before parsing its deployment URL, running alias commands, or clearing the quota marker.",
+    "successful Vercel deploy exit before URL and alias handling",
   ],
 );
 

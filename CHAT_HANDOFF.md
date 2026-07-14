@@ -75,6 +75,7 @@ The read-only quota status helper:
 - fails closed when the marker is malformed or unreadable: it reports `state: invalid_marker`, starts no Vercel upload, and requires inspection/restoration or an intentional override after independent quota-reset confirmation.
 - fails closed when `TCOS_VERCEL_QUOTA_COOLDOWN_HOURS` is zero, negative, or nonnumeric: it reports `state: invalid_configuration` and cannot silently disable the deployment guard.
 - preserves the marker across failed override retries, unparseable Vercel responses, and clean-alias failures; removal happens only after a parsed deployment URL and successful clean alias.
+- requires `vercel --prod` exit status 0 before URL parsing, alias commands, or marker clearing; failure output cannot become a deployment merely because it contains a `.vercel.app` URL.
 - protects the real `.codex-run/vercel-quota-block.json` marker by refusing cooldown self-tests unless `TCOS_VERCEL_QUOTA_MARKER_PATH` names an explicit temporary file.
 - publishes the shared `quotaStatusCommand` and read-only description through launch-readiness JSON/Markdown, the handoff bundle, Launch Readiness, and Production Smoke Report surfaces; production smoke guards the handoff.
 
@@ -197,6 +198,7 @@ Recent queued work added or hardened:
 - provider credential groups displayed in the shipping gate/setup flow;
 - portable operator manual PDF generation.
 - network-independent local Geist font loading and a direct `tsx` verification dependency.
+- bounded Tailwind 4 source detection across `src/**`, preventing cold production builds from recursively scanning FileProvider workspace metadata, generated caches, documentation artifacts, and dependencies.
 
 These may fail production smoke until a successful Vercel deploy lands the queued commits.
 

@@ -180,6 +180,8 @@ export default function ProductionSmokePage() {
             intentionally with <code>{DEPLOY_SAFETY.quotaRetryOverrideEnv}</code>{" "}
             or <code>{DEPLOY_SAFETY.quotaRetryOverrideFlag}</code>.{" "}
             {DEPLOY_SAFETY.quotaMarkerClearCondition}
+            {" "}
+            {DEPLOY_SAFETY.deployResultRequirement}
           </p>
           <h3 className="mt-5 font-black">Protected deploy sequence</h3>
           <ol className="mt-3 grid gap-2 text-sm font-semibold md:grid-cols-3 xl:grid-cols-6">

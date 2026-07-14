@@ -17,6 +17,8 @@ export const DEPLOY_SAFETY = {
     "Vercel can still upload files before returning the quota error, so the deploy helper records a local cooldown marker and stops later attempts before upload unless an intentional override is used.",
   quotaMarkerClearCondition:
     "Clear the local quota marker only after Vercel returns a parsed deployment URL and the clean production alias succeeds.",
+  deployResultRequirement:
+    "Require vercel --prod to exit successfully before parsing its deployment URL, running alias commands, or clearing the quota marker.",
   contract: [
     "Vercel quota messaging",
     "local Vercel quota cooldown marker",
@@ -24,6 +26,7 @@ export const DEPLOY_SAFETY = {
     "unwanted alias removal for truely-collectables-tt3b.vercel.app",
     "clean-domain aliasing",
     "success-only quota marker clearing",
+    "successful Vercel deploy exit before URL and alias handling",
     "deployed URL output",
     "clean URL output",
     `${DEPLOY_SAFETY_SMOKE_COMMAND} handoff`,

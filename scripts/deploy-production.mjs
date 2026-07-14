@@ -21,6 +21,7 @@ const quotaStatusOnly =
   process.env.TCOS_PRODUCTION_QUOTA_STATUS_ONLY === "true";
 const redactionSelfTest = process.argv.includes("--self-test-redaction");
 const quotaCooldownSelfTest = process.argv.includes("--self-test-quota-cooldown");
+const deployResultSelfTest = process.argv.includes("--self-test-deploy-result");
 const quotaRetryOverride =
   process.argv.includes("--force-quota-retry") ||
   process.env.TCOS_VERCEL_QUOTA_RETRY_OVERRIDE === "true";
@@ -410,21 +411,35 @@ function runRedactionSelfTest() {
 }
 
 function run(command, args, options = {}) {
+  const {
+    allowFailure = false,
+    captureResult = false,
+    print = true,
+    ...spawnOptions
+  } = options;
   const result = spawnSync(command, args, {
     encoding: "utf8",
     shell: process.platform === "win32",
-    ...options,
+    ...spawnOptions,
   });
   const output = `${result.stdout || ""}${result.stderr || ""}`;
 
-  if (options.print !== false) {
+  if (print) {
     process.stdout.write(redactSecrets(output));
   }
 
-  if (result.status !== 0 && options.allowFailure !== true) {
+  if (result.status !== 0 && !allowFailure) {
     throw new Error(
       `${command} ${args.join(" ")} failed with exit ${result.status}.\n${diagnosticSnippet(output)}`,
     );
+  }
+
+  if (captureResult) {
+    return {
+      output,
+      status: result.status,
+      signal: result.signal,
+    };
   }
 
   return output;
@@ -454,6 +469,74 @@ function parseDeploymentUrl(output) {
       return false;
     }
   });
+}
+
+function assertSuccessfulDeployResult(deployResult) {
+  if (deployResult.status === 0) return;
+
+  const exitDescription =
+    deployResult.status === null
+      ? `signal ${deployResult.signal || "unknown"}`
+      : `exit ${deployResult.status}`;
+
+  throw new Error(
+    `Vercel production deploy failed with ${exitDescription}. No alias command was started, and the local quota marker was preserved. A URL printed by a failed command is not accepted as a deployment.\n${diagnosticSnippet(deployResult.output)}`,
+  );
+}
+
+function runDeployResultSelfTest() {
+  if (quotaBlockMarkerPath === defaultQuotaBlockMarkerPath) {
+    throw new Error(
+      "Refusing deploy-result self-test against the production marker path. Set TCOS_VERCEL_QUOTA_MARKER_PATH to an explicit temporary test file.",
+    );
+  }
+
+  removeQuotaBlockMarker();
+  fs.mkdirSync(path.dirname(quotaBlockMarkerPath), { recursive: true });
+  fs.writeFileSync(
+    quotaBlockMarkerPath,
+    `${JSON.stringify({
+      blockedAt: new Date().toISOString(),
+      reason: "api-deployments-free-per-day",
+    })}\n`,
+  );
+
+  const failedResult = {
+    output:
+      "Error: deployment failed after printing https://failed-deploy-result-self-test.vercel.app",
+    status: 1,
+    signal: null,
+  };
+
+  if (!parseDeploymentUrl(failedResult.output)) {
+    throw new Error(
+      "Deploy-result self-test fixture did not contain a parseable Vercel URL.",
+    );
+  }
+
+  try {
+    assertSuccessfulDeployResult(failedResult);
+    throw new Error("Deploy-result self-test accepted a failed command.");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+
+    if (
+      !message.includes("Vercel production deploy failed with exit 1") ||
+      !message.includes("No alias command was started") ||
+      !message.includes("local quota marker was preserved") ||
+      !message.includes("not accepted as a deployment")
+    ) {
+      throw error;
+    }
+  }
+
+  if (!fs.existsSync(quotaBlockMarkerPath)) {
+    throw new Error("Deploy-result self-test removed the quota marker on failure.");
+  }
+
+  assertSuccessfulDeployResult({ output: "", status: 0, signal: null });
+  removeQuotaBlockMarker();
+  console.log("Production deploy result self-test passed.");
 }
 
 function gitPreflight() {
@@ -505,6 +588,11 @@ if (quotaCooldownSelfTest) {
   process.exit(0);
 }
 
+if (deployResultSelfTest) {
+  runDeployResultSelfTest();
+  process.exit(0);
+}
+
 if (quotaStatusOnly) {
   printQuotaCooldownStatus();
   process.exit(0);
@@ -521,9 +609,11 @@ assertNoRecentQuotaBlock();
 
 console.log(`Deploying production with Vercel scope ${scope}...`);
 
-const deployOutput = run("vercel", ["--prod", "--yes", "--scope", scope], {
+const deployResult = run("vercel", ["--prod", "--yes", "--scope", scope], {
   allowFailure: true,
+  captureResult: true,
 });
+const deployOutput = deployResult.output;
 
 if (deployOutput.includes("api-deployments-free-per-day")) {
   recordQuotaBlock();
@@ -531,6 +621,8 @@ if (deployOutput.includes("api-deployments-free-per-day")) {
     "Vercel deployment quota is still capped (api-deployments-free-per-day). A local cooldown marker was written so the next deploy attempt can stop before uploading. Wait for the rolling 24-hour quota to reset, then rerun npm run launch:production.",
   );
 }
+
+assertSuccessfulDeployResult(deployResult);
 
 const deploymentUrl = parseDeploymentUrl(deployOutput);
 

@@ -46,6 +46,8 @@ A zero, negative, or nonnumeric cooldown value also fails closed as `state: inva
 
 The quota marker is success-cleared, not attempt-cleared. A failed override retry, unparseable Vercel response, or clean-alias failure preserves the marker. The helper removes it only after Vercel returns a parsed deployment URL and the clean production alias succeeds.
 
+The helper also requires `vercel --prod` to exit successfully before it parses the deployment URL, runs either alias command, or clears the quota marker. A URL printed by a failed Vercel command is diagnostic output, not a deployable result.
+
 The shared deploy-safety contract publishes `quotaStatusCommand` and its read-only description through launch-readiness JSON, Markdown, the handoff bundle, the Launch Readiness page, and the Production Smoke Report. Production smoke requires these surfaces to preserve `npm run status:production` before a queued release can pass.
 
 The internal quota cooldown self-test refuses to run against `.codex-run/vercel-quota-block.json`; it requires `TCOS_VERCEL_QUOTA_MARKER_PATH` to name an explicit temporary test file so validation cannot erase the real cooldown record.
@@ -58,6 +60,8 @@ npm run verify:production
 
 This runs lint, the InstaComp queue and accuracy simulations, the LetterTrack evidence checks, shipping purchase-attempt audit simulations, the twenty-scenario shipping simulation suite, build, and the production preflight without starting a Vercel deployment.
 It also runs `npm run check:production-guardrails`, which syntax-checks the production deploy/smoke helpers and shipping simulation runner, verifies the package script chain still includes the required shipping/production/launch commands, verifies the named smoke contracts for launch readiness, Launch Gate Drill, production smoke, live payment/shipping gates, admin shipping controls, shipping simulations, shipping provider exports, LetterTrack CSV, and shipping exceptions, verifies the named `queued-feature smoke manifest` rejects unknown or duplicate check names, verifies the deploy preflight env-flag path, verifies the live deploy safety contract for Vercel quota messaging, local quota cooldown marker/override handling, unwanted alias removal, clean-domain aliasing, and post-deploy smoke handoff, verifies smoke/deploy/guardrail diagnostic redaction self-tests, and verifies the clean production domain cannot be confused with the unwanted `truely-collectables-tt3b.vercel.app` alias.
+
+Tailwind source detection is bounded to `src/**` by `source(none)` plus the explicit `@source "../**/*.{js,ts,jsx,tsx,mdx}"` rule in `src/app/globals.css`. Keep this boundary intact so cold builds do not recursively scan the FileProvider workspace, generated caches, documentation artifacts, Git metadata, or dependencies.
 
 ## Deploy
 
@@ -87,6 +91,7 @@ The deploy helper:
 - removes the unwanted `truely-collectables-tt3b.vercel.app` alias if present;
 - points `https://truely-collectables.vercel.app` at the new production deployment.
 - clears the local quota marker only after the deployment URL is parsed and the clean production alias succeeds.
+- rejects nonzero `vercel --prod` results before URL parsing or alias changes, even when failure output contains a `.vercel.app` URL.
 
 The production guardrail suite locks this live deploy behavior in place: quota blocks must mention `api-deployments-free-per-day` and tell the operator to wait for the rolling 24-hour reset, the helper must write the local quota cooldown marker and stop future attempts before upload unless `TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true` or `--force-quota-retry` is set, the unwanted alias removal command must stay wired, the clean production alias command must stay wired, and the helper must keep printing the deployed/clean URLs before handing off to `npm run smoke:production`. The protected live deploy sequence is: remove the unwanted `truely-collectables-tt3b.vercel.app` alias, set the clean production alias, clear the local quota marker only after that alias succeeds, print `DEPLOYED_PRODUCTION=`, print `CLEAN_PRODUCTION=https://`, then print the smoke handoff command.
 

@@ -24,6 +24,8 @@ TCOS loads Geist Sans and Geist Mono from the installed `geist` package. The fon
 
 Next.js and `eslint-config-next` are aligned on `16.2.10`. Next.js still declares PostCSS `8.4.31`, which is affected by GHSA-qx2v-qp2m-jg93, so `package.json` overrides PostCSS to `8.5.15`. Keep the override until a later verified Next.js release directly depends on a fixed PostCSS version. `npm audit --omit=dev` must report zero production vulnerabilities before removing or changing this protection. Production builds use the supported `next build --webpack` opt-out because Turbopack 16.2.10 stalled during compilation with the fixed PostCSS override; development can continue using Turbopack through `next dev`.
 
+Tailwind source detection is explicitly bounded in `src/app/globals.css`: `source(none)` disables automatic workspace discovery and `@source "../**/*.{js,ts,jsx,tsx,mdx}"` scans the complete application source tree. This prevents cold builds on the FileProvider-backed workspace from recursively scanning generated build caches, operator artifacts, Git metadata, or dependencies without reducing application source coverage.
+
 Use `npm run status:production` during recurring build blocks to inspect the local Vercel quota cooldown without fetching Git, building, uploading, or starting a deployment. The output includes the exact block and retry timestamps, approximate remaining cooldown, marker path, whether a retry is locally allowed, and the explicit line `Vercel upload started: no`. The environment-flag equivalent is `TCOS_PRODUCTION_QUOTA_STATUS_ONLY=true node scripts/deploy-production.mjs`.
 
 A malformed or unreadable marker fails closed as `state: invalid_marker`: the helper starts no Vercel upload and blocks deployment. Inspect or restore the marker before continuing. Use `TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true` or `--force-quota-retry` only after independently confirming that the rolling quota window has reset.
@@ -31,6 +33,8 @@ A malformed or unreadable marker fails closed as `state: invalid_marker`: the he
 A zero, negative, or nonnumeric cooldown value also fails closed as `state: invalid_configuration`; it cannot disable the deployment guard. Set `TCOS_VERCEL_QUOTA_COOLDOWN_HOURS` to a positive number. The explicit retry override remains the only intentional bypass and should be used only after independently confirming the quota reset.
 
 The quota marker is success-cleared, not attempt-cleared. A failed override retry, unparseable Vercel response, or clean-alias failure preserves the marker. The helper removes it only after Vercel returns a parsed deployment URL and the clean production alias succeeds.
+
+The helper also requires `vercel --prod` to exit successfully before it parses the deployment URL, runs either alias command, or clears the quota marker. A URL printed by a failed Vercel command is diagnostic output, not a deployable result.
 
 The shared deploy-safety contract exposes `quotaStatusCommand` and its read-only description in launch-readiness JSON and Markdown, the launch handoff bundle, the Launch Readiness page, and the Production Smoke Report. Production smoke verifies those surfaces retain `npm run status:production`, so an operator does not have to rely on chat history to decide whether a deployment retry is safe.
 

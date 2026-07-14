@@ -508,6 +508,7 @@ const checks = [
       result.text.includes("set clean production alias") &&
       result.text.includes("clear local quota marker after clean alias succeeds") &&
       result.text.includes("Clear the local quota marker only after Vercel returns a parsed deployment URL and the clean production alias succeeds") &&
+      result.text.includes("Require vercel --prod to exit successfully before parsing its deployment URL, running alias commands, or clearing the quota marker") &&
       result.text.includes("print DEPLOYED_PRODUCTION") &&
       result.text.includes("print CLEAN_PRODUCTION") &&
       result.text.includes("print smoke handoff command") &&
@@ -549,6 +550,7 @@ const checks = [
       result.text.includes('"quotaRetryOverrideFlag":"--force-quota-retry"') &&
       result.text.includes('"quotaUploadWarning"') &&
       result.text.includes('"quotaMarkerClearCondition"') &&
+      result.text.includes('"deployResultRequirement"') &&
       result.text.includes("rolling 24-hour quota reset") &&
       result.text.includes("Vercel can still upload files before returning the quota error") &&
       result.text.includes("deployed URL output") &&
@@ -558,6 +560,7 @@ const checks = [
       result.text.includes("set clean production alias") &&
       result.text.includes("clear local quota marker after clean alias succeeds") &&
       result.text.includes("Clear the local quota marker only after Vercel returns a parsed deployment URL and the clean production alias succeeds") &&
+      result.text.includes("Require vercel --prod to exit successfully before parsing its deployment URL, running alias commands, or clearing the quota marker") &&
       result.text.includes("print DEPLOYED_PRODUCTION") &&
       result.text.includes("print CLEAN_PRODUCTION") &&
       result.text.includes("print smoke handoff command") &&
@@ -600,6 +603,7 @@ const checks = [
       result.text.includes("set clean production alias") &&
       result.text.includes("clear local quota marker after clean alias succeeds") &&
       result.text.includes("Clear the local quota marker only after Vercel returns a parsed deployment URL and the clean production alias succeeds") &&
+      result.text.includes("Require vercel --prod to exit successfully before parsing its deployment URL, running alias commands, or clearing the quota marker") &&
       result.text.includes("print DEPLOYED_PRODUCTION") &&
       result.text.includes("print CLEAN_PRODUCTION") &&
       result.text.includes("print smoke handoff command") &&
@@ -696,6 +700,7 @@ const checks = [
       "Vercel can still upload files before returning the quota error",
       "npm run status:production",
       "Read-only local cooldown check with exact blocked/retry timestamps",
+      "Require vercel --prod to exit successfully before parsing its deployment URL, running alias commands, or clearing the quota marker",
       ".codex-run/vercel-quota-block.json",
       "TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true",
       "--force-quota-retry",
@@ -907,6 +912,7 @@ const checks = [
       ".codex-run/vercel-quota-block.json",
       "TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true",
       "--force-quota-retry",
+      "Require vercel --prod to exit successfully before parsing its deployment URL, running alias commands, or clearing the quota marker",
       "deploy live safety contract",
       "## Production Go/No-Go Ladder",
       "Verify the pushed stack",
