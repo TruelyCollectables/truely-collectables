@@ -407,6 +407,8 @@ const checks = [
       result.text.includes('"purchaseAttemptAuditRunStatus":"passed"') &&
       result.text.includes('"purchaseAttemptAuditExpectedScenarioCount":5') &&
       result.text.includes('"purchaseAttemptAuditKeyCoverageStatus":"passed"') &&
+      result.text.includes('"purchaseAttemptAuditMissingScenarioKeys":[]') &&
+      result.text.includes('"purchaseAttemptAuditUnexpectedScenarioKeys":[]') &&
       result.text.includes('"quotaBlockCode":"api-deployments-free-per-day"') &&
       result.text.includes("rolling 24-hour quota reset") &&
       result.text.includes("deployed URL output") &&
@@ -434,6 +436,8 @@ const checks = [
       result.text.includes("shipping is excluded and is not reimbursed") &&
       result.text.includes("Standard Envelope evidence validator: ready") &&
       result.text.includes("Provider purchase-attempt audit suite: passed; 5/5 scenarios; key coverage passed") &&
+      result.text.includes("Missing purchase audit keys: none") &&
+      result.text.includes("Unexpected purchase audit keys: none") &&
       result.text.includes("## Deployment Source") &&
       result.text.includes("Git commit SHA:") &&
       result.text.includes("Smoke comparison:") &&
@@ -460,6 +464,8 @@ const checks = [
       result.text.includes("Download Drill Report") &&
       result.text.includes("Standard Envelope evidence validator is ready") &&
       result.text.includes("Provider Purchase-Attempt Audit Suite") &&
+      result.text.includes("Missing purchase audit keys:") &&
+      result.text.includes("Unexpected purchase audit keys:") &&
       result.text.includes("Side-effect Guardrails") &&
       result.text.includes("Not allowed during this drill"),
   },
@@ -471,6 +477,8 @@ const checks = [
       result.text.includes('"standardEnvelopeEvidenceContractReady":true') &&
       result.text.includes('"purchaseAttemptAuditRunStatus":"passed"') &&
       result.text.includes('"purchaseAttemptAuditExpectedScenarioCount":5') &&
+      result.text.includes('"purchaseAttemptAuditMissingScenarioKeys":[]') &&
+      result.text.includes('"purchaseAttemptAuditUnexpectedScenarioKeys":[]') &&
       result.text.includes('"sideEffectPolicy"') &&
       result.text.includes('"forbiddenOperations"'),
   },
@@ -482,6 +490,8 @@ const checks = [
       result.text.includes("# TCOS Launch Gate Drill Report") &&
       result.text.includes("Standard Envelope evidence validator: ready") &&
       result.text.includes("Provider purchase-attempt audit suite: passed; 5/5 scenarios; key coverage passed") &&
+      result.text.includes("Missing purchase audit keys: none") &&
+      result.text.includes("Unexpected purchase audit keys: none") &&
       result.text.includes("## Side-effect Guardrails") &&
       result.text.includes("### Forbidden Operations"),
   },

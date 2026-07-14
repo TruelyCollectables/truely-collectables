@@ -37,6 +37,10 @@ function postureLabel(status: LaunchGatePostureStatus) {
   return "Blocked";
 }
 
+function listValue(items: string[]) {
+  return items.length > 0 ? items.join(", ") : "none";
+}
+
 export default async function LaunchGateDrillPage() {
   const supabase = createSupabaseServerClient({ admin: true });
   const storeId = getActiveStoreId();
@@ -134,6 +138,10 @@ export default async function LaunchGateDrillPage() {
                 {report.shipping.purchaseAttemptAuditExpectedScenarioCount}{" "}
                 scenarios, key coverage{" "}
                 {report.shipping.purchaseAttemptAuditKeyCoverageStatus}.
+                Missing purchase audit keys:{" "}
+                {listValue(report.shipping.purchaseAttemptAuditMissingScenarioKeys)}.
+                Unexpected purchase audit keys:{" "}
+                {listValue(report.shipping.purchaseAttemptAuditUnexpectedScenarioKeys)}.
               </dd>
             </div>
           </dl>

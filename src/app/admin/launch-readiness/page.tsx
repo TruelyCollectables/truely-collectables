@@ -63,6 +63,10 @@ function statusLabel(status: ReadinessStatus) {
   return "Blocked";
 }
 
+function inlineList(items: string[]) {
+  return items.length > 0 ? items.join(", ") : "none";
+}
+
 function attentionHref(item: ReadinessItem) {
   const label = item.label.toLowerCase();
   const action = item.action.toLowerCase();
@@ -937,16 +941,21 @@ async function checkLiveShippingLaunchReadiness(): Promise<ReadinessItem> {
   );
   const blockedLabels =
     blockedChecks.map((item) => item.label).join(", ") || "none";
+  const purchaseAuditDriftDetail = `Missing purchase audit keys: ${inlineList(
+    report.purchaseAttemptAuditSimulation.missing_scenario_keys,
+  )}; unexpected purchase audit keys: ${inlineList(
+    report.purchaseAttemptAuditSimulation.unexpected_scenario_keys,
+  )}.`;
   const status: ReadinessStatus = report.liveShippingEnabled
     ? "ready"
     : report.purchaseMode === "live"
       ? "blocked"
       : "warning";
   const detail = report.liveShippingEnabled
-    ? `Live shipping is enabled by both the environment switch and current database approval. Standard Envelope evidence validator is ${report.standardEnvelopeEvidenceContractReady ? "ready" : "blocked"}. Provider purchase-attempt audit suite is ${report.purchaseAttemptAuditSimulation.run_status} with ${report.purchaseAttemptAuditSimulation.passed_count}/${report.purchaseAttemptAuditSimulation.expected_scenario_count} expected scenarios passing.`
+    ? `Live shipping is enabled by both the environment switch and current database approval. Standard Envelope evidence validator is ${report.standardEnvelopeEvidenceContractReady ? "ready" : "blocked"}. Provider purchase-attempt audit suite is ${report.purchaseAttemptAuditSimulation.run_status} with ${report.purchaseAttemptAuditSimulation.passed_count}/${report.purchaseAttemptAuditSimulation.expected_scenario_count} expected scenarios passing. ${purchaseAuditDriftDetail}`
     : report.purchaseMode === "live"
-      ? `Live shipping purchase mode is LIVE, but the runtime gate is not fully enabled. Standard Envelope evidence validator is ${report.standardEnvelopeEvidenceContractReady ? "ready" : "blocked"}. Provider purchase-attempt audit suite is ${report.purchaseAttemptAuditSimulation.run_status} with key coverage ${report.purchaseAttemptAuditSimulation.scenario_key_coverage_status}. Blocked checks: ${blockedLabels}.`
-      : `Live shipping is safely staged in dry-run mode. Standard Envelope evidence validator is ${report.standardEnvelopeEvidenceContractReady ? "ready" : "blocked"}. Provider purchase-attempt audit suite is ${report.purchaseAttemptAuditSimulation.run_status} with ${report.purchaseAttemptAuditSimulation.passed_count}/${report.purchaseAttemptAuditSimulation.expected_scenario_count} expected scenarios passing and key coverage ${report.purchaseAttemptAuditSimulation.scenario_key_coverage_status}. Database approval is ${databaseApproval?.status || "unknown"}; ${blockedChecks.length} blocked and ${warningChecks.length} warning check(s) remain before live postage.`;
+      ? `Live shipping purchase mode is LIVE, but the runtime gate is not fully enabled. Standard Envelope evidence validator is ${report.standardEnvelopeEvidenceContractReady ? "ready" : "blocked"}. Provider purchase-attempt audit suite is ${report.purchaseAttemptAuditSimulation.run_status} with key coverage ${report.purchaseAttemptAuditSimulation.scenario_key_coverage_status}. ${purchaseAuditDriftDetail} Blocked checks: ${blockedLabels}.`
+      : `Live shipping is safely staged in dry-run mode. Standard Envelope evidence validator is ${report.standardEnvelopeEvidenceContractReady ? "ready" : "blocked"}. Provider purchase-attempt audit suite is ${report.purchaseAttemptAuditSimulation.run_status} with ${report.purchaseAttemptAuditSimulation.passed_count}/${report.purchaseAttemptAuditSimulation.expected_scenario_count} expected scenarios passing and key coverage ${report.purchaseAttemptAuditSimulation.scenario_key_coverage_status}. ${purchaseAuditDriftDetail} Database approval is ${databaseApproval?.status || "unknown"}; ${blockedChecks.length} blocked and ${warningChecks.length} warning check(s) remain before live postage.`;
 
   return {
     label: "Live Shipping Launch Gate",

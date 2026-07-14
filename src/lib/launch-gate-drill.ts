@@ -40,6 +40,8 @@ export type LaunchGateDrillReport = {
     purchaseAttemptAuditScenarioCount: number;
     purchaseAttemptAuditExpectedScenarioCount: number;
     purchaseAttemptAuditKeyCoverageStatus: "passed" | "failed";
+    purchaseAttemptAuditMissingScenarioKeys: string[];
+    purchaseAttemptAuditUnexpectedScenarioKeys: string[];
   };
   posture: {
     payment: LaunchGatePosture;
@@ -382,6 +384,10 @@ export async function runLaunchGateDrill(params?: {
       purchaseAttemptAuditKeyCoverageStatus:
         shippingReport.purchaseAttemptAuditSimulation
           .scenario_key_coverage_status,
+      purchaseAttemptAuditMissingScenarioKeys:
+        shippingReport.purchaseAttemptAuditSimulation.missing_scenario_keys,
+      purchaseAttemptAuditUnexpectedScenarioKeys:
+        shippingReport.purchaseAttemptAuditSimulation.unexpected_scenario_keys,
     },
     posture: {
       payment: buildPaymentPosture({

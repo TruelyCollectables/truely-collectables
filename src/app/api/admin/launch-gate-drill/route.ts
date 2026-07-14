@@ -14,6 +14,10 @@ function markdownList(items: string[]) {
   return items.map((item) => `- ${item}`).join("\n");
 }
 
+function inlineList(items: string[]) {
+  return items.length > 0 ? items.join(", ") : "none";
+}
+
 function postureMarkdown(title: string, posture: LaunchGatePosture) {
   return [
     `## ${title}`,
@@ -53,6 +57,8 @@ function reportMarkdown(report: LaunchGateDrillReport) {
     `- Shipping runtime: ${report.shipping.purchaseMode}; live shipping ${report.shipping.liveShippingEnabled ? "enabled" : "locked"}`,
     `- Standard Envelope evidence validator: ${report.shipping.standardEnvelopeEvidenceContractReady ? "ready" : "blocked"}`,
     `- Provider purchase-attempt audit suite: ${report.shipping.purchaseAttemptAuditRunStatus}; ${report.shipping.purchaseAttemptAuditScenarioCount}/${report.shipping.purchaseAttemptAuditExpectedScenarioCount} scenarios; key coverage ${report.shipping.purchaseAttemptAuditKeyCoverageStatus}`,
+    `- Missing purchase audit keys: ${inlineList(report.shipping.purchaseAttemptAuditMissingScenarioKeys)}`,
+    `- Unexpected purchase audit keys: ${inlineList(report.shipping.purchaseAttemptAuditUnexpectedScenarioKeys)}`,
     "",
     postureMarkdown("Payment Launch Posture", report.posture.payment),
     postureMarkdown("Shipping Launch Posture", report.posture.shipping),

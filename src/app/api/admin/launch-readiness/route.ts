@@ -126,6 +126,10 @@ function cleanMarkdownListWithLinks(items: BriefItem[]) {
     .join("\n");
 }
 
+function inlineList(items: string[]) {
+  return items.length > 0 ? items.join(", ") : "none";
+}
+
 function deploySafetyMarkdownLines() {
   return [
     `## ${DEPLOY_SAFETY.section}`,
@@ -188,6 +192,8 @@ function markdownForBrief(brief: Awaited<ReturnType<typeof buildBrief>>) {
     `- Posture: ${brief.shipping.posture}`,
     `- Standard Envelope evidence validator: ${brief.shipping.standardEnvelopeEvidenceContractReady ? "ready" : "blocked"}`,
     `- Provider purchase-attempt audit suite: ${brief.shipping.purchaseAttemptAuditRunStatus}; ${brief.shipping.purchaseAttemptAuditScenarioCount}/${brief.shipping.purchaseAttemptAuditExpectedScenarioCount} scenarios; key coverage ${brief.shipping.purchaseAttemptAuditKeyCoverageStatus}`,
+    `- Missing purchase audit keys: ${inlineList(brief.shipping.purchaseAttemptAuditMissingScenarioKeys)}`,
+    `- Unexpected purchase audit keys: ${inlineList(brief.shipping.purchaseAttemptAuditUnexpectedScenarioKeys)}`,
     `- Dry-run cleanup: ${brief.shipping.dryRunCleanup}`,
     `- Provider env template: ${brief.shipping.providerSetupEnvTemplateUrl || brief.shipping.providerSetupEnvTemplateHref}`,
     `- Provider Vercel commands: ${brief.shipping.providerSetupVercelCommandsUrl || brief.shipping.providerSetupVercelCommandsHref}`,
@@ -245,6 +251,8 @@ function markdownForHandoffBundle(
     `- Posture: ${brief.shipping.posture}`,
     `- Standard Envelope evidence validator: ${brief.shipping.standardEnvelopeEvidenceContractReady ? "ready" : "blocked"}`,
     `- Provider purchase-attempt audit suite: ${brief.shipping.purchaseAttemptAuditRunStatus}; ${brief.shipping.purchaseAttemptAuditScenarioCount}/${brief.shipping.purchaseAttemptAuditExpectedScenarioCount} scenarios; key coverage ${brief.shipping.purchaseAttemptAuditKeyCoverageStatus}`,
+    `- Missing purchase audit keys: ${inlineList(brief.shipping.purchaseAttemptAuditMissingScenarioKeys)}`,
+    `- Unexpected purchase audit keys: ${inlineList(brief.shipping.purchaseAttemptAuditUnexpectedScenarioKeys)}`,
     `- Dry-run cleanup: ${brief.shipping.dryRunCleanup}`,
     `- Provider setup status: ${brief.shipping.providerSetupStatus}`,
     `- Provider setup summary: ${brief.shipping.providerSetupSummary}`,
@@ -554,6 +562,10 @@ async function buildBrief(origin: string | null = null) {
       purchaseAttemptAuditKeyCoverageStatus:
         shippingReport.purchaseAttemptAuditSimulation
           .scenario_key_coverage_status,
+      purchaseAttemptAuditMissingScenarioKeys:
+        shippingReport.purchaseAttemptAuditSimulation.missing_scenario_keys,
+      purchaseAttemptAuditUnexpectedScenarioKeys:
+        shippingReport.purchaseAttemptAuditSimulation.unexpected_scenario_keys,
       dryRunCleanup: dryRunCleanup.detail,
       providerSetupStatus: providerSetup.decision.status,
       providerSetupSummary: providerSetup.decision.summary,
