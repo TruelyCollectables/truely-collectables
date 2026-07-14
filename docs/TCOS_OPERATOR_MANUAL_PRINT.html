@@ -1911,6 +1911,7 @@ account_wish_list_matches</code></pre>
 <li>the buyer must accept buyer TOS</li>
 <li>masked identity checks still apply</li>
 <li>Stripe Checkout runs in setup mode before the offer is submitted</li>
+<li><code>/api/account/collector/binding-offers</code> success responses include <code>X-TCOS-Collector-Binding-Offer-Id</code>, <code>X-TCOS-Collector-Binding-Offer-Conversation</code>, <code>X-TCOS-Collector-Binding-Offer-Conversation-Action</code>, <code>X-TCOS-Collector-Binding-Offer-Status</code>, and <code>X-TCOS-Collector-Binding-Offer-Payment-Required</code> headers so the setup handoff can be traced without exposing Stripe secrets or account IDs</li>
 <li>after Stripe confirms the payment method, the webhook updates the offer to <code>submitted</code></li>
 <li>the later seller-acceptance slice must charge the saved payment method, mark the offer paid or failed, and create/lock the order</li>
 </ul>

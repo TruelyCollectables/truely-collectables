@@ -59,6 +59,25 @@ function unavailableResponse() {
   );
 }
 
+function collectorBindingOfferHeaders(params: {
+  bindingOfferId: string;
+  conversationId: string | null;
+  conversationAction: "new_conversation" | "existing_conversation";
+  status: "payment_required";
+  paymentRequired: boolean;
+}) {
+  return {
+    "X-TCOS-Collector-Binding-Offer-Id": params.bindingOfferId,
+    "X-TCOS-Collector-Binding-Offer-Conversation": params.conversationId || "none",
+    "X-TCOS-Collector-Binding-Offer-Conversation-Action":
+      params.conversationAction,
+    "X-TCOS-Collector-Binding-Offer-Status": params.status,
+    "X-TCOS-Collector-Binding-Offer-Payment-Required": String(
+      params.paymentRequired,
+    ),
+  };
+}
+
 async function requireConversationAccess(params: {
   supabase: ReturnType<typeof getSupabaseClient>;
   conversationId: string;
@@ -187,6 +206,8 @@ export async function POST(request: Request) {
     });
 
     let conversationId = cleanText(body.conversationId, 80);
+    let conversationAction: "new_conversation" | "existing_conversation" =
+      conversationId ? "existing_conversation" : "new_conversation";
 
     if (conversationId) {
       const access = await requireConversationAccess({
@@ -225,6 +246,7 @@ export async function POST(request: Request) {
       }
 
       conversationId = conversation.id;
+      conversationAction = "new_conversation";
     }
 
     const { data: bindingOffer, error: offerError } = await supabase
@@ -314,13 +336,24 @@ export async function POST(request: Request) {
       .eq("id", bindingOffer.id)
       .eq("store_id", storeId);
 
-    return NextResponse.json({
-      success: true,
-      bindingOfferId: bindingOffer.id,
-      conversationId,
-      paymentRequired: true,
-      url: session.url,
-    });
+    return NextResponse.json(
+      {
+        success: true,
+        bindingOfferId: bindingOffer.id,
+        conversationId,
+        paymentRequired: true,
+        url: session.url,
+      },
+      {
+        headers: collectorBindingOfferHeaders({
+          bindingOfferId: bindingOffer.id,
+          conversationId,
+          conversationAction,
+          status: "payment_required",
+          paymentRequired: true,
+        }),
+      },
+    );
   } catch (error: any) {
     return NextResponse.json(
       { error: error.message || "Could not start binding offer" },

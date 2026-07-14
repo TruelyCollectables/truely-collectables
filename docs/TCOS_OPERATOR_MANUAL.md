@@ -1704,6 +1704,7 @@ Binding offer rule:
 - the buyer must accept buyer TOS
 - masked identity checks still apply
 - Stripe Checkout runs in setup mode before the offer is submitted
+- `/api/account/collector/binding-offers` success responses include `X-TCOS-Collector-Binding-Offer-Id`, `X-TCOS-Collector-Binding-Offer-Conversation`, `X-TCOS-Collector-Binding-Offer-Conversation-Action`, `X-TCOS-Collector-Binding-Offer-Status`, and `X-TCOS-Collector-Binding-Offer-Payment-Required` headers so the setup handoff can be traced without exposing Stripe secrets or account IDs
 - after Stripe confirms the payment method, the webhook updates the offer to `submitted`
 - the later seller-acceptance slice must charge the saved payment method, mark the offer paid or failed, and create/lock the order
 

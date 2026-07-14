@@ -1374,6 +1374,36 @@ assertFileIncludes(
   ],
 );
 assertFileIncludes(
+  "collector binding offer response contract",
+  "src/app/api/account/collector/binding-offers/route.ts",
+  [
+    "function collectorBindingOfferHeaders",
+    "X-TCOS-Collector-Binding-Offer-Id",
+    "X-TCOS-Collector-Binding-Offer-Conversation",
+    "X-TCOS-Collector-Binding-Offer-Conversation-Action",
+    "X-TCOS-Collector-Binding-Offer-Status",
+    "X-TCOS-Collector-Binding-Offer-Payment-Required",
+    'conversationAction: "new_conversation" | "existing_conversation"',
+    'status: "payment_required"',
+    "paymentRequired: true",
+    "account_binding_offers",
+    "stripe.checkout.sessions.create",
+  ],
+);
+assertFileIncludes(
+  "collector binding offer operator manual contract",
+  "docs/TCOS_OPERATOR_MANUAL.md",
+  [
+    "/api/account/collector/binding-offers",
+    "X-TCOS-Collector-Binding-Offer-Id",
+    "X-TCOS-Collector-Binding-Offer-Conversation",
+    "X-TCOS-Collector-Binding-Offer-Conversation-Action",
+    "X-TCOS-Collector-Binding-Offer-Status",
+    "X-TCOS-Collector-Binding-Offer-Payment-Required",
+    "without exposing Stripe secrets or account IDs",
+  ],
+);
+assertFileIncludes(
   "seller marketplace packet intake contract",
   "src/app/seller/marketplaces/SellerConnectionsPanel.tsx",
   [
