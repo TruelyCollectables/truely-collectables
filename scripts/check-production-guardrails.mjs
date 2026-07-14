@@ -325,6 +325,7 @@ assertFileIncludes("production smoke page contract", "scripts/smoke-production.m
   "Production Smoke Report",
   "Smoke coverage",
   "Under-$20 Seller Protection launch handoff",
+  "Launch readiness and handoff exports show missing/unexpected purchase-audit key drift",
   "Seller Protection Handoff Bundle",
   "Seller Protection Reconciliation",
   "Shipping Claims Cockpit",
@@ -382,6 +383,7 @@ assertFileIncludes("launch handoff smoke contract", "scripts/smoke-production.mj
   "production smoke POSTs `/api/admin/shipping/simulations`",
   "five expected purchase-audit scenarios",
   "no missing or unexpected scenario keys",
+  "no missing/unexpected purchase-audit keys",
 ]);
 assertFileIncludes("live launch gate smoke contract", "scripts/smoke-production.mjs", [
   'name: "live payment gate"',

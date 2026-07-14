@@ -502,6 +502,7 @@ const checks = [
       "Production Smoke Report",
       "Smoke coverage",
       "Under-$20 Seller Protection launch handoff",
+      "Launch readiness and handoff exports show missing/unexpected purchase-audit key drift",
       "Seller Protection Handoff Bundle",
       "Seller Protection Reconciliation",
       "Shipping Claims Cockpit",
@@ -524,6 +525,9 @@ const checks = [
       result.text.includes("Production Smoke Report") &&
       result.text.includes("Smoke coverage") &&
       result.text.includes("Under-$20 Seller Protection launch handoff") &&
+      result.text.includes(
+        "Launch readiness and handoff exports show missing/unexpected purchase-audit key drift",
+      ) &&
       result.text.includes("2% reserve") &&
       result.text.includes("shipping exclusion") &&
       result.text.includes("LetterTrack/USPS IMb evidence rule") &&
@@ -591,6 +595,7 @@ const checks = [
       "production smoke POSTs `/api/admin/shipping/simulations`",
       "five expected purchase-audit scenarios",
       "no missing or unexpected scenario keys",
+      "no missing/unexpected purchase-audit keys",
     ],
     expect: (result) =>
       result.text.includes("# TCOS Launch Hand-off Bundle") &&
@@ -625,6 +630,7 @@ const checks = [
       ) &&
       result.text.includes("five expected purchase-audit scenarios") &&
       result.text.includes("no missing or unexpected scenario keys") &&
+      result.text.includes("no missing/unexpected purchase-audit keys") &&
       result.text.includes("truely-collectables-tt3b.vercel.app"),
   },
   {

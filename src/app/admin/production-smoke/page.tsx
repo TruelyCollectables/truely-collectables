@@ -8,6 +8,7 @@ export const revalidate = 0;
 const smokeChecks = [
   "Admin login and dashboard render",
   "Launch readiness page, JSON brief, Markdown brief, and handoff bundle",
+  "Launch readiness and handoff exports show missing/unexpected purchase-audit key drift",
   SELLER_PROTECTION_SMOKE_COVERAGE_LINE,
   "Launch Gate Drill page, JSON report, Markdown operator report, and Standard Envelope evidence validator",
   "Live Payment Launch Gate",
