@@ -44,6 +44,28 @@ function dashboardUnavailableResponse() {
   );
 }
 
+function dashboardPreferenceListHeaders(params: {
+  sportsFavoriteCount: number;
+  marketWatchlistCount: number;
+}) {
+  return {
+    "X-TCOS-Dashboard-Sports-Favorites": String(params.sportsFavoriteCount),
+    "X-TCOS-Dashboard-Market-Watchlist": String(params.marketWatchlistCount),
+  };
+}
+
+function dashboardPreferenceMutationHeaders(params: {
+  kind: PreferenceKind;
+  action: "created" | "archived";
+  preferenceId: string;
+}) {
+  return {
+    "X-TCOS-Dashboard-Preference-Kind": params.kind,
+    "X-TCOS-Dashboard-Preference-Mutation": params.action,
+    "X-TCOS-Dashboard-Preference-Id": params.preferenceId,
+  };
+}
+
 export async function GET(request: Request) {
   try {
     const account = await getAuthenticatedAccountFromRequest(request);
@@ -86,11 +108,22 @@ export async function GET(request: Request) {
       throw error;
     }
 
-    return NextResponse.json({
-      success: true,
-      sportsFavorites: sportsResult.data ?? [],
-      marketWatchlist: marketResult.data ?? [],
-    });
+    const sportsFavorites = sportsResult.data ?? [];
+    const marketWatchlist = marketResult.data ?? [];
+
+    return NextResponse.json(
+      {
+        success: true,
+        sportsFavorites,
+        marketWatchlist,
+      },
+      {
+        headers: dashboardPreferenceListHeaders({
+          sportsFavoriteCount: sportsFavorites.length,
+          marketWatchlistCount: marketWatchlist.length,
+        }),
+      },
+    );
   } catch (error: any) {
     return NextResponse.json(
       { error: error.message || "Could not load dashboard preferences" },
@@ -147,7 +180,16 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: error.message }, { status: 400 });
       }
 
-      return NextResponse.json({ success: true, sportsFavorite: data });
+      return NextResponse.json(
+        { success: true, sportsFavorite: data },
+        {
+          headers: dashboardPreferenceMutationHeaders({
+            kind,
+            action: "created",
+            preferenceId: String(data.id),
+          }),
+        },
+      );
     }
 
     if (kind === "market_watchlist") {
@@ -182,7 +224,16 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: error.message }, { status: 400 });
       }
 
-      return NextResponse.json({ success: true, marketWatchlistItem: data });
+      return NextResponse.json(
+        { success: true, marketWatchlistItem: data },
+        {
+          headers: dashboardPreferenceMutationHeaders({
+            kind,
+            action: "created",
+            preferenceId: String(data.id),
+          }),
+        },
+      );
     }
 
     return NextResponse.json(
@@ -244,7 +295,16 @@ export async function DELETE(request: Request) {
       throw error;
     }
 
-    return NextResponse.json({ success: true });
+    return NextResponse.json(
+      { success: true },
+      {
+        headers: dashboardPreferenceMutationHeaders({
+          kind,
+          action: "archived",
+          preferenceId: id,
+        }),
+      },
+    );
   } catch (error: any) {
     return NextResponse.json(
       { error: error.message || "Could not remove dashboard preference" },

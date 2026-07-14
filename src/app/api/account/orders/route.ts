@@ -10,6 +10,20 @@ function getSupabaseClient() {
   return createSupabaseServerClient({ admin: true });
 }
 
+function accountOrdersHeaders(params: {
+  orderCount: number;
+  dryRunShippingBlockedCount: number;
+  sellerItemOrderCount: number;
+}) {
+  return {
+    "X-TCOS-Account-Orders": String(params.orderCount),
+    "X-TCOS-Account-Orders-Dry-Run-Shipping-Blocked": String(
+      params.dryRunShippingBlockedCount,
+    ),
+    "X-TCOS-Account-Orders-Seller-Item": String(params.sellerItemOrderCount),
+  };
+}
+
 export async function GET(request: Request) {
   try {
     const account = await getAuthenticatedAccountFromRequest(request);
@@ -34,19 +48,36 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
-    return NextResponse.json({
-      success: true,
-      orders: (data ?? []).map((order) => {
-        const dryRunShipping = isDryRunShippingReference(order.tracking_number);
+    const orders = (data ?? []).map((order) => {
+      const dryRunShipping = isDryRunShippingReference(order.tracking_number);
 
-        return {
-          ...order,
-          tracking_number: dryRunShipping ? null : order.tracking_number,
-          carrier: dryRunShipping ? null : order.carrier,
-          dry_run_shipping_blocked: dryRunShipping,
-        };
-      }),
+      return {
+        ...order,
+        tracking_number: dryRunShipping ? null : order.tracking_number,
+        carrier: dryRunShipping ? null : order.carrier,
+        dry_run_shipping_blocked: dryRunShipping,
+      };
     });
+    const dryRunShippingBlockedCount = orders.filter(
+      (order) => order.dry_run_shipping_blocked,
+    ).length;
+    const sellerItemOrderCount = orders.filter(
+      (order) => order.contains_seller_items || Number(order.seller_item_count || 0) > 0,
+    ).length;
+
+    return NextResponse.json(
+      {
+        success: true,
+        orders,
+      },
+      {
+        headers: accountOrdersHeaders({
+          orderCount: orders.length,
+          dryRunShippingBlockedCount,
+          sellerItemOrderCount,
+        }),
+      },
+    );
   } catch (error: any) {
     return NextResponse.json(
       { error: error.message || "Could not load account orders" },

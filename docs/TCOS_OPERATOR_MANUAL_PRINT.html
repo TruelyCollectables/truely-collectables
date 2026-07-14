@@ -1749,11 +1749,13 @@ src/app/api/admin/files/[id]/download/route.ts</code></pre>
 <li>completed Stripe webhooks save <code>orders.account_id</code> when account metadata is present</li>
 <li>customer-created offers save <code>offers.account_id</code> when the customer is logged in</li>
 <li><code>/account</code> shows recent linked orders for the logged-in customer</li>
+<li><code>/api/account/orders</code> responses include <code>X-TCOS-Account-Orders</code>, <code>X-TCOS-Account-Orders-Dry-Run-Shipping-Blocked</code>, and <code>X-TCOS-Account-Orders-Seller-Item</code> headers so account order history can be reconciled without exposing hidden dry-run tracking/carrier values</li>
 <li><code>/account</code> lets customers save a collector handle, bio, collecting focus, location label, social URLs, visibility, and message preference</li>
 <li><code>/account</code> lets customers save owned collection items with category, condition, grade, estimated value, and notes</li>
 <li><code>/account</code> lets customers save wish list items, 30-day want ads, set needs, and trade targets</li>
 <li><code>/account</code> lets customers download their collection as CSV or a full catalog JSON backup</li>
 <li><code>/account</code> lets customers save favorite teams/sports and market watchlist items</li>
+<li><code>/api/account/dashboard/preferences</code> list responses include <code>X-TCOS-Dashboard-Sports-Favorites</code> and <code>X-TCOS-Dashboard-Market-Watchlist</code>; create/archive responses include <code>X-TCOS-Dashboard-Preference-Kind</code>, <code>X-TCOS-Dashboard-Preference-Mutation</code>, and <code>X-TCOS-Dashboard-Preference-Id</code></li>
 <li>sports dashboard preferences are stored locally first; live news, scores, schedules, and odds require approved data providers later</li>
 <li>market watchlist preferences support stocks, ETFs, indexes, crypto, NFTs, commodities, collectable indexes, and other assets</li>
 <li><code>/admin/accounts</code> shows customer accounts, linked order counts, offer counts, TOS status, and linked revenue</li>

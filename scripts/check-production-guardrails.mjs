@@ -1234,6 +1234,58 @@ assertFileIncludes(
   ],
 );
 assertFileIncludes(
+  "account orders response contract",
+  "src/app/api/account/orders/route.ts",
+  [
+    "function accountOrdersHeaders",
+    "X-TCOS-Account-Orders",
+    "X-TCOS-Account-Orders-Dry-Run-Shipping-Blocked",
+    "X-TCOS-Account-Orders-Seller-Item",
+    "dry_run_shipping_blocked",
+    "dryRunShippingBlockedCount",
+    "sellerItemOrderCount",
+    "isDryRunShippingReference(order.tracking_number)",
+    "tracking_number: dryRunShipping ? null",
+    "carrier: dryRunShipping ? null",
+  ],
+);
+assertFileIncludes(
+  "dashboard preferences response contract",
+  "src/app/api/account/dashboard/preferences/route.ts",
+  [
+    "function dashboardPreferenceListHeaders",
+    "function dashboardPreferenceMutationHeaders",
+    "X-TCOS-Dashboard-Sports-Favorites",
+    "X-TCOS-Dashboard-Market-Watchlist",
+    "X-TCOS-Dashboard-Preference-Kind",
+    "X-TCOS-Dashboard-Preference-Mutation",
+    "X-TCOS-Dashboard-Preference-Id",
+    "sportsFavoriteCount: sportsFavorites.length",
+    "marketWatchlistCount: marketWatchlist.length",
+    'action: "created"',
+    'action: "archived"',
+    "account_sports_favorites",
+    "account_market_watchlist_items",
+  ],
+);
+assertFileIncludes(
+  "account dashboard operator manual contract",
+  "docs/TCOS_OPERATOR_MANUAL.md",
+  [
+    "/api/account/orders",
+    "X-TCOS-Account-Orders",
+    "X-TCOS-Account-Orders-Dry-Run-Shipping-Blocked",
+    "X-TCOS-Account-Orders-Seller-Item",
+    "without exposing hidden dry-run tracking/carrier values",
+    "/api/account/dashboard/preferences",
+    "X-TCOS-Dashboard-Sports-Favorites",
+    "X-TCOS-Dashboard-Market-Watchlist",
+    "X-TCOS-Dashboard-Preference-Kind",
+    "X-TCOS-Dashboard-Preference-Mutation",
+    "X-TCOS-Dashboard-Preference-Id",
+  ],
+);
+assertFileIncludes(
   "collector items response contract",
   "src/app/api/account/collector/items/route.ts",
   [

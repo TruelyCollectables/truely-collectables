@@ -1531,11 +1531,13 @@ Current behavior:
 - completed Stripe webhooks save `orders.account_id` when account metadata is present
 - customer-created offers save `offers.account_id` when the customer is logged in
 - `/account` shows recent linked orders for the logged-in customer
+- `/api/account/orders` responses include `X-TCOS-Account-Orders`, `X-TCOS-Account-Orders-Dry-Run-Shipping-Blocked`, and `X-TCOS-Account-Orders-Seller-Item` headers so account order history can be reconciled without exposing hidden dry-run tracking/carrier values
 - `/account` lets customers save a collector handle, bio, collecting focus, location label, social URLs, visibility, and message preference
 - `/account` lets customers save owned collection items with category, condition, grade, estimated value, and notes
 - `/account` lets customers save wish list items, 30-day want ads, set needs, and trade targets
 - `/account` lets customers download their collection as CSV or a full catalog JSON backup
 - `/account` lets customers save favorite teams/sports and market watchlist items
+- `/api/account/dashboard/preferences` list responses include `X-TCOS-Dashboard-Sports-Favorites` and `X-TCOS-Dashboard-Market-Watchlist`; create/archive responses include `X-TCOS-Dashboard-Preference-Kind`, `X-TCOS-Dashboard-Preference-Mutation`, and `X-TCOS-Dashboard-Preference-Id`
 - sports dashboard preferences are stored locally first; live news, scores, schedules, and odds require approved data providers later
 - market watchlist preferences support stocks, ETFs, indexes, crypto, NFTs, commodities, collectable indexes, and other assets
 - `/admin/accounts` shows customer accounts, linked order counts, offer counts, TOS status, and linked revenue
