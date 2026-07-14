@@ -83,6 +83,20 @@ function hostFor(url) {
   }
 }
 
+function hasShippingProviderSetupHeaders(result) {
+  return (
+    result.response?.headers.get("x-tcos-shipping-provider-decision") !==
+      null &&
+    result.response?.headers.get("x-tcos-shipping-provider-missing-groups") !==
+      null &&
+    result.response?.headers.get("x-tcos-shipping-provider-live-blockers") !==
+      null &&
+    result.response?.headers.get("x-tcos-shipping-provider-contract-ready") ===
+      "ready" &&
+    result.response?.headers.get("x-tcos-shipping-provider-summary") !== null
+  );
+}
+
 if (hostFor(baseUrl) && hostFor(baseUrl) === hostFor(unwantedAliasUrl)) {
   console.error(
     `Refusing to smoke test the unwanted production alias: ${baseUrl}. Use the clean production domain instead.`,
@@ -1052,16 +1066,7 @@ const checks = [
       result.text.includes('"envTemplate"') &&
       result.text.includes('"vercelCommands"') &&
       result.text.includes('"operatorChecklist"') &&
-      result.response?.headers.get("x-tcos-shipping-provider-decision") !==
-        null &&
-      result.response?.headers.get("x-tcos-shipping-provider-missing-groups") !==
-        null &&
-      result.response?.headers.get("x-tcos-shipping-provider-live-blockers") !==
-        null &&
-      result.response?.headers.get("x-tcos-shipping-provider-contract-ready") ===
-        "ready" &&
-      result.response?.headers.get("x-tcos-shipping-provider-summary") !==
-        null &&
+      hasShippingProviderSetupHeaders(result) &&
       !result.text.includes("sk_live_") &&
       !result.text.includes("whsec_"),
   },
@@ -1080,16 +1085,7 @@ const checks = [
       result.text.includes("not third-party insurance") &&
       result.text.includes("liveRequirementBlockers") &&
       result.text.includes("missingCredentialKeys") &&
-      result.response?.headers.get("x-tcos-shipping-provider-decision") !==
-        null &&
-      result.response?.headers.get("x-tcos-shipping-provider-missing-groups") !==
-        null &&
-      result.response?.headers.get("x-tcos-shipping-provider-live-blockers") !==
-        null &&
-      result.response?.headers.get("x-tcos-shipping-provider-contract-ready") ===
-        "ready" &&
-      result.response?.headers.get("x-tcos-shipping-provider-summary") !==
-        null &&
+      hasShippingProviderSetupHeaders(result) &&
       !result.text.includes("sk_live_") &&
       !result.text.includes("whsec_"),
   },
@@ -1109,6 +1105,7 @@ const checks = [
       result.text.includes("Not insurance: LetterTrack / USPS IMb is delivery-evidence tracking") &&
       result.text.includes("TCOS_SHIPPING_PURCHASE_MODE=dry_run") &&
       result.text.includes("TCOS_LIVE_SHIPPING_ENABLED=false") &&
+      hasShippingProviderSetupHeaders(result) &&
       !result.text.includes("sk_live_") &&
       !result.text.includes("whsec_"),
   },
@@ -1122,6 +1119,7 @@ const checks = [
       result.text.includes("Stage Vercel environment names") &&
       result.text.includes("# Production environment") &&
       result.text.includes("TCOS_LIVE_SHIPPING_ENABLED") &&
+      hasShippingProviderSetupHeaders(result) &&
       !result.text.includes("sk_live_") &&
       !result.text.includes("whsec_"),
   },
@@ -1142,6 +1140,7 @@ const checks = [
       result.text.includes("Not insurance: LetterTrack / USPS IMb is delivery-evidence tracking") &&
       result.text.includes("Keep TCOS_SHIPPING_PURCHASE_MODE=dry_run") &&
       result.text.includes("Keep TCOS_LIVE_SHIPPING_ENABLED=false") &&
+      hasShippingProviderSetupHeaders(result) &&
       !result.text.includes("sk_live_") &&
       !result.text.includes("whsec_"),
   },
