@@ -44,7 +44,7 @@ Production uses `next build --webpack`. Tailwind 4 automatic source discovery is
 
 Production launch command-pins Vercel CLI `56.2.0` through isolated `npm exec --package=vercel@56.2.0`. Preflight verifies that exact CLI before upload, while its operating-system temporary cache stays outside application `node_modules` and the lockfile. Every Vercel call receives `--cwd` with the repository root, so tool isolation cannot change the deployment target. A clean checkout can therefore deploy reproducibly without a machine-global `vercel` command.
 
-Production target overrides accept only valid DNS hostnames or root HTTP(S) URLs. Credentials, ports, paths, queries, fragments, IPs, single-label names, and malformed DNS labels fail without echoing the rejected value. Normal deploys also enforce the local quota cooldown before npm exec or Git fetch; quota-independent preflight remains available while waiting.
+Production deploy and smoke target overrides accept only valid DNS hostnames or root HTTP(S) URLs. Credentials, ports, paths, queries, fragments, IPs, single-label names, and malformed DNS labels fail without echoing the rejected value. Smoke therefore cannot silently discard an unsafe suffix and validate a different origin than the operator supplied. Normal deploys also enforce the local quota cooldown before npm exec or Git fetch; quota-independent preflight remains available while waiting.
 
 The protected live deploy sequence removes the unwanted `truely-collectables-tt3b.vercel.app` alias, sets the clean production alias, clears the local quota marker only after that alias succeeds, prints `DEPLOYED_PRODUCTION=`, prints `CLEAN_PRODUCTION=https://`, then prints the smoke handoff command.
 
@@ -97,6 +97,7 @@ That command is deploy-safe and focused: it runs only the InstaComp queue and ac
 - Keep `https://truely-collectables.vercel.app` as the clean production domain.
 - Do not restore or rely on `truely-collectables-tt3b.vercel.app`.
 - Do not override `SMOKE_BASE_URL` to `truely-collectables-tt3b.vercel.app`; production smoke refuses that host.
+- Keep `SMOKE_BASE_URL` and `SMOKE_UNWANTED_ALIAS_URL` to bare DNS hostnames or root HTTP(S) URLs; smoke rejects credentials, ports, paths, queries, fragments, IPs, and single-label names before any request.
 - Commit and push all launch-bound work before production deploy.
 - Use `npm run launch:production` only when Vercel deploy quota is available and a real production deploy is intended.
 - If Vercel reports `api-deployments-free-per-day`, wait for the rolling 24-hour quota reset before retrying the launch helper; repeated retries can still upload files before Vercel returns the quota error. The deploy helper records `.codex-run/vercel-quota-block.json` and stops later attempts before upload unless `TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true` or `--force-quota-retry` is used intentionally.

@@ -189,6 +189,8 @@ export default function ProductionSmokePage() {
             {" "}
             {DEPLOY_SAFETY.targetHostRequirement}
             {" "}
+            {DEPLOY_SAFETY.smokeTargetRequirement}
+            {" "}
             {DEPLOY_SAFETY.quotaEarlyStopRequirement}
           </p>
           <h3 className="mt-5 font-black">Protected deploy sequence</h3>

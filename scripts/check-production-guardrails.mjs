@@ -205,7 +205,8 @@ assertFileIncludes("command-pinned Vercel CLI README", "README.md", [
   "without a machine-global `vercel` command",
   "temporary cache stays outside application `node_modules` and the lockfile",
   "Every Vercel call receives `--cwd` with the repository root",
-  "Production target overrides accept only valid DNS hostnames or root HTTP(S) URLs",
+  "Production deploy and smoke target overrides accept only valid DNS hostnames or root HTTP(S) URLs",
+  "Smoke therefore cannot silently discard an unsafe suffix",
   "Normal deploys also enforce the local quota cooldown before npm exec or Git fetch",
   "Unwanted-alias cleanup must succeed",
 ]);
@@ -218,6 +219,7 @@ assertFileIncludes(
     "outside the application lockfile and `node_modules`",
     "every Vercel call also receives `--cwd` with the TCOS repository root",
     "accepts `VERCEL_CLEAN_DOMAIN` and `VERCEL_UNWANTED_ALIAS` only as valid bare DNS hostnames or root HTTP(S) URLs",
+    "smoke helper applies the same strict shape to `SMOKE_BASE_URL` plus `SMOKE_UNWANTED_ALIAS_URL` before any request",
     "local quota cooldown check runs before command-pinned npm exec or Git fetch",
     "Unwanted-alias cleanup must succeed",
   ],
@@ -228,6 +230,7 @@ assertFileIncludes("command-pinned Vercel CLI handoff", "CHAT_HANDOFF.md", [
   "outside application `node_modules` and the lockfile",
   "every Vercel call receives `--cwd` with the repository root",
   "rejects credentials, ports, paths, queries, fragments, IPs, single-label names, and malformed DNS labels",
+  "rejects smoke targets containing credentials, ports, paths, queries, fragments, IPs, single-label names, or malformed DNS labels",
   "checks that cooldown before command-pinned npm exec or Git fetch on normal deploys",
   "unwanted-alias removal succeeds",
   "preserves the marker and clean-domain target",
@@ -480,6 +483,7 @@ assertFileIncludes(
     "DEPLOY_SAFETY.vercelCliRequirement",
     "DEPLOY_SAFETY.unwantedAliasCleanupRequirement",
     "DEPLOY_SAFETY.targetHostRequirement",
+    "DEPLOY_SAFETY.smokeTargetRequirement",
     "DEPLOY_SAFETY.quotaEarlyStopRequirement",
     "Check the local Vercel cooldown",
     "starts no upload or deployment",
@@ -496,6 +500,7 @@ assertFileIncludes(
     "DEPLOY_SAFETY.vercelCliRequirement",
     "DEPLOY_SAFETY.unwantedAliasCleanupRequirement",
     "DEPLOY_SAFETY.targetHostRequirement",
+    "DEPLOY_SAFETY.smokeTargetRequirement",
     "DEPLOY_SAFETY.quotaEarlyStopRequirement",
     "Before the retry time, use the read-only quota check",
   ],
@@ -511,6 +516,7 @@ assertFileIncludes(
     "DEPLOY_SAFETY.vercelCliRequirement",
     "DEPLOY_SAFETY.unwantedAliasCleanupRequirement",
     "DEPLOY_SAFETY.targetHostRequirement",
+    "DEPLOY_SAFETY.smokeTargetRequirement",
     "DEPLOY_SAFETY.quotaEarlyStopRequirement",
     "exact read-only local retry status",
   ],
@@ -524,12 +530,14 @@ assertFileIncludes("quota status production smoke coverage", "scripts/smoke-prod
   '"vercelCliRequirement"',
   '"unwantedAliasCleanupRequirement"',
   '"targetHostRequirement"',
+  '"smokeTargetRequirement"',
   '"quotaEarlyStopRequirement"',
   "Clear the local quota marker only after Vercel returns a parsed deployment URL and the clean production alias succeeds",
   "Require vercel --prod to exit successfully before parsing its deployment URL, running alias commands, or clearing the quota marker",
   "Use command-pinned Vercel CLI 56.2.0 through isolated npm exec",
   "Require unwanted-alias removal to succeed or return Vercel CLI's explicit alias-not-found result",
   "Accept production target overrides only as valid DNS hostnames or root HTTP(S) URLs",
+  "Accept production smoke targets only as valid DNS hostnames or root HTTP(S) URLs",
   "On normal deploys, enforce the local quota cooldown before npm exec, Git fetch, build, upload, or deployment",
   "npm run status:production",
 ]);
@@ -545,6 +553,7 @@ assertFileIncludes("quota status operator instructions", "docs/TCOS_OPERATOR_MAN
   "command-pins Vercel CLI `56.2.0` through isolated `npm exec --package=vercel@56.2.0`",
   "Unwanted-alias cleanup is also fail closed",
   "Production target overrides are strict",
+  "Production smoke targets are equally strict",
   "normal deploy path checks this local cooldown before command-pinned npm exec, Git fetch, build, Vercel upload, or deployment",
   "self-test must never use the production marker path",
   "launch-readiness JSON and Markdown",
@@ -565,6 +574,7 @@ assertFileIncludes(
     "command-pins Vercel CLI <code>56.2.0</code> through isolated <code>npm exec --package=vercel@56.2.0</code>",
     "Unwanted-alias cleanup is also fail closed",
     "Production target overrides are strict",
+    "Production smoke targets are equally strict",
     "normal deploy path checks this local cooldown before command-pinned npm exec, Git fetch, build, Vercel upload, or deployment",
     "self-test must never use the production marker path",
     "launch-readiness JSON and Markdown",
@@ -575,6 +585,36 @@ runExpectedSuccess("smoke helper syntax check", [
   "--check",
   "scripts/smoke-production.mjs",
 ]);
+runExpectedSuccess(
+  "smoke helper target-origin normalization self-test",
+  ["scripts/smoke-production.mjs", "--self-test-target-origins"],
+  {
+    ADMIN_PASSWORD: "",
+    SMOKE_ADMIN_PASSWORD: "",
+    SMOKE_BASE_URL: "https://truely-collectables.vercel.app",
+  },
+);
+runExpectedFailure(
+  "smoke helper rejects target URL paths",
+  ["scripts/smoke-production.mjs"],
+  {
+    ADMIN_PASSWORD: "",
+    SMOKE_ADMIN_PASSWORD: "",
+    SMOKE_BASE_URL: "https://launch.example.com/not-the-root",
+  },
+  "SMOKE_BASE_URL must be a root HTTP(S) URL without credentials, port, path, query, or fragment",
+);
+runExpectedFailure(
+  "smoke helper rejects target URL credentials",
+  ["scripts/smoke-production.mjs"],
+  {
+    ADMIN_PASSWORD: "",
+    SMOKE_ADMIN_PASSWORD: "",
+    SMOKE_BASE_URL:
+      "https://operator:guardrail-smoke-secret@launch.example.com/",
+  },
+  "SMOKE_BASE_URL must be a root HTTP(S) URL without credentials, port, path, query, or fragment",
+);
 runExpectedSuccess("shipping simulation runner syntax check", [
   "--import",
   "tsx",
@@ -2860,6 +2900,23 @@ assertFileIncludes("smoke unwanted alias label", "scripts/smoke-production.mjs",
   "SMOKE_UNWANTED_ALIAS_URL",
   "truely-collectables-tt3b.vercel.app",
 ]);
+assertFileIncludes(
+  "smoke strict target-origin contract",
+  "scripts/smoke-production.mjs",
+  [
+    'import { isIP } from "node:net"',
+    "--self-test-target-origins",
+    "Production smoke target-origin self-test passed.",
+    "must be a valid DNS hostname or root HTTP(S) URL",
+    "must be a root HTTP(S) URL without credentials, port, path, query, or fragment",
+    "must be a bare DNS hostname or root HTTP(S) URL",
+    "must resolve to a valid DNS hostname with at least two labels",
+    "hasExplicitPort",
+    '"https://launch.example.com:443/"',
+    '"http://launch.example.com:80/"',
+    'message.includes("smoke-secret")',
+  ],
+);
 runExpectedSuccess(
   "smoke diagnostic redaction self-test",
   ["scripts/smoke-production.mjs", "--self-test-redaction"],
@@ -2980,6 +3037,9 @@ assertFileIncludes("deploy helper production target defaults", "scripts/deploy-p
   "root HTTP(S) URL without credentials, port, path, query, or fragment",
   "valid DNS hostname with at least two labels",
   "isIP(hostname) !== 0",
+  "hasExplicitPort",
+  '"https://launch.example.com:443/"',
+  '"http://launch.example.com:80/"',
 ]);
 
 assertFileIncludes("deploy helper quota block defaults", "scripts/deploy-production.mjs", [
@@ -3047,6 +3107,7 @@ assertFileIncludes("deploy live safety centralized source", "src/lib/deploy-safe
   "vercelCliRequirement",
   "unwantedAliasCleanupRequirement",
   "targetHostRequirement",
+  "smokeTargetRequirement",
   "quotaEarlyStopRequirement",
   "local Vercel quota cooldown marker",
   "Ship only after smoke passes clean production",
@@ -3140,9 +3201,12 @@ assertFileIncludes(
     "fail-closed unwanted-alias cleanup",
     "targetHostRequirement:",
     "Accept production target overrides only as valid DNS hostnames or root HTTP(S) URLs without credentials, ports, paths, queries, fragments, IP addresses, or single-label names.",
+    "smokeTargetRequirement:",
+    "Accept production smoke targets only as valid DNS hostnames or root HTTP(S) URLs without credentials, ports, paths, queries, fragments, IP addresses, or single-label names.",
     "quotaEarlyStopRequirement:",
     "On normal deploys, enforce the local quota cooldown before npm exec, Git fetch, build, upload, or deployment; preflight-only remains quota-independent.",
     "strict production target-host validation",
+    "strict production smoke-target validation",
     "pre-CLI normal-deploy quota stop",
   ],
 );
@@ -3531,7 +3595,7 @@ runExpectedFailure(
   {
     ADMIN_PASSWORD: "",
     SMOKE_ADMIN_PASSWORD: "",
-    SMOKE_BASE_URL: "TRUELY-COLLECTABLES-TT3B.vercel.app/smoke-path",
+    SMOKE_BASE_URL: "TRUELY-COLLECTABLES-TT3B.vercel.app",
     SMOKE_UNWANTED_ALIAS_URL: "https://truely-collectables-tt3b.vercel.app/",
   },
   "Refusing to smoke test the unwanted production alias",

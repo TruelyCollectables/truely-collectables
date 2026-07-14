@@ -7,7 +7,7 @@ Generated for the next Codex session during the production launch stacking pass.
 - Workspace: `/Users/davidbakanas/Documents/GitHub/truely-collectables`
 - Branch: `main`
 - GitHub remote: `https://github.com/TruelyCollectables/truely-collectables.git`
-- Recent verified production-safe stack includes `44a49a4 Harden operator manual PDF generation` and `38a752d Refresh launch handoff state`.
+- Recent verified production-safe stack includes `1fc532d Validate production deploy targets`, `b11d853 Harden Vercel CLI launch path`, and `3b3d64b Harden deploy result validation`.
 - Local `HEAD` and `origin/main` matched after the latest post-push `npm run preflight:production`.
 - Working tree was clean after that preflight.
 - `.codex-run/` is ignored in `.gitignore`; leave the folder contents alone unless the user explicitly says to delete them.
@@ -103,7 +103,8 @@ The smoke helper:
 
 - logs in using `SMOKE_ADMIN_PASSWORD`, `ADMIN_PASSWORD`, or `.env.local` `ADMIN_PASSWORD`;
 - checks admin, launch readiness, Launch Gate Drill, live payment/shipping gates, production smoke page, shipping simulation surfaces, shipping provider exports, shipping exceptions export, LetterTrack CSV export, Seller Connections Marketplace Packet Intake, seller receipt handoff controls, and seller inventory/order/payout auth gates;
-- normalizes `SMOKE_BASE_URL` and `SMOKE_UNWANTED_ALIAS_URL` from hostnames or URLs;
+- normalizes `SMOKE_BASE_URL` and `SMOKE_UNWANTED_ALIAS_URL` from valid bare DNS hostnames or root HTTP(S) URLs;
+- rejects smoke targets containing credentials, ports, paths, queries, fragments, IPs, single-label names, or malformed DNS labels before admin authentication, Git fetch, or HTTP requests, without echoing rejected values;
 - refuses to run when `SMOKE_BASE_URL` resolves to `truely-collectables-tt3b.vercel.app`;
 - fails if the unwanted `truely-collectables-tt3b.vercel.app` alias returns a successful response;
 - prints failed-check HTTP status, content type, request duration, and short response/error snippets redacted for Stripe, webhook, JWT, Resend, auth-header, query-token, API-key, password, and JSON secret values;
@@ -134,10 +135,10 @@ Most recent notable validation:
   - `npm audit --omit=dev` reports zero vulnerabilities after the override.
   - Production guardrails pin the aligned Next.js versions and PostCSS override until a later verified Next.js release carries the fix directly.
 - Current 30-minute build block:
-  - Replaced `next/font/google` with the locally packaged `geist` font exports while preserving the existing Geist CSS variables and typography.
-  - Added `tsx` as a direct development dependency because shipping verification imports it; clean installs no longer depend on an accidental transitive package.
-  - Added production guardrails for both build-reliability contracts.
-  - A sandboxed `npm run build` passed without Google Fonts network access; lint, InstaComp verification, shipping verification, production guardrails, and regenerated manual HTML/PDF also passed.
+  - Made `SMOKE_BASE_URL` and `SMOKE_UNWANTED_ALIAS_URL` fail closed on credentials, explicit ports (including `:443` and `:80`), paths, queries, fragments, IPs, single-label names, and malformed DNS labels before authentication or network requests.
+  - Closed the same explicit-default-port parser edge in deploy target validation.
+  - Added deterministic target self-tests, direct failure fixtures, shared launch-readiness contracts, smoke coverage, and operator documentation.
+  - Lint, InstaComp verification, shipping verification, production build, production guardrails, both dependency audits, and regenerated manual HTML/PDF passed; the pre-commit preflight stopped only on the expected dirty worktree without starting a deployment.
 - `cc36a5b Harden marketplace packet intake guardrails`
   - Added visible `/seller/marketplaces` no-op chips for no payout release, no order fulfillment, and no automatic under-$20 protection activation.
   - Updated production smoke and guardrails.
@@ -158,7 +159,7 @@ Manual generation status:
 npm run manual:pdf
 ```
 
-- The manual HTML and PDF are current as of commit `44a49a4`.
+- The manual HTML and PDF were regenerated for the current launch-safety stack.
 - Local PDF generation previously failed on this Mac workspace because the script only knew Windows browser paths and could hang after Chrome wrote the PDF.
 - That recurring stale-PDF issue is fixed and guarded.
 
@@ -167,6 +168,9 @@ npm run manual:pdf
 Most recent commits, newest first:
 
 ```text
+1fc532d Validate production deploy targets
+b11d853 Harden Vercel CLI launch path
+3b3d64b Harden deploy result validation
 38a752d Refresh launch handoff state
 44a49a4 Harden operator manual PDF generation
 2400ce8 Guard README launch contract wording
@@ -206,6 +210,7 @@ Recent queued work added or hardened:
 - bounded Tailwind 4 source detection across `src/**`, preventing cold production builds from recursively scanning FileProvider workspace metadata, generated caches, documentation artifacts, and dependencies.
 - command-pinned Vercel CLI `56.2.0` preflight and fail-closed unwanted-alias cleanup before clean-domain aliasing.
 - strict production target-host validation and a pre-CLI/pre-Git normal-deploy quota stop.
+- strict production smoke-target validation before any authentication or network request.
 
 These may fail production smoke until a successful Vercel deploy lands the queued commits.
 

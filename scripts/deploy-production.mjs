@@ -67,11 +67,18 @@ function normalizeVercelHost(value, label) {
       );
     }
 
+    const authority = trimmed
+      .slice(trimmed.indexOf("://") + 3)
+      .split(/[/?#]/, 1)[0];
+    const authorityHost = authority.slice(authority.lastIndexOf("@") + 1);
+    const hasExplicitPort = authorityHost.includes(":");
+
     if (
       (url.protocol !== "https:" && url.protocol !== "http:") ||
       url.username ||
       url.password ||
       url.port ||
+      hasExplicitPort ||
       (url.pathname && url.pathname !== "/") ||
       url.search ||
       url.hash
@@ -491,6 +498,8 @@ function runTargetHostSelfTest() {
     "ftp://launch.example.com",
     "https://operator:user-secret@launch.example.com/",
     "https://launch.example.com:444/",
+    "https://launch.example.com:443/",
+    "http://launch.example.com:80/",
     "https://launch.example.com/path",
     "https://launch.example.com/?target=other.example.com",
     "https://launch.example.com/#fragment",

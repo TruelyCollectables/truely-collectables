@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { isIP } from "node:net";
 
 const baseUrl = normalizeSmokeOrigin(
   process.env.SMOKE_BASE_URL || "https://truely-collectables.vercel.app",
@@ -15,6 +16,7 @@ const requestTimeoutMs = Math.max(
   Number(process.env.SMOKE_REQUEST_TIMEOUT_MS || 15000) || 15000,
 );
 const redactionSelfTest = process.argv.includes("--self-test-redaction");
+const targetOriginSelfTest = process.argv.includes("--self-test-target-origins");
 const sellerMarketplaceReceiptHandoffSmoke = {
   title: "Seller Marketplace Receipt Handoff",
   route: "/seller/marketplaces",
@@ -69,13 +71,124 @@ function normalizeSmokeOrigin(value, label) {
     throw new Error(`${label} cannot be empty.`);
   }
 
-  const urlText = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+  const hasScheme = /^[a-z][a-z\d+.-]*:\/\//i.test(trimmed);
+  if (!hasScheme && /[\s\/:?#@]/.test(trimmed)) {
+    throw new Error(
+      `${label} must be a bare DNS hostname or root HTTP(S) URL.`,
+    );
+  }
+
+  const urlText = hasScheme ? trimmed : `https://${trimmed}`;
+  let url;
 
   try {
-    return new URL(urlText).origin.toLowerCase();
+    url = new URL(urlText);
   } catch {
-    throw new Error(`${label} must be a valid production URL or hostname.`);
+    throw new Error(
+      `${label} must be a valid DNS hostname or root HTTP(S) URL.`,
+    );
   }
+
+  const authority = urlText
+    .slice(urlText.indexOf("://") + 3)
+    .split(/[/?#]/, 1)[0];
+  const authorityHost = authority.slice(authority.lastIndexOf("@") + 1);
+  const hasExplicitPort = authorityHost.includes(":");
+
+  if (
+    (url.protocol !== "https:" && url.protocol !== "http:") ||
+    url.username ||
+    url.password ||
+    url.port ||
+    hasExplicitPort ||
+    (url.pathname && url.pathname !== "/") ||
+    url.search ||
+    url.hash
+  ) {
+    throw new Error(
+      `${label} must be a root HTTP(S) URL without credentials, port, path, query, or fragment.`,
+    );
+  }
+
+  const hostname = url.hostname.toLowerCase();
+  const labels = hostname.split(".");
+  const validDnsLabels = labels.every(
+    (part) =>
+      part.length >= 1 &&
+      part.length <= 63 &&
+      /^[a-z\d](?:[a-z\d-]*[a-z\d])?$/.test(part),
+  );
+
+  if (
+    hostname.length > 253 ||
+    labels.length < 2 ||
+    hostname.endsWith(".") ||
+    isIP(hostname) !== 0 ||
+    !validDnsLabels
+  ) {
+    throw new Error(
+      `${label} must resolve to a valid DNS hostname with at least two labels.`,
+    );
+  }
+
+  return `${url.protocol}//${hostname}`;
+}
+
+function runTargetOriginSelfTest() {
+  const validCases = [
+    ["TRUELY-COLLECTABLES.VERCEL.APP", "https://truely-collectables.vercel.app"],
+    ["https://Truely-Collectables.Vercel.App/", "https://truely-collectables.vercel.app"],
+    ["http://launch.example.com/", "http://launch.example.com"],
+  ];
+
+  for (const [input, expected] of validCases) {
+    const actual = normalizeSmokeOrigin(input, "SELF_TEST_SMOKE_TARGET");
+    if (actual !== expected) {
+      throw new Error(
+        `Smoke target-origin self-test normalized ${input} to ${actual}; expected ${expected}.`,
+      );
+    }
+  }
+
+  const invalidCases = [
+    "",
+    "https://",
+    "ftp://launch.example.com",
+    "https://operator:smoke-secret@launch.example.com/",
+    "https://launch.example.com:444/",
+    "https://launch.example.com:443/",
+    "http://launch.example.com:80/",
+    "https://launch.example.com/path",
+    "https://launch.example.com/?target=other.example.com",
+    "https://launch.example.com/#fragment",
+    "launch.example.com/path",
+    "launch_example.com",
+    "-launch.example.com",
+    "launch..example.com",
+    "launch.example.com.",
+    "127.0.0.1",
+    "localhost",
+  ];
+
+  for (const input of invalidCases) {
+    try {
+      normalizeSmokeOrigin(input, "SELF_TEST_SMOKE_TARGET");
+      throw new Error(
+        `Smoke target-origin self-test accepted invalid input: ${input}`,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (
+        message.includes("accepted invalid input") ||
+        !message.includes("SELF_TEST_SMOKE_TARGET") ||
+        message.includes("smoke-secret")
+      ) {
+        throw error;
+      }
+    }
+  }
+
+  console.log("Production smoke target-origin self-test passed.");
 }
 
 function envValueFromLocalFile(key) {
@@ -100,6 +213,11 @@ const adminPassword =
   process.env.SMOKE_ADMIN_PASSWORD ||
   process.env.ADMIN_PASSWORD ||
   envValueFromLocalFile("ADMIN_PASSWORD");
+
+if (targetOriginSelfTest) {
+  runTargetOriginSelfTest();
+  process.exit(0);
+}
 
 function hostFor(url) {
   try {
@@ -512,6 +630,7 @@ const checks = [
       result.text.includes("Use command-pinned Vercel CLI 56.2.0 through isolated npm exec") &&
       result.text.includes("Require unwanted-alias removal to succeed or return Vercel CLI's explicit alias-not-found result") &&
       result.text.includes("Accept production target overrides only as valid DNS hostnames or root HTTP(S) URLs") &&
+      result.text.includes("Accept production smoke targets only as valid DNS hostnames or root HTTP(S) URLs") &&
       result.text.includes("On normal deploys, enforce the local quota cooldown before npm exec, Git fetch, build, upload, or deployment") &&
       result.text.includes("print DEPLOYED_PRODUCTION") &&
       result.text.includes("print CLEAN_PRODUCTION") &&
@@ -558,6 +677,7 @@ const checks = [
       result.text.includes('"vercelCliRequirement"') &&
       result.text.includes('"unwantedAliasCleanupRequirement"') &&
       result.text.includes('"targetHostRequirement"') &&
+      result.text.includes('"smokeTargetRequirement"') &&
       result.text.includes('"quotaEarlyStopRequirement"') &&
       result.text.includes("rolling 24-hour quota reset") &&
       result.text.includes("Vercel can still upload files before returning the quota error") &&
@@ -572,6 +692,7 @@ const checks = [
       result.text.includes("Use command-pinned Vercel CLI 56.2.0 through isolated npm exec") &&
       result.text.includes("Require unwanted-alias removal to succeed or return Vercel CLI's explicit alias-not-found result") &&
       result.text.includes("Accept production target overrides only as valid DNS hostnames or root HTTP(S) URLs") &&
+      result.text.includes("Accept production smoke targets only as valid DNS hostnames or root HTTP(S) URLs") &&
       result.text.includes("On normal deploys, enforce the local quota cooldown before npm exec, Git fetch, build, upload, or deployment") &&
       result.text.includes("print DEPLOYED_PRODUCTION") &&
       result.text.includes("print CLEAN_PRODUCTION") &&
@@ -619,6 +740,7 @@ const checks = [
       result.text.includes("Use command-pinned Vercel CLI 56.2.0 through isolated npm exec") &&
       result.text.includes("Require unwanted-alias removal to succeed or return Vercel CLI's explicit alias-not-found result") &&
       result.text.includes("Accept production target overrides only as valid DNS hostnames or root HTTP(S) URLs") &&
+      result.text.includes("Accept production smoke targets only as valid DNS hostnames or root HTTP(S) URLs") &&
       result.text.includes("On normal deploys, enforce the local quota cooldown before npm exec, Git fetch, build, upload, or deployment") &&
       result.text.includes("print DEPLOYED_PRODUCTION") &&
       result.text.includes("print CLEAN_PRODUCTION") &&
@@ -720,6 +842,7 @@ const checks = [
       "Use command-pinned Vercel CLI 56.2.0 through isolated npm exec",
       "Require unwanted-alias removal to succeed or return Vercel CLI's explicit alias-not-found result",
       "Accept production target overrides only as valid DNS hostnames or root HTTP(S) URLs",
+      "Accept production smoke targets only as valid DNS hostnames or root HTTP(S) URLs",
       "On normal deploys, enforce the local quota cooldown before npm exec, Git fetch, build, upload, or deployment",
       ".codex-run/vercel-quota-block.json",
       "TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true",
@@ -936,6 +1059,7 @@ const checks = [
       "Use command-pinned Vercel CLI 56.2.0 through isolated npm exec",
       "Require unwanted-alias removal to succeed or return Vercel CLI's explicit alias-not-found result",
       "Accept production target overrides only as valid DNS hostnames or root HTTP(S) URLs",
+      "Accept production smoke targets only as valid DNS hostnames or root HTTP(S) URLs",
       "On normal deploys, enforce the local quota cooldown before npm exec, Git fetch, build, upload, or deployment",
       "deploy live safety contract",
       "## Production Go/No-Go Ladder",

@@ -1221,6 +1221,8 @@ export default async function LaunchReadinessPage() {
               {" "}
               {DEPLOY_SAFETY.targetHostRequirement}
               {" "}
+              {DEPLOY_SAFETY.smokeTargetRequirement}
+              {" "}
               {DEPLOY_SAFETY.quotaEarlyStopRequirement}
             </p>
           </div>

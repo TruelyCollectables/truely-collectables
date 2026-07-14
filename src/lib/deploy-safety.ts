@@ -25,6 +25,8 @@ export const DEPLOY_SAFETY = {
     "Require unwanted-alias removal to succeed or return Vercel CLI's explicit alias-not-found result before clean-domain aliasing or quota-marker clearing.",
   targetHostRequirement:
     "Accept production target overrides only as valid DNS hostnames or root HTTP(S) URLs without credentials, ports, paths, queries, fragments, IP addresses, or single-label names.",
+  smokeTargetRequirement:
+    "Accept production smoke targets only as valid DNS hostnames or root HTTP(S) URLs without credentials, ports, paths, queries, fragments, IP addresses, or single-label names.",
   quotaEarlyStopRequirement:
     "On normal deploys, enforce the local quota cooldown before npm exec, Git fetch, build, upload, or deployment; preflight-only remains quota-independent.",
   contract: [
@@ -38,6 +40,7 @@ export const DEPLOY_SAFETY = {
     "command-pinned Vercel CLI preflight",
     "fail-closed unwanted-alias cleanup",
     "strict production target-host validation",
+    "strict production smoke-target validation",
     "pre-CLI normal-deploy quota stop",
     "deployed URL output",
     "clean URL output",
