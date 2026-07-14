@@ -220,6 +220,11 @@ assertFileIncludes("launch readiness smoke contract", "scripts/smoke-production.
   'path: "/admin/launch-readiness"',
   "Launch Readiness",
   "Production Deploy Queue",
+  "Shipping Provider Unlock Action Plan",
+  "Choose provider accounts",
+  "Stage Vercel environment names",
+  "Keep shipping runtime locked",
+  "Export operator checklist",
   "npm run verify:production",
   "git fetch origin main",
   'optionalRun("git", ["rev-parse", "origin/main"])',
@@ -1428,6 +1433,12 @@ assertFileIncludes("deploy live safety launch readiness page", "src/app/admin/la
   "DEPLOY_SAFETY.sequence",
   "deployed URL output",
   "clean URL output",
+  "ProviderSetupActionPlanStep",
+  "Shipping Provider Unlock Action Plan",
+  "actionPlan.map",
+  "/api/admin/shipping/provider-setup?format=env-template",
+  "/api/admin/shipping/provider-setup?format=vercel-commands",
+  "/api/admin/shipping/provider-setup?format=operator-checklist",
 ]);
 
 assertFileIncludes("deploy live safety runbook", "docs/PRODUCTION_DEPLOY_RUNBOOK.md", [

@@ -361,6 +361,11 @@ const checks = [
     expect: (result) =>
       result.text.includes("Launch Readiness") &&
       result.text.includes("Production Deploy Queue") &&
+      result.text.includes("Shipping Provider Unlock Action Plan") &&
+      result.text.includes("Choose provider accounts") &&
+      result.text.includes("Stage Vercel environment names") &&
+      result.text.includes("Keep shipping runtime locked") &&
+      result.text.includes("Export operator checklist") &&
       result.text.includes("npm run verify:production") &&
       result.text.includes("git fetch origin main") &&
       result.text.includes("git rev-parse --short HEAD") &&

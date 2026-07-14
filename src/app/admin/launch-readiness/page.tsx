@@ -12,6 +12,7 @@ import { getActiveStoreId } from "../../../lib/stores";
 import { createSupabaseServerClient } from "../../../lib/supabase-server";
 import {
   buildShippingProviderSetupPacket,
+  type ProviderSetupActionPlanStep,
   type ProviderSetupDecision,
 } from "../../../lib/shipping-provider-setup";
 import { getDryRunShippingCleanupSummary } from "../../../lib/shipping-dry-run-cleanup";
@@ -990,6 +991,7 @@ export default async function LaunchReadinessPage() {
     checkLivePaymentLaunchReadiness(),
     checkLiveShippingLaunchReadiness(),
   ]);
+  const shippingProviderSetup = buildShippingProviderSetupPacket();
   const baseItems = buildReadinessItems(storeSettings);
   const items = [
     ...baseItems,
@@ -1271,6 +1273,10 @@ ${DEPLOY_SAFETY.smokeCommand}`}
         </div>
       </section>
 
+      <ShippingProviderUnlockPlan
+        actionPlan={shippingProviderSetup.actionPlan}
+      />
+
       {attentionItems.length > 0 ? (
         <section className="mb-8 rounded border bg-white p-6">
           <div className="flex flex-wrap items-start justify-between gap-4">
@@ -1448,6 +1454,87 @@ ${DEPLOY_SAFETY.smokeCommand}`}
         ))}
       </div>
     </main>
+  );
+}
+
+function ShippingProviderUnlockPlan({
+  actionPlan,
+}: {
+  actionPlan: ProviderSetupActionPlanStep[];
+}) {
+  return (
+    <section className="mb-8 rounded border border-indigo-200 bg-indigo-50 p-6 text-indigo-950">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold">
+            Shipping Provider Unlock Action Plan
+          </h2>
+          <p className="mt-1 max-w-3xl text-sm font-semibold">
+            No-secret provider setup sequence for Standard Envelope / IMb,
+            parcel labels, and Coverage. Work these steps in order before
+            changing TCOS shipping from dry-run to live purchase mode.
+          </p>
+        </div>
+        <Link
+          href="/admin/shipping"
+          className="rounded border border-indigo-300 bg-white px-4 py-2 text-sm font-bold"
+        >
+          Open Shipping Ops
+        </Link>
+      </div>
+
+      <ol className="mt-5 grid grid-cols-1 gap-3 xl:grid-cols-5">
+        {actionPlan.map((step) => (
+          <li
+            key={step.order}
+            className={`rounded border p-4 ${
+              step.status === "ready"
+                ? "border-green-200 bg-green-50 text-green-950"
+                : step.status === "guarded"
+                  ? "border-red-200 bg-white text-red-950"
+                  : "border-amber-200 bg-white text-amber-950"
+            }`}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <h3 className="font-black">
+                {step.order}. {step.title}
+              </h3>
+              <span className="rounded border border-current px-2 py-1 text-[10px] font-black uppercase">
+                {step.status}
+              </span>
+            </div>
+            <p className="mt-2 text-xs font-semibold">{step.detail}</p>
+            <p className="mt-2 text-xs font-black">{step.action}</p>
+            <ul className="mt-2 list-disc space-y-1 pl-4 text-[11px] font-bold opacity-80">
+              {step.evidence.slice(0, 4).map((evidence) => (
+                <li key={evidence}>{evidence}</li>
+              ))}
+            </ul>
+          </li>
+        ))}
+      </ol>
+
+      <div className="mt-5 flex flex-wrap gap-3 text-sm font-bold">
+        <a
+          href="/api/admin/shipping/provider-setup?format=env-template"
+          className="rounded border border-indigo-300 bg-white px-3 py-2"
+        >
+          Export env template
+        </a>
+        <a
+          href="/api/admin/shipping/provider-setup?format=vercel-commands"
+          className="rounded border border-indigo-300 bg-white px-3 py-2"
+        >
+          Export Vercel commands
+        </a>
+        <a
+          href="/api/admin/shipping/provider-setup?format=operator-checklist"
+          className="rounded border border-indigo-300 bg-white px-3 py-2"
+        >
+          Export operator checklist
+        </a>
+      </div>
+    </section>
   );
 }
 
