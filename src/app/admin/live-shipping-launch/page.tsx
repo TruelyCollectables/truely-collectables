@@ -23,6 +23,10 @@ function label(status: LiveShippingCheckStatus) {
   return "Blocked";
 }
 
+function listValue(items: string[]) {
+  return items.length > 0 ? items.join(", ") : "none";
+}
+
 export default async function LiveShippingLaunchPage() {
   const supabase = createSupabaseServerClient({ admin: true });
   const storeId = getActiveStoreId();
@@ -51,6 +55,7 @@ export default async function LiveShippingLaunchPage() {
   const evidenceContract = providerSetupPacket.standardEnvelopeEvidenceContract;
   const evidenceContractReady =
     providerSetupPacket.standardEnvelopeEvidenceContractReady;
+  const purchaseAudit = report.purchaseAttemptAuditSimulation;
 
   return (
     <main className="min-h-screen bg-neutral-50 p-8 text-neutral-950">
@@ -245,6 +250,39 @@ export default async function LiveShippingLaunchPage() {
               </ul>
             </article>
           </div>
+
+          <article className="mt-5 rounded border border-amber-300 bg-white p-5">
+            <p className="text-xs font-black uppercase text-neutral-500">
+              Purchase-Audit Key Drift
+            </p>
+            <h3 className="mt-2 text-xl font-black">
+              Provider purchase-attempt audit manifest is{" "}
+              {purchaseAudit.scenario_key_coverage_status}
+            </h3>
+            <p className="mt-2 text-sm leading-6">
+              {purchaseAudit.passed_count}/{purchaseAudit.expected_scenario_count}{" "}
+              expected provider purchase-audit scenarios pass before live
+              postage can be approved.
+            </p>
+            <div className="mt-4 grid gap-3 text-sm md:grid-cols-2">
+              <div className="rounded border border-amber-200 bg-amber-50 p-3">
+                <p className="text-xs font-black uppercase">
+                  Missing Purchase Audit Keys
+                </p>
+                <p className="mt-1 font-bold">
+                  {listValue(purchaseAudit.missing_scenario_keys)}
+                </p>
+              </div>
+              <div className="rounded border border-amber-200 bg-amber-50 p-3">
+                <p className="text-xs font-black uppercase">
+                  Unexpected Purchase Audit Keys
+                </p>
+                <p className="mt-1 font-bold">
+                  {listValue(purchaseAudit.unexpected_scenario_keys)}
+                </p>
+              </div>
+            </div>
+          </article>
 
           <article className="mt-5 rounded border border-amber-300 bg-white p-5">
             <p className="text-xs font-black uppercase text-neutral-500">

@@ -654,6 +654,9 @@ const checks = [
       result.text.includes("LetterTrack / USPS IMb is delivery evidence, not insurance") &&
       result.text.includes("Runtime gate validator: ready") &&
       result.text.includes("Provider Purchase-Attempt Audit Suite") &&
+      result.text.includes("Purchase-Audit Key Drift") &&
+      result.text.includes("Missing Purchase Audit Keys") &&
+      result.text.includes("Unexpected Purchase Audit Keys") &&
       result.text.includes("Not insurance: LetterTrack / USPS IMb is delivery-evidence tracking") &&
       result.text.includes("Immutable Shipping Approval History") &&
       result.text.includes("Shipping Lab"),
@@ -668,6 +671,8 @@ const checks = [
       result.text.includes('"purchaseAttemptAuditSimulation"') &&
       result.text.includes('"expected_scenario_count":5') &&
       result.text.includes('"scenario_key_coverage_status":"passed"') &&
+      result.text.includes('"missing_scenario_keys":[]') &&
+      result.text.includes('"unexpected_scenario_keys":[]') &&
       result.text.includes('"evidenceProvider":"LetterTrack / USPS IMb"') &&
       result.text.includes('"trackableRequirement"') &&
       result.text.includes('"under20ProtectionModel"') &&
