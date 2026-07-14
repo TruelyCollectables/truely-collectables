@@ -40,6 +40,8 @@ npm run status:production
 
 This prints whether the local cooldown permits a retry, the recorded quota reason, exact blocked/retry timestamps, approximate remaining time, marker path, and an explicit `Vercel upload started: no` confirmation. The command is the safe check for recurring development blocks; keep building locally while it reports `state: blocked`. `TCOS_PRODUCTION_QUOTA_STATUS_ONLY=true node scripts/deploy-production.mjs` is the environment-flag equivalent.
 
+The internal quota cooldown self-test refuses to run against `.codex-run/vercel-quota-block.json`; it requires `TCOS_VERCEL_QUOTA_MARKER_PATH` to name an explicit temporary test file so validation cannot erase the real cooldown record.
+
 To run the full quota-safe production readiness check:
 
 ```bash

@@ -27,6 +27,10 @@ const quotaRetryOverride =
 const quotaCooldownHours = Number(
   process.env.TCOS_VERCEL_QUOTA_COOLDOWN_HOURS || "24",
 );
+const defaultQuotaBlockMarkerPath = path.resolve(
+  process.cwd(),
+  ".codex-run/vercel-quota-block.json",
+);
 const quotaBlockMarkerPath = path.resolve(
   process.cwd(),
   process.env.TCOS_VERCEL_QUOTA_MARKER_PATH ||
@@ -234,6 +238,12 @@ function assertNoRecentQuotaBlock() {
 }
 
 function runQuotaCooldownSelfTest() {
+  if (quotaBlockMarkerPath === defaultQuotaBlockMarkerPath) {
+    throw new Error(
+      "Refusing quota cooldown self-test against the production marker path. Set TCOS_VERCEL_QUOTA_MARKER_PATH to an explicit temporary test file.",
+    );
+  }
+
   removeQuotaBlockMarker();
   fs.mkdirSync(path.dirname(quotaBlockMarkerPath), { recursive: true });
   fs.writeFileSync(

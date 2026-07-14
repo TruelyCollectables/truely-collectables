@@ -254,6 +254,12 @@ runExpectedSuccess(
       "/tmp/tcos-vercel-quota-block-self-test.json",
   },
 );
+runExpectedFailure(
+  "deploy helper protects production quota marker from self-test",
+  ["scripts/deploy-production.mjs", "--self-test-quota-cooldown"],
+  {},
+  "Refusing quota cooldown self-test against the production marker path",
+);
 runExpectedSuccess(
   "deploy helper read-only quota status",
   ["scripts/deploy-production.mjs", "--quota-status"],
@@ -282,6 +288,7 @@ assertFileIncludes("quota status runbook instructions", "docs/PRODUCTION_DEPLOY_
   "exact blocked/retry timestamps",
   "Vercel upload started: no",
   "TCOS_PRODUCTION_QUOTA_STATUS_ONLY=true",
+  "self-test refuses to run against `.codex-run/vercel-quota-block.json`",
 ]);
 assertFileIncludes("quota status README instructions", "README.md", [
   "npm run status:production",
@@ -294,6 +301,7 @@ assertFileIncludes("quota status operator instructions", "docs/TCOS_OPERATOR_MAN
   "exact block and retry timestamps",
   "Vercel upload started: no",
   "TCOS_PRODUCTION_QUOTA_STATUS_ONLY=true",
+  "self-test must never use the production marker path",
 ]);
 assertFileIncludes(
   "printable quota status operator instructions",
@@ -303,6 +311,7 @@ assertFileIncludes(
     "exact block and retry timestamps",
     "Vercel upload started: no",
     "TCOS_PRODUCTION_QUOTA_STATUS_ONLY=true",
+    "self-test must never use the production marker path",
   ],
 );
 runExpectedSuccess("smoke helper syntax check", [
