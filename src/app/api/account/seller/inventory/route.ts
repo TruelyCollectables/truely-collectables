@@ -263,6 +263,42 @@ function mapInventoryItem(
   };
 }
 
+function sellerInventoryHeaders(params: {
+  totalItems: number;
+  draftCount: number;
+  draftReadyCount: number;
+  draftNeedsWorkCount: number;
+  activeCount: number;
+  archivedCount: number;
+  instacompDraftCount: number;
+  instacompReadyDraftCount: number;
+  standardEnvelopeCount: number;
+  sellerProtectionOptInCount: number;
+}) {
+  return {
+    "X-TCOS-Seller-Inventory-Items": String(params.totalItems),
+    "X-TCOS-Seller-Inventory-Drafts": String(params.draftCount),
+    "X-TCOS-Seller-Inventory-Draft-Ready": String(params.draftReadyCount),
+    "X-TCOS-Seller-Inventory-Draft-Needs-Work": String(
+      params.draftNeedsWorkCount,
+    ),
+    "X-TCOS-Seller-Inventory-Active": String(params.activeCount),
+    "X-TCOS-Seller-Inventory-Archived": String(params.archivedCount),
+    "X-TCOS-Seller-Inventory-InstaComp-Drafts": String(
+      params.instacompDraftCount,
+    ),
+    "X-TCOS-Seller-Inventory-InstaComp-Ready": String(
+      params.instacompReadyDraftCount,
+    ),
+    "X-TCOS-Seller-Inventory-Standard-Envelope": String(
+      params.standardEnvelopeCount,
+    ),
+    "X-TCOS-Seller-Inventory-Protection-Opt-In": String(
+      params.sellerProtectionOptInCount,
+    ),
+  };
+}
+
 export async function GET(request: Request) {
   try {
     const account = await getAuthenticatedAccountFromRequest(request);
@@ -420,24 +456,37 @@ export async function GET(request: Request) {
       );
     }).length;
 
-    return Response.json({
-      success: true,
-      summary: {
-        totalItems: inventoryItems.length,
-        draftCount: inventoryItems.filter((item) => item.status === "draft").length,
-        draftReadyCount,
-        draftNeedsWorkCount,
-        activeCount: inventoryItems.filter((item) => item.status === "active").length,
-        archivedCount: inventoryItems.filter((item) => item.status === "archived")
-          .length,
-        instacompDraftCount,
-        instacompReadyDraftCount,
-        totalQuantity,
-        totalDraftValue,
+    const summary = {
+      totalItems: inventoryItems.length,
+      draftCount: inventoryItems.filter((item) => item.status === "draft").length,
+      draftReadyCount,
+      draftNeedsWorkCount,
+      activeCount: inventoryItems.filter((item) => item.status === "active").length,
+      archivedCount: inventoryItems.filter((item) => item.status === "archived")
+        .length,
+      instacompDraftCount,
+      instacompReadyDraftCount,
+      totalQuantity,
+      totalDraftValue,
+      standardEnvelopeCount: items.filter(
+        (item) => item.shippingPlan.method === "STANDARD_ENVELOPE",
+      ).length,
+      sellerProtectionOptInCount: items.filter(
+        (item) => item.shippingPlan.sellerProtectionOptedIn,
+      ).length,
+    };
+
+    return Response.json(
+      {
+        success: true,
+        summary,
+        items,
+        recentItems,
       },
-      items,
-      recentItems,
-    });
+      {
+        headers: sellerInventoryHeaders(summary),
+      },
+    );
   } catch (error: any) {
     if (isMissingSellerInventoryTables(error)) {
       return Response.json(
