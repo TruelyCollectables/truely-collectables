@@ -331,6 +331,10 @@ runExpectedSuccess(
     SMOKE_BASE_URL: "https://truely-collectables.vercel.app",
   },
 );
+runExpectedSuccess("deploy diagnostic redaction self-test", [
+  "scripts/deploy-production.mjs",
+  "--self-test-redaction",
+]);
 assertFileIncludes("smoke diagnostic redaction coverage", "scripts/smoke-production.mjs", [
   "rk_live_fakeRestricted123456789",
   "Basic QWxhZGRpbjpvcGVuIHNlc2FtZTEyMzQ1Ng==",
@@ -342,6 +346,19 @@ assertFileIncludes("smoke diagnostic redaction coverage", "scripts/smoke-product
   "clientSecret123456789",
   "apiKey123456789",
   "password123456789",
+]);
+assertFileIncludes("deploy diagnostic redaction coverage", "scripts/deploy-production.mjs", [
+  "function redactSecrets(text)",
+  "function diagnosticSnippet(text)",
+  "Production deploy redaction self-test passed.",
+  "rk_live_fakeRestricted123456789",
+  "Basic QWxhZGRpbjpvcGVuIHNlc2FtZTEyMzQ1Ng==",
+  "client_secret=clientSecret123456789",
+  "api_key=apiKey123456789",
+  '"password":"password123456789"',
+  "redactSecrets(output)",
+  "diagnosticSnippet(output)",
+  "diagnosticSnippet(deployOutput)",
 ]);
 
 runExpectedFailure(

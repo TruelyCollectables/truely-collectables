@@ -14,6 +14,7 @@ const unwantedAlias =
 const preflightOnly =
   process.argv.includes("--preflight-only") ||
   process.env.TCOS_PRODUCTION_PREFLIGHT_ONLY === "true";
+const redactionSelfTest = process.argv.includes("--self-test-redaction");
 
 function normalizeVercelHost(value, label) {
   const trimmed = value.trim();
@@ -46,6 +47,73 @@ function optionalRun(command, args) {
   return `${result.stdout || ""}${result.stderr || ""}`.trim();
 }
 
+function redactSecrets(text) {
+  return text
+    .replace(/\b(?:sk|rk)_(?:live|test)_[A-Za-z0-9_=-]{8,}\b/g, "[redacted-stripe-secret]")
+    .replace(/\bpk_(?:live|test)_[A-Za-z0-9_=-]{8,}\b/g, "[redacted-stripe-publishable]")
+    .replace(/\bwhsec_[A-Za-z0-9_=-]{8,}\b/g, "[redacted-stripe-webhook]")
+    .replace(/\bre_[A-Za-z0-9_=-]{8,}\b/g, "[redacted-resend-key]")
+    .replace(/\b(?:Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{12,}\b/gi, "[redacted-auth-header]")
+    .replace(
+      /\b(access_token|refresh_token|api_key|apikey|client_secret|secret|token|password)=([^&\s"'<>]+)/gi,
+      "$1=[redacted-secret]",
+    )
+    .replace(
+      /"((?:access_)?token|refresh_token|api_key|apikey|client_secret|secret|password)"\s*:\s*"[^"]{6,}"/gi,
+      '"$1":"[redacted-secret]"',
+    )
+    .replace(/\beyJ[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}\b/g, "[redacted-jwt]");
+}
+
+function diagnosticSnippet(text) {
+  return redactSecrets(text)
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 2000);
+}
+
+function runRedactionSelfTest() {
+  const sample = [
+    "sk_live_fakeSecret123456789",
+    "rk_live_fakeRestricted123456789",
+    "pk_live_fakePublishable123456789",
+    "whsec_fakeWebhook123456789",
+    "re_fakeResend123456789",
+    "Bearer abcdefghijklmnopqrstuvwxyz123456",
+    "Basic QWxhZGRpbjpvcGVuIHNlc2FtZTEyMzQ1Ng==",
+    "access_token=abc123456789",
+    "client_secret=clientSecret123456789",
+    "api_key=apiKey123456789",
+    '"refresh_token":"refresh123456789"',
+    '"password":"password123456789"',
+    "eyJabcdefghijklmnopqrstuv.eyJabcdefghijklmnopqrstuv.signatureabcdefghijklmnopqrstuv",
+  ].join(" ");
+  const snippet = diagnosticSnippet(sample);
+  const leakedMarkers = [
+    "sk_live_",
+    "rk_live_",
+    "pk_live_",
+    "whsec_",
+    "re_fake",
+    "Bearer ",
+    "Basic ",
+    "abc123456789",
+    "clientSecret123456789",
+    "apiKey123456789",
+    "refresh123456789",
+    "password123456789",
+    "eyJabcdefghijklmnopqrstuv",
+  ].filter((marker) => snippet.includes(marker));
+
+  if (leakedMarkers.length > 0) {
+    throw new Error(
+      `Production deploy redaction self-test leaked marker(s): ${leakedMarkers.join(", ")}`,
+    );
+  }
+
+  console.log("Production deploy redaction self-test passed.");
+}
+
 function run(command, args, options = {}) {
   const result = spawnSync(command, args, {
     encoding: "utf8",
@@ -55,12 +123,12 @@ function run(command, args, options = {}) {
   const output = `${result.stdout || ""}${result.stderr || ""}`;
 
   if (options.print !== false) {
-    process.stdout.write(output);
+    process.stdout.write(redactSecrets(output));
   }
 
   if (result.status !== 0 && options.allowFailure !== true) {
     throw new Error(
-      `${command} ${args.join(" ")} failed with exit ${result.status}.\n${output}`,
+      `${command} ${args.join(" ")} failed with exit ${result.status}.\n${diagnosticSnippet(output)}`,
     );
   }
 
@@ -132,6 +200,11 @@ function gitPreflight() {
   }
 }
 
+if (redactionSelfTest) {
+  runRedactionSelfTest();
+  process.exit(0);
+}
+
 gitPreflight();
 
 if (preflightOnly) {
@@ -155,7 +228,7 @@ const deploymentUrl = parseDeploymentUrl(deployOutput);
 
 if (!deploymentUrl) {
   throw new Error(
-    `Could not parse a Vercel deployment URL that is not the clean production domain (${cleanDomain}) or unwanted alias (${unwantedAlias}). If quota is capped, wait and retry.\n${deployOutput}`,
+    `Could not parse a Vercel deployment URL that is not the clean production domain (${cleanDomain}) or unwanted alias (${unwantedAlias}). If quota is capped, wait and retry.\n${diagnosticSnippet(deployOutput)}`,
   );
 }
 
