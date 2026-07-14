@@ -12,7 +12,7 @@ const smokeChecks = [
   SELLER_PROTECTION_SMOKE_COVERAGE_LINE,
   "Launch Gate Drill page, JSON report, Markdown operator report, and Standard Envelope evidence validator",
   "Live Payment Launch Gate",
-  "Live Shipping Launch Gate",
+  "Live Shipping Launch Gate with Purchase-Audit Key Drift card",
   "Admin shipping cockpit LetterTrack export, IMb, and delivery-evidence controls",
   "Shipping Simulation Lab with nineteen policy/adapter scenarios plus five provider purchase-audit scenarios",
   "Shipping purchase-attempt audit simulations for live-gate, missing-setup, dry-run, and packet-output text",

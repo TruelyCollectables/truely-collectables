@@ -509,6 +509,7 @@ const checks = [
       "Seller Protection Reconciliation",
       "Shipping Claims Cockpit",
       "Standard Envelope evidence validator",
+      "Live Shipping Launch Gate with Purchase-Audit Key Drift card",
       "Shipping Simulation Lab with nineteen policy/adapter scenarios plus five provider purchase-audit scenarios",
       "Shipping purchase-attempt audit simulations for live-gate, missing-setup, dry-run, and packet-output text",
       "Shipping simulation API POST with scenario count, manifest, and drift-field checks",
@@ -538,6 +539,7 @@ const checks = [
       result.text.includes("Seller Protection Reconciliation") &&
       result.text.includes("Shipping Claims Cockpit") &&
       result.text.includes("Standard Envelope evidence validator") &&
+      result.text.includes("Live Shipping Launch Gate with Purchase-Audit Key Drift card") &&
       result.text.includes(
         "Shipping Simulation Lab with nineteen policy/adapter scenarios plus five provider purchase-audit scenarios",
       ) &&
