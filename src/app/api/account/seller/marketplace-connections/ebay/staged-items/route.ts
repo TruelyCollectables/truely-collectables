@@ -337,6 +337,96 @@ function summarizeImportJobOutcomes(stagedItems: Array<
   return summaries;
 }
 
+function summarizeStagedItems(stagedItems: Array<
+  ReturnType<typeof enrichStagedItems>[number]
+>) {
+  return stagedItems.reduce(
+    (summary, item) => {
+      summary.total += 1;
+
+      if (item.stage_status === "staged") summary.staged += 1;
+      if (item.stage_status === "needs_review") summary.needsReview += 1;
+      if (item.stage_status === "mapped") summary.mapped += 1;
+      if (item.stage_status === "skipped") summary.skipped += 1;
+      if (item.promotion_guard?.blocked) summary.blocked += 1;
+      if (item.promotion_guard?.alreadyPromoted) summary.promoted += 1;
+      if (
+        item.stage_status === "staged" &&
+        item.promotion_guard?.blocked !== true &&
+        item.draft_activation_readiness?.ready
+      ) {
+        summary.ready += 1;
+      }
+      if (
+        item.stage_status === "staged" &&
+        item.promotion_guard?.blocked !== true &&
+        item.draft_activation_readiness?.ready === false
+      ) {
+        summary.draftCleanup += 1;
+      }
+
+      return summary;
+    },
+    {
+      total: 0,
+      ready: 0,
+      draftCleanup: 0,
+      staged: 0,
+      needsReview: 0,
+      mapped: 0,
+      skipped: 0,
+      blocked: 0,
+      promoted: 0,
+    },
+  );
+}
+
+function sellerMarketplaceStagedHeaders(params: {
+  summary: ReturnType<typeof summarizeStagedItems>;
+  importJobCount: number;
+}) {
+  return {
+    "X-TCOS-Seller-Marketplace-Staged-Rows": String(params.summary.total),
+    "X-TCOS-Seller-Marketplace-Staged-Ready": String(params.summary.ready),
+    "X-TCOS-Seller-Marketplace-Staged-Draft-Cleanup": String(
+      params.summary.draftCleanup,
+    ),
+    "X-TCOS-Seller-Marketplace-Staged-Needs-Review": String(
+      params.summary.needsReview,
+    ),
+    "X-TCOS-Seller-Marketplace-Staged-Mapped": String(params.summary.mapped),
+    "X-TCOS-Seller-Marketplace-Staged-Skipped": String(params.summary.skipped),
+    "X-TCOS-Seller-Marketplace-Staged-Blocked": String(params.summary.blocked),
+    "X-TCOS-Seller-Marketplace-Staged-Promoted": String(params.summary.promoted),
+    "X-TCOS-Seller-Marketplace-Import-Jobs": String(params.importJobCount),
+  };
+}
+
+function sellerMarketplaceStagedMutationHeaders(params: {
+  action: "stage_batch" | "update";
+  stagedCount?: number;
+  skippedCount?: number;
+  updatedCount?: number;
+  stageStatus?: string | null;
+  hasMore?: boolean;
+}) {
+  return {
+    "X-TCOS-Seller-Marketplace-Staged-Mutation": params.action,
+    "X-TCOS-Seller-Marketplace-Staged-Count": String(
+      params.stagedCount ?? 0,
+    ),
+    "X-TCOS-Seller-Marketplace-Staged-Skipped": String(
+      params.skippedCount ?? 0,
+    ),
+    "X-TCOS-Seller-Marketplace-Staged-Updated": String(
+      params.updatedCount ?? 0,
+    ),
+    "X-TCOS-Seller-Marketplace-Staged-Target-Status":
+      params.stageStatus || "metadata",
+    "X-TCOS-Seller-Marketplace-Staged-Has-More": String(params.hasMore === true),
+  };
+}
+
 export async function GET(request: Request) {
   try {
     const account = await getAuthenticatedAccountFromRequest(request);
@@ -470,23 +560,32 @@ export async function GET(request: Request) {
       ebayItemMatches,
     });
     const importJobSummaries = summarizeImportJobOutcomes(enrichedSummaryStagedItems);
+    const stagedSummary = summarizeStagedItems(enrichedStagedItems);
 
-    return Response.json({
-      success: true,
-      stagedItems: enrichedStagedItems,
-      latestImportJob: importJobs[0]
-        ? {
-            ...importJobs[0],
-            current_summary: importJobs[0].id
-              ? importJobSummaries[importJobs[0].id] || undefined
-              : undefined,
-          }
-        : null,
-      recentImportJobs: importJobs.map((job) => ({
-        ...job,
-        current_summary: job.id ? importJobSummaries[job.id] || undefined : undefined,
-      })),
-    });
+    return Response.json(
+      {
+        success: true,
+        stagedItems: enrichedStagedItems,
+        latestImportJob: importJobs[0]
+          ? {
+              ...importJobs[0],
+              current_summary: importJobs[0].id
+                ? importJobSummaries[importJobs[0].id] || undefined
+                : undefined,
+            }
+          : null,
+        recentImportJobs: importJobs.map((job) => ({
+          ...job,
+          current_summary: job.id ? importJobSummaries[job.id] || undefined : undefined,
+        })),
+      },
+      {
+        headers: sellerMarketplaceStagedHeaders({
+          summary: stagedSummary,
+          importJobCount: importJobs.length,
+        }),
+      },
+    );
   } catch (error: any) {
     return Response.json(
       {
@@ -523,10 +622,20 @@ export async function POST(request: Request) {
       resetCursor: body.resetCursor === true,
     });
 
-    return Response.json({
-      success: true,
-      result,
-    });
+    return Response.json(
+      {
+        success: true,
+        result,
+      },
+      {
+        headers: sellerMarketplaceStagedMutationHeaders({
+          action: "stage_batch",
+          stagedCount: result.stagedCount,
+          skippedCount: result.skippedCount,
+          hasMore: result.hasMore,
+        }),
+      },
+    );
   } catch (error: any) {
     if (isMissingSellerStagingTables(error)) {
       return unavailableResponse();
@@ -661,12 +770,23 @@ export async function PATCH(request: Request) {
         throw error;
       }
 
-      return Response.json({
-        success: true,
-        stagedItem: Array.isArray(data) ? data[0] || null : null,
-        stagedItems: data || [],
-        updatedCount: Array.isArray(data) ? data.length : 0,
-      });
+      const updatedCount = Array.isArray(data) ? data.length : 0;
+
+      return Response.json(
+        {
+          success: true,
+          stagedItem: Array.isArray(data) ? data[0] || null : null,
+          stagedItems: data || [],
+          updatedCount,
+        },
+        {
+          headers: sellerMarketplaceStagedMutationHeaders({
+            action: "update",
+            updatedCount,
+            stageStatus: null,
+          }),
+        },
+      );
     }
 
     const { data, error } = await supabase
@@ -690,12 +810,23 @@ export async function PATCH(request: Request) {
       throw error;
     }
 
-    return Response.json({
-      success: true,
-      stagedItem: Array.isArray(data) ? data[0] || null : null,
-      stagedItems: data || [],
-      updatedCount: Array.isArray(data) ? data.length : 0,
-    });
+    const updatedCount = Array.isArray(data) ? data.length : 0;
+
+    return Response.json(
+      {
+        success: true,
+        stagedItem: Array.isArray(data) ? data[0] || null : null,
+        stagedItems: data || [],
+        updatedCount,
+      },
+      {
+        headers: sellerMarketplaceStagedMutationHeaders({
+          action: "update",
+          updatedCount,
+          stageStatus,
+        }),
+      },
+    );
   } catch (error: any) {
     if (isMissingSellerStagingTables(error)) {
       return unavailableResponse();
