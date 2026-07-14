@@ -2036,6 +2036,9 @@ assertFileIncludes(
   "src/app/seller/marketplaces/SellerConnectionsPanel.tsx",
   [
     "type SellerMarketplaceOperationReceipt",
+    "class SellerMarketplaceOperationError",
+    "function operationReceiptFromError",
+    "rememberOperationErrorReceipt",
     "function SellerMarketplaceOperationReceiptCard",
     "Latest Marketplace API Receipt",
     "setLatestMarketplaceOperationReceipt",

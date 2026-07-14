@@ -171,6 +171,19 @@ type SellerMarketplaceOperationReceipt = {
   details: Array<{ label: string; value: string }>;
 };
 
+class SellerMarketplaceOperationError extends Error {
+  operationReceipt: SellerMarketplaceOperationReceipt | null;
+
+  constructor(
+    message: string,
+    operationReceipt: SellerMarketplaceOperationReceipt | null,
+  ) {
+    super(message);
+    this.name = "SellerMarketplaceOperationError";
+    this.operationReceipt = operationReceipt;
+  }
+}
+
 type SellerInventorySummary = {
   totalItems: number;
   draftCount: number;
@@ -349,6 +362,14 @@ function operationReceiptToneClass(
   }
 
   return "border-neutral-200 bg-neutral-50 text-neutral-800";
+}
+
+function operationReceiptFromError(error: unknown) {
+  if (error instanceof SellerMarketplaceOperationError) {
+    return error.operationReceipt;
+  }
+
+  return null;
 }
 
 function headerText(headers: Headers, name: string, fallback = "—") {
@@ -1664,14 +1685,18 @@ async function fetchSellerEbayPreview(accessToken: string) {
     },
   );
   const data = await response.json();
+  const operationReceipt = sellerMarketplaceImportPreviewReceipt(response.headers);
 
   if (!response.ok) {
-    throw new Error(data.error || "Could not load seller eBay import preview.");
+    throw new SellerMarketplaceOperationError(
+      data.error || "Could not load seller eBay import preview.",
+      operationReceipt,
+    );
   }
 
   return {
     preview: data.preview as SellerEbayInventoryPreview,
-    operationReceipt: sellerMarketplaceImportPreviewReceipt(response.headers),
+    operationReceipt,
   };
 }
 
@@ -1697,16 +1722,20 @@ async function fetchSellerStagedItems(
     },
   );
   const data = await response.json();
+  const operationReceipt = sellerMarketplaceStagedReceipt(response.headers);
 
   if (!response.ok) {
-    throw new Error(data.error || "Could not load seller staged listings.");
+    throw new SellerMarketplaceOperationError(
+      data.error || "Could not load seller staged listings.",
+      operationReceipt,
+    );
   }
 
   return {
     stagedItems: (data.stagedItems || []) as SellerStagedItem[],
     latestImportJob: (data.latestImportJob || null) as SellerImportJob | null,
     recentImportJobs: (data.recentImportJobs || []) as SellerImportJob[],
-    operationReceipt: sellerMarketplaceStagedReceipt(response.headers),
+    operationReceipt,
   };
 }
 
@@ -1729,9 +1758,13 @@ async function stageSellerItems(
     },
   );
   const data = await response.json();
+  const operationReceipt = sellerMarketplaceStagedReceipt(response.headers);
 
   if (!response.ok) {
-    throw new Error(data.error || "Could not stage seller eBay listings.");
+    throw new SellerMarketplaceOperationError(
+      data.error || "Could not stage seller eBay listings.",
+      operationReceipt,
+    );
   }
 
   return {
@@ -1746,7 +1779,7 @@ async function stageSellerItems(
     fetchedAt: string;
     sampleItems: SellerEbayPreviewItem[];
     }),
-    operationReceipt: sellerMarketplaceStagedReceipt(response.headers),
+    operationReceipt,
   };
 }
 
@@ -1778,10 +1811,14 @@ async function fetchSellerReconciliationStatus(accessToken: string) {
     },
   );
   const data = await response.json();
+  const operationReceipt = sellerMarketplaceReconciliationReceipt(
+    response.headers,
+  );
 
   if (!response.ok) {
-    throw new Error(
+    throw new SellerMarketplaceOperationError(
       data.error || "Could not load seller eBay reconciliation status.",
+      operationReceipt,
     );
   }
 
@@ -1789,7 +1826,7 @@ async function fetchSellerReconciliationStatus(accessToken: string) {
     linkedCount: Number(data.linkedCount || 0),
     latestRun: (data.latestRun || null) as SellerReconciliationRun | null,
     recentRuns: (data.recentRuns || []) as SellerReconciliationRun[],
-    operationReceipt: sellerMarketplaceReconciliationReceipt(response.headers),
+    operationReceipt,
   } satisfies SellerReconciliationStatus & {
     operationReceipt: SellerMarketplaceOperationReceipt | null;
   };
@@ -1811,14 +1848,20 @@ async function runSellerReconciliationBatch(
     },
   );
   const data = await response.json();
+  const operationReceipt = sellerMarketplaceReconciliationReceipt(
+    response.headers,
+  );
 
   if (!response.ok) {
-    throw new Error(data.error || "Could not reconcile seller eBay inventory.");
+    throw new SellerMarketplaceOperationError(
+      data.error || "Could not reconcile seller eBay inventory.",
+      operationReceipt,
+    );
   }
 
   return {
     ...(data.result as SellerReconciliationResult),
-    operationReceipt: sellerMarketplaceReconciliationReceipt(response.headers),
+    operationReceipt,
   };
 }
 
@@ -1828,9 +1871,13 @@ async function fetchSellerOutsideOrderStatus(accessToken: string) {
     { headers: { Authorization: `Bearer ${accessToken}` } },
   );
   const data = await response.json();
+  const operationReceipt = sellerMarketplaceOrderImportReceipt(response.headers);
 
   if (!response.ok) {
-    throw new Error(data.error || "Could not load outside eBay orders.");
+    throw new SellerMarketplaceOperationError(
+      data.error || "Could not load outside eBay orders.",
+      operationReceipt,
+    );
   }
 
   return {
@@ -1839,7 +1886,7 @@ async function fetchSellerOutsideOrderStatus(accessToken: string) {
     refundedCount: Number(data.refundedCount || 0),
     unmatchedItemCount: Number(data.unmatchedItemCount || 0),
     latestImportedAt: data.latestImportedAt || null,
-    operationReceipt: sellerMarketplaceOrderImportReceipt(response.headers),
+    operationReceipt,
   } satisfies SellerOutsideOrderStatus & {
     operationReceipt: SellerMarketplaceOperationReceipt | null;
   };
@@ -1861,14 +1908,18 @@ async function runSellerOutsideOrderImportBatch(
     },
   );
   const data = await response.json();
+  const operationReceipt = sellerMarketplaceOrderImportReceipt(response.headers);
 
   if (!response.ok) {
-    throw new Error(data.error || "Could not import outside eBay orders.");
+    throw new SellerMarketplaceOperationError(
+      data.error || "Could not import outside eBay orders.",
+      operationReceipt,
+    );
   }
 
   return {
     ...(data.result as SellerOutsideOrderImportResult),
-    operationReceipt: sellerMarketplaceOrderImportReceipt(response.headers),
+    operationReceipt,
   };
 }
 
@@ -1894,16 +1945,20 @@ async function updateSellerStagedItemStatus(params: {
     },
   );
   const data = await response.json();
+  const operationReceipt = sellerMarketplaceStagedReceipt(response.headers);
 
   if (!response.ok) {
-    throw new Error(data.error || "Could not update seller staged item.");
+    throw new SellerMarketplaceOperationError(
+      data.error || "Could not update seller staged item.",
+      operationReceipt,
+    );
   }
 
   return {
     stagedItem: (data.stagedItem || null) as SellerStagedItem | null,
     stagedItems: (data.stagedItems || []) as SellerStagedItem[],
     updatedCount: Number(data.updatedCount || 0),
-    operationReceipt: sellerMarketplaceStagedReceipt(response.headers),
+    operationReceipt,
   };
 }
 
@@ -1929,16 +1984,20 @@ async function updateSellerStagedItemReview(params: {
     },
   );
   const data = await response.json();
+  const operationReceipt = sellerMarketplaceStagedReceipt(response.headers);
 
   if (!response.ok) {
-    throw new Error(data.error || "Could not save seller staged item review.");
+    throw new SellerMarketplaceOperationError(
+      data.error || "Could not save seller staged item review.",
+      operationReceipt,
+    );
   }
 
   return {
     stagedItem: (data.stagedItem || null) as SellerStagedItem | null,
     stagedItems: (data.stagedItems || []) as SellerStagedItem[],
     updatedCount: Number(data.updatedCount || 0),
-    operationReceipt: sellerMarketplaceStagedReceipt(response.headers),
+    operationReceipt,
   };
 }
 
@@ -1962,9 +2021,13 @@ async function promoteSellerStagedItem(params: {
     },
   );
   const data = await response.json();
+  const operationReceipt = sellerMarketplacePromotionReceipt(response.headers);
 
   if (!response.ok) {
-    throw new Error(data.error || "Could not promote seller staged item.");
+    throw new SellerMarketplaceOperationError(
+      data.error || "Could not promote seller staged item.",
+      operationReceipt,
+    );
   }
 
   return {
@@ -1984,7 +2047,7 @@ async function promoteSellerStagedItem(params: {
       stagedItemId: string;
       error: string;
     }>,
-    operationReceipt: sellerMarketplacePromotionReceipt(response.headers),
+    operationReceipt,
   };
 }
 
@@ -2090,6 +2153,14 @@ export default function SellerConnectionsPanel({
     return "";
   });
 
+  const rememberOperationErrorReceipt = useCallback((error: unknown) => {
+    const operationReceipt = operationReceiptFromError(error);
+
+    if (operationReceipt) {
+      setLatestMarketplaceOperationReceipt(operationReceipt);
+    }
+  }, []);
+
   const refreshSellerStageState = useCallback(async (
     accessToken: string,
     options?: { silent?: boolean; importJobId?: string | null },
@@ -2126,13 +2197,14 @@ export default function SellerConnectionsPanel({
       return data;
     } catch (error: any) {
       if (!options?.silent) {
+        rememberOperationErrorReceipt(error);
         setMessage(error.message || "Could not load seller staged listings.");
       }
       return null;
     } finally {
       setIsLoadingStaged(false);
     }
-  }, [activeImportJobId]);
+  }, [activeImportJobId, rememberOperationErrorReceipt]);
 
   const refreshSellerInventoryState = useCallback(async (
     accessToken: string,
@@ -2166,13 +2238,14 @@ export default function SellerConnectionsPanel({
       return status;
     } catch (error: any) {
       if (!options?.silent) {
+        rememberOperationErrorReceipt(error);
         setMessage(
           error.message || "Could not load seller eBay reconciliation status.",
         );
       }
       return null;
     }
-  }, []);
+  }, [rememberOperationErrorReceipt]);
 
   const refreshSellerOutsideOrderState = useCallback(async (
     accessToken: string,
@@ -2187,11 +2260,12 @@ export default function SellerConnectionsPanel({
       return status;
     } catch (error: any) {
       if (!options?.silent) {
+        rememberOperationErrorReceipt(error);
         setMessage(error.message || "Could not load outside eBay orders.");
       }
       return null;
     }
-  }, []);
+  }, [rememberOperationErrorReceipt]);
 
   useEffect(() => {
     if (!session?.access_token) return;
@@ -2292,17 +2366,20 @@ export default function SellerConnectionsPanel({
         body: JSON.stringify(payload),
       });
       const data = await response.json();
+      const operationReceipt =
+        provider === "ebay"
+          ? sellerMarketplaceEbayAuthReceipt(response.headers)
+          : null;
 
       if (!response.ok) {
-        throw new Error(
+        throw new SellerMarketplaceOperationError(
           data.error || "Could not save seller marketplace connection.",
+          operationReceipt,
         );
       }
 
       if (provider === "ebay") {
-        setLatestMarketplaceOperationReceipt(
-          sellerMarketplaceEbayAuthReceipt(response.headers),
-        );
+        setLatestMarketplaceOperationReceipt(operationReceipt);
       }
 
       if (provider === "ebay" && data.authorizationUrl) {
@@ -2313,10 +2390,11 @@ export default function SellerConnectionsPanel({
       setMessage(`${label(provider)} connection request saved.`);
       const nextConnections = await fetchSellerConnections(session.access_token);
       setConnections(nextConnections);
-    } catch (error: any) {
-      setMessage(
-        error.message || "Could not save seller marketplace connection.",
-      );
+      } catch (error: any) {
+        rememberOperationErrorReceipt(error);
+        setMessage(
+          error.message || "Could not save seller marketplace connection.",
+        );
     } finally {
       setIsSavingProvider("");
     }
@@ -2339,20 +2417,25 @@ export default function SellerConnectionsPanel({
         },
       );
       const data = await response.json();
+      const operationReceipt = sellerMarketplaceEbayStatusReceipt(
+        response.headers,
+      );
 
       if (!response.ok) {
-        throw new Error(data.error || "Could not refresh seller eBay status.");
+        throw new SellerMarketplaceOperationError(
+          data.error || "Could not refresh seller eBay status.",
+          operationReceipt,
+        );
       }
 
-      setLatestMarketplaceOperationReceipt(
-        sellerMarketplaceEbayStatusReceipt(response.headers),
-      );
+      setLatestMarketplaceOperationReceipt(operationReceipt);
       setMessage("Seller eBay status refreshed.");
       const nextConnections = await fetchSellerConnections(session.access_token);
       setConnections(nextConnections);
-    } catch (error: any) {
-      setMessage(error.message || "Could not refresh seller eBay status.");
-    } finally {
+      } catch (error: any) {
+        rememberOperationErrorReceipt(error);
+        setMessage(error.message || "Could not refresh seller eBay status.");
+      } finally {
       setIsSavingProvider("");
     }
   }
@@ -2385,9 +2468,15 @@ export default function SellerConnectionsPanel({
         },
       );
       const data = await response.json();
+      const operationReceipt = sellerMarketplaceSyncControlReceipt(
+        response.headers,
+      );
 
       if (!response.ok) {
-        throw new Error(data.error || "Could not update seller eBay sync.");
+        throw new SellerMarketplaceOperationError(
+          data.error || "Could not update seller eBay sync.",
+          operationReceipt,
+        );
       }
 
       if (paused) {
@@ -2395,9 +2484,7 @@ export default function SellerConnectionsPanel({
         setStageAllProgress(null);
       }
 
-      setLatestMarketplaceOperationReceipt(
-        sellerMarketplaceSyncControlReceipt(response.headers),
-      );
+      setLatestMarketplaceOperationReceipt(operationReceipt);
       setMessage(
         paused
           ? "Seller eBay sync paused. Credentials and imported work remain safe."
@@ -2405,9 +2492,10 @@ export default function SellerConnectionsPanel({
       );
       const nextConnections = await fetchSellerConnections(session.access_token);
       setConnections(nextConnections);
-    } catch (error: any) {
-      setMessage(error.message || "Could not update seller eBay sync.");
-    } finally {
+      } catch (error: any) {
+        rememberOperationErrorReceipt(error);
+        setMessage(error.message || "Could not update seller eBay sync.");
+      } finally {
       setIsSavingProvider("");
     }
   }
@@ -2435,24 +2523,29 @@ export default function SellerConnectionsPanel({
         },
       );
       const data = await response.json();
+      const operationReceipt = sellerMarketplaceEbayDisconnectReceipt(
+        response.headers,
+      );
 
       if (!response.ok) {
-        throw new Error(data.error || "Could not disconnect seller eBay.");
+        throw new SellerMarketplaceOperationError(
+          data.error || "Could not disconnect seller eBay.",
+          operationReceipt,
+        );
       }
 
       setPreview(null);
       setStageAllProgress(null);
-      setLatestMarketplaceOperationReceipt(
-        sellerMarketplaceEbayDisconnectReceipt(response.headers),
-      );
+      setLatestMarketplaceOperationReceipt(operationReceipt);
       setMessage(
         "Seller eBay disconnected and TCOS credentials deleted. To invalidate eBay's authorization immediately, also remove TCOS under eBay Third-party app access.",
       );
       const nextConnections = await fetchSellerConnections(session.access_token);
       setConnections(nextConnections);
-    } catch (error: any) {
-      setMessage(error.message || "Could not disconnect seller eBay.");
-    } finally {
+      } catch (error: any) {
+        rememberOperationErrorReceipt(error);
+        setMessage(error.message || "Could not disconnect seller eBay.");
+      } finally {
       setIsSavingProvider("");
     }
   }
@@ -2470,9 +2563,10 @@ export default function SellerConnectionsPanel({
       setMessage("Seller eBay preview loaded.");
       const nextConnections = await fetchSellerConnections(session.access_token);
       setConnections(nextConnections);
-    } catch (error: any) {
-      setMessage(error.message || "Could not load seller eBay import preview.");
-    } finally {
+      } catch (error: any) {
+        rememberOperationErrorReceipt(error);
+        setMessage(error.message || "Could not load seller eBay import preview.");
+      } finally {
       setIsLoadingPreview(false);
     }
   }
@@ -2512,9 +2606,10 @@ export default function SellerConnectionsPanel({
 
       const nextConnections = await fetchSellerConnections(session.access_token);
       setConnections(nextConnections);
-    } catch (error: any) {
-      setMessage(error.message || "Could not stage seller eBay listings.");
-    } finally {
+      } catch (error: any) {
+        rememberOperationErrorReceipt(error);
+        setMessage(error.message || "Could not stage seller eBay listings.");
+      } finally {
       setIsStagingItems(false);
     }
   }
@@ -2615,10 +2710,11 @@ export default function SellerConnectionsPanel({
           `Seller eBay staging complete. ${processedCount} listing${processedCount === 1 ? "" : "s"} processed across ${batchesCompleted} batch${batchesCompleted === 1 ? "" : "es"}; ${stagedCount} captured and ${skippedCount} skipped.`,
         );
       }
-    } catch (error: any) {
-      setMessage(
-        `Seller eBay staging paused safely after ${processedCount} completed listing${processedCount === 1 ? "" : "s"}. ${error.message || "The next batch could not be staged."} Run Stage All Remaining again to resume.`,
-      );
+      } catch (error: any) {
+        rememberOperationErrorReceipt(error);
+        setMessage(
+          `Seller eBay staging paused safely after ${processedCount} completed listing${processedCount === 1 ? "" : "s"}. ${error.message || "The next batch could not be staged."} Run Stage All Remaining again to resume.`,
+        );
     } finally {
       await refreshSellerStageState(accessToken, {
         silent: true,
@@ -2707,10 +2803,11 @@ export default function SellerConnectionsPanel({
       setMessage(
         `Outside eBay order import ${hasMore ? "batch complete" : "complete"}. ${importedOrders} order${importedOrders === 1 ? "" : "s"} and ${importedItems} line item${importedItems === 1 ? "" : "s"} recorded; ${reduced} quantities reduced, ${sold} marked sold, ${review} need review, and ${failed} failed. TCOS fees and payouts were not touched.`,
       );
-    } catch (error: any) {
-      setMessage(
-        `Outside eBay order import stopped safely after ${importedOrders} order${importedOrders === 1 ? "" : "s"}. ${error.message || "The next batch could not be imported."}`,
-      );
+      } catch (error: any) {
+        rememberOperationErrorReceipt(error);
+        setMessage(
+          `Outside eBay order import stopped safely after ${importedOrders} order${importedOrders === 1 ? "" : "s"}. ${error.message || "The next batch could not be imported."}`,
+        );
     } finally {
       await Promise.all([
         refreshSellerOutsideOrderState(accessToken, { silent: true }),
@@ -2808,10 +2905,11 @@ export default function SellerConnectionsPanel({
       setMessage(
         `Seller eBay reconciliation ${hasMore ? "batch complete" : "complete"}. ${scannedCount} linked item${scannedCount === 1 ? "" : "s"} checked; ${quantityReducedCount} reduced, ${soldCount} marked sold, ${reviewCount} flagged for review, and ${failedCount} failed. No TCOS fee was created for outside sales.`,
       );
-    } catch (error: any) {
-      setMessage(
-        `Seller eBay reconciliation stopped safely after ${scannedCount} checked item${scannedCount === 1 ? "" : "s"}. ${error.message || "The next batch could not be reconciled."}`,
-      );
+      } catch (error: any) {
+        rememberOperationErrorReceipt(error);
+        setMessage(
+          `Seller eBay reconciliation stopped safely after ${scannedCount} checked item${scannedCount === 1 ? "" : "s"}. ${error.message || "The next batch could not be reconciled."}`,
+        );
     } finally {
       await Promise.all([
         refreshSellerReconciliationState(accessToken, { silent: true }),
@@ -2851,9 +2949,10 @@ export default function SellerConnectionsPanel({
       await refreshSellerStageState(session.access_token, { silent: true });
       await refreshSellerInventoryState(session.access_token, { silent: true });
       setMessage(`Staged item moved to ${label(stageStatus)}.`);
-    } catch (error: any) {
-      setMessage(error.message || "Could not update seller staged item.");
-    } finally {
+      } catch (error: any) {
+        rememberOperationErrorReceipt(error);
+        setMessage(error.message || "Could not update seller staged item.");
+      } finally {
       setUpdatingStageItemId("");
     }
   }
@@ -2915,9 +3014,10 @@ export default function SellerConnectionsPanel({
       await refreshSellerStageState(session.access_token, { silent: true });
       closeStageReviewEditor();
       setMessage("Staged listing review details saved.");
-    } catch (error: any) {
-      setMessage(error.message || "Could not save seller staged item review.");
-    } finally {
+      } catch (error: any) {
+        rememberOperationErrorReceipt(error);
+        setMessage(error.message || "Could not save seller staged item review.");
+      } finally {
       setUpdatingStageItemId("");
     }
   }
@@ -2973,9 +3073,10 @@ export default function SellerConnectionsPanel({
           ? `Created seller draft product #${result.promotedItem?.legacyProductId} with activation cleanup still required.`
           : `Created seller draft product #${result.promotedItem?.legacyProductId}.`,
       );
-    } catch (error: any) {
-      setMessage(error.message || "Could not promote seller staged item.");
-    } finally {
+      } catch (error: any) {
+        rememberOperationErrorReceipt(error);
+        setMessage(error.message || "Could not promote seller staged item.");
+      } finally {
       setPromotingStageItemId("");
     }
   }
@@ -3067,9 +3168,10 @@ export default function SellerConnectionsPanel({
       promotionErrors = result.errors;
       firstError = result.errors[0]?.error || "";
       operationReceipt = result.operationReceipt;
-    } catch (error: any) {
-      firstError = error.message || "Could not bulk promote seller staged items.";
-    }
+      } catch (error: any) {
+        rememberOperationErrorReceipt(error);
+        firstError = error.message || "Could not bulk promote seller staged items.";
+      }
 
     await refreshSellerStageState(session.access_token, { silent: true });
     await refreshSellerInventoryState(session.access_token, { silent: true });
@@ -3135,9 +3237,10 @@ export default function SellerConnectionsPanel({
       setMessage(
         `${result.updatedCount || stageItemIds.length} staged listing(s) moved to ${label(stageStatus)}.`,
       );
-    } catch (error: any) {
-      setMessage(error.message || "Could not update seller staged items.");
-    } finally {
+      } catch (error: any) {
+        rememberOperationErrorReceipt(error);
+        setMessage(error.message || "Could not update seller staged items.");
+      } finally {
       setUpdatingStageItemId("");
     }
   }
