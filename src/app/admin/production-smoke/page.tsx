@@ -9,11 +9,7 @@ export const revalidate = 0;
 const sellerMarketplaceReceiptHandoff =
   buildSellerMarketplaceReceiptHandoffContract();
 const sellerMarketplaceReceiptHandoffControlsText =
-  sellerMarketplaceReceiptHandoff.controls.length > 1
-    ? `${sellerMarketplaceReceiptHandoff.controls
-        .slice(0, -1)
-        .join(", ")}, and ${sellerMarketplaceReceiptHandoff.controls.at(-1)}`
-    : sellerMarketplaceReceiptHandoff.controls.join(", ");
+  sellerMarketplaceReceiptHandoff.controlsSentence;
 
 const smokeChecks = [
   "Admin login and dashboard render with Shipping Provider Unlock Action Plan",

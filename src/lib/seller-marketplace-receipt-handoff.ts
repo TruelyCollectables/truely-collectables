@@ -44,7 +44,18 @@ export function buildSellerMarketplaceReceiptHandoffContract(
     safeUseBoundary: SELLER_MARKETPLACE_RECEIPT_HANDOFF_SAFE_USE_BOUNDARY,
     operatorAction:
       "Confirm the seller marketplace page shows the proof text and all receipt controls before operators rely on copied or downloaded marketplace API receipt handoffs.",
+    controlsSentence: sellerMarketplaceReceiptHandoffControlsSentence(
+      SELLER_MARKETPLACE_RECEIPT_HANDOFF_CONTROLS,
+    ),
   };
+}
+
+export function sellerMarketplaceReceiptHandoffControlsSentence(
+  controls: readonly string[] = SELLER_MARKETPLACE_RECEIPT_HANDOFF_CONTROLS,
+) {
+  if (controls.length <= 1) return controls.join("");
+
+  return `${controls.slice(0, -1).join(", ")}, and ${controls.at(-1)}`;
 }
 
 export function sellerMarketplaceReceiptHandoffMarkdownLines(
