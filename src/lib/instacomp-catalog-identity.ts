@@ -84,6 +84,46 @@ export type InstaCompCatalogCandidateIdentity = Omit<
   sourceUrl?: string | null;
 };
 
+export type InstaCompCatalogProviderLookupStatus =
+  | "fulfilled"
+  | "empty"
+  | "failed"
+  | "timeout";
+
+export type InstaCompCatalogProviderResult = {
+  source: string;
+  status: InstaCompCatalogProviderLookupStatus;
+  candidates: InstaCompCatalogCandidateIdentity[];
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  latencyMs?: number | null;
+};
+
+export type InstaCompCatalogProviderSummary = {
+  source: string;
+  sourceLabel: string;
+  policyStatus: "approved" | "rejected" | "unknown";
+  resultStatus: InstaCompCatalogProviderLookupStatus;
+  candidateCount: number;
+  usableCandidateCount: number;
+  reasons: string[];
+};
+
+export type InstaCompCatalogProviderAggregation = {
+  status: "candidates_ready" | "review_required";
+  lookupPlan: InstaCompCatalogLookupPlan;
+  candidates: InstaCompCatalogCandidate[];
+  providerSummaries: InstaCompCatalogProviderSummary[];
+  reviewReasons: string[];
+  providerWarnings: string[];
+  catalogBeforeCompsRequired: true;
+  compSearchBlockedUntilCatalogResolved: true;
+};
+
+export type InstaCompCatalogProviderCompGate = InstaCompCatalogCompGate & {
+  providerAggregation: InstaCompCatalogProviderAggregation;
+};
+
 export type InstaCompCatalogCandidateScore = {
   candidate: InstaCompCatalogCandidate;
   score: number;
@@ -275,6 +315,106 @@ export function attachInstaCompCatalogSourcePolicy(
     sourceUrl: candidate.sourceUrl || source.sourceUrl,
     sourceUsageAllowed: policyResult.status === "approved",
   }));
+}
+
+function providerResultReasons(result: InstaCompCatalogProviderResult) {
+  const reasons: string[] = [];
+
+  if (result.status === "fulfilled" && result.candidates.length > 0) {
+    return reasons;
+  }
+  if (result.status === "empty" || result.candidates.length === 0) {
+    reasons.push("catalog provider returned no candidates");
+  }
+  if (result.status === "timeout") {
+    reasons.push("catalog provider lookup timed out");
+  }
+  if (result.status === "failed") {
+    reasons.push(
+      result.errorMessage || result.errorCode || "catalog provider lookup failed",
+    );
+  }
+
+  return reasons;
+}
+
+export function aggregateInstaCompCatalogProviderResults(
+  input: InstaCompCatalogIdentityInput,
+  sources: InstaCompCatalogSourcePolicy[],
+  providerResults: InstaCompCatalogProviderResult[],
+): InstaCompCatalogProviderAggregation {
+  const lookupPlan = buildInstaCompCatalogLookupPlan(input, sources);
+  const policyBySource = new Map(
+    [
+      ...lookupPlan.approvedSources,
+      ...lookupPlan.rejectedSources,
+    ].map((result) => [result.source.source, result]),
+  );
+  const candidates: InstaCompCatalogCandidate[] = [];
+  const providerSummaries: InstaCompCatalogProviderSummary[] = [];
+  const providerWarnings: string[] = [];
+
+  for (const result of providerResults) {
+    const policyResult = policyBySource.get(result.source);
+    const reasons: string[] = [];
+    let usableCandidateCount = 0;
+
+    if (!policyResult) {
+      reasons.push("catalog provider result ignored because source is unknown");
+    } else if (policyResult.status !== "approved") {
+      reasons.push(
+        "catalog provider result ignored because source is not approved for TCOS use",
+        ...policyResult.reasons,
+      );
+    } else if (result.status === "fulfilled" && result.candidates.length > 0) {
+      const attachedCandidates = attachInstaCompCatalogSourcePolicy(
+        policyResult.source,
+        result.candidates,
+      );
+      candidates.push(...attachedCandidates);
+      usableCandidateCount = attachedCandidates.length;
+    }
+
+    const resultReasons = providerResultReasons(result);
+    if (usableCandidateCount === 0) {
+      reasons.push(...resultReasons);
+    }
+
+    if (reasons.length > 0) {
+      providerWarnings.push(
+        `${policyResult?.source.sourceLabel || result.source}: ${reasons.join("; ")}`,
+      );
+    }
+
+    providerSummaries.push({
+      source: result.source,
+      sourceLabel: policyResult?.source.sourceLabel || result.source,
+      policyStatus: policyResult?.status || "unknown",
+      resultStatus: result.status,
+      candidateCount: result.candidates.length,
+      usableCandidateCount,
+      reasons,
+    });
+  }
+
+  const reviewReasons = [...lookupPlan.reviewReasons];
+  if (lookupPlan.status === "ready" && candidates.length === 0) {
+    reviewReasons.push("approved catalog providers returned no usable candidates");
+  }
+
+  return {
+    status:
+      lookupPlan.status === "ready" && candidates.length > 0
+        ? "candidates_ready"
+        : "review_required",
+    lookupPlan,
+    candidates,
+    providerSummaries,
+    reviewReasons,
+    providerWarnings,
+    catalogBeforeCompsRequired: true,
+    compSearchBlockedUntilCatalogResolved: true,
+  };
 }
 
 function valuesMatch(
@@ -531,5 +671,30 @@ export function buildInstaCompCatalogCompGate(
     reviewReasons,
     suggestedQuestion: resolution.suggestedQuestion,
     resolution,
+  };
+}
+
+export function buildInstaCompCatalogProviderCompGate(
+  input: InstaCompCatalogIdentityInput,
+  sources: InstaCompCatalogSourcePolicy[],
+  providerResults: InstaCompCatalogProviderResult[],
+): InstaCompCatalogProviderCompGate {
+  const providerAggregation = aggregateInstaCompCatalogProviderResults(
+    input,
+    sources,
+    providerResults,
+  );
+  const compGate = buildInstaCompCatalogCompGate(
+    input,
+    providerAggregation.candidates,
+  );
+
+  return {
+    ...compGate,
+    reviewReasons:
+      compGate.status === "review_required"
+        ? [...providerAggregation.reviewReasons, ...compGate.reviewReasons]
+        : compGate.reviewReasons,
+    providerAggregation,
   };
 }

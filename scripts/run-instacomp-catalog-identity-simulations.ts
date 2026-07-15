@@ -1,18 +1,24 @@
 import {
+  aggregateInstaCompCatalogProviderResults,
   attachInstaCompCatalogSourcePolicy,
   buildInstaCompCatalogLookupPlan,
   buildInstaCompCatalogCompGate,
+  buildInstaCompCatalogProviderCompGate,
   evaluateInstaCompCatalogSourcePolicy,
   resolveInstaCompCatalogIdentity,
   type InstaCompCatalogCandidate,
   type InstaCompCatalogCandidateIdentity,
   type InstaCompCatalogIdentityInput,
+  type InstaCompCatalogProviderResult,
   type InstaCompCatalogSourcePolicy,
 } from "../src/lib/instacomp-catalog-identity";
 
 const CATALOG_IDENTITY_EXPECTED_SCENARIO_KEYS = [
   "catalog_lookup_plan_filters_sources_before_comps",
   "catalog_source_policy_attaches_usage_to_candidates",
+  "provider_result_aggregation_confirms_catalog_before_comps",
+  "unapproved_provider_candidates_are_ignored",
+  "provider_failures_preserved_when_no_usable_candidates",
   "catalog_confirms_exact_parallel_before_comps",
   "catalog_confirmed_gate_uses_catalog_fields_for_exact_comps",
   "unapproved_source_forces_review_required",
@@ -203,6 +209,127 @@ function runCatalogIdentitySimulationSuite() {
         rejectedPolicy: evaluateInstaCompCatalogSourcePolicy(
           unapprovedSourcePolicy,
         ),
+      },
+    ),
+  );
+
+  const providerGate = buildInstaCompCatalogProviderCompGate(
+    { ...target, variation: null },
+    [approvedSourcePolicy],
+    [
+      {
+        source: "fixture_checklist",
+        status: "fulfilled",
+        candidates: [catalogCandidateIdentity({})],
+        latencyMs: 42,
+      },
+    ],
+  );
+  scenarios.push(
+    scenario(
+      "provider_result_aggregation_confirms_catalog_before_comps",
+      "Approved provider results are aggregated into catalog candidates, resolved, and then allowed through the exact-comp gate.",
+      providerGate.status === "catalog_confirmed" &&
+        providerGate.providerAggregation.status === "candidates_ready" &&
+        providerGate.providerAggregation.candidates.length === 1 &&
+        providerGate.providerAggregation.providerSummaries[0]
+          ?.usableCandidateCount === 1 &&
+        providerGate.exactCompSearchAllowed &&
+        providerGate.compIdentity?.catalogSource === "fixture_checklist",
+      {
+        status: providerGate.status,
+        aggregationStatus: providerGate.providerAggregation.status,
+        providerSummaries: providerGate.providerAggregation.providerSummaries,
+        exactCompSearchAllowed: providerGate.exactCompSearchAllowed,
+        compIdentity: providerGate.compIdentity,
+      },
+    ),
+  );
+
+  const mixedProviderAggregation = aggregateInstaCompCatalogProviderResults(
+    target,
+    [approvedSourcePolicy, unapprovedSourcePolicy],
+    [
+      {
+        source: "unlicensed_fixture_checklist",
+        status: "fulfilled",
+        candidates: [catalogCandidateIdentity({ catalogId: "unapproved-match" })],
+      },
+      {
+        source: "fixture_checklist",
+        status: "fulfilled",
+        candidates: [catalogCandidateIdentity({})],
+      },
+    ],
+  );
+  scenarios.push(
+    scenario(
+      "unapproved_provider_candidates_are_ignored",
+      "Candidates returned by unapproved or unlicensed providers are preserved as ignored evidence but cannot enter the trusted exact-match pool.",
+      mixedProviderAggregation.status === "candidates_ready" &&
+        mixedProviderAggregation.candidates.length === 1 &&
+        mixedProviderAggregation.candidates[0]?.catalogId ===
+          "fixture-2023-tcu-usc17-gold-ref" &&
+        mixedProviderAggregation.providerSummaries.some(
+          (summary) =>
+            summary.source === "unlicensed_fixture_checklist" &&
+            summary.policyStatus === "rejected" &&
+            summary.usableCandidateCount === 0 &&
+            summary.reasons.some((reason) =>
+              reason.includes("source is not approved"),
+            ),
+        ),
+      {
+        status: mixedProviderAggregation.status,
+        usableCandidateCatalogIds: mixedProviderAggregation.candidates.map(
+          (candidate) => candidate.catalogId,
+        ),
+        providerSummaries: mixedProviderAggregation.providerSummaries,
+        providerWarnings: mixedProviderAggregation.providerWarnings,
+      },
+    ),
+  );
+
+  const failedProviderResults: InstaCompCatalogProviderResult[] = [
+    {
+      source: "fixture_checklist",
+      status: "timeout",
+      candidates: [],
+      errorCode: "catalog_timeout",
+    },
+  ];
+  const failedProviderGate = buildInstaCompCatalogProviderCompGate(
+    target,
+    [approvedSourcePolicy],
+    failedProviderResults,
+  );
+  scenarios.push(
+    scenario(
+      "provider_failures_preserved_when_no_usable_candidates",
+      "Approved provider lookup failures are preserved for operator review and keep trusted exact comps blocked when no usable catalog candidates remain.",
+      failedProviderGate.status === "review_required" &&
+        failedProviderGate.providerAggregation.status === "review_required" &&
+        failedProviderGate.providerAggregation.reviewReasons.includes(
+          "approved catalog providers returned no usable candidates",
+        ) &&
+        failedProviderGate.providerAggregation.providerSummaries[0]?.reasons.includes(
+          "catalog provider returned no candidates",
+        ) &&
+        failedProviderGate.providerAggregation.providerSummaries[0]?.reasons.includes(
+          "catalog provider lookup timed out",
+        ) &&
+        failedProviderGate.exactCompSearchAllowed === false &&
+        failedProviderGate.reviewReasons.includes(
+          "catalog identity unresolved before exact comps",
+        ),
+      {
+        status: failedProviderGate.status,
+        aggregationStatus: failedProviderGate.providerAggregation.status,
+        reviewReasons: failedProviderGate.reviewReasons,
+        providerSummaries:
+          failedProviderGate.providerAggregation.providerSummaries,
+        providerWarnings:
+          failedProviderGate.providerAggregation.providerWarnings,
       },
     ),
   );
