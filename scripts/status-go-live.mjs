@@ -390,7 +390,7 @@ function goLiveReadiness({ git, quota, emergencyBackup, liveMoney }) {
       actionCategory: "operator_action",
       detail: liveMoney.detail,
       next: liveMoney.missingBootstrapEnvironment.length
-        ? "Run npm run prepare:go-live-evidence to preserve runway/backup proof, create no-secret live-money packet evidence, print bootstrap-only Vercel commands, and archive the go-live evidence verifier proof; then stage the printed values and rerun npm run status:live-money."
+        ? "Run npm run prepare:go-live-evidence to preserve runway/backup proof, create no-secret live-money packet evidence, print bootstrap-only Vercel commands, and archive the go-live evidence verifier proof; then stage the printed values in Vercel, mirror them into local .env or shell variables, and rerun npm run status:live-money."
         : liveMoney.next,
       actionCommands: liveMoney.missingBootstrapEnvironment.length
         ? [

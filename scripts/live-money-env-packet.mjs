@@ -62,6 +62,8 @@ const finalLivePaymentRuntime = [
 ];
 
 const allEntries = [...supabaseBootstrap, ...finalLivePaymentRuntime];
+const localVerificationBoundary =
+  "Vercel env add commands stage deployed runtime values only. Local npm run status:live-money reads this shell's local environment, so rerun it after mirroring the same values into local .env or shell variables; after Vercel staging, redeploy only when quota is open and then use production smoke/live-money evidence to verify deployed runtime.";
 
 function normalizeVercelScope(value) {
   const trimmed = String(value).trim();
@@ -176,6 +178,7 @@ function printChecklist() {
   console.log("");
   console.log("Vercel CLI boundary:");
   console.log(`- Vercel command output is pinned to vercel@${vercelCliVersion} through npm exec and includes --cwd "$PWD".`);
+  console.log(`- ${localVerificationBoundary}`);
   console.log("");
   console.log("Vercel scope boundary:");
   console.log("- VERCEL_SCOPE must be a simple lowercase Vercel team slug before Vercel command output is printed.");
@@ -215,6 +218,7 @@ function buildPacket() {
     },
     vercelScopeBoundary:
       "VERCEL_SCOPE must be a simple lowercase Vercel team slug before Vercel command output is printed.",
+    verificationBoundary: localVerificationBoundary,
     goLiveBoundary: {
       runtimeSwitch:
         "Do not set TCOS_LIVE_PAYMENTS_ENABLED=true until the final go-live window.",
@@ -252,6 +256,12 @@ function printEnvTemplate() {
     "# Final-window reminder",
     "# Keep TCOS_LIVE_PAYMENTS_ENABLED=false until preflight evidence is accepted.",
     "",
+    "# Verification boundary",
+    "# Vercel env add commands stage deployed runtime values only.",
+    "# Local npm run status:live-money reads this shell's local environment.",
+    "# Mirror the same values into local .env or shell variables before expecting local status:live-money to clear.",
+    "# After Vercel staging, redeploy only when quota is open, then verify deployed runtime with smoke/live-money evidence.",
+    "",
   ];
 
   console.log(lines.join("\n"));
@@ -288,6 +298,8 @@ function printVercelCommands({ entries = allEntries, bootstrapOnly = false } = {
     "",
     "# After env changes, redeploy only when the deployment quota is available.",
     "# Preserve the no-secret packet with npm run archive:live-money-env-packet before staging values.",
+    "# Local npm run status:live-money reads local .env or shell variables, not Vercel-staged values.",
+    "# Mirror values locally before expecting local status:live-money to clear.",
     "# Then run npm run smoke:production, npm run archive:live-money, and final-window npm run archive:live-money:preflight.",
     "",
   ];
