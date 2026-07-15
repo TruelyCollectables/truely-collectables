@@ -2472,8 +2472,6 @@ export default function InstaCompScanner({
               "queued",
               "processing",
               "cancelling",
-              "completed_with_errors",
-              "failed",
             ].includes(String(job.status))
           );
 
@@ -2541,6 +2539,19 @@ export default function InstaCompScanner({
         if (cancelled) return;
 
         let job = data.job as PersistentJobSummary;
+        if (
+          !["uploading", "queued", "processing", "cancelling"].includes(
+            String(job.status)
+          )
+        ) {
+          try {
+            window.localStorage.removeItem(INSTACOMP_LAST_JOB_STORAGE_KEY);
+          } catch {
+            // Local recovery is optional; terminal lots should not block new work.
+          }
+          return;
+        }
+
         window.localStorage.setItem(INSTACOMP_LAST_JOB_STORAGE_KEY, job.id);
         const recoveredItems = Array.isArray(data.items) ? data.items : [];
 
