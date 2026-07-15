@@ -3647,6 +3647,39 @@ assertFileIncludes(
   ],
 );
 assertFileIncludes(
+  "update-tracking dry-run guard source",
+  "src/app/api/orders/update-tracking/route.ts",
+  [
+    "isDryRunShippingReference(trackingNumber)",
+    "TCOS dry-run tracking cannot be saved manually. Buy or record a real label before saving tracking.",
+    "let activeShippingLabel: ActiveShippingLabel | null = null;",
+    "isDryRunShippingLabel(activeShippingLabel)",
+    "The active shipping label is a TCOS dry-run simulation. Record a real external label before saving tracking.",
+    '.from("orders")',
+    '.from("order_shipping_labels")',
+    '.from("order_shipping_tracking_events")',
+    'event_type: "tracking_saved"',
+    "refreshTransactionEvidenceReportForOrder",
+  ],
+);
+assertFileOrder(
+  "update-tracking dry-run and evidence gate order",
+  "src/app/api/orders/update-tracking/route.ts",
+  [
+    "if (!orderId || !carrier || !trackingNumber)",
+    "if (isDryRunShippingReference(trackingNumber))",
+    "let activeShippingLabel: ActiveShippingLabel | null = null;",
+    "if (isDryRunShippingLabel(activeShippingLabel))",
+    '.from("orders")',
+    ".update({\n        carrier,",
+    '.from("order_shipping_labels")',
+    ".update({\n            carrier,",
+    '.from("order_shipping_tracking_events")',
+    'event_type: "tracking_saved"',
+    "refreshTransactionEvidenceReportForOrder",
+  ],
+);
+assertFileIncludes(
   "mark-shipped dry-run and review hold guard source",
   "src/app/api/orders/mark-shipped/route.ts",
   [
