@@ -3489,6 +3489,20 @@ assertFileIncludes(
   ],
 );
 assertFileIncludes(
+  "external coverage paid admin card contract",
+  "src/app/admin/shipping/ShippingClaimActions.tsx",
+  [
+    "External Coverage paid proof",
+    "Provider claim ID is required before marking an external Coverage claim",
+    "TCOS internal under-$20 seller protection uses the separate",
+    "Provider reference ready",
+    "External Coverage/provider claim",
+    "externalCoveragePaidBlocked",
+    'action.status === "paid" && externalCoveragePaidBlocked',
+    "Enter the external provider claim/reference ID before Mark Paid is available.",
+  ],
+);
+assertFileIncludes(
   "seller protection buyer refund gate route contract",
   "src/app/api/admin/shipping-claims/[id]/route.ts",
   [

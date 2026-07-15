@@ -359,6 +359,48 @@ function buyerRefundReadinessCard(gate: { allowed: boolean; reason: string }) {
   );
 }
 
+function externalCoveragePaidReadinessCard(providerClaimId: string) {
+  const ready = providerClaimId.trim().length > 0;
+
+  return (
+    <div
+      className={`rounded border p-3 text-xs font-semibold ${
+        ready
+          ? "border-green-200 bg-green-50 text-green-950"
+          : "border-amber-200 bg-amber-50 text-amber-950"
+      }`}
+    >
+      <p className="font-black uppercase tracking-widest">
+        External Coverage paid proof
+      </p>
+      <p className="mt-1">
+        Provider claim ID is required before marking an external Coverage claim
+        paid. TCOS internal under-$20 seller protection uses the separate
+        refund, reimbursement, and LetterTrack evidence gates instead.
+      </p>
+      <dl className="mt-2 grid grid-cols-1 gap-1 sm:grid-cols-2">
+        <div>
+          <dt className="text-[10px] uppercase tracking-widest opacity-70">
+            Provider reference ready
+          </dt>
+          <dd>{ready ? "Yes" : "No"}</dd>
+        </div>
+        <div>
+          <dt className="text-[10px] uppercase tracking-widest opacity-70">
+            Paid path
+          </dt>
+          <dd>External Coverage/provider claim</dd>
+        </div>
+      </dl>
+      <p className="mt-2">
+        {ready
+          ? "Mark Paid can use the saved provider reference as the external payout proof trail."
+          : "Enter the external provider claim/reference ID before Mark Paid is available."}
+      </p>
+    </div>
+  );
+}
+
 export default function ShippingClaimActions({
   claimId,
   claimStatus,
@@ -417,6 +459,10 @@ export default function ShippingClaimActions({
   const [message, setMessage] = useState("");
   const [note, setNote] = useState("");
   const [providerId, setProviderId] = useState(providerClaimId || "");
+  const externalCoveragePaidBlocked =
+    normalizedStatus === "approved" &&
+    !isUnder20SellerProtection &&
+    providerId.trim().length === 0;
   const buyerRefundReadinessGate =
     evaluateUnder20SellerProtectionBuyerRefundMetadataGate({
       metadata: claimMetadata,
@@ -470,6 +516,10 @@ export default function ShippingClaimActions({
   const buyerRefundReadinessCardNode =
     normalizedStatus === "approved" && isUnder20SellerProtection
       ? buyerRefundReadinessCard(buyerRefundReadinessGate)
+      : null;
+  const externalCoveragePaidReadinessCardNode =
+    normalizedStatus === "approved" && !isUnder20SellerProtection
+      ? externalCoveragePaidReadinessCard(providerId)
       : null;
   const packetLink = (
     <a
@@ -533,6 +583,7 @@ export default function ShippingClaimActions({
   return (
     <div className="mt-3 space-y-2 rounded border bg-neutral-50 p-3">
       {packetLink}
+      {externalCoveragePaidReadinessCardNode}
       {buyerRefundReadinessCardNode}
       {buyerRefundEvidenceCardNode}
       {reimbursementCard}
@@ -570,7 +621,10 @@ export default function ShippingClaimActions({
           <button
             key={action.status}
             onClick={() => updateClaimStatus(action.status)}
-            disabled={Boolean(pendingStatus)}
+            disabled={
+              Boolean(pendingStatus) ||
+              (action.status === "paid" && externalCoveragePaidBlocked)
+            }
             className={`rounded px-3 py-2 text-xs font-black disabled:opacity-50 ${action.tone}`}
           >
             {pendingStatus === action.status ? "Saving..." : action.label}
