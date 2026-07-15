@@ -127,6 +127,9 @@ function summarizePayload(key, payload) {
       next: payload.recommendation?.next || null,
       localBuildFallbackAvailable:
         payload.localBuildFallback?.available ?? null,
+      goLiveEvidenceOk: payload.goLiveEvidence?.ok ?? null,
+      goLiveEvidenceCapturedAtCurrentHead:
+        payload.goLiveEvidence?.capturedAtCurrentHead ?? null,
       quotaState: payload.productionDeploymentQuota?.state || null,
       quotaRetryAtLocal:
         payload.productionDeploymentQuota?.retryAtLocal || null,
@@ -142,6 +145,9 @@ function summarizePayload(key, payload) {
       next: payload.next || null,
       primaryFocus: payload.primaryRecommendation?.focus || null,
       fallbackAvailable: payload.localBuildFallback?.available ?? null,
+      goLiveEvidenceOk: payload.goLiveEvidence?.ok ?? null,
+      goLiveEvidenceCapturedAtCurrentHead:
+        payload.goLiveEvidence?.capturedAtCurrentHead ?? null,
       quotaState: payload.productionDeploymentQuota?.state || null,
       quotaRetryAtLocal:
         payload.productionDeploymentQuota?.retryAtLocal || null,
@@ -159,6 +165,7 @@ function summarizePayload(key, payload) {
       payload.productionDeploymentQuota?.retryAtLocal || null,
     goLiveEvidenceCapturedAtCurrentHead:
       payload.goLiveEvidence?.capturedAtCurrentHead ?? null,
+    goLiveEvidenceOk: payload.goLiveEvidence?.ok ?? null,
     liveMoneyState: payload.liveMoney?.state || null,
     backupSchedulerProof:
       payload.emergencyBackup?.schedulerProof?.state || null,
@@ -247,6 +254,20 @@ if (jsonOutput) {
     if (source.key === "nextAction") {
       console.log(`- selected lane: ${item.summary.selectedLane || "not recorded"}`);
       console.log(`- primary focus: ${item.summary.primaryFocus || "not recorded"}`);
+    }
+    if ("goLiveEvidenceOk" in item.summary) {
+      console.log(
+        `- go-live evidence ok: ${
+          item.summary.goLiveEvidenceOk ? "yes" : "no"
+        }`,
+      );
+    }
+    if ("goLiveEvidenceCapturedAtCurrentHead" in item.summary) {
+      console.log(
+        `- go-live evidence current pushed HEAD: ${
+          item.summary.goLiveEvidenceCapturedAtCurrentHead ? "yes" : "no"
+        }`,
+      );
     }
     console.log(`- quota state: ${item.summary.quotaState || "not recorded"}`);
     console.log(

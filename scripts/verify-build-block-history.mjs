@@ -174,6 +174,48 @@ if (payload) {
   );
   checks.push(
     check(
+      evidence.checkpoint?.summary?.goLiveEvidenceOk === true,
+      "history checkpoint go-live evidence verifier is ok",
+      evidence.checkpoint?.summary?.goLiveEvidenceOk,
+    ),
+  );
+  checks.push(
+    check(
+      evidence.checkpoint?.summary?.goLiveEvidenceCapturedAtCurrentHead === true,
+      "history checkpoint go-live evidence captured current pushed HEAD",
+      evidence.checkpoint?.summary?.goLiveEvidenceCapturedAtCurrentHead,
+    ),
+  );
+  checks.push(
+    check(
+      evidence.nextAction?.summary?.goLiveEvidenceOk === true,
+      "history next-action go-live evidence verifier is ok",
+      evidence.nextAction?.summary?.goLiveEvidenceOk,
+    ),
+  );
+  checks.push(
+    check(
+      evidence.nextAction?.summary?.goLiveEvidenceCapturedAtCurrentHead === true,
+      "history next-action go-live evidence captured current pushed HEAD",
+      evidence.nextAction?.summary?.goLiveEvidenceCapturedAtCurrentHead,
+    ),
+  );
+  checks.push(
+    check(
+      evidence.goLiveRunway?.summary?.goLiveEvidenceOk === true,
+      "history runway go-live evidence verifier is ok",
+      evidence.goLiveRunway?.summary?.goLiveEvidenceOk,
+    ),
+  );
+  checks.push(
+    check(
+      evidence.goLiveRunway?.summary?.goLiveEvidenceCapturedAtCurrentHead === true,
+      "history runway go-live evidence captured current pushed HEAD",
+      evidence.goLiveRunway?.summary?.goLiveEvidenceCapturedAtCurrentHead,
+    ),
+  );
+  checks.push(
+    check(
       evidence.checkpoint?.summary?.localBuildFallbackAvailable === true,
       "history preserves local build fallback availability",
     ),
@@ -243,6 +285,21 @@ const verification = {
         checkpointArchive: payload.evidence?.checkpoint?.latestArchive?.filePath || null,
         nextActionArchive: payload.evidence?.nextAction?.latestArchive?.filePath || null,
         goLiveRunwayArchive: payload.evidence?.goLiveRunway?.latestArchive?.filePath || null,
+        checkpointGoLiveEvidenceOk:
+          payload.evidence?.checkpoint?.summary?.goLiveEvidenceOk ?? null,
+        checkpointGoLiveEvidenceCurrent:
+          payload.evidence?.checkpoint?.summary
+            ?.goLiveEvidenceCapturedAtCurrentHead ?? null,
+        nextActionGoLiveEvidenceOk:
+          payload.evidence?.nextAction?.summary?.goLiveEvidenceOk ?? null,
+        nextActionGoLiveEvidenceCurrent:
+          payload.evidence?.nextAction?.summary
+            ?.goLiveEvidenceCapturedAtCurrentHead ?? null,
+        runwayGoLiveEvidenceOk:
+          payload.evidence?.goLiveRunway?.summary?.goLiveEvidenceOk ?? null,
+        runwayGoLiveEvidenceCurrent:
+          payload.evidence?.goLiveRunway?.summary
+            ?.goLiveEvidenceCapturedAtCurrentHead ?? null,
         selectedLane: payload.evidence?.nextAction?.summary?.selectedLane || null,
         checkpointFocus: payload.evidence?.checkpoint?.summary?.focus || null,
         quotaState: payload.evidence?.goLiveRunway?.summary?.quotaState || null,
@@ -275,6 +332,36 @@ if (jsonOutput) {
   );
   console.log(`- selected lane: ${verification.history?.selectedLane || "not recorded"}`);
   console.log(`- checkpoint focus: ${verification.history?.checkpointFocus || "not recorded"}`);
+  console.log(
+    `- checkpoint go-live evidence ok: ${
+      verification.history?.checkpointGoLiveEvidenceOk ? "yes" : "no"
+    }`,
+  );
+  console.log(
+    `- checkpoint go-live evidence current pushed HEAD: ${
+      verification.history?.checkpointGoLiveEvidenceCurrent ? "yes" : "no"
+    }`,
+  );
+  console.log(
+    `- next-action go-live evidence ok: ${
+      verification.history?.nextActionGoLiveEvidenceOk ? "yes" : "no"
+    }`,
+  );
+  console.log(
+    `- next-action go-live evidence current pushed HEAD: ${
+      verification.history?.nextActionGoLiveEvidenceCurrent ? "yes" : "no"
+    }`,
+  );
+  console.log(
+    `- runway go-live evidence ok: ${
+      verification.history?.runwayGoLiveEvidenceOk ? "yes" : "no"
+    }`,
+  );
+  console.log(
+    `- runway go-live evidence current pushed HEAD: ${
+      verification.history?.runwayGoLiveEvidenceCurrent ? "yes" : "no"
+    }`,
+  );
   console.log(`- quota state: ${verification.history?.quotaState || "not recorded"}`);
   console.log(`- live-money state: ${verification.history?.liveMoneyState || "not recorded"}`);
   console.log(`- ok: ${verification.ok ? "yes" : "no"}`);

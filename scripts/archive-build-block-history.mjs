@@ -59,6 +59,33 @@ function assertEvidenceContract(payload) {
   if (!payload?.evidence?.goLiveRunway?.latestArchive) {
     missing.push("evidence.goLiveRunway.latestArchive");
   }
+  if (typeof payload?.evidence?.checkpoint?.summary?.goLiveEvidenceOk !== "boolean") {
+    missing.push("evidence.checkpoint.summary.goLiveEvidenceOk");
+  }
+  if (
+    typeof payload?.evidence?.checkpoint?.summary
+      ?.goLiveEvidenceCapturedAtCurrentHead !== "boolean"
+  ) {
+    missing.push("evidence.checkpoint.summary.goLiveEvidenceCapturedAtCurrentHead");
+  }
+  if (typeof payload?.evidence?.nextAction?.summary?.goLiveEvidenceOk !== "boolean") {
+    missing.push("evidence.nextAction.summary.goLiveEvidenceOk");
+  }
+  if (
+    typeof payload?.evidence?.nextAction?.summary
+      ?.goLiveEvidenceCapturedAtCurrentHead !== "boolean"
+  ) {
+    missing.push("evidence.nextAction.summary.goLiveEvidenceCapturedAtCurrentHead");
+  }
+  if (typeof payload?.evidence?.goLiveRunway?.summary?.goLiveEvidenceOk !== "boolean") {
+    missing.push("evidence.goLiveRunway.summary.goLiveEvidenceOk");
+  }
+  if (
+    typeof payload?.evidence?.goLiveRunway?.summary
+      ?.goLiveEvidenceCapturedAtCurrentHead !== "boolean"
+  ) {
+    missing.push("evidence.goLiveRunway.summary.goLiveEvidenceCapturedAtCurrentHead");
+  }
   if (typeof payload?.readiness?.allLatestEvidenceAtCurrentPushedHead !== "boolean") {
     missing.push("readiness.allLatestEvidenceAtCurrentPushedHead");
   }
@@ -142,16 +169,46 @@ console.log(
     payload.evidence.checkpoint.capturedAtCurrentPushedHead ? "yes" : "no"
   }`,
 );
+console.log(
+  `- checkpoint go-live evidence ok: ${
+    payload.evidence.checkpoint.summary.goLiveEvidenceOk ? "yes" : "no"
+  }`,
+);
+console.log(
+  `- checkpoint go-live evidence current pushed HEAD: ${
+    payload.evidence.checkpoint.summary.goLiveEvidenceCapturedAtCurrentHead ? "yes" : "no"
+  }`,
+);
 console.log(`- next-action archive count: ${payload.evidence.nextAction.archiveCount}`);
 console.log(
   `- next-action captured current HEAD: ${
     payload.evidence.nextAction.capturedAtCurrentPushedHead ? "yes" : "no"
   }`,
 );
+console.log(
+  `- next-action go-live evidence ok: ${
+    payload.evidence.nextAction.summary.goLiveEvidenceOk ? "yes" : "no"
+  }`,
+);
+console.log(
+  `- next-action go-live evidence current pushed HEAD: ${
+    payload.evidence.nextAction.summary.goLiveEvidenceCapturedAtCurrentHead ? "yes" : "no"
+  }`,
+);
 console.log(`- go-live runway archive count: ${payload.evidence.goLiveRunway.archiveCount}`);
 console.log(
   `- go-live runway captured current HEAD: ${
     payload.evidence.goLiveRunway.capturedAtCurrentPushedHead ? "yes" : "no"
+  }`,
+);
+console.log(
+  `- go-live runway evidence ok: ${
+    payload.evidence.goLiveRunway.summary.goLiveEvidenceOk ? "yes" : "no"
+  }`,
+);
+console.log(
+  `- go-live runway evidence current pushed HEAD: ${
+    payload.evidence.goLiveRunway.summary.goLiveEvidenceCapturedAtCurrentHead ? "yes" : "no"
   }`,
 );
 console.log(
