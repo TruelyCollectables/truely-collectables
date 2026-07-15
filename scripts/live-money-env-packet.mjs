@@ -1,6 +1,8 @@
-const mode = process.argv.includes("--env-template")
-  ? "env-template"
-  : process.argv.includes("--vercel-bootstrap-commands")
+const mode = process.argv.includes("--bootstrap-template")
+  ? "bootstrap-template"
+  : process.argv.includes("--env-template")
+    ? "env-template"
+    : process.argv.includes("--vercel-bootstrap-commands")
     ? "vercel-bootstrap-commands"
     : process.argv.includes("--vercel-commands")
     ? "vercel-commands"
@@ -168,6 +170,7 @@ function printChecklist() {
   }
   console.log("");
   console.log("Safe helper commands:");
+  console.log("- npm run live-money:bootstrap-template");
   console.log("- npm run live-money:env-template");
   console.log("- npm --silent run live-money:env-packet:json");
   console.log("- npm run archive:live-money-env-packet");
@@ -202,6 +205,7 @@ function buildPacket() {
     commands: {
       checklist: "npm run live-money:env-packet",
       json: "npm --silent run live-money:env-packet:json",
+      bootstrapEnvTemplate: "npm run live-money:bootstrap-template",
       envTemplate: "npm run live-money:env-template",
       vercelBootstrapCommands: "npm run live-money:vercel-bootstrap-commands",
       vercelCommands: "npm run live-money:vercel-commands",
@@ -233,6 +237,50 @@ function buildPacket() {
 
 function printPacketJson() {
   console.log(JSON.stringify(buildPacket(), null, 2));
+}
+
+function envTemplateLines({ entries, title, includeFinalWindowReminder = true }) {
+  const lines = [
+    title,
+    "# Copy values from Supabase and mirror the same values wherever the command comments tell you to.",
+    "# This template intentionally contains placeholders only. Do not commit filled values.",
+    "",
+    "# Supabase bootstrap environment",
+    ...entries.flatMap((entry) => [
+      `# ${entry.note}`,
+      `${entry.key}=${entry.placeholder}`,
+    ]),
+  ];
+
+  if (includeFinalWindowReminder) {
+    lines.push(
+      "",
+      "# Final-window reminder",
+      "# Keep TCOS_LIVE_PAYMENTS_ENABLED=false until preflight evidence is accepted.",
+    );
+  }
+
+  lines.push(
+    "",
+    "# Verification boundary",
+    "# Vercel env add commands stage deployed runtime values only.",
+    "# Local npm run status:live-money reads this shell's local environment.",
+    "# Mirror the same values into local .env or shell variables before expecting local status:live-money to clear.",
+    "# After Vercel staging, redeploy only when quota is open, then verify deployed runtime with smoke/live-money evidence.",
+    "",
+  );
+
+  return lines;
+}
+
+function printBootstrapTemplate() {
+  console.log(
+    envTemplateLines({
+      entries: supabaseBootstrap,
+      title: "# TCOS live-money Supabase bootstrap local template",
+      includeFinalWindowReminder: false,
+    }).join("\n"),
+  );
 }
 
 function printEnvTemplate() {
@@ -311,6 +359,8 @@ if (scopeSelfTest) {
   runScopeSelfTest();
 } else if (jsonOutput) {
   printPacketJson();
+} else if (mode === "bootstrap-template") {
+  printBootstrapTemplate();
 } else if (mode === "env-template") {
   printEnvTemplate();
 } else if (mode === "vercel-bootstrap-commands") {

@@ -252,7 +252,7 @@ function goLiveEvidenceVerificationStatus(git) {
 
 function liveMoneyBootstrapNextStep(goLiveEvidence) {
   if (goLiveEvidence?.ok === true && goLiveEvidence?.capturedAtCurrentHead === true) {
-    return "Latest go-live evidence is clean at the current pushed HEAD; run npm run live-money:vercel-bootstrap-commands, stage the Supabase bootstrap values in Vercel, mirror the same values into local .env or shell variables, then rerun npm run status:live-money.";
+    return "Latest go-live evidence is clean at the current pushed HEAD; run npm run live-money:vercel-bootstrap-commands to stage the Supabase bootstrap values in Vercel, use npm run live-money:bootstrap-template to mirror the same values into local .env or shell variables, then rerun npm run status:live-money.";
   }
 
   return "Run npm run prepare:go-live-evidence to preserve runway/backup proof, create no-secret live-money packet evidence, print bootstrap-only Vercel commands, and archive the go-live evidence verifier proof; then stage the printed values in Vercel, mirror them into local .env or shell variables, and rerun npm run status:live-money.";
@@ -262,6 +262,7 @@ function liveMoneyBootstrapActionCommands(goLiveEvidence) {
   if (goLiveEvidence?.ok === true && goLiveEvidence?.capturedAtCurrentHead === true) {
     return [
       "npm run live-money:vercel-bootstrap-commands",
+      "npm run live-money:bootstrap-template",
       "npm run status:live-money",
     ];
   }
@@ -555,6 +556,7 @@ function buildStatus() {
     "npm --silent run verify:live-money-env-packet:json",
     "npm run archive:live-money-env-packet-verification",
     "npm run live-money:vercel-bootstrap-commands",
+    "npm run live-money:bootstrap-template",
     "npm run live-money:vercel-commands",
     "npm run archive:go-live-runway",
     "npm run archive:live-money-env-packet",

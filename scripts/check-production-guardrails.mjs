@@ -1086,6 +1086,9 @@ assertScriptIncludes("live-money:env-packet", [
 assertScriptIncludes("live-money:env-packet:json", [
   "node scripts/live-money-env-packet.mjs --json",
 ]);
+assertScriptIncludes("live-money:bootstrap-template", [
+  "node scripts/live-money-env-packet.mjs --bootstrap-template",
+]);
 assertScriptIncludes("live-money:env-template", [
   "node scripts/live-money-env-packet.mjs --env-template",
 ]);
@@ -1233,6 +1236,10 @@ assertFileIncludes("live money env packet helper source", "scripts/live-money-en
   "acceptedPreflightStates",
   "readOnlyGuarantee",
   "TCOS live-money environment packet",
+  "live-money:bootstrap-template",
+  "bootstrapEnvTemplate",
+  "--bootstrap-template",
+  "TCOS live-money Supabase bootstrap local template",
   "live-money:env-template",
   "live-money:vercel-bootstrap-commands",
   "live-money:vercel-commands",
@@ -1304,6 +1311,8 @@ assertFileIncludes("live money env packet verifier source", "scripts/verify-live
   "Local npm run status:live-money reads this shell's local environment",
   "redeploy only when quota is open",
   "tcos.liveMoneyEnvPacket.v1",
+  "npm run live-money:bootstrap-template",
+  "bootstrap local template command is recorded",
   "npm run live-money:vercel-bootstrap-commands",
   "npm run live-money:vercel-commands",
   "checksumAlgorithm",
@@ -1361,6 +1370,7 @@ assertFileIncludes("go-live runway status helper source", "scripts/status-go-liv
   "liveMoneyBootstrapNextStep",
   "Latest go-live evidence is clean at the current pushed HEAD",
   "stage the Supabase bootstrap values in Vercel",
+  "npm run live-money:bootstrap-template",
   "mirror the same values into local .env or shell variables",
   "liveMoneyBootstrapActionCommands",
   "goLiveReadiness",
@@ -1487,6 +1497,7 @@ assertFileIncludes("go-live runway status helper source", "scripts/status-go-liv
   "npm --silent run verify:live-money-env-packet:json",
   "npm run archive:live-money-env-packet-verification",
   "npm run live-money:vercel-bootstrap-commands",
+  "npm run live-money:bootstrap-template",
   "npm run live-money:vercel-commands",
   "npm run archive:go-live-runway",
   "npm run archive:live-money-env-packet",
@@ -1625,6 +1636,7 @@ assertFileIncludes("live money go/no-go README instructions", "README.md", [
   "timestamped verifier evidence file",
   ".codex-run/live-money-env-packet/",
   "tcos.liveMoneyEnvPacket.v1",
+  "npm run live-money:bootstrap-template",
   "npm run live-money:env-template",
   "npm run live-money:vercel-bootstrap-commands",
   "npm run live-money:vercel-commands",
@@ -4747,6 +4759,7 @@ assertFileIncludes("deploy live safety runbook", "docs/PRODUCTION_DEPLOY_RUNBOOK
   "timestamped verifier evidence file",
   ".codex-run/live-money-env-packet/",
   "tcos.liveMoneyEnvPacket.v1",
+  "npm run live-money:bootstrap-template",
   "npm run live-money:env-template",
   "npm run live-money:vercel-bootstrap-commands",
   "npm run live-money:vercel-commands",
@@ -4929,6 +4942,7 @@ assertFileIncludes("deploy live safety operator manual", "docs/TCOS_OPERATOR_MAN
   "checksum, no-secret, and local/deployed-boundary verification",
   ".codex-run/live-money-env-packet/",
   "tcos.liveMoneyEnvPacket.v1",
+  "npm run live-money:bootstrap-template",
   "npm run live-money:env-template",
   "npm run live-money:vercel-bootstrap-commands",
   "npm run live-money:vercel-commands",
@@ -5011,6 +5025,7 @@ assertFileIncludes(
     "timestamped verifier evidence file",
     ".codex-run/live-money-env-packet/",
     "tcos.liveMoneyEnvPacket.v1",
+    "npm run live-money:bootstrap-template",
     "npm run live-money:env-template",
     "npm run live-money:vercel-commands",
     "do not read secrets, call Stripe or Supabase, deploy, buy postage, create Checkout, or flip <code>TCOS_LIVE_PAYMENTS_ENABLED</code>",
