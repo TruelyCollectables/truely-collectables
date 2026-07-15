@@ -718,6 +718,15 @@ assertScriptIncludes("archive:live-money", [
 assertScriptIncludes("archive:live-money:preflight", [
   "node scripts/archive-live-money-evidence.mjs --preflight",
 ]);
+assertScriptIncludes("live-money:env-packet", [
+  "node scripts/live-money-env-packet.mjs",
+]);
+assertScriptIncludes("live-money:env-template", [
+  "node scripts/live-money-env-packet.mjs --env-template",
+]);
+assertScriptIncludes("live-money:vercel-commands", [
+  "node scripts/live-money-env-packet.mjs --vercel-commands",
+]);
 assertScriptIncludes("verify:production", [
   "status:live-money",
   "verify:instacomp",
@@ -820,6 +829,24 @@ assertFileIncludes("live money evidence archive helper source", "scripts/archive
   "readOnlyGuarantee",
   "process.exitCode = result.status || 0",
 ]);
+assertFileIncludes("live money env packet helper source", "scripts/live-money-env-packet.mjs", [
+  "TCOS live-money environment packet",
+  "live-money:env-template",
+  "live-money:vercel-commands",
+  "NEXT_PUBLIC_SUPABASE_URL",
+  "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+  "SUPABASE_SERVICE_ROLE_KEY",
+  "STRIPE_LIVE_SECRET_KEY",
+  "NEXT_PUBLIC_STRIPE_LIVE_PUBLISHABLE_KEY",
+  "STRIPE_LIVE_WEBHOOK_SECRET",
+  "NEXT_PUBLIC_SITE_URL",
+  "STRIPE_LIVE_FINANCIAL_EVENTS_VERIFIED",
+  "TCOS_LIVE_PAYMENTS_ENABLED",
+  "Keep false until the final go-live window",
+  "These helpers do not read secrets, call Stripe, call Supabase, deploy, buy postage, or create Checkout.",
+  "vercel env add",
+  "--scope",
+]);
 assertFileIncludes("live money go/no-go README instructions", "README.md", [
   "npm run status:live-money",
   "npm --silent run status:live-money:json",
@@ -827,6 +854,9 @@ assertFileIncludes("live money go/no-go README instructions", "README.md", [
   "npm --silent run preflight:live-money:json",
   "npm run archive:live-money",
   "npm run archive:live-money:preflight",
+  "npm run live-money:env-packet",
+  "npm run live-money:env-template",
+  "npm run live-money:vercel-commands",
   ".codex-run/live-money-evidence/",
   "liveMoneyEvidence",
   "accepted go-live states",
@@ -3830,6 +3860,10 @@ assertFileIncludes("deploy live safety runbook", "docs/PRODUCTION_DEPLOY_RUNBOOK
   "Production Deploy Safety",
   "Production go/no-go ladder",
   "Verify the pushed stack",
+  "npm run live-money:env-packet",
+  "npm run live-money:env-template",
+  "npm run live-money:vercel-commands",
+  "do not read secrets, call Stripe or Supabase, deploy, buy postage, create Checkout, or flip `TCOS_LIVE_PAYMENTS_ENABLED`",
   "Launch only when quota is open",
   "Halt on Vercel quota",
   "Ship only after smoke passes",
@@ -3959,6 +3993,10 @@ assertFileIncludes("deploy live safety operator manual", "docs/TCOS_OPERATOR_MAN
   "Production Deploy Safety",
   "Production Go/No-Go Ladder",
   "verify the pushed stack",
+  "npm run live-money:env-packet",
+  "npm run live-money:env-template",
+  "npm run live-money:vercel-commands",
+  "do not read secrets, call Stripe or Supabase, deploy, buy postage, create Checkout, or flip `TCOS_LIVE_PAYMENTS_ENABLED`",
   "launch only when quota is open",
   "halt if Vercel reports",
   "avoid rapid-fire deploy retries because Vercel can still upload files before returning the quota error",
@@ -3997,6 +4035,10 @@ assertFileIncludes(
     "Production Deploy Safety",
     "Production Go/No-Go Ladder",
     "verify the pushed stack",
+    "npm run live-money:env-packet",
+    "npm run live-money:env-template",
+    "npm run live-money:vercel-commands",
+    "do not read secrets, call Stripe or Supabase, deploy, buy postage, create Checkout, or flip <code>TCOS_LIVE_PAYMENTS_ENABLED</code>",
     "launch only when quota is open",
     "halt if Vercel reports",
     "avoid rapid-fire deploy retries because Vercel can still upload files before returning the quota error",
