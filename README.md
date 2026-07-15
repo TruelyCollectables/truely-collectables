@@ -55,7 +55,7 @@ npm --silent run status:nightly-backup:json
 npm run archive:nightly-backup-status
 ```
 
-The status helper reads only the LaunchAgent plist, backup folder, and log metadata. It does not create an archive, push Git, deploy, create Checkout, buy postage, release payouts, approve launch, or revoke anything. The archive helper writes timestamped status evidence under `.codex-run/nightly-backup-status/`.
+The status helper reads only the LaunchAgent plist, backup folder, and log metadata. It does not create an archive, push Git, deploy, create Checkout, buy postage, release payouts, approve launch, or revoke anything. It also reports schedule health such as `current`, `pending_first_run`, or `overdue_or_failed` so a missed 02:30 run is visible. The archive helper writes timestamped status evidence under `.codex-run/nightly-backup-status/`.
 
 ## Production deploy and smoke
 

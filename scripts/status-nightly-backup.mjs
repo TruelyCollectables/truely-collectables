@@ -132,6 +132,104 @@ function statFile(filePath) {
   };
 }
 
+function scheduleWindow(schedule) {
+  const match = schedule?.match(/^(\d{2}):(\d{2})$/);
+  if (!match) {
+    return null;
+  }
+
+  const hour = Number.parseInt(match[1], 10);
+  const minute = Number.parseInt(match[2], 10);
+  const now = new Date();
+  const todayRun = new Date(now);
+  todayRun.setHours(hour, minute, 0, 0);
+
+  const lastRun = new Date(todayRun);
+  if (now < todayRun) {
+    lastRun.setDate(lastRun.getDate() - 1);
+  }
+
+  const nextRun = new Date(lastRun);
+  nextRun.setDate(nextRun.getDate() + 1);
+
+  return {
+    now,
+    lastScheduledRunAt: lastRun,
+    nextScheduledRunAt: nextRun,
+  };
+}
+
+function backupScheduleHealth(launchAgent, backups) {
+  if (!launchAgent.supported) {
+    return {
+      state: "unsupported_platform",
+      lastScheduledRunAt: null,
+      nextScheduledRunAt: null,
+      latestBackupAt: backups.newest?.modifiedAt || null,
+      message: "LaunchAgent schedule health is macOS-only.",
+    };
+  }
+
+  if (!launchAgent.installed) {
+    return {
+      state: "not_installed",
+      lastScheduledRunAt: null,
+      nextScheduledRunAt: null,
+      latestBackupAt: backups.newest?.modifiedAt || null,
+      message: "Nightly backup LaunchAgent is not installed.",
+    };
+  }
+
+  const window = scheduleWindow(launchAgent.schedule);
+  if (!window) {
+    return {
+      state: "unknown_schedule",
+      lastScheduledRunAt: null,
+      nextScheduledRunAt: null,
+      latestBackupAt: backups.newest?.modifiedAt || null,
+      message: "Nightly backup LaunchAgent schedule could not be parsed.",
+    };
+  }
+
+  const launchAgentFile = statFile(launchAgent.path);
+  const installedAt = launchAgentFile?.modifiedAt || null;
+  const installedAfterLastRun =
+    installedAt && new Date(installedAt).getTime() > window.lastScheduledRunAt.getTime();
+  const latestBackupAt = backups.newest?.modifiedAt || null;
+  const latestBackupIsCurrent =
+    latestBackupAt &&
+    new Date(latestBackupAt).getTime() >= window.lastScheduledRunAt.getTime();
+
+  if (latestBackupIsCurrent) {
+    return {
+      state: "current",
+      lastScheduledRunAt: window.lastScheduledRunAt.toISOString(),
+      nextScheduledRunAt: window.nextScheduledRunAt.toISOString(),
+      latestBackupAt,
+      message: "Latest dated backup is current for the last scheduled run.",
+    };
+  }
+
+  if (installedAfterLastRun && backups.count === 0) {
+    return {
+      state: "pending_first_run",
+      lastScheduledRunAt: window.lastScheduledRunAt.toISOString(),
+      nextScheduledRunAt: window.nextScheduledRunAt.toISOString(),
+      latestBackupAt,
+      message: "LaunchAgent was installed after the last scheduled run; first backup is pending.",
+    };
+  }
+
+  return {
+    state: "overdue_or_failed",
+    lastScheduledRunAt: window.lastScheduledRunAt.toISOString(),
+    nextScheduledRunAt: window.nextScheduledRunAt.toISOString(),
+    latestBackupAt,
+    message:
+      "No dated backup is present for the last scheduled run. The Mac may have been asleep, offline, or the nightly job may have failed; inspect the backup logs.",
+  };
+}
+
 function listBackups(backupDir) {
   if (!backupDir || !fs.existsSync(backupDir)) {
     return {
@@ -185,10 +283,12 @@ const logs = {
   stdout: statFile(launchAgent.stdoutPath),
   stderr: statFile(launchAgent.stderrPath),
 };
+const scheduleHealth = backupScheduleHealth(launchAgent, backups);
 const payload = {
   schema,
   checkedAt: new Date().toISOString(),
   backupDir,
+  scheduleHealth,
   retention: {
     keep: 7,
     policy:
@@ -212,6 +312,10 @@ if (json) {
   console.log(`- retention: keep 7; over-retention count ${backups.overRetentionCount}`);
   console.log(`- newest backup: ${backups.newest ? `${backups.newest.name} (${backups.newest.modifiedAt})` : "none"}`);
   console.log(`- oldest backup: ${backups.oldest ? `${backups.oldest.name} (${backups.oldest.modifiedAt})` : "none"}`);
+  console.log(`- schedule health: ${scheduleHealth.state}`);
+  console.log(`- schedule message: ${scheduleHealth.message}`);
+  console.log(`- last scheduled run: ${scheduleHealth.lastScheduledRunAt || "unknown"}`);
+  console.log(`- next scheduled run: ${scheduleHealth.nextScheduledRunAt || "unknown"}`);
   console.log("");
   console.log("LaunchAgent:");
   console.log(`- installed: ${launchAgent.installed ? "yes" : "no"}`);

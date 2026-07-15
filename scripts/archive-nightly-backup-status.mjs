@@ -50,6 +50,11 @@ function assertEvidenceContract(payload) {
   if (payload?.schema !== "tcos.nightlyBackupStatus.v1") missing.push("schema");
   if (!payload?.checkedAt) missing.push("checkedAt");
   if (!payload?.backupDir) missing.push("backupDir");
+  if (!payload?.scheduleHealth?.state) missing.push("scheduleHealth.state");
+  if (!payload?.scheduleHealth?.message) missing.push("scheduleHealth.message");
+  if (!payload?.scheduleHealth || !("latestBackupAt" in payload.scheduleHealth)) {
+    missing.push("scheduleHealth.latestBackupAt");
+  }
   if (payload?.retention?.keep !== 7) missing.push("retention.keep");
   if (typeof payload?.retention?.overRetentionCount !== "number") {
     missing.push("retention.overRetentionCount");
@@ -132,6 +137,8 @@ console.log(`- backup folder: ${payload.backupDir}`);
 console.log(`- backup folder exists: ${payload.backups.exists ? "yes" : "no"}`);
 console.log(`- dated backup count: ${payload.backups.count}`);
 console.log(`- over-retention count: ${payload.retention.overRetentionCount}`);
+console.log(`- schedule health: ${payload.scheduleHealth.state}`);
+console.log(`- schedule message: ${payload.scheduleHealth.message}`);
 console.log(`- LaunchAgent installed: ${payload.launchAgent.installed ? "yes" : "no"}`);
 console.log(`- LaunchAgent schedule: ${payload.launchAgent.schedule || "unknown"}`);
 console.log(`- read-only guarantee: ${payload.readOnlyGuarantee}`);
