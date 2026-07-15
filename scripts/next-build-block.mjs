@@ -49,11 +49,12 @@ function buildNextAction(checkpoint) {
     goLiveReadiness: checkpoint.goLiveReadiness || {},
     productionDeploymentQuota: checkpoint.productionDeploymentQuota || {},
     emergencyBackup: checkpoint.emergencyBackup || {},
+    backupRunway: checkpoint.backupRunway || {},
     liveMoney: checkpoint.liveMoney || {},
     safeBuildBoundary:
       "Use this next-block action only for launch-safe local work. It does not approve live money, buy postage, release payouts, create Checkout, or start production deploys.",
     readOnlyGuarantee:
-      "This command only reads status:build-block JSON and prints the next 30-minute block action; it starts no deploy, upload, archive creation, Git push, Checkout, postage, payout, launch approval, or revocation.",
+      "This command only reads status:build-block JSON and prints the next 30-minute block action; it starts no deploy, upload, archive creation, Git push, Checkout, postage, payout, launch approval, revocation, or backup creation.",
   };
 }
 
@@ -92,6 +93,21 @@ function printText(action) {
   console.log(
     `- backup scheduler proof: ${
       action.emergencyBackup?.schedulerProof || "unknown"
+    }`,
+  );
+  console.log(
+    `- backup runway accepted posture: ${
+      action.backupRunway?.acceptedBackupPosture ? "yes" : "no"
+    }`,
+  );
+  console.log(
+    `- backup runway scheduler proof mode: ${
+      action.backupRunway?.schedulerProofMode || "unknown"
+    }`,
+  );
+  console.log(
+    `- backup runway operator watch required: ${
+      action.backupRunway?.operatorWatchRequired ? "yes" : "no"
     }`,
   );
   console.log(`- live-money state: ${action.liveMoney?.state || "unknown"}`);

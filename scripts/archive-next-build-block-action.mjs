@@ -84,6 +84,24 @@ function assertEvidenceContract(payload) {
   if (!payload?.emergencyBackup?.schedulerProof) {
     missing.push("emergencyBackup.schedulerProof");
   }
+  if (payload?.backupRunway?.schema !== "tcos.backupRunwayStatus.v1") {
+    missing.push("backupRunway.schema");
+  }
+  if (typeof payload?.backupRunway?.acceptedBackupPosture !== "boolean") {
+    missing.push("backupRunway.acceptedBackupPosture");
+  }
+  if (!payload?.backupRunway?.schedulerProofMode) {
+    missing.push("backupRunway.schedulerProofMode");
+  }
+  if (typeof payload?.backupRunway?.operatorWatchRequired !== "boolean") {
+    missing.push("backupRunway.operatorWatchRequired");
+  }
+  if (!payload?.backupRunway?.verifiedArchive) {
+    missing.push("backupRunway.verifiedArchive");
+  }
+  if (!payload?.backupRunway?.computedSha256) {
+    missing.push("backupRunway.computedSha256");
+  }
   if (!payload?.liveMoney?.state) missing.push("liveMoney.state");
   if (!Array.isArray(payload?.liveMoney?.missingBootstrapEnvironment)) {
     missing.push("liveMoney.missingBootstrapEnvironment");
@@ -172,6 +190,17 @@ console.log(
   }`,
 );
 console.log(`- emergency backup scheduler proof: ${payload.emergencyBackup.schedulerProof}`);
+console.log(
+  `- backup runway accepted posture: ${
+    payload.backupRunway.acceptedBackupPosture ? "yes" : "no"
+  }`,
+);
+console.log(`- backup runway scheduler proof mode: ${payload.backupRunway.schedulerProofMode}`);
+console.log(
+  `- backup runway operator watch required: ${
+    payload.backupRunway.operatorWatchRequired ? "yes" : "no"
+  }`,
+);
 console.log(`- live-money state: ${payload.liveMoney.state}`);
 console.log(
   `- missing bootstrap environment: ${
@@ -181,5 +210,5 @@ console.log(
   }`,
 );
 console.log(
-  "- read-only source guarantee: next:build-block only reads status:build-block JSON; this archive helper only writes the timestamped next-action evidence file.",
+  "- read-only source guarantee: next:build-block only reads status:build-block JSON with backup-runway posture; this archive helper only writes the timestamped next-action evidence file.",
 );
