@@ -149,6 +149,8 @@ function summarizePayload(key, payload) {
       backupRunwayOperatorWatchRequired:
         payload.backupRunway?.operatorWatchRequired ?? null,
       backupRunwayNext: payload.backupRunway?.next || null,
+      backupRunwayVerifiedArchive: payload.backupRunway?.verifiedArchive || null,
+      backupRunwayComputedSha256: payload.backupRunway?.computedSha256 || null,
     };
   }
 
@@ -185,6 +187,8 @@ function summarizePayload(key, payload) {
       backupRunwayOperatorWatchRequired:
         payload.backupRunway?.operatorWatchRequired ?? null,
       backupRunwayNext: payload.backupRunway?.next || null,
+      backupRunwayVerifiedArchive: payload.backupRunway?.verifiedArchive || null,
+      backupRunwayComputedSha256: payload.backupRunway?.computedSha256 || null,
     };
   }
 
@@ -349,6 +353,20 @@ if (jsonOutput) {
     }
     if ("backupRunwayNext" in item.summary) {
       console.log(`- backup runway next: ${item.summary.backupRunwayNext || "not recorded"}`);
+    }
+    if ("backupRunwayVerifiedArchive" in item.summary) {
+      console.log(
+        `- backup runway verified archive: ${
+          item.summary.backupRunwayVerifiedArchive || "not recorded"
+        }`,
+      );
+    }
+    if ("backupRunwayComputedSha256" in item.summary) {
+      console.log(
+        `- backup runway computed sha256: ${
+          item.summary.backupRunwayComputedSha256 || "not recorded"
+        }`,
+      );
     }
     console.log(`- live-money state: ${item.summary.liveMoneyState || "not recorded"}`);
     if (item.summary.liveMoneyMissingBootstrapEnvironment?.length) {

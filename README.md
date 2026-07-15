@@ -87,6 +87,7 @@ For fast 30-minute blocks, run `npm run status:build-block` for a concise read-o
 
 The compact build-block history also records the selected fallback lane next step and command sequence, so resumed 30-minute blocks can continue launch-safe local work without re-opening the full next-action archive.
 It also carries the backup runway next action while scheduler proof is still pending, so the overnight MacBook watch step stays visible beside the selected build lane.
+The backup proof in the compact history includes the verified archive path and computed SHA-256, keeping the local-emergency-backup evidence auditable without opening the full backup runway archive.
 While live money is blocked, the same compact history preserves the missing Supabase bootstrap environment names so the operator handoff does not have to scrape the full live-money report.
 
 When the latest go-live evidence is already clean at `HEAD=origin/main`, `npm run status:go-live` advances the live-money blocker from “rerun the full packet” to the actual Supabase bootstrap handoff: run `npm run live-money:vercel-bootstrap-commands`, stage the Supabase values in Vercel, use `npm run live-money:bootstrap-template` to mirror the same values locally without mixing in final Stripe/live-payment runtime fields, and rerun `npm run status:live-money`.

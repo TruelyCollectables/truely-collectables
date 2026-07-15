@@ -132,6 +132,12 @@ function assertEvidenceContract(payload) {
   if (!payload?.evidence?.checkpoint?.summary?.backupRunwayNext) {
     missing.push("evidence.checkpoint.summary.backupRunwayNext");
   }
+  if (!payload?.evidence?.checkpoint?.summary?.backupRunwayVerifiedArchive) {
+    missing.push("evidence.checkpoint.summary.backupRunwayVerifiedArchive");
+  }
+  if (!payload?.evidence?.checkpoint?.summary?.backupRunwayComputedSha256) {
+    missing.push("evidence.checkpoint.summary.backupRunwayComputedSha256");
+  }
   if (
     typeof payload?.evidence?.nextAction?.summary
       ?.backupRunwayAcceptedPosture !== "boolean"
@@ -156,6 +162,12 @@ function assertEvidenceContract(payload) {
   }
   if (!payload?.evidence?.nextAction?.summary?.backupRunwayNext) {
     missing.push("evidence.nextAction.summary.backupRunwayNext");
+  }
+  if (!payload?.evidence?.nextAction?.summary?.backupRunwayVerifiedArchive) {
+    missing.push("evidence.nextAction.summary.backupRunwayVerifiedArchive");
+  }
+  if (!payload?.evidence?.nextAction?.summary?.backupRunwayComputedSha256) {
+    missing.push("evidence.nextAction.summary.backupRunwayComputedSha256");
   }
   if (
     !Array.isArray(
@@ -278,6 +290,12 @@ console.log(
   }`,
 );
 console.log(`- checkpoint backup runway next: ${payload.evidence.checkpoint.summary.backupRunwayNext}`);
+console.log(
+  `- checkpoint backup runway verified archive: ${payload.evidence.checkpoint.summary.backupRunwayVerifiedArchive}`,
+);
+console.log(
+  `- checkpoint backup runway computed sha256: ${payload.evidence.checkpoint.summary.backupRunwayComputedSha256}`,
+);
 if (payload.evidence.checkpoint.summary.liveMoneyMissingBootstrapEnvironment.length) {
   console.log(
     `- checkpoint live-money missing bootstrap environment: ${payload.evidence.checkpoint.summary.liveMoneyMissingBootstrapEnvironment.join(", ")}`,
@@ -332,6 +350,12 @@ console.log(
   }`,
 );
 console.log(`- next-action backup runway next: ${payload.evidence.nextAction.summary.backupRunwayNext}`);
+console.log(
+  `- next-action backup runway verified archive: ${payload.evidence.nextAction.summary.backupRunwayVerifiedArchive}`,
+);
+console.log(
+  `- next-action backup runway computed sha256: ${payload.evidence.nextAction.summary.backupRunwayComputedSha256}`,
+);
 if (payload.evidence.nextAction.summary.liveMoneyMissingBootstrapEnvironment.length) {
   console.log(
     `- next-action live-money missing bootstrap environment: ${payload.evidence.nextAction.summary.liveMoneyMissingBootstrapEnvironment.join(", ")}`,

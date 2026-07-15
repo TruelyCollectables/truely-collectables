@@ -332,6 +332,20 @@ if (payload) {
   );
   checks.push(
     check(
+      Boolean(evidence.checkpoint?.summary?.backupRunwayVerifiedArchive),
+      "history checkpoint backup runway records verified archive",
+      evidence.checkpoint?.summary?.backupRunwayVerifiedArchive || null,
+    ),
+  );
+  checks.push(
+    check(
+      Boolean(evidence.checkpoint?.summary?.backupRunwayComputedSha256),
+      "history checkpoint backup runway records computed SHA-256",
+      evidence.checkpoint?.summary?.backupRunwayComputedSha256 || null,
+    ),
+  );
+  checks.push(
+    check(
       evidence.nextAction?.summary?.backupRunwayAcceptedPosture === true,
       "history next-action backup runway accepted posture",
       evidence.nextAction?.summary?.backupRunwayAcceptedPosture,
@@ -356,6 +370,20 @@ if (payload) {
       Boolean(evidence.nextAction?.summary?.backupRunwayNext),
       "history next-action backup runway next action",
       evidence.nextAction?.summary?.backupRunwayNext || null,
+    ),
+  );
+  checks.push(
+    check(
+      Boolean(evidence.nextAction?.summary?.backupRunwayVerifiedArchive),
+      "history next-action backup runway records verified archive",
+      evidence.nextAction?.summary?.backupRunwayVerifiedArchive || null,
+    ),
+  );
+  checks.push(
+    check(
+      Boolean(evidence.nextAction?.summary?.backupRunwayComputedSha256),
+      "history next-action backup runway records computed SHA-256",
+      evidence.nextAction?.summary?.backupRunwayComputedSha256 || null,
     ),
   );
   checks.push(
@@ -465,6 +493,10 @@ const verification = {
           payload.evidence?.checkpoint?.summary?.backupRunwayOperatorWatchRequired ?? null,
         checkpointBackupRunwayNext:
           payload.evidence?.checkpoint?.summary?.backupRunwayNext || null,
+        checkpointBackupRunwayVerifiedArchive:
+          payload.evidence?.checkpoint?.summary?.backupRunwayVerifiedArchive || null,
+        checkpointBackupRunwayComputedSha256:
+          payload.evidence?.checkpoint?.summary?.backupRunwayComputedSha256 || null,
         nextActionBackupRunwayAcceptedPosture:
           payload.evidence?.nextAction?.summary?.backupRunwayAcceptedPosture ?? null,
         nextActionBackupRunwaySchedulerProofMode:
@@ -473,6 +505,10 @@ const verification = {
           payload.evidence?.nextAction?.summary?.backupRunwayOperatorWatchRequired ?? null,
         nextActionBackupRunwayNext:
           payload.evidence?.nextAction?.summary?.backupRunwayNext || null,
+        nextActionBackupRunwayVerifiedArchive:
+          payload.evidence?.nextAction?.summary?.backupRunwayVerifiedArchive || null,
+        nextActionBackupRunwayComputedSha256:
+          payload.evidence?.nextAction?.summary?.backupRunwayComputedSha256 || null,
         runwayGoLiveEvidenceOk:
           payload.evidence?.goLiveRunway?.summary?.goLiveEvidenceOk ?? null,
         runwayGoLiveEvidenceCurrent:
@@ -588,6 +624,16 @@ if (jsonOutput) {
     }`,
   );
   console.log(
+    `- checkpoint backup runway verified archive: ${
+      verification.history?.checkpointBackupRunwayVerifiedArchive || "not recorded"
+    }`,
+  );
+  console.log(
+    `- checkpoint backup runway computed sha256: ${
+      verification.history?.checkpointBackupRunwayComputedSha256 || "not recorded"
+    }`,
+  );
+  console.log(
     `- next-action backup runway accepted posture: ${
       verification.history?.nextActionBackupRunwayAcceptedPosture ? "yes" : "no"
     }`,
@@ -605,6 +651,16 @@ if (jsonOutput) {
   console.log(
     `- next-action backup runway next: ${
       verification.history?.nextActionBackupRunwayNext || "not recorded"
+    }`,
+  );
+  console.log(
+    `- next-action backup runway verified archive: ${
+      verification.history?.nextActionBackupRunwayVerifiedArchive || "not recorded"
+    }`,
+  );
+  console.log(
+    `- next-action backup runway computed sha256: ${
+      verification.history?.nextActionBackupRunwayComputedSha256 || "not recorded"
     }`,
   );
   console.log(
