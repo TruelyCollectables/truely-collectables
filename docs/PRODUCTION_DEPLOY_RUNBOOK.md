@@ -104,7 +104,7 @@ The production guardrail suite locks this live deploy behavior in place: quota b
 
 If Vercel reports `api-deployments-free-per-day`, wait for the rolling quota window to reset, then rerun the same command. Do not rapid-fire retries while capped; Vercel can still accept the upload stream before returning the quota error, so repeated attempts waste operator time without producing a deploy. If a recent quota marker exists, the deploy helper exits before calling `vercel --prod`; override only when you intentionally want to test whether the rolling window reopened early.
 
-Use `npm run status:production` between development blocks to see the exact retry timestamp without consuming deployment quota.
+Use `npm run status:production` between development blocks to see the exact retry timestamp without consuming deployment quota. Use `npm run status:go-live` for the single read-only runway view: local Git `HEAD`/`origin/main`/working-tree cleanliness, Vercel quota status, live-money state, missing bootstrap environment, local live-payment runtime readiness, and safe next commands without starting deploys, uploads, Checkout, postage, payouts, launch approvals, or revocations.
 
 ## Production go/no-go ladder
 

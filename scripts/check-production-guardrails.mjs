@@ -692,6 +692,10 @@ runExpectedSuccess("live money evidence archive helper syntax check", [
   "--check",
   "scripts/archive-live-money-evidence.mjs",
 ]);
+runExpectedSuccess("go-live runway status helper syntax check", [
+  "--check",
+  "scripts/status-go-live.mjs",
+]);
 assertScriptIncludes("verify:shipping", [
   "simulate:lettertrack-evidence",
   "simulate:shipping-purchase-audit",
@@ -699,6 +703,9 @@ assertScriptIncludes("verify:shipping", [
 ]);
 assertScriptIncludes("status:production", [
   "node scripts/deploy-production.mjs --quota-status",
+]);
+assertScriptIncludes("status:go-live", [
+  "node scripts/status-go-live.mjs",
 ]);
 assertScriptIncludes("status:live-money", [
   "node --import tsx scripts/status-live-money.ts --allow-blocked",
@@ -863,7 +870,33 @@ assertFileIncludes("live money env packet helper source", "scripts/live-money-en
   "env add",
   "--scope",
 ]);
+assertFileIncludes("go-live runway status helper source", "scripts/status-go-live.mjs", [
+  "TCOS go-live runway status:",
+  "git HEAD:",
+  "git origin/main:",
+  "git working tree clean:",
+  "Production deployment quota:",
+  "scripts/deploy-production.mjs",
+  "--quota-status",
+  "Vercel upload started:",
+  "status:live-money:json",
+  "Live money:",
+  "missing bootstrap environment:",
+  "Local Supabase bootstrap status",
+  "Local final live-payment runtime status",
+  "Safe next commands:",
+  "npm run live-money:env-packet",
+  "npm run live-money:vercel-commands",
+  "Read-only guarantee:",
+  "starts no deploy, upload, Checkout, postage, payout, launch approval, or revocation",
+]);
 assertFileIncludes("live money go/no-go README instructions", "README.md", [
+  "npm run status:go-live",
+  "single read-only runway view",
+  "local Git `HEAD`/`origin/main`/working-tree cleanliness",
+  "Vercel quota status",
+  "local live-payment runtime readiness",
+  "without starting deploys, uploads, Checkout, postage, payouts, launch approvals, or revocations",
   "npm run status:live-money",
   "npm --silent run status:live-money:json",
   "npm run preflight:live-money",
@@ -3879,6 +3912,9 @@ assertFileIncludes("deploy live safety runbook", "docs/PRODUCTION_DEPLOY_RUNBOOK
   "Production Deploy Safety",
   "Production go/no-go ladder",
   "Verify the pushed stack",
+  "npm run status:go-live",
+  "single read-only runway view",
+  "without starting deploys, uploads, Checkout, postage, payouts, launch approvals, or revocations",
   "npm run live-money:env-packet",
   "npm run live-money:env-template",
   "npm run live-money:vercel-commands",
@@ -4014,6 +4050,9 @@ assertFileIncludes("deploy live safety operator manual", "docs/TCOS_OPERATOR_MAN
   "Production Deploy Safety",
   "Production Go/No-Go Ladder",
   "verify the pushed stack",
+  "npm run status:go-live",
+  "single read-only runway view",
+  "without starting deploys, uploads, Checkout, postage, payouts, launch approvals, or revocations",
   "npm run live-money:env-packet",
   "npm run live-money:env-template",
   "npm run live-money:vercel-commands",
@@ -4058,6 +4097,9 @@ assertFileIncludes(
     "Production Deploy Safety",
     "Production Go/No-Go Ladder",
     "verify the pushed stack",
+    "npm run status:go-live",
+    "single read-only runway view",
+    "without starting deploys, uploads, Checkout, postage, payouts, launch approvals, or revocations",
     "npm run live-money:env-packet",
     "npm run live-money:env-template",
     "npm run live-money:vercel-commands",
