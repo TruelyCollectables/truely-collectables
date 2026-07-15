@@ -1201,6 +1201,19 @@ assertFileIncludes("live launch gate smoke contract", "scripts/smoke-production.
   "Launch Locks",
   "Operator next actions",
   "What remains before live money",
+  "Final evidence packet",
+  "Live Money JSON Evidence",
+  "Post-smoke archive command",
+  "npm --silent run status:live-money:json",
+  "Final-window preflight command",
+  "npm --silent run preflight:live-money:json",
+  "Accepted go-live states",
+  "READY_FOR_RUNTIME_SWITCH, LIVE_MONEY_OPEN",
+  "Halt if the JSON evidence is missing",
+  "BLOCKED_UNEVALUATED, BLOCKED_APPROVAL, READY_FOR_DATABASE_APPROVAL, BLOCKED_LAUNCH_GATE",
+  "TCOS_LIVE_PAYMENTS_ENABLED",
+  "must not create Checkout Sessions",
+  "Hand-off Bundle",
   "Approve Live Payments",
   "Payment Lab",
   'name: "live shipping gate"',
@@ -1244,6 +1257,21 @@ assertFileIncludes("live launch gate smoke contract", "scripts/smoke-production.
   '"standard_envelope_evidence_contract"',
   '"Standard Envelope Evidence Contract"',
 ]);
+
+assertFileIncludes("live payment gate JSON evidence source", "src/app/admin/live-payment-launch/page.tsx", [
+  "LIVE_MONEY_JSON_EVIDENCE",
+  "Final evidence packet",
+  "{LIVE_MONEY_JSON_EVIDENCE.title}",
+  "LIVE_MONEY_JSON_EVIDENCE.statusCommand",
+  "LIVE_MONEY_JSON_EVIDENCE.preflightCommand",
+  "LIVE_MONEY_JSON_EVIDENCE.schema",
+  "LIVE_MONEY_JSON_EVIDENCE.readyStates.join",
+  "LIVE_MONEY_JSON_EVIDENCE.blockedStates.join",
+  "TCOS_LIVE_PAYMENTS_ENABLED",
+  "LIVE_MONEY_JSON_EVIDENCE.readOnlyGuarantee",
+  "/api/admin/launch-readiness?format=handoff-bundle",
+]);
+
 assertFileIncludes("live shipping evidence contract report source", "src/lib/live-shipping-launch.ts", [
   "isStandardEnvelopeEvidenceContractReady",
   "runShippingPurchaseAttemptAuditSimulationSuite",

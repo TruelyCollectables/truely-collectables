@@ -1339,6 +1339,19 @@ const checks = [
       result.text.includes("Launch Locks") &&
       result.text.includes("Operator next actions") &&
       result.text.includes("What remains before live money") &&
+      result.text.includes("Final evidence packet") &&
+      result.text.includes("Live Money JSON Evidence") &&
+      result.text.includes("Post-smoke archive command") &&
+      result.text.includes("npm --silent run status:live-money:json") &&
+      result.text.includes("Final-window preflight command") &&
+      result.text.includes("npm --silent run preflight:live-money:json") &&
+      result.text.includes("Accepted go-live states") &&
+      result.text.includes("READY_FOR_RUNTIME_SWITCH, LIVE_MONEY_OPEN") &&
+      result.text.includes("Halt if the JSON evidence is missing") &&
+      result.text.includes("BLOCKED_UNEVALUATED, BLOCKED_APPROVAL, READY_FOR_DATABASE_APPROVAL, BLOCKED_LAUNCH_GATE") &&
+      result.text.includes("TCOS_LIVE_PAYMENTS_ENABLED") &&
+      result.text.includes("must not create Checkout Sessions") &&
+      result.text.includes("Hand-off Bundle") &&
       result.text.includes("Approve Live Payments") &&
       result.text.includes("Payment Lab"),
   },

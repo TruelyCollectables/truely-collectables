@@ -5,6 +5,7 @@ import {
 } from "../../../lib/live-payment-launch";
 import { getActiveStoreId } from "../../../lib/stores";
 import { createSupabaseServerClient } from "../../../lib/supabase-server";
+import { LIVE_MONEY_JSON_EVIDENCE } from "../../../lib/live-money-evidence";
 import LivePaymentGateActions from "./LivePaymentGateActions";
 
 export const dynamic = "force-dynamic";
@@ -158,6 +159,76 @@ export default async function LivePaymentLaunchPage() {
               operator approval, runtime switch review, and post-launch monitoring.
             </p>
           )}
+        </section>
+
+        <section className="mb-8 rounded border border-emerald-200 bg-emerald-50 p-6 text-emerald-950">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-black uppercase tracking-widest">
+                Final evidence packet
+              </p>
+              <h2 className="mt-2 text-2xl font-black">
+                {LIVE_MONEY_JSON_EVIDENCE.title}
+              </h2>
+              <p className="mt-2 max-w-3xl text-sm font-semibold leading-6">
+                Archive this read-only JSON proof before approving the database
+                lock or changing the runtime switch. The evidence command must
+                show the accepted go-live state during the final launch window.
+              </p>
+            </div>
+            <Link
+              href="/api/admin/launch-readiness?format=handoff-bundle"
+              className="rounded border border-emerald-300 bg-white px-4 py-2 text-sm font-bold"
+            >
+              Hand-off Bundle
+            </Link>
+          </div>
+          <dl className="mt-5 grid grid-cols-1 gap-3 text-sm md:grid-cols-2">
+            <div className="rounded border border-emerald-200 bg-white p-3">
+              <dt className="font-black uppercase text-emerald-700">
+                Post-smoke archive command
+              </dt>
+              <dd className="mt-1 font-mono text-xs">
+                {LIVE_MONEY_JSON_EVIDENCE.statusCommand}
+              </dd>
+            </div>
+            <div className="rounded border border-emerald-200 bg-white p-3">
+              <dt className="font-black uppercase text-emerald-700">
+                Final-window preflight command
+              </dt>
+              <dd className="mt-1 font-mono text-xs">
+                {LIVE_MONEY_JSON_EVIDENCE.preflightCommand}
+              </dd>
+            </div>
+            <div className="rounded border border-emerald-200 bg-white p-3">
+              <dt className="font-black uppercase text-emerald-700">Schema</dt>
+              <dd className="mt-1 font-mono text-xs">
+                {LIVE_MONEY_JSON_EVIDENCE.schema}
+              </dd>
+            </div>
+            <div className="rounded border border-emerald-200 bg-white p-3">
+              <dt className="font-black uppercase text-emerald-700">
+                Accepted go-live states
+              </dt>
+              <dd className="mt-1 font-mono text-xs">
+                {LIVE_MONEY_JSON_EVIDENCE.readyStates.join(", ")}
+              </dd>
+            </div>
+          </dl>
+          <p className="mt-4 text-sm font-semibold leading-6">
+            Halt if the JSON evidence is missing or reports{" "}
+            <span className="font-mono text-xs">
+              {LIVE_MONEY_JSON_EVIDENCE.blockedStates.join(", ")}
+            </span>
+            . Do not change{" "}
+            <code className="rounded bg-white px-1 py-0.5">
+              TCOS_LIVE_PAYMENTS_ENABLED
+            </code>{" "}
+            while any halt state is present.
+          </p>
+          <p className="mt-2 text-sm font-semibold leading-6">
+            {LIVE_MONEY_JSON_EVIDENCE.readOnlyGuarantee}
+          </p>
         </section>
 
         <section className="grid gap-4 md:grid-cols-2">
