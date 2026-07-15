@@ -102,6 +102,8 @@ Quota markers are success-cleared, not attempt-cleared. Failed override retries,
 
 Nonzero `vercel --prod` results are rejected before URL parsing, alias changes, or marker clearing. A `.vercel.app` URL printed in failed command output is never accepted as a deployment.
 
+The deploy helper bounds the actual `vercel --prod` process with `TCOS_VERCEL_DEPLOY_TIMEOUT_MS`, defaulting to 15 minutes and accepting only integer milliseconds from `60000` through `3600000`. If the deploy stalls or times out, no alias command starts, the quota marker is preserved, and the operator should inspect Vercel deployments/aliases before retrying.
+
 Unwanted-alias cleanup must succeed or return Vercel CLI's explicit alias-not-found result before clean-domain aliasing. Authentication, scope, network, or other cleanup failures stop the launch and preserve the quota marker.
 
 Launch-readiness JSON/Markdown, the handoff bundle, the Launch Readiness page, and the Production Smoke Report all publish the shared read-only quota command and description. They also publish the Emergency Backup Evidence contract so operators preserve nightly backup status, verification, runway archive, scheduler proof, and SHA-256 proof before go-live. Production smoke protects those operator handoffs from drifting.

@@ -44,6 +44,8 @@ The quota marker is success-cleared, not attempt-cleared. A failed override retr
 
 The helper also requires `vercel --prod` to exit successfully before it parses the deployment URL, runs either alias command, or clears the quota marker. A URL printed by a failed Vercel command is diagnostic output, not a deployable result.
 
+The actual `vercel --prod` process is bounded by `TCOS_VERCEL_DEPLOY_TIMEOUT_MS`, defaulting to 15 minutes and accepting only integer milliseconds from `60000` through `3600000`. If the deploy stalls or times out, the helper rejects any printed URL, starts no alias commands, preserves the local quota marker, and requires an operator to inspect Vercel deployments and aliases before retrying.
+
 Unwanted-alias cleanup is also fail closed. Before moving the clean production domain, the helper requires `vercel alias rm truely-collectables-tt3b.vercel.app` to succeed or return Vercel CLI's explicit `Alias not found by` result. Authentication, scope, network, or other cleanup failures stop the launch before clean-domain aliasing and preserve the local quota marker.
 
 The shared deploy-safety contract exposes `quotaStatusCommand` and its read-only description in launch-readiness JSON and Markdown, the launch handoff bundle, the Launch Readiness page, and the Production Smoke Report. Production smoke verifies those surfaces retain `npm run status:production`, so an operator does not have to rely on chat history to decide whether a deployment retry is safe.

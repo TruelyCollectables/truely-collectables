@@ -742,6 +742,22 @@ runExpectedSuccess(
       "/tmp/tcos-vercel-deploy-result-self-test.json",
   },
 );
+runExpectedSuccess(
+  "deploy helper deploy timeout self-test",
+  ["scripts/deploy-production.mjs", "--self-test-deploy-timeout"],
+  {
+    TCOS_VERCEL_QUOTA_MARKER_PATH:
+      "/tmp/tcos-vercel-deploy-timeout-self-test.json",
+  },
+);
+runExpectedFailure(
+  "deploy helper rejects malformed deploy timeout",
+  ["scripts/deploy-production.mjs", "--quota-status"],
+  {
+    TCOS_VERCEL_DEPLOY_TIMEOUT_MS: "Infinity",
+  },
+  "TCOS_VERCEL_DEPLOY_TIMEOUT_MS must be an integer between 60000 and 3600000",
+);
 runExpectedFailure(
   "deploy helper protects production marker from deploy-result self-test",
   ["scripts/deploy-production.mjs", "--self-test-deploy-result"],
@@ -5232,6 +5248,10 @@ assertFileIncludes("deploy live safety contract", "scripts/deploy-production.mjs
   "Wait for the rolling 24-hour quota to reset",
   ".codex-run/vercel-quota-block.json",
   "No Vercel upload was started",
+  "TCOS_VERCEL_DEPLOY_TIMEOUT_MS",
+  "Vercel production deploy timeout:",
+  "--self-test-deploy-timeout",
+  "No alias command was started, and the local quota marker was preserved",
   "TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true",
   "--force-quota-retry",
   "Removing unwanted ${unwantedAlias} alias if present",
@@ -5824,6 +5844,8 @@ assertFileIncludes("deploy live safety runbook", "docs/PRODUCTION_DEPLOY_RUNBOOK
   "five expected purchase-audit scenarios",
   "shipping simulation API POST including purchase-audit coverage",
   "Vercel quota messaging",
+  "TCOS_VERCEL_DEPLOY_TIMEOUT_MS",
+  "If `vercel --prod` stalls",
   "unwanted `truely-collectables-tt3b.vercel.app` alias",
   "clean-domain aliasing",
   "post-deploy smoke handoff",
@@ -5892,6 +5914,8 @@ assertFileIncludes("deploy live safety README", "README.md", [
   "That command is deploy-safe and focused: it runs only the InstaComp queue and accuracy simulations",
   "Use `npm run verify:production` for the full lint, shipping, build, guardrail, and GitHub preflight stack.",
   "Vercel quota messaging",
+  "TCOS_VERCEL_DEPLOY_TIMEOUT_MS",
+  "If the deploy stalls or times out",
   "unwanted `truely-collectables-tt3b.vercel.app` alias",
   "deployed and clean URLs",
   "protected live deploy sequence",
@@ -6020,6 +6044,8 @@ assertFileIncludes("deploy live safety operator manual", "docs/TCOS_OPERATOR_MAN
   "--force-quota-retry",
   "ship only after smoke passes the clean production domain",
   "Vercel quota messaging",
+  "TCOS_VERCEL_DEPLOY_TIMEOUT_MS",
+  "If the deploy stalls or times out",
   "unwanted `truely-collectables-tt3b.vercel.app` alias removal",
   "clean production aliasing",
   "deployed URL output",

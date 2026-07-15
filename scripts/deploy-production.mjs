@@ -28,6 +28,7 @@ const redactionSelfTest = process.argv.includes("--self-test-redaction");
 const quotaCooldownSelfTest = process.argv.includes("--self-test-quota-cooldown");
 const deployResultSelfTest = process.argv.includes("--self-test-deploy-result");
 const aliasRemovalSelfTest = process.argv.includes("--self-test-alias-removal");
+const deployTimeoutSelfTest = process.argv.includes("--self-test-deploy-timeout");
 const targetHostSelfTest = process.argv.includes("--self-test-target-hosts");
 const scopeSelfTest = process.argv.includes("--self-test-scope");
 const vercelCliVersion = "56.2.0";
@@ -41,6 +42,11 @@ const quotaRetryOverride =
   process.env.TCOS_VERCEL_QUOTA_RETRY_OVERRIDE === "true";
 const quotaCooldownHours = Number(
   process.env.TCOS_VERCEL_QUOTA_COOLDOWN_HOURS || "24",
+);
+const minVercelDeployTimeoutMs = 60_000;
+const maxVercelDeployTimeoutMs = 3_600_000;
+const vercelDeployTimeoutMs = parseVercelDeployTimeoutMs(
+  process.env.TCOS_VERCEL_DEPLOY_TIMEOUT_MS || "900000",
 );
 const defaultQuotaBlockMarkerPath = path.resolve(
   process.cwd(),
@@ -151,6 +157,32 @@ function normalizeVercelScope(value) {
   }
 
   return trimmed;
+}
+
+function parseVercelDeployTimeoutMs(value) {
+  const parsed = Number(value);
+
+  if (
+    !Number.isSafeInteger(parsed) ||
+    parsed < minVercelDeployTimeoutMs ||
+    parsed > maxVercelDeployTimeoutMs
+  ) {
+    throw new Error(
+      `TCOS_VERCEL_DEPLOY_TIMEOUT_MS must be an integer between ${minVercelDeployTimeoutMs} and ${maxVercelDeployTimeoutMs}.`,
+    );
+  }
+
+  return parsed;
+}
+
+function formatMilliseconds(ms) {
+  const totalSeconds = Math.ceil(ms / 1000);
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+
+  if (minutes <= 0) return `${seconds}s`;
+  if (seconds === 0) return `${minutes}m`;
+  return `${minutes}m ${seconds}s`;
 }
 
 if (cleanDomain === unwantedAlias) {
@@ -776,8 +808,10 @@ function parseDeploymentUrl(output) {
 function assertSuccessfulDeployResult(deployResult) {
   if (deployResult.status === 0) return;
 
-  const exitDescription =
-    deployResult.status === null
+  const timedOut = deployResult.error?.code === "ETIMEDOUT";
+  const exitDescription = timedOut
+    ? `timeout after ${formatMilliseconds(deployResult.timeoutMs || vercelDeployTimeoutMs)}`
+    : deployResult.status === null
       ? `signal ${deployResult.signal || "unknown"}`
       : `exit ${deployResult.status}`;
 
@@ -862,6 +896,55 @@ function runDeployResultSelfTest() {
   assertSuccessfulDeployResult({ output: "", status: 0, signal: null });
   removeQuotaBlockMarker();
   console.log("Production deploy result self-test passed.");
+}
+
+function runDeployTimeoutSelfTest() {
+  const validCases = ["60000", "900000", "3600000"];
+  for (const value of validCases) {
+    parseVercelDeployTimeoutMs(value);
+  }
+
+  const invalidCases = ["", "0", "59999", "3600001", "900000.5", "Infinity", "timeout-secret"];
+  for (const value of invalidCases) {
+    try {
+      parseVercelDeployTimeoutMs(value);
+      throw new Error(`Deploy-timeout self-test accepted invalid value: ${value}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (
+        message.includes("accepted invalid value") ||
+        message.includes("timeout-secret") ||
+        !message.includes("TCOS_VERCEL_DEPLOY_TIMEOUT_MS")
+      ) {
+        throw error;
+      }
+    }
+  }
+
+  try {
+    assertSuccessfulDeployResult({
+      output:
+        "Deploying production fixture https://timed-out-deploy-self-test.vercel.app",
+      status: null,
+      signal: "SIGTERM",
+      timeoutMs: 90_000,
+      error: Object.assign(new Error("spawn ETIMEDOUT"), { code: "ETIMEDOUT" }),
+    });
+    throw new Error("Deploy-timeout self-test accepted a timed-out deploy.");
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (
+      !message.includes("Vercel production deploy failed with timeout after 1m 30s") ||
+      !message.includes("No alias command was started") ||
+      !message.includes("local quota marker was preserved") ||
+      !message.includes("not accepted as a deployment")
+    ) {
+      throw error;
+    }
+  }
+
+  assertSuccessfulDeployResult({ output: "", status: 0, signal: null });
+  console.log("Production deploy timeout self-test passed.");
 }
 
 function runAliasRemovalSelfTest() {
@@ -997,6 +1080,11 @@ if (aliasRemovalSelfTest) {
   process.exit(0);
 }
 
+if (deployTimeoutSelfTest) {
+  runDeployTimeoutSelfTest();
+  process.exit(0);
+}
+
 if (quotaStatusOnly) {
   if (jsonOutput) {
     printQuotaCooldownJson();
@@ -1019,11 +1107,17 @@ if (preflightOnly) {
 }
 
 console.log(`Deploying production with Vercel scope ${scope}...`);
+console.log(
+  `Vercel production deploy timeout: ${formatMilliseconds(vercelDeployTimeoutMs)} (TCOS_VERCEL_DEPLOY_TIMEOUT_MS)`,
+);
 
 const deployResult = runVercel(["--prod", "--yes", "--scope", scope], {
   allowFailure: true,
   captureResult: true,
+  timeout: vercelDeployTimeoutMs,
+  killSignal: "SIGTERM",
 });
+deployResult.timeoutMs = vercelDeployTimeoutMs;
 const deployOutput = deployResult.output;
 
 if (deployOutput.includes("api-deployments-free-per-day")) {
