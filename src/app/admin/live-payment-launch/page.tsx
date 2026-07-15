@@ -34,8 +34,13 @@ export default async function LivePaymentLaunchPage() {
       .order("created_at", { ascending: false })
       .limit(20),
   ]);
-  const blocked = report.checks.filter((item) => item.status === "blocked").length;
-  const passed = report.checks.filter((item) => item.status === "passed").length;
+  const {
+    approvalBlockingCount,
+    blockedCount,
+    launchLockCount,
+    passedCount,
+    warningCount,
+  } = report.summary;
 
   return (
     <main className="min-h-screen bg-neutral-50 p-8 text-neutral-950">
@@ -72,7 +77,7 @@ export default async function LivePaymentLaunchPage() {
               : "border-red-300 bg-red-50"
           }`}
         >
-          <div className="grid gap-4 md:grid-cols-4">
+          <div className="grid gap-4 md:grid-cols-5">
             <div>
               <p className="text-xs font-black uppercase text-neutral-500">Runtime</p>
               <p className="mt-1 text-2xl font-black">
@@ -85,15 +90,23 @@ export default async function LivePaymentLaunchPage() {
             </div>
             <div>
               <p className="text-xs font-black uppercase text-neutral-500">Passed</p>
-              <p className="mt-1 text-2xl font-black">{passed}</p>
+              <p className="mt-1 text-2xl font-black">{passedCount}</p>
             </div>
             <div>
-              <p className="text-xs font-black uppercase text-neutral-500">Blocked</p>
-              <p className="mt-1 text-2xl font-black">{blocked}</p>
+              <p className="text-xs font-black uppercase text-neutral-500">Approval Blockers</p>
+              <p className="mt-1 text-2xl font-black">{approvalBlockingCount}</p>
+            </div>
+            <div>
+              <p className="text-xs font-black uppercase text-neutral-500">Launch Locks</p>
+              <p className="mt-1 text-2xl font-black">{launchLockCount}</p>
             </div>
           </div>
+          <p className="mt-5 rounded border border-current/20 bg-white/60 p-4 text-sm font-bold leading-6">
+            Operator summary: {report.summary.operatorSummary}
+          </p>
           <p className="mt-5 text-sm">
             Approval version: <code>{report.approvalVersion}</code>. Report generated {report.generatedAt}.
+            Total blocked: {blockedCount}. Review warnings: {warningCount}.
           </p>
           <div className="mt-5">
             <LivePaymentGateActions
@@ -101,6 +114,50 @@ export default async function LivePaymentLaunchPage() {
               approvalReady={report.approvalReady}
             />
           </div>
+        </section>
+
+        <section className="mb-8 rounded border bg-white p-6">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-black uppercase tracking-widest text-neutral-500">
+                Operator next actions
+              </p>
+              <h2 className="mt-2 text-2xl font-black">What remains before live money</h2>
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-neutral-600">
+                Approval blockers must be cleared before database approval can be
+                recorded. Launch locks are intentional final controls that keep live
+                Checkout closed until the go-live window.
+              </p>
+            </div>
+            <div className="rounded border bg-neutral-50 px-4 py-3 text-sm font-bold">
+              {approvalBlockingCount} approval blocker(s), {launchLockCount} launch lock(s)
+            </div>
+          </div>
+          {report.summary.nextActions.length ? (
+            <ol className="mt-5 space-y-3">
+              {report.summary.nextActions.map((item) => (
+                <li key={item.key} className={`rounded border p-4 ${tone(item.status)}`}>
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <p className="font-black">{item.label}</p>
+                    <span className="rounded border border-current px-2 py-1 text-xs font-black uppercase">
+                      {approvalBlockingCount > 0 && item.status === "blocked" && item.key !== "database_approval" && item.key !== "runtime_switch"
+                        ? "Approval blocker"
+                        : item.status === "blocked"
+                          ? "Launch lock"
+                          : label(item.status)}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm leading-6">{item.detail}</p>
+                  <p className="mt-2 text-sm font-bold leading-6">Next: {item.action}</p>
+                </li>
+              ))}
+            </ol>
+          ) : (
+            <p className="mt-5 rounded border border-green-200 bg-green-50 p-4 text-sm font-bold text-green-900">
+              No live-payment approval blockers or launch locks remain. Continue with final
+              operator approval, runtime switch review, and post-launch monitoring.
+            </p>
+          )}
         </section>
 
         <section className="grid gap-4 md:grid-cols-2">

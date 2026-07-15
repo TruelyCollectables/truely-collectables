@@ -35,6 +35,26 @@ export type LivePaymentCheck = {
   detail: string;
 };
 
+export type LivePaymentNextAction = LivePaymentCheck & {
+  action: string;
+};
+
+export type LivePaymentLaunchSummary = {
+  totalChecks: number;
+  passedCount: number;
+  warningCount: number;
+  blockedCount: number;
+  approvalBlockingCount: number;
+  launchLockCount: number;
+  databaseApproved: boolean;
+  runtimeSwitchEnabled: boolean;
+  operatorSummary: string;
+  approvalBlockers: LivePaymentNextAction[];
+  launchLocks: LivePaymentNextAction[];
+  warnings: LivePaymentNextAction[];
+  nextActions: LivePaymentNextAction[];
+};
+
 export type LivePaymentLaunchReport = {
   approvalVersion: string;
   generatedAt: string;
@@ -52,6 +72,7 @@ export type LivePaymentLaunchReport = {
   approvalDatabaseReady: boolean;
   approvalReady: boolean;
   livePaymentsEnabled: boolean;
+  summary: LivePaymentLaunchSummary;
   checks: LivePaymentCheck[];
 };
 
@@ -95,6 +116,109 @@ function check(
 
 function safeCount(value: number | null) {
   return Number.isFinite(value) ? Number(value) : 0;
+}
+
+const approvalExclusions = new Set(["database_approval", "runtime_switch"]);
+
+function actionForLivePaymentCheck(check: LivePaymentCheck) {
+  switch (check.key) {
+    case "database_approval":
+      return "Record the auditable database approval from /admin/live-payment-launch after all approval blockers are clear.";
+    case "runtime_switch":
+      return "Set TCOS_LIVE_PAYMENTS_ENABLED=true only during the final go-live window after database approval is current.";
+    case "stripe_key_mode":
+      return "Stage matching STRIPE_LIVE_SECRET_KEY and NEXT_PUBLIC_STRIPE_LIVE_PUBLISHABLE_KEY values in production.";
+    case "production_origin":
+      return "Set NEXT_PUBLIC_SITE_URL or the store primary domain to the HTTPS production origin.";
+    case "platform_fee":
+      return "Restore the active store seller commission rate to the approved 8% launch fee.";
+    case "checkout_e2e":
+      return "Run the isolated checkout-to-refund E2E suite and save a passing run with at least eight scenarios.";
+    case "unmatched_money":
+      return "Clear open stripe_reconciliation_items before accepting live buyer payments.";
+    case "test_residue":
+      return "Remove TCOS test orders and disposable test products from the production store.";
+    case "dry_run_shipping_cleanup":
+      return "Complete dry-run shipping cleanup so live payments cannot point at simulated shipping proof.";
+    case "monthly_subscription":
+      return "Keep TCOS_MONTHLY_SUBSCRIPTION_ENABLED disabled for this launch.";
+    case "webhook_secret":
+      return "Configure the live Stripe webhook signing secret for /api/webhook.";
+    case "financial_event_verification":
+      return "Verify live refund and dispute webhook delivery, then set STRIPE_LIVE_FINANCIAL_EVENTS_VERIFIED=true.";
+    case "stripe_account":
+      return "Complete Stripe platform account business details in live mode.";
+    case "live_webhook_endpoint":
+      return "Enable the live Stripe webhook endpoint at the production /api/webhook URL with every required financial event.";
+    case "seller_connect":
+      return "Confirm stored Stripe Connect seller accounts are submitted and payout-enabled, or remove stale seller rows.";
+    case "stripe_api_access":
+      return "Restore live Stripe API validation by staging valid live keys and checking Stripe account/webhook access.";
+    default:
+      return "Open /admin/live-payment-launch and clear this live payment launch check.";
+  }
+}
+
+function withAction(check: LivePaymentCheck): LivePaymentNextAction {
+  return {
+    ...check,
+    action: actionForLivePaymentCheck(check),
+  };
+}
+
+function summarizeLivePaymentLaunch(params: {
+  checks: LivePaymentCheck[];
+  databaseApproved: boolean;
+  runtimeSwitchEnabled: boolean;
+  livePaymentsEnabled: boolean;
+}): LivePaymentLaunchSummary {
+  const approvalBlockers = params.checks
+    .filter(
+      (item) => item.status === "blocked" && !approvalExclusions.has(item.key),
+    )
+    .map(withAction);
+  const launchLocks = params.checks
+    .filter(
+      (item) => item.status === "blocked" && approvalExclusions.has(item.key),
+    )
+    .map(withAction);
+  const warnings = params.checks
+    .filter((item) => item.status === "warning")
+    .map(withAction);
+  const passedCount = params.checks.filter(
+    (item) => item.status === "passed",
+  ).length;
+  const blockedCount = params.checks.filter(
+    (item) => item.status === "blocked",
+  ).length;
+  const runtimeSwitchEnabled = params.runtimeSwitchEnabled;
+  const operatorSummary = params.livePaymentsEnabled
+    ? "Live Checkout is enabled. Keep monitoring Stripe webhooks, reconciliation, refunds, disputes, seller payout holds, and emergency revocation."
+    : approvalBlockers.length > 0
+      ? `Live Checkout is locked with ${approvalBlockers.length} approval blocker(s). Clear these before recording database approval.`
+      : !params.databaseApproved && !runtimeSwitchEnabled
+        ? "Approval blockers are clear. Record the database approval when the operator is ready, then leave TCOS_LIVE_PAYMENTS_ENABLED off until the final go-live window."
+        : !params.databaseApproved
+          ? "Approval blockers are clear. Record the auditable database approval before live Checkout can open."
+          : !runtimeSwitchEnabled
+            ? "Database approval is current. TCOS_LIVE_PAYMENTS_ENABLED remains the final runtime lock before live Checkout opens."
+            : "Live Checkout is locked by the launch gate state. Review database approval and runtime switch evidence before proceeding.";
+
+  return {
+    totalChecks: params.checks.length,
+    passedCount,
+    warningCount: warnings.length,
+    blockedCount,
+    approvalBlockingCount: approvalBlockers.length,
+    launchLockCount: launchLocks.length,
+    databaseApproved: params.databaseApproved,
+    runtimeSwitchEnabled,
+    operatorSummary,
+    approvalBlockers,
+    launchLocks,
+    warnings,
+    nextActions: [...approvalBlockers, ...launchLocks, ...warnings],
+  };
 }
 
 export function getLivePaymentGateErrorDetail(error: {
@@ -539,14 +663,20 @@ export async function evaluateLivePaymentLaunch(params?: {
     );
   }
 
-  const approvalExclusions = new Set(["database_approval", "runtime_switch"]);
   const approvalReady = checks.every(
     (item) => item.status !== "blocked" || approvalExclusions.has(item.key),
   );
+  const runtimeSwitchEnabled = process.env.TCOS_LIVE_PAYMENTS_ENABLED === "true";
   const livePaymentsEnabled =
     approvalReady &&
     databaseApproved &&
-    process.env.TCOS_LIVE_PAYMENTS_ENABLED === "true";
+    runtimeSwitchEnabled;
+  const summary = summarizeLivePaymentLaunch({
+    checks,
+    databaseApproved,
+    runtimeSwitchEnabled,
+    livePaymentsEnabled,
+  });
 
   return {
     approvalVersion: LIVE_PAYMENT_APPROVAL_VERSION,
@@ -573,6 +703,7 @@ export async function evaluateLivePaymentLaunch(params?: {
     approvalDatabaseReady,
     approvalReady,
     livePaymentsEnabled,
+    summary,
     checks,
   };
 }

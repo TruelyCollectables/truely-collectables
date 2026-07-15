@@ -734,6 +734,10 @@ const checks = [
       result.text.includes('"brief"') &&
       result.text.includes('"deploySafety"') &&
       result.text.includes('"deployment"') &&
+      result.text.includes('"approvalBlockingCount"') &&
+      result.text.includes('"launchLockCount"') &&
+      result.text.includes('"operatorSummary"') &&
+      result.text.includes('"nextActions"') &&
       result.text.includes('"gitCommitSha"') &&
       result.text.includes('"gitCommitRef"') &&
       result.text.includes('"vercelUrl"') &&
@@ -804,6 +808,10 @@ const checks = [
       hasSellerMarketplaceReceiptHandoffMarkdown(result.text) &&
       result.text.includes("Standard Envelope evidence validator: ready") &&
       result.text.includes("Provider purchase-attempt audit suite: passed; 5/5 scenarios; key coverage passed") &&
+      result.text.includes("Approval blockers:") &&
+      result.text.includes("Launch locks:") &&
+      result.text.includes("Operator summary:") &&
+      result.text.includes("Next live-money actions:") &&
       result.text.includes("Missing purchase audit keys: none") &&
       result.text.includes("Unexpected purchase audit keys: none") &&
       result.text.includes("## Deployment Source") &&
@@ -1134,6 +1142,10 @@ const checks = [
       "git rev-parse --short origin/main",
       "git log -5 --oneline",
       "## Production Deploy Commands",
+      "Approval blockers:",
+      "Launch locks:",
+      "Operator summary:",
+      "Next live-money actions:",
       "npm run verify:production",
       "npm run status:production",
       "npm run launch:production",
@@ -1185,6 +1197,10 @@ const checks = [
       result.text.includes("git rev-parse --short origin/main") &&
       result.text.includes("git log -5 --oneline") &&
       result.text.includes("## Production Deploy Commands") &&
+      result.text.includes("Approval blockers:") &&
+      result.text.includes("Launch locks:") &&
+      result.text.includes("Operator summary:") &&
+      result.text.includes("Next live-money actions:") &&
       result.text.includes("npm run verify:production") &&
       result.text.includes("npm run launch:production") &&
       result.text.includes("npm run status:production") &&
@@ -1230,6 +1246,10 @@ const checks = [
       result.text.includes("Live Payment Launch Gate") &&
       result.text.includes("Stripe Mode") &&
       result.text.includes("Approval version") &&
+      result.text.includes("Approval Blockers") &&
+      result.text.includes("Launch Locks") &&
+      result.text.includes("Operator next actions") &&
+      result.text.includes("What remains before live money") &&
       result.text.includes("Approve Live Payments") &&
       result.text.includes("Payment Lab"),
   },
