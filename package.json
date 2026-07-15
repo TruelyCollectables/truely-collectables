@@ -38,6 +38,7 @@
     "archive:live-money-env-packet-verification": "node scripts/archive-live-money-env-packet-verification.mjs",
     "archive:live-money": "node scripts/archive-live-money-evidence.mjs",
     "archive:live-money:preflight": "node scripts/archive-live-money-evidence.mjs --preflight",
+    "prepare:go-live-evidence": "npm run archive:go-live-runway && npm run archive:nightly-backup-status && npm run archive:nightly-backup-verification && npm run prepare:live-money-bootstrap",
     "prepare:live-money-bootstrap": "npm run live-money:env-packet && npm run archive:live-money-env-packet && npm run verify:live-money-env-packet && npm run archive:live-money-env-packet-verification && npm run live-money:vercel-bootstrap-commands && npm run status:live-money",
     "live-money:env-packet": "node scripts/live-money-env-packet.mjs",
     "live-money:env-packet:json": "node scripts/live-money-env-packet.mjs --json",
