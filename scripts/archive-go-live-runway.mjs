@@ -58,6 +58,24 @@ function assertEvidenceContract(payload) {
   if (!Array.isArray(payload?.git?.workingTreeChanges)) {
     missing.push("git.workingTreeChanges");
   }
+  if (!payload?.goLiveReadiness?.state) {
+    missing.push("goLiveReadiness.state");
+  }
+  if (typeof payload?.goLiveReadiness?.blockerCount !== "number") {
+    missing.push("goLiveReadiness.blockerCount");
+  }
+  if (typeof payload?.goLiveReadiness?.watchItemCount !== "number") {
+    missing.push("goLiveReadiness.watchItemCount");
+  }
+  if (!Array.isArray(payload?.goLiveReadiness?.blockers)) {
+    missing.push("goLiveReadiness.blockers");
+  }
+  if (!Array.isArray(payload?.goLiveReadiness?.watchItems)) {
+    missing.push("goLiveReadiness.watchItems");
+  }
+  if (!payload?.goLiveReadiness?.nextOperatorStep) {
+    missing.push("goLiveReadiness.nextOperatorStep");
+  }
   if (!payload?.productionDeploymentQuota?.state) {
     missing.push("productionDeploymentQuota.state");
   }
@@ -174,6 +192,10 @@ console.log(
     archivedPayload.archive.gitWorkingTreeClean ? "yes" : "no"
   }`,
 );
+console.log(`- go-live readiness: ${payload.goLiveReadiness.state}`);
+console.log(`- go-live blocker count: ${payload.goLiveReadiness.blockerCount}`);
+console.log(`- go-live watch item count: ${payload.goLiveReadiness.watchItemCount}`);
+console.log(`- go-live next operator step: ${payload.goLiveReadiness.nextOperatorStep}`);
 console.log(`- quota state: ${payload.productionDeploymentQuota.state}`);
 console.log(`- quota retry at or after: ${payload.productionDeploymentQuota.retryAt}`);
 console.log(`- Vercel upload started: ${payload.productionDeploymentQuota.uploadStarted}`);

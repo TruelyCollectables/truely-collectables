@@ -264,6 +264,120 @@ function printStatusItems(title, items = []) {
   }
 }
 
+function goLiveReadiness({ git, quota, emergencyBackup, liveMoney }) {
+  const blockers = [];
+  const watchItems = [];
+
+  if (!git.workingTreeClean) {
+    blockers.push({
+      area: "git",
+      state: "dirty_worktree",
+      detail: "Local working tree has uncommitted changes.",
+      next: "Commit and push launch-bound work before production deploy.",
+    });
+  }
+
+  if (git.head && git.originMain && git.head !== git.originMain) {
+    blockers.push({
+      area: "git",
+      state: "head_not_pushed",
+      detail: `Local HEAD ${git.head} does not match origin/main ${git.originMain}.`,
+      next: "Push or reconcile origin/main before production deploy.",
+    });
+  }
+
+  if (quota.state !== "open") {
+    blockers.push({
+      area: "production_deploy_quota",
+      state: quota.state || "unknown",
+      detail:
+        quota.reason && quota.reason !== "unknown"
+          ? `Production deploy quota is ${quota.state} because ${quota.reason}.`
+          : `Production deploy quota is ${quota.state || "unknown"}.`,
+      next:
+        quota.retryAt && quota.retryAt !== "unknown"
+          ? `Wait until ${quota.retryAt}, then rerun npm run status:production before deploy.`
+          : quota.next || "Rerun npm run status:production before deploy.",
+    });
+  }
+
+  if (!emergencyBackup.verification.ok) {
+    blockers.push({
+      area: "emergency_backup",
+      state: "verification_failed",
+      detail: `Nightly backup verification failed with ${
+        emergencyBackup.verification.failedCheckCount ?? "unknown"
+      } failed check(s).`,
+      next: "Run npm run verify:nightly-backup and fix backup evidence before go-live.",
+    });
+  }
+
+  if (emergencyBackup.scheduleHealth.state !== "current") {
+    blockers.push({
+      area: "emergency_backup",
+      state: emergencyBackup.scheduleHealth.state,
+      detail: emergencyBackup.scheduleHealth.message,
+      next: "Run npm run status:nightly-backup and repair the backup schedule before go-live.",
+    });
+  }
+
+  if (!emergencyBackup.freshness.currentForLastScheduledRun) {
+    blockers.push({
+      area: "emergency_backup",
+      state: "stale_backup",
+      detail: "Latest backup is not current for the last scheduled run.",
+      next: "Run npm run backup:nightly or repair the scheduler before go-live.",
+    });
+  }
+
+  if (emergencyBackup.retention.overRetentionCount > 0) {
+    blockers.push({
+      area: "emergency_backup",
+      state: "over_retention",
+      detail: `Backup folder has ${emergencyBackup.retention.overRetentionCount} file(s) over the seven-backup retention window.`,
+      next: "Run npm run status:nightly-backup and confirm retention rotation before go-live.",
+    });
+  }
+
+  if (!emergencyBackup.schedulerProof.automaticRunProven) {
+    watchItems.push({
+      area: "emergency_backup",
+      state: emergencyBackup.schedulerProof.state,
+      detail: emergencyBackup.schedulerProof.message,
+      next: emergencyBackup.schedulerProof.nextAction,
+    });
+  }
+
+  if (!liveMoney.readyForRuntimeSwitch) {
+    blockers.push({
+      area: "live_money",
+      state: liveMoney.state,
+      detail: liveMoney.detail,
+      next: liveMoney.next,
+      missingEnvironment: liveMoney.missingBootstrapEnvironment,
+    });
+  }
+
+  return {
+    state:
+      blockers.length > 0
+        ? "blocked"
+        : watchItems.length > 0
+          ? "ready_with_operator_watch_items"
+          : "ready_for_final_window",
+    blockerCount: blockers.length,
+    watchItemCount: watchItems.length,
+    blockers,
+    watchItems,
+    nextOperatorStep:
+      blockers[0]?.next ||
+      watchItems[0]?.next ||
+      "Run npm run verify:production, then npm run launch:production when the quota is open.",
+    readOnlyGuarantee:
+      "This readiness summary is derived from the same read-only Git, quota, emergency-backup, and live-money evidence; it starts no deploy, upload, archive creation, Git push, Checkout, postage, payout, launch approval, or revocation.",
+  };
+}
+
 function buildStatus() {
   const gitStatusShort = runGit(["status", "--short"]);
   const gitHead = runGit(["rev-parse", "--short", "HEAD"]);
@@ -290,42 +404,50 @@ function buildStatus() {
     "npm run archive:live-money-env-packet",
     "npm run archive:live-money",
   ];
+  const git = {
+    head: gitHead || "unknown",
+    originMain: gitOriginMain || "unknown",
+    workingTreeClean: gitStatusShort === "",
+    workingTreeChanges: gitStatusShort ? gitStatusShort.split("\n") : [],
+  };
+  const liveMoneySummary = {
+    ok: liveMoney.ok,
+    state: payload.state || "unknown",
+    readyForRuntimeSwitch: Boolean(payload.readyForRuntimeSwitch),
+    detail: payload.detail || "unknown",
+    next: payload.next || "unknown",
+    missingBootstrapEnvironment:
+      Array.isArray(payload.missingEnvironmentVariables) &&
+      payload.missingEnvironmentVariables.length
+        ? payload.missingEnvironmentVariables
+        : [],
+    localEnvironmentStatus: {
+      supabaseBootstrap: statusItems(
+        payload.localEnvironmentStatus?.supabaseBootstrap,
+      ),
+      finalLivePaymentRuntime: statusItems(
+        payload.localEnvironmentStatus?.finalLivePaymentRuntime,
+      ),
+    },
+    evidence: payload.liveMoneyEvidence || null,
+    raw: payload,
+  };
 
   return {
     schema: "tcos.goLiveRunwayStatus.v1",
     generatedAt: new Date().toISOString(),
     ok: quota.ok && liveMoney.ok && emergencyBackup.ok,
-    git: {
-      head: gitHead || "unknown",
-      originMain: gitOriginMain || "unknown",
-      workingTreeClean: gitStatusShort === "",
-      workingTreeChanges: gitStatusShort ? gitStatusShort.split("\n") : [],
-    },
+    git,
+    goLiveReadiness: goLiveReadiness({
+      git,
+      quota,
+      emergencyBackup,
+      liveMoney: liveMoneySummary,
+    }),
     productionDeploymentQuota: quota,
     productionDeploySafety,
     emergencyBackup,
-    liveMoney: {
-      ok: liveMoney.ok,
-      state: payload.state || "unknown",
-      readyForRuntimeSwitch: Boolean(payload.readyForRuntimeSwitch),
-      detail: payload.detail || "unknown",
-      next: payload.next || "unknown",
-      missingBootstrapEnvironment:
-        Array.isArray(payload.missingEnvironmentVariables) &&
-        payload.missingEnvironmentVariables.length
-          ? payload.missingEnvironmentVariables
-          : [],
-      localEnvironmentStatus: {
-        supabaseBootstrap: statusItems(
-          payload.localEnvironmentStatus?.supabaseBootstrap,
-        ),
-        finalLivePaymentRuntime: statusItems(
-          payload.localEnvironmentStatus?.finalLivePaymentRuntime,
-        ),
-      },
-      evidence: payload.liveMoneyEvidence || null,
-      raw: payload,
-    },
+    liveMoney: liveMoneySummary,
     safeNextCommands,
     readOnlyGuarantee,
   };
@@ -344,6 +466,30 @@ function printText(status) {
       console.log(`- ${line}`);
     }
   }
+
+  console.log("");
+  console.log("Go-live readiness:");
+  console.log(`- state: ${status.goLiveReadiness.state}`);
+  console.log(`- blocker count: ${status.goLiveReadiness.blockerCount}`);
+  console.log(`- watch item count: ${status.goLiveReadiness.watchItemCount}`);
+  if (status.goLiveReadiness.blockers.length) {
+    console.log("Go-live blockers:");
+    for (const blocker of status.goLiveReadiness.blockers) {
+      console.log(`- ${blocker.area}: ${blocker.state} - ${blocker.detail}`);
+      console.log(`  next: ${blocker.next}`);
+      if (blocker.missingEnvironment?.length) {
+        console.log(`  missing environment: ${blocker.missingEnvironment.join(", ")}`);
+      }
+    }
+  }
+  if (status.goLiveReadiness.watchItems.length) {
+    console.log("Go-live watch items:");
+    for (const item of status.goLiveReadiness.watchItems) {
+      console.log(`- ${item.area}: ${item.state} - ${item.detail}`);
+      console.log(`  next: ${item.next}`);
+    }
+  }
+  console.log(`- next operator step: ${status.goLiveReadiness.nextOperatorStep}`);
 
   console.log("");
   console.log("Production deployment quota:");
