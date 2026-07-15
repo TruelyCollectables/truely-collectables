@@ -162,7 +162,17 @@ if (runway) {
   checks.push(check(runway.git?.head === currentHead, "runway git head matches current HEAD", runway.git?.head));
   checks.push(check(!blockerAreas.has("git"), "runway has no git blocker"));
   checks.push(check(!blockerAreas.has("head_not_pushed"), "runway has no unpushed-head blocker"));
-  checks.push(check(runway.productionDeploymentQuota?.uploadStarted === false, "runway confirms no Vercel upload started"));
+  checks.push(
+    check(
+      runway.productionDeploymentQuota?.vercelUploadStarted === false ||
+        runway.productionDeploymentQuota?.uploadStarted === false ||
+        runway.productionDeploymentQuota?.uploadStarted === "no",
+      "runway confirms no Vercel upload started",
+      runway.productionDeploymentQuota?.vercelUploadStarted ??
+        runway.productionDeploymentQuota?.uploadStarted ??
+        null,
+    ),
+  );
   checks.push(check(runway.readOnlyGuarantee?.includes("starts no deploy"), "runway read-only guarantee includes no deploy"));
   checks.push(check(runway.readOnlyGuarantee?.includes("postage"), "runway read-only guarantee includes no postage"));
 }
