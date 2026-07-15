@@ -390,16 +390,11 @@ function goLiveReadiness({ git, quota, emergencyBackup, liveMoney }) {
       actionCategory: "operator_action",
       detail: liveMoney.detail,
       next: liveMoney.missingBootstrapEnvironment.length
-        ? "Stage the missing Supabase bootstrap environment with the no-secret packet helpers and bootstrap-only Vercel commands, then rerun npm run status:live-money."
+        ? "Run npm run prepare:live-money-bootstrap to create no-secret packet evidence, verify it, print bootstrap-only Vercel commands, then rerun npm run status:live-money after staging the values."
         : liveMoney.next,
       actionCommands: liveMoney.missingBootstrapEnvironment.length
         ? [
-          "npm run live-money:env-packet",
-          "npm run archive:live-money-env-packet",
-          "npm run verify:live-money-env-packet",
-          "npm run archive:live-money-env-packet-verification",
-          "npm run live-money:vercel-bootstrap-commands",
-          "npm run status:live-money",
+          "npm run prepare:live-money-bootstrap",
           ]
         : ["npm run status:live-money"],
       missingEnvironment: liveMoney.missingBootstrapEnvironment,
@@ -453,6 +448,7 @@ function buildStatus() {
     "npm run verify:nightly-backup",
     "npm run archive:nightly-backup-status",
     "npm run archive:nightly-backup-verification",
+    "npm run prepare:live-money-bootstrap",
     "npm run live-money:env-packet",
     "npm --silent run live-money:env-packet:json",
     "npm run verify:live-money-env-packet",
