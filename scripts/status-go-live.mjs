@@ -449,6 +449,8 @@ function buildStatus() {
     "npm run archive:nightly-backup-status",
     "npm run archive:nightly-backup-verification",
     "npm run prepare:go-live-evidence",
+    "npm run verify:go-live-evidence",
+    "npm --silent run verify:go-live-evidence:json",
     "npm run prepare:live-money-bootstrap",
     "npm run live-money:env-packet",
     "npm --silent run live-money:env-packet:json",

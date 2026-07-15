@@ -25,6 +25,8 @@
     "status:production:json": "node scripts/deploy-production.mjs --quota-status --json",
     "status:go-live": "node scripts/status-go-live.mjs",
     "status:go-live:json": "node scripts/status-go-live.mjs --json",
+    "verify:go-live-evidence": "node scripts/verify-go-live-evidence.mjs",
+    "verify:go-live-evidence:json": "node scripts/verify-go-live-evidence.mjs --json",
     "status:live-money": "node --import tsx scripts/status-live-money.ts --allow-blocked",
     "status:live-money:json": "node --import tsx scripts/status-live-money.ts --allow-blocked --json",
     "preflight:live-money": "node --import tsx scripts/status-live-money.ts",

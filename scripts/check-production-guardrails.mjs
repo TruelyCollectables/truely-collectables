@@ -968,6 +968,10 @@ runExpectedSuccess("go-live runway status helper syntax check", [
   "--check",
   "scripts/status-go-live.mjs",
 ]);
+runExpectedSuccess("go-live evidence verifier syntax check", [
+  "--check",
+  "scripts/verify-go-live-evidence.mjs",
+]);
 assertScriptIncludes("verify:shipping", [
   "simulate:lettertrack-evidence",
   "simulate:shipping-purchase-audit",
@@ -984,6 +988,12 @@ assertScriptIncludes("status:go-live", [
 ]);
 assertScriptIncludes("status:go-live:json", [
   "node scripts/status-go-live.mjs --json",
+]);
+assertScriptIncludes("verify:go-live-evidence", [
+  "node scripts/verify-go-live-evidence.mjs",
+]);
+assertScriptIncludes("verify:go-live-evidence:json", [
+  "node scripts/verify-go-live-evidence.mjs --json",
 ]);
 assertScriptIncludes("status:live-money", [
   "node --import tsx scripts/status-live-money.ts --allow-blocked",
@@ -1306,6 +1316,8 @@ assertFileIncludes("go-live runway status helper source", "scripts/status-go-liv
   "operator_watch",
   "npm run prepare:go-live-evidence",
   "Run npm run prepare:go-live-evidence",
+  "npm run verify:go-live-evidence",
+  "npm --silent run verify:go-live-evidence:json",
   "npm run prepare:live-money-bootstrap",
   "preserve runway/backup proof",
   "npm run live-money:env-packet",
@@ -1395,6 +1407,8 @@ assertFileIncludes("go-live runway status helper source", "scripts/status-go-liv
   "npm run archive:nightly-backup-status",
   "npm run archive:nightly-backup-verification",
   "npm run prepare:go-live-evidence",
+  "npm run verify:go-live-evidence",
+  "npm --silent run verify:go-live-evidence:json",
   "npm run prepare:live-money-bootstrap",
   "npm run live-money:env-packet",
   "npm --silent run live-money:env-packet:json",
@@ -1479,7 +1493,9 @@ assertFileIncludes("live money go/no-go README instructions", "README.md", [
   "blocker action categories",
   "per-blocker action commands",
   "one-command operator evidence packet `npm run prepare:go-live-evidence`",
-  "targeted live-money handoff remains available as `npm run prepare:live-money-bootstrap`",
+  "npm run verify:go-live-evidence",
+  "npm --silent run verify:go-live-evidence:json",
+  "captured at `HEAD=origin/main` with a clean tree",
   "The targeted live-money handoff remains available as `npm run prepare:live-money-bootstrap`",
   "then `npm run status:live-money`",
   "next actionable step",
@@ -1511,6 +1527,8 @@ assertFileIncludes("live money go/no-go README instructions", "README.md", [
   "npm run archive:live-money",
   "npm run archive:live-money:preflight",
   "npm run prepare:go-live-evidence",
+  "verify that the latest local packet has all required runway, backup, and live-money proof",
+  "keeps deploy/money/postage side effects closed",
   "npm run prepare:live-money-bootstrap",
   "npm run live-money:env-packet",
   "npm --silent run live-money:env-packet:json",
@@ -4628,6 +4646,8 @@ assertFileIncludes("deploy live safety runbook", "docs/PRODUCTION_DEPLOY_RUNBOOK
   "raw archivable evidence",
   "without starting deploys, uploads, archive creation, Git push, Checkout, postage, payouts, launch approvals, or revocations",
   "npm run prepare:go-live-evidence",
+  "npm run verify:go-live-evidence",
+  "npm --silent run verify:go-live-evidence:json",
   "one-command operator evidence packet",
   "npm run prepare:live-money-bootstrap",
   "targeted live-money handoff",
@@ -4810,6 +4830,8 @@ assertFileIncludes("deploy live safety operator manual", "docs/TCOS_OPERATOR_MAN
   "raw archivable evidence",
   "without starting deploys, uploads, archive creation, Git push, Checkout, postage, payouts, launch approvals, or revocations",
   "npm run prepare:go-live-evidence",
+  "npm run verify:go-live-evidence",
+  "npm --silent run verify:go-live-evidence:json",
   "one-command operator evidence packet",
   "npm run prepare:live-money-bootstrap",
   "targeted live-money handoff",
@@ -4886,6 +4908,8 @@ assertFileIncludes(
     "raw archivable evidence",
     "without starting deploys, uploads, archive creation, Git push, Checkout, postage, payouts, launch approvals, or revocations",
     "npm run prepare:go-live-evidence",
+    "npm run verify:go-live-evidence",
+    "npm --silent run verify:go-live-evidence:json",
     "one-command operator evidence packet",
     "npm run prepare:live-money-bootstrap",
     "targeted live-money handoff",
