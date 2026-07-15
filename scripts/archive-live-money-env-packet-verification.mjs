@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 const repoRoot = dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
 const evidenceDir = join(repoRoot, ".codex-run", "live-money-env-packet-verification");
 const commandText = "npm --silent run verify:live-money-env-packet:json";
+const statusJsonMaxBuffer = 64 * 1024 * 1024;
 
 function runLocalGit(args) {
   const result = spawnSync("git", args, {
@@ -131,6 +132,7 @@ const result = spawnSync(process.platform === "win32" ? "npm.cmd" : "npm", [
 ], {
   cwd: repoRoot,
   encoding: "utf8",
+  maxBuffer: statusJsonMaxBuffer,
 });
 
 const stdout = (result.stdout || "").trim();

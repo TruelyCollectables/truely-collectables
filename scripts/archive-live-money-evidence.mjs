@@ -9,6 +9,7 @@ const mode = process.argv.includes("--preflight") ? "preflight" : "status";
 const scriptName =
   mode === "preflight" ? "preflight:live-money:json" : "status:live-money:json";
 const commandText = `npm --silent run ${scriptName}`;
+const statusJsonMaxBuffer = 64 * 1024 * 1024;
 
 function runLocalGit(args) {
   const result = spawnSync("git", args, {
@@ -103,6 +104,7 @@ const result = spawnSync(process.platform === "win32" ? "npm.cmd" : "npm", [
 ], {
   cwd: repoRoot,
   encoding: "utf8",
+  maxBuffer: statusJsonMaxBuffer,
 });
 
 const stdout = (result.stdout || "").trim();

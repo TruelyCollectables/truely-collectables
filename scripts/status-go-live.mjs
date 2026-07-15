@@ -4,6 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
+const statusJsonMaxBuffer = 64 * 1024 * 1024;
 const productionDeploySafety = {
   section: "Production Deploy Safety",
   cleanProductionDomain: "https://truely-collectables.vercel.app",
@@ -43,6 +44,7 @@ function run(command, args, options = {}) {
   return spawnSync(command, args, {
     cwd: repoRoot,
     encoding: "utf8",
+    maxBuffer: statusJsonMaxBuffer,
     ...options,
   });
 }

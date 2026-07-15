@@ -349,6 +349,8 @@ assertFileIncludes(
   "scripts/archive-nightly-backup-verification.mjs",
   [
     "verify:nightly-backup:json",
+    "statusJsonMaxBuffer",
+    "maxBuffer: statusJsonMaxBuffer",
     ".codex-run",
     "nightly-backup-verification",
     "tcos.nightlyEmergencyBackupVerification.v1",
@@ -397,6 +399,8 @@ assertFileIncludes(
   "scripts/archive-nightly-backup-status.mjs",
   [
     "status:nightly-backup:json",
+    "statusJsonMaxBuffer",
+    "maxBuffer: statusJsonMaxBuffer",
     ".codex-run",
     "nightly-backup-status",
     "tcos.nightlyBackupStatus.v1",
@@ -447,6 +451,8 @@ assertFileIncludes("backup runway status helper", "scripts/status-backup-runway.
 assertFileIncludes("backup runway archive helper", "scripts/archive-backup-runway.mjs", [
   "tcos.backupRunwayStatus.v1",
   "status:backup-runway:json",
+  "statusJsonMaxBuffer",
+  "maxBuffer: statusJsonMaxBuffer",
   ".codex-run",
   "backup-runway",
   "Backup runway evidence archived:",
@@ -1065,6 +1071,8 @@ assertFileIncludes("go-live evidence verifier source", "scripts/verify-go-live-e
 ]);
 assertFileIncludes("go-live evidence verification archive helper source", "scripts/archive-go-live-evidence-verification.mjs", [
   "tcos.goLiveEvidenceVerification.v1",
+  "statusJsonMaxBuffer",
+  "maxBuffer: statusJsonMaxBuffer",
   "liveMoneyEnvPacketVerification",
   "evidence.liveMoneyEnvPacketVerification.verificationBoundary.vercelStaging",
   "evidence.liveMoneyEnvPacketVerification.verificationBoundary.localStatus",
@@ -1661,6 +1669,8 @@ assertFileIncludes("live money go/no-go CLI source", "scripts/status-live-money.
 assertFileIncludes("live money evidence archive helper source", "scripts/archive-live-money-evidence.mjs", [
   "status:live-money:json",
   "preflight:live-money:json",
+  "statusJsonMaxBuffer",
+  "maxBuffer: statusJsonMaxBuffer",
   ".codex-run",
   "live-money-evidence",
   "Live money evidence archived:",
@@ -1739,6 +1749,8 @@ assertFileIncludes("live money env packet helper source", "scripts/live-money-en
 ]);
 assertFileIncludes("live money env packet archive helper source", "scripts/archive-live-money-env-packet.mjs", [
   "live-money:env-packet:json",
+  "statusJsonMaxBuffer",
+  "maxBuffer: statusJsonMaxBuffer",
   ".codex-run",
   "live-money-env-packet",
   "tcos.liveMoneyEnvPacket.v1",
@@ -1795,6 +1807,8 @@ assertFileIncludes("live money env packet verifier source", "scripts/verify-live
 ]);
 assertFileIncludes("live money env packet verification archive helper source", "scripts/archive-live-money-env-packet-verification.mjs", [
   "verify:live-money-env-packet:json",
+  "statusJsonMaxBuffer",
+  "maxBuffer: statusJsonMaxBuffer",
   ".codex-run",
   "live-money-env-packet-verification",
   "tcos.liveMoneyEnvPacketVerification.v1",
@@ -1825,6 +1839,8 @@ assertFileIncludes("live money env packet verification archive helper source", "
 ]);
 assertFileIncludes("go-live runway status helper source", "scripts/status-go-live.mjs", [
   "tcos.goLiveRunwayStatus.v1",
+  "statusJsonMaxBuffer",
+  "maxBuffer: statusJsonMaxBuffer",
   "process.argv.includes(\"--json\")",
   "JSON.stringify(status, null, 2)",
   "generatedAt:",
@@ -1979,6 +1995,8 @@ assertFileIncludes("go-live runway status helper source", "scripts/status-go-liv
 ]);
 assertFileIncludes("go-live runway archive helper source", "scripts/archive-go-live-runway.mjs", [
   "status:go-live:json",
+  "statusJsonMaxBuffer",
+  "maxBuffer: statusJsonMaxBuffer",
   ".codex-run",
   "go-live-runway",
   "tcos.goLiveRunwayStatus.v1",
