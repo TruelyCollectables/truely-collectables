@@ -19,6 +19,27 @@ const readOnlyGuarantee =
 const failedReadOnlyGuarantee =
   "The command failed before any launch approval, revocation, Checkout, postage, or payout action could be created.";
 
+function configured(value: string | undefined) {
+  return Boolean(value?.trim());
+}
+
+function missingEnvironmentVariables() {
+  const missing: string[] = [];
+
+  if (!configured(process.env.NEXT_PUBLIC_SUPABASE_URL)) {
+    missing.push("NEXT_PUBLIC_SUPABASE_URL");
+  }
+
+  if (
+    !configured(process.env.SUPABASE_SERVICE_ROLE_KEY) &&
+    !configured(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
+  ) {
+    missing.push("SUPABASE_SERVICE_ROLE_KEY or NEXT_PUBLIC_SUPABASE_ANON_KEY");
+  }
+
+  return missing;
+}
+
 function redact(value: unknown) {
   return String(value)
     .replace(/\bsk_(live|test)_[A-Za-z0-9_]+\b/g, "sk_$1_[redacted]")
@@ -107,6 +128,19 @@ function printItems(
   }
 }
 
+function printEnvironmentChecklist() {
+  console.log(
+    `Supabase bootstrap environment: ${LIVE_MONEY_JSON_EVIDENCE.environmentChecklist.supabaseBootstrap.join("; ")}`,
+  );
+  console.log(
+    `Final live-payment runtime environment: ${LIVE_MONEY_JSON_EVIDENCE.environmentChecklist.finalLivePaymentRuntime.join("; ")}`,
+  );
+  const missing = missingEnvironmentVariables();
+  console.log(
+    `Missing local bootstrap environment: ${missing.length ? missing.join(", ") : "none detected"}`,
+  );
+}
+
 function actionPayload(
   items: Awaited<ReturnType<typeof evaluateLivePaymentLaunch>>["summary"]["nextActions"],
 ) {
@@ -149,6 +183,8 @@ function statusPayload(
     approvalBlockers: actionPayload(report.summary.approvalBlockers),
     launchLocks: actionPayload(report.summary.launchLocks),
     warnings: actionPayload(report.summary.warnings),
+    environmentChecklist: LIVE_MONEY_JSON_EVIDENCE.environmentChecklist,
+    missingEnvironmentVariables: missingEnvironmentVariables(),
     readOnlyGuarantee,
   };
 }
@@ -191,6 +227,7 @@ async function main() {
   console.log(`Accepted go-live states: ${LIVE_MONEY_JSON_EVIDENCE.readyStates.join(", ")}`);
   console.log(`Halt states: ${LIVE_MONEY_JSON_EVIDENCE.blockedStates.join(", ")}`);
   console.log(`Archive requirement: ${LIVE_MONEY_JSON_EVIDENCE.archiveRequirement}`);
+  printEnvironmentChecklist();
   console.log(`Read-only guarantee: ${readOnlyGuarantee}`);
 
   if (!classification.readyForRuntimeSwitch && !allowBlocked) {
@@ -205,7 +242,9 @@ main().catch((error) => {
     state: "BLOCKED_UNEVALUATED" as const,
     readyForRuntimeSwitch: false,
     detail: redact(error?.message || error || "unknown error"),
-    next: "Restore the required Supabase/live-payment environment, then rerun npm run status:live-money.",
+    next: "Restore the missing bootstrap environment listed in missingEnvironmentVariables, then rerun npm run status:live-money.",
+    environmentChecklist: LIVE_MONEY_JSON_EVIDENCE.environmentChecklist,
+    missingEnvironmentVariables: missingEnvironmentVariables(),
     readOnlyGuarantee: failedReadOnlyGuarantee,
   };
 
@@ -230,6 +269,7 @@ main().catch((error) => {
   console.log(`Accepted go-live states: ${LIVE_MONEY_JSON_EVIDENCE.readyStates.join(", ")}`);
   console.log(`Halt states: ${LIVE_MONEY_JSON_EVIDENCE.blockedStates.join(", ")}`);
   console.log(`Archive requirement: ${LIVE_MONEY_JSON_EVIDENCE.archiveRequirement}`);
+  printEnvironmentChecklist();
   console.log(`Read-only guarantee: ${failedReadOnlyGuarantee}`);
   if (!allowBlocked) {
     process.exitCode = 1;
