@@ -137,6 +137,8 @@ console.log(
     .map((entry) => entry.key)
     .join(", ")}`,
 );
+console.log(`- bootstrap Vercel command: ${payload.commands.vercelBootstrapCommands}`);
+console.log(`- full Vercel command: ${payload.commands.vercelCommands}`);
 console.log(
   `- accepted preflight states: ${payload.goLiveBoundary.acceptedPreflightStates.join(", ")}`,
 );

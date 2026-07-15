@@ -1206,6 +1206,8 @@ assertFileIncludes("live money env packet archive helper source", "scripts/archi
   "entries.finalLivePaymentRuntime",
   "commands.vercelBootstrapCommands",
   "commands.vercelCommands",
+  "bootstrap Vercel command:",
+  "full Vercel command:",
   "vercelCli.commandPrefix",
   "goLiveBoundary.acceptedPreflightStates",
   "readOnlyGuarantee",
