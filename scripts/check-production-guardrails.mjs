@@ -1078,6 +1078,8 @@ assertScriptIncludes("prepare:live-money-bootstrap", [
   "verify:live-money-env-packet",
   "archive:live-money-env-packet-verification",
   "live-money:vercel-bootstrap-commands",
+  "live-money:bootstrap-template",
+  "live-money:vercel-bootstrap-commands && npm run live-money:bootstrap-template && npm run status:live-money",
   "status:live-money",
 ]);
 assertScriptIncludes("live-money:env-packet", [
