@@ -27,6 +27,7 @@
     "archive:live-money": "node scripts/archive-live-money-evidence.mjs",
     "archive:live-money:preflight": "node scripts/archive-live-money-evidence.mjs --preflight",
     "live-money:env-packet": "node scripts/live-money-env-packet.mjs",
+    "live-money:env-packet:json": "node scripts/live-money-env-packet.mjs --json",
     "live-money:env-template": "node scripts/live-money-env-packet.mjs --env-template",
     "live-money:vercel-commands": "node scripts/live-money-env-packet.mjs --vercel-commands",
     "preflight:production": "node scripts/deploy-production.mjs --preflight-only",

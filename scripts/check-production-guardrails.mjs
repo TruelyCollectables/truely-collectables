@@ -763,6 +763,9 @@ assertScriptIncludes("archive:live-money:preflight", [
 assertScriptIncludes("live-money:env-packet", [
   "node scripts/live-money-env-packet.mjs",
 ]);
+assertScriptIncludes("live-money:env-packet:json", [
+  "node scripts/live-money-env-packet.mjs --json",
+]);
 assertScriptIncludes("live-money:env-template", [
   "node scripts/live-money-env-packet.mjs --env-template",
 ]);
@@ -882,6 +885,14 @@ assertFileIncludes("live money evidence archive helper source", "scripts/archive
   "process.exitCode = result.status || 0",
 ]);
 assertFileIncludes("live money env packet helper source", "scripts/live-money-env-packet.mjs", [
+  "tcos.liveMoneyEnvPacket.v1",
+  "process.argv.includes(\"--json\")",
+  "JSON.stringify(buildPacket(), null, 2)",
+  "live-money:env-packet:json",
+  "supabaseBootstrap",
+  "finalLivePaymentRuntime",
+  "acceptedPreflightStates",
+  "readOnlyGuarantee",
   "TCOS live-money environment packet",
   "live-money:env-template",
   "live-money:vercel-commands",
@@ -896,6 +907,7 @@ assertFileIncludes("live money env packet helper source", "scripts/live-money-en
   "TCOS_LIVE_PAYMENTS_ENABLED",
   "Keep false until the final go-live window",
   "These helpers do not read secrets, call Stripe, call Supabase, deploy, buy postage, or create Checkout.",
+  "does not read secrets, call Stripe, call Supabase, deploy, buy postage, create Checkout, approve launch, revoke launch, or change runtime switches.",
   "normalizeVercelScope",
   "VERCEL_SCOPE must be a Vercel team slug using only lowercase letters, numbers, and hyphens",
   "Live-money env packet Vercel scope self-test passed.",
@@ -933,6 +945,7 @@ assertFileIncludes("go-live runway status helper source", "scripts/status-go-liv
   "Safe next commands:",
   "npm --silent run status:production:json",
   "npm run live-money:env-packet",
+  "npm --silent run live-money:env-packet:json",
   "npm run live-money:vercel-commands",
   "npm run archive:go-live-runway",
   "Read-only guarantee:",
@@ -977,6 +990,8 @@ assertFileIncludes("live money go/no-go README instructions", "README.md", [
   "npm run archive:live-money",
   "npm run archive:live-money:preflight",
   "npm run live-money:env-packet",
+  "npm --silent run live-money:env-packet:json",
+  "tcos.liveMoneyEnvPacket.v1",
   "npm run live-money:env-template",
   "npm run live-money:vercel-commands",
   "rejects malformed `VERCEL_SCOPE` values before printing commands",
@@ -3996,6 +4011,8 @@ assertFileIncludes("deploy live safety runbook", "docs/PRODUCTION_DEPLOY_RUNBOOK
   "raw archivable evidence",
   "without starting deploys, uploads, Checkout, postage, payouts, launch approvals, or revocations",
   "npm run live-money:env-packet",
+  "npm --silent run live-money:env-packet:json",
+  "tcos.liveMoneyEnvPacket.v1",
   "npm run live-money:env-template",
   "npm run live-money:vercel-commands",
   "do not read secrets, call Stripe or Supabase, deploy, buy postage, create Checkout, or flip `TCOS_LIVE_PAYMENTS_ENABLED`",
@@ -4141,6 +4158,8 @@ assertFileIncludes("deploy live safety operator manual", "docs/TCOS_OPERATOR_MAN
   "raw archivable evidence",
   "without starting deploys, uploads, Checkout, postage, payouts, launch approvals, or revocations",
   "npm run live-money:env-packet",
+  "npm --silent run live-money:env-packet:json",
+  "tcos.liveMoneyEnvPacket.v1",
   "npm run live-money:env-template",
   "npm run live-money:vercel-commands",
   "do not read secrets, call Stripe or Supabase, deploy, buy postage, create Checkout, or flip `TCOS_LIVE_PAYMENTS_ENABLED`",
@@ -4195,6 +4214,8 @@ assertFileIncludes(
     "raw archivable evidence",
     "without starting deploys, uploads, Checkout, postage, payouts, launch approvals, or revocations",
     "npm run live-money:env-packet",
+    "npm --silent run live-money:env-packet:json",
+    "tcos.liveMoneyEnvPacket.v1",
     "npm run live-money:env-template",
     "npm run live-money:vercel-commands",
     "do not read secrets, call Stripe or Supabase, deploy, buy postage, create Checkout, or flip <code>TCOS_LIVE_PAYMENTS_ENABLED</code>",

@@ -3,6 +3,7 @@ const mode = process.argv.includes("--env-template")
   : process.argv.includes("--vercel-commands")
     ? "vercel-commands"
     : "checklist";
+const jsonOutput = process.argv.includes("--json");
 const scopeSelfTest = process.argv.includes("--self-test-scope");
 const vercelCliVersion = "56.2.0";
 const vercelCliPrefix = `npm exec --yes --package=vercel@${vercelCliVersion} -- vercel --cwd "$PWD"`;
@@ -164,6 +165,7 @@ function printChecklist() {
   console.log("");
   console.log("Safe helper commands:");
   console.log("- npm run live-money:env-template");
+  console.log("- npm --silent run live-money:env-packet:json");
   console.log("- npm run live-money:vercel-commands");
   console.log("- npm run status:live-money");
   console.log("- npm run archive:live-money");
@@ -178,6 +180,49 @@ function printChecklist() {
   console.log("- Do not set TCOS_LIVE_PAYMENTS_ENABLED=true until the final go-live window.");
   console.log("- Require npm run preflight:live-money to show READY_FOR_RUNTIME_SWITCH or LIVE_MONEY_OPEN first.");
   console.log("- These helpers do not read secrets, call Stripe, call Supabase, deploy, buy postage, or create Checkout.");
+}
+
+function buildPacket() {
+  return {
+    schema: "tcos.liveMoneyEnvPacket.v1",
+    generatedAt: new Date().toISOString(),
+    title: "TCOS live-money environment packet",
+    purpose: "Stage the live-money runtime without printing or storing secret values.",
+    entries: {
+      supabaseBootstrap,
+      finalLivePaymentRuntime,
+    },
+    commands: {
+      checklist: "npm run live-money:env-packet",
+      json: "npm --silent run live-money:env-packet:json",
+      envTemplate: "npm run live-money:env-template",
+      vercelCommands: "npm run live-money:vercel-commands",
+      status: "npm run status:live-money",
+      archive: "npm run archive:live-money",
+      preflight: "npm run preflight:live-money",
+    },
+    vercelCli: {
+      version: vercelCliVersion,
+      commandPrefix: vercelCliPrefix,
+      boundary:
+        'Vercel command output is pinned through npm exec and includes --cwd "$PWD".',
+    },
+    vercelScopeBoundary:
+      "VERCEL_SCOPE must be a simple lowercase Vercel team slug before Vercel command output is printed.",
+    goLiveBoundary: {
+      runtimeSwitch:
+        "Do not set TCOS_LIVE_PAYMENTS_ENABLED=true until the final go-live window.",
+      acceptedPreflightStates: ["READY_FOR_RUNTIME_SWITCH", "LIVE_MONEY_OPEN"],
+      preflightRequirement:
+        "Require npm run preflight:live-money to show READY_FOR_RUNTIME_SWITCH or LIVE_MONEY_OPEN first.",
+    },
+    readOnlyGuarantee:
+      "This helper prints only environment names, placeholders, command shapes, and operator notes; it does not read secrets, call Stripe, call Supabase, deploy, buy postage, create Checkout, approve launch, revoke launch, or change runtime switches.",
+  };
+}
+
+function printPacketJson() {
+  console.log(JSON.stringify(buildPacket(), null, 2));
 }
 
 function printEnvTemplate() {
@@ -240,6 +285,8 @@ function printVercelCommands() {
 
 if (scopeSelfTest) {
   runScopeSelfTest();
+} else if (jsonOutput) {
+  printPacketJson();
 } else if (mode === "env-template") {
   printEnvTemplate();
 } else if (mode === "vercel-commands") {
