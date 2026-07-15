@@ -4,7 +4,9 @@ import { isIP } from "node:net";
 import os from "node:os";
 import path from "node:path";
 
-const scope = process.env.VERCEL_SCOPE || "truelycollectables-projects";
+const scope = normalizeVercelScope(
+  process.env.VERCEL_SCOPE ?? "truelycollectables-projects",
+);
 const cleanDomain =
   normalizeVercelHost(
     process.env.VERCEL_CLEAN_DOMAIN || "truely-collectables.vercel.app",
@@ -26,6 +28,7 @@ const quotaCooldownSelfTest = process.argv.includes("--self-test-quota-cooldown"
 const deployResultSelfTest = process.argv.includes("--self-test-deploy-result");
 const aliasRemovalSelfTest = process.argv.includes("--self-test-alias-removal");
 const targetHostSelfTest = process.argv.includes("--self-test-target-hosts");
+const scopeSelfTest = process.argv.includes("--self-test-scope");
 const vercelCliVersion = "56.2.0";
 const vercelCliPackage = `vercel@${vercelCliVersion}`;
 const vercelCliCacheDir = path.join(
@@ -116,6 +119,37 @@ function normalizeVercelHost(value, label) {
   }
 
   return hostname;
+}
+
+function normalizeVercelScope(value) {
+  const trimmed = String(value).trim();
+
+  if (!trimmed) {
+    throw new Error("VERCEL_SCOPE cannot be empty.");
+  }
+
+  if (
+    trimmed.startsWith("-") ||
+    /[\s\/\\:?#@.]/.test(trimmed) ||
+    /(?:token|password|secret|key)=/i.test(trimmed) ||
+    /\b(?:sk|rk)_(?:live|test)_/i.test(trimmed) ||
+    /\b(?:Bearer|Basic)\s+/i.test(trimmed)
+  ) {
+    throw new Error(
+      "VERCEL_SCOPE must be a Vercel team slug using only lowercase letters, numbers, and hyphens.",
+    );
+  }
+
+  if (
+    trimmed.length > 100 ||
+    !/^[a-z\d](?:[a-z\d-]*[a-z\d])?$/.test(trimmed)
+  ) {
+    throw new Error(
+      "VERCEL_SCOPE must be a Vercel team slug using only lowercase letters, numbers, and hyphens.",
+    );
+  }
+
+  return trimmed;
 }
 
 if (cleanDomain === unwantedAlias) {
@@ -531,6 +565,61 @@ function runTargetHostSelfTest() {
   console.log("Production target-host normalization self-test passed.");
 }
 
+function runScopeSelfTest() {
+  const validCases = [
+    ["truelycollectables-projects", "truelycollectables-projects"],
+    ["launch-team-2026", "launch-team-2026"],
+    [" team-1 ", "team-1"],
+    ["a", "a"],
+  ];
+
+  for (const [input, expected] of validCases) {
+    const actual = normalizeVercelScope(input);
+    if (actual !== expected) {
+      throw new Error(
+        `Vercel scope self-test normalized ${input} to ${actual}; expected ${expected}.`,
+      );
+    }
+  }
+
+  const invalidCases = [
+    "",
+    " ",
+    "--prod",
+    "-team",
+    "team-",
+    "Team",
+    "team_name",
+    "team.name",
+    "team/name",
+    "https://team.example.com",
+    "team@example",
+    "team?slug=other",
+    "team secret",
+    "token=scope-self-test-secret",
+    "Bearer scope-self-test-secret",
+    "a".repeat(101),
+  ];
+
+  for (const input of invalidCases) {
+    try {
+      normalizeVercelScope(input);
+      throw new Error(`Vercel scope self-test accepted invalid input: ${input}`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (
+        message.includes("accepted invalid input") ||
+        message.includes("scope-self-test-secret") ||
+        !message.includes("VERCEL_SCOPE")
+      ) {
+        throw error;
+      }
+    }
+  }
+
+  console.log("Production Vercel scope self-test passed.");
+}
+
 function run(command, args, options = {}) {
   const {
     allowFailure = false,
@@ -842,6 +931,11 @@ if (redactionSelfTest) {
 
 if (targetHostSelfTest) {
   runTargetHostSelfTest();
+  process.exit(0);
+}
+
+if (scopeSelfTest) {
+  runScopeSelfTest();
   process.exit(0);
 }
 
