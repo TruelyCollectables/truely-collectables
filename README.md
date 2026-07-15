@@ -52,9 +52,10 @@ Check the scheduler and seven-backup rotation without creating an archive:
 ```bash
 npm run status:nightly-backup
 npm --silent run status:nightly-backup:json
+npm run archive:nightly-backup-status
 ```
 
-The status helper reads only the LaunchAgent plist, backup folder, and log metadata. It does not create an archive, push Git, deploy, create Checkout, buy postage, release payouts, approve launch, or revoke anything.
+The status helper reads only the LaunchAgent plist, backup folder, and log metadata. It does not create an archive, push Git, deploy, create Checkout, buy postage, release payouts, approve launch, or revoke anything. The archive helper writes timestamped status evidence under `.codex-run/nightly-backup-status/`.
 
 ## Production deploy and smoke
 

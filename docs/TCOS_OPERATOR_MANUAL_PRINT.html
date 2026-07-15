@@ -4403,8 +4403,9 @@ dryrun-</code></pre>
 <p>The installer writes <code>~/Library/LaunchAgents/com.truelycollectables.nightly-emergency-backup.plist</code>, schedules the backup for 02:30 local time, passes the selected backup folder through <code>TCOS_NIGHTLY_BACKUP_DIR</code>, and writes logs under <code>~/Backups/logs</code> unless <code>--backup-dir</code> is supplied. Use <code>npm run backup:nightly:install -- --no-load</code> to write the plist without loading it. Use <code>npm run backup:nightly -- --local-only</code> for a no-network emergency archive, or <code>npm run backup:nightly -- --backup-dir .codex-run/nightly-backup-test --local-only</code> for a workspace-local test.</p>
 <p>Check the nightly scheduler and seven-backup rotation without creating an archive:</p>
 <pre><code>npm run status:nightly-backup
-npm --silent run status:nightly-backup:json</code></pre>
-<p>The JSON schema is <code>tcos.nightlyBackupStatus.v1</code>. The helper only reads the LaunchAgent plist, selected backup folder, and log metadata; it creates no archive, starts no Git push, deploy, Checkout, postage, payout, launch approval, or revocation.</p>
+npm --silent run status:nightly-backup:json
+npm run archive:nightly-backup-status</code></pre>
+<p>The JSON schema is <code>tcos.nightlyBackupStatus.v1</code>. The helper only reads the LaunchAgent plist, selected backup folder, and log metadata; it creates no archive, starts no Git push, deploy, Checkout, postage, payout, launch approval, or revocation. The archive helper writes timestamped status evidence under <code>.codex-run/nightly-backup-status/</code> with Git head, origin, and working-tree metadata.</p>
 <p>Treat the backup folder like a password vault because local archives can include production-capable <code>.env*</code> secrets. Do not upload the tarballs to public cloud storage or commit them to Git.</p>
 <p>The current disaster-recovery snapshot created on 2026-07-11 is fully verified in the local location below. The second path is the intended Transcend target:</p>
 <pre><code>C:\Projects\TCOS_DISASTER_RECOVERY\TCOS_FULL_DISASTER_RECOVERY_20260711-064539

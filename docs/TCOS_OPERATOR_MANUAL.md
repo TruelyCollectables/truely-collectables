@@ -4714,9 +4714,10 @@ Check the nightly scheduler and seven-backup rotation without creating an archiv
 ```bash
 npm run status:nightly-backup
 npm --silent run status:nightly-backup:json
+npm run archive:nightly-backup-status
 ```
 
-The JSON schema is `tcos.nightlyBackupStatus.v1`. The helper only reads the LaunchAgent plist, selected backup folder, and log metadata; it creates no archive, starts no Git push, deploy, Checkout, postage, payout, launch approval, or revocation.
+The JSON schema is `tcos.nightlyBackupStatus.v1`. The helper only reads the LaunchAgent plist, selected backup folder, and log metadata; it creates no archive, starts no Git push, deploy, Checkout, postage, payout, launch approval, or revocation. The archive helper writes timestamped status evidence under `.codex-run/nightly-backup-status/` with Git head, origin, and working-tree metadata.
 
 Treat the backup folder like a password vault because local archives can include production-capable `.env*` secrets. Do not upload the tarballs to public cloud storage or commit them to Git.
 

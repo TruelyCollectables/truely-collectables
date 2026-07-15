@@ -275,6 +275,9 @@ assertScriptIncludes("status:nightly-backup", [
 assertScriptIncludes("status:nightly-backup:json", [
   "node scripts/status-nightly-backup.mjs --json",
 ]);
+assertScriptIncludes("archive:nightly-backup-status", [
+  "node scripts/archive-nightly-backup-status.mjs",
+]);
 assertFileIncludes("nightly emergency backup helper", "scripts/nightly-emergency-backup.mjs", [
   "tcos.nightlyEmergencyBackup.v1",
   "Git push only syncs committed source",
@@ -309,6 +312,23 @@ assertFileIncludes("nightly backup status helper", "scripts/status-nightly-backu
   "--json",
 ]);
 assertFileIncludes(
+  "nightly backup status archive helper",
+  "scripts/archive-nightly-backup-status.mjs",
+  [
+    "status:nightly-backup:json",
+    ".codex-run",
+    "nightly-backup-status",
+    "tcos.nightlyBackupStatus.v1",
+    "retention.keep",
+    "retention.overRetentionCount",
+    "readOnlyGuarantee.createsNoArchive",
+    "readOnlyGuarantee.noGitPush",
+    "archiveMetadata",
+    "gitWorkingTreeClean",
+    "Nightly backup status evidence archived:",
+  ],
+);
+assertFileIncludes(
   "nightly emergency LaunchAgent installer",
   "scripts/install-nightly-emergency-backup-launchd.mjs",
   [
@@ -336,8 +356,10 @@ assertFileIncludes("nightly emergency backup README", "README.md", [
   "npm run backup:nightly:install",
   "npm run status:nightly-backup",
   "npm --silent run status:nightly-backup:json",
+  "npm run archive:nightly-backup-status",
   "status helper reads only the LaunchAgent plist",
   "does not create an archive, push Git, deploy, create Checkout, buy postage, release payouts, approve launch, or revoke anything",
+  ".codex-run/nightly-backup-status/",
   "~/Backups",
   "seven-backup rolling window",
   "C:\\Backups",
@@ -351,8 +373,10 @@ assertFileIncludes("nightly emergency backup manual", "docs/TCOS_OPERATOR_MANUAL
   "npm run backup:nightly:install",
   "npm run status:nightly-backup",
   "npm --silent run status:nightly-backup:json",
+  "npm run archive:nightly-backup-status",
   "tcos.nightlyBackupStatus.v1",
   "creates no archive, starts no Git push, deploy, Checkout, postage, payout, launch approval, or revocation",
+  ".codex-run/nightly-backup-status/",
   "~/Backups",
   "C:\\Backups\\",
   "--backup-dir /Backups",
@@ -819,6 +843,10 @@ runExpectedSuccess("live money env packet archive helper syntax check", [
   "--check",
   "scripts/archive-live-money-env-packet.mjs",
 ]);
+runExpectedSuccess("nightly backup status archive helper syntax check", [
+  "--check",
+  "scripts/archive-nightly-backup-status.mjs",
+]);
 runExpectedSuccess("go-live runway archive helper syntax check", [
   "--check",
   "scripts/archive-go-live-runway.mjs",
@@ -858,6 +886,9 @@ assertScriptIncludes("preflight:live-money:json", [
 ]);
 assertScriptIncludes("archive:go-live-runway", [
   "node scripts/archive-go-live-runway.mjs",
+]);
+assertScriptIncludes("archive:nightly-backup-status", [
+  "node scripts/archive-nightly-backup-status.mjs",
 ]);
 assertScriptIncludes("archive:live-money-env-packet", [
   "node scripts/archive-live-money-env-packet.mjs",
