@@ -4868,6 +4868,19 @@ assertFileIncludes(
   ],
 );
 assertFileIncludes(
+  "seller cash-out paid proof admin UI contract",
+  "src/app/admin/seller-payouts/page.tsx",
+  [
+    "Cash-out payout proof",
+    "Provider payout reference is required before marking a cash-out request",
+    "provider proof trail for closing the",
+    "Provider reference ready",
+    "cashOutPayoutProofCard",
+    "AUDIT WARNING: this paid cash-out request is missing a provider payout",
+    "Enter the provider payout reference in Processing before Mark Paid is",
+  ],
+);
+assertFileIncludes(
   "seller protection financial reconciliation visibility contract",
   "src/app/admin/financial-reconciliation/page.tsx",
   [

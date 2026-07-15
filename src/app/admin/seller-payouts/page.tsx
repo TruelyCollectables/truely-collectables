@@ -180,6 +180,62 @@ function statusTone(status: string | null | undefined) {
   return "border-neutral-200 bg-neutral-100 text-neutral-700";
 }
 
+function cashOutPayoutProofCard(request: SellerPayoutRequest) {
+  const hasProviderReference = Boolean(request.provider_payout_reference);
+  const paidRequest = request.status === "paid";
+  const processingRequest = request.status === "processing";
+
+  if (!paidRequest && !processingRequest && !hasProviderReference) return null;
+
+  return (
+    <div
+      className={`mt-2 rounded border p-2 text-xs font-semibold ${
+        hasProviderReference
+          ? "border-emerald-200 bg-emerald-50 text-emerald-950"
+          : "border-amber-200 bg-amber-50 text-amber-950"
+      }`}
+    >
+      <p className="font-black uppercase tracking-widest">
+        Cash-out payout proof
+      </p>
+      <p className="mt-1">
+        Provider payout reference is required before marking a cash-out request
+        paid. This reference is the Stripe/provider proof trail for closing the
+        seller cash movement.
+      </p>
+      <dl className="mt-2 grid grid-cols-1 gap-1 sm:grid-cols-2">
+        <div>
+          <dt className="text-[10px] uppercase tracking-widest opacity-70">
+            Provider reference ready
+          </dt>
+          <dd>{hasProviderReference ? "Yes" : "No"}</dd>
+        </div>
+        <div>
+          <dt className="text-[10px] uppercase tracking-widest opacity-70">
+            Payout status
+          </dt>
+          <dd>{label(request.status)}</dd>
+        </div>
+      </dl>
+      {hasProviderReference ? (
+        <p className="mt-2 break-all">
+          Provider Ref: {request.provider_payout_reference}
+        </p>
+      ) : paidRequest ? (
+        <p className="mt-2">
+          AUDIT WARNING: this paid cash-out request is missing a provider payout
+          reference. Use provider records before relying on payout proof.
+        </p>
+      ) : (
+        <p className="mt-2">
+          Enter the provider payout reference in Processing before Mark Paid is
+          available.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function sellerProtectionTone(
   status: Under20SellerProtectionSellerVisibilitySummary["status"] | undefined,
 ) {
@@ -947,11 +1003,7 @@ export default async function AdminSellerPayoutsPage() {
                         Reviewed {shortDate(request.reviewed_at)} / Completed{" "}
                         {shortDate(request.completed_at)}
                       </p>
-                      {request.provider_payout_reference ? (
-                        <p className="mt-2 break-all text-xs font-semibold text-neutral-700">
-                          Provider Ref: {request.provider_payout_reference}
-                        </p>
-                      ) : null}
+                      {cashOutPayoutProofCard(request)}
                       {blocker?.isBlocked ? (
                         <div className="mt-2 rounded border border-amber-200 bg-amber-50 p-2 text-xs font-semibold text-amber-950">
                           <p>{blockerReason}</p>
