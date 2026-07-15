@@ -1,6 +1,8 @@
 const mode = process.argv.includes("--env-template")
   ? "env-template"
-  : process.argv.includes("--vercel-commands")
+  : process.argv.includes("--vercel-bootstrap-commands")
+    ? "vercel-bootstrap-commands"
+    : process.argv.includes("--vercel-commands")
     ? "vercel-commands"
     : "checklist";
 const jsonOutput = process.argv.includes("--json");
@@ -167,6 +169,7 @@ function printChecklist() {
   console.log("- npm run live-money:env-template");
   console.log("- npm --silent run live-money:env-packet:json");
   console.log("- npm run archive:live-money-env-packet");
+  console.log("- npm run live-money:vercel-bootstrap-commands");
   console.log("- npm run live-money:vercel-commands");
   console.log("- npm run status:live-money");
   console.log("- npm run archive:live-money");
@@ -197,6 +200,7 @@ function buildPacket() {
       checklist: "npm run live-money:env-packet",
       json: "npm --silent run live-money:env-packet:json",
       envTemplate: "npm run live-money:env-template",
+      vercelBootstrapCommands: "npm run live-money:vercel-bootstrap-commands",
       vercelCommands: "npm run live-money:vercel-commands",
       status: "npm run status:live-money",
       archiveEnvPacket: "npm run archive:live-money-env-packet",
@@ -253,26 +257,31 @@ function printEnvTemplate() {
   console.log(lines.join("\n"));
 }
 
-function printVercelCommands() {
+function printVercelCommands({ entries = allEntries, bootstrapOnly = false } = {}) {
   const scope = normalizeVercelScope(
     process.env.VERCEL_SCOPE ?? "truelycollectables-projects",
   );
   const lines = [
-    "# TCOS live-money Vercel env command checklist",
+    bootstrapOnly
+      ? "# TCOS live-money Supabase bootstrap Vercel env command checklist"
+      : "# TCOS live-money Vercel env command checklist",
     "# These commands prompt for values. They do not contain secret values.",
     `# Commands pin Vercel CLI ${vercelCliVersion} through npm exec and pass --cwd "$PWD".`,
+    bootstrapOnly
+      ? "# Bootstrap-only mode prints only Supabase setup keys for the current missing-bootstrap blocker."
+      : "# Full mode prints Supabase bootstrap plus final live-payment runtime keys.",
     "# Keep TCOS_LIVE_PAYMENTS_ENABLED=false until final accepted preflight evidence.",
     "# VERCEL_SCOPE must be a simple lowercase Vercel team slug before command output is printed.",
     `# Scope: ${scope}`,
     "",
     "# Production environment",
-    ...allEntries.map(
+    ...entries.map(
       (entry) =>
         `${vercelCliPrefix} env add ${entry.key} production --scope ${scope}`,
     ),
     "",
     "# Preview environment, if you want the same staged shape before production",
-    ...allEntries.map(
+    ...entries.map(
       (entry) =>
         `${vercelCliPrefix} env add ${entry.key} preview --scope ${scope}`,
     ),
@@ -292,6 +301,8 @@ if (scopeSelfTest) {
   printPacketJson();
 } else if (mode === "env-template") {
   printEnvTemplate();
+} else if (mode === "vercel-bootstrap-commands") {
+  printVercelCommands({ entries: supabaseBootstrap, bootstrapOnly: true });
 } else if (mode === "vercel-commands") {
   printVercelCommands();
 } else {

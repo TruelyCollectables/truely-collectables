@@ -1021,6 +1021,9 @@ assertScriptIncludes("live-money:env-packet:json", [
 assertScriptIncludes("live-money:env-template", [
   "node scripts/live-money-env-packet.mjs --env-template",
 ]);
+assertScriptIncludes("live-money:vercel-bootstrap-commands", [
+  "node scripts/live-money-env-packet.mjs --vercel-bootstrap-commands",
+]);
 assertScriptIncludes("live-money:vercel-commands", [
   "node scripts/live-money-env-packet.mjs --vercel-commands",
 ]);
@@ -1031,6 +1034,12 @@ runExpectedSuccess("live money env packet scope self-test", [
 runExpectedFailure(
   "live money env packet rejects malformed Vercel scope",
   ["scripts/live-money-env-packet.mjs", "--vercel-commands"],
+  { VERCEL_SCOPE: "https://scope-self-test.example.com" },
+  "VERCEL_SCOPE must be a Vercel team slug using only lowercase letters, numbers, and hyphens",
+);
+runExpectedFailure(
+  "live money bootstrap env packet rejects malformed Vercel scope",
+  ["scripts/live-money-env-packet.mjs", "--vercel-bootstrap-commands"],
   { VERCEL_SCOPE: "https://scope-self-test.example.com" },
   "VERCEL_SCOPE must be a Vercel team slug using only lowercase letters, numbers, and hyphens",
 );
@@ -1157,7 +1166,9 @@ assertFileIncludes("live money env packet helper source", "scripts/live-money-en
   "readOnlyGuarantee",
   "TCOS live-money environment packet",
   "live-money:env-template",
+  "live-money:vercel-bootstrap-commands",
   "live-money:vercel-commands",
+  "Bootstrap-only mode prints only Supabase setup keys",
   "NEXT_PUBLIC_SUPABASE_URL",
   "NEXT_PUBLIC_SUPABASE_ANON_KEY",
   "SUPABASE_SERVICE_ROLE_KEY",
@@ -1193,6 +1204,7 @@ assertFileIncludes("live money env packet archive helper source", "scripts/archi
   "gitStatusShort",
   "entries.supabaseBootstrap",
   "entries.finalLivePaymentRuntime",
+  "commands.vercelBootstrapCommands",
   "commands.vercelCommands",
   "vercelCli.commandPrefix",
   "goLiveBoundary.acceptedPreflightStates",
@@ -1219,7 +1231,7 @@ assertFileIncludes("go-live runway status helper source", "scripts/status-go-liv
   "operator_watch",
   "npm run live-money:env-packet",
   "npm run archive:live-money-env-packet",
-  "npm run live-money:vercel-commands",
+  "npm run live-money:vercel-bootstrap-commands",
   "nextActionableStep",
   "nextDeployStep",
   "ready_with_operator_watch_items",
@@ -1303,6 +1315,7 @@ assertFileIncludes("go-live runway status helper source", "scripts/status-go-liv
   "npm run archive:nightly-backup-verification",
   "npm run live-money:env-packet",
   "npm --silent run live-money:env-packet:json",
+  "npm run live-money:vercel-bootstrap-commands",
   "npm run live-money:vercel-commands",
   "npm run archive:go-live-runway",
   "npm run archive:live-money-env-packet",
@@ -1380,6 +1393,7 @@ assertFileIncludes("live money go/no-go README instructions", "README.md", [
   "blocker action categories",
   "per-blocker action commands",
   "archive the no-secret packet with `npm run archive:live-money-env-packet`",
+  "bootstrap-only Vercel command helper `npm run live-money:vercel-bootstrap-commands`",
   "next actionable step",
   "next deploy step",
   "next operator step",
@@ -1388,7 +1402,7 @@ assertFileIncludes("live money go/no-go README instructions", "README.md", [
   "local Git `HEAD`/`origin/main`/working-tree cleanliness",
   "Vercel quota status",
   "go-live-readiness",
-  "Live-money blockers point to the no-secret packet helpers",
+  "Live-money blockers point to the no-secret packet helper",
   "emergency backup schedule health",
   "scheduler proof",
   "freshest backup timestamp",
@@ -1414,8 +1428,9 @@ assertFileIncludes("live money go/no-go README instructions", "README.md", [
   ".codex-run/live-money-env-packet/",
   "tcos.liveMoneyEnvPacket.v1",
   "npm run live-money:env-template",
+  "npm run live-money:vercel-bootstrap-commands",
   "npm run live-money:vercel-commands",
-  "rejects malformed `VERCEL_SCOPE` values before printing commands",
+  "Vercel command helpers reject malformed `VERCEL_SCOPE` values before printing commands",
   "pinned to `vercel@56.2.0` through `npm exec`",
   '`--cwd "$PWD"`',
   ".codex-run/live-money-evidence/",
@@ -4520,6 +4535,7 @@ assertFileIncludes("deploy live safety runbook", "docs/PRODUCTION_DEPLOY_RUNBOOK
   ".codex-run/live-money-env-packet/",
   "tcos.liveMoneyEnvPacket.v1",
   "npm run live-money:env-template",
+  "npm run live-money:vercel-bootstrap-commands",
   "npm run live-money:vercel-commands",
   "do not read secrets, call Stripe or Supabase, deploy, buy postage, create Checkout, or flip `TCOS_LIVE_PAYMENTS_ENABLED`",
   "rejects malformed `VERCEL_SCOPE` values before printing commands",
@@ -4689,6 +4705,7 @@ assertFileIncludes("deploy live safety operator manual", "docs/TCOS_OPERATOR_MAN
   ".codex-run/live-money-env-packet/",
   "tcos.liveMoneyEnvPacket.v1",
   "npm run live-money:env-template",
+  "npm run live-money:vercel-bootstrap-commands",
   "npm run live-money:vercel-commands",
   "do not read secrets, call Stripe or Supabase, deploy, buy postage, create Checkout, or flip `TCOS_LIVE_PAYMENTS_ENABLED`",
   "rejects malformed `VERCEL_SCOPE` values before printing commands",

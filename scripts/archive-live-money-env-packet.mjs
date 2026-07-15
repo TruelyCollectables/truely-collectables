@@ -56,6 +56,9 @@ function assertEvidenceContract(payload) {
     missing.push("entries.finalLivePaymentRuntime");
   }
   if (!payload?.commands?.json) missing.push("commands.json");
+  if (!payload?.commands?.vercelBootstrapCommands) {
+    missing.push("commands.vercelBootstrapCommands");
+  }
   if (!payload?.commands?.vercelCommands) missing.push("commands.vercelCommands");
   if (!payload?.vercelCli?.version) missing.push("vercelCli.version");
   if (!payload?.vercelCli?.commandPrefix) missing.push("vercelCli.commandPrefix");
