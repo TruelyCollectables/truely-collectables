@@ -195,6 +195,27 @@ if (payload) {
   );
   checks.push(
     check(
+      typeof payload.goLiveEvidence?.available === "boolean",
+      "next-action go-live evidence availability is recorded",
+      payload.goLiveEvidence?.available,
+    ),
+  );
+  checks.push(
+    check(
+      payload.goLiveEvidence?.ok === true,
+      "next-action go-live evidence verifier is ok",
+      payload.goLiveEvidence?.ok,
+    ),
+  );
+  checks.push(
+    check(
+      payload.goLiveEvidence?.capturedAtCurrentHead === true,
+      "next-action go-live evidence captured current pushed HEAD",
+      payload.goLiveEvidence?.capturedAtCurrentHead,
+    ),
+  );
+  checks.push(
+    check(
       payload.productionDeploymentQuota?.vercelUploadStarted === false,
       "next-action confirms no Vercel upload started",
       payload.productionDeploymentQuota?.vercelUploadStarted,
@@ -298,6 +319,7 @@ const verification = {
         fallbackAvailable: payload.localBuildFallback?.available ?? null,
         goLiveState: payload.goLiveReadiness?.state || null,
         blockerCount: payload.goLiveReadiness?.blockerCount ?? null,
+        goLiveEvidence: payload.goLiveEvidence || null,
         quotaState: payload.productionDeploymentQuota?.state || null,
         quotaRetryAtLocal: payload.productionDeploymentQuota?.retryAtLocal || null,
         backupRunway: payload.backupRunway || null,
@@ -336,6 +358,16 @@ if (jsonOutput) {
     }`,
   );
   console.log(`- go-live state: ${verification.nextAction?.goLiveState || "not recorded"}`);
+  console.log(
+    `- go-live evidence ok: ${
+      verification.nextAction?.goLiveEvidence?.ok ? "yes" : "no"
+    }`,
+  );
+  console.log(
+    `- go-live evidence current pushed HEAD: ${
+      verification.nextAction?.goLiveEvidence?.capturedAtCurrentHead ? "yes" : "no"
+    }`,
+  );
   console.log(`- quota state: ${verification.nextAction?.quotaState || "not recorded"}`);
   console.log(
     `- quota retry at local: ${verification.nextAction?.quotaRetryAtLocal || "not recorded"}`,

@@ -47,6 +47,7 @@ function buildNextAction(checkpoint) {
     },
     git: checkpoint.git || {},
     goLiveReadiness: checkpoint.goLiveReadiness || {},
+    goLiveEvidence: checkpoint.goLiveEvidence || {},
     productionDeploymentQuota: checkpoint.productionDeploymentQuota || {},
     emergencyBackup: checkpoint.emergencyBackup || {},
     backupRunway: checkpoint.backupRunway || {},
@@ -81,6 +82,14 @@ function printText(action) {
   console.log(`- go-live state: ${action.goLiveReadiness?.state || "unknown"}`);
   console.log(
     `- blocker count: ${action.goLiveReadiness?.blockerCount ?? "unknown"}`,
+  );
+  console.log(
+    `- go-live evidence ok: ${action.goLiveEvidence?.ok ? "yes" : "no"}`,
+  );
+  console.log(
+    `- go-live evidence current pushed HEAD: ${
+      action.goLiveEvidence?.capturedAtCurrentHead ? "yes" : "no"
+    }`,
   );
   console.log(
     `- quota state: ${action.productionDeploymentQuota?.state || "unknown"}`,

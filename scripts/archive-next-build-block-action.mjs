@@ -75,6 +75,15 @@ function assertEvidenceContract(payload) {
   if (!payload?.goLiveReadiness?.state) {
     missing.push("goLiveReadiness.state");
   }
+  if (typeof payload?.goLiveEvidence?.available !== "boolean") {
+    missing.push("goLiveEvidence.available");
+  }
+  if (typeof payload?.goLiveEvidence?.ok !== "boolean") {
+    missing.push("goLiveEvidence.ok");
+  }
+  if (typeof payload?.goLiveEvidence?.capturedAtCurrentHead !== "boolean") {
+    missing.push("goLiveEvidence.capturedAtCurrentHead");
+  }
   if (!payload?.productionDeploymentQuota?.state) {
     missing.push("productionDeploymentQuota.state");
   }
@@ -180,6 +189,12 @@ console.log(
   }`,
 );
 console.log(`- go-live state: ${payload.goLiveReadiness.state}`);
+console.log(`- go-live evidence ok: ${payload.goLiveEvidence.ok ? "yes" : "no"}`);
+console.log(
+  `- go-live evidence current pushed HEAD: ${
+    payload.goLiveEvidence.capturedAtCurrentHead ? "yes" : "no"
+  }`,
+);
 console.log(`- quota state: ${payload.productionDeploymentQuota.state}`);
 if (payload.productionDeploymentQuota.retryAtLocal) {
   console.log(`- quota retry at local: ${payload.productionDeploymentQuota.retryAtLocal}`);

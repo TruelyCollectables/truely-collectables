@@ -75,6 +75,18 @@ function assertEvidenceContract(payload) {
   if (!payload?.goLiveReadiness?.nextOperatorStep) {
     missing.push("goLiveReadiness.nextOperatorStep");
   }
+  if (typeof payload?.goLiveEvidence?.available !== "boolean") {
+    missing.push("goLiveEvidence.available");
+  }
+  if (typeof payload?.goLiveEvidence?.ok !== "boolean") {
+    missing.push("goLiveEvidence.ok");
+  }
+  if (typeof payload?.goLiveEvidence?.capturedAtCurrentHead !== "boolean") {
+    missing.push("goLiveEvidence.capturedAtCurrentHead");
+  }
+  if (!payload?.goLiveEvidence?.next) {
+    missing.push("goLiveEvidence.next");
+  }
   if (!payload?.recommendation?.focus) missing.push("recommendation.focus");
   if (!payload?.recommendation?.next) missing.push("recommendation.next");
   if (!Array.isArray(payload?.recommendation?.commands)) {
@@ -208,6 +220,16 @@ console.log(
 console.log(`- go-live state: ${payload.goLiveReadiness.state}`);
 console.log(`- blocker count: ${payload.goLiveReadiness.blockerCount}`);
 console.log(`- watch item count: ${payload.goLiveReadiness.watchItemCount}`);
+console.log(
+  `- go-live evidence available: ${payload.goLiveEvidence.available ? "yes" : "no"}`,
+);
+console.log(`- go-live evidence ok: ${payload.goLiveEvidence.ok ? "yes" : "no"}`);
+console.log(
+  `- go-live evidence current pushed HEAD: ${
+    payload.goLiveEvidence.capturedAtCurrentHead ? "yes" : "no"
+  }`,
+);
+console.log(`- go-live evidence next: ${payload.goLiveEvidence.next}`);
 console.log(`- block focus: ${payload.recommendation.focus}`);
 console.log(`- next: ${payload.recommendation.next}`);
 if (payload.recommendation.commands.length) {

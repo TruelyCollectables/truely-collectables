@@ -156,6 +156,34 @@ if (payload) {
       payload.archive?.command,
     ),
   );
+  checks.push(
+    check(
+      typeof payload.goLiveEvidence?.available === "boolean",
+      "checkpoint go-live evidence availability is recorded",
+      payload.goLiveEvidence?.available,
+    ),
+  );
+  checks.push(
+    check(
+      payload.goLiveEvidence?.ok === true,
+      "checkpoint go-live evidence verifier is ok",
+      payload.goLiveEvidence?.ok,
+    ),
+  );
+  checks.push(
+    check(
+      payload.goLiveEvidence?.capturedAtCurrentHead === true,
+      "checkpoint go-live evidence captured current pushed HEAD",
+      payload.goLiveEvidence?.capturedAtCurrentHead,
+    ),
+  );
+  checks.push(
+    check(
+      Boolean(payload.goLiveEvidence?.next),
+      "checkpoint go-live evidence next step is recorded",
+      payload.goLiveEvidence?.next || null,
+    ),
+  );
   checks.push(check(Boolean(payload.recommendation?.focus), "checkpoint recommendation focus"));
   checks.push(check(Boolean(payload.recommendation?.next), "checkpoint recommendation next step"));
   checks.push(check(recommendedCommands.length > 0, "checkpoint recommendation commands exist"));
@@ -309,6 +337,7 @@ const verification = {
         goLiveState: payload.goLiveReadiness?.state || null,
         blockerCount: payload.goLiveReadiness?.blockerCount ?? null,
         watchItemCount: payload.goLiveReadiness?.watchItemCount ?? null,
+        goLiveEvidence: payload.goLiveEvidence || null,
         quotaState: payload.productionDeploymentQuota?.state || null,
         quotaRetryAtLocal: payload.productionDeploymentQuota?.retryAtLocal || null,
         backupScheduleHealth: payload.emergencyBackup?.scheduleHealth || null,
@@ -357,6 +386,16 @@ if (jsonOutput) {
     );
   }
   console.log(`- go-live state: ${verification.checkpoint?.goLiveState || "not recorded"}`);
+  console.log(
+    `- go-live evidence ok: ${
+      verification.checkpoint?.goLiveEvidence?.ok ? "yes" : "no"
+    }`,
+  );
+  console.log(
+    `- go-live evidence current pushed HEAD: ${
+      verification.checkpoint?.goLiveEvidence?.capturedAtCurrentHead ? "yes" : "no"
+    }`,
+  );
   console.log(`- quota state: ${verification.checkpoint?.quotaState || "not recorded"}`);
   console.log(
     `- quota retry at local: ${verification.checkpoint?.quotaRetryAtLocal || "not recorded"}`,

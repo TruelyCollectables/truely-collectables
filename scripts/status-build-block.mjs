@@ -215,6 +215,7 @@ function buildCheckpoint(status) {
   const recommendation = buildRecommendation(status);
   const localBuildFallback = buildLocalBuildFallback(status, recommendation);
   const backupRunway = buildBackupRunwayCheckpoint();
+  const goLiveEvidence = status.goLiveEvidence || {};
 
   return {
     schema: "tcos.buildBlockCheckpoint.v1",
@@ -228,6 +229,17 @@ function buildCheckpoint(status) {
       nextActionableStep: status.goLiveReadiness?.nextActionableStep || "unknown",
       nextDeployStep: status.goLiveReadiness?.nextDeployStep || "unknown",
       nextOperatorStep: status.goLiveReadiness?.nextOperatorStep || "unknown",
+    },
+    goLiveEvidence: {
+      available: Boolean(goLiveEvidence.available),
+      ok: Boolean(goLiveEvidence.ok),
+      capturedAtCurrentHead: Boolean(goLiveEvidence.capturedAtCurrentHead),
+      archivePath: goLiveEvidence.path || null,
+      archivedAt: goLiveEvidence.archivedAt || null,
+      failedCheckCount: goLiveEvidence.failedCheckCount ?? null,
+      liveMoneyPacketVerificationPath:
+        goLiveEvidence.liveMoneyPacketVerificationPath || null,
+      next: goLiveEvidence.next || "Run npm run prepare:go-live-evidence.",
     },
     recommendation,
     localBuildFallback,
@@ -281,6 +293,20 @@ function printText(checkpoint) {
   console.log(`- go-live state: ${checkpoint.goLiveReadiness.state}`);
   console.log(`- blocker count: ${checkpoint.goLiveReadiness.blockerCount}`);
   console.log(`- watch item count: ${checkpoint.goLiveReadiness.watchItemCount}`);
+  console.log(
+    `- go-live evidence available: ${
+      checkpoint.goLiveEvidence.available ? "yes" : "no"
+    }`,
+  );
+  console.log(
+    `- go-live evidence ok: ${checkpoint.goLiveEvidence.ok ? "yes" : "no"}`,
+  );
+  console.log(
+    `- go-live evidence current pushed HEAD: ${
+      checkpoint.goLiveEvidence.capturedAtCurrentHead ? "yes" : "no"
+    }`,
+  );
+  console.log(`- go-live evidence next: ${checkpoint.goLiveEvidence.next}`);
   console.log(`- block focus: ${checkpoint.recommendation.focus}`);
   console.log(`- next: ${checkpoint.recommendation.next}`);
   if (checkpoint.recommendation.commands.length) {
