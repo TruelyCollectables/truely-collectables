@@ -146,6 +146,18 @@ function assertEvidenceContract(payload) {
   if (!payload?.emergencyBackup?.verification?.archivePath) {
     missing.push("emergencyBackup.verification.archivePath");
   }
+  if (typeof payload?.goLiveEvidence?.available !== "boolean") {
+    missing.push("goLiveEvidence.available");
+  }
+  if (typeof payload?.goLiveEvidence?.ok !== "boolean") {
+    missing.push("goLiveEvidence.ok");
+  }
+  if (typeof payload?.goLiveEvidence?.capturedAtCurrentHead !== "boolean") {
+    missing.push("goLiveEvidence.capturedAtCurrentHead");
+  }
+  if (!payload?.goLiveEvidence?.next) {
+    missing.push("goLiveEvidence.next");
+  }
   if (!payload?.liveMoney?.state) missing.push("liveMoney.state");
   if (typeof payload?.liveMoney?.readyForRuntimeSwitch !== "boolean") {
     missing.push("liveMoney.readyForRuntimeSwitch");
@@ -244,6 +256,20 @@ console.log(`- emergency backup next scheduled run local: ${payload.emergencyBac
 console.log(`- emergency backup retention keep: ${payload.emergencyBackup.retention.keep}`);
 console.log(`- emergency backup over-retention count: ${payload.emergencyBackup.retention.overRetentionCount}`);
 console.log(`- emergency backup verification ok: ${payload.emergencyBackup.verification.ok ? "yes" : "no"}`);
+console.log(`- go-live evidence available: ${payload.goLiveEvidence.available ? "yes" : "no"}`);
+console.log(`- go-live evidence verification ok: ${payload.goLiveEvidence.ok ? "yes" : "no"}`);
+console.log(
+  `- go-live evidence captured at current pushed HEAD: ${
+    payload.goLiveEvidence.capturedAtCurrentHead ? "yes" : "no"
+  }`,
+);
+console.log(`- go-live evidence archive: ${payload.goLiveEvidence.path || "missing"}`);
+console.log(
+  `- go-live evidence live-money boundary: ${
+    payload.goLiveEvidence.verificationBoundary || "not recorded"
+  }`,
+);
+console.log(`- go-live evidence next: ${payload.goLiveEvidence.next}`);
 console.log(`- live-money state: ${payload.liveMoney.state}`);
 console.log(
   `- ready for runtime switch: ${

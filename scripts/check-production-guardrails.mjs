@@ -1525,6 +1525,10 @@ assertFileIncludes("go-live runway archive helper source", "scripts/archive-go-l
   "emergencyBackup.retention.overRetentionCount",
   "emergencyBackup.verification.ok",
   "emergencyBackup.verification.archivePath",
+  "goLiveEvidence.available",
+  "goLiveEvidence.ok",
+  "goLiveEvidence.capturedAtCurrentHead",
+  "goLiveEvidence.next",
   "liveMoney.readyForRuntimeSwitch",
   "liveMoney.missingBootstrapEnvironment",
   "safeNextCommands",
@@ -1545,6 +1549,12 @@ assertFileIncludes("go-live runway archive helper source", "scripts/archive-go-l
   "emergency backup retention keep:",
   "emergency backup over-retention count:",
   "emergency backup verification ok:",
+  "go-live evidence available:",
+  "go-live evidence verification ok:",
+  "go-live evidence captured at current pushed HEAD:",
+  "go-live evidence archive:",
+  "go-live evidence live-money boundary:",
+  "go-live evidence next:",
 ]);
 assertFileIncludes("live money go/no-go README instructions", "README.md", [
   "npm run status:go-live",
