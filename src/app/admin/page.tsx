@@ -738,6 +738,24 @@ export default async function AdminDashboard() {
                       <code>{LIVE_MONEY_JSON_EVIDENCE.archiveDirectory}</code>.{" "}
                       {LIVE_MONEY_JSON_EVIDENCE.readOnlyGuarantee}
                     </p>
+                    <p className="mt-1 font-semibold">
+                      Supabase bootstrap environment:{" "}
+                      <span className="font-mono">
+                        {LIVE_MONEY_JSON_EVIDENCE.environmentChecklist.supabaseBootstrap.join(
+                          "; ",
+                        )}
+                      </span>
+                      .
+                    </p>
+                    <p className="mt-1 font-semibold">
+                      Final live-payment runtime environment:{" "}
+                      <span className="font-mono">
+                        {LIVE_MONEY_JSON_EVIDENCE.environmentChecklist.finalLivePaymentRuntime.join(
+                          "; ",
+                        )}
+                      </span>
+                      .
+                    </p>
                   </div>
                 </div>
 

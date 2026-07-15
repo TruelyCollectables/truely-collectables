@@ -86,7 +86,7 @@ const manualVerificationChecks = [
     label: "Live money JSON evidence",
     href: "/admin/live-payment-launch",
     proof:
-      `Run \`${LIVE_MONEY_JSON_EVIDENCE.archiveCommand}\` after smoke passes to write timestamped evidence under ${LIVE_MONEY_JSON_EVIDENCE.archiveDirectory} with schema ${LIVE_MONEY_JSON_EVIDENCE.schema}; during the final go-live window, run \`${LIVE_MONEY_JSON_EVIDENCE.preflightArchiveCommand}\` and require ${LIVE_MONEY_JSON_EVIDENCE.readyStates.join(" or ")} before any runtime switch change. Raw JSON commands remain \`${LIVE_MONEY_JSON_EVIDENCE.statusCommand}\` and \`${LIVE_MONEY_JSON_EVIDENCE.preflightCommand}\`.`,
+      `Run \`${LIVE_MONEY_JSON_EVIDENCE.archiveCommand}\` after smoke passes to write timestamped evidence under ${LIVE_MONEY_JSON_EVIDENCE.archiveDirectory} with schema ${LIVE_MONEY_JSON_EVIDENCE.schema}; confirm the Supabase bootstrap environment checklist (${LIVE_MONEY_JSON_EVIDENCE.environmentChecklist.supabaseBootstrap.join("; ")}) and final live-payment runtime environment checklist (${LIVE_MONEY_JSON_EVIDENCE.environmentChecklist.finalLivePaymentRuntime.join("; ")}) are staged; during the final go-live window, run \`${LIVE_MONEY_JSON_EVIDENCE.preflightArchiveCommand}\` and require ${LIVE_MONEY_JSON_EVIDENCE.readyStates.join(" or ")} before any runtime switch change. Raw JSON commands remain \`${LIVE_MONEY_JSON_EVIDENCE.statusCommand}\` and \`${LIVE_MONEY_JSON_EVIDENCE.preflightCommand}\`.`,
     ifBlocked:
       `Do not approve live payments or set TCOS_LIVE_PAYMENTS_ENABLED=true when the JSON evidence is missing, ${LIVE_MONEY_JSON_EVIDENCE.blockedStates.join(", ")}.`,
   },

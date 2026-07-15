@@ -674,6 +674,10 @@ const checks = [
       result.text.includes("npm run archive:live-money:preflight") &&
       result.text.includes(".codex-run/live-money-evidence/") &&
       result.text.includes("TCOS_LIVE_PAYMENTS_ENABLED") &&
+      result.text.includes("Supabase bootstrap environment") &&
+      result.text.includes("NEXT_PUBLIC_SUPABASE_URL") &&
+      result.text.includes("Final live-payment runtime environment") &&
+      result.text.includes("STRIPE_LIVE_SECRET_KEY") &&
       result.text.includes("READY_FOR_RUNTIME_SWITCH, LIVE_MONEY_OPEN") &&
       result.text.includes("BLOCKED_UNEVALUATED, BLOCKED_APPROVAL, READY_FOR_DATABASE_APPROVAL, BLOCKED_LAUNCH_GATE") &&
       result.text.includes("tcos.liveMoneyGoNoGo.v1") &&
@@ -704,6 +708,10 @@ const checks = [
       result.text.includes("Final-window preflight archive helper") &&
       result.text.includes("npm run archive:live-money:preflight") &&
       result.text.includes(".codex-run/live-money-evidence/") &&
+      result.text.includes("Supabase bootstrap environment") &&
+      result.text.includes("NEXT_PUBLIC_SUPABASE_URL") &&
+      result.text.includes("Final live-payment runtime environment") &&
+      result.text.includes("STRIPE_LIVE_SECRET_KEY") &&
       result.text.includes("Accepted go-live states") &&
       result.text.includes("READY_FOR_RUNTIME_SWITCH, LIVE_MONEY_OPEN") &&
       result.text.includes("Halt states") &&
@@ -1361,6 +1369,10 @@ const checks = [
       result.text.includes("Final-window preflight archive helper") &&
       result.text.includes("npm run archive:live-money:preflight") &&
       result.text.includes(".codex-run/live-money-evidence/") &&
+      result.text.includes("Supabase bootstrap environment") &&
+      result.text.includes("NEXT_PUBLIC_SUPABASE_URL") &&
+      result.text.includes("Final live-payment runtime environment") &&
+      result.text.includes("STRIPE_LIVE_SECRET_KEY") &&
       result.text.includes("Accepted go-live states") &&
       result.text.includes("READY_FOR_RUNTIME_SWITCH, LIVE_MONEY_OPEN") &&
       result.text.includes("Halt if the JSON evidence is missing") &&

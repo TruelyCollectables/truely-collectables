@@ -249,6 +249,32 @@ export default async function LivePaymentLaunchPage() {
             </code>
             . {LIVE_MONEY_JSON_EVIDENCE.readOnlyGuarantee}
           </p>
+          <div className="mt-4 grid grid-cols-1 gap-3 text-sm md:grid-cols-2">
+            <div className="rounded border border-emerald-200 bg-white p-3">
+              <h3 className="font-black uppercase text-emerald-700">
+                Supabase bootstrap environment
+              </h3>
+              <ul className="mt-2 space-y-1 font-mono text-xs">
+                {LIVE_MONEY_JSON_EVIDENCE.environmentChecklist.supabaseBootstrap.map(
+                  (item) => (
+                    <li key={item}>{item}</li>
+                  ),
+                )}
+              </ul>
+            </div>
+            <div className="rounded border border-emerald-200 bg-white p-3">
+              <h3 className="font-black uppercase text-emerald-700">
+                Final live-payment runtime environment
+              </h3>
+              <ul className="mt-2 space-y-1 font-mono text-xs">
+                {LIVE_MONEY_JSON_EVIDENCE.environmentChecklist.finalLivePaymentRuntime.map(
+                  (item) => (
+                    <li key={item}>{item}</li>
+                  ),
+                )}
+              </ul>
+            </div>
+          </div>
         </section>
 
         <section className="grid gap-4 md:grid-cols-2">
