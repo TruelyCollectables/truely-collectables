@@ -272,6 +272,7 @@ function goLiveReadiness({ git, quota, emergencyBackup, liveMoney }) {
     blockers.push({
       area: "git",
       state: "dirty_worktree",
+      actionCategory: "operator_action",
       detail: "Local working tree has uncommitted changes.",
       next: "Commit and push launch-bound work before production deploy.",
     });
@@ -281,6 +282,7 @@ function goLiveReadiness({ git, quota, emergencyBackup, liveMoney }) {
     blockers.push({
       area: "git",
       state: "head_not_pushed",
+      actionCategory: "operator_action",
       detail: `Local HEAD ${git.head} does not match origin/main ${git.originMain}.`,
       next: "Push or reconcile origin/main before production deploy.",
     });
@@ -290,6 +292,7 @@ function goLiveReadiness({ git, quota, emergencyBackup, liveMoney }) {
     blockers.push({
       area: "production_deploy_quota",
       state: quota.state || "unknown",
+      actionCategory: "external_wait",
       detail:
         quota.reason && quota.reason !== "unknown"
           ? `Production deploy quota is ${quota.state} because ${quota.reason}.`
@@ -305,6 +308,7 @@ function goLiveReadiness({ git, quota, emergencyBackup, liveMoney }) {
     blockers.push({
       area: "emergency_backup",
       state: "verification_failed",
+      actionCategory: "operator_action",
       detail: `Nightly backup verification failed with ${
         emergencyBackup.verification.failedCheckCount ?? "unknown"
       } failed check(s).`,
@@ -316,6 +320,7 @@ function goLiveReadiness({ git, quota, emergencyBackup, liveMoney }) {
     blockers.push({
       area: "emergency_backup",
       state: emergencyBackup.scheduleHealth.state,
+      actionCategory: "operator_action",
       detail: emergencyBackup.scheduleHealth.message,
       next: "Run npm run status:nightly-backup and repair the backup schedule before go-live.",
     });
@@ -325,6 +330,7 @@ function goLiveReadiness({ git, quota, emergencyBackup, liveMoney }) {
     blockers.push({
       area: "emergency_backup",
       state: "stale_backup",
+      actionCategory: "operator_action",
       detail: "Latest backup is not current for the last scheduled run.",
       next: "Run npm run backup:nightly or repair the scheduler before go-live.",
     });
@@ -334,6 +340,7 @@ function goLiveReadiness({ git, quota, emergencyBackup, liveMoney }) {
     blockers.push({
       area: "emergency_backup",
       state: "over_retention",
+      actionCategory: "operator_action",
       detail: `Backup folder has ${emergencyBackup.retention.overRetentionCount} file(s) over the seven-backup retention window.`,
       next: "Run npm run status:nightly-backup and confirm retention rotation before go-live.",
     });
@@ -343,6 +350,7 @@ function goLiveReadiness({ git, quota, emergencyBackup, liveMoney }) {
     watchItems.push({
       area: "emergency_backup",
       state: emergencyBackup.schedulerProof.state,
+      actionCategory: "operator_watch",
       detail: emergencyBackup.schedulerProof.message,
       next: emergencyBackup.schedulerProof.nextAction,
     });
@@ -352,6 +360,7 @@ function goLiveReadiness({ git, quota, emergencyBackup, liveMoney }) {
     blockers.push({
       area: "live_money",
       state: liveMoney.state,
+      actionCategory: "operator_action",
       detail: liveMoney.detail,
       next: liveMoney.next,
       missingEnvironment: liveMoney.missingBootstrapEnvironment,
@@ -369,7 +378,15 @@ function goLiveReadiness({ git, quota, emergencyBackup, liveMoney }) {
     watchItemCount: watchItems.length,
     blockers,
     watchItems,
+    nextActionableStep:
+      blockers.find((blocker) => blocker.actionCategory !== "external_wait")?.next ||
+      watchItems[0]?.next ||
+      "No operator action is currently available; wait for the deploy quota window and keep monitoring.",
+    nextDeployStep:
+      blockers.find((blocker) => blocker.area === "production_deploy_quota")?.next ||
+      "Run npm run verify:production, then npm run launch:production when a production deploy is intended.",
     nextOperatorStep:
+      blockers.find((blocker) => blocker.actionCategory !== "external_wait")?.next ||
       blockers[0]?.next ||
       watchItems[0]?.next ||
       "Run npm run verify:production, then npm run launch:production when the quota is open.",
@@ -475,7 +492,7 @@ function printText(status) {
   if (status.goLiveReadiness.blockers.length) {
     console.log("Go-live blockers:");
     for (const blocker of status.goLiveReadiness.blockers) {
-      console.log(`- ${blocker.area}: ${blocker.state} - ${blocker.detail}`);
+      console.log(`- ${blocker.area}: ${blocker.state} (${blocker.actionCategory}) - ${blocker.detail}`);
       console.log(`  next: ${blocker.next}`);
       if (blocker.missingEnvironment?.length) {
         console.log(`  missing environment: ${blocker.missingEnvironment.join(", ")}`);
@@ -485,10 +502,12 @@ function printText(status) {
   if (status.goLiveReadiness.watchItems.length) {
     console.log("Go-live watch items:");
     for (const item of status.goLiveReadiness.watchItems) {
-      console.log(`- ${item.area}: ${item.state} - ${item.detail}`);
+      console.log(`- ${item.area}: ${item.state} (${item.actionCategory}) - ${item.detail}`);
       console.log(`  next: ${item.next}`);
     }
   }
+  console.log(`- next actionable step: ${status.goLiveReadiness.nextActionableStep}`);
+  console.log(`- next deploy step: ${status.goLiveReadiness.nextDeployStep}`);
   console.log(`- next operator step: ${status.goLiveReadiness.nextOperatorStep}`);
 
   console.log("");

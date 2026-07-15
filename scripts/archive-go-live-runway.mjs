@@ -76,6 +76,12 @@ function assertEvidenceContract(payload) {
   if (!payload?.goLiveReadiness?.nextOperatorStep) {
     missing.push("goLiveReadiness.nextOperatorStep");
   }
+  if (!payload?.goLiveReadiness?.nextActionableStep) {
+    missing.push("goLiveReadiness.nextActionableStep");
+  }
+  if (!payload?.goLiveReadiness?.nextDeployStep) {
+    missing.push("goLiveReadiness.nextDeployStep");
+  }
   if (!payload?.productionDeploymentQuota?.state) {
     missing.push("productionDeploymentQuota.state");
   }
@@ -195,6 +201,8 @@ console.log(
 console.log(`- go-live readiness: ${payload.goLiveReadiness.state}`);
 console.log(`- go-live blocker count: ${payload.goLiveReadiness.blockerCount}`);
 console.log(`- go-live watch item count: ${payload.goLiveReadiness.watchItemCount}`);
+console.log(`- go-live next actionable step: ${payload.goLiveReadiness.nextActionableStep}`);
+console.log(`- go-live next deploy step: ${payload.goLiveReadiness.nextDeployStep}`);
 console.log(`- go-live next operator step: ${payload.goLiveReadiness.nextOperatorStep}`);
 console.log(`- quota state: ${payload.productionDeploymentQuota.state}`);
 console.log(`- quota retry at or after: ${payload.productionDeploymentQuota.retryAt}`);
