@@ -143,6 +143,7 @@ function summarizePayload(key, payload) {
         payload.backupRunway?.schedulerProofMode || null,
       backupRunwayOperatorWatchRequired:
         payload.backupRunway?.operatorWatchRequired ?? null,
+      backupRunwayNext: payload.backupRunway?.next || null,
     };
   }
 
@@ -173,6 +174,7 @@ function summarizePayload(key, payload) {
         payload.backupRunway?.schedulerProofMode || null,
       backupRunwayOperatorWatchRequired:
         payload.backupRunway?.operatorWatchRequired ?? null,
+      backupRunwayNext: payload.backupRunway?.next || null,
     };
   }
 
@@ -329,6 +331,9 @@ if (jsonOutput) {
           item.summary.backupRunwayOperatorWatchRequired ? "yes" : "no"
         }`,
       );
+    }
+    if ("backupRunwayNext" in item.summary) {
+      console.log(`- backup runway next: ${item.summary.backupRunwayNext || "not recorded"}`);
     }
     console.log(`- live-money state: ${item.summary.liveMoneyState || "not recorded"}`);
   }

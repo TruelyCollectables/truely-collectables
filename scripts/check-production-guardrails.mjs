@@ -1211,6 +1211,7 @@ assertFileIncludes("30-minute build block history source", "scripts/status-build
   "backup runway accepted posture:",
   "backup runway scheduler proof mode:",
   "backup runway operator watch required:",
+  "backup runway next:",
   "selected next:",
   "selected commands:",
   "TCOS build-block history:",
@@ -1237,7 +1238,9 @@ assertFileIncludes("30-minute build block history archive source", "scripts/arch
   "next-action go-live evidence ok:",
   "go-live runway evidence ok:",
   "checkpoint backup runway accepted posture:",
+  "checkpoint backup runway next:",
   "next-action backup runway accepted posture:",
+  "next-action backup runway next:",
   "this archive helper only writes the timestamped history evidence file",
 ]);
 assertFileIncludes("30-minute build block history verifier source", "scripts/verify-build-block-history.mjs", [
@@ -1259,7 +1262,9 @@ assertFileIncludes("30-minute build block history verifier source", "scripts/ver
   "history next-action go-live evidence verifier is ok",
   "history runway go-live evidence verifier is ok",
   "history checkpoint backup runway accepted posture",
+  "history checkpoint backup runway next action",
   "history next-action backup runway accepted posture",
+  "history next-action backup runway next action",
   "history preserves selected local fallback lane",
   "safe build boundary preserves no-money/no-postage/no-deploy limits",
   "This command only reads Git state and the latest build-block history archive",

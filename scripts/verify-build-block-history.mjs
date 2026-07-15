@@ -292,6 +292,13 @@ if (payload) {
   );
   checks.push(
     check(
+      Boolean(evidence.checkpoint?.summary?.backupRunwayNext),
+      "history checkpoint backup runway next action",
+      evidence.checkpoint?.summary?.backupRunwayNext || null,
+    ),
+  );
+  checks.push(
+    check(
       evidence.nextAction?.summary?.backupRunwayAcceptedPosture === true,
       "history next-action backup runway accepted posture",
       evidence.nextAction?.summary?.backupRunwayAcceptedPosture,
@@ -309,6 +316,13 @@ if (payload) {
       typeof evidence.nextAction?.summary?.backupRunwayOperatorWatchRequired === "boolean",
       "history next-action backup runway operator-watch flag",
       evidence.nextAction?.summary?.backupRunwayOperatorWatchRequired,
+    ),
+  );
+  checks.push(
+    check(
+      Boolean(evidence.nextAction?.summary?.backupRunwayNext),
+      "history next-action backup runway next action",
+      evidence.nextAction?.summary?.backupRunwayNext || null,
     ),
   );
   checks.push(
@@ -412,12 +426,16 @@ const verification = {
           payload.evidence?.checkpoint?.summary?.backupRunwaySchedulerProofMode || null,
         checkpointBackupRunwayOperatorWatchRequired:
           payload.evidence?.checkpoint?.summary?.backupRunwayOperatorWatchRequired ?? null,
+        checkpointBackupRunwayNext:
+          payload.evidence?.checkpoint?.summary?.backupRunwayNext || null,
         nextActionBackupRunwayAcceptedPosture:
           payload.evidence?.nextAction?.summary?.backupRunwayAcceptedPosture ?? null,
         nextActionBackupRunwaySchedulerProofMode:
           payload.evidence?.nextAction?.summary?.backupRunwaySchedulerProofMode || null,
         nextActionBackupRunwayOperatorWatchRequired:
           payload.evidence?.nextAction?.summary?.backupRunwayOperatorWatchRequired ?? null,
+        nextActionBackupRunwayNext:
+          payload.evidence?.nextAction?.summary?.backupRunwayNext || null,
         runwayGoLiveEvidenceOk:
           payload.evidence?.goLiveRunway?.summary?.goLiveEvidenceOk ?? null,
         runwayGoLiveEvidenceCurrent:
@@ -526,6 +544,11 @@ if (jsonOutput) {
     }`,
   );
   console.log(
+    `- checkpoint backup runway next: ${
+      verification.history?.checkpointBackupRunwayNext || "not recorded"
+    }`,
+  );
+  console.log(
     `- next-action backup runway accepted posture: ${
       verification.history?.nextActionBackupRunwayAcceptedPosture ? "yes" : "no"
     }`,
@@ -538,6 +561,11 @@ if (jsonOutput) {
   console.log(
     `- next-action backup runway operator watch required: ${
       verification.history?.nextActionBackupRunwayOperatorWatchRequired ? "yes" : "no"
+    }`,
+  );
+  console.log(
+    `- next-action backup runway next: ${
+      verification.history?.nextActionBackupRunwayNext || "not recorded"
     }`,
   );
   console.log(
