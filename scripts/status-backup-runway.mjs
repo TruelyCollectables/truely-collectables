@@ -5,12 +5,13 @@ import { fileURLToPath } from "node:url";
 const repoRoot = dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 const jsonOutput = process.argv.includes("--json");
+const statusJsonMaxBuffer = 64 * 1024 * 1024;
 
 function runNpm(script) {
   return spawnSync(npm, ["--silent", "run", script], {
     cwd: repoRoot,
     encoding: "utf8",
-    maxBuffer: 64 * 1024 * 1024,
+    maxBuffer: statusJsonMaxBuffer,
   });
 }
 

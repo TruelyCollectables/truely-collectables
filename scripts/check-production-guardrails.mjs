@@ -432,6 +432,8 @@ assertFileIncludes(
 );
 assertFileIncludes("backup runway status helper", "scripts/status-backup-runway.mjs", [
   "tcos.backupRunwayStatus.v1",
+  "statusJsonMaxBuffer",
+  "maxBuffer: statusJsonMaxBuffer",
   "status:nightly-backup:json",
   "verify:nightly-backup:json",
   "acceptedBackupPosture",
