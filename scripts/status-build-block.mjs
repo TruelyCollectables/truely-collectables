@@ -100,8 +100,53 @@ function buildRecommendation(status) {
   };
 }
 
+function buildLocalBuildFallback(status, recommendation) {
+  const operatorOrExternalGate =
+    recommendation.focus === "supabase_bootstrap_handoff" ||
+    recommendation.focus === "quota_wait_launch_safe_build" ||
+    status.goLiveReadiness?.blockers?.some(
+      (blocker) =>
+        blocker.actionCategory === "external_wait" ||
+        blocker.area === "live_money",
+    );
+
+  if (!status.git?.workingTreeClean || status.git?.head !== status.git?.originMain) {
+    return {
+      available: false,
+      reason: "Local Git state must be clean and pushed before starting another launch-bound build block.",
+      next: "Finish the current Git cleanup first.",
+      commands: ["git status --short"],
+    };
+  }
+
+  if (!operatorOrExternalGate) {
+    return {
+      available: false,
+      reason: "A direct local/operator action is already available from the primary recommendation.",
+      next: recommendation.next,
+      commands: recommendation.commands,
+    };
+  }
+
+  return {
+    available: true,
+    reason:
+      "The primary blocker needs operator Supabase/env access or the external Vercel quota window, so Codex can keep advancing launch-safe local work.",
+    next:
+      "Choose the next small launch-safe repo improvement, keep live money/postage/payout/Checkout/deploy paths gated, verify it, commit and push it, refresh go-live evidence, then archive and verify the build-block checkpoint.",
+    commands: [
+      "npm run status:build-block",
+      "npm run check:production-guardrails",
+      "npm run lint",
+      "npm run prepare:go-live-evidence",
+      "npm run prepare:build-block-checkpoint",
+    ],
+  };
+}
+
 function buildCheckpoint(status) {
   const recommendation = buildRecommendation(status);
+  const localBuildFallback = buildLocalBuildFallback(status, recommendation);
 
   return {
     schema: "tcos.buildBlockCheckpoint.v1",
@@ -117,6 +162,7 @@ function buildCheckpoint(status) {
       nextOperatorStep: status.goLiveReadiness?.nextOperatorStep || "unknown",
     },
     recommendation,
+    localBuildFallback,
     productionDeploymentQuota: {
       state: status.productionDeploymentQuota?.state || "unknown",
       reason: status.productionDeploymentQuota?.reason || "unknown",
@@ -170,6 +216,18 @@ function printText(checkpoint) {
   console.log(`- next: ${checkpoint.recommendation.next}`);
   if (checkpoint.recommendation.commands.length) {
     console.log(`- commands: ${checkpoint.recommendation.commands.join(" | ")}`);
+  }
+  console.log(
+    `- local build fallback available: ${
+      checkpoint.localBuildFallback.available ? "yes" : "no"
+    }`,
+  );
+  console.log(`- local build fallback reason: ${checkpoint.localBuildFallback.reason}`);
+  console.log(`- local build fallback next: ${checkpoint.localBuildFallback.next}`);
+  if (checkpoint.localBuildFallback.commands.length) {
+    console.log(
+      `- local build fallback commands: ${checkpoint.localBuildFallback.commands.join(" | ")}`,
+    );
   }
 
   console.log("");

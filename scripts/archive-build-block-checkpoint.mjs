@@ -80,6 +80,18 @@ function assertEvidenceContract(payload) {
   if (!Array.isArray(payload?.recommendation?.commands)) {
     missing.push("recommendation.commands");
   }
+  if (typeof payload?.localBuildFallback?.available !== "boolean") {
+    missing.push("localBuildFallback.available");
+  }
+  if (!payload?.localBuildFallback?.reason) {
+    missing.push("localBuildFallback.reason");
+  }
+  if (!payload?.localBuildFallback?.next) {
+    missing.push("localBuildFallback.next");
+  }
+  if (!Array.isArray(payload?.localBuildFallback?.commands)) {
+    missing.push("localBuildFallback.commands");
+  }
   if (!payload?.productionDeploymentQuota?.state) {
     missing.push("productionDeploymentQuota.state");
   }
@@ -176,6 +188,15 @@ console.log(`- block focus: ${payload.recommendation.focus}`);
 console.log(`- next: ${payload.recommendation.next}`);
 if (payload.recommendation.commands.length) {
   console.log(`- commands: ${payload.recommendation.commands.join(" | ")}`);
+}
+console.log(
+  `- local build fallback available: ${
+    payload.localBuildFallback.available ? "yes" : "no"
+  }`,
+);
+console.log(`- local build fallback next: ${payload.localBuildFallback.next}`);
+if (payload.localBuildFallback.commands.length) {
+  console.log(`- local build fallback commands: ${payload.localBuildFallback.commands.join(" | ")}`);
 }
 console.log(`- quota state: ${payload.productionDeploymentQuota.state}`);
 if (payload.productionDeploymentQuota.retryAtLocal) {

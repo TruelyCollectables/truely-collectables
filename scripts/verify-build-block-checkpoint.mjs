@@ -116,6 +116,9 @@ if (payload) {
   const recommendedCommands = Array.isArray(payload.recommendation?.commands)
     ? payload.recommendation.commands
     : [];
+  const fallbackCommands = Array.isArray(payload.localBuildFallback?.commands)
+    ? payload.localBuildFallback.commands
+    : [];
 
   checks.push(check(payload.schema === "tcos.buildBlockCheckpoint.v1", "checkpoint schema"));
   checks.push(check(payload.sourceSchema === "tcos.goLiveRunwayStatus.v1", "checkpoint source schema"));
@@ -156,6 +159,30 @@ if (payload) {
   checks.push(check(Boolean(payload.recommendation?.focus), "checkpoint recommendation focus"));
   checks.push(check(Boolean(payload.recommendation?.next), "checkpoint recommendation next step"));
   checks.push(check(recommendedCommands.length > 0, "checkpoint recommendation commands exist"));
+  checks.push(
+    check(
+      typeof payload.localBuildFallback?.available === "boolean",
+      "checkpoint local build fallback availability is recorded",
+    ),
+  );
+  checks.push(check(Boolean(payload.localBuildFallback?.reason), "checkpoint local build fallback reason"));
+  checks.push(check(Boolean(payload.localBuildFallback?.next), "checkpoint local build fallback next step"));
+  checks.push(check(fallbackCommands.length > 0, "checkpoint local build fallback commands exist"));
+  if (payload.localBuildFallback?.available) {
+    checks.push(
+      check(
+        fallbackCommands.includes("npm run prepare:build-block-checkpoint"),
+        "local build fallback preserves checkpoint handoff command",
+      ),
+    );
+    checks.push(
+      check(
+        payload.localBuildFallback.next?.includes("keep live money/postage/payout/Checkout/deploy paths gated"),
+        "local build fallback preserves live-money/postage/deploy gates",
+        payload.localBuildFallback.next || null,
+      ),
+    );
+  }
   checks.push(
     check(
       payload.productionDeploymentQuota?.vercelUploadStarted === false,
@@ -223,6 +250,7 @@ const verification = {
         focus: payload.recommendation?.focus || null,
         next: payload.recommendation?.next || null,
         commands: payload.recommendation?.commands || [],
+        localBuildFallback: payload.localBuildFallback || null,
         goLiveState: payload.goLiveReadiness?.state || null,
         blockerCount: payload.goLiveReadiness?.blockerCount ?? null,
         watchItemCount: payload.goLiveReadiness?.watchItemCount ?? null,
@@ -256,6 +284,21 @@ if (jsonOutput) {
   console.log(`- checkpoint next: ${verification.checkpoint?.next || "not recorded"}`);
   if (verification.checkpoint?.commands?.length) {
     console.log(`- checkpoint commands: ${verification.checkpoint.commands.join(" | ")}`);
+  }
+  console.log(
+    `- local build fallback available: ${
+      verification.checkpoint?.localBuildFallback?.available ? "yes" : "no"
+    }`,
+  );
+  console.log(
+    `- local build fallback next: ${
+      verification.checkpoint?.localBuildFallback?.next || "not recorded"
+    }`,
+  );
+  if (verification.checkpoint?.localBuildFallback?.commands?.length) {
+    console.log(
+      `- local build fallback commands: ${verification.checkpoint.localBuildFallback.commands.join(" | ")}`,
+    );
   }
   console.log(`- go-live state: ${verification.checkpoint?.goLiveState || "not recorded"}`);
   console.log(`- quota state: ${verification.checkpoint?.quotaState || "not recorded"}`);
