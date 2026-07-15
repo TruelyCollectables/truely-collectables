@@ -1172,6 +1172,8 @@ assertScriptIncludes("status:go-live:json", [
 ]);
 assertFileIncludes("30-minute build block checkpoint source", "scripts/status-build-block.mjs", [
   "tcos.buildBlockCheckpoint.v1",
+  "statusJsonMaxBuffer",
+  "maxBuffer: statusJsonMaxBuffer",
   "status:go-live:json",
   "status:backup-runway:json",
   "goLiveEvidence",
@@ -1228,6 +1230,8 @@ assertFileIncludes("30-minute build block history source", "scripts/status-build
 ]);
 assertFileIncludes("30-minute build block history archive source", "scripts/archive-build-block-history.mjs", [
   "tcos.buildBlockHistory.v1",
+  "statusJsonMaxBuffer",
+  "maxBuffer: statusJsonMaxBuffer",
   "status:build-block-history:json",
   ".codex-run",
   "build-block-history",
@@ -1297,6 +1301,8 @@ assertFileIncludes("30-minute build block history verifier source", "scripts/ver
 ]);
 assertFileIncludes("30-minute next build block action source", "scripts/next-build-block.mjs", [
   "tcos.nextBuildBlockAction.v1",
+  "statusJsonMaxBuffer",
+  "maxBuffer: statusJsonMaxBuffer",
   "status:build-block:json",
   "selectedLane",
   "goLiveEvidence",
@@ -1322,6 +1328,8 @@ assertFileIncludes("30-minute next build block action source", "scripts/next-bui
 ]);
 assertFileIncludes("30-minute next build block action archive source", "scripts/archive-next-build-block-action.mjs", [
   "tcos.nextBuildBlockAction.v1",
+  "statusJsonMaxBuffer",
+  "maxBuffer: statusJsonMaxBuffer",
   "next:build-block:json",
   ".codex-run",
   "next-build-block-action",
@@ -1383,6 +1391,8 @@ assertFileIncludes("30-minute next build block action verifier source", "scripts
 ]);
 assertFileIncludes("30-minute build block checkpoint archive source", "scripts/archive-build-block-checkpoint.mjs", [
   "tcos.buildBlockCheckpoint.v1",
+  "statusJsonMaxBuffer",
+  "maxBuffer: statusJsonMaxBuffer",
   "status:build-block:json",
   "localBuildFallback.available",
   "local build fallback available:",

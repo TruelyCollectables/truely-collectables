@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 const repoRoot = dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
 const evidenceDir = join(repoRoot, ".codex-run", "next-build-block-action");
 const commandText = "npm --silent run next:build-block:json";
+const statusJsonMaxBuffer = 64 * 1024 * 1024;
 
 function runLocalGit(args) {
   const result = spawnSync("git", args, {
@@ -141,6 +142,7 @@ const result = spawnSync(process.platform === "win32" ? "npm.cmd" : "npm", [
 ], {
   cwd: repoRoot,
   encoding: "utf8",
+  maxBuffer: statusJsonMaxBuffer,
 });
 
 const stdout = (result.stdout || "").trim();

@@ -4,11 +4,13 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+const statusJsonMaxBuffer = 64 * 1024 * 1024;
 
 function runGoLiveStatus() {
   return spawnSync(npm, ["--silent", "run", "status:go-live:json"], {
     cwd: repoRoot,
     encoding: "utf8",
+    maxBuffer: statusJsonMaxBuffer,
   });
 }
 
@@ -16,7 +18,7 @@ function runBackupRunwayStatus() {
   return spawnSync(npm, ["--silent", "run", "status:backup-runway:json"], {
     cwd: repoRoot,
     encoding: "utf8",
-    maxBuffer: 64 * 1024 * 1024,
+    maxBuffer: statusJsonMaxBuffer,
   });
 }
 

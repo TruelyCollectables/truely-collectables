@@ -4,11 +4,13 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+const statusJsonMaxBuffer = 64 * 1024 * 1024;
 
 function runBuildBlockStatus() {
   return spawnSync(npm, ["--silent", "run", "status:build-block:json"], {
     cwd: repoRoot,
     encoding: "utf8",
+    maxBuffer: statusJsonMaxBuffer,
   });
 }
 
