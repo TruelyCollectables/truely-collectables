@@ -1176,6 +1176,11 @@ assertScriptIncludes("verify:shipping", [
   "simulate:shipping-purchase-audit",
   "simulate:shipping",
 ]);
+assertScriptIncludes("verify:instacomp", [
+  "simulate:instacomp-jobs",
+  "simulate:instacomp-accuracy",
+  "simulate:instacomp-catalog-identity",
+]);
 assertScriptIncludes("status:production", [
   "node scripts/deploy-production.mjs --quota-status",
 ]);
@@ -3466,6 +3471,43 @@ assertFileIncludes("instacomp accuracy draft title simulations", "scripts/run-in
   "draft title preserves true one-of-one",
   "invalid serial is omitted from draft title",
 ]);
+assertFileIncludes("instacomp catalog identity resolver source", "src/lib/instacomp-catalog-identity.ts", [
+  "InstaCompCatalogIdentityInput",
+  "InstaCompCatalogCandidate",
+  "scoreInstaCompCatalogCandidate",
+  "resolveInstaCompCatalogIdentity",
+  "catalog_confirmed",
+  "review_required",
+  "CONFIRMED_SCORE_THRESHOLD",
+  "CONFIRMED_GAP_THRESHOLD",
+  "sourceUsageAllowed",
+  "selected catalog source is not approved for TCOS use",
+  "selected catalog candidate has a critical mismatch",
+  "selected catalog score",
+  "selected catalog score gap",
+  "no catalog candidates were available",
+  "Confirm the exact card variation from the front/back image before using this catalog match.",
+]);
+assertFileIncludes(
+  "instacomp catalog identity simulations",
+  "scripts/run-instacomp-catalog-identity-simulations.ts",
+  [
+    "catalog_confirms_exact_parallel_before_comps",
+    "unapproved_source_forces_review_required",
+    "parallel_ambiguity_forces_targeted_review",
+    "serial_run_mismatch_forces_review_required",
+    "missing_catalog_candidates_force_review_required",
+    "CATALOG_IDENTITY_EXPECTED_SCENARIO_COUNT",
+    "instacomp_catalog_identity_expected_scenario_count",
+    "instacomp_catalog_identity_expected_scenario_keys",
+    "resolveInstaCompCatalogIdentity",
+    "catalog_confirmed",
+    "review_required",
+    "source is not approved for TCOS commercial use",
+    "wrong serial-number print run",
+    "Needs Review",
+  ],
+);
 assertFileIncludes("instacomp catalog identity roadmap manual contract", "docs/TCOS_OPERATOR_MANUAL.md", [
   "Future scanner catalog identity requirement:",
   "approved online card catalog/checklist sources",
@@ -6001,7 +6043,7 @@ assertFileIncludes("deploy live safety README", "README.md", [
   "twenty-scenario shipping simulation suite",
   "visible missing/unexpected purchase-audit key drift checks",
   "guardrails for no external publishing, no postage purchase, no Coverage policy creation, no payout release, no order fulfillment, and no automatic under-$20 protection activation",
-  "That command is deploy-safe and focused: it runs only the InstaComp queue and accuracy simulations",
+  "That command is deploy-safe and focused: it runs only the InstaComp queue, accuracy, and catalog identity simulations",
   "Use `npm run verify:production` for the full lint, shipping, build, guardrail, and GitHub preflight stack.",
   "Vercel quota messaging",
   "TCOS_VERCEL_DEPLOY_TIMEOUT_MS",

@@ -3368,6 +3368,7 @@ Run:
 npm run lint
 npm run build
 npm run simulate:instacomp-jobs
+npm run simulate:instacomp-catalog-identity
 npm run manual:pdf
 ```
 
@@ -3378,6 +3379,7 @@ Expected:
 - TypeScript succeeds
 - route generation succeeds
 - all InstaComp queue state simulations succeed
+- all InstaComp catalog identity simulations succeed, including exact catalog confirmation, unapproved-source review, ambiguity review, serial-run mismatch review, and missing-candidate review
 - `docs/TCOS_OPERATOR_MANUAL_PRINT.html` is regenerated
 - `docs/TCOS_OPERATOR_MANUAL.pdf` is regenerated with the ownership watermark
 - `TCOS_MANUAL_BROWSER_PATH` can point the manual PDF generator at a custom local browser executable

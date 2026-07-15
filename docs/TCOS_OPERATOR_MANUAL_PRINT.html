@@ -3417,6 +3417,7 @@ IP_INTELLIGENCE_REQUIRED=true</code></pre>
 <pre><code>npm run lint
 npm run build
 npm run simulate:instacomp-jobs
+npm run simulate:instacomp-catalog-identity
 npm run manual:pdf</code></pre>
 <p>Expected:</p>
 <ul>
@@ -3425,6 +3426,7 @@ npm run manual:pdf</code></pre>
 <li>TypeScript succeeds</li>
 <li>route generation succeeds</li>
 <li>all InstaComp queue state simulations succeed</li>
+<li>all InstaComp catalog identity simulations succeed, including exact catalog confirmation, unapproved-source review, ambiguity review, serial-run mismatch review, and missing-candidate review</li>
 <li><code>docs/TCOS_OPERATOR_MANUAL_PRINT.html</code> is regenerated</li>
 <li><code>docs/TCOS_OPERATOR_MANUAL.pdf</code> is regenerated with the ownership watermark</li>
 <li><code>TCOS_MANUAL_BROWSER_PATH</code> can point the manual PDF generator at a custom local browser executable</li>
