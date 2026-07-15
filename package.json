@@ -31,6 +31,7 @@
     "preflight:live-money:json": "node --import tsx scripts/status-live-money.ts --json",
     "archive:go-live-runway": "node scripts/archive-go-live-runway.mjs",
     "archive:nightly-backup-status": "node scripts/archive-nightly-backup-status.mjs",
+    "archive:nightly-backup-verification": "node scripts/archive-nightly-backup-verification.mjs",
     "archive:live-money-env-packet": "node scripts/archive-live-money-env-packet.mjs",
     "archive:live-money": "node scripts/archive-live-money-evidence.mjs",
     "archive:live-money:preflight": "node scripts/archive-live-money-evidence.mjs --preflight",
