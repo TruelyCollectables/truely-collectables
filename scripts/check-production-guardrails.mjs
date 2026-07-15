@@ -2075,6 +2075,7 @@ assertFileIncludes("live money go/no-go README instructions", "README.md", [
   ".codex-run/build-block-history/",
   "compact history packet",
   ".codex-run/next-build-block-action/",
+  "npm run prepare:next-build-block-action",
   "npm run archive:next-build-block-action",
   "npm run verify:next-build-block-action",
   "npm --silent run verify:next-build-block-action:json",
