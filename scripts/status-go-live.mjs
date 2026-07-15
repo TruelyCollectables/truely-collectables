@@ -397,6 +397,7 @@ function goLiveReadiness({ git, quota, emergencyBackup, liveMoney }) {
           "npm run live-money:env-packet",
           "npm run archive:live-money-env-packet",
           "npm run verify:live-money-env-packet",
+          "npm run archive:live-money-env-packet-verification",
           "npm run live-money:vercel-bootstrap-commands",
           "npm run status:live-money",
           ]
@@ -456,6 +457,7 @@ function buildStatus() {
     "npm --silent run live-money:env-packet:json",
     "npm run verify:live-money-env-packet",
     "npm --silent run verify:live-money-env-packet:json",
+    "npm run archive:live-money-env-packet-verification",
     "npm run live-money:vercel-bootstrap-commands",
     "npm run live-money:vercel-commands",
     "npm run archive:go-live-runway",

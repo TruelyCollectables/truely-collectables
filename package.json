@@ -35,6 +35,7 @@
     "archive:nightly-backup-status": "node scripts/archive-nightly-backup-status.mjs",
     "archive:nightly-backup-verification": "node scripts/archive-nightly-backup-verification.mjs",
     "archive:live-money-env-packet": "node scripts/archive-live-money-env-packet.mjs",
+    "archive:live-money-env-packet-verification": "node scripts/archive-live-money-env-packet-verification.mjs",
     "archive:live-money": "node scripts/archive-live-money-evidence.mjs",
     "archive:live-money:preflight": "node scripts/archive-live-money-evidence.mjs --preflight",
     "live-money:env-packet": "node scripts/live-money-env-packet.mjs",
