@@ -1644,6 +1644,15 @@ Current behavior:
 - want ads default to a 30-day expiration
 - matching, AI identification, image uploads, alerts, and outside marketplace links are future layers on this foundation
 
+Post-current-goal collection cockpit backlog:
+
+- after the current go-live/live-money goal is finished, build the Collection Shelf into a one-click collection cockpit where each owned item can be marked `Hold`, `Trade`, or `Sell`
+- `Hold` should keep the item in the collector shelf as not available while preserving estimated value and collection history
+- `Trade` should mark the item trade-available and connect it to the trade-target/want-ad layer without creating payment, payout, shipping, or order activity
+- `Sell` should start a seller-inventory draft handoff from the collection item, not a live listing, checkout, auction, postage purchase, or payout release
+- the same cockpit should surface integrated pricing context from the saved estimated value, imported value confidence, InstaComp/collector-intelligence research links, and future comp refresh jobs
+- set-builder work should evolve from set needs and `Complete The Set Or Run` research links into checklist progress, missing-card filters, and pricing-aware upgrade/trade/sell decisions
+
 Foundation tables:
 
 ```text
