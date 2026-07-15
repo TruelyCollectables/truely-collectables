@@ -185,6 +185,8 @@ export default function ProductionSmokePage() {
             {" "}
             {DEPLOY_SAFETY.vercelCliRequirement}
             {" "}
+            {DEPLOY_SAFETY.scopeRequirement}
+            {" "}
             {DEPLOY_SAFETY.unwantedAliasCleanupRequirement}
             {" "}
             {DEPLOY_SAFETY.targetHostRequirement}

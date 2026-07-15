@@ -21,6 +21,8 @@ export const DEPLOY_SAFETY = {
     "Require vercel --prod to exit successfully before parsing its deployment URL, running alias commands, or clearing the quota marker.",
   vercelCliRequirement:
     "Use command-pinned Vercel CLI 56.2.0 through isolated npm exec and fail production preflight before upload when the exact CLI cannot run.",
+  scopeRequirement:
+    "Accept VERCEL_SCOPE only as a simple lowercase Vercel team slug before quota status, preflight, Git fetch, or Vercel CLI work.",
   unwantedAliasCleanupRequirement:
     "Require unwanted-alias removal to succeed or return Vercel CLI's explicit alias-not-found result before clean-domain aliasing or quota-marker clearing.",
   targetHostRequirement:
@@ -38,6 +40,7 @@ export const DEPLOY_SAFETY = {
     "success-only quota marker clearing",
     "successful Vercel deploy exit before URL and alias handling",
     "command-pinned Vercel CLI preflight",
+    "strict Vercel scope validation",
     "fail-closed unwanted-alias cleanup",
     "strict production target-host validation",
     "strict production smoke-target validation",

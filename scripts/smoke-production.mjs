@@ -713,6 +713,7 @@ const checks = [
       result.text.includes("Clear the local quota marker only after Vercel returns a parsed deployment URL and the clean production alias succeeds") &&
       result.text.includes("Require vercel --prod to exit successfully before parsing its deployment URL, running alias commands, or clearing the quota marker") &&
       result.text.includes("Use command-pinned Vercel CLI 56.2.0 through isolated npm exec") &&
+      result.text.includes("Accept VERCEL_SCOPE only as a simple lowercase Vercel team slug") &&
       result.text.includes("Require unwanted-alias removal to succeed or return Vercel CLI's explicit alias-not-found result") &&
       result.text.includes("Accept production target overrides only as valid DNS hostnames or root HTTP(S) URLs") &&
       result.text.includes("Accept production smoke targets only as valid DNS hostnames or root HTTP(S) URLs") &&
@@ -760,6 +761,7 @@ const checks = [
       result.text.includes('"quotaMarkerClearCondition"') &&
       result.text.includes('"deployResultRequirement"') &&
       result.text.includes('"vercelCliRequirement"') &&
+      result.text.includes('"scopeRequirement"') &&
       result.text.includes('"unwantedAliasCleanupRequirement"') &&
       result.text.includes('"targetHostRequirement"') &&
       result.text.includes('"smokeTargetRequirement"') &&
@@ -775,6 +777,7 @@ const checks = [
       result.text.includes("Clear the local quota marker only after Vercel returns a parsed deployment URL and the clean production alias succeeds") &&
       result.text.includes("Require vercel --prod to exit successfully before parsing its deployment URL, running alias commands, or clearing the quota marker") &&
       result.text.includes("Use command-pinned Vercel CLI 56.2.0 through isolated npm exec") &&
+      result.text.includes("Accept VERCEL_SCOPE only as a simple lowercase Vercel team slug") &&
       result.text.includes("Require unwanted-alias removal to succeed or return Vercel CLI's explicit alias-not-found result") &&
       result.text.includes("Accept production target overrides only as valid DNS hostnames or root HTTP(S) URLs") &&
       result.text.includes("Accept production smoke targets only as valid DNS hostnames or root HTTP(S) URLs") &&
@@ -823,6 +826,7 @@ const checks = [
       result.text.includes("Clear the local quota marker only after Vercel returns a parsed deployment URL and the clean production alias succeeds") &&
       result.text.includes("Require vercel --prod to exit successfully before parsing its deployment URL, running alias commands, or clearing the quota marker") &&
       result.text.includes("Use command-pinned Vercel CLI 56.2.0 through isolated npm exec") &&
+      result.text.includes("Accept VERCEL_SCOPE only as a simple lowercase Vercel team slug") &&
       result.text.includes("Require unwanted-alias removal to succeed or return Vercel CLI's explicit alias-not-found result") &&
       result.text.includes("Accept production target overrides only as valid DNS hostnames or root HTTP(S) URLs") &&
       result.text.includes("Accept production smoke targets only as valid DNS hostnames or root HTTP(S) URLs") &&
@@ -925,6 +929,7 @@ const checks = [
       "Read-only local cooldown check with exact blocked/retry timestamps",
       "Require vercel --prod to exit successfully before parsing its deployment URL, running alias commands, or clearing the quota marker",
       "Use command-pinned Vercel CLI 56.2.0 through isolated npm exec",
+      "Accept VERCEL_SCOPE only as a simple lowercase Vercel team slug",
       "Require unwanted-alias removal to succeed or return Vercel CLI's explicit alias-not-found result",
       "Accept production target overrides only as valid DNS hostnames or root HTTP(S) URLs",
       "Accept production smoke targets only as valid DNS hostnames or root HTTP(S) URLs",
