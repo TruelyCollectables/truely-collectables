@@ -650,6 +650,22 @@ assertFileIncludes("generated Next artifact ignores", ".gitignore", [
   "/.next/",
   "/.next-*/",
 ]);
+assertFileIncludes("Vercel deploy payload ignores", ".vercelignore", [
+  "node_modules",
+  ".next",
+  ".next-*",
+  ".codex-run",
+  ".git",
+  ".vercel",
+  "TCOS_BACKUP",
+  ".env*",
+  "*.pem",
+  "*.zip",
+  "*.tar.gz",
+  "*.tsbuildinfo",
+  "services/paddleocr-service/.venv",
+  "services/paddleocr-service/.paddlex-cache",
+]);
 assertFileIncludes("generated Next artifact lint ignores", "eslint.config.mjs", [
   ".next/**",
   ".next-*/**",

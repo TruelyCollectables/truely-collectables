@@ -1,0 +1,28 @@
+# TCOS production deploy payload boundary.
+# Keep local build output, dependency trees, evidence archives, backups, and
+# temporary recovery folders out of Vercel uploads.
+
+node_modules
+.next
+.next-*
+.codex-run
+.git
+.vercel
+
+coverage
+out
+build
+TCOS_BACKUP
+
+.env*
+*.pem
+*.zip
+*.tar
+*.tar.gz
+*.tgz
+*.tsbuildinfo
+.DS_Store
+
+services/paddleocr-service/.venv
+services/paddleocr-service/.paddlex-cache
+__pycache__
