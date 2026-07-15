@@ -1839,6 +1839,15 @@ supabase/migrations/20260701074500_add_account_billing_address_evidence.sql</cod
 <li>want ads default to a 30-day expiration</li>
 <li>matching, AI identification, image uploads, alerts, and outside marketplace links are future layers on this foundation</li>
 </ul>
+<p>Post-current-goal collection cockpit backlog:</p>
+<ul>
+<li>after the current go-live/live-money goal is finished, build the Collection Shelf into a one-click collection cockpit where each owned item can be marked <code>Hold</code>, <code>Trade</code>, or <code>Sell</code></li>
+<li><code>Hold</code> should keep the item in the collector shelf as not available while preserving estimated value and collection history</li>
+<li><code>Trade</code> should mark the item trade-available and connect it to the trade-target/want-ad layer without creating payment, payout, shipping, or order activity</li>
+<li><code>Sell</code> should start a seller-inventory draft handoff from the collection item, not a live listing, checkout, auction, postage purchase, or payout release</li>
+<li>the same cockpit should surface integrated pricing context from the saved estimated value, imported value confidence, InstaComp/collector-intelligence research links, and future comp refresh jobs</li>
+<li>set-builder work should evolve from set needs and <code>Complete The Set Or Run</code> research links into checklist progress, missing-card filters, and pricing-aware upgrade/trade/sell decisions</li>
+</ul>
 <p>Foundation tables:</p>
 <pre><code>account_collection_items
 account_wish_list_items
@@ -2573,6 +2582,31 @@ market_news_snapshots</code></pre>
 <li>protect both parties with identity, address, shipping, condition, and evidence controls</li>
 <li>keep trades separate from normal store inventory until a trade is accepted and locked</li>
 </ul>
+<p>Trade platform product model:</p>
+<ul>
+<li>evaluate keeping the trade platform separate from auctions, store checkout, and normal marketplace buying/selling</li>
+<li>consider a simple <code>2 USD/month</code> trade membership so collectors have a lightweight billing relationship before they can trade</li>
+<li>the membership should help keep billing address, customer identity, and trade participation more honest without turning trades into a full marketplace checkout flow</li>
+<li>trade membership should increase confidence in the system, discourage ghosting, and make repeat scammers easier to identify, pause, or remove</li>
+<li>the trade platform should still avoid live money, postage, payouts, or checkout behavior until trade-specific billing, cancellation, tax, privacy, and dispute rules are designed</li>
+</ul>
+<p>Trade pricing access model:</p>
+<ul>
+<li>the <code>2 USD/month</code> trade subscription should include a basic book-price style value reference for trade fairness, not full InstaComp access</li>
+<li>InstaComp should stay reserved for the next paid tier up so collectors have a clear reason to upgrade when they want deeper comps, confidence scoring, and research links</li>
+<li>upgraded pricing access should still respect marketplace limits, usage limits, trade limits, anti-scraping protections, and any collector-intelligence fairness rules</li>
+<li>trade offers should clearly label whether values come from book-price guidance, user-entered declared values, or upgraded InstaComp/collector-intelligence pricing</li>
+<li>the basic book-price reference should help both sides discuss fair value without implying a guaranteed sale price, cash offer, payout amount, tax basis, or appraisal</li>
+</ul>
+<p>Trade reputation model:</p>
+<ul>
+<li>trade rankings should use the same collector-facing tier language as auctions: <code>Gold</code>, <code>Silver</code>, and <code>Bronze</code></li>
+<li>show each collector's career successful trade count on their trade profile</li>
+<li>track completion quality, disputes, ghosting, cancellation history, and admin actions separately from raw completed-trade count</li>
+<li>define a Collecting Hall of Fame milestone for collectors who reach <code>1000</code> successful career trades with a <code>100%</code> successful-trade record</li>
+<li>Hall of Fame collectors should receive a special ribbon, trophy, or similar badge next to their username across the collectable community</li>
+<li>Hall of Fame status should be revocable or reviewable if later fraud, abuse, counterfeit activity, or serious dispute history is discovered</li>
+</ul>
 <p>Trade section entry points to evaluate:</p>
 <ul>
 <li><code>/trades</code> public trade browsing page</li>
@@ -2656,6 +2690,38 @@ market_news_snapshots</code></pre>
 <li>support geofenced regions for promoted local events</li>
 <li>use AI to help discover and normalize show/event information from permitted sources</li>
 <li>help collectors plan where to go, what to bring, and whether an event fits their collecting interests</li>
+</ul>
+<p>Card show submission model:</p>
+<ul>
+<li>card show and collectable event posting should be free when the listing includes verified information</li>
+<li>required verified information should include event name, organizer or promoter contact, date, venue, address, city/state/ZIP, hours, admission, category, and a public detail link when available</li>
+<li>event submissions should be reviewed before public display until trusted organizer accounts and automated validation are designed</li>
+<li>private Facebook groups, private message boards, invite-only communities, or non-public event posts must not be copied into TCOS unless the organizer or authorized group admin submits the listing and grants permission to display it on the TCOS website</li>
+<li>submitted private-group listings should store permission evidence, submitter identity, source URL or group name, submission timestamp, and admin review status</li>
+<li>public source discovery should link back to the original source and avoid implying TCOS owns, sponsors, verifies attendance, or guarantees event details unless TCOS has direct organizer confirmation</li>
+<li>collectors should be able to report outdated, wrong, canceled, duplicate, or suspicious event listings</li>
+<li>organizers should eventually be able to claim and maintain their own show profile after identity verification</li>
+</ul>
+<p>Card show map MVP scope:</p>
+<ul>
+<li>build the MVP version first after the current go-live/live-money goal is finished</li>
+<li>MVP should focus on a useful national card-show finder without overbuilding the full events platform</li>
+<li>MVP should include a <code>/card-shows</code> discovery page with ZIP/city/state search, radius filtering, map pins, and a list view</li>
+<li>MVP should support manually/admin-entered events and free promoter-submitted show listings</li>
+<li>MVP submissions should go to an admin review queue before public display</li>
+<li>MVP event cards should show event name, date, venue, address, hours, admission, category, source/detail link, and verification status</li>
+<li>MVP should include a simple <code>Submit A Show</code> form, permission confirmation for private-group/private-message-board listings, and a <code>Report Wrong Info</code> action</li>
+<li>MVP should link out to official show websites, public source pages, or submitted detail links instead of trying to replace the organizer's event page</li>
+</ul>
+<p>Card show map post-MVP roadmap:</p>
+<ul>
+<li>after the MVP works, continue improving the roadmap with organizer claim flows, recurring events, richer filters, duplicate detection, and better geocoding</li>
+<li>add verified organizer badges and trusted organizer accounts after the admin review workflow proves stable</li>
+<li>add source refresh checks so stale or canceled events can be flagged before collectors rely on them</li>
+<li>add saved searches and alerts for collectors who want notified when shows appear near their ZIP code, favorite city, or collecting category</li>
+<li>add city/state SEO pages only after the event data quality and permission rules are reliable</li>
+<li>evaluate promoted local events only after sponsored-result labeling, billing, moderation, and geofencing rules are designed</li>
+<li>preserve the larger shop finder, trade night, grading event, autograph signing, and community meetup roadmap for later phases</li>
 </ul>
 <p>Collector search should support:</p>
 <ul>
@@ -4576,9 +4642,9 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3000/admin/login</code></pre
 <li>Seller Inventory Bulk Action Follow-Up now shows <code>Retry Corrected</code> when failed rows have become eligible for the same activation/archive action.</li>
 <li>Seller Inventory bulk action result cards now include <code>Copy Bulk Report</code> and <code>Download Bulk Report</code> for a JSON audit/debug handoff with success, failure, blocker, and retry-ready details.</li>
 <li>Seller Inventory bulk action result cards now include <code>Clear Bulk Report</code> so old result/follow-up cards can be intentionally dismissed after audit handoff.</li>
-<li>Seller Inventory marketplace JSON/CSV exports now include explicit prep-only, no-external-publishing, and no-shipping-purchase guardrail fields so exported files cannot be mistaken for live marketplace or postage actions; selected ready rows can now download the JSON marketplace packet directly instead of relying on clipboard copy, downloaded marketplace filenames include row count plus active filter context, and JSON packets embed the active export context.</li>
+<li>Seller Inventory marketplace JSON/CSV exports now include explicit prep-only, no-external-publishing, no-shipping-purchase, and standard <code>3-day auction</code> guardrail fields so exported files cannot be mistaken for live marketplace or postage actions; selected ready rows can now download the JSON marketplace packet directly instead of relying on clipboard copy, downloaded marketplace filenames include row count plus active filter context, and JSON packets embed the active export context.</li>
 <li>Seller Inventory Bulk Controls now show the marketplace export guardrails on-screen before copy/download actions.</li>
-<li>Seller Connections now includes a Marketplace Packet Intake card explaining that Seller Inventory marketplace packets are cross-list prep only and do not publish externally, buy postage, create Coverage policies, release seller payouts, fulfill orders, create insurance, or activate TCOS Under-$20 Seller Protection; it routes sellers back to ready and needs-work Seller Inventory rows.</li>
+<li>Seller Connections now includes a Marketplace Packet Intake card explaining that Seller Inventory marketplace packets are cross-list prep only, auction prep defaults to the TCOS standard <code>3-day auction</code>, and packets do not publish externally, buy postage, create Coverage policies, release seller payouts, fulfill orders, create insurance, or activate TCOS Under-$20 Seller Protection; it routes sellers back to ready and needs-work Seller Inventory rows.</li>
 <li>Seller Connections now keeps a session-saved safe marketplace API receipt trail with <code>Copy Safe Receipt</code>, <code>Download Safe Receipt</code>, <code>Copy Trail</code>, <code>Download Trail</code>, and <code>Clear Trail</code> controls for auth/import/staging/reconcile/order-import/promotion handoffs.</li>
 <li>Seller Command Center now shows <code>InstaComp Ready</code> and routes to ready InstaComp drafts when that is the safest inventory shortcut.</li>
 <li>Seller order surface labels now use <code>Seller Order Workspace</code>, <code>Search orders</code>, <code>Order views</code>, and <code>Reset Order View</code> wording instead of the older workflow phrasing.</li>
