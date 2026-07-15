@@ -186,6 +186,10 @@ if (payload.commands.length) {
   console.log(`- commands: ${payload.commands.join(" | ")}`);
 }
 console.log(`- primary focus: ${payload.primaryRecommendation.focus}`);
+console.log(`- primary next: ${payload.primaryRecommendation.next}`);
+if (payload.primaryRecommendation.commands.length) {
+  console.log(`- primary commands: ${payload.primaryRecommendation.commands.join(" | ")}`);
+}
 console.log(
   `- local build fallback available: ${
     payload.localBuildFallback.available ? "yes" : "no"

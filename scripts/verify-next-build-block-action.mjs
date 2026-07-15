@@ -323,6 +323,8 @@ const verification = {
         next: payload.next || null,
         commands: payload.commands || [],
         primaryFocus: payload.primaryRecommendation?.focus || null,
+        primaryNext: payload.primaryRecommendation?.next || null,
+        primaryCommands: payload.primaryRecommendation?.commands || [],
         fallbackAvailable: payload.localBuildFallback?.available ?? null,
         goLiveState: payload.goLiveReadiness?.state || null,
         blockerCount: payload.goLiveReadiness?.blockerCount ?? null,
@@ -361,6 +363,12 @@ if (jsonOutput) {
     console.log(`- commands: ${verification.nextAction.commands.join(" | ")}`);
   }
   console.log(`- primary focus: ${verification.nextAction?.primaryFocus || "not recorded"}`);
+  console.log(`- primary next: ${verification.nextAction?.primaryNext || "not recorded"}`);
+  if (verification.nextAction?.primaryCommands?.length) {
+    console.log(
+      `- primary commands: ${verification.nextAction.primaryCommands.join(" | ")}`,
+    );
+  }
   console.log(
     `- fallback available: ${
       verification.nextAction?.fallbackAvailable ? "yes" : "no"

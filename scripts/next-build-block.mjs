@@ -68,6 +68,12 @@ function printText(action) {
     console.log(`- commands: ${action.commands.join(" | ")}`);
   }
   console.log(`- primary focus: ${action.primaryRecommendation.focus}`);
+  console.log(`- primary next: ${action.primaryRecommendation.next}`);
+  if (action.primaryRecommendation.commands.length) {
+    console.log(
+      `- primary commands: ${action.primaryRecommendation.commands.join(" | ")}`,
+    );
+  }
   console.log(
     `- fallback available: ${action.localBuildFallback.available ? "yes" : "no"}`,
   );
