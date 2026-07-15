@@ -262,6 +262,13 @@ if (payload) {
   );
   checks.push(
     check(
+      Boolean(payload.backupRunway?.next),
+      "checkpoint backup runway next action",
+      payload.backupRunway?.next || null,
+    ),
+  );
+  checks.push(
+    check(
       payload.backupRunway?.verificationOk === true,
       "checkpoint backup runway verification is ok",
     ),
@@ -361,6 +368,9 @@ const verification = {
         backupScheduleHealth: payload.emergencyBackup?.scheduleHealth || null,
         backupSchedulerProof: payload.emergencyBackup?.schedulerProof || null,
         backupRunway: payload.backupRunway || null,
+        backupRunwayNext: payload.backupRunway?.next || null,
+        backupRunwayVerifiedArchive: payload.backupRunway?.verifiedArchive || null,
+        backupRunwayComputedSha256: payload.backupRunway?.computedSha256 || null,
         liveMoneyState: payload.liveMoney?.state || null,
         liveMoneyMissingBootstrapEnvironment:
           payload.liveMoney?.missingBootstrapEnvironment || [],
@@ -438,6 +448,21 @@ if (jsonOutput) {
   console.log(
     `- backup runway operator watch required: ${
       verification.checkpoint?.backupRunway?.operatorWatchRequired ? "yes" : "no"
+    }`,
+  );
+  console.log(
+    `- backup runway next: ${
+      verification.checkpoint?.backupRunwayNext || "not recorded"
+    }`,
+  );
+  console.log(
+    `- backup runway verified archive: ${
+      verification.checkpoint?.backupRunwayVerifiedArchive || "not recorded"
+    }`,
+  );
+  console.log(
+    `- backup runway computed sha256: ${
+      verification.checkpoint?.backupRunwayComputedSha256 || "not recorded"
     }`,
   );
   console.log(`- live-money state: ${verification.checkpoint?.liveMoneyState || "not recorded"}`);
