@@ -287,6 +287,26 @@ assertScriptIncludes("archive:nightly-backup-status", [
 assertScriptIncludes("archive:nightly-backup-verification", [
   "node scripts/archive-nightly-backup-verification.mjs",
 ]);
+assertScriptIncludes("status:backup-runway", [
+  "node scripts/status-backup-runway.mjs",
+]);
+assertScriptIncludes("status:backup-runway:json", [
+  "node scripts/status-backup-runway.mjs --json",
+]);
+assertScriptIncludes("archive:backup-runway", [
+  "node scripts/archive-backup-runway.mjs",
+]);
+assertScriptIncludes("verify:backup-runway", [
+  "node scripts/verify-backup-runway.mjs",
+]);
+assertScriptIncludes("verify:backup-runway:json", [
+  "node scripts/verify-backup-runway.mjs --json",
+]);
+assertScriptIncludes("prepare:backup-runway", [
+  "archive:backup-runway",
+  "verify:backup-runway",
+  "archive:backup-runway && npm run verify:backup-runway",
+]);
 assertFileIncludes("nightly emergency backup helper", "scripts/nightly-emergency-backup.mjs", [
   "tcos.nightlyEmergencyBackup.v1",
   "Git push only syncs committed source",
@@ -406,6 +426,48 @@ assertFileIncludes(
     "launchd loaded:",
   ],
 );
+assertFileIncludes("backup runway status helper", "scripts/status-backup-runway.mjs", [
+  "tcos.backupRunwayStatus.v1",
+  "status:nightly-backup:json",
+  "verify:nightly-backup:json",
+  "acceptedBackupPosture",
+  "schedulerProofMode",
+  "operatorWatchRequired",
+  "manual_current_pending_automatic",
+  "manualCurrentPendingAutomatic",
+  "seven-backup retention",
+  "verified archive",
+  "computed sha256",
+  "TCOS backup runway status:",
+  "accepted backup posture:",
+  "operator watch required:",
+  "does not approve live money",
+  "backup creation",
+]);
+assertFileIncludes("backup runway archive helper", "scripts/archive-backup-runway.mjs", [
+  "tcos.backupRunwayStatus.v1",
+  "status:backup-runway:json",
+  ".codex-run",
+  "backup-runway",
+  "Backup runway evidence archived:",
+  "accepted backup posture:",
+  "scheduler proof mode:",
+  "operator watch required:",
+  "this archive helper only writes the timestamped backup runway evidence file",
+]);
+assertFileIncludes("backup runway verifier", "scripts/verify-backup-runway.mjs", [
+  "tcos.backupRunwayVerification.v1",
+  "tcos.backupRunwayStatus.v1",
+  "backup-runway",
+  "backup runway accepted posture",
+  "backup schedule health is current",
+  "backup retention keep count is seven",
+  "backup over-retention count is zero",
+  "backup verification ok",
+  "backup scheduler proof is accepted or explicitly pending automatic proof",
+  "safe backup boundary preserves no-money/no-postage/no-deploy limits",
+  "This command only reads Git state and the latest backup runway archive",
+]);
 assertFileIncludes(
   "nightly emergency LaunchAgent installer",
   "scripts/install-nightly-emergency-backup-launchd.mjs",
@@ -960,6 +1022,18 @@ runExpectedSuccess("nightly emergency backup verifier syntax check", [
   "--check",
   "scripts/verify-nightly-emergency-backup.mjs",
 ]);
+runExpectedSuccess("backup runway status helper syntax check", [
+  "--check",
+  "scripts/status-backup-runway.mjs",
+]);
+runExpectedSuccess("backup runway archive helper syntax check", [
+  "--check",
+  "scripts/archive-backup-runway.mjs",
+]);
+runExpectedSuccess("backup runway verifier syntax check", [
+  "--check",
+  "scripts/verify-backup-runway.mjs",
+]);
 runExpectedSuccess("go-live runway archive helper syntax check", [
   "--check",
   "scripts/archive-go-live-runway.mjs",
@@ -1012,6 +1086,21 @@ assertScriptIncludes("status:production", [
 ]);
 assertScriptIncludes("status:production:json", [
   "node scripts/deploy-production.mjs --quota-status --json",
+]);
+assertScriptIncludes("status:backup-runway", [
+  "node scripts/status-backup-runway.mjs",
+]);
+assertScriptIncludes("status:backup-runway:json", [
+  "node scripts/status-backup-runway.mjs --json",
+]);
+assertScriptIncludes("archive:backup-runway", [
+  "node scripts/archive-backup-runway.mjs",
+]);
+assertScriptIncludes("verify:backup-runway", [
+  "node scripts/verify-backup-runway.mjs",
+]);
+assertScriptIncludes("verify:backup-runway:json", [
+  "node scripts/verify-backup-runway.mjs --json",
 ]);
 assertScriptIncludes("status:build-block", [
   "node scripts/status-build-block.mjs",
@@ -1194,6 +1283,12 @@ assertFileIncludes("30-minute build block checkpoint verifier source", "scripts/
   "This command only reads Git state and the latest build-block checkpoint archive",
 ]);
 assertFileIncludes("go-live safe build block commands", "scripts/status-go-live.mjs", [
+  "npm run status:backup-runway",
+  "npm --silent run status:backup-runway:json",
+  "npm run archive:backup-runway",
+  "npm run verify:backup-runway",
+  "npm --silent run verify:backup-runway:json",
+  "npm run prepare:backup-runway",
   "npm run status:build-block",
   "npm --silent run status:build-block:json",
   "npm run status:build-block-history",
@@ -1255,6 +1350,7 @@ assertScriptIncludes("prepare:go-live-evidence", [
   "archive:go-live-runway",
   "archive:nightly-backup-status",
   "archive:nightly-backup-verification",
+  "prepare:backup-runway",
   "prepare:live-money-bootstrap",
   "archive:go-live-evidence-verification",
   "archive:go-live-evidence-verification && npm run archive:go-live-runway",
@@ -1671,10 +1767,16 @@ assertFileIncludes("go-live runway status helper source", "scripts/status-go-liv
   "Local final live-payment runtime status",
   "Safe next commands:",
   "npm --silent run status:production:json",
+  "npm run status:backup-runway",
+  "npm --silent run status:backup-runway:json",
+  "npm run archive:backup-runway",
+  "npm run verify:backup-runway",
+  "npm --silent run verify:backup-runway:json",
   "npm run status:nightly-backup",
   "npm run verify:nightly-backup",
   "npm run archive:nightly-backup-status",
   "npm run archive:nightly-backup-verification",
+  "npm run prepare:backup-runway",
   "npm run prepare:go-live-evidence",
   "npm run verify:go-live-evidence",
   "npm --silent run verify:go-live-evidence:json",
@@ -1765,6 +1867,18 @@ assertFileIncludes("go-live runway archive helper source", "scripts/archive-go-l
 assertFileIncludes("live money go/no-go README instructions", "README.md", [
   "npm run status:go-live",
   "npm --silent run status:go-live:json",
+  "npm run status:backup-runway",
+  "npm --silent run status:backup-runway:json",
+  "npm run archive:backup-runway",
+  "npm run verify:backup-runway",
+  "npm --silent run verify:backup-runway:json",
+  "npm run prepare:backup-runway",
+  "tcos.backupRunwayStatus.v1",
+  "tcos.backupRunwayVerification.v1",
+  ".codex-run/backup-runway/",
+  "accepted backup posture",
+  "scheduler proof mode",
+  "operator-watch requirement",
   "npm run status:build-block",
   "npm --silent run status:build-block:json",
   "npm run prepare:build-block-checkpoint",
