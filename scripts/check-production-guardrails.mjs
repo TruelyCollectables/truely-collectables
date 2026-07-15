@@ -1261,6 +1261,7 @@ assertFileIncludes("go-live runway status helper source", "scripts/status-go-liv
   "npm --silent run status:production:json",
   "npm run status:nightly-backup",
   "npm run verify:nightly-backup",
+  "npm run archive:nightly-backup-status",
   "npm run archive:nightly-backup-verification",
   "npm run live-money:env-packet",
   "npm --silent run live-money:env-packet:json",

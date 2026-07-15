@@ -281,6 +281,7 @@ function buildStatus() {
     "npm run status:live-money",
     "npm run status:nightly-backup",
     "npm run verify:nightly-backup",
+    "npm run archive:nightly-backup-status",
     "npm run archive:nightly-backup-verification",
     "npm run live-money:env-packet",
     "npm --silent run live-money:env-packet:json",
