@@ -269,6 +269,12 @@ assertScriptIncludes("backup:nightly", [
 assertScriptIncludes("backup:nightly:install", [
   "node scripts/install-nightly-emergency-backup-launchd.mjs",
 ]);
+assertScriptIncludes("status:nightly-backup", [
+  "node scripts/status-nightly-backup.mjs",
+]);
+assertScriptIncludes("status:nightly-backup:json", [
+  "node scripts/status-nightly-backup.mjs --json",
+]);
 assertFileIncludes("nightly emergency backup helper", "scripts/nightly-emergency-backup.mjs", [
   "tcos.nightlyEmergencyBackup.v1",
   "Git push only syncs committed source",
@@ -290,6 +296,17 @@ assertFileIncludes("nightly emergency backup helper", "scripts/nightly-emergency
   ".codex-run",
   "services/paddleocr-service/.paddlex-cache",
   "--local-only",
+]);
+assertFileIncludes("nightly backup status helper", "scripts/status-nightly-backup.mjs", [
+  "tcos.nightlyBackupStatus.v1",
+  "com.truelycollectables.nightly-emergency-backup",
+  "TCOS_NIGHTLY_BACKUP_DIR",
+  "Keep seven dated backups",
+  "overRetentionCount",
+  "LaunchAgent plist",
+  "creates no archive",
+  "starts no Git push",
+  "--json",
 ]);
 assertFileIncludes(
   "nightly emergency LaunchAgent installer",
@@ -317,6 +334,10 @@ assertFileIncludes("nightly emergency backup README", "README.md", [
   "Nightly emergency backups",
   "npm run backup:nightly",
   "npm run backup:nightly:install",
+  "npm run status:nightly-backup",
+  "npm --silent run status:nightly-backup:json",
+  "status helper reads only the LaunchAgent plist",
+  "does not create an archive, push Git, deploy, create Checkout, buy postage, release payouts, approve launch, or revoke anything",
   "~/Backups",
   "seven-backup rolling window",
   "C:\\Backups",
@@ -328,6 +349,10 @@ assertFileIncludes("nightly emergency backup manual", "docs/TCOS_OPERATOR_MANUAL
   "MacBook nightly emergency backup",
   "npm run backup:nightly",
   "npm run backup:nightly:install",
+  "npm run status:nightly-backup",
+  "npm --silent run status:nightly-backup:json",
+  "tcos.nightlyBackupStatus.v1",
+  "creates no archive, starts no Git push, deploy, Checkout, postage, payout, launch approval, or revocation",
   "~/Backups",
   "C:\\Backups\\",
   "--backup-dir /Backups",

@@ -4709,6 +4709,15 @@ npm run backup:nightly:install
 
 The installer writes `~/Library/LaunchAgents/com.truelycollectables.nightly-emergency-backup.plist`, schedules the backup for 02:30 local time, passes the selected backup folder through `TCOS_NIGHTLY_BACKUP_DIR`, and writes logs under `~/Backups/logs` unless `--backup-dir` is supplied. Use `npm run backup:nightly:install -- --no-load` to write the plist without loading it. Use `npm run backup:nightly -- --local-only` for a no-network emergency archive, or `npm run backup:nightly -- --backup-dir .codex-run/nightly-backup-test --local-only` for a workspace-local test.
 
+Check the nightly scheduler and seven-backup rotation without creating an archive:
+
+```bash
+npm run status:nightly-backup
+npm --silent run status:nightly-backup:json
+```
+
+The JSON schema is `tcos.nightlyBackupStatus.v1`. The helper only reads the LaunchAgent plist, selected backup folder, and log metadata; it creates no archive, starts no Git push, deploy, Checkout, postage, payout, launch approval, or revocation.
+
 Treat the backup folder like a password vault because local archives can include production-capable `.env*` secrets. Do not upload the tarballs to public cloud storage or commit them to Git.
 
 The current disaster-recovery snapshot created on 2026-07-11 is fully verified in the local location below. The second path is the intended Transcend target:

@@ -47,6 +47,15 @@ npm run backup:nightly:install
 
 Use `npm run backup:nightly -- --local-only` for a no-network local archive, or `npm run backup:nightly -- --backup-dir .codex-run/nightly-backup-test --local-only` for a workspace-local test. On Windows, the matching drive-root folder would be `C:\Backups`. On modern macOS, a true `/Backups` drive-root folder requires admin-created permissions first; after creating it, reinstall with `npm run backup:nightly:install -- --backup-dir /Backups`.
 
+Check the scheduler and seven-backup rotation without creating an archive:
+
+```bash
+npm run status:nightly-backup
+npm --silent run status:nightly-backup:json
+```
+
+The status helper reads only the LaunchAgent plist, backup folder, and log metadata. It does not create an archive, push Git, deploy, create Checkout, buy postage, release payouts, approve launch, or revoke anything.
+
 ## Production deploy and smoke
 
 Use the production runbook when shipping queued launch work:
