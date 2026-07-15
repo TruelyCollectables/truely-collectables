@@ -714,6 +714,10 @@ runExpectedSuccess("live money evidence archive helper syntax check", [
   "--check",
   "scripts/archive-live-money-evidence.mjs",
 ]);
+runExpectedSuccess("live money env packet archive helper syntax check", [
+  "--check",
+  "scripts/archive-live-money-env-packet.mjs",
+]);
 runExpectedSuccess("go-live runway archive helper syntax check", [
   "--check",
   "scripts/archive-go-live-runway.mjs",
@@ -753,6 +757,9 @@ assertScriptIncludes("preflight:live-money:json", [
 ]);
 assertScriptIncludes("archive:go-live-runway", [
   "node scripts/archive-go-live-runway.mjs",
+]);
+assertScriptIncludes("archive:live-money-env-packet", [
+  "node scripts/archive-live-money-env-packet.mjs",
 ]);
 assertScriptIncludes("archive:live-money", [
   "node scripts/archive-live-money-evidence.mjs",
@@ -889,6 +896,7 @@ assertFileIncludes("live money env packet helper source", "scripts/live-money-en
   "process.argv.includes(\"--json\")",
   "JSON.stringify(buildPacket(), null, 2)",
   "live-money:env-packet:json",
+  "archiveEnvPacket",
   "supabaseBootstrap",
   "finalLivePaymentRuntime",
   "acceptedPreflightStates",
@@ -916,6 +924,26 @@ assertFileIncludes("live money env packet helper source", "scripts/live-money-en
   '--cwd "$PWD"',
   "env add",
   "--scope",
+]);
+assertFileIncludes("live money env packet archive helper source", "scripts/archive-live-money-env-packet.mjs", [
+  "live-money:env-packet:json",
+  ".codex-run",
+  "live-money-env-packet",
+  "tcos.liveMoneyEnvPacket.v1",
+  "Live-money env packet archived:",
+  "archiveMetadata",
+  "archivedAt",
+  "gitHead",
+  "gitOriginMain",
+  "gitWorkingTreeClean",
+  "gitStatusShort",
+  "entries.supabaseBootstrap",
+  "entries.finalLivePaymentRuntime",
+  "commands.vercelCommands",
+  "vercelCli.commandPrefix",
+  "goLiveBoundary.acceptedPreflightStates",
+  "readOnlyGuarantee",
+  "accepted preflight states:",
 ]);
 assertFileIncludes("go-live runway status helper source", "scripts/status-go-live.mjs", [
   "tcos.goLiveRunwayStatus.v1",
@@ -948,6 +976,7 @@ assertFileIncludes("go-live runway status helper source", "scripts/status-go-liv
   "npm --silent run live-money:env-packet:json",
   "npm run live-money:vercel-commands",
   "npm run archive:go-live-runway",
+  "npm run archive:live-money-env-packet",
   "Read-only guarantee:",
   "starts no deploy, upload, Checkout, postage, payout, launch approval, or revocation",
 ]);
@@ -991,6 +1020,8 @@ assertFileIncludes("live money go/no-go README instructions", "README.md", [
   "npm run archive:live-money:preflight",
   "npm run live-money:env-packet",
   "npm --silent run live-money:env-packet:json",
+  "npm run archive:live-money-env-packet",
+  ".codex-run/live-money-env-packet/",
   "tcos.liveMoneyEnvPacket.v1",
   "npm run live-money:env-template",
   "npm run live-money:vercel-commands",
@@ -4012,6 +4043,8 @@ assertFileIncludes("deploy live safety runbook", "docs/PRODUCTION_DEPLOY_RUNBOOK
   "without starting deploys, uploads, Checkout, postage, payouts, launch approvals, or revocations",
   "npm run live-money:env-packet",
   "npm --silent run live-money:env-packet:json",
+  "npm run archive:live-money-env-packet",
+  ".codex-run/live-money-env-packet/",
   "tcos.liveMoneyEnvPacket.v1",
   "npm run live-money:env-template",
   "npm run live-money:vercel-commands",
@@ -4159,6 +4192,8 @@ assertFileIncludes("deploy live safety operator manual", "docs/TCOS_OPERATOR_MAN
   "without starting deploys, uploads, Checkout, postage, payouts, launch approvals, or revocations",
   "npm run live-money:env-packet",
   "npm --silent run live-money:env-packet:json",
+  "npm run archive:live-money-env-packet",
+  ".codex-run/live-money-env-packet/",
   "tcos.liveMoneyEnvPacket.v1",
   "npm run live-money:env-template",
   "npm run live-money:vercel-commands",
@@ -4215,6 +4250,8 @@ assertFileIncludes(
     "without starting deploys, uploads, Checkout, postage, payouts, launch approvals, or revocations",
     "npm run live-money:env-packet",
     "npm --silent run live-money:env-packet:json",
+    "npm run archive:live-money-env-packet",
+    ".codex-run/live-money-env-packet/",
     "tcos.liveMoneyEnvPacket.v1",
     "npm run live-money:env-template",
     "npm run live-money:vercel-commands",

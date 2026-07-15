@@ -198,6 +198,7 @@ function buildPacket() {
       envTemplate: "npm run live-money:env-template",
       vercelCommands: "npm run live-money:vercel-commands",
       status: "npm run status:live-money",
+      archiveEnvPacket: "npm run archive:live-money-env-packet",
       archive: "npm run archive:live-money",
       preflight: "npm run preflight:live-money",
     },

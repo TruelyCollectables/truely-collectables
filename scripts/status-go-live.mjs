@@ -139,6 +139,7 @@ function buildStatus() {
     "npm --silent run live-money:env-packet:json",
     "npm run live-money:vercel-commands",
     "npm run archive:go-live-runway",
+    "npm run archive:live-money-env-packet",
     "npm run archive:live-money",
   ];
 
