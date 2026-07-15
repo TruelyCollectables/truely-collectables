@@ -2439,6 +2439,14 @@ Trade platform product model:
 - trade membership should increase confidence in the system, discourage ghosting, and make repeat scammers easier to identify, pause, or remove
 - the trade platform should still avoid live money, postage, payouts, or checkout behavior until trade-specific billing, cancellation, tax, privacy, and dispute rules are designed
 
+Trade pricing access model:
+
+- the `2 USD/month` trade subscription should include a basic book-price style value reference for trade fairness, not full InstaComp access
+- InstaComp should stay reserved for the next paid tier up so collectors have a clear reason to upgrade when they want deeper comps, confidence scoring, and research links
+- upgraded pricing access should still respect marketplace limits, usage limits, trade limits, anti-scraping protections, and any collector-intelligence fairness rules
+- trade offers should clearly label whether values come from book-price guidance, user-entered declared values, or upgraded InstaComp/collector-intelligence pricing
+- the basic book-price reference should help both sides discuss fair value without implying a guaranteed sale price, cash offer, payout amount, tax basis, or appraisal
+
 Trade reputation model:
 
 - trade rankings should use the same collector-facing tier language as auctions: `Gold`, `Silver`, and `Bronze`
