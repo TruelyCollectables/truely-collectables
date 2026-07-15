@@ -312,6 +312,91 @@ function backupScheduleHealth(launchAgent, backups) {
   };
 }
 
+function launchdExitSucceeded(lastExitCode) {
+  if (!lastExitCode) {
+    return false;
+  }
+
+  return lastExitCode.trim() === "0";
+}
+
+function schedulerProof(launchAgent, launchdRuntime) {
+  if (!launchAgent.supported || !launchdRuntime.supported) {
+    return {
+      state: "unsupported_platform",
+      automaticRunProven: false,
+      message: "Automatic scheduler proof is macOS launchd-only.",
+      nextAction: "Check the platform-native scheduler manually.",
+    };
+  }
+
+  if (!launchAgent.installed) {
+    return {
+      state: "not_installed",
+      automaticRunProven: false,
+      message: "Nightly backup LaunchAgent is not installed.",
+      nextAction: "Run npm run backup:nightly:install.",
+    };
+  }
+
+  if (!launchdRuntime.checked) {
+    return {
+      state: "unchecked",
+      automaticRunProven: false,
+      message: launchdRuntime.message || "launchd runtime state could not be checked.",
+      nextAction: "Run npm run status:nightly-backup again in an interactive macOS user session.",
+    };
+  }
+
+  if (!launchdRuntime.loaded) {
+    return {
+      state: "not_loaded",
+      automaticRunProven: false,
+      message: launchdRuntime.message || "LaunchAgent is installed but not loaded in launchd.",
+      nextAction: "Reinstall or reload with npm run backup:nightly:install.",
+    };
+  }
+
+  if (launchdRuntime.runs === 0) {
+    return {
+      state: "automatic_unproven",
+      automaticRunProven: false,
+      message:
+        "LaunchAgent is loaded, but launchd has not recorded an automatic backup run yet.",
+      nextAction:
+        "Keep the manual backup, leave the Mac awake for the next 02:30 run, then rerun npm run status:nightly-backup.",
+    };
+  }
+
+  if (launchdRuntime.runs !== null && launchdRuntime.runs > 0) {
+    const succeeded = launchdExitSucceeded(launchdRuntime.lastExitCode);
+    if (succeeded) {
+      return {
+        state: "automatic_proven",
+        automaticRunProven: true,
+        message: "launchd has recorded at least one successful automatic backup run.",
+        nextAction: "Keep monitoring with npm run status:nightly-backup.",
+      };
+    }
+
+    return {
+      state: "automatic_failed",
+      automaticRunProven: false,
+      message: `launchd has recorded ${
+        launchdRuntime.runs
+      } run(s), but the last exit code was ${launchdRuntime.lastExitCode || "unknown"}.`,
+      nextAction: "Inspect the backup stdout/stderr logs and rerun npm run backup:nightly if needed.",
+    };
+  }
+
+  return {
+    state: "unknown",
+    automaticRunProven: false,
+    message: "launchd is loaded, but its run count could not be parsed.",
+    nextAction: "Inspect launchctl print output and rerun npm run status:nightly-backup.",
+  };
+}
+
 function listBackups(backupDir) {
   if (!backupDir || !fs.existsSync(backupDir)) {
     return {
@@ -367,11 +452,13 @@ const logs = {
 };
 const launchdRuntime = readLaunchdRuntime(launchAgent.label);
 const scheduleHealth = backupScheduleHealth(launchAgent, backups);
+const automaticSchedulerProof = schedulerProof(launchAgent, launchdRuntime);
 const payload = {
   schema,
   checkedAt: new Date().toISOString(),
   backupDir,
   scheduleHealth,
+  schedulerProof: automaticSchedulerProof,
   launchdRuntime,
   retention: {
     keep: 7,
@@ -398,6 +485,10 @@ if (json) {
   console.log(`- oldest backup: ${backups.oldest ? `${backups.oldest.name} (${backups.oldest.modifiedAt})` : "none"}`);
   console.log(`- schedule health: ${scheduleHealth.state}`);
   console.log(`- schedule message: ${scheduleHealth.message}`);
+  console.log(`- scheduler proof: ${automaticSchedulerProof.state}`);
+  console.log(`- automatic run proven: ${automaticSchedulerProof.automaticRunProven ? "yes" : "no"}`);
+  console.log(`- scheduler proof message: ${automaticSchedulerProof.message}`);
+  console.log(`- scheduler next action: ${automaticSchedulerProof.nextAction}`);
   console.log(`- last scheduled run: ${scheduleHealth.lastScheduledRunAt || "unknown"}`);
   console.log(`- next scheduled run: ${scheduleHealth.nextScheduledRunAt || "unknown"}`);
   console.log(`- launchd loaded: ${launchdRuntime.loaded ? "yes" : "no"}`);

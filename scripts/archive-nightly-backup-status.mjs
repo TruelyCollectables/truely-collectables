@@ -55,6 +55,13 @@ function assertEvidenceContract(payload) {
   if (!payload?.scheduleHealth || !("latestBackupAt" in payload.scheduleHealth)) {
     missing.push("scheduleHealth.latestBackupAt");
   }
+  if (!payload?.schedulerProof?.state) missing.push("schedulerProof.state");
+  if (typeof payload?.schedulerProof?.automaticRunProven !== "boolean") {
+    missing.push("schedulerProof.automaticRunProven");
+  }
+  if (!payload?.schedulerProof?.nextAction) {
+    missing.push("schedulerProof.nextAction");
+  }
   if (typeof payload?.launchdRuntime?.checked !== "boolean") {
     missing.push("launchdRuntime.checked");
   }
@@ -151,6 +158,11 @@ console.log(`- dated backup count: ${payload.backups.count}`);
 console.log(`- over-retention count: ${payload.retention.overRetentionCount}`);
 console.log(`- schedule health: ${payload.scheduleHealth.state}`);
 console.log(`- schedule message: ${payload.scheduleHealth.message}`);
+console.log(`- scheduler proof: ${payload.schedulerProof.state}`);
+console.log(
+  `- automatic run proven: ${payload.schedulerProof.automaticRunProven ? "yes" : "no"}`,
+);
+console.log(`- scheduler next action: ${payload.schedulerProof.nextAction}`);
 console.log(`- launchd loaded: ${payload.launchdRuntime.loaded ? "yes" : "no"}`);
 console.log(`- launchd runs: ${payload.launchdRuntime.runs ?? "unknown"}`);
 console.log(`- launchd last exit code: ${payload.launchdRuntime.lastExitCode || "unknown"}`);
