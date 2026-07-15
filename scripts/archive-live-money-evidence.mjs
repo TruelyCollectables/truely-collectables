@@ -10,8 +10,31 @@ const scriptName =
   mode === "preflight" ? "preflight:live-money:json" : "status:live-money:json";
 const commandText = `npm --silent run ${scriptName}`;
 
-function safeTimestamp() {
-  return new Date().toISOString().replace(/[:.]/g, "-");
+function runLocalGit(args) {
+  const result = spawnSync("git", args, {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
+
+  if (result.status !== 0) {
+    return null;
+  }
+
+  return (result.stdout || "").trim() || null;
+}
+
+function archiveMetadata(archivedAt) {
+  const gitStatusShort = runLocalGit(["status", "--short"]);
+  return {
+    archivedAt,
+    mode,
+    command: commandText,
+    gitHead: runLocalGit(["rev-parse", "--short", "HEAD"]) || "unknown",
+    gitOriginMain:
+      runLocalGit(["rev-parse", "--short", "origin/main"]) || "unknown",
+    gitWorkingTreeClean: gitStatusShort === "",
+    gitStatusShort: gitStatusShort ? gitStatusShort.split("\n") : [],
+  };
 }
 
 function parseEvidence(stdout) {
@@ -96,13 +119,29 @@ try {
 }
 
 mkdirSync(evidenceDir, { recursive: true });
-const filePath = join(evidenceDir, `${safeTimestamp()}-${mode}.json`);
-writeFileSync(filePath, `${JSON.stringify(payload, null, 2)}\n`);
+const archivedAt = new Date().toISOString();
+const filePath = join(
+  evidenceDir,
+  `${archivedAt.replace(/[:.]/g, "-")}-${mode}.json`,
+);
+const archivedPayload = {
+  ...payload,
+  archive: archiveMetadata(archivedAt),
+};
+writeFileSync(filePath, `${JSON.stringify(archivedPayload, null, 2)}\n`);
 
 console.log("Live money evidence archived:");
 console.log(`- mode: ${mode}`);
 console.log(`- command: ${commandText}`);
 console.log(`- path: ${filePath}`);
+console.log(`- archived at: ${archivedPayload.archive.archivedAt}`);
+console.log(`- git HEAD: ${archivedPayload.archive.gitHead}`);
+console.log(`- git origin/main: ${archivedPayload.archive.gitOriginMain}`);
+console.log(
+  `- git working tree clean: ${
+    archivedPayload.archive.gitWorkingTreeClean ? "yes" : "no"
+  }`,
+);
 console.log(`- state: ${payload.state}`);
 console.log(
   `- ready for runtime switch: ${payload.readyForRuntimeSwitch ? "yes" : "no"}`,
