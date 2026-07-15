@@ -1314,7 +1314,7 @@ export default async function LaunchReadinessPage() {
               </div>
               <div>
                 <dt className="font-black uppercase text-emerald-700">
-                  Post-smoke archive command
+                  Post-smoke raw JSON command
                 </dt>
                 <dd className="mt-1 font-mono text-xs">
                   {LIVE_MONEY_JSON_EVIDENCE.statusCommand}
@@ -1322,7 +1322,7 @@ export default async function LaunchReadinessPage() {
               </div>
               <div>
                 <dt className="font-black uppercase text-emerald-700">
-                  Final-window preflight command
+                  Final-window raw preflight command
                 </dt>
                 <dd className="mt-1 font-mono text-xs">
                   {LIVE_MONEY_JSON_EVIDENCE.preflightCommand}
@@ -1338,7 +1338,7 @@ export default async function LaunchReadinessPage() {
               </div>
               <div>
                 <dt className="font-black uppercase text-emerald-700">
-                  Final-window archive helper
+                  Final-window preflight archive helper
                 </dt>
                 <dd className="mt-1 font-mono text-xs">
                   {LIVE_MONEY_JSON_EVIDENCE.preflightArchiveCommand}

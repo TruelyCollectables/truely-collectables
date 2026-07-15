@@ -186,8 +186,8 @@ async function main() {
   printItems("Launch locks", report.summary.launchLocks);
   printItems("Warnings", report.summary.warnings);
   console.log(`Evidence schema: ${LIVE_MONEY_JSON_EVIDENCE.schema}`);
-  console.log(`Post-smoke archive command: ${LIVE_MONEY_JSON_EVIDENCE.statusCommand}`);
-  console.log(`Final-window preflight command: ${LIVE_MONEY_JSON_EVIDENCE.preflightCommand}`);
+  console.log(`Post-smoke raw JSON command: ${LIVE_MONEY_JSON_EVIDENCE.statusCommand}`);
+  console.log(`Final-window raw preflight command: ${LIVE_MONEY_JSON_EVIDENCE.preflightCommand}`);
   console.log(`Accepted go-live states: ${LIVE_MONEY_JSON_EVIDENCE.readyStates.join(", ")}`);
   console.log(`Halt states: ${LIVE_MONEY_JSON_EVIDENCE.blockedStates.join(", ")}`);
   console.log(`Archive requirement: ${LIVE_MONEY_JSON_EVIDENCE.archiveRequirement}`);
@@ -225,8 +225,8 @@ main().catch((error) => {
     `- next: ${payload.next}`,
   );
   console.log(`Evidence schema: ${LIVE_MONEY_JSON_EVIDENCE.schema}`);
-  console.log(`Post-smoke archive command: ${LIVE_MONEY_JSON_EVIDENCE.statusCommand}`);
-  console.log(`Final-window preflight command: ${LIVE_MONEY_JSON_EVIDENCE.preflightCommand}`);
+  console.log(`Post-smoke raw JSON command: ${LIVE_MONEY_JSON_EVIDENCE.statusCommand}`);
+  console.log(`Final-window raw preflight command: ${LIVE_MONEY_JSON_EVIDENCE.preflightCommand}`);
   console.log(`Accepted go-live states: ${LIVE_MONEY_JSON_EVIDENCE.readyStates.join(", ")}`);
   console.log(`Halt states: ${LIVE_MONEY_JSON_EVIDENCE.blockedStates.join(", ")}`);
   console.log(`Archive requirement: ${LIVE_MONEY_JSON_EVIDENCE.archiveRequirement}`);

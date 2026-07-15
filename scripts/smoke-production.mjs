@@ -695,13 +695,13 @@ const checks = [
       result.text.includes("Payment approval blockers before database approval") &&
       result.text.includes("Intentional live-money launch locks") &&
       result.text.includes("Live Money JSON Evidence") &&
-      result.text.includes("Post-smoke archive command") &&
+      result.text.includes("Post-smoke raw JSON command") &&
       result.text.includes("npm --silent run status:live-money:json") &&
-      result.text.includes("Final-window preflight command") &&
+      result.text.includes("Final-window raw preflight command") &&
       result.text.includes("npm --silent run preflight:live-money:json") &&
       result.text.includes("Post-smoke archive helper") &&
       result.text.includes("npm run archive:live-money") &&
-      result.text.includes("Final-window archive helper") &&
+      result.text.includes("Final-window preflight archive helper") &&
       result.text.includes("npm run archive:live-money:preflight") &&
       result.text.includes(".codex-run/live-money-evidence/") &&
       result.text.includes("Accepted go-live states") &&
@@ -858,8 +858,8 @@ const checks = [
       result.text.includes("Next live-money actions:") &&
       result.text.includes("## Live Money JSON Evidence") &&
       result.text.includes("Schema: `tcos.liveMoneyGoNoGo.v1`") &&
-      result.text.includes("Post-smoke archive command: `npm --silent run status:live-money:json`") &&
-      result.text.includes("Final-window preflight command: `npm --silent run preflight:live-money:json`") &&
+      result.text.includes("Post-smoke raw JSON command: `npm --silent run status:live-money:json`") &&
+      result.text.includes("Final-window raw preflight command: `npm --silent run preflight:live-money:json`") &&
       result.text.includes("Accepted go-live states: READY_FOR_RUNTIME_SWITCH, LIVE_MONEY_OPEN") &&
       result.text.includes("Halt states: BLOCKED_UNEVALUATED, BLOCKED_APPROVAL, READY_FOR_DATABASE_APPROVAL, BLOCKED_LAUNCH_GATE") &&
       result.text.includes("Archive the status JSON after production smoke passes") &&
@@ -1232,8 +1232,8 @@ const checks = [
       "Next live-money actions:",
       "## Live Money JSON Evidence",
       "Schema: `tcos.liveMoneyGoNoGo.v1`",
-      "Post-smoke archive command: `npm --silent run status:live-money:json`",
-      "Final-window preflight command: `npm --silent run preflight:live-money:json`",
+      "Post-smoke raw JSON command: `npm --silent run status:live-money:json`",
+      "Final-window raw preflight command: `npm --silent run preflight:live-money:json`",
       "Accepted go-live states: READY_FOR_RUNTIME_SWITCH, LIVE_MONEY_OPEN",
       "Halt states: BLOCKED_UNEVALUATED, BLOCKED_APPROVAL, READY_FOR_DATABASE_APPROVAL, BLOCKED_LAUNCH_GATE",
       "Archive the status JSON after production smoke passes",
@@ -1295,8 +1295,8 @@ const checks = [
       result.text.includes("Next live-money actions:") &&
       result.text.includes("## Live Money JSON Evidence") &&
       result.text.includes("Schema: `tcos.liveMoneyGoNoGo.v1`") &&
-      result.text.includes("Post-smoke archive command: `npm --silent run status:live-money:json`") &&
-      result.text.includes("Final-window preflight command: `npm --silent run preflight:live-money:json`") &&
+      result.text.includes("Post-smoke raw JSON command: `npm --silent run status:live-money:json`") &&
+      result.text.includes("Final-window raw preflight command: `npm --silent run preflight:live-money:json`") &&
       result.text.includes("Accepted go-live states: READY_FOR_RUNTIME_SWITCH, LIVE_MONEY_OPEN") &&
       result.text.includes("Halt states: BLOCKED_UNEVALUATED, BLOCKED_APPROVAL, READY_FOR_DATABASE_APPROVAL, BLOCKED_LAUNCH_GATE") &&
       result.text.includes("Archive the status JSON after production smoke passes") &&
@@ -1352,13 +1352,13 @@ const checks = [
       result.text.includes("What remains before live money") &&
       result.text.includes("Final evidence packet") &&
       result.text.includes("Live Money JSON Evidence") &&
-      result.text.includes("Post-smoke archive command") &&
+      result.text.includes("Post-smoke raw JSON command") &&
       result.text.includes("npm --silent run status:live-money:json") &&
-      result.text.includes("Final-window preflight command") &&
+      result.text.includes("Final-window raw preflight command") &&
       result.text.includes("npm --silent run preflight:live-money:json") &&
       result.text.includes("Post-smoke archive helper") &&
       result.text.includes("npm run archive:live-money") &&
-      result.text.includes("Final-window archive helper") &&
+      result.text.includes("Final-window preflight archive helper") &&
       result.text.includes("npm run archive:live-money:preflight") &&
       result.text.includes(".codex-run/live-money-evidence/") &&
       result.text.includes("Accepted go-live states") &&

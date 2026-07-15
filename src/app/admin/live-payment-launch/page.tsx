@@ -186,7 +186,7 @@ export default async function LivePaymentLaunchPage() {
           <dl className="mt-5 grid grid-cols-1 gap-3 text-sm md:grid-cols-2">
             <div className="rounded border border-emerald-200 bg-white p-3">
               <dt className="font-black uppercase text-emerald-700">
-                Post-smoke archive command
+                Post-smoke raw JSON command
               </dt>
               <dd className="mt-1 font-mono text-xs">
                 {LIVE_MONEY_JSON_EVIDENCE.statusCommand}
@@ -194,7 +194,7 @@ export default async function LivePaymentLaunchPage() {
             </div>
             <div className="rounded border border-emerald-200 bg-white p-3">
               <dt className="font-black uppercase text-emerald-700">
-                Final-window preflight command
+                Final-window raw preflight command
               </dt>
               <dd className="mt-1 font-mono text-xs">
                 {LIVE_MONEY_JSON_EVIDENCE.preflightCommand}
@@ -210,7 +210,7 @@ export default async function LivePaymentLaunchPage() {
             </div>
             <div className="rounded border border-emerald-200 bg-white p-3">
               <dt className="font-black uppercase text-emerald-700">
-                Final-window archive helper
+                Final-window preflight archive helper
               </dt>
               <dd className="mt-1 font-mono text-xs">
                 {LIVE_MONEY_JSON_EVIDENCE.preflightArchiveCommand}
