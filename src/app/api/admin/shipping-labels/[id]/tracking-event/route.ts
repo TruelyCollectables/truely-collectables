@@ -1,5 +1,8 @@
 import { getClientIdentity } from "../../../../../../lib/client-identity";
-import { isDryRunShippingReference } from "../../../../../../lib/shipping-dry-run";
+import {
+  isDryRunShippingLabel,
+  isDryRunShippingReference,
+} from "../../../../../../lib/shipping-dry-run";
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
 
@@ -20,8 +23,11 @@ type ShippingLabelRow = {
   id: string;
   order_id: number;
   provider: string | null;
+  provider_label_id: string | null;
+  provider_shipment_id: string | null;
   carrier: string | null;
   tracking_number: string | null;
+  coverage_policy_id: string | null;
   label_status: string | null;
   resolved_shipping_method: string | null;
   metadata: Record<string, unknown> | null;
@@ -97,7 +103,7 @@ export async function POST(
     const { data: labelData, error: labelError } = await supabase
       .from("order_shipping_labels")
       .select(
-        "id,order_id,provider,carrier,tracking_number,label_status,resolved_shipping_method,metadata",
+        "id,order_id,provider,provider_label_id,provider_shipment_id,carrier,tracking_number,coverage_policy_id,label_status,resolved_shipping_method,metadata",
       )
       .eq("store_id", storeId)
       .eq("id", labelId)
@@ -118,6 +124,16 @@ export async function POST(
         {
           error:
             "LetterTrack delivery evidence can only be recorded for Standard Envelope labels.",
+        },
+        { status: 409 },
+      );
+    }
+
+    if (isDryRunShippingLabel(label)) {
+      return Response.json(
+        {
+          error:
+            "This shipping label is a TCOS dry-run simulation. Record the real LetterTrack IMb label before adding delivery evidence.",
         },
         { status: 409 },
       );

@@ -3182,6 +3182,74 @@ assertFileOrder("shipping LetterTrack dry-run gate order", "src/app/api/admin/or
   ".update({\n          carrier: \"USPS IMb\",",
   'event_type: "lettertrack_imb_recorded"',
 ]);
+assertFileIncludes(
+  "shipping coverage policy dry-run guard source",
+  "src/app/api/admin/shipping-labels/[id]/coverage-policy/route.ts",
+  [
+    "isDryRunShippingReference",
+    "Coverage policy records must use a real external policy ID, not TCOS dry-run references.",
+    "isDryRunShippingLabel(label)",
+    "This shipping label is a TCOS dry-run simulation. Record a real external label before saving a Coverage policy.",
+    'coverage_status: "covered"',
+    "latest_coverage_policy_record",
+    'event_type: "coverage_policy_recorded"',
+    'event_status: "covered"',
+    "coverage_policy_id: coveragePolicyId",
+  ],
+);
+assertFileOrder(
+  "shipping coverage policy dry-run gate order",
+  "src/app/api/admin/shipping-labels/[id]/coverage-policy/route.ts",
+  [
+    "const dryRunFields = [",
+    "if (!coveragePolicyId)",
+    "if (dryRunFields.length > 0)",
+    "const { data: labelData, error: labelError } = await supabase",
+    "if (isDryRunShippingLabel(label))",
+    '.from("order_shipping_labels")',
+    ".update({\n        coverage_provider: coverageProvider,",
+    'coverage_status: "covered"',
+    '.from("order_shipping_tracking_events")',
+    'event_type: "coverage_policy_recorded"',
+  ],
+);
+assertFileIncludes(
+  "shipping LetterTrack delivery evidence dry-run guard source",
+  "src/app/api/admin/shipping-labels/[id]/tracking-event/route.ts",
+  [
+    "isDryRunShippingLabel",
+    "isDryRunShippingReference",
+    "LetterTrack delivery evidence can only be recorded for Standard Envelope labels.",
+    "This shipping label is a TCOS dry-run simulation. Record the real LetterTrack IMb label before adding delivery evidence.",
+    "Record the assigned LetterTrack IMb/tracking reference before adding delivery evidence.",
+    "LetterTrack delivery evidence must use real provider references, not TCOS dry-run references.",
+    "LetterTrack / USPS IMb evidence shows delivered.",
+    'event_type: eventType',
+    'event_status: eventStatus',
+    'labelUpdate.label_status = "delivered"',
+    'labelUpdate.coverage_status = "covered"',
+  ],
+);
+assertFileOrder(
+  "shipping LetterTrack delivery evidence dry-run gate order",
+  "src/app/api/admin/shipping-labels/[id]/tracking-event/route.ts",
+  [
+    "if (!eventStatus)",
+    "const { data: labelData, error: labelError } = await supabase",
+    'if (label.resolved_shipping_method !== "STANDARD_ENVELOPE")',
+    "if (isDryRunShippingLabel(label))",
+    "const trackingNumber =",
+    "if (!trackingNumber)",
+    "isDryRunShippingReference(trackingNumber)",
+    '.from("order_shipping_tracking_events")',
+    ".insert({",
+    "const labelUpdate: Record<string, unknown> =",
+    'if (eventStatus === "delivered")',
+    'labelUpdate.label_status = "delivered"',
+    '.from("order_shipping_labels")',
+    ".update(labelUpdate)",
+  ],
+);
 assertFileIncludes("seller payout release resolution guard source", "src/app/api/admin/order-review-cases/[id]/payout-resolution/route.ts", [
   "release_to_seller",
   'targetStatus: "eligible"',
