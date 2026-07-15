@@ -108,6 +108,9 @@ function assertEvidenceContract(payload) {
   if (typeof payload?.backupRunway?.operatorWatchRequired !== "boolean") {
     missing.push("backupRunway.operatorWatchRequired");
   }
+  if (!payload?.backupRunway?.next) {
+    missing.push("backupRunway.next");
+  }
   if (!payload?.backupRunway?.verifiedArchive) {
     missing.push("backupRunway.verifiedArchive");
   }
@@ -228,6 +231,7 @@ console.log(
     payload.backupRunway.operatorWatchRequired ? "yes" : "no"
   }`,
 );
+console.log(`- backup runway next: ${payload.backupRunway.next}`);
 console.log(`- backup runway verified archive: ${payload.backupRunway.verifiedArchive}`);
 console.log(`- backup runway computed sha256: ${payload.backupRunway.computedSha256}`);
 console.log(`- live-money state: ${payload.liveMoney.state}`);

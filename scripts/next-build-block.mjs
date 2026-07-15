@@ -130,6 +130,7 @@ function printText(action) {
       action.backupRunway?.operatorWatchRequired ? "yes" : "no"
     }`,
   );
+  console.log(`- backup runway next: ${action.backupRunway?.next || "not recorded"}`);
   console.log(
     `- backup runway verified archive: ${
       action.backupRunway?.verifiedArchive || "not recorded"
