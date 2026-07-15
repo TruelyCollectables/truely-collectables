@@ -1,9 +1,9 @@
-const scope = process.env.VERCEL_SCOPE?.trim() || "truelycollectables-projects";
 const mode = process.argv.includes("--env-template")
   ? "env-template"
   : process.argv.includes("--vercel-commands")
     ? "vercel-commands"
     : "checklist";
+const scopeSelfTest = process.argv.includes("--self-test-scope");
 
 const supabaseBootstrap = [
   {
@@ -58,6 +58,94 @@ const finalLivePaymentRuntime = [
 
 const allEntries = [...supabaseBootstrap, ...finalLivePaymentRuntime];
 
+function normalizeVercelScope(value) {
+  const trimmed = String(value).trim();
+
+  if (!trimmed) {
+    throw new Error("VERCEL_SCOPE cannot be empty.");
+  }
+
+  if (
+    trimmed.startsWith("-") ||
+    /[\s\/\\:?#@.]/.test(trimmed) ||
+    /(?:token|password|secret|key)=/i.test(trimmed) ||
+    /\b(?:sk|rk)_(?:live|test)_/i.test(trimmed) ||
+    /\b(?:Bearer|Basic)\s+/i.test(trimmed)
+  ) {
+    throw new Error(
+      "VERCEL_SCOPE must be a Vercel team slug using only lowercase letters, numbers, and hyphens.",
+    );
+  }
+
+  if (
+    trimmed.length > 100 ||
+    !/^[a-z\d](?:[a-z\d-]*[a-z\d])?$/.test(trimmed)
+  ) {
+    throw new Error(
+      "VERCEL_SCOPE must be a Vercel team slug using only lowercase letters, numbers, and hyphens.",
+    );
+  }
+
+  return trimmed;
+}
+
+function runScopeSelfTest() {
+  const validCases = [
+    ["truelycollectables-projects", "truelycollectables-projects"],
+    ["launch-team-2026", "launch-team-2026"],
+    [" team-1 ", "team-1"],
+    ["a", "a"],
+  ];
+
+  for (const [input, expected] of validCases) {
+    const actual = normalizeVercelScope(input);
+    if (actual !== expected) {
+      throw new Error(
+        `Live-money env packet scope self-test normalized ${input} to ${actual}; expected ${expected}.`,
+      );
+    }
+  }
+
+  const invalidCases = [
+    "",
+    " ",
+    "--prod",
+    "-team",
+    "team-",
+    "Team",
+    "team_name",
+    "team.name",
+    "team/name",
+    "https://team.example.com",
+    "team@example",
+    "team?slug=other",
+    "team secret",
+    "token=scope-self-test-secret",
+    "Bearer scope-self-test-secret",
+    "a".repeat(101),
+  ];
+
+  for (const input of invalidCases) {
+    try {
+      normalizeVercelScope(input);
+      throw new Error(
+        `Live-money env packet scope self-test accepted invalid input: ${input}`,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (
+        message.includes("accepted invalid input") ||
+        message.includes("scope-self-test-secret") ||
+        !message.includes("VERCEL_SCOPE")
+      ) {
+        throw error;
+      }
+    }
+  }
+
+  console.log("Live-money env packet Vercel scope self-test passed.");
+}
+
 function printChecklist() {
   console.log("TCOS live-money environment packet");
   console.log("Purpose: stage the live-money runtime without printing or storing secret values.");
@@ -77,6 +165,9 @@ function printChecklist() {
   console.log("- npm run live-money:vercel-commands");
   console.log("- npm run status:live-money");
   console.log("- npm run archive:live-money");
+  console.log("");
+  console.log("Vercel scope boundary:");
+  console.log("- VERCEL_SCOPE must be a simple lowercase Vercel team slug before Vercel command output is printed.");
   console.log("");
   console.log("Go-live boundary:");
   console.log("- Do not set TCOS_LIVE_PAYMENTS_ENABLED=true until the final go-live window.");
@@ -111,10 +202,14 @@ function printEnvTemplate() {
 }
 
 function printVercelCommands() {
+  const scope = normalizeVercelScope(
+    process.env.VERCEL_SCOPE ?? "truelycollectables-projects",
+  );
   const lines = [
     "# TCOS live-money Vercel env command checklist",
     "# These commands prompt for values. They do not contain secret values.",
     "# Keep TCOS_LIVE_PAYMENTS_ENABLED=false until final accepted preflight evidence.",
+    "# VERCEL_SCOPE must be a simple lowercase Vercel team slug before command output is printed.",
     `# Scope: ${scope}`,
     "",
     "# Production environment",
@@ -131,7 +226,9 @@ function printVercelCommands() {
   console.log(lines.join("\n"));
 }
 
-if (mode === "env-template") {
+if (scopeSelfTest) {
+  runScopeSelfTest();
+} else if (mode === "env-template") {
   printEnvTemplate();
 } else if (mode === "vercel-commands") {
   printVercelCommands();

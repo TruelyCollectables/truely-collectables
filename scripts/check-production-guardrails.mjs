@@ -727,6 +727,16 @@ assertScriptIncludes("live-money:env-template", [
 assertScriptIncludes("live-money:vercel-commands", [
   "node scripts/live-money-env-packet.mjs --vercel-commands",
 ]);
+runExpectedSuccess("live money env packet scope self-test", [
+  "scripts/live-money-env-packet.mjs",
+  "--self-test-scope",
+]);
+runExpectedFailure(
+  "live money env packet rejects malformed Vercel scope",
+  ["scripts/live-money-env-packet.mjs", "--vercel-commands"],
+  { VERCEL_SCOPE: "https://scope-self-test.example.com" },
+  "VERCEL_SCOPE must be a Vercel team slug using only lowercase letters, numbers, and hyphens",
+);
 assertScriptIncludes("verify:production", [
   "status:live-money",
   "verify:instacomp",
@@ -844,6 +854,9 @@ assertFileIncludes("live money env packet helper source", "scripts/live-money-en
   "TCOS_LIVE_PAYMENTS_ENABLED",
   "Keep false until the final go-live window",
   "These helpers do not read secrets, call Stripe, call Supabase, deploy, buy postage, or create Checkout.",
+  "normalizeVercelScope",
+  "VERCEL_SCOPE must be a Vercel team slug using only lowercase letters, numbers, and hyphens",
+  "Live-money env packet Vercel scope self-test passed.",
   "vercel env add",
   "--scope",
 ]);
@@ -857,6 +870,7 @@ assertFileIncludes("live money go/no-go README instructions", "README.md", [
   "npm run live-money:env-packet",
   "npm run live-money:env-template",
   "npm run live-money:vercel-commands",
+  "rejects malformed `VERCEL_SCOPE` values before printing commands",
   ".codex-run/live-money-evidence/",
   "liveMoneyEvidence",
   "accepted go-live states",
@@ -3864,6 +3878,7 @@ assertFileIncludes("deploy live safety runbook", "docs/PRODUCTION_DEPLOY_RUNBOOK
   "npm run live-money:env-template",
   "npm run live-money:vercel-commands",
   "do not read secrets, call Stripe or Supabase, deploy, buy postage, create Checkout, or flip `TCOS_LIVE_PAYMENTS_ENABLED`",
+  "rejects malformed `VERCEL_SCOPE` values before printing commands",
   "Launch only when quota is open",
   "Halt on Vercel quota",
   "Ship only after smoke passes",
@@ -3997,6 +4012,7 @@ assertFileIncludes("deploy live safety operator manual", "docs/TCOS_OPERATOR_MAN
   "npm run live-money:env-template",
   "npm run live-money:vercel-commands",
   "do not read secrets, call Stripe or Supabase, deploy, buy postage, create Checkout, or flip `TCOS_LIVE_PAYMENTS_ENABLED`",
+  "rejects malformed `VERCEL_SCOPE` values before printing commands",
   "launch only when quota is open",
   "halt if Vercel reports",
   "avoid rapid-fire deploy retries because Vercel can still upload files before returning the quota error",
@@ -4039,6 +4055,7 @@ assertFileIncludes(
     "npm run live-money:env-template",
     "npm run live-money:vercel-commands",
     "do not read secrets, call Stripe or Supabase, deploy, buy postage, create Checkout, or flip <code>TCOS_LIVE_PAYMENTS_ENABLED</code>",
+    "rejects malformed <code>VERCEL_SCOPE</code> values before printing commands",
     "launch only when quota is open",
     "halt if Vercel reports",
     "avoid rapid-fire deploy retries because Vercel can still upload files before returning the quota error",
