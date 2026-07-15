@@ -2543,6 +2543,17 @@ Goal:
 - use AI to help discover and normalize show/event information from permitted sources
 - help collectors plan where to go, what to bring, and whether an event fits their collecting interests
 
+Card show submission model:
+
+- card show and collectable event posting should be free when the listing includes verified information
+- required verified information should include event name, organizer or promoter contact, date, venue, address, city/state/ZIP, hours, admission, category, and a public detail link when available
+- event submissions should be reviewed before public display until trusted organizer accounts and automated validation are designed
+- private Facebook groups, private message boards, invite-only communities, or non-public event posts must not be copied into TCOS unless the organizer or authorized group admin submits the listing and grants permission to display it on the TCOS website
+- submitted private-group listings should store permission evidence, submitter identity, source URL or group name, submission timestamp, and admin review status
+- public source discovery should link back to the original source and avoid implying TCOS owns, sponsors, verifies attendance, or guarantees event details unless TCOS has direct organizer confirmation
+- collectors should be able to report outdated, wrong, canceled, duplicate, or suspicious event listings
+- organizers should eventually be able to claim and maintain their own show profile after identity verification
+
 Collector search should support:
 
 - ZIP code
