@@ -81,6 +81,12 @@ function assertEvidenceContract(payload) {
   ) {
     missing.push("liveMoneyEvidence.environmentChecklist.finalLivePaymentRuntime");
   }
+  if (!Array.isArray(payload?.localEnvironmentStatus?.supabaseBootstrap)) {
+    missing.push("localEnvironmentStatus.supabaseBootstrap");
+  }
+  if (!Array.isArray(payload?.localEnvironmentStatus?.finalLivePaymentRuntime)) {
+    missing.push("localEnvironmentStatus.finalLivePaymentRuntime");
+  }
   if (!payload?.readOnlyGuarantee) missing.push("readOnlyGuarantee");
 
   if (missing.length) {
@@ -159,6 +165,16 @@ console.log(
 );
 console.log(
   `- final live-payment runtime environment: ${payload.liveMoneyEvidence.environmentChecklist.finalLivePaymentRuntime.join("; ")}`,
+);
+console.log(
+  `- local Supabase bootstrap status: ${payload.localEnvironmentStatus.supabaseBootstrap
+    .map((item) => `${item.label}: ${item.status}`)
+    .join("; ")}`,
+);
+console.log(
+  `- local final live-payment runtime status: ${payload.localEnvironmentStatus.finalLivePaymentRuntime
+    .map((item) => `${item.label}: ${item.status}`)
+    .join("; ")}`,
 );
 console.log(`- read-only guarantee: ${payload.readOnlyGuarantee}`);
 

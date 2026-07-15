@@ -23,6 +23,10 @@ function configured(value: string | undefined) {
   return Boolean(value?.trim());
 }
 
+function hasPrefix(value: string | undefined, prefix: string) {
+  return Boolean(value?.trim().startsWith(prefix));
+}
+
 function missingEnvironmentVariables() {
   const missing: string[] = [];
 
@@ -38,6 +42,80 @@ function missingEnvironmentVariables() {
   }
 
   return missing;
+}
+
+function liveSecretStatus(primary: string | undefined, fallback: string | undefined, prefix: string) {
+  if (hasPrefix(primary, prefix)) return "configured";
+  if (hasPrefix(fallback, prefix)) return "configured via fallback";
+  if (configured(primary) || configured(fallback)) return "present but not live-shaped";
+  return "missing";
+}
+
+function localEnvironmentStatus() {
+  return {
+    supabaseBootstrap: [
+      {
+        label: "NEXT_PUBLIC_SUPABASE_URL",
+        status: configured(process.env.NEXT_PUBLIC_SUPABASE_URL) ? "configured" : "missing",
+      },
+      {
+        label: "SUPABASE_SERVICE_ROLE_KEY or NEXT_PUBLIC_SUPABASE_ANON_KEY",
+        status:
+          configured(process.env.SUPABASE_SERVICE_ROLE_KEY) ||
+          configured(process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY)
+            ? "configured"
+            : "missing",
+      },
+    ],
+    finalLivePaymentRuntime: [
+      {
+        label: "Stripe live secret key",
+        status: liveSecretStatus(
+          process.env.STRIPE_LIVE_SECRET_KEY,
+          process.env.STRIPE_SECRET_KEY,
+          "sk_live_",
+        ),
+      },
+      {
+        label: "Stripe live publishable key",
+        status: liveSecretStatus(
+          process.env.NEXT_PUBLIC_STRIPE_LIVE_PUBLISHABLE_KEY,
+          process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY,
+          "pk_live_",
+        ),
+      },
+      {
+        label: "Stripe live webhook secret",
+        status: liveSecretStatus(
+          process.env.STRIPE_LIVE_WEBHOOK_SECRET,
+          process.env.STRIPE_WEBHOOK_SECRET,
+          "whsec_",
+        ),
+      },
+      {
+        label: "HTTPS production origin",
+        status: process.env.NEXT_PUBLIC_SITE_URL?.trim().startsWith("https://")
+          ? "configured"
+          : configured(process.env.NEXT_PUBLIC_SITE_URL)
+            ? "present but not HTTPS"
+            : "missing local NEXT_PUBLIC_SITE_URL; active store primary domain may satisfy deployed context",
+      },
+      {
+        label: "STRIPE_LIVE_FINANCIAL_EVENTS_VERIFIED",
+        status:
+          process.env.STRIPE_LIVE_FINANCIAL_EVENTS_VERIFIED === "true"
+            ? "true"
+            : "not true",
+      },
+      {
+        label: "TCOS_LIVE_PAYMENTS_ENABLED",
+        status:
+          process.env.TCOS_LIVE_PAYMENTS_ENABLED === "true"
+            ? "true - only valid during final go-live window after accepted preflight evidence"
+            : "off - expected until final go-live window",
+      },
+    ],
+  };
 }
 
 function redact(value: unknown) {
@@ -139,6 +217,15 @@ function printEnvironmentChecklist() {
   console.log(
     `Missing local bootstrap environment: ${missing.length ? missing.join(", ") : "none detected"}`,
   );
+  const localStatus = localEnvironmentStatus();
+  console.log("Local Supabase bootstrap status:");
+  for (const item of localStatus.supabaseBootstrap) {
+    console.log(`- ${item.label}: ${item.status}`);
+  }
+  console.log("Local final live-payment runtime status:");
+  for (const item of localStatus.finalLivePaymentRuntime) {
+    console.log(`- ${item.label}: ${item.status}`);
+  }
 }
 
 function actionPayload(
@@ -184,6 +271,7 @@ function statusPayload(
     launchLocks: actionPayload(report.summary.launchLocks),
     warnings: actionPayload(report.summary.warnings),
     environmentChecklist: LIVE_MONEY_JSON_EVIDENCE.environmentChecklist,
+    localEnvironmentStatus: localEnvironmentStatus(),
     missingEnvironmentVariables: missingEnvironmentVariables(),
     readOnlyGuarantee,
   };
@@ -244,6 +332,7 @@ main().catch((error) => {
     detail: redact(error?.message || error || "unknown error"),
     next: "Restore the missing bootstrap environment listed in missingEnvironmentVariables, then rerun npm run status:live-money.",
     environmentChecklist: LIVE_MONEY_JSON_EVIDENCE.environmentChecklist,
+    localEnvironmentStatus: localEnvironmentStatus(),
     missingEnvironmentVariables: missingEnvironmentVariables(),
     readOnlyGuarantee: failedReadOnlyGuarantee,
   };
