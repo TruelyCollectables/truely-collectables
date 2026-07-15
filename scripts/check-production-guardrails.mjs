@@ -1022,6 +1022,11 @@ assertScriptIncludes("status:build-block:json", [
 assertScriptIncludes("archive:build-block-checkpoint", [
   "node scripts/archive-build-block-checkpoint.mjs",
 ]);
+assertScriptIncludes("prepare:build-block-checkpoint", [
+  "archive:build-block-checkpoint",
+  "verify:build-block-checkpoint",
+  "archive:build-block-checkpoint && npm run verify:build-block-checkpoint",
+]);
 assertScriptIncludes("verify:build-block-checkpoint", [
   "node scripts/verify-build-block-checkpoint.mjs",
 ]);
@@ -1070,6 +1075,7 @@ assertFileIncludes("30-minute build block checkpoint verifier source", "scripts/
 assertFileIncludes("go-live safe build block commands", "scripts/status-go-live.mjs", [
   "npm run status:build-block",
   "npm --silent run status:build-block:json",
+  "npm run prepare:build-block-checkpoint",
   "npm run archive:build-block-checkpoint",
   "npm run verify:build-block-checkpoint",
   "npm --silent run verify:build-block-checkpoint:json",
@@ -1635,6 +1641,8 @@ assertFileIncludes("live money go/no-go README instructions", "README.md", [
   "npm --silent run status:go-live:json",
   "npm run status:build-block",
   "npm --silent run status:build-block:json",
+  "npm run prepare:build-block-checkpoint",
+  "one-command archive-plus-verify handoff",
   "npm run archive:build-block-checkpoint",
   "npm run verify:build-block-checkpoint",
   "npm --silent run verify:build-block-checkpoint:json",
