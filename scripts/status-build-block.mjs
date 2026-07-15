@@ -252,6 +252,13 @@ function buildCheckpoint(status) {
       retryAtLocal: status.productionDeploymentQuota?.retryAtLocal || null,
       approximateRemaining:
         status.productionDeploymentQuota?.approximateRemaining || "unknown",
+      deployTimeoutMs:
+        status.productionDeploymentQuota?.deployTimeoutMs ?? null,
+      deployTimeout:
+        status.productionDeploymentQuota?.deployTimeout || "unknown",
+      deployTimeoutEnv:
+        status.productionDeploymentQuota?.deployTimeoutEnv ||
+        "TCOS_VERCEL_DEPLOY_TIMEOUT_MS",
       vercelUploadStarted: Boolean(
         status.productionDeploymentQuota?.vercelUploadStarted,
       ),
@@ -338,6 +345,9 @@ function printText(checkpoint) {
   );
   console.log(
     `- quota approximate remaining: ${checkpoint.productionDeploymentQuota.approximateRemaining}`,
+  );
+  console.log(
+    `- Vercel deploy timeout: ${checkpoint.productionDeploymentQuota.deployTimeout}`,
   );
   console.log(
     `- Vercel upload started: ${

@@ -105,6 +105,12 @@ function assertEvidenceContract(payload) {
   if (!payload?.productionDeploymentQuota?.approximateRemaining) {
     missing.push("productionDeploymentQuota.approximateRemaining");
   }
+  if (!payload?.productionDeploymentQuota?.deployTimeout) {
+    missing.push("productionDeploymentQuota.deployTimeout");
+  }
+  if (!payload?.productionDeploymentQuota?.deployTimeoutEnv) {
+    missing.push("productionDeploymentQuota.deployTimeoutEnv");
+  }
   if (!payload?.productionDeploymentQuota?.uploadStarted) {
     missing.push("productionDeploymentQuota.uploadStarted");
   }
@@ -247,6 +253,7 @@ console.log(
     payload.productionDeploymentQuota.approximateRemaining || "unknown"
   }`,
 );
+console.log(`- Vercel deploy timeout: ${payload.productionDeploymentQuota.deployTimeout}`);
 console.log(`- Vercel upload started: ${payload.productionDeploymentQuota.uploadStarted}`);
 console.log(`- clean production domain: ${payload.productionDeploySafety.cleanProductionDomain}`);
 console.log(`- unwanted production alias: ${payload.productionDeploySafety.unwantedAlias}`);

@@ -157,6 +157,11 @@ function printText(action) {
     }`,
   );
   console.log(
+    `- Vercel deploy timeout: ${
+      action.productionDeploymentQuota?.deployTimeout || "unknown"
+    }`,
+  );
+  console.log(
     `- backup scheduler proof: ${
       action.emergencyBackup?.schedulerProof || "unknown"
     }`,

@@ -135,6 +135,10 @@ function summarizePayload(key, payload) {
         payload.productionDeploymentQuota?.retryAtLocal || null,
       quotaApproximateRemaining:
         payload.productionDeploymentQuota?.approximateRemaining || null,
+      deployTimeout: payload.productionDeploymentQuota?.deployTimeout || null,
+      deployTimeoutMs: payload.productionDeploymentQuota?.deployTimeoutMs ?? null,
+      deployTimeoutEnv:
+        payload.productionDeploymentQuota?.deployTimeoutEnv || null,
       liveMoneyState: payload.liveMoney?.state || null,
       liveMoneyMissingBootstrapEnvironment: Array.isArray(
         payload.liveMoney?.missingBootstrapEnvironment,
@@ -178,6 +182,10 @@ function summarizePayload(key, payload) {
         payload.productionDeploymentQuota?.retryAtLocal || null,
       quotaApproximateRemaining:
         payload.productionDeploymentQuota?.approximateRemaining || null,
+      deployTimeout: payload.productionDeploymentQuota?.deployTimeout || null,
+      deployTimeoutMs: payload.productionDeploymentQuota?.deployTimeoutMs ?? null,
+      deployTimeoutEnv:
+        payload.productionDeploymentQuota?.deployTimeoutEnv || null,
       liveMoneyState: payload.liveMoney?.state || null,
       liveMoneyMissingBootstrapEnvironment: Array.isArray(
         payload.liveMoney?.missingBootstrapEnvironment,
@@ -208,6 +216,10 @@ function summarizePayload(key, payload) {
       payload.productionDeploymentQuota?.retryAtLocal || null,
     quotaApproximateRemaining:
       payload.productionDeploymentQuota?.approximateRemaining || null,
+    deployTimeout: payload.productionDeploymentQuota?.deployTimeout || null,
+    deployTimeoutMs: payload.productionDeploymentQuota?.deployTimeoutMs ?? null,
+    deployTimeoutEnv:
+      payload.productionDeploymentQuota?.deployTimeoutEnv || null,
     goLiveEvidenceCapturedAtCurrentHead:
       payload.goLiveEvidence?.capturedAtCurrentHead ?? null,
     goLiveEvidenceOk: payload.goLiveEvidence?.ok ?? null,
@@ -340,6 +352,9 @@ if (jsonOutput) {
       `- quota approximate remaining: ${
         item.summary.quotaApproximateRemaining || "not recorded"
       }`,
+    );
+    console.log(
+      `- Vercel deploy timeout: ${item.summary.deployTimeout || "not recorded"}`,
     );
     if ("backupRunwayAcceptedPosture" in item.summary) {
       console.log(

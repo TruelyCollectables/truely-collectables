@@ -225,6 +225,21 @@ if (payload) {
       payload.productionDeploymentQuota?.approximateRemaining || null,
     ),
   );
+  checks.push(
+    check(
+      Boolean(payload.productionDeploymentQuota?.deployTimeout),
+      "checkpoint deploy timeout is recorded",
+      payload.productionDeploymentQuota?.deployTimeout || null,
+    ),
+  );
+  checks.push(
+    check(
+      payload.productionDeploymentQuota?.deployTimeoutEnv ===
+        "TCOS_VERCEL_DEPLOY_TIMEOUT_MS",
+      "checkpoint deploy timeout env is recorded",
+      payload.productionDeploymentQuota?.deployTimeoutEnv || null,
+    ),
+  );
   checks.push(check(payload.emergencyBackup?.verificationOk === true, "checkpoint backup verification is ok"));
   checks.push(
     check(
@@ -372,6 +387,10 @@ const verification = {
         quotaRetryAtLocal: payload.productionDeploymentQuota?.retryAtLocal || null,
         quotaApproximateRemaining:
           payload.productionDeploymentQuota?.approximateRemaining || null,
+        deployTimeout: payload.productionDeploymentQuota?.deployTimeout || null,
+        deployTimeoutMs: payload.productionDeploymentQuota?.deployTimeoutMs ?? null,
+        deployTimeoutEnv:
+          payload.productionDeploymentQuota?.deployTimeoutEnv || null,
         backupScheduleHealth: payload.emergencyBackup?.scheduleHealth || null,
         backupSchedulerProof: payload.emergencyBackup?.schedulerProof || null,
         backupRunway: payload.backupRunway || null,
@@ -442,6 +461,11 @@ if (jsonOutput) {
   console.log(
     `- quota approximate remaining: ${
       verification.checkpoint?.quotaApproximateRemaining || "not recorded"
+    }`,
+  );
+  console.log(
+    `- Vercel deploy timeout: ${
+      verification.checkpoint?.deployTimeout || "not recorded"
     }`,
   );
   console.log(

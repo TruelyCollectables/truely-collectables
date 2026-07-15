@@ -181,9 +181,23 @@ if (payload) {
   );
   checks.push(
     check(
+      Boolean(evidence.checkpoint?.summary?.deployTimeout),
+      "history checkpoint deploy timeout is recorded",
+      evidence.checkpoint?.summary?.deployTimeout || null,
+    ),
+  );
+  checks.push(
+    check(
       Boolean(evidence.nextAction?.summary?.quotaApproximateRemaining),
       "history next-action quota approximate remaining is recorded",
       evidence.nextAction?.summary?.quotaApproximateRemaining || null,
+    ),
+  );
+  checks.push(
+    check(
+      Boolean(evidence.nextAction?.summary?.deployTimeout),
+      "history next-action deploy timeout is recorded",
+      evidence.nextAction?.summary?.deployTimeout || null,
     ),
   );
   checks.push(
@@ -225,6 +239,13 @@ if (payload) {
       Boolean(evidence.goLiveRunway?.summary?.quotaApproximateRemaining),
       "history runway quota approximate remaining is recorded",
       evidence.goLiveRunway?.summary?.quotaApproximateRemaining || null,
+    ),
+  );
+  checks.push(
+    check(
+      Boolean(evidence.goLiveRunway?.summary?.deployTimeout),
+      "history runway deploy timeout is recorded",
+      evidence.goLiveRunway?.summary?.deployTimeout || null,
     ),
   );
   checks.push(
@@ -476,8 +497,12 @@ const verification = {
         goLiveRunwayArchive: payload.evidence?.goLiveRunway?.latestArchive?.filePath || null,
         checkpointQuotaApproximateRemaining:
           payload.evidence?.checkpoint?.summary?.quotaApproximateRemaining || null,
+        checkpointDeployTimeout:
+          payload.evidence?.checkpoint?.summary?.deployTimeout || null,
         nextActionQuotaApproximateRemaining:
           payload.evidence?.nextAction?.summary?.quotaApproximateRemaining || null,
+        nextActionDeployTimeout:
+          payload.evidence?.nextAction?.summary?.deployTimeout || null,
         nextActionSelectedNext:
           payload.evidence?.nextAction?.summary?.selectedNext || null,
         nextActionSelectedCommands:
@@ -488,6 +513,8 @@ const verification = {
           payload.evidence?.nextAction?.summary?.primaryCommands || [],
         runwayQuotaApproximateRemaining:
           payload.evidence?.goLiveRunway?.summary?.quotaApproximateRemaining || null,
+        runwayDeployTimeout:
+          payload.evidence?.goLiveRunway?.summary?.deployTimeout || null,
         checkpointGoLiveEvidenceOk:
           payload.evidence?.checkpoint?.summary?.goLiveEvidenceOk ?? null,
         checkpointGoLiveEvidenceCurrent:
@@ -577,8 +604,18 @@ if (jsonOutput) {
     }`,
   );
   console.log(
+    `- checkpoint Vercel deploy timeout: ${
+      verification.history?.checkpointDeployTimeout || "not recorded"
+    }`,
+  );
+  console.log(
     `- next-action quota approximate remaining: ${
       verification.history?.nextActionQuotaApproximateRemaining || "not recorded"
+    }`,
+  );
+  console.log(
+    `- next-action Vercel deploy timeout: ${
+      verification.history?.nextActionDeployTimeout || "not recorded"
     }`,
   );
   console.log(
@@ -604,6 +641,11 @@ if (jsonOutput) {
   console.log(
     `- runway quota approximate remaining: ${
       verification.history?.runwayQuotaApproximateRemaining || "not recorded"
+    }`,
+  );
+  console.log(
+    `- runway Vercel deploy timeout: ${
+      verification.history?.runwayDeployTimeout || "not recorded"
     }`,
   );
   console.log(

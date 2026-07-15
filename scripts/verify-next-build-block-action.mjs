@@ -261,6 +261,21 @@ if (payload) {
   );
   checks.push(
     check(
+      Boolean(payload.productionDeploymentQuota?.deployTimeout),
+      "next-action deploy timeout is recorded",
+      payload.productionDeploymentQuota?.deployTimeout || null,
+    ),
+  );
+  checks.push(
+    check(
+      payload.productionDeploymentQuota?.deployTimeoutEnv ===
+        "TCOS_VERCEL_DEPLOY_TIMEOUT_MS",
+      "next-action deploy timeout env is recorded",
+      payload.productionDeploymentQuota?.deployTimeoutEnv || null,
+    ),
+  );
+  checks.push(
+    check(
       payload.backupRunway?.schema === "tcos.backupRunwayStatus.v1",
       "next-action backup runway schema",
       payload.backupRunway?.schema || null,
@@ -389,6 +404,10 @@ const verification = {
         quotaRetryAtLocal: payload.productionDeploymentQuota?.retryAtLocal || null,
         quotaApproximateRemaining:
           payload.productionDeploymentQuota?.approximateRemaining || null,
+        deployTimeout: payload.productionDeploymentQuota?.deployTimeout || null,
+        deployTimeoutMs: payload.productionDeploymentQuota?.deployTimeoutMs ?? null,
+        deployTimeoutEnv:
+          payload.productionDeploymentQuota?.deployTimeoutEnv || null,
         backupRunway: payload.backupRunway || null,
         backupRunwayNextScheduledRunAtLocal:
           payload.backupRunway?.nextScheduledRunAtLocal || null,
@@ -460,6 +479,11 @@ if (jsonOutput) {
   console.log(
     `- quota approximate remaining: ${
       verification.nextAction?.quotaApproximateRemaining || "not recorded"
+    }`,
+  );
+  console.log(
+    `- Vercel deploy timeout: ${
+      verification.nextAction?.deployTimeout || "not recorded"
     }`,
   );
   console.log(

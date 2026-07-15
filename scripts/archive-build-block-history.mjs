@@ -63,8 +63,14 @@ function assertEvidenceContract(payload) {
   if (!payload?.evidence?.checkpoint?.summary?.quotaApproximateRemaining) {
     missing.push("evidence.checkpoint.summary.quotaApproximateRemaining");
   }
+  if (!payload?.evidence?.checkpoint?.summary?.deployTimeout) {
+    missing.push("evidence.checkpoint.summary.deployTimeout");
+  }
   if (!payload?.evidence?.nextAction?.summary?.quotaApproximateRemaining) {
     missing.push("evidence.nextAction.summary.quotaApproximateRemaining");
+  }
+  if (!payload?.evidence?.nextAction?.summary?.deployTimeout) {
+    missing.push("evidence.nextAction.summary.deployTimeout");
   }
   if (!payload?.evidence?.nextAction?.summary?.selectedNext) {
     missing.push("evidence.nextAction.summary.selectedNext");
@@ -80,6 +86,9 @@ function assertEvidenceContract(payload) {
   }
   if (!payload?.evidence?.goLiveRunway?.summary?.quotaApproximateRemaining) {
     missing.push("evidence.goLiveRunway.summary.quotaApproximateRemaining");
+  }
+  if (!payload?.evidence?.goLiveRunway?.summary?.deployTimeout) {
+    missing.push("evidence.goLiveRunway.summary.deployTimeout");
   }
   if (typeof payload?.evidence?.checkpoint?.summary?.goLiveEvidenceOk !== "boolean") {
     missing.push("evidence.checkpoint.summary.goLiveEvidenceOk");
@@ -273,6 +282,11 @@ console.log(
   }`,
 );
 console.log(
+  `- checkpoint Vercel deploy timeout: ${
+    payload.evidence.checkpoint.summary.deployTimeout
+  }`,
+);
+console.log(
   `- checkpoint go-live evidence ok: ${
     payload.evidence.checkpoint.summary.goLiveEvidenceOk ? "yes" : "no"
   }`,
@@ -321,6 +335,11 @@ console.log(
 console.log(
   `- next-action quota approximate remaining: ${
     payload.evidence.nextAction.summary.quotaApproximateRemaining
+  }`,
+);
+console.log(
+  `- next-action Vercel deploy timeout: ${
+    payload.evidence.nextAction.summary.deployTimeout
   }`,
 );
 console.log(`- next-action selected next: ${payload.evidence.nextAction.summary.selectedNext}`);
@@ -384,6 +403,11 @@ console.log(
 console.log(
   `- go-live runway quota approximate remaining: ${
     payload.evidence.goLiveRunway.summary.quotaApproximateRemaining
+  }`,
+);
+console.log(
+  `- go-live runway Vercel deploy timeout: ${
+    payload.evidence.goLiveRunway.summary.deployTimeout
   }`,
 );
 console.log(

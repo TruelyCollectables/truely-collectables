@@ -91,6 +91,10 @@ function quotaStatus() {
       retryAtLocal: payload.retryAtLocal || null,
       approximateRemaining: payload.remaining || "none",
       marker: payload.marker || "unknown",
+      deployTimeoutMs:
+        typeof payload.deployTimeoutMs === "number" ? payload.deployTimeoutMs : null,
+      deployTimeout: payload.deployTimeout || "unknown",
+      deployTimeoutEnv: payload.deployTimeoutEnv || "TCOS_VERCEL_DEPLOY_TIMEOUT_MS",
       uploadStarted: payload.vercelUploadStarted ? "yes" : "no",
       vercelUploadStarted: Boolean(payload.vercelUploadStarted),
       next: payload.next || "unknown",
@@ -118,6 +122,9 @@ function quotaStatus() {
     retryAtLocal: parseLine(output, "retry at or after local"),
     approximateRemaining: parseLine(output, "approximate remaining"),
     marker: parseLine(output, "marker"),
+    deployTimeoutMs: null,
+    deployTimeout: parseLine(output, "Vercel deploy timeout"),
+    deployTimeoutEnv: "TCOS_VERCEL_DEPLOY_TIMEOUT_MS",
     uploadStarted: parseLine(output, "Vercel upload started"),
     vercelUploadStarted: parseLine(output, "Vercel upload started") === "yes",
     next: parseLine(output, "next"),
@@ -733,6 +740,9 @@ function printText(status) {
   }
   console.log(
     `- quota approximate remaining: ${status.productionDeploymentQuota.approximateRemaining}`,
+  );
+  console.log(
+    `- Vercel deploy timeout: ${status.productionDeploymentQuota.deployTimeout}`,
   );
   console.log(`- Vercel upload started: ${status.productionDeploymentQuota.uploadStarted}`);
   console.log(`- next: ${status.productionDeploymentQuota.next}`);
