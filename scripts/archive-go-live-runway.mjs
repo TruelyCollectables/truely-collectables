@@ -64,6 +64,18 @@ function assertEvidenceContract(payload) {
   if (!payload?.productionDeploymentQuota?.uploadStarted) {
     missing.push("productionDeploymentQuota.uploadStarted");
   }
+  if (!payload?.emergencyBackup?.scheduleHealth?.state) {
+    missing.push("emergencyBackup.scheduleHealth.state");
+  }
+  if (!payload?.emergencyBackup?.schedulerProof?.state) {
+    missing.push("emergencyBackup.schedulerProof.state");
+  }
+  if (typeof payload?.emergencyBackup?.verification?.ok !== "boolean") {
+    missing.push("emergencyBackup.verification.ok");
+  }
+  if (!payload?.emergencyBackup?.verification?.archivePath) {
+    missing.push("emergencyBackup.verification.archivePath");
+  }
   if (!payload?.liveMoney?.state) missing.push("liveMoney.state");
   if (typeof payload?.liveMoney?.readyForRuntimeSwitch !== "boolean") {
     missing.push("liveMoney.readyForRuntimeSwitch");
@@ -135,6 +147,9 @@ console.log(
 console.log(`- quota state: ${payload.productionDeploymentQuota.state}`);
 console.log(`- quota retry at or after: ${payload.productionDeploymentQuota.retryAt}`);
 console.log(`- Vercel upload started: ${payload.productionDeploymentQuota.uploadStarted}`);
+console.log(`- emergency backup schedule health: ${payload.emergencyBackup.scheduleHealth.state}`);
+console.log(`- emergency backup scheduler proof: ${payload.emergencyBackup.schedulerProof.state}`);
+console.log(`- emergency backup verification ok: ${payload.emergencyBackup.verification.ok ? "yes" : "no"}`);
 console.log(`- live-money state: ${payload.liveMoney.state}`);
 console.log(
   `- ready for runtime switch: ${

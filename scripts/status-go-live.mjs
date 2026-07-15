@@ -106,6 +106,79 @@ function liveMoneyStatus() {
   }
 }
 
+function runNpmJson(scriptName) {
+  const npm = process.platform === "win32" ? "npm.cmd" : "npm";
+  const result = run(npm, ["--silent", "run", scriptName]);
+  const stdout = (result.stdout || "").trim();
+
+  try {
+    return {
+      ok: result.status === 0,
+      payload: JSON.parse(stdout),
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      payload: {
+        error: `Could not parse ${scriptName} JSON: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      },
+    };
+  }
+}
+
+function emergencyBackupStatus() {
+  const status = runNpmJson("status:nightly-backup:json");
+  const verification = runNpmJson("verify:nightly-backup:json");
+  const statusPayload = status.payload;
+  const verificationPayload = verification.payload;
+
+  return {
+    ok: status.ok && verification.ok && verificationPayload.ok === true,
+    statusOk: status.ok,
+    verificationOk: verification.ok && verificationPayload.ok === true,
+    backupDir: statusPayload.backupDir || verificationPayload.backupDir || "unknown",
+    datedBackupCount:
+      typeof statusPayload.backups?.count === "number"
+        ? statusPayload.backups.count
+        : verificationPayload.archiveCount || 0,
+    scheduleHealth: {
+      state: statusPayload.scheduleHealth?.state || "unknown",
+      message: statusPayload.scheduleHealth?.message || "unknown",
+      lastScheduledRunAt: statusPayload.scheduleHealth?.lastScheduledRunAt || null,
+      nextScheduledRunAt: statusPayload.scheduleHealth?.nextScheduledRunAt || null,
+    },
+    schedulerProof: {
+      state: statusPayload.schedulerProof?.state || "unknown",
+      automaticRunProven: Boolean(statusPayload.schedulerProof?.automaticRunProven),
+      message: statusPayload.schedulerProof?.message || "unknown",
+      nextAction: statusPayload.schedulerProof?.nextAction || "unknown",
+    },
+    launchdRuntime: {
+      loaded: Boolean(statusPayload.launchdRuntime?.loaded),
+      runs:
+        typeof statusPayload.launchdRuntime?.runs === "number"
+          ? statusPayload.launchdRuntime.runs
+          : null,
+      lastExitCode: statusPayload.launchdRuntime?.lastExitCode || null,
+    },
+    verification: {
+      ok: verificationPayload.ok === true,
+      failedCheckCount:
+        typeof verificationPayload.failedCheckCount === "number"
+          ? verificationPayload.failedCheckCount
+          : null,
+      archivePath: verificationPayload.archivePath || null,
+      computedSha256: verificationPayload.computedSha256 || null,
+    },
+    raw: {
+      status: statusPayload,
+      verification: verificationPayload,
+    },
+  };
+}
+
 function statusItems(items = []) {
   if (!Array.isArray(items)) return [];
   return items.map((item) => ({
@@ -128,13 +201,17 @@ function buildStatus() {
   const gitOriginMain = runGit(["rev-parse", "--short", "origin/main"]);
   const quota = quotaStatus();
   const liveMoney = liveMoneyStatus();
+  const emergencyBackup = emergencyBackupStatus();
   const payload = liveMoney.payload;
   const readOnlyGuarantee =
-    "This command only reads Git state, local quota status, and live-money JSON evidence; it starts no deploy, upload, Checkout, postage, payout, launch approval, or revocation.";
+    "This command only reads Git state, local quota status, live-money JSON evidence, and emergency-backup status/verification evidence; it starts no deploy, upload, archive creation, Git push, Checkout, postage, payout, launch approval, or revocation.";
   const safeNextCommands = [
     "npm run status:production",
     "npm --silent run status:production:json",
     "npm run status:live-money",
+    "npm run status:nightly-backup",
+    "npm run verify:nightly-backup",
+    "npm run archive:nightly-backup-verification",
     "npm run live-money:env-packet",
     "npm --silent run live-money:env-packet:json",
     "npm run live-money:vercel-commands",
@@ -146,7 +223,7 @@ function buildStatus() {
   return {
     schema: "tcos.goLiveRunwayStatus.v1",
     generatedAt: new Date().toISOString(),
-    ok: quota.ok && liveMoney.ok,
+    ok: quota.ok && liveMoney.ok && emergencyBackup.ok,
     git: {
       head: gitHead || "unknown",
       originMain: gitOriginMain || "unknown",
@@ -154,6 +231,7 @@ function buildStatus() {
       workingTreeChanges: gitStatusShort ? gitStatusShort.split("\n") : [],
     },
     productionDeploymentQuota: quota,
+    emergencyBackup,
     liveMoney: {
       ok: liveMoney.ok,
       state: payload.state || "unknown",
@@ -206,6 +284,25 @@ function printText(status) {
   console.log(`- approximate remaining: ${status.productionDeploymentQuota.approximateRemaining}`);
   console.log(`- Vercel upload started: ${status.productionDeploymentQuota.uploadStarted}`);
   console.log(`- next: ${status.productionDeploymentQuota.next}`);
+
+  console.log("");
+  console.log("Emergency backup:");
+  console.log(`- backup folder: ${status.emergencyBackup.backupDir}`);
+  console.log(`- dated backup count: ${status.emergencyBackup.datedBackupCount}`);
+  console.log(`- schedule health: ${status.emergencyBackup.scheduleHealth.state}`);
+  console.log(`- scheduler proof: ${status.emergencyBackup.schedulerProof.state}`);
+  console.log(
+    `- automatic run proven: ${
+      status.emergencyBackup.schedulerProof.automaticRunProven ? "yes" : "no"
+    }`,
+  );
+  console.log(`- launchd loaded: ${status.emergencyBackup.launchdRuntime.loaded ? "yes" : "no"}`);
+  console.log(`- launchd runs: ${status.emergencyBackup.launchdRuntime.runs ?? "unknown"}`);
+  console.log(`- verification ok: ${status.emergencyBackup.verification.ok ? "yes" : "no"}`);
+  console.log(`- failed verification checks: ${status.emergencyBackup.verification.failedCheckCount ?? "unknown"}`);
+  console.log(`- verified archive: ${status.emergencyBackup.verification.archivePath || "unknown"}`);
+  console.log(`- computed sha256: ${status.emergencyBackup.verification.computedSha256 || "unknown"}`);
+  console.log(`- next: ${status.emergencyBackup.schedulerProof.nextAction}`);
 
   console.log("");
   console.log("Live money:");
