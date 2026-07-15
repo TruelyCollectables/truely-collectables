@@ -1025,6 +1025,15 @@ assertScriptIncludes("status:build-block-history", [
 assertScriptIncludes("status:build-block-history:json", [
   "node scripts/status-build-block-history.mjs --json",
 ]);
+assertScriptIncludes("archive:build-block-history", [
+  "node scripts/archive-build-block-history.mjs",
+]);
+assertScriptIncludes("verify:build-block-history", [
+  "node scripts/verify-build-block-history.mjs",
+]);
+assertScriptIncludes("verify:build-block-history:json", [
+  "node scripts/verify-build-block-history.mjs --json",
+]);
 assertScriptIncludes("next:build-block", [
   "node scripts/next-build-block.mjs",
 ]);
@@ -1047,12 +1056,18 @@ assertScriptIncludes("prepare:build-block-checkpoint", [
   "archive:build-block-checkpoint",
   "verify:build-block-checkpoint",
   "prepare:next-build-block-action",
+  "prepare:build-block-history",
   "archive:build-block-checkpoint && npm run verify:build-block-checkpoint",
 ]);
 assertScriptIncludes("prepare:next-build-block-action", [
   "archive:next-build-block-action",
   "verify:next-build-block-action",
   "archive:next-build-block-action && npm run verify:next-build-block-action",
+]);
+assertScriptIncludes("prepare:build-block-history", [
+  "archive:build-block-history",
+  "verify:build-block-history",
+  "archive:build-block-history && npm run verify:build-block-history",
 ]);
 assertScriptIncludes("verify:build-block-checkpoint", [
   "node scripts/verify-build-block-checkpoint.mjs",
@@ -1092,6 +1107,27 @@ assertFileIncludes("30-minute build block history source", "scripts/status-build
   "Run npm run prepare:go-live-evidence, then npm run prepare:build-block-checkpoint",
   "This history command is read-only",
   "starts no deploy, upload, archive creation, Git push, Checkout, postage, payout, launch approval, or revocation",
+]);
+assertFileIncludes("30-minute build block history archive source", "scripts/archive-build-block-history.mjs", [
+  "tcos.buildBlockHistory.v1",
+  "status:build-block-history:json",
+  ".codex-run",
+  "build-block-history",
+  "Build-block history evidence archived:",
+  "all latest evidence at current pushed HEAD:",
+  "this archive helper only writes the timestamped history evidence file",
+]);
+assertFileIncludes("30-minute build block history verifier source", "scripts/verify-build-block-history.mjs", [
+  "tcos.buildBlockHistoryVerification.v1",
+  "tcos.buildBlockHistory.v1",
+  "build-block-history",
+  "history says all latest evidence is current",
+  "checkpoint archive captured current pushed HEAD",
+  "next-action archive captured current pushed HEAD",
+  "go-live runway archive captured current pushed HEAD",
+  "history preserves selected local fallback lane",
+  "safe build boundary preserves no-money/no-postage/no-deploy limits",
+  "This command only reads Git state and the latest build-block history archive",
 ]);
 assertFileIncludes("30-minute next build block action source", "scripts/next-build-block.mjs", [
   "tcos.nextBuildBlockAction.v1",
@@ -1162,6 +1198,9 @@ assertFileIncludes("go-live safe build block commands", "scripts/status-go-live.
   "npm --silent run status:build-block:json",
   "npm run status:build-block-history",
   "npm --silent run status:build-block-history:json",
+  "npm run archive:build-block-history",
+  "npm run verify:build-block-history",
+  "npm --silent run verify:build-block-history:json",
   "npm run prepare:build-block-checkpoint",
   "npm run archive:build-block-checkpoint",
   "npm run verify:build-block-checkpoint",
@@ -1736,6 +1775,7 @@ assertFileIncludes("live money go/no-go README instructions", "README.md", [
   "tcos.buildBlockCheckpoint.v1",
   "tcos.buildBlockCheckpointVerification.v1",
   "tcos.buildBlockHistory.v1",
+  "tcos.buildBlockHistoryVerification.v1",
   "npm run next:build-block",
   "npm --silent run next:build-block:json",
   "tcos.nextBuildBlockAction.v1",
@@ -1745,6 +1785,8 @@ assertFileIncludes("live money go/no-go README instructions", "README.md", [
   "selected next half-hour lane",
   "local_build_fallback",
   "latest go-live runway, build-block checkpoint, and selected next-action archives",
+  ".codex-run/build-block-history/",
+  "compact history packet",
   ".codex-run/next-build-block-action/",
   "npm run archive:next-build-block-action",
   "npm run verify:next-build-block-action",
