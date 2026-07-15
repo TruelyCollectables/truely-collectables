@@ -1025,13 +1025,28 @@ assertScriptIncludes("next:build-block", [
 assertScriptIncludes("next:build-block:json", [
   "node scripts/next-build-block.mjs --json",
 ]);
+assertScriptIncludes("archive:next-build-block-action", [
+  "node scripts/archive-next-build-block-action.mjs",
+]);
+assertScriptIncludes("verify:next-build-block-action", [
+  "node scripts/verify-next-build-block-action.mjs",
+]);
+assertScriptIncludes("verify:next-build-block-action:json", [
+  "node scripts/verify-next-build-block-action.mjs --json",
+]);
 assertScriptIncludes("archive:build-block-checkpoint", [
   "node scripts/archive-build-block-checkpoint.mjs",
 ]);
 assertScriptIncludes("prepare:build-block-checkpoint", [
   "archive:build-block-checkpoint",
   "verify:build-block-checkpoint",
+  "prepare:next-build-block-action",
   "archive:build-block-checkpoint && npm run verify:build-block-checkpoint",
+]);
+assertScriptIncludes("prepare:next-build-block-action", [
+  "archive:next-build-block-action",
+  "verify:next-build-block-action",
+  "archive:next-build-block-action && npm run verify:next-build-block-action",
 ]);
 assertScriptIncludes("verify:build-block-checkpoint", [
   "node scripts/verify-build-block-checkpoint.mjs",
@@ -1070,6 +1085,29 @@ assertFileIncludes("30-minute next build block action source", "scripts/next-bui
   "selected lane:",
   "Use this next-block action only for launch-safe local work",
   "starts no deploy, upload, archive creation, Git push, Checkout, postage, payout, launch approval, or revocation",
+]);
+assertFileIncludes("30-minute next build block action archive source", "scripts/archive-next-build-block-action.mjs", [
+  "tcos.nextBuildBlockAction.v1",
+  "next:build-block:json",
+  ".codex-run",
+  "next-build-block-action",
+  "archiveMetadata",
+  "selected lane:",
+  "Next build-block action evidence archived:",
+  "this archive helper only writes the timestamped next-action evidence file",
+]);
+assertFileIncludes("30-minute next build block action verifier source", "scripts/verify-next-build-block-action.mjs", [
+  "tcos.nextBuildBlockActionVerification.v1",
+  "tcos.nextBuildBlockAction.v1",
+  "next-build-block-action",
+  "selected lane is recognized",
+  "fallback selection preserves checkpoint handoff command",
+  "fallback selection preserves live-money/postage/deploy gates",
+  "current working tree is clean",
+  "archive metadata was captured at pushed HEAD",
+  "next-action confirms no Vercel upload started",
+  "safe build boundary preserves no-money/no-postage/no-deploy limits",
+  "This command only reads Git state and the latest next build-block action archive",
 ]);
 assertFileIncludes("30-minute build block checkpoint archive source", "scripts/archive-build-block-checkpoint.mjs", [
   "tcos.buildBlockCheckpoint.v1",
@@ -1680,10 +1718,15 @@ assertFileIncludes("live money go/no-go README instructions", "README.md", [
   "npm run next:build-block",
   "npm --silent run next:build-block:json",
   "tcos.nextBuildBlockAction.v1",
+  "tcos.nextBuildBlockActionVerification.v1",
   "concise read-only checkpoint",
   "localBuildFallback",
   "selected next half-hour lane",
   "local_build_fallback",
+  ".codex-run/next-build-block-action/",
+  "npm run archive:next-build-block-action",
+  "npm run verify:next-build-block-action",
+  "npm --silent run verify:next-build-block-action:json",
   "operator Supabase/env access or the external Vercel quota window",
   ".codex-run/build-block-checkpoint/",
   "captured at the current pushed `HEAD=origin/main` with a clean tree",
