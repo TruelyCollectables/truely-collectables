@@ -135,6 +135,12 @@ function summarizePayload(key, payload) {
         payload.productionDeploymentQuota?.retryAtLocal || null,
       liveMoneyState: payload.liveMoney?.state || null,
       backupSchedulerProof: payload.emergencyBackup?.schedulerProof || null,
+      backupRunwayAcceptedPosture:
+        payload.backupRunway?.acceptedBackupPosture ?? null,
+      backupRunwaySchedulerProofMode:
+        payload.backupRunway?.schedulerProofMode || null,
+      backupRunwayOperatorWatchRequired:
+        payload.backupRunway?.operatorWatchRequired ?? null,
     };
   }
 
@@ -152,6 +158,12 @@ function summarizePayload(key, payload) {
       quotaRetryAtLocal:
         payload.productionDeploymentQuota?.retryAtLocal || null,
       liveMoneyState: payload.liveMoney?.state || null,
+      backupRunwayAcceptedPosture:
+        payload.backupRunway?.acceptedBackupPosture ?? null,
+      backupRunwaySchedulerProofMode:
+        payload.backupRunway?.schedulerProofMode || null,
+      backupRunwayOperatorWatchRequired:
+        payload.backupRunway?.operatorWatchRequired ?? null,
     };
   }
 
@@ -273,6 +285,27 @@ if (jsonOutput) {
     console.log(
       `- quota retry at local: ${item.summary.quotaRetryAtLocal || "not recorded"}`,
     );
+    if ("backupRunwayAcceptedPosture" in item.summary) {
+      console.log(
+        `- backup runway accepted posture: ${
+          item.summary.backupRunwayAcceptedPosture ? "yes" : "no"
+        }`,
+      );
+    }
+    if ("backupRunwaySchedulerProofMode" in item.summary) {
+      console.log(
+        `- backup runway scheduler proof mode: ${
+          item.summary.backupRunwaySchedulerProofMode || "not recorded"
+        }`,
+      );
+    }
+    if ("backupRunwayOperatorWatchRequired" in item.summary) {
+      console.log(
+        `- backup runway operator watch required: ${
+          item.summary.backupRunwayOperatorWatchRequired ? "yes" : "no"
+        }`,
+      );
+    }
     console.log(`- live-money state: ${item.summary.liveMoneyState || "not recorded"}`);
   }
 

@@ -216,6 +216,48 @@ if (payload) {
   );
   checks.push(
     check(
+      evidence.checkpoint?.summary?.backupRunwayAcceptedPosture === true,
+      "history checkpoint backup runway accepted posture",
+      evidence.checkpoint?.summary?.backupRunwayAcceptedPosture,
+    ),
+  );
+  checks.push(
+    check(
+      Boolean(evidence.checkpoint?.summary?.backupRunwaySchedulerProofMode),
+      "history checkpoint backup runway scheduler proof mode",
+      evidence.checkpoint?.summary?.backupRunwaySchedulerProofMode || null,
+    ),
+  );
+  checks.push(
+    check(
+      typeof evidence.checkpoint?.summary?.backupRunwayOperatorWatchRequired === "boolean",
+      "history checkpoint backup runway operator-watch flag",
+      evidence.checkpoint?.summary?.backupRunwayOperatorWatchRequired,
+    ),
+  );
+  checks.push(
+    check(
+      evidence.nextAction?.summary?.backupRunwayAcceptedPosture === true,
+      "history next-action backup runway accepted posture",
+      evidence.nextAction?.summary?.backupRunwayAcceptedPosture,
+    ),
+  );
+  checks.push(
+    check(
+      Boolean(evidence.nextAction?.summary?.backupRunwaySchedulerProofMode),
+      "history next-action backup runway scheduler proof mode",
+      evidence.nextAction?.summary?.backupRunwaySchedulerProofMode || null,
+    ),
+  );
+  checks.push(
+    check(
+      typeof evidence.nextAction?.summary?.backupRunwayOperatorWatchRequired === "boolean",
+      "history next-action backup runway operator-watch flag",
+      evidence.nextAction?.summary?.backupRunwayOperatorWatchRequired,
+    ),
+  );
+  checks.push(
+    check(
       evidence.checkpoint?.summary?.localBuildFallbackAvailable === true,
       "history preserves local build fallback availability",
     ),
@@ -295,6 +337,18 @@ const verification = {
         nextActionGoLiveEvidenceCurrent:
           payload.evidence?.nextAction?.summary
             ?.goLiveEvidenceCapturedAtCurrentHead ?? null,
+        checkpointBackupRunwayAcceptedPosture:
+          payload.evidence?.checkpoint?.summary?.backupRunwayAcceptedPosture ?? null,
+        checkpointBackupRunwaySchedulerProofMode:
+          payload.evidence?.checkpoint?.summary?.backupRunwaySchedulerProofMode || null,
+        checkpointBackupRunwayOperatorWatchRequired:
+          payload.evidence?.checkpoint?.summary?.backupRunwayOperatorWatchRequired ?? null,
+        nextActionBackupRunwayAcceptedPosture:
+          payload.evidence?.nextAction?.summary?.backupRunwayAcceptedPosture ?? null,
+        nextActionBackupRunwaySchedulerProofMode:
+          payload.evidence?.nextAction?.summary?.backupRunwaySchedulerProofMode || null,
+        nextActionBackupRunwayOperatorWatchRequired:
+          payload.evidence?.nextAction?.summary?.backupRunwayOperatorWatchRequired ?? null,
         runwayGoLiveEvidenceOk:
           payload.evidence?.goLiveRunway?.summary?.goLiveEvidenceOk ?? null,
         runwayGoLiveEvidenceCurrent:
@@ -350,6 +404,36 @@ if (jsonOutput) {
   console.log(
     `- next-action go-live evidence current pushed HEAD: ${
       verification.history?.nextActionGoLiveEvidenceCurrent ? "yes" : "no"
+    }`,
+  );
+  console.log(
+    `- checkpoint backup runway accepted posture: ${
+      verification.history?.checkpointBackupRunwayAcceptedPosture ? "yes" : "no"
+    }`,
+  );
+  console.log(
+    `- checkpoint backup runway scheduler proof mode: ${
+      verification.history?.checkpointBackupRunwaySchedulerProofMode || "not recorded"
+    }`,
+  );
+  console.log(
+    `- checkpoint backup runway operator watch required: ${
+      verification.history?.checkpointBackupRunwayOperatorWatchRequired ? "yes" : "no"
+    }`,
+  );
+  console.log(
+    `- next-action backup runway accepted posture: ${
+      verification.history?.nextActionBackupRunwayAcceptedPosture ? "yes" : "no"
+    }`,
+  );
+  console.log(
+    `- next-action backup runway scheduler proof mode: ${
+      verification.history?.nextActionBackupRunwaySchedulerProofMode || "not recorded"
+    }`,
+  );
+  console.log(
+    `- next-action backup runway operator watch required: ${
+      verification.history?.nextActionBackupRunwayOperatorWatchRequired ? "yes" : "no"
     }`,
   );
   console.log(

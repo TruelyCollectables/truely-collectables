@@ -86,6 +86,36 @@ function assertEvidenceContract(payload) {
   ) {
     missing.push("evidence.goLiveRunway.summary.goLiveEvidenceCapturedAtCurrentHead");
   }
+  if (
+    typeof payload?.evidence?.checkpoint?.summary
+      ?.backupRunwayAcceptedPosture !== "boolean"
+  ) {
+    missing.push("evidence.checkpoint.summary.backupRunwayAcceptedPosture");
+  }
+  if (!payload?.evidence?.checkpoint?.summary?.backupRunwaySchedulerProofMode) {
+    missing.push("evidence.checkpoint.summary.backupRunwaySchedulerProofMode");
+  }
+  if (
+    typeof payload?.evidence?.checkpoint?.summary
+      ?.backupRunwayOperatorWatchRequired !== "boolean"
+  ) {
+    missing.push("evidence.checkpoint.summary.backupRunwayOperatorWatchRequired");
+  }
+  if (
+    typeof payload?.evidence?.nextAction?.summary
+      ?.backupRunwayAcceptedPosture !== "boolean"
+  ) {
+    missing.push("evidence.nextAction.summary.backupRunwayAcceptedPosture");
+  }
+  if (!payload?.evidence?.nextAction?.summary?.backupRunwaySchedulerProofMode) {
+    missing.push("evidence.nextAction.summary.backupRunwaySchedulerProofMode");
+  }
+  if (
+    typeof payload?.evidence?.nextAction?.summary
+      ?.backupRunwayOperatorWatchRequired !== "boolean"
+  ) {
+    missing.push("evidence.nextAction.summary.backupRunwayOperatorWatchRequired");
+  }
   if (typeof payload?.readiness?.allLatestEvidenceAtCurrentPushedHead !== "boolean") {
     missing.push("readiness.allLatestEvidenceAtCurrentPushedHead");
   }
@@ -179,6 +209,21 @@ console.log(
     payload.evidence.checkpoint.summary.goLiveEvidenceCapturedAtCurrentHead ? "yes" : "no"
   }`,
 );
+console.log(
+  `- checkpoint backup runway accepted posture: ${
+    payload.evidence.checkpoint.summary.backupRunwayAcceptedPosture ? "yes" : "no"
+  }`,
+);
+console.log(
+  `- checkpoint backup runway scheduler proof mode: ${
+    payload.evidence.checkpoint.summary.backupRunwaySchedulerProofMode
+  }`,
+);
+console.log(
+  `- checkpoint backup runway operator watch required: ${
+    payload.evidence.checkpoint.summary.backupRunwayOperatorWatchRequired ? "yes" : "no"
+  }`,
+);
 console.log(`- next-action archive count: ${payload.evidence.nextAction.archiveCount}`);
 console.log(
   `- next-action captured current HEAD: ${
@@ -193,6 +238,21 @@ console.log(
 console.log(
   `- next-action go-live evidence current pushed HEAD: ${
     payload.evidence.nextAction.summary.goLiveEvidenceCapturedAtCurrentHead ? "yes" : "no"
+  }`,
+);
+console.log(
+  `- next-action backup runway accepted posture: ${
+    payload.evidence.nextAction.summary.backupRunwayAcceptedPosture ? "yes" : "no"
+  }`,
+);
+console.log(
+  `- next-action backup runway scheduler proof mode: ${
+    payload.evidence.nextAction.summary.backupRunwaySchedulerProofMode
+  }`,
+);
+console.log(
+  `- next-action backup runway operator watch required: ${
+    payload.evidence.nextAction.summary.backupRunwayOperatorWatchRequired ? "yes" : "no"
   }`,
 );
 console.log(`- go-live runway archive count: ${payload.evidence.goLiveRunway.archiveCount}`);
