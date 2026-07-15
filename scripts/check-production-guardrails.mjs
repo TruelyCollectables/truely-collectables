@@ -3168,6 +3168,26 @@ assertFileOrder("seller payout release resolution gate order", "src/app/api/admi
   'if (releaseBlockReason && resolution.targetStatus === "eligible")',
   ".update({\n          payout_status: resolution.targetStatus,",
 ]);
+assertFileIncludes("seller payout cash-out request guard source", "src/app/api/admin/seller-payouts/requests/route.ts", [
+  'const reviewProtectedStatuses = new Set(["approved", "processing", "paid"])',
+  "sellerPayoutAccountReady",
+  "Seller Stripe payout verification must be active before approving, processing, or paying this cash-out request.",
+  "loadSellerPayoutRequestReviewBlockers",
+  "active review cases, held payout rows, or dry-run shipping rows",
+  "Provider payout reference is required before marking a cash-out request paid.",
+  "recordSellerPayoutAdminEvent",
+  "Payout review guards are unavailable until the order review case and payout request tables are applied.",
+]);
+assertFileOrder("seller payout cash-out request gate order", "src/app/api/admin/seller-payouts/requests/route.ts", [
+  'if (status === "paid" && !providerPayoutReference)',
+  "if (reviewProtectedStatuses.has(status))",
+  '.from("seller_payout_accounts")',
+  "!sellerPayoutAccountReady",
+  "loadSellerPayoutRequestReviewBlockers",
+  "if (blocker?.isBlocked)",
+  '.from("seller_payout_requests")',
+  ".update({\n        status,",
+]);
 assertFileIncludes("shipping exceptions evidence audit export source", "src/app/api/admin/shipping/exceptions/route.ts", [
   "shippingPurchaseAttemptAuditSentence",
   "raw_payload",
