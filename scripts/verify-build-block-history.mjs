@@ -639,6 +639,12 @@ if (jsonOutput) {
     }`,
   );
   console.log(
+    `- checkpoint backup runway next scheduled local: ${
+      verification.history?.checkpointBackupRunwayNextScheduledRunAtLocal ||
+      "not recorded"
+    }`,
+  );
+  console.log(
     `- checkpoint backup runway next: ${
       verification.history?.checkpointBackupRunwayNext || "not recorded"
     }`,
@@ -666,6 +672,12 @@ if (jsonOutput) {
   console.log(
     `- next-action backup runway operator watch required: ${
       verification.history?.nextActionBackupRunwayOperatorWatchRequired ? "yes" : "no"
+    }`,
+  );
+  console.log(
+    `- next-action backup runway next scheduled local: ${
+      verification.history?.nextActionBackupRunwayNextScheduledRunAtLocal ||
+      "not recorded"
     }`,
   );
   console.log(

@@ -1290,6 +1290,8 @@ assertFileIncludes("30-minute build block history verifier source", "scripts/ver
   "history next-action backup runway records verified archive",
   "history next-action backup runway records computed SHA-256",
   "history preserves selected local fallback lane",
+  "checkpoint backup runway next scheduled local:",
+  "next-action backup runway next scheduled local:",
   "safe build boundary preserves no-money/no-postage/no-deploy limits",
   "This command only reads Git state and the latest build-block history archive",
 ]);
