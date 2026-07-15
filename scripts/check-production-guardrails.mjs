@@ -972,6 +972,10 @@ runExpectedSuccess("go-live evidence verifier syntax check", [
   "--check",
   "scripts/verify-go-live-evidence.mjs",
 ]);
+runExpectedSuccess("go-live evidence verification archive helper syntax check", [
+  "--check",
+  "scripts/archive-go-live-evidence-verification.mjs",
+]);
 assertScriptIncludes("verify:shipping", [
   "simulate:lettertrack-evidence",
   "simulate:shipping-purchase-audit",
@@ -994,6 +998,9 @@ assertScriptIncludes("verify:go-live-evidence", [
 ]);
 assertScriptIncludes("verify:go-live-evidence:json", [
   "node scripts/verify-go-live-evidence.mjs --json",
+]);
+assertScriptIncludes("archive:go-live-evidence-verification", [
+  "node scripts/archive-go-live-evidence-verification.mjs",
 ]);
 assertScriptIncludes("status:live-money", [
   "node --import tsx scripts/status-live-money.ts --allow-blocked",
@@ -1036,6 +1043,7 @@ assertScriptIncludes("prepare:go-live-evidence", [
   "archive:nightly-backup-status",
   "archive:nightly-backup-verification",
   "prepare:live-money-bootstrap",
+  "archive:go-live-evidence-verification",
 ]);
 assertScriptIncludes("prepare:live-money-bootstrap", [
   "live-money:env-packet",
@@ -1318,6 +1326,7 @@ assertFileIncludes("go-live runway status helper source", "scripts/status-go-liv
   "Run npm run prepare:go-live-evidence",
   "npm run verify:go-live-evidence",
   "npm --silent run verify:go-live-evidence:json",
+  "npm run archive:go-live-evidence-verification",
   "npm run prepare:live-money-bootstrap",
   "preserve runway/backup proof",
   "npm run live-money:env-packet",
@@ -1409,6 +1418,7 @@ assertFileIncludes("go-live runway status helper source", "scripts/status-go-liv
   "npm run prepare:go-live-evidence",
   "npm run verify:go-live-evidence",
   "npm --silent run verify:go-live-evidence:json",
+  "npm run archive:go-live-evidence-verification",
   "npm run prepare:live-money-bootstrap",
   "npm run live-money:env-packet",
   "npm --silent run live-money:env-packet:json",
@@ -1495,6 +1505,7 @@ assertFileIncludes("live money go/no-go README instructions", "README.md", [
   "one-command operator evidence packet `npm run prepare:go-live-evidence`",
   "npm run verify:go-live-evidence",
   "npm --silent run verify:go-live-evidence:json",
+  "npm run archive:go-live-evidence-verification",
   "captured at `HEAD=origin/main` with a clean tree",
   "The targeted live-money handoff remains available as `npm run prepare:live-money-bootstrap`",
   "then `npm run status:live-money`",
@@ -4648,6 +4659,7 @@ assertFileIncludes("deploy live safety runbook", "docs/PRODUCTION_DEPLOY_RUNBOOK
   "npm run prepare:go-live-evidence",
   "npm run verify:go-live-evidence",
   "npm --silent run verify:go-live-evidence:json",
+  "npm run archive:go-live-evidence-verification",
   "one-command operator evidence packet",
   "npm run prepare:live-money-bootstrap",
   "targeted live-money handoff",
@@ -4832,6 +4844,7 @@ assertFileIncludes("deploy live safety operator manual", "docs/TCOS_OPERATOR_MAN
   "npm run prepare:go-live-evidence",
   "npm run verify:go-live-evidence",
   "npm --silent run verify:go-live-evidence:json",
+  "npm run archive:go-live-evidence-verification",
   "one-command operator evidence packet",
   "npm run prepare:live-money-bootstrap",
   "targeted live-money handoff",
@@ -4910,6 +4923,7 @@ assertFileIncludes(
     "npm run prepare:go-live-evidence",
     "npm run verify:go-live-evidence",
     "npm --silent run verify:go-live-evidence:json",
+    "npm run archive:go-live-evidence-verification",
     "one-command operator evidence packet",
     "npm run prepare:live-money-bootstrap",
     "targeted live-money handoff",

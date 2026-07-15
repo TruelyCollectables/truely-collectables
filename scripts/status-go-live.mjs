@@ -451,6 +451,7 @@ function buildStatus() {
     "npm run prepare:go-live-evidence",
     "npm run verify:go-live-evidence",
     "npm --silent run verify:go-live-evidence:json",
+    "npm run archive:go-live-evidence-verification",
     "npm run prepare:live-money-bootstrap",
     "npm run live-money:env-packet",
     "npm --silent run live-money:env-packet:json",
