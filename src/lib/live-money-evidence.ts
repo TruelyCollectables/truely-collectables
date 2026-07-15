@@ -14,7 +14,7 @@ export const LIVE_MONEY_JSON_EVIDENCE = {
     "BLOCKED_LAUNCH_GATE",
   ],
   archiveRequirement:
-    "Archive the status JSON after production smoke passes, then archive the preflight JSON during the final go-live window before changing TCOS_LIVE_PAYMENTS_ENABLED.",
+    "Archive the status JSON after production smoke passes, preferably with npm run archive:live-money, then archive the preflight JSON during the final go-live window with npm run archive:live-money:preflight before changing TCOS_LIVE_PAYMENTS_ENABLED.",
   readOnlyGuarantee:
     "Both commands are read-only evidence commands and must not create Checkout Sessions, Customers, PaymentIntents, refunds, disputes, payouts, labels, postage purchases, Coverage policies, launch approvals, or revocations.",
 } as const;
