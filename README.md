@@ -52,10 +52,12 @@ Check the scheduler and seven-backup rotation without creating an archive:
 ```bash
 npm run status:nightly-backup
 npm --silent run status:nightly-backup:json
+npm run verify:nightly-backup
+npm --silent run verify:nightly-backup:json
 npm run archive:nightly-backup-status
 ```
 
-The status helper reads only the LaunchAgent plist, launchd runtime state, backup folder, and log metadata. It does not create an archive, push Git, deploy, create Checkout, buy postage, release payouts, approve launch, or revoke anything. It also reports schedule health such as `current`, `pending_first_run`, or `overdue_or_failed` plus scheduler proof states such as `automatic_unproven`, `automatic_proven`, or `automatic_failed` with launchd loaded/runs/last-exit evidence so a missed 02:30 run or never-fired scheduler is visible. The archive helper writes timestamped status evidence under `.codex-run/nightly-backup-status/`.
+The status helper reads only the LaunchAgent plist, launchd runtime state, backup folder, and log metadata. It does not create an archive, push Git, deploy, create Checkout, buy postage, release payouts, approve launch, or revoke anything. It also reports schedule health such as `current`, `pending_first_run`, or `overdue_or_failed` plus scheduler proof states such as `automatic_unproven`, `automatic_proven`, or `automatic_failed` with launchd loaded/runs/last-exit evidence so a missed 02:30 run or never-fired scheduler is visible. The verifier reads the newest backup archive, manifest, `.sha256` file, and tar listing to prove the local archive is restorable without creating a new archive or pushing Git. The archive helper writes timestamped status evidence under `.codex-run/nightly-backup-status/`.
 
 ## Production deploy and smoke
 

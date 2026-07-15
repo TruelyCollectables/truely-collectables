@@ -9,6 +9,8 @@
     "manual:pdf": "node scripts/build-manual-pdf.mjs",
     "backup:nightly": "node scripts/nightly-emergency-backup.mjs",
     "backup:nightly:install": "node scripts/install-nightly-emergency-backup-launchd.mjs",
+    "verify:nightly-backup": "node scripts/verify-nightly-emergency-backup.mjs",
+    "verify:nightly-backup:json": "node scripts/verify-nightly-emergency-backup.mjs --json",
     "status:nightly-backup": "node scripts/status-nightly-backup.mjs",
     "status:nightly-backup:json": "node scripts/status-nightly-backup.mjs --json",
     "simulate:instacomp-jobs": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-instacomp-job-simulations.mjs",

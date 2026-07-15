@@ -269,6 +269,12 @@ assertScriptIncludes("backup:nightly", [
 assertScriptIncludes("backup:nightly:install", [
   "node scripts/install-nightly-emergency-backup-launchd.mjs",
 ]);
+assertScriptIncludes("verify:nightly-backup", [
+  "node scripts/verify-nightly-emergency-backup.mjs",
+]);
+assertScriptIncludes("verify:nightly-backup:json", [
+  "node scripts/verify-nightly-emergency-backup.mjs --json",
+]);
 assertScriptIncludes("status:nightly-backup", [
   "node scripts/status-nightly-backup.mjs",
 ]);
@@ -299,6 +305,21 @@ assertFileIncludes("nightly emergency backup helper", "scripts/nightly-emergency
   ".codex-run",
   "services/paddleocr-service/.paddlex-cache",
   "--local-only",
+]);
+assertFileIncludes("nightly emergency backup verifier", "scripts/verify-nightly-emergency-backup.mjs", [
+  "tcos.nightlyEmergencyBackupVerification.v1",
+  "archive sha256 matches .sha256 file",
+  "archive sha256 matches manifest",
+  "archive contains .git/HEAD",
+  "archive contains package.json",
+  "archive excludes node_modules",
+  "archive excludes .codex-run",
+  "readOnlyGuarantee",
+  "creates no archive",
+  "starts no Git push",
+  "--json",
+  "--archive",
+  "--backup-dir",
 ]);
 assertFileIncludes("nightly backup status helper", "scripts/status-nightly-backup.mjs", [
   "tcos.nightlyBackupStatus.v1",
@@ -379,12 +400,15 @@ assertFileIncludes("nightly emergency backup README", "README.md", [
   "npm run backup:nightly:install",
   "npm run status:nightly-backup",
   "npm --silent run status:nightly-backup:json",
+  "npm run verify:nightly-backup",
+  "npm --silent run verify:nightly-backup:json",
   "npm run archive:nightly-backup-status",
   "status helper reads only the LaunchAgent plist, launchd runtime state",
   "does not create an archive, push Git, deploy, create Checkout, buy postage, release payouts, approve launch, or revoke anything",
   "`current`, `pending_first_run`, or `overdue_or_failed`",
   "`automatic_unproven`, `automatic_proven`, or `automatic_failed`",
   "launchd loaded/runs/last-exit evidence",
+  "verifier reads the newest backup archive, manifest, `.sha256` file, and tar listing",
   ".codex-run/nightly-backup-status/",
   "~/Backups",
   "seven-backup rolling window",
@@ -399,13 +423,17 @@ assertFileIncludes("nightly emergency backup manual", "docs/TCOS_OPERATOR_MANUAL
   "npm run backup:nightly:install",
   "npm run status:nightly-backup",
   "npm --silent run status:nightly-backup:json",
+  "npm run verify:nightly-backup",
+  "npm --silent run verify:nightly-backup:json",
   "npm run archive:nightly-backup-status",
   "tcos.nightlyBackupStatus.v1",
+  "tcos.nightlyEmergencyBackupVerification.v1",
   "launchd runtime state",
   "creates no archive, starts no Git push, deploy, Checkout, postage, payout, launch approval, or revocation",
   "`current`, `pending_first_run`, or `overdue_or_failed`",
   "`automatic_unproven`, `automatic_proven`, or `automatic_failed`",
   "launchd loaded/runs/last-exit evidence",
+  "newest archive, manifest, `.sha256` file, and tar listing",
   "current schedule-health state",
   "current scheduler-proof state",
   "current launchd runtime state",
@@ -879,6 +907,10 @@ runExpectedSuccess("live money env packet archive helper syntax check", [
 runExpectedSuccess("nightly backup status archive helper syntax check", [
   "--check",
   "scripts/archive-nightly-backup-status.mjs",
+]);
+runExpectedSuccess("nightly emergency backup verifier syntax check", [
+  "--check",
+  "scripts/verify-nightly-emergency-backup.mjs",
 ]);
 runExpectedSuccess("go-live runway archive helper syntax check", [
   "--check",
