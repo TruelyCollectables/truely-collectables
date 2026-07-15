@@ -250,6 +250,25 @@ function goLiveEvidenceVerificationStatus(git) {
   }
 }
 
+function liveMoneyBootstrapNextStep(goLiveEvidence) {
+  if (goLiveEvidence?.ok === true && goLiveEvidence?.capturedAtCurrentHead === true) {
+    return "Latest go-live evidence is clean at the current pushed HEAD; run npm run live-money:vercel-bootstrap-commands, stage the Supabase bootstrap values in Vercel, mirror the same values into local .env or shell variables, then rerun npm run status:live-money.";
+  }
+
+  return "Run npm run prepare:go-live-evidence to preserve runway/backup proof, create no-secret live-money packet evidence, print bootstrap-only Vercel commands, and archive the go-live evidence verifier proof; then stage the printed values in Vercel, mirror them into local .env or shell variables, and rerun npm run status:live-money.";
+}
+
+function liveMoneyBootstrapActionCommands(goLiveEvidence) {
+  if (goLiveEvidence?.ok === true && goLiveEvidence?.capturedAtCurrentHead === true) {
+    return [
+      "npm run live-money:vercel-bootstrap-commands",
+      "npm run status:live-money",
+    ];
+  }
+
+  return ["npm run prepare:go-live-evidence"];
+}
+
 function emergencyBackupStatus() {
   const status = runNpmJson("status:nightly-backup:json");
   const verification = runNpmJson("verify:nightly-backup:json");
@@ -359,7 +378,7 @@ function printStatusItems(title, items = []) {
   }
 }
 
-function goLiveReadiness({ git, quota, emergencyBackup, liveMoney }) {
+function goLiveReadiness({ git, quota, emergencyBackup, liveMoney, goLiveEvidence }) {
   const blockers = [];
   const watchItems = [];
 
@@ -469,12 +488,10 @@ function goLiveReadiness({ git, quota, emergencyBackup, liveMoney }) {
       actionCategory: "operator_action",
       detail: liveMoney.detail,
       next: liveMoney.missingBootstrapEnvironment.length
-        ? "Run npm run prepare:go-live-evidence to preserve runway/backup proof, create no-secret live-money packet evidence, print bootstrap-only Vercel commands, and archive the go-live evidence verifier proof; then stage the printed values in Vercel, mirror them into local .env or shell variables, and rerun npm run status:live-money."
+        ? liveMoneyBootstrapNextStep(goLiveEvidence)
         : liveMoney.next,
       actionCommands: liveMoney.missingBootstrapEnvironment.length
-        ? [
-          "npm run prepare:go-live-evidence",
-          ]
+        ? liveMoneyBootstrapActionCommands(goLiveEvidence)
         : ["npm run status:live-money"],
       missingEnvironment: liveMoney.missingBootstrapEnvironment,
     });
@@ -583,6 +600,7 @@ function buildStatus() {
       quota,
       emergencyBackup,
       liveMoney: liveMoneySummary,
+      goLiveEvidence,
     }),
     productionDeploymentQuota: quota,
     productionDeploySafety,
