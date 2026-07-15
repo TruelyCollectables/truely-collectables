@@ -986,6 +986,7 @@ assertFileIncludes("go-live evidence verifier source", "scripts/verify-go-live-e
   "Vercel env add commands stage deployed runtime values only",
   "Local npm run status:live-money reads this shell's local environment",
   "redeploy only when quota is open",
+  "verification boundary:",
   "live-money verification points at latest packet archive",
 ]);
 assertFileIncludes("go-live evidence verification archive helper source", "scripts/archive-go-live-evidence-verification.mjs", [
@@ -999,6 +1000,7 @@ assertFileIncludes("go-live evidence verification archive helper source", "scrip
   "Vercel env add commands stage deployed runtime values only",
   "Local npm run status:live-money reads this shell's local environment",
   "redeploy only when quota is open",
+  "live-money verification boundary:",
 ]);
 assertScriptIncludes("verify:shipping", [
   "simulate:lettertrack-evidence",

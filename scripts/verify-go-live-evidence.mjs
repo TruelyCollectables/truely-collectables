@@ -281,6 +281,9 @@ if (jsonOutput) {
     console.log(`- ${key}: ${summary.path || "missing"}`);
     console.log(`  - archived at: ${summary.archivedAt || "unknown"}`);
     console.log(`  - archive git clean: ${summary.gitWorkingTreeClean === true ? "yes" : "no"}`);
+    if (typeof summary.verificationBoundary === "string") {
+      console.log(`  - verification boundary: ${summary.verificationBoundary}`);
+    }
   }
   console.log(`- ok: ${verification.ok ? "yes" : "no"}`);
   console.log(`- failed checks: ${verification.failedCheckCount}`);

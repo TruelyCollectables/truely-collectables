@@ -203,6 +203,11 @@ console.log(
     payload.evidence?.liveMoneyEnvPacketVerification?.path || "missing"
   }`,
 );
+console.log(
+  `- live-money verification boundary: ${
+    payload.evidence?.liveMoneyEnvPacketVerification?.verificationBoundary || "not recorded"
+  }`,
+);
 console.log(`- read-only guarantee: ${payload.readOnlyGuarantee}`);
 
 if (stderr) console.error(stderr);
