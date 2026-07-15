@@ -683,6 +683,16 @@ const checks = [
       result.text.includes("What remains before full live money") &&
       result.text.includes("Payment approval blockers before database approval") &&
       result.text.includes("Intentional live-money launch locks") &&
+      result.text.includes("Live Money JSON Evidence") &&
+      result.text.includes("Post-smoke archive command") &&
+      result.text.includes("npm --silent run status:live-money:json") &&
+      result.text.includes("Final-window preflight command") &&
+      result.text.includes("npm --silent run preflight:live-money:json") &&
+      result.text.includes("Accepted go-live states") &&
+      result.text.includes("READY_FOR_RUNTIME_SWITCH, LIVE_MONEY_OPEN") &&
+      result.text.includes("Halt states") &&
+      result.text.includes("BLOCKED_UNEVALUATED, BLOCKED_APPROVAL, READY_FOR_DATABASE_APPROVAL, BLOCKED_LAUNCH_GATE") &&
+      result.text.includes("must not create Checkout Sessions") &&
       result.text.includes("Open Live Payment Gate") &&
       result.text.includes("Production Deploy Queue") &&
       result.text.includes("Shipping Provider Unlock Action Plan") &&

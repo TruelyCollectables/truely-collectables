@@ -2,6 +2,7 @@ import Link from "next/link";
 import { DEPLOY_SAFETY } from "../../../lib/deploy-safety";
 import { buildSellerMarketplaceReceiptHandoffContract } from "../../../lib/seller-marketplace-receipt-handoff";
 import { SELLER_PROTECTION_SMOKE_COVERAGE_LINE } from "../../../lib/seller-protection-launch-contract";
+import { LIVE_MONEY_JSON_EVIDENCE } from "../../../lib/live-money-evidence";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -85,9 +86,9 @@ const manualVerificationChecks = [
     label: "Live money JSON evidence",
     href: "/admin/live-payment-launch",
     proof:
-      "Archive `npm --silent run status:live-money:json` output with schema tcos.liveMoneyGoNoGo.v1 after smoke passes; during the final go-live window, archive `npm --silent run preflight:live-money:json` showing READY_FOR_RUNTIME_SWITCH or LIVE_MONEY_OPEN before any runtime switch change.",
+      `Archive \`${LIVE_MONEY_JSON_EVIDENCE.statusCommand}\` output with schema ${LIVE_MONEY_JSON_EVIDENCE.schema} after smoke passes; during the final go-live window, archive \`${LIVE_MONEY_JSON_EVIDENCE.preflightCommand}\` showing ${LIVE_MONEY_JSON_EVIDENCE.readyStates.join(" or ")} before any runtime switch change.`,
     ifBlocked:
-      "Do not approve live payments or set TCOS_LIVE_PAYMENTS_ENABLED=true when the JSON evidence is missing, BLOCKED_UNEVALUATED, BLOCKED_APPROVAL, READY_FOR_DATABASE_APPROVAL, or BLOCKED_LAUNCH_GATE.",
+      `Do not approve live payments or set TCOS_LIVE_PAYMENTS_ENABLED=true when the JSON evidence is missing, ${LIVE_MONEY_JSON_EVIDENCE.blockedStates.join(", ")}.`,
   },
   {
     label: "Live shipping lock posture",

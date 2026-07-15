@@ -31,6 +31,7 @@ import {
   getStripeTestWebhookSecret,
 } from "../../../lib/stripe-credentials";
 import { buildSellerMarketplaceReceiptHandoffContract } from "../../../lib/seller-marketplace-receipt-handoff";
+import { LIVE_MONEY_JSON_EVIDENCE } from "../../../lib/live-money-evidence";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -1281,6 +1282,63 @@ export default async function LaunchReadinessPage() {
                 </p>
               )}
             </div>
+          </div>
+
+          <div className="mt-5 rounded border border-emerald-200 bg-white p-4">
+            <h3 className="font-bold">{LIVE_MONEY_JSON_EVIDENCE.title}</h3>
+            <p className="mt-2 text-sm font-semibold leading-6">
+              Archive this read-only JSON proof with the launch packet. Use the
+              status command after production smoke passes, then use the
+              preflight command during the final go-live window before changing{" "}
+              <code className="rounded bg-emerald-50 px-1 py-0.5">
+                TCOS_LIVE_PAYMENTS_ENABLED
+              </code>
+              .
+            </p>
+            <dl className="mt-4 grid grid-cols-1 gap-3 text-sm md:grid-cols-2">
+              <div>
+                <dt className="font-black uppercase text-emerald-700">
+                  Schema
+                </dt>
+                <dd className="mt-1 font-mono text-xs">
+                  {LIVE_MONEY_JSON_EVIDENCE.schema}
+                </dd>
+              </div>
+              <div>
+                <dt className="font-black uppercase text-emerald-700">
+                  Accepted go-live states
+                </dt>
+                <dd className="mt-1 font-mono text-xs">
+                  {LIVE_MONEY_JSON_EVIDENCE.readyStates.join(", ")}
+                </dd>
+              </div>
+              <div>
+                <dt className="font-black uppercase text-emerald-700">
+                  Post-smoke archive command
+                </dt>
+                <dd className="mt-1 font-mono text-xs">
+                  {LIVE_MONEY_JSON_EVIDENCE.statusCommand}
+                </dd>
+              </div>
+              <div>
+                <dt className="font-black uppercase text-emerald-700">
+                  Final-window preflight command
+                </dt>
+                <dd className="mt-1 font-mono text-xs">
+                  {LIVE_MONEY_JSON_EVIDENCE.preflightCommand}
+                </dd>
+              </div>
+            </dl>
+            <p className="mt-4 text-sm font-semibold leading-6">
+              Halt states:{" "}
+              <span className="font-mono text-xs">
+                {LIVE_MONEY_JSON_EVIDENCE.blockedStates.join(", ")}
+              </span>
+              .
+            </p>
+            <p className="mt-2 text-sm font-semibold leading-6">
+              {LIVE_MONEY_JSON_EVIDENCE.readOnlyGuarantee}
+            </p>
           </div>
         </section>
       ) : (
