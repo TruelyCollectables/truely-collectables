@@ -3,6 +3,40 @@ import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
+const productionDeploySafety = {
+  section: "Production Deploy Safety",
+  cleanProductionDomain: "https://truely-collectables.vercel.app",
+  unwantedAlias: "truely-collectables-tt3b.vercel.app",
+  quotaBlockCode: "api-deployments-free-per-day",
+  quotaStatusCommand: "npm run status:production",
+  verifyCommand: "npm run verify:production",
+  launchCommand: "npm run launch:production",
+  smokeCommand: "npm run smoke:production",
+  splitDeployCommand: "npm run deploy:production && npm run smoke:production",
+  quotaRetryOverrideEnv: "TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true",
+  quotaRetryOverrideFlag: "--force-quota-retry",
+  quotaMarkerClearCondition:
+    "Clear the local quota marker only after Vercel returns a parsed deployment URL and the clean production alias succeeds.",
+  deployResultRequirement:
+    "Require vercel --prod to exit successfully before parsing its deployment URL, running alias commands, or clearing the quota marker.",
+  vercelCliRequirement:
+    "Use command-pinned Vercel CLI 56.2.0 through isolated npm exec.",
+  scopeRequirement:
+    "Accept VERCEL_SCOPE only as a simple lowercase Vercel team slug before quota status, preflight, Git fetch, or Vercel CLI work.",
+  protectedSequence: [
+    "verify pushed stack",
+    "remove unwanted truely-collectables-tt3b.vercel.app alias",
+    "set clean production alias",
+    "clear local quota marker after clean alias succeeds",
+    "print DEPLOYED_PRODUCTION",
+    "print CLEAN_PRODUCTION",
+    "print smoke handoff command",
+  ],
+  launchWhenQuotaOpens:
+    "After status:production reports open, run npm run verify:production, then npm run launch:production; ship only after npm run smoke:production passes the clean production domain.",
+  readOnlyGuarantee:
+    "This deploy-safety summary is static operator guidance; status:go-live does not fetch Git, build, run Vercel, deploy, change aliases, smoke production, create Checkout, buy postage, release payouts, approve launch, or revoke anything.",
+};
 
 function run(command, args, options = {}) {
   return spawnSync(command, args, {
@@ -204,10 +238,11 @@ function buildStatus() {
   const emergencyBackup = emergencyBackupStatus();
   const payload = liveMoney.payload;
   const readOnlyGuarantee =
-    "This command only reads Git state, local quota status, live-money JSON evidence, and emergency-backup status/verification evidence; it starts no deploy, upload, archive creation, Git push, Checkout, postage, payout, launch approval, or revocation.";
+    "This command only reads Git state, local quota status, live-money JSON evidence, emergency-backup status/verification evidence, and static deploy-safety guidance; it starts no deploy, upload, archive creation, Git push, Checkout, postage, payout, launch approval, or revocation.";
   const safeNextCommands = [
     "npm run status:production",
     "npm --silent run status:production:json",
+    "npm run verify:production",
     "npm run status:live-money",
     "npm run status:nightly-backup",
     "npm run verify:nightly-backup",
@@ -231,6 +266,7 @@ function buildStatus() {
       workingTreeChanges: gitStatusShort ? gitStatusShort.split("\n") : [],
     },
     productionDeploymentQuota: quota,
+    productionDeploySafety,
     emergencyBackup,
     liveMoney: {
       ok: liveMoney.ok,
@@ -284,6 +320,25 @@ function printText(status) {
   console.log(`- approximate remaining: ${status.productionDeploymentQuota.approximateRemaining}`);
   console.log(`- Vercel upload started: ${status.productionDeploymentQuota.uploadStarted}`);
   console.log(`- next: ${status.productionDeploymentQuota.next}`);
+
+  console.log("");
+  console.log("Production deploy safety:");
+  console.log(`- clean production domain: ${status.productionDeploySafety.cleanProductionDomain}`);
+  console.log(`- unwanted alias: ${status.productionDeploySafety.unwantedAlias}`);
+  console.log(`- quota block code: ${status.productionDeploySafety.quotaBlockCode}`);
+  console.log(`- verify command: ${status.productionDeploySafety.verifyCommand}`);
+  console.log(`- launch command when quota opens: ${status.productionDeploySafety.launchCommand}`);
+  console.log(`- smoke command: ${status.productionDeploySafety.smokeCommand}`);
+  console.log(`- split deploy/smoke fallback: ${status.productionDeploySafety.splitDeployCommand}`);
+  console.log(`- quota retry override env: ${status.productionDeploySafety.quotaRetryOverrideEnv}`);
+  console.log(`- quota retry override flag: ${status.productionDeploySafety.quotaRetryOverrideFlag}`);
+  console.log(`- marker clear rule: ${status.productionDeploySafety.quotaMarkerClearCondition}`);
+  console.log(`- deploy result rule: ${status.productionDeploySafety.deployResultRequirement}`);
+  console.log(`- Vercel CLI rule: ${status.productionDeploySafety.vercelCliRequirement}`);
+  console.log(`- scope rule: ${status.productionDeploySafety.scopeRequirement}`);
+  console.log(`- protected sequence: ${status.productionDeploySafety.protectedSequence.join(" -> ")}`);
+  console.log(`- next after quota opens: ${status.productionDeploySafety.launchWhenQuotaOpens}`);
+  console.log(`- read-only guarantee: ${status.productionDeploySafety.readOnlyGuarantee}`);
 
   console.log("");
   console.log("Emergency backup:");

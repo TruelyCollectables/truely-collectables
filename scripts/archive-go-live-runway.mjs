@@ -64,6 +64,21 @@ function assertEvidenceContract(payload) {
   if (!payload?.productionDeploymentQuota?.uploadStarted) {
     missing.push("productionDeploymentQuota.uploadStarted");
   }
+  if (!payload?.productionDeploySafety?.cleanProductionDomain) {
+    missing.push("productionDeploySafety.cleanProductionDomain");
+  }
+  if (!payload?.productionDeploySafety?.unwantedAlias) {
+    missing.push("productionDeploySafety.unwantedAlias");
+  }
+  if (!payload?.productionDeploySafety?.launchCommand) {
+    missing.push("productionDeploySafety.launchCommand");
+  }
+  if (!payload?.productionDeploySafety?.smokeCommand) {
+    missing.push("productionDeploySafety.smokeCommand");
+  }
+  if (!Array.isArray(payload?.productionDeploySafety?.protectedSequence)) {
+    missing.push("productionDeploySafety.protectedSequence");
+  }
   if (!payload?.emergencyBackup?.scheduleHealth?.state) {
     missing.push("emergencyBackup.scheduleHealth.state");
   }
@@ -147,6 +162,10 @@ console.log(
 console.log(`- quota state: ${payload.productionDeploymentQuota.state}`);
 console.log(`- quota retry at or after: ${payload.productionDeploymentQuota.retryAt}`);
 console.log(`- Vercel upload started: ${payload.productionDeploymentQuota.uploadStarted}`);
+console.log(`- clean production domain: ${payload.productionDeploySafety.cleanProductionDomain}`);
+console.log(`- unwanted production alias: ${payload.productionDeploySafety.unwantedAlias}`);
+console.log(`- launch command when quota opens: ${payload.productionDeploySafety.launchCommand}`);
+console.log(`- smoke command: ${payload.productionDeploySafety.smokeCommand}`);
 console.log(`- emergency backup schedule health: ${payload.emergencyBackup.scheduleHealth.state}`);
 console.log(`- emergency backup scheduler proof: ${payload.emergencyBackup.schedulerProof.state}`);
 console.log(`- emergency backup verification ok: ${payload.emergencyBackup.verification.ok ? "yes" : "no"}`);
