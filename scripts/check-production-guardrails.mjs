@@ -1019,6 +1019,12 @@ assertScriptIncludes("status:build-block", [
 assertScriptIncludes("status:build-block:json", [
   "node scripts/status-build-block.mjs --json",
 ]);
+assertScriptIncludes("next:build-block", [
+  "node scripts/next-build-block.mjs",
+]);
+assertScriptIncludes("next:build-block:json", [
+  "node scripts/next-build-block.mjs --json",
+]);
 assertScriptIncludes("archive:build-block-checkpoint", [
   "node scripts/archive-build-block-checkpoint.mjs",
 ]);
@@ -1052,6 +1058,17 @@ assertFileIncludes("30-minute build block checkpoint source", "scripts/status-bu
   "quota_wait_launch_safe_build",
   "supabase_bootstrap_handoff",
   "Safe build boundary:",
+  "starts no deploy, upload, archive creation, Git push, Checkout, postage, payout, launch approval, or revocation",
+]);
+assertFileIncludes("30-minute next build block action source", "scripts/next-build-block.mjs", [
+  "tcos.nextBuildBlockAction.v1",
+  "status:build-block:json",
+  "selectedLane",
+  "local_build_fallback",
+  "primary_recommendation",
+  "TCOS next 30-minute build block action:",
+  "selected lane:",
+  "Use this next-block action only for launch-safe local work",
   "starts no deploy, upload, archive creation, Git push, Checkout, postage, payout, launch approval, or revocation",
 ]);
 assertFileIncludes("30-minute build block checkpoint archive source", "scripts/archive-build-block-checkpoint.mjs", [
@@ -1660,8 +1677,13 @@ assertFileIncludes("live money go/no-go README instructions", "README.md", [
   "npm --silent run verify:build-block-checkpoint:json",
   "tcos.buildBlockCheckpoint.v1",
   "tcos.buildBlockCheckpointVerification.v1",
+  "npm run next:build-block",
+  "npm --silent run next:build-block:json",
+  "tcos.nextBuildBlockAction.v1",
   "concise read-only checkpoint",
   "localBuildFallback",
+  "selected next half-hour lane",
+  "local_build_fallback",
   "operator Supabase/env access or the external Vercel quota window",
   ".codex-run/build-block-checkpoint/",
   "captured at the current pushed `HEAD=origin/main` with a clean tree",
