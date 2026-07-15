@@ -334,6 +334,8 @@ const verification = {
         quotaApproximateRemaining:
           payload.productionDeploymentQuota?.approximateRemaining || null,
         backupRunway: payload.backupRunway || null,
+        backupRunwayVerifiedArchive: payload.backupRunway?.verifiedArchive || null,
+        backupRunwayComputedSha256: payload.backupRunway?.computedSha256 || null,
         liveMoneyState: payload.liveMoney?.state || null,
       }
     : null,
@@ -407,6 +409,16 @@ if (jsonOutput) {
   console.log(
     `- backup runway operator watch required: ${
       verification.nextAction?.backupRunway?.operatorWatchRequired ? "yes" : "no"
+    }`,
+  );
+  console.log(
+    `- backup runway verified archive: ${
+      verification.nextAction?.backupRunwayVerifiedArchive || "not recorded"
+    }`,
+  );
+  console.log(
+    `- backup runway computed sha256: ${
+      verification.nextAction?.backupRunwayComputedSha256 || "not recorded"
     }`,
   );
   console.log(`- live-money state: ${verification.nextAction?.liveMoneyState || "not recorded"}`);

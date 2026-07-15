@@ -130,6 +130,16 @@ function printText(action) {
       action.backupRunway?.operatorWatchRequired ? "yes" : "no"
     }`,
   );
+  console.log(
+    `- backup runway verified archive: ${
+      action.backupRunway?.verifiedArchive || "not recorded"
+    }`,
+  );
+  console.log(
+    `- backup runway computed sha256: ${
+      action.backupRunway?.computedSha256 || "not recorded"
+    }`,
+  );
   console.log(`- live-money state: ${action.liveMoney?.state || "unknown"}`);
   console.log(
     `- missing bootstrap environment: ${

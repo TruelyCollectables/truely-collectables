@@ -228,6 +228,8 @@ console.log(
     payload.backupRunway.operatorWatchRequired ? "yes" : "no"
   }`,
 );
+console.log(`- backup runway verified archive: ${payload.backupRunway.verifiedArchive}`);
+console.log(`- backup runway computed sha256: ${payload.backupRunway.computedSha256}`);
 console.log(`- live-money state: ${payload.liveMoney.state}`);
 console.log(
   `- missing bootstrap environment: ${
