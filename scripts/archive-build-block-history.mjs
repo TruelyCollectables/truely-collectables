@@ -132,6 +132,9 @@ function assertEvidenceContract(payload) {
   if (!payload?.evidence?.checkpoint?.summary?.backupRunwayNext) {
     missing.push("evidence.checkpoint.summary.backupRunwayNext");
   }
+  if (!payload?.evidence?.checkpoint?.summary?.backupRunwayNextScheduledRunAtLocal) {
+    missing.push("evidence.checkpoint.summary.backupRunwayNextScheduledRunAtLocal");
+  }
   if (!payload?.evidence?.checkpoint?.summary?.backupRunwayVerifiedArchive) {
     missing.push("evidence.checkpoint.summary.backupRunwayVerifiedArchive");
   }
@@ -162,6 +165,9 @@ function assertEvidenceContract(payload) {
   }
   if (!payload?.evidence?.nextAction?.summary?.backupRunwayNext) {
     missing.push("evidence.nextAction.summary.backupRunwayNext");
+  }
+  if (!payload?.evidence?.nextAction?.summary?.backupRunwayNextScheduledRunAtLocal) {
+    missing.push("evidence.nextAction.summary.backupRunwayNextScheduledRunAtLocal");
   }
   if (!payload?.evidence?.nextAction?.summary?.backupRunwayVerifiedArchive) {
     missing.push("evidence.nextAction.summary.backupRunwayVerifiedArchive");
@@ -289,6 +295,9 @@ console.log(
     payload.evidence.checkpoint.summary.backupRunwayOperatorWatchRequired ? "yes" : "no"
   }`,
 );
+console.log(
+  `- checkpoint backup runway next scheduled local: ${payload.evidence.checkpoint.summary.backupRunwayNextScheduledRunAtLocal}`,
+);
 console.log(`- checkpoint backup runway next: ${payload.evidence.checkpoint.summary.backupRunwayNext}`);
 console.log(
   `- checkpoint backup runway verified archive: ${payload.evidence.checkpoint.summary.backupRunwayVerifiedArchive}`,
@@ -348,6 +357,9 @@ console.log(
   `- next-action backup runway operator watch required: ${
     payload.evidence.nextAction.summary.backupRunwayOperatorWatchRequired ? "yes" : "no"
   }`,
+);
+console.log(
+  `- next-action backup runway next scheduled local: ${payload.evidence.nextAction.summary.backupRunwayNextScheduledRunAtLocal}`,
 );
 console.log(`- next-action backup runway next: ${payload.evidence.nextAction.summary.backupRunwayNext}`);
 console.log(

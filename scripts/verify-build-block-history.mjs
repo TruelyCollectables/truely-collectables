@@ -332,6 +332,13 @@ if (payload) {
   );
   checks.push(
     check(
+      Boolean(evidence.checkpoint?.summary?.backupRunwayNextScheduledRunAtLocal),
+      "history checkpoint backup runway next scheduled local",
+      evidence.checkpoint?.summary?.backupRunwayNextScheduledRunAtLocal || null,
+    ),
+  );
+  checks.push(
+    check(
       Boolean(evidence.checkpoint?.summary?.backupRunwayVerifiedArchive),
       "history checkpoint backup runway records verified archive",
       evidence.checkpoint?.summary?.backupRunwayVerifiedArchive || null,
@@ -370,6 +377,13 @@ if (payload) {
       Boolean(evidence.nextAction?.summary?.backupRunwayNext),
       "history next-action backup runway next action",
       evidence.nextAction?.summary?.backupRunwayNext || null,
+    ),
+  );
+  checks.push(
+    check(
+      Boolean(evidence.nextAction?.summary?.backupRunwayNextScheduledRunAtLocal),
+      "history next-action backup runway next scheduled local",
+      evidence.nextAction?.summary?.backupRunwayNextScheduledRunAtLocal || null,
     ),
   );
   checks.push(
@@ -493,6 +507,9 @@ const verification = {
           payload.evidence?.checkpoint?.summary?.backupRunwayOperatorWatchRequired ?? null,
         checkpointBackupRunwayNext:
           payload.evidence?.checkpoint?.summary?.backupRunwayNext || null,
+        checkpointBackupRunwayNextScheduledRunAtLocal:
+          payload.evidence?.checkpoint?.summary?.backupRunwayNextScheduledRunAtLocal ||
+          null,
         checkpointBackupRunwayVerifiedArchive:
           payload.evidence?.checkpoint?.summary?.backupRunwayVerifiedArchive || null,
         checkpointBackupRunwayComputedSha256:
@@ -505,6 +522,9 @@ const verification = {
           payload.evidence?.nextAction?.summary?.backupRunwayOperatorWatchRequired ?? null,
         nextActionBackupRunwayNext:
           payload.evidence?.nextAction?.summary?.backupRunwayNext || null,
+        nextActionBackupRunwayNextScheduledRunAtLocal:
+          payload.evidence?.nextAction?.summary?.backupRunwayNextScheduledRunAtLocal ||
+          null,
         nextActionBackupRunwayVerifiedArchive:
           payload.evidence?.nextAction?.summary?.backupRunwayVerifiedArchive || null,
         nextActionBackupRunwayComputedSha256:

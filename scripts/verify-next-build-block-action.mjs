@@ -257,6 +257,13 @@ if (payload) {
   );
   checks.push(
     check(
+      Boolean(payload.backupRunway?.nextScheduledRunAtLocal),
+      "next-action backup runway next scheduled local is recorded",
+      payload.backupRunway?.nextScheduledRunAtLocal || null,
+    ),
+  );
+  checks.push(
+    check(
       Boolean(payload.backupRunway?.next),
       "next-action backup runway next action",
       payload.backupRunway?.next || null,
@@ -350,6 +357,8 @@ const verification = {
         quotaApproximateRemaining:
           payload.productionDeploymentQuota?.approximateRemaining || null,
         backupRunway: payload.backupRunway || null,
+        backupRunwayNextScheduledRunAtLocal:
+          payload.backupRunway?.nextScheduledRunAtLocal || null,
         backupRunwayNext: payload.backupRunway?.next || null,
         backupRunwayVerifiedArchive: payload.backupRunway?.verifiedArchive || null,
         backupRunwayComputedSha256: payload.backupRunway?.computedSha256 || null,
@@ -428,6 +437,11 @@ if (jsonOutput) {
   console.log(
     `- backup runway operator watch required: ${
       verification.nextAction?.backupRunway?.operatorWatchRequired ? "yes" : "no"
+    }`,
+  );
+  console.log(
+    `- backup runway next scheduled local: ${
+      verification.nextAction?.backupRunwayNextScheduledRunAtLocal || "not recorded"
     }`,
   );
   console.log(

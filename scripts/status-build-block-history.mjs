@@ -148,6 +148,8 @@ function summarizePayload(key, payload) {
         payload.backupRunway?.schedulerProofMode || null,
       backupRunwayOperatorWatchRequired:
         payload.backupRunway?.operatorWatchRequired ?? null,
+      backupRunwayNextScheduledRunAtLocal:
+        payload.backupRunway?.nextScheduledRunAtLocal || null,
       backupRunwayNext: payload.backupRunway?.next || null,
       backupRunwayVerifiedArchive: payload.backupRunway?.verifiedArchive || null,
       backupRunwayComputedSha256: payload.backupRunway?.computedSha256 || null,
@@ -186,6 +188,8 @@ function summarizePayload(key, payload) {
         payload.backupRunway?.schedulerProofMode || null,
       backupRunwayOperatorWatchRequired:
         payload.backupRunway?.operatorWatchRequired ?? null,
+      backupRunwayNextScheduledRunAtLocal:
+        payload.backupRunway?.nextScheduledRunAtLocal || null,
       backupRunwayNext: payload.backupRunway?.next || null,
       backupRunwayVerifiedArchive: payload.backupRunway?.verifiedArchive || null,
       backupRunwayComputedSha256: payload.backupRunway?.computedSha256 || null,
@@ -348,6 +352,13 @@ if (jsonOutput) {
       console.log(
         `- backup runway operator watch required: ${
           item.summary.backupRunwayOperatorWatchRequired ? "yes" : "no"
+        }`,
+      );
+    }
+    if ("backupRunwayNextScheduledRunAtLocal" in item.summary) {
+      console.log(
+        `- backup runway next scheduled local: ${
+          item.summary.backupRunwayNextScheduledRunAtLocal || "not recorded"
         }`,
       );
     }
