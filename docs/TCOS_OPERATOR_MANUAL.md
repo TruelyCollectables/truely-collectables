@@ -4695,7 +4695,9 @@ The MacBook nightly emergency backup is a fast source recovery path for daily wo
 npm run backup:nightly
 ```
 
-By default it creates `~/TCOS_BACKUP/nightly/truely-collectables-nightly-*.tar.gz`, a `.sha256` checksum file, and a `.manifest.json` evidence file. The archive preserves the working repository, `.git` history, uncommitted working-tree files, and ignored `.env*` files for local emergency restore. It intentionally excludes rebuildable or noisy folders such as `node_modules`, `.next`, `.next-*`, `out`, `build`, `.codex-run`, `TCOS_BACKUP`, PaddleOCR virtual environments/caches, `coverage`, `.venv`, `.DS_Store`, and `*.tsbuildinfo`.
+By default it creates `~/Backups/truely-collectables-nightly-*.tar.gz`, a `.sha256` checksum file, and a `.manifest.json` evidence file on the MacBook. On Windows, the matching drive-root example is `C:\Backups\`. Modern macOS blocks unprivileged creation of a true `/Backups` drive-root folder; if an admin creates and owns `/Backups`, reinstall the scheduler with `npm run backup:nightly:install -- --backup-dir /Backups`. The archive preserves the working repository, `.git` history, uncommitted working-tree files, and ignored `.env*` files for local emergency restore. It intentionally excludes rebuildable or noisy folders such as `node_modules`, `.next`, `.next-*`, `out`, `build`, `.codex-run`, `TCOS_BACKUP`, PaddleOCR virtual environments/caches, `coverage`, `.venv`, `.DS_Store`, and `*.tsbuildinfo`.
+
+Retention is a seven-backup rolling window. Before day 8 is written, the oldest dated backup is removed so the new dated backup replaces day 1. Day 9 replaces day 2, and the cycle continues. The default `TCOS_NIGHTLY_BACKUP_KEEP` value is `7`.
 
 The same command also attempts `git push origin HEAD:main` when the current branch is `main`. That Git leg only pushes already-committed source. It does not run `git add`, does not create an automatic commit, and does not publish ignored `.env*` files or random untracked files. If the working tree is dirty, the dirty files are captured by the local Mac archive and the manifest notes that Git only received committed source.
 
@@ -4705,9 +4707,9 @@ Install the nightly macOS LaunchAgent with:
 npm run backup:nightly:install
 ```
 
-The installer writes `~/Library/LaunchAgents/com.truelycollectables.nightly-emergency-backup.plist`, schedules the backup for 02:30 local time, and writes logs under `~/TCOS_BACKUP/nightly/logs`. Use `npm run backup:nightly:install -- --no-load` to write the plist without loading it. Use `npm run backup:nightly -- --local-only` for a no-network emergency archive, or `npm run backup:nightly -- --backup-dir .codex-run/nightly-backup-test --local-only` for a workspace-local test.
+The installer writes `~/Library/LaunchAgents/com.truelycollectables.nightly-emergency-backup.plist`, schedules the backup for 02:30 local time, passes the selected backup folder through `TCOS_NIGHTLY_BACKUP_DIR`, and writes logs under `~/Backups/logs` unless `--backup-dir` is supplied. Use `npm run backup:nightly:install -- --no-load` to write the plist without loading it. Use `npm run backup:nightly -- --local-only` for a no-network emergency archive, or `npm run backup:nightly -- --backup-dir .codex-run/nightly-backup-test --local-only` for a workspace-local test.
 
-Treat `~/TCOS_BACKUP/nightly` like a password vault because local archives can include production-capable `.env*` secrets. Do not upload the tarballs to public cloud storage or commit them to Git.
+Treat the backup folder like a password vault because local archives can include production-capable `.env*` secrets. Do not upload the tarballs to public cloud storage or commit them to Git.
 
 The current disaster-recovery snapshot created on 2026-07-11 is fully verified in the local location below. The second path is the intended Transcend target:
 

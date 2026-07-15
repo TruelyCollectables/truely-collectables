@@ -31,13 +31,13 @@ npm run manual:pdf
 
 ## Nightly emergency backups
 
-The MacBook nightly backup command creates a timestamped local archive under `~/TCOS_BACKUP/nightly` and then pushes already-committed source to `origin/main`:
+The MacBook nightly backup command creates a timestamped local archive in `~/Backups` and then pushes already-committed source to `origin/main`:
 
 ```bash
 npm run backup:nightly
 ```
 
-The local archive includes `.git` history and ignored `.env*` files for emergency restore, while excluding rebuildable folders such as `node_modules`, `.next`, `.codex-run`, Paddle caches, and TypeScript build info. Git push only syncs committed source; the command does not auto-add untracked files or commit ignored secrets.
+The local archive includes `.git` history and ignored `.env*` files for emergency restore, while excluding rebuildable folders such as `node_modules`, `.next`, `.codex-run`, Paddle caches, and TypeScript build info. Git push only syncs committed source; the command does not auto-add untracked files or commit ignored secrets. The default retention is a seven-backup rolling window: before day 8 is written, the oldest dated backup is removed so the new dated backup replaces day 1; day 9 replaces day 2, and so on.
 
 To install the macOS nightly scheduler at 2:30 AM local time:
 
@@ -45,7 +45,7 @@ To install the macOS nightly scheduler at 2:30 AM local time:
 npm run backup:nightly:install
 ```
 
-Use `npm run backup:nightly -- --local-only` for a no-network local archive, or `npm run backup:nightly -- --backup-dir .codex-run/nightly-backup-test --local-only` for a workspace-local test.
+Use `npm run backup:nightly -- --local-only` for a no-network local archive, or `npm run backup:nightly -- --backup-dir .codex-run/nightly-backup-test --local-only` for a workspace-local test. On Windows, the matching drive-root folder would be `C:\Backups`. On modern macOS, a true `/Backups` drive-root folder requires admin-created permissions first; after creating it, reinstall with `npm run backup:nightly:install -- --backup-dir /Backups`.
 
 ## Production deploy and smoke
 

@@ -40,6 +40,14 @@ function timestampForFile(date = new Date()) {
   return date.toISOString().replace(/[:.]/g, "-");
 }
 
+function defaultBackupDir() {
+  if (process.platform === "win32") {
+    return "C:\\Backups";
+  }
+
+  return path.join(os.homedir(), "Backups");
+}
+
 function run(command, commandArgs, options = {}) {
   return spawnSync(command, commandArgs, {
     cwd: options.cwd,
@@ -86,7 +94,7 @@ async function sha256File(filePath) {
 }
 
 function pruneBackups(backupDir, keep) {
-  if (!Number.isInteger(keep) || keep <= 0) {
+  if (!Number.isInteger(keep) || keep < 0) {
     return [];
   }
 
@@ -148,8 +156,8 @@ const skipPrune = hasFlag("--skip-prune");
 const backupDirInput =
   readOption("--backup-dir") ||
   process.env.TCOS_NIGHTLY_BACKUP_DIR ||
-  "~/TCOS_BACKUP/nightly";
-const keep = parseKeep(readOption("--keep") || process.env.TCOS_NIGHTLY_BACKUP_KEEP || "14");
+  defaultBackupDir();
+const keep = parseKeep(readOption("--keep") || process.env.TCOS_NIGHTLY_BACKUP_KEEP || "7");
 const backupDir = path.resolve(resolveHome(backupDirInput));
 const repoName = path.basename(repoRoot);
 const repoParent = path.dirname(repoRoot);
@@ -216,6 +224,7 @@ const manifest = {
   prune: {
     requested: !skipPrune,
     keep,
+    rotation: "Keep seven dated backups. Before creating day 8, delete the oldest dated backup so the new file replaces the first day in the rolling window.",
     removed: [],
   },
 };
@@ -227,6 +236,10 @@ if (dryRun) {
 }
 
 fs.mkdirSync(backupDir, { recursive: true });
+
+if (!skipPrune) {
+  manifest.prune.removed = pruneBackups(backupDir, keep - 1);
+}
 
 const tarArgs = [
   "-czf",
@@ -261,10 +274,6 @@ if (!localOnly) {
   }
 }
 
-if (!skipPrune) {
-  manifest.prune.removed = pruneBackups(backupDir, keep);
-}
-
 fs.writeFileSync(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
 
 console.log(`Local emergency archive: ${archivePath}`);
@@ -284,6 +293,10 @@ if (gitStatusLines.length > 0) {
   console.log(
     `Working tree note: ${gitStatusLines.length} local change line(s) were captured in the local archive; Git only received already-committed source.`,
   );
+}
+
+if (manifest.prune.removed.length > 0) {
+  console.log(`Rolling retention: removed ${manifest.prune.removed.length} old backup file(s) before creating this dated backup.`);
 }
 
 if (manifest.gitPush.attempted && !manifest.gitPush.ok) {

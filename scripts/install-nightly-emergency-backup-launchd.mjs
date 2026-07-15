@@ -45,6 +45,18 @@ function shellQuote(value) {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
+function resolveHome(input) {
+  if (input === "~") {
+    return os.homedir();
+  }
+
+  if (input.startsWith("~/")) {
+    return path.join(os.homedir(), input.slice(2));
+  }
+
+  return input;
+}
+
 function run(command, commandArgs, options = {}) {
   return spawnSync(command, commandArgs, {
     encoding: "utf8",
@@ -66,6 +78,10 @@ function resolveNpmPath() {
   }
 
   return "npm";
+}
+
+function defaultBackupRoot() {
+  return path.join(os.homedir(), "Backups");
 }
 
 const repoRoot = process.cwd();
@@ -90,16 +106,28 @@ const minute = parseSchedulePart("--minute", "30", 0, 59);
 const noLoad = hasFlag("--no-load");
 const home = os.homedir();
 const launchAgentsDir = path.join(home, "Library", "LaunchAgents");
-const backupRoot = path.join(home, "TCOS_BACKUP", "nightly");
+const backupRoot = path.resolve(
+  resolveHome(readOption("--backup-dir") || process.env.TCOS_NIGHTLY_BACKUP_DIR || defaultBackupRoot()),
+);
 const logsDir = path.join(backupRoot, "logs");
 const plistPath = path.join(launchAgentsDir, `${label}.plist`);
 const npmPath = resolveNpmPath();
-const command = `cd ${shellQuote(repoRoot)} && ${shellQuote(npmPath)} run backup:nightly`;
+const command = `cd ${shellQuote(repoRoot)} && TCOS_NIGHTLY_BACKUP_DIR=${shellQuote(backupRoot)} ${shellQuote(npmPath)} run backup:nightly`;
 const uid = typeof process.getuid === "function" ? process.getuid() : null;
 const target = uid === null ? null : `gui/${uid}`;
 
-fs.mkdirSync(launchAgentsDir, { recursive: true });
-fs.mkdirSync(logsDir, { recursive: true });
+try {
+  fs.mkdirSync(launchAgentsDir, { recursive: true });
+  fs.mkdirSync(logsDir, { recursive: true });
+} catch (error) {
+  if (error?.code === "EACCES" || error?.code === "EPERM" || error?.code === "ENOENT") {
+    throw new Error(
+      `Could not create backup log folder at ${logsDir}. On modern macOS, a true /Backups drive-root folder usually requires an admin-created writable folder first. Use the default ${path.join(home, "Backups")} folder, or create/chown /Backups manually and rerun with --backup-dir /Backups.`,
+    );
+  }
+
+  throw error;
+}
 
 const plist = `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
