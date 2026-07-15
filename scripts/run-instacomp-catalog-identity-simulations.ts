@@ -3,6 +3,7 @@ import {
   attachInstaCompCatalogSourcePolicy,
   buildInstaCompCatalogLookupPlan,
   buildInstaCompCatalogCompGate,
+  buildInstaCompCatalogOperatorReviewPacket,
   buildInstaCompCatalogProviderCompGate,
   evaluateInstaCompCatalogSourcePolicy,
   resolveInstaCompCatalogIdentity,
@@ -17,8 +18,10 @@ const CATALOG_IDENTITY_EXPECTED_SCENARIO_KEYS = [
   "catalog_lookup_plan_filters_sources_before_comps",
   "catalog_source_policy_attaches_usage_to_candidates",
   "provider_result_aggregation_confirms_catalog_before_comps",
+  "operator_review_packet_allows_money_claims_only_after_catalog_confirmed",
   "unapproved_provider_candidates_are_ignored",
   "provider_failures_preserved_when_no_usable_candidates",
+  "operator_review_packet_blocks_money_claims_when_review_required",
   "catalog_confirms_exact_parallel_before_comps",
   "catalog_confirmed_gate_uses_catalog_fields_for_exact_comps",
   "unapproved_source_forces_review_required",
@@ -246,6 +249,54 @@ function runCatalogIdentitySimulationSuite() {
     ),
   );
 
+  const confirmedReviewPacket = buildInstaCompCatalogOperatorReviewPacket(
+    { ...target, variation: null },
+    [approvedSourcePolicy],
+    [
+      {
+        source: "fixture_checklist",
+        status: "fulfilled",
+        candidates: [catalogCandidateIdentity({})],
+      },
+    ],
+  );
+  scenarios.push(
+    scenario(
+      "operator_review_packet_allows_money_claims_only_after_catalog_confirmed",
+      "The operator review packet exposes the selected catalog match and allows exact comps, public claims, auto-price, and trade-value recommendations only after catalog confirmation.",
+      confirmedReviewPacket.status === "catalog_confirmed" &&
+        confirmedReviewPacket.operatorState === "ready_for_exact_comps" &&
+        confirmedReviewPacket.exactCompSearchAllowed &&
+        confirmedReviewPacket.publicListingClaimAllowed &&
+        confirmedReviewPacket.autoPriceAllowed &&
+        confirmedReviewPacket.tradeValueRecommendationAllowed &&
+        confirmedReviewPacket.selectedMatch?.catalogId ===
+          "fixture-2023-tcu-usc17-gold-ref" &&
+        confirmedReviewPacket.selectedMatch.identity.parallel ===
+          "Gold Refractor" &&
+        confirmedReviewPacket.operatorAction.includes(
+          "Catalog identity is confirmed",
+        ) &&
+        confirmedReviewPacket.safeUseBoundary.includes(
+          "Catalog identity must be confirmed",
+        ),
+      {
+        status: confirmedReviewPacket.status,
+        operatorState: confirmedReviewPacket.operatorState,
+        selectedMatch: confirmedReviewPacket.selectedMatch,
+        exactCompSearchAllowed:
+          confirmedReviewPacket.exactCompSearchAllowed,
+        publicListingClaimAllowed:
+          confirmedReviewPacket.publicListingClaimAllowed,
+        autoPriceAllowed: confirmedReviewPacket.autoPriceAllowed,
+        tradeValueRecommendationAllowed:
+          confirmedReviewPacket.tradeValueRecommendationAllowed,
+        operatorAction: confirmedReviewPacket.operatorAction,
+        safeUseBoundary: confirmedReviewPacket.safeUseBoundary,
+      },
+    ),
+  );
+
   const mixedProviderAggregation = aggregateInstaCompCatalogProviderResults(
     target,
     [approvedSourcePolicy, unapprovedSourcePolicy],
@@ -330,6 +381,43 @@ function runCatalogIdentitySimulationSuite() {
           failedProviderGate.providerAggregation.providerSummaries,
         providerWarnings:
           failedProviderGate.providerAggregation.providerWarnings,
+      },
+    ),
+  );
+
+  const reviewPacket = buildInstaCompCatalogOperatorReviewPacket(
+    target,
+    [approvedSourcePolicy],
+    failedProviderResults,
+  );
+  scenarios.push(
+    scenario(
+      "operator_review_packet_blocks_money_claims_when_review_required",
+      "The operator review packet keeps exact comps, public claims, auto-price, and trade-value recommendations blocked when catalog identity needs review.",
+      reviewPacket.status === "review_required" &&
+        reviewPacket.operatorState === "needs_operator_review" &&
+        reviewPacket.exactCompSearchAllowed === false &&
+        reviewPacket.publicListingClaimAllowed === false &&
+        reviewPacket.autoPriceAllowed === false &&
+        reviewPacket.tradeValueRecommendationAllowed === false &&
+        reviewPacket.providerWarnings.some((warning) =>
+          warning.includes("catalog provider lookup timed out"),
+        ) &&
+        reviewPacket.reviewReasons.includes(
+          "catalog identity unresolved before exact comps",
+        ) &&
+        reviewPacket.operatorAction.includes("approved catalog source"),
+      {
+        status: reviewPacket.status,
+        operatorState: reviewPacket.operatorState,
+        exactCompSearchAllowed: reviewPacket.exactCompSearchAllowed,
+        publicListingClaimAllowed: reviewPacket.publicListingClaimAllowed,
+        autoPriceAllowed: reviewPacket.autoPriceAllowed,
+        tradeValueRecommendationAllowed:
+          reviewPacket.tradeValueRecommendationAllowed,
+        providerWarnings: reviewPacket.providerWarnings,
+        reviewReasons: reviewPacket.reviewReasons,
+        operatorAction: reviewPacket.operatorAction,
       },
     ),
   );

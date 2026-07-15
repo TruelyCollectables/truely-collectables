@@ -124,6 +124,38 @@ export type InstaCompCatalogProviderCompGate = InstaCompCatalogCompGate & {
   providerAggregation: InstaCompCatalogProviderAggregation;
 };
 
+export type InstaCompCatalogReviewMatch = {
+  catalogId: string;
+  source: string;
+  sourceLabel: string;
+  sourceUrl: string;
+  score: number;
+  matchedEvidence: string[];
+  mismatchedEvidence: string[];
+  missingEvidence: string[];
+  criticalMismatch: boolean;
+  identity: InstaCompCatalogIdentityInput;
+};
+
+export type InstaCompCatalogOperatorReviewPacket = {
+  status: "catalog_confirmed" | "review_required";
+  operatorState: "ready_for_exact_comps" | "needs_operator_review";
+  exactCompSearchAllowed: boolean;
+  trustedForExactComps: boolean;
+  publicListingClaimAllowed: boolean;
+  autoPriceAllowed: boolean;
+  tradeValueRecommendationAllowed: boolean;
+  selectedMatch: InstaCompCatalogReviewMatch | null;
+  alternateMatches: InstaCompCatalogReviewMatch[];
+  providerSummaries: InstaCompCatalogProviderSummary[];
+  providerWarnings: string[];
+  reviewReasons: string[];
+  suggestedQuestion: string | null;
+  operatorAction: string;
+  safeUseBoundary: string;
+  gate: InstaCompCatalogProviderCompGate;
+};
+
 export type InstaCompCatalogCandidateScore = {
   candidate: InstaCompCatalogCandidate;
   score: number;
@@ -642,6 +674,36 @@ function candidateToCompIdentity(
   };
 }
 
+function candidateScoreToReviewMatch(
+  score: InstaCompCatalogCandidateScore,
+): InstaCompCatalogReviewMatch {
+  return {
+    catalogId: score.candidate.catalogId,
+    source: score.candidate.source,
+    sourceLabel: score.candidate.sourceLabel,
+    sourceUrl: score.candidate.sourceUrl,
+    score: score.score,
+    matchedEvidence: score.matchedEvidence,
+    mismatchedEvidence: score.mismatchedEvidence,
+    missingEvidence: score.missingEvidence,
+    criticalMismatch: score.criticalMismatch,
+    identity: {
+      player: score.candidate.player,
+      year: score.candidate.year,
+      brand: score.candidate.brand,
+      setName: score.candidate.setName,
+      cardNumber: score.candidate.cardNumber,
+      parallel: score.candidate.parallel,
+      variation: score.candidate.variation,
+      serialRun: score.candidate.serialRun,
+      team: score.candidate.team,
+      sport: score.candidate.sport,
+      isAuto: score.candidate.isAuto,
+      isRelic: score.candidate.isRelic,
+    },
+  };
+}
+
 export function buildInstaCompCatalogCompGate(
   input: InstaCompCatalogIdentityInput,
   candidates: InstaCompCatalogCandidate[],
@@ -696,5 +758,48 @@ export function buildInstaCompCatalogProviderCompGate(
         ? [...providerAggregation.reviewReasons, ...compGate.reviewReasons]
         : compGate.reviewReasons,
     providerAggregation,
+  };
+}
+
+export function buildInstaCompCatalogOperatorReviewPacket(
+  input: InstaCompCatalogIdentityInput,
+  sources: InstaCompCatalogSourcePolicy[],
+  providerResults: InstaCompCatalogProviderResult[],
+): InstaCompCatalogOperatorReviewPacket {
+  const gate = buildInstaCompCatalogProviderCompGate(
+    input,
+    sources,
+    providerResults,
+  );
+  const confirmed = gate.status === "catalog_confirmed";
+  const selectedMatch = gate.resolution.selectedMatch
+    ? candidateScoreToReviewMatch(gate.resolution.selectedMatch)
+    : null;
+  const alternateMatches = gate.resolution.alternateMatches.map(
+    candidateScoreToReviewMatch,
+  );
+  const operatorAction = confirmed
+    ? "Catalog identity is confirmed; use catalog-normalized fields for exact comps while still reviewing photos before activation."
+    : gate.suggestedQuestion ||
+      "Confirm the exact card identity from an approved catalog source before using exact comps, public listing claims, auto-pricing, or trade-value recommendations.";
+
+  return {
+    status: gate.status,
+    operatorState: confirmed ? "ready_for_exact_comps" : "needs_operator_review",
+    exactCompSearchAllowed: gate.exactCompSearchAllowed,
+    trustedForExactComps: gate.trustedForExactComps,
+    publicListingClaimAllowed: confirmed,
+    autoPriceAllowed: confirmed,
+    tradeValueRecommendationAllowed: confirmed,
+    selectedMatch,
+    alternateMatches,
+    providerSummaries: gate.providerAggregation.providerSummaries,
+    providerWarnings: gate.providerAggregation.providerWarnings,
+    reviewReasons: gate.reviewReasons,
+    suggestedQuestion: gate.suggestedQuestion,
+    operatorAction,
+    safeUseBoundary:
+      "Catalog identity must be confirmed before exact comps, public rare-variant claims, auto-pricing, trade-value recommendations, or activation.",
+    gate,
   };
 }
