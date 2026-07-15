@@ -1013,11 +1013,27 @@ assertScriptIncludes("status:production", [
 assertScriptIncludes("status:production:json", [
   "node scripts/deploy-production.mjs --quota-status --json",
 ]);
+assertScriptIncludes("status:build-block", [
+  "node scripts/status-build-block.mjs",
+]);
+assertScriptIncludes("status:build-block:json", [
+  "node scripts/status-build-block.mjs --json",
+]);
 assertScriptIncludes("status:go-live", [
   "node scripts/status-go-live.mjs",
 ]);
 assertScriptIncludes("status:go-live:json", [
   "node scripts/status-go-live.mjs --json",
+]);
+assertFileIncludes("30-minute build block checkpoint source", "scripts/status-build-block.mjs", [
+  "tcos.buildBlockCheckpoint.v1",
+  "status:go-live:json",
+  "TCOS 30-minute build block checkpoint:",
+  "block focus:",
+  "quota_wait_launch_safe_build",
+  "supabase_bootstrap_handoff",
+  "Safe build boundary:",
+  "starts no deploy, upload, archive creation, Git push, Checkout, postage, payout, launch approval, or revocation",
 ]);
 assertScriptIncludes("verify:go-live-evidence", [
   "node scripts/verify-go-live-evidence.mjs",
@@ -1578,6 +1594,10 @@ assertFileIncludes("go-live runway archive helper source", "scripts/archive-go-l
 assertFileIncludes("live money go/no-go README instructions", "README.md", [
   "npm run status:go-live",
   "npm --silent run status:go-live:json",
+  "npm run status:build-block",
+  "npm --silent run status:build-block:json",
+  "tcos.buildBlockCheckpoint.v1",
+  "concise read-only checkpoint",
   "npm run archive:go-live-runway",
   "tcos.goLiveRunwayStatus.v1",
   "single read-only runway view",

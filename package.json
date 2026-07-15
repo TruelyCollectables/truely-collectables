@@ -23,6 +23,8 @@
     "check:production-guardrails": "node scripts/check-production-guardrails.mjs",
     "status:production": "node scripts/deploy-production.mjs --quota-status",
     "status:production:json": "node scripts/deploy-production.mjs --quota-status --json",
+    "status:build-block": "node scripts/status-build-block.mjs",
+    "status:build-block:json": "node scripts/status-build-block.mjs --json",
     "status:go-live": "node scripts/status-go-live.mjs",
     "status:go-live:json": "node scripts/status-go-live.mjs --json",
     "verify:go-live-evidence": "node scripts/verify-go-live-evidence.mjs",
