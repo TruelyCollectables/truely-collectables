@@ -62,6 +62,8 @@ type SellerPayoutRequest = {
   id: string;
   requestedAmount: number;
   status: string;
+  providerPayoutReference?: string | null;
+  providerPayoutStatus?: string | null;
   requestedAt: string | null;
   reviewBlocked?: boolean;
   reviewBlockReason?: string | null;
@@ -1261,6 +1263,10 @@ export default function SellerPage() {
                       {request.reviewBlockReason || "Cash-out request is blocked."}
                     </p>
 
+                    <SellerCommandCenterCashOutPayoutProofCard
+                      request={request}
+                    />
+
                     <div className="mt-3 flex flex-wrap gap-2">
                       <Link
                         href={sellerBlockedPayoutOrdersHref(request.id)}
@@ -1672,6 +1678,60 @@ function SellerProtectionCard({
         {summary.sellerResponsibility}
       </p>
     </section>
+  );
+}
+
+function SellerCommandCenterCashOutPayoutProofCard({
+  request,
+}: {
+  request: SellerPayoutRequest;
+}) {
+  const hasProviderReference = Boolean(request.providerPayoutReference);
+  const paidRequest = request.status === "paid";
+  const processingRequest = request.status === "processing";
+
+  if (!paidRequest && !processingRequest && !hasProviderReference) return null;
+
+  return (
+    <div
+      className={`mt-3 rounded-md border px-3 py-2 text-xs ${
+        hasProviderReference
+          ? "border-emerald-200 bg-emerald-50 text-emerald-950"
+          : "border-amber-200 bg-amber-50 text-amber-950"
+      }`}
+    >
+      <p className="font-black uppercase tracking-[0.14em]">
+        Cash-out payout proof
+      </p>
+      <p className="mt-1 font-semibold">
+        Provider payout reference is the proof trail TCOS uses when a cash-out
+        payout is marked paid.
+      </p>
+      <dl className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <Info
+          label="Provider reference ready"
+          value={hasProviderReference ? "Yes" : "No"}
+        />
+        <Info label="Payout status" value={label(request.status)} />
+      </dl>
+      {hasProviderReference ? (
+        <p className="mt-2 break-all">
+          Provider reference:{" "}
+          <strong>{request.providerPayoutReference}</strong>
+        </p>
+      ) : paidRequest ? (
+        <p className="mt-2 font-semibold">
+          AUDIT WARNING: this paid cash-out request is missing a provider payout
+          reference. Contact TCOS support before relying on payout delivery
+          proof.
+        </p>
+      ) : (
+        <p className="mt-2 font-semibold">
+          TCOS records the provider payout reference before this cash-out is
+          marked paid.
+        </p>
+      )}
+    </div>
   );
 }
 

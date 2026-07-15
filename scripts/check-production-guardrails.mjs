@@ -4881,6 +4881,19 @@ assertFileIncludes(
   ],
 );
 assertFileIncludes(
+  "seller cash-out paid proof command center UI contract",
+  "src/app/seller/page.tsx",
+  [
+    "Cash-out payout proof",
+    "Provider payout reference is the proof trail TCOS uses",
+    "Provider reference ready",
+    "SellerCommandCenterCashOutPayoutProofCard",
+    "AUDIT WARNING: this paid cash-out request is missing a provider payout",
+    "Contact TCOS support before relying on payout delivery",
+    "TCOS records the provider payout reference before this cash-out is",
+  ],
+);
+assertFileIncludes(
   "seller protection admin payout UI visibility contract",
   "src/app/admin/seller-payouts/page.tsx",
   [
