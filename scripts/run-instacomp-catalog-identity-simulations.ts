@@ -3,6 +3,7 @@ import {
   attachInstaCompCatalogSourcePolicy,
   buildInstaCompCatalogLookupPlan,
   buildInstaCompCatalogCompGate,
+  buildInstaCompCatalogEvidenceSnapshot,
   buildInstaCompCatalogOperatorReviewPacket,
   buildInstaCompCatalogProviderCompGate,
   evaluateInstaCompCatalogSourcePolicy,
@@ -19,9 +20,11 @@ const CATALOG_IDENTITY_EXPECTED_SCENARIO_KEYS = [
   "catalog_source_policy_attaches_usage_to_candidates",
   "provider_result_aggregation_confirms_catalog_before_comps",
   "operator_review_packet_allows_money_claims_only_after_catalog_confirmed",
+  "catalog_evidence_snapshot_persists_confirmed_identity_for_drafts",
   "unapproved_provider_candidates_are_ignored",
   "provider_failures_preserved_when_no_usable_candidates",
   "operator_review_packet_blocks_money_claims_when_review_required",
+  "catalog_evidence_snapshot_preserves_review_blockers_for_drafts",
   "catalog_confirms_exact_parallel_before_comps",
   "catalog_confirmed_gate_uses_catalog_fields_for_exact_comps",
   "unapproved_source_forces_review_required",
@@ -297,6 +300,48 @@ function runCatalogIdentitySimulationSuite() {
     ),
   );
 
+  const confirmedEvidenceSnapshot = buildInstaCompCatalogEvidenceSnapshot(
+    { ...target, variation: null },
+    [approvedSourcePolicy],
+    [
+      {
+        source: "fixture_checklist",
+        status: "fulfilled",
+        candidates: [catalogCandidateIdentity({})],
+      },
+    ],
+    "2026-07-15T22:30:00.000Z",
+  );
+  scenarios.push(
+    scenario(
+      "catalog_evidence_snapshot_persists_confirmed_identity_for_drafts",
+      "The saved catalog evidence snapshot preserves confirmed identity, source attribution, action permissions, and audit flags for scan rows and draft handoff.",
+      confirmedEvidenceSnapshot.schema ===
+        "tcos.instacomp.catalogEvidence.v1" &&
+        confirmedEvidenceSnapshot.capturedAt ===
+          "2026-07-15T22:30:00.000Z" &&
+        confirmedEvidenceSnapshot.catalogConfirmed &&
+        confirmedEvidenceSnapshot.actionPermissions.exactCompSearchAllowed &&
+        confirmedEvidenceSnapshot.actionPermissions.publicListingClaimAllowed &&
+        confirmedEvidenceSnapshot.compIdentity?.catalogId ===
+          "fixture-2023-tcu-usc17-gold-ref" &&
+        confirmedEvidenceSnapshot.sourceAttribution?.source ===
+          "fixture_checklist" &&
+        confirmedEvidenceSnapshot.auditFlags.includes(
+          "catalog identity confirmed from approved source",
+        ),
+      {
+        schema: confirmedEvidenceSnapshot.schema,
+        capturedAt: confirmedEvidenceSnapshot.capturedAt,
+        catalogConfirmed: confirmedEvidenceSnapshot.catalogConfirmed,
+        actionPermissions: confirmedEvidenceSnapshot.actionPermissions,
+        compIdentity: confirmedEvidenceSnapshot.compIdentity,
+        sourceAttribution: confirmedEvidenceSnapshot.sourceAttribution,
+        auditFlags: confirmedEvidenceSnapshot.auditFlags,
+      },
+    ),
+  );
+
   const mixedProviderAggregation = aggregateInstaCompCatalogProviderResults(
     target,
     [approvedSourcePolicy, unapprovedSourcePolicy],
@@ -418,6 +463,47 @@ function runCatalogIdentitySimulationSuite() {
         providerWarnings: reviewPacket.providerWarnings,
         reviewReasons: reviewPacket.reviewReasons,
         operatorAction: reviewPacket.operatorAction,
+      },
+    ),
+  );
+
+  const reviewEvidenceSnapshot = buildInstaCompCatalogEvidenceSnapshot(
+    target,
+    [approvedSourcePolicy],
+    failedProviderResults,
+    "2026-07-15T22:31:00.000Z",
+  );
+  scenarios.push(
+    scenario(
+      "catalog_evidence_snapshot_preserves_review_blockers_for_drafts",
+      "The saved catalog evidence snapshot preserves Needs Review blockers and keeps comp identity, source attribution, public claims, auto-price, and trade value disabled.",
+      reviewEvidenceSnapshot.schema === "tcos.instacomp.catalogEvidence.v1" &&
+        reviewEvidenceSnapshot.catalogConfirmed === false &&
+        reviewEvidenceSnapshot.actionPermissions.exactCompSearchAllowed ===
+          false &&
+        reviewEvidenceSnapshot.actionPermissions.publicListingClaimAllowed ===
+          false &&
+        reviewEvidenceSnapshot.actionPermissions.autoPriceAllowed === false &&
+        reviewEvidenceSnapshot.actionPermissions
+          .tradeValueRecommendationAllowed === false &&
+        reviewEvidenceSnapshot.compIdentity === null &&
+        reviewEvidenceSnapshot.sourceAttribution === null &&
+        reviewEvidenceSnapshot.auditFlags.includes(
+          "catalog identity requires operator review",
+        ) &&
+        reviewEvidenceSnapshot.auditFlags.includes(
+          "exact comps blocked until catalog identity is confirmed",
+        ) &&
+        reviewEvidenceSnapshot.auditFlags.some((flag) =>
+          flag.includes("catalog provider lookup timed out"),
+        ),
+      {
+        schema: reviewEvidenceSnapshot.schema,
+        catalogConfirmed: reviewEvidenceSnapshot.catalogConfirmed,
+        actionPermissions: reviewEvidenceSnapshot.actionPermissions,
+        compIdentity: reviewEvidenceSnapshot.compIdentity,
+        sourceAttribution: reviewEvidenceSnapshot.sourceAttribution,
+        auditFlags: reviewEvidenceSnapshot.auditFlags,
       },
     ),
   );

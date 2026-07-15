@@ -156,6 +156,41 @@ export type InstaCompCatalogOperatorReviewPacket = {
   gate: InstaCompCatalogProviderCompGate;
 };
 
+export type InstaCompCatalogEvidenceActionPermissions = {
+  exactCompSearchAllowed: boolean;
+  trustedForExactComps: boolean;
+  publicListingClaimAllowed: boolean;
+  autoPriceAllowed: boolean;
+  tradeValueRecommendationAllowed: boolean;
+};
+
+export type InstaCompCatalogSourceAttribution = {
+  source: string;
+  sourceLabel: string;
+  sourceUrl: string;
+  catalogId: string;
+};
+
+export type InstaCompCatalogEvidenceSnapshot = {
+  schema: "tcos.instacomp.catalogEvidence.v1";
+  capturedAt: string;
+  status: "catalog_confirmed" | "review_required";
+  operatorState: "ready_for_exact_comps" | "needs_operator_review";
+  catalogConfirmed: boolean;
+  selectedMatch: InstaCompCatalogReviewMatch | null;
+  alternateMatches: InstaCompCatalogReviewMatch[];
+  providerSummaries: InstaCompCatalogProviderSummary[];
+  providerWarnings: string[];
+  reviewReasons: string[];
+  suggestedQuestion: string | null;
+  operatorAction: string;
+  safeUseBoundary: string;
+  actionPermissions: InstaCompCatalogEvidenceActionPermissions;
+  compIdentity: InstaCompCatalogCompIdentity | null;
+  sourceAttribution: InstaCompCatalogSourceAttribution | null;
+  auditFlags: string[];
+};
+
 export type InstaCompCatalogCandidateScore = {
   candidate: InstaCompCatalogCandidate;
   score: number;
@@ -801,5 +836,65 @@ export function buildInstaCompCatalogOperatorReviewPacket(
     safeUseBoundary:
       "Catalog identity must be confirmed before exact comps, public rare-variant claims, auto-pricing, trade-value recommendations, or activation.",
     gate,
+  };
+}
+
+export function buildInstaCompCatalogEvidenceSnapshot(
+  input: InstaCompCatalogIdentityInput,
+  sources: InstaCompCatalogSourcePolicy[],
+  providerResults: InstaCompCatalogProviderResult[],
+  capturedAt = new Date().toISOString(),
+): InstaCompCatalogEvidenceSnapshot {
+  const packet = buildInstaCompCatalogOperatorReviewPacket(
+    input,
+    sources,
+    providerResults,
+  );
+  const compIdentity = packet.gate.compIdentity;
+  const sourceAttribution =
+    packet.selectedMatch && compIdentity
+      ? {
+          source: packet.selectedMatch.source,
+          sourceLabel: packet.selectedMatch.sourceLabel,
+          sourceUrl: packet.selectedMatch.sourceUrl,
+          catalogId: packet.selectedMatch.catalogId,
+        }
+      : null;
+  const auditFlags = [
+    packet.status === "catalog_confirmed"
+      ? "catalog identity confirmed from approved source"
+      : "catalog identity requires operator review",
+    packet.exactCompSearchAllowed
+      ? "exact comps may use catalog-normalized identity"
+      : "exact comps blocked until catalog identity is confirmed",
+    ...packet.providerWarnings.map((warning) => `provider warning: ${warning}`),
+    ...packet.reviewReasons.map((reason) => `review reason: ${reason}`),
+  ];
+
+  return {
+    schema: "tcos.instacomp.catalogEvidence.v1",
+    capturedAt,
+    status: packet.status,
+    operatorState: packet.operatorState,
+    catalogConfirmed: packet.status === "catalog_confirmed",
+    selectedMatch: packet.selectedMatch,
+    alternateMatches: packet.alternateMatches,
+    providerSummaries: packet.providerSummaries,
+    providerWarnings: packet.providerWarnings,
+    reviewReasons: packet.reviewReasons,
+    suggestedQuestion: packet.suggestedQuestion,
+    operatorAction: packet.operatorAction,
+    safeUseBoundary: packet.safeUseBoundary,
+    actionPermissions: {
+      exactCompSearchAllowed: packet.exactCompSearchAllowed,
+      trustedForExactComps: packet.trustedForExactComps,
+      publicListingClaimAllowed: packet.publicListingClaimAllowed,
+      autoPriceAllowed: packet.autoPriceAllowed,
+      tradeValueRecommendationAllowed:
+        packet.tradeValueRecommendationAllowed,
+    },
+    compIdentity,
+    sourceAttribution,
+    auditFlags,
   };
 }
