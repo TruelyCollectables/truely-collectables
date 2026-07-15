@@ -3149,6 +3149,25 @@ assertFileOrder("shipping provider purchase gate order", "src/app/api/admin/orde
   "if (blockers.length > 0)",
   "const purchaseResult = await purchaseShippingLabel",
 ]);
+assertFileIncludes("seller payout release resolution guard source", "src/app/api/admin/order-review-cases/[id]/payout-resolution/route.ts", [
+  "release_to_seller",
+  'targetStatus: "eligible"',
+  'allowedCaseStatuses: new Set(["decided_for_seller", "closed"])',
+  "payoutReleaseBlockReason",
+  "order_still_in_review",
+  "order_not_shipped",
+  "order_has_dry_run_shipping_only",
+  "seller_payout_ledger_entries",
+  "recordSellerPayoutAdminEvent",
+]);
+assertFileOrder("seller payout release resolution gate order", "src/app/api/admin/order-review-cases/[id]/payout-resolution/route.ts", [
+  'const caseStatus = reviewCase.status || "open";',
+  "if (!resolution.allowedCaseStatuses.has(caseStatus))",
+  "const ledgerRows = await loadScopedLedgerRows",
+  "const releaseBlockReason =",
+  'if (releaseBlockReason && resolution.targetStatus === "eligible")',
+  ".update({\n          payout_status: resolution.targetStatus,",
+]);
 assertFileIncludes("shipping exceptions evidence audit export source", "src/app/api/admin/shipping/exceptions/route.ts", [
   "shippingPurchaseAttemptAuditSentence",
   "raw_payload",
