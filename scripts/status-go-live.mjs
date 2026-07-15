@@ -197,10 +197,17 @@ function emergencyBackupStatus() {
       state: statusPayload.scheduleHealth?.state || "unknown",
       message: statusPayload.scheduleHealth?.message || "unknown",
       lastScheduledRunAt: statusPayload.scheduleHealth?.lastScheduledRunAt || null,
+      lastScheduledRunAtLocal: statusPayload.scheduleHealth?.lastScheduledRunAtLocal || null,
       nextScheduledRunAt: statusPayload.scheduleHealth?.nextScheduledRunAt || null,
+      nextScheduledRunAtLocal: statusPayload.scheduleHealth?.nextScheduledRunAtLocal || null,
+      latestBackupAtLocal: statusPayload.scheduleHealth?.latestBackupAtLocal || null,
     },
     freshness: {
       latestBackupAt,
+      latestBackupAtLocal:
+        statusPayload.scheduleHealth?.latestBackupAtLocal ||
+        statusPayload.backups?.newest?.modifiedAtLocal ||
+        null,
       latestBackupAgeMinutes,
       latestBackupAgeApprox:
         latestBackupAgeMinutes === null
@@ -363,12 +370,15 @@ function goLiveReadiness({ git, quota, emergencyBackup, liveMoney }) {
   }
 
   if (!emergencyBackup.schedulerProof.automaticRunProven) {
+    const scheduledProofHint = emergencyBackup.scheduleHealth.nextScheduledRunAtLocal
+      ? ` Next scheduled run local: ${emergencyBackup.scheduleHealth.nextScheduledRunAtLocal}.`
+      : "";
     watchItems.push({
       area: "emergency_backup",
       state: emergencyBackup.schedulerProof.state,
       actionCategory: "operator_watch",
       detail: emergencyBackup.schedulerProof.message,
-      next: emergencyBackup.schedulerProof.nextAction,
+      next: `${emergencyBackup.schedulerProof.nextAction}${scheduledProofHint}`,
       actionCommands: ["npm run status:nightly-backup"],
     });
   }
@@ -588,6 +598,7 @@ function printText(status) {
   console.log(`- backup folder: ${status.emergencyBackup.backupDir}`);
   console.log(`- dated backup count: ${status.emergencyBackup.datedBackupCount}`);
   console.log(`- latest backup at: ${status.emergencyBackup.freshness.latestBackupAt || "unknown"}`);
+  console.log(`- latest backup at local: ${status.emergencyBackup.freshness.latestBackupAtLocal || "unknown"}`);
   console.log(`- latest backup age: ${status.emergencyBackup.freshness.latestBackupAgeApprox}`);
   console.log(
     `- current for last scheduled run: ${
@@ -597,6 +608,10 @@ function printText(status) {
   console.log(`- retention keep: ${status.emergencyBackup.retention.keep}`);
   console.log(`- over-retention count: ${status.emergencyBackup.retention.overRetentionCount}`);
   console.log(`- schedule health: ${status.emergencyBackup.scheduleHealth.state}`);
+  console.log(`- last scheduled run: ${status.emergencyBackup.scheduleHealth.lastScheduledRunAt || "unknown"}`);
+  console.log(`- last scheduled run local: ${status.emergencyBackup.scheduleHealth.lastScheduledRunAtLocal || "unknown"}`);
+  console.log(`- next scheduled run: ${status.emergencyBackup.scheduleHealth.nextScheduledRunAt || "unknown"}`);
+  console.log(`- next scheduled run local: ${status.emergencyBackup.scheduleHealth.nextScheduledRunAtLocal || "unknown"}`);
   console.log(`- scheduler proof: ${status.emergencyBackup.schedulerProof.state}`);
   console.log(
     `- automatic run proven: ${

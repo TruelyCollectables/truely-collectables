@@ -126,10 +126,47 @@ function statFile(filePath) {
   }
 
   const stat = fs.statSync(filePath);
+  const modifiedAt = stat.mtime.toISOString();
   return {
     path: filePath,
     bytes: stat.size,
-    modifiedAt: stat.mtime.toISOString(),
+    modifiedAt,
+    modifiedAtLocal: formatLocalTimestamp(modifiedAt),
+  };
+}
+
+function formatLocalTimestamp(isoTimestamp) {
+  if (!isoTimestamp) return null;
+  const date = new Date(isoTimestamp);
+  if (!Number.isFinite(date.getTime())) return null;
+
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    timeZoneName: "short",
+  }).format(date);
+}
+
+function scheduleHealthPayload({
+  state,
+  lastScheduledRunAt = null,
+  nextScheduledRunAt = null,
+  latestBackupAt = null,
+  message,
+}) {
+  return {
+    state,
+    lastScheduledRunAt,
+    lastScheduledRunAtLocal: formatLocalTimestamp(lastScheduledRunAt),
+    nextScheduledRunAt,
+    nextScheduledRunAtLocal: formatLocalTimestamp(nextScheduledRunAt),
+    latestBackupAt,
+    latestBackupAtLocal: formatLocalTimestamp(latestBackupAt),
+    message,
   };
 }
 
@@ -243,34 +280,28 @@ function scheduleWindow(schedule) {
 
 function backupScheduleHealth(launchAgent, backups) {
   if (!launchAgent.supported) {
-    return {
+    return scheduleHealthPayload({
       state: "unsupported_platform",
-      lastScheduledRunAt: null,
-      nextScheduledRunAt: null,
       latestBackupAt: backups.newest?.modifiedAt || null,
       message: "LaunchAgent schedule health is macOS-only.",
-    };
+    });
   }
 
   if (!launchAgent.installed) {
-    return {
+    return scheduleHealthPayload({
       state: "not_installed",
-      lastScheduledRunAt: null,
-      nextScheduledRunAt: null,
       latestBackupAt: backups.newest?.modifiedAt || null,
       message: "Nightly backup LaunchAgent is not installed.",
-    };
+    });
   }
 
   const window = scheduleWindow(launchAgent.schedule);
   if (!window) {
-    return {
+    return scheduleHealthPayload({
       state: "unknown_schedule",
-      lastScheduledRunAt: null,
-      nextScheduledRunAt: null,
       latestBackupAt: backups.newest?.modifiedAt || null,
       message: "Nightly backup LaunchAgent schedule could not be parsed.",
-    };
+    });
   }
 
   const launchAgentFile = statFile(launchAgent.path);
@@ -283,33 +314,33 @@ function backupScheduleHealth(launchAgent, backups) {
     new Date(latestBackupAt).getTime() >= window.lastScheduledRunAt.getTime();
 
   if (latestBackupIsCurrent) {
-    return {
+    return scheduleHealthPayload({
       state: "current",
       lastScheduledRunAt: window.lastScheduledRunAt.toISOString(),
       nextScheduledRunAt: window.nextScheduledRunAt.toISOString(),
       latestBackupAt,
       message: "Latest dated backup is current for the last scheduled run.",
-    };
+    });
   }
 
   if (installedAfterLastRun && backups.count === 0) {
-    return {
+    return scheduleHealthPayload({
       state: "pending_first_run",
       lastScheduledRunAt: window.lastScheduledRunAt.toISOString(),
       nextScheduledRunAt: window.nextScheduledRunAt.toISOString(),
       latestBackupAt,
       message: "LaunchAgent was installed after the last scheduled run; first backup is pending.",
-    };
+    });
   }
 
-  return {
+  return scheduleHealthPayload({
     state: "overdue_or_failed",
     lastScheduledRunAt: window.lastScheduledRunAt.toISOString(),
     nextScheduledRunAt: window.nextScheduledRunAt.toISOString(),
     latestBackupAt,
     message:
       "No dated backup is present for the last scheduled run. The Mac may have been asleep, offline, or the nightly job may have failed; inspect the backup logs.",
-  };
+  });
 }
 
 function launchdExitSucceeded(lastExitCode) {
@@ -421,6 +452,7 @@ function listBackups(backupDir) {
         path: filePath,
         bytes: stat.size,
         modifiedAt: stat.mtime.toISOString(),
+        modifiedAtLocal: formatLocalTimestamp(stat.mtime.toISOString()),
       };
     })
     .sort((a, b) => new Date(b.modifiedAt).getTime() - new Date(a.modifiedAt).getTime());
@@ -481,8 +513,8 @@ if (json) {
   console.log(`- backup folder exists: ${backups.exists ? "yes" : "no"}`);
   console.log(`- dated backup count: ${backups.count}`);
   console.log(`- retention: keep 7; over-retention count ${backups.overRetentionCount}`);
-  console.log(`- newest backup: ${backups.newest ? `${backups.newest.name} (${backups.newest.modifiedAt})` : "none"}`);
-  console.log(`- oldest backup: ${backups.oldest ? `${backups.oldest.name} (${backups.oldest.modifiedAt})` : "none"}`);
+  console.log(`- newest backup: ${backups.newest ? `${backups.newest.name} (${backups.newest.modifiedAt}; ${backups.newest.modifiedAtLocal} local)` : "none"}`);
+  console.log(`- oldest backup: ${backups.oldest ? `${backups.oldest.name} (${backups.oldest.modifiedAt}; ${backups.oldest.modifiedAtLocal} local)` : "none"}`);
   console.log(`- schedule health: ${scheduleHealth.state}`);
   console.log(`- schedule message: ${scheduleHealth.message}`);
   console.log(`- scheduler proof: ${automaticSchedulerProof.state}`);
@@ -490,7 +522,9 @@ if (json) {
   console.log(`- scheduler proof message: ${automaticSchedulerProof.message}`);
   console.log(`- scheduler next action: ${automaticSchedulerProof.nextAction}`);
   console.log(`- last scheduled run: ${scheduleHealth.lastScheduledRunAt || "unknown"}`);
+  console.log(`- last scheduled run local: ${scheduleHealth.lastScheduledRunAtLocal || "unknown"}`);
   console.log(`- next scheduled run: ${scheduleHealth.nextScheduledRunAt || "unknown"}`);
+  console.log(`- next scheduled run local: ${scheduleHealth.nextScheduledRunAtLocal || "unknown"}`);
   console.log(`- launchd loaded: ${launchdRuntime.loaded ? "yes" : "no"}`);
   console.log(`- launchd state: ${launchdRuntime.state || "unknown"}`);
   console.log(`- launchd runs: ${launchdRuntime.runs ?? "unknown"}`);

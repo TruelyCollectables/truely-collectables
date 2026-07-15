@@ -55,6 +55,15 @@ function assertEvidenceContract(payload) {
   if (!payload?.scheduleHealth || !("latestBackupAt" in payload.scheduleHealth)) {
     missing.push("scheduleHealth.latestBackupAt");
   }
+  if (!payload?.scheduleHealth || !("latestBackupAtLocal" in payload.scheduleHealth)) {
+    missing.push("scheduleHealth.latestBackupAtLocal");
+  }
+  if (!payload?.scheduleHealth || !("lastScheduledRunAtLocal" in payload.scheduleHealth)) {
+    missing.push("scheduleHealth.lastScheduledRunAtLocal");
+  }
+  if (!payload?.scheduleHealth || !("nextScheduledRunAtLocal" in payload.scheduleHealth)) {
+    missing.push("scheduleHealth.nextScheduledRunAtLocal");
+  }
   if (!payload?.schedulerProof?.state) missing.push("schedulerProof.state");
   if (typeof payload?.schedulerProof?.automaticRunProven !== "boolean") {
     missing.push("schedulerProof.automaticRunProven");
@@ -158,6 +167,9 @@ console.log(`- dated backup count: ${payload.backups.count}`);
 console.log(`- over-retention count: ${payload.retention.overRetentionCount}`);
 console.log(`- schedule health: ${payload.scheduleHealth.state}`);
 console.log(`- schedule message: ${payload.scheduleHealth.message}`);
+console.log(`- latest backup at local: ${payload.scheduleHealth.latestBackupAtLocal || "unknown"}`);
+console.log(`- last scheduled run local: ${payload.scheduleHealth.lastScheduledRunAtLocal || "unknown"}`);
+console.log(`- next scheduled run local: ${payload.scheduleHealth.nextScheduledRunAtLocal || "unknown"}`);
 console.log(`- scheduler proof: ${payload.schedulerProof.state}`);
 console.log(
   `- automatic run proven: ${payload.schedulerProof.automaticRunProven ? "yes" : "no"}`,

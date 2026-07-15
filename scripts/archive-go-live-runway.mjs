@@ -233,12 +233,14 @@ console.log(`- smoke command: ${payload.productionDeploySafety.smokeCommand}`);
 console.log(`- emergency backup schedule health: ${payload.emergencyBackup.scheduleHealth.state}`);
 console.log(`- emergency backup scheduler proof: ${payload.emergencyBackup.schedulerProof.state}`);
 console.log(`- emergency backup latest at: ${payload.emergencyBackup.freshness.latestBackupAt}`);
+console.log(`- emergency backup latest at local: ${payload.emergencyBackup.freshness.latestBackupAtLocal || "unknown"}`);
 console.log(`- emergency backup latest age: ${payload.emergencyBackup.freshness.latestBackupAgeApprox}`);
 console.log(
   `- emergency backup current for last scheduled run: ${
     payload.emergencyBackup.freshness.currentForLastScheduledRun ? "yes" : "no"
   }`,
 );
+console.log(`- emergency backup next scheduled run local: ${payload.emergencyBackup.scheduleHealth.nextScheduledRunAtLocal || "unknown"}`);
 console.log(`- emergency backup retention keep: ${payload.emergencyBackup.retention.keep}`);
 console.log(`- emergency backup over-retention count: ${payload.emergencyBackup.retention.overRetentionCount}`);
 console.log(`- emergency backup verification ok: ${payload.emergencyBackup.verification.ok ? "yes" : "no"}`);
