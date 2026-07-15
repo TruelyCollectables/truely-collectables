@@ -3614,6 +3614,37 @@ assertFileIncludes(
   ],
 );
 assertFileIncludes(
+  "mark-shipped dry-run and review hold guard source",
+  "src/app/api/orders/mark-shipped/route.ts",
+  [
+    "isOrderReviewStatus(order.status, order.fulfillment_status)",
+    "This paid order is on a review hold. Resolve the review status before marking it shipped.",
+    "Please save a carrier and tracking number before marking shipped.",
+    "isDryRunShippingReference(order.tracking_number)",
+    "This order has TCOS dry-run tracking. Buy or record a real label before marking it shipped.",
+    "isDryRunShippingLabel(activeShippingLabel)",
+    "The active shipping label is a TCOS dry-run simulation. Buy or record a real label before marking it shipped.",
+    'fulfillment_status: "shipped"',
+    "refreshTransactionEvidenceReportForOrder",
+    'fetch("https://api.resend.com/emails"',
+  ],
+);
+assertFileOrder(
+  "mark-shipped dry-run and email gate order",
+  "src/app/api/orders/mark-shipped/route.ts",
+  [
+    "if (isOrderReviewStatus(order.status, order.fulfillment_status))",
+    "if (!order.tracking_number || !order.carrier)",
+    "if (isDryRunShippingReference(order.tracking_number))",
+    "let activeShippingLabel: ActiveShippingLabel | null = null;",
+    "if (isDryRunShippingLabel(activeShippingLabel))",
+    '.from("orders")',
+    'fulfillment_status: "shipped"',
+    "refreshTransactionEvidenceReportForOrder",
+    'fetch("https://api.resend.com/emails"',
+  ],
+);
+assertFileIncludes(
   "dashboard preferences response contract",
   "src/app/api/account/dashboard/preferences/route.ts",
   [
