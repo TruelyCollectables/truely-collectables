@@ -16,6 +16,7 @@
     "verify:shipping": "npm run simulate:lettertrack-evidence && npm run simulate:shipping-purchase-audit && npm run simulate:shipping",
     "check:production-guardrails": "node scripts/check-production-guardrails.mjs",
     "status:production": "node scripts/deploy-production.mjs --quota-status",
+    "status:production:json": "node scripts/deploy-production.mjs --quota-status --json",
     "status:go-live": "node scripts/status-go-live.mjs",
     "status:go-live:json": "node scripts/status-go-live.mjs --json",
     "status:live-money": "node --import tsx scripts/status-live-money.ts --allow-blocked",

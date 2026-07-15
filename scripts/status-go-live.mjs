@@ -26,17 +26,57 @@ function parseLine(output, label) {
 }
 
 function quotaStatus() {
+  const jsonResult = run("node", [
+    "scripts/deploy-production.mjs",
+    "--quota-status",
+    "--json",
+  ]);
+  const jsonStdout = (jsonResult.stdout || "").trim();
+
+  try {
+    const payload = JSON.parse(jsonStdout);
+    return {
+      ok: jsonResult.status === 0,
+      schema: payload.schema || "unknown",
+      generatedAt: payload.generatedAt || "unknown",
+      state: payload.state || "unknown",
+      canRetry: payload.canRetry ? "yes" : "no",
+      retryAllowedByLocalCooldown: Boolean(payload.canRetry),
+      reason: payload.reason || "unknown",
+      blockedAt: payload.blockedAt || null,
+      retryAt: payload.retryAt || "unknown",
+      approximateRemaining: payload.remaining || "none",
+      marker: payload.marker || "unknown",
+      uploadStarted: payload.vercelUploadStarted ? "yes" : "no",
+      vercelUploadStarted: Boolean(payload.vercelUploadStarted),
+      next: payload.next || "unknown",
+      readOnlyGuarantee: payload.readOnlyGuarantee || "unknown",
+      raw: payload,
+    };
+  } catch {
+    // Fall back to the human status for older helper output or unexpected JSON errors.
+  }
+
   const result = run("node", ["scripts/deploy-production.mjs", "--quota-status"]);
   const output = `${result.stdout || ""}${result.stderr || ""}`;
   return {
     ok: result.status === 0,
+    schema: "unknown",
+    generatedAt: "unknown",
     state: parseLine(output, "state"),
     canRetry: parseLine(output, "deployment retry allowed by local cooldown"),
+    retryAllowedByLocalCooldown:
+      parseLine(output, "deployment retry allowed by local cooldown") === "yes",
     reason: parseLine(output, "reason"),
+    blockedAt: parseLine(output, "blocked at"),
     retryAt: parseLine(output, "retry at or after"),
     approximateRemaining: parseLine(output, "approximate remaining"),
+    marker: parseLine(output, "marker"),
     uploadStarted: parseLine(output, "Vercel upload started"),
+    vercelUploadStarted: parseLine(output, "Vercel upload started") === "yes",
     next: parseLine(output, "next"),
+    readOnlyGuarantee: "unknown",
+    raw: null,
   };
 }
 
@@ -93,6 +133,7 @@ function buildStatus() {
     "This command only reads Git state, local quota status, and live-money JSON evidence; it starts no deploy, upload, Checkout, postage, payout, launch approval, or revocation.";
   const safeNextCommands = [
     "npm run status:production",
+    "npm --silent run status:production:json",
     "npm run status:live-money",
     "npm run live-money:env-packet",
     "npm run live-money:vercel-commands",

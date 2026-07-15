@@ -429,12 +429,18 @@ assertFileIncludes(
   "scripts/deploy-production.mjs",
   [
     "--quota-status",
+    "--json",
     "TCOS_PRODUCTION_QUOTA_STATUS_ONLY",
+    "tcos.productionQuotaStatus.v1",
+    "buildQuotaCooldownPayload",
+    "printQuotaCooldownJson",
     "Production deploy quota status:",
     "deployment retry allowed by local cooldown",
     "retry at or after:",
     "approximate remaining:",
-    "Vercel upload started: no",
+    "Vercel upload started:",
+    "vercelUploadStarted: false",
+    "starts no Git fetch, build, Vercel upload, deployment, alias change, smoke test, Checkout, postage, payout, launch approval, or revocation",
     "npm run status:production",
     'state: marker ? "invalid_marker" : "open"',
     "canRetry: !marker",
@@ -476,6 +482,10 @@ assertFileIncludes(
 );
 assertFileIncludes("quota status runbook instructions", "docs/PRODUCTION_DEPLOY_RUNBOOK.md", [
   "npm run status:production",
+  "npm --silent run status:production:json",
+  "tcos.productionQuotaStatus.v1",
+  "vercelUploadStarted: false",
+  "read-only guarantee",
   "without fetching Git, building, uploading, or starting a deployment",
   "exact blocked/retry timestamps",
   "Vercel upload started: no",
@@ -486,6 +496,10 @@ assertFileIncludes("quota status runbook instructions", "docs/PRODUCTION_DEPLOY_
 ]);
 assertFileIncludes("quota status README instructions", "README.md", [
   "npm run status:production",
+  "npm --silent run status:production:json",
+  "tcos.productionQuotaStatus.v1",
+  "vercelUploadStarted: false",
+  "read-only guarantee",
   "read-only quota check",
   "exact blocked/retry timestamps",
   "Vercel upload started: no",
@@ -576,6 +590,10 @@ assertFileIncludes("quota status production smoke coverage", "scripts/smoke-prod
 ]);
 assertFileIncludes("quota status operator instructions", "docs/TCOS_OPERATOR_MANUAL.md", [
   "npm run status:production",
+  "npm --silent run status:production:json",
+  "tcos.productionQuotaStatus.v1",
+  "vercelUploadStarted: false",
+  "read-only guarantee",
   "exact block and retry timestamps",
   "Vercel upload started: no",
   "TCOS_PRODUCTION_QUOTA_STATUS_ONLY=true",
@@ -599,6 +617,10 @@ assertFileIncludes(
   "docs/TCOS_OPERATOR_MANUAL_PRINT.html",
   [
     "npm run status:production",
+    "npm --silent run status:production:json",
+    "tcos.productionQuotaStatus.v1",
+    "vercelUploadStarted: false",
+    "read-only guarantee",
     "exact block and retry timestamps",
     "Vercel upload started: no",
     "TCOS_PRODUCTION_QUOTA_STATUS_ONLY=true",
@@ -707,6 +729,9 @@ assertScriptIncludes("verify:shipping", [
 ]);
 assertScriptIncludes("status:production", [
   "node scripts/deploy-production.mjs --quota-status",
+]);
+assertScriptIncludes("status:production:json", [
+  "node scripts/deploy-production.mjs --quota-status --json",
 ]);
 assertScriptIncludes("status:go-live", [
   "node scripts/status-go-live.mjs",
@@ -886,6 +911,10 @@ assertFileIncludes("go-live runway status helper source", "scripts/status-go-liv
   "JSON.stringify(status, null, 2)",
   "generatedAt:",
   "productionDeploymentQuota",
+  "status:production:json",
+  "retryAllowedByLocalCooldown",
+  "vercelUploadStarted",
+  "raw: payload",
   "safeNextCommands",
   "readOnlyGuarantee",
   "TCOS go-live runway status:",
@@ -902,6 +931,7 @@ assertFileIncludes("go-live runway status helper source", "scripts/status-go-liv
   "Local Supabase bootstrap status",
   "Local final live-payment runtime status",
   "Safe next commands:",
+  "npm --silent run status:production:json",
   "npm run live-money:env-packet",
   "npm run live-money:vercel-commands",
   "npm run archive:go-live-runway",
@@ -3955,6 +3985,8 @@ assertFileIncludes("deploy live safety runbook", "docs/PRODUCTION_DEPLOY_RUNBOOK
   "Production Deploy Safety",
   "Production go/no-go ladder",
   "Verify the pushed stack",
+  "npm --silent run status:production:json",
+  "tcos.productionQuotaStatus.v1",
   "npm run status:go-live",
   "npm --silent run status:go-live:json",
   "npm run archive:go-live-runway",
@@ -4098,6 +4130,8 @@ assertFileIncludes("deploy live safety operator manual", "docs/TCOS_OPERATOR_MAN
   "Production Deploy Safety",
   "Production Go/No-Go Ladder",
   "verify the pushed stack",
+  "npm --silent run status:production:json",
+  "tcos.productionQuotaStatus.v1",
   "npm run status:go-live",
   "npm --silent run status:go-live:json",
   "npm run archive:go-live-runway",
@@ -4150,6 +4184,8 @@ assertFileIncludes(
     "Production Deploy Safety",
     "Production Go/No-Go Ladder",
     "verify the pushed stack",
+    "npm --silent run status:production:json",
+    "tcos.productionQuotaStatus.v1",
     "npm run status:go-live",
     "npm --silent run status:go-live:json",
     "npm run archive:go-live-runway",

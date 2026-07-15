@@ -23,6 +23,7 @@ const preflightOnly =
 const quotaStatusOnly =
   process.argv.includes("--quota-status") ||
   process.env.TCOS_PRODUCTION_QUOTA_STATUS_ONLY === "true";
+const jsonOutput = process.argv.includes("--json");
 const redactionSelfTest = process.argv.includes("--self-test-redaction");
 const quotaCooldownSelfTest = process.argv.includes("--self-test-quota-cooldown");
 const deployResultSelfTest = process.argv.includes("--self-test-deploy-result");
@@ -294,27 +295,47 @@ function getQuotaCooldownStatus(nowMs = Date.now()) {
   };
 }
 
-function printQuotaCooldownStatus() {
+function quotaCooldownNextAction(status) {
+  return status.state === "invalid_configuration"
+    ? "set TCOS_VERCEL_QUOTA_COOLDOWN_HOURS to a positive number; do not deploy unless the quota reset is independently confirmed"
+    : status.state === "invalid_marker"
+      ? "inspect or restore the quota marker; do not deploy unless the quota reset is independently confirmed"
+      : status.canRetry
+        ? "run npm run launch:production after normal verification"
+        : "keep building locally and rerun npm run status:production after the retry time";
+}
+
+function buildQuotaCooldownPayload() {
   const status = getQuotaCooldownStatus();
+  return {
+    schema: "tcos.productionQuotaStatus.v1",
+    generatedAt: new Date().toISOString(),
+    ...status,
+    marker: quotaBlockMarkerPath,
+    vercelUploadStarted: false,
+    next: quotaCooldownNextAction(status),
+    readOnlyGuarantee:
+      "This command only reads the local Vercel quota cooldown marker and configuration; it starts no Git fetch, build, Vercel upload, deployment, alias change, smoke test, Checkout, postage, payout, launch approval, or revocation.",
+  };
+}
+
+function printQuotaCooldownStatus() {
+  const payload = buildQuotaCooldownPayload();
 
   console.log("Production deploy quota status:");
-  console.log(`- state: ${status.state}`);
-  console.log(`- deployment retry allowed by local cooldown: ${status.canRetry ? "yes" : "no"}`);
-  console.log(`- reason: ${status.reason}`);
-  if (status.blockedAt) console.log(`- blocked at: ${status.blockedAt}`);
-  if (status.retryAt) console.log(`- retry at or after: ${status.retryAt}`);
-  if (status.remaining) console.log(`- approximate remaining: ${status.remaining}`);
-  console.log(`- marker: ${quotaBlockMarkerPath}`);
-  console.log("- Vercel upload started: no");
-  console.log(
-    status.state === "invalid_configuration"
-      ? "- next: set TCOS_VERCEL_QUOTA_COOLDOWN_HOURS to a positive number; do not deploy unless the quota reset is independently confirmed"
-      : status.state === "invalid_marker"
-        ? "- next: inspect or restore the quota marker; do not deploy unless the quota reset is independently confirmed"
-        : status.canRetry
-          ? "- next: run npm run launch:production after normal verification"
-          : "- next: keep building locally and rerun npm run status:production after the retry time",
-  );
+  console.log(`- state: ${payload.state}`);
+  console.log(`- deployment retry allowed by local cooldown: ${payload.canRetry ? "yes" : "no"}`);
+  console.log(`- reason: ${payload.reason}`);
+  if (payload.blockedAt) console.log(`- blocked at: ${payload.blockedAt}`);
+  if (payload.retryAt) console.log(`- retry at or after: ${payload.retryAt}`);
+  if (payload.remaining) console.log(`- approximate remaining: ${payload.remaining}`);
+  console.log(`- marker: ${payload.marker}`);
+  console.log(`- Vercel upload started: ${payload.vercelUploadStarted ? "yes" : "no"}`);
+  console.log(`- next: ${payload.next}`);
+}
+
+function printQuotaCooldownJson() {
+  console.log(JSON.stringify(buildQuotaCooldownPayload(), null, 2));
 }
 
 function assertNoRecentQuotaBlock() {
@@ -955,7 +976,11 @@ if (aliasRemovalSelfTest) {
 }
 
 if (quotaStatusOnly) {
-  printQuotaCooldownStatus();
+  if (jsonOutput) {
+    printQuotaCooldownJson();
+  } else {
+    printQuotaCooldownStatus();
+  }
   process.exit(0);
 }
 
