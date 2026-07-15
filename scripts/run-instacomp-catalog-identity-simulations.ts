@@ -1,14 +1,22 @@
 import {
+  attachInstaCompCatalogSourcePolicy,
+  buildInstaCompCatalogLookupPlan,
   buildInstaCompCatalogCompGate,
+  evaluateInstaCompCatalogSourcePolicy,
   resolveInstaCompCatalogIdentity,
   type InstaCompCatalogCandidate,
+  type InstaCompCatalogCandidateIdentity,
   type InstaCompCatalogIdentityInput,
+  type InstaCompCatalogSourcePolicy,
 } from "../src/lib/instacomp-catalog-identity";
 
 const CATALOG_IDENTITY_EXPECTED_SCENARIO_KEYS = [
+  "catalog_lookup_plan_filters_sources_before_comps",
+  "catalog_source_policy_attaches_usage_to_candidates",
   "catalog_confirms_exact_parallel_before_comps",
   "catalog_confirmed_gate_uses_catalog_fields_for_exact_comps",
   "unapproved_source_forces_review_required",
+  "no_approved_catalog_source_blocks_lookup_before_comps",
   "parallel_ambiguity_forces_targeted_review",
   "review_required_gate_blocks_exact_comp_trust",
   "serial_run_mismatch_forces_review_required",
@@ -39,6 +47,38 @@ const target: InstaCompCatalogIdentityInput = {
   isRelic: false,
 };
 
+const approvedSourcePolicy: InstaCompCatalogSourcePolicy = {
+  source: "fixture_checklist",
+  sourceLabel: "Fixture Checklist",
+  sourceUrl: "https://example.test/catalog/2023-topps-chrome-update",
+  apiAvailable: true,
+  sourceUsageAllowed: true,
+  commercialUseAllowed: true,
+  storageAllowed: true,
+  displayAllowed: true,
+  cachingAllowed: true,
+  attributionRequired: true,
+  termsReviewedAt: "2026-07-15",
+  variationCoverage: {
+    baseCards: true,
+    parallels: true,
+    refractors: true,
+    shortPrints: true,
+    imageVariations: true,
+    autographs: true,
+    relics: true,
+    serialNumberedRuns: true,
+  },
+};
+
+const unapprovedSourcePolicy: InstaCompCatalogSourcePolicy = {
+  ...approvedSourcePolicy,
+  source: "unlicensed_fixture_checklist",
+  sourceLabel: "Unlicensed Fixture Checklist",
+  sourceUsageAllowed: false,
+  commercialUseAllowed: false,
+};
+
 function catalogCandidate(
   overrides: Partial<InstaCompCatalogCandidate>,
 ): InstaCompCatalogCandidate {
@@ -48,6 +88,28 @@ function catalogCandidate(
     sourceLabel: "Fixture Checklist",
     sourceUrl: "https://example.test/catalog/2023-topps-chrome-update/usc17",
     sourceUsageAllowed: true,
+    player: "Shohei Ohtani",
+    year: "2023",
+    brand: "Topps Chrome",
+    setName: "Update",
+    cardNumber: "USC17",
+    parallel: "Gold Refractor",
+    variation: "Gold Refractor",
+    serialRun: "/50",
+    team: "Los Angeles Angels",
+    sport: "Baseball",
+    isAuto: false,
+    isRelic: false,
+    ...overrides,
+  };
+}
+
+function catalogCandidateIdentity(
+  overrides: Partial<InstaCompCatalogCandidateIdentity>,
+): InstaCompCatalogCandidateIdentity {
+  return {
+    catalogId: "fixture-2023-tcu-usc17-gold-ref",
+    sourceUrl: "https://example.test/catalog/2023-topps-chrome-update/usc17",
     player: "Shohei Ohtani",
     year: "2023",
     brand: "Topps Chrome",
@@ -80,6 +142,70 @@ function scenario(
 
 function runCatalogIdentitySimulationSuite() {
   const scenarios: SimulationScenario[] = [];
+
+  const lookupPlan = buildInstaCompCatalogLookupPlan(target, [
+    approvedSourcePolicy,
+    unapprovedSourcePolicy,
+    {
+      ...approvedSourcePolicy,
+      source: "no_api_fixture_checklist",
+      sourceLabel: "No API Fixture Checklist",
+      apiAvailable: false,
+    },
+  ]);
+  scenarios.push(
+    scenario(
+      "catalog_lookup_plan_filters_sources_before_comps",
+      "The lookup plan keeps only approved online card catalog sources and requires catalog identity before exact comps.",
+      lookupPlan.status === "ready" &&
+        lookupPlan.catalogBeforeCompsRequired &&
+        lookupPlan.compSearchBlockedUntilCatalogResolved &&
+        lookupPlan.approvedSources.length === 1 &&
+        lookupPlan.rejectedSources.length === 2 &&
+        lookupPlan.queryHints.includes("card number:USC17") &&
+        lookupPlan.queryHints.includes("variation:Gold Refractor"),
+      {
+        status: lookupPlan.status,
+        approvedSources: lookupPlan.approvedSources.map(
+          (source) => source.source.source,
+        ),
+        rejectedSources: lookupPlan.rejectedSources.map((source) => ({
+          source: source.source.source,
+          reasons: source.reasons,
+        })),
+        catalogBeforeCompsRequired: lookupPlan.catalogBeforeCompsRequired,
+        compSearchBlockedUntilCatalogResolved:
+          lookupPlan.compSearchBlockedUntilCatalogResolved,
+        queryHints: lookupPlan.queryHints,
+      },
+    ),
+  );
+
+  const attachedAllowedCandidates = attachInstaCompCatalogSourcePolicy(
+    approvedSourcePolicy,
+    [catalogCandidateIdentity({})],
+  );
+  const attachedRejectedCandidates = attachInstaCompCatalogSourcePolicy(
+    unapprovedSourcePolicy,
+    [catalogCandidateIdentity({ catalogId: "unapproved-candidate" })],
+  );
+  scenarios.push(
+    scenario(
+      "catalog_source_policy_attaches_usage_to_candidates",
+      "Provider candidates inherit source labels, URLs, and TCOS commercial-use approval from the catalog source policy.",
+      attachedAllowedCandidates[0]?.source === "fixture_checklist" &&
+        attachedAllowedCandidates[0]?.sourceUsageAllowed === true &&
+        attachedAllowedCandidates[0]?.sourceLabel === "Fixture Checklist" &&
+        attachedRejectedCandidates[0]?.sourceUsageAllowed === false,
+      {
+        approvedCandidate: attachedAllowedCandidates[0],
+        rejectedCandidate: attachedRejectedCandidates[0],
+        rejectedPolicy: evaluateInstaCompCatalogSourcePolicy(
+          unapprovedSourcePolicy,
+        ),
+      },
+    ),
+  );
 
   const confirmed = resolveInstaCompCatalogIdentity(target, [
     catalogCandidate({}),
@@ -155,6 +281,33 @@ function runCatalogIdentitySimulationSuite() {
         status: unapproved.status,
         reviewReasons: unapproved.reviewReasons,
         score: unapproved.selectedMatch?.score,
+      },
+    ),
+  );
+
+  const blockedLookupPlan = buildInstaCompCatalogLookupPlan(target, [
+    unapprovedSourcePolicy,
+  ]);
+  scenarios.push(
+    scenario(
+      "no_approved_catalog_source_blocks_lookup_before_comps",
+      "When no approved online catalog source is available, InstaComp records review_required and keeps exact comp trust blocked.",
+      blockedLookupPlan.status === "review_required" &&
+        blockedLookupPlan.approvedSources.length === 0 &&
+        blockedLookupPlan.reviewReasons.includes(
+          "no approved online card catalog source is available",
+        ) &&
+        blockedLookupPlan.compSearchBlockedUntilCatalogResolved,
+      {
+        status: blockedLookupPlan.status,
+        approvedSources: blockedLookupPlan.approvedSources.length,
+        rejectedSources: blockedLookupPlan.rejectedSources.map((source) => ({
+          source: source.source.source,
+          reasons: source.reasons,
+        })),
+        reviewReasons: blockedLookupPlan.reviewReasons,
+        compSearchBlockedUntilCatalogResolved:
+          blockedLookupPlan.compSearchBlockedUntilCatalogResolved,
       },
     ),
   );

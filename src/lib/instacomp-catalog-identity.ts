@@ -34,6 +34,56 @@ export type InstaCompCatalogCandidate = {
   isRelic?: boolean | null;
 };
 
+export type InstaCompCatalogVariationCoverage = {
+  baseCards: boolean;
+  parallels: boolean;
+  refractors: boolean;
+  shortPrints: boolean;
+  imageVariations: boolean;
+  autographs: boolean;
+  relics: boolean;
+  serialNumberedRuns: boolean;
+};
+
+export type InstaCompCatalogSourcePolicy = {
+  source: string;
+  sourceLabel: string;
+  sourceUrl: string;
+  apiAvailable: boolean;
+  sourceUsageAllowed: boolean;
+  commercialUseAllowed: boolean;
+  storageAllowed: boolean;
+  displayAllowed: boolean;
+  cachingAllowed: boolean;
+  attributionRequired: boolean;
+  termsReviewedAt?: string | null;
+  variationCoverage: InstaCompCatalogVariationCoverage;
+};
+
+export type InstaCompCatalogSourcePolicyResult = {
+  source: InstaCompCatalogSourcePolicy;
+  status: "approved" | "rejected";
+  reasons: string[];
+};
+
+export type InstaCompCatalogLookupPlan = {
+  status: "ready" | "review_required";
+  catalogBeforeCompsRequired: true;
+  compSearchBlockedUntilCatalogResolved: true;
+  queryIdentity: InstaCompCatalogIdentityInput;
+  queryHints: string[];
+  approvedSources: InstaCompCatalogSourcePolicyResult[];
+  rejectedSources: InstaCompCatalogSourcePolicyResult[];
+  reviewReasons: string[];
+};
+
+export type InstaCompCatalogCandidateIdentity = Omit<
+  InstaCompCatalogCandidate,
+  "source" | "sourceLabel" | "sourceUrl" | "sourceUsageAllowed"
+> & {
+  sourceUrl?: string | null;
+};
+
 export type InstaCompCatalogCandidateScore = {
   candidate: InstaCompCatalogCandidate;
   score: number;
@@ -90,6 +140,19 @@ const FIELD_WEIGHTS = {
 const CONFIRMED_SCORE_THRESHOLD = 88;
 const CONFIRMED_GAP_THRESHOLD = 12;
 
+const CATALOG_LOOKUP_IDENTITY_FIELDS = [
+  "year",
+  "brand",
+  "setName",
+  "cardNumber",
+  "player",
+  "team",
+  "parallel",
+  "variation",
+  "serialRun",
+  "sport",
+] as const;
+
 function normalizeText(value: string | null | undefined) {
   return String(value || "")
     .toLowerCase()
@@ -124,6 +187,94 @@ function booleanKnown(value: boolean | null | undefined) {
 
 function textKnown(value: string | null | undefined) {
   return normalizeText(value).length > 0;
+}
+
+function variationCoverageSignals(coverage: InstaCompCatalogVariationCoverage) {
+  return Object.values(coverage).filter(Boolean).length;
+}
+
+function sourcePolicyRejectionReasons(source: InstaCompCatalogSourcePolicy) {
+  const reasons: string[] = [];
+
+  if (!source.apiAvailable) {
+    reasons.push("catalog source API is not available");
+  }
+  if (!source.sourceUsageAllowed) {
+    reasons.push("catalog source is not approved for TCOS use");
+  }
+  if (!source.commercialUseAllowed) {
+    reasons.push("catalog source is not approved for commercial use");
+  }
+  if (!source.storageAllowed) {
+    reasons.push("catalog source does not allow TCOS to store match evidence");
+  }
+  if (!source.displayAllowed) {
+    reasons.push("catalog source does not allow TCOS to display match evidence");
+  }
+  if (variationCoverageSignals(source.variationCoverage) === 0) {
+    reasons.push("catalog source has no declared card variation coverage");
+  }
+
+  return reasons;
+}
+
+export function evaluateInstaCompCatalogSourcePolicy(
+  source: InstaCompCatalogSourcePolicy,
+): InstaCompCatalogSourcePolicyResult {
+  const reasons = sourcePolicyRejectionReasons(source);
+
+  return {
+    source,
+    status: reasons.length === 0 ? "approved" : "rejected",
+    reasons,
+  };
+}
+
+export function buildInstaCompCatalogLookupPlan(
+  input: InstaCompCatalogIdentityInput,
+  sources: InstaCompCatalogSourcePolicy[],
+): InstaCompCatalogLookupPlan {
+  const evaluated = sources.map(evaluateInstaCompCatalogSourcePolicy);
+  const approvedSources = evaluated.filter((source) => source.status === "approved");
+  const rejectedSources = evaluated.filter((source) => source.status === "rejected");
+  const queryHints = CATALOG_LOOKUP_IDENTITY_FIELDS.flatMap((field) => {
+    const value = input[field];
+    return textKnown(value) ? [`${evidenceLabel(field)}:${value}`] : [];
+  });
+  const reviewReasons: string[] = [];
+
+  if (approvedSources.length === 0) {
+    reviewReasons.push("no approved online card catalog source is available");
+  }
+  if (queryHints.length === 0) {
+    reviewReasons.push("scanner did not produce enough identity fields for catalog lookup");
+  }
+
+  return {
+    status: reviewReasons.length === 0 ? "ready" : "review_required",
+    catalogBeforeCompsRequired: true,
+    compSearchBlockedUntilCatalogResolved: true,
+    queryIdentity: input,
+    queryHints,
+    approvedSources,
+    rejectedSources,
+    reviewReasons,
+  };
+}
+
+export function attachInstaCompCatalogSourcePolicy(
+  source: InstaCompCatalogSourcePolicy,
+  candidates: InstaCompCatalogCandidateIdentity[],
+): InstaCompCatalogCandidate[] {
+  const policyResult = evaluateInstaCompCatalogSourcePolicy(source);
+
+  return candidates.map((candidate) => ({
+    ...candidate,
+    source: source.source,
+    sourceLabel: source.sourceLabel,
+    sourceUrl: candidate.sourceUrl || source.sourceUrl,
+    sourceUsageAllowed: policyResult.status === "approved",
+  }));
 }
 
 function valuesMatch(
