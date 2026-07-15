@@ -138,6 +138,66 @@ check(
   invalidSerialDraftTitle
 );
 
+const opcPlatinumDraftTitle = buildInstaCompDraftTitle(
+  {
+    player: "Connor Bedard",
+    year: "2024-25",
+    brand: "Upper Deck",
+    setName: "O-Pee-Chee Platinum",
+    cardNumber: "201",
+    parallel: "Limited Red",
+    serialNumber: null,
+    isRookie: true,
+  },
+  "fallback.jpg"
+);
+check(
+  "draft title treats Upper Deck as manufacturer for O-Pee-Chee Platinum",
+  opcPlatinumDraftTitle ===
+    "2024-25 O-Pee-Chee Platinum Connor Bedard Rookie Limited Red #201",
+  opcPlatinumDraftTitle
+);
+
+const upperDeckSeriesTwoDraftTitle = buildInstaCompDraftTitle(
+  {
+    player: "Matvei Michkov",
+    year: "2024-25",
+    brand: "Upper Deck",
+    setName: "Series 2",
+    cardNumber: "451",
+    parallel: "Young Guns",
+    serialNumber: null,
+    isRookie: true,
+  },
+  "fallback.jpg"
+);
+check(
+  "draft title keeps Upper Deck for Series 1/2/Extended releases",
+  upperDeckSeriesTwoDraftTitle ===
+    "2024-25 Upper Deck Series 2 Matvei Michkov Rookie Young Guns #451",
+  upperDeckSeriesTwoDraftTitle
+);
+
+const duplicateUpperDeckDraftTitle = buildInstaCompDraftTitle(
+  {
+    player: "Macklin Celebrini",
+    year: "2024-25",
+    brand: "Upper Deck",
+    setName: "Upper Deck Extended Series",
+    cardNumber: "701",
+    parallel: null,
+    serialNumber: null,
+    isRookie: true,
+  },
+  "fallback.jpg"
+);
+check(
+  "draft title does not repeat brand when set already includes it",
+  duplicateUpperDeckDraftTitle ===
+    "2024-25 Upper Deck Extended Series Macklin Celebrini Rookie #701",
+  duplicateUpperDeckDraftTitle
+);
+
 const invalidSerialQuery = buildInstaCompQueries({ ...target, serialNumber: "99/25" });
 check("invalid serial cannot constrain comp search", !invalidSerialQuery.primary.includes("/25"), invalidSerialQuery.primary);
 
