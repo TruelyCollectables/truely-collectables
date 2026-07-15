@@ -129,6 +129,15 @@ if (payload) {
   checks.push(check(Array.isArray(payload.entries?.finalLivePaymentRuntime), "final live-payment runtime entries exist"));
   checks.push(check(payload.commands?.vercelBootstrapCommands === "npm run live-money:vercel-bootstrap-commands", "bootstrap command is recorded"));
   checks.push(check(payload.commands?.vercelCommands === "npm run live-money:vercel-commands", "full command is recorded"));
+  checks.push(
+    check(
+      payload.verificationBoundary?.includes("Vercel env add commands stage deployed runtime values only") &&
+        payload.verificationBoundary?.includes("Local npm run status:live-money reads this shell's local environment") &&
+        payload.verificationBoundary?.includes("redeploy only when quota is open"),
+      "local/deployed verification boundary is recorded",
+      payload.verificationBoundary || null,
+    ),
+  );
   checks.push(check(payload.archive?.checksumAlgorithm === "sha256", "archive metadata records sha256 algorithm"));
   checks.push(check(payload.archive?.checksumPath === sha256Path, "archive metadata checksum path matches sidecar"));
   checks.push(check(payload.archive?.command === "npm --silent run live-money:env-packet:json", "archive metadata records source command"));
@@ -154,6 +163,7 @@ const verification = {
   packetGeneratedAt: payload?.generatedAt || null,
   bootstrapCommand: payload?.commands?.vercelBootstrapCommands || null,
   fullCommand: payload?.commands?.vercelCommands || null,
+  verificationBoundary: payload?.verificationBoundary || null,
   checks,
   ok: failedChecks.length === 0,
   failedCheckCount: failedChecks.length,
@@ -175,6 +185,7 @@ if (jsonOutput) {
   console.log(`- sha256 from sidecar: ${sha256FromFile || "not parsed"}`);
   console.log(`- bootstrap command: ${verification.bootstrapCommand || "not recorded"}`);
   console.log(`- full command: ${verification.fullCommand || "not recorded"}`);
+  console.log(`- verification boundary: ${verification.verificationBoundary || "not recorded"}`);
   console.log(`- ok: ${verification.ok ? "yes" : "no"}`);
   console.log(`- failed checks: ${verification.failedCheckCount}`);
   for (const item of failedChecks) {

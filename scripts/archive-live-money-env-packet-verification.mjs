@@ -68,6 +68,15 @@ function assertEvidenceContract(payload) {
   if (payload?.fullCommand !== "npm run live-money:vercel-commands") {
     missing.push("fullCommand");
   }
+  if (!payload?.verificationBoundary?.includes("Vercel env add commands stage deployed runtime values only")) {
+    missing.push("verificationBoundary.vercelStaging");
+  }
+  if (!payload?.verificationBoundary?.includes("Local npm run status:live-money reads this shell's local environment")) {
+    missing.push("verificationBoundary.localStatus");
+  }
+  if (!payload?.verificationBoundary?.includes("redeploy only when quota is open")) {
+    missing.push("verificationBoundary.quotaGatedRedeploy");
+  }
   if (typeof payload?.ok !== "boolean") missing.push("ok");
   if (payload?.ok !== true) missing.push("ok.true");
   if (typeof payload?.failedCheckCount !== "number") {
@@ -97,6 +106,7 @@ function assertEvidenceContract(payload) {
     "archive contains no secret-shaped values",
     "bootstrap command is recorded",
     "full command is recorded",
+    "local/deployed verification boundary is recorded",
   ];
   const checkNames = new Set(
     Array.isArray(payload?.checks) ? payload.checks.map((item) => item.name) : [],
@@ -171,6 +181,7 @@ console.log(`- computed sha256: ${payload.computedSha256 || "not computed"}`);
 console.log(`- verification ok: ${payload.ok ? "yes" : "no"}`);
 console.log(`- failed checks: ${payload.failedCheckCount}`);
 console.log(`- bootstrap command: ${payload.bootstrapCommand || "not recorded"}`);
+console.log(`- verification boundary: ${payload.verificationBoundary || "not recorded"}`);
 console.log(`- read-only guarantee: ${payload.readOnlyGuarantee}`);
 
 if (stderr) console.error(stderr);
