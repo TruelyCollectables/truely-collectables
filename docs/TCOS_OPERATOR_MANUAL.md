@@ -2431,6 +2431,23 @@ Goal:
 - protect both parties with identity, address, shipping, condition, and evidence controls
 - keep trades separate from normal store inventory until a trade is accepted and locked
 
+Trade platform product model:
+
+- evaluate keeping the trade platform separate from auctions, store checkout, and normal marketplace buying/selling
+- consider a simple `2 USD/month` trade membership so collectors have a lightweight billing relationship before they can trade
+- the membership should help keep billing address, customer identity, and trade participation more honest without turning trades into a full marketplace checkout flow
+- trade membership should increase confidence in the system, discourage ghosting, and make repeat scammers easier to identify, pause, or remove
+- the trade platform should still avoid live money, postage, payouts, or checkout behavior until trade-specific billing, cancellation, tax, privacy, and dispute rules are designed
+
+Trade reputation model:
+
+- trade rankings should use the same collector-facing tier language as auctions: `Gold`, `Silver`, and `Bronze`
+- show each collector's career successful trade count on their trade profile
+- track completion quality, disputes, ghosting, cancellation history, and admin actions separately from raw completed-trade count
+- define a Collecting Hall of Fame milestone for collectors who reach `1000` successful career trades with a `100%` successful-trade record
+- Hall of Fame collectors should receive a special ribbon, trophy, or similar badge next to their username across the collectable community
+- Hall of Fame status should be revocable or reviewable if later fraud, abuse, counterfeit activity, or serious dispute history is discovered
+
 Trade section entry points to evaluate:
 
 - `/trades` public trade browsing page
