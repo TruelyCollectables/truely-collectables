@@ -96,7 +96,7 @@ function archivedPushed(payload, currentHead, currentOriginMain) {
 }
 
 function evidenceSummary(payload) {
-  return {
+  const summary = {
     path: payload?.__path || null,
     schema: payload?.schema || null,
     archivedAt: payload?.archive?.archivedAt || null,
@@ -105,6 +105,11 @@ function evidenceSummary(payload) {
     gitWorkingTreeClean: payload?.archive?.gitWorkingTreeClean ?? null,
     command: payload?.archive?.command || null,
   };
+  if (typeof payload?.verificationBoundary === "string") {
+    summary.verificationBoundary = payload.verificationBoundary;
+  }
+
+  return summary;
 }
 
 const gitStatusShort = runLocalGit(["status", "--short"]);
@@ -213,10 +218,28 @@ if (livePacket) {
 
 const liveVerification = payloads.liveMoneyEnvPacketVerification;
 if (liveVerification) {
+  const liveVerificationCheckNames = new Set(
+    Array.isArray(liveVerification.checks) ? liveVerification.checks.map((item) => item.name) : [],
+  );
   checks.push(check(liveVerification.ok === true, "live-money packet verification is ok"));
   checks.push(check(liveVerification.failedCheckCount === 0, "live-money packet verification has no failed checks", liveVerification.failedCheckCount));
   checks.push(check(liveVerification.computedSha256 === liveVerification.sha256FromFile, "live-money packet checksum matches sidecar"));
   checks.push(check(liveVerification.bootstrapCommand === "npm run live-money:vercel-bootstrap-commands", "live-money bootstrap command is recorded"));
+  checks.push(
+    check(
+      liveVerification.verificationBoundary?.includes("Vercel env add commands stage deployed runtime values only") &&
+        liveVerification.verificationBoundary?.includes("Local npm run status:live-money reads this shell's local environment") &&
+        liveVerification.verificationBoundary?.includes("redeploy only when quota is open"),
+      "live-money verification boundary is recorded",
+      liveVerification.verificationBoundary || null,
+    ),
+  );
+  checks.push(
+    check(
+      liveVerificationCheckNames.has("local/deployed verification boundary is recorded"),
+      "live-money verifier checked local/deployed boundary",
+    ),
+  );
   if (livePacket) {
     checks.push(
       check(

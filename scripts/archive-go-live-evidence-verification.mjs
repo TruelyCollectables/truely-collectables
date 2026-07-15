@@ -90,6 +90,27 @@ function assertEvidenceContract(payload) {
       missing.push(`evidence.${key}.gitWorkingTreeClean.true`);
     }
   }
+  if (
+    !payload?.evidence?.liveMoneyEnvPacketVerification?.verificationBoundary?.includes(
+      "Vercel env add commands stage deployed runtime values only",
+    )
+  ) {
+    missing.push("evidence.liveMoneyEnvPacketVerification.verificationBoundary.vercelStaging");
+  }
+  if (
+    !payload?.evidence?.liveMoneyEnvPacketVerification?.verificationBoundary?.includes(
+      "Local npm run status:live-money reads this shell's local environment",
+    )
+  ) {
+    missing.push("evidence.liveMoneyEnvPacketVerification.verificationBoundary.localStatus");
+  }
+  if (
+    !payload?.evidence?.liveMoneyEnvPacketVerification?.verificationBoundary?.includes(
+      "redeploy only when quota is open",
+    )
+  ) {
+    missing.push("evidence.liveMoneyEnvPacketVerification.verificationBoundary.quotaGatedRedeploy");
+  }
 
   const requiredCheckNames = [
     "current working tree is clean",
@@ -98,6 +119,8 @@ function assertEvidenceContract(payload) {
     "runway confirms no Vercel upload started",
     "backup verification is ok",
     "live-money packet verification is ok",
+    "live-money verification boundary is recorded",
+    "live-money verifier checked local/deployed boundary",
     "live-money verification points at latest packet archive",
   ];
   const checkNames = new Set(

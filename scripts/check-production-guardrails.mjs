@@ -976,6 +976,30 @@ runExpectedSuccess("go-live evidence verification archive helper syntax check", 
   "--check",
   "scripts/archive-go-live-evidence-verification.mjs",
 ]);
+assertFileIncludes("go-live evidence verifier source", "scripts/verify-go-live-evidence.mjs", [
+  "tcos.goLiveEvidenceVerification.v1",
+  "liveMoneyEnvPacketVerification",
+  "verificationBoundary",
+  "live-money verification boundary is recorded",
+  "live-money verifier checked local/deployed boundary",
+  "local/deployed verification boundary is recorded",
+  "Vercel env add commands stage deployed runtime values only",
+  "Local npm run status:live-money reads this shell's local environment",
+  "redeploy only when quota is open",
+  "live-money verification points at latest packet archive",
+]);
+assertFileIncludes("go-live evidence verification archive helper source", "scripts/archive-go-live-evidence-verification.mjs", [
+  "tcos.goLiveEvidenceVerification.v1",
+  "liveMoneyEnvPacketVerification",
+  "evidence.liveMoneyEnvPacketVerification.verificationBoundary.vercelStaging",
+  "evidence.liveMoneyEnvPacketVerification.verificationBoundary.localStatus",
+  "evidence.liveMoneyEnvPacketVerification.verificationBoundary.quotaGatedRedeploy",
+  "live-money verification boundary is recorded",
+  "live-money verifier checked local/deployed boundary",
+  "Vercel env add commands stage deployed runtime values only",
+  "Local npm run status:live-money reads this shell's local environment",
+  "redeploy only when quota is open",
+]);
 assertScriptIncludes("verify:shipping", [
   "simulate:lettertrack-evidence",
   "simulate:shipping-purchase-audit",
