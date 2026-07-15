@@ -269,6 +269,13 @@ if (payload) {
   );
   checks.push(
     check(
+      Boolean(payload.backupRunway?.nextScheduledRunAtLocal),
+      "checkpoint backup runway next scheduled local is recorded",
+      payload.backupRunway?.nextScheduledRunAtLocal || null,
+    ),
+  );
+  checks.push(
+    check(
       payload.backupRunway?.verificationOk === true,
       "checkpoint backup runway verification is ok",
     ),
@@ -368,6 +375,8 @@ const verification = {
         backupScheduleHealth: payload.emergencyBackup?.scheduleHealth || null,
         backupSchedulerProof: payload.emergencyBackup?.schedulerProof || null,
         backupRunway: payload.backupRunway || null,
+        backupRunwayNextScheduledRunAtLocal:
+          payload.backupRunway?.nextScheduledRunAtLocal || null,
         backupRunwayNext: payload.backupRunway?.next || null,
         backupRunwayVerifiedArchive: payload.backupRunway?.verifiedArchive || null,
         backupRunwayComputedSha256: payload.backupRunway?.computedSha256 || null,
@@ -448,6 +457,11 @@ if (jsonOutput) {
   console.log(
     `- backup runway operator watch required: ${
       verification.checkpoint?.backupRunway?.operatorWatchRequired ? "yes" : "no"
+    }`,
+  );
+  console.log(
+    `- backup runway next scheduled local: ${
+      verification.checkpoint?.backupRunwayNextScheduledRunAtLocal || "not recorded"
     }`,
   );
   console.log(

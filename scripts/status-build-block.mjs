@@ -386,6 +386,11 @@ function printText(checkpoint) {
   );
   console.log(`- schedule health: ${checkpoint.backupRunway.scheduleHealth}`);
   console.log(
+    `- next scheduled local: ${
+      checkpoint.backupRunway.nextScheduledRunAtLocal || "unknown"
+    }`,
+  );
+  console.log(
     `- verified archive: ${checkpoint.backupRunway.verifiedArchive || "unknown"}`,
   );
   console.log(
