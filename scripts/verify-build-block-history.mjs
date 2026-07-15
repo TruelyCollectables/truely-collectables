@@ -418,7 +418,8 @@ if (payload) {
   checks.push(
     check(
       evidence.goLiveRunway?.summary?.quotaState === "blocked" ||
-        evidence.goLiveRunway?.summary?.quotaState === "open",
+        evidence.goLiveRunway?.summary?.quotaState === "open" ||
+        evidence.goLiveRunway?.summary?.quotaState === "expired",
       "history records quota state",
       evidence.goLiveRunway?.summary?.quotaState || null,
     ),
