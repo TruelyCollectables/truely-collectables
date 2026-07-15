@@ -682,6 +682,12 @@ runExpectedSuccess("shipping purchase audit simulation runner syntax check", [
   "--check",
   "scripts/run-shipping-purchase-audit-simulations.ts",
 ]);
+runExpectedSuccess("live money status runner syntax check", [
+  "--import",
+  "tsx",
+  "--check",
+  "scripts/status-live-money.ts",
+]);
 assertScriptIncludes("verify:shipping", [
   "simulate:lettertrack-evidence",
   "simulate:shipping-purchase-audit",
@@ -689,6 +695,12 @@ assertScriptIncludes("verify:shipping", [
 ]);
 assertScriptIncludes("status:production", [
   "node scripts/deploy-production.mjs --quota-status",
+]);
+assertScriptIncludes("status:live-money", [
+  "node --import tsx scripts/status-live-money.ts --allow-blocked",
+]);
+assertScriptIncludes("preflight:live-money", [
+  "node --import tsx scripts/status-live-money.ts",
 ]);
 assertScriptIncludes("verify:production", [
   "verify:instacomp",
@@ -716,6 +728,21 @@ assertFileIncludes("launch dashboard smoke contract", "scripts/smoke-production.
   "Standard Envelope evidence validator",
   "Purchase-audit key drift",
   "unexpected",
+]);
+assertFileIncludes("live money go/no-go CLI source", "scripts/status-live-money.ts", [
+  "Live money go/no-go status:",
+  "READY_FOR_RUNTIME_SWITCH",
+  "READY_FOR_DATABASE_APPROVAL",
+  "--allow-blocked",
+  "approval blockers",
+  "runtime switch",
+  "Read-only guarantee: no Checkout Sessions, Customers, PaymentIntents, refunds, disputes, payouts, labels, postage purchases, Coverage policies, launch approvals, or revocations were created.",
+]);
+assertFileIncludes("live money go/no-go README instructions", "README.md", [
+  "npm run status:live-money",
+  "npm run preflight:live-money",
+  "READY_FOR_RUNTIME_SWITCH",
+  "Read-only guarantee",
 ]);
 assertFileIncludes("admin dashboard shipping evidence validator source", "src/app/admin/page.tsx", [
   "ProviderSetupActionPlanStep",

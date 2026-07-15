@@ -52,6 +52,8 @@ The production go/no-go ladder is: verify the pushed stack with `npm run verify:
 
 During recurring development blocks, `npm run status:production` is the read-only quota check. It prints the exact blocked/retry timestamps, approximate remaining cooldown, marker path, and `Vercel upload started: no` without fetching Git or starting a deployment.
 
+For the live-money runway, use `npm run status:live-money` during build blocks and `npm run preflight:live-money` during the final go-live window. Both commands reuse the Live Payment Launch Gate evaluator and print approval-blocker, launch-lock, warning, database-approval, runtime-switch, and live Checkout state with a `Read-only guarantee` that they do not create Checkout Sessions, Customers, PaymentIntents, refunds, disputes, payouts, labels, postage purchases, Coverage policies, launch approvals, or revocations. `status:live-money` is non-failing so it can answer “how much more until full live money?” while blocked. `preflight:live-money` fails until the state is `READY_FOR_RUNTIME_SWITCH` or `LIVE_MONEY_OPEN`.
+
 A malformed or unreadable marker fails closed: status reports `state: invalid_marker`, deployment remains blocked, and no Vercel upload starts. Inspect or restore the marker; override only after independently confirming the quota reset.
 
 A zero, negative, or nonnumeric cooldown value also fails closed as `state: invalid_configuration`; it cannot disable the guard. Correct `TCOS_VERCEL_QUOTA_COOLDOWN_HOURS`, or use the explicit retry override only after independently confirming the quota reset.
