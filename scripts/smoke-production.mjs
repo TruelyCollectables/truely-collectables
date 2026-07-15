@@ -670,6 +670,9 @@ const checks = [
       result.text.includes("Live Money JSON Evidence") &&
       result.text.includes("npm --silent run status:live-money:json") &&
       result.text.includes("npm --silent run preflight:live-money:json") &&
+      result.text.includes("npm run archive:live-money") &&
+      result.text.includes("npm run archive:live-money:preflight") &&
+      result.text.includes(".codex-run/live-money-evidence/") &&
       result.text.includes("TCOS_LIVE_PAYMENTS_ENABLED") &&
       result.text.includes("READY_FOR_RUNTIME_SWITCH, LIVE_MONEY_OPEN") &&
       result.text.includes("BLOCKED_UNEVALUATED, BLOCKED_APPROVAL, READY_FOR_DATABASE_APPROVAL, BLOCKED_LAUNCH_GATE") &&
@@ -696,6 +699,11 @@ const checks = [
       result.text.includes("npm --silent run status:live-money:json") &&
       result.text.includes("Final-window preflight command") &&
       result.text.includes("npm --silent run preflight:live-money:json") &&
+      result.text.includes("Post-smoke archive helper") &&
+      result.text.includes("npm run archive:live-money") &&
+      result.text.includes("Final-window archive helper") &&
+      result.text.includes("npm run archive:live-money:preflight") &&
+      result.text.includes(".codex-run/live-money-evidence/") &&
       result.text.includes("Accepted go-live states") &&
       result.text.includes("READY_FOR_RUNTIME_SWITCH, LIVE_MONEY_OPEN") &&
       result.text.includes("Halt states") &&
@@ -1087,6 +1095,9 @@ const checks = [
       result.text.includes("Launch gate drill evidence") &&
       result.text.includes("Live money runway proof") &&
       result.text.includes("Live money JSON evidence") &&
+      result.text.includes("npm run archive:live-money") &&
+      result.text.includes("npm run archive:live-money:preflight") &&
+      result.text.includes(".codex-run/live-money-evidence/") &&
       result.text.includes("npm --silent run status:live-money:json") &&
       result.text.includes("npm --silent run preflight:live-money:json") &&
       result.text.includes("tcos.liveMoneyGoNoGo.v1") &&
@@ -1345,6 +1356,11 @@ const checks = [
       result.text.includes("npm --silent run status:live-money:json") &&
       result.text.includes("Final-window preflight command") &&
       result.text.includes("npm --silent run preflight:live-money:json") &&
+      result.text.includes("Post-smoke archive helper") &&
+      result.text.includes("npm run archive:live-money") &&
+      result.text.includes("Final-window archive helper") &&
+      result.text.includes("npm run archive:live-money:preflight") &&
+      result.text.includes(".codex-run/live-money-evidence/") &&
       result.text.includes("Accepted go-live states") &&
       result.text.includes("READY_FOR_RUNTIME_SWITCH, LIVE_MONEY_OPEN") &&
       result.text.includes("Halt if the JSON evidence is missing") &&
@@ -1364,6 +1380,9 @@ const checks = [
       result.text.includes('"schema":"tcos.liveMoneyGoNoGo.v1"') &&
       result.text.includes('"statusCommand":"npm --silent run status:live-money:json"') &&
       result.text.includes('"preflightCommand":"npm --silent run preflight:live-money:json"') &&
+      result.text.includes('"archiveCommand":"npm run archive:live-money"') &&
+      result.text.includes('"preflightArchiveCommand":"npm run archive:live-money:preflight"') &&
+      result.text.includes('"archiveDirectory":".codex-run/live-money-evidence/"') &&
       result.text.includes('"READY_FOR_RUNTIME_SWITCH"') &&
       result.text.includes('"LIVE_MONEY_OPEN"') &&
       result.text.includes("BLOCKED_LAUNCH_GATE") &&

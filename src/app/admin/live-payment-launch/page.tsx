@@ -201,6 +201,22 @@ export default async function LivePaymentLaunchPage() {
               </dd>
             </div>
             <div className="rounded border border-emerald-200 bg-white p-3">
+              <dt className="font-black uppercase text-emerald-700">
+                Post-smoke archive helper
+              </dt>
+              <dd className="mt-1 font-mono text-xs">
+                {LIVE_MONEY_JSON_EVIDENCE.archiveCommand}
+              </dd>
+            </div>
+            <div className="rounded border border-emerald-200 bg-white p-3">
+              <dt className="font-black uppercase text-emerald-700">
+                Final-window archive helper
+              </dt>
+              <dd className="mt-1 font-mono text-xs">
+                {LIVE_MONEY_JSON_EVIDENCE.preflightArchiveCommand}
+              </dd>
+            </div>
+            <div className="rounded border border-emerald-200 bg-white p-3">
               <dt className="font-black uppercase text-emerald-700">Schema</dt>
               <dd className="mt-1 font-mono text-xs">
                 {LIVE_MONEY_JSON_EVIDENCE.schema}
@@ -227,7 +243,11 @@ export default async function LivePaymentLaunchPage() {
             while any halt state is present.
           </p>
           <p className="mt-2 text-sm font-semibold leading-6">
-            {LIVE_MONEY_JSON_EVIDENCE.readOnlyGuarantee}
+            Timestamped helper output writes under{" "}
+            <code className="rounded bg-white px-1 py-0.5">
+              {LIVE_MONEY_JSON_EVIDENCE.archiveDirectory}
+            </code>
+            . {LIVE_MONEY_JSON_EVIDENCE.readOnlyGuarantee}
           </p>
         </section>
 

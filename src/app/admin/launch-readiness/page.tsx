@@ -1328,6 +1328,22 @@ export default async function LaunchReadinessPage() {
                   {LIVE_MONEY_JSON_EVIDENCE.preflightCommand}
                 </dd>
               </div>
+              <div>
+                <dt className="font-black uppercase text-emerald-700">
+                  Post-smoke archive helper
+                </dt>
+                <dd className="mt-1 font-mono text-xs">
+                  {LIVE_MONEY_JSON_EVIDENCE.archiveCommand}
+                </dd>
+              </div>
+              <div>
+                <dt className="font-black uppercase text-emerald-700">
+                  Final-window archive helper
+                </dt>
+                <dd className="mt-1 font-mono text-xs">
+                  {LIVE_MONEY_JSON_EVIDENCE.preflightArchiveCommand}
+                </dd>
+              </div>
             </dl>
             <p className="mt-4 text-sm font-semibold leading-6">
               Halt states:{" "}
@@ -1337,7 +1353,11 @@ export default async function LaunchReadinessPage() {
               .
             </p>
             <p className="mt-2 text-sm font-semibold leading-6">
-              {LIVE_MONEY_JSON_EVIDENCE.readOnlyGuarantee}
+              Timestamped helper output writes under{" "}
+              <code className="rounded bg-emerald-50 px-1 py-0.5">
+                {LIVE_MONEY_JSON_EVIDENCE.archiveDirectory}
+              </code>
+              . {LIVE_MONEY_JSON_EVIDENCE.readOnlyGuarantee}
             </p>
           </div>
         </section>

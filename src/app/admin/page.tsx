@@ -709,8 +709,14 @@ export default async function AdminDashboard() {
                     <p className="mt-1 font-semibold">
                       Archive{" "}
                       <code>{LIVE_MONEY_JSON_EVIDENCE.statusCommand}</code>{" "}
-                      after smoke; run{" "}
+                      after smoke or write a timestamped file with{" "}
+                      <code>{LIVE_MONEY_JSON_EVIDENCE.archiveCommand}</code>;
+                      run{" "}
                       <code>{LIVE_MONEY_JSON_EVIDENCE.preflightCommand}</code>{" "}
+                      or{" "}
+                      <code>
+                        {LIVE_MONEY_JSON_EVIDENCE.preflightArchiveCommand}
+                      </code>{" "}
                       in the final go-live window before changing{" "}
                       <code>TCOS_LIVE_PAYMENTS_ENABLED</code>.
                     </p>
@@ -728,6 +734,8 @@ export default async function AdminDashboard() {
                     <p className="mt-1 font-semibold">
                       Schema:{" "}
                       <code>{LIVE_MONEY_JSON_EVIDENCE.schema}</code>.{" "}
+                      Archive directory:{" "}
+                      <code>{LIVE_MONEY_JSON_EVIDENCE.archiveDirectory}</code>.{" "}
                       {LIVE_MONEY_JSON_EVIDENCE.readOnlyGuarantee}
                     </p>
                   </div>
