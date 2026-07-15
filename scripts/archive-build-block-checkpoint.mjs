@@ -113,6 +113,30 @@ function assertEvidenceContract(payload) {
   if (typeof payload?.emergencyBackup?.overRetentionCount !== "number") {
     missing.push("emergencyBackup.overRetentionCount");
   }
+  if (typeof payload?.backupRunway?.available !== "boolean") {
+    missing.push("backupRunway.available");
+  }
+  if (payload?.backupRunway?.schema !== "tcos.backupRunwayStatus.v1") {
+    missing.push("backupRunway.schema");
+  }
+  if (typeof payload?.backupRunway?.acceptedBackupPosture !== "boolean") {
+    missing.push("backupRunway.acceptedBackupPosture");
+  }
+  if (!payload?.backupRunway?.schedulerProofMode) {
+    missing.push("backupRunway.schedulerProofMode");
+  }
+  if (typeof payload?.backupRunway?.operatorWatchRequired !== "boolean") {
+    missing.push("backupRunway.operatorWatchRequired");
+  }
+  if (!payload?.backupRunway?.verifiedArchive) {
+    missing.push("backupRunway.verifiedArchive");
+  }
+  if (!payload?.backupRunway?.computedSha256) {
+    missing.push("backupRunway.computedSha256");
+  }
+  if (!payload?.backupRunway?.next) {
+    missing.push("backupRunway.next");
+  }
   if (!payload?.liveMoney?.state) missing.push("liveMoney.state");
   if (typeof payload?.liveMoney?.readyForRuntimeSwitch !== "boolean") {
     missing.push("liveMoney.readyForRuntimeSwitch");
@@ -214,6 +238,19 @@ console.log(
     payload.emergencyBackup.verificationOk ? "yes" : "no"
   }`,
 );
+console.log(
+  `- backup runway accepted posture: ${
+    payload.backupRunway.acceptedBackupPosture ? "yes" : "no"
+  }`,
+);
+console.log(`- backup runway scheduler proof mode: ${payload.backupRunway.schedulerProofMode}`);
+console.log(
+  `- backup runway operator watch required: ${
+    payload.backupRunway.operatorWatchRequired ? "yes" : "no"
+  }`,
+);
+console.log(`- backup runway verified archive: ${payload.backupRunway.verifiedArchive}`);
+console.log(`- backup runway computed sha256: ${payload.backupRunway.computedSha256}`);
 console.log(`- live-money state: ${payload.liveMoney.state}`);
 console.log(
   `- missing bootstrap environment: ${
@@ -223,5 +260,5 @@ console.log(
   }`,
 );
 console.log(
-  "- read-only source guarantee: status:build-block only reads status:go-live JSON; this archive helper only writes the timestamped checkpoint file.",
+  "- read-only source guarantee: status:build-block only reads status:go-live JSON and backup-runway JSON; this archive helper only writes the timestamped checkpoint file.",
 );

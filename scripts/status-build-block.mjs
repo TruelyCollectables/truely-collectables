@@ -12,6 +12,43 @@ function runGoLiveStatus() {
   });
 }
 
+function runBackupRunwayStatus() {
+  return spawnSync(npm, ["--silent", "run", "status:backup-runway:json"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+  });
+}
+
+function parseOptionalJsonResult(result, command) {
+  const stdout = (result.stdout || "").trim();
+  if (!stdout) {
+    return {
+      available: false,
+      payload: null,
+      error:
+        (result.stderr || "").trim() ||
+        `${command} produced no JSON output.`,
+    };
+  }
+
+  try {
+    return {
+      available: true,
+      payload: JSON.parse(stdout),
+      error: result.status === 0 ? null : (result.stderr || "").trim() || null,
+    };
+  } catch (error) {
+    return {
+      available: false,
+      payload: null,
+      error: `Could not parse ${command} output as JSON: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    };
+  }
+}
+
 function normalizeCommands(commands = []) {
   return Array.isArray(commands)
     ? commands.filter((command) => typeof command === "string" && command.trim())
@@ -144,9 +181,40 @@ function buildLocalBuildFallback(status, recommendation) {
   };
 }
 
+function buildBackupRunwayCheckpoint() {
+  const result = parseOptionalJsonResult(
+    runBackupRunwayStatus(),
+    "npm --silent run status:backup-runway:json",
+  );
+  const payload = result.payload || {};
+
+  return {
+    available: result.available,
+    command: "npm --silent run status:backup-runway:json",
+    schema: payload.schema || null,
+    acceptedBackupPosture: Boolean(payload.acceptedBackupPosture),
+    schedulerProofMode: payload.schedulerProofMode || "unknown",
+    operatorWatchRequired: Boolean(payload.operatorWatchRequired),
+    scheduleHealth: payload.backupStatus?.scheduleHealth?.state || "unknown",
+    latestBackupAtLocal:
+      payload.backupStatus?.scheduleHealth?.latestBackupAtLocal || null,
+    nextScheduledRunAtLocal:
+      payload.backupStatus?.scheduleHealth?.nextScheduledRunAtLocal || null,
+    retentionKeep: payload.backupStatus?.retention?.keep ?? null,
+    overRetentionCount:
+      payload.backupStatus?.retention?.overRetentionCount ?? null,
+    verificationOk: Boolean(payload.backupVerification?.ok),
+    verifiedArchive: payload.backupVerification?.archivePath || null,
+    computedSha256: payload.backupVerification?.computedSha256 || null,
+    next: payload.next || "Run npm run status:backup-runway.",
+    error: result.error,
+  };
+}
+
 function buildCheckpoint(status) {
   const recommendation = buildRecommendation(status);
   const localBuildFallback = buildLocalBuildFallback(status, recommendation);
+  const backupRunway = buildBackupRunwayCheckpoint();
 
   return {
     schema: "tcos.buildBlockCheckpoint.v1",
@@ -189,6 +257,7 @@ function buildCheckpoint(status) {
       overRetentionCount:
         status.emergencyBackup?.retention?.overRetentionCount ?? null,
     },
+    backupRunway,
     liveMoney: {
       state: status.liveMoney?.state || "unknown",
       readyForRuntimeSwitch: Boolean(status.liveMoney?.readyForRuntimeSwitch),
@@ -198,7 +267,7 @@ function buildCheckpoint(status) {
     safeBuildBoundary:
       "Use this checkpoint to choose the next local/operator action. It does not approve live money, buy postage, release payouts, create Checkout, or start production deploys.",
     readOnlyGuarantee:
-      "This command only reads the status:go-live JSON evidence and prints a concise checkpoint; it starts no deploy, upload, archive creation, Git push, Checkout, postage, payout, launch approval, or revocation.",
+      "This command only reads the status:go-live JSON evidence and backup-runway JSON evidence, then prints a concise checkpoint; it starts no deploy, upload, archive creation, Git push, Checkout, postage, payout, launch approval, revocation, or backup creation.",
   };
 }
 
@@ -274,6 +343,32 @@ function printText(checkpoint) {
   console.log(
     `- over-retention count: ${checkpoint.emergencyBackup.overRetentionCount}`,
   );
+
+  console.log("");
+  console.log("Backup runway:");
+  console.log(`- available: ${checkpoint.backupRunway.available ? "yes" : "no"}`);
+  console.log(
+    `- accepted backup posture: ${
+      checkpoint.backupRunway.acceptedBackupPosture ? "yes" : "no"
+    }`,
+  );
+  console.log(`- scheduler proof mode: ${checkpoint.backupRunway.schedulerProofMode}`);
+  console.log(
+    `- operator watch required: ${
+      checkpoint.backupRunway.operatorWatchRequired ? "yes" : "no"
+    }`,
+  );
+  console.log(`- schedule health: ${checkpoint.backupRunway.scheduleHealth}`);
+  console.log(
+    `- verified archive: ${checkpoint.backupRunway.verifiedArchive || "unknown"}`,
+  );
+  console.log(
+    `- computed sha256: ${checkpoint.backupRunway.computedSha256 || "unknown"}`,
+  );
+  console.log(`- next: ${checkpoint.backupRunway.next}`);
+  if (checkpoint.backupRunway.error) {
+    console.log(`- backup runway warning: ${checkpoint.backupRunway.error}`);
+  }
 
   console.log("");
   console.log("Live money:");

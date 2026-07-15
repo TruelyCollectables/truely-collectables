@@ -198,6 +198,61 @@ if (payload) {
       payload.emergencyBackup?.overRetentionCount,
     ),
   );
+  checks.push(
+    check(
+      payload.backupRunway?.schema === "tcos.backupRunwayStatus.v1",
+      "checkpoint backup runway schema",
+      payload.backupRunway?.schema || null,
+    ),
+  );
+  checks.push(
+    check(
+      payload.backupRunway?.acceptedBackupPosture === true,
+      "checkpoint backup runway accepted posture",
+      payload.backupRunway?.acceptedBackupPosture,
+    ),
+  );
+  checks.push(
+    check(
+      Boolean(payload.backupRunway?.schedulerProofMode),
+      "checkpoint backup runway scheduler proof mode",
+      payload.backupRunway?.schedulerProofMode || null,
+    ),
+  );
+  checks.push(
+    check(
+      typeof payload.backupRunway?.operatorWatchRequired === "boolean",
+      "checkpoint backup runway operator-watch flag",
+    ),
+  );
+  checks.push(
+    check(
+      payload.backupRunway?.verificationOk === true,
+      "checkpoint backup runway verification is ok",
+    ),
+  );
+  checks.push(
+    check(
+      Boolean(payload.backupRunway?.verifiedArchive),
+      "checkpoint backup runway records verified archive",
+      payload.backupRunway?.verifiedArchive || null,
+    ),
+  );
+  checks.push(
+    check(
+      Boolean(payload.backupRunway?.computedSha256),
+      "checkpoint backup runway records computed SHA-256",
+      payload.backupRunway?.computedSha256 || null,
+    ),
+  );
+  checks.push(
+    check(
+      payload.backupRunway?.operatorWatchRequired === true ||
+        payload.backupRunway?.schedulerProofMode === "automatic_proven",
+      "checkpoint backup runway keeps automatic scheduler proof explicit",
+      payload.backupRunway?.schedulerProofMode || null,
+    ),
+  );
   checks.push(check(Boolean(payload.liveMoney?.state), "checkpoint live-money state"));
   checks.push(
     check(
@@ -258,6 +313,7 @@ const verification = {
         quotaRetryAtLocal: payload.productionDeploymentQuota?.retryAtLocal || null,
         backupScheduleHealth: payload.emergencyBackup?.scheduleHealth || null,
         backupSchedulerProof: payload.emergencyBackup?.schedulerProof || null,
+        backupRunway: payload.backupRunway || null,
         liveMoneyState: payload.liveMoney?.state || null,
       }
     : null,
@@ -304,6 +360,21 @@ if (jsonOutput) {
   console.log(`- quota state: ${verification.checkpoint?.quotaState || "not recorded"}`);
   console.log(
     `- quota retry at local: ${verification.checkpoint?.quotaRetryAtLocal || "not recorded"}`,
+  );
+  console.log(
+    `- backup runway accepted posture: ${
+      verification.checkpoint?.backupRunway?.acceptedBackupPosture ? "yes" : "no"
+    }`,
+  );
+  console.log(
+    `- backup runway scheduler proof mode: ${
+      verification.checkpoint?.backupRunway?.schedulerProofMode || "not recorded"
+    }`,
+  );
+  console.log(
+    `- backup runway operator watch required: ${
+      verification.checkpoint?.backupRunway?.operatorWatchRequired ? "yes" : "no"
+    }`,
   );
   console.log(`- live-money state: ${verification.checkpoint?.liveMoneyState || "not recorded"}`);
   console.log(`- ok: ${verification.ok ? "yes" : "no"}`);
