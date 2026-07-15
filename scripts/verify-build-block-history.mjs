@@ -188,6 +188,23 @@ if (payload) {
   );
   checks.push(
     check(
+      Boolean(evidence.nextAction?.summary?.selectedNext),
+      "history next-action selected fallback next step is recorded",
+      evidence.nextAction?.summary?.selectedNext || null,
+    ),
+  );
+  checks.push(
+    check(
+      Array.isArray(evidence.nextAction?.summary?.selectedCommands) &&
+        evidence.nextAction.summary.selectedCommands.length > 0,
+      "history next-action selected fallback commands are recorded",
+      Array.isArray(evidence.nextAction?.summary?.selectedCommands)
+        ? evidence.nextAction.summary.selectedCommands.join(" | ")
+        : null,
+    ),
+  );
+  checks.push(
+    check(
       Boolean(evidence.nextAction?.summary?.primaryNext),
       "history next-action primary unblock next step is recorded",
       evidence.nextAction?.summary?.primaryNext || null,
@@ -369,6 +386,10 @@ const verification = {
           payload.evidence?.checkpoint?.summary?.quotaApproximateRemaining || null,
         nextActionQuotaApproximateRemaining:
           payload.evidence?.nextAction?.summary?.quotaApproximateRemaining || null,
+        nextActionSelectedNext:
+          payload.evidence?.nextAction?.summary?.selectedNext || null,
+        nextActionSelectedCommands:
+          payload.evidence?.nextAction?.summary?.selectedCommands || [],
         nextActionPrimaryNext:
           payload.evidence?.nextAction?.summary?.primaryNext || null,
         nextActionPrimaryCommands:
@@ -444,6 +465,16 @@ if (jsonOutput) {
       verification.history?.nextActionQuotaApproximateRemaining || "not recorded"
     }`,
   );
+  console.log(
+    `- next-action selected next: ${
+      verification.history?.nextActionSelectedNext || "not recorded"
+    }`,
+  );
+  if (verification.history?.nextActionSelectedCommands?.length) {
+    console.log(
+      `- next-action selected commands: ${verification.history.nextActionSelectedCommands.join(" | ")}`,
+    );
+  }
   console.log(
     `- next-action primary next: ${
       verification.history?.nextActionPrimaryNext || "not recorded"

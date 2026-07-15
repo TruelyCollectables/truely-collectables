@@ -150,7 +150,8 @@ function summarizePayload(key, payload) {
     return {
       schema: payload.schema || null,
       selectedLane: payload.selectedLane || null,
-      next: payload.next || null,
+      selectedNext: payload.next || null,
+      selectedCommands: Array.isArray(payload.commands) ? payload.commands : [],
       primaryFocus: payload.primaryRecommendation?.focus || null,
       primaryNext: payload.primaryRecommendation?.next || null,
       primaryCommands: Array.isArray(payload.primaryRecommendation?.commands)
@@ -275,6 +276,10 @@ if (jsonOutput) {
     }
     if (source.key === "nextAction") {
       console.log(`- selected lane: ${item.summary.selectedLane || "not recorded"}`);
+      console.log(`- selected next: ${item.summary.selectedNext || "not recorded"}`);
+      if (item.summary.selectedCommands?.length) {
+        console.log(`- selected commands: ${item.summary.selectedCommands.join(" | ")}`);
+      }
       console.log(`- primary focus: ${item.summary.primaryFocus || "not recorded"}`);
       console.log(`- primary next: ${item.summary.primaryNext || "not recorded"}`);
       if (item.summary.primaryCommands?.length) {
