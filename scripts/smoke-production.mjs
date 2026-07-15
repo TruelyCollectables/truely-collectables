@@ -667,6 +667,14 @@ const checks = [
       result.text.includes("approval blockers") &&
       result.text.includes("launch locks") &&
       result.text.includes("Next live-money action") &&
+      result.text.includes("Live Money JSON Evidence") &&
+      result.text.includes("npm --silent run status:live-money:json") &&
+      result.text.includes("npm --silent run preflight:live-money:json") &&
+      result.text.includes("TCOS_LIVE_PAYMENTS_ENABLED") &&
+      result.text.includes("READY_FOR_RUNTIME_SWITCH, LIVE_MONEY_OPEN") &&
+      result.text.includes("BLOCKED_UNEVALUATED, BLOCKED_APPROVAL, READY_FOR_DATABASE_APPROVAL, BLOCKED_LAUNCH_GATE") &&
+      result.text.includes("tcos.liveMoneyGoNoGo.v1") &&
+      result.text.includes("must not create Checkout Sessions") &&
       result.text.includes("Choose provider accounts") &&
       result.text.includes("Stage Vercel environment names") &&
       result.text.includes("Keep shipping runtime locked") &&

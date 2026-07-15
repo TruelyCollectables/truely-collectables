@@ -17,6 +17,7 @@ import {
   isPaidOrderStatus,
   isReadyToShipStatus,
 } from "../../lib/order-status";
+import { LIVE_MONEY_JSON_EVIDENCE } from "../../lib/live-money-evidence";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -701,6 +702,35 @@ export default async function AdminDashboard() {
                     {launchGateDrill.payment.nextActions[0] ||
                       "Monitor Stripe webhooks, reconciliation, refunds, disputes, seller payout holds, and emergency revocation readiness."}
                   </p>
+                  <div className="mt-3 rounded border border-emerald-200 bg-white p-3 text-xs text-neutral-700">
+                    <p className="font-black text-emerald-800">
+                      {LIVE_MONEY_JSON_EVIDENCE.title}
+                    </p>
+                    <p className="mt-1 font-semibold">
+                      Archive{" "}
+                      <code>{LIVE_MONEY_JSON_EVIDENCE.statusCommand}</code>{" "}
+                      after smoke; run{" "}
+                      <code>{LIVE_MONEY_JSON_EVIDENCE.preflightCommand}</code>{" "}
+                      in the final go-live window before changing{" "}
+                      <code>TCOS_LIVE_PAYMENTS_ENABLED</code>.
+                    </p>
+                    <p className="mt-1 font-semibold">
+                      Accepted states:{" "}
+                      <span className="font-mono">
+                        {LIVE_MONEY_JSON_EVIDENCE.readyStates.join(", ")}
+                      </span>
+                      . Halt states:{" "}
+                      <span className="font-mono">
+                        {LIVE_MONEY_JSON_EVIDENCE.blockedStates.join(", ")}
+                      </span>
+                      .
+                    </p>
+                    <p className="mt-1 font-semibold">
+                      Schema:{" "}
+                      <code>{LIVE_MONEY_JSON_EVIDENCE.schema}</code>.{" "}
+                      {LIVE_MONEY_JSON_EVIDENCE.readOnlyGuarantee}
+                    </p>
+                  </div>
                 </div>
 
                 <div className="rounded border border-neutral-200 bg-neutral-50 p-3">
