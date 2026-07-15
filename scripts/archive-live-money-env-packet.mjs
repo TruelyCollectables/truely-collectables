@@ -1,6 +1,7 @@
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
@@ -109,15 +110,28 @@ const filePath = join(
   evidenceDir,
   `${archivedAt.replace(/[:.]/g, "-")}-live-money-env-packet.json`,
 );
+const checksumPath = `${filePath}.sha256`;
 const archivedPayload = {
   ...payload,
-  archive: archiveMetadata(archivedAt),
+  archive: {
+    ...archiveMetadata(archivedAt),
+    checksumAlgorithm: "sha256",
+    checksumPath,
+  },
 };
-writeFileSync(filePath, `${JSON.stringify(archivedPayload, null, 2)}\n`);
+const serializedPayload = `${JSON.stringify(archivedPayload, null, 2)}\n`;
+const archiveSha256 = createHash("sha256")
+  .update(serializedPayload)
+  .digest("hex");
+
+writeFileSync(filePath, serializedPayload);
+writeFileSync(checksumPath, `${archiveSha256}  ${basename(filePath)}\n`);
 
 console.log("Live-money env packet archived:");
 console.log(`- command: ${commandText}`);
 console.log(`- path: ${filePath}`);
+console.log(`- sha256: ${archiveSha256}`);
+console.log(`- sha256 sidecar: ${checksumPath}`);
 console.log(`- archived at: ${archivedPayload.archive.archivedAt}`);
 console.log(`- git HEAD: ${archivedPayload.archive.gitHead}`);
 console.log(`- git origin/main: ${archivedPayload.archive.gitOriginMain}`);
