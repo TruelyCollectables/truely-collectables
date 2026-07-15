@@ -3782,6 +3782,43 @@ assertFileIncludes(
   ],
 );
 assertFileIncludes(
+  "seller inventory marketplace export auction duration contract",
+  "src/app/seller/inventory/page.tsx",
+  [
+    "STANDARD_AUCTION_DURATION_DAYS",
+    "STANDARD_AUCTION_DURATION_LABEL",
+    "STANDARD_AUCTION_FORMAT",
+    "STANDARD_AUCTION_POLICY_SUMMARY",
+    "auctionStandardFormat",
+    "auctionStandardDurationDays",
+    "auctionStandardDurationLabel",
+    "auctionStandardPolicy",
+    "auctionStandard:",
+    "durationDays: STANDARD_AUCTION_DURATION_DAYS",
+    "If the destination listing is an auction, use the TCOS standard",
+  ],
+);
+assertFileIncludes(
+  "standard auction policy source contract",
+  "src/lib/auction-policy.ts",
+  [
+    'STANDARD_AUCTION_FORMAT = "timed_auction"',
+    "STANDARD_AUCTION_DURATION_DAYS = 3",
+    'STANDARD_AUCTION_DURATION_LABEL = "3-day auction"',
+    "TCOS auction prep defaults to 3-day timed auctions",
+    "Marketplace packets are prep-only and do not publish auctions externally",
+  ],
+);
+assertFileIncludes(
+  "standard auction policy operator manual contract",
+  "docs/TCOS_OPERATOR_MANUAL.md",
+  [
+    "standard `3-day auction` guardrail fields",
+    "auction prep defaults to the TCOS standard `3-day auction`",
+    "packets do not publish externally",
+  ],
+);
+assertFileIncludes(
   "collector export download contract",
   "src/app/api/account/collector/exports/route.ts",
   [
@@ -4258,6 +4295,9 @@ assertFileIncludes(
     "Marketplace Packet Intake",
     "Seller Inventory packet handoff",
     "cross-list prep only",
+    "STANDARD_AUCTION_DURATION_LABEL",
+    "STANDARD_AUCTION_POLICY_SUMMARY",
+    "Auction prep defaults to",
     "no external publishing",
     "No postage purchase",
     "no Coverage policy creation",

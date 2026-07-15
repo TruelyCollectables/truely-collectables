@@ -13,6 +13,12 @@ import {
   type AuthenticityProfile,
 } from "../../../lib/authenticity";
 import {
+  STANDARD_AUCTION_DURATION_DAYS,
+  STANDARD_AUCTION_DURATION_LABEL,
+  STANDARD_AUCTION_FORMAT,
+  STANDARD_AUCTION_POLICY_SUMMARY,
+} from "../../../lib/auction-policy";
+import {
   getAccountSession,
   type StoredAccountSession,
 } from "../../account/account-session";
@@ -228,6 +234,7 @@ const marketplaceExportSellerProtectionWarning =
   "TCOS Under-$20 Seller Protection is an optional internal seller program, not insurance. It only applies when the seller opted in for the Standard Envelope shipment before fulfillment, delivery evidence does not show delivered under TCOS rules, and the seller/buyer refund is processed. Reimbursement is limited to the item sale amount up to $20; shipping is excluded.";
 
 const marketplaceExportChecklist = [
+  `If the destination listing is an auction, use the TCOS standard ${STANDARD_AUCTION_DURATION_LABEL} unless an operator explicitly approves a different duration.`,
   "Verify the external marketplace category and item specifics before publishing.",
   "Recheck title, description, condition, authenticity, image, price, and quantity on the destination platform.",
   "Recalculate shipping on the destination platform or in TCOS checkout before any buyer purchase.",
@@ -288,6 +295,10 @@ function marketplaceExportRows(items: SellerInventoryItem[]) {
     marketplaceExportPurpose: "crosslist_prep_only",
     externalPublishingApproved: false,
     externalPublishingProhibited: true,
+    auctionStandardFormat: STANDARD_AUCTION_FORMAT,
+    auctionStandardDurationDays: STANDARD_AUCTION_DURATION_DAYS,
+    auctionStandardDurationLabel: STANDARD_AUCTION_DURATION_LABEL,
+    auctionStandardPolicy: STANDARD_AUCTION_POLICY_SUMMARY,
     title: item.title,
     sku: item.sku || "",
     price: item.price,
@@ -371,6 +382,12 @@ function marketplaceExportPacket(
     exportContext: exportContext || null,
     externalPublishingApproved: false,
     shippingPurchaseIncluded: false,
+    auctionStandard: {
+      format: STANDARD_AUCTION_FORMAT,
+      durationDays: STANDARD_AUCTION_DURATION_DAYS,
+      label: STANDARD_AUCTION_DURATION_LABEL,
+      policy: STANDARD_AUCTION_POLICY_SUMMARY,
+    },
     warning: marketplaceExportWarning,
     shippingWarning: marketplaceExportShippingWarning,
     sellerProtectionWarning: marketplaceExportSellerProtectionWarning,

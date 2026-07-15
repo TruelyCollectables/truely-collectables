@@ -13,6 +13,10 @@ import {
   type AuthenticityProfile,
 } from "../../../lib/authenticity";
 import {
+  STANDARD_AUCTION_DURATION_LABEL,
+  STANDARD_AUCTION_POLICY_SUMMARY,
+} from "../../../lib/auction-policy";
+import {
   getAccountSession,
   type StoredAccountSession,
 } from "../../account/account-session";
@@ -300,6 +304,7 @@ const requestableProviders: Array<{
 
 const marketplacePacketIntakeGuardrails = [
   "Cross-list prep only; no external publishing is approved from packet intake.",
+  `${STANDARD_AUCTION_POLICY_SUMMARY} Use ${STANDARD_AUCTION_DURATION_LABEL} as the standard auction duration unless an operator explicitly approves a different duration.`,
   "No postage purchase, no Coverage policy creation, no seller payout release, and no order fulfillment.",
   "Use ready or needs-work Seller Inventory rows as the source of truth before importing packet files.",
   "Not insurance: packet intake does not activate TCOS Under-$20 Seller Protection or reimburse shipping.",
@@ -4170,7 +4175,8 @@ export default function SellerConnectionsPanel({
               Seller Inventory marketplace packets are cross-list prep only.
               They are receiving-side notes for sellers and operators, not a
               live marketplace connector, postage workflow, Coverage workflow,
-              payout workflow, or fulfillment trigger.
+              payout workflow, or fulfillment trigger. Auction prep defaults to
+              the TCOS standard {STANDARD_AUCTION_DURATION_LABEL}.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
