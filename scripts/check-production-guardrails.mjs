@@ -692,6 +692,10 @@ runExpectedSuccess("live money evidence archive helper syntax check", [
   "--check",
   "scripts/archive-live-money-evidence.mjs",
 ]);
+runExpectedSuccess("go-live runway archive helper syntax check", [
+  "--check",
+  "scripts/archive-go-live-runway.mjs",
+]);
 runExpectedSuccess("go-live runway status helper syntax check", [
   "--check",
   "scripts/status-go-live.mjs",
@@ -721,6 +725,9 @@ assertScriptIncludes("preflight:live-money", [
 ]);
 assertScriptIncludes("preflight:live-money:json", [
   "node --import tsx scripts/status-live-money.ts --json",
+]);
+assertScriptIncludes("archive:go-live-runway", [
+  "node scripts/archive-go-live-runway.mjs",
 ]);
 assertScriptIncludes("archive:live-money", [
   "node scripts/archive-live-money-evidence.mjs",
@@ -897,15 +904,38 @@ assertFileIncludes("go-live runway status helper source", "scripts/status-go-liv
   "Safe next commands:",
   "npm run live-money:env-packet",
   "npm run live-money:vercel-commands",
+  "npm run archive:go-live-runway",
   "Read-only guarantee:",
   "starts no deploy, upload, Checkout, postage, payout, launch approval, or revocation",
+]);
+assertFileIncludes("go-live runway archive helper source", "scripts/archive-go-live-runway.mjs", [
+  "status:go-live:json",
+  ".codex-run",
+  "go-live-runway",
+  "tcos.goLiveRunwayStatus.v1",
+  "Go-live runway evidence archived:",
+  "archiveMetadata",
+  "archivedAt",
+  "gitHead",
+  "gitOriginMain",
+  "gitWorkingTreeClean",
+  "gitStatusShort",
+  "productionDeploymentQuota.state",
+  "productionDeploymentQuota.uploadStarted",
+  "liveMoney.readyForRuntimeSwitch",
+  "liveMoney.missingBootstrapEnvironment",
+  "safeNextCommands",
+  "readOnlyGuarantee",
+  "Vercel upload started:",
 ]);
 assertFileIncludes("live money go/no-go README instructions", "README.md", [
   "npm run status:go-live",
   "npm --silent run status:go-live:json",
+  "npm run archive:go-live-runway",
   "tcos.goLiveRunwayStatus.v1",
   "single read-only runway view",
   "archivable combined runway evidence",
+  ".codex-run/go-live-runway/",
   "local Git `HEAD`/`origin/main`/working-tree cleanliness",
   "Vercel quota status",
   "local live-payment runtime readiness",
@@ -3927,9 +3957,11 @@ assertFileIncludes("deploy live safety runbook", "docs/PRODUCTION_DEPLOY_RUNBOOK
   "Verify the pushed stack",
   "npm run status:go-live",
   "npm --silent run status:go-live:json",
+  "npm run archive:go-live-runway",
+  ".codex-run/go-live-runway/",
   "tcos.goLiveRunwayStatus.v1",
   "single read-only runway view",
-  "archivable evidence",
+  "raw archivable evidence",
   "without starting deploys, uploads, Checkout, postage, payouts, launch approvals, or revocations",
   "npm run live-money:env-packet",
   "npm run live-money:env-template",
@@ -4068,9 +4100,11 @@ assertFileIncludes("deploy live safety operator manual", "docs/TCOS_OPERATOR_MAN
   "verify the pushed stack",
   "npm run status:go-live",
   "npm --silent run status:go-live:json",
+  "npm run archive:go-live-runway",
+  ".codex-run/go-live-runway/",
   "tcos.goLiveRunwayStatus.v1",
   "single read-only runway view",
-  "archivable evidence",
+  "raw archivable evidence",
   "without starting deploys, uploads, Checkout, postage, payouts, launch approvals, or revocations",
   "npm run live-money:env-packet",
   "npm run live-money:env-template",
@@ -4118,9 +4152,11 @@ assertFileIncludes(
     "verify the pushed stack",
     "npm run status:go-live",
     "npm --silent run status:go-live:json",
+    "npm run archive:go-live-runway",
+    ".codex-run/go-live-runway/",
     "tcos.goLiveRunwayStatus.v1",
     "single read-only runway view",
-    "archivable evidence",
+    "raw archivable evidence",
     "without starting deploys, uploads, Checkout, postage, payouts, launch approvals, or revocations",
     "npm run live-money:env-packet",
     "npm run live-money:env-template",

@@ -96,6 +96,7 @@ function buildStatus() {
     "npm run status:live-money",
     "npm run live-money:env-packet",
     "npm run live-money:vercel-commands",
+    "npm run archive:go-live-runway",
     "npm run archive:live-money",
   ];
 
