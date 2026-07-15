@@ -703,6 +703,7 @@ assertScriptIncludes("preflight:live-money", [
   "node --import tsx scripts/status-live-money.ts",
 ]);
 assertScriptIncludes("verify:production", [
+  "status:live-money",
   "verify:instacomp",
   "verify:shipping",
   "check:production-guardrails",
@@ -741,6 +742,7 @@ assertFileIncludes("live money go/no-go CLI source", "scripts/status-live-money.
 assertFileIncludes("live money go/no-go README instructions", "README.md", [
   "npm run status:live-money",
   "npm run preflight:live-money",
+  "verify:production",
   "READY_FOR_RUNTIME_SWITCH",
   "Read-only guarantee",
 ]);
