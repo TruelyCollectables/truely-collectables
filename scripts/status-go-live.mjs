@@ -254,19 +254,15 @@ function goLiveEvidenceVerificationStatus(git) {
 
 function liveMoneyBootstrapNextStep(goLiveEvidence) {
   if (goLiveEvidence?.ok === true && goLiveEvidence?.capturedAtCurrentHead === true) {
-    return "Latest go-live evidence is clean at the current pushed HEAD; run npm run live-money:vercel-bootstrap-commands to stage the Supabase bootstrap values in Vercel, use npm run live-money:bootstrap-template to mirror the same values into local .env or shell variables, then rerun npm run status:live-money.";
+    return "Latest go-live evidence is clean at the current pushed HEAD; run npm run live-money:bootstrap-handoff to print the bootstrap-only Vercel commands, print the Supabase-only local template, mirror the same values into local .env or shell variables, and rerun npm run status:live-money after the values are staged in Vercel.";
   }
 
-  return "Run npm run prepare:go-live-evidence to preserve runway/backup proof, create no-secret live-money packet evidence, print bootstrap-only Vercel commands, and archive the go-live evidence verifier proof; then stage the printed values in Vercel, mirror them into local .env or shell variables, and rerun npm run status:live-money.";
+  return "Run npm run prepare:go-live-evidence to preserve runway/backup proof, create no-secret live-money packet evidence, print bootstrap-only Vercel commands, and archive the go-live evidence verifier proof; then stage the printed values in Vercel, mirror them into local .env or shell variables, and rerun npm run live-money:bootstrap-handoff.";
 }
 
 function liveMoneyBootstrapActionCommands(goLiveEvidence) {
   if (goLiveEvidence?.ok === true && goLiveEvidence?.capturedAtCurrentHead === true) {
-    return [
-      "npm run live-money:vercel-bootstrap-commands",
-      "npm run live-money:bootstrap-template",
-      "npm run status:live-money",
-    ];
+    return ["npm run live-money:bootstrap-handoff"];
   }
 
   return ["npm run prepare:go-live-evidence"];
@@ -581,6 +577,7 @@ function buildStatus() {
     "npm run verify:live-money-env-packet",
     "npm --silent run verify:live-money-env-packet:json",
     "npm run archive:live-money-env-packet-verification",
+    "npm run live-money:bootstrap-handoff",
     "npm run live-money:vercel-bootstrap-commands",
     "npm run live-money:bootstrap-template",
     "npm run live-money:vercel-commands",

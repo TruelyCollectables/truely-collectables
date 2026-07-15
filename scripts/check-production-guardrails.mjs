@@ -1593,6 +1593,12 @@ assertScriptIncludes("prepare:live-money-bootstrap", [
   "live-money:vercel-bootstrap-commands && npm run live-money:bootstrap-template && npm run status:live-money",
   "status:live-money",
 ]);
+assertScriptIncludes("live-money:bootstrap-handoff", [
+  "live-money:vercel-bootstrap-commands",
+  "live-money:bootstrap-template",
+  "live-money:vercel-bootstrap-commands && npm run live-money:bootstrap-template && npm run status:live-money",
+  "status:live-money",
+]);
 assertScriptIncludes("live-money:env-packet", [
   "node scripts/live-money-env-packet.mjs",
 ]);
@@ -1890,7 +1896,7 @@ assertFileIncludes("go-live runway status helper source", "scripts/status-go-liv
   "capturedAtCurrentHead",
   "liveMoneyBootstrapNextStep",
   "Latest go-live evidence is clean at the current pushed HEAD",
-  "stage the Supabase bootstrap values in Vercel",
+  "npm run live-money:bootstrap-handoff",
   "npm run live-money:bootstrap-template",
   "mirror the same values into local .env or shell variables",
   "liveMoneyBootstrapActionCommands",
