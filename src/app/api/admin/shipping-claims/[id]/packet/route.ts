@@ -175,6 +175,10 @@ function buildReport(input: {
   const under20ProtectionClaim = recordValue(
     recordValue(claim.metadata).under_20_seller_protection_claim,
   );
+  const paidClaim = claim.claim_status === "paid";
+  const internalSellerProtectionClaim = under20ProtectionClaim.eligible === true;
+  const externalPaidClaimMissingProviderReference =
+    paidClaim && !internalSellerProtectionClaim && !claim.provider_claim_id;
   const letterTrackDeliveryEvidence = recordValue(
     recordValue(claim.metadata).lettertrack_delivery_evidence,
   );
@@ -255,6 +259,28 @@ function buildReport(input: {
     line("Resolved At", claim.resolved_at),
     line("Created At", claim.created_at),
     line("Updated At", claim.updated_at),
+    ...section("Paid Proof Boundary"),
+    "External Coverage claims marked paid must have a provider claim/reference ID saved before this packet is treated as payout proof.",
+    "TCOS internal under-$20 seller-protection reimbursements are not external Coverage payouts; use the seller-protection reimbursement, buyer-refund, and LetterTrack evidence sections below as the internal proof trail.",
+    line("Claim Marked Paid", paidClaim ? "Yes" : "No"),
+    line(
+      "Paid Path",
+      internalSellerProtectionClaim
+        ? "TCOS internal under-$20 seller protection"
+        : "External Coverage/provider claim",
+    ),
+    line(
+      "External Provider Reference Ready",
+      claim.provider_claim_id ? "Yes" : "No",
+    ),
+    line(
+      "Paid Boundary Status",
+      externalPaidClaimMissingProviderReference
+        ? "BLOCKED: external paid claim is missing a provider claim/reference ID"
+        : paidClaim
+          ? "Ready for the saved paid path"
+          : "Not marked paid",
+    ),
     ...(Object.keys(under20ProtectionClaim).length > 0
       ? [
           ...section("Under-$20 Seller Protection"),

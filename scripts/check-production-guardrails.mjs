@@ -3453,6 +3453,20 @@ assertFileIncludes(
   ],
 );
 assertFileIncludes(
+  "shipping claim packet paid proof boundary contract",
+  "src/app/api/admin/shipping-claims/[id]/packet/route.ts",
+  [
+    "Paid Proof Boundary",
+    "External Coverage claims marked paid must have a provider claim/reference ID saved before this packet is treated as payout proof.",
+    "TCOS internal under-$20 seller-protection reimbursements are not external Coverage payouts",
+    "Claim Marked Paid",
+    "Paid Path",
+    "External Provider Reference Ready",
+    "Paid Boundary Status",
+    "BLOCKED: external paid claim is missing a provider claim/reference ID",
+  ],
+);
+assertFileIncludes(
   "seller protection reimbursement admin card contract",
   "src/app/admin/shipping/ShippingClaimActions.tsx",
   [
