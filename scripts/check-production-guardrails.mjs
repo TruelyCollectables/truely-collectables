@@ -3329,6 +3329,44 @@ assertFileIncludes("operator manual purchase audit simulation contract", "docs/T
   "item-only reimbursement, shipping exclusion, and non-opted-in seller liability",
 ]);
 assertFileIncludes(
+  "order shipping claim draft real coverage gate source",
+  "src/app/api/admin/orders/[id]/shipping-claims/route.ts",
+  [
+    "isDryRunShippingLabel(label)",
+    "TCOS dry-run labels do not have real external Coverage policies. Record a real label and policy before opening a coverage claim.",
+    "function hasExternalCoverageRecord(label: ShippingLabelRow)",
+    'label.coverage_status === "covered" && Boolean(label.coverage_policy_id)',
+    "if (!isStandardEnvelope && !hasExternalCoverageRecord(label))",
+    "Record a real Coverage policy before opening a provider coverage claim.",
+    "buildUnder20SellerProtectionClaimSummary",
+    "buildLetterTrackDeliveryEvidenceSummary",
+    "under_20_seller_protection_claim",
+    "lettertrack_delivery_evidence",
+    'claim_status: "draft"',
+    'event_type: "coverage_claim_draft_opened"',
+    "Provider submission is still required.",
+  ],
+);
+assertFileOrder(
+  "order shipping claim draft coverage gate order",
+  "src/app/api/admin/orders/[id]/shipping-claims/route.ts",
+  [
+    "const existingClaim = await existingOpenClaim",
+    "const label = await activeLabelForOrder",
+    "if (!label?.id)",
+    "if (isDryRunShippingLabel(label))",
+    "const isStandardEnvelope =",
+    "if (!isStandardEnvelope && !hasExternalCoverageRecord(label))",
+    "const { data: payoutRows, error: payoutRowsError } =",
+    "const under20ProtectionSummary = isStandardEnvelope",
+    "const letterTrackDeliveryEvidence = isStandardEnvelope",
+    "const { data: claim, error: claimError } = await supabase",
+    '.from("order_shipping_coverage_claims")',
+    'claim_status: "draft"',
+    'event_type: "coverage_claim_draft_opened"',
+  ],
+);
+assertFileIncludes(
   "seller protection reimbursement packet contract",
   "src/app/api/admin/shipping-claims/[id]/packet/route.ts",
   [

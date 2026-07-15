@@ -58,6 +58,10 @@ function under20ClaimReason(params: {
   return "Draft opened from TCOS admin for an opted-in under-$20 Standard Envelope seller-protection reimbursement. Buyer refund evidence and LetterTrack/USPS IMb delivery-evidence failure must be confirmed before payout.";
 }
 
+function hasExternalCoverageRecord(label: ShippingLabelRow) {
+  return label.coverage_status === "covered" && Boolean(label.coverage_policy_id);
+}
+
 async function activeLabelForOrder(params: {
   supabase: ReturnType<typeof createSupabaseServerClient>;
   storeId: string;
@@ -152,6 +156,17 @@ export async function POST(
     const isStandardEnvelope =
       label.resolved_shipping_method === "STANDARD_ENVELOPE" ||
       label.service_level === "STANDARD_ENVELOPE";
+
+    if (!isStandardEnvelope && !hasExternalCoverageRecord(label)) {
+      return Response.json(
+        {
+          error:
+            "Record a real Coverage policy before opening a provider coverage claim.",
+        },
+        { status: 409 },
+      );
+    }
+
     const { data: payoutRows, error: payoutRowsError } =
       isStandardEnvelope
         ? await supabase
