@@ -2556,6 +2556,7 @@ Card show submission model:
 
 Card show map MVP scope:
 
+- decision as of July 15, 2026: build the MVP card-show finder first, then preserve and continue the post-MVP roadmap after the MVP is working
 - build the MVP version first after the current go-live/live-money goal is finished
 - MVP should focus on a useful national card-show finder without overbuilding the full events platform
 - MVP should include a `/card-shows` discovery page with ZIP/city/state search, radius filtering, map pins, and a list view
