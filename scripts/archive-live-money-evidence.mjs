@@ -20,7 +20,7 @@ function runLocalGit(args) {
     return null;
   }
 
-  return (result.stdout || "").trim() || null;
+  return (result.stdout || "").trim();
 }
 
 function archiveMetadata(archivedAt) {
