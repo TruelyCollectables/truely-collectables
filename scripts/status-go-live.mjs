@@ -539,6 +539,9 @@ function buildStatus() {
   const safeNextCommands = [
     "npm run status:production",
     "npm --silent run status:production:json",
+    "npm run status:build-block",
+    "npm --silent run status:build-block:json",
+    "npm run archive:build-block-checkpoint",
     "npm run verify:production",
     "npm run status:live-money",
     "npm run status:nightly-backup",

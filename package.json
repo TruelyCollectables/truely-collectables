@@ -36,6 +36,7 @@
     "verify:live-money-env-packet": "node scripts/verify-live-money-env-packet.mjs",
     "verify:live-money-env-packet:json": "node scripts/verify-live-money-env-packet.mjs --json",
     "archive:go-live-runway": "node scripts/archive-go-live-runway.mjs",
+    "archive:build-block-checkpoint": "node scripts/archive-build-block-checkpoint.mjs",
     "archive:go-live-evidence-verification": "node scripts/archive-go-live-evidence-verification.mjs",
     "archive:nightly-backup-status": "node scripts/archive-nightly-backup-status.mjs",
     "archive:nightly-backup-verification": "node scripts/archive-nightly-backup-verification.mjs",

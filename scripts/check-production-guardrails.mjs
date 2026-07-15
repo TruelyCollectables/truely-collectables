@@ -1019,6 +1019,9 @@ assertScriptIncludes("status:build-block", [
 assertScriptIncludes("status:build-block:json", [
   "node scripts/status-build-block.mjs --json",
 ]);
+assertScriptIncludes("archive:build-block-checkpoint", [
+  "node scripts/archive-build-block-checkpoint.mjs",
+]);
 assertScriptIncludes("status:go-live", [
   "node scripts/status-go-live.mjs",
 ]);
@@ -1034,6 +1037,23 @@ assertFileIncludes("30-minute build block checkpoint source", "scripts/status-bu
   "supabase_bootstrap_handoff",
   "Safe build boundary:",
   "starts no deploy, upload, archive creation, Git push, Checkout, postage, payout, launch approval, or revocation",
+]);
+assertFileIncludes("30-minute build block checkpoint archive source", "scripts/archive-build-block-checkpoint.mjs", [
+  "tcos.buildBlockCheckpoint.v1",
+  "status:build-block:json",
+  ".codex-run",
+  "build-block-checkpoint",
+  "archiveMetadata",
+  "gitWorkingTreeClean",
+  "Build-block checkpoint evidence archived:",
+  "block focus:",
+  "Vercel upload started:",
+  "this archive helper only writes the timestamped checkpoint file",
+]);
+assertFileIncludes("go-live safe build block commands", "scripts/status-go-live.mjs", [
+  "npm run status:build-block",
+  "npm --silent run status:build-block:json",
+  "npm run archive:build-block-checkpoint",
 ]);
 assertScriptIncludes("verify:go-live-evidence", [
   "node scripts/verify-go-live-evidence.mjs",
@@ -1596,8 +1616,11 @@ assertFileIncludes("live money go/no-go README instructions", "README.md", [
   "npm --silent run status:go-live:json",
   "npm run status:build-block",
   "npm --silent run status:build-block:json",
+  "npm run archive:build-block-checkpoint",
   "tcos.buildBlockCheckpoint.v1",
   "concise read-only checkpoint",
+  ".codex-run/build-block-checkpoint/",
+  "archive helper only writes the timestamped checkpoint evidence file",
   "npm run archive:go-live-runway",
   "tcos.goLiveRunwayStatus.v1",
   "single read-only runway view",
