@@ -3188,6 +3188,28 @@ assertFileOrder("seller payout cash-out request gate order", "src/app/api/admin/
   '.from("seller_payout_requests")',
   ".update({\n        status,",
 ]);
+assertFileIncludes("seller payout ledger direct release guard source", "src/app/api/admin/seller-payouts/ledger/route.ts", [
+  'const allowedStatuses = new Set([\n  "hold_pending_fulfillment"',
+  'const committedRequestStatuses = new Set([\n  "requested"',
+  "hasCommittedPayoutRequest",
+  "This seller payout row is already tied to an active or paid cash-out request.",
+  "payoutReleaseBlockReason",
+  "Order must be marked shipped before seller payout can be released.",
+  "getDryRunShippingProofForOrder",
+  "active order review case(s) must be resolved before seller payout release.",
+  "recordSellerPayoutAdminEvent",
+]);
+assertFileOrder("seller payout ledger direct release gate order", "src/app/api/admin/seller-payouts/ledger/route.ts", [
+  'const currentStatus =\n      typedLedgerEntry.payout_status || "hold_pending_fulfillment";',
+  "await hasCommittedPayoutRequest",
+  "This seller payout row is already tied to an active or paid cash-out request.",
+  'if (status === "eligible")',
+  "const releaseBlockReason = await payoutReleaseBlockReason",
+  "if (releaseBlockReason)",
+  '.from("seller_payout_ledger_entries")',
+  ".update({\n        payout_status: status,",
+  "recordSellerPayoutAdminEvent",
+]);
 assertFileIncludes("shipping exceptions evidence audit export source", "src/app/api/admin/shipping/exceptions/route.ts", [
   "shippingPurchaseAttemptAuditSentence",
   "raw_payload",
