@@ -82,6 +82,14 @@ const manualVerificationChecks = [
       "Do not approve live payments or set TCOS_LIVE_PAYMENTS_ENABLED=true until the live-money runway matches the dedicated Live Payment Launch Gate and every approval blocker is intentionally cleared.",
   },
   {
+    label: "Live money JSON evidence",
+    href: "/admin/live-payment-launch",
+    proof:
+      "Archive `npm --silent run status:live-money:json` output with schema tcos.liveMoneyGoNoGo.v1 after smoke passes; during the final go-live window, archive `npm --silent run preflight:live-money:json` showing READY_FOR_RUNTIME_SWITCH or LIVE_MONEY_OPEN before any runtime switch change.",
+    ifBlocked:
+      "Do not approve live payments or set TCOS_LIVE_PAYMENTS_ENABLED=true when the JSON evidence is missing, BLOCKED_UNEVALUATED, BLOCKED_APPROVAL, READY_FOR_DATABASE_APPROVAL, or BLOCKED_LAUNCH_GATE.",
+  },
+  {
     label: "Live shipping lock posture",
     href: "/admin/live-shipping-launch",
     proof:

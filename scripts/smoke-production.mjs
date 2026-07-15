@@ -972,6 +972,11 @@ const checks = [
       "Git tip and clean domain",
       "Launch gate drill evidence",
       "Live money runway proof",
+      "Live money JSON evidence",
+      "npm --silent run status:live-money:json",
+      "npm --silent run preflight:live-money:json",
+      "tcos.liveMoneyGoNoGo.v1",
+      "READY_FOR_RUNTIME_SWITCH",
       "approval-blocker count",
       "launch-lock count",
       "next live-money actions",
@@ -1046,6 +1051,11 @@ const checks = [
       result.text.includes("Git tip and clean domain") &&
       result.text.includes("Launch gate drill evidence") &&
       result.text.includes("Live money runway proof") &&
+      result.text.includes("Live money JSON evidence") &&
+      result.text.includes("npm --silent run status:live-money:json") &&
+      result.text.includes("npm --silent run preflight:live-money:json") &&
+      result.text.includes("tcos.liveMoneyGoNoGo.v1") &&
+      result.text.includes("READY_FOR_RUNTIME_SWITCH") &&
       result.text.includes("approval-blocker count") &&
       result.text.includes("launch-lock count") &&
       result.text.includes("next live-money actions") &&
