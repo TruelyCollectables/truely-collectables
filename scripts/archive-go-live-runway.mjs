@@ -85,6 +85,21 @@ function assertEvidenceContract(payload) {
   if (!payload?.emergencyBackup?.schedulerProof?.state) {
     missing.push("emergencyBackup.schedulerProof.state");
   }
+  if (!payload?.emergencyBackup?.freshness?.latestBackupAt) {
+    missing.push("emergencyBackup.freshness.latestBackupAt");
+  }
+  if (typeof payload?.emergencyBackup?.freshness?.latestBackupAgeMinutes !== "number") {
+    missing.push("emergencyBackup.freshness.latestBackupAgeMinutes");
+  }
+  if (typeof payload?.emergencyBackup?.freshness?.currentForLastScheduledRun !== "boolean") {
+    missing.push("emergencyBackup.freshness.currentForLastScheduledRun");
+  }
+  if (typeof payload?.emergencyBackup?.retention?.keep !== "number") {
+    missing.push("emergencyBackup.retention.keep");
+  }
+  if (typeof payload?.emergencyBackup?.retention?.overRetentionCount !== "number") {
+    missing.push("emergencyBackup.retention.overRetentionCount");
+  }
   if (typeof payload?.emergencyBackup?.verification?.ok !== "boolean") {
     missing.push("emergencyBackup.verification.ok");
   }
@@ -168,6 +183,15 @@ console.log(`- launch command when quota opens: ${payload.productionDeploySafety
 console.log(`- smoke command: ${payload.productionDeploySafety.smokeCommand}`);
 console.log(`- emergency backup schedule health: ${payload.emergencyBackup.scheduleHealth.state}`);
 console.log(`- emergency backup scheduler proof: ${payload.emergencyBackup.schedulerProof.state}`);
+console.log(`- emergency backup latest at: ${payload.emergencyBackup.freshness.latestBackupAt}`);
+console.log(`- emergency backup latest age: ${payload.emergencyBackup.freshness.latestBackupAgeApprox}`);
+console.log(
+  `- emergency backup current for last scheduled run: ${
+    payload.emergencyBackup.freshness.currentForLastScheduledRun ? "yes" : "no"
+  }`,
+);
+console.log(`- emergency backup retention keep: ${payload.emergencyBackup.retention.keep}`);
+console.log(`- emergency backup over-retention count: ${payload.emergencyBackup.retention.overRetentionCount}`);
 console.log(`- emergency backup verification ok: ${payload.emergencyBackup.verification.ok ? "yes" : "no"}`);
 console.log(`- live-money state: ${payload.liveMoney.state}`);
 console.log(

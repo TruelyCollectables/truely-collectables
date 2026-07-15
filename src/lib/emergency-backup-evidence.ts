@@ -17,7 +17,7 @@ export const EMERGENCY_BACKUP_EVIDENCE = {
   backupFolder: "~/Backups by default; reinstall with --backup-dir /Backups only after the Mac grants that folder",
   retentionWindow: "Seven dated backups; day 8 replaces day 1, day 9 replaces day 2, and so on.",
   launchProof:
-    "Before go-live, capture current schedule health, scheduler proof, launchd loaded/runs/last-exit evidence, verification ok, failed-check count, verified archive path, and computed SHA-256.",
+    "Before go-live, capture current schedule health, scheduler proof, freshest backup timestamp, approximate age, current-for-last-scheduled-run status, retention keep count, over-retention count, launchd loaded/runs/last-exit evidence, verification ok, failed-check count, verified archive path, and computed SHA-256.",
   acceptedStatus:
     "`scheduleHealth: current`, `verification.ok: true`, and either `schedulerProof: automatic_proven` or a documented first-run/manual-backup exception while launchd is loaded.",
   readOnlyGuarantee:

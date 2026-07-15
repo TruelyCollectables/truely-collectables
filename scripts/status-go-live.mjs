@@ -167,6 +167,13 @@ function emergencyBackupStatus() {
   const verification = runNpmJson("verify:nightly-backup:json");
   const statusPayload = status.payload;
   const verificationPayload = verification.payload;
+  const latestBackupAt =
+    statusPayload.backups?.newest?.modifiedAt ||
+    verificationPayload.latestKnownArchive?.modifiedAt ||
+    null;
+  const latestBackupAgeMinutes = latestBackupAt
+    ? Math.max(0, Math.round((Date.now() - new Date(latestBackupAt).getTime()) / 60000))
+    : null;
 
   return {
     ok: status.ok && verification.ok && verificationPayload.ok === true,
@@ -182,6 +189,23 @@ function emergencyBackupStatus() {
       message: statusPayload.scheduleHealth?.message || "unknown",
       lastScheduledRunAt: statusPayload.scheduleHealth?.lastScheduledRunAt || null,
       nextScheduledRunAt: statusPayload.scheduleHealth?.nextScheduledRunAt || null,
+    },
+    freshness: {
+      latestBackupAt,
+      latestBackupAgeMinutes,
+      latestBackupAgeApprox:
+        latestBackupAgeMinutes === null
+          ? "unknown"
+          : latestBackupAgeMinutes < 60
+            ? `${latestBackupAgeMinutes}m`
+            : `${Math.floor(latestBackupAgeMinutes / 60)}h ${latestBackupAgeMinutes % 60}m`,
+      currentForLastScheduledRun: Boolean(
+        statusPayload.scheduleHealth?.state === "current" ||
+          (latestBackupAt &&
+            statusPayload.scheduleHealth?.lastScheduledRunAt &&
+            new Date(latestBackupAt).getTime() >=
+              new Date(statusPayload.scheduleHealth.lastScheduledRunAt).getTime()),
+      ),
     },
     schedulerProof: {
       state: statusPayload.schedulerProof?.state || "unknown",
@@ -205,6 +229,17 @@ function emergencyBackupStatus() {
           : null,
       archivePath: verificationPayload.archivePath || null,
       computedSha256: verificationPayload.computedSha256 || null,
+    },
+    retention: {
+      keep:
+        typeof statusPayload.retention?.keep === "number"
+          ? statusPayload.retention.keep
+          : 7,
+      overRetentionCount:
+        typeof statusPayload.retention?.overRetentionCount === "number"
+          ? statusPayload.retention.overRetentionCount
+          : 0,
+      oldestBackupAt: statusPayload.backups?.oldest?.modifiedAt || null,
     },
     raw: {
       status: statusPayload,
@@ -344,6 +379,15 @@ function printText(status) {
   console.log("Emergency backup:");
   console.log(`- backup folder: ${status.emergencyBackup.backupDir}`);
   console.log(`- dated backup count: ${status.emergencyBackup.datedBackupCount}`);
+  console.log(`- latest backup at: ${status.emergencyBackup.freshness.latestBackupAt || "unknown"}`);
+  console.log(`- latest backup age: ${status.emergencyBackup.freshness.latestBackupAgeApprox}`);
+  console.log(
+    `- current for last scheduled run: ${
+      status.emergencyBackup.freshness.currentForLastScheduledRun ? "yes" : "no"
+    }`,
+  );
+  console.log(`- retention keep: ${status.emergencyBackup.retention.keep}`);
+  console.log(`- over-retention count: ${status.emergencyBackup.retention.overRetentionCount}`);
   console.log(`- schedule health: ${status.emergencyBackup.scheduleHealth.state}`);
   console.log(`- scheduler proof: ${status.emergencyBackup.schedulerProof.state}`);
   console.log(
