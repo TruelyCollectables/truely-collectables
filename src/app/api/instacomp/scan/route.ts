@@ -30,6 +30,7 @@ import {
   checkPublicEndpointRateLimit,
   publicEndpointRateLimitResponse,
 } from "../../../../lib/public-endpoint-rate-limit";
+import { applyInstaCompIdentityGuard } from "../../../../lib/instacomp-identity-guard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -365,14 +366,15 @@ Return JSON only.
 
 Critical inspection workflow:
 1. Read the front first for player, team, product line, brand marks, rookie logos, autograph/relic indicators, chrome/prizm/refractor wording, color, border, foil, wave, shimmer, cracked ice, mosaic, mojo, pulsar, scope, laser, sparkle, raywave, x-fractor, atomic, disco, holo, negative, sepia, prism, and other parallel clues.
-2. Read the back second for copyright year, printed card number, set/subset name, team, manufacturer text, and tiny serial-number stamps.
+2. Read the back second for copyright year, printed card number, set/subset name, team, manufacturer text, printed insert names, printed parallel names, and tiny serial-number stamps.
 3. Serial numbers are often foil-stamped and tiny. Inspect both images for formats like 7/25, 07/50, 007/199, 1 of 1, one-of-one, /5, /10, /25, /49, /50, /75, /99, /100, /149, /150, /199, /250, /299, /399, /499, /999. Return the exact visible format in serialNumber.
-4. Parallel matters for price. If a visible design cue strongly indicates the parallel, return the best collector-market name in parallel, such as "Silver Prizm", "Green Prizm", "Blue Refractor", "Gold Wave", "Orange Ice", "Purple Shimmer", "Red White Blue Prizm", "Holo", "Refractor", "Chrome Refractor", "Mosaic Reactive Orange", "Sepia Refractor", "X-Fractor", "Atomic Refractor", or "Base".
-5. Use "Base" only when the card appears to be the normal base version and there are no visible special foil/color/numbering cues. Use null only when the image quality prevents a fair call.
-6. Do not hallucinate serial numbers. Only return serialNumber when visible or explicitly printed/stamped.
-7. Do not overclaim exact parallels. If the color/finish is visible but the exact market name is uncertain, use a cautious descriptive value like "Blue parallel - exact type uncertain" instead of null.
-8. If front/back disagree, prefer the printed back for card number/year/set, and explain the conflict in notes.
-9. If the image is not a sports card, still describe what it appears to be and lower confidence.
+4. Parallel/insert identity matters for price. If the card text, OCR text, or visible design says Limited Red, Red Limited, Clear Cut, Acetate, Canvas, Dazzlers, Young Guns, Portraits, Rookie Materials, Honor Roll, another insert/subset, or another printed color/foil/parallel name, do not call the card Base. Return the printed collector-market name in parallel and use the printed insert/subset as setName when appropriate.
+5. If a visible design cue strongly indicates the parallel, return the best collector-market name in parallel, such as "Limited Red", "Clear Cut", "Silver Prizm", "Green Prizm", "Blue Refractor", "Gold Wave", "Orange Ice", "Purple Shimmer", "Red White Blue Prizm", "Holo", "Refractor", "Chrome Refractor", "Mosaic Reactive Orange", "Sepia Refractor", "X-Fractor", "Atomic Refractor", or "Base".
+6. Use "Base" only when the card appears to be the normal base version and there are no visible or OCR-detected insert, subset, acetate/clear-stock, foil, color, refractor/prizm, or numbering cues. Use null only when the image quality prevents a fair call.
+7. Do not hallucinate serial numbers. Only return serialNumber when visible or explicitly printed/stamped.
+8. Do not overclaim exact parallels. If the color/finish or insert/clear-stock cue is visible but the exact market name is uncertain, use a cautious descriptive value like "Blue parallel - exact type uncertain" or "Insert - exact type uncertain" instead of Base.
+9. If front/back disagree, prefer the printed back for card number/year/set, and explain the conflict in notes.
+10. If the image is not a sports card, still describe what it appears to be and lower confidence.
 
 Field rules:
 - Confidence must be between 0 and 1.
@@ -2408,7 +2410,12 @@ export async function POST(req: NextRequest) {
       detailImages,
       externalOcr
     );
-    const ai = mergeSerialOcrResult(baseAi, serialOcr);
+    const ai = applyInstaCompIdentityGuard(
+      mergeSerialOcrResult(baseAi, serialOcr),
+      {
+        externalOcrText: externalOcr?.text || null,
+      }
+    );
 
     const queries = buildInstaCompQueries(ai);
     const links = buildCompLinks(queries.primary);

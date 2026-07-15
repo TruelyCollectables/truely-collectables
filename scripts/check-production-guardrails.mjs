@@ -1180,7 +1180,11 @@ assertScriptIncludes("verify:instacomp", [
   "simulate:instacomp-jobs",
   "simulate:instacomp-accuracy",
   "simulate:instacomp-catalog-identity",
+  "simulate:instacomp-identity-guard",
   "simulate:instacomp-trial",
+]);
+assertScriptIncludes("simulate:instacomp-identity-guard", [
+  "scripts/run-instacomp-identity-guard-simulations.ts",
 ]);
 assertScriptIncludes("simulate:instacomp-trial", [
   "scripts/run-instacomp-trial-report.mjs",
@@ -3483,6 +3487,33 @@ assertFileIncludes("instacomp accuracy draft title simulations", "scripts/run-in
   "draft title uses print run instead of exact serial",
   "draft title preserves true one-of-one",
   "invalid serial is omitted from draft title",
+]);
+assertFileIncludes("instacomp printed-variant identity guard source", "src/lib/instacomp-identity-guard.ts", [
+  "applyInstaCompIdentityGuard",
+  "Limited Red",
+  "Clear Cut",
+  "Insert - exact type uncertain",
+  "Acetate / clear parallel - exact type uncertain",
+  "Identity guardrail",
+]);
+assertFileIncludes("instacomp printed-variant identity guard scan route", "src/app/api/instacomp/scan/route.ts", [
+  "applyInstaCompIdentityGuard",
+  "printed insert names",
+  "Limited Red",
+  "Clear Cut",
+  "do not call the card Base",
+]);
+assertFileIncludes("instacomp printed-variant identity guard simulations", "scripts/run-instacomp-identity-guard-simulations.ts", [
+  "printed Limited Red overrides base",
+  "Upper Deck Clear Cut overrides base and set",
+  "printed generic insert cannot remain base",
+  "normal base with no printed signal stays base",
+]);
+assertFileIncludes("instacomp printed-variant identity guard manual", "docs/TCOS_OPERATOR_MANUAL.md", [
+  "printed-variant identity guard",
+  "Limited Red",
+  "Clear Cut",
+  "uncertain insert cues are marked for review",
 ]);
 assertFileIncludes("instacomp catalog identity resolver source", "src/lib/instacomp-catalog-identity.ts", [
   "InstaCompCatalogIdentityInput",
@@ -6172,7 +6203,7 @@ assertFileIncludes("deploy live safety README", "README.md", [
   "twenty-scenario shipping simulation suite",
   "visible missing/unexpected purchase-audit key drift checks",
   "guardrails for no external publishing, no postage purchase, no Coverage policy creation, no payout release, no order fulfillment, and no automatic under-$20 protection activation",
-  "That command is deploy-safe and focused: it runs only the InstaComp queue, accuracy, catalog identity, and 100-card trial scorekeeper simulations",
+  "That command is deploy-safe and focused: it runs only the InstaComp queue, accuracy, catalog identity, printed-variant identity guard, and 100-card trial scorekeeper simulations",
   "Use `npm run verify:production` for the full lint, shipping, build, guardrail, and GitHub preflight stack.",
   "Vercel quota messaging",
   "TCOS_VERCEL_DEPLOY_TIMEOUT_MS",
