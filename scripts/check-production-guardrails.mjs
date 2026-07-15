@@ -295,6 +295,8 @@ assertFileIncludes(
     "Library",
     "LaunchAgents",
     "npm run backup:nightly",
+    "command -v npm",
+    "NPM path:",
     "nightly-emergency-backup.out.log",
     "nightly-emergency-backup.err.log",
     "launchctl",

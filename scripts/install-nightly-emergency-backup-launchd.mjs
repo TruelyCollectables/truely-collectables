@@ -57,6 +57,17 @@ function printCommandFailure(name, result) {
   console.error(`${name} failed${output ? `:\n${output}` : ""}`);
 }
 
+function resolveNpmPath() {
+  const result = run("/bin/zsh", ["-lc", "command -v npm"]);
+  const npmPath = (result.stdout || "").trim().split("\n")[0];
+
+  if (result.status === 0 && npmPath) {
+    return npmPath;
+  }
+
+  return "npm";
+}
+
 const repoRoot = process.cwd();
 const packagePath = path.join(repoRoot, "package.json");
 
@@ -82,7 +93,8 @@ const launchAgentsDir = path.join(home, "Library", "LaunchAgents");
 const backupRoot = path.join(home, "TCOS_BACKUP", "nightly");
 const logsDir = path.join(backupRoot, "logs");
 const plistPath = path.join(launchAgentsDir, `${label}.plist`);
-const command = `cd ${shellQuote(repoRoot)} && /usr/bin/env npm run backup:nightly`;
+const npmPath = resolveNpmPath();
+const command = `cd ${shellQuote(repoRoot)} && ${shellQuote(npmPath)} run backup:nightly`;
 const uid = typeof process.getuid === "function" ? process.getuid() : null;
 const target = uid === null ? null : `gui/${uid}`;
 
@@ -123,6 +135,7 @@ fs.writeFileSync(plistPath, plist);
 console.log(`Wrote LaunchAgent: ${plistPath}`);
 console.log(`Nightly backup schedule: ${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")} local time`);
 console.log(`Backup/log root: ${backupRoot}`);
+console.log(`NPM path: ${npmPath}`);
 
 if (noLoad) {
   console.log("LaunchAgent load skipped by --no-load.");
