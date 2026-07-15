@@ -2300,6 +2300,20 @@ market_news_snapshots</code></pre>
 <p>The browser currently acts as the queue worker. Uploaded jobs and results survive a reload, but OCR and AI work do not continue while every InstaComp browser tab is closed. This is a durable, resumable browser-driven queue, not a detached background worker.</p>
 <p>The complete operator procedure, local PaddleOCR startup, diagnostics, and failure recovery are in <code>Section 32: InstaComp Production Operation</code>.</p>
 <p>The system must not rely on AI guessing alone. AI and OCR propose facts; the operator must compare those facts with both card images and trusted references before activation, pricing, or cross-listing. A displayed confidence score is evidence for triage, not a guarantee of exact identity.</p>
+<p>Future scanner catalog identity requirement:</p>
+<ul>
+<li>InstaComp should connect to one or more approved online card catalog/checklist sources so scanned cards can be matched against structured card identity data before comps are trusted</li>
+<li>this catalog layer should show known cards and their variations, including base cards, parallels, refractors, short prints, image variations, autographs, relics/patches, serial-numbered print runs, inserts, promos, grading/certification identifiers when available, and manufacturer checklist identifiers</li>
+<li>catalog identity matching should happen before or alongside pricing lookup, so InstaComp can use catalog-confirmed year, brand, set, card number, player, team, parallel/variant, serial-number range, and checklist ID when pulling comps</li>
+<li>the scanner should compare OCR/vision facts, front/back image clues, card-number text, back-of-card fine print, serial numbers, color/foil/refractor pattern, autograph/relic markers, and visible logos against the catalog candidate list</li>
+<li>when one catalog candidate is strongly supported, InstaComp should attach the catalog/source ID, source label, source URL, match explanation, and confidence evidence to the scan row and draft listing</li>
+<li>when catalog evidence cannot prove the exact variation, InstaComp must keep the row in <code>review_required</code> and ask for one targeted operator confirmation instead of guessing</li>
+<li>catalog identity data and pricing/comps data must remain separate; catalog data answers “what exact card is this?” while InstaComp/comps answer “what is this confirmed card worth?”</li>
+<li>every catalog source must be evaluated for API availability, licensing, caching limits, attribution rules, and whether TCOS may store, display, or use the data commercially</li>
+<li>the operator UI should clearly show the catalog-confirmed match, alternate plausible matches, mismatched clues, and why the system accepted or rejected each candidate</li>
+<li>no public listing, exact rare-variant claim, auto-price, or trade-value recommendation should depend on catalog data unless the selected source is permitted and the match evidence is saved with the scan</li>
+<li>the product goal is practical catalog-confirmed identity, not unsupported “100% certainty”; if the source data or image evidence is incomplete, TCOS should say <code>Needs Review</code> rather than overclaim</li>
+</ul>
 <p>Future category expansion must support all collectables, not only sports cards.</p>
 <p>Collectable categories to support over time:</p>
 <ul>
@@ -2321,6 +2335,7 @@ market_news_snapshots</code></pre>
 <ul>
 <li>find official APIs first</li>
 <li>confirm licensing and allowed use before storing or displaying data</li>
+<li>prioritize card catalog/checklist identity sources that expose structured card lists, set/checklist IDs, card numbers, variation/parallel names, image references where allowed, and print-run/serial-number metadata</li>
 <li>prefer catalog IDs, cert numbers, set names, card numbers, issue years, print runs, population data, and verified images</li>
 <li>separate catalog identity data from pricing data</li>
 <li>record source names, source URLs, lookup timestamps, confidence scores, and raw evidence</li>
@@ -2393,6 +2408,8 @@ market_news_snapshots</code></pre>
 <p>Variant and parallel resolver requirements:</p>
 <ul>
 <li>TCOS should identify the exact variation or parallel whenever visual evidence and checklist data support it</li>
+<li>InstaComp should query the approved catalog identity layer before trusting comp matches, so base/parallel/refractor/short-print/image-variation/autograph/relic/serial-numbered cards do not get priced as the wrong card</li>
+<li>every selected variant should preserve the matched catalog/checklist ID, source label, source URL, and the visible evidence that made the match</li>
 <li>do not show a long list of near-duplicate options when the evidence resolves the match</li>
 <li>if the card is a refractor, TCOS should not ask whether it is pink, blue, green, gold, base, wave, mojo, cracked ice, shimmer, lava, scope, x-fractor, atomic, numbered, or unnumbered unless the scan/checklist evidence cannot prove the answer</li>
 <li>use front/back scan evidence, border color, foil pattern, refractor effect, serial numbering, card number, set name, year, manufacturer, player, team, logo marks, autograph/relic markers, and visible checklist identifiers</li>

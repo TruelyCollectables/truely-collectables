@@ -2137,6 +2137,20 @@ The complete operator procedure, local PaddleOCR startup, diagnostics, and failu
 
 The system must not rely on AI guessing alone. AI and OCR propose facts; the operator must compare those facts with both card images and trusted references before activation, pricing, or cross-listing. A displayed confidence score is evidence for triage, not a guarantee of exact identity.
 
+Future scanner catalog identity requirement:
+
+- InstaComp should connect to one or more approved online card catalog/checklist sources so scanned cards can be matched against structured card identity data before comps are trusted
+- this catalog layer should show known cards and their variations, including base cards, parallels, refractors, short prints, image variations, autographs, relics/patches, serial-numbered print runs, inserts, promos, grading/certification identifiers when available, and manufacturer checklist identifiers
+- catalog identity matching should happen before or alongside pricing lookup, so InstaComp can use catalog-confirmed year, brand, set, card number, player, team, parallel/variant, serial-number range, and checklist ID when pulling comps
+- the scanner should compare OCR/vision facts, front/back image clues, card-number text, back-of-card fine print, serial numbers, color/foil/refractor pattern, autograph/relic markers, and visible logos against the catalog candidate list
+- when one catalog candidate is strongly supported, InstaComp should attach the catalog/source ID, source label, source URL, match explanation, and confidence evidence to the scan row and draft listing
+- when catalog evidence cannot prove the exact variation, InstaComp must keep the row in `review_required` and ask for one targeted operator confirmation instead of guessing
+- catalog identity data and pricing/comps data must remain separate; catalog data answers “what exact card is this?” while InstaComp/comps answer “what is this confirmed card worth?”
+- every catalog source must be evaluated for API availability, licensing, caching limits, attribution rules, and whether TCOS may store, display, or use the data commercially
+- the operator UI should clearly show the catalog-confirmed match, alternate plausible matches, mismatched clues, and why the system accepted or rejected each candidate
+- no public listing, exact rare-variant claim, auto-price, or trade-value recommendation should depend on catalog data unless the selected source is permitted and the match evidence is saved with the scan
+- the product goal is practical catalog-confirmed identity, not unsupported “100% certainty”; if the source data or image evidence is incomplete, TCOS should say `Needs Review` rather than overclaim
+
 Future category expansion must support all collectables, not only sports cards.
 
 Collectable categories to support over time:
@@ -2159,6 +2173,7 @@ Data-source research checklist:
 
 - find official APIs first
 - confirm licensing and allowed use before storing or displaying data
+- prioritize card catalog/checklist identity sources that expose structured card lists, set/checklist IDs, card numbers, variation/parallel names, image references where allowed, and print-run/serial-number metadata
 - prefer catalog IDs, cert numbers, set names, card numbers, issue years, print runs, population data, and verified images
 - separate catalog identity data from pricing data
 - record source names, source URLs, lookup timestamps, confidence scores, and raw evidence
@@ -2231,6 +2246,8 @@ Autograph, certification, and provenance disclosure policy:
 Variant and parallel resolver requirements:
 
 - TCOS should identify the exact variation or parallel whenever visual evidence and checklist data support it
+- InstaComp should query the approved catalog identity layer before trusting comp matches, so base/parallel/refractor/short-print/image-variation/autograph/relic/serial-numbered cards do not get priced as the wrong card
+- every selected variant should preserve the matched catalog/checklist ID, source label, source URL, and the visible evidence that made the match
 - do not show a long list of near-duplicate options when the evidence resolves the match
 - if the card is a refractor, TCOS should not ask whether it is pink, blue, green, gold, base, wave, mojo, cracked ice, shimmer, lava, scope, x-fractor, atomic, numbered, or unnumbered unless the scan/checklist evidence cannot prove the answer
 - use front/back scan evidence, border color, foil pattern, refractor effect, serial numbering, card number, set name, year, manufacturer, player, team, logo marks, autograph/relic markers, and visible checklist identifiers
