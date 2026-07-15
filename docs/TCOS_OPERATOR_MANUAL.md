@@ -4717,7 +4717,7 @@ npm --silent run status:nightly-backup:json
 npm run archive:nightly-backup-status
 ```
 
-The JSON schema is `tcos.nightlyBackupStatus.v1`. The helper only reads the LaunchAgent plist, selected backup folder, and log metadata; it creates no archive, starts no Git push, deploy, Checkout, postage, payout, launch approval, or revocation. It also reports schedule health such as `current`, `pending_first_run`, or `overdue_or_failed` so a missed 02:30 run is visible. The archive helper writes timestamped status evidence under `.codex-run/nightly-backup-status/` with Git head, origin, working-tree metadata, and the current schedule-health state.
+The JSON schema is `tcos.nightlyBackupStatus.v1`. The helper only reads the LaunchAgent plist, launchd runtime state, selected backup folder, and log metadata; it creates no archive, starts no Git push, deploy, Checkout, postage, payout, launch approval, or revocation. It also reports schedule health such as `current`, `pending_first_run`, or `overdue_or_failed` plus launchd loaded/runs/last-exit evidence so a missed 02:30 run or never-fired scheduler is visible. The archive helper writes timestamped status evidence under `.codex-run/nightly-backup-status/` with Git head, origin, working-tree metadata, the current schedule-health state, and the current launchd runtime state.
 
 Treat the backup folder like a password vault because local archives can include production-capable `.env*` secrets. Do not upload the tarballs to public cloud storage or commit them to Git.
 

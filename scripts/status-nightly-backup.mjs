@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { spawnSync } from "node:child_process";
 
 const args = process.argv.slice(2);
 const json = args.includes("--json");
@@ -129,6 +130,87 @@ function statFile(filePath) {
     path: filePath,
     bytes: stat.size,
     modifiedAt: stat.mtime.toISOString(),
+  };
+}
+
+function parseNullableNumber(value) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function readLaunchdRuntime(label) {
+  if (process.platform !== "darwin") {
+    return {
+      supported: false,
+      checked: false,
+      loaded: false,
+      domain: null,
+      state: null,
+      activeCount: null,
+      runs: null,
+      lastExitCode: null,
+      message: "launchd runtime status is macOS-only.",
+    };
+  }
+
+  const uid = typeof process.getuid === "function" ? process.getuid() : null;
+  if (uid === null) {
+    return {
+      supported: true,
+      checked: false,
+      loaded: false,
+      domain: null,
+      state: null,
+      activeCount: null,
+      runs: null,
+      lastExitCode: null,
+      message: "Could not determine the current macOS user id for launchctl.",
+    };
+  }
+
+  const domain = `gui/${uid}`;
+  const target = `${domain}/${label}`;
+  const result = spawnSync("launchctl", ["print", target], {
+    encoding: "utf8",
+  });
+  const stdout = result.stdout || "";
+  const stderr = (result.stderr || "").trim();
+
+  if (result.status !== 0) {
+    return {
+      supported: true,
+      checked: true,
+      loaded: false,
+      domain,
+      state: null,
+      activeCount: null,
+      runs: null,
+      lastExitCode: null,
+      message:
+        stderr ||
+        `launchctl could not print ${target}; the LaunchAgent may not be loaded in the user session.`,
+    };
+  }
+
+  const state = extractFirst(stdout, /^\s*state = ([^\n]+)$/m);
+  const activeCount = parseNullableNumber(extractFirst(stdout, /^\s*active count = (\d+)$/m));
+  const runs = parseNullableNumber(extractFirst(stdout, /^\s*runs = (\d+)$/m));
+  const lastExitCode = extractFirst(stdout, /^\s*last exit code = ([^\n]+)$/m);
+
+  return {
+    supported: true,
+    checked: true,
+    loaded: true,
+    domain,
+    state,
+    activeCount,
+    runs,
+    lastExitCode,
+    message: `launchctl reports ${label} is loaded in ${domain}.`,
   };
 }
 
@@ -283,12 +365,14 @@ const logs = {
   stdout: statFile(launchAgent.stdoutPath),
   stderr: statFile(launchAgent.stderrPath),
 };
+const launchdRuntime = readLaunchdRuntime(launchAgent.label);
 const scheduleHealth = backupScheduleHealth(launchAgent, backups);
 const payload = {
   schema,
   checkedAt: new Date().toISOString(),
   backupDir,
   scheduleHealth,
+  launchdRuntime,
   retention: {
     keep: 7,
     policy:
@@ -299,7 +383,7 @@ const payload = {
   backups,
   logs,
   readOnlyGuarantee:
-    "This command only reads the LaunchAgent plist, backup folder, and log metadata; it creates no archive, starts no Git push, deploy, Checkout, postage, payout, launch approval, or revocation.",
+    "This command only reads the LaunchAgent plist, launchd runtime state, backup folder, and log metadata; it creates no archive, starts no Git push, deploy, Checkout, postage, payout, launch approval, or revocation.",
 };
 
 if (json) {
@@ -316,6 +400,10 @@ if (json) {
   console.log(`- schedule message: ${scheduleHealth.message}`);
   console.log(`- last scheduled run: ${scheduleHealth.lastScheduledRunAt || "unknown"}`);
   console.log(`- next scheduled run: ${scheduleHealth.nextScheduledRunAt || "unknown"}`);
+  console.log(`- launchd loaded: ${launchdRuntime.loaded ? "yes" : "no"}`);
+  console.log(`- launchd state: ${launchdRuntime.state || "unknown"}`);
+  console.log(`- launchd runs: ${launchdRuntime.runs ?? "unknown"}`);
+  console.log(`- launchd last exit code: ${launchdRuntime.lastExitCode || "unknown"}`);
   console.log("");
   console.log("LaunchAgent:");
   console.log(`- installed: ${launchAgent.installed ? "yes" : "no"}`);
