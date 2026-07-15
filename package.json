@@ -27,6 +27,8 @@
     "status:build-block:json": "node scripts/status-build-block.mjs --json",
     "status:go-live": "node scripts/status-go-live.mjs",
     "status:go-live:json": "node scripts/status-go-live.mjs --json",
+    "verify:build-block-checkpoint": "node scripts/verify-build-block-checkpoint.mjs",
+    "verify:build-block-checkpoint:json": "node scripts/verify-build-block-checkpoint.mjs --json",
     "verify:go-live-evidence": "node scripts/verify-go-live-evidence.mjs",
     "verify:go-live-evidence:json": "node scripts/verify-go-live-evidence.mjs --json",
     "status:live-money": "node --import tsx scripts/status-live-money.ts --allow-blocked",

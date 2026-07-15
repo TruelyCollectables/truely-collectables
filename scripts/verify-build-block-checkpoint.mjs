@@ -1,0 +1,277 @@
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
+
+const args = process.argv.slice(2);
+const jsonOutput = args.includes("--json");
+const schema = "tcos.buildBlockCheckpointVerification.v1";
+const repoRoot = dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
+const evidenceDir = join(repoRoot, ".codex-run", "build-block-checkpoint");
+
+function readOption(name, fallback = undefined) {
+  const index = args.indexOf(name);
+  if (index === -1) return fallback;
+
+  const value = args[index + 1];
+  if (!value || value.startsWith("--")) {
+    throw new Error(`${name} requires a value`);
+  }
+
+  return value;
+}
+
+function runLocalGit(gitArgs) {
+  const result = spawnSync("git", gitArgs, {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
+
+  return result.status === 0 ? (result.stdout || "").trim() : "";
+}
+
+function listCheckpointArchives() {
+  if (!existsSync(evidenceDir)) return [];
+
+  return readdirSync(evidenceDir)
+    .filter((name) => name.endsWith("-build-block-checkpoint.json"))
+    .map((name) => {
+      const filePath = join(evidenceDir, name);
+      const stat = statSync(filePath);
+      return {
+        name,
+        filePath,
+        bytes: stat.size,
+        modifiedAt: stat.mtime.toISOString(),
+        mtimeMs: stat.mtimeMs,
+      };
+    })
+    .sort((a, b) => b.mtimeMs - a.mtimeMs);
+}
+
+function selectArchive() {
+  const explicitArchive = readOption("--archive");
+  if (explicitArchive) {
+    return {
+      selectedBy: "--archive",
+      archivePath: resolve(explicitArchive),
+      knownArchives: listCheckpointArchives(),
+    };
+  }
+
+  const archives = listCheckpointArchives();
+  return {
+    selectedBy: "newest",
+    archivePath: archives[0]?.filePath || null,
+    knownArchives: archives,
+  };
+}
+
+function check(condition, name, detail = null) {
+  return {
+    name,
+    ok: Boolean(condition),
+    detail,
+  };
+}
+
+const gitStatusShort = runLocalGit(["status", "--short"]);
+const currentHead = runLocalGit(["rev-parse", "--short", "HEAD"]) || "unknown";
+const currentOriginMain = runLocalGit(["rev-parse", "--short", "origin/main"]) || "unknown";
+const selected = selectArchive();
+const archivePath = selected.archivePath;
+const checks = [
+  check(gitStatusShort === "", "current working tree is clean", gitStatusShort || null),
+  check(
+    currentHead === currentOriginMain,
+    "current HEAD matches origin/main",
+    `${currentHead} / ${currentOriginMain}`,
+  ),
+  check(Boolean(archivePath), "build-block checkpoint archive selected"),
+  check(
+    Boolean(archivePath && existsSync(archivePath)),
+    "build-block checkpoint archive exists",
+    archivePath,
+  ),
+];
+
+let payload = null;
+let parseError = null;
+if (archivePath && existsSync(archivePath)) {
+  try {
+    payload = JSON.parse(readFileSync(archivePath, "utf8"));
+    checks.push(check(true, "build-block checkpoint JSON parses"));
+  } catch (error) {
+    parseError = error instanceof Error ? error.message : String(error);
+    checks.push(check(false, "build-block checkpoint JSON parses", parseError));
+  }
+}
+
+if (payload) {
+  const gitBlockerAreas = new Set(
+    Array.isArray(payload.git?.workingTreeChanges)
+      ? payload.git.workingTreeChanges
+      : [],
+  );
+  const recommendedCommands = Array.isArray(payload.recommendation?.commands)
+    ? payload.recommendation.commands
+    : [];
+
+  checks.push(check(payload.schema === "tcos.buildBlockCheckpoint.v1", "checkpoint schema"));
+  checks.push(check(payload.sourceSchema === "tcos.goLiveRunwayStatus.v1", "checkpoint source schema"));
+  checks.push(check(Boolean(payload.generatedAt), "checkpoint generatedAt"));
+  checks.push(check(payload.git?.workingTreeClean === true, "checkpoint git payload is clean"));
+  checks.push(check(payload.git?.head === currentHead, "checkpoint git head matches current HEAD", payload.git?.head));
+  checks.push(
+    check(
+      payload.git?.originMain === currentOriginMain,
+      "checkpoint origin/main matches current origin/main",
+      payload.git?.originMain,
+    ),
+  );
+  checks.push(check(gitBlockerAreas.size === 0, "checkpoint has no working-tree changes"));
+  checks.push(check(payload.archive?.gitWorkingTreeClean === true, "archive metadata was captured with a clean tree"));
+  checks.push(check(payload.archive?.gitHead === currentHead, "archive metadata git head matches current HEAD", payload.archive?.gitHead));
+  checks.push(
+    check(
+      payload.archive?.gitOriginMain === currentOriginMain,
+      "archive metadata origin/main matches current origin/main",
+      payload.archive?.gitOriginMain,
+    ),
+  );
+  checks.push(
+    check(
+      payload.archive?.gitHead === payload.archive?.gitOriginMain,
+      "archive metadata was captured at pushed HEAD",
+      `${payload.archive?.gitHead || "unknown"} / ${payload.archive?.gitOriginMain || "unknown"}`,
+    ),
+  );
+  checks.push(
+    check(
+      payload.archive?.command === "npm --silent run status:build-block:json",
+      "archive source command matches",
+      payload.archive?.command,
+    ),
+  );
+  checks.push(check(Boolean(payload.recommendation?.focus), "checkpoint recommendation focus"));
+  checks.push(check(Boolean(payload.recommendation?.next), "checkpoint recommendation next step"));
+  checks.push(check(recommendedCommands.length > 0, "checkpoint recommendation commands exist"));
+  checks.push(
+    check(
+      payload.productionDeploymentQuota?.vercelUploadStarted === false,
+      "checkpoint confirms no Vercel upload started",
+      payload.productionDeploymentQuota?.vercelUploadStarted,
+    ),
+  );
+  checks.push(check(payload.emergencyBackup?.verificationOk === true, "checkpoint backup verification is ok"));
+  checks.push(
+    check(
+      payload.emergencyBackup?.overRetentionCount === 0,
+      "checkpoint backup retention has no over-retention",
+      payload.emergencyBackup?.overRetentionCount,
+    ),
+  );
+  checks.push(check(Boolean(payload.liveMoney?.state), "checkpoint live-money state"));
+  checks.push(
+    check(
+      Array.isArray(payload.liveMoney?.missingBootstrapEnvironment),
+      "checkpoint live-money missing bootstrap list exists",
+    ),
+  );
+  checks.push(
+    check(
+      payload.safeBuildBoundary?.includes("does not approve live money") &&
+        payload.safeBuildBoundary?.includes("buy postage") &&
+        payload.safeBuildBoundary?.includes("create Checkout") &&
+        payload.safeBuildBoundary?.includes("start production deploys"),
+      "safe build boundary preserves no-money/no-postage/no-deploy limits",
+      payload.safeBuildBoundary || null,
+    ),
+  );
+  checks.push(
+    check(
+      payload.readOnlyGuarantee?.includes("starts no deploy") &&
+        payload.readOnlyGuarantee?.includes("Git push") &&
+        payload.readOnlyGuarantee?.includes("Checkout") &&
+        payload.readOnlyGuarantee?.includes("postage") &&
+        payload.readOnlyGuarantee?.includes("payout"),
+      "checkpoint read-only guarantee preserves side-effect limits",
+      payload.readOnlyGuarantee || null,
+    ),
+  );
+}
+
+const failedChecks = checks.filter((item) => !item.ok);
+const verification = {
+  schema,
+  checkedAt: new Date().toISOString(),
+  evidenceDir,
+  selectedBy: selected.selectedBy,
+  archivePath,
+  archiveCount: selected.knownArchives.length,
+  latestKnownArchive: selected.knownArchives[0] || null,
+  git: {
+    head: currentHead,
+    originMain: currentOriginMain,
+    workingTreeClean: gitStatusShort === "",
+    statusShort: gitStatusShort ? gitStatusShort.split("\n") : [],
+  },
+  checkpoint: payload
+    ? {
+        schema: payload.schema || null,
+        generatedAt: payload.generatedAt || null,
+        focus: payload.recommendation?.focus || null,
+        next: payload.recommendation?.next || null,
+        commands: payload.recommendation?.commands || [],
+        goLiveState: payload.goLiveReadiness?.state || null,
+        blockerCount: payload.goLiveReadiness?.blockerCount ?? null,
+        watchItemCount: payload.goLiveReadiness?.watchItemCount ?? null,
+        quotaState: payload.productionDeploymentQuota?.state || null,
+        quotaRetryAtLocal: payload.productionDeploymentQuota?.retryAtLocal || null,
+        backupScheduleHealth: payload.emergencyBackup?.scheduleHealth || null,
+        backupSchedulerProof: payload.emergencyBackup?.schedulerProof || null,
+        liveMoneyState: payload.liveMoney?.state || null,
+      }
+    : null,
+  checks,
+  ok: failedChecks.length === 0,
+  failedCheckCount: failedChecks.length,
+  failedChecks,
+  readOnlyGuarantee:
+    "This command only reads Git state and the latest build-block checkpoint archive; it creates no archive, starts no Git push, deploy, Checkout, postage, payout, launch approval, or revocation.",
+};
+
+if (jsonOutput) {
+  console.log(JSON.stringify(verification, null, 2));
+} else {
+  console.log("TCOS build-block checkpoint verification:");
+  console.log(`- evidence folder: ${evidenceDir}`);
+  console.log(`- selected by: ${verification.selectedBy}`);
+  console.log(`- archive: ${archivePath || "none"}`);
+  console.log(`- archive count: ${verification.archiveCount}`);
+  console.log(`- git HEAD: ${verification.git.head}`);
+  console.log(`- git origin/main: ${verification.git.originMain}`);
+  console.log(`- git working tree clean: ${verification.git.workingTreeClean ? "yes" : "no"}`);
+  console.log(`- checkpoint focus: ${verification.checkpoint?.focus || "not recorded"}`);
+  console.log(`- checkpoint next: ${verification.checkpoint?.next || "not recorded"}`);
+  if (verification.checkpoint?.commands?.length) {
+    console.log(`- checkpoint commands: ${verification.checkpoint.commands.join(" | ")}`);
+  }
+  console.log(`- go-live state: ${verification.checkpoint?.goLiveState || "not recorded"}`);
+  console.log(`- quota state: ${verification.checkpoint?.quotaState || "not recorded"}`);
+  console.log(
+    `- quota retry at local: ${verification.checkpoint?.quotaRetryAtLocal || "not recorded"}`,
+  );
+  console.log(`- live-money state: ${verification.checkpoint?.liveMoneyState || "not recorded"}`);
+  console.log(`- ok: ${verification.ok ? "yes" : "no"}`);
+  console.log(`- failed checks: ${verification.failedCheckCount}`);
+  for (const item of failedChecks) {
+    console.log(`  - ${item.name}${item.detail ? `: ${item.detail}` : ""}`);
+  }
+  console.log("");
+  console.log(`Read-only guarantee: ${verification.readOnlyGuarantee}`);
+}
+
+if (!verification.ok) {
+  process.exitCode = 1;
+}
