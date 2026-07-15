@@ -59,6 +59,29 @@ function providerUnlockActionPlanMarkdown(report: LaunchGateDrillReport) {
   ].join("\n");
 }
 
+function paymentRunwayMarkdown(report: LaunchGateDrillReport) {
+  return [
+    "## Live Money Runway",
+    "",
+    `- Approval blockers: ${report.payment.approvalBlockingCount}`,
+    `- Launch locks: ${report.payment.launchLockCount}`,
+    `- Warnings: ${report.payment.warningCount}`,
+    `- Live Checkout: ${report.payment.livePaymentsEnabled ? "open" : "locked"}`,
+    `- Operator summary: ${report.payment.operatorSummary}`,
+    "",
+    "### Next Live-Money Actions",
+    "",
+    markdownList(
+      report.payment.nextActions.length
+        ? report.payment.nextActions
+        : [
+            "Monitor Stripe webhooks, reconciliation, refunds, disputes, seller payout holds, and emergency revocation readiness.",
+          ],
+    ),
+    "",
+  ].join("\n");
+}
+
 function reportMarkdown(report: LaunchGateDrillReport) {
   return [
     "# TCOS Launch Gate Drill Report",
@@ -78,6 +101,7 @@ function reportMarkdown(report: LaunchGateDrillReport) {
     `- Missing purchase audit keys: ${inlineList(report.shipping.purchaseAttemptAuditMissingScenarioKeys)}`,
     `- Unexpected purchase audit keys: ${inlineList(report.shipping.purchaseAttemptAuditUnexpectedScenarioKeys)}`,
     "",
+    paymentRunwayMarkdown(report),
     postureMarkdown("Payment Launch Posture", report.posture.payment),
     postureMarkdown("Shipping Launch Posture", report.posture.shipping),
     providerUnlockActionPlanMarkdown(report),

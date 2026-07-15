@@ -154,6 +154,76 @@ export default async function LaunchGateDrillPage() {
           <PostureCard title="Shipping Launch Posture" posture={report.posture.shipping} />
         </section>
 
+        <section className="mb-8 rounded border border-emerald-200 bg-emerald-50 p-6 text-emerald-950">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-black uppercase tracking-widest">
+                Live money runway
+              </p>
+              <h2 className="mt-1 text-xl font-black">
+                Payment approval blockers and launch locks
+              </h2>
+              <p className="mt-2 max-w-4xl text-sm font-semibold leading-6">
+                {report.payment.operatorSummary}
+              </p>
+            </div>
+            <Link
+              href="/admin/live-payment-launch"
+              className="rounded border border-emerald-300 bg-white px-4 py-2 text-sm font-black"
+            >
+              Open Live Payment Gate
+            </Link>
+          </div>
+
+          <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-4">
+            <MiniRunwayCount
+              label="approval blockers"
+              value={report.payment.approvalBlockingCount}
+              tone={report.payment.approvalBlockingCount > 0 ? "red" : "green"}
+            />
+            <MiniRunwayCount
+              label="launch locks"
+              value={report.payment.launchLockCount}
+              tone={report.payment.livePaymentsEnabled ? "green" : "yellow"}
+            />
+            <MiniRunwayCount
+              label="warnings"
+              value={report.payment.warningCount}
+              tone={report.payment.warningCount > 0 ? "yellow" : "green"}
+            />
+            <div className="rounded border border-emerald-200 bg-white p-3">
+              <p
+                className={`text-2xl font-black ${
+                  report.payment.livePaymentsEnabled
+                    ? "text-green-700"
+                    : "text-red-700"
+                }`}
+              >
+                {report.payment.livePaymentsEnabled ? "OPEN" : "LOCKED"}
+              </p>
+              <p className="text-xs font-black uppercase text-neutral-500">
+                Live Checkout
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-5 rounded border border-emerald-200 bg-white p-4">
+            <h3 className="font-black">Next live-money actions</h3>
+            {report.payment.nextActions.length ? (
+              <ul className="mt-3 list-disc space-y-2 pl-5 text-sm font-semibold leading-6">
+                {report.payment.nextActions.slice(0, 5).map((action) => (
+                  <li key={action}>{action}</li>
+                ))}
+              </ul>
+            ) : (
+              <p className="mt-3 text-sm font-semibold leading-6">
+                Monitor Stripe webhooks, reconciliation, refunds, disputes,
+                seller payout holds, and emergency revocation readiness.
+              </p>
+            )}
+          </div>
+        </section>
+
         <ShippingProviderUnlockPlan
           actionPlan={report.shipping.providerSetupActionPlan}
         />
@@ -358,5 +428,29 @@ function PostureCard({
         </ul>
       </div>
     </article>
+  );
+}
+
+function MiniRunwayCount({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: "green" | "yellow" | "red";
+}) {
+  const toneClass =
+    tone === "green"
+      ? "text-green-700"
+      : tone === "yellow"
+        ? "text-yellow-700"
+        : "text-red-700";
+
+  return (
+    <div className="rounded border border-emerald-200 bg-white p-3">
+      <p className={`text-2xl font-black ${toneClass}`}>{value}</p>
+      <p className="text-xs font-black uppercase text-neutral-500">{label}</p>
+    </div>
   );
 }

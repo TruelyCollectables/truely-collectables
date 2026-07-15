@@ -862,6 +862,9 @@ const checks = [
       result.text.includes("Launch Gate Drill") &&
       result.text.includes("No-money runtime smoke") &&
       result.text.includes("Download Drill Report") &&
+      result.text.includes("Live money runway") &&
+      result.text.includes("Payment approval blockers and launch locks") &&
+      result.text.includes("Next live-money actions") &&
       result.text.includes("Standard Envelope evidence validator is ready") &&
       result.text.includes("Provider Purchase-Attempt Audit Suite") &&
       result.text.includes("Shipping Provider Unlock Action Plan") &&
@@ -880,6 +883,10 @@ const checks = [
       result.contentType.includes("application/json") &&
       result.text.includes('"standardEnvelopeEvidenceContractReady":true') &&
       result.text.includes('"purchaseAttemptAuditRunStatus":"passed"') &&
+      result.text.includes('"approvalBlockingCount"') &&
+      result.text.includes('"launchLockCount"') &&
+      result.text.includes('"operatorSummary"') &&
+      result.text.includes('"nextActions"') &&
       result.text.includes('"purchaseAttemptAuditExpectedScenarioCount":5') &&
       result.text.includes('"purchaseAttemptAuditMissingScenarioKeys":[]') &&
       result.text.includes('"purchaseAttemptAuditUnexpectedScenarioKeys":[]') &&
@@ -897,6 +904,10 @@ const checks = [
       result.contentType.includes("text/markdown") &&
       hasAttachmentFilename(result, "tcos-launch-gate-drill-report.md") &&
       result.text.includes("# TCOS Launch Gate Drill Report") &&
+      result.text.includes("## Live Money Runway") &&
+      result.text.includes("Approval blockers:") &&
+      result.text.includes("Launch locks:") &&
+      result.text.includes("### Next Live-Money Actions") &&
       result.text.includes("Standard Envelope evidence validator: ready") &&
       result.text.includes("Provider purchase-attempt audit suite: passed; 5/5 scenarios; key coverage passed") &&
       result.text.includes("Missing purchase audit keys: none") &&
