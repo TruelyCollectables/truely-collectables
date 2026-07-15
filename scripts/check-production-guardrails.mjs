@@ -3134,11 +3134,20 @@ assertFileIncludes("lettertrack skipped reason route source", "src/app/api/admin
 ]);
 assertFileIncludes("shipping blocked purchase evidence audit source", "src/app/api/admin/orders/[id]/shipping-labels/route.ts", [
   "buildShippingProviderSetupPacket",
+  "getLiveShippingRuntimeGate",
+  "shippingPurchaseBlockers",
+  "purchaseShippingLabel",
   "standardEnvelopeEvidenceContractReady",
   "standard_envelope_evidence_contract_ready",
   "standard_envelope_evidence_provider",
   "latest_purchase_attempt",
   "provider_purchase_blocked",
+]);
+assertFileOrder("shipping provider purchase gate order", "src/app/api/admin/orders/[id]/shipping-labels/route.ts", [
+  "const liveShippingGate = await getLiveShippingRuntimeGate",
+  "if (!liveShippingGate.allowed)",
+  "if (blockers.length > 0)",
+  "const purchaseResult = await purchaseShippingLabel",
 ]);
 assertFileIncludes("shipping exceptions evidence audit export source", "src/app/api/admin/shipping/exceptions/route.ts", [
   "shippingPurchaseAttemptAuditSentence",
