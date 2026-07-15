@@ -16,7 +16,10 @@ import {
   type ProviderSetupDecision,
 } from "../../../lib/shipping-provider-setup";
 import { getDryRunShippingCleanupSummary } from "../../../lib/shipping-dry-run-cleanup";
-import { evaluateLivePaymentLaunch } from "../../../lib/live-payment-launch";
+import {
+  evaluateLivePaymentLaunch,
+  type LivePaymentLaunchReport,
+} from "../../../lib/live-payment-launch";
 import { evaluateLiveShippingLaunch } from "../../../lib/live-shipping-launch";
 import { SHIPPING_SIMULATION_SUITE_VERSION } from "../../../lib/shipping-simulations";
 import { DEPLOY_SAFETY } from "../../../lib/deploy-safety";
@@ -865,17 +868,25 @@ async function checkDryRunShippingReadiness(): Promise<ReadinessItem> {
   };
 }
 
-async function checkLivePaymentLaunchReadiness(): Promise<ReadinessItem> {
+type LivePaymentLaunchReadiness = {
+  item: ReadinessItem;
+  report: LivePaymentLaunchReport | null;
+};
+
+async function checkLivePaymentLaunchReadiness(): Promise<LivePaymentLaunchReadiness> {
   const supabase = getSupabaseClient();
 
   if (!supabase) {
     return {
-      label: "Live Payment Launch Gate",
-      status: "blocked",
-      detail:
-        "Supabase is not configured, so launch readiness cannot verify the auditable live-payment gate.",
-      action:
-        "Set Supabase environment variables before reviewing or enabling live buyer payments.",
+      item: {
+        label: "Live Payment Launch Gate",
+        status: "blocked",
+        detail:
+          "Supabase is not configured, so launch readiness cannot verify the auditable live-payment gate.",
+        action:
+          "Set Supabase environment variables before reviewing or enabling live buyer payments.",
+      },
+      report: null,
     };
   }
 
@@ -883,34 +894,24 @@ async function checkLivePaymentLaunchReadiness(): Promise<ReadinessItem> {
     supabase,
     storeId: getActiveStoreId(),
   });
-  const blockedChecks = report.checks.filter(
-    (item) => item.status === "blocked",
-  );
-  const warningChecks = report.checks.filter(
-    (item) => item.status === "warning",
-  );
-  const databaseApproval = report.checks.find(
-    (item) => item.key === "database_approval",
-  );
-  const blockedLabels =
-    blockedChecks.map((item) => item.label).join(", ") || "none";
   const status: ReadinessStatus = report.livePaymentsEnabled
     ? "ready"
-    : report.paymentMode === "live"
+    : report.summary.approvalBlockingCount > 0 || report.paymentMode === "live"
       ? "blocked"
       : "warning";
   const detail = report.livePaymentsEnabled
     ? "Live payments are enabled by both the environment switch and current database approval."
-    : report.paymentMode === "live"
-      ? `Stripe live mode is staged, but the runtime gate is not fully enabled. Blocked checks: ${blockedLabels}.`
-      : `Live payments are safely staged outside live mode. Database approval is ${databaseApproval?.status || "unknown"}; ${blockedChecks.length} blocked and ${warningChecks.length} warning check(s) remain before live Checkout.`;
+    : report.summary.operatorSummary;
 
   return {
-    label: "Live Payment Launch Gate",
-    status,
-    detail,
-    action:
-      "Open /admin/live-payment-launch to review approval status, Stripe live checks, dry-run cleanup, reconciliation, and the runtime kill switch before any live Checkout rollout.",
+    item: {
+      label: "Live Payment Launch Gate",
+      status,
+      detail,
+      action:
+        "Open /admin/live-payment-launch to review approval status, Stripe live checks, dry-run cleanup, reconciliation, and the runtime kill switch before any live Checkout rollout.",
+    },
+    report,
   };
 }
 
@@ -983,7 +984,7 @@ export default async function LaunchReadinessPage() {
     storeSettings,
     databaseItems,
     dryRunShippingItem,
-    livePaymentLaunchItem,
+    livePaymentLaunch,
     liveShippingLaunchItem,
   ] = await Promise.all([
     loadStoreSettings(),
@@ -992,6 +993,8 @@ export default async function LaunchReadinessPage() {
     checkLivePaymentLaunchReadiness(),
     checkLiveShippingLaunchReadiness(),
   ]);
+  const livePaymentLaunchItem = livePaymentLaunch.item;
+  const livePaymentReport = livePaymentLaunch.report;
   const shippingProviderSetup = buildShippingProviderSetupPacket();
   const baseItems = buildReadinessItems(storeSettings);
   const items = [
@@ -1169,6 +1172,127 @@ export default async function LaunchReadinessPage() {
           </p>
         </div>
       </section>
+
+      {livePaymentReport ? (
+        <section className="mb-8 rounded border border-emerald-200 bg-emerald-50 p-6 text-emerald-950">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <p className="text-xs font-black uppercase tracking-widest">
+                Live money runway
+              </p>
+              <h2 className="mt-2 text-2xl font-bold">
+                What remains before full live money
+              </h2>
+              <p className="mt-2 max-w-3xl text-sm font-semibold leading-6">
+                {livePaymentReport.summary.operatorSummary}
+              </p>
+            </div>
+            <Link
+              href="/admin/live-payment-launch"
+              className="rounded border border-emerald-300 bg-white px-4 py-2 text-sm font-bold"
+            >
+              Open Live Payment Gate
+            </Link>
+          </div>
+
+          <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-4">
+            <MiniCount
+              label="Approval blockers"
+              value={livePaymentReport.summary.approvalBlockingCount}
+              tone={
+                livePaymentReport.summary.approvalBlockingCount > 0
+                  ? "red"
+                  : "green"
+              }
+            />
+            <MiniCount
+              label="Launch locks"
+              value={livePaymentReport.summary.launchLockCount}
+              tone={
+                livePaymentReport.livePaymentsEnabled
+                  ? "green"
+                  : livePaymentReport.summary.launchLockCount > 0
+                    ? "yellow"
+                    : "green"
+              }
+            />
+            <MiniCount
+              label="Warnings"
+              value={livePaymentReport.summary.warningCount}
+              tone={
+                livePaymentReport.summary.warningCount > 0
+                  ? "yellow"
+                  : "green"
+              }
+            />
+            <div className="rounded border bg-white px-3 py-2">
+              <p
+                className={`text-xl font-black ${
+                  livePaymentReport.livePaymentsEnabled
+                    ? "text-green-700"
+                    : "text-red-700"
+                }`}
+              >
+                {livePaymentReport.livePaymentsEnabled ? "OPEN" : "LOCKED"}
+              </p>
+              <p className="text-xs font-bold uppercase text-neutral-500">
+                Live Checkout
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-2">
+            <div className="rounded border border-emerald-200 bg-white p-4">
+              <h3 className="font-bold">
+                Payment approval blockers before database approval
+              </h3>
+              {livePaymentReport.summary.approvalBlockers.length ? (
+                <ul className="mt-3 list-disc space-y-2 pl-5 text-sm font-semibold">
+                  {livePaymentReport.summary.approvalBlockers
+                    .slice(0, 5)
+                    .map((item) => (
+                      <li key={item.key}>
+                        {item.label}: {item.action}
+                      </li>
+                    ))}
+                </ul>
+              ) : (
+                <p className="mt-3 text-sm font-semibold">
+                  No approval blockers remain; keep the final launch locks in
+                  place until the go-live window.
+                </p>
+              )}
+            </div>
+
+            <div className="rounded border border-emerald-200 bg-white p-4">
+              <h3 className="font-bold">Intentional live-money launch locks</h3>
+              {livePaymentReport.summary.launchLocks.length ? (
+                <ul className="mt-3 list-disc space-y-2 pl-5 text-sm font-semibold">
+                  {livePaymentReport.summary.launchLocks.map((item) => (
+                    <li key={item.key}>
+                      {item.label}: {item.action}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-3 text-sm font-semibold">
+                  No launch locks remain. Continue post-launch monitoring and
+                  emergency revocation readiness.
+                </p>
+              )}
+            </div>
+          </div>
+        </section>
+      ) : (
+        <section className="mb-8 rounded border border-red-200 bg-red-50 p-6 text-red-900">
+          <h2 className="text-2xl font-bold">Live money runway unavailable</h2>
+          <p className="mt-2 text-sm font-semibold">
+            Supabase is not configured, so Launch Readiness cannot evaluate the
+            live-payment approval blockers or launch locks. Live Checkout remains
+            locked.
+          </p>
+        </section>
+      )}
 
       <section className="mb-8 rounded border border-blue-200 bg-blue-50 p-6 text-blue-950">
         <div className="flex flex-wrap items-start justify-between gap-4">

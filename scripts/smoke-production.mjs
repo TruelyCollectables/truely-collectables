@@ -675,6 +675,11 @@ const checks = [
     path: "/admin/launch-readiness",
     expect: (result) =>
       result.text.includes("Launch Readiness") &&
+      result.text.includes("Live money runway") &&
+      result.text.includes("What remains before full live money") &&
+      result.text.includes("Payment approval blockers before database approval") &&
+      result.text.includes("Intentional live-money launch locks") &&
+      result.text.includes("Open Live Payment Gate") &&
       result.text.includes("Production Deploy Queue") &&
       result.text.includes("Shipping Provider Unlock Action Plan") &&
       result.text.includes("Choose provider accounts") &&
