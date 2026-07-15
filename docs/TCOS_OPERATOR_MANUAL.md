@@ -2554,6 +2554,27 @@ Card show submission model:
 - collectors should be able to report outdated, wrong, canceled, duplicate, or suspicious event listings
 - organizers should eventually be able to claim and maintain their own show profile after identity verification
 
+Card show map MVP scope:
+
+- build the MVP version first after the current go-live/live-money goal is finished
+- MVP should focus on a useful national card-show finder without overbuilding the full events platform
+- MVP should include a `/card-shows` discovery page with ZIP/city/state search, radius filtering, map pins, and a list view
+- MVP should support manually/admin-entered events and free promoter-submitted show listings
+- MVP submissions should go to an admin review queue before public display
+- MVP event cards should show event name, date, venue, address, hours, admission, category, source/detail link, and verification status
+- MVP should include a simple `Submit A Show` form, permission confirmation for private-group/private-message-board listings, and a `Report Wrong Info` action
+- MVP should link out to official show websites, public source pages, or submitted detail links instead of trying to replace the organizer's event page
+
+Card show map post-MVP roadmap:
+
+- after the MVP works, continue improving the roadmap with organizer claim flows, recurring events, richer filters, duplicate detection, and better geocoding
+- add verified organizer badges and trusted organizer accounts after the admin review workflow proves stable
+- add source refresh checks so stale or canceled events can be flagged before collectors rely on them
+- add saved searches and alerts for collectors who want notified when shows appear near their ZIP code, favorite city, or collecting category
+- add city/state SEO pages only after the event data quality and permission rules are reliable
+- evaluate promoted local events only after sponsored-result labeling, billing, moderation, and geofencing rules are designed
+- preserve the larger shop finder, trade night, grading event, autograph signing, and community meetup roadmap for later phases
+
 Collector search should support:
 
 - ZIP code
