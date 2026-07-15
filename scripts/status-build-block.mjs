@@ -335,7 +335,7 @@ function printText(checkpoint) {
     }`,
   );
   console.log(
-    `- approximate remaining: ${checkpoint.productionDeploymentQuota.approximateRemaining}`,
+    `- quota approximate remaining: ${checkpoint.productionDeploymentQuota.approximateRemaining}`,
   );
   console.log(
     `- Vercel upload started: ${

@@ -218,6 +218,13 @@ if (payload) {
       payload.productionDeploymentQuota?.vercelUploadStarted,
     ),
   );
+  checks.push(
+    check(
+      Boolean(payload.productionDeploymentQuota?.approximateRemaining),
+      "checkpoint quota approximate remaining is recorded",
+      payload.productionDeploymentQuota?.approximateRemaining || null,
+    ),
+  );
   checks.push(check(payload.emergencyBackup?.verificationOk === true, "checkpoint backup verification is ok"));
   checks.push(
     check(
@@ -340,6 +347,8 @@ const verification = {
         goLiveEvidence: payload.goLiveEvidence || null,
         quotaState: payload.productionDeploymentQuota?.state || null,
         quotaRetryAtLocal: payload.productionDeploymentQuota?.retryAtLocal || null,
+        quotaApproximateRemaining:
+          payload.productionDeploymentQuota?.approximateRemaining || null,
         backupScheduleHealth: payload.emergencyBackup?.scheduleHealth || null,
         backupSchedulerProof: payload.emergencyBackup?.schedulerProof || null,
         backupRunway: payload.backupRunway || null,
@@ -399,6 +408,11 @@ if (jsonOutput) {
   console.log(`- quota state: ${verification.checkpoint?.quotaState || "not recorded"}`);
   console.log(
     `- quota retry at local: ${verification.checkpoint?.quotaRetryAtLocal || "not recorded"}`,
+  );
+  console.log(
+    `- quota approximate remaining: ${
+      verification.checkpoint?.quotaApproximateRemaining || "not recorded"
+    }`,
   );
   console.log(
     `- backup runway accepted posture: ${

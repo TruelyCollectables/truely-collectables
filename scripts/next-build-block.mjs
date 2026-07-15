@@ -100,6 +100,11 @@ function printText(action) {
     }`,
   );
   console.log(
+    `- quota approximate remaining: ${
+      action.productionDeploymentQuota?.approximateRemaining || "unknown"
+    }`,
+  );
+  console.log(
     `- backup scheduler proof: ${
       action.emergencyBackup?.schedulerProof || "unknown"
     }`,

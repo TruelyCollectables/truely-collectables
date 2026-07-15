@@ -223,6 +223,13 @@ if (payload) {
   );
   checks.push(
     check(
+      Boolean(payload.productionDeploymentQuota?.approximateRemaining),
+      "next-action quota approximate remaining is recorded",
+      payload.productionDeploymentQuota?.approximateRemaining || null,
+    ),
+  );
+  checks.push(
+    check(
       payload.backupRunway?.schema === "tcos.backupRunwayStatus.v1",
       "next-action backup runway schema",
       payload.backupRunway?.schema || null,
@@ -322,6 +329,8 @@ const verification = {
         goLiveEvidence: payload.goLiveEvidence || null,
         quotaState: payload.productionDeploymentQuota?.state || null,
         quotaRetryAtLocal: payload.productionDeploymentQuota?.retryAtLocal || null,
+        quotaApproximateRemaining:
+          payload.productionDeploymentQuota?.approximateRemaining || null,
         backupRunway: payload.backupRunway || null,
         liveMoneyState: payload.liveMoney?.state || null,
       }
@@ -371,6 +380,11 @@ if (jsonOutput) {
   console.log(`- quota state: ${verification.nextAction?.quotaState || "not recorded"}`);
   console.log(
     `- quota retry at local: ${verification.nextAction?.quotaRetryAtLocal || "not recorded"}`,
+  );
+  console.log(
+    `- quota approximate remaining: ${
+      verification.nextAction?.quotaApproximateRemaining || "not recorded"
+    }`,
   );
   console.log(
     `- backup runway accepted posture: ${
