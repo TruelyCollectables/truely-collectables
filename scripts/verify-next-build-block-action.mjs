@@ -285,6 +285,15 @@ if (payload) {
   );
   checks.push(
     check(
+      payload.liveMoney?.missingBootstrapEnvironment?.length > 0,
+      "next-action live-money missing bootstrap environment is recorded",
+      Array.isArray(payload.liveMoney?.missingBootstrapEnvironment)
+        ? payload.liveMoney.missingBootstrapEnvironment.join(", ")
+        : null,
+    ),
+  );
+  checks.push(
+    check(
       payload.safeBuildBoundary?.includes("does not approve live money") &&
         payload.safeBuildBoundary?.includes("buy postage") &&
         payload.safeBuildBoundary?.includes("create Checkout") &&
@@ -345,6 +354,8 @@ const verification = {
         backupRunwayVerifiedArchive: payload.backupRunway?.verifiedArchive || null,
         backupRunwayComputedSha256: payload.backupRunway?.computedSha256 || null,
         liveMoneyState: payload.liveMoney?.state || null,
+        liveMoneyMissingBootstrapEnvironment:
+          payload.liveMoney?.missingBootstrapEnvironment || [],
       }
     : null,
   checks,
@@ -435,6 +446,13 @@ if (jsonOutput) {
     }`,
   );
   console.log(`- live-money state: ${verification.nextAction?.liveMoneyState || "not recorded"}`);
+  console.log(
+    `- live-money missing bootstrap environment: ${
+      verification.nextAction?.liveMoneyMissingBootstrapEnvironment?.length
+        ? verification.nextAction.liveMoneyMissingBootstrapEnvironment.join(", ")
+        : "none detected"
+    }`,
+  );
   console.log(`- ok: ${verification.ok ? "yes" : "no"}`);
   console.log(`- failed checks: ${verification.failedCheckCount}`);
   for (const item of failedChecks) {
