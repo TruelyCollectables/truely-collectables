@@ -61,6 +61,7 @@ The deploy helper:
 - verifies command-pinned Vercel CLI `56.2.0` through isolated `npm exec --package=vercel@56.2.0` before any possible upload; the CLI cache stays under the OS temporary directory, outside application `node_modules` and the lockfile, and every Vercel call receives `--cwd` with the repository root;
 - normalizes `VERCEL_CLEAN_DOMAIN` and `VERCEL_UNWANTED_ALIAS` from hostnames or URLs;
 - rejects credentials, ports, paths, queries, fragments, IPs, single-label names, and malformed DNS labels without echoing rejected target values;
+- bounds `SMOKE_REQUEST_TIMEOUT_MS` to integer milliseconds from `1000` through `120000` and fails malformed, infinite, fractional, zero, negative, or too-large values before admin auth, Git fetch, or network requests;
 - stops early when the local Vercel quota cooldown marker is still active;
 - checks that cooldown before command-pinned npm exec or Git fetch on normal deploys, while preflight-only remains quota-independent;
 - deploys production through Vercel only when the checks pass;

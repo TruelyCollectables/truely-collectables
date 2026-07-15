@@ -11,12 +11,12 @@ const unwantedAliasUrl = normalizeSmokeOrigin(
     "https://truely-collectables-tt3b.vercel.app",
   "SMOKE_UNWANTED_ALIAS_URL",
 );
-const requestTimeoutMs = Math.max(
-  1000,
-  Number(process.env.SMOKE_REQUEST_TIMEOUT_MS || 15000) || 15000,
+const requestTimeoutMs = readRequestTimeoutMs(
+  process.env.SMOKE_REQUEST_TIMEOUT_MS,
 );
 const redactionSelfTest = process.argv.includes("--self-test-redaction");
 const targetOriginSelfTest = process.argv.includes("--self-test-target-origins");
+const timeoutConfigSelfTest = process.argv.includes("--self-test-timeout-config");
 const sellerMarketplaceReceiptHandoffSmoke = {
   title: "Seller Marketplace Receipt Handoff",
   route: "/seller/marketplaces",
@@ -134,6 +134,35 @@ function normalizeSmokeOrigin(value, label) {
   return `${url.protocol}//${hostname}`;
 }
 
+function readRequestTimeoutMs(value) {
+  const defaultTimeoutMs = 15_000;
+  const minTimeoutMs = 1_000;
+  const maxTimeoutMs = 120_000;
+  const raw = value === undefined ? "" : String(value).trim();
+
+  if (!raw) return defaultTimeoutMs;
+
+  if (!/^\d+$/.test(raw)) {
+    throw new Error(
+      "SMOKE_REQUEST_TIMEOUT_MS must be an integer between 1000 and 120000.",
+    );
+  }
+
+  const parsed = Number(raw);
+
+  if (
+    !Number.isSafeInteger(parsed) ||
+    parsed < minTimeoutMs ||
+    parsed > maxTimeoutMs
+  ) {
+    throw new Error(
+      "SMOKE_REQUEST_TIMEOUT_MS must be an integer between 1000 and 120000.",
+    );
+  }
+
+  return parsed;
+}
+
 function runTargetOriginSelfTest() {
   const validCases = [
     ["TRUELY-COLLECTABLES.VERCEL.APP", "https://truely-collectables.vercel.app"],
@@ -191,6 +220,57 @@ function runTargetOriginSelfTest() {
   console.log("Production smoke target-origin self-test passed.");
 }
 
+function runTimeoutConfigSelfTest() {
+  const validCases = [
+    [undefined, 15_000],
+    ["", 15_000],
+    ["15000", 15_000],
+    [" 30000 ", 30_000],
+    ["1000", 1_000],
+    ["120000", 120_000],
+  ];
+
+  for (const [input, expected] of validCases) {
+    const actual = readRequestTimeoutMs(input);
+    if (actual !== expected) {
+      throw new Error(
+        `Smoke timeout self-test parsed ${String(input)} as ${actual}; expected ${expected}.`,
+      );
+    }
+  }
+
+  const invalidCases = [
+    "0",
+    "999",
+    "120001",
+    "-1",
+    "15000.5",
+    "Infinity",
+    "NaN",
+    "15 seconds",
+    "9007199254740992",
+  ];
+
+  for (const input of invalidCases) {
+    try {
+      readRequestTimeoutMs(input);
+      throw new Error(
+        `Smoke timeout self-test accepted invalid input: ${input}`,
+      );
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (
+        message.includes("accepted invalid input") ||
+        !message.includes("SMOKE_REQUEST_TIMEOUT_MS must be an integer between 1000 and 120000")
+      ) {
+        throw error;
+      }
+    }
+  }
+
+  console.log("Production smoke timeout config self-test passed.");
+}
+
 function envValueFromLocalFile(key) {
   try {
     const raw = readFileSync(".env.local", "utf8");
@@ -216,6 +296,11 @@ const adminPassword =
 
 if (targetOriginSelfTest) {
   runTargetOriginSelfTest();
+  process.exit(0);
+}
+
+if (timeoutConfigSelfTest) {
+  runTimeoutConfigSelfTest();
   process.exit(0);
 }
 

@@ -207,6 +207,8 @@ assertFileIncludes("command-pinned Vercel CLI README", "README.md", [
   "Every Vercel call receives `--cwd` with the repository root",
   "Production deploy and smoke target overrides accept only valid DNS hostnames or root HTTP(S) URLs",
   "Smoke therefore cannot silently discard an unsafe suffix",
+  "Smoke request timeout overrides must be integer milliseconds from `1000` through `120000`",
+  "malformed, infinite, fractional, zero, negative, or too-large values fail before admin auth, Git fetch, or network requests",
   "Normal deploys also enforce the local quota cooldown before npm exec or Git fetch",
   "Unwanted-alias cleanup must succeed",
 ]);
@@ -220,6 +222,8 @@ assertFileIncludes(
     "every Vercel call also receives `--cwd` with the TCOS repository root",
     "accepts `VERCEL_CLEAN_DOMAIN` and `VERCEL_UNWANTED_ALIAS` only as valid bare DNS hostnames or root HTTP(S) URLs",
     "smoke helper applies the same strict shape to `SMOKE_BASE_URL` plus `SMOKE_UNWANTED_ALIAS_URL` before any request",
+    "Override with `SMOKE_REQUEST_TIMEOUT_MS` if production is slow but still healthy; it must be integer milliseconds from `1000` through `120000`",
+    "Malformed, infinite, fractional, zero, negative, or too-large timeout values fail before admin authentication, Git fetch, or network requests",
     "local quota cooldown check runs before command-pinned npm exec or Git fetch",
     "Unwanted-alias cleanup must succeed",
   ],
@@ -231,6 +235,8 @@ assertFileIncludes("command-pinned Vercel CLI handoff", "CHAT_HANDOFF.md", [
   "every Vercel call receives `--cwd` with the repository root",
   "rejects credentials, ports, paths, queries, fragments, IPs, single-label names, and malformed DNS labels",
   "rejects smoke targets containing credentials, ports, paths, queries, fragments, IPs, single-label names, or malformed DNS labels",
+  "bounds `SMOKE_REQUEST_TIMEOUT_MS` to integer milliseconds from `1000` through `120000`",
+  "fails malformed, infinite, fractional, zero, negative, or too-large values before admin auth, Git fetch, or network requests",
   "checks that cooldown before command-pinned npm exec or Git fetch on normal deploys",
   "unwanted-alias removal succeeds",
   "preserves the marker and clean-domain target",
@@ -593,6 +599,24 @@ runExpectedSuccess(
     SMOKE_ADMIN_PASSWORD: "",
     SMOKE_BASE_URL: "https://truely-collectables.vercel.app",
   },
+);
+runExpectedSuccess(
+  "smoke helper timeout config self-test",
+  ["scripts/smoke-production.mjs", "--self-test-timeout-config"],
+  {
+    ADMIN_PASSWORD: "",
+    SMOKE_ADMIN_PASSWORD: "",
+  },
+);
+runExpectedFailure(
+  "smoke helper rejects malformed timeout",
+  ["scripts/smoke-production.mjs"],
+  {
+    ADMIN_PASSWORD: "",
+    SMOKE_ADMIN_PASSWORD: "",
+    SMOKE_REQUEST_TIMEOUT_MS: "Infinity",
+  },
+  "SMOKE_REQUEST_TIMEOUT_MS must be an integer between 1000 and 120000",
 );
 runExpectedFailure(
   "smoke helper rejects target URL paths",
@@ -2915,6 +2939,11 @@ assertFileIncludes(
     '"https://launch.example.com:443/"',
     '"http://launch.example.com:80/"',
     'message.includes("smoke-secret")',
+    "--self-test-timeout-config",
+    "Production smoke timeout config self-test passed.",
+    "SMOKE_REQUEST_TIMEOUT_MS must be an integer between 1000 and 120000.",
+    "Number.isSafeInteger",
+    "maxTimeoutMs = 120_000",
   ],
 );
 runExpectedSuccess(
