@@ -9,6 +9,7 @@ import {
   type LetterTrackSellerProtectionPaymentGate,
   type LetterTrackSellerProtectionEvidenceReview,
 } from "../../../../../lib/lettertrack-delivery-evidence";
+import { UNDER_20_SELLER_PROTECTION_PROVIDER } from "../../../../../lib/shipping";
 import { isDryRunShippingLabel } from "../../../../../lib/shipping-dry-run";
 import { getActiveStoreId } from "../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
@@ -107,6 +108,13 @@ function stringList(value: unknown) {
         .map((entry) => String(entry || "").trim())
         .filter((entry) => entry.length > 0)
     : [];
+}
+
+function isUnder20SellerProtectionClaim(under20Claim: Record<string, unknown>) {
+  return (
+    under20Claim.program === UNDER_20_SELLER_PROTECTION_PROVIDER &&
+    under20Claim.appliesToMethod === "STANDARD_ENVELOPE"
+  );
 }
 
 async function latestSellerProtectionPaymentEvidence(params: {
@@ -379,6 +387,23 @@ export async function PATCH(
     const under20Claim = recordValue(
       recordValue(claim.metadata).under_20_seller_protection_claim,
     );
+    const internalSellerProtectionClaim =
+      isUnder20SellerProtectionClaim(under20Claim);
+
+    if (
+      nextStatus === "paid" &&
+      !internalSellerProtectionClaim &&
+      !(providerClaimId || claim.provider_claim_id)
+    ) {
+      return Response.json(
+        {
+          error:
+            "Provider claim ID is required before marking an external Coverage claim paid.",
+        },
+        { status: 409 },
+      );
+    }
+
     const sellerProtectionPaymentEvidence =
       shouldRecordLetterTrackSellerProtectionEvidenceReview({
         status: nextStatus,

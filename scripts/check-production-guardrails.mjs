@@ -3484,6 +3484,43 @@ assertFileIncludes(
   ],
 );
 assertFileIncludes(
+  "external coverage claim paid provider reference gate source",
+  "src/app/api/admin/shipping-claims/[id]/route.ts",
+  [
+    "UNDER_20_SELLER_PROTECTION_PROVIDER",
+    "function isUnder20SellerProtectionClaim",
+    'under20Claim.appliesToMethod === "STANDARD_ENVELOPE"',
+    "const internalSellerProtectionClaim =",
+    'nextStatus === "paid"',
+    "!internalSellerProtectionClaim",
+    "Provider claim ID is required before marking an external Coverage claim paid.",
+    "evaluateLetterTrackSellerProtectionPaymentMetadataGate",
+    "evaluateUnder20SellerProtectionBuyerRefundMetadataGate",
+    "createSellerProtectionReimbursement",
+    ".from(\"order_shipping_coverage_claims\")",
+    ".update(claimUpdate)",
+    "coverage_claim_status: nextStatus",
+  ],
+);
+assertFileOrder(
+  "external coverage claim paid provider reference gate order",
+  "src/app/api/admin/shipping-claims/[id]/route.ts",
+  [
+    "const under20Claim = recordValue(",
+    "const internalSellerProtectionClaim =",
+    'nextStatus === "paid"',
+    "!internalSellerProtectionClaim",
+    "Provider claim ID is required before marking an external Coverage claim paid.",
+    "const sellerProtectionPaymentEvidence =",
+    "if (\n      sellerProtectionPaymentEvidence &&\n      nextStatus === \"paid\"",
+    "const sellerProtectionBuyerRefundEvidence:",
+    "const sellerProtectionReimbursement =",
+    ".from(\"order_shipping_coverage_claims\")",
+    ".update(claimUpdate)",
+    "coverage_claim_status: nextStatus",
+  ],
+);
+assertFileIncludes(
   "seller protection refund proof priority board contract",
   "src/app/admin/shipping/page.tsx",
   [
