@@ -66,6 +66,14 @@ function liveMoneyStatus() {
   }
 }
 
+function statusItems(items = []) {
+  if (!Array.isArray(items)) return [];
+  return items.map((item) => ({
+    label: item.label,
+    status: item.status,
+  }));
+}
+
 function printStatusItems(title, items = []) {
   if (!items.length) return;
   console.log(`${title}:`);
@@ -74,72 +82,130 @@ function printStatusItems(title, items = []) {
   }
 }
 
-function main() {
+function buildStatus() {
   const gitStatusShort = runGit(["status", "--short"]);
   const gitHead = runGit(["rev-parse", "--short", "HEAD"]);
   const gitOriginMain = runGit(["rev-parse", "--short", "origin/main"]);
   const quota = quotaStatus();
   const liveMoney = liveMoneyStatus();
   const payload = liveMoney.payload;
+  const readOnlyGuarantee =
+    "This command only reads Git state, local quota status, and live-money JSON evidence; it starts no deploy, upload, Checkout, postage, payout, launch approval, or revocation.";
+  const safeNextCommands = [
+    "npm run status:production",
+    "npm run status:live-money",
+    "npm run live-money:env-packet",
+    "npm run live-money:vercel-commands",
+    "npm run archive:live-money",
+  ];
+
+  return {
+    schema: "tcos.goLiveRunwayStatus.v1",
+    generatedAt: new Date().toISOString(),
+    ok: quota.ok && liveMoney.ok,
+    git: {
+      head: gitHead || "unknown",
+      originMain: gitOriginMain || "unknown",
+      workingTreeClean: gitStatusShort === "",
+      workingTreeChanges: gitStatusShort ? gitStatusShort.split("\n") : [],
+    },
+    productionDeploymentQuota: quota,
+    liveMoney: {
+      ok: liveMoney.ok,
+      state: payload.state || "unknown",
+      readyForRuntimeSwitch: Boolean(payload.readyForRuntimeSwitch),
+      detail: payload.detail || "unknown",
+      next: payload.next || "unknown",
+      missingBootstrapEnvironment:
+        Array.isArray(payload.missingEnvironmentVariables) &&
+        payload.missingEnvironmentVariables.length
+          ? payload.missingEnvironmentVariables
+          : [],
+      localEnvironmentStatus: {
+        supabaseBootstrap: statusItems(
+          payload.localEnvironmentStatus?.supabaseBootstrap,
+        ),
+        finalLivePaymentRuntime: statusItems(
+          payload.localEnvironmentStatus?.finalLivePaymentRuntime,
+        ),
+      },
+      evidence: payload.liveMoneyEvidence || null,
+      raw: payload,
+    },
+    safeNextCommands,
+    readOnlyGuarantee,
+  };
+}
+
+function printText(status) {
+  const payload = status.liveMoney;
 
   console.log("TCOS go-live runway status:");
-  console.log(`- git HEAD: ${gitHead || "unknown"}`);
-  console.log(`- git origin/main: ${gitOriginMain || "unknown"}`);
-  console.log(`- git working tree clean: ${gitStatusShort === "" ? "yes" : "no"}`);
-  if (gitStatusShort) {
+  console.log(`- git HEAD: ${status.git.head}`);
+  console.log(`- git origin/main: ${status.git.originMain}`);
+  console.log(`- git working tree clean: ${status.git.workingTreeClean ? "yes" : "no"}`);
+  if (status.git.workingTreeChanges.length) {
     console.log("Git working tree changes:");
-    for (const line of gitStatusShort.split("\n")) {
+    for (const line of status.git.workingTreeChanges) {
       console.log(`- ${line}`);
     }
   }
 
   console.log("");
   console.log("Production deployment quota:");
-  console.log(`- state: ${quota.state}`);
-  console.log(`- retry allowed by local cooldown: ${quota.canRetry}`);
-  console.log(`- reason: ${quota.reason}`);
-  console.log(`- retry at or after: ${quota.retryAt}`);
-  console.log(`- approximate remaining: ${quota.approximateRemaining}`);
-  console.log(`- Vercel upload started: ${quota.uploadStarted}`);
-  console.log(`- next: ${quota.next}`);
+  console.log(`- state: ${status.productionDeploymentQuota.state}`);
+  console.log(
+    `- retry allowed by local cooldown: ${status.productionDeploymentQuota.canRetry}`,
+  );
+  console.log(`- reason: ${status.productionDeploymentQuota.reason}`);
+  console.log(`- retry at or after: ${status.productionDeploymentQuota.retryAt}`);
+  console.log(`- approximate remaining: ${status.productionDeploymentQuota.approximateRemaining}`);
+  console.log(`- Vercel upload started: ${status.productionDeploymentQuota.uploadStarted}`);
+  console.log(`- next: ${status.productionDeploymentQuota.next}`);
 
   console.log("");
   console.log("Live money:");
-  console.log(`- state: ${payload.state || "unknown"}`);
+  console.log(`- state: ${payload.state}`);
   console.log(`- ready for runtime switch: ${payload.readyForRuntimeSwitch ? "yes" : "no"}`);
-  console.log(`- detail: ${payload.detail || "unknown"}`);
-  console.log(`- next: ${payload.next || "unknown"}`);
+  console.log(`- detail: ${payload.detail}`);
+  console.log(`- next: ${payload.next}`);
   console.log(
     `- missing bootstrap environment: ${
-      Array.isArray(payload.missingEnvironmentVariables) &&
-      payload.missingEnvironmentVariables.length
-        ? payload.missingEnvironmentVariables.join(", ")
+      payload.missingBootstrapEnvironment.length
+        ? payload.missingBootstrapEnvironment.join(", ")
         : "none detected"
     }`,
   );
 
   printStatusItems(
     "Local Supabase bootstrap status",
-    payload.localEnvironmentStatus?.supabaseBootstrap,
+    payload.localEnvironmentStatus.supabaseBootstrap,
   );
   printStatusItems(
     "Local final live-payment runtime status",
-    payload.localEnvironmentStatus?.finalLivePaymentRuntime,
+    payload.localEnvironmentStatus.finalLivePaymentRuntime,
   );
 
   console.log("");
   console.log("Safe next commands:");
-  console.log("- npm run status:production");
-  console.log("- npm run status:live-money");
-  console.log("- npm run live-money:env-packet");
-  console.log("- npm run live-money:vercel-commands");
-  console.log("- npm run archive:live-money");
+  for (const command of status.safeNextCommands) {
+    console.log(`- ${command}`);
+  }
   console.log("");
-  console.log(
-    "Read-only guarantee: This command only reads Git state, local quota status, and live-money JSON evidence; it starts no deploy, upload, Checkout, postage, payout, launch approval, or revocation.",
-  );
+  console.log(`Read-only guarantee: ${status.readOnlyGuarantee}`);
+}
 
-  if (!quota.ok || !liveMoney.ok) {
+function main() {
+  const json = process.argv.includes("--json");
+  const status = buildStatus();
+
+  if (json) {
+    console.log(JSON.stringify(status, null, 2));
+  } else {
+    printText(status);
+  }
+
+  if (!status.ok) {
     process.exitCode = 1;
   }
 }

@@ -707,6 +707,9 @@ assertScriptIncludes("status:production", [
 assertScriptIncludes("status:go-live", [
   "node scripts/status-go-live.mjs",
 ]);
+assertScriptIncludes("status:go-live:json", [
+  "node scripts/status-go-live.mjs --json",
+]);
 assertScriptIncludes("status:live-money", [
   "node --import tsx scripts/status-live-money.ts --allow-blocked",
 ]);
@@ -871,6 +874,13 @@ assertFileIncludes("live money env packet helper source", "scripts/live-money-en
   "--scope",
 ]);
 assertFileIncludes("go-live runway status helper source", "scripts/status-go-live.mjs", [
+  "tcos.goLiveRunwayStatus.v1",
+  "process.argv.includes(\"--json\")",
+  "JSON.stringify(status, null, 2)",
+  "generatedAt:",
+  "productionDeploymentQuota",
+  "safeNextCommands",
+  "readOnlyGuarantee",
   "TCOS go-live runway status:",
   "git HEAD:",
   "git origin/main:",
@@ -892,7 +902,10 @@ assertFileIncludes("go-live runway status helper source", "scripts/status-go-liv
 ]);
 assertFileIncludes("live money go/no-go README instructions", "README.md", [
   "npm run status:go-live",
+  "npm --silent run status:go-live:json",
+  "tcos.goLiveRunwayStatus.v1",
   "single read-only runway view",
+  "archivable combined runway evidence",
   "local Git `HEAD`/`origin/main`/working-tree cleanliness",
   "Vercel quota status",
   "local live-payment runtime readiness",
@@ -3913,7 +3926,10 @@ assertFileIncludes("deploy live safety runbook", "docs/PRODUCTION_DEPLOY_RUNBOOK
   "Production go/no-go ladder",
   "Verify the pushed stack",
   "npm run status:go-live",
+  "npm --silent run status:go-live:json",
+  "tcos.goLiveRunwayStatus.v1",
   "single read-only runway view",
+  "archivable evidence",
   "without starting deploys, uploads, Checkout, postage, payouts, launch approvals, or revocations",
   "npm run live-money:env-packet",
   "npm run live-money:env-template",
@@ -4051,7 +4067,10 @@ assertFileIncludes("deploy live safety operator manual", "docs/TCOS_OPERATOR_MAN
   "Production Go/No-Go Ladder",
   "verify the pushed stack",
   "npm run status:go-live",
+  "npm --silent run status:go-live:json",
+  "tcos.goLiveRunwayStatus.v1",
   "single read-only runway view",
+  "archivable evidence",
   "without starting deploys, uploads, Checkout, postage, payouts, launch approvals, or revocations",
   "npm run live-money:env-packet",
   "npm run live-money:env-template",
@@ -4098,7 +4117,10 @@ assertFileIncludes(
     "Production Go/No-Go Ladder",
     "verify the pushed stack",
     "npm run status:go-live",
+    "npm --silent run status:go-live:json",
+    "tcos.goLiveRunwayStatus.v1",
     "single read-only runway view",
+    "archivable evidence",
     "without starting deploys, uploads, Checkout, postage, payouts, launch approvals, or revocations",
     "npm run live-money:env-packet",
     "npm run live-money:env-template",
