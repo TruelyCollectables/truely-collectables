@@ -794,6 +794,12 @@ assertFileIncludes("live money evidence archive helper source", "scripts/archive
   "liveMoneyEvidence.preflightCommand",
   "liveMoneyEvidence.readyStates",
   "liveMoneyEvidence.blockedStates",
+  "liveMoneyEvidence.environmentChecklist.supabaseBootstrap",
+  "liveMoneyEvidence.environmentChecklist.finalLivePaymentRuntime",
+  "missing bootstrap environment:",
+  "missingEnvironmentVariables",
+  "Supabase bootstrap environment:",
+  "final live-payment runtime environment:",
   "readOnlyGuarantee",
   "process.exitCode = result.status || 0",
 ]);

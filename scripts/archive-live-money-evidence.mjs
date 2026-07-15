@@ -48,6 +48,16 @@ function assertEvidenceContract(payload) {
   if (!Array.isArray(payload?.liveMoneyEvidence?.blockedStates)) {
     missing.push("liveMoneyEvidence.blockedStates");
   }
+  if (!Array.isArray(payload?.liveMoneyEvidence?.environmentChecklist?.supabaseBootstrap)) {
+    missing.push("liveMoneyEvidence.environmentChecklist.supabaseBootstrap");
+  }
+  if (
+    !Array.isArray(
+      payload?.liveMoneyEvidence?.environmentChecklist?.finalLivePaymentRuntime,
+    )
+  ) {
+    missing.push("liveMoneyEvidence.environmentChecklist.finalLivePaymentRuntime");
+  }
   if (!payload?.readOnlyGuarantee) missing.push("readOnlyGuarantee");
 
   if (missing.length) {
@@ -96,6 +106,20 @@ console.log(`- path: ${filePath}`);
 console.log(`- state: ${payload.state}`);
 console.log(
   `- ready for runtime switch: ${payload.readyForRuntimeSwitch ? "yes" : "no"}`,
+);
+console.log(
+  `- missing bootstrap environment: ${
+    Array.isArray(payload.missingEnvironmentVariables) &&
+    payload.missingEnvironmentVariables.length
+      ? payload.missingEnvironmentVariables.join(", ")
+      : "none detected"
+  }`,
+);
+console.log(
+  `- Supabase bootstrap environment: ${payload.liveMoneyEvidence.environmentChecklist.supabaseBootstrap.join("; ")}`,
+);
+console.log(
+  `- final live-payment runtime environment: ${payload.liveMoneyEvidence.environmentChecklist.finalLivePaymentRuntime.join("; ")}`,
 );
 console.log(`- read-only guarantee: ${payload.readOnlyGuarantee}`);
 
