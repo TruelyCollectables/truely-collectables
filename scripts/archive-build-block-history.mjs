@@ -65,6 +65,12 @@ function assertEvidenceContract(payload) {
   if (!payload?.evidence?.nextAction?.summary?.quotaApproximateRemaining) {
     missing.push("evidence.nextAction.summary.quotaApproximateRemaining");
   }
+  if (!payload?.evidence?.nextAction?.summary?.primaryNext) {
+    missing.push("evidence.nextAction.summary.primaryNext");
+  }
+  if (!Array.isArray(payload?.evidence?.nextAction?.summary?.primaryCommands)) {
+    missing.push("evidence.nextAction.summary.primaryCommands");
+  }
   if (!payload?.evidence?.goLiveRunway?.summary?.quotaApproximateRemaining) {
     missing.push("evidence.goLiveRunway.summary.quotaApproximateRemaining");
   }
@@ -249,6 +255,12 @@ console.log(
     payload.evidence.nextAction.summary.quotaApproximateRemaining
   }`,
 );
+console.log(`- next-action primary next: ${payload.evidence.nextAction.summary.primaryNext}`);
+if (payload.evidence.nextAction.summary.primaryCommands.length) {
+  console.log(
+    `- next-action primary commands: ${payload.evidence.nextAction.summary.primaryCommands.join(" | ")}`,
+  );
+}
 console.log(
   `- next-action go-live evidence ok: ${
     payload.evidence.nextAction.summary.goLiveEvidenceOk ? "yes" : "no"

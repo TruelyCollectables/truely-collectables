@@ -188,6 +188,23 @@ if (payload) {
   );
   checks.push(
     check(
+      Boolean(evidence.nextAction?.summary?.primaryNext),
+      "history next-action primary unblock next step is recorded",
+      evidence.nextAction?.summary?.primaryNext || null,
+    ),
+  );
+  checks.push(
+    check(
+      Array.isArray(evidence.nextAction?.summary?.primaryCommands) &&
+        evidence.nextAction.summary.primaryCommands.length > 0,
+      "history next-action primary unblock commands are recorded",
+      Array.isArray(evidence.nextAction?.summary?.primaryCommands)
+        ? evidence.nextAction.summary.primaryCommands.join(" | ")
+        : null,
+    ),
+  );
+  checks.push(
+    check(
       Boolean(evidence.goLiveRunway?.summary?.quotaApproximateRemaining),
       "history runway quota approximate remaining is recorded",
       evidence.goLiveRunway?.summary?.quotaApproximateRemaining || null,
@@ -352,6 +369,10 @@ const verification = {
           payload.evidence?.checkpoint?.summary?.quotaApproximateRemaining || null,
         nextActionQuotaApproximateRemaining:
           payload.evidence?.nextAction?.summary?.quotaApproximateRemaining || null,
+        nextActionPrimaryNext:
+          payload.evidence?.nextAction?.summary?.primaryNext || null,
+        nextActionPrimaryCommands:
+          payload.evidence?.nextAction?.summary?.primaryCommands || [],
         runwayQuotaApproximateRemaining:
           payload.evidence?.goLiveRunway?.summary?.quotaApproximateRemaining || null,
         checkpointGoLiveEvidenceOk:
@@ -423,6 +444,16 @@ if (jsonOutput) {
       verification.history?.nextActionQuotaApproximateRemaining || "not recorded"
     }`,
   );
+  console.log(
+    `- next-action primary next: ${
+      verification.history?.nextActionPrimaryNext || "not recorded"
+    }`,
+  );
+  if (verification.history?.nextActionPrimaryCommands?.length) {
+    console.log(
+      `- next-action primary commands: ${verification.history.nextActionPrimaryCommands.join(" | ")}`,
+    );
+  }
   console.log(
     `- runway quota approximate remaining: ${
       verification.history?.runwayQuotaApproximateRemaining || "not recorded"
