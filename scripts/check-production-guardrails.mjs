@@ -134,6 +134,42 @@ function assertFileOrder(name, filePath, orderedParts) {
   console.log(`PASS ${name} order includes ${orderedParts.join(" -> ")}`);
 }
 
+function assertNpmJsonSpawnBuffers() {
+  const scriptFiles = fs
+    .readdirSync("scripts")
+    .filter((name) => name.endsWith(".mjs"))
+    .map((name) => `scripts/${name}`);
+  const unbufferedSpawns = [];
+  const npmJsonSpawnPattern =
+    /spawnSync\((?:npm|process\.platform === "win32" \? "npm\.cmd" : "npm"),\s*\[[\s\S]*?\],\s*\{[\s\S]*?\}\);/g;
+
+  for (const filePath of scriptFiles) {
+    const text = fs.readFileSync(filePath, "utf8");
+
+    for (const match of text.matchAll(npmJsonSpawnPattern)) {
+      const block = match[0];
+      const readsNpmJson =
+        block.includes("\"--silent\"") &&
+        block.includes("\"run\"") &&
+        block.includes(":json");
+
+      if (readsNpmJson && !block.includes("maxBuffer")) {
+        unbufferedSpawns.push(filePath);
+      }
+    }
+  }
+
+  if (unbufferedSpawns.length > 0) {
+    throw new Error(
+      `npm JSON spawnSync block(s) must set maxBuffer: ${[
+        ...new Set(unbufferedSpawns),
+      ].join(", ")}`,
+    );
+  }
+
+  console.log("PASS npm JSON spawnSync blocks set maxBuffer");
+}
+
 function runExpectedSuccess(name, args, env = {}) {
   const result = spawnSync(node, args, {
     encoding: "utf8",
@@ -175,6 +211,7 @@ function runExpectedFailure(name, args, env, expectedText) {
 }
 
 runGuardrailRedactionSelfTest();
+assertNpmJsonSpawnBuffers();
 
 if (!packageJson.dependencies?.geist) {
   throw new Error(
