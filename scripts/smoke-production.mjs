@@ -927,7 +927,7 @@ const checks = [
       "Smoke coverage",
       "Admin login and dashboard render with Shipping Provider Unlock Action Plan",
       "Under-$20 Seller Protection launch handoff",
-      "Launch Gate Drill page, JSON report, Markdown operator report, Shipping Provider Unlock Action Plan, and Standard Envelope evidence validator",
+      "Launch Gate Drill page, JSON report, Markdown operator report, live-money runway, Shipping Provider Unlock Action Plan, and Standard Envelope evidence validator",
       "Launch readiness and handoff exports show missing/unexpected purchase-audit key drift",
       "Seller Protection Handoff Bundle",
       "Seller Protection Reconciliation",
@@ -971,6 +971,10 @@ const checks = [
       "If blocked:",
       "Git tip and clean domain",
       "Launch gate drill evidence",
+      "Live money runway proof",
+      "approval-blocker count",
+      "launch-lock count",
+      "next live-money actions",
       "Live shipping lock posture",
       "Seller protection money trail",
       "Shipping operations exports",
@@ -1041,6 +1045,10 @@ const checks = [
       result.text.includes("If blocked:") &&
       result.text.includes("Git tip and clean domain") &&
       result.text.includes("Launch gate drill evidence") &&
+      result.text.includes("Live money runway proof") &&
+      result.text.includes("approval-blocker count") &&
+      result.text.includes("launch-lock count") &&
+      result.text.includes("next live-money actions") &&
       result.text.includes("Live shipping lock posture") &&
       result.text.includes("Seller protection money trail") &&
       result.text.includes("Shipping operations exports") &&

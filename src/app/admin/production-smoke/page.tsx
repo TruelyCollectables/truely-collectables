@@ -16,7 +16,7 @@ const smokeChecks = [
   "Launch readiness page, JSON brief, Markdown brief, and handoff bundle",
   "Launch readiness and handoff exports show missing/unexpected purchase-audit key drift",
   SELLER_PROTECTION_SMOKE_COVERAGE_LINE,
-  "Launch Gate Drill page, JSON report, Markdown operator report, Shipping Provider Unlock Action Plan, and Standard Envelope evidence validator",
+  "Launch Gate Drill page, JSON report, Markdown operator report, live-money runway, Shipping Provider Unlock Action Plan, and Standard Envelope evidence validator",
   "Live Payment Launch Gate",
   "Live Shipping Launch Gate with Shipping Provider Unlock Action Plan and Purchase-Audit Key Drift card",
   "Admin shipping cockpit LetterTrack export, IMb, and delivery-evidence controls",
@@ -69,9 +69,17 @@ const manualVerificationChecks = [
     label: "Launch gate drill evidence",
     href: "/api/admin/launch-gate-drill?format=markdown",
     proof:
-      "Markdown report shows no-money/no-postage side-effect guardrails, passed payment/shipping gates, and no missing/unexpected purchase-audit keys.",
+      "Markdown report shows no-money/no-postage side-effect guardrails, passed payment/shipping gates, live-money runway counts, and no missing/unexpected purchase-audit keys.",
     ifBlocked:
       "Keep live changes paused and rerun the drill after fixing the failed payment, shipping, or provider-audit row.",
+  },
+  {
+    label: "Live money runway proof",
+    href: "/admin/launch-gate-drill",
+    proof:
+      "Launch Gate Drill shows the Live money runway panel with approval-blocker count, launch-lock count, warning count, live Checkout state, and next live-money actions before any runtime switch is changed.",
+    ifBlocked:
+      "Do not approve live payments or set TCOS_LIVE_PAYMENTS_ENABLED=true until the live-money runway matches the dedicated Live Payment Launch Gate and every approval blocker is intentionally cleared.",
   },
   {
     label: "Live shipping lock posture",
