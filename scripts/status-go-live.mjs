@@ -376,6 +376,7 @@ function goLiveReadiness({ git, quota, emergencyBackup, liveMoney }) {
       actionCommands: liveMoney.missingBootstrapEnvironment.length
         ? [
             "npm run live-money:env-packet",
+            "npm run archive:live-money-env-packet",
             "npm run live-money:vercel-commands",
             "npm run status:live-money",
           ]

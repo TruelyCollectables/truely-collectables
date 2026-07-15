@@ -166,6 +166,7 @@ function printChecklist() {
   console.log("Safe helper commands:");
   console.log("- npm run live-money:env-template");
   console.log("- npm --silent run live-money:env-packet:json");
+  console.log("- npm run archive:live-money-env-packet");
   console.log("- npm run live-money:vercel-commands");
   console.log("- npm run status:live-money");
   console.log("- npm run archive:live-money");
@@ -277,6 +278,7 @@ function printVercelCommands() {
     ),
     "",
     "# After env changes, redeploy only when the deployment quota is available.",
+    "# Preserve the no-secret packet with npm run archive:live-money-env-packet before staging values.",
     "# Then run npm run smoke:production, npm run archive:live-money, and final-window npm run archive:live-money:preflight.",
     "",
   ];
