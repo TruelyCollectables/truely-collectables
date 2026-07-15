@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
-import { dirname } from "node:path";
+import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
@@ -167,6 +168,73 @@ function runNpmJson(scriptName) {
           error instanceof Error ? error.message : String(error)
         }`,
       },
+    };
+  }
+}
+
+function latestJsonArchive(dir, suffix) {
+  if (!existsSync(dir)) return null;
+
+  const files = readdirSync(dir)
+    .filter((name) => name.endsWith(suffix))
+    .map((name) => {
+      const filePath = join(dir, name);
+      const stat = statSync(filePath);
+      return {
+        filePath,
+        modifiedAt: stat.mtime.toISOString(),
+        mtimeMs: stat.mtimeMs,
+      };
+    })
+    .sort((a, b) => b.mtimeMs - a.mtimeMs);
+
+  return files[0] || null;
+}
+
+function goLiveEvidenceVerificationStatus() {
+  const evidenceDir = join(repoRoot, ".codex-run", "go-live-evidence-verification");
+  const latest = latestJsonArchive(evidenceDir, "-go-live-evidence-verification.json");
+  if (!latest) {
+    return {
+      available: false,
+      ok: false,
+      path: null,
+      next: "Run npm run prepare:go-live-evidence to archive the latest go-live evidence verifier proof.",
+    };
+  }
+
+  try {
+    const payload = JSON.parse(readFileSync(latest.filePath, "utf8"));
+    return {
+      available: true,
+      ok: payload.ok === true,
+      path: latest.filePath,
+      archivedAt: payload.archive?.archivedAt || payload.checkedAt || latest.modifiedAt,
+      gitHead: payload.archive?.gitHead || payload.git?.head || "unknown",
+      gitOriginMain: payload.archive?.gitOriginMain || payload.git?.originMain || "unknown",
+      gitWorkingTreeClean:
+        payload.archive?.gitWorkingTreeClean ?? payload.git?.workingTreeClean ?? null,
+      failedCheckCount:
+        typeof payload.failedCheckCount === "number" ? payload.failedCheckCount : null,
+      liveMoneyPacketVerificationPath:
+        payload.evidence?.liveMoneyEnvPacketVerification?.path || null,
+      verificationBoundary:
+        payload.evidence?.liveMoneyEnvPacketVerification?.verificationBoundary ||
+        payload.evidence?.liveMoneyEnvPacket?.verificationBoundary ||
+        null,
+      readOnlyGuarantee: payload.readOnlyGuarantee || null,
+      next:
+        payload.ok === true
+          ? "Latest go-live evidence verifier proof is archived and clean."
+          : "Run npm run verify:go-live-evidence, then npm run prepare:go-live-evidence after fixing failed checks.",
+    };
+  } catch (error) {
+    return {
+      available: true,
+      ok: false,
+      path: latest.filePath,
+      parseError: error instanceof Error ? error.message : String(error),
+      next: "Repair or replace the latest go-live evidence verifier archive by rerunning npm run prepare:go-live-evidence.",
     };
   }
 }
@@ -436,6 +504,7 @@ function buildStatus() {
   const quota = quotaStatus();
   const liveMoney = liveMoneyStatus();
   const emergencyBackup = emergencyBackupStatus();
+  const goLiveEvidence = goLiveEvidenceVerificationStatus();
   const payload = liveMoney.payload;
   const readOnlyGuarantee =
     "This command only reads Git state, local quota status, live-money JSON evidence, emergency-backup status/verification evidence, and static deploy-safety guidance; it starts no deploy, upload, archive creation, Git push, Checkout, postage, payout, launch approval, or revocation.";
@@ -507,6 +576,7 @@ function buildStatus() {
     productionDeploymentQuota: quota,
     productionDeploySafety,
     emergencyBackup,
+    goLiveEvidence,
     liveMoney: liveMoneySummary,
     safeNextCommands,
     readOnlyGuarantee,
@@ -558,6 +628,32 @@ function printText(status) {
   console.log(`- next actionable step: ${status.goLiveReadiness.nextActionableStep}`);
   console.log(`- next deploy step: ${status.goLiveReadiness.nextDeployStep}`);
   console.log(`- next operator step: ${status.goLiveReadiness.nextOperatorStep}`);
+
+  console.log("");
+  console.log("Go-live evidence:");
+  console.log(`- available: ${status.goLiveEvidence.available ? "yes" : "no"}`);
+  console.log(`- verification ok: ${status.goLiveEvidence.ok ? "yes" : "no"}`);
+  console.log(`- failed checks: ${status.goLiveEvidence.failedCheckCount ?? "unknown"}`);
+  console.log(`- archive: ${status.goLiveEvidence.path || "missing"}`);
+  console.log(`- archived at: ${status.goLiveEvidence.archivedAt || "unknown"}`);
+  console.log(`- git HEAD: ${status.goLiveEvidence.gitHead || "unknown"}`);
+  console.log(`- git origin/main: ${status.goLiveEvidence.gitOriginMain || "unknown"}`);
+  console.log(
+    `- git working tree clean: ${
+      status.goLiveEvidence.gitWorkingTreeClean === true ? "yes" : "unknown"
+    }`,
+  );
+  console.log(
+    `- live-money packet verification: ${
+      status.goLiveEvidence.liveMoneyPacketVerificationPath || "missing"
+    }`,
+  );
+  console.log(
+    `- live-money verification boundary: ${
+      status.goLiveEvidence.verificationBoundary || "not recorded"
+    }`,
+  );
+  console.log(`- next: ${status.goLiveEvidence.next}`);
 
   console.log("");
   console.log("Production deployment quota:");
