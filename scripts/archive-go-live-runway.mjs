@@ -101,6 +101,9 @@ function assertEvidenceContract(payload) {
   if (!payload?.productionDeploymentQuota?.state) {
     missing.push("productionDeploymentQuota.state");
   }
+  if (!payload?.productionDeploymentQuota?.approximateRemaining) {
+    missing.push("productionDeploymentQuota.approximateRemaining");
+  }
   if (!payload?.productionDeploymentQuota?.uploadStarted) {
     missing.push("productionDeploymentQuota.uploadStarted");
   }
@@ -237,6 +240,11 @@ console.log(`- quota retry at or after: ${payload.productionDeploymentQuota.retr
 if (payload.productionDeploymentQuota.retryAtLocal) {
   console.log(`- quota retry at or after local: ${payload.productionDeploymentQuota.retryAtLocal}`);
 }
+console.log(
+  `- quota approximate remaining: ${
+    payload.productionDeploymentQuota.approximateRemaining || "unknown"
+  }`,
+);
 console.log(`- Vercel upload started: ${payload.productionDeploymentQuota.uploadStarted}`);
 console.log(`- clean production domain: ${payload.productionDeploySafety.cleanProductionDomain}`);
 console.log(`- unwanted production alias: ${payload.productionDeploySafety.unwantedAlias}`);

@@ -725,7 +725,9 @@ function printText(status) {
   if (status.productionDeploymentQuota.retryAtLocal) {
     console.log(`- retry at or after local: ${status.productionDeploymentQuota.retryAtLocal}`);
   }
-  console.log(`- approximate remaining: ${status.productionDeploymentQuota.approximateRemaining}`);
+  console.log(
+    `- quota approximate remaining: ${status.productionDeploymentQuota.approximateRemaining}`,
+  );
   console.log(`- Vercel upload started: ${status.productionDeploymentQuota.uploadStarted}`);
   console.log(`- next: ${status.productionDeploymentQuota.next}`);
 
