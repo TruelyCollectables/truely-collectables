@@ -170,6 +170,7 @@ function printChecklist() {
   }
   console.log("");
   console.log("Safe helper commands:");
+  console.log("- npm run live-money:bootstrap-handoff");
   console.log("- npm run live-money:bootstrap-template");
   console.log("- npm run live-money:env-template");
   console.log("- npm --silent run live-money:env-packet:json");
@@ -205,6 +206,7 @@ function buildPacket() {
     commands: {
       checklist: "npm run live-money:env-packet",
       json: "npm --silent run live-money:env-packet:json",
+      bootstrapHandoff: "npm run live-money:bootstrap-handoff",
       bootstrapEnvTemplate: "npm run live-money:bootstrap-template",
       envTemplate: "npm run live-money:env-template",
       vercelBootstrapCommands: "npm run live-money:vercel-bootstrap-commands",

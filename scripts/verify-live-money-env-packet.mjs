@@ -127,6 +127,7 @@ if (payload) {
   checks.push(check(Boolean(payload.generatedAt), "env packet generatedAt"));
   checks.push(check(Array.isArray(payload.entries?.supabaseBootstrap), "Supabase bootstrap entries exist"));
   checks.push(check(Array.isArray(payload.entries?.finalLivePaymentRuntime), "final live-payment runtime entries exist"));
+  checks.push(check(payload.commands?.bootstrapHandoff === "npm run live-money:bootstrap-handoff", "bootstrap handoff command is recorded"));
   checks.push(check(payload.commands?.bootstrapEnvTemplate === "npm run live-money:bootstrap-template", "bootstrap local template command is recorded"));
   checks.push(check(payload.commands?.vercelBootstrapCommands === "npm run live-money:vercel-bootstrap-commands", "bootstrap command is recorded"));
   checks.push(check(payload.commands?.vercelCommands === "npm run live-money:vercel-commands", "full command is recorded"));
