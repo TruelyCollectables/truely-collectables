@@ -1,4 +1,5 @@
 import {
+  buildInstaCompCatalogCompGate,
   resolveInstaCompCatalogIdentity,
   type InstaCompCatalogCandidate,
   type InstaCompCatalogIdentityInput,
@@ -6,8 +7,10 @@ import {
 
 const CATALOG_IDENTITY_EXPECTED_SCENARIO_KEYS = [
   "catalog_confirms_exact_parallel_before_comps",
+  "catalog_confirmed_gate_uses_catalog_fields_for_exact_comps",
   "unapproved_source_forces_review_required",
   "parallel_ambiguity_forces_targeted_review",
+  "review_required_gate_blocks_exact_comp_trust",
   "serial_run_mismatch_forces_review_required",
   "missing_catalog_candidates_force_review_required",
 ] as const;
@@ -109,6 +112,31 @@ function runCatalogIdentitySimulationSuite() {
     ),
   );
 
+  const confirmedGate = buildInstaCompCatalogCompGate(
+    { ...target, variation: null },
+    [catalogCandidate({})],
+  );
+  scenarios.push(
+    scenario(
+      "catalog_confirmed_gate_uses_catalog_fields_for_exact_comps",
+      "When catalog identity is confirmed, the comp gate exposes catalog-normalized fields and allows exact comp search.",
+      confirmedGate.status === "catalog_confirmed" &&
+        confirmedGate.exactCompSearchAllowed &&
+        confirmedGate.trustedForExactComps &&
+        confirmedGate.compIdentity?.parallel === "Gold Refractor" &&
+        confirmedGate.compIdentity.catalogId ===
+          "fixture-2023-tcu-usc17-gold-ref" &&
+        confirmedGate.reviewReasons.length === 0,
+      {
+        status: confirmedGate.status,
+        exactCompSearchAllowed: confirmedGate.exactCompSearchAllowed,
+        trustedForExactComps: confirmedGate.trustedForExactComps,
+        compIdentity: confirmedGate.compIdentity,
+        reviewReasons: confirmedGate.reviewReasons,
+      },
+    ),
+  );
+
   const unapproved = resolveInstaCompCatalogIdentity(target, [
     catalogCandidate({
       sourceUsageAllowed: false,
@@ -157,6 +185,34 @@ function runCatalogIdentitySimulationSuite() {
         suggestedQuestion: ambiguous.suggestedQuestion,
         selectedScore: ambiguous.selectedMatch?.score,
         alternateScore: ambiguous.alternateMatches[0]?.score,
+      },
+    ),
+  );
+
+  const reviewGate = buildInstaCompCatalogCompGate(target, [
+    catalogCandidate({
+      catalogId: "fixture-2023-tcu-usc17-blue-ref",
+      parallel: "Blue Refractor",
+      variation: "Blue Refractor",
+    }),
+  ]);
+  scenarios.push(
+    scenario(
+      "review_required_gate_blocks_exact_comp_trust",
+      "When catalog identity remains unresolved, the comp gate blocks trusted exact comps and preserves review reasons.",
+      reviewGate.status === "review_required" &&
+        reviewGate.exactCompSearchAllowed === false &&
+        reviewGate.trustedForExactComps === false &&
+        reviewGate.compIdentity === null &&
+        reviewGate.reviewReasons.includes(
+          "catalog identity unresolved before exact comps",
+        ),
+      {
+        status: reviewGate.status,
+        exactCompSearchAllowed: reviewGate.exactCompSearchAllowed,
+        trustedForExactComps: reviewGate.trustedForExactComps,
+        compIdentity: reviewGate.compIdentity,
+        reviewReasons: reviewGate.reviewReasons,
       },
     ),
   );

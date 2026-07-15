@@ -53,6 +53,25 @@ export type InstaCompCatalogIdentityResolution = {
   matchExplanation: string;
 };
 
+export type InstaCompCatalogCompIdentity = InstaCompCatalogIdentityInput & {
+  catalogId: string;
+  catalogSource: string;
+  catalogSourceLabel: string;
+  catalogSourceUrl: string;
+  catalogMatchExplanation: string;
+};
+
+export type InstaCompCatalogCompGate = {
+  status: "catalog_confirmed" | "review_required";
+  exactCompSearchAllowed: boolean;
+  trustedForExactComps: boolean;
+  compIdentity: InstaCompCatalogCompIdentity | null;
+  fallbackInput: InstaCompCatalogIdentityInput;
+  reviewReasons: string[];
+  suggestedQuestion: string | null;
+  resolution: InstaCompCatalogIdentityResolution;
+};
+
 const FIELD_WEIGHTS = {
   player: 20,
   year: 14,
@@ -304,5 +323,62 @@ export function resolveInstaCompCatalogIdentity(
     suggestedQuestion:
       status === "review_required" ? suggestedQuestionFor(selectedMatch) : null,
     matchExplanation,
+  };
+}
+
+function candidateToCompIdentity(
+  candidate: InstaCompCatalogCandidate,
+  matchExplanation: string,
+): InstaCompCatalogCompIdentity {
+  return {
+    player: candidate.player,
+    year: candidate.year,
+    brand: candidate.brand,
+    setName: candidate.setName,
+    cardNumber: candidate.cardNumber,
+    parallel: candidate.parallel,
+    variation: candidate.variation,
+    serialRun: candidate.serialRun,
+    team: candidate.team,
+    sport: candidate.sport,
+    isAuto: candidate.isAuto,
+    isRelic: candidate.isRelic,
+    catalogId: candidate.catalogId,
+    catalogSource: candidate.source,
+    catalogSourceLabel: candidate.sourceLabel,
+    catalogSourceUrl: candidate.sourceUrl,
+    catalogMatchExplanation: matchExplanation,
+  };
+}
+
+export function buildInstaCompCatalogCompGate(
+  input: InstaCompCatalogIdentityInput,
+  candidates: InstaCompCatalogCandidate[],
+): InstaCompCatalogCompGate {
+  const resolution = resolveInstaCompCatalogIdentity(input, candidates);
+  const confirmed =
+    resolution.status === "catalog_confirmed" && resolution.selectedMatch;
+  const reviewReasons =
+    resolution.status === "review_required"
+      ? [
+          ...resolution.reviewReasons,
+          "catalog identity unresolved before exact comps",
+        ]
+      : [];
+
+  return {
+    status: resolution.status,
+    exactCompSearchAllowed: Boolean(confirmed),
+    trustedForExactComps: Boolean(confirmed),
+    compIdentity: confirmed
+      ? candidateToCompIdentity(
+          confirmed.candidate,
+          resolution.matchExplanation,
+        )
+      : null,
+    fallbackInput: input,
+    reviewReasons,
+    suggestedQuestion: resolution.suggestedQuestion,
+    resolution,
   };
 }

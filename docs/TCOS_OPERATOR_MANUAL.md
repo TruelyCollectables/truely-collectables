@@ -2146,6 +2146,7 @@ Future scanner catalog identity requirement:
 - when one catalog candidate is strongly supported, InstaComp should attach the catalog/source ID, source label, source URL, match explanation, and confidence evidence to the scan row and draft listing
 - when catalog evidence cannot prove the exact variation, InstaComp must keep the row in `review_required` and ask for one targeted operator confirmation instead of guessing
 - catalog identity data and pricing/comps data must remain separate; catalog data answers “what exact card is this?” while InstaComp/comps answer “what is this confirmed card worth?”
+- exact comp search should be trusted only behind a catalog identity comp gate: `catalog_confirmed` rows may use catalog-normalized fields for exact comps, while `review_required` rows must preserve review reasons and block trusted exact-comp claims until an operator confirms the identity
 - every catalog source must be evaluated for API availability, licensing, caching limits, attribution rules, and whether TCOS may store, display, or use the data commercially
 - the operator UI should clearly show the catalog-confirmed match, alternate plausible matches, mismatched clues, and why the system accepted or rejected each candidate
 - no public listing, exact rare-variant claim, auto-price, or trade-value recommendation should depend on catalog data unless the selected source is permitted and the match evidence is saved with the scan
