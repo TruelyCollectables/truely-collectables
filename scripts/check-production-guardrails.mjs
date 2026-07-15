@@ -1180,6 +1180,19 @@ assertScriptIncludes("verify:instacomp", [
   "simulate:instacomp-jobs",
   "simulate:instacomp-accuracy",
   "simulate:instacomp-catalog-identity",
+  "simulate:instacomp-trial",
+]);
+assertScriptIncludes("simulate:instacomp-trial", [
+  "scripts/run-instacomp-trial-report.mjs",
+  "--target 94",
+]);
+assertScriptIncludes("instacomp:trial:init", [
+  "scripts/run-instacomp-trial-report.mjs",
+  "--init-manifest instacomp-trial-manifest.local.json",
+  "--cards 100",
+]);
+assertScriptIncludes("instacomp:trial:report", [
+  "scripts/run-instacomp-trial-report.mjs",
 ]);
 assertScriptIncludes("status:production", [
   "node scripts/deploy-production.mjs --quota-status",
@@ -6159,7 +6172,7 @@ assertFileIncludes("deploy live safety README", "README.md", [
   "twenty-scenario shipping simulation suite",
   "visible missing/unexpected purchase-audit key drift checks",
   "guardrails for no external publishing, no postage purchase, no Coverage policy creation, no payout release, no order fulfillment, and no automatic under-$20 protection activation",
-  "That command is deploy-safe and focused: it runs only the InstaComp queue, accuracy, and catalog identity simulations",
+  "That command is deploy-safe and focused: it runs only the InstaComp queue, accuracy, catalog identity, and 100-card trial scorekeeper simulations",
   "Use `npm run verify:production` for the full lint, shipping, build, guardrail, and GitHub preflight stack.",
   "Vercel quota messaging",
   "TCOS_VERCEL_DEPLOY_TIMEOUT_MS",

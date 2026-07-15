@@ -1,0 +1,58 @@
+{
+  "schema": "tcos.instacompTrialResults.v1",
+  "source": "fixture",
+  "cards": [
+    {
+      "trialCardId": "fixture-001",
+      "actual": {
+        "player": "Shohei Ohtani",
+        "year": "2023",
+        "brand": "Topps Chrome",
+        "setName": "Update",
+        "cardNumber": "#USC17",
+        "parallel": "Gold Refractor",
+        "serialNumber": "O7/5O",
+        "serialRun": "/50",
+        "team": "Los Angeles Angels",
+        "sport": "Baseball",
+        "isRookie": false,
+        "isAuto": false,
+        "isRelic": false
+      }
+    },
+    {
+      "trialCardId": "fixture-002",
+      "actual": {
+        "player": "Caitlin Clark",
+        "year": "2024",
+        "brand": "Panini Prizm",
+        "setName": "Draft Picks",
+        "cardNumber": "22",
+        "parallel": "Silver Prizm",
+        "team": "Iowa Hawkeyes",
+        "sport": "Basketball",
+        "isRookie": true,
+        "isAuto": false,
+        "isRelic": false
+      }
+    },
+    {
+      "trialCardId": "fixture-003",
+      "actual": {
+        "player": "Tom Brady",
+        "year": "2020",
+        "brand": "National Treasures",
+        "setName": "Century Materials",
+        "cardNumber": "CM-TB",
+        "parallel": "Prime Patch Auto",
+        "serialNumber": "1 of 1",
+        "serialRun": "1/1",
+        "team": "Tampa Bay Buccaneers",
+        "sport": "Football",
+        "isRookie": false,
+        "isAuto": true,
+        "isRelic": true
+      }
+    }
+  ]
+}

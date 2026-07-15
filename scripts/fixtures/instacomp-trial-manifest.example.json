@@ -1,0 +1,72 @@
+{
+  "schema": "tcos.instacompTrialManifest.v1",
+  "trialName": "InstaComp trial harness fixture",
+  "targetCards": 3,
+  "targetScans": 6,
+  "targetAccuracyPercent": 94,
+  "cards": [
+    {
+      "trialCardId": "fixture-001",
+      "frontImage": "./fixtures/images/001-front.jpg",
+      "backImage": "./fixtures/images/001-back.jpg",
+      "expected": {
+        "player": "Shohei Ohtani",
+        "year": "2023",
+        "brand": "Topps Chrome",
+        "setName": "Update",
+        "cardNumber": "USC17",
+        "parallel": "Gold Refractor",
+        "variation": "",
+        "serialNumber": "07/50",
+        "serialRun": "/50",
+        "team": "Los Angeles Angels",
+        "sport": "Baseball",
+        "isRookie": false,
+        "isAuto": false,
+        "isRelic": false
+      }
+    },
+    {
+      "trialCardId": "fixture-002",
+      "frontImage": "./fixtures/images/002-front.jpg",
+      "backImage": "./fixtures/images/002-back.jpg",
+      "expected": {
+        "player": "Caitlin Clark",
+        "year": "2024",
+        "brand": "Panini Prizm",
+        "setName": "Draft Picks",
+        "cardNumber": "22",
+        "parallel": "Silver Prizm",
+        "variation": "",
+        "serialNumber": "",
+        "serialRun": "",
+        "team": "Iowa Hawkeyes",
+        "sport": "Basketball",
+        "isRookie": true,
+        "isAuto": false,
+        "isRelic": false
+      }
+    },
+    {
+      "trialCardId": "fixture-003",
+      "frontImage": "./fixtures/images/003-front.jpg",
+      "backImage": "./fixtures/images/003-back.jpg",
+      "expected": {
+        "player": "Tom Brady",
+        "year": "2020",
+        "brand": "National Treasures",
+        "setName": "Century Materials",
+        "cardNumber": "CM-TB",
+        "parallel": "Prime Patch Auto",
+        "variation": "",
+        "serialNumber": "1/1",
+        "serialRun": "1/1",
+        "team": "Tampa Bay Buccaneers",
+        "sport": "Football",
+        "isRookie": false,
+        "isAuto": true,
+        "isRelic": true
+      }
+    }
+  ]
+}

@@ -3886,6 +3886,44 @@ The limit is 500 card rows, not 500 image files. A 500-card front/back lot can c
 
 Front-only cards scan, but the back frequently contains the strongest year, set, card-number, manufacturer, copyright, and authenticity evidence. Use both sides whenever possible.
 
+### 100-card trial run and 94% accuracy scorecard
+
+Use this trial when TCOS needs a real-world InstaComp accuracy check before trusting a new scan batch. The target trial is about `100` cards with front and back images, or about `200` scans.
+
+The trial harness is local and read-only. It does not publish listings, buy postage, create Checkout sessions, deploy, change live-money flags, or call production APIs. It only scores a completed InstaComp run against a ground-truth manifest.
+
+1. Put the trial images in a local folder such as `instacomp-trial-images/`.
+2. Name each card pair with a stable number, for example `001-front.jpg`, `001-back.jpg`, through `100-front.jpg`, `100-back.jpg`.
+3. Create the local manifest:
+
+```bash
+npm run instacomp:trial:init
+```
+
+4. Open `instacomp-trial-manifest.local.json` and fill the `expected` fields from the physical card before using the scan result. Important expected fields are player/subject, year, brand, set, card number, parallel, variation, team, sport, autograph/relic/rookie flags, exact serial number such as `07/50`, and serial run such as `/50`.
+5. Run the lot through `/admin/instacomp` or `/admin/products/new` using the safest durable batch workflow below.
+6. Save the completed InstaComp outputs into `instacomp-trial-results.local.json` using schema `tcos.instacompTrialResults.v1`. Each row must use the same `trialCardId` and can put detected fields under `actual`, `result`, `predicted`, or `ai`.
+7. Score the trial:
+
+```bash
+npm run instacomp:trial:report -- --manifest instacomp-trial-manifest.local.json --results instacomp-trial-results.local.json --target 94
+```
+
+The report prints:
+
+- card count and declared scan count
+- front/back pair count
+- card-identity exact accuracy
+- field-level identity accuracy
+- exact serial-number accuracy
+- serial-run accuracy
+- combined identity-and-serial accuracy
+- the exact trial card IDs and fields that missed
+
+The trial is considered a 94% pass only when combined identity-and-serial accuracy is at least `94%`, card-identity exact accuracy is at least `94%`, exact serial-number accuracy is at least `94%` when serial-numbered cards are present, and no manifest row is missing a result.
+
+Use `npm run simulate:instacomp-trial` to verify the scorekeeper itself with committed fixture data. The fixture intentionally stays tiny; the real 100-card manifest and results are local files ignored by Git because they can include personal inventory paths and scan results.
+
 ### Durable queue prerequisite
 
 Apply this migration to the Supabase project used by TCOS before using the saved queue:
