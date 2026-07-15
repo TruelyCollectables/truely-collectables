@@ -25,6 +25,8 @@
     "status:production:json": "node scripts/deploy-production.mjs --quota-status --json",
     "status:build-block": "node scripts/status-build-block.mjs",
     "status:build-block:json": "node scripts/status-build-block.mjs --json",
+    "status:build-block-history": "node scripts/status-build-block-history.mjs",
+    "status:build-block-history:json": "node scripts/status-build-block-history.mjs --json",
     "next:build-block": "node scripts/next-build-block.mjs",
     "next:build-block:json": "node scripts/next-build-block.mjs --json",
     "archive:next-build-block-action": "node scripts/archive-next-build-block-action.mjs",

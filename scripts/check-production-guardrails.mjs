@@ -1019,6 +1019,12 @@ assertScriptIncludes("status:build-block", [
 assertScriptIncludes("status:build-block:json", [
   "node scripts/status-build-block.mjs --json",
 ]);
+assertScriptIncludes("status:build-block-history", [
+  "node scripts/status-build-block-history.mjs",
+]);
+assertScriptIncludes("status:build-block-history:json", [
+  "node scripts/status-build-block-history.mjs --json",
+]);
 assertScriptIncludes("next:build-block", [
   "node scripts/next-build-block.mjs",
 ]);
@@ -1073,6 +1079,18 @@ assertFileIncludes("30-minute build block checkpoint source", "scripts/status-bu
   "quota_wait_launch_safe_build",
   "supabase_bootstrap_handoff",
   "Safe build boundary:",
+  "starts no deploy, upload, archive creation, Git push, Checkout, postage, payout, launch approval, or revocation",
+]);
+assertFileIncludes("30-minute build block history source", "scripts/status-build-block-history.mjs", [
+  "tcos.buildBlockHistory.v1",
+  "build-block-checkpoint",
+  "next-build-block-action",
+  "go-live-runway",
+  "allLatestEvidenceAtCurrentPushedHead",
+  "TCOS build-block history:",
+  "captured at current pushed HEAD:",
+  "Run npm run prepare:go-live-evidence, then npm run prepare:build-block-checkpoint",
+  "This history command is read-only",
   "starts no deploy, upload, archive creation, Git push, Checkout, postage, payout, launch approval, or revocation",
 ]);
 assertFileIncludes("30-minute next build block action source", "scripts/next-build-block.mjs", [
@@ -1142,6 +1160,8 @@ assertFileIncludes("30-minute build block checkpoint verifier source", "scripts/
 assertFileIncludes("go-live safe build block commands", "scripts/status-go-live.mjs", [
   "npm run status:build-block",
   "npm --silent run status:build-block:json",
+  "npm run status:build-block-history",
+  "npm --silent run status:build-block-history:json",
   "npm run prepare:build-block-checkpoint",
   "npm run archive:build-block-checkpoint",
   "npm run verify:build-block-checkpoint",
@@ -1715,6 +1735,7 @@ assertFileIncludes("live money go/no-go README instructions", "README.md", [
   "npm --silent run verify:build-block-checkpoint:json",
   "tcos.buildBlockCheckpoint.v1",
   "tcos.buildBlockCheckpointVerification.v1",
+  "tcos.buildBlockHistory.v1",
   "npm run next:build-block",
   "npm --silent run next:build-block:json",
   "tcos.nextBuildBlockAction.v1",
@@ -1723,6 +1744,7 @@ assertFileIncludes("live money go/no-go README instructions", "README.md", [
   "localBuildFallback",
   "selected next half-hour lane",
   "local_build_fallback",
+  "latest go-live runway, build-block checkpoint, and selected next-action archives",
   ".codex-run/next-build-block-action/",
   "npm run archive:next-build-block-action",
   "npm run verify:next-build-block-action",

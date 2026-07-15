@@ -541,6 +541,8 @@ function buildStatus() {
     "npm --silent run status:production:json",
     "npm run status:build-block",
     "npm --silent run status:build-block:json",
+    "npm run status:build-block-history",
+    "npm --silent run status:build-block-history:json",
     "npm run prepare:build-block-checkpoint",
     "npm run archive:build-block-checkpoint",
     "npm run verify:build-block-checkpoint",
