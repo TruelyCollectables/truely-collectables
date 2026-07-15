@@ -32,6 +32,7 @@ import {
 } from "../../../lib/stripe-credentials";
 import { buildSellerMarketplaceReceiptHandoffContract } from "../../../lib/seller-marketplace-receipt-handoff";
 import { LIVE_MONEY_JSON_EVIDENCE } from "../../../lib/live-money-evidence";
+import { EMERGENCY_BACKUP_EVIDENCE } from "../../../lib/emergency-backup-evidence";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -1397,6 +1398,99 @@ export default async function LaunchReadinessPage() {
           </p>
         </section>
       )}
+
+      <section className="mb-8 rounded border border-cyan-200 bg-cyan-50 p-6 text-cyan-950">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-black uppercase tracking-widest">
+              MacBook emergency backup
+            </p>
+            <h2 className="mt-2 text-2xl font-bold">
+              {EMERGENCY_BACKUP_EVIDENCE.title}
+            </h2>
+            <p className="mt-2 max-w-4xl text-sm font-semibold leading-6">
+              Capture backup proof before the final go-live pass: current
+              schedule health, scheduler proof, launchd runtime evidence,
+              verification result, verified archive path, and SHA-256. The
+              combined runway command now carries those fields beside Git,
+              Vercel quota, and live-money state.
+            </p>
+          </div>
+          <a
+            href="/api/admin/launch-readiness?format=handoff-bundle"
+            className="rounded border border-cyan-300 bg-white px-4 py-2 text-sm font-bold"
+          >
+            Download Hand-off Bundle
+          </a>
+        </div>
+
+        <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-3">
+          <div className="rounded border border-cyan-200 bg-white p-4">
+            <h3 className="font-black uppercase text-cyan-700">Status proof</h3>
+            <p className="mt-2 font-mono text-xs">
+              {EMERGENCY_BACKUP_EVIDENCE.statusJsonCommand}
+            </p>
+            <p className="mt-2 text-sm font-semibold">
+              Schema:{" "}
+              <span className="font-mono text-xs">
+                {EMERGENCY_BACKUP_EVIDENCE.statusSchema}
+              </span>
+            </p>
+          </div>
+          <div className="rounded border border-cyan-200 bg-white p-4">
+            <h3 className="font-black uppercase text-cyan-700">
+              Verification proof
+            </h3>
+            <p className="mt-2 font-mono text-xs">
+              {EMERGENCY_BACKUP_EVIDENCE.verificationJsonCommand}
+            </p>
+            <p className="mt-2 text-sm font-semibold">
+              Schema:{" "}
+              <span className="font-mono text-xs">
+                {EMERGENCY_BACKUP_EVIDENCE.verificationSchema}
+              </span>
+            </p>
+          </div>
+          <div className="rounded border border-cyan-200 bg-white p-4">
+            <h3 className="font-black uppercase text-cyan-700">
+              Combined runway proof
+            </h3>
+            <p className="mt-2 font-mono text-xs">
+              {EMERGENCY_BACKUP_EVIDENCE.runwayArchiveCommand}
+            </p>
+            <p className="mt-2 text-sm font-semibold">
+              Schema:{" "}
+              <span className="font-mono text-xs">
+                {EMERGENCY_BACKUP_EVIDENCE.runwaySchema}
+              </span>
+            </p>
+          </div>
+        </div>
+
+        <dl className="mt-5 grid grid-cols-1 gap-3 text-sm lg:grid-cols-2">
+          <div className="rounded border border-cyan-200 bg-white p-4">
+            <dt className="font-black uppercase text-cyan-700">
+              Accepted launch proof
+            </dt>
+            <dd className="mt-2 font-semibold leading-6">
+              {EMERGENCY_BACKUP_EVIDENCE.acceptedStatus}
+            </dd>
+          </div>
+          <div className="rounded border border-cyan-200 bg-white p-4">
+            <dt className="font-black uppercase text-cyan-700">
+              Backup folder and retention
+            </dt>
+            <dd className="mt-2 font-semibold leading-6">
+              {EMERGENCY_BACKUP_EVIDENCE.backupFolder}.{" "}
+              {EMERGENCY_BACKUP_EVIDENCE.retentionWindow}
+            </dd>
+          </div>
+        </dl>
+        <p className="mt-4 text-sm font-semibold leading-6">
+          {EMERGENCY_BACKUP_EVIDENCE.readOnlyGuarantee}{" "}
+          {EMERGENCY_BACKUP_EVIDENCE.sideEffectBoundary}
+        </p>
+      </section>
 
       <section className="mb-8 rounded border border-blue-200 bg-blue-50 p-6 text-blue-950">
         <div className="flex flex-wrap items-start justify-between gap-4">

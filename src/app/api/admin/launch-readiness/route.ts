@@ -24,6 +24,10 @@ import {
   LIVE_MONEY_JSON_EVIDENCE,
   liveMoneyJsonEvidenceMarkdownLines,
 } from "../../../../lib/live-money-evidence";
+import {
+  EMERGENCY_BACKUP_EVIDENCE,
+  emergencyBackupEvidenceMarkdownLines,
+} from "../../../../lib/emergency-backup-evidence";
 
 export const dynamic = "force-dynamic";
 
@@ -247,6 +251,8 @@ function markdownForBrief(brief: Awaited<ReturnType<typeof buildBrief>>) {
     "",
     ...deploymentSourceMarkdownLines(brief.deployment),
     "",
+    ...emergencyBackupEvidenceMarkdownLines(brief.emergencyBackupEvidence),
+    "",
     ...deploySafetyMarkdownLines(),
     "",
     "## Launch Drill",
@@ -333,6 +339,8 @@ function markdownForHandoffBundle(
     cleanMarkdownListWithLinks(brief.attentionItems),
     "",
     ...deploymentSourceMarkdownLines(brief.deployment),
+    "",
+    ...emergencyBackupEvidenceMarkdownLines(brief.emergencyBackupEvidence),
     "",
     "## Git Tip Verification",
     "",
@@ -612,6 +620,7 @@ async function buildBrief(origin: string | null = null) {
     },
     deployment: buildDeploymentSource(origin),
     deploySafety: DEPLOY_SAFETY,
+    emergencyBackupEvidence: EMERGENCY_BACKUP_EVIDENCE,
     summary,
     payment: {
       mode: paymentReport.paymentMode,

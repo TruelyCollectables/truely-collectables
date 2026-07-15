@@ -3,6 +3,7 @@ import { DEPLOY_SAFETY } from "../../../lib/deploy-safety";
 import { buildSellerMarketplaceReceiptHandoffContract } from "../../../lib/seller-marketplace-receipt-handoff";
 import { SELLER_PROTECTION_SMOKE_COVERAGE_LINE } from "../../../lib/seller-protection-launch-contract";
 import { LIVE_MONEY_JSON_EVIDENCE } from "../../../lib/live-money-evidence";
+import { EMERGENCY_BACKUP_EVIDENCE } from "../../../lib/emergency-backup-evidence";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -18,6 +19,7 @@ const smokeChecks = [
   "Launch readiness and handoff exports show missing/unexpected purchase-audit key drift",
   SELLER_PROTECTION_SMOKE_COVERAGE_LINE,
   "Launch Gate Drill page, JSON report, Markdown operator report, live-money runway, Shipping Provider Unlock Action Plan, and Standard Envelope evidence validator",
+  "Emergency Backup Evidence contract in Launch Readiness JSON, Markdown, handoff bundle, and page",
   "Live Payment Launch Gate",
   "Live Shipping Launch Gate with Shipping Provider Unlock Action Plan and Purchase-Audit Key Drift card",
   "Admin shipping cockpit LetterTrack export, IMb, and delivery-evidence controls",
@@ -89,6 +91,14 @@ const manualVerificationChecks = [
       `Run \`${LIVE_MONEY_JSON_EVIDENCE.archiveCommand}\` after smoke passes to write timestamped evidence under ${LIVE_MONEY_JSON_EVIDENCE.archiveDirectory} with schema ${LIVE_MONEY_JSON_EVIDENCE.schema}; confirm the Supabase bootstrap environment checklist (${LIVE_MONEY_JSON_EVIDENCE.environmentChecklist.supabaseBootstrap.join("; ")}) and final live-payment runtime environment checklist (${LIVE_MONEY_JSON_EVIDENCE.environmentChecklist.finalLivePaymentRuntime.join("; ")}) are staged; during the final go-live window, run \`${LIVE_MONEY_JSON_EVIDENCE.preflightArchiveCommand}\` and require ${LIVE_MONEY_JSON_EVIDENCE.readyStates.join(" or ")} before any runtime switch change. Raw JSON commands remain \`${LIVE_MONEY_JSON_EVIDENCE.statusCommand}\` and \`${LIVE_MONEY_JSON_EVIDENCE.preflightCommand}\`.`,
     ifBlocked:
       `Do not approve live payments or set TCOS_LIVE_PAYMENTS_ENABLED=true when the JSON evidence is missing, ${LIVE_MONEY_JSON_EVIDENCE.blockedStates.join(", ")}.`,
+  },
+  {
+    label: "Emergency backup evidence",
+    href: "/admin/launch-readiness",
+    proof:
+      `Run \`${EMERGENCY_BACKUP_EVIDENCE.runwayArchiveCommand}\` before go-live and preserve ${EMERGENCY_BACKUP_EVIDENCE.runwayArchiveDirectory} evidence with ${EMERGENCY_BACKUP_EVIDENCE.runwaySchema}; if drilling the backup lane directly, also capture \`${EMERGENCY_BACKUP_EVIDENCE.statusArchiveCommand}\` and \`${EMERGENCY_BACKUP_EVIDENCE.verificationArchiveCommand}\`. Require ${EMERGENCY_BACKUP_EVIDENCE.acceptedStatus}`,
+    ifBlocked:
+      `Do not treat the MacBook backup lane as launch-ready when status, verification, scheduler proof, archive path, or SHA-256 evidence is missing. ${EMERGENCY_BACKUP_EVIDENCE.sideEffectBoundary}`,
   },
   {
     label: "Live shipping lock posture",
