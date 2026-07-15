@@ -3149,6 +3149,39 @@ assertFileOrder("shipping provider purchase gate order", "src/app/api/admin/orde
   "if (blockers.length > 0)",
   "const purchaseResult = await purchaseShippingLabel",
 ]);
+assertFileIncludes("shipping manual proof dry-run guard source", "src/app/api/admin/orders/[id]/shipping-labels/route.ts", [
+  "record_manual_purchase",
+  "Manual purchase records must use real external label and Coverage details, not TCOS dry-run references.",
+  "record_lettertrack_imb",
+  "LetterTrack records must use the real assigned IMb or LetterTrack reference, not TCOS dry-run references.",
+  "isDryRunShippingReference",
+  "manual_label_purchase_recorded",
+  "lettertrack_imb_recorded",
+  "coverage_policy_id",
+  "order_shipping_tracking_events",
+]);
+assertFileOrder("shipping manual purchase dry-run gate order", "src/app/api/admin/orders/[id]/shipping-labels/route.ts", [
+  'if (body.action === "record_manual_purchase")',
+  "const dryRunFields = [",
+  "if (dryRunFields.length > 0)",
+  '.from("order_shipping_labels")',
+  ".update({\n          provider,",
+  '.from("orders")',
+  ".update({\n            carrier,",
+  'event_type: "manual_label_purchase_recorded"',
+]);
+assertFileOrder("shipping LetterTrack dry-run gate order", "src/app/api/admin/orders/[id]/shipping-labels/route.ts", [
+  'if (body.action === "record_lettertrack_imb")',
+  'if (resolvedMethod !== "STANDARD_ENVELOPE")',
+  "const dryRunFields = [",
+  "if (!trackingNumber)",
+  "if (dryRunFields.length > 0)",
+  '.from("order_shipping_labels")',
+  ".update({\n          provider: \"LetterTrack / USPS IMb\",",
+  '.from("orders")',
+  ".update({\n          carrier: \"USPS IMb\",",
+  'event_type: "lettertrack_imb_recorded"',
+]);
 assertFileIncludes("seller payout release resolution guard source", "src/app/api/admin/order-review-cases/[id]/payout-resolution/route.ts", [
   "release_to_seller",
   'targetStatus: "eligible"',
