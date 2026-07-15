@@ -4,6 +4,7 @@ import {
   getLivePaymentGateErrorDetail,
   LIVE_PAYMENT_APPROVAL_VERSION,
 } from "../../../../lib/live-payment-launch";
+import { LIVE_MONEY_JSON_EVIDENCE } from "../../../../lib/live-money-evidence";
 import { getActiveStoreId } from "../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 
@@ -17,10 +18,17 @@ export async function GET() {
   try {
     const supabase = createSupabaseServerClient({ admin: true });
     const report = await evaluateLivePaymentLaunch({ supabase });
-    return NextResponse.json({ success: true, report });
+    return NextResponse.json({
+      success: true,
+      report,
+      liveMoneyEvidence: LIVE_MONEY_JSON_EVIDENCE,
+    });
   } catch (error: any) {
     return NextResponse.json(
-      { error: error.message || "Could not evaluate the live payment gate." },
+      {
+        error: error.message || "Could not evaluate the live payment gate.",
+        liveMoneyEvidence: LIVE_MONEY_JSON_EVIDENCE,
+      },
       { status: 500 },
     );
   }
@@ -36,25 +44,40 @@ export async function POST(request: Request) {
 
     if (!operator) {
       return NextResponse.json(
-        { error: "Operator name is required for the immutable launch audit." },
+        {
+          error: "Operator name is required for the immutable launch audit.",
+          liveMoneyEvidence: LIVE_MONEY_JSON_EVIDENCE,
+        },
         { status: 400 },
       );
     }
 
     if (action === "approve" && confirmation !== "APPROVE LIVE PAYMENTS") {
       return NextResponse.json(
-        { error: "Type APPROVE LIVE PAYMENTS exactly." },
+        {
+          error: "Type APPROVE LIVE PAYMENTS exactly.",
+          liveMoneyEvidence: LIVE_MONEY_JSON_EVIDENCE,
+        },
         { status: 400 },
       );
     }
     if (action === "revoke" && confirmation !== "REVOKE LIVE PAYMENTS") {
       return NextResponse.json(
-        { error: "Type REVOKE LIVE PAYMENTS exactly." },
+        {
+          error: "Type REVOKE LIVE PAYMENTS exactly.",
+          liveMoneyEvidence: LIVE_MONEY_JSON_EVIDENCE,
+        },
         { status: 400 },
       );
     }
     if (action !== "approve" && action !== "revoke") {
-      return NextResponse.json({ error: "Invalid gate action." }, { status: 400 });
+      return NextResponse.json(
+        {
+          error: "Invalid gate action.",
+          liveMoneyEvidence: LIVE_MONEY_JSON_EVIDENCE,
+        },
+        { status: 400 },
+      );
     }
 
     const supabase = createSupabaseServerClient({ admin: true });
@@ -67,6 +90,7 @@ export async function POST(request: Request) {
           error:
             "Live payment approval tables are unavailable. Apply the live-payment launch gate migration before approving live Checkout.",
           report,
+          liveMoneyEvidence: LIVE_MONEY_JSON_EVIDENCE,
         },
         { status: 409 },
       );
@@ -77,6 +101,7 @@ export async function POST(request: Request) {
         {
           error: "Live payment approval is blocked until every required check passes.",
           report,
+          liveMoneyEvidence: LIVE_MONEY_JSON_EVIDENCE,
         },
         { status: 409 },
       );
@@ -130,6 +155,7 @@ export async function POST(request: Request) {
     return NextResponse.json({
       success: true,
       action,
+      liveMoneyEvidence: LIVE_MONEY_JSON_EVIDENCE,
       runtimeSwitchEnabled:
         process.env.TCOS_LIVE_PAYMENTS_ENABLED === "true",
     });
@@ -143,7 +169,10 @@ export async function POST(request: Request) {
         : 500;
 
     return NextResponse.json(
-      { error: getLivePaymentGateErrorDetail(error || { message: detail }) },
+      {
+        error: getLivePaymentGateErrorDetail(error || { message: detail }),
+        liveMoneyEvidence: LIVE_MONEY_JSON_EVIDENCE,
+      },
       { status },
     );
   }

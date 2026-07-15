@@ -1216,6 +1216,15 @@ assertFileIncludes("live launch gate smoke contract", "scripts/smoke-production.
   "Hand-off Bundle",
   "Approve Live Payments",
   "Payment Lab",
+  'name: "live payment gate json"',
+  'path: "/api/admin/live-payment-launch"',
+  '"liveMoneyEvidence"',
+  '"schema":"tcos.liveMoneyGoNoGo.v1"',
+  '"statusCommand":"npm --silent run status:live-money:json"',
+  '"preflightCommand":"npm --silent run preflight:live-money:json"',
+  '"READY_FOR_RUNTIME_SWITCH"',
+  '"LIVE_MONEY_OPEN"',
+  "Archive the status JSON after production smoke passes",
   'name: "live shipping gate"',
   'path: "/admin/live-shipping-launch"',
   "const pageText = visibleText(result.text)",
@@ -1270,6 +1279,12 @@ assertFileIncludes("live payment gate JSON evidence source", "src/app/admin/live
   "TCOS_LIVE_PAYMENTS_ENABLED",
   "LIVE_MONEY_JSON_EVIDENCE.readOnlyGuarantee",
   "/api/admin/launch-readiness?format=handoff-bundle",
+]);
+
+assertFileIncludes("live payment gate API JSON evidence source", "src/app/api/admin/live-payment-launch/route.ts", [
+  "LIVE_MONEY_JSON_EVIDENCE",
+  'from "../../../../lib/live-money-evidence"',
+  "liveMoneyEvidence: LIVE_MONEY_JSON_EVIDENCE",
 ]);
 
 assertFileIncludes("live shipping evidence contract report source", "src/lib/live-shipping-launch.ts", [

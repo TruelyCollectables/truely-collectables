@@ -1356,6 +1356,21 @@ const checks = [
       result.text.includes("Payment Lab"),
   },
   {
+    name: "live payment gate json",
+    path: "/api/admin/live-payment-launch",
+    expect: (result) =>
+      result.contentType.includes("application/json") &&
+      result.text.includes('"liveMoneyEvidence"') &&
+      result.text.includes('"schema":"tcos.liveMoneyGoNoGo.v1"') &&
+      result.text.includes('"statusCommand":"npm --silent run status:live-money:json"') &&
+      result.text.includes('"preflightCommand":"npm --silent run preflight:live-money:json"') &&
+      result.text.includes('"READY_FOR_RUNTIME_SWITCH"') &&
+      result.text.includes('"LIVE_MONEY_OPEN"') &&
+      result.text.includes("BLOCKED_LAUNCH_GATE") &&
+      result.text.includes("Archive the status JSON after production smoke passes") &&
+      result.text.includes("must not create Checkout Sessions"),
+  },
+  {
     name: "live shipping gate",
     path: "/admin/live-shipping-launch",
     expect: (result) => {
