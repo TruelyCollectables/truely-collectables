@@ -520,6 +520,60 @@ function statusTone(value: string | null | undefined) {
   return "border-neutral-200 bg-neutral-100 text-neutral-700";
 }
 
+function CashOutPayoutProofCard({
+  request,
+}: {
+  request: SellerPayoutRequest;
+}) {
+  const hasProviderReference = Boolean(request.providerPayoutReference);
+  const paidRequest = request.status === "paid";
+  const processingRequest = request.status === "processing";
+
+  if (!paidRequest && !processingRequest && !hasProviderReference) return null;
+
+  return (
+    <div
+      className={`mt-4 rounded-md border px-3 py-2 text-sm ${
+        hasProviderReference
+          ? "border-emerald-200 bg-emerald-50 text-emerald-950"
+          : "border-amber-200 bg-amber-50 text-amber-950"
+      }`}
+    >
+      <p className="text-xs font-black uppercase tracking-[0.14em]">
+        Cash-out payout proof
+      </p>
+      <p className="mt-1 font-semibold">
+        Provider payout reference is the proof trail TCOS uses when a cash-out
+        payout is marked paid.
+      </p>
+      <div className="mt-2 grid grid-cols-1 gap-2 text-xs sm:grid-cols-2">
+        <Info
+          label="Provider reference ready"
+          value={hasProviderReference ? "Yes" : "No"}
+        />
+        <Info label="Payout status" value={sellerPayoutLabel(request.status)} />
+      </div>
+      {hasProviderReference ? (
+        <p className="mt-2 break-all">
+          Provider reference:{" "}
+          <strong>{request.providerPayoutReference}</strong>
+        </p>
+      ) : paidRequest ? (
+        <p className="mt-2 font-semibold">
+          AUDIT WARNING: this paid cash-out request is missing a provider payout
+          reference. Contact TCOS support before relying on payout delivery
+          proof.
+        </p>
+      ) : (
+        <p className="mt-2 font-semibold">
+          TCOS records the provider payout reference before this cash-out is
+          marked paid.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function sellerProtectionTone(status: SellerProtectionSummary["status"]) {
   if (status === "protected") {
     return "border-emerald-200 bg-emerald-50 text-emerald-950";
@@ -1592,14 +1646,7 @@ export default function SellerPayoutsPage() {
                     />
                   ) : null}
 
-                  {request.providerPayoutReference ? (
-                    <p className="mt-4 text-sm text-neutral-700">
-                      Provider reference:{" "}
-                      <strong className="text-neutral-950">
-                        {request.providerPayoutReference}
-                      </strong>
-                    </p>
-                  ) : null}
+                  <CashOutPayoutProofCard request={request} />
 
                   {request.requestNote ? (
                     <p className="mt-3 rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm text-neutral-700">
