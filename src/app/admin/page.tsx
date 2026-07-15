@@ -664,6 +664,43 @@ export default async function AdminDashboard() {
                       : "locked"}
                     .
                   </p>
+                  <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+                    <MiniLaunchCount
+                      label="approval blockers"
+                      value={launchGateDrill.payment.approvalBlockingCount}
+                      tone={
+                        launchGateDrill.payment.approvalBlockingCount > 0
+                          ? "rose"
+                          : "green"
+                      }
+                    />
+                    <MiniLaunchCount
+                      label="launch locks"
+                      value={launchGateDrill.payment.launchLockCount}
+                      tone={
+                        launchGateDrill.payment.livePaymentsEnabled
+                          ? "green"
+                          : "amber"
+                      }
+                    />
+                    <MiniLaunchCount
+                      label="warnings"
+                      value={launchGateDrill.payment.warningCount}
+                      tone={
+                        launchGateDrill.payment.warningCount > 0
+                          ? "amber"
+                          : "green"
+                      }
+                    />
+                  </div>
+                  <p className="mt-3 text-xs font-black text-neutral-700">
+                    Live money runway: {launchGateDrill.payment.operatorSummary}
+                  </p>
+                  <p className="mt-2 text-xs font-semibold text-neutral-600">
+                    Next live-money action:{" "}
+                    {launchGateDrill.payment.nextActions[0] ||
+                      "Monitor Stripe webhooks, reconciliation, refunds, disputes, seller payout holds, and emergency revocation readiness."}
+                  </p>
                 </div>
 
                 <div className="rounded border border-neutral-200 bg-neutral-50 p-3">
@@ -1112,6 +1149,32 @@ function Pill({
     <span className={`rounded border px-2.5 py-1 text-xs font-black ${className}`}>
       {label}
     </span>
+  );
+}
+
+function MiniLaunchCount({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone: "green" | "amber" | "rose";
+}) {
+  const className =
+    tone === "green"
+      ? "text-emerald-700"
+      : tone === "amber"
+      ? "text-amber-700"
+      : "text-rose-700";
+
+  return (
+    <div className="rounded border border-neutral-200 bg-white px-2 py-1.5">
+      <p className={`text-lg font-black ${className}`}>{value}</p>
+      <p className="text-[10px] font-black uppercase leading-tight text-neutral-500">
+        {label}
+      </p>
+    </div>
   );
 }
 

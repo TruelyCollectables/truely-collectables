@@ -663,6 +663,10 @@ const checks = [
       result.text.includes("Shipping Setup") &&
       result.text.includes("Shipping Provider Unlock Action Plan") &&
       hasSellerMarketplaceReceiptHandoffSmokeText(result.text) &&
+      result.text.includes("Live money runway") &&
+      result.text.includes("approval blockers") &&
+      result.text.includes("launch locks") &&
+      result.text.includes("Next live-money action") &&
       result.text.includes("Choose provider accounts") &&
       result.text.includes("Stage Vercel environment names") &&
       result.text.includes("Keep shipping runtime locked") &&

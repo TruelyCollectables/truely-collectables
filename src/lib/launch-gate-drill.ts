@@ -35,6 +35,11 @@ export type LaunchGateDrillReport = {
   payment: {
     livePaymentsEnabled: boolean;
     paymentMode: string;
+    approvalBlockingCount: number;
+    launchLockCount: number;
+    warningCount: number;
+    operatorSummary: string;
+    nextActions: string[];
   };
   shipping: {
     liveShippingEnabled: boolean;
@@ -376,6 +381,13 @@ export async function runLaunchGateDrill(params?: {
     payment: {
       livePaymentsEnabled: paymentReport.livePaymentsEnabled,
       paymentMode: paymentReport.paymentMode,
+      approvalBlockingCount: paymentReport.summary.approvalBlockingCount,
+      launchLockCount: paymentReport.summary.launchLockCount,
+      warningCount: paymentReport.summary.warningCount,
+      operatorSummary: paymentReport.summary.operatorSummary,
+      nextActions: paymentReport.summary.nextActions.map(
+        (item) => `${item.label}: ${item.action}`,
+      ),
     },
     shipping: {
       liveShippingEnabled: shippingReport.liveShippingEnabled,
