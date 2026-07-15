@@ -4687,6 +4687,28 @@ Scheduled seller reconciliation runs at 09:00 UTC and requires `CRON_SECRET`. Th
 
 ## 36. Local Startup, Backup Verification, And Laptop-Failure Recovery
 
+### MacBook nightly emergency backup
+
+The MacBook nightly emergency backup is a fast source recovery path for daily work. Run it manually with:
+
+```bash
+npm run backup:nightly
+```
+
+By default it creates `~/TCOS_BACKUP/nightly/truely-collectables-nightly-*.tar.gz`, a `.sha256` checksum file, and a `.manifest.json` evidence file. The archive preserves the working repository, `.git` history, uncommitted working-tree files, and ignored `.env*` files for local emergency restore. It intentionally excludes rebuildable or noisy folders such as `node_modules`, `.next`, `.next-*`, `out`, `build`, `.codex-run`, `TCOS_BACKUP`, PaddleOCR virtual environments/caches, `coverage`, `.venv`, `.DS_Store`, and `*.tsbuildinfo`.
+
+The same command also attempts `git push origin HEAD:main` when the current branch is `main`. That Git leg only pushes already-committed source. It does not run `git add`, does not create an automatic commit, and does not publish ignored `.env*` files or random untracked files. If the working tree is dirty, the dirty files are captured by the local Mac archive and the manifest notes that Git only received committed source.
+
+Install the nightly macOS LaunchAgent with:
+
+```bash
+npm run backup:nightly:install
+```
+
+The installer writes `~/Library/LaunchAgents/com.truelycollectables.nightly-emergency-backup.plist`, schedules the backup for 02:30 local time, and writes logs under `~/TCOS_BACKUP/nightly/logs`. Use `npm run backup:nightly:install -- --no-load` to write the plist without loading it. Use `npm run backup:nightly -- --local-only` for a no-network emergency archive, or `npm run backup:nightly -- --backup-dir .codex-run/nightly-backup-test --local-only` for a workspace-local test.
+
+Treat `~/TCOS_BACKUP/nightly` like a password vault because local archives can include production-capable `.env*` secrets. Do not upload the tarballs to public cloud storage or commit them to Git.
+
 The current disaster-recovery snapshot created on 2026-07-11 is fully verified in the local location below. The second path is the intended Transcend target:
 
 ```text

@@ -7,6 +7,8 @@
     "build": "next build --webpack",
     "start": "next start",
     "manual:pdf": "node scripts/build-manual-pdf.mjs",
+    "backup:nightly": "node scripts/nightly-emergency-backup.mjs",
+    "backup:nightly:install": "node scripts/install-nightly-emergency-backup-launchd.mjs",
     "simulate:instacomp-jobs": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-instacomp-job-simulations.mjs",
     "simulate:instacomp-accuracy": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-instacomp-accuracy-simulations.mjs",
     "simulate:lettertrack-evidence": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-lettertrack-evidence-simulations.mjs",

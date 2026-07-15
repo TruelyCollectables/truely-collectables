@@ -29,6 +29,24 @@ To regenerate the downloadable manual PDF:
 npm run manual:pdf
 ```
 
+## Nightly emergency backups
+
+The MacBook nightly backup command creates a timestamped local archive under `~/TCOS_BACKUP/nightly` and then pushes already-committed source to `origin/main`:
+
+```bash
+npm run backup:nightly
+```
+
+The local archive includes `.git` history and ignored `.env*` files for emergency restore, while excluding rebuildable folders such as `node_modules`, `.next`, `.codex-run`, Paddle caches, and TypeScript build info. Git push only syncs committed source; the command does not auto-add untracked files or commit ignored secrets.
+
+To install the macOS nightly scheduler at 2:30 AM local time:
+
+```bash
+npm run backup:nightly:install
+```
+
+Use `npm run backup:nightly -- --local-only` for a no-network local archive, or `npm run backup:nightly -- --backup-dir .codex-run/nightly-backup-test --local-only` for a workspace-local test.
+
 ## Production deploy and smoke
 
 Use the production runbook when shipping queued launch work:

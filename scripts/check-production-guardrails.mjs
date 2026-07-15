@@ -263,6 +263,62 @@ if (packageJson.overrides?.postcss !== "8.5.15") {
 console.log("PASS patched Next.js and PostCSS dependency contract");
 
 assertScriptIncludes("build", ["next build --webpack"]);
+assertScriptIncludes("backup:nightly", [
+  "node scripts/nightly-emergency-backup.mjs",
+]);
+assertScriptIncludes("backup:nightly:install", [
+  "node scripts/install-nightly-emergency-backup-launchd.mjs",
+]);
+assertFileIncludes("nightly emergency backup helper", "scripts/nightly-emergency-backup.mjs", [
+  "tcos.nightlyEmergencyBackup.v1",
+  "Git push only syncs committed source",
+  "Ignored .env* files and untracked local files are captured by the local archive, not committed to Git.",
+  "includesGitDirectory: true",
+  "includesEnvFiles: true",
+  "git",
+  "push",
+  "origin",
+  "HEAD:main",
+  "--exclude",
+  "node_modules",
+  ".next",
+  ".codex-run",
+  "services/paddleocr-service/.paddlex-cache",
+  "--local-only",
+]);
+assertFileIncludes(
+  "nightly emergency LaunchAgent installer",
+  "scripts/install-nightly-emergency-backup-launchd.mjs",
+  [
+    "com.truelycollectables.nightly-emergency-backup",
+    "StartCalendarInterval",
+    "Library",
+    "LaunchAgents",
+    "npm run backup:nightly",
+    "nightly-emergency-backup.out.log",
+    "nightly-emergency-backup.err.log",
+    "launchctl",
+    "bootstrap",
+    "enable",
+  ],
+);
+assertFileIncludes("nightly emergency backup README", "README.md", [
+  "Nightly emergency backups",
+  "npm run backup:nightly",
+  "npm run backup:nightly:install",
+  "~/TCOS_BACKUP/nightly",
+  "includes `.git` history and ignored `.env*` files",
+  "does not auto-add untracked files or commit ignored secrets",
+]);
+assertFileIncludes("nightly emergency backup manual", "docs/TCOS_OPERATOR_MANUAL.md", [
+  "MacBook nightly emergency backup",
+  "npm run backup:nightly",
+  "npm run backup:nightly:install",
+  "git push origin HEAD:main",
+  "does not run `git add`",
+  "does not create an automatic commit",
+  "Treat `~/TCOS_BACKUP/nightly` like a password vault",
+]);
 assertFileIncludes("bounded Tailwind production scan", "src/app/globals.css", [
   '@import "tailwindcss" source(none);',
   '@source "../**/*.{js,ts,jsx,tsx,mdx}";',
