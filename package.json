@@ -20,6 +20,8 @@
     "status:live-money:json": "node --import tsx scripts/status-live-money.ts --allow-blocked --json",
     "preflight:live-money": "node --import tsx scripts/status-live-money.ts",
     "preflight:live-money:json": "node --import tsx scripts/status-live-money.ts --json",
+    "archive:live-money": "node scripts/archive-live-money-evidence.mjs",
+    "archive:live-money:preflight": "node scripts/archive-live-money-evidence.mjs --preflight",
     "preflight:production": "node scripts/deploy-production.mjs --preflight-only",
     "verify:production": "npm run lint && npm run status:live-money && npm run verify:instacomp && npm run verify:shipping && npm run build && npm run check:production-guardrails && npm run preflight:production",
     "deploy:production": "node scripts/deploy-production.mjs",

@@ -1,0 +1,104 @@
+import { spawnSync } from "node:child_process";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const repoRoot = dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
+const evidenceDir = join(repoRoot, ".codex-run", "live-money-evidence");
+const mode = process.argv.includes("--preflight") ? "preflight" : "status";
+const scriptName =
+  mode === "preflight" ? "preflight:live-money:json" : "status:live-money:json";
+const commandText = `npm --silent run ${scriptName}`;
+
+function safeTimestamp() {
+  return new Date().toISOString().replace(/[:.]/g, "-");
+}
+
+function parseEvidence(stdout) {
+  try {
+    return JSON.parse(stdout);
+  } catch (error) {
+    throw new Error(
+      `Could not parse ${scriptName} output as JSON: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+  }
+}
+
+function assertEvidenceContract(payload) {
+  const missing = [];
+  if (payload?.schema !== "tcos.liveMoneyGoNoGo.v1") missing.push("schema");
+  if (!payload?.state) missing.push("state");
+  if (typeof payload?.readyForRuntimeSwitch !== "boolean") {
+    missing.push("readyForRuntimeSwitch");
+  }
+  if (payload?.liveMoneyEvidence?.schema !== "tcos.liveMoneyGoNoGo.v1") {
+    missing.push("liveMoneyEvidence.schema");
+  }
+  if (!payload?.liveMoneyEvidence?.statusCommand) {
+    missing.push("liveMoneyEvidence.statusCommand");
+  }
+  if (!payload?.liveMoneyEvidence?.preflightCommand) {
+    missing.push("liveMoneyEvidence.preflightCommand");
+  }
+  if (!Array.isArray(payload?.liveMoneyEvidence?.readyStates)) {
+    missing.push("liveMoneyEvidence.readyStates");
+  }
+  if (!Array.isArray(payload?.liveMoneyEvidence?.blockedStates)) {
+    missing.push("liveMoneyEvidence.blockedStates");
+  }
+  if (!payload?.readOnlyGuarantee) missing.push("readOnlyGuarantee");
+
+  if (missing.length) {
+    throw new Error(
+      `Live-money evidence JSON is missing required archive field(s): ${missing.join(", ")}`,
+    );
+  }
+}
+
+const result = spawnSync(process.platform === "win32" ? "npm.cmd" : "npm", [
+  "--silent",
+  "run",
+  scriptName,
+], {
+  cwd: repoRoot,
+  encoding: "utf8",
+});
+
+const stdout = (result.stdout || "").trim();
+const stderr = (result.stderr || "").trim();
+
+if (!stdout) {
+  if (stderr) console.error(stderr);
+  console.error(`No JSON evidence was produced by ${commandText}.`);
+  process.exit(result.status || 1);
+}
+
+let payload;
+try {
+  payload = parseEvidence(stdout);
+  assertEvidenceContract(payload);
+} catch (error) {
+  if (stderr) console.error(stderr);
+  console.error(error instanceof Error ? error.message : String(error));
+  process.exit(result.status || 1);
+}
+
+mkdirSync(evidenceDir, { recursive: true });
+const filePath = join(evidenceDir, `${safeTimestamp()}-${mode}.json`);
+writeFileSync(filePath, `${JSON.stringify(payload, null, 2)}\n`);
+
+console.log("Live money evidence archived:");
+console.log(`- mode: ${mode}`);
+console.log(`- command: ${commandText}`);
+console.log(`- path: ${filePath}`);
+console.log(`- state: ${payload.state}`);
+console.log(
+  `- ready for runtime switch: ${payload.readyForRuntimeSwitch ? "yes" : "no"}`,
+);
+console.log(`- read-only guarantee: ${payload.readOnlyGuarantee}`);
+
+if (stderr) console.error(stderr);
+
+process.exitCode = result.status || 0;

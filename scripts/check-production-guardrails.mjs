@@ -688,6 +688,10 @@ runExpectedSuccess("live money status runner syntax check", [
   "--check",
   "scripts/status-live-money.ts",
 ]);
+runExpectedSuccess("live money evidence archive helper syntax check", [
+  "--check",
+  "scripts/archive-live-money-evidence.mjs",
+]);
 assertScriptIncludes("verify:shipping", [
   "simulate:lettertrack-evidence",
   "simulate:shipping-purchase-audit",
@@ -707,6 +711,12 @@ assertScriptIncludes("preflight:live-money", [
 ]);
 assertScriptIncludes("preflight:live-money:json", [
   "node --import tsx scripts/status-live-money.ts --json",
+]);
+assertScriptIncludes("archive:live-money", [
+  "node scripts/archive-live-money-evidence.mjs",
+]);
+assertScriptIncludes("archive:live-money:preflight", [
+  "node scripts/archive-live-money-evidence.mjs --preflight",
 ]);
 assertScriptIncludes("verify:production", [
   "status:live-money",
@@ -762,11 +772,28 @@ assertFileIncludes("live money go/no-go CLI source", "scripts/status-live-money.
   "runtime switch",
   "No Checkout Sessions, Customers, PaymentIntents, refunds, disputes, payouts, labels, postage purchases, Coverage policies, launch approvals, or revocations were created.",
 ]);
+assertFileIncludes("live money evidence archive helper source", "scripts/archive-live-money-evidence.mjs", [
+  "status:live-money:json",
+  "preflight:live-money:json",
+  ".codex-run",
+  "live-money-evidence",
+  "Live money evidence archived:",
+  "liveMoneyEvidence.schema",
+  "liveMoneyEvidence.statusCommand",
+  "liveMoneyEvidence.preflightCommand",
+  "liveMoneyEvidence.readyStates",
+  "liveMoneyEvidence.blockedStates",
+  "readOnlyGuarantee",
+  "process.exitCode = result.status || 0",
+]);
 assertFileIncludes("live money go/no-go README instructions", "README.md", [
   "npm run status:live-money",
   "npm --silent run status:live-money:json",
   "npm run preflight:live-money",
   "npm --silent run preflight:live-money:json",
+  "npm run archive:live-money",
+  "npm run archive:live-money:preflight",
+  ".codex-run/live-money-evidence/",
   "liveMoneyEvidence",
   "accepted go-live states",
   "halt states",

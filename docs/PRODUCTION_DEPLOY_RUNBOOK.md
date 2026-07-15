@@ -110,9 +110,10 @@ Use `npm run status:production` between development blocks to see the exact retr
 
 1. Verify the pushed stack with `npm run verify:production`. This must pass lint, simulations, build, production guardrails, and GitHub preflight without touching Vercel; it also prints the non-blocking `npm run status:live-money` runway report so operators see live-money posture before deploy work.
 2. Launch only when quota is open with `npm run launch:production`. This should deploy production, set the clean alias, remove the unwanted alias, and run smoke in order.
-3. Halt on Vercel quota. If the deploy reports `api-deployments-free-per-day`, do not force alternate deploy paths or rapid-fire retries; Vercel can still upload files before returning the quota error, so wait for the rolling 24-hour reset and rerun the launch helper.
-4. Split the run only after a successful deploy or when intentionally rerunning steps: `npm run deploy:production` then `npm run smoke:production`.
-5. Ship only after smoke passes `https://truely-collectables.vercel.app` and confirms the unwanted `truely-collectables-tt3b.vercel.app` alias does not respond.
+3. After smoke passes, archive the live-money status evidence with `npm run archive:live-money`; during the final go-live window, archive the stricter preflight evidence with `npm run archive:live-money:preflight` and require `READY_FOR_RUNTIME_SWITCH` or `LIVE_MONEY_OPEN` before changing runtime switches. Both helpers write timestamped JSON under `.codex-run/live-money-evidence/`.
+4. Halt on Vercel quota. If the deploy reports `api-deployments-free-per-day`, do not force alternate deploy paths or rapid-fire retries; Vercel can still upload files before returning the quota error, so wait for the rolling 24-hour reset and rerun the launch helper.
+5. Split the run only after a successful deploy or when intentionally rerunning steps: `npm run deploy:production` then `npm run smoke:production`.
+6. Ship only after smoke passes `https://truely-collectables.vercel.app` and confirms the unwanted `truely-collectables-tt3b.vercel.app` alias does not respond.
 
 ## Smoke test
 
