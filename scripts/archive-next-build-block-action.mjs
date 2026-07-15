@@ -53,6 +53,9 @@ function assertEvidenceContract(payload) {
   if (!payload?.selectedReason) missing.push("selectedReason");
   if (!payload?.next) missing.push("next");
   if (!Array.isArray(payload?.commands)) missing.push("commands");
+  if (typeof payload?.goLiveEvidenceRefreshRequired !== "boolean") {
+    missing.push("goLiveEvidenceRefreshRequired");
+  }
   if (!payload?.primaryRecommendation?.focus) {
     missing.push("primaryRecommendation.focus");
   }
@@ -193,6 +196,11 @@ console.log(`- next: ${payload.next}`);
 if (payload.commands.length) {
   console.log(`- commands: ${payload.commands.join(" | ")}`);
 }
+console.log(
+  `- go-live evidence refresh required: ${
+    payload.goLiveEvidenceRefreshRequired ? "yes" : "no"
+  }`,
+);
 console.log(`- primary focus: ${payload.primaryRecommendation.focus}`);
 console.log(`- primary next: ${payload.primaryRecommendation.next}`);
 if (payload.primaryRecommendation.commands.length) {

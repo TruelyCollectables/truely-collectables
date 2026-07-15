@@ -122,7 +122,11 @@ if (payload) {
   checks.push(check(Boolean(payload.generatedAt), "next-action generatedAt"));
   checks.push(
     check(
-      ["local_build_fallback", "primary_recommendation"].includes(payload.selectedLane),
+      [
+        "local_build_fallback",
+        "primary_recommendation",
+        "refresh_go_live_evidence",
+      ].includes(payload.selectedLane),
       "selected lane is recognized",
       payload.selectedLane,
     ),
@@ -130,6 +134,13 @@ if (payload) {
   checks.push(check(Boolean(payload.selectedReason), "selected reason exists"));
   checks.push(check(Boolean(payload.next), "selected next step exists"));
   checks.push(check(commands.length > 0, "selected commands exist"));
+  checks.push(
+    check(
+      typeof payload.goLiveEvidenceRefreshRequired === "boolean",
+      "go-live evidence refresh flag is recorded",
+      payload.goLiveEvidenceRefreshRequired,
+    ),
+  );
   checks.push(check(Boolean(payload.primaryRecommendation?.focus), "primary focus exists"));
   checks.push(check(Boolean(payload.primaryRecommendation?.next), "primary next step exists"));
   checks.push(check(primaryCommands.length > 0, "primary commands exist"));
@@ -158,6 +169,26 @@ if (payload) {
         payload.next?.includes("keep live money/postage/payout/Checkout/deploy paths gated"),
         "fallback selection preserves live-money/postage/deploy gates",
         payload.next || null,
+      ),
+    );
+  }
+  if (payload.selectedLane === "refresh_go_live_evidence") {
+    checks.push(
+      check(
+        payload.goLiveEvidenceRefreshRequired === true,
+        "refresh lane requires evidence refresh flag",
+      ),
+    );
+    checks.push(
+      check(
+        commands.includes("npm run prepare:go-live-evidence"),
+        "refresh lane preserves go-live evidence refresh command",
+      ),
+    );
+    checks.push(
+      check(
+        commands.includes("npm run prepare:build-block-checkpoint"),
+        "refresh lane preserves checkpoint handoff command",
       ),
     );
   }
@@ -345,6 +376,8 @@ const verification = {
         selectedReason: payload.selectedReason || null,
         next: payload.next || null,
         commands: payload.commands || [],
+        goLiveEvidenceRefreshRequired:
+          payload.goLiveEvidenceRefreshRequired ?? null,
         primaryFocus: payload.primaryRecommendation?.focus || null,
         primaryNext: payload.primaryRecommendation?.next || null,
         primaryCommands: payload.primaryRecommendation?.commands || [],
@@ -392,6 +425,11 @@ if (jsonOutput) {
   if (verification.nextAction?.commands?.length) {
     console.log(`- commands: ${verification.nextAction.commands.join(" | ")}`);
   }
+  console.log(
+    `- go-live evidence refresh required: ${
+      verification.nextAction?.goLiveEvidenceRefreshRequired ? "yes" : "no"
+    }`,
+  );
   console.log(`- primary focus: ${verification.nextAction?.primaryFocus || "not recorded"}`);
   console.log(`- primary next: ${verification.nextAction?.primaryNext || "not recorded"}`);
   if (verification.nextAction?.primaryCommands?.length) {

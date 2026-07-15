@@ -408,8 +408,10 @@ if (payload) {
   );
   checks.push(
     check(
-      evidence.nextAction?.summary?.selectedLane === "local_build_fallback",
-      "history preserves selected local fallback lane",
+      ["local_build_fallback", "refresh_go_live_evidence"].includes(
+        evidence.nextAction?.summary?.selectedLane,
+      ),
+      "history preserves selected local fallback or evidence refresh lane",
       evidence.nextAction?.summary?.selectedLane || null,
     ),
   );

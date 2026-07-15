@@ -162,6 +162,8 @@ function summarizePayload(key, payload) {
       selectedLane: payload.selectedLane || null,
       selectedNext: payload.next || null,
       selectedCommands: Array.isArray(payload.commands) ? payload.commands : [],
+      goLiveEvidenceRefreshRequired:
+        payload.goLiveEvidenceRefreshRequired ?? null,
       primaryFocus: payload.primaryRecommendation?.focus || null,
       primaryNext: payload.primaryRecommendation?.next || null,
       primaryCommands: Array.isArray(payload.primaryRecommendation?.commands)
@@ -305,6 +307,11 @@ if (jsonOutput) {
       if (item.summary.selectedCommands?.length) {
         console.log(`- selected commands: ${item.summary.selectedCommands.join(" | ")}`);
       }
+      console.log(
+        `- go-live evidence refresh required: ${
+          item.summary.goLiveEvidenceRefreshRequired ? "yes" : "no"
+        }`,
+      );
       console.log(`- primary focus: ${item.summary.primaryFocus || "not recorded"}`);
       console.log(`- primary next: ${item.summary.primaryNext || "not recorded"}`);
       if (item.summary.primaryCommands?.length) {

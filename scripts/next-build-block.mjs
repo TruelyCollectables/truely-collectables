@@ -20,22 +20,61 @@ function normalizeCommands(commands = []) {
     : [];
 }
 
+function gitReadyForEvidenceRefresh(checkpoint) {
+  return (
+    checkpoint.git?.workingTreeClean === true &&
+    checkpoint.git?.head &&
+    checkpoint.git?.originMain &&
+    checkpoint.git.head === checkpoint.git.originMain
+  );
+}
+
+function goLiveEvidenceRefreshRequired(checkpoint) {
+  const evidence = checkpoint.goLiveEvidence || {};
+
+  return (
+    gitReadyForEvidenceRefresh(checkpoint) &&
+    (evidence.available !== true ||
+      evidence.ok !== true ||
+      evidence.capturedAtCurrentHead !== true)
+  );
+}
+
 function buildNextAction(checkpoint) {
   const fallback = checkpoint.localBuildFallback || {};
   const recommendation = checkpoint.recommendation || {};
-  const useFallback = fallback.available === true;
-  const selected = useFallback ? fallback : recommendation;
+  const evidenceRefreshRequired = goLiveEvidenceRefreshRequired(checkpoint);
+  const evidenceRefresh = {
+    reason:
+      "Latest go-live evidence is missing, failing, or not captured at the current pushed HEAD; refresh launch evidence before selecting another launch-bound build block.",
+    next:
+      "Run the launch-safe go-live evidence refresh, then rerun the next 30-minute build-block selector.",
+    commands: ["npm run prepare:go-live-evidence", "npm run prepare:build-block-checkpoint"],
+  };
+  const useFallback = !evidenceRefreshRequired && fallback.available === true;
+  const selected = evidenceRefreshRequired
+    ? evidenceRefresh
+    : useFallback
+      ? fallback
+      : recommendation;
 
   return {
     schema: "tcos.nextBuildBlockAction.v1",
     generatedAt: new Date().toISOString(),
     sourceSchema: checkpoint.schema || "unknown",
-    selectedLane: useFallback ? "local_build_fallback" : "primary_recommendation",
+    selectedLane: evidenceRefreshRequired
+      ? "refresh_go_live_evidence"
+      : useFallback
+        ? "local_build_fallback"
+        : "primary_recommendation",
     selectedReason: useFallback
       ? fallback.reason
-      : "Use the primary build-block recommendation because no fallback lane is available.",
+      : evidenceRefreshRequired
+        ? evidenceRefresh.reason
+        : "Use the primary build-block recommendation because no fallback lane is available.",
     next: selected.next || "No next action was recorded.",
     commands: normalizeCommands(selected.commands),
+    goLiveEvidenceRefreshRequired: evidenceRefreshRequired,
     primaryRecommendation: {
       focus: recommendation.focus || "unknown",
       next: recommendation.next || "unknown",
@@ -69,6 +108,11 @@ function printText(action) {
   if (action.commands.length) {
     console.log(`- commands: ${action.commands.join(" | ")}`);
   }
+  console.log(
+    `- go-live evidence refresh required: ${
+      action.goLiveEvidenceRefreshRequired ? "yes" : "no"
+    }`,
+  );
   console.log(`- primary focus: ${action.primaryRecommendation.focus}`);
   console.log(`- primary next: ${action.primaryRecommendation.next}`);
   if (action.primaryRecommendation.commands.length) {
