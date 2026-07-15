@@ -18,6 +18,7 @@ import {
   isReadyToShipStatus,
 } from "../../lib/order-status";
 import { LIVE_MONEY_JSON_EVIDENCE } from "../../lib/live-money-evidence";
+import { EMERGENCY_BACKUP_EVIDENCE } from "../../lib/emergency-backup-evidence";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -755,6 +756,50 @@ export default async function AdminDashboard() {
                         )}
                       </span>
                       .
+                    </p>
+                  </div>
+                  <div className="mt-3 rounded border border-cyan-200 bg-white p-3 text-xs text-neutral-700">
+                    <p className="font-black text-cyan-800">
+                      {EMERGENCY_BACKUP_EVIDENCE.title}
+                    </p>
+                    <p className="mt-1 font-semibold">
+                      Preserve backup proof with{" "}
+                      <code>{EMERGENCY_BACKUP_EVIDENCE.runwayArchiveCommand}</code>;
+                      drill the lane directly with{" "}
+                      <code>{EMERGENCY_BACKUP_EVIDENCE.statusArchiveCommand}</code>{" "}
+                      and{" "}
+                      <code>
+                        {EMERGENCY_BACKUP_EVIDENCE.verificationArchiveCommand}
+                      </code>
+                      .
+                    </p>
+                    <p className="mt-1 font-semibold">
+                      Accepted backup posture:{" "}
+                      {EMERGENCY_BACKUP_EVIDENCE.acceptedStatus}
+                    </p>
+                    <p className="mt-1 font-semibold">
+                      Schemas:{" "}
+                      <code>{EMERGENCY_BACKUP_EVIDENCE.statusSchema}</code>,{" "}
+                      <code>{EMERGENCY_BACKUP_EVIDENCE.verificationSchema}</code>,
+                      and <code>{EMERGENCY_BACKUP_EVIDENCE.runwaySchema}</code>.
+                      Evidence directories:{" "}
+                      <code>
+                        {EMERGENCY_BACKUP_EVIDENCE.statusArchiveDirectory}
+                      </code>
+                      ,{" "}
+                      <code>
+                        {EMERGENCY_BACKUP_EVIDENCE.verificationArchiveDirectory}
+                      </code>
+                      ,{" "}
+                      <code>
+                        {EMERGENCY_BACKUP_EVIDENCE.runwayArchiveDirectory}
+                      </code>
+                      .
+                    </p>
+                    <p className="mt-1 font-semibold">
+                      {EMERGENCY_BACKUP_EVIDENCE.retentionWindow}{" "}
+                      {EMERGENCY_BACKUP_EVIDENCE.readOnlyGuarantee}{" "}
+                      {EMERGENCY_BACKUP_EVIDENCE.sideEffectBoundary}
                     </p>
                   </div>
                 </div>

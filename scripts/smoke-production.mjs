@@ -682,6 +682,15 @@ const checks = [
       result.text.includes("BLOCKED_UNEVALUATED, BLOCKED_APPROVAL, READY_FOR_DATABASE_APPROVAL, BLOCKED_LAUNCH_GATE") &&
       result.text.includes("tcos.liveMoneyGoNoGo.v1") &&
       result.text.includes("must not create Checkout Sessions") &&
+      result.text.includes("Emergency Backup Evidence") &&
+      result.text.includes("npm run archive:go-live-runway") &&
+      result.text.includes("npm run archive:nightly-backup-status") &&
+      result.text.includes("npm run archive:nightly-backup-verification") &&
+      result.text.includes("tcos.nightlyBackupStatus.v1") &&
+      result.text.includes("tcos.nightlyEmergencyBackupVerification.v1") &&
+      result.text.includes("tcos.goLiveRunwayStatus.v1") &&
+      result.text.includes("Seven dated backups") &&
+      result.text.includes("they do not create a backup archive or push Git") &&
       result.text.includes("Choose provider accounts") &&
       result.text.includes("Stage Vercel environment names") &&
       result.text.includes("Keep shipping runtime locked") &&
