@@ -1070,6 +1070,7 @@ assertScriptIncludes("prepare:go-live-evidence", [
   "archive:nightly-backup-verification",
   "prepare:live-money-bootstrap",
   "archive:go-live-evidence-verification",
+  "archive:go-live-evidence-verification && npm run archive:go-live-runway",
 ]);
 assertScriptIncludes("prepare:live-money-bootstrap", [
   "live-money:env-packet",
