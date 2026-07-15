@@ -271,6 +271,39 @@ if (payload) {
   );
   checks.push(
     check(
+      Array.isArray(evidence.checkpoint?.summary?.liveMoneyMissingBootstrapEnvironment) &&
+        (evidence.checkpoint?.summary?.liveMoneyState !== "BLOCKED_UNEVALUATED" ||
+          evidence.checkpoint.summary.liveMoneyMissingBootstrapEnvironment.length > 0),
+      "history checkpoint live-money missing bootstrap environment is recorded",
+      Array.isArray(evidence.checkpoint?.summary?.liveMoneyMissingBootstrapEnvironment)
+        ? evidence.checkpoint.summary.liveMoneyMissingBootstrapEnvironment.join(", ")
+        : null,
+    ),
+  );
+  checks.push(
+    check(
+      Array.isArray(evidence.nextAction?.summary?.liveMoneyMissingBootstrapEnvironment) &&
+        (evidence.nextAction?.summary?.liveMoneyState !== "BLOCKED_UNEVALUATED" ||
+          evidence.nextAction.summary.liveMoneyMissingBootstrapEnvironment.length > 0),
+      "history next-action live-money missing bootstrap environment is recorded",
+      Array.isArray(evidence.nextAction?.summary?.liveMoneyMissingBootstrapEnvironment)
+        ? evidence.nextAction.summary.liveMoneyMissingBootstrapEnvironment.join(", ")
+        : null,
+    ),
+  );
+  checks.push(
+    check(
+      Array.isArray(evidence.goLiveRunway?.summary?.liveMoneyMissingBootstrapEnvironment) &&
+        (evidence.goLiveRunway?.summary?.liveMoneyState !== "BLOCKED_UNEVALUATED" ||
+          evidence.goLiveRunway.summary.liveMoneyMissingBootstrapEnvironment.length > 0),
+      "history runway live-money missing bootstrap environment is recorded",
+      Array.isArray(evidence.goLiveRunway?.summary?.liveMoneyMissingBootstrapEnvironment)
+        ? evidence.goLiveRunway.summary.liveMoneyMissingBootstrapEnvironment.join(", ")
+        : null,
+    ),
+  );
+  checks.push(
+    check(
       evidence.checkpoint?.summary?.backupRunwayAcceptedPosture === true,
       "history checkpoint backup runway accepted posture",
       evidence.checkpoint?.summary?.backupRunwayAcceptedPosture,
@@ -415,11 +448,15 @@ const verification = {
         checkpointGoLiveEvidenceCurrent:
           payload.evidence?.checkpoint?.summary
             ?.goLiveEvidenceCapturedAtCurrentHead ?? null,
+        checkpointLiveMoneyMissingBootstrapEnvironment:
+          payload.evidence?.checkpoint?.summary?.liveMoneyMissingBootstrapEnvironment || [],
         nextActionGoLiveEvidenceOk:
           payload.evidence?.nextAction?.summary?.goLiveEvidenceOk ?? null,
         nextActionGoLiveEvidenceCurrent:
           payload.evidence?.nextAction?.summary
             ?.goLiveEvidenceCapturedAtCurrentHead ?? null,
+        nextActionLiveMoneyMissingBootstrapEnvironment:
+          payload.evidence?.nextAction?.summary?.liveMoneyMissingBootstrapEnvironment || [],
         checkpointBackupRunwayAcceptedPosture:
           payload.evidence?.checkpoint?.summary?.backupRunwayAcceptedPosture ?? null,
         checkpointBackupRunwaySchedulerProofMode:
@@ -441,6 +478,8 @@ const verification = {
         runwayGoLiveEvidenceCurrent:
           payload.evidence?.goLiveRunway?.summary
             ?.goLiveEvidenceCapturedAtCurrentHead ?? null,
+        runwayLiveMoneyMissingBootstrapEnvironment:
+          payload.evidence?.goLiveRunway?.summary?.liveMoneyMissingBootstrapEnvironment || [],
         selectedLane: payload.evidence?.nextAction?.summary?.selectedLane || null,
         checkpointFocus: payload.evidence?.checkpoint?.summary?.focus || null,
         quotaState: payload.evidence?.goLiveRunway?.summary?.quotaState || null,
@@ -580,6 +619,21 @@ if (jsonOutput) {
   );
   console.log(`- quota state: ${verification.history?.quotaState || "not recorded"}`);
   console.log(`- live-money state: ${verification.history?.liveMoneyState || "not recorded"}`);
+  if (verification.history?.checkpointLiveMoneyMissingBootstrapEnvironment?.length) {
+    console.log(
+      `- checkpoint live-money missing bootstrap environment: ${verification.history.checkpointLiveMoneyMissingBootstrapEnvironment.join(", ")}`,
+    );
+  }
+  if (verification.history?.nextActionLiveMoneyMissingBootstrapEnvironment?.length) {
+    console.log(
+      `- next-action live-money missing bootstrap environment: ${verification.history.nextActionLiveMoneyMissingBootstrapEnvironment.join(", ")}`,
+    );
+  }
+  if (verification.history?.runwayLiveMoneyMissingBootstrapEnvironment?.length) {
+    console.log(
+      `- runway live-money missing bootstrap environment: ${verification.history.runwayLiveMoneyMissingBootstrapEnvironment.join(", ")}`,
+    );
+  }
   console.log(`- ok: ${verification.ok ? "yes" : "no"}`);
   console.log(`- failed checks: ${verification.failedCheckCount}`);
   for (const item of failedChecks) {

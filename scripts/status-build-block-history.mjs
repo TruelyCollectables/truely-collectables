@@ -136,6 +136,11 @@ function summarizePayload(key, payload) {
       quotaApproximateRemaining:
         payload.productionDeploymentQuota?.approximateRemaining || null,
       liveMoneyState: payload.liveMoney?.state || null,
+      liveMoneyMissingBootstrapEnvironment: Array.isArray(
+        payload.liveMoney?.missingBootstrapEnvironment,
+      )
+        ? payload.liveMoney.missingBootstrapEnvironment
+        : [],
       backupSchedulerProof: payload.emergencyBackup?.schedulerProof || null,
       backupRunwayAcceptedPosture:
         payload.backupRunway?.acceptedBackupPosture ?? null,
@@ -168,6 +173,11 @@ function summarizePayload(key, payload) {
       quotaApproximateRemaining:
         payload.productionDeploymentQuota?.approximateRemaining || null,
       liveMoneyState: payload.liveMoney?.state || null,
+      liveMoneyMissingBootstrapEnvironment: Array.isArray(
+        payload.liveMoney?.missingBootstrapEnvironment,
+      )
+        ? payload.liveMoney.missingBootstrapEnvironment
+        : [],
       backupRunwayAcceptedPosture:
         payload.backupRunway?.acceptedBackupPosture ?? null,
       backupRunwaySchedulerProofMode:
@@ -192,6 +202,11 @@ function summarizePayload(key, payload) {
       payload.goLiveEvidence?.capturedAtCurrentHead ?? null,
     goLiveEvidenceOk: payload.goLiveEvidence?.ok ?? null,
     liveMoneyState: payload.liveMoney?.state || null,
+    liveMoneyMissingBootstrapEnvironment: Array.isArray(
+      payload.liveMoney?.missingBootstrapEnvironment,
+    )
+      ? payload.liveMoney.missingBootstrapEnvironment
+      : [],
     backupSchedulerProof:
       payload.emergencyBackup?.schedulerProof?.state || null,
   };
@@ -336,6 +351,11 @@ if (jsonOutput) {
       console.log(`- backup runway next: ${item.summary.backupRunwayNext || "not recorded"}`);
     }
     console.log(`- live-money state: ${item.summary.liveMoneyState || "not recorded"}`);
+    if (item.summary.liveMoneyMissingBootstrapEnvironment?.length) {
+      console.log(
+        `- live-money missing bootstrap environment: ${item.summary.liveMoneyMissingBootstrapEnvironment.join(", ")}`,
+      );
+    }
   }
 
   console.log("");

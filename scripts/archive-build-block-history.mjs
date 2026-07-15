@@ -113,6 +113,13 @@ function assertEvidenceContract(payload) {
   ) {
     missing.push("evidence.checkpoint.summary.backupRunwayAcceptedPosture");
   }
+  if (
+    !Array.isArray(
+      payload?.evidence?.checkpoint?.summary?.liveMoneyMissingBootstrapEnvironment,
+    )
+  ) {
+    missing.push("evidence.checkpoint.summary.liveMoneyMissingBootstrapEnvironment");
+  }
   if (!payload?.evidence?.checkpoint?.summary?.backupRunwaySchedulerProofMode) {
     missing.push("evidence.checkpoint.summary.backupRunwaySchedulerProofMode");
   }
@@ -131,6 +138,13 @@ function assertEvidenceContract(payload) {
   ) {
     missing.push("evidence.nextAction.summary.backupRunwayAcceptedPosture");
   }
+  if (
+    !Array.isArray(
+      payload?.evidence?.nextAction?.summary?.liveMoneyMissingBootstrapEnvironment,
+    )
+  ) {
+    missing.push("evidence.nextAction.summary.liveMoneyMissingBootstrapEnvironment");
+  }
   if (!payload?.evidence?.nextAction?.summary?.backupRunwaySchedulerProofMode) {
     missing.push("evidence.nextAction.summary.backupRunwaySchedulerProofMode");
   }
@@ -142,6 +156,13 @@ function assertEvidenceContract(payload) {
   }
   if (!payload?.evidence?.nextAction?.summary?.backupRunwayNext) {
     missing.push("evidence.nextAction.summary.backupRunwayNext");
+  }
+  if (
+    !Array.isArray(
+      payload?.evidence?.goLiveRunway?.summary?.liveMoneyMissingBootstrapEnvironment,
+    )
+  ) {
+    missing.push("evidence.goLiveRunway.summary.liveMoneyMissingBootstrapEnvironment");
   }
   if (typeof payload?.readiness?.allLatestEvidenceAtCurrentPushedHead !== "boolean") {
     missing.push("readiness.allLatestEvidenceAtCurrentPushedHead");
@@ -257,6 +278,11 @@ console.log(
   }`,
 );
 console.log(`- checkpoint backup runway next: ${payload.evidence.checkpoint.summary.backupRunwayNext}`);
+if (payload.evidence.checkpoint.summary.liveMoneyMissingBootstrapEnvironment.length) {
+  console.log(
+    `- checkpoint live-money missing bootstrap environment: ${payload.evidence.checkpoint.summary.liveMoneyMissingBootstrapEnvironment.join(", ")}`,
+  );
+}
 console.log(`- next-action archive count: ${payload.evidence.nextAction.archiveCount}`);
 console.log(
   `- next-action captured current HEAD: ${
@@ -306,6 +332,11 @@ console.log(
   }`,
 );
 console.log(`- next-action backup runway next: ${payload.evidence.nextAction.summary.backupRunwayNext}`);
+if (payload.evidence.nextAction.summary.liveMoneyMissingBootstrapEnvironment.length) {
+  console.log(
+    `- next-action live-money missing bootstrap environment: ${payload.evidence.nextAction.summary.liveMoneyMissingBootstrapEnvironment.join(", ")}`,
+  );
+}
 console.log(`- go-live runway archive count: ${payload.evidence.goLiveRunway.archiveCount}`);
 console.log(
   `- go-live runway captured current HEAD: ${
@@ -327,6 +358,11 @@ console.log(
     payload.evidence.goLiveRunway.summary.goLiveEvidenceCapturedAtCurrentHead ? "yes" : "no"
   }`,
 );
+if (payload.evidence.goLiveRunway.summary.liveMoneyMissingBootstrapEnvironment.length) {
+  console.log(
+    `- go-live runway live-money missing bootstrap environment: ${payload.evidence.goLiveRunway.summary.liveMoneyMissingBootstrapEnvironment.join(", ")}`,
+  );
+}
 console.log(
   "- read-only source guarantee: status:build-block-history only reads Git state and local .codex-run evidence; this archive helper only writes the timestamped history evidence file.",
 );
