@@ -4,6 +4,8 @@ const mode = process.argv.includes("--env-template")
     ? "vercel-commands"
     : "checklist";
 const scopeSelfTest = process.argv.includes("--self-test-scope");
+const vercelCliVersion = "56.2.0";
+const vercelCliPrefix = `npm exec --yes --package=vercel@${vercelCliVersion} -- vercel --cwd "$PWD"`;
 
 const supabaseBootstrap = [
   {
@@ -166,6 +168,9 @@ function printChecklist() {
   console.log("- npm run status:live-money");
   console.log("- npm run archive:live-money");
   console.log("");
+  console.log("Vercel CLI boundary:");
+  console.log(`- Vercel command output is pinned to vercel@${vercelCliVersion} through npm exec and includes --cwd "$PWD".`);
+  console.log("");
   console.log("Vercel scope boundary:");
   console.log("- VERCEL_SCOPE must be a simple lowercase Vercel team slug before Vercel command output is printed.");
   console.log("");
@@ -208,15 +213,22 @@ function printVercelCommands() {
   const lines = [
     "# TCOS live-money Vercel env command checklist",
     "# These commands prompt for values. They do not contain secret values.",
+    `# Commands pin Vercel CLI ${vercelCliVersion} through npm exec and pass --cwd "$PWD".`,
     "# Keep TCOS_LIVE_PAYMENTS_ENABLED=false until final accepted preflight evidence.",
     "# VERCEL_SCOPE must be a simple lowercase Vercel team slug before command output is printed.",
     `# Scope: ${scope}`,
     "",
     "# Production environment",
-    ...allEntries.map((entry) => `vercel env add ${entry.key} production --scope ${scope}`),
+    ...allEntries.map(
+      (entry) =>
+        `${vercelCliPrefix} env add ${entry.key} production --scope ${scope}`,
+    ),
     "",
     "# Preview environment, if you want the same staged shape before production",
-    ...allEntries.map((entry) => `vercel env add ${entry.key} preview --scope ${scope}`),
+    ...allEntries.map(
+      (entry) =>
+        `${vercelCliPrefix} env add ${entry.key} preview --scope ${scope}`,
+    ),
     "",
     "# After env changes, redeploy only when the deployment quota is available.",
     "# Then run npm run smoke:production, npm run archive:live-money, and final-window npm run archive:live-money:preflight.",
