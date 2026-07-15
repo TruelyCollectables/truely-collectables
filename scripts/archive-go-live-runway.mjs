@@ -222,6 +222,9 @@ console.log(`- go-live next deploy step: ${payload.goLiveReadiness.nextDeploySte
 console.log(`- go-live next operator step: ${payload.goLiveReadiness.nextOperatorStep}`);
 console.log(`- quota state: ${payload.productionDeploymentQuota.state}`);
 console.log(`- quota retry at or after: ${payload.productionDeploymentQuota.retryAt}`);
+if (payload.productionDeploymentQuota.retryAtLocal) {
+  console.log(`- quota retry at or after local: ${payload.productionDeploymentQuota.retryAtLocal}`);
+}
 console.log(`- Vercel upload started: ${payload.productionDeploymentQuota.uploadStarted}`);
 console.log(`- clean production domain: ${payload.productionDeploySafety.cleanProductionDomain}`);
 console.log(`- unwanted production alias: ${payload.productionDeploySafety.unwantedAlias}`);

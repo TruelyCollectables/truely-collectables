@@ -241,6 +241,22 @@ function formatCooldownRemaining(remainingMs) {
   return `${hours}h ${minutes}m`;
 }
 
+function formatLocalTimestamp(isoTimestamp) {
+  if (!isoTimestamp) return null;
+  const date = new Date(isoTimestamp);
+  if (!Number.isFinite(date.getTime())) return null;
+
+  return new Intl.DateTimeFormat(undefined, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    timeZoneName: "short",
+  }).format(date);
+}
+
 function getQuotaCooldownStatus(nowMs = Date.now()) {
   if (quotaRetryOverride) {
     return {
@@ -284,13 +300,17 @@ function getQuotaCooldownStatus(nowMs = Date.now()) {
   const cooldownMs = quotaCooldownHours * 60 * 60 * 1000;
   const retryAt = blockedAt + cooldownMs;
   const remainingMs = retryAt - nowMs;
+  const blockedAtIso = new Date(blockedAt).toISOString();
+  const retryAtIso = new Date(retryAt).toISOString();
 
   return {
     state: remainingMs > 0 ? "blocked" : "expired",
     canRetry: remainingMs <= 0,
     reason: marker.reason || "quota",
-    blockedAt: new Date(blockedAt).toISOString(),
-    retryAt: new Date(retryAt).toISOString(),
+    blockedAt: blockedAtIso,
+    blockedAtLocal: formatLocalTimestamp(blockedAtIso),
+    retryAt: retryAtIso,
+    retryAtLocal: formatLocalTimestamp(retryAtIso),
     remaining: remainingMs > 0 ? formatCooldownRemaining(remainingMs) : null,
   };
 }
@@ -327,7 +347,9 @@ function printQuotaCooldownStatus() {
   console.log(`- deployment retry allowed by local cooldown: ${payload.canRetry ? "yes" : "no"}`);
   console.log(`- reason: ${payload.reason}`);
   if (payload.blockedAt) console.log(`- blocked at: ${payload.blockedAt}`);
+  if (payload.blockedAtLocal) console.log(`- blocked at local: ${payload.blockedAtLocal}`);
   if (payload.retryAt) console.log(`- retry at or after: ${payload.retryAt}`);
+  if (payload.retryAtLocal) console.log(`- retry at or after local: ${payload.retryAtLocal}`);
   if (payload.remaining) console.log(`- approximate remaining: ${payload.remaining}`);
   console.log(`- marker: ${payload.marker}`);
   console.log(`- Vercel upload started: ${payload.vercelUploadStarted ? "yes" : "no"}`);

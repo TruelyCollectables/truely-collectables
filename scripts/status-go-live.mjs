@@ -59,6 +59,11 @@ function parseLine(output, label) {
   return line ? line.replace(new RegExp(`^\\s*- ${label}:\\s*`), "").trim() : "unknown";
 }
 
+function retryWindow(quota) {
+  if (!quota.retryAt || quota.retryAt === "unknown") return null;
+  return quota.retryAtLocal ? `${quota.retryAt} (${quota.retryAtLocal} local)` : quota.retryAt;
+}
+
 function quotaStatus() {
   const jsonResult = run("node", [
     "scripts/deploy-production.mjs",
@@ -78,7 +83,9 @@ function quotaStatus() {
       retryAllowedByLocalCooldown: Boolean(payload.canRetry),
       reason: payload.reason || "unknown",
       blockedAt: payload.blockedAt || null,
+      blockedAtLocal: payload.blockedAtLocal || null,
       retryAt: payload.retryAt || "unknown",
+      retryAtLocal: payload.retryAtLocal || null,
       approximateRemaining: payload.remaining || "none",
       marker: payload.marker || "unknown",
       uploadStarted: payload.vercelUploadStarted ? "yes" : "no",
@@ -103,7 +110,9 @@ function quotaStatus() {
       parseLine(output, "deployment retry allowed by local cooldown") === "yes",
     reason: parseLine(output, "reason"),
     blockedAt: parseLine(output, "blocked at"),
+    blockedAtLocal: parseLine(output, "blocked at local"),
     retryAt: parseLine(output, "retry at or after"),
+    retryAtLocal: parseLine(output, "retry at or after local"),
     approximateRemaining: parseLine(output, "approximate remaining"),
     marker: parseLine(output, "marker"),
     uploadStarted: parseLine(output, "Vercel upload started"),
@@ -300,8 +309,8 @@ function goLiveReadiness({ git, quota, emergencyBackup, liveMoney }) {
           ? `Production deploy quota is ${quota.state} because ${quota.reason}.`
           : `Production deploy quota is ${quota.state || "unknown"}.`,
       next:
-        quota.retryAt && quota.retryAt !== "unknown"
-          ? `Wait until ${quota.retryAt}, then rerun npm run status:production before deploy.`
+        retryWindow(quota)
+          ? `Wait until ${retryWindow(quota)}, then rerun npm run status:production before deploy.`
           : quota.next || "Rerun npm run status:production before deploy.",
       actionCommands: ["npm run status:production", "npm --silent run status:production:json"],
     });
@@ -541,7 +550,16 @@ function printText(status) {
     `- retry allowed by local cooldown: ${status.productionDeploymentQuota.canRetry}`,
   );
   console.log(`- reason: ${status.productionDeploymentQuota.reason}`);
+  if (status.productionDeploymentQuota.blockedAt) {
+    console.log(`- blocked at: ${status.productionDeploymentQuota.blockedAt}`);
+  }
+  if (status.productionDeploymentQuota.blockedAtLocal) {
+    console.log(`- blocked at local: ${status.productionDeploymentQuota.blockedAtLocal}`);
+  }
   console.log(`- retry at or after: ${status.productionDeploymentQuota.retryAt}`);
+  if (status.productionDeploymentQuota.retryAtLocal) {
+    console.log(`- retry at or after local: ${status.productionDeploymentQuota.retryAtLocal}`);
+  }
   console.log(`- approximate remaining: ${status.productionDeploymentQuota.approximateRemaining}`);
   console.log(`- Vercel upload started: ${status.productionDeploymentQuota.uploadStarted}`);
   console.log(`- next: ${status.productionDeploymentQuota.next}`);
