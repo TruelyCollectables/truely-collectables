@@ -325,7 +325,10 @@ const MAX_DETAIL_CROP_BYTES = 180_000;
 const MAX_SCAN_REQUEST_BYTES = 3_750_000;
 const DRAFT_UPLOAD_CONCURRENCY = 2;
 const INSTACOMP_JOB_ITEM_CHUNK_SIZE = 25;
-const INSTACOMP_JOB_UPLOAD_CONCURRENCY = 3;
+const INSTACOMP_BATCH_DEFAULT_CONCURRENCY = 6;
+const INSTACOMP_BATCH_MAX_CONCURRENCY = 10;
+const INSTACOMP_JOB_UPLOAD_CONCURRENCY = 6;
+const INSTACOMP_JOB_CLAIM_CHUNK_SIZE = 2;
 const INSTACOMP_LAST_JOB_STORAGE_KEY = "tcos-instacomp-last-job-v1";
 const EMPTY_CARD_PREVIEW =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='560' viewBox='0 0 400 560'%3E%3Crect width='400' height='560' fill='%23e5e7eb'/%3E%3Ctext x='200' y='280' text-anchor='middle' fill='%236b7280' font-family='Arial' font-size='24'%3ERecovered card%3C/text%3E%3C/svg%3E";
@@ -2401,7 +2404,9 @@ export default function InstaCompScanner({
   const [batchCards, setBatchCards] = useState<BatchCard[]>([]);
   const [batchRunning, setBatchRunning] = useState(false);
   const [batchDrafting, setBatchDrafting] = useState(false);
-  const [batchConcurrency, setBatchConcurrency] = useState(3);
+  const [batchConcurrency, setBatchConcurrency] = useState(
+    INSTACOMP_BATCH_DEFAULT_CONCURRENCY
+  );
   const [batchFilter, setBatchFilter] = useState<BatchCardFilter>("all");
   const [batchSort, setBatchSort] = useState<BatchCardSort>("original");
   const [batchSearch, setBatchSearch] = useState("");
@@ -5552,8 +5557,8 @@ export default function InstaCompScanner({
   function handleBatchConcurrencyChange(value: string) {
     const parsed = Number(value);
     const nextConcurrency = Number.isFinite(parsed)
-      ? Math.max(1, Math.min(6, Math.floor(parsed)))
-      : 3;
+      ? Math.max(1, Math.min(INSTACOMP_BATCH_MAX_CONCURRENCY, Math.floor(parsed)))
+      : INSTACOMP_BATCH_DEFAULT_CONCURRENCY;
 
     setBatchConcurrency(nextConcurrency);
   }
@@ -6018,7 +6023,7 @@ export default function InstaCompScanner({
             method: "POST",
             body: {
               workerId,
-              limit: 1,
+              limit: INSTACOMP_JOB_CLAIM_CHUNK_SIZE,
               leaseSeconds: 900,
             },
           }
@@ -6028,9 +6033,11 @@ export default function InstaCompScanner({
           setPersistentJob(claimed.job as PersistentJobSummary);
         }
 
-        const item = claimed.items?.[0] as PersistentClaimedItem | undefined;
+        const claimedItems = Array.isArray(claimed.items)
+          ? (claimed.items as PersistentClaimedItem[])
+          : [];
 
-        if (!item) {
+        if (!claimedItems.length) {
           const jobStatus = String(claimed.job?.status || "");
           const totalItems = Number(claimed.job?.total_items || 0);
           const processedItems = Number(claimed.job?.processed_items || 0);
@@ -6069,27 +6076,31 @@ export default function InstaCompScanner({
 
         emptyClaimCount = 0;
 
-        const card = cardsByClientId.get(item.client_item_id);
+        for (const item of claimedItems) {
+          if (batchPauseRequestedRef.current) break;
 
-        if (!card) {
-          await persistentJobJson(
-            `/api/instacomp/jobs/${jobId}/items/${item.id}/fail`,
-            {
-              method: "POST",
-              body: {
-                leaseToken: item.leaseToken || item.lease_token,
-                errorCode: "browser_row_missing",
-                errorMessage:
-                  "The browser could not match the claimed card to its uploaded row.",
-                retryable: true,
-                retryDelaySeconds: 5,
-              },
-            }
-          );
-          continue;
+          const card = cardsByClientId.get(item.client_item_id);
+
+          if (!card) {
+            await persistentJobJson(
+              `/api/instacomp/jobs/${jobId}/items/${item.id}/fail`,
+              {
+                method: "POST",
+                body: {
+                  leaseToken: item.leaseToken || item.lease_token,
+                  errorCode: "browser_row_missing",
+                  errorMessage:
+                    "The browser could not match the claimed card to its uploaded row.",
+                  retryable: true,
+                  retryDelaySeconds: 5,
+                },
+              }
+            );
+            continue;
+          }
+
+          completedCards.push(await scanOneBatchCard(card, item));
         }
-
-        completedCards.push(await scanOneBatchCard(card, item));
       }
     }
 
@@ -7985,7 +7996,7 @@ export default function InstaCompScanner({
             <input
               type="number"
               min="1"
-              max="6"
+              max={String(INSTACOMP_BATCH_MAX_CONCURRENCY)}
               value={batchConcurrency}
               disabled={batchRunning || batchDrafting || persistentJobPreparing}
               onChange={(event) =>

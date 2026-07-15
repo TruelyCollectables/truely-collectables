@@ -61,8 +61,8 @@ export async function POST(request: Request) {
       value: body.requestedConcurrency,
       label: "requestedConcurrency",
       minimum: 1,
-      maximum: 6,
-      fallback: 3,
+      maximum: 10,
+      fallback: 6,
     });
     if (
       Object.prototype.hasOwnProperty.call(body, "autoCreateDrafts") &&

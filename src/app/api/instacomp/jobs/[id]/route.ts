@@ -208,7 +208,7 @@ export async function PATCH(request: Request, context: RouteContext) {
         value: body.requestedConcurrency,
         label: "requestedConcurrency",
         minimum: 1,
-        maximum: 6,
+        maximum: 10,
       });
     }
 

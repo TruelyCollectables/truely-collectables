@@ -46,8 +46,8 @@ export async function POST(request: Request, context: RouteContext) {
       value: body.limit,
       label: "limit",
       minimum: 1,
-      maximum: 6,
-      fallback: Math.max(1, Math.min(6, Number(job.requested_concurrency) || 1)),
+      maximum: 10,
+      fallback: Math.max(1, Math.min(10, Number(job.requested_concurrency) || 1)),
     });
     const leaseSeconds = boundedInstaCompInteger({
       value: body.leaseSeconds,

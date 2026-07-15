@@ -198,6 +198,46 @@ check(
   duplicateUpperDeckDraftTitle
 );
 
+const repeatedReleaseDraftTitle = buildInstaCompDraftTitle(
+  {
+    player: "Connor Bedard",
+    year: "2024-25",
+    brand: "Upper Deck",
+    setName: "Upper Deck O-Pee-Chee Platinum O-Pee-Chee Platinum",
+    cardNumber: "201",
+    parallel: "Limited Red Limited Red",
+    serialNumber: null,
+    isRookie: true,
+  },
+  "fallback.jpg"
+);
+check(
+  "draft title collapses repeated release and parallel names",
+  repeatedReleaseDraftTitle ===
+    "2024-25 O-Pee-Chee Platinum Connor Bedard Rookie Limited Red #201",
+  repeatedReleaseDraftTitle
+);
+
+const playerAlreadyInParallelDraftTitle = buildInstaCompDraftTitle(
+  {
+    player: "Auston Matthews",
+    year: "2023-24",
+    brand: "Upper Deck",
+    setName: "MVP",
+    cardNumber: "47",
+    parallel: "Auston Matthews Silver Script",
+    serialNumber: null,
+    isRookie: false,
+  },
+  "fallback.jpg"
+);
+check(
+  "draft title avoids replacing specific parallel names while keeping one player",
+  playerAlreadyInParallelDraftTitle ===
+    "2023-24 Upper Deck MVP Auston Matthews Silver Script #47",
+  playerAlreadyInParallelDraftTitle
+);
+
 const invalidSerialQuery = buildInstaCompQueries({ ...target, serialNumber: "99/25" });
 check("invalid serial cannot constrain comp search", !invalidSerialQuery.primary.includes("/25"), invalidSerialQuery.primary);
 
