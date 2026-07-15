@@ -1,4 +1,5 @@
 import { evaluateLivePaymentLaunch } from "../src/lib/live-payment-launch";
+import { LIVE_MONEY_JSON_EVIDENCE } from "../src/lib/live-money-evidence";
 import { createSupabaseServerClient } from "../src/lib/supabase-server";
 import { getActiveStoreId } from "../src/lib/stores";
 
@@ -123,7 +124,8 @@ function statusPayload(
   classification: ReturnType<typeof classify>,
 ) {
   return {
-    schema: "tcos.liveMoneyGoNoGo.v1",
+    schema: LIVE_MONEY_JSON_EVIDENCE.schema,
+    liveMoneyEvidence: LIVE_MONEY_JSON_EVIDENCE,
     state: classification.state,
     readyForRuntimeSwitch: classification.readyForRuntimeSwitch,
     paymentMode: report.paymentMode,
@@ -183,6 +185,12 @@ async function main() {
   printItems("Approval blockers", report.summary.approvalBlockers);
   printItems("Launch locks", report.summary.launchLocks);
   printItems("Warnings", report.summary.warnings);
+  console.log(`Evidence schema: ${LIVE_MONEY_JSON_EVIDENCE.schema}`);
+  console.log(`Post-smoke archive command: ${LIVE_MONEY_JSON_EVIDENCE.statusCommand}`);
+  console.log(`Final-window preflight command: ${LIVE_MONEY_JSON_EVIDENCE.preflightCommand}`);
+  console.log(`Accepted go-live states: ${LIVE_MONEY_JSON_EVIDENCE.readyStates.join(", ")}`);
+  console.log(`Halt states: ${LIVE_MONEY_JSON_EVIDENCE.blockedStates.join(", ")}`);
+  console.log(`Archive requirement: ${LIVE_MONEY_JSON_EVIDENCE.archiveRequirement}`);
   console.log(`Read-only guarantee: ${readOnlyGuarantee}`);
 
   if (!classification.readyForRuntimeSwitch && !allowBlocked) {
@@ -192,7 +200,8 @@ async function main() {
 
 main().catch((error) => {
   const payload = {
-    schema: "tcos.liveMoneyGoNoGo.v1",
+    schema: LIVE_MONEY_JSON_EVIDENCE.schema,
+    liveMoneyEvidence: LIVE_MONEY_JSON_EVIDENCE,
     state: "BLOCKED_UNEVALUATED" as const,
     readyForRuntimeSwitch: false,
     detail: redact(error?.message || error || "unknown error"),
@@ -215,6 +224,12 @@ main().catch((error) => {
   console.log(
     `- next: ${payload.next}`,
   );
+  console.log(`Evidence schema: ${LIVE_MONEY_JSON_EVIDENCE.schema}`);
+  console.log(`Post-smoke archive command: ${LIVE_MONEY_JSON_EVIDENCE.statusCommand}`);
+  console.log(`Final-window preflight command: ${LIVE_MONEY_JSON_EVIDENCE.preflightCommand}`);
+  console.log(`Accepted go-live states: ${LIVE_MONEY_JSON_EVIDENCE.readyStates.join(", ")}`);
+  console.log(`Halt states: ${LIVE_MONEY_JSON_EVIDENCE.blockedStates.join(", ")}`);
+  console.log(`Archive requirement: ${LIVE_MONEY_JSON_EVIDENCE.archiveRequirement}`);
   console.log(`Read-only guarantee: ${failedReadOnlyGuarantee}`);
   if (!allowBlocked) {
     process.exitCode = 1;
