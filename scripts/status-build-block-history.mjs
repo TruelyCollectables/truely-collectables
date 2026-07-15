@@ -133,6 +133,8 @@ function summarizePayload(key, payload) {
       quotaState: payload.productionDeploymentQuota?.state || null,
       quotaRetryAtLocal:
         payload.productionDeploymentQuota?.retryAtLocal || null,
+      quotaApproximateRemaining:
+        payload.productionDeploymentQuota?.approximateRemaining || null,
       liveMoneyState: payload.liveMoney?.state || null,
       backupSchedulerProof: payload.emergencyBackup?.schedulerProof || null,
       backupRunwayAcceptedPosture:
@@ -157,6 +159,8 @@ function summarizePayload(key, payload) {
       quotaState: payload.productionDeploymentQuota?.state || null,
       quotaRetryAtLocal:
         payload.productionDeploymentQuota?.retryAtLocal || null,
+      quotaApproximateRemaining:
+        payload.productionDeploymentQuota?.approximateRemaining || null,
       liveMoneyState: payload.liveMoney?.state || null,
       backupRunwayAcceptedPosture:
         payload.backupRunway?.acceptedBackupPosture ?? null,
@@ -175,6 +179,8 @@ function summarizePayload(key, payload) {
     quotaState: payload.productionDeploymentQuota?.state || null,
     quotaRetryAtLocal:
       payload.productionDeploymentQuota?.retryAtLocal || null,
+    quotaApproximateRemaining:
+      payload.productionDeploymentQuota?.approximateRemaining || null,
     goLiveEvidenceCapturedAtCurrentHead:
       payload.goLiveEvidence?.capturedAtCurrentHead ?? null,
     goLiveEvidenceOk: payload.goLiveEvidence?.ok ?? null,
@@ -284,6 +290,11 @@ if (jsonOutput) {
     console.log(`- quota state: ${item.summary.quotaState || "not recorded"}`);
     console.log(
       `- quota retry at local: ${item.summary.quotaRetryAtLocal || "not recorded"}`,
+    );
+    console.log(
+      `- quota approximate remaining: ${
+        item.summary.quotaApproximateRemaining || "not recorded"
+      }`,
     );
     if ("backupRunwayAcceptedPosture" in item.summary) {
       console.log(

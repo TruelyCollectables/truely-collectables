@@ -59,6 +59,15 @@ function assertEvidenceContract(payload) {
   if (!payload?.evidence?.goLiveRunway?.latestArchive) {
     missing.push("evidence.goLiveRunway.latestArchive");
   }
+  if (!payload?.evidence?.checkpoint?.summary?.quotaApproximateRemaining) {
+    missing.push("evidence.checkpoint.summary.quotaApproximateRemaining");
+  }
+  if (!payload?.evidence?.nextAction?.summary?.quotaApproximateRemaining) {
+    missing.push("evidence.nextAction.summary.quotaApproximateRemaining");
+  }
+  if (!payload?.evidence?.goLiveRunway?.summary?.quotaApproximateRemaining) {
+    missing.push("evidence.goLiveRunway.summary.quotaApproximateRemaining");
+  }
   if (typeof payload?.evidence?.checkpoint?.summary?.goLiveEvidenceOk !== "boolean") {
     missing.push("evidence.checkpoint.summary.goLiveEvidenceOk");
   }
@@ -200,6 +209,11 @@ console.log(
   }`,
 );
 console.log(
+  `- checkpoint quota approximate remaining: ${
+    payload.evidence.checkpoint.summary.quotaApproximateRemaining
+  }`,
+);
+console.log(
   `- checkpoint go-live evidence ok: ${
     payload.evidence.checkpoint.summary.goLiveEvidenceOk ? "yes" : "no"
   }`,
@@ -231,6 +245,11 @@ console.log(
   }`,
 );
 console.log(
+  `- next-action quota approximate remaining: ${
+    payload.evidence.nextAction.summary.quotaApproximateRemaining
+  }`,
+);
+console.log(
   `- next-action go-live evidence ok: ${
     payload.evidence.nextAction.summary.goLiveEvidenceOk ? "yes" : "no"
   }`,
@@ -259,6 +278,11 @@ console.log(`- go-live runway archive count: ${payload.evidence.goLiveRunway.arc
 console.log(
   `- go-live runway captured current HEAD: ${
     payload.evidence.goLiveRunway.capturedAtCurrentPushedHead ? "yes" : "no"
+  }`,
+);
+console.log(
+  `- go-live runway quota approximate remaining: ${
+    payload.evidence.goLiveRunway.summary.quotaApproximateRemaining
   }`,
 );
 console.log(

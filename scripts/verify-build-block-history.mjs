@@ -174,6 +174,27 @@ if (payload) {
   );
   checks.push(
     check(
+      Boolean(evidence.checkpoint?.summary?.quotaApproximateRemaining),
+      "history checkpoint quota approximate remaining is recorded",
+      evidence.checkpoint?.summary?.quotaApproximateRemaining || null,
+    ),
+  );
+  checks.push(
+    check(
+      Boolean(evidence.nextAction?.summary?.quotaApproximateRemaining),
+      "history next-action quota approximate remaining is recorded",
+      evidence.nextAction?.summary?.quotaApproximateRemaining || null,
+    ),
+  );
+  checks.push(
+    check(
+      Boolean(evidence.goLiveRunway?.summary?.quotaApproximateRemaining),
+      "history runway quota approximate remaining is recorded",
+      evidence.goLiveRunway?.summary?.quotaApproximateRemaining || null,
+    ),
+  );
+  checks.push(
+    check(
       evidence.checkpoint?.summary?.goLiveEvidenceOk === true,
       "history checkpoint go-live evidence verifier is ok",
       evidence.checkpoint?.summary?.goLiveEvidenceOk,
@@ -327,6 +348,12 @@ const verification = {
         checkpointArchive: payload.evidence?.checkpoint?.latestArchive?.filePath || null,
         nextActionArchive: payload.evidence?.nextAction?.latestArchive?.filePath || null,
         goLiveRunwayArchive: payload.evidence?.goLiveRunway?.latestArchive?.filePath || null,
+        checkpointQuotaApproximateRemaining:
+          payload.evidence?.checkpoint?.summary?.quotaApproximateRemaining || null,
+        nextActionQuotaApproximateRemaining:
+          payload.evidence?.nextAction?.summary?.quotaApproximateRemaining || null,
+        runwayQuotaApproximateRemaining:
+          payload.evidence?.goLiveRunway?.summary?.quotaApproximateRemaining || null,
         checkpointGoLiveEvidenceOk:
           payload.evidence?.checkpoint?.summary?.goLiveEvidenceOk ?? null,
         checkpointGoLiveEvidenceCurrent:
@@ -386,6 +413,21 @@ if (jsonOutput) {
   );
   console.log(`- selected lane: ${verification.history?.selectedLane || "not recorded"}`);
   console.log(`- checkpoint focus: ${verification.history?.checkpointFocus || "not recorded"}`);
+  console.log(
+    `- checkpoint quota approximate remaining: ${
+      verification.history?.checkpointQuotaApproximateRemaining || "not recorded"
+    }`,
+  );
+  console.log(
+    `- next-action quota approximate remaining: ${
+      verification.history?.nextActionQuotaApproximateRemaining || "not recorded"
+    }`,
+  );
+  console.log(
+    `- runway quota approximate remaining: ${
+      verification.history?.runwayQuotaApproximateRemaining || "not recorded"
+    }`,
+  );
   console.log(
     `- checkpoint go-live evidence ok: ${
       verification.history?.checkpointGoLiveEvidenceOk ? "yes" : "no"
