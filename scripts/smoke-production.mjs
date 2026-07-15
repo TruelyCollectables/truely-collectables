@@ -747,6 +747,15 @@ const checks = [
       result.text.includes('"launchLockCount"') &&
       result.text.includes('"operatorSummary"') &&
       result.text.includes('"nextActions"') &&
+      result.text.includes('"liveMoneyEvidence"') &&
+      result.text.includes('"schema":"tcos.liveMoneyGoNoGo.v1"') &&
+      result.text.includes('"statusCommand":"npm --silent run status:live-money:json"') &&
+      result.text.includes('"preflightCommand":"npm --silent run preflight:live-money:json"') &&
+      result.text.includes('"READY_FOR_RUNTIME_SWITCH"') &&
+      result.text.includes('"LIVE_MONEY_OPEN"') &&
+      result.text.includes("BLOCKED_LAUNCH_GATE") &&
+      result.text.includes("Archive the status JSON after production smoke passes") &&
+      result.text.includes("must not create Checkout Sessions") &&
       result.text.includes('"gitCommitSha"') &&
       result.text.includes('"gitCommitRef"') &&
       result.text.includes('"vercelUrl"') &&
@@ -821,6 +830,14 @@ const checks = [
       result.text.includes("Launch locks:") &&
       result.text.includes("Operator summary:") &&
       result.text.includes("Next live-money actions:") &&
+      result.text.includes("## Live Money JSON Evidence") &&
+      result.text.includes("Schema: `tcos.liveMoneyGoNoGo.v1`") &&
+      result.text.includes("Post-smoke archive command: `npm --silent run status:live-money:json`") &&
+      result.text.includes("Final-window preflight command: `npm --silent run preflight:live-money:json`") &&
+      result.text.includes("Accepted go-live states: READY_FOR_RUNTIME_SWITCH, LIVE_MONEY_OPEN") &&
+      result.text.includes("Halt states: BLOCKED_UNEVALUATED, BLOCKED_APPROVAL, READY_FOR_DATABASE_APPROVAL, BLOCKED_LAUNCH_GATE") &&
+      result.text.includes("Archive the status JSON after production smoke passes") &&
+      result.text.includes("must not create Checkout Sessions") &&
       result.text.includes("Missing purchase audit keys: none") &&
       result.text.includes("Unexpected purchase audit keys: none") &&
       result.text.includes("## Deployment Source") &&
@@ -1184,6 +1201,14 @@ const checks = [
       "Launch locks:",
       "Operator summary:",
       "Next live-money actions:",
+      "## Live Money JSON Evidence",
+      "Schema: `tcos.liveMoneyGoNoGo.v1`",
+      "Post-smoke archive command: `npm --silent run status:live-money:json`",
+      "Final-window preflight command: `npm --silent run preflight:live-money:json`",
+      "Accepted go-live states: READY_FOR_RUNTIME_SWITCH, LIVE_MONEY_OPEN",
+      "Halt states: BLOCKED_UNEVALUATED, BLOCKED_APPROVAL, READY_FOR_DATABASE_APPROVAL, BLOCKED_LAUNCH_GATE",
+      "Archive the status JSON after production smoke passes",
+      "must not create Checkout Sessions",
       "npm run verify:production",
       "npm run status:production",
       "npm run launch:production",
@@ -1239,6 +1264,14 @@ const checks = [
       result.text.includes("Launch locks:") &&
       result.text.includes("Operator summary:") &&
       result.text.includes("Next live-money actions:") &&
+      result.text.includes("## Live Money JSON Evidence") &&
+      result.text.includes("Schema: `tcos.liveMoneyGoNoGo.v1`") &&
+      result.text.includes("Post-smoke archive command: `npm --silent run status:live-money:json`") &&
+      result.text.includes("Final-window preflight command: `npm --silent run preflight:live-money:json`") &&
+      result.text.includes("Accepted go-live states: READY_FOR_RUNTIME_SWITCH, LIVE_MONEY_OPEN") &&
+      result.text.includes("Halt states: BLOCKED_UNEVALUATED, BLOCKED_APPROVAL, READY_FOR_DATABASE_APPROVAL, BLOCKED_LAUNCH_GATE") &&
+      result.text.includes("Archive the status JSON after production smoke passes") &&
+      result.text.includes("must not create Checkout Sessions") &&
       result.text.includes("npm run verify:production") &&
       result.text.includes("npm run launch:production") &&
       result.text.includes("npm run status:production") &&
