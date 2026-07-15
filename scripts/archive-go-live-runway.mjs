@@ -70,8 +70,24 @@ function assertEvidenceContract(payload) {
   if (!Array.isArray(payload?.goLiveReadiness?.blockers)) {
     missing.push("goLiveReadiness.blockers");
   }
+  for (const [index, blocker] of (payload?.goLiveReadiness?.blockers || []).entries()) {
+    if (!blocker?.actionCategory) {
+      missing.push(`goLiveReadiness.blockers[${index}].actionCategory`);
+    }
+    if (!Array.isArray(blocker?.actionCommands)) {
+      missing.push(`goLiveReadiness.blockers[${index}].actionCommands`);
+    }
+  }
   if (!Array.isArray(payload?.goLiveReadiness?.watchItems)) {
     missing.push("goLiveReadiness.watchItems");
+  }
+  for (const [index, item] of (payload?.goLiveReadiness?.watchItems || []).entries()) {
+    if (!item?.actionCategory) {
+      missing.push(`goLiveReadiness.watchItems[${index}].actionCategory`);
+    }
+    if (!Array.isArray(item?.actionCommands)) {
+      missing.push(`goLiveReadiness.watchItems[${index}].actionCommands`);
+    }
   }
   if (!payload?.goLiveReadiness?.nextOperatorStep) {
     missing.push("goLiveReadiness.nextOperatorStep");

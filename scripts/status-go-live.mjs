@@ -275,6 +275,7 @@ function goLiveReadiness({ git, quota, emergencyBackup, liveMoney }) {
       actionCategory: "operator_action",
       detail: "Local working tree has uncommitted changes.",
       next: "Commit and push launch-bound work before production deploy.",
+      actionCommands: ["git status --short"],
     });
   }
 
@@ -285,6 +286,7 @@ function goLiveReadiness({ git, quota, emergencyBackup, liveMoney }) {
       actionCategory: "operator_action",
       detail: `Local HEAD ${git.head} does not match origin/main ${git.originMain}.`,
       next: "Push or reconcile origin/main before production deploy.",
+      actionCommands: ["git status --short", "git push origin main"],
     });
   }
 
@@ -301,6 +303,7 @@ function goLiveReadiness({ git, quota, emergencyBackup, liveMoney }) {
         quota.retryAt && quota.retryAt !== "unknown"
           ? `Wait until ${quota.retryAt}, then rerun npm run status:production before deploy.`
           : quota.next || "Rerun npm run status:production before deploy.",
+      actionCommands: ["npm run status:production", "npm --silent run status:production:json"],
     });
   }
 
@@ -313,6 +316,7 @@ function goLiveReadiness({ git, quota, emergencyBackup, liveMoney }) {
         emergencyBackup.verification.failedCheckCount ?? "unknown"
       } failed check(s).`,
       next: "Run npm run verify:nightly-backup and fix backup evidence before go-live.",
+      actionCommands: ["npm run verify:nightly-backup", "npm run archive:nightly-backup-verification"],
     });
   }
 
@@ -323,6 +327,7 @@ function goLiveReadiness({ git, quota, emergencyBackup, liveMoney }) {
       actionCategory: "operator_action",
       detail: emergencyBackup.scheduleHealth.message,
       next: "Run npm run status:nightly-backup and repair the backup schedule before go-live.",
+      actionCommands: ["npm run status:nightly-backup", "npm run archive:nightly-backup-status"],
     });
   }
 
@@ -333,6 +338,7 @@ function goLiveReadiness({ git, quota, emergencyBackup, liveMoney }) {
       actionCategory: "operator_action",
       detail: "Latest backup is not current for the last scheduled run.",
       next: "Run npm run backup:nightly or repair the scheduler before go-live.",
+      actionCommands: ["npm run backup:nightly -- --local-only", "npm run verify:nightly-backup"],
     });
   }
 
@@ -343,6 +349,7 @@ function goLiveReadiness({ git, quota, emergencyBackup, liveMoney }) {
       actionCategory: "operator_action",
       detail: `Backup folder has ${emergencyBackup.retention.overRetentionCount} file(s) over the seven-backup retention window.`,
       next: "Run npm run status:nightly-backup and confirm retention rotation before go-live.",
+      actionCommands: ["npm run status:nightly-backup", "npm run archive:nightly-backup-status"],
     });
   }
 
@@ -353,6 +360,7 @@ function goLiveReadiness({ git, quota, emergencyBackup, liveMoney }) {
       actionCategory: "operator_watch",
       detail: emergencyBackup.schedulerProof.message,
       next: emergencyBackup.schedulerProof.nextAction,
+      actionCommands: ["npm run status:nightly-backup"],
     });
   }
 
@@ -362,7 +370,16 @@ function goLiveReadiness({ git, quota, emergencyBackup, liveMoney }) {
       state: liveMoney.state,
       actionCategory: "operator_action",
       detail: liveMoney.detail,
-      next: liveMoney.next,
+      next: liveMoney.missingBootstrapEnvironment.length
+        ? "Stage the missing Supabase bootstrap environment with the no-secret packet helpers, then rerun npm run status:live-money."
+        : liveMoney.next,
+      actionCommands: liveMoney.missingBootstrapEnvironment.length
+        ? [
+            "npm run live-money:env-packet",
+            "npm run live-money:vercel-commands",
+            "npm run status:live-money",
+          ]
+        : ["npm run status:live-money"],
       missingEnvironment: liveMoney.missingBootstrapEnvironment,
     });
   }
@@ -494,6 +511,9 @@ function printText(status) {
     for (const blocker of status.goLiveReadiness.blockers) {
       console.log(`- ${blocker.area}: ${blocker.state} (${blocker.actionCategory}) - ${blocker.detail}`);
       console.log(`  next: ${blocker.next}`);
+      if (blocker.actionCommands?.length) {
+        console.log(`  commands: ${blocker.actionCommands.join(" | ")}`);
+      }
       if (blocker.missingEnvironment?.length) {
         console.log(`  missing environment: ${blocker.missingEnvironment.join(", ")}`);
       }
@@ -504,6 +524,9 @@ function printText(status) {
     for (const item of status.goLiveReadiness.watchItems) {
       console.log(`- ${item.area}: ${item.state} (${item.actionCategory}) - ${item.detail}`);
       console.log(`  next: ${item.next}`);
+      if (item.actionCommands?.length) {
+        console.log(`  commands: ${item.actionCommands.join(" | ")}`);
+      }
     }
   }
   console.log(`- next actionable step: ${status.goLiveReadiness.nextActionableStep}`);
