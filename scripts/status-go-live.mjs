@@ -554,6 +554,7 @@ function buildStatus() {
     "npm run prepare:next-build-block-action",
     "npm run status:build-block-history",
     "npm --silent run status:build-block-history:json",
+    "npm run prepare:build-block-history",
     "npm run archive:build-block-history",
     "npm run verify:build-block-history",
     "npm --silent run verify:build-block-history:json",
