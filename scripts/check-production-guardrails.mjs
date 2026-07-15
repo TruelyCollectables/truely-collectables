@@ -3497,8 +3497,11 @@ assertFileIncludes(
     "TCOS internal under-$20 seller protection uses the separate",
     "Provider reference ready",
     "External Coverage/provider claim",
+    "externalCoveragePaidProofVisible",
+    'normalizedStatus === "paid"',
     "externalCoveragePaidBlocked",
     'action.status === "paid" && externalCoveragePaidBlocked',
+    "AUDIT WARNING: this paid external Coverage claim is missing a provider reference.",
     "Enter the external provider claim/reference ID before Mark Paid is available.",
   ],
 );

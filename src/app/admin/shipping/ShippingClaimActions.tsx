@@ -359,8 +359,19 @@ function buyerRefundReadinessCard(gate: { allowed: boolean; reason: string }) {
   );
 }
 
-function externalCoveragePaidReadinessCard(providerClaimId: string) {
+function externalCoveragePaidReadinessCard(
+  providerClaimId: string,
+  claimStatus: ClaimStatus,
+) {
   const ready = providerClaimId.trim().length > 0;
+  const claimMarkedPaid = claimStatus === "paid";
+  const detail = claimMarkedPaid
+    ? ready
+      ? "Paid audit trail has a saved external provider reference."
+      : "AUDIT WARNING: this paid external Coverage claim is missing a provider reference. Use the evidence packet and provider records before relying on payout proof."
+    : ready
+      ? "Mark Paid can use the saved provider reference as the external payout proof trail."
+      : "Enter the external provider claim/reference ID before Mark Paid is available.";
 
   return (
     <div
@@ -392,11 +403,7 @@ function externalCoveragePaidReadinessCard(providerClaimId: string) {
           <dd>External Coverage/provider claim</dd>
         </div>
       </dl>
-      <p className="mt-2">
-        {ready
-          ? "Mark Paid can use the saved provider reference as the external payout proof trail."
-          : "Enter the external provider claim/reference ID before Mark Paid is available."}
-      </p>
+      <p className="mt-2">{detail}</p>
     </div>
   );
 }
@@ -463,6 +470,9 @@ export default function ShippingClaimActions({
     normalizedStatus === "approved" &&
     !isUnder20SellerProtection &&
     providerId.trim().length === 0;
+  const externalCoveragePaidProofVisible =
+    (normalizedStatus === "approved" || normalizedStatus === "paid") &&
+    !isUnder20SellerProtection;
   const buyerRefundReadinessGate =
     evaluateUnder20SellerProtectionBuyerRefundMetadataGate({
       metadata: claimMetadata,
@@ -518,8 +528,8 @@ export default function ShippingClaimActions({
       ? buyerRefundReadinessCard(buyerRefundReadinessGate)
       : null;
   const externalCoveragePaidReadinessCardNode =
-    normalizedStatus === "approved" && !isUnder20SellerProtection
-      ? externalCoveragePaidReadinessCard(providerId)
+    externalCoveragePaidProofVisible
+      ? externalCoveragePaidReadinessCard(providerId, normalizedStatus)
       : null;
   const packetLink = (
     <a
@@ -568,6 +578,7 @@ export default function ShippingClaimActions({
     return (
       <div className="mt-3 space-y-2 rounded border bg-neutral-50 p-3">
         {packetLink}
+        {externalCoveragePaidReadinessCardNode}
         {buyerRefundEvidenceCardNode}
         {reimbursementCard}
         {currentEvidenceCard}
