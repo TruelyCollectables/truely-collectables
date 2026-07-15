@@ -364,10 +364,13 @@ function buildQuotaCooldownPayload() {
     generatedAt: new Date().toISOString(),
     ...status,
     marker: quotaBlockMarkerPath,
+    deployTimeoutMs: vercelDeployTimeoutMs,
+    deployTimeout: formatMilliseconds(vercelDeployTimeoutMs),
+    deployTimeoutEnv: "TCOS_VERCEL_DEPLOY_TIMEOUT_MS",
     vercelUploadStarted: false,
     next: quotaCooldownNextAction(status),
     readOnlyGuarantee:
-      "This command only reads the local Vercel quota cooldown marker and configuration; it starts no Git fetch, build, Vercel upload, deployment, alias change, smoke test, Checkout, postage, payout, launch approval, or revocation.",
+      "This command only reads the local Vercel quota cooldown marker and deploy-timeout configuration; it starts no Git fetch, build, Vercel upload, deployment, alias change, smoke test, Checkout, postage, payout, launch approval, or revocation.",
   };
 }
 
@@ -384,6 +387,9 @@ function printQuotaCooldownStatus() {
   if (payload.retryAtLocal) console.log(`- retry at or after local: ${payload.retryAtLocal}`);
   if (payload.remaining) console.log(`- approximate remaining: ${payload.remaining}`);
   console.log(`- marker: ${payload.marker}`);
+  console.log(
+    `- Vercel deploy timeout: ${payload.deployTimeout} (${payload.deployTimeoutMs} ms via ${payload.deployTimeoutEnv})`,
+  );
   console.log(`- Vercel upload started: ${payload.vercelUploadStarted ? "yes" : "no"}`);
   console.log(`- next: ${payload.next}`);
 }
