@@ -1329,6 +1329,7 @@ assertFileIncludes("go-live runway status helper source", "scripts/status-go-liv
   "npm run archive:go-live-evidence-verification",
   "npm run prepare:live-money-bootstrap",
   "preserve runway/backup proof",
+  "archive the go-live evidence verifier proof",
   "npm run live-money:env-packet",
   "npm run archive:live-money-env-packet",
   "npm run verify:live-money-env-packet",
