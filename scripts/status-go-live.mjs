@@ -191,7 +191,7 @@ function latestJsonArchive(dir, suffix) {
   return files[0] || null;
 }
 
-function goLiveEvidenceVerificationStatus() {
+function goLiveEvidenceVerificationStatus(git) {
   const evidenceDir = join(repoRoot, ".codex-run", "go-live-evidence-verification");
   const latest = latestJsonArchive(evidenceDir, "-go-live-evidence-verification.json");
   if (!latest) {
@@ -205,15 +205,26 @@ function goLiveEvidenceVerificationStatus() {
 
   try {
     const payload = JSON.parse(readFileSync(latest.filePath, "utf8"));
+    const archiveGitHead = payload.archive?.gitHead || payload.git?.head || "unknown";
+    const archiveGitOriginMain =
+      payload.archive?.gitOriginMain || payload.git?.originMain || "unknown";
+    const gitWorkingTreeClean =
+      payload.archive?.gitWorkingTreeClean ?? payload.git?.workingTreeClean ?? null;
+    const capturedAtCurrentHead =
+      git.workingTreeClean === true &&
+      archiveGitHead === git.head &&
+      archiveGitOriginMain === git.originMain &&
+      archiveGitHead === archiveGitOriginMain &&
+      gitWorkingTreeClean === true;
     return {
       available: true,
       ok: payload.ok === true,
       path: latest.filePath,
       archivedAt: payload.archive?.archivedAt || payload.checkedAt || latest.modifiedAt,
-      gitHead: payload.archive?.gitHead || payload.git?.head || "unknown",
-      gitOriginMain: payload.archive?.gitOriginMain || payload.git?.originMain || "unknown",
-      gitWorkingTreeClean:
-        payload.archive?.gitWorkingTreeClean ?? payload.git?.workingTreeClean ?? null,
+      gitHead: archiveGitHead,
+      gitOriginMain: archiveGitOriginMain,
+      gitWorkingTreeClean,
+      capturedAtCurrentHead,
       failedCheckCount:
         typeof payload.failedCheckCount === "number" ? payload.failedCheckCount : null,
       liveMoneyPacketVerificationPath:
@@ -224,9 +235,9 @@ function goLiveEvidenceVerificationStatus() {
         null,
       readOnlyGuarantee: payload.readOnlyGuarantee || null,
       next:
-        payload.ok === true
+        payload.ok === true && capturedAtCurrentHead
           ? "Latest go-live evidence verifier proof is archived and clean."
-          : "Run npm run verify:go-live-evidence, then npm run prepare:go-live-evidence after fixing failed checks.",
+          : "Run npm run prepare:go-live-evidence to refresh verifier proof at the current pushed HEAD.",
     };
   } catch (error) {
     return {
@@ -504,7 +515,6 @@ function buildStatus() {
   const quota = quotaStatus();
   const liveMoney = liveMoneyStatus();
   const emergencyBackup = emergencyBackupStatus();
-  const goLiveEvidence = goLiveEvidenceVerificationStatus();
   const payload = liveMoney.payload;
   const readOnlyGuarantee =
     "This command only reads Git state, local quota status, live-money JSON evidence, emergency-backup status/verification evidence, and static deploy-safety guidance; it starts no deploy, upload, archive creation, Git push, Checkout, postage, payout, launch approval, or revocation.";
@@ -539,6 +549,7 @@ function buildStatus() {
     workingTreeClean: gitStatusShort === "",
     workingTreeChanges: gitStatusShort ? gitStatusShort.split("\n") : [],
   };
+  const goLiveEvidence = goLiveEvidenceVerificationStatus(git);
   const liveMoneySummary = {
     ok: liveMoney.ok,
     state: payload.state || "unknown",
@@ -641,6 +652,11 @@ function printText(status) {
   console.log(
     `- git working tree clean: ${
       status.goLiveEvidence.gitWorkingTreeClean === true ? "yes" : "unknown"
+    }`,
+  );
+  console.log(
+    `- captured at current pushed HEAD: ${
+      status.goLiveEvidence.capturedAtCurrentHead ? "yes" : "no"
     }`,
   );
   console.log(
