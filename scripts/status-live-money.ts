@@ -11,6 +11,12 @@ type LiveMoneyState =
   | "BLOCKED_LAUNCH_GATE";
 
 const allowBlocked = process.argv.includes("--allow-blocked");
+const jsonOutput = process.argv.includes("--json");
+
+const readOnlyGuarantee =
+  "No Checkout Sessions, Customers, PaymentIntents, refunds, disputes, payouts, labels, postage purchases, Coverage policies, launch approvals, or revocations were created.";
+const failedReadOnlyGuarantee =
+  "The command failed before any launch approval, revocation, Checkout, postage, or payout action could be created.";
 
 function redact(value: unknown) {
   return String(value)
@@ -100,11 +106,64 @@ function printItems(
   }
 }
 
+function actionPayload(
+  items: Awaited<ReturnType<typeof evaluateLivePaymentLaunch>>["summary"]["nextActions"],
+) {
+  return items.map((item) => ({
+    key: item.key,
+    label: redact(item.label),
+    status: item.status,
+    detail: redact(item.detail),
+    action: redact(item.action),
+  }));
+}
+
+function statusPayload(
+  report: Awaited<ReturnType<typeof evaluateLivePaymentLaunch>>,
+  classification: ReturnType<typeof classify>,
+) {
+  return {
+    schema: "tcos.liveMoneyGoNoGo.v1",
+    state: classification.state,
+    readyForRuntimeSwitch: classification.readyForRuntimeSwitch,
+    paymentMode: report.paymentMode,
+    approvalVersion: report.approvalVersion,
+    approvalDatabaseReady: report.approvalDatabaseReady,
+    databaseApproved: report.summary.databaseApproved,
+    runtimeSwitchEnabled: report.summary.runtimeSwitchEnabled,
+    liveCheckout: report.livePaymentsEnabled ? "OPEN" : "LOCKED",
+    counts: {
+      approvalBlockers: report.summary.approvalBlockingCount,
+      launchLocks: report.summary.launchLockCount,
+      warnings: report.summary.warningCount,
+      passed: report.summary.passedCount,
+      blocked: report.summary.blockedCount,
+      totalChecks: report.summary.totalChecks,
+    },
+    generatedAt: report.generatedAt,
+    summary: redact(report.summary.operatorSummary),
+    detail: redact(classification.detail),
+    next: redact(classification.next),
+    approvalBlockers: actionPayload(report.summary.approvalBlockers),
+    launchLocks: actionPayload(report.summary.launchLocks),
+    warnings: actionPayload(report.summary.warnings),
+    readOnlyGuarantee,
+  };
+}
+
 async function main() {
   const supabase = createSupabaseServerClient({ admin: true });
   const storeId = getActiveStoreId();
   const report = await evaluateLivePaymentLaunch({ supabase, storeId });
   const classification = classify(report);
+
+  if (jsonOutput) {
+    console.log(JSON.stringify(statusPayload(report, classification), null, 2));
+    if (!classification.readyForRuntimeSwitch && !allowBlocked) {
+      process.exitCode = 1;
+    }
+    return;
+  }
 
   console.log("Live money go/no-go status:");
   console.log(`- state: ${classification.state}`);
@@ -124,9 +183,7 @@ async function main() {
   printItems("Approval blockers", report.summary.approvalBlockers);
   printItems("Launch locks", report.summary.launchLocks);
   printItems("Warnings", report.summary.warnings);
-  console.log(
-    "Read-only guarantee: no Checkout Sessions, Customers, PaymentIntents, refunds, disputes, payouts, labels, postage purchases, Coverage policies, launch approvals, or revocations were created.",
-  );
+  console.log(`Read-only guarantee: ${readOnlyGuarantee}`);
 
   if (!classification.readyForRuntimeSwitch && !allowBlocked) {
     process.exitCode = 1;
@@ -134,16 +191,31 @@ async function main() {
 }
 
 main().catch((error) => {
+  const payload = {
+    schema: "tcos.liveMoneyGoNoGo.v1",
+    state: "BLOCKED_UNEVALUATED" as const,
+    readyForRuntimeSwitch: false,
+    detail: redact(error?.message || error || "unknown error"),
+    next: "Restore the required Supabase/live-payment environment, then rerun npm run status:live-money.",
+    readOnlyGuarantee: failedReadOnlyGuarantee,
+  };
+
+  if (jsonOutput) {
+    console.log(JSON.stringify(payload, null, 2));
+    if (!allowBlocked) {
+      process.exitCode = 1;
+    }
+    return;
+  }
+
   console.log("Live money go/no-go status:");
   console.log("- state: BLOCKED_UNEVALUATED");
   console.log("- ready for runtime switch: no");
-  console.log(`- detail: ${redact(error?.message || error || "unknown error")}`);
+  console.log(`- detail: ${payload.detail}`);
   console.log(
-    "- next: Restore the required Supabase/live-payment environment, then rerun npm run status:live-money.",
+    `- next: ${payload.next}`,
   );
-  console.log(
-    "Read-only guarantee: the command failed before any launch approval, revocation, Checkout, postage, or payout action could be created.",
-  );
+  console.log(`Read-only guarantee: ${failedReadOnlyGuarantee}`);
   if (!allowBlocked) {
     process.exitCode = 1;
   }

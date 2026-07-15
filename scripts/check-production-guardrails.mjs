@@ -699,8 +699,14 @@ assertScriptIncludes("status:production", [
 assertScriptIncludes("status:live-money", [
   "node --import tsx scripts/status-live-money.ts --allow-blocked",
 ]);
+assertScriptIncludes("status:live-money:json", [
+  "node --import tsx scripts/status-live-money.ts --allow-blocked --json",
+]);
 assertScriptIncludes("preflight:live-money", [
   "node --import tsx scripts/status-live-money.ts",
+]);
+assertScriptIncludes("preflight:live-money:json", [
+  "node --import tsx scripts/status-live-money.ts --json",
 ]);
 assertScriptIncludes("verify:production", [
   "status:live-money",
@@ -734,14 +740,18 @@ assertFileIncludes("live money go/no-go CLI source", "scripts/status-live-money.
   "Live money go/no-go status:",
   "READY_FOR_RUNTIME_SWITCH",
   "READY_FOR_DATABASE_APPROVAL",
+  "tcos.liveMoneyGoNoGo.v1",
+  "--json",
   "--allow-blocked",
   "approval blockers",
   "runtime switch",
-  "Read-only guarantee: no Checkout Sessions, Customers, PaymentIntents, refunds, disputes, payouts, labels, postage purchases, Coverage policies, launch approvals, or revocations were created.",
+  "No Checkout Sessions, Customers, PaymentIntents, refunds, disputes, payouts, labels, postage purchases, Coverage policies, launch approvals, or revocations were created.",
 ]);
 assertFileIncludes("live money go/no-go README instructions", "README.md", [
   "npm run status:live-money",
+  "npm --silent run status:live-money:json",
   "npm run preflight:live-money",
+  "npm --silent run preflight:live-money:json",
   "verify:production",
   "READY_FOR_RUNTIME_SWITCH",
   "Read-only guarantee",
