@@ -521,7 +521,7 @@ const EMPTY_CARD_PREVIEW =
 const TEST_MODEL_LATENCY_MS = 120;
 const TEST_MODEL_RUN_LEDGER_STORAGE_KEY = "instacomp-test-run-ledger-v1";
 const PRICE_BUTTONS = [
-  { label: "Market", multiplier: 1 },
+  { label: "Comp", multiplier: 1 },
   { label: "+5%", multiplier: 1.05 },
   { label: "+10%", multiplier: 1.1 },
   { label: "+20%", multiplier: 1.2 },
@@ -1494,9 +1494,11 @@ function topRemainingMatches(result: ScanResponse | null) {
 }
 
 function visibleMarketplaceMatches(result: ScanResponse) {
-  return result.remainingCards?.length
-    ? result.remainingCards
-    : result.activeComps || [];
+  return uniqueComps([
+    ...primaryCompComps(result),
+    ...(result.remainingCards || []),
+    ...(result.activeComps || []),
+  ]);
 }
 
 function compGuidanceLabel(comp: ActiveComp) {
@@ -2240,6 +2242,43 @@ function effectiveMarketStats(result: ScanResponse | null | undefined) {
   return statsFromComps(effectiveMarketValueComps(result));
 }
 
+function primaryCompComps(result: ScanResponse | null | undefined) {
+  if (!result) return [];
+
+  const soldComps = (result.soldComps || []).filter(isUsableMarketComp);
+
+  if (soldComps.length) return uniqueComps(soldComps);
+
+  return uniqueComps(effectiveMarketValueComps(result));
+}
+
+function primaryCompStats(result: ScanResponse | null | undefined) {
+  return statsFromComps(primaryCompComps(result));
+}
+
+function primaryCompPriceForCard(card: BatchCard) {
+  return (
+    roundedPositiveMoney(primaryCompStats(card.result).suggestedPrice) ??
+    marketPriceForCard(card)
+  );
+}
+
+function compPriceBasisForResult(result: ScanResponse | null | undefined) {
+  if (!result) return "No comps";
+
+  const soldComps = (result.soldComps || []).filter(isUsableMarketComp);
+
+  if (soldComps.length) return `${soldComps.length} sold comp${soldComps.length === 1 ? "" : "s"}`;
+
+  const comps = primaryCompComps(result);
+
+  if (comps.length) {
+    return `${comps.length} usable comp${comps.length === 1 ? "" : "s"}`;
+  }
+
+  return "No usable comps";
+}
+
 function marketPriceForCard(card: BatchCard) {
   return (
     roundedPositiveMoney(card.marketPrice) ??
@@ -2258,12 +2297,12 @@ function draftPriceHandoffForCard(card: BatchCard) {
     };
   }
 
-  const marketPrice = marketPriceForCard(card);
+  const compPrice = primaryCompPriceForCard(card);
 
   return {
-    price: marketPrice,
+    price: compPrice,
     source:
-      marketPrice === null
+      compPrice === null
         ? ("missing" as const)
         : ("instacomp_market" as const),
   };
@@ -2344,14 +2383,14 @@ function draftListingPriceForCard(card: BatchCard) {
 }
 
 function resetDraftEditsForCard(card: BatchCard) {
-  const marketPrice = marketPriceForCard(card);
+  const compPrice = primaryCompPriceForCard(card);
 
   return {
     ...card,
     customTitle: cardResultTitle(card.result, card.file.name),
     customSerialNumber: card.result?.ai.serialNumber || "",
     customQuantity: "1",
-    customPrice: marketPrice ? marketPrice.toFixed(2) : "",
+    customPrice: compPrice ? compPrice.toFixed(2) : "",
     draftStatus: card.draftStatus === "error" ? "idle" : card.draftStatus,
     draftError: card.draftStatus === "error" ? null : card.draftError,
   };
@@ -3745,7 +3784,7 @@ export default function InstaCompScanner({
     (card) => card.selected && isOperatorMarkedProblemBatchCard(card)
   ).length;
   const selectedPriceableBatchCards = selectedDoneBatchCards.filter(
-    (card) => marketPriceForCard(card)
+    (card) => primaryCompPriceForCard(card)
   );
   const batchDraftableCount = batchCards.filter(isDraftableBatchCard).length;
   const batchDraftCreatedCount = batchCards.filter(
@@ -6721,11 +6760,11 @@ export default function InstaCompScanner({
 
   function applyBatchPrice(cardId: string, multiplier: number) {
     updateBatchCard(cardId, (card) => {
-      const marketPrice = marketPriceForCard(card);
+      const compPrice = primaryCompPriceForCard(card);
 
-      if (!marketPrice) return card;
+      if (!compPrice) return card;
 
-      const price = Math.round(marketPrice * multiplier * 100) / 100;
+      const price = Math.round(compPrice * multiplier * 100) / 100;
 
       return {
         ...card,
@@ -6736,20 +6775,20 @@ export default function InstaCompScanner({
 
   function applySelectedBatchPrice(multiplier: number) {
     if (!selectedPriceableBatchCards.length) {
-      setBatchError("Select at least one draftable row with a market price.");
+      setBatchError("Select at least one draftable row with a comp price.");
       return;
     }
 
     setBatchError(null);
     setBatchCards((current) =>
       current.map((card) => {
-        const marketPrice = marketPriceForCard(card);
+        const compPrice = primaryCompPriceForCard(card);
 
-        if (!card.selected || !isDraftableBatchCard(card) || !marketPrice) {
+        if (!card.selected || !isDraftableBatchCard(card) || !compPrice) {
           return card;
         }
 
-        const price = Math.round(marketPrice * multiplier * 100) / 100;
+        const price = Math.round(compPrice * multiplier * 100) / 100;
 
         return {
           ...card,
@@ -12209,12 +12248,12 @@ export default function InstaCompScanner({
               background: "white",
             }}
           >
-            <h2 style={{ marginTop: 0 }}>Market Pricing</h2>
+            <h2 style={{ marginTop: 0 }}>Comp Pricing</h2>
 
             <p style={{ marginTop: 0, color: "#555" }}>
-              Market value, high, and low are calculated from included live
-              source matches only. Registered sources stay in InstaComp coverage
-              until live ingestion is configured.
+              Comp price is shown first from usable sold comps when available,
+              then exact usable comp matches. Market guidance stays underneath
+              as the smaller secondary number.
             </p>
 
             <div
@@ -12224,26 +12263,29 @@ export default function InstaCompScanner({
                 gap: 12,
               }}
             >
-              <PriceBox label="Low" value={effectiveMarketStats(result).low} />
+              <PriceBox label="Comp Low" value={primaryCompStats(result).low} />
               <PriceBox
-                label="Median"
-                value={effectiveMarketStats(result).median}
+                label="Comp Median"
+                value={primaryCompStats(result).median}
               />
               <PriceBox
-                label="Average"
-                value={effectiveMarketStats(result).average}
+                label="Comp Average"
+                value={primaryCompStats(result).average}
               />
-              <PriceBox label="High" value={effectiveMarketStats(result).high} />
               <PriceBox
-                label="Suggested"
-                value={effectiveMarketStats(result).suggestedPrice}
+                label="Comp High"
+                value={primaryCompStats(result).high}
+              />
+              <PriceBox
+                label="Comp Suggested"
+                value={primaryCompStats(result).suggestedPrice}
                 strong
               />
             </div>
 
             <MarketPricingExplanation result={result} />
 
-            <h3 style={{ margin: "18px 0 10px" }}>Sold Value Range</h3>
+            <h3 style={{ margin: "18px 0 10px" }}>Market Guidance</h3>
 
             <div
               style={{
@@ -12252,10 +12294,20 @@ export default function InstaCompScanner({
                 gap: 12,
               }}
             >
-              <PriceBox label="Sold Low" value={result.soldStats?.low} />
-              <PriceBox label="Sold Median" value={result.soldStats?.median} />
-              <PriceBox label="Sold Average" value={result.soldStats?.average} />
-              <PriceBox label="Sold High" value={result.soldStats?.high} />
+              <PriceBox label="Market Low" value={effectiveMarketStats(result).low} />
+              <PriceBox
+                label="Market Median"
+                value={effectiveMarketStats(result).median}
+              />
+              <PriceBox
+                label="Market Average"
+                value={effectiveMarketStats(result).average}
+              />
+              <PriceBox label="Market High" value={effectiveMarketStats(result).high} />
+              <PriceBox
+                label="Market Suggested"
+                value={effectiveMarketStats(result).suggestedPrice}
+              />
             </div>
 
             <div
@@ -12269,14 +12321,14 @@ export default function InstaCompScanner({
               <button
                 onClick={() =>
                   copyPrice(
-                    effectiveMarketStats(result).suggestedPrice,
-                    "Market price"
+                    primaryCompStats(result).suggestedPrice,
+                    "Comp price"
                   )
                 }
-                disabled={!effectiveMarketStats(result).suggestedPrice}
+                disabled={!primaryCompStats(result).suggestedPrice}
                 style={buttonStyle}
               >
-                Copy Market Price
+                Copy Comp Price
               </button>
 
               <button
@@ -12941,7 +12993,7 @@ function MarketPricingExplanation({ result }: { result: ScanResponse }) {
 
       {!topComps.length ? (
         <p style={{ margin: "10px 0 0", color: "#7a4f00", fontWeight: 800 }}>
-          No active, sold, or serial-adjusted comps were usable for market price.
+          No active, sold, or serial-adjusted comps were usable for comp price.
         </p>
       ) : (
         <div style={{ display: "grid", gap: 8, marginTop: 10 }}>
@@ -13143,8 +13195,11 @@ function BatchCardRow({
   const draftErrors = isDraftableBatchCard(card) ? draftReadinessErrors(card) : [];
   const missingPriceDraftError = draftErrors.includes("Missing positive listing price");
   const marketPrice = marketPriceForCard(card);
+  const compPrice = primaryCompPriceForCard(card);
+  const compStats = primaryCompStats(card.result);
+  const compBasis = compPriceBasisForResult(card.result);
   const draftPrice = draftPriceHandoffForCard(card);
-  const priceButtonsDisabled = !marketPrice || card.status !== "done";
+  const priceButtonsDisabled = !compPrice || card.status !== "done";
   const displayReviewWarnings = reviewWarnings.filter(
     (warning) => !(warning === "No listing price" && missingPriceDraftError)
   );
@@ -13482,24 +13537,36 @@ function BatchCardRow({
             ) : null}
           </div>
 
-          <div style={{ textAlign: "right" }}>
+          <div style={{ textAlign: "right", minWidth: 150 }}>
             <div style={{ color: "#666", fontSize: 12, fontWeight: 800 }}>
-              Market
+              Comps
             </div>
             <div style={{ fontWeight: 900, fontSize: 20 }}>
+              {money(compPrice)}
+            </div>
+            <div style={{ color: "#555", fontSize: 11, fontWeight: 800 }}>
+              {compBasis}
+              {compStats.low && compStats.high && compStats.low !== compStats.high
+                ? ` / ${money(compStats.low)}-${money(compStats.high)}`
+                : ""}
+            </div>
+            <div style={{ marginTop: 7, color: "#666", fontSize: 11, fontWeight: 800 }}>
+              Market guidance
+            </div>
+            <div style={{ fontWeight: 900, fontSize: 14, color: "#444" }}>
               {money(marketPrice)}
             </div>
             {draftPrice.price ? (
               <div style={{ color: "#555", fontSize: 12, fontWeight: 800 }}>
                 Draft price: {money(draftPrice.price)}
                 {draftPrice.source === "instacomp_market"
-                  ? " - InstaComp market"
+                  ? " - InstaComp comps"
                   : " - manual"}
               </div>
             ) : null}
-            {!card.customPrice.trim() && marketPrice ? (
+            {!card.customPrice.trim() && compPrice ? (
               <div style={{ color: "#0f5132", fontSize: 12, fontWeight: 800 }}>
-                Blank price will use market.
+                Blank price will use comps.
               </div>
             ) : null}
             <div
