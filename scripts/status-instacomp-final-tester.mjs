@@ -339,6 +339,7 @@ const trialImageDropZoneGuide = {
     "npm run instacomp:trial:groundtruth:apply",
     "npm run instacomp:trial:groundtruth",
     "npm run instacomp:trial:preflight",
+    "npm run instacomp:trial:monitor",
     "npm run instacomp:trial:ready",
     "npm run status:instacomp-final-tester",
   ],
@@ -434,6 +435,12 @@ const checklist = [
     key: "trial_prep_bundle",
     label:
       "The one-command local prep bundle can create a missing manifest, preserve an existing answer sheet, refresh the image-map/intake packet, and write JSON/Markdown preflight proof before scan time is spent.",
+    status: "ready_to_test",
+  },
+  {
+    key: "trial_readiness_monitor",
+    label:
+      "The local readiness monitor can show answer-key rows, image-file count, complete pairs, stale receipts, first missing rows/files, and the exact next command while the 100-card lot is being loaded.",
     status: "ready_to_test",
   },
   {
@@ -533,6 +540,8 @@ const readiness = {
     writeTrialGroundTruthSheet: "npm run instacomp:trial:groundtruth:sheet",
     applyTrialGroundTruthSheet: "npm run instacomp:trial:groundtruth:apply",
     prepTrial: "npm run instacomp:trial:prep",
+    monitorTrial: "npm run instacomp:trial:monitor",
+    monitorTrialJson: "npm run instacomp:trial:monitor:json",
     auditTrialGroundTruth: "npm run instacomp:trial:groundtruth",
     auditTrialImages: "npm run instacomp:trial:audit",
     mapTrialImages: "npm run instacomp:trial:map",
@@ -645,6 +654,7 @@ if (jsonOutput) {
   console.log(`- write trial ground truth sheet: ${readiness.commands.writeTrialGroundTruthSheet}`);
   console.log(`- apply trial ground truth sheet: ${readiness.commands.applyTrialGroundTruthSheet}`);
   console.log(`- prep trial bundle: ${readiness.commands.prepTrial}`);
+  console.log(`- monitor trial readiness: ${readiness.commands.monitorTrial}`);
   console.log(`- audit trial ground truth: ${readiness.commands.auditTrialGroundTruth}`);
   console.log(`- audit trial images: ${readiness.commands.auditTrialImages}`);
   console.log(`- map trial images: ${readiness.commands.mapTrialImages}`);

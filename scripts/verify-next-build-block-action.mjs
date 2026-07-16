@@ -170,6 +170,12 @@ if (payload) {
         "fallback selection preserves InstaComp trial prep bundle command",
       ),
     );
+    checks.push(
+      check(
+        commands.includes("npm run instacomp:trial:monitor"),
+        "fallback selection preserves InstaComp trial readiness monitor command",
+      ),
+    );
       checks.push(
         check(
           commands.includes("npm run instacomp:trial:groundtruth"),

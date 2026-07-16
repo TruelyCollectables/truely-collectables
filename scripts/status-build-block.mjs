@@ -177,6 +177,7 @@ function buildLocalBuildFallback(status, recommendation) {
       "npm run status:instacomp-final-tester",
       "npm run verify:instacomp",
       "npm run instacomp:trial:prep",
+      "npm run instacomp:trial:monitor",
       "npm run instacomp:trial:init",
       "npm run instacomp:trial:groundtruth",
       "npm run instacomp:trial:audit",

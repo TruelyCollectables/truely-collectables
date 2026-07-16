@@ -3925,6 +3925,14 @@ npm run instacomp:trial:prep
 
 That command prints schema `tcos.instacompTrialPrepBundle.v1`, creates `instacomp-trial-manifest.local.json` if it is missing, writes `instacomp-trial-groundtruth.local.tsv` only when the worksheet does not already exist, refreshes `instacomp-trial-image-map.local.json`, refreshes `instacomp-trial-intake-packet.local.md`, and writes `instacomp-trial-preflight.local.json` plus `instacomp-trial-preflight.local.md`. It is safe to rerun while the answer sheet is being filled because it preserves an existing worksheet by default. It is local/read-only for live systems and does not scan cards, deploy, publish listings, buy postage, create Checkout, call production APIs, approve live money, release payouts, or change runtime switches.
 
+While loading images or filling the answer key, run the local readiness monitor:
+
+```bash
+npm run instacomp:trial:monitor
+```
+
+That command prints schema `tcos.instacompTrialReadinessWatch.v1` and shows answer-key row progress, image-file count, complete front/back pairs, stale image-map/intake receipts, the first missing rows/files, and the exact next command. Use `npm run instacomp:trial:monitor:json` for automation, or `node scripts/watch-instacomp-trial-readiness.mjs --watch --interval-ms 5000` if you want it to keep refreshing while the scanner files are copying. It is local/read-only for live systems and does not scan cards, deploy, publish listings, buy postage, create Checkout, call production APIs, approve live money, release payouts, or change runtime switches.
+
 If you need only the manifest, create the local manifest:
 
 ```bash
