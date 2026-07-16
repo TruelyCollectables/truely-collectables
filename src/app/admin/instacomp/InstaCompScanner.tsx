@@ -2329,9 +2329,11 @@ async function canvasToJpegFile(
   return new File([blob], fileName, { type: "image/jpeg" });
 }
 
+const IMAGE_ROTATION_STEP_DEGREES = 45;
+
 function rotatedImageName(file: File, direction: "left" | "right") {
   const baseName = file.name.replace(/\.[^.]+$/, "") || "card";
-  return `${baseName}-rotated-${direction}.jpg`;
+  return `${baseName}-rotated-${direction}-${IMAGE_ROTATION_STEP_DEGREES}.jpg`;
 }
 
 async function rotateImageFile(file: File, direction: "left" | "right") {
@@ -2346,12 +2348,20 @@ async function rotateImageFile(file: File, direction: "left" | "right") {
 
   if (!context) return file;
 
-  canvas.width = sourceHeight;
-  canvas.height = sourceWidth;
+  const radians =
+    (direction === "left" ? -IMAGE_ROTATION_STEP_DEGREES : IMAGE_ROTATION_STEP_DEGREES) *
+    (Math.PI / 180);
+  const cos = Math.abs(Math.cos(radians));
+  const sin = Math.abs(Math.sin(radians));
+  const outputWidth = Math.ceil(sourceWidth * cos + sourceHeight * sin);
+  const outputHeight = Math.ceil(sourceWidth * sin + sourceHeight * cos);
+
+  canvas.width = outputWidth;
+  canvas.height = outputHeight;
   context.fillStyle = "#fff";
   context.fillRect(0, 0, canvas.width, canvas.height);
   context.translate(canvas.width / 2, canvas.height / 2);
-  context.rotate(direction === "left" ? -Math.PI / 2 : Math.PI / 2);
+  context.rotate(radians);
   context.imageSmoothingEnabled = true;
   context.imageSmoothingQuality = "high";
   context.drawImage(image, -sourceWidth / 2, -sourceHeight / 2);
@@ -11382,26 +11392,137 @@ function Thumbnail({
   onRotateLeft: () => void;
   onRotateRight: () => void;
 }) {
+  const [isOpen, setIsOpen] = useState(false);
+
   return (
     <div style={{ display: "grid", gap: 4 }}>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        src={url}
-        alt="Card image preview"
+      <button
+        type="button"
+        onClick={() => setIsOpen(true)}
+        title="View larger image"
         style={{
-          width: 96,
-          height: 128,
-          objectFit: "contain",
-          border: "1px solid #eee",
-          borderRadius: 8,
-          background: "white",
+          border: 0,
+          padding: 0,
+          background: "transparent",
+          cursor: "zoom-in",
         }}
-      />
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={url}
+          alt="Card image preview"
+          style={{
+            width: 96,
+            height: 128,
+            objectFit: "contain",
+            border: "1px solid #eee",
+            borderRadius: 8,
+            background: "white",
+            display: "block",
+          }}
+        />
+      </button>
+      {isOpen ? (
+        <ImageLightbox
+          url={url}
+          onClose={() => setIsOpen(false)}
+          canRotate={canRotate}
+          onRotateLeft={onRotateLeft}
+          onRotateRight={onRotateRight}
+        />
+      ) : null}
       <ImageRotationControls
         disabled={!canRotate}
         onRotateLeft={onRotateLeft}
         onRotateRight={onRotateRight}
       />
+    </div>
+  );
+}
+
+function ImageLightbox({
+  url,
+  canRotate,
+  onClose,
+  onRotateLeft,
+  onRotateRight,
+}: {
+  url: string;
+  canRotate: boolean;
+  onClose: () => void;
+  onRotateLeft: () => void;
+  onRotateRight: () => void;
+}) {
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      onClick={onClose}
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 1000,
+        background: "rgba(17, 17, 17, 0.72)",
+        display: "grid",
+        placeItems: "center",
+        padding: 24,
+      }}
+    >
+      <div
+        onClick={(event) => event.stopPropagation()}
+        style={{
+          display: "grid",
+          gap: 10,
+          maxWidth: "min(92vw, 980px)",
+          maxHeight: "92vh",
+          background: "white",
+          borderRadius: 14,
+          padding: 14,
+          boxShadow: "0 18px 60px rgba(0,0,0,0.35)",
+        }}
+      >
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 12,
+          }}
+        >
+          <strong>Image preview</strong>
+          <button
+            type="button"
+            onClick={onClose}
+            style={{
+              ...secondaryButtonStyle,
+              padding: "6px 10px",
+            }}
+          >
+            Close
+          </button>
+        </div>
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={url}
+          alt="Large card preview"
+          style={{
+            maxWidth: "calc(92vw - 56px)",
+            maxHeight: "calc(92vh - 120px)",
+            objectFit: "contain",
+            border: "1px solid #eee",
+            borderRadius: 10,
+            background: "white",
+          }}
+        />
+        <ImageRotationControls
+          disabled={!canRotate}
+          onRotateLeft={onRotateLeft}
+          onRotateRight={onRotateRight}
+        />
+        <small style={{ color: "#555", fontWeight: 800, textAlign: "center" }}>
+          Rotate moves 45° per click. Retry Row after the image is corrected.
+        </small>
+      </div>
     </div>
   );
 }
