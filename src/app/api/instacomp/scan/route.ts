@@ -2377,18 +2377,20 @@ export async function POST(req: NextRequest) {
     ];
     const externalOcr = await getBestExternalOcr(externalOcrImages);
 
-    const baseAi = await identifyCardWithOpenAI(
-      frontDataUrl,
-      backDataUrl,
-      detailImages.slice(0, 8),
-      externalOcr
-    );
-    const serialOcr = await detectSerialNumberWithOpenAI(
-      frontDataUrl,
-      backDataUrl,
-      detailImages,
-      externalOcr
-    );
+    const [baseAi, serialOcr] = await Promise.all([
+      identifyCardWithOpenAI(
+        frontDataUrl,
+        backDataUrl,
+        detailImages.slice(0, 8),
+        externalOcr
+      ),
+      detectSerialNumberWithOpenAI(
+        frontDataUrl,
+        backDataUrl,
+        detailImages,
+        externalOcr
+      ),
+    ]);
     const ai = applyInstaCompIdentityGuard(
       mergeSerialOcrResult(baseAi, serialOcr),
       {

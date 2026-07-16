@@ -18,6 +18,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const LEGACY_INSTACOMP_JOB_CONCURRENCY_LIMIT = 6;
+const INSTACOMP_JOB_SAFE_CONCURRENCY_LIMIT = 6;
+const INSTACOMP_JOB_SAFE_DEFAULT_CONCURRENCY = 4;
 
 function isLegacyConcurrencyConstraintError(error: {
   code?: string | null;
@@ -88,8 +90,8 @@ export async function POST(request: Request) {
       value: body.requestedConcurrency,
       label: "requestedConcurrency",
       minimum: 1,
-      maximum: 12,
-      fallback: 8,
+      maximum: INSTACOMP_JOB_SAFE_CONCURRENCY_LIMIT,
+      fallback: INSTACOMP_JOB_SAFE_DEFAULT_CONCURRENCY,
     });
     if (
       Object.prototype.hasOwnProperty.call(body, "autoCreateDrafts") &&

@@ -16,6 +16,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 type RouteContext = { params: Promise<{ id: string }> };
+const INSTACOMP_SAFE_CLAIM_LIMIT = 1;
 
 function claimedItemForClient(item: Record<string, any>) {
   const { lease_token: leaseToken, ...safeItem } = item;
@@ -46,8 +47,8 @@ export async function POST(request: Request, context: RouteContext) {
       value: body.limit,
       label: "limit",
       minimum: 1,
-      maximum: 12,
-      fallback: Math.max(1, Math.min(12, Number(job.requested_concurrency) || 1)),
+      maximum: INSTACOMP_SAFE_CLAIM_LIMIT,
+      fallback: INSTACOMP_SAFE_CLAIM_LIMIT,
     });
     const leaseSeconds = boundedInstaCompInteger({
       value: body.leaseSeconds,

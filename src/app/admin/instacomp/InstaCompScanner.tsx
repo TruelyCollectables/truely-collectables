@@ -332,10 +332,10 @@ const MAX_DETAIL_CROP_BYTES = 180_000;
 const MAX_SCAN_REQUEST_BYTES = 3_750_000;
 const DRAFT_UPLOAD_CONCURRENCY = 2;
 const INSTACOMP_JOB_ITEM_CHUNK_SIZE = 25;
-const INSTACOMP_BATCH_DEFAULT_CONCURRENCY = 8;
-const INSTACOMP_BATCH_MAX_CONCURRENCY = 12;
-const INSTACOMP_JOB_UPLOAD_CONCURRENCY = 8;
-const INSTACOMP_JOB_CLAIM_CHUNK_SIZE = 3;
+const INSTACOMP_BATCH_DEFAULT_CONCURRENCY = 4;
+const INSTACOMP_BATCH_MAX_CONCURRENCY = 6;
+const INSTACOMP_JOB_UPLOAD_CONCURRENCY = 4;
+const INSTACOMP_JOB_CLAIM_CHUNK_SIZE = 1;
 const INSTACOMP_LAST_JOB_STORAGE_KEY = "tcos-instacomp-last-job-v1";
 const EMPTY_CARD_PREVIEW =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='560' viewBox='0 0 400 560'%3E%3Crect width='400' height='560' fill='%23e5e7eb'/%3E%3Ctext x='200' y='280' text-anchor='middle' fill='%236b7280' font-family='Arial' font-size='24'%3ERecovered card%3C/text%3E%3C/svg%3E";
@@ -1564,6 +1564,41 @@ function roundedPositiveMoney(value: number | null | undefined) {
   if (!Number.isFinite(price) || price <= 0) return null;
 
   return Math.round(price * 100) / 100;
+}
+
+function waitForMs(milliseconds: number) {
+  return new Promise<void>((resolve) => {
+    window.setTimeout(resolve, milliseconds);
+  });
+}
+
+function isDatabaseConnectionPressureText(value: unknown) {
+  return /\b(too many connections|remaining connection slots|too many clients|connection limit|database.*overload|pool.*timeout|db.*connection)\b/i.test(
+    String(value || "")
+  );
+}
+
+function isDatabaseConnectionPressureError(value: unknown) {
+  const error = value as
+    | {
+        message?: unknown;
+        code?: unknown;
+        status?: unknown;
+        details?: unknown;
+      }
+    | null
+    | undefined;
+
+  return (
+    isDatabaseConnectionPressureText(error?.message) ||
+    isDatabaseConnectionPressureText(error?.details) ||
+    (String(error?.code || "") === "INSTACOMP_JOB_DATABASE_ERROR" &&
+      Number(error?.status || 0) >= 500)
+  );
+}
+
+function databasePressureBackoffMs(attempt: number) {
+  return Math.min(20_000, 2_500 * 2 ** attempt);
 }
 
 function isUsableMarketComp(comp: ActiveComp) {
@@ -3222,28 +3257,40 @@ export default function InstaCompScanner({
     url: string,
     options: { method?: string; body?: unknown } = {}
   ) {
-    const response = await fetchWithFreshAccountSession(url, {
-      method: options.method || "GET",
-      headers:
-        options.body === undefined
-          ? undefined
-          : { "Content-Type": "application/json" },
-      body:
-        options.body === undefined ? undefined : JSON.stringify(options.body),
-    });
-    const data = await response.json().catch(() => ({}));
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const response = await fetchWithFreshAccountSession(url, {
+        method: options.method || "GET",
+        headers:
+          options.body === undefined
+            ? undefined
+            : { "Content-Type": "application/json" },
+        body:
+          options.body === undefined ? undefined : JSON.stringify(options.body),
+      });
+      const data = await response.json().catch(() => ({}));
 
-    if (!response.ok) {
+      if (response.ok) {
+        return data;
+      }
+
       const error = new Error(data?.error || "InstaComp job request failed.") as Error & {
         code?: string;
         status?: number;
+        details?: unknown;
       };
       error.code = data?.code;
       error.status = response.status;
+      error.details = data?.details;
+
+      if (attempt < 3 && isDatabaseConnectionPressureError(error)) {
+        await waitForMs(databasePressureBackoffMs(attempt));
+        continue;
+      }
+
       throw error;
     }
 
-    return data;
+    throw new Error("InstaComp job request failed after database backoff.");
   }
 
   function bindPersistentCard(cardId: string, binding: PersistentJobBinding) {
@@ -3520,22 +3567,40 @@ export default function InstaCompScanner({
     }
 
     if (claimedItem) {
-      const response = await fetchWithFreshAccountSession("/api/instacomp/scan", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          jobId: claimedItem.job_id,
-          itemId: claimedItem.id,
-          leaseToken: claimedItem.leaseToken || claimedItem.lease_token,
-        }),
-      });
-      const data = await response.json();
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        const response = await fetchWithFreshAccountSession("/api/instacomp/scan", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            jobId: claimedItem.job_id,
+            itemId: claimedItem.id,
+            leaseToken: claimedItem.leaseToken || claimedItem.lease_token,
+          }),
+        });
+        const data = await response.json().catch(() => ({}));
 
-      if (!response.ok || !data.ok) {
-        throw new Error(data?.error || "Queued scan failed.");
+        if (response.ok && data.ok) {
+          return data as ScanResponse;
+        }
+
+        const error = new Error(data?.error || "Queued scan failed.") as Error & {
+          code?: string;
+          status?: number;
+          details?: unknown;
+        };
+        error.code = data?.code;
+        error.status = response.status;
+        error.details = data?.details;
+
+        if (attempt < 3 && isDatabaseConnectionPressureError(error)) {
+          await waitForMs(databasePressureBackoffMs(attempt));
+          continue;
+        }
+
+        throw error;
       }
 
-      return data as ScanResponse;
+      throw new Error("Queued scan failed after database backoff.");
     }
 
     const [optimizedFront, optimizedBack] = await Promise.all([
@@ -3573,18 +3638,36 @@ export default function InstaCompScanner({
       requestBytes += crop.size;
     });
 
-    const response = await fetchWithFreshAccountSession("/api/instacomp/scan", {
-      method: "POST",
-      body: formData,
-    });
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const response = await fetchWithFreshAccountSession("/api/instacomp/scan", {
+        method: "POST",
+        body: formData,
+      });
 
-    const data = await response.json();
+      const data = await response.json().catch(() => ({}));
 
-    if (!response.ok || !data.ok) {
-      throw new Error(data?.error || "Scan failed.");
+      if (response.ok && data.ok) {
+        return data as ScanResponse;
+      }
+
+      const error = new Error(data?.error || "Scan failed.") as Error & {
+        code?: string;
+        status?: number;
+        details?: unknown;
+      };
+      error.code = data?.code;
+      error.status = response.status;
+      error.details = data?.details;
+
+      if (attempt < 3 && isDatabaseConnectionPressureError(error)) {
+        await waitForMs(databasePressureBackoffMs(attempt));
+        continue;
+      }
+
+      throw error;
     }
 
-    return data as ScanResponse;
+    throw new Error("Scan failed after database backoff.");
   }
 
   async function scanCard() {
