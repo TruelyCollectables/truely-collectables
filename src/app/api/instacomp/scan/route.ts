@@ -1939,6 +1939,16 @@ function isMarketValueComp(comp: InstaCompComp) {
   return comp.sourceCategory !== "reference";
 }
 
+function isExactListingGuidanceComp(comp: InstaCompComp) {
+  return (
+    (comp.sourceCategory === "sold" || comp.sourceCategory === "marketplace") &&
+    comp.price > 0 &&
+    !comp.flags.includes("excluded") &&
+    !comp.flags.includes("guidance comp") &&
+    !comp.flags.includes("not used for pricing")
+  );
+}
+
 function isRemainingCardComp(comp: InstaCompComp) {
   return (
     comp.sourceCategory === "marketplace" ||
@@ -2423,14 +2433,15 @@ export async function POST(req: NextRequest) {
       pairingConfidence: persistentContext?.pairingConfidence ?? null,
       externalOcrText: externalOcr?.text || null,
     });
-    const marketValueComps = scanReview.trustedForPricing
-      ? rawMarketValueComps
-      : [];
-    const soldComps = scanReview.trustedForPricing ? rawSoldComps : [];
-    const stats = scanReview.trustedForPricing
-      ? rawStats
-      : calculateCompStats([]);
-    const soldStats = scanReview.trustedForPricing
+    const exactListingGuidanceComps = rawMarketValueComps.filter(
+      isExactListingGuidanceComp
+    );
+    const canUseListingGuidance =
+      scanReview.trustedForPricing || exactListingGuidanceComps.length > 0;
+    const marketValueComps = canUseListingGuidance ? rawMarketValueComps : [];
+    const soldComps = canUseListingGuidance ? rawSoldComps : [];
+    const stats = canUseListingGuidance ? rawStats : calculateCompStats([]);
+    const soldStats = canUseListingGuidance
       ? rawSoldStats
       : calculateCompStats([]);
     const sourceCoverage = buildSourceCoverage(links, providers);
@@ -2481,6 +2492,8 @@ export async function POST(req: NextRequest) {
       note:
         scanReview.trustedForPricing
           ? "Market value, high, low, and sold ranges are calculated from included live matches only. Registered sources remain visible until provider access is configured."
+          : canUseListingGuidance
+            ? "InstaComp found exact active marketplace listing guidance. Sold comps may still be unavailable, so review the row before trusting market value, draft title, activation, or comps."
           : "InstaComp found provider candidates, but exact card identity/pricing evidence is not strong enough. Review the row before trusting market value, draft title, activation, or comps.",
       ...(persistentContext
         ? {
