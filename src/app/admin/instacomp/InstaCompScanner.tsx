@@ -298,6 +298,7 @@ type BatchCard = {
   status: BatchCardStatus;
   selected: boolean;
   operatorMarkedWrong?: boolean;
+  operatorNeedsMoreInfo?: boolean;
   result: ScanResponse | null;
   marketPrice: number | null;
   customTitle: string;
@@ -1538,6 +1539,7 @@ function batchExportRows(items: BatchCardViewItem[]) {
       draftReadinessErrors: draftReadinessErrors(card).join("; "),
       selectedForDraft: card.selected && isDraftableBatchCard(card),
       operatorMarkedWrong: Boolean(card.operatorMarkedWrong),
+      operatorNeedsMoreInfo: Boolean(card.operatorNeedsMoreInfo),
       frontFileName: card.file.name,
       backFileName: card.backFile?.name || "",
       pairedImages: Boolean(card.backFile),
@@ -1647,8 +1649,13 @@ function batchJsonPayload(items: BatchCardViewItem[], fileScope: "all" | "view")
       ).length,
       operatorMarkedWrong: cards.filter((card) => card.operatorMarkedWrong)
         .length,
+      operatorNeedsMoreInfo: cards.filter((card) => card.operatorNeedsMoreInfo)
+        .length,
       operatorMarkedCorrect: cards.filter(
-        (card) => card.status === "done" && !card.operatorMarkedWrong
+        (card) =>
+          card.status === "done" &&
+          !card.operatorMarkedWrong &&
+          !card.operatorNeedsMoreInfo
       ).length,
       draftable: cards.filter(isDraftableBatchCard).length,
       draftsCreated: cards.filter((card) => card.draftStatus === "created")
@@ -1829,9 +1836,12 @@ function instacompTrialResultRows(items: BatchCardViewItem[]) {
         review: result.review || null,
         catalogEvidence: instacompTrialCatalogEvidenceSummary(result),
         operatorReview: {
-          markedWrong: Boolean(card.operatorMarkedWrong),
-          markedCorrect: !card.operatorMarkedWrong,
-          reviewMode: "operator_wrong_checkbox",
+          markedWrong: Boolean(card.operatorMarkedWrong || card.operatorNeedsMoreInfo),
+          needsMoreInfo: Boolean(card.operatorNeedsMoreInfo),
+          markedCorrect: !card.operatorMarkedWrong && !card.operatorNeedsMoreInfo,
+          reviewMode: card.operatorNeedsMoreInfo
+            ? "operator_needs_more_info"
+            : "operator_wrong_checkbox",
         },
         actual: {
           player: ai.player || "",
@@ -1879,6 +1889,9 @@ function instacompTrialResultsPayload(items: BatchCardViewItem[]) {
       missingCatalogEvidence: cards.filter((card) => !card.catalogEvidence).length,
       operatorMarkedWrong: cards.filter((card) => card.operatorReview.markedWrong)
         .length,
+      operatorNeedsMoreInfo: cards.filter(
+        (card) => card.operatorReview.needsMoreInfo
+      ).length,
       operatorMarkedCorrect: cards.filter(
         (card) => card.operatorReview.markedCorrect
       ).length,
@@ -3406,6 +3419,8 @@ export default function InstaCompScanner({
               backPreviewUrl: backUrl,
               status: isDone && storedResult ? "done" : isFailed ? "error" : "queued",
               selected: !item.draft_inventory_item_id,
+              operatorMarkedWrong: false,
+              operatorNeedsMoreInfo: false,
               result: storedResult,
               marketPrice: effectiveSuggestedPrice,
               customTitle: storedResult
@@ -3542,7 +3557,10 @@ export default function InstaCompScanner({
     batchRateLimitErrorCards.map((card) => card.id)
   );
   const batchOperatorMarkedWrongCards = batchCards.filter(
-    (card) => card.status === "done" && card.result && card.operatorMarkedWrong
+    (card) =>
+      card.status === "done" &&
+      card.result &&
+      (card.operatorMarkedWrong || card.operatorNeedsMoreInfo)
   );
   const batchOperatorMarkedWrongCount = batchOperatorMarkedWrongCards.length;
   const batchOperatorMarkedWrongCardIds = new Set(
@@ -3554,6 +3572,9 @@ export default function InstaCompScanner({
   const batchCompleteCount = batchDoneCount + batchErrorCount;
   const selectedDoneBatchCards = batchCards.filter(
     (card) => card.selected && isDraftableBatchCard(card)
+  );
+  const selectedReviewableBatchCards = batchCards.filter(
+    (card) => card.selected && card.status === "done" && Boolean(card.result)
   );
   const selectedPriceableBatchCards = selectedDoneBatchCards.filter(
     (card) => marketPriceForCard(card)
@@ -4395,6 +4416,7 @@ export default function InstaCompScanner({
         fixture.selected ??
         (status !== "error" && draftStatus !== "created" && draftStatus !== "drafting"),
       operatorMarkedWrong: false,
+      operatorNeedsMoreInfo: false,
       result,
       marketPrice,
       customTitle: result ? cardResultTitle(result, frontFile.name) : "",
@@ -5974,6 +5996,7 @@ export default function InstaCompScanner({
         status: "queued",
         selected: true,
         operatorMarkedWrong: false,
+        operatorNeedsMoreInfo: false,
         result: null,
         marketPrice: null,
         customTitle: "",
@@ -6112,15 +6135,9 @@ export default function InstaCompScanner({
       persistentBindingsRef.current.delete(cardId);
 
       updateBatchCard(cardId, (current) => {
-        const resetAfterRotation = {
-          status: "queued" as const,
-          selected: true,
-          operatorMarkedWrong: false,
-          result: null,
-          marketPrice: null,
-          customTitle: "",
-          customPrice: "",
-          error: null,
+        const preserveScanAfterRotation = {
+          status: current.status === "error" ? ("queued" as const) : current.status,
+          error: current.status === "error" ? null : current.error,
           persistentClientId: undefined,
           persistentJobId: null,
           persistentItemId: null,
@@ -6136,7 +6153,7 @@ export default function InstaCompScanner({
             originalFile: file,
             frontRotationDegrees: nextDegrees,
             previewUrl: rotatedPreviewUrl,
-            ...resetAfterRotation,
+            ...preserveScanAfterRotation,
           };
         }
 
@@ -6147,11 +6164,11 @@ export default function InstaCompScanner({
           originalBackFile: file,
           backRotationDegrees: nextDegrees,
           backPreviewUrl: rotatedPreviewUrl,
-          ...resetAfterRotation,
+          ...preserveScanAfterRotation,
         };
       });
       setBatchDraftMessage(
-        "Image rotated. Retry this row to scan the corrected local image."
+        "Image rotated without clearing the scan. Retry this row when you want InstaComp to rescan the corrected local image."
       );
     } catch (error: any) {
       setBatchError(error?.message || "Could not rotate this batch image.");
@@ -6631,7 +6648,63 @@ export default function InstaCompScanner({
     updateBatchCard(cardId, (card) => ({
       ...card,
       operatorMarkedWrong,
+      operatorNeedsMoreInfo: operatorMarkedWrong ? false : card.operatorNeedsMoreInfo,
     }));
+  }
+
+  function toggleBatchCardOperatorNeedsMoreInfo(
+    cardId: string,
+    operatorNeedsMoreInfo: boolean
+  ) {
+    updateBatchCard(cardId, (card) => ({
+      ...card,
+      operatorNeedsMoreInfo,
+      operatorMarkedWrong: operatorNeedsMoreInfo ? false : card.operatorMarkedWrong,
+    }));
+  }
+
+  function markSelectedOperatorReview(
+    reviewState: "wrong" | "needs_more_info" | "clear"
+  ) {
+    if (batchRunning || batchDrafting) return;
+
+    const selectedDoneIds = new Set(
+      batchCards
+        .filter((card) => card.selected && card.status === "done" && card.result)
+        .map((card) => card.id)
+    );
+
+    if (!selectedDoneIds.size) {
+      setBatchError("Select completed scan rows first, then mark them wrong or needs more info.");
+      return;
+    }
+
+    setBatchError(null);
+    setBatchDraftMessage(
+      reviewState === "wrong"
+        ? `Marked ${selectedDoneIds.size} selected completed row${
+            selectedDoneIds.size === 1 ? "" : "s"
+          } wrong for trial grading.`
+        : reviewState === "needs_more_info"
+          ? `Marked ${selectedDoneIds.size} selected completed row${
+              selectedDoneIds.size === 1 ? "" : "s"
+            } needs more info for trial grading.`
+          : `Cleared operator review marks on ${selectedDoneIds.size} selected completed row${
+              selectedDoneIds.size === 1 ? "" : "s"
+            }.`
+    );
+
+    setBatchCards((current) =>
+      current.map((card) =>
+        selectedDoneIds.has(card.id)
+          ? {
+              ...card,
+              operatorMarkedWrong: reviewState === "wrong",
+              operatorNeedsMoreInfo: reviewState === "needs_more_info",
+            }
+          : card
+      )
+    );
   }
 
   function setAllDoneBatchCardsSelected(selected: boolean) {
@@ -7010,6 +7083,7 @@ export default function InstaCompScanner({
       ...current,
       status: "scanning",
       operatorMarkedWrong: false,
+      operatorNeedsMoreInfo: false,
       error: null,
       scanStartedAt,
       scanCompletedAt: null,
@@ -7231,6 +7305,7 @@ export default function InstaCompScanner({
       ...current,
       status: "queued",
       operatorMarkedWrong: false,
+      operatorNeedsMoreInfo: false,
       error: null,
       result: null,
       marketPrice: null,
@@ -7288,6 +7363,7 @@ export default function InstaCompScanner({
           ...current,
           status: "queued",
           operatorMarkedWrong: false,
+          operatorNeedsMoreInfo: false,
           error: null,
           scanQueuedAt: new Date().toISOString(),
           scanStartedAt: null,
@@ -7322,7 +7398,10 @@ export default function InstaCompScanner({
     const cardsToScan = batchCards
       .filter((card) => {
         if (options.wrongOnly) {
-          return card.status === "done" && Boolean(card.operatorMarkedWrong);
+          return (
+            card.status === "done" &&
+            Boolean(card.operatorMarkedWrong || card.operatorNeedsMoreInfo)
+          );
         }
 
         return options.retryOnly
@@ -9452,6 +9531,85 @@ export default function InstaCompScanner({
           </button>
 
           <button
+            type="button"
+            onClick={() => markSelectedOperatorReview("wrong")}
+            disabled={
+              batchRunning || batchDrafting || selectedReviewableBatchCards.length === 0
+            }
+            style={{
+              ...secondaryButtonStyle,
+              borderColor: "#dc2626",
+              color: "#991b1b",
+              cursor:
+                batchRunning ||
+                batchDrafting ||
+                selectedReviewableBatchCards.length === 0
+                  ? "not-allowed"
+                  : "pointer",
+              opacity:
+                batchRunning ||
+                batchDrafting ||
+                selectedReviewableBatchCards.length === 0
+                  ? 0.55
+                  : 1,
+            }}
+          >
+            Mark Selected Wrong ({selectedReviewableBatchCards.length})
+          </button>
+
+          <button
+            type="button"
+            onClick={() => markSelectedOperatorReview("needs_more_info")}
+            disabled={
+              batchRunning || batchDrafting || selectedReviewableBatchCards.length === 0
+            }
+            style={{
+              ...secondaryButtonStyle,
+              borderColor: "#b45309",
+              color: "#92400e",
+              cursor:
+                batchRunning ||
+                batchDrafting ||
+                selectedReviewableBatchCards.length === 0
+                  ? "not-allowed"
+                  : "pointer",
+              opacity:
+                batchRunning ||
+                batchDrafting ||
+                selectedReviewableBatchCards.length === 0
+                  ? 0.55
+                  : 1,
+            }}
+          >
+            Needs More Info ({selectedReviewableBatchCards.length})
+          </button>
+
+          <button
+            type="button"
+            onClick={() => markSelectedOperatorReview("clear")}
+            disabled={
+              batchRunning || batchDrafting || selectedReviewableBatchCards.length === 0
+            }
+            style={{
+              ...secondaryButtonStyle,
+              cursor:
+                batchRunning ||
+                batchDrafting ||
+                selectedReviewableBatchCards.length === 0
+                  ? "not-allowed"
+                  : "pointer",
+              opacity:
+                batchRunning ||
+                batchDrafting ||
+                selectedReviewableBatchCards.length === 0
+                  ? 0.55
+                  : 1,
+            }}
+          >
+            Clear Selected Review ({selectedReviewableBatchCards.length})
+          </button>
+
+          <button
             onClick={createDraftListings}
             disabled={createDraftButtonDisabled}
             style={{
@@ -10966,6 +11124,7 @@ export default function InstaCompScanner({
                 onPriceChange={handleBatchPriceChange}
                 onSelectedChange={toggleBatchCardSelected}
                 onOperatorMarkedWrongChange={toggleBatchCardOperatorMarkedWrong}
+                onOperatorNeedsMoreInfoChange={toggleBatchCardOperatorNeedsMoreInfo}
                 onRotateImage={rotateBatchCardImage}
                 onAddToTrade={addBatchCardToTrade}
                 onRetry={retryBatchCard}
@@ -11996,6 +12155,7 @@ function BatchCardRow({
   onPriceChange,
   onSelectedChange,
   onOperatorMarkedWrongChange,
+  onOperatorNeedsMoreInfoChange,
   onRotateImage,
   onAddToTrade,
   onRetry,
@@ -12014,6 +12174,10 @@ function BatchCardRow({
   onOperatorMarkedWrongChange: (
     cardId: string,
     operatorMarkedWrong: boolean
+  ) => void;
+  onOperatorNeedsMoreInfoChange: (
+    cardId: string,
+    operatorNeedsMoreInfo: boolean
   ) => void;
   onRotateImage: (
     cardId: string,
@@ -12044,6 +12208,7 @@ function BatchCardRow({
   const draftHref = sellerInventoryInstaCompDraftHref(card.draftSku || title);
   const tcosSearchQuery = tcosCardSearchQuery(card.result, title);
   const canSelectForDraft = isDraftableBatchCard(card);
+  const canSelectRow = canSelectForDraft || (card.status === "done" && Boolean(card.result));
   const canCopyDraftPayload = Boolean(onCopyDraftPayload) && canSelectForDraft;
   const canRetry =
     (card.status === "error" || card.status === "done") && !batchBusy;
@@ -12128,8 +12293,8 @@ function BatchCardRow({
             >
               <input
                 type="checkbox"
-                checked={card.selected && canSelectForDraft}
-                disabled={!canSelectForDraft}
+                checked={card.selected && canSelectRow}
+                disabled={!canSelectRow}
                 onChange={(event) =>
                   onSelectedChange(card.id, event.target.checked)
                 }
@@ -12171,33 +12336,68 @@ function BatchCardRow({
               </div>
             ) : null}
             {card.status === "done" && card.result ? (
-              <label
+              <div
                 style={{
                   display: "inline-flex",
                   gap: 8,
+                  flexWrap: "wrap",
                   alignItems: "center",
                   marginTop: 8,
-                  padding: "6px 10px",
-                  border: card.operatorMarkedWrong
-                    ? "1px solid #dc2626"
-                    : "1px solid #d1d5db",
-                  borderRadius: 999,
-                  background: card.operatorMarkedWrong ? "#fef2f2" : "white",
-                  color: card.operatorMarkedWrong ? "#991b1b" : "#374151",
-                  fontSize: 12,
-                  fontWeight: 900,
                 }}
-                title="Check this when the scanner got the card wrong. Trial export will grade these as misses."
               >
-                <input
-                  type="checkbox"
-                  checked={Boolean(card.operatorMarkedWrong)}
-                  onChange={(event) =>
-                    onOperatorMarkedWrongChange(card.id, event.target.checked)
-                  }
-                />
-                Wrong / needs fix
-              </label>
+                <label
+                  style={{
+                    display: "inline-flex",
+                    gap: 8,
+                    alignItems: "center",
+                    padding: "6px 10px",
+                    border: card.operatorMarkedWrong
+                      ? "1px solid #dc2626"
+                      : "1px solid #d1d5db",
+                    borderRadius: 999,
+                    background: card.operatorMarkedWrong ? "#fef2f2" : "white",
+                    color: card.operatorMarkedWrong ? "#991b1b" : "#374151",
+                    fontSize: 12,
+                    fontWeight: 900,
+                  }}
+                  title="Check this when the scanner got the card wrong. Trial export will grade these as misses."
+                >
+                  <input
+                    type="checkbox"
+                    checked={Boolean(card.operatorMarkedWrong)}
+                    onChange={(event) =>
+                      onOperatorMarkedWrongChange(card.id, event.target.checked)
+                    }
+                  />
+                  Wrong / needs fix
+                </label>
+                <label
+                  style={{
+                    display: "inline-flex",
+                    gap: 8,
+                    alignItems: "center",
+                    padding: "6px 10px",
+                    border: card.operatorNeedsMoreInfo
+                      ? "1px solid #b45309"
+                      : "1px solid #d1d5db",
+                    borderRadius: 999,
+                    background: card.operatorNeedsMoreInfo ? "#fffbeb" : "white",
+                    color: card.operatorNeedsMoreInfo ? "#92400e" : "#374151",
+                    fontSize: 12,
+                    fontWeight: 900,
+                  }}
+                  title="Check this when the scan needs more proof before it should count as good. Trial export grades these as misses."
+                >
+                  <input
+                    type="checkbox"
+                    checked={Boolean(card.operatorNeedsMoreInfo)}
+                    onChange={(event) =>
+                      onOperatorNeedsMoreInfoChange(card.id, event.target.checked)
+                    }
+                  />
+                  Needs more info
+                </label>
+              </div>
             ) : null}
             {(draftErrors.length > 0 || displayReviewWarnings.length > 0) && (
               <div
