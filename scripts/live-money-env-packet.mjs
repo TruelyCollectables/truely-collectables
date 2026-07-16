@@ -48,7 +48,7 @@ const finalLivePaymentRuntime = [
   },
   {
     key: "NEXT_PUBLIC_SITE_URL",
-    placeholder: "https://truely-collectables.vercel.app",
+    placeholder: "https://truelycollectables.com",
     note: "HTTPS production origin used by Stripe redirects and webhook smoke checks.",
   },
   {

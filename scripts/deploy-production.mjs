@@ -9,7 +9,7 @@ const scope = normalizeVercelScope(
 );
 const cleanDomain =
   normalizeVercelHost(
-    process.env.VERCEL_CLEAN_DOMAIN || "truely-collectables.vercel.app",
+    process.env.VERCEL_CLEAN_DOMAIN || "truelycollectables.com",
     "VERCEL_CLEAN_DOMAIN",
   );
 const unwantedAlias =
@@ -593,8 +593,8 @@ function runRedactionSelfTest() {
 
 function runTargetHostSelfTest() {
   const validCases = [
-    ["TRUELY-COLLECTABLES.VERCEL.APP", "truely-collectables.vercel.app"],
-    ["https://Truely-Collectables.Vercel.App/", "truely-collectables.vercel.app"],
+    ["TRUELYCOLLECTABLES.COM", "truelycollectables.com"],
+    ["https://TruelyCollectables.com/", "truelycollectables.com"],
     ["http://launch.example.com/", "launch.example.com"],
   ];
 

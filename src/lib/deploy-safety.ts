@@ -2,7 +2,7 @@ export const DEPLOY_SAFETY_SMOKE_COMMAND = "npm run smoke:production";
 
 export const DEPLOY_SAFETY = {
   section: "Production Deploy Safety",
-  cleanProductionDomain: "https://truely-collectables.vercel.app",
+  cleanProductionDomain: "https://truelycollectables.com",
   unwantedAlias: "truely-collectables-tt3b.vercel.app",
   quotaBlockCode: "api-deployments-free-per-day",
   quotaResetInstruction:
@@ -84,7 +84,7 @@ export const DEPLOY_SAFETY = {
     },
     {
       label: "5. Ship only after smoke passes clean production",
-      command: "https://truely-collectables.vercel.app",
+      command: "https://truelycollectables.com",
       outcome:
         "clean URL serves the latest GitHub tip and the unwanted preview-style alias does not respond",
     },

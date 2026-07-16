@@ -699,7 +699,7 @@ runExpectedFailure(
   "deploy helper rejects target URL paths",
   ["scripts/deploy-production.mjs", "--quota-status"],
   {
-    VERCEL_CLEAN_DOMAIN: "https://truely-collectables.vercel.app/path",
+    VERCEL_CLEAN_DOMAIN: "https://truelycollectables.com/path",
   },
   "VERCEL_CLEAN_DOMAIN must be a root HTTP(S) URL without credentials, port, path, query, or fragment",
 );
@@ -1039,7 +1039,7 @@ runExpectedSuccess(
   {
     ADMIN_PASSWORD: "",
     SMOKE_ADMIN_PASSWORD: "",
-    SMOKE_BASE_URL: "https://truely-collectables.vercel.app",
+    SMOKE_BASE_URL: "https://truelycollectables.com",
   },
 );
 runExpectedSuccess(
@@ -2302,7 +2302,7 @@ assertFileIncludes("go-live runway status helper source", "scripts/status-go-liv
   "nextDeployStep",
   "ready_with_operator_watch_items",
   "cleanProductionDomain",
-  "https://truely-collectables.vercel.app",
+  "https://truelycollectables.com",
   "unwantedAlias",
   "truely-collectables-tt3b.vercel.app",
   "verifyCommand",
@@ -6277,7 +6277,7 @@ runExpectedSuccess(
   {
     ADMIN_PASSWORD: "",
     SMOKE_ADMIN_PASSWORD: "",
-    SMOKE_BASE_URL: "https://truely-collectables.vercel.app",
+    SMOKE_BASE_URL: "https://truelycollectables.com",
   },
 );
 runExpectedSuccess("deploy diagnostic redaction self-test", [
@@ -6386,7 +6386,7 @@ assertFileIncludes("deploy live safety contract", "scripts/deploy-production.mjs
 ]);
 
 assertFileIncludes("deploy helper production target defaults", "scripts/deploy-production.mjs", [
-  '"truely-collectables.vercel.app"',
+  '"truelycollectables.com"',
   '"truely-collectables-tt3b.vercel.app"',
   "VERCEL_CLEAN_DOMAIN",
   "VERCEL_UNWANTED_ALIAS",
@@ -6593,7 +6593,7 @@ assertFileIncludes(
   "deploy safety export production target defaults",
   "src/lib/deploy-safety.ts",
   [
-    'cleanProductionDomain: "https://truely-collectables.vercel.app"',
+    'cleanProductionDomain: "https://truelycollectables.com"',
     'unwantedAlias: "truely-collectables-tt3b.vercel.app"',
   ],
 );

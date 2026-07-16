@@ -7,7 +7,7 @@ const repoRoot = dirname(fileURLToPath(new URL("../package.json", import.meta.ur
 const statusJsonMaxBuffer = 64 * 1024 * 1024;
 const productionDeploySafety = {
   section: "Production Deploy Safety",
-  cleanProductionDomain: "https://truely-collectables.vercel.app",
+  cleanProductionDomain: "https://truelycollectables.com",
   unwantedAlias: "truely-collectables-tt3b.vercel.app",
   quotaBlockCode: "api-deployments-free-per-day",
   quotaStatusCommand: "npm run status:production",

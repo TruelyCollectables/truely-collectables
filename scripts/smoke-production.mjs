@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { isIP } from "node:net";
 
 const baseUrl = normalizeSmokeOrigin(
-  process.env.SMOKE_BASE_URL || "https://truely-collectables.vercel.app",
+  process.env.SMOKE_BASE_URL || "https://truelycollectables.com",
   "SMOKE_BASE_URL",
 );
 const unwantedAliasUrl = normalizeSmokeOrigin(
@@ -165,8 +165,8 @@ function readRequestTimeoutMs(value) {
 
 function runTargetOriginSelfTest() {
   const validCases = [
-    ["TRUELY-COLLECTABLES.VERCEL.APP", "https://truely-collectables.vercel.app"],
-    ["https://Truely-Collectables.Vercel.App/", "https://truely-collectables.vercel.app"],
+    ["TRUELYCOLLECTABLES.COM", "https://truelycollectables.com"],
+    ["https://TruelyCollectables.com/", "https://truelycollectables.com"],
     ["http://launch.example.com/", "http://launch.example.com"],
   ];
 
@@ -775,7 +775,7 @@ const checks = [
       result.text.includes("print smoke handoff command") &&
       result.text.includes("deployed URL output") &&
       result.text.includes("clean URL output") &&
-      result.text.includes("truely-collectables.vercel.app") &&
+      result.text.includes("truelycollectables.com") &&
       result.text.includes("truely-collectables-tt3b.vercel.app"),
   },
   {
