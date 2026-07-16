@@ -58,6 +58,175 @@ function pct(count, expected) {
   return Math.round((count / expected) * 100);
 }
 
+function gateStatus(ok, partial = false) {
+  if (ok) return "ready";
+  return partial ? "partial" : "blocked";
+}
+
+function buildReadinessGates({
+  manifestAudit,
+  answerKeyHtml,
+  answerKeyValidation,
+  localTrial,
+  imageAudit,
+  imageMap,
+  intakePacket,
+  groundTruthReady,
+  imagesReady,
+  receiptsReady,
+}) {
+  const answerKeyReadyRows = manifestAudit.readyRows ?? 0;
+  const expectedCards = manifestAudit.expectedCards ?? 100;
+  const imageFiles = localTrial.imageFileCount ?? 0;
+  const expectedImages = localTrial.expectedImageCount ?? 200;
+  const completePairs = imageAudit.completePairs ?? 0;
+
+  return [
+    {
+      key: "answer_key_html",
+      label: "Visual answer-key sheet",
+      status: gateStatus(
+        Boolean(answerKeyHtml.exists) && Boolean(answerKeyHtml.matchesCurrentWorksheet),
+      ),
+      detail: `${answerKeyHtml.path || "instacomp-trial-answer-key.local.html"} ${
+        answerKeyHtml.matchesCurrentWorksheet ? "matches worksheet" : "needs refresh"
+      }`,
+      command: "npm run instacomp:trial:answer-key-html",
+    },
+    {
+      key: "answer_key_rows",
+      label: "Answer-key core rows",
+      status: gateStatus(groundTruthReady, answerKeyReadyRows > 0),
+      detail: `${answerKeyReadyRows}/${expectedCards} rows have player/year/setName/cardNumber`,
+      command: "manual: fill instacomp-trial-groundtruth.local.tsv",
+    },
+    {
+      key: "answer_key_validation",
+      label: "Answer-key TSV validation",
+      status: gateStatus(
+        Boolean(answerKeyValidation.matchesCurrentWorksheet) && Boolean(answerKeyValidation.ok),
+        Boolean(answerKeyValidation.exists) && Boolean(answerKeyValidation.matchesCurrentWorksheet),
+      ),
+      detail: answerKeyValidation.ok
+        ? "validation clean"
+        : answerKeyValidation.next ||
+          "run validation before applying worksheet values to the manifest",
+      command: "npm run instacomp:trial:answer-key:validate",
+    },
+    {
+      key: "trial_images",
+      label: "Trial front/back image files",
+      status: gateStatus(imagesReady, imageFiles > 0 || completePairs > 0),
+      detail: `${imageFiles}/${expectedImages} files, ${completePairs}/${
+        imageAudit.expectedCards ?? expectedCards
+      } complete pairs`,
+      command: "manual: copy scanner files into instacomp-trial-inbox",
+    },
+    {
+      key: "image_receipts",
+      label: "Image map + intake packet receipts",
+      status: gateStatus(receiptsReady, Boolean(imageMap.exists) || Boolean(intakePacket.exists)),
+      detail: `image map ${imageMap.matchesCurrentAudit ? "current" : "not current"}, intake packet ${
+        intakePacket.matchesCurrentAudit ? "current" : "not current"
+      }`,
+      command: "npm run instacomp:trial:prep",
+    },
+  ];
+}
+
+function buildOperatorNextActions({
+  answerKeyHtml,
+  answerKeyValidation,
+  groundTruthReady,
+  imagesReady,
+  receiptsReady,
+  localTrial,
+}) {
+  const actions = [];
+  const visualAnswerKeyReady =
+    Boolean(answerKeyHtml.exists) && Boolean(answerKeyHtml.matchesCurrentWorksheet);
+  const validationCurrent = Boolean(answerKeyValidation.matchesCurrentWorksheet);
+  const validationClean = validationCurrent && Boolean(answerKeyValidation.ok);
+  const inboxCount = localTrial.inboxImageFileCount ?? 0;
+  const stagedImageCount = localTrial.imageFileCount ?? 0;
+
+  if (!visualAnswerKeyReady) {
+    actions.push({
+      key: "refresh_visual_answer_key",
+      type: "command",
+      command: "npm run instacomp:trial:answer-key-html",
+      why: "Refresh the visual worksheet before filling card identities.",
+    });
+  }
+
+  if (!groundTruthReady) {
+    actions.push({
+      key: "fill_answer_key",
+      type: "manual",
+      command: "open instacomp-trial-answer-key.local.html beside instacomp-trial-groundtruth.local.tsv",
+      why: "Fill player, year, setName, and cardNumber for all 100 trial cards.",
+    });
+  }
+
+  if (!validationClean) {
+    actions.push({
+      key: "validate_answer_key",
+      type: "command",
+      command: "npm run instacomp:trial:answer-key:validate",
+      why: validationCurrent
+        ? "Recheck the edited TSV and confirm there are no missing rows, duplicate IDs, or missing core fields."
+        : "Create a current validation receipt before applying TSV values to the manifest.",
+    });
+  }
+
+  if (validationClean && !groundTruthReady) {
+    actions.push({
+      key: "apply_answer_key",
+      type: "command",
+      command: "npm run instacomp:trial:groundtruth:apply",
+      why: "Validation is clean; apply the TSV values back to the local manifest.",
+    });
+  }
+
+  if (!imagesReady) {
+    actions.push({
+      key: "load_trial_images",
+      type: "manual",
+      command:
+        inboxCount > 0 || stagedImageCount > 0
+          ? "finish loading the missing front/back images"
+          : "copy about 200 scanner images into instacomp-trial-inbox",
+      why: "The 100-card trial needs complete front/back pairs before scanner time is spent.",
+    });
+    actions.push({
+      key: "run_trial_intake",
+      type: "command",
+      command: "npm run instacomp:trial:intake",
+      why: "Dry-run staging, sync image paths, and refresh local receipts after files are loaded.",
+    });
+  }
+
+  if (groundTruthReady && imagesReady && !receiptsReady) {
+    actions.push({
+      key: "refresh_preflight_receipts",
+      type: "command",
+      command: "npm run instacomp:trial:prep",
+      why: "Refresh image map, intake packet, and preflight evidence before scanning.",
+    });
+  }
+
+  if (groundTruthReady && imagesReady && receiptsReady) {
+    actions.push({
+      key: "scan_trial",
+      type: "operator",
+      command: "open http://localhost:3000/admin/instacomp",
+      why: "All local gates are ready; run the lot, export results, then score the trial.",
+    });
+  }
+
+  return actions.slice(0, 6);
+}
+
 function buildMonitorReport(iteration = 1) {
   const status = runFinalTesterStatus();
   const payload = status.payload || {};
@@ -135,6 +304,27 @@ function buildMonitorReport(iteration = 1) {
     });
   }
 
+  const readinessGates = buildReadinessGates({
+    manifestAudit,
+    answerKeyHtml,
+    answerKeyValidation,
+    localTrial,
+    imageAudit,
+    imageMap,
+    intakePacket,
+    groundTruthReady,
+    imagesReady,
+    receiptsReady,
+  });
+  const operatorNextActions = buildOperatorNextActions({
+    answerKeyHtml,
+    answerKeyValidation,
+    groundTruthReady,
+    imagesReady,
+    receiptsReady,
+    localTrial,
+  });
+
   return {
     schema: "tcos.instacompTrialReadinessWatch.v1",
     generatedAt: new Date().toISOString(),
@@ -173,6 +363,7 @@ function buildMonitorReport(iteration = 1) {
         answerKeyValidation.next ||
         "Run npm run instacomp:trial:answer-key:validate before applying the TSV back to the manifest.",
     },
+    readinessGates,
     progress: {
       groundTruthRows: {
         ready: manifestAudit.readyRows ?? 0,
@@ -191,9 +382,12 @@ function buildMonitorReport(iteration = 1) {
       },
     },
     blockers,
+    operatorNextActions,
     next: readyForFinalTrial
       ? "Ready: scan the lot at http://localhost:3000/admin/instacomp, export trial results, then run npm run instacomp:trial:score."
-      : blockers[0]?.next || "Run npm run instacomp:trial:prep, then rerun this monitor.",
+      : operatorNextActions[0]?.command ||
+        blockers[0]?.next ||
+        "Run npm run instacomp:trial:prep, then rerun this monitor.",
     commands: {
       prep: "npm run instacomp:trial:prep",
       monitor: "npm run instacomp:trial:monitor",
@@ -247,6 +441,19 @@ function printReport(report) {
       report.paths.answerKeyValidation
     }`,
   );
+  if (Array.isArray(report.readinessGates) && report.readinessGates.length > 0) {
+    console.log("- readiness gates:");
+    for (const gate of report.readinessGates) {
+      console.log(`  - ${gate.status}: ${gate.label} - ${gate.detail}`);
+    }
+  }
+  if (Array.isArray(report.operatorNextActions) && report.operatorNextActions.length > 0) {
+    console.log("- operator next actions:");
+    for (const [index, action] of report.operatorNextActions.entries()) {
+      console.log(`  ${index + 1}. ${action.command}`);
+      console.log(`     why: ${action.why}`);
+    }
+  }
 
   if (report.blockers.length > 0) {
     console.log("- blockers:");

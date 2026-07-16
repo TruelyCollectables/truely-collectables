@@ -383,7 +383,7 @@ function readTrialGroundTruthGuideStatus(manifestAudit) {
       next: matchesCurrentAudit
         ? manifestAudit.readyToScore
           ? "Answer-key guide matches the current ready audit; keep it with the completed TSV for the final score run."
-          : "Answer-key guide matches the current missing-row audit; fill the TSV, apply it, then rerun npm run instacomp:trial:intake."
+          : "Answer-key guide matches the current missing-row audit; fill the TSV, validate it, apply it, then rerun npm run instacomp:trial:intake."
         : "Rerun npm run instacomp:trial:intake so the local answer-key guide matches the current ground-truth audit.",
       error: null,
     };
@@ -479,8 +479,8 @@ function readTrialGroundTruthWorksheetStatus(manifestAudit) {
       next: !requiredColumnsPresent
         ? "Regenerate the TSV with npm run instacomp:trial:groundtruth:sheet; required columns are missing."
         : coreReadyRows >= expectedCards
-          ? "Worksheet core fields are filled. Run npm run instacomp:trial:groundtruth:apply, then npm run instacomp:trial:intake."
-          : "Fill player/year/setName/cardNumber in the TSV, save it, run npm run instacomp:trial:groundtruth:apply, then rerun npm run instacomp:trial:intake.",
+          ? "Worksheet core fields are filled. Run npm run instacomp:trial:answer-key:validate before npm run instacomp:trial:groundtruth:apply, then npm run instacomp:trial:intake."
+          : "Fill player/year/setName/cardNumber in the TSV, save it, run npm run instacomp:trial:answer-key:validate, then apply only after validation is clean.",
       error: null,
     };
   } catch (error) {
@@ -534,7 +534,7 @@ function readTrialAnswerKeyHtmlStatus(manifestAudit, worksheetStatus) {
       matchesCurrentWorksheet,
       next: matchesCurrentWorksheet
         ? worksheetStatus.coreReadyRows >= expectedCards
-          ? "Visual answer-key sheet matches the filled worksheet; apply the TSV and rerun intake."
+          ? "Visual answer-key sheet matches the filled worksheet; validate the TSV, apply it, and rerun intake."
           : "Visual answer-key sheet matches the current worksheet; use it beside the TSV while filling missing fields."
         : "Rerun npm run instacomp:trial:answer-key-html so the visual sheet matches the current TSV/manifest.",
       error: null,
@@ -760,7 +760,7 @@ const checklist = [
   {
     key: "trial_groundtruth_sheet",
     label:
-      "The local ground-truth worksheet can export the 100-card manifest to an ignored TSV, let the operator fill the answer key in a spreadsheet, and apply it back to the manifest before the audit.",
+      "The local ground-truth worksheet can export the 100-card manifest to an ignored TSV, let the operator fill the answer key in a spreadsheet, validate it, and apply it back to the manifest before the audit.",
     status: trialGroundTruthWorksheet.requiredColumnsPresent
       ? trialGroundTruthWorksheet.coreReadyRows >=
         (trialManifestAudit.expectedCards ?? trialGroundTruthWorksheet.rowCount)
@@ -836,7 +836,7 @@ const checklist = [
   {
     key: "trial_readiness_monitor",
     label:
-      "The local readiness monitor can show answer-key rows, image-file count, complete pairs, stale receipts, first missing rows/files, and the exact next command while the 100-card lot is being loaded.",
+      "The local readiness monitor can show answer-key rows, image-file count, complete pairs, stale receipts, readiness gates, ordered operator next actions, first missing rows/files, and the exact next command while the 100-card lot is being loaded.",
     status: "ready_to_test",
   },
   {
