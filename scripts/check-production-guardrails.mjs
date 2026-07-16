@@ -1183,6 +1183,7 @@ assertScriptIncludes("verify:instacomp", [
   "simulate:instacomp-identity-guard",
   "simulate:instacomp-trial-groundtruth-sheet",
   "simulate:instacomp-trial-groundtruth",
+  "simulate:instacomp-trial-preflight",
   "simulate:instacomp-trial",
 ]);
 assertScriptIncludes("simulate:instacomp-identity-guard", [
@@ -1205,6 +1206,14 @@ assertScriptIncludes("simulate:instacomp-trial-groundtruth-sheet", [
   "--write-groundtruth-sheet",
   "--apply-groundtruth-sheet",
   "--write-manifest .codex-run/instacomp-trial-groundtruth-applied.local.json",
+]);
+assertScriptIncludes("simulate:instacomp-trial-preflight", [
+  "scripts/run-instacomp-trial-report.mjs",
+  "--write-image-map .codex-run/instacomp-trial-image-map-fixture.local.json",
+  "--write-intake-packet .codex-run/instacomp-trial-intake-packet-fixture.local.md",
+  "scripts/run-instacomp-trial-preflight.mjs",
+  "--image-map .codex-run/instacomp-trial-image-map-fixture.local.json",
+  "--intake-packet .codex-run/instacomp-trial-intake-packet-fixture.local.md",
 ]);
 assertScriptIncludes("instacomp:trial:init", [
   "scripts/run-instacomp-trial-report.mjs",
@@ -1248,6 +1257,14 @@ assertScriptIncludes("instacomp:trial:packet", [
   "--write-image-map instacomp-trial-image-map.local.json",
   "--write-intake-packet instacomp-trial-intake-packet.local.md",
   "--allow-not-ready",
+]);
+assertScriptIncludes("instacomp:trial:preflight", [
+  "scripts/run-instacomp-trial-preflight.mjs",
+  "--manifest instacomp-trial-manifest.local.json",
+  "--images instacomp-trial-images",
+  "--image-map instacomp-trial-image-map.local.json",
+  "--intake-packet instacomp-trial-intake-packet.local.md",
+  "--expected-cards 100",
 ]);
 assertScriptIncludes("instacomp:trial:ready", [
   "instacomp:trial:groundtruth",
@@ -3746,6 +3763,18 @@ assertFileIncludes("instacomp trial ground-truth manifest audit source", "script
   "readyToScore",
   "player/year/set/card-number",
 ]);
+assertFileIncludes("instacomp trial preflight source", "scripts/run-instacomp-trial-preflight.mjs", [
+  "tcos.instacompTrialPreflight.v1",
+  "readyToScan",
+  "readImageMapStatus",
+  "readIntakePacketStatus",
+  "ground_truth_not_ready",
+  "images_not_ready",
+  "image_map_not_current",
+  "intake_packet_not_current",
+  "http://localhost:3000/admin/instacomp",
+  "does not scan cards, deploy, publish listings, buy postage, create Checkout",
+]);
 assertFileIncludes("instacomp trial ground-truth manifest audit manual", "docs/TCOS_OPERATOR_MANUAL.md", [
   "npm run instacomp:trial:groundtruth:sheet",
   "instacomp-trial-groundtruth.local.tsv",
@@ -3756,6 +3785,8 @@ assertFileIncludes("instacomp trial ground-truth manifest audit manual", "docs/T
   "fake `94%` pass",
   "ground-truth manifest audit",
   "spreadsheet-style answer sheet",
+  "npm run instacomp:trial:preflight",
+  "tcos.instacompTrialPreflight.v1",
 ]);
 assertFileIncludes("instacomp trial image audit manual", "docs/TCOS_OPERATOR_MANUAL.md", [
   "npm run instacomp:trial:audit",
@@ -3767,6 +3798,7 @@ assertFileIncludes("instacomp trial image audit manual", "docs/TCOS_OPERATOR_MAN
   "ordered-pair candidate files",
   "npm run instacomp:trial:map",
   "npm run instacomp:trial:packet",
+  "npm run instacomp:trial:preflight",
   "npm run instacomp:trial:ready",
   "instacomp-trial-image-map.local.json",
   "instacomp-trial-intake-packet.local.md",
@@ -3802,6 +3834,7 @@ assertFileIncludes("instacomp final tester status includes trial image audit", "
   "trial_groundtruth_sheet",
   "trial_image_audit",
   "trial_image_map",
+  "trial_preflight_gate",
   "writeTrialGroundTruthSheet",
   "applyTrialGroundTruthSheet",
   "auditTrialGroundTruth",
@@ -3809,6 +3842,7 @@ assertFileIncludes("instacomp final tester status includes trial image audit", "
   "mapTrialImages",
   "readyTrialImages",
   "writeTrialPacket",
+  "preflightTrial",
   "readTrialImageMapStatus",
   "readTrialIntakePacketStatus",
   "trialImageDropZoneGuide",
@@ -3826,6 +3860,7 @@ assertFileIncludes("instacomp final tester status includes trial image audit", "
   "after copying images:",
   "npm run instacomp:trial:groundtruth:sheet",
   "npm run instacomp:trial:groundtruth:apply",
+  "npm run instacomp:trial:preflight",
   "npm run instacomp:trial:ready",
   "npm run instacomp:trial:score",
   "FAF speed gate",

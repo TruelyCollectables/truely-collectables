@@ -337,6 +337,7 @@ const trialImageDropZoneGuide = {
     "npm run instacomp:trial:groundtruth:sheet",
     "npm run instacomp:trial:groundtruth:apply",
     "npm run instacomp:trial:groundtruth",
+    "npm run instacomp:trial:preflight",
     "npm run instacomp:trial:ready",
     "npm run status:instacomp-final-tester",
   ],
@@ -447,6 +448,18 @@ const checklist = [
         : "needs_local_trial_files",
   },
   {
+    key: "trial_preflight_gate",
+    label:
+      "The one-shot final tester preflight can prove the answer key, image pairs, image-map receipt, and intake packet are all current before the operator spends scanner time.",
+    status:
+      trialManifestAudit.readyToScore &&
+      trialImageAudit.readyToScan &&
+      trialImageMap.matchesCurrentAudit &&
+      trialIntakePacket.matchesCurrentAudit
+        ? "ready_to_scan"
+        : "needs_preflight",
+  },
+  {
     key: "trial_intake_packet",
     label:
       "The pre-scan intake packet can give the operator a readable image-count, pairing-preview, problem-list, and next-command receipt before scanner time is spent.",
@@ -516,6 +529,7 @@ const readiness = {
     auditTrialImages: "npm run instacomp:trial:audit",
     mapTrialImages: "npm run instacomp:trial:map",
     writeTrialPacket: "npm run instacomp:trial:packet",
+    preflightTrial: "npm run instacomp:trial:preflight",
     readyTrialImages: "npm run instacomp:trial:ready",
     scoreTrial:
       "npm run instacomp:trial:score",
@@ -626,6 +640,7 @@ if (jsonOutput) {
   console.log(`- audit trial images: ${readiness.commands.auditTrialImages}`);
   console.log(`- map trial images: ${readiness.commands.mapTrialImages}`);
   console.log(`- write trial packet: ${readiness.commands.writeTrialPacket}`);
+  console.log(`- preflight trial: ${readiness.commands.preflightTrial}`);
   console.log(`- ready trial images: ${readiness.commands.readyTrialImages}`);
   console.log(`- score trial: ${readiness.commands.scoreTrial}`);
   console.log(`- score + write failure report: ${readiness.commands.scoreTrialFailures}`);

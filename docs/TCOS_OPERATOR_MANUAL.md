@@ -3969,6 +3969,14 @@ npm run instacomp:trial:packet
 
 That command writes ignored local files `instacomp-trial-image-map.local.json` and `instacomp-trial-intake-packet.local.md`. The packet is a Markdown receipt with schema-backed audit counts, the local image folder, ready/not-ready status, the first pairing-preview rows, problem counts, accepted filename patterns, and the next commands. It uses `--allow-not-ready`, so it can document missing files before the folder is complete without pretending the lot is ready to scan.
 
+To run the one-shot final tester preflight, run:
+
+```bash
+npm run instacomp:trial:preflight
+```
+
+That command prints schema `tcos.instacompTrialPreflight.v1` and fails until the ground-truth answer key is ready, the image folder has 100 complete front/back pairs, the image-map receipt matches the current audit, and the readable intake packet is current. It is the fastest operator gate before spending scanner time. It is local/read-only and does not scan cards, deploy, publish listings, buy postage, create Checkout, call production APIs, approve live money, release payouts, or change runtime switches.
+
 For the normal pre-scan gate, run the one-shot readiness command:
 
 ```bash
