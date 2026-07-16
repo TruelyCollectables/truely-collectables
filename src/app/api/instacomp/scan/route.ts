@@ -68,6 +68,9 @@ const requestedPaddleOcrTimeoutMs = Number(
 const PADDLEOCR_TIMEOUT_MS = Number.isFinite(requestedPaddleOcrTimeoutMs)
   ? Math.max(1000, Math.min(requestedPaddleOcrTimeoutMs, 180000))
   : 120000;
+const DEAD_PROVIDER_COOLDOWN_MS = 10 * 60 * 1000;
+let paddleOcrDisabledUntil = 0;
+let comcProviderDisabledUntil = 0;
 const MAX_SCAN_SOURCE_IMAGE_BYTES = 12 * 1024 * 1024;
 const MAX_SCAN_DETAIL_IMAGE_BYTES = 512 * 1024;
 const MAX_SCAN_INPUT_BYTES = 20 * 1024 * 1024;
@@ -187,6 +190,7 @@ async function getPaddleOcr(
   images: InstaCompDetailImage[]
 ): Promise<ExternalOcrResult | null> {
   if (!PADDLEOCR_API_URL || !images.length) return null;
+  if (Date.now() < paddleOcrDisabledUntil) return null;
 
   const checkedImages = images.slice(0, 24);
   const controller = new AbortController();
@@ -256,6 +260,7 @@ async function getPaddleOcr(
     };
   } catch (error) {
     console.error("PaddleOCR request failed:", error);
+    paddleOcrDisabledUntil = Date.now() + DEAD_PROVIDER_COOLDOWN_MS;
     return null;
   } finally {
     clearTimeout(timeout);
@@ -1033,6 +1038,18 @@ async function getComcProvider(
   ai: InstaCompAiResult,
   searchUrl: string
 ): Promise<InstaCompProviderResult> {
+  if (Date.now() < comcProviderDisabledUntil) {
+    return {
+      source: "comc_active",
+      label: "COMC Active",
+      status: "error",
+      message:
+        "COMC provider is cooling down after an upstream quota or provider failure.",
+      results: [],
+      searchUrl,
+    };
+  }
+
   if (!APIFY_TOKEN) {
     return {
       source: "comc_active",
@@ -1070,6 +1087,13 @@ async function getComcProvider(
     if (!response.ok) {
       const errorText = await response.text();
       console.error("COMC Apify error:", errorText);
+      if (
+        /hard limit|monthly usage|memory limit|quota|disabled|billing|credits/i.test(
+          errorText
+        )
+      ) {
+        comcProviderDisabledUntil = Date.now() + DEAD_PROVIDER_COOLDOWN_MS;
+      }
 
       return {
         source: "comc_active",
@@ -1135,6 +1159,7 @@ async function getComcProvider(
     };
   } catch (error) {
     console.error("COMC provider exception:", error);
+    comcProviderDisabledUntil = Date.now() + DEAD_PROVIDER_COOLDOWN_MS;
 
     return {
       source: "comc_active",
