@@ -1545,7 +1545,13 @@ function summarizeScores(
     .filter((item) => !item.hasResult)
     .map((item) => item.trialCardId);
   const failures = cardScores
-    .filter((item) => item.mismatches.length > 0 || item.consensusReviewRequired || !item.hasResult)
+    .filter(
+      (item) =>
+        item.mismatches.length > 0 ||
+        item.consensusReviewRequired ||
+        item.catalogReviewRequired ||
+        !item.hasResult
+    )
     .map((item) => ({
       trialCardId: item.trialCardId,
       hasResult: item.hasResult,
@@ -1584,6 +1590,15 @@ function summarizeScores(
       catalogConfirmedIds,
       catalogReviewIds,
       catalogMissingEvidenceIds,
+      catalogEvidence: {
+        confirmed: catalogConfirmedIds.length,
+        reviewRequired: catalogReviewIds.length,
+        missing: catalogMissingEvidenceIds.length,
+        coveragePercent: percent(
+          cardScores.length - catalogMissingEvidenceIds.length,
+          cardScores.length,
+        ),
+      },
     },
     accuracy: {
       identityExact: {
@@ -1628,6 +1643,7 @@ function summarizeScores(
     (serialPercent === null || serialPercent >= targetAccuracyPercent) &&
     missingResultIds.length === 0 &&
     consensusReviewIds.length === 0 &&
+    catalogReviewIds.length === 0 &&
     report.speed.targetMet;
 
   if (manifest.cards.length < report.target.targetCards) {
@@ -1649,6 +1665,16 @@ function summarizeScores(
   if (consensusReviewIds.length > 0) {
     report.warnings.push(
       `${consensusReviewIds.length} card(s) still require multi-scanner consensus review.`
+    );
+  }
+  if (catalogReviewIds.length > 0) {
+    report.warnings.push(
+      `${catalogReviewIds.length} card(s) still require catalog/checklist review before exact comps are trusted.`
+    );
+  }
+  if (catalogMissingEvidenceIds.length > 0) {
+    report.warnings.push(
+      `${catalogMissingEvidenceIds.length} completed result row(s) have no catalog/checklist evidence yet; this is coverage debt, not an automatic score failure.`
     );
   }
   if (report.speed.requireTiming && !report.speed.timingCoveragePassed) {
@@ -1676,6 +1702,7 @@ function issueTypeForFailure(failure) {
     return "consensus_review_and_field_mismatch";
   }
   if (failure.consensusReviewRequired) return "consensus_review_required";
+  if (failure.catalogReviewRequired) return "catalog_review_required";
   return "field_mismatch";
 }
 
@@ -1685,6 +1712,9 @@ function suggestedActionForFailure(failure) {
   }
   if (failure.consensusReviewRequired) {
     return "Resolve the multi-scanner consensus review with checklist/catalog evidence or operator correction, then re-export trial results.";
+  }
+  if (failure.catalogReviewRequired) {
+    return "Resolve the catalog/checklist review or add approved checklist evidence before trusting exact comps, then re-export trial results.";
   }
 
   return "Correct the scanner identity or ground-truth manifest field, then rerun the trial report.";
@@ -1713,6 +1743,7 @@ function buildFailureReport(report) {
       consensusReviewRequired: failures.filter((failure) => failure.consensusReviewRequired).length,
       catalogConfirmedFailures: failures.filter((failure) => failure.catalogConfirmed).length,
       catalogReviewFailures: failures.filter((failure) => failure.catalogReviewRequired).length,
+      catalogReviewRequired: failures.filter((failure) => failure.catalogReviewRequired).length,
       fieldMismatchCards: failures.filter((failure) => failure.mismatches.length > 0).length,
       combinedIdentityAndSerialPercent:
         report.accuracy.combinedIdentityAndSerial.percent,
@@ -1802,6 +1833,10 @@ function printTextReport(report) {
     console.log(`Slowest rows: ${slowest}`);
   }
   console.log("");
+  console.log(
+    `Catalog evidence: confirmed ${report.observed.catalogEvidence.confirmed}, review ${report.observed.catalogEvidence.reviewRequired}, missing ${report.observed.catalogEvidence.missing} (${report.observed.catalogEvidence.coveragePercent ?? "n/a"}% coverage)`
+  );
+  console.log("");
   console.log(report.targetMet ? "PASS target met" : "FAIL target not met");
 
   if (report.warnings.length > 0) {
@@ -1823,6 +1858,12 @@ function printTextReport(report) {
           ? failure.consensusReviewReasons.join(", ")
           : "no detailed reason supplied";
         console.log(`- ${failure.trialCardId}: consensus review required (${reasons})`);
+      }
+      if (failure.catalogReviewRequired) {
+        const reasons = failure.catalogReviewReasons.length
+          ? failure.catalogReviewReasons.join(", ")
+          : "no detailed reason supplied";
+        console.log(`- ${failure.trialCardId}: catalog review required (${reasons})`);
       }
       if (failure.mismatches.length === 0) continue;
       const details = failure.mismatches

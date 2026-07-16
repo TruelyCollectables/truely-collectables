@@ -3929,14 +3929,40 @@ assertFileIncludes("instacomp trial failure report source", "scripts/run-instaco
   "tcos.instacompTrialFailureReport.v1",
   "--write-failure-report",
   "consensus_review_required",
+  "catalog_review_required",
+  "Catalog evidence: confirmed",
   "readCatalogEvidence",
   "catalogConfirmed",
   "catalogReviewRequired",
+  "catalogMissingEvidenceIds",
+  "coverage debt",
   "suggestedAction",
   "targetAverageSecondsPerCard",
   "targetP95SecondsPerCard",
   "requireTiming",
   "Timing evidence",
+]);
+assertFileIncludes("instacomp verify includes trial catalog-review simulation", "package.json", [
+  "simulate:instacomp-trial-catalog-review",
+  "run-instacomp-trial-catalog-review-simulation.mjs",
+  "simulate:instacomp-trial && npm run simulate:instacomp-trial-catalog-review",
+]);
+assertFileIncludes("instacomp trial catalog-review simulation source", "scripts/run-instacomp-trial-catalog-review-simulation.mjs", [
+  "catalog_review_required",
+  "catalogReviewRequired",
+  "Expected catalog-review fixture to fail the final tester target",
+  "Expected failure report catalogReviewRequired=1",
+  "PASS catalog-review-required row blocks the InstaComp final tester target",
+  "tcos.instacomp.catalogEvidence.v1",
+]);
+assertFileIncludes("instacomp trial results fixture catalog evidence", "scripts/fixtures/instacomp-trial-results.example.json", [
+  "tcos.instacomp.catalogEvidence.v1",
+  "catalog_confirmed",
+  "ready_for_exact_comps",
+  "Fixture Checklist",
+  "fixture-2023-tcu-usc17-gold-ref",
+  "fixture-2020-nt-cm-tb-prime-patch-auto-1of1",
+  "exactCompSearchAllowed",
 ]);
 assertFileIncludes("instacomp trial image audit source", "scripts/run-instacomp-trial-report.mjs", [
   "tcos.instacompTrialImageAudit.v1",

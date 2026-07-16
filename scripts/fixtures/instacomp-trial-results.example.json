@@ -7,6 +7,40 @@
       "timing": {
         "elapsedMs": 4200
       },
+      "catalogEvidence": {
+        "schema": "tcos.instacomp.catalogEvidence.v1",
+        "status": "catalog_confirmed",
+        "operatorState": "ready_for_exact_comps",
+        "catalogConfirmed": true,
+        "sourceLabel": "Fixture Checklist",
+        "catalogId": "fixture-2023-tcu-usc17-gold-ref",
+        "matchScore": 96,
+        "identity": {
+          "player": "Shohei Ohtani",
+          "year": "2023",
+          "setName": "Update",
+          "cardNumber": "USC17",
+          "parallel": "Gold Refractor",
+          "variation": "Gold Refractor"
+        },
+        "matchedEvidence": [
+          "card number matched",
+          "parallel matched",
+          "serial run matched"
+        ],
+        "mismatchedEvidence": [],
+        "reviewReasons": [],
+        "suggestedQuestion": null,
+        "operatorAction": "Catalog identity confirmed from approved fixture checklist.",
+        "safeUseBoundary": "Fixture evidence only; no live listings, postage, Checkout, or deploy side effects.",
+        "actionPermissions": {
+          "exactCompSearchAllowed": true,
+          "trustedForExactComps": true,
+          "publicListingClaimAllowed": true,
+          "autoPriceAllowed": true,
+          "tradeValueRecommendationAllowed": true
+        }
+      },
       "actual": {
         "player": "Shohei Ohtani",
         "year": "2023",
@@ -46,6 +80,41 @@
       "trialCardId": "fixture-003",
       "timing": {
         "elapsedMs": 8800
+      },
+      "catalogEvidence": {
+        "schema": "tcos.instacomp.catalogEvidence.v1",
+        "status": "catalog_confirmed",
+        "operatorState": "ready_for_exact_comps",
+        "catalogConfirmed": true,
+        "sourceLabel": "Fixture Checklist",
+        "catalogId": "fixture-2020-nt-cm-tb-prime-patch-auto-1of1",
+        "matchScore": 98,
+        "identity": {
+          "player": "Tom Brady",
+          "year": "2020",
+          "setName": "Century Materials",
+          "cardNumber": "CM-TB",
+          "parallel": "Prime Patch Auto",
+          "variation": "Prime Patch Auto"
+        },
+        "matchedEvidence": [
+          "card number matched",
+          "autograph matched",
+          "relic matched",
+          "serial run matched"
+        ],
+        "mismatchedEvidence": [],
+        "reviewReasons": [],
+        "suggestedQuestion": null,
+        "operatorAction": "Catalog identity confirmed from approved fixture checklist.",
+        "safeUseBoundary": "Fixture evidence only; no live listings, postage, Checkout, or deploy side effects.",
+        "actionPermissions": {
+          "exactCompSearchAllowed": true,
+          "trustedForExactComps": true,
+          "publicListingClaimAllowed": true,
+          "autoPriceAllowed": true,
+          "tradeValueRecommendationAllowed": true
+        }
       },
       "actual": {
         "player": "Tom Brady",
