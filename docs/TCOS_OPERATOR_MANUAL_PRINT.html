@@ -151,7 +151,7 @@
 <p>Flagship store / Store #1: Truely Collectables.</p>
 <p>Last updated: 2026-07-15 21:49 MDT / 2026-07-16 03:49 UTC</p>
 <p>This is the working manual for Totally Collectibles OS (TCOS). It must stay current as features are added.</p>
-<p>This revision includes the durable InstaComp™ batch queue and PaddleOCR worker, faster InstaComp™ image preparation and five-card queue claim mini-packs, database-pressure pause/governor behavior, 45-degree local image rotation and thumbnail zoom review, InstaComp™-to-seller-draft handoff, InstaComp™-to-Available-for-Trade handoff, seller inventory InstaComp™ lane, seller marketplace export packets, seller eBay staging and reconciliation, Stripe payment reliability controls, seller payout guards, shipping/coverage operations, and complete laptop-failure disaster recovery. Procedures labeled <code>dry run</code>, <code>draft</code>, <code>review</code>, <code>export</code>, or <code>not configured</code> are not production completion claims.</p>
+<p>This revision includes the durable InstaComp™ batch queue and PaddleOCR worker, faster InstaComp™ image preparation and five-card queue claim mini-packs, database-pressure pause/governor behavior, 45-degree local image rotation and thumbnail zoom review, graded-slab certification capture, slab-cert comp search weighting, collection pickup/card-show collector-reported comp capture, InstaComp™-to-seller-draft handoff, InstaComp™-to-Available-for-Trade handoff, seller inventory InstaComp™ lane, seller marketplace export packets, seller eBay staging and reconciliation, Stripe payment reliability controls, seller payout guards, shipping/coverage operations, and complete laptop-failure disaster recovery. Procedures labeled <code>dry run</code>, <code>draft</code>, <code>review</code>, <code>export</code>, or <code>not configured</code> are not production completion claims.</p>
 <h2>Deterministic Application Fonts</h2>
 <p>TCOS loads Geist Sans and Geist Mono from the installed <code>geist</code> package. The font files are bundled locally through <code>next/font/local</code>; production and local builds do not fetch CSS or font files from Google Fonts. This keeps <code>npm run build</code> deterministic in restricted or temporarily offline build environments while preserving the existing Geist typography and CSS variable names. The <code>tsx</code> runner used by shipping verification is also a direct development dependency rather than an accidental transitive dependency, so a clean install can run the full production verification stack.</p>
 <p>Next.js and <code>eslint-config-next</code> are aligned on <code>16.2.10</code>. Next.js still declares PostCSS <code>8.4.31</code>, which is affected by GHSA-qx2v-qp2m-jg93, so <code>package.json</code> overrides PostCSS to <code>8.5.15</code>. Keep the override until a later verified Next.js release directly depends on a fixed PostCSS version. <code>npm audit --omit=dev</code> must report zero production vulnerabilities before removing or changing this protection. Production builds use the supported <code>next build --webpack</code> opt-out because Turbopack 16.2.10 stalled during compilation with the fixed PostCSS override; development can continue using Turbopack through <code>next dev</code>.</p>
@@ -1233,6 +1233,7 @@ src/lib/collector-intelligence.ts</code></pre>
 <li><a href="https://130point.com/sales/">130point sales search</a></li>
 </ul>
 <p>When checking comps, ignore listings that are not the same card or same grade. A raw card, PSA 10, BGS 9.5, autographed card, patch card, serial-numbered parallel, and base card are different markets.</p>
+<p>For graded slabs, InstaComp™ stores the grading company, grade value, grading certification number, and official lookup URL separately from the card's own serial numbering. Comp query backups include the certification number when the scan finds one, and comp scoring gives extra weight to sold/listing titles that include the exact slab cert. A slab-cert sale match is useful evidence, but it is still not a live official population report or a guaranteed sale history from the grader unless the source explicitly provides that data.</p>
 <h2>11. Suggested Price</h2>
 <p>Suggested price uses a CollX-style method:</p>
 <ol>
@@ -1301,6 +1302,15 @@ src/lib/collector-intelligence.ts</code></pre>
 <li>If listing is not active, marks local quantity zero.</li>
 </ol>
 <p>It does not delete eBay inventory.</p>
+<p>Future higher-tier import upgrade:</p>
+<ul>
+<li>eBay import should be the first marketplace import path that can offer a paid InstaScan™/InstaComp™ cleanup lane for card inventory.</li>
+<li>When an imported eBay row maps to sports cards, Pokémon, trading cards, or another supported collectable card category, the seller should be able to run the item through InstaScan™/InstaComp™ instead of accepting the raw imported title/aspects.</li>
+<li>The cleanup lane should preserve the original eBay listing ID, SKU, price, quantity, photos, item specifics, and source evidence while adding TCOS-normalized title, card identity, set/checklist evidence, serial-number evidence, graded-slab evidence, comp pricing, and draft/listing recommendations.</li>
+<li>This should be gated by subscription tier or paid usage because it uses premium scanning, catalog, AI, and comp resources.</li>
+<li>The first MVP should let sellers select imported eBay card rows, run InstaScan™/InstaComp™ enrichment in batch, review corrections, then apply the cleaned professional TCOS data back to staged seller inventory before activation or sync.</li>
+<li>Never overwrite the seller's live eBay listing automatically from this cleanup lane without explicit seller/admin approval and a sync-safe audit record.</li>
+</ul>
 <p>Current eBay category mapper output:</p>
 <ul>
 <li><code>sports_cards</code></li>
@@ -1770,7 +1780,9 @@ src/app/api/admin/files/[id]/download/route.ts</code></pre>
 <li><code>/account</code> shows recent linked orders for the logged-in customer</li>
 <li><code>/api/account/orders</code> responses include <code>X-TCOS-Account-Orders</code>, <code>X-TCOS-Account-Orders-Dry-Run-Shipping-Blocked</code>, and <code>X-TCOS-Account-Orders-Seller-Item</code> headers so account order history can be reconciled without exposing hidden dry-run tracking/carrier values</li>
 <li><code>/account</code> lets customers save a collector handle, bio, collecting focus, location label, social URLs, visibility, and message preference</li>
-<li><code>/account</code> lets customers save owned collection items with category, condition, grade, estimated value, and notes</li>
+<li><code>/account</code> lets customers save owned collection items with category, condition, slab cert number, estimated value, pickup source, price paid, optional card-show/event name, and notes</li>
+<li><code>/account</code> can mark an owned pickup price as a collector-reported comp when the collector opts in; that comp is stored as user-reported evidence and should not be treated as fully trusted until TCOS review/trust rules promote it</li>
+<li><code>/account</code> can create a brag-feed post from a collection pickup, including the reported pickup price and optional card show/event when supplied</li>
 <li><code>/account</code> lets customers save wish list items, 30-day want ads, set needs, and trade targets</li>
 <li><code>/account</code> lets customers download their collection as CSV or a full catalog JSON backup</li>
 <li><code>/account</code> lets customers save favorite teams/sports and market watchlist items</li>
@@ -1812,7 +1824,13 @@ supabase/migrations/20260701074500_add_account_billing_address_evidence.sql</cod
 <li>condition</li>
 <li>grade company</li>
 <li>grade value</li>
+<li>slab certification number</li>
 <li>estimated value</li>
+<li>pickup source</li>
+<li>pickup price</li>
+<li>optional card show/event name</li>
+<li>collector-reported comp opt-in</li>
+<li>optional brag-feed post creation</li>
 <li>ownership status</li>
 <li>privacy/visibility</li>
 <li>favorite flag</li>
@@ -1838,6 +1856,10 @@ supabase/migrations/20260701074500_add_account_billing_address_evidence.sql</cod
 <li>removing a collection item soft-archives it</li>
 <li>removing a wish list item cancels it</li>
 <li>want ads default to a 30-day expiration</li>
+<li>collection pickup prices are saved as private collection data by default</li>
+<li>a pickup price becomes a collector-reported comp only when the collector opts in while saving the item</li>
+<li>collector-reported comps preserve source, price, card show/event name, confidence label, and submission timestamp in collection metadata</li>
+<li>optional collection-pickup brag posts preserve the same collector comp metadata so the brag feed can show pickup price, card-show/event evidence, and TCOS share traffic</li>
 <li>matching, AI identification, image uploads, alerts, and outside marketplace links are future layers on this foundation</li>
 </ul>
 <p>Post-current-goal collection cockpit backlog:</p>
@@ -1908,6 +1930,7 @@ account_wish_list_matches</code></pre>
 <ul>
 <li><code>/api/account/collector/items</code> lists the logged-in collector's private collection shelf and active/matched/renewed wish-list rows</li>
 <li>the same endpoint creates <code>collection_item</code> and <code>wish_list_item</code> rows, archives collection rows, and cancels wish-list rows without creating storefront products, orders, checkout rows, or Stripe activity</li>
+<li>collection item creation accepts <code>certificationNumber</code>, <code>acquisitionSource</code>, <code>acquisitionPrice</code>, <code>cardShowName</code>, <code>sharePurchaseAsComp</code>, <code>createBragPost</code>, and <code>bragVisibility</code>; opted-in pickup prices are saved in collection metadata as collector-reported comps and optional brag posts are inserted into <code>account_brag_posts</code></li>
 <li>list responses include <code>X-TCOS-Collector-Items</code> and <code>X-TCOS-Collector-Wish-List</code> headers so the dashboard payload can be reconciled with the returned counts</li>
 <li>create/archive/cancel responses include <code>X-TCOS-Collector-Item-Kind</code>, <code>X-TCOS-Collector-Mutation</code>, and <code>X-TCOS-Collector-Item-Id</code> headers so browser traces can identify the exact collector mutation without parsing the JSON body</li>
 </ul>
@@ -1933,6 +1956,7 @@ account_wish_list_matches</code></pre>
 <li>duplicate checks use source marketplace plus source item ID when available, then title/category/certification fallback matching</li>
 <li><code>account_collection_import_jobs</code> stores row, import, skip, and error counts when the migration is available</li>
 <li>successful import responses include <code>X-TCOS-Collector-Import-Source</code>, <code>X-TCOS-Collector-Import-Rows</code>, <code>X-TCOS-Collector-Import-Imported</code>, <code>X-TCOS-Collector-Import-Skipped</code>, <code>X-TCOS-Collector-Import-Errors</code>, and <code>X-TCOS-Collector-Import-Job</code> headers so the browser response can be reconciled with the import job audit row</li>
+<li>Future higher-tier imports should offer optional InstaScan™/InstaComp™ enrichment for imported sports cards, Pokémon, trading cards, and supported collectable-card rows so collectors and sellers can clean raw marketplace exports into professional TCOS card identities with checklist evidence, slab certs, serial numbers, comps, and normalized titles.</li>
 </ul>
 <p>Messaging foundation:</p>
 <ul>
@@ -1970,6 +1994,7 @@ account_collection_export_jobs</code></pre>
 <li>connect or upload from an outside sales outlet</li>
 <li>preview detected items</li>
 <li>import into TCOS inventory or the collector's private collection</li>
+<li>offer a higher-tier InstaScan™/InstaComp™ cleanup lane for imported card inventory, starting with eBay imports</li>
 <li>preserve source IDs, source marketplace, listing URLs, images, descriptions, prices, condition, quantity, and category evidence</li>
 <li>map items through the same Universal Inventory Engine category and attribute system</li>
 <li>prevent duplicate imports by source listing ID, SKU, and normalized title</li>
@@ -2288,8 +2313,10 @@ market_news_snapshots</code></pre>
 <li>uses PaddleOCR first when <code>PADDLEOCR_API_URL</code> is configured</li>
 <li>can use Google Vision as an optional OCR fallback</li>
 <li>uses OpenAI vision for structured card identification and a dedicated serial-number pass</li>
+<li>detects grading slab details separately from raw card identity, including grading company, grade, certification number, grading evidence, and a lookup link when supported; slab certification numbers must not be treated as card serial numbers</li>
 <li>prefers printed back evidence for year, set, card number, and manufacturer when front/back evidence conflicts</li>
 <li>searches configured TCOS, eBay, sold/marketplace providers, and broader research providers; COMC is kept as checklist/reference context and is not used in the active comp equation</li>
+<li>when a graded slab is detected, comp search and exact comp filtering include the grader/grade so raw-card comps do not contaminate PSA/BGS/SGC/CGC/etc. markets</li>
 <li>displays player, year, brand, set, card number, parallel, serial number, team, sport, condition clue, confidence, comps, and OCR diagnostics</li>
 <li>shows <code>Buy Me on TCOS</code> and <code>Trade For Me on TCOS</code> lookup actions so the detected card can be searched against TCOS sale and trade surfaces</li>
 <li>creates seller-owned drafts when a valid seller session owns the job, or store-owned drafts when an admin session owns the job</li>
@@ -2298,7 +2325,7 @@ market_news_snapshots</code></pre>
 <li>never activates or publicly publishes those drafts automatically</li>
 <li>keeps low-confidence, incomplete identity, uncertain-parallel, front-only, weak-pairing, and missing-comp rows in <code>review_required</code>; Auto-Pilot does not silently create drafts from those rows</li>
 <li>uses item leases and bounded retry attempts so an interrupted row can be reclaimed without two workers completing the same attempt</li>
-<li>supports thumbnail zoom review and 45-degree left/right local image rotation before retry; rotation uses the original local file plus cumulative degrees so filenames do not stack repeated <code>rotated-right-45</code> suffixes and repeated clicks do not shrink the preview</li>
+<li>supports thumbnail zoom review, 45-degree left/right local image rotation, and a row-level <code>Swap Front/Back</code> control before retry; rotation uses the original local file plus cumulative degrees so filenames do not stack repeated <code>rotated-right-45</code> suffixes and repeated clicks do not shrink the preview</li>
 <li>pauses on database connection pressure, backs browser concurrency down by one, and resumes with five-card claim mini-packs to reduce queue round-trips</li>
 </ul>
 <p>The browser currently acts as the queue worker. Uploaded jobs and results survive a reload, but OCR and AI work do not continue while every InstaComp™ browser tab is closed. This is a durable, resumable browser-driven queue, not a detached background worker.</p>
@@ -2306,7 +2333,19 @@ market_news_snapshots</code></pre>
 <p>The system must not rely on AI guessing alone. AI and OCR propose facts; the operator must compare those facts with both card images and trusted references before activation, pricing, or cross-listing. A displayed confidence score is evidence for triage, not a guarantee of exact identity.</p>
 <p>Future scanner catalog identity requirement:</p>
 <ul>
-<li>next build priority as of July 15, 2026: build <code>InstaComp™ Multi-Scanner Consensus</code> before the final 100-card tester pass</li>
+<li>EXTREMELY HOT next main build priority as of July 16, 2026: build the <code>TCOS Card Knowledge Base MVP</code> before the next major speed/polish block. This is now the first thing to do after the current scanner test pass because it makes InstaComp™ faster and more accurate by checking TCOS-owned verified card truth before paying/waiting for outside AI or source search.</li>
+<li>Guardrail compatibility note: next build priority as of July 15, 2026: build <code>InstaComp™ Multi-Scanner Consensus</code> before the final 100-card tester pass. That consensus layer is now implemented and remains part of the scanner proof stack while July 16 work moves the top priority to the TCOS Card Knowledge Base MVP.</li>
+<li>MVP scope for the <code>TCOS Card Knowledge Base</code>: create TCOS-owned card catalog, variant, identity-evidence, correction, and source-cache storage; check this local knowledge base first during InstaComp™ scans; save confirmed/corrected InstaComp™ rows back into it; cache source-specific checklist evidence from Sportlots, Upper Deck, Panini, Cardboard Connection, TCDB/Trading Card DB, and approved free/cheap sources; show whether a row is <code>TCOS verified</code>, <code>external verified</code>, or <code>needs review</code>; and keep exact comps/pricing blocked unless the identity evidence is strong enough.</li>
+<li>Current MVP flow: after reviewing a saved InstaComp™ lot, click <code>Save Corrections</code> / <code>Save Selected Corrections</code>, then click <code>Process Saved Lot to TCOS DB</code>. This writes completed saved-lot rows into <code>tcos_card_knowledge_entries</code> and one deduped observation per source scan item into <code>tcos_card_knowledge_observations</code>.</li>
+<li>Serial correction flow: each completed row has an editable <code>Serial #</code> field. Leave it blank when the card is not serial-numbered, or enter the exact visible serial such as <code>12/150</code>. Clicking <code>Save Corrections</code> requeues that row, applies the operator serial override before catalog/consensus/comps, reruns InstaComp™ pricing, then saves the corrected result.</li>
+<li>Image correction flow: if an upload pair is reversed, click <code>Swap Front/Back</code> under the row thumbnails, then click <code>Retry Row</code> so InstaComp™ rescans the corrected front/back order. This keeps the current scan visible until the operator chooses to retry.</li>
+<li>Graded slab flow: when a slab label is visible, InstaComp™ shows grader, grade, cert number, and a <code>verify</code> link in the row. Draft titles append the detected grader/grade, seller drafts receive authenticity cert provider/number, trade handoffs save grade company/value/certification number, and graded comp matching requires matching grader/grade evidence. Operators must still verify the official grading lookup before claiming the cert is confirmed.</li>
+<li>Comp refresh flow: each saved lot row has <code>Refresh Comps</code> to rerun the row's comp/pricing pass and persist the refreshed result. Operators can also check multiple completed saved rows and click <code>Refresh Selected Comps</code> to re-comp only those selected rows, without reprocessing the rest of the batch.</li>
+<li>TCOS trust rule: a card identity is <code>learning</code> for the first and second confirmed sightings. It becomes <code>tcos_trusted</code> only after the third distinct operator-confirmed sighting of that same identity. Reprocessing the same saved scan item does not double-count.</li>
+<li>Submitter accountability rule: every TCOS Card DB observation records who submitted it. Seller submissions store <code>submitted_by_account_id</code>, <code>submitted_by_actor_type = seller</code>, and <code>submitted_store_id</code>. Admin submissions store <code>submitted_by_actor_type = admin</code>. This lets TCOS find repeat bad submitters, ask them to fix their information, or quarantine future submissions if needed.</li>
+<li>The build target is one uninterrupted MVP block: schema/migrations, local-first lookup, correction capture, source-specific checklist expansion, visible evidence indicators, focused InstaComp™ sims, build, production guardrails, commit, and push only after green verification.</li>
+<li>Expected build size: about 6–9 focused build hours for the MVP backbone; 2–3 days for polished duplicate merging, image fingerprinting, admin review queues, bulk imports, and full catalog management.</li>
+<li><code>InstaComp™ Multi-Scanner Consensus</code> is already present as the adaptive consensus layer; future consensus work should now feed into and learn from the TCOS Card Knowledge Base instead of remaining only per-scan evidence.</li>
 <li>each card should be submitted to independent AI/OCR readers that produce structured findings for year, manufacturer, set, card number, player, team, parallel/insert, visible variation clues, serial text, front/back OCR, and confidence evidence</li>
 <li>readers should not simply copy one another; TCOS should compare independent findings, detect disagreements, and escalate only the uncertain cards to an additional reader or operator question</li>
 <li>adaptive consensus escalation is now the required speed posture: obvious complete cards stay on the <code>fast_lane</code> / <code>fast_lane_council</code>, while low-confidence cards, missing critical fields, front-only/weak pairings, serial-numbered signals, autograph/relic signals, uncertain identity text, insert-style card-number prefixes such as <code>O-8</code>, <code>C-369</code>, <code>UD3-28</code>, or <code>S-50</code> that are still being treated as generic Base, or printed variant cues such as Outliers/Clear Cut/Limited Red escalate to <code>escalated_multi_ai</code> / <code>full_council</code> and run a second independent AI identity reader before comps are trusted</li>
@@ -3955,6 +3994,8 @@ rear</code></pre>
 <li>consensus speed lane, scanner-council mode, and council-readiness verdict, including whether the row stayed <code>fast_lane</code> / <code>fast_lane_council</code>, escalated to <code>escalated_multi_ai</code> / <code>full_council</code>, the risk tier, missing required reader kinds, thin-council warnings, and the scanner plan used for that row</li>
 <li>comp-provider status, included comps, suggested price, and research links</li>
 <li>market price basis, including active listings, sold comps when available, same-run guidance, and serial-adjusted guidance</li>
+<li><code>InstaComp™ Suggested</code> pricing on batch rows, with the usable-comp count/range clickable so operators can open each source item used by the suggestion</li>
+<li>current <code>InstaComp™ Suggested</code> pricing prefers usable current sold comps first, then exact usable active/current matches. Dated sold comps older than the current-pricing freshness window stay visible in the comp-evidence drawer as history, but they are not used to calculate the current suggested price. Undated sold comps remain usable until richer provider sale dates are available.</li>
 </ul>
 <p>The multipart fallback creates targeted serial-stamp, edge, band, contrast, and inverted crops in the browser. Durable jobs normally send only the stored front/back derivatives to the scan route. When PaddleOCR receives no more than two card-side images, its worker creates five grayscale, auto-contrast serial regions per image (top-right, top-left, middle-right, bottom-right, and bottom-left) until the configured prediction-image cap is reached.</p>
 <p>Provider order:</p>
@@ -4824,6 +4865,8 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3000/admin/login</code></pre
 <li>InstaComp™ Auto-Pilot branding now includes <code>InstaComp™</code>.</li>
 <li><code>Buy Me on TCOS</code> and <code>Trade For Me on TCOS</code> buttons were added as sale/trade search handoffs for detected cards.</li>
 <li><code>Add to Available for Trade</code> was added for seller-owned scans. It creates or reuses a collection item marked Available for Trade, writes the handoff back to the scan row, and is mutually exclusive with sell-draft creation.</li>
+<li>Batch rows now show <code>InstaComp™ Suggested</code> as the primary price, keep smaller <code>Market guidance</code> underneath, and make the usable-comp count/range clickable. Opening the panel shows every usable comp as a source link with title, source, basis, match score, and price so operators can inspect the real-world evidence before accepting the suggestion.</li>
+<li>Comp freshness now keeps older dated sold comps visible as history while excluding them from <code>InstaComp™ Suggested</code>; the next provider-data upgrade should capture more sale/listing timestamps so this current-vs-historical split gets sharper across every source.</li>
 <li>The trade handoff is protected by <code>20260716010000_add_instacomp_trade_handoff.sql</code>; apply it before using Available for Trade.</li>
 <li>Lint is now clean with zero warnings after removing dead COMC active-provider code and aligning the claim route with the five-card mini-pack throughput.</li>
 </ul>
