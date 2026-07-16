@@ -60,6 +60,7 @@ type InstaCompDraftRequestItem = {
   externalSearch?: unknown;
   persistentJobId?: unknown;
   persistentItemId?: unknown;
+  tradeCollectionItemId?: unknown;
 };
 
 type ParsedDraftRequestItem = InstaCompDraftRequestItem & {
@@ -312,7 +313,7 @@ async function persistentDraftImageFiles(params: {
   const { data: item, error: itemError } = await params.supabase
     .from(INSTACOMP_JOB_ITEM_TABLE)
     .select(
-      "id,job_id,status,front_storage_path,back_storage_path,front_original_filename,back_original_filename,front_content_type,back_content_type,front_size_bytes,back_size_bytes,front_image_sha256,back_image_sha256,draft_inventory_item_id,result_payload",
+      "id,job_id,status,front_storage_path,back_storage_path,front_original_filename,back_original_filename,front_content_type,back_content_type,front_size_bytes,back_size_bytes,front_image_sha256,back_image_sha256,draft_inventory_item_id,trade_collection_item_id,result_payload",
     )
     .eq("id", params.itemId)
     .eq("job_id", params.jobId)
@@ -336,6 +337,13 @@ async function persistentDraftImageFiles(params: {
 
   if (item.draft_inventory_item_id) {
     return { frontFile: null, backFile: null, item };
+  }
+
+  if (item.trade_collection_item_id) {
+    throw new InventoryEngineError(
+      "This InstaComp row is already marked Available for Trade. Remove the trade handoff before creating a sell draft.",
+      409,
+    );
   }
 
   async function download(
@@ -819,6 +827,12 @@ export async function POST(request: Request) {
       const persistentJobId = cleanUuid(item.persistentJobId);
       const persistentItemId = cleanUuid(item.persistentItemId);
       const validationErrors: string[] = [];
+
+      if (item.tradeCollectionItemId) {
+        validationErrors.push(
+          "This row is already marked Available for Trade and cannot become a sell draft.",
+        );
+      }
 
       if (item.persistentJobId && !persistentJobId) {
         validationErrors.push("Persistent InstaComp job ID is invalid.");

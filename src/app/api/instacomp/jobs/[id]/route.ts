@@ -70,6 +70,8 @@ const RECOVERY_ITEM_SELECT = [
   "last_error",
   "draft_inventory_item_id",
   "drafted_at",
+  "trade_collection_item_id",
+  "trade_available_at",
   "created_at",
   "updated_at",
 ].join(",");

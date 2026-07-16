@@ -143,6 +143,7 @@ type ScanResponse = {
 
 type BatchCardStatus = "queued" | "scanning" | "done" | "error";
 type DraftListingStatus = "idle" | "drafting" | "created" | "error";
+type TradeHandoffStatus = "idle" | "adding" | "created" | "error";
 type BatchCardFilter =
   | "all"
   | "selected"
@@ -188,6 +189,9 @@ type BatchCard = {
   draftInventoryItemId: string | null;
   draftLegacyProductId: number | null;
   draftSku: string | null;
+  tradeStatus: TradeHandoffStatus;
+  tradeError: string | null;
+  tradeCollectionItemId: string | null;
   persistentClientId?: string;
   persistentJobId?: string | null;
   persistentItemId?: string | null;
@@ -255,6 +259,14 @@ type DraftListingResponse = {
     title: string | null;
     error: string;
   }>;
+};
+
+type TradeItemResponse = {
+  success: boolean;
+  alreadyExisted?: boolean;
+  collectionItemId: string | null;
+  title: string;
+  error?: string;
 };
 
 type BatchImageSide = "front" | "back" | "unknown";
@@ -1402,8 +1414,11 @@ function batchExportRows(items: BatchCardViewItem[]) {
       draftSku: card.draftSku || "",
       draftInventoryItemId: card.draftInventoryItemId || "",
       draftLegacyProductId: card.draftLegacyProductId || "",
+      tradeStatus: card.tradeStatus,
+      tradeCollectionItemId: card.tradeCollectionItemId || "",
       error: card.error || "",
       draftError: card.draftError || "",
+      tradeError: card.tradeError || "",
       externalProvider: external?.providerLabel || "",
       externalCacheStatus: external?.cacheStatus || "",
       externalRequestAttempted: external?.externalRequestAttempted ?? "",
@@ -1498,6 +1513,7 @@ function draftListingItemsForCards(cards: BatchCard[]) {
       clientId: card.persistentClientId || card.id,
       persistentJobId: card.persistentJobId || null,
       persistentItemId: card.persistentItemId || null,
+      tradeCollectionItemId: card.tradeCollectionItemId || null,
       scanId: card.result?.scanId || null,
       fileName: card.file.name,
       backFileName: card.backFile?.name || null,
@@ -1515,6 +1531,23 @@ function draftListingItemsForCards(cards: BatchCard[]) {
       externalSearch: externalSearchDiagnostics(card.result),
     };
   });
+}
+
+function tradeItemForCard(card: BatchCard) {
+  return {
+    clientId: card.persistentClientId || card.id,
+    persistentJobId: card.persistentJobId || null,
+    persistentItemId: card.persistentItemId || null,
+    scanId: card.result?.scanId || null,
+    fileName: card.file.name,
+    hasBackImage: Boolean(card.backFile),
+    title: draftTitleForCard(card),
+    marketPrice: marketPriceForCard(card),
+    searchQuery: card.result?.searchQuery || null,
+    ai: card.result?.ai || null,
+    stats: card.result ? effectiveMarketStats(card.result) : null,
+    soldStats: card.result?.soldStats || null,
+  };
 }
 
 function shortDateTime(value: string | null | undefined) {
@@ -1760,6 +1793,10 @@ function draftReadinessErrors(card: BatchCard) {
   const errors: string[] = [];
   const rawQuantity = Number(card.customQuantity);
 
+  if (card.tradeStatus === "created") {
+    errors.push("Already available for trade");
+  }
+
   if (!draftTitleForCard(card).trim()) {
     errors.push("Missing draft title");
   }
@@ -1872,7 +1909,9 @@ function isDraftableBatchCard(card: BatchCard) {
     card.status === "done" &&
     Boolean(card.result) &&
     card.draftStatus !== "created" &&
-    card.draftStatus !== "drafting"
+    card.draftStatus !== "drafting" &&
+    card.tradeStatus !== "created" &&
+    card.tradeStatus !== "adding"
   );
 }
 
@@ -2898,6 +2937,9 @@ export default function InstaCompScanner({
               draftInventoryItemId: item.draft_inventory_item_id || null,
               draftLegacyProductId: null,
               draftSku: null,
+              tradeStatus: item.trade_collection_item_id ? "created" : "idle",
+              tradeError: null,
+              tradeCollectionItemId: item.trade_collection_item_id || null,
               persistentClientId: item.client_item_id,
               persistentJobId: job.id,
               persistentItemId: item.id,
@@ -3834,6 +3876,9 @@ export default function InstaCompScanner({
           : null,
       draftSku:
         completed && draftStatus === "created" ? fixture.draftSku || null : null,
+      tradeStatus: "idle",
+      tradeError: null,
+      tradeCollectionItemId: null,
     };
   }
 
@@ -3919,6 +3964,9 @@ export default function InstaCompScanner({
         draftLegacyProductId:
           990000 + targetCards.findIndex((targetCard) => targetCard.id === card.id),
         draftSku: `TEST-${card.id.slice(0, 12).toUpperCase()}`,
+        tradeStatus: "idle" as const,
+        tradeError: null,
+        tradeCollectionItemId: null,
       };
     });
   }
@@ -5389,6 +5437,9 @@ export default function InstaCompScanner({
         draftInventoryItemId: null,
         draftLegacyProductId: null,
         draftSku: null,
+        tradeStatus: "idle",
+        tradeError: null,
+        tradeCollectionItemId: null,
         pairingConfidence: pair.pairingConfidence,
         pairingMethod: pair.pairingMethod,
       }));
@@ -5478,12 +5529,19 @@ export default function InstaCompScanner({
     side: "primary" | "paired",
     direction: "left" | "right"
   ) {
-    if (batchRunning || batchDrafting || persistentJob) return;
+    if (batchRunning || batchDrafting) return;
 
     const card = batchCards.find((row) => row.id === cardId);
     const file = side === "primary" ? card?.file : card?.backFile;
 
     if (!card || !file || card.draftStatus !== "idle") return;
+
+    if (file.size <= 0) {
+      setBatchError(
+        "This recovered saved-lot image is remote-only in this browser. Reselect the original image file, then rotate it before retrying."
+      );
+      return;
+    }
 
     setBatchError(null);
     setBatchDraftMessage(null);
@@ -5492,20 +5550,31 @@ export default function InstaCompScanner({
       const rotatedFile = await rotateImageFile(file, direction);
       const rotatedPreviewUrl = createBatchPreviewUrl(rotatedFile);
 
+      persistentBindingsRef.current.delete(cardId);
+
       updateBatchCard(cardId, (current) => {
+        const resetAfterRotation = {
+          status: "queued" as const,
+          selected: true,
+          result: null,
+          marketPrice: null,
+          customTitle: "",
+          customPrice: "",
+          error: null,
+          persistentClientId: undefined,
+          persistentJobId: null,
+          persistentItemId: null,
+          frontStoragePath: null,
+          backStoragePath: null,
+        };
+
         if (side === "primary") {
           forgetBatchPreviewUrl(current.previewUrl);
           return {
             ...current,
             file: rotatedFile,
             previewUrl: rotatedPreviewUrl,
-            status: "queued",
-            selected: true,
-            result: null,
-            marketPrice: null,
-            customTitle: "",
-            customPrice: "",
-            error: null,
+            ...resetAfterRotation,
           };
         }
 
@@ -5514,15 +5583,12 @@ export default function InstaCompScanner({
           ...current,
           backFile: rotatedFile,
           backPreviewUrl: rotatedPreviewUrl,
-          status: "queued",
-          selected: true,
-          result: null,
-          marketPrice: null,
-          customTitle: "",
-          customPrice: "",
-          error: null,
+          ...resetAfterRotation,
         };
       });
+      setBatchDraftMessage(
+        "Image rotated. Retry this row to scan the corrected local image."
+      );
     } catch (error: any) {
       setBatchError(error?.message || "Could not rotate this batch image.");
     }
@@ -7410,6 +7476,84 @@ export default function InstaCompScanner({
       emptyMessage: "No visible clean ready draft rows are available to create.",
       blockedScopeLabel: "visible clean",
     });
+  }
+
+  async function addBatchCardToTrade(cardId: string) {
+    if (batchRunning || batchDrafting) return;
+
+    const card = batchCards.find((row) => row.id === cardId);
+
+    if (!card || card.status !== "done" || !card.result) {
+      setBatchError("Finish the scan before adding this card to trade.");
+      return;
+    }
+
+    if (card.draftStatus === "created") {
+      setBatchError("This card already has a sell draft, so it cannot also be trade inventory.");
+      return;
+    }
+
+    if (card.tradeStatus === "created") {
+      setBatchError("This card is already Available for Trade.");
+      return;
+    }
+
+    setBatchError(null);
+    setBatchDraftMessage(null);
+    updateBatchCard(card.id, (current) => ({
+      ...current,
+      tradeStatus: "adding",
+      tradeError: null,
+    }));
+
+    if (testMode) {
+      await waitForTestModel();
+      updateBatchCard(card.id, (current) => ({
+        ...current,
+        selected: false,
+        tradeStatus: "created",
+        tradeError: null,
+        tradeCollectionItemId: `test-trade-${card.id.slice(0, 24)}`,
+      }));
+      setBatchDraftMessage("Test trade simulation marked this card Available for Trade.");
+      return;
+    }
+
+    try {
+      const response = await fetchWithFreshAccountSession(
+        "/api/instacomp/trade-items",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(tradeItemForCard(card)),
+        },
+      );
+      const data = (await response.json().catch(() => ({}))) as TradeItemResponse;
+
+      if (!response.ok) {
+        throw new Error(data?.error || "Could not add this card to trade.");
+      }
+
+      updateBatchCard(card.id, (current) => ({
+        ...current,
+        selected: false,
+        tradeStatus: "created",
+        tradeError: data.alreadyExisted ? "Already existed in trade inventory." : null,
+        tradeCollectionItemId: data.collectionItemId,
+      }));
+      setBatchDraftMessage(
+        data.alreadyExisted
+          ? "This card was already Available for Trade."
+          : "Added card to Available for Trade."
+      );
+    } catch (error: any) {
+      updateBatchCard(card.id, (current) => ({
+        ...current,
+        tradeStatus: "error",
+        tradeError: error?.message || "Could not add this card to trade.",
+      }));
+      setBatchError(error?.message || "Could not add this card to trade.");
+    }
   }
 
   return (
@@ -9821,6 +9965,7 @@ export default function InstaCompScanner({
                 onPriceChange={handleBatchPriceChange}
                 onSelectedChange={toggleBatchCardSelected}
                 onRotateImage={rotateBatchCardImage}
+                onAddToTrade={addBatchCardToTrade}
                 onRetry={retryBatchCard}
                 onRemove={removeBatchCard}
                 onCopySummary={
@@ -10603,6 +10748,7 @@ function BatchCardRow({
   onPriceChange,
   onSelectedChange,
   onRotateImage,
+  onAddToTrade,
   onRetry,
   onRemove,
   onCopySummary,
@@ -10621,6 +10767,7 @@ function BatchCardRow({
     side: "primary" | "paired",
     direction: "left" | "right"
   ) => void | Promise<void>;
+  onAddToTrade: (cardId: string) => void | Promise<void>;
   onRetry: (cardId: string) => void;
   onRemove: (cardId: string) => void;
   onCopySummary?: (card: BatchCard, index: number) => void | Promise<void>;
@@ -10648,7 +10795,18 @@ function BatchCardRow({
   const canRetry =
     (card.status === "error" || card.status === "done") && !batchBusy;
   const canRemove = !batchBusy && card.draftStatus !== "drafting";
-  const canRotate = !batchBusy && card.draftStatus === "idle";
+  const canRotate =
+    !batchBusy && card.draftStatus === "idle" && card.tradeStatus === "idle";
+  const canRotatePrimary = canRotate && card.file.size > 0;
+  const canRotatePaired = canRotate && Boolean(card.backFile?.size);
+  const canAddToTrade =
+    !batchBusy &&
+    card.status === "done" &&
+    Boolean(card.result) &&
+    card.draftStatus !== "created" &&
+    card.draftStatus !== "drafting" &&
+    card.tradeStatus !== "created" &&
+    card.tradeStatus !== "adding";
   const rowBorder = draftErrors.length
     ? "1px solid #e3a2a2"
     : reviewWarnings.length
@@ -10679,14 +10837,14 @@ function BatchCardRow({
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
         <Thumbnail
           url={card.previewUrl}
-          canRotate={canRotate}
+          canRotate={canRotatePrimary}
           onRotateLeft={() => void onRotateImage(card.id, "primary", "left")}
           onRotateRight={() => void onRotateImage(card.id, "primary", "right")}
         />
         {card.backPreviewUrl ? (
           <Thumbnail
             url={card.backPreviewUrl}
-            canRotate={canRotate && Boolean(card.backFile)}
+            canRotate={canRotatePaired}
             onRotateLeft={() => void onRotateImage(card.id, "paired", "left")}
             onRotateRight={() => void onRotateImage(card.id, "paired", "right")}
           />
@@ -10878,6 +11036,28 @@ function BatchCardRow({
 
               <button
                 type="button"
+                onClick={() => void onAddToTrade(card.id)}
+                disabled={!canAddToTrade}
+                style={{
+                  ...secondaryButtonStyle,
+                  padding: "8px 10px",
+                  borderColor: "#1d4ed8",
+                  color: "#1d4ed8",
+                  opacity: canAddToTrade ? 1 : 0.5,
+                  cursor: canAddToTrade ? "pointer" : "not-allowed",
+                }}
+              >
+                {card.tradeStatus === "adding"
+                  ? "Adding to Trade..."
+                  : card.tradeStatus === "created"
+                    ? "Available for Trade"
+                    : card.draftStatus === "created"
+                      ? "Already For Sale"
+                      : "Add to Available for Trade"}
+              </button>
+
+              <button
+                type="button"
                 onClick={() => onRetry(card.id)}
                 disabled={!canRetry}
                 style={{
@@ -10954,6 +11134,53 @@ function BatchCardRow({
               <div style={{ color: "#8a5a00", marginTop: 4 }}>
                 {card.draftError}
               </div>
+            )}
+          </div>
+        )}
+
+        {card.tradeStatus !== "idle" && (
+          <div
+            style={{
+              marginTop: 10,
+              padding: "8px 10px",
+              borderRadius: 8,
+              background:
+                card.tradeStatus === "created"
+                  ? "#eff6ff"
+                  : card.tradeStatus === "error"
+                    ? "#fff5f5"
+                    : "#f6f6f6",
+              border:
+                card.tradeStatus === "created"
+                  ? "1px solid #bfdbfe"
+                  : card.tradeStatus === "error"
+                    ? "1px solid #f3c2c2"
+                    : "1px solid #e5e5e5",
+              color:
+                card.tradeStatus === "created"
+                  ? "#1d4ed8"
+                  : card.tradeStatus === "error"
+                    ? "crimson"
+                    : "#111",
+              fontWeight: 800,
+            }}
+          >
+            {card.tradeStatus === "adding" && "Adding to Available for Trade..."}
+            {card.tradeStatus === "created" && (
+              <>
+                Available for Trade
+                {card.tradeCollectionItemId
+                  ? ` - ${card.tradeCollectionItemId.slice(0, 8)}`
+                  : ""}
+                {card.tradeError ? (
+                  <div style={{ color: "#8a5a00", marginTop: 4 }}>
+                    {card.tradeError}
+                  </div>
+                ) : null}
+              </>
+            )}
+            {card.tradeStatus === "error" && (
+              <span>{card.tradeError || "Could not add this card to trade."}</span>
             )}
           </div>
         )}
