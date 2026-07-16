@@ -384,6 +384,8 @@ export function buildCompLinks(query: string): InstaCompLinks {
     "tcdb.com",
     "tradingcarddb.com",
     "cardboardconnection.com",
+    "blowoutcards.com",
+    "blowoutforums.com",
   ]
     .map((site) => `site:${site}`)
     .join(" OR ");
@@ -440,6 +442,8 @@ export function buildCompLinks(query: string): InstaCompLinks {
     { label: "TCDB", url: googleSiteUrl("tcdb.com"), category: "reference" },
     { label: "Trading Card DB", url: googleSiteUrl("tradingcarddb.com"), category: "reference" },
     { label: "Cardboard Connection", url: googleSiteUrl("cardboardconnection.com"), category: "reference" },
+    { label: "Blowout Cards Checklist", url: googleSiteUrl("blowoutcards.com"), category: "reference" },
+    { label: "Blowout Forums Reference", url: googleSiteUrl("blowoutforums.com"), category: "reference" },
     { label: "Google Shopping", url: googleShoppingUrl, category: "broad" },
     { label: "Broad Card Market", url: broadCardMarketUrl, category: "broad" },
   ];

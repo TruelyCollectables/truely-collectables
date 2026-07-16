@@ -383,7 +383,8 @@ Critical inspection workflow:
 9. Do not hallucinate serial numbers. Only return serialNumber when visible or explicitly printed/stamped.
 10. Do not overclaim exact parallels. If the color/finish or insert/clear-stock cue is visible but the exact market name is uncertain, use a cautious descriptive value like "Blue parallel - exact type uncertain" or "Insert - exact type uncertain" instead of Base.
 11. If front/back disagree, prefer the printed back for card number/year/set, and explain the conflict in notes.
-12. If the image is not a sports card, still describe what it appears to be and lower confidence.
+12. For checklist identity, prefer manufacturer/checklist evidence from Upper Deck, Panini America, Sportlots, COMC checklist pages, Cardboard Connection, TCDB/Trading Card DB, and similar checklist references before generic marketplace titles. Blowout Cards and Blowout Forums can provide helpful collector context, but treat forum claims as review/reference evidence unless they agree with printed card or checklist evidence.
+13. If the image is not a sports card, still describe what it appears to be and lower confidence.
 
 Field rules:
 - Confidence must be between 0 and 1.
@@ -1370,6 +1371,21 @@ const externalSearchSources: ExternalSearchSource[] = [
   {
     label: "Upper Deck Checklist",
     domain: "upperdeck.com",
+    category: "reference",
+  },
+  {
+    label: "Cardboard Connection Checklist",
+    domain: "cardboardconnection.com",
+    category: "reference",
+  },
+  {
+    label: "Blowout Cards Checklist",
+    domain: "blowoutcards.com",
+    category: "reference",
+  },
+  {
+    label: "Blowout Forums Reference",
+    domain: "blowoutforums.com",
     category: "reference",
   },
   { label: "Mercari", domain: "mercari.com", category: "marketplace" },
