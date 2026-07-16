@@ -126,6 +126,13 @@ type ScanResponse = {
     suggestedPrice: number | null;
   };
   note: string;
+  review?: {
+    status: "trusted_for_pricing" | "review_required";
+    trustedForPricing: boolean;
+    reviewReasons: string[];
+    identityReviewReasons: string[];
+    pricingReviewReasons: string[];
+  };
   queue?: {
     jobId: string;
     itemId: string;
@@ -325,10 +332,10 @@ const MAX_DETAIL_CROP_BYTES = 180_000;
 const MAX_SCAN_REQUEST_BYTES = 3_750_000;
 const DRAFT_UPLOAD_CONCURRENCY = 2;
 const INSTACOMP_JOB_ITEM_CHUNK_SIZE = 25;
-const INSTACOMP_BATCH_DEFAULT_CONCURRENCY = 6;
-const INSTACOMP_BATCH_MAX_CONCURRENCY = 10;
-const INSTACOMP_JOB_UPLOAD_CONCURRENCY = 6;
-const INSTACOMP_JOB_CLAIM_CHUNK_SIZE = 2;
+const INSTACOMP_BATCH_DEFAULT_CONCURRENCY = 8;
+const INSTACOMP_BATCH_MAX_CONCURRENCY = 12;
+const INSTACOMP_JOB_UPLOAD_CONCURRENCY = 8;
+const INSTACOMP_JOB_CLAIM_CHUNK_SIZE = 3;
 const INSTACOMP_LAST_JOB_STORAGE_KEY = "tcos-instacomp-last-job-v1";
 const EMPTY_CARD_PREVIEW =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='560' viewBox='0 0 400 560'%3E%3Crect width='400' height='560' fill='%23e5e7eb'/%3E%3Ctext x='200' y='280' text-anchor='middle' fill='%236b7280' font-family='Arial' font-size='24'%3ERecovered card%3C/text%3E%3C/svg%3E";
@@ -342,7 +349,7 @@ const PRICE_BUTTONS = [
   { label: "-5%", multiplier: 0.95 },
   { label: "-10%", multiplier: 0.9 },
 ];
-const LOW_CONFIDENCE_THRESHOLD = 0.65;
+const LOW_CONFIDENCE_THRESHOLD = 0.85;
 
 async function fetchWithFreshAccountSession(
   input: RequestInfo | URL,
@@ -1657,9 +1664,16 @@ function batchCardReviewWarnings(card: BatchCard) {
     (card.result.marketValueComps?.length || 0) +
     (card.result.soldComps?.length || 0);
 
-  if (card.result.queue?.status === "review_required") {
+  const reviewReasons =
+    card.result.queue?.status === "review_required"
+      ? card.result.queue.reviewReasons
+      : card.result.review?.status === "review_required"
+        ? card.result.review.reviewReasons
+        : [];
+
+  if (reviewReasons.length) {
     warnings.push(
-      ...card.result.queue.reviewReasons
+      ...reviewReasons
         .filter(
           (reason) =>
             (reason !== "front_back_pairing_needs_review" ||
@@ -1695,9 +1709,12 @@ function queueReviewReasonLabel(reason: string) {
     missing_brand_and_set: "Missing brand/set",
     missing_card_number: "Missing card number",
     parallel_needs_review: "Parallel needs review",
+    identity_notes_need_review: "Identity notes need review",
+    ocr_variant_signal_not_resolved: "OCR variant signal unresolved",
     front_only_scan: "Front only",
     front_back_pairing_needs_review: "Front/back pairing needs review",
     missing_usable_comps: "Missing usable comps",
+    insufficient_exact_comp_evidence: "Insufficient exact comp evidence",
   };
 
   return labels[reason] || reason.replaceAll("_", " ");

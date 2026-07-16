@@ -15,6 +15,7 @@ import {
   looksLikeBadCompTitle,
 } from "../../../../lib/instacomp";
 import { extractInstaCompSerialNumber } from "../../../../lib/instacomp-serial";
+import { buildInstaCompScanReview } from "../../../../lib/instacomp-scan-review";
 import {
   INSTACOMP_JOB_IMAGE_BUCKET,
   INSTACOMP_JOB_ITEM_TABLE,
@@ -2128,39 +2129,6 @@ async function loadPersistentJobScan(
   };
 }
 
-function persistentScanReviewReasons(payload: {
-  ai: InstaCompAiResult;
-  stats: ReturnType<typeof calculateCompStats>;
-  marketValueComps: InstaCompComp[];
-  hasBackImage: boolean;
-  pairingConfidence: number | null;
-}) {
-  const reasons: string[] = [];
-  const ai = payload.ai;
-
-  if ((ai.confidence || 0) < 0.85) reasons.push("low_identification_confidence");
-  if (!ai.player) reasons.push("missing_player_or_subject");
-  if (!ai.year) reasons.push("missing_year");
-  if (!ai.brand && !ai.setName) reasons.push("missing_brand_and_set");
-  if (!ai.cardNumber) reasons.push("missing_card_number");
-  if (!ai.parallel || /uncertain|unknown/i.test(ai.parallel)) {
-    reasons.push("parallel_needs_review");
-  }
-  if (!payload.hasBackImage) reasons.push("front_only_scan");
-  if (
-    payload.hasBackImage &&
-    payload.pairingConfidence !== null &&
-    payload.pairingConfidence < 0.6
-  ) {
-    reasons.push("front_back_pairing_needs_review");
-  }
-  if (!payload.marketValueComps.length || !payload.stats.suggestedPrice) {
-    reasons.push("missing_usable_comps");
-  }
-
-  return Array.from(new Set(reasons));
-}
-
 async function finishPersistentJobScan(params: {
   context: PersistentJobScanContext;
   payload: Record<string, unknown>;
@@ -2437,15 +2405,33 @@ export async function POST(req: NextRequest) {
     ];
 
     const allLiveComps = providers.flatMap((provider) => provider.results);
-    const marketValueComps = allLiveComps.filter(isMarketValueComp);
-    const soldComps = allLiveComps.filter(
+    const rawMarketValueComps = allLiveComps.filter(isMarketValueComp);
+    const rawSoldComps = allLiveComps.filter(
       (comp) => comp.sourceCategory === "sold"
     );
     const remainingCards = allLiveComps
       .filter(isRemainingCardComp)
       .sort((left, right) => left.price - right.price);
-    const stats = calculateCompStats(marketValueComps);
-    const soldStats = calculateCompStats(soldComps);
+    const rawStats = calculateCompStats(rawMarketValueComps);
+    const rawSoldStats = calculateCompStats(rawSoldComps);
+    const scanReview = buildInstaCompScanReview({
+      ai,
+      stats: rawStats,
+      marketValueComps: rawMarketValueComps,
+      hasBackImage: Boolean(backDataUrl),
+      pairingConfidence: persistentContext?.pairingConfidence ?? null,
+      externalOcrText: externalOcr?.text || null,
+    });
+    const marketValueComps = scanReview.trustedForPricing
+      ? rawMarketValueComps
+      : [];
+    const soldComps = scanReview.trustedForPricing ? rawSoldComps : [];
+    const stats = scanReview.trustedForPricing
+      ? rawStats
+      : calculateCompStats([]);
+    const soldStats = scanReview.trustedForPricing
+      ? rawSoldStats
+      : calculateCompStats([]);
     const sourceCoverage = buildSourceCoverage(links, providers);
 
     const scanId = await saveScanToSupabase({
@@ -2463,17 +2449,12 @@ export async function POST(req: NextRequest) {
       remainingCards,
     });
 
-    const reviewReasons = persistentScanReviewReasons({
-      ai,
-      stats,
-      marketValueComps,
-      hasBackImage: Boolean(backDataUrl),
-      pairingConfidence: persistentContext?.pairingConfidence ?? null,
-    });
+    const reviewReasons = scanReview.reviewReasons;
     const responsePayload = {
       ok: true,
       scanId,
       ai,
+      review: scanReview,
       ocrDiagnostics: {
         paddleOcrConfigured: Boolean(PADDLEOCR_API_URL),
         googleVisionConfigured: Boolean(GOOGLE_VISION_API_KEY),
@@ -2497,7 +2478,9 @@ export async function POST(req: NextRequest) {
       remainingCards,
       stats,
       note:
-        "Market value, high, low, and sold ranges are calculated from included live matches only. Registered sources remain visible until provider access is configured.",
+        scanReview.trustedForPricing
+          ? "Market value, high, low, and sold ranges are calculated from included live matches only. Registered sources remain visible until provider access is configured."
+          : "InstaComp found provider candidates, but exact card identity/pricing evidence is not strong enough. Review the row before trusting market value, draft title, activation, or comps.",
       ...(persistentContext
         ? {
             queue: {
