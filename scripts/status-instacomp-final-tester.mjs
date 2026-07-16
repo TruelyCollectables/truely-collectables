@@ -334,6 +334,8 @@ const trialImageDropZoneGuide = {
   explicitPairPattern:
     "Explicit side filenames can use front/fr/f/obverse and back/bk/b/reverse/rear. Example: 001-front.jpg + 001-back.jpg.",
   afterCopyCommands: [
+    "npm run instacomp:trial:groundtruth:sheet",
+    "npm run instacomp:trial:groundtruth:apply",
     "npm run instacomp:trial:groundtruth",
     "npm run instacomp:trial:ready",
     "npm run status:instacomp-final-tester",
@@ -421,6 +423,12 @@ const checklist = [
     status: trialManifestAudit.readyToScore ? "ready_to_score" : "needs_groundtruth",
   },
   {
+    key: "trial_groundtruth_sheet",
+    label:
+      "The local ground-truth worksheet can export the 100-card manifest to an ignored TSV, let the operator fill the answer key in a spreadsheet, and apply it back to the manifest before the audit.",
+    status: "ready_to_test",
+  },
+  {
     key: "trial_image_audit",
     label:
       "The pre-scan image audit can catch missing fronts/backs, duplicate images, unknown filenames, and extra files before the 100-card lot burns scanner time.",
@@ -502,6 +510,8 @@ const readiness = {
       "Implement InstaComp™ Multi-Scanner Consensus before the final July 16 tester pass.",
     verifyHarness: "npm run verify:instacomp",
     initTrial: "npm run instacomp:trial:init",
+    writeTrialGroundTruthSheet: "npm run instacomp:trial:groundtruth:sheet",
+    applyTrialGroundTruthSheet: "npm run instacomp:trial:groundtruth:apply",
     auditTrialGroundTruth: "npm run instacomp:trial:groundtruth",
     auditTrialImages: "npm run instacomp:trial:audit",
     mapTrialImages: "npm run instacomp:trial:map",
@@ -610,6 +620,8 @@ if (jsonOutput) {
   console.log("Commands:");
   console.log(`- verify harness: ${readiness.commands.verifyHarness}`);
   console.log(`- init trial: ${readiness.commands.initTrial}`);
+  console.log(`- write trial ground truth sheet: ${readiness.commands.writeTrialGroundTruthSheet}`);
+  console.log(`- apply trial ground truth sheet: ${readiness.commands.applyTrialGroundTruthSheet}`);
   console.log(`- audit trial ground truth: ${readiness.commands.auditTrialGroundTruth}`);
   console.log(`- audit trial images: ${readiness.commands.auditTrialImages}`);
   console.log(`- map trial images: ${readiness.commands.mapTrialImages}`);

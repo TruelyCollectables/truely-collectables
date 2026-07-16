@@ -3775,6 +3775,13 @@ rear</code></pre>
 <pre><code>npm run instacomp:trial:init</code></pre>
 <ol>
 <li>Open <code>instacomp-trial-manifest.local.json</code> and fill the <code>expected</code> fields from the physical card before using the scan result. Required ground-truth fields for scoring are player/subject, year, set, and card number. Important recommended fields are brand/manufacturer, parallel, variation, team, sport, autograph/relic/rookie flags, exact serial number such as <code>07/50</code>, and serial run such as <code>/50</code>.</li>
+</ol>
+<p>If editing JSON for 100 cards is too slow, write the local spreadsheet-style answer sheet:</p>
+<pre><code>npm run instacomp:trial:groundtruth:sheet</code></pre>
+<p>That command writes ignored local file <code>instacomp-trial-groundtruth.local.tsv</code> with columns for <code>trialCardId</code>, image paths, player, year, setName, cardNumber, brand, parallel, variation, serial number, team, sport, rookie/autograph/relic flags, and notes. Open it in Numbers, Excel, or Google Sheets, fill the answer key from the physical cards, save it as TSV, then apply it back to the manifest:</p>
+<pre><code>npm run instacomp:trial:groundtruth:apply</code></pre>
+<p>The apply command only updates the local manifest from matching <code>trialCardId</code> rows. It does not scan, deploy, publish listings, buy postage, create Checkout, or touch production APIs.</p>
+<ol>
 <li>Before scanning, audit the ground-truth manifest:</li>
 </ol>
 <pre><code>npm run instacomp:trial:groundtruth</code></pre>
@@ -4767,6 +4774,7 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3000/admin/login</code></pre
 <li>InstaComp title generation suppresses generic <code>Base</code>, strips duplicate player/release/parallel/card-number echoes, treats Upper Deck as manufacturer for O-Pee-Chee Platinum, preserves Upper Deck Series 1/2/Extended as release names, preserves true one-of-one display, and uses serial print runs such as <code>/50</code> instead of exact copy numbers except for <code>1/1</code>.</li>
 <li>Printed variant/parallel identity is guarded so OCR-visible or AI-vision-note-visible Limited Red, Clear Cut, Outliers, Future Watch, Spectrum FX, acetate/clear-stock, insert, color foil, refractor, prizm, holo, wave, shimmer, ice, laser, scope, pulsar, mojo, mosaic, and similar cues cannot stay as generic base. Upper Deck clear-stock cards with centered/ghosted back-logo cues are promoted to <code>Clear Cut</code>; ambiguous printed cues stay in review rather than being overclaimed.</li>
 <li>InstaComp Multi-Scanner Consensus now has adaptive second-reader escalation. High-confidence complete cards stay in the <code>fast_lane</code>; low-confidence, incomplete, front-only, weak-pairing, serial-numbered, uncertain, or printed-variant-signal cards move to <code>escalated_multi_ai</code>, run a second independent AI identity reader, and preserve the escalation reasons in OCR diagnostics.</li>
+<li>The 100-card final tester now has a local ground-truth TSV worksheet flow: <code>npm run instacomp:trial:groundtruth:sheet</code> writes <code>instacomp-trial-groundtruth.local.tsv</code>, the operator can fill the answer key in a spreadsheet, and <code>npm run instacomp:trial:groundtruth:apply</code> applies matching <code>trialCardId</code> rows back to the ignored local manifest before audit/scoring.</li>
 <li>Clear Cut detection now treats clear/acetate stock, Clear Cut text, and matching back-logo evidence as variant signals that can override generic set/base guesses.</li>
 <li>COMC active-price ingestion is removed from the comp equation. COMC, Sportlots, Panini America, Upper Deck, Cardboard Connection, Blowout Cards, TCDB, and similar sources remain reference/checklist context for identity review when usage rights allow.</li>
 <li>External provider failures and dead providers are skipped during batch scans so one failed provider does not stall the entire batch.</li>

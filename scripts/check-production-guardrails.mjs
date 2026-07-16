@@ -1181,6 +1181,7 @@ assertScriptIncludes("verify:instacomp", [
   "simulate:instacomp-accuracy",
   "simulate:instacomp-catalog-identity",
   "simulate:instacomp-identity-guard",
+  "simulate:instacomp-trial-groundtruth-sheet",
   "simulate:instacomp-trial-groundtruth",
   "simulate:instacomp-trial",
 ]);
@@ -1199,6 +1200,12 @@ assertScriptIncludes("simulate:instacomp-trial-groundtruth", [
   "--audit-manifest",
   "--expected-cards 3",
 ]);
+assertScriptIncludes("simulate:instacomp-trial-groundtruth-sheet", [
+  "scripts/run-instacomp-trial-report.mjs",
+  "--write-groundtruth-sheet",
+  "--apply-groundtruth-sheet",
+  "--write-manifest .codex-run/instacomp-trial-groundtruth-applied.local.json",
+]);
 assertScriptIncludes("instacomp:trial:init", [
   "scripts/run-instacomp-trial-report.mjs",
   "--init-manifest instacomp-trial-manifest.local.json",
@@ -1206,6 +1213,14 @@ assertScriptIncludes("instacomp:trial:init", [
 ]);
 assertScriptIncludes("instacomp:trial:report", [
   "scripts/run-instacomp-trial-report.mjs",
+]);
+assertScriptIncludes("instacomp:trial:groundtruth:sheet", [
+  "scripts/run-instacomp-trial-report.mjs",
+  "--write-groundtruth-sheet instacomp-trial-groundtruth.local.tsv",
+]);
+assertScriptIncludes("instacomp:trial:groundtruth:apply", [
+  "scripts/run-instacomp-trial-report.mjs",
+  "--apply-groundtruth-sheet instacomp-trial-groundtruth.local.tsv",
 ]);
 assertScriptIncludes("instacomp:trial:groundtruth", [
   "scripts/run-instacomp-trial-report.mjs",
@@ -3714,20 +3729,33 @@ assertFileIncludes("instacomp trial image audit source", "scripts/run-instacomp-
 ]);
 assertFileIncludes("instacomp trial ground-truth manifest audit source", "scripts/run-instacomp-trial-report.mjs", [
   "tcos.instacompTrialManifestAudit.v1",
+  "tcos.instacompTrialGroundTruthSheet.v1",
+  "tcos.instacompTrialGroundTruthSheetApply.v1",
   "auditTrialManifest",
   "auditManifestGroundTruth",
+  "writeGroundTruthSheet",
+  "applyGroundTruthSheet",
+  "parseGroundTruthSheet",
+  "groundTruthSheetColumns",
   "--audit-manifest",
+  "--write-groundtruth-sheet",
+  "--apply-groundtruth-sheet",
+  "--write-manifest",
   "manifestCoreFields",
   "missingCoreFields",
   "readyToScore",
   "player/year/set/card-number",
 ]);
 assertFileIncludes("instacomp trial ground-truth manifest audit manual", "docs/TCOS_OPERATOR_MANUAL.md", [
+  "npm run instacomp:trial:groundtruth:sheet",
+  "instacomp-trial-groundtruth.local.tsv",
+  "npm run instacomp:trial:groundtruth:apply",
   "npm run instacomp:trial:groundtruth",
   "tcos.instacompTrialManifestAudit.v1",
   "player/year/set/card number",
   "fake `94%` pass",
   "ground-truth manifest audit",
+  "spreadsheet-style answer sheet",
 ]);
 assertFileIncludes("instacomp trial image audit manual", "docs/TCOS_OPERATOR_MANUAL.md", [
   "npm run instacomp:trial:audit",
@@ -3771,8 +3799,11 @@ assertFileIncludes("instacomp final tester status includes speed-gate HUD", "scr
 ]);
 assertFileIncludes("instacomp final tester status includes trial image audit", "scripts/status-instacomp-final-tester.mjs", [
   "trial_groundtruth_manifest",
+  "trial_groundtruth_sheet",
   "trial_image_audit",
   "trial_image_map",
+  "writeTrialGroundTruthSheet",
+  "applyTrialGroundTruthSheet",
   "auditTrialGroundTruth",
   "auditTrialImages",
   "mapTrialImages",
@@ -3793,6 +3824,8 @@ assertFileIncludes("instacomp final tester status includes trial image audit", "
   "accepted trial image patterns:",
   "accepted trial side words:",
   "after copying images:",
+  "npm run instacomp:trial:groundtruth:sheet",
+  "npm run instacomp:trial:groundtruth:apply",
   "npm run instacomp:trial:ready",
   "npm run instacomp:trial:score",
   "FAF speed gate",

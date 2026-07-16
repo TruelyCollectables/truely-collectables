@@ -38,6 +38,43 @@ const identityFields = [
 ];
 const manifestCoreFields = ["player", "year", "setName", "cardNumber"];
 const manifestRecommendedFields = ["brand", "parallel", "team", "sport"];
+const groundTruthSheetColumns = [
+  "trialCardId",
+  "frontImage",
+  "backImage",
+  "player",
+  "year",
+  "setName",
+  "cardNumber",
+  "brand",
+  "parallel",
+  "variation",
+  "serialNumber",
+  "serialRun",
+  "team",
+  "sport",
+  "isRookie",
+  "isAuto",
+  "isRelic",
+  "notes",
+];
+const groundTruthExpectedFields = [
+  "player",
+  "year",
+  "setName",
+  "cardNumber",
+  "brand",
+  "parallel",
+  "variation",
+  "serialNumber",
+  "serialRun",
+  "team",
+  "sport",
+  "isRookie",
+  "isAuto",
+  "isRelic",
+];
+const groundTruthBooleanFields = new Set(["isRookie", "isAuto", "isRelic"]);
 
 const args = process.argv.slice(2);
 
@@ -73,6 +110,10 @@ function usage() {
     "Audit the local ground-truth manifest before scanning/scoring:",
     "  node scripts/run-instacomp-trial-report.mjs --manifest instacomp-trial-manifest.local.json --audit-manifest --expected-cards 100",
     "",
+    "Write/apply a local spreadsheet-style ground-truth worksheet:",
+    "  node scripts/run-instacomp-trial-report.mjs --manifest instacomp-trial-manifest.local.json --write-groundtruth-sheet instacomp-trial-groundtruth.local.tsv",
+    "  node scripts/run-instacomp-trial-report.mjs --manifest instacomp-trial-manifest.local.json --apply-groundtruth-sheet instacomp-trial-groundtruth.local.tsv",
+    "",
     "Useful flags:",
     "  --target <percent>",
     "                   required accuracy percentage, defaults to 94",
@@ -86,6 +127,12 @@ function usage() {
     "                   audit a local front/back trial image folder before scanning",
     "  --audit-manifest",
     "                   audit expected player/year/set/card-number ground truth before scanning or scoring",
+    "  --write-groundtruth-sheet <path>",
+    "                   write a local TSV answer-key worksheet from the manifest",
+    "  --apply-groundtruth-sheet <path>",
+    "                   apply an edited local TSV answer-key worksheet back to the manifest",
+    "  --write-manifest <path>",
+    "                   with --apply-groundtruth-sheet, write the updated manifest to a different path",
     "  --expected-cards <count>",
     "                   expected card count for --audit-images when manifest target is absent",
     "  --write-image-map <path>",
@@ -250,6 +297,284 @@ function validateResultsShape(results) {
 
 function readExpectedFields(card) {
   return card?.expected || {};
+}
+
+function tsvCell(value) {
+  if (typeof value === "boolean") return value ? "TRUE" : "FALSE";
+  return String(value ?? "")
+    .replace(/\t/g, " ")
+    .replace(/\r?\n/g, " ")
+    .trim();
+}
+
+function groundTruthSheetRow(card) {
+  const expected = readExpectedFields(card);
+
+  return {
+    trialCardId: card.trialCardId || "",
+    frontImage: card.frontImage || "",
+    backImage: card.backImage || "",
+    player: expected.player || "",
+    year: expected.year || "",
+    setName: expected.setName || "",
+    cardNumber: expected.cardNumber || "",
+    brand: expected.brand || "",
+    parallel: expected.parallel || "",
+    variation: expected.variation || "",
+    serialNumber: expected.serialNumber || "",
+    serialRun: expected.serialRun || "",
+    team: expected.team || "",
+    sport: expected.sport || "",
+    isRookie: Boolean(expected.isRookie),
+    isAuto: Boolean(expected.isAuto),
+    isRelic: Boolean(expected.isRelic),
+    notes: card.notes || "",
+  };
+}
+
+function buildGroundTruthSheetText(manifest) {
+  const rows = [
+    groundTruthSheetColumns.join("\t"),
+    ...manifest.cards.map((card) => {
+      const row = groundTruthSheetRow(card);
+      return groundTruthSheetColumns.map((column) => tsvCell(row[column])).join("\t");
+    }),
+  ];
+
+  return `${rows.join("\n")}\n`;
+}
+
+function parseBooleanSheetCell(value, fallback = false) {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (!normalized) return fallback;
+  if (["true", "yes", "y", "1", "x"].includes(normalized)) return true;
+  if (["false", "no", "n", "0"].includes(normalized)) return false;
+  return fallback;
+}
+
+function parseGroundTruthSheet(text) {
+  const lines = String(text || "")
+    .split(/\r?\n/)
+    .filter((line) => line.trim().length > 0);
+  if (lines.length === 0) throw new Error("Ground-truth sheet is empty.");
+
+  const headers = lines[0].split("\t").map((header) => header.trim());
+  const missingRequiredHeaders = ["trialCardId", ...groundTruthExpectedFields].filter(
+    (field) => !headers.includes(field),
+  );
+  if (missingRequiredHeaders.length > 0) {
+    throw new Error(
+      `Ground-truth sheet is missing required column(s): ${missingRequiredHeaders.join(", ")}`,
+    );
+  }
+
+  return lines.slice(1).map((line, index) => {
+    const cells = line.split("\t");
+    const row = { rowNumber: index + 2 };
+    for (const [headerIndex, header] of headers.entries()) {
+      row[header] = cells[headerIndex] ?? "";
+    }
+    return row;
+  });
+}
+
+function applyGroundTruthRowsToManifest(manifest, rows) {
+  validateManifestShape(manifest);
+  const rowsById = new Map();
+  const duplicateTrialCardIds = [];
+
+  for (const row of rows) {
+    const trialCardId = String(row.trialCardId || "").trim();
+    if (!trialCardId) continue;
+    if (rowsById.has(trialCardId)) {
+      duplicateTrialCardIds.push({
+        trialCardId,
+        firstRow: rowsById.get(trialCardId).rowNumber,
+        duplicateRow: row.rowNumber,
+      });
+      continue;
+    }
+    rowsById.set(trialCardId, row);
+  }
+
+  const missingRows = [];
+  let updatedRows = 0;
+  let changedFields = 0;
+  const cards = manifest.cards.map((card, index) => {
+    const trialCardId = String(card.trialCardId || `trial-card-${padTrialNumber(index + 1)}`);
+    const row = rowsById.get(trialCardId);
+    if (!row) {
+      missingRows.push(trialCardId);
+      return card;
+    }
+
+    const nextExpected = {
+      ...(card.expected || {}),
+    };
+
+    for (const field of groundTruthExpectedFields) {
+      const previous = nextExpected[field];
+      const nextValue = groundTruthBooleanFields.has(field)
+        ? parseBooleanSheetCell(row[field], Boolean(previous))
+        : String(row[field] ?? "").trim();
+      if (previous !== nextValue) {
+        nextExpected[field] = nextValue;
+        changedFields += 1;
+      }
+    }
+
+    const nextNotes = String(row.notes ?? "").trim();
+    const notesChanged = (card.notes || "") !== nextNotes;
+    if (notesChanged) changedFields += 1;
+    updatedRows += 1;
+
+    return {
+      ...card,
+      expected: nextExpected,
+      notes: nextNotes,
+    };
+  });
+
+  const manifestTrialCardIds = new Set(
+    manifest.cards.map((card, index) =>
+      String(card.trialCardId || `trial-card-${padTrialNumber(index + 1)}`),
+    ),
+  );
+  const extraRows = [...rowsById.keys()].filter((trialCardId) => !manifestTrialCardIds.has(trialCardId));
+
+  return {
+    updatedManifest: {
+      ...manifest,
+      cards,
+    },
+    report: {
+      schema: "tcos.instacompTrialGroundTruthSheetApply.v1",
+      generatedAt: new Date().toISOString(),
+      sideEffectBoundary:
+        "Local manifest update only. Does not publish listings, buy postage, create Checkout, deploy, scan cards, call production APIs, approve live money, or mutate images.",
+      observed: {
+        sheetRows: rows.length,
+        manifestRows: manifest.cards.length,
+        updatedRows,
+        changedFields,
+      },
+      problems: {
+        duplicateTrialCardIds,
+        missingRows,
+        extraRows,
+      },
+      ok:
+        duplicateTrialCardIds.length === 0 &&
+        missingRows.length === 0 &&
+        extraRows.length === 0,
+    },
+  };
+}
+
+async function writeGroundTruthSheet() {
+  const output = getFlagValue("--write-groundtruth-sheet");
+  if (!output) return false;
+
+  const manifestInput = getFlagValue("--manifest");
+  if (!manifestInput) {
+    console.error("Missing --manifest path for --write-groundtruth-sheet.\n\n" + usage());
+    process.exitCode = 1;
+    return true;
+  }
+
+  try {
+    const { resolved: manifestPath, data: manifest } = await readJsonFile(
+      manifestInput,
+      "manifest",
+    );
+    validateManifestShape(manifest);
+    const resolvedOutput = path.resolve(output);
+    await mkdir(path.dirname(resolvedOutput), { recursive: true });
+    await writeFile(resolvedOutput, buildGroundTruthSheetText(manifest));
+
+    const report = {
+      schema: "tcos.instacompTrialGroundTruthSheet.v1",
+      generatedAt: new Date().toISOString(),
+      sideEffectBoundary:
+        "Local worksheet export only. Does not publish listings, buy postage, create Checkout, deploy, scan cards, call production APIs, approve live money, mutate manifest data, or mutate images.",
+      manifestPath,
+      sheetPath: resolvedOutput,
+      columns: groundTruthSheetColumns,
+      rows: manifest.cards.length,
+      next:
+        "Open the TSV in a spreadsheet, fill player/year/setName/cardNumber plus recommended fields, save it, then run npm run instacomp:trial:groundtruth:apply.",
+    };
+
+    if (hasFlag("--json")) {
+      console.log(JSON.stringify(report, null, 2));
+    } else {
+      console.log("InstaComp trial ground-truth worksheet written:");
+      console.log(`- sheet: ${report.sheetPath}`);
+      console.log(`- manifest: ${report.manifestPath}`);
+      console.log(`- rows: ${report.rows}`);
+      console.log(`- columns: ${report.columns.join(", ")}`);
+      console.log(`Next: ${report.next}`);
+    }
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  }
+
+  return true;
+}
+
+async function applyGroundTruthSheet() {
+  const sheetInput = getFlagValue("--apply-groundtruth-sheet");
+  if (!sheetInput) return false;
+
+  const manifestInput = getFlagValue("--manifest");
+  if (!manifestInput) {
+    console.error("Missing --manifest path for --apply-groundtruth-sheet.\n\n" + usage());
+    process.exitCode = 1;
+    return true;
+  }
+
+  try {
+    const { resolved: manifestPath, data: manifest } = await readJsonFile(
+      manifestInput,
+      "manifest",
+    );
+    const resolvedSheetPath = path.resolve(sheetInput);
+    const sheetText = await readFile(resolvedSheetPath, "utf8");
+    const rows = parseGroundTruthSheet(sheetText);
+    const { updatedManifest, report } = applyGroundTruthRowsToManifest(manifest, rows);
+    const manifestOutput = path.resolve(getFlagValue("--write-manifest", manifestPath));
+
+    await mkdir(path.dirname(manifestOutput), { recursive: true });
+    await writeFile(manifestOutput, `${JSON.stringify(updatedManifest, null, 2)}\n`);
+    report.manifestPath = manifestPath;
+    report.sheetPath = resolvedSheetPath;
+    report.writtenManifestPath = manifestOutput;
+    report.next = report.ok
+      ? "Run npm run instacomp:trial:groundtruth to audit the updated manifest."
+      : "Fix duplicate, missing, or extra trialCardId rows in the worksheet, then re-apply it.";
+
+    if (hasFlag("--json")) {
+      console.log(JSON.stringify(report, null, 2));
+    } else {
+      console.log("InstaComp trial ground-truth worksheet applied:");
+      console.log(`- sheet: ${report.sheetPath}`);
+      console.log(`- written manifest: ${report.writtenManifestPath}`);
+      console.log(`- updated rows: ${report.observed.updatedRows}/${report.observed.manifestRows}`);
+      console.log(`- changed fields: ${report.observed.changedFields}`);
+      console.log(`- duplicate trialCardIds: ${report.problems.duplicateTrialCardIds.length}`);
+      console.log(`- missing manifest rows in sheet: ${report.problems.missingRows.length}`);
+      console.log(`- extra sheet rows: ${report.problems.extraRows.length}`);
+      console.log(`Next: ${report.next}`);
+    }
+
+    if (!report.ok) process.exitCode = 1;
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  }
+
+  return true;
 }
 
 function countKnownFields(expected, fields) {
@@ -1463,6 +1788,10 @@ function printTextReport(report) {
 
 if (await writeManifestTemplate()) {
   // Template mode already handled the command.
+} else if (await writeGroundTruthSheet()) {
+  // Ground-truth worksheet export mode already handled the command.
+} else if (await applyGroundTruthSheet()) {
+  // Ground-truth worksheet import mode already handled the command.
 } else if (await auditTrialManifest()) {
   // Manifest-audit mode already handled the command.
 } else if (await auditTrialImages()) {
