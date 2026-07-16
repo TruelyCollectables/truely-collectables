@@ -83,6 +83,12 @@ const checklist = [
     status: "ready_to_test",
   },
   {
+    key: "trial_failure_report",
+    label:
+      "The 94% scorekeeper can write tcos.instacompTrialFailureReport.v1 JSON with missing rows, mismatched fields, consensus-review blockers, and suggested fix actions.",
+    status: "ready_to_test",
+  },
+  {
     key: "hundred_card_trial",
     label:
       "100-card / 200-scan final trial must score at least 94% against the local ground-truth manifest.",
@@ -129,6 +135,7 @@ const readiness = {
     initTrial: "npm run instacomp:trial:init",
     scoreTrial:
       "npm run instacomp:trial:report -- --manifest instacomp-trial-manifest.local.json --results instacomp-trial-results.local.json --target 94",
+    scoreTrialFailures: "npm run instacomp:trial:failures",
     fullLocalSafety:
       "npm run lint && npm run verify:instacomp && npm run build && npm run check:production-guardrails",
   },
@@ -163,6 +170,7 @@ if (jsonOutput) {
   console.log(`- verify harness: ${readiness.commands.verifyHarness}`);
   console.log(`- init trial: ${readiness.commands.initTrial}`);
   console.log(`- score trial: ${readiness.commands.scoreTrial}`);
+  console.log(`- score + write failure report: ${readiness.commands.scoreTrialFailures}`);
   console.log(`- full local safety: ${readiness.commands.fullLocalSafety}`);
   console.log("");
   console.log(`Next: ${readiness.next}`);

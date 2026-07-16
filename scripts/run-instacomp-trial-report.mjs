@@ -47,6 +47,8 @@ function usage() {
     "Useful flags:",
     "  --json            print machine-readable JSON only",
     "  --require-files   fail when manifest image paths do not exist locally",
+    "  --write-failure-report <path>",
+    "                   write a durable JSON fix queue for mismatches, missing rows, and consensus-review cards",
   ].join("\n");
 }
 
@@ -431,6 +433,83 @@ function summarizeScores(manifest, manifestPath, results, targetAccuracyPercent)
   return report;
 }
 
+function issueTypeForFailure(failure) {
+  if (!failure.hasResult) return "missing_result";
+  if (failure.consensusReviewRequired && failure.mismatches.length > 0) {
+    return "consensus_review_and_field_mismatch";
+  }
+  if (failure.consensusReviewRequired) return "consensus_review_required";
+  return "field_mismatch";
+}
+
+function suggestedActionForFailure(failure) {
+  if (!failure.hasResult) {
+    return "Re-run or re-export this trial card so the results file includes the row.";
+  }
+  if (failure.consensusReviewRequired) {
+    return "Resolve the multi-scanner consensus review with checklist/catalog evidence or operator correction, then re-export trial results.";
+  }
+
+  return "Correct the scanner identity or ground-truth manifest field, then rerun the trial report.";
+}
+
+function buildFailureReport(report) {
+  const failures = report.failures.map((failure) => ({
+    ...failure,
+    issueType: issueTypeForFailure(failure),
+    suggestedAction: suggestedActionForFailure(failure),
+    mismatchFields: failure.mismatches.map((item) => item.field),
+  }));
+
+  return {
+    schema: "tcos.instacompTrialFailureReport.v1",
+    generatedAt: new Date().toISOString(),
+    sourceReportSchema: report.schema,
+    trialName: report.trialName,
+    targetMet: report.targetMet,
+    sideEffectBoundary:
+      "Read-only failure report. Does not publish listings, buy postage, create Checkout, deploy, or call production APIs.",
+    summary: {
+      targetAccuracyPercent: report.target.targetAccuracyPercent,
+      totalFailures: failures.length,
+      missingResults: failures.filter((failure) => failure.issueType === "missing_result").length,
+      consensusReviewRequired: failures.filter((failure) => failure.consensusReviewRequired).length,
+      fieldMismatchCards: failures.filter((failure) => failure.mismatches.length > 0).length,
+      combinedIdentityAndSerialPercent:
+        report.accuracy.combinedIdentityAndSerial.percent,
+      identityExactPercent: report.accuracy.identityExact.percent,
+      serialNumberExactPercent: report.accuracy.serialNumberExact.percent,
+    },
+    warnings: report.warnings,
+    observed: {
+      missingResultIds: report.observed.missingResultIds,
+      consensusReviewIds: report.observed.consensusReviewIds,
+      missingImages: report.observed.missingImages,
+    },
+    failures,
+    next:
+      failures.length > 0
+        ? "Fix these rows, re-export instacomp-trial-results.local.json from /admin/instacomp, then rerun npm run instacomp:trial:report with this failure report path."
+        : "No failure rows were found; if targetMet is true, archive this passing trial evidence before calling the tester done-done.",
+  };
+}
+
+async function writeFailureReport(filePath, report) {
+  if (!filePath) return null;
+
+  const resolved = path.resolve(filePath);
+  const payload = buildFailureReport(report);
+
+  await mkdir(path.dirname(resolved), { recursive: true });
+  await writeFile(resolved, `${JSON.stringify(payload, null, 2)}\n`);
+
+  return {
+    path: resolved,
+    failureCount: payload.summary.totalFailures,
+    consensusReviewRequired: payload.summary.consensusReviewRequired,
+  };
+}
+
 function printTextReport(report) {
   console.log(`InstaComp trial report: ${report.trialName}`);
   console.log(`Cards: ${report.observed.cards}/${report.target.targetCards}`);
@@ -517,15 +596,28 @@ if (await writeManifestTemplate()) {
         results,
         Number.isFinite(targetAccuracyPercent) ? targetAccuracyPercent : DEFAULT_TARGET_ACCURACY
       );
+      const failureReportInput =
+        getFlagValue("--write-failure-report") || getFlagValue("--failure-report");
 
       if (hasFlag("--require-files") && report.observed.missingImages.length > 0) {
         report.targetMet = false;
       }
 
+      const failureReportResult = await writeFailureReport(failureReportInput, report);
+
       if (hasFlag("--json")) {
         console.log(JSON.stringify(report, null, 2));
       } else {
         printTextReport(report);
+        if (failureReportResult) {
+          console.log("");
+          console.log("Failure report:");
+          console.log(`- path: ${failureReportResult.path}`);
+          console.log(`- failure rows: ${failureReportResult.failureCount}`);
+          console.log(
+            `- consensus review rows: ${failureReportResult.consensusReviewRequired}`
+          );
+        }
       }
 
       if (!report.targetMet) process.exitCode = 1;

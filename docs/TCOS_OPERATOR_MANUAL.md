@@ -3931,6 +3931,14 @@ npm run instacomp:trial:init
 npm run instacomp:trial:report -- --manifest instacomp-trial-manifest.local.json --results instacomp-trial-results.local.json --target 94
 ```
 
+To save the miss list as a durable fix queue, run:
+
+```bash
+npm run instacomp:trial:failures
+```
+
+That command writes `instacomp-trial-failures.local.json` with schema `tcos.instacompTrialFailureReport.v1`. The file includes missing result rows, mismatched fields, multi-scanner consensus-review rows, suggested actions, and the read-only no-money/no-postage/no-deploy side-effect boundary.
+
 The report prints:
 
 - card count and declared scan count
@@ -3942,6 +3950,7 @@ The report prints:
 - combined identity-and-serial accuracy
 - any cards still blocked by multi-scanner consensus review
 - the exact trial card IDs and fields that missed
+- the optional failure-report path, failure-row count, and consensus-review-row count when `--write-failure-report` is used
 
 The trial is considered a 94% pass only when combined identity-and-serial accuracy is at least `94%`, card-identity exact accuracy is at least `94%`, exact serial-number accuracy is at least `94%` when serial-numbered cards are present, no manifest row is missing a result, and no card still has `review_required` from InstaComp™ Multi-Scanner Consensus. Critical player, set, card-number, year, and serial-number disagreements must be resolved by checklist/catalog evidence or operator review before the tester can honestly pass.
 

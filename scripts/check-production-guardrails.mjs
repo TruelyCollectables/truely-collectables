@@ -1198,6 +1198,10 @@ assertScriptIncludes("instacomp:trial:init", [
 assertScriptIncludes("instacomp:trial:report", [
   "scripts/run-instacomp-trial-report.mjs",
 ]);
+assertScriptIncludes("instacomp:trial:failures", [
+  "scripts/run-instacomp-trial-report.mjs",
+  "--write-failure-report instacomp-trial-failures.local.json",
+]);
 assertScriptIncludes("status:production", [
   "node scripts/deploy-production.mjs --quota-status",
 ]);
@@ -3564,10 +3568,27 @@ assertFileIncludes("instacomp trial results export manual", "docs/TCOS_OPERATOR_
   "tcos.instacompTrialResults.v1",
   "row-stable trialCardId",
 ]);
+assertFileIncludes("instacomp trial failure report source", "scripts/run-instacomp-trial-report.mjs", [
+  "tcos.instacompTrialFailureReport.v1",
+  "--write-failure-report",
+  "consensus_review_required",
+  "suggestedAction",
+]);
+assertFileIncludes("instacomp trial failure report manual", "docs/TCOS_OPERATOR_MANUAL.md", [
+  "npm run instacomp:trial:failures",
+  "instacomp-trial-failures.local.json",
+  "tcos.instacompTrialFailureReport.v1",
+  "missing result rows, mismatched fields, multi-scanner consensus-review rows",
+]);
 assertFileIncludes("instacomp final tester status includes trial export", "scripts/status-instacomp-final-tester.mjs", [
   "trial_results_export",
   "tcos.instacompTrialResults.v1 JSON",
   "row-stable trialCardId",
+]);
+assertFileIncludes("instacomp final tester status includes trial failure report", "scripts/status-instacomp-final-tester.mjs", [
+  "trial_failure_report",
+  "tcos.instacompTrialFailureReport.v1 JSON",
+  "scoreTrialFailures",
 ]);
 assertFileIncludes("instacomp catalog identity resolver source", "src/lib/instacomp-catalog-identity.ts", [
   "InstaCompCatalogIdentityInput",
