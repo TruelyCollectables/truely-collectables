@@ -710,7 +710,7 @@ const checklist = [
   {
     key: "trial_answer_key_html",
     label:
-      "The local visual answer-key HTML sheet can show trial front/back thumbnails next to TSV identity fields so the 100-card answer key can be filled faster and with fewer row mistakes.",
+      "The local visual answer-key HTML sheet can show trial front/back thumbnails next to editable TSV identity fields, then copy or download the updated TSV so the 100-card answer key can be filled faster and with fewer row mistakes.",
     status: trialAnswerKeyHtml.matchesCurrentWorksheet
       ? trialManifestAudit.readyToScore
         ? "ready_to_score"

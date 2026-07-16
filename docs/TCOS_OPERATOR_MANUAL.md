@@ -3984,7 +3984,7 @@ For faster visual filling, write the local answer-key HTML review sheet:
 npm run instacomp:trial:answer-key-html
 ```
 
-That command writes ignored local file `instacomp-trial-answer-key.local.html` with front/back thumbnails, current TSV identity fields, missing-field status, and the exact apply/recheck commands. It is a local guide only: it does not scan cards, deploy, publish listings, buy postage, create Checkout, call production APIs, approve live money, release payouts, mutate images, or apply worksheet values.
+That command writes ignored local file `instacomp-trial-answer-key.local.html` with front/back thumbnails, editable current TSV identity fields, missing-field status, and the exact apply/recheck commands. Use `Copy updated TSV` or `Download updated TSV` after editing, save the result over `instacomp-trial-groundtruth.local.tsv`, then run `npm run instacomp:trial:groundtruth:apply`. It is a local guide only: it does not scan cards, deploy, publish listings, buy postage, create Checkout, call production APIs, approve live money, release payouts, mutate images, write the TSV automatically, or apply worksheet values.
 
 ```bash
 npm run instacomp:trial:groundtruth:apply

@@ -217,6 +217,12 @@ function buildHtml(report) {
     main { padding: 18px 22px 60px; }
     .commands { background: #111827; color: #f9fafb; border-radius: 12px; padding: 14px 16px; margin: 16px 0; font-weight: 800; }
     code { background: rgba(255,255,255,0.12); padding: 2px 5px; border-radius: 5px; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; background: #fff; border: 1px solid #ddd0c4; border-radius: 12px; padding: 12px; margin: 0 0 16px; }
+    button { border: 2px solid #174c2a; background: #166534; color: #fff; border-radius: 10px; padding: 10px 14px; font-size: 14px; font-weight: 900; cursor: pointer; }
+    button.secondary { border-color: #1d4ed8; background: #2563eb; }
+    button:focus, input:focus { outline: 3px solid #f59e0b; outline-offset: 2px; }
+    #tsvOutput { position: absolute; left: -9999px; width: 1px; height: 1px; }
+    #copyStatus { font-size: 13px; font-weight: 900; color: #166534; }
     table { width: 100%; border-collapse: collapse; background: white; border: 1px solid #ddd0c4; }
     th, td { border-bottom: 1px solid #eadfd5; padding: 9px; vertical-align: top; text-align: left; }
     th { position: sticky; top: 98px; background: #fff7ed; z-index: 4; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
@@ -231,7 +237,8 @@ function buildHtml(report) {
     .id { font-weight: 900; }
     .fields { display: grid; grid-template-columns: repeat(2, minmax(130px, 1fr)); gap: 6px 12px; min-width: 320px; }
     .field label { display: block; color: #6b7280; font-size: 11px; font-weight: 900; text-transform: uppercase; }
-    .field div { font-weight: 800; }
+    .field input { width: 100%; box-sizing: border-box; border: 1px solid #d6ccc2; border-radius: 8px; padding: 7px; font-size: 13px; font-weight: 800; background: #fff; }
+    .field input.required-missing { border-color: #dc2626; background: #fff1f2; }
     .status { font-weight: 900; }
     .small { font-size: 12px; color: #666; line-height: 1.4; }
     @media print {
@@ -260,6 +267,12 @@ function buildHtml(report) {
       &nbsp;→ Recheck: <code>npm run instacomp:trial:intake</code>
       &nbsp;→ Scan: <code>http://localhost:3000/admin/instacomp</code>
     </div>
+    <div class="toolbar">
+      <button type="button" id="copyTsv">Copy updated TSV</button>
+      <button type="button" id="downloadTsv" class="secondary">Download updated TSV</button>
+      <span id="copyStatus">Edit fields below, then copy/download and save as ${escapeHtml(report.worksheet.relativePath || "instacomp-trial-groundtruth.local.tsv")}.</span>
+      <textarea id="tsvOutput" aria-hidden="true"></textarea>
+    </div>
     <table>
       <thead>
         <tr>
@@ -273,21 +286,25 @@ function buildHtml(report) {
       <tbody>
         ${rows
           .map(
-            (row, index) => `<tr class="${statusClass(row)}">
-          <td><div class="id">#${index + 1}<br>${escapeHtml(row.trialCardId)}</div><div class="small">TSV row ${escapeHtml(row.rowNumber)}</div></td>
+            (row, index) => `<tr class="${statusClass(row)}" data-front-exists="${row.front.exists ? "true" : "false"}" data-back-exists="${row.back.exists ? "true" : "false"}">
+          <td><div class="id">#${index + 1}<br>${escapeHtml(row.trialCardId)}</div><div class="small">TSV row ${escapeHtml(row.rowNumber)}</div>
+            <input type="hidden" data-column="trialCardId" value="${escapeHtml(row.trialCardId)}" />
+            <input type="hidden" data-column="frontImage" value="${escapeHtml(row.frontImage)}" />
+            <input type="hidden" data-column="backImage" value="${escapeHtml(row.backImage)}" />
+          </td>
           <td><div class="thumbs">
             <figure>${row.front.exists ? `<img src="${escapeHtml(row.front.src)}" alt="${escapeHtml(row.trialCardId)} front" />` : `<div class="missing-img">Missing<br>front</div>`}<figcaption>Front</figcaption></figure>
             <figure>${row.back.exists ? `<img src="${escapeHtml(row.back.src)}" alt="${escapeHtml(row.trialCardId)} back" />` : `<div class="missing-img">Missing<br>back</div>`}<figcaption>Back</figcaption></figure>
           </div><div class="small">${escapeHtml(row.frontImage)}<br>${escapeHtml(row.backImage)}</div></td>
           <td><div class="fields">
-            ${["player", "year", "setName", "cardNumber", "brand", "parallel", "serialNumber", "serialRun", "team", "sport", "isRookie", "isAuto", "isRelic"]
+            ${["player", "year", "setName", "cardNumber", "brand", "parallel", "variation", "serialNumber", "serialRun", "team", "sport", "isRookie", "isAuto", "isRelic", "notes"]
               .map(
                 (field) =>
-                  `<div class="field"><label>${escapeHtml(field)}</label><div>${escapeHtml(row[field] || "—")}</div></div>`,
+                  `<div class="field"><label>${escapeHtml(field)}</label><input data-column="${escapeHtml(field)}" value="${escapeHtml(row[field] || "")}" placeholder="${escapeHtml(requiredCoreFields.includes(field) ? "required" : "optional")}" /></div>`,
               )
               .join("")}
           </div></td>
-          <td class="status">${
+          <td class="status" data-status-cell>${
             row.ready
               ? row.front.exists && row.back.exists
                 ? "Ready"
@@ -301,6 +318,114 @@ function buildHtml(report) {
       </tbody>
     </table>
   </main>
+  <script>
+    const tcosColumns = ${JSON.stringify(defaultColumns)};
+    const tcosRequiredColumns = ${JSON.stringify(requiredCoreFields)};
+    const outputFilename = ${JSON.stringify(path.basename(report.worksheet.relativePath || "instacomp-trial-groundtruth.local.tsv"))};
+
+    function cleanTsvCell(value) {
+      return String(value || "").replace(/\\t/g, " ").replace(/\\r?\\n/g, " ").trim();
+    }
+
+    function rowValue(row, column) {
+      const input = row.querySelector('[data-column="' + column + '"]');
+      return cleanTsvCell(input ? input.value : "");
+    }
+
+    function buildUpdatedTsv() {
+      const lines = [tcosColumns.join("\\t")];
+      for (const row of document.querySelectorAll("tbody tr")) {
+        lines.push(tcosColumns.map((column) => rowValue(row, column)).join("\\t"));
+      }
+      return lines.join("\\n") + "\\n";
+    }
+
+    function updateRowStatus(row) {
+      const missing = tcosRequiredColumns.filter((column) => !rowValue(row, column));
+      for (const column of tcosRequiredColumns) {
+        const input = row.querySelector('[data-column="' + column + '"]');
+        if (input) input.classList.toggle("required-missing", !rowValue(row, column));
+      }
+      const statusCell = row.querySelector("[data-status-cell]");
+      const hasFront = row.dataset.frontExists === "true";
+      const hasBack = row.dataset.backExists === "true";
+      row.classList.remove("ready", "answer-ready", "missing");
+      if (missing.length === 0 && hasFront && hasBack) {
+        row.classList.add("ready");
+        if (statusCell) statusCell.textContent = "Ready";
+      } else if (missing.length === 0) {
+        row.classList.add("answer-ready");
+        if (statusCell) statusCell.textContent = "Answer ready; photos missing";
+      } else {
+        row.classList.add("missing");
+        if (statusCell) statusCell.textContent = "Missing " + missing.join(", ");
+      }
+    }
+
+    function updateSummary() {
+      const rows = [...document.querySelectorAll("tbody tr")];
+      const readyRows = rows.filter((row) =>
+        tcosRequiredColumns.every((column) => Boolean(rowValue(row, column))),
+      ).length;
+      const pill = document.querySelector(".summary .pill");
+      if (pill) {
+        pill.textContent = "Answer key " + readyRows + "/" + rows.length;
+        pill.classList.toggle("ok", readyRows === rows.length);
+        pill.classList.toggle("bad", readyRows !== rows.length);
+      }
+    }
+
+    async function copyUpdatedTsv() {
+      const tsv = buildUpdatedTsv();
+      const textarea = document.getElementById("tsvOutput");
+      const status = document.getElementById("copyStatus");
+      textarea.value = tsv;
+      textarea.focus();
+      textarea.select();
+      let copied = false;
+      try {
+        if (navigator.clipboard?.writeText) {
+          await navigator.clipboard.writeText(tsv);
+          copied = true;
+        }
+      } catch {
+        copied = false;
+      }
+      if (!copied) copied = document.execCommand("copy");
+      if (status) {
+        status.textContent = copied
+          ? "Updated TSV copied. Paste/save it over " + outputFilename + ", then run npm run instacomp:trial:groundtruth:apply."
+          : "Copy fallback selected the hidden TSV text. Press Command+C, save it over " + outputFilename + ", then apply.";
+      }
+    }
+
+    function downloadUpdatedTsv() {
+      const tsv = buildUpdatedTsv();
+      const blob = new Blob([tsv], { type: "text/tab-separated-values;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = outputFilename;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      URL.revokeObjectURL(url);
+      const status = document.getElementById("copyStatus");
+      if (status) status.textContent = "Downloaded " + outputFilename + ". Replace the repo TSV with it, then run npm run instacomp:trial:groundtruth:apply.";
+    }
+
+    for (const input of document.querySelectorAll("input[data-column]")) {
+      input.addEventListener("input", () => {
+        const row = input.closest("tr");
+        if (row) updateRowStatus(row);
+        updateSummary();
+      });
+    }
+    for (const row of document.querySelectorAll("tbody tr")) updateRowStatus(row);
+    updateSummary();
+    document.getElementById("copyTsv")?.addEventListener("click", copyUpdatedTsv);
+    document.getElementById("downloadTsv")?.addEventListener("click", downloadUpdatedTsv);
+  </script>
 </body>
 </html>
 `;
