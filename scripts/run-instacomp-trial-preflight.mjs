@@ -214,6 +214,113 @@ function compactImageProblems(imageAudit) {
   };
 }
 
+function buildScanPermit({ readyToScan, blockers, manifestAudit, imageAudit, imageMap, intakePacket }) {
+  const groundTruthRows = manifestAudit?.observed?.readyRows ?? 0;
+  const expectedCards = manifestAudit?.expected?.cards ?? null;
+  const imagePairs = imageAudit?.observed?.completePairs ?? 0;
+  const expectedImagePairs = imageAudit?.expected?.cards ?? expectedCards;
+  const imageFiles = imageAudit?.observed?.parsedImageFiles ?? 0;
+  const expectedImages = imageAudit?.expected?.images ?? null;
+  const requiredBeforeScan = blockers.map((blocker) => ({
+    key: blocker.key,
+    action: blocker.next,
+  }));
+
+  return {
+    status: readyToScan ? "SCAN_PERMIT_GRANTED" : "SCAN_PERMIT_BLOCKED",
+    label: readyToScan ? "Scan permit granted" : "Scan permit blocked",
+    canScan: readyToScan,
+    summary: readyToScan
+      ? "Answer key, front/back image pairs, image-map receipt, and intake packet are current."
+      : "Do not scan this final tester lot yet; preflight still has required setup work.",
+    progress: {
+      answerKeyRows: groundTruthRows,
+      expectedCards,
+      imagePairs,
+      expectedImagePairs,
+      imageFiles,
+      expectedImages,
+      imageMapCurrent: Boolean(imageMap.matchesCurrentAudit),
+      intakePacketCurrent: Boolean(intakePacket.matchesCurrentAudit),
+    },
+    requiredBeforeScan,
+    operatorWarning: readyToScan
+      ? "Scan only this prepared lot, export the results JSON, then run the scorekeeper before claiming done-done."
+      : "Scanning now would waste time and produce untrustworthy score evidence.",
+  };
+}
+
+function buildOperatorNextActions({ manifestAudit, imageAudit, imageMap, intakePacket, readyToScan }) {
+  const actions = [];
+  const groundTruthReady = Boolean(manifestAudit?.readyToScore);
+  const imagesReady = Boolean(imageAudit?.readyToScan);
+  const imageMapCurrent = Boolean(imageMap.matchesCurrentAudit);
+  const intakePacketCurrent = Boolean(intakePacket.matchesCurrentAudit);
+
+  if (!groundTruthReady) {
+    actions.push({
+      key: "fill_answer_key",
+      type: "manual",
+      command: "fill instacomp-trial-groundtruth.local.tsv using instacomp-trial-answer-key.local.html",
+      why: "The 94% scorekeeper is meaningless until all 100 cards have player/year/setName/cardNumber truth.",
+    });
+    actions.push({
+      key: "validate_answer_key",
+      type: "command",
+      command: "npm run instacomp:trial:answer-key:validate",
+      why: "Catch missing rows, duplicate trial IDs, image drift, and required-field gaps before applying the TSV.",
+    });
+    actions.push({
+      key: "apply_answer_key",
+      type: "command",
+      command: "npm run instacomp:trial:groundtruth:apply",
+      why: "Apply the validated answer key back to the local manifest before preflight can grant scan permission.",
+    });
+  }
+
+  if (!imagesReady) {
+    actions.push({
+      key: "load_or_fix_images",
+      type: "manual",
+      command: "copy/fix about 200 front-back scanner images in instacomp-trial-inbox, then run npm run instacomp:trial:intake",
+      why: "The final trial needs complete front/back pairs before scanner time is spent.",
+    });
+  }
+
+  if (imagesReady && (!imageMapCurrent || !intakePacketCurrent)) {
+    actions.push({
+      key: "refresh_receipts",
+      type: "command",
+      command: "npm run instacomp:trial:packet",
+      why: "Refresh the image-map and readable intake packet so proof matches the current image folder.",
+    });
+  }
+
+  if (readyToScan) {
+    actions.push({
+      key: "scan_export_score",
+      type: "operator",
+      command: "scan at http://localhost:3000/admin/instacomp, export JSON, then run npm run instacomp:trial:score",
+      why: "The local preflight is green; the next proof is measured accuracy and FAF speed.",
+    });
+    actions.push({
+      key: "write_failure_queue",
+      type: "command",
+      command: "npm run instacomp:trial:failures",
+      why: "If the score is short of 94% or the FAF timing gate, write the miss queue so fixes are targeted.",
+    });
+  } else {
+    actions.push({
+      key: "rerun_preflight",
+      type: "command",
+      command: "npm run instacomp:trial:preflight",
+      why: "Recheck the scan permit after completing the setup actions above.",
+    });
+  }
+
+  return actions.slice(0, 8);
+}
+
 function buildPreflight() {
   const manifestPath = getFlagValue("--manifest", "instacomp-trial-manifest.local.json");
   const imageDir = getFlagValue("--images", "instacomp-trial-images");
@@ -293,6 +400,21 @@ function buildPreflight() {
   }
 
   const readyToScan = blockers.length === 0;
+  const scanPermit = buildScanPermit({
+    readyToScan,
+    blockers,
+    manifestAudit,
+    imageAudit,
+    imageMap,
+    intakePacket,
+  });
+  const operatorNextActions = buildOperatorNextActions({
+    manifestAudit,
+    imageAudit,
+    imageMap,
+    intakePacket,
+    readyToScan,
+  });
 
   return {
     schema: "tcos.instacompTrialPreflight.v1",
@@ -325,8 +447,11 @@ function buildPreflight() {
     imageMap,
     intakePacket,
     blockers,
+    scanPermit,
+    operatorNextActions,
     commands: {
       writeGroundTruthSheet: "npm run instacomp:trial:groundtruth:sheet",
+      validateGroundTruthSheet: "npm run instacomp:trial:answer-key:validate",
       applyGroundTruthSheet: "npm run instacomp:trial:groundtruth:apply",
       writePacket: "npm run instacomp:trial:packet",
       preflight: "npm run instacomp:trial:preflight",
@@ -345,6 +470,8 @@ function buildPreflight() {
 function printPreflight(report) {
   console.log("TCOS InstaComp final tester preflight:");
   console.log(`- ready to scan: ${report.readyToScan ? "YES" : "NO"}`);
+  console.log(`- scan permit: ${report.scanPermit.status} - ${report.scanPermit.summary}`);
+  console.log(`- scan warning: ${report.scanPermit.operatorWarning}`);
   console.log(`- tester URL: ${report.testerUrl}`);
   console.log(`- manifest: ${report.manifestPath}`);
   console.log(`- image folder: ${report.imageDir}`);
@@ -369,10 +496,19 @@ function printPreflight(report) {
       console.log(`  Next: ${blocker.next}`);
     }
   }
+  if (Array.isArray(report.operatorNextActions) && report.operatorNextActions.length > 0) {
+    console.log("");
+    console.log("Operator next actions:");
+    for (const [index, action] of report.operatorNextActions.entries()) {
+      console.log(`${index + 1}. ${action.command}`);
+      console.log(`   why: ${action.why}`);
+    }
+  }
 
   console.log("");
   console.log("Commands:");
   console.log(`- write answer sheet: ${report.commands.writeGroundTruthSheet}`);
+  console.log(`- validate answer sheet: ${report.commands.validateGroundTruthSheet}`);
   console.log(`- apply answer sheet: ${report.commands.applyGroundTruthSheet}`);
   console.log(`- write packet/receipt: ${report.commands.writePacket}`);
   console.log(`- rerun preflight: ${report.commands.preflight}`);

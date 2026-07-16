@@ -67,6 +67,10 @@ function markdownCell(value) {
 function buildPrepMarkdown(report) {
   const preflight = report.preflight || {};
   const blockers = Array.isArray(preflight.blockers) ? preflight.blockers : [];
+  const scanPermit = preflight.scanPermit || {};
+  const operatorNextActions = Array.isArray(preflight.operatorNextActions)
+    ? preflight.operatorNextActions
+    : [];
 
   return [
     "# TCOS InstaComp Trial Prep Bundle",
@@ -78,6 +82,9 @@ function buildPrepMarkdown(report) {
     "## Status",
     "",
     `- Ready to scan: ${preflight.readyToScan ? "YES" : "NO"}`,
+    `- Scan permit: ${scanPermit.status || "unknown"}`,
+    `- Scan permit summary: ${scanPermit.summary || "unknown"}`,
+    `- Scan warning: ${scanPermit.operatorWarning || "unknown"}`,
     `- Manifest: ${report.paths.manifest}`,
     `- Worksheet: ${report.paths.worksheet}`,
     `- Image folder: ${report.paths.images}`,
@@ -105,11 +112,25 @@ function buildPrepMarkdown(report) {
           "",
         ]
       : ["No preflight blockers detected.", ""]),
+    "## Ordered operator next actions",
+    "",
+    ...(operatorNextActions.length
+      ? [
+          "| # | Action | Why |",
+          "| --- | --- | --- |",
+          ...operatorNextActions.map(
+            (action, index) =>
+              `| ${index + 1} | ${markdownCell(action.command)} | ${markdownCell(action.why)} |`,
+          ),
+          "",
+        ]
+      : ["No operator actions reported by preflight.", ""]),
     "## Next commands",
     "",
     "```bash",
     "npm run instacomp:trial:groundtruth:sheet",
     "# Fill instacomp-trial-groundtruth.local.tsv in a spreadsheet",
+    "npm run instacomp:trial:answer-key:validate",
     "npm run instacomp:trial:groundtruth:apply",
     "npm run instacomp:trial:packet",
     "npm run instacomp:trial:preflight",

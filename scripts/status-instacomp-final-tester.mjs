@@ -860,7 +860,7 @@ const checklist = [
   {
     key: "trial_preflight_gate",
     label:
-      "The one-shot final tester preflight can prove the answer key, image pairs, image-map receipt, and intake packet are all current before the operator spends scanner time.",
+      "The one-shot final tester preflight can prove the answer key, image pairs, image-map receipt, and intake packet are all current, then issue an explicit scan permit and ordered operator next actions before the operator spends scanner time.",
     status:
       trialManifestAudit.readyToScore &&
       trialImageAudit.readyToScan &&
