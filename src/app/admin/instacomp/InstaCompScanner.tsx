@@ -6084,6 +6084,20 @@ export default function InstaCompScanner({
     );
   }
 
+  function handleBatchDatabasePressure(card: BatchCard) {
+    if (card.status !== "error" || !isDatabaseConnectionPressureText(card.error)) {
+      return false;
+    }
+
+    batchPauseRequestedRef.current = true;
+    setBatchPauseRequested(true);
+    setBatchConcurrency((current) => Math.max(1, current - 1));
+    setBatchError(
+      "Database connection pressure detected. InstaComp paused before claiming more work and backed concurrency down by 1; resume after the database catches up."
+    );
+    return true;
+  }
+
   function toggleBatchCardSelected(cardId: string, selected: boolean) {
     updateBatchCard(cardId, (card) => ({
       ...card,
@@ -6612,7 +6626,9 @@ export default function InstaCompScanner({
             continue;
           }
 
-          completedCards.push(await scanOneBatchCard(card, item));
+          const scannedCard = await scanOneBatchCard(card, item);
+          completedCards.push(scannedCard);
+          handleBatchDatabasePressure(scannedCard);
         }
       }
     }
@@ -6800,7 +6816,8 @@ export default function InstaCompScanner({
         const card = cardsToScan[cursor];
         cursor += 1;
 
-        await scanOneBatchCard(card);
+        const scannedCard = await scanOneBatchCard(card);
+        handleBatchDatabasePressure(scannedCard);
         completedThisRun += 1;
       }
     }
@@ -6907,6 +6924,7 @@ export default function InstaCompScanner({
 
         const scannedCard = await scanOneBatchCard(card);
         completedCards.push(scannedCard);
+        handleBatchDatabasePressure(scannedCard);
       }
     }
 
