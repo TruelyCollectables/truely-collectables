@@ -31,6 +31,11 @@ type SellerEbayConnectionBundle = {
   token: SellerMarketplaceTokenRow;
 };
 
+type SellerEbayImportClassification = {
+  saleable: boolean;
+  archiveReason: string | null;
+};
+
 export type SellerEbayPreviewItem = {
   sku: string;
   title: string;
@@ -117,6 +122,7 @@ function summarizeSellerEbayImport(snapshot: {
     missing_listing_id: 0,
     missing_price: 0,
     missing_image: 0,
+    inactive_or_sold: 0,
     needs_review: 0,
     ready_to_stage: 0,
   };
@@ -127,11 +133,18 @@ function summarizeSellerEbayImport(snapshot: {
     const hasListingId = Boolean(item.listingId);
     const hasPrice = typeof item.price === "number" && item.price > 0;
     const hasImage = Boolean(item.imageUrl);
+    const importState = classifySellerEbayImportItem(item);
 
     if (!hasSku) qualitySummary.missing_sku += 1;
     if (!hasListingId) qualitySummary.missing_listing_id += 1;
     if (!hasPrice) qualitySummary.missing_price += 1;
     if (!hasImage) qualitySummary.missing_image += 1;
+    if (!importState.saleable && importState.archiveReason) {
+      qualitySummary.inactive_or_sold += 1;
+      skipReasonSummary[importState.archiveReason] =
+        (skipReasonSummary[importState.archiveReason] || 0) + 1;
+      continue;
+    }
 
     if (hasSku && hasListingId) {
       qualitySummary.ready_to_stage += 1;
@@ -155,6 +168,50 @@ function summarizeSellerEbayImport(snapshot: {
   return {
     qualitySummary,
     skipReasonSummary,
+  };
+}
+
+function classifySellerEbayImportItem(
+  item: SellerEbayPreviewItem,
+): SellerEbayImportClassification {
+  if (!item.sku && !item.listingId) {
+    return {
+      saleable: false,
+      archiveReason: "missing_sku_and_listing_id",
+    };
+  }
+
+  if (!item.listingId) {
+    return {
+      saleable: false,
+      archiveReason: "missing_listing_id",
+    };
+  }
+
+  if (item.quantity <= 0) {
+    return {
+      saleable: false,
+      archiveReason: "sold_or_zero_quantity",
+    };
+  }
+
+  if (item.offerStatus && item.offerStatus !== "PUBLISHED") {
+    return {
+      saleable: false,
+      archiveReason: `offer_${item.offerStatus.toLowerCase()}`,
+    };
+  }
+
+  if (item.listingStatus && item.listingStatus !== "ACTIVE") {
+    return {
+      saleable: false,
+      archiveReason: `listing_${item.listingStatus.toLowerCase()}`,
+    };
+  }
+
+  return {
+    saleable: true,
+    archiveReason: null,
   };
 }
 
@@ -727,38 +784,55 @@ export async function stageSellerEbayInventoryBatch(params: {
     const importSummary = summarizeSellerEbayImport(snapshot);
     const stagedRows = snapshot.sampleItems
       .filter((item) => item.listingId || item.sku)
-      .map((item) => ({
-        account_id: params.accountId,
-        store_id: params.storeId,
-        connection_id: bundle.connection.id,
-        import_job_id: importJobId,
-        provider: "ebay",
-        source_item_id: item.listingId || item.sku,
-        sku: item.sku || null,
-        title: item.title,
-        quantity: item.quantity,
-        price: item.price,
-        currency: "USD",
-        offer_status: item.offerStatus,
-        listing_status: item.listingStatus,
-        item_condition: item.condition,
-        image_url: item.imageUrl,
-        stage_status:
-          item.sku && item.listingId ? "staged" : ("needs_review" as const),
-        metadata: {
-          source_marketplace: "ebay",
-          source_listing_id: item.listingId,
-          source_sku: item.sku || null,
-          preview_only: true,
-          staged_at: snapshot.fetchedAt,
-          category_hint: item.categoryHint || null,
-          category_confidence: item.categoryConfidence || null,
-          review_required: item.reviewRequired === true,
-          authenticity: item.authenticity || null,
-          source_aspects: item.aspects || null,
-        },
-      }));
-    const skippedCount = snapshot.sampleItems.length - stagedRows.length;
+      .map((item) => {
+        const importState = classifySellerEbayImportItem(item);
+        const stageStatus = importState.saleable
+          ? "staged"
+          : item.sku && item.listingId
+            ? "skipped"
+            : "needs_review";
+
+        return {
+          account_id: params.accountId,
+          store_id: params.storeId,
+          connection_id: bundle.connection.id,
+          import_job_id: importJobId,
+          provider: "ebay",
+          source_item_id: item.listingId || item.sku,
+          sku: item.sku || null,
+          title: item.title,
+          quantity: item.quantity,
+          price: item.price,
+          currency: "USD",
+          offer_status: item.offerStatus,
+          listing_status: item.listingStatus,
+          item_condition: item.condition,
+          image_url: item.imageUrl,
+          stage_status: stageStatus,
+          metadata: {
+            source_marketplace: "ebay",
+            source_listing_id: item.listingId,
+            source_sku: item.sku || null,
+            preview_only: true,
+            staged_at: snapshot.fetchedAt,
+            category_hint: item.categoryHint || null,
+            category_confidence: item.categoryConfidence || null,
+            review_required: item.reviewRequired === true,
+            authenticity: item.authenticity || null,
+            source_aspects: item.aspects || null,
+            import_classification: importState.saleable
+              ? "active_saleable"
+              : "archived_not_currently_for_sale",
+            archive_reason: importState.archiveReason,
+            comp_evidence_candidate: importState.saleable ? false : true,
+          },
+        };
+      });
+    const activeStagedCount = stagedRows.filter(
+      (row) => row.stage_status === "staged",
+    ).length;
+    const skippedCount =
+      snapshot.sampleItems.length - activeStagedCount;
 
     if (stagedRows.length > 0) {
       const { error: stageError } = await params.supabase
@@ -780,7 +854,7 @@ export async function stageSellerEbayInventoryBatch(params: {
       .update({
         status,
         row_count: snapshot.sampleItems.length,
-        staged_count: stagedRows.length,
+        staged_count: activeStagedCount,
         skipped_count: skippedCount,
         error_count: 0,
         source_cursor: {
@@ -818,7 +892,7 @@ export async function stageSellerEbayInventoryBatch(params: {
         stage_has_more: hasMore,
         stage_complete: !hasMore,
         stage_sampled: snapshot.sampleItems.length,
-        stage_staged: stagedRows.length,
+        stage_staged: activeStagedCount,
         stage_skipped: skippedCount,
         stage_total_available: snapshot.totalAvailable,
         stage_fetched_at: snapshot.fetchedAt,
@@ -831,7 +905,7 @@ export async function stageSellerEbayInventoryBatch(params: {
       offset,
       nextOffset,
       hasMore,
-      stagedCount: stagedRows.length,
+      stagedCount: activeStagedCount,
       skippedCount,
       totalAvailable: snapshot.totalAvailable,
       fetchedAt: snapshot.fetchedAt,

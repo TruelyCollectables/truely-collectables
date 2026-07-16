@@ -1781,8 +1781,8 @@ function stageLaneTitle(filter: StageFilter) {
   if (filter === "needs_review") return "Review lane";
   if (filter === "staged") return "Staged lane";
   if (filter === "mapped") return "Mapped lane";
-  if (filter === "skipped") return "Skipped lane";
-  return "All staged rows";
+  if (filter === "skipped") return "Sold / archived lane";
+  return "Working staged rows";
 }
 
 function stageLaneDetail(filter: StageFilter) {
@@ -1811,10 +1811,10 @@ function stageLaneDetail(filter: StageFilter) {
   }
 
   if (filter === "skipped") {
-    return "These rows are currently out of the active staging workflow.";
+    return "These rows are sold, ended, out-of-stock, or intentionally archived out of the active selling workflow.";
   }
 
-  return "This workspace mixes every stage lane together so you can inspect the full seller staging picture.";
+  return "This workspace shows active seller work only; sold, ended, mapped, and archived rows stay out of the way unless you open their lanes.";
 }
 
 function stageLaneSelectionLabel(filter: StageFilter) {
@@ -1823,9 +1823,9 @@ function stageLaneSelectionLabel(filter: StageFilter) {
   if (filter === "blocked") return "Select blocked lane";
   if (filter === "needs_review") return "Select review lane";
   if (filter === "mapped") return "Select mapped lane";
-  if (filter === "skipped") return "Select skipped lane";
+  if (filter === "skipped") return "Select sold / archived lane";
   if (filter === "staged") return "Select staged lane";
-  return "Select visible lane";
+  return "Select visible working rows";
 }
 
 function stageLaneEmptyState(
@@ -1962,7 +1962,7 @@ async function fetchSellerEbayPreview(accessToken: string) {
 
 async function fetchSellerStagedItems(
   accessToken: string,
-  options?: { importJobId?: string | null },
+  options?: { importJobId?: string | null; stageStatus?: StageFilter },
 ) {
   const searchParams = new URLSearchParams({
     limit: options?.importJobId ? "250" : "100",
@@ -1971,6 +1971,10 @@ async function fetchSellerStagedItems(
 
   if (options?.importJobId) {
     searchParams.set("importJobId", options.importJobId);
+  }
+
+  if (options?.stageStatus && options.stageStatus !== "all") {
+    searchParams.set("stageStatus", options.stageStatus);
   }
 
   const response = await fetch(
@@ -2462,6 +2466,7 @@ export default function SellerConnectionsPanel({
     try {
       const data = await fetchSellerStagedItems(accessToken, {
         importJobId: requestedImportJobId,
+        stageStatus: stageFilter,
       });
       setStagedItems(data.stagedItems);
       setLatestImportJob(data.latestImportJob);
@@ -2494,7 +2499,7 @@ export default function SellerConnectionsPanel({
     } finally {
       setIsLoadingStaged(false);
     }
-  }, [activeImportJobId, rememberOperationErrorReceipt]);
+  }, [activeImportJobId, rememberOperationErrorReceipt, stageFilter]);
 
   const refreshSellerInventoryState = useCallback(async (
     accessToken: string,
@@ -5357,14 +5362,14 @@ export default function SellerConnectionsPanel({
               <div className="flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
                 <div className="flex flex-wrap gap-2">
                   {([
-                    ["all", `All (${stagedSummary.total})`],
+                    ["all", `Working (${stagedSummary.total})`],
                     ["ready", `Ready (${stagedSummary.ready})`],
                     ["draft_cleanup", `Draft Cleanup (${stagedSummary.draft_cleanup})`],
                     ["blocked", `Blocked (${stagedSummary.blocked})`],
                     ["needs_review", `Needs Review (${stagedSummary.needs_review})`],
                     ["staged", `Staged (${stagedSummary.staged})`],
                     ["mapped", `Mapped (${stagedSummary.mapped})`],
-                    ["skipped", `Skipped (${stagedSummary.skipped})`],
+                    ["skipped", `Sold / Archived (${stagedSummary.skipped})`],
                   ] as Array<[StageFilter, string]>).map(([value, text]) => (
                     <button
                       key={value}

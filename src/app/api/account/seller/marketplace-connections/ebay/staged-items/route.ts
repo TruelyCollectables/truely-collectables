@@ -469,6 +469,10 @@ export async function GET(request: Request) {
 
     if (stageStatus) {
       stagedQuery = stagedQuery.eq("stage_status", stageStatus);
+    } else {
+      stagedQuery = stagedQuery
+        .neq("stage_status", "skipped")
+        .neq("stage_status", "mapped");
     }
 
     if (importJobId) {

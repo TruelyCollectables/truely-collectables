@@ -19,6 +19,19 @@ type SellerInventoryRow = {
   quantity: number | null;
 };
 
+type SellerStagedRow = {
+  id: string;
+  source_item_id: string | null;
+  sku: string | null;
+  title: string | null;
+  quantity: number | null;
+  price: number | string | null;
+  offer_status: string | null;
+  listing_status: string | null;
+  stage_status: string | null;
+  metadata: Record<string, unknown> | null;
+};
+
 type ConnectionStateRow = {
   id: string;
   import_cursor: Record<string, unknown> | null;
@@ -99,6 +112,36 @@ function nullableNumber(value: unknown) {
 function moneyNumber(value: unknown) {
   const number = Number(value);
   return Number.isFinite(number) ? number : 0;
+}
+
+function isRemoteSaleable(remote: SellerEbayRemoteState) {
+  return (
+    remote.found &&
+    remote.quantity !== null &&
+    remote.quantity > 0 &&
+    remote.offerStatus === "PUBLISHED" &&
+    remote.listingStatus === "ACTIVE" &&
+    remote.listingOnHold !== true
+  );
+}
+
+function remoteArchiveReasons(remote: SellerEbayRemoteState) {
+  const reasons: string[] = [];
+
+  if (!remote.found) reasons.push("remote_inventory_item_not_found");
+  if (remote.warning) reasons.push(remote.warning);
+  if (remote.quantity !== null && remote.quantity <= 0) {
+    reasons.push("sold_or_zero_quantity");
+  }
+  if (remote.offerStatus && remote.offerStatus !== "PUBLISHED") {
+    reasons.push(`offer_${remote.offerStatus.toLowerCase()}`);
+  }
+  if (remote.listingStatus && remote.listingStatus !== "ACTIVE") {
+    reasons.push(`listing_${remote.listingStatus.toLowerCase()}`);
+  }
+  if (remote.listingOnHold) reasons.push("listing_on_hold");
+
+  return Array.from(new Set(reasons));
 }
 
 function ebayApiBase(environment: string) {
@@ -294,6 +337,9 @@ export async function reconcileSellerEbayInventoryBatch(params: {
   const offset = params.resetCursor
     ? 0
     : nonNegativeInteger(importCursor.reconcile_next_offset);
+  const stagedOffset = params.resetCursor
+    ? 0
+    : nonNegativeInteger(importCursor.reconcile_stage_next_offset);
   const { count: totalLinked, error: countError } = await params.supabase
     .from("products")
     .select("id", { count: "exact", head: true })
@@ -302,6 +348,16 @@ export async function reconcileSellerEbayInventoryBatch(params: {
     .not("ebay_item_id", "is", null);
 
   if (countError) throw countError;
+
+  const { count: totalStaged, error: stagedCountError } = await params.supabase
+    .from("seller_marketplace_staged_items")
+    .select("id", { count: "exact", head: true })
+    .eq("store_id", params.storeId)
+    .eq("account_id", params.accountId)
+    .eq("provider", "ebay")
+    .in("stage_status", ["staged", "needs_review"]);
+
+  if (stagedCountError) throw stagedCountError;
 
   const { data: run, error: runError } = await params.supabase
     .from("seller_marketplace_reconciliation_runs")
@@ -317,6 +373,7 @@ export async function reconcileSellerEbayInventoryBatch(params: {
         batch_size: BATCH_SIZE,
         reset_cursor: params.resetCursor === true,
         request_source: source,
+        staged_batch_offset: stagedOffset,
       },
     })
     .select("id")
@@ -562,20 +619,203 @@ export async function reconcileSellerEbayInventoryBatch(params: {
       }
     });
 
-    const scannedCount = products.length;
-    const nextRawOffset = offset + scannedCount;
+    const { data: stagedData, error: stagedError } = await params.supabase
+      .from("seller_marketplace_staged_items")
+      .select(
+        "id,source_item_id,sku,title,quantity,price,offer_status,listing_status,stage_status,metadata",
+      )
+      .eq("store_id", params.storeId)
+      .eq("account_id", params.accountId)
+      .eq("provider", "ebay")
+      .in("stage_status", ["staged", "needs_review"])
+      .order("updated_at", { ascending: false })
+      .range(stagedOffset, stagedOffset + BATCH_SIZE - 1);
+
+    if (stagedError) throw stagedError;
+
+    const stagedRows = (stagedData || []) as SellerStagedRow[];
+    let stagedArchivedCount = 0;
+    let stagedRefreshedCount = 0;
+    let stagedReviewCount = 0;
+
+    await processInChunks(stagedRows, async (staged) => {
+      const sku = String(staged.sku || "").trim();
+      const listingId = String(staged.source_item_id || "").trim() || null;
+      const baseEvent = {
+        run_id: runId,
+        account_id: params.accountId,
+        store_id: params.storeId,
+        connection_id: auth.connectionId,
+        provider: "ebay",
+        legacy_product_id: null,
+        inventory_item_id: null,
+        sku: sku || null,
+        provider_listing_id: listingId,
+        local_quantity_before: nonNegativeInteger(staged.quantity),
+        local_price: moneyNumber(staged.price),
+      };
+
+      if (!sku) {
+        counters.review += 1;
+        stagedReviewCount += 1;
+        await params.supabase
+          .from("seller_marketplace_reconciliation_events")
+          .insert({
+            ...baseEvent,
+            decision: "needs_review",
+            reason_codes: ["staged_row_missing_sku"],
+            local_quantity_after: nonNegativeInteger(staged.quantity),
+            metadata: {
+              staged_item_id: staged.id,
+              source: "seller_marketplace_staged_items",
+            },
+          });
+        return;
+      }
+
+      try {
+        const remote = await fetchSellerEbayRemoteState({
+          apiBase,
+          accessToken: auth.accessToken,
+          sku,
+          expectedListingId: listingId,
+        });
+        const reasons = remoteArchiveReasons(remote);
+        const saleable = isRemoteSaleable(remote);
+        const nowIso = new Date().toISOString();
+        const metadata = recordValue(staged.metadata);
+        const nextMetadata = {
+          ...metadata,
+          ebay_reconciliation: {
+            remote_found: remote.found,
+            remote_quantity: remote.quantity,
+            remote_price: remote.price,
+            offer_status: remote.offerStatus,
+            listing_status: remote.listingStatus,
+            sold_quantity: remote.soldQuantity,
+            listing_on_hold: remote.listingOnHold,
+            reconciled_at: nowIso,
+            run_id: runId,
+          },
+        };
+
+        if (!saleable) {
+          const archiveReason = reasons[0] || "not_currently_saleable";
+          stagedArchivedCount += 1;
+          counters.sold += 1;
+          await params.supabase
+            .from("seller_marketplace_staged_items")
+            .update({
+              quantity: remote.quantity ?? staged.quantity ?? 0,
+              price: remote.price ?? staged.price,
+              offer_status: remote.offerStatus,
+              listing_status: remote.listingStatus,
+              stage_status: "skipped",
+              metadata: {
+                ...nextMetadata,
+                import_classification: "archived_not_currently_for_sale",
+                archive_reason: archiveReason,
+                archive_reasons: reasons,
+                comp_evidence_candidate: true,
+                archived_from_stage_status: staged.stage_status,
+                archived_at: nowIso,
+                archive_note:
+                  "Moved out of active seller working table by eBay reconciliation because the remote listing is not currently active and saleable.",
+              },
+              updated_at: nowIso,
+            })
+            .eq("id", staged.id)
+            .eq("account_id", params.accountId)
+            .eq("store_id", params.storeId)
+            .eq("provider", "ebay");
+        } else {
+          stagedRefreshedCount += 1;
+          counters.matched += 1;
+          await params.supabase
+            .from("seller_marketplace_staged_items")
+            .update({
+              quantity: remote.quantity,
+              price: remote.price ?? staged.price,
+              offer_status: remote.offerStatus,
+              listing_status: remote.listingStatus,
+              metadata: nextMetadata,
+              updated_at: nowIso,
+            })
+            .eq("id", staged.id)
+            .eq("account_id", params.accountId)
+            .eq("store_id", params.storeId)
+            .eq("provider", "ebay");
+        }
+
+        await params.supabase
+          .from("seller_marketplace_reconciliation_events")
+          .insert({
+            ...baseEvent,
+            decision: saleable ? "unchanged" : "sold",
+            reason_codes: saleable ? [] : reasons,
+            remote_quantity: remote.quantity,
+            local_quantity_after: saleable
+              ? remote.quantity
+              : nonNegativeInteger(remote.quantity),
+            remote_price: remote.price,
+            offer_status: remote.offerStatus,
+            listing_status: remote.listingStatus,
+            sold_quantity: remote.soldQuantity,
+            metadata: {
+              staged_item_id: staged.id,
+              source: "seller_marketplace_staged_items",
+              saleable,
+            },
+          });
+      } catch (error: any) {
+        counters.failed += 1;
+        await params.supabase
+          .from("seller_marketplace_reconciliation_events")
+          .insert({
+            ...baseEvent,
+            decision: "failed",
+            reason_codes: ["staged_row_remote_lookup_failed"],
+            local_quantity_after: nonNegativeInteger(staged.quantity),
+            metadata: {
+              staged_item_id: staged.id,
+              source: "seller_marketplace_staged_items",
+              error: String(error.message || "Staged reconciliation failed").slice(
+                0,
+                500,
+              ),
+            },
+          });
+      }
+    });
+
+    const scannedCount = products.length + stagedRows.length;
+    const nextRawOffset = offset + products.length;
     const linkedCount = totalLinked || 0;
-    const hasMore = nextRawOffset < linkedCount;
-    const nextOffset = hasMore ? nextRawOffset : 0;
+    const hasMoreProducts = nextRawOffset < linkedCount;
+    const nextOffset = hasMoreProducts ? nextRawOffset : 0;
+    const stagedCount = totalStaged || 0;
+    const nextStagedRawOffset = stagedOffset + stagedRows.length;
+    const hasMoreStaged = nextStagedRawOffset < stagedCount;
+    const nextStagedOffset = hasMoreStaged ? nextStagedRawOffset : 0;
+    const hasMore = hasMoreProducts || hasMoreStaged;
     const completedAt = new Date().toISOString();
     const status = counters.failed > 0 ? "completed_with_errors" : "completed";
     const summary = {
       total_linked: linkedCount,
+      total_staged: stagedCount,
       offset,
       next_offset: nextOffset,
+      staged_offset: stagedOffset,
+      staged_next_offset: nextStagedOffset,
       has_more: hasMore,
+      has_more_products: hasMoreProducts,
+      has_more_staged: hasMoreStaged,
       batch_size: BATCH_SIZE,
       request_source: source,
+      staged_scanned_count: stagedRows.length,
+      staged_refreshed_count: stagedRefreshedCount,
+      staged_archived_count: stagedArchivedCount,
+      staged_review_count: stagedReviewCount,
       outside_sale_fee_applied: false,
       auto_increase_enabled: false,
     };
@@ -609,9 +849,12 @@ export async function reconcileSellerEbayInventoryBatch(params: {
           ...importCursor,
           reconcile_last_offset: offset,
           reconcile_next_offset: nextOffset,
+          reconcile_stage_last_offset: stagedOffset,
+          reconcile_stage_next_offset: nextStagedOffset,
           reconcile_has_more: hasMore,
           reconcile_complete: !hasMore,
           reconcile_total_linked: linkedCount,
+          reconcile_total_staged: stagedCount,
           reconcile_completed_at: completedAt,
         },
         provider_metadata: {
