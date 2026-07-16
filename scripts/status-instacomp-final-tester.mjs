@@ -335,6 +335,71 @@ function readTrialIntakePacketStatus(audit, imageMap) {
   }
 }
 
+function readTrialGroundTruthGuideStatus(manifestAudit) {
+  const guidePath = "instacomp-trial-groundtruth-guide.local.md";
+  const absolutePath = join(repoRoot, guidePath);
+
+  if (!existsSync(absolutePath)) {
+    return {
+      path: guidePath,
+      exists: false,
+      matchesCurrentAudit: false,
+      next:
+        "Run npm run instacomp:trial:intake to write the local answer-key guide before filling the 100-card TSV.",
+      error: null,
+    };
+  }
+
+  try {
+    const text = readFileSync(absolutePath, "utf8");
+    const expectedCards = manifestAudit.expectedCards ?? "unknown";
+    const readyRows = manifestAudit.readyRows ?? "unknown";
+    const missingCoreRows = manifestAudit.missingCoreRows ?? "unknown";
+    const duplicateTrialCardIdCount =
+      manifestAudit.duplicateTrialCardIdCount ?? "unknown";
+    const missingTrialCardIdCount = manifestAudit.missingTrialCardIdCount ?? "unknown";
+    const firstMissingRow = manifestAudit.firstMissingCoreRows[0];
+    const includesFirstMissingRow = firstMissingRow
+      ? text.includes(firstMissingRow.trialCardId) &&
+        text.includes((firstMissingRow.missing || []).join(", "))
+      : true;
+    const matchesCurrentAudit =
+      text.includes("# TCOS InstaComp Trial Answer-Key Guide") &&
+      text.includes(`Ready answer-key rows: ${readyRows}/${expectedCards}`) &&
+      text.includes(`Missing core rows: ${missingCoreRows}`) &&
+      text.includes(`Duplicate trialCardId rows: ${duplicateTrialCardIdCount}`) &&
+      text.includes(`Missing trialCardId rows: ${missingTrialCardIdCount}`) &&
+      text.includes("player") &&
+      text.includes("year") &&
+      text.includes("setName") &&
+      text.includes("cardNumber") &&
+      text.includes("npm run instacomp:trial:groundtruth:apply") &&
+      includesFirstMissingRow;
+
+    return {
+      path: guidePath,
+      exists: true,
+      matchesCurrentAudit,
+      next: matchesCurrentAudit
+        ? manifestAudit.readyToScore
+          ? "Answer-key guide matches the current ready audit; keep it with the completed TSV for the final score run."
+          : "Answer-key guide matches the current missing-row audit; fill the TSV, apply it, then rerun npm run instacomp:trial:intake."
+        : "Rerun npm run instacomp:trial:intake so the local answer-key guide matches the current ground-truth audit.",
+      error: null,
+    };
+  } catch (error) {
+    return {
+      path: guidePath,
+      exists: true,
+      matchesCurrentAudit: false,
+      next: `Rerun npm run instacomp:trial:intake; answer-key guide could not be read: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 const manifestPath = "instacomp-trial-manifest.local.json";
 const resultsPath = "instacomp-trial-results.local.json";
 const trialImagesDir = "instacomp-trial-images";
@@ -384,6 +449,7 @@ const trialIntakePacket = readTrialIntakePacketStatus(
   trialImageAudit,
   trialImageMap,
 );
+const trialGroundTruthGuide = readTrialGroundTruthGuideStatus(trialManifestAudit);
 
 const checklist = [
   {
@@ -462,6 +528,16 @@ const checklist = [
     label:
       "The local ground-truth worksheet can export the 100-card manifest to an ignored TSV, let the operator fill the answer key in a spreadsheet, and apply it back to the manifest before the audit.",
     status: "ready_to_test",
+  },
+  {
+    key: "trial_groundtruth_guide",
+    label:
+      "The final tester status can prove the local answer-key guide exists, matches the current ground-truth audit, and points the operator at the exact TSV apply/recheck commands.",
+    status: trialGroundTruthGuide.matchesCurrentAudit
+      ? trialManifestAudit.readyToScore
+        ? "ready_to_score"
+        : "guide_current_but_needs_groundtruth"
+      : "needs_answer_key_guide",
   },
   {
     key: "trial_prep_bundle",
@@ -577,6 +653,7 @@ const readiness = {
     expectedImageCount: 200,
     imageDropZoneGuide: trialImageDropZoneGuide,
     manifestAudit: trialManifestAudit,
+    groundTruthGuide: trialGroundTruthGuide,
     imageAudit: trialImageAudit,
     imageMap: trialImageMap,
     intakePacket: trialIntakePacket,
@@ -591,6 +668,7 @@ const readiness = {
     initTrial: "npm run instacomp:trial:init",
     writeTrialGroundTruthSheet: "npm run instacomp:trial:groundtruth:sheet",
     applyTrialGroundTruthSheet: "npm run instacomp:trial:groundtruth:apply",
+    refreshTrialAnswerKeyGuide: "npm run instacomp:trial:intake",
     prepTrial: "npm run instacomp:trial:prep",
     stageTrialImages: "npm run instacomp:trial:stage-images",
     applyStagedTrialImages: "npm run instacomp:trial:stage-images -- --apply",
@@ -647,6 +725,13 @@ if (jsonOutput) {
     );
   }
   console.log(`- trial ground truth next: ${readiness.localTrial.manifestAudit.next}`);
+  console.log(
+    `- trial answer-key guide: ${readiness.localTrial.groundTruthGuide.exists ? "present" : "missing"} - ${readiness.localTrial.groundTruthGuide.matchesCurrentAudit ? "matches audit" : "not ready"} - ${readiness.localTrial.groundTruthGuide.path}`,
+  );
+  if (readiness.localTrial.groundTruthGuide.error) {
+    console.log(`- trial answer-key guide error: ${readiness.localTrial.groundTruthGuide.error}`);
+  }
+  console.log(`- trial answer-key guide next: ${readiness.localTrial.groundTruthGuide.next}`);
   console.log(`- trial image folder exists: ${readiness.localTrial.imagesDirExists ? "yes" : "no"}`);
   console.log(`- trial image drop zone: ${readiness.localTrial.imagesAbsolutePath}`);
   console.log(
@@ -712,6 +797,7 @@ if (jsonOutput) {
   console.log(`- init trial: ${readiness.commands.initTrial}`);
   console.log(`- write trial ground truth sheet: ${readiness.commands.writeTrialGroundTruthSheet}`);
   console.log(`- apply trial ground truth sheet: ${readiness.commands.applyTrialGroundTruthSheet}`);
+  console.log(`- refresh trial answer-key guide: ${readiness.commands.refreshTrialAnswerKeyGuide}`);
   console.log(`- prep trial bundle: ${readiness.commands.prepTrial}`);
   console.log(`- dry-run trial image staging: ${readiness.commands.stageTrialImages}`);
   console.log(`- apply trial image staging: ${readiness.commands.applyStagedTrialImages}`);
