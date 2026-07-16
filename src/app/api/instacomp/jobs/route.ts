@@ -17,6 +17,33 @@ import {
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const LEGACY_INSTACOMP_JOB_CONCURRENCY_LIMIT = 6;
+
+function isLegacyConcurrencyConstraintError(error: {
+  code?: string | null;
+  message?: string | null;
+}) {
+  return (
+    error.code === "23514" &&
+    String(error.message || "").includes(
+      "instacomp_scan_jobs_concurrency_check",
+    )
+  );
+}
+
+function isCompatibleRequestedConcurrency(params: {
+  storedConcurrency: unknown;
+  requestedConcurrency: number;
+}) {
+  const storedConcurrency = Number(params.storedConcurrency);
+
+  return (
+    storedConcurrency === params.requestedConcurrency ||
+    (params.requestedConcurrency > LEGACY_INSTACOMP_JOB_CONCURRENCY_LIMIT &&
+      storedConcurrency === LEGACY_INSTACOMP_JOB_CONCURRENCY_LIMIT)
+  );
+}
+
 function optionalJsonRecord(value: unknown, label: string) {
   if (value === null || value === undefined) return {};
 
@@ -98,7 +125,10 @@ export async function POST(request: Request) {
     if (existing) {
       if (
         Number(existing.total_items) !== totalItems ||
-        Number(existing.requested_concurrency) !== requestedConcurrency ||
+        !isCompatibleRequestedConcurrency({
+          storedConcurrency: existing.requested_concurrency,
+          requestedConcurrency,
+        }) ||
         Boolean(existing.auto_create_drafts) !== autoCreateDrafts
       ) {
         throw new InstaCompJobServerError(
@@ -196,23 +226,38 @@ export async function POST(request: Request) {
       );
     }
 
-    const { data: job, error } = await supabase
-      .from(INSTACOMP_JOB_TABLE)
-      .insert({
-        store_id: actor.storeId,
-        seller_account_id: actor.sellerAccountId,
-        actor_type: actor.type,
-        client_batch_id: clientBatchId,
-        name,
-        status: "uploading",
-        total_items: totalItems,
-        requested_concurrency: requestedConcurrency,
-        auto_create_drafts: autoCreateDrafts,
-        options,
-        metadata,
-      })
-      .select("*")
-      .single();
+    const insertJob = (concurrency: number) =>
+      supabase
+        .from(INSTACOMP_JOB_TABLE)
+        .insert({
+          store_id: actor.storeId,
+          seller_account_id: actor.sellerAccountId,
+          actor_type: actor.type,
+          client_batch_id: clientBatchId,
+          name,
+          status: "uploading",
+          total_items: totalItems,
+          requested_concurrency: concurrency,
+          auto_create_drafts: autoCreateDrafts,
+          options,
+          metadata,
+        })
+        .select("*")
+        .single();
+
+    let { data: job, error } = await insertJob(requestedConcurrency);
+
+    if (
+      error &&
+      requestedConcurrency > LEGACY_INSTACOMP_JOB_CONCURRENCY_LIMIT &&
+      isLegacyConcurrencyConstraintError(error)
+    ) {
+      const fallbackResult = await insertJob(
+        LEGACY_INSTACOMP_JOB_CONCURRENCY_LIMIT,
+      );
+      job = fallbackResult.data;
+      error = fallbackResult.error;
+    }
 
     if (error) {
       if (error.code === "23505") {
@@ -232,7 +277,10 @@ export async function POST(request: Request) {
         if (
           replay &&
           Number(replay.total_items) === totalItems &&
-          Number(replay.requested_concurrency) === requestedConcurrency &&
+          isCompatibleRequestedConcurrency({
+            storedConcurrency: replay.requested_concurrency,
+            requestedConcurrency,
+          }) &&
           Boolean(replay.auto_create_drafts) === autoCreateDrafts
         ) {
           return Response.json({
