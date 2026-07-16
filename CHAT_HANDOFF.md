@@ -218,6 +218,11 @@ These may fail production smoke until a successful Vercel deploy lands the queue
 
 ## Next safe steps
 
+- Top priority after the current InstaComp accuracy pass: build the “Vicodin” InstaComp speed MVP.
+  - Gate: do not start this until the operator is satisfied the current scanner identity/parallels/comps behavior is accurate enough to preserve.
+  - Goal: make scans feel dramatically faster without sacrificing accuracy.
+  - MVP scope: move scan work off the browser into true server-side/background workers, return fast identity first, enrich comps/pricing second, cache checklist/catalog lookups, keep provider calls split into fast-path versus slow-path, and show live progress from durable job state.
+  - Expected build size: about 6–10 focused build hours for MVP; 2–4 days for production-scale hardening with worker deployment, monitoring, budgets, rate limits, and load testing.
 - If Vercel quota is still capped, do not rapid-fire deploy retries. Keep stacking small production-safe code/docs/guardrail commits.
 - Prefer work that improves smoke coverage, launch docs, operator handoffs, or fail-closed shipping/seller-protection contracts.
 - When quota opens, run `npm run launch:production` and ship only after smoke passes the clean production domain while the unwanted alias stays absent.
