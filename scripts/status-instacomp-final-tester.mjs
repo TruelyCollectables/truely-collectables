@@ -1,4 +1,4 @@
-import { existsSync, readdirSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { dirname } from "node:path";
@@ -115,11 +115,89 @@ function runTrialImageAudit() {
   }
 }
 
+function readTrialImageMapStatus(audit) {
+  const imageMapPath = "instacomp-trial-image-map.local.json";
+  const absolutePath = join(repoRoot, imageMapPath);
+
+  if (!existsSync(absolutePath)) {
+    return {
+      path: imageMapPath,
+      exists: false,
+      schemaOk: false,
+      rowCount: 0,
+      readyToScan: false,
+      matchesCurrentAudit: false,
+      generatedAt: null,
+      firstMappedRows: [],
+      next: audit.readyToScan
+        ? "Run npm run instacomp:trial:map before scanning so the front/back receipt matches this ready image set."
+        : "Load or fix the 100-card image folder, then run npm run instacomp:trial:map after the audit is ready.",
+      error: null,
+    };
+  }
+
+  try {
+    const payload = JSON.parse(readFileSync(absolutePath, "utf8"));
+    const rows = Array.isArray(payload.rows) ? payload.rows : [];
+    const schemaOk = payload.schema === "tcos.instacompTrialImageMap.v1";
+    const rowCount = rows.length;
+    const expectedCards = audit.expectedCards ?? null;
+    const expectedImages = audit.expectedImages ?? null;
+    const observed = payload.observed || {};
+    const expected = payload.expected || {};
+    const matchesCurrentAudit =
+      schemaOk &&
+      rowCount === expectedCards &&
+      payload.readyToScan === audit.readyToScan &&
+      expected.cards === expectedCards &&
+      expected.images === expectedImages &&
+      observed.parsedImageFiles === audit.parsedImageFiles &&
+      observed.completePairs === audit.completePairs &&
+      observed.orderedPairCandidateFiles === audit.orderedPairCandidateFiles &&
+      observed.orderedPairCompletePairs === audit.orderedPairCompletePairs;
+
+    return {
+      path: imageMapPath,
+      exists: true,
+      schemaOk,
+      rowCount,
+      readyToScan: Boolean(payload.readyToScan),
+      matchesCurrentAudit,
+      generatedAt: payload.generatedAt || null,
+      firstMappedRows: rows.slice(0, 5).map((row) => ({
+        trialCardId: row.trialCardId || null,
+        frontImage: row.frontImage || null,
+        backImage: row.backImage || null,
+        frontSource: row.frontSource || null,
+        backSource: row.backSource || null,
+      })),
+      next: matchesCurrentAudit
+        ? "Image map receipt matches the current audit; confirm it before uploading the lot."
+        : "Rerun npm run instacomp:trial:map so the local front/back receipt matches the current image audit.",
+      error: null,
+    };
+  } catch (error) {
+    return {
+      path: imageMapPath,
+      exists: true,
+      schemaOk: false,
+      rowCount: 0,
+      readyToScan: false,
+      matchesCurrentAudit: false,
+      generatedAt: null,
+      firstMappedRows: [],
+      next: "Rerun npm run instacomp:trial:map to replace the unreadable image-map receipt.",
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 const manifestPath = "instacomp-trial-manifest.local.json";
 const resultsPath = "instacomp-trial-results.local.json";
 const trialImagesDir = "instacomp-trial-images";
 const trialImageCount = countFilesIfPresent(trialImagesDir);
 const trialImageAudit = runTrialImageAudit();
+const trialImageMap = readTrialImageMapStatus(trialImageAudit);
 
 const checklist = [
   {
@@ -188,6 +266,16 @@ const checklist = [
     status: "ready_to_test",
   },
   {
+    key: "trial_image_map",
+    label:
+      "The pre-scan image-map receipt can prove which uploaded scanner file became each trial card front/back pair before the lot is scanned.",
+    status: trialImageMap.matchesCurrentAudit
+      ? "ready_to_scan"
+      : trialImageAudit.readyToScan
+        ? "needs_image_map"
+        : "needs_local_trial_files",
+  },
+  {
     key: "hundred_card_trial",
     label:
       "100-card / 200-scan final trial must score at least 94% against the local ground-truth manifest.",
@@ -226,6 +314,7 @@ const readiness = {
     imageFileCount: trialImageCount,
     expectedImageCount: 200,
     imageAudit: trialImageAudit,
+    imageMap: trialImageMap,
   },
   checklist,
   commands: {
@@ -272,6 +361,16 @@ if (jsonOutput) {
   console.log(
     `- trial ordered-pair files: ${readiness.localTrial.imageAudit.orderedPairCandidateFiles ?? "unknown"} files / ${readiness.localTrial.imageAudit.orderedPairCompletePairs ?? "unknown"} pairs`,
   );
+  console.log(
+    `- trial image map: ${readiness.localTrial.imageMap.exists ? "present" : "missing"} - ${readiness.localTrial.imageMap.matchesCurrentAudit ? "matches audit" : "not ready"} - rows ${readiness.localTrial.imageMap.rowCount}/${readiness.localTrial.imageAudit.expectedCards ?? "unknown"}`,
+  );
+  if (readiness.localTrial.imageMap.generatedAt) {
+    console.log(`- trial image map generated: ${readiness.localTrial.imageMap.generatedAt}`);
+  }
+  if (readiness.localTrial.imageMap.error) {
+    console.log(`- trial image map error: ${readiness.localTrial.imageMap.error}`);
+  }
+  console.log(`- trial image map next: ${readiness.localTrial.imageMap.next}`);
   console.log(
     `- trial image audit problems: missing fronts ${readiness.localTrial.imageAudit.missingFrontCount ?? "unknown"}, missing backs ${readiness.localTrial.imageAudit.missingBackCount ?? "unknown"}, duplicates ${Number(readiness.localTrial.imageAudit.duplicateFrontCount || 0) + Number(readiness.localTrial.imageAudit.duplicateBackCount || 0)}, unknown files ${readiness.localTrial.imageAudit.unknownFileCount ?? "unknown"}, extra files ${readiness.localTrial.imageAudit.extraFileCount ?? "unknown"}`,
   );
