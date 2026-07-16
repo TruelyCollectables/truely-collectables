@@ -1,0 +1,33 @@
+name: Seller marketplace reconciliation
+
+on:
+  schedule:
+    - cron: "0 */3 * * *"
+  workflow_dispatch:
+
+jobs:
+  reconcile:
+    name: Reconcile eBay seller inventory
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Call TCOS seller reconciliation cron
+        env:
+          TCOS_CRON_SECRET: ${{ secrets.TCOS_CRON_SECRET }}
+          TCOS_RECONCILIATION_URL: ${{ vars.TCOS_RECONCILIATION_URL || 'https://truelycollectables.com/api/cron/seller-ebay-reconciliation' }}
+        run: |
+          if [ -z "${TCOS_CRON_SECRET}" ]; then
+            echo "Missing GitHub secret TCOS_CRON_SECRET."
+            exit 1
+          fi
+
+          curl \
+            --fail-with-body \
+            --show-error \
+            --silent \
+            --max-time 80 \
+            --retry 2 \
+            --retry-delay 10 \
+            --header "Authorization: Bearer ${TCOS_CRON_SECRET}" \
+            "${TCOS_RECONCILIATION_URL}"
