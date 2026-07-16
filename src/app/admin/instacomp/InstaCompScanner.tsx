@@ -708,7 +708,7 @@ function testFixtureForFile(file: File) {
 }
 
 function titleCaseFromFileName(fileName: string) {
-  return batchFileBaseName(fileName)
+  return cleanRotationFileBaseName(batchFileBaseName(fileName))
     .replace(/[_-]+/g, " ")
     .replace(/\s+/g, " ")
     .trim()
@@ -1566,8 +1566,9 @@ function shortDateTime(value: string | null | undefined) {
 }
 
 function cardResultTitle(result: ScanResponse | null, fallback: string) {
-  if (!result) return fallback;
-  return buildInstaCompDraftTitle(result.ai, fallback);
+  const cleanFallback = cleanRotationFileName(fallback);
+  if (!result) return cleanFallback;
+  return buildInstaCompDraftTitle(result.ai, cleanFallback);
 }
 
 function draftTitleForCard(card: BatchCard) {
@@ -2106,6 +2107,19 @@ function batchFileBaseName(fileName: string) {
   return fileName.replace(/\.[^.]+$/, "");
 }
 
+function cleanRotationFileBaseName(baseName: string) {
+  return baseName.replace(/(?:-rotated-(?:left|right)-45)+$/gi, "") || "card";
+}
+
+function cleanRotationFileName(fileName: string) {
+  const fallback = fileName || "card.jpg";
+  const dotIndex = fallback.lastIndexOf(".");
+  const baseName = dotIndex > 0 ? fallback.slice(0, dotIndex) : fallback;
+  const extension = dotIndex > 0 ? fallback.slice(dotIndex) : ".jpg";
+
+  return `${cleanRotationFileBaseName(baseName)}${extension || ".jpg"}`;
+}
+
 function batchFileSignature(file: File | null | undefined) {
   if (!file) return "none";
 
@@ -2340,14 +2354,18 @@ function normalizeRotationDegrees(value: number) {
 }
 
 function originalRotationFileName(file: File) {
-  const fallback = file.name || "card.jpg";
-  const dotIndex = fallback.lastIndexOf(".");
-  const baseName = dotIndex > 0 ? fallback.slice(0, dotIndex) : fallback;
-  const extension = dotIndex > 0 ? fallback.slice(dotIndex) : ".jpg";
-  const cleanBaseName =
-    baseName.replace(/(?:-rotated-(?:left|right)-45)+$/gi, "") || "card";
+  return cleanRotationFileName(file.name || "card.jpg");
+}
 
-  return `${cleanBaseName}${extension || ".jpg"}`;
+function cleanRotationFile(file: File) {
+  const cleanName = originalRotationFileName(file);
+
+  if (file.name === cleanName) return file;
+
+  return new File([file], cleanName, {
+    type: file.type || "image/jpeg",
+    lastModified: file.lastModified,
+  });
 }
 
 function nextRotationDegrees(current: number | null | undefined, direction: "left" | "right") {
@@ -2359,7 +2377,7 @@ function nextRotationDegrees(current: number | null | undefined, direction: "lef
 async function rotateImageFile(file: File, degrees: number) {
   const normalizedDegrees = normalizeRotationDegrees(degrees);
 
-  if (normalizedDegrees === 0) return file;
+  if (normalizedDegrees === 0) return cleanRotationFile(file);
 
   const image = await loadImageElement(file);
   const sourceWidth = image.naturalWidth || image.width;
