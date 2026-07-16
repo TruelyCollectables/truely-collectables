@@ -172,12 +172,13 @@ function buildLocalBuildFallback(status, recommendation) {
     reason:
       "The primary blocker needs operator Supabase/env access or the external Vercel quota window, so Codex can keep advancing launch-safe local work; InstaComp Multi-Scanner Consensus is wired and the final tester pass is now first in the local goal stack.",
     next:
-      "Run the July 16 InstaComp final tester next: use the wired Multi-Scanner Consensus panel/reason trail, keep live money/postage/payout/Checkout/deploy paths gated, load the 100-card / 200-scan trial, audit images before scanning, score it against 94%, fix misses, clean the UI, commit and push it, refresh go-live evidence, then archive and verify the build-block checkpoint.",
+      "Run the July 16 InstaComp final tester next: use the wired Multi-Scanner Consensus panel/reason trail, keep live money/postage/payout/Checkout/deploy paths gated, load the 100-card / 200-scan trial, audit and map images before scanning, score it against 94%, fix misses, clean the UI, commit and push it, refresh go-live evidence, then archive and verify the build-block checkpoint.",
     commands: [
       "npm run status:instacomp-final-tester",
       "npm run verify:instacomp",
       "npm run instacomp:trial:init",
       "npm run instacomp:trial:audit",
+      "npm run instacomp:trial:map",
       "npm run instacomp:trial:report -- --manifest instacomp-trial-manifest.local.json --results instacomp-trial-results.local.json --target 94",
       "npm run status:build-block",
       "npm run check:production-guardrails",

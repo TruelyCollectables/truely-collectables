@@ -211,6 +211,19 @@ if (payload) {
     );
     checks.push(
       check(
+        fallbackCommands.includes("npm run instacomp:trial:map"),
+        "local build fallback preserves InstaComp trial image map command",
+      ),
+    );
+    checks.push(
+      check(
+        payload.localBuildFallback.next?.includes("audit and map images before scanning"),
+        "local build fallback tells the operator to audit and map images before scanning",
+        payload.localBuildFallback.next || null,
+      ),
+    );
+    checks.push(
+      check(
         payload.localBuildFallback.next?.includes("keep live money/postage/payout/Checkout/deploy paths gated"),
         "local build fallback preserves live-money/postage/deploy gates",
         payload.localBuildFallback.next || null,

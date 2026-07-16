@@ -172,6 +172,19 @@ if (payload) {
     );
     checks.push(
       check(
+        commands.includes("npm run instacomp:trial:map"),
+        "fallback selection preserves InstaComp trial image map command",
+      ),
+    );
+    checks.push(
+      check(
+        payload.next?.includes("audit and map images before scanning"),
+        "fallback selection tells the operator to audit and map images before scanning",
+        payload.next || null,
+      ),
+    );
+    checks.push(
+      check(
         payload.next?.includes("keep live money/postage/payout/Checkout/deploy paths gated"),
         "fallback selection preserves live-money/postage/deploy gates",
         payload.next || null,
