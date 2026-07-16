@@ -11,6 +11,9 @@ const baseParallelPattern = /^\s*(base|base card|standard|regular)\s*$/i;
 const printedVariantGuardrailExamples = [
   "Limited Red",
   "Clear Cut",
+  "Outliers",
+  "Future Watch",
+  "Spectrum FX",
   "Insert - exact type uncertain",
   "Acetate / clear parallel - exact type uncertain",
 ];
@@ -31,6 +34,13 @@ function titleCaseWords(value: string) {
     .filter(Boolean)
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
+}
+
+function collectorInsertLabel(value: string) {
+  return titleCaseWords(value)
+    .replace(/\bUd\b/g, "UD")
+    .replace(/\bOpc\b/g, "OPC")
+    .replace(/\bFx\b/g, "FX");
 }
 
 function isBaseParallel(value: string | null | undefined) {
@@ -101,12 +111,27 @@ function detectPrintedVariantSignal(text: string): VariantSignal | null {
     };
   }
 
+  const priorityNamedInsert = firstMatch(text, [
+    /\b(spectrum\s+fx|outliers)\b/i,
+  ]);
+
+  if (priorityNamedInsert?.[1]) {
+    const label = collectorInsertLabel(priorityNamedInsert[1]);
+
+    return {
+      label,
+      setName: label,
+      reason: `printed text indicates insert/subset ${label}`,
+      confidence: "exact",
+    };
+  }
+
   const namedInsert = firstMatch(text, [
-    /\b(ud\s+canvas|canvas|dazzlers|young\s+guns|rookie\s+materials|honor\s+roll|rookie\s+class|star\s+rookies|portraits|debut\s+dates|opc\s+glossy|clear\s+cut|marquee\s+rookies)\b/i,
+    /\b(ud\s+canvas|canvas|dazzlers|young\s+guns|rookie\s+materials|honor\s+roll|rookie\s+class|star\s+rookies|portraits|debut\s+dates|opc\s+glossy|clear\s+cut|marquee\s+rookies|spectrum\s+fx|outliers|future\s+watch)\b/i,
   ]);
 
   if (namedInsert?.[1]) {
-    const label = titleCaseWords(namedInsert[1].replace(/\bud\b/i, "UD"));
+    const label = collectorInsertLabel(namedInsert[1]);
 
     return {
       label,

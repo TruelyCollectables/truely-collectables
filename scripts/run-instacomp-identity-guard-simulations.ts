@@ -52,6 +52,49 @@ const scenarios: Scenario[] = [
     },
   },
   {
+    name: "printed SP Authentic Outliers cannot remain base",
+    ai: {
+      ...baseAi,
+      player: "Connor McDavid",
+      year: "2025-26",
+      brand: "Upper Deck",
+      setName: "SP Authentic",
+      cardNumber: "O-8",
+      parallel: "Base",
+      team: "Edmonton Oilers",
+      notes: "Parallel evidence: no special finish detected.",
+    },
+    externalOcrText:
+      "2025-26 SP Authentic Hockey Connor McDavid. BACK OCR: OUTLIERS. Card O-8.",
+    expect(actual) {
+      assert(actual.parallel === "Outliers", `Expected Outliers, received ${actual.parallel}`);
+      assert(actual.setName === "SP Authentic", `Expected SP Authentic preserved, received ${actual.setName}`);
+      assert(actual.notes?.includes("printed text indicates insert/subset Outliers") === true, "Expected Outliers guardrail note");
+    },
+  },
+  {
+    name: "printed Spectrum FX keeps collector acronym casing",
+    ai: {
+      ...baseAi,
+      player: "Matthew Robertson",
+      year: "2025-26",
+      brand: "Upper Deck",
+      setName: "SP Authentic - Future Watch",
+      cardNumber: "S-50",
+      parallel: "Base",
+      notes: "Parallel evidence: no special finish detected.",
+    },
+    externalOcrText:
+      "2025-26 SP Authentic Future Watch Spectrum FX Level 1 Matthew Robertson Card S-50.",
+    expect(actual) {
+      assert(actual.parallel === "Spectrum FX", `Expected Spectrum FX, received ${actual.parallel}`);
+      assert(
+        actual.notes?.includes("printed text indicates insert/subset Spectrum FX") === true,
+        "Expected Spectrum FX guardrail note",
+      );
+    },
+  },
+  {
     name: "printed generic insert cannot remain base",
     ai: baseAi,
     externalOcrText:
