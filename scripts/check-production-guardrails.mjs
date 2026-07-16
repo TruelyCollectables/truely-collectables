@@ -3608,13 +3608,19 @@ assertFileIncludes("instacomp multi-scanner consensus UI wiring", "src/app/admin
 ]);
 assertFileIncludes("instacomp trial results export UI wiring", "src/app/admin/instacomp/InstaCompScanner.tsx", [
   "instacompTrialResultsPayload",
+  "instacompTrialSpeedGate",
   "tcos.instacompTrialResults.v1",
+  "Final Tester Gate",
+  "FAF PASS",
+  "NOT READY",
   "Export Trial Results",
   "Copy Trial Results",
   "trial-card-",
   "scanElapsedMs",
   "rowsWithTiming",
   "averageElapsedMs",
+  "targetAverageSeconds",
+  "targetP95Seconds",
 ]);
 assertFileIncludes("instacomp multi-scanner consensus simulations", "scripts/run-instacomp-consensus-simulations.ts", [
   "obvious complete identity stays on fast lane",
@@ -3646,6 +3652,9 @@ assertFileIncludes("instacomp printed-variant identity guard manual", "docs/TCOS
   "uncertain insert cues are marked for review",
 ]);
 assertFileIncludes("instacomp trial results export manual", "docs/TCOS_OPERATOR_MANUAL.md", [
+  "Final Tester Gate",
+  "FAF PASS",
+  "NOT READY",
   "Export Trial Results",
   "Copy Trial Results",
   "tcos.instacompTrialResults.v1",
@@ -3712,6 +3721,13 @@ assertFileIncludes("instacomp final tester status includes trial failure report"
   "trial_failure_report",
   "tcos.instacompTrialFailureReport.v1 JSON",
   "scoreTrialFailures",
+]);
+assertFileIncludes("instacomp final tester status includes speed-gate HUD", "scripts/status-instacomp-final-tester.mjs", [
+  "trial_speed_gate_hud",
+  "Final Tester Gate HUD",
+  "average speed",
+  "p95 speed",
+  "FAF PASS/NOT READY",
 ]);
 assertFileIncludes("instacomp final tester status includes trial image audit", "scripts/status-instacomp-final-tester.mjs", [
   "trial_image_audit",

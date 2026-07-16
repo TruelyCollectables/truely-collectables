@@ -338,6 +338,12 @@ const checklist = [
     status: "ready_to_test",
   },
   {
+    key: "trial_speed_gate_hud",
+    label:
+      "Admin InstaComp shows a Final Tester Gate HUD with visible result count, timing coverage, average speed, p95 speed, and FAF PASS/NOT READY status before export.",
+    status: "ready_to_test",
+  },
+  {
     key: "trial_image_audit",
     label:
       "The pre-scan image audit can catch missing fronts/backs, duplicate images, unknown filenames, and extra files before the 100-card lot burns scanner time.",

@@ -398,6 +398,9 @@ const INSTACOMP_BATCH_DEFAULT_CONCURRENCY = 6;
 const INSTACOMP_BATCH_MAX_CONCURRENCY = 10;
 const INSTACOMP_JOB_UPLOAD_CONCURRENCY = 10;
 const INSTACOMP_JOB_CLAIM_CHUNK_SIZE = 5;
+const INSTACOMP_FINAL_TRIAL_TARGET_CARDS = 100;
+const INSTACOMP_FINAL_TRIAL_TARGET_AVERAGE_SECONDS = 15;
+const INSTACOMP_FINAL_TRIAL_TARGET_P95_SECONDS = 45;
 const INSTACOMP_LAST_JOB_STORAGE_KEY = "tcos-instacomp-last-job-v1";
 const EMPTY_CARD_PREVIEW =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='560' viewBox='0 0 400 560'%3E%3Crect width='400' height='560' fill='%23e5e7eb'/%3E%3Ctext x='200' y='280' text-anchor='middle' fill='%236b7280' font-family='Arial' font-size='24'%3ERecovered card%3C/text%3E%3C/svg%3E";
@@ -1579,6 +1582,82 @@ function trialCardIdForBatchIndex(index: number) {
   return `trial-card-${String(index + 1).padStart(3, "0")}`;
 }
 
+function secondsFromElapsedMs(value: number | null | undefined) {
+  if (!Number.isFinite(Number(value)) || Number(value) <= 0) return null;
+  return Number((Number(value) / 1000).toFixed(2));
+}
+
+function percentileElapsedMs(values: number[], percentile: number) {
+  if (!values.length) return null;
+  const sorted = values.slice().sort((left, right) => left - right);
+  const index = Math.ceil((percentile / 100) * sorted.length) - 1;
+  return sorted[Math.min(sorted.length - 1, Math.max(0, index))];
+}
+
+function instacompTrialSpeedGate(items: BatchCardViewItem[]) {
+  const trialRows = items.filter(
+    ({ card }) => card.status === "done" && Boolean(card.result?.ai)
+  );
+  const elapsedRows = trialRows
+    .map(({ card, index }) => ({
+      trialCardId: trialCardIdForBatchIndex(index),
+      elapsedMs:
+        Number.isFinite(Number(card.scanElapsedMs)) &&
+        Number(card.scanElapsedMs) > 0
+          ? Number(card.scanElapsedMs)
+          : null,
+    }))
+    .filter(
+      (row): row is { trialCardId: string; elapsedMs: number } =>
+        row.elapsedMs !== null && Number.isFinite(row.elapsedMs)
+    );
+  const elapsedValues = elapsedRows.map((row) => row.elapsedMs);
+  const averageElapsedMs =
+    elapsedValues.length > 0
+      ? elapsedValues.reduce((sum, value) => sum + value, 0) /
+        elapsedValues.length
+      : null;
+  const p95ElapsedMs = percentileElapsedMs(elapsedValues, 95);
+  const slowestRows = elapsedRows
+    .slice()
+    .sort((left, right) => right.elapsedMs - left.elapsedMs)
+    .slice(0, 3)
+    .map((row) => ({
+      trialCardId: row.trialCardId,
+      seconds: secondsFromElapsedMs(row.elapsedMs),
+    }));
+  const timingComplete =
+    trialRows.length > 0 && elapsedRows.length === trialRows.length;
+  const averageSeconds = secondsFromElapsedMs(averageElapsedMs);
+  const p95Seconds = secondsFromElapsedMs(p95ElapsedMs);
+  const averagePass =
+    averageSeconds !== null &&
+    averageSeconds <= INSTACOMP_FINAL_TRIAL_TARGET_AVERAGE_SECONDS;
+  const p95Pass =
+    p95Seconds !== null &&
+    p95Seconds <= INSTACOMP_FINAL_TRIAL_TARGET_P95_SECONDS;
+  const readyToExport =
+    trialRows.length >= INSTACOMP_FINAL_TRIAL_TARGET_CARDS &&
+    timingComplete &&
+    averagePass &&
+    p95Pass;
+
+  return {
+    targetCards: INSTACOMP_FINAL_TRIAL_TARGET_CARDS,
+    targetAverageSeconds: INSTACOMP_FINAL_TRIAL_TARGET_AVERAGE_SECONDS,
+    targetP95Seconds: INSTACOMP_FINAL_TRIAL_TARGET_P95_SECONDS,
+    resultRows: trialRows.length,
+    rowsWithTiming: elapsedRows.length,
+    timingComplete,
+    averageSeconds,
+    p95Seconds,
+    averagePass,
+    p95Pass,
+    readyToExport,
+    slowestRows,
+  };
+}
+
 function instacompTrialResultRows(items: BatchCardViewItem[]) {
   return items
     .filter(({ card }) => card.status === "done" && card.result?.ai)
@@ -1631,7 +1710,7 @@ function instacompTrialResultsPayload(items: BatchCardViewItem[]) {
     exportedAt: new Date().toISOString(),
     source: "admin_instacomp_batch_export",
     instructions:
-      "Save this as instacomp-trial-results.local.json next to instacomp-trial-manifest.local.json, then run npm run instacomp:trial:report -- --manifest instacomp-trial-manifest.local.json --results instacomp-trial-results.local.json --target 94.",
+      "Save this as instacomp-trial-results.local.json next to instacomp-trial-manifest.local.json, then run npm run instacomp:trial:score.",
     summary: {
       exportedCards: cards.length,
       sourceRows: items.length,
@@ -3541,6 +3620,10 @@ export default function InstaCompScanner({
   const visibleTrialResultCount = visibleBatchCards.filter(
     ({ card }) => card.status === "done" && Boolean(card.result?.ai)
   ).length;
+  const visibleTrialSpeedGate = useMemo(
+    () => instacompTrialSpeedGate(visibleBatchCards),
+    [visibleBatchCards]
+  );
   const testModelPassedCount = testModelChecks.filter((check) => check.pass).length;
   const testModelFailedCount = testModelChecks.length - testModelPassedCount;
 
@@ -9244,6 +9327,86 @@ export default function InstaCompScanner({
           >
             Copy Trial Results ({visibleTrialResultCount})
           </button>
+
+          <div
+            style={{
+              minWidth: 280,
+              flex: "1 1 360px",
+              border: `2px solid ${
+                visibleTrialSpeedGate.readyToExport ? "#047857" : "#f59e0b"
+              }`,
+              borderRadius: 14,
+              padding: "10px 12px",
+              background: visibleTrialSpeedGate.readyToExport
+                ? "#ecfdf5"
+                : "#fffbeb",
+              color: "#111",
+              display: "grid",
+              gap: 6,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 10,
+                alignItems: "center",
+              }}
+            >
+              <strong>Final Tester Gate</strong>
+              <span
+                style={{
+                  borderRadius: 999,
+                  padding: "3px 8px",
+                  fontSize: 12,
+                  fontWeight: 900,
+                  background: visibleTrialSpeedGate.readyToExport
+                    ? "#047857"
+                    : "#92400e",
+                  color: "white",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {visibleTrialSpeedGate.readyToExport
+                  ? "FAF PASS"
+                  : "NOT READY"}
+              </span>
+            </div>
+            <small style={{ color: "#374151", fontWeight: 800 }}>
+              Results {visibleTrialSpeedGate.resultRows}/
+              {visibleTrialSpeedGate.targetCards} · Timing{" "}
+              {visibleTrialSpeedGate.rowsWithTiming}/
+              {visibleTrialSpeedGate.resultRows || visibleTrialSpeedGate.targetCards}
+            </small>
+            <small style={{ color: "#374151", fontWeight: 800 }}>
+              Avg{" "}
+              {visibleTrialSpeedGate.averageSeconds === null
+                ? "n/a"
+                : `${visibleTrialSpeedGate.averageSeconds}s`}
+              {" / "}
+              {visibleTrialSpeedGate.targetAverageSeconds}s · P95{" "}
+              {visibleTrialSpeedGate.p95Seconds === null
+                ? "n/a"
+                : `${visibleTrialSpeedGate.p95Seconds}s`}
+              {" / "}
+              {visibleTrialSpeedGate.targetP95Seconds}s
+            </small>
+            {visibleTrialSpeedGate.slowestRows.length > 0 ? (
+              <small style={{ color: "#6b7280", fontWeight: 700 }}>
+                Slowest:{" "}
+                {visibleTrialSpeedGate.slowestRows
+                  .map(
+                    (row) =>
+                      `${row.trialCardId} ${row.seconds ?? "n/a"}s`
+                  )
+                  .join(", ")}
+              </small>
+            ) : (
+              <small style={{ color: "#6b7280", fontWeight: 700 }}>
+                Run/export the completed 100-card lot to prove the FAF speed gate.
+              </small>
+            )}
+          </div>
 
           <button
             onClick={clearBatch}
