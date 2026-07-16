@@ -1306,7 +1306,7 @@ function compPriceBasisLabel(comp: ActiveComp) {
 }
 
 function marketPricingExplanation(result: ScanResponse) {
-  const marketComps = result.marketValueComps || [];
+  const marketComps = effectiveMarketValueComps(result);
   const soldComps = result.soldComps || [];
   const activeComps = marketComps.filter(
     (comp) => comp.sourceCategory === "marketplace"
@@ -1384,11 +1384,13 @@ function batchExportRows(items: BatchCardViewItem[]) {
       confidence: ai?.confidence ?? "",
       aiNotes: ai?.notes || "",
       searchQuery: result?.searchQuery || "",
-      marketLow: result?.stats.low ?? "",
-      marketMedian: result?.stats.median ?? "",
-      marketAverage: result?.stats.average ?? "",
-      marketHigh: result?.stats.high ?? "",
-      marketSuggested: result?.stats.suggestedPrice ?? "",
+      marketLow: result ? effectiveMarketStats(result).low ?? "" : "",
+      marketMedian: result ? effectiveMarketStats(result).median ?? "" : "",
+      marketAverage: result ? effectiveMarketStats(result).average ?? "" : "",
+      marketHigh: result ? effectiveMarketStats(result).high ?? "" : "",
+      marketSuggested: result
+        ? effectiveMarketStats(result).suggestedPrice ?? ""
+        : "",
       soldLow: result?.soldStats?.low ?? "",
       soldMedian: result?.soldStats?.median ?? "",
       soldAverage: result?.soldStats?.average ?? "",
@@ -1410,7 +1412,9 @@ function batchExportRows(items: BatchCardViewItem[]) {
       externalIncludedComps: external?.includedCompCount ?? "",
       externalCacheHitsBeforeScan: external?.cacheHitCountBeforeScan ?? "",
       externalCacheExpiresAt: external?.cacheExpiresAt || "",
-      marketValueCompCount: result?.marketValueComps?.length ?? "",
+      marketValueCompCount: result
+        ? effectiveMarketValueComps(result).length
+        : "",
       soldCompCount: result?.soldComps?.length ?? "",
       remainingMatchCount: result?.remainingCards?.length ?? "",
       sourceCoverage: sourceCoverageSummary(result),
@@ -1505,7 +1509,7 @@ function draftListingItemsForCards(cards: BatchCard[]) {
       quantity: draftQuantityForCard(card),
       searchQuery: card.result?.searchQuery || null,
       ai: card.result?.ai || null,
-      stats: card.result?.stats || null,
+      stats: card.result ? effectiveMarketStats(card.result) : null,
       soldStats: card.result?.soldStats || null,
       sourceCoverage: card.result?.sourceCoverage || [],
       externalSearch: externalSearchDiagnostics(card.result),
@@ -1562,10 +1566,98 @@ function roundedPositiveMoney(value: number | null | undefined) {
   return Math.round(price * 100) / 100;
 }
 
+function isUsableMarketComp(comp: ActiveComp) {
+  if (!["sold", "marketplace", "pricing"].includes(comp.sourceCategory)) {
+    return false;
+  }
+
+  if (roundedPositiveMoney(comp.price) === null) return false;
+
+  const flags = comp.flags || [];
+
+  return (
+    !flags.includes("excluded") &&
+    !flags.includes("guidance comp") &&
+    !flags.includes("not used for pricing")
+  );
+}
+
+function uniqueComps(comps: ActiveComp[]) {
+  const seen = new Set<string>();
+
+  return comps.filter((comp) => {
+    const key = `${comp.source}|${comp.url}|${comp.title}|${comp.price}`;
+
+    if (seen.has(key)) return false;
+
+    seen.add(key);
+    return true;
+  });
+}
+
+function providerMarketComps(result: ScanResponse | null | undefined) {
+  if (!result?.providers?.length) return [];
+
+  return uniqueComps(
+    result.providers
+      .flatMap((provider) => provider.results || [])
+      .filter(isUsableMarketComp)
+  );
+}
+
+function effectiveMarketValueComps(result: ScanResponse | null | undefined) {
+  if (!result) return [];
+
+  const directComps = (result.marketValueComps || []).filter(isUsableMarketComp);
+
+  return directComps.length ? directComps : providerMarketComps(result);
+}
+
+function statsFromComps(comps: ActiveComp[]) {
+  const prices = comps
+    .map((comp) => roundedPositiveMoney(comp.price))
+    .filter((price): price is number => price !== null)
+    .sort((left, right) => left - right);
+
+  if (!prices.length) {
+    return {
+      low: null,
+      median: null,
+      average: null,
+      high: null,
+      suggestedPrice: null,
+    };
+  }
+
+  const middle = Math.floor(prices.length / 2);
+  const median =
+    prices.length % 2 === 0
+      ? (prices[middle - 1] + prices[middle]) / 2
+      : prices[middle];
+  const average =
+    prices.reduce((total, price) => total + price, 0) / prices.length;
+
+  return {
+    low: roundedPositiveMoney(prices[0]),
+    median: roundedPositiveMoney(median),
+    average: roundedPositiveMoney(average),
+    high: roundedPositiveMoney(prices[prices.length - 1]),
+    suggestedPrice: roundedPositiveMoney(median || average),
+  };
+}
+
+function effectiveMarketStats(result: ScanResponse | null | undefined) {
+  if (roundedPositiveMoney(result?.stats?.suggestedPrice) !== null) {
+    return result!.stats;
+  }
+
+  return statsFromComps(effectiveMarketValueComps(result));
+}
+
 function marketPriceForCard(card: BatchCard) {
   return (
     roundedPositiveMoney(card.marketPrice) ??
-    roundedPositiveMoney(card.result?.stats.suggestedPrice) ??
+    roundedPositiveMoney(effectiveMarketStats(card.result).suggestedPrice) ??
     roundedPositiveMoney(card.result?.soldStats.suggestedPrice)
   );
 }
@@ -1661,7 +1753,7 @@ function batchCardReviewWarnings(card: BatchCard) {
   }
 
   const usableCompCount =
-    (card.result.marketValueComps?.length || 0) +
+    effectiveMarketValueComps(card.result).length +
     (card.result.soldComps?.length || 0);
 
   const reviewReasons =
@@ -2675,6 +2767,12 @@ export default function InstaCompScanner({
             const frontUrl =
               item.recovery?.front?.downloadUrl || EMPTY_CARD_PREVIEW;
             const backUrl = item.recovery?.back?.downloadUrl || null;
+            const effectiveStats = effectiveMarketStats(storedResult);
+            const effectiveSuggestedPrice =
+              effectiveStats.suggestedPrice ??
+              (Number.isFinite(Number(item.suggested_price))
+                ? Number(item.suggested_price)
+                : null);
 
             bindings.set(cardId, {
               jobId: job.id,
@@ -2693,11 +2791,7 @@ export default function InstaCompScanner({
               status: isDone && storedResult ? "done" : isFailed ? "error" : "queued",
               selected: !item.draft_inventory_item_id,
               result: storedResult,
-              marketPrice:
-                storedResult?.stats?.suggestedPrice ??
-                (Number.isFinite(Number(item.suggested_price))
-                  ? Number(item.suggested_price)
-                  : null),
+              marketPrice: effectiveSuggestedPrice,
               customTitle: storedResult
                 ? cardResultTitle(
                     storedResult,
@@ -2706,8 +2800,8 @@ export default function InstaCompScanner({
                 : "",
               customQuantity: "1",
               customPrice:
-                storedResult?.stats?.suggestedPrice != null
-                  ? Number(storedResult.stats.suggestedPrice).toFixed(2)
+                effectiveSuggestedPrice != null
+                  ? Number(effectiveSuggestedPrice).toFixed(2)
                   : "",
               error: isFailed
                 ? item.last_error || "Queued scan needs another attempt."
@@ -2798,13 +2892,19 @@ export default function InstaCompScanner({
   }, [testMode, testModelRunRecordsLoaded, testModelRunRecords]);
 
   const marketPlus10 = useMemo(() => {
-    if (!result?.stats.suggestedPrice) return null;
-    return Math.round(result.stats.suggestedPrice * 1.1 * 100) / 100;
+    const suggestedPrice = effectiveMarketStats(result).suggestedPrice;
+
+    if (!suggestedPrice) return null;
+
+    return Math.round(suggestedPrice * 1.1 * 100) / 100;
   }, [result]);
 
   const marketMinus10 = useMemo(() => {
-    if (!result?.stats.suggestedPrice) return null;
-    return Math.round(result.stats.suggestedPrice * 0.9 * 100) / 100;
+    const suggestedPrice = effectiveMarketStats(result).suggestedPrice;
+
+    if (!suggestedPrice) return null;
+
+    return Math.round(suggestedPrice * 0.9 * 100) / 100;
   }, [result]);
 
   const batchDoneCount = batchCards.filter((card) => card.status === "done").length;
@@ -3537,7 +3637,7 @@ export default function InstaCompScanner({
       completed && !fixture.scanError
         ? testScanResponse(fixture, Boolean(backFile))
         : null;
-    const marketPrice = result?.stats.suggestedPrice ?? null;
+    const marketPrice = effectiveMarketStats(result).suggestedPrice;
     const status: BatchCardStatus = completed
       ? fixture.scanError
         ? "error"
@@ -3747,7 +3847,7 @@ export default function InstaCompScanner({
             scanId: result.scanId,
             searchQuery: result.searchQuery,
             title: cardResultTitle(result, "single-test-scan"),
-            stats: result.stats,
+            stats: effectiveMarketStats(result),
             soldStats: result.soldStats,
             sourceCoverage: result.sourceCoverage,
             externalSearch: externalSearchDiagnostics(result),
@@ -5978,7 +6078,7 @@ export default function InstaCompScanner({
         card.backFile,
         claimedItem
       );
-      const marketPrice = scanResult.stats.suggestedPrice;
+      const marketPrice = effectiveMarketStats(scanResult).suggestedPrice;
       const nextCard = (current: BatchCard): BatchCard => ({
         ...current,
         status: "done",
@@ -9693,13 +9793,19 @@ export default function InstaCompScanner({
                 gap: 12,
               }}
             >
-              <PriceBox label="Low" value={result.stats.low} />
-              <PriceBox label="Median" value={result.stats.median} />
-              <PriceBox label="Average" value={result.stats.average} />
-              <PriceBox label="High" value={result.stats.high} />
+              <PriceBox label="Low" value={effectiveMarketStats(result).low} />
+              <PriceBox
+                label="Median"
+                value={effectiveMarketStats(result).median}
+              />
+              <PriceBox
+                label="Average"
+                value={effectiveMarketStats(result).average}
+              />
+              <PriceBox label="High" value={effectiveMarketStats(result).high} />
               <PriceBox
                 label="Suggested"
-                value={result.stats.suggestedPrice}
+                value={effectiveMarketStats(result).suggestedPrice}
                 strong
               />
             </div>
@@ -9731,9 +9837,12 @@ export default function InstaCompScanner({
             >
               <button
                 onClick={() =>
-                  copyPrice(result.stats.suggestedPrice, "Market price")
+                  copyPrice(
+                    effectiveMarketStats(result).suggestedPrice,
+                    "Market price"
+                  )
                 }
-                disabled={!result.stats.suggestedPrice}
+                disabled={!effectiveMarketStats(result).suggestedPrice}
                 style={buttonStyle}
               >
                 Copy Market Price
