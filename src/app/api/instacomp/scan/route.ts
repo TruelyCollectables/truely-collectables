@@ -124,6 +124,10 @@ const ALLOWED_SCAN_IMAGE_TYPES = new Set([
 const GOOGLE_VISION_API_KEY =
   process.env.GOOGLE_VISION_API_KEY || process.env.GOOGLE_CLOUD_VISION_API_KEY;
 const SERPAPI_API_KEY = process.env.SERPAPI_API_KEY;
+const PRICECHARTING_API_TOKEN =
+  process.env.PRICECHARTING_API_TOKEN ||
+  process.env.SPORTSCARDSPRO_API_TOKEN ||
+  process.env.SPORTSCARDS_PRO_API_TOKEN;
 const requestedExternalSearchLimit = Number(
   process.env.INSTACOMP_EXTERNAL_SEARCH_LIMIT || 15
 );
@@ -131,6 +135,17 @@ const EXTERNAL_SEARCH_LIMIT = Number.isFinite(requestedExternalSearchLimit)
   ? Math.max(1, Math.min(requestedExternalSearchLimit, 25))
   : 15;
 const EXTERNAL_SEARCH_CACHE_TTL_DAYS = 7;
+const PRICECHARTING_CACHE_TTL_DAYS = Number.isFinite(
+  Number(process.env.INSTACOMP_PRICECHARTING_CACHE_TTL_DAYS)
+)
+  ? Math.max(
+      1,
+      Math.min(Number(process.env.INSTACOMP_PRICECHARTING_CACHE_TTL_DAYS), 30)
+    )
+  : 7;
+const PRICECHARTING_MIN_REQUEST_INTERVAL_MS = 1100;
+let priceChartingLastRequestStartedAt = 0;
+let priceChartingApiQueue: Promise<void> = Promise.resolve();
 
 type ExternalSearchProvider = "google_cse" | "serpapi";
 
@@ -1879,6 +1894,307 @@ async function storeCachedExternalSearchItems(
   }
 }
 
+function buildPriceChartingCacheKey(query: string) {
+  const normalizedQuery = normalizeInstaCompCacheKey(query);
+  const rawKey = `pricecharting_api:${normalizedQuery}`;
+
+  return createHash("sha256").update(rawKey).digest("hex");
+}
+
+function positiveIntegerOrNull(value: unknown) {
+  const parsed = Number(value);
+
+  return Number.isFinite(parsed) && parsed > 0 ? Math.round(parsed) : null;
+}
+
+function priceChartingProductUrl(product: Record<string, unknown>) {
+  const directUrl =
+    typeof product["product-url"] === "string"
+      ? product["product-url"]
+      : typeof product.url === "string"
+        ? product.url
+        : null;
+
+  if (directUrl) return directUrl;
+
+  return null;
+}
+
+function normalizePriceChartingProducts(value: unknown): PriceChartingProductItem[] {
+  const products: unknown[] = Array.isArray((value as any)?.products)
+    ? (value as any).products
+    : Array.isArray(value)
+      ? value
+      : [];
+
+  return products
+    .map((product: unknown): PriceChartingProductItem | null => {
+      const record =
+        product && typeof product === "object"
+          ? (product as Record<string, unknown>)
+          : {};
+      const productName = String(
+        record["product-name"] || record.productName || record.name || ""
+      ).trim();
+
+      if (!productName) return null;
+
+      return {
+        id: String(record.id || "").trim(),
+        productName,
+        consoleName:
+          typeof record["console-name"] === "string"
+            ? record["console-name"]
+            : typeof record.consoleName === "string"
+              ? record.consoleName
+              : null,
+        loosePriceCents: positiveIntegerOrNull(record["loose-price"]),
+        productUrl: priceChartingProductUrl(record),
+      };
+    })
+    .filter((item): item is PriceChartingProductItem => Boolean(item));
+}
+
+async function getCachedPriceChartingProducts(
+  cacheKey: string
+): Promise<{
+  products: PriceChartingProductItem[];
+  expiresAt: string | null;
+  hitCount: number;
+} | null> {
+  if (!SUPABASE_URL || !SUPABASE_KEY) return null;
+
+  const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+  const { data, error } = await supabase
+    .from("instacomp_search_cache")
+    .select("result_payload, hit_count, expires_at")
+    .eq("query_hash", cacheKey)
+    .eq("provider", "pricecharting_api")
+    .gt("expires_at", new Date().toISOString())
+    .maybeSingle();
+
+  if (error) {
+    console.error("PriceCharting cache read error:", error);
+    return null;
+  }
+
+  const payload = data?.result_payload as
+    | { products?: PriceChartingProductItem[]; query?: string }
+    | null;
+  const products = normalizePriceChartingProducts(payload?.products || []);
+
+  if (!products.length) return null;
+
+  const hitCount = Number(data?.hit_count || 0);
+
+  void supabase
+    .from("instacomp_search_cache")
+    .update({
+      hit_count: Number.isFinite(hitCount) ? hitCount + 1 : 1,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("query_hash", cacheKey)
+    .eq("provider", "pricecharting_api");
+
+  return {
+    products,
+    expiresAt: typeof data?.expires_at === "string" ? data.expires_at : null,
+    hitCount: Number.isFinite(hitCount) ? hitCount : 0,
+  };
+}
+
+async function storeCachedPriceChartingProducts(
+  cacheKey: string,
+  query: string,
+  products: PriceChartingProductItem[]
+) {
+  if (!SUPABASE_URL || !SUPABASE_KEY) return;
+
+  const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
+  const now = new Date();
+  const expiresAt = new Date(
+    now.getTime() + 1000 * 60 * 60 * 24 * PRICECHARTING_CACHE_TTL_DAYS
+  ).toISOString();
+
+  const { error } = await supabase.from("instacomp_search_cache").upsert(
+    {
+      query_hash: cacheKey,
+      provider: "pricecharting_api",
+      normalized_query: normalizeInstaCompCacheKey(query),
+      result_payload: {
+        query,
+        provider: "pricecharting_api",
+        products,
+      },
+      updated_at: now.toISOString(),
+      expires_at: expiresAt,
+      hit_count: 0,
+    },
+    { onConflict: "query_hash" }
+  );
+
+  if (error) {
+    console.error("PriceCharting cache write error:", error);
+  }
+}
+
+async function runPriceChartingApiCall<T>(fn: () => Promise<T>) {
+  const run = priceChartingApiQueue.then(async () => {
+    const waitMs = Math.max(
+      0,
+      PRICECHARTING_MIN_REQUEST_INTERVAL_MS -
+        (Date.now() - priceChartingLastRequestStartedAt)
+    );
+
+    if (waitMs) {
+      await new Promise((resolve) => setTimeout(resolve, waitMs));
+    }
+
+    priceChartingLastRequestStartedAt = Date.now();
+    return fn();
+  });
+
+  priceChartingApiQueue = run.then(
+    () => undefined,
+    () => undefined
+  );
+
+  return run;
+}
+
+async function fetchPriceChartingProducts(query: string): Promise<{
+  ok: boolean;
+  products: PriceChartingProductItem[];
+  message: string | null;
+}> {
+  if (!PRICECHARTING_API_TOKEN) {
+    return {
+      ok: false,
+      products: [],
+      message:
+        "Add PRICECHARTING_API_TOKEN to ingest SportsCardsPro / PriceCharting guide prices.",
+    };
+  }
+
+  const url = new URL("https://www.pricecharting.com/api/products");
+  url.searchParams.set("t", PRICECHARTING_API_TOKEN);
+  url.searchParams.set("q", query);
+
+  try {
+    return await runPriceChartingApiCall(async () => {
+      const response = await fetch(url.toString(), { cache: "no-store" });
+      const data = await response.json().catch(() => ({}));
+
+      if (!response.ok || data?.status === "error") {
+        return {
+          ok: false,
+          products: [],
+          message: `SportsCardsPro / PriceCharting failed: ${String(
+            data?.["error-message"] || data?.error || response.statusText
+          )}`,
+        };
+      }
+
+      return {
+        ok: true,
+        products: normalizePriceChartingProducts(data),
+        message: null,
+      };
+    });
+  } catch (error: any) {
+    return {
+      ok: false,
+      products: [],
+      message: `SportsCardsPro / PriceCharting failed: ${error?.message || "request error"}`,
+    };
+  }
+}
+
+async function getPriceChartingProvider(
+  query: string,
+  ai: InstaCompAiResult
+): Promise<InstaCompProviderResult> {
+  const searchUrl = `https://www.sportscardspro.com/search-products?q=${encodeURIComponent(
+    query
+  )}&type=prices`;
+
+  if (!PRICECHARTING_API_TOKEN) {
+    return {
+      source: "sports_cards_pro",
+      label: "SportsCardsPro Guide",
+      status: "not_configured",
+      message:
+        "PRICECHARTING_API_TOKEN is not configured, so SportsCardsPro guide prices were not ingested.",
+      results: [],
+      searchUrl,
+    };
+  }
+
+  const cacheKey = buildPriceChartingCacheKey(query);
+  const cached = await getCachedPriceChartingProducts(cacheKey);
+  const fetched = cached ? null : await fetchPriceChartingProducts(query);
+
+  if (fetched && !fetched.ok) {
+    return {
+      source: "sports_cards_pro",
+      label: "SportsCardsPro Guide",
+      status: "error",
+      message: fetched.message,
+      results: [],
+      searchUrl,
+    };
+  }
+
+  const products = cached?.products ?? fetched?.products ?? [];
+
+  if (!cached && fetched?.ok) {
+    void storeCachedPriceChartingProducts(cacheKey, query, products);
+  }
+
+  const rawComps: Omit<InstaCompComp, "matchScore" | "flags">[] = products
+    .filter((product) => product.loosePriceCents !== null)
+    .map((product) => ({
+      title: [
+        product.productName,
+        product.consoleName && !product.productName.includes(product.consoleName)
+          ? product.consoleName
+          : null,
+      ]
+        .filter(Boolean)
+        .join(" "),
+      price: Number(product.loosePriceCents) / 100,
+      currency: "USD",
+      url: product.productUrl || searchUrl,
+      imageUrl: null,
+      source: "sports_cards_pro" as const,
+      sourceLabel: "SportsCardsPro Guide",
+      sourceCategory: "pricing" as const,
+    }))
+    .filter((item) => !looksLikeBadCompTitle(item.title, ai));
+
+  const results = filterAndRankExactMatches(rawComps, ai, 6, 45).map(
+    (comp) => ({
+      ...comp,
+      flags: Array.from(new Set([...comp.flags, "guide price", "ungraded"])),
+    })
+  );
+
+  return {
+    source: "sports_cards_pro",
+    label: "SportsCardsPro Guide",
+    status: results.length ? "live" : "no_matches",
+    message: cached
+      ? `Loaded cached SportsCardsPro guide prices.`
+      : results.length
+        ? "SportsCardsPro / PriceCharting returned filtered ungraded guide price matches."
+        : products.length
+          ? "SportsCardsPro / PriceCharting returned products, but no ungraded exact guide price passed the InstaComp filter."
+          : "SportsCardsPro / PriceCharting returned no product matches.",
+    results,
+    searchUrl,
+  };
+}
+
 type ExternalSearchSource = {
   label: string;
   domain: string;
@@ -1890,6 +2206,14 @@ type ExternalSearchItem = {
   url: string;
   snippet: string;
   imageUrl: string | null;
+};
+
+type PriceChartingProductItem = {
+  id: string;
+  productName: string;
+  consoleName: string | null;
+  loosePriceCents: number | null;
+  productUrl: string | null;
 };
 
 type ExternalSearchFetchResult = {
@@ -1952,6 +2276,11 @@ const externalSearchSources: ExternalSearchSource[] = [
   {
     label: "PriceCharting",
     domain: "pricecharting.com",
+    category: "pricing",
+  },
+  {
+    label: "SportsCardsPro",
+    domain: "sportscardspro.com",
     category: "pricing",
   },
   { label: "CollX", domain: "collx.app", category: "pricing" },
@@ -2465,6 +2794,11 @@ function buildSourceCoverage(
   for (const provider of providers) {
     if (provider.label === "eBay Active") {
       directProviderBySourceLabel.set("ebay active", provider);
+    }
+    if (provider.label === "SportsCardsPro Guide") {
+      directProviderBySourceLabel.set("sportscardspro guide", provider);
+      directProviderBySourceLabel.set("sportscardspro", provider);
+      directProviderBySourceLabel.set("pricecharting", provider);
     }
   }
 
@@ -3079,16 +3413,23 @@ export async function POST(req: NextRequest) {
     const links = buildCompLinks(queries.primary);
     const compQueries = [queries.primary, ...queries.backupQueries];
 
-    const [ebayProvider, tcosProvider, externalSearchProvider] =
+    const [
+      ebayProvider,
+      tcosProvider,
+      priceChartingProvider,
+      externalSearchProvider,
+    ] =
       await Promise.all([
         getBestEbayProvider(compQueries, ai, links.ebayActiveUrl),
         getTcosInventoryProvider(queries.primary, ai),
+        getPriceChartingProvider(queries.primary, ai),
         getExternalSearchProvider(queries.primary, ai, links.broadCardMarketUrl),
       ]);
 
     const providers = [
       ebayProvider,
       tcosProvider,
+      priceChartingProvider,
       externalSearchProvider,
     ];
 

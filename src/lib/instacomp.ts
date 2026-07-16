@@ -378,6 +378,7 @@ export function buildCompLinks(query: string): InstaCompLinks {
     "psacard.com",
     "beckett.com",
     "pricecharting.com",
+    "sportscardspro.com",
     "collx.app",
     "cardbase.com",
     "stockx.com",
@@ -403,6 +404,7 @@ export function buildCompLinks(query: string): InstaCompLinks {
   const sportlotsUrl = googleSiteUrl("sportlots.com");
   const paniniAmericaUrl = googleSiteUrl("paniniamerica.net");
   const upperDeckUrl = googleSiteUrl("upperdeck.com");
+  const sportsCardsProUrl = `https://www.sportscardspro.com/search-products?q=${encoded}&type=prices`;
   const mercariUrl = `https://www.mercari.com/search/?keyword=${encoded}`;
   const facebookMarketplaceUrl = `https://www.facebook.com/marketplace/search/?query=${encoded}`;
   const googleShoppingUrl = `https://www.google.com/search?tbm=shop&q=${encoded}`;
@@ -433,6 +435,7 @@ export function buildCompLinks(query: string): InstaCompLinks {
     { label: "Market Movers", url: googleSiteUrl("sportscardinvestor.com"), category: "pricing" },
     { label: "Beckett", url: googleSiteUrl("beckett.com"), category: "pricing" },
     { label: "PriceCharting", url: googleSiteUrl("pricecharting.com"), category: "pricing" },
+    { label: "SportsCardsPro Guide", url: sportsCardsProUrl, category: "pricing" },
     { label: "CollX", url: googleSiteUrl("collx.app"), category: "pricing" },
     { label: "Cardbase", url: googleSiteUrl("cardbase.com"), category: "pricing" },
     { label: "COMC Checklist", url: comcUrl, category: "reference" },
