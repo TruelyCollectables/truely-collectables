@@ -1,6 +1,6 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
-import path, { dirname, resolve } from "node:path";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
@@ -22,7 +22,7 @@ function resolveFromRepo(input) {
   return resolve(repoRoot, input);
 }
 
-async function readJsonFile(filePath, label) {
+async function readJsonFile(filePath) {
   const resolved = resolveFromRepo(filePath);
   const raw = await readFile(resolved, "utf8");
   return { resolved, data: JSON.parse(raw) };
@@ -268,11 +268,9 @@ async function main() {
 
   const { resolved: resolvedManifestPath, data: manifest } = await readJsonFile(
     manifestPath,
-    "manifest",
   );
   const { resolved: resolvedImageMapPath, data: imageMap } = await readJsonFile(
     imageMapPath,
-    "image map",
   );
   validateManifest(manifest);
   validateImageMap(imageMap);
