@@ -480,6 +480,12 @@ const INSTACOMP_FINAL_TRIAL_TARGET_CARDS = 100;
 const INSTACOMP_FINAL_TRIAL_TARGET_AVERAGE_SECONDS = 15;
 const INSTACOMP_FINAL_TRIAL_TARGET_P95_SECONDS = 45;
 const INSTACOMP_LAST_JOB_STORAGE_KEY = "tcos-instacomp-last-job-v1";
+const ACTIVE_INSTACOMP_JOB_STATUSES = new Set([
+  "uploading",
+  "queued",
+  "processing",
+  "cancelling",
+]);
 const EMPTY_CARD_PREVIEW =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='560' viewBox='0 0 400 560'%3E%3Crect width='400' height='560' fill='%23e5e7eb'/%3E%3Ctext x='200' y='280' text-anchor='middle' fill='%236b7280' font-family='Arial' font-size='24'%3ERecovered card%3C/text%3E%3C/svg%3E";
 const TEST_MODEL_LATENCY_MS = 120;
@@ -3983,6 +3989,86 @@ export default function InstaCompScanner({
     );
   }
 
+  async function forceCloseActivePersistentJobsBeforeRetry() {
+    const listData = await persistentJobJson("/api/instacomp/jobs?limit=25");
+    const activeJobs = (Array.isArray(listData.jobs) ? listData.jobs : [])
+      .filter((job: PersistentJobSummary) =>
+        ACTIVE_INSTACOMP_JOB_STATUSES.has(String(job.status))
+      );
+
+    if (!activeJobs.length) return 0;
+
+    await Promise.all(
+      activeJobs.map((job: PersistentJobSummary) =>
+        persistentJobJson(`/api/instacomp/jobs/${job.id}`, {
+          method: "PATCH",
+          body: {
+            status: "cancelling",
+            cancelRequested: true,
+            forceCancel: true,
+          },
+        }).catch((error) => {
+          if (
+            error?.code === "INSTACOMP_INVALID_JOB_TRANSITION" ||
+            error?.status === 404
+          ) {
+            return null;
+          }
+
+          throw error;
+        })
+      )
+    );
+
+    return activeJobs.length;
+  }
+
+  async function createPersistentJobWithActiveLotRecovery(params: {
+    clientBatchId: string;
+    totalItems: number;
+    autoCreateDrafts: boolean;
+  }) {
+    const body = {
+      clientBatchId: params.clientBatchId,
+      name: `InstaComp lot ${new Date().toLocaleString()}`,
+      totalItems: params.totalItems,
+      requestedConcurrency: batchConcurrency,
+      autoCreateDrafts: params.autoCreateDrafts,
+      options: {
+        transport: "signed_private_uploads",
+        imageOptimization: "bounded_v1",
+      },
+    };
+
+    try {
+      return await persistentJobJson("/api/instacomp/jobs", {
+        method: "POST",
+        body,
+      });
+    } catch (error: any) {
+      if (error?.code !== "INSTACOMP_ACTIVE_JOB_LIMIT") {
+        throw error;
+      }
+
+      const closedCount = await forceCloseActivePersistentJobsBeforeRetry();
+
+      if (!closedCount) {
+        throw error;
+      }
+
+      setBatchDraftMessage(
+        `Closed ${closedCount} stale active InstaComp lot${
+          closedCount === 1 ? "" : "s"
+        } and retried this upload.`
+      );
+
+      return persistentJobJson("/api/instacomp/jobs", {
+        method: "POST",
+        body,
+      });
+    }
+  }
+
   async function uploadPersistentJobFile(params: {
     bucket: string;
     path: string;
@@ -4030,19 +4116,10 @@ export default function InstaCompScanner({
       const clientBatchId =
         persistentClientBatchIdRef.current || crypto.randomUUID();
       persistentClientBatchIdRef.current = clientBatchId;
-      const created = await persistentJobJson("/api/instacomp/jobs", {
-        method: "POST",
-        body: {
-          clientBatchId,
-          name: `InstaComp lot ${new Date().toLocaleString()}`,
-          totalItems: cards.length,
-          requestedConcurrency: batchConcurrency,
-          autoCreateDrafts,
-          options: {
-            transport: "signed_private_uploads",
-            imageOptimization: "bounded_v1",
-          },
-        },
+      const created = await createPersistentJobWithActiveLotRecovery({
+        clientBatchId,
+        totalItems: cards.length,
+        autoCreateDrafts,
       });
       const job = created.job as PersistentJobSummary;
       let completedUploads = 0;
