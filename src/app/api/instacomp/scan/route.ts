@@ -56,6 +56,11 @@ const INSTACOMP_OPENAI_FALLBACK_MODEL =
   process.env.INSTACOMP_OPENAI_FALLBACK_MODEL ||
   process.env.OPENAI_MODEL ||
   "gpt-4.1-mini";
+const INSTACOMP_SERIAL_OPENAI_MODEL =
+  process.env.INSTACOMP_SERIAL_OPENAI_MODEL ||
+  INSTACOMP_OPENAI_FALLBACK_MODEL;
+const INSTACOMP_SERIAL_VISION_MODE =
+  process.env.INSTACOMP_SERIAL_VISION_MODE || "adaptive";
 const GEMINI_API_KEY =
   process.env.GEMINI_API_KEY || process.env.GOOGLE_GEMINI_API_KEY;
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
@@ -742,6 +747,68 @@ function normalizeInstaCompAiResult(value: unknown): InstaCompAiResult {
   };
 }
 
+function normalizedSerialVisionMode() {
+  const mode = String(INSTACOMP_SERIAL_VISION_MODE || "adaptive")
+    .toLowerCase()
+    .trim();
+
+  if (["always", "off", "adaptive"].includes(mode)) return mode;
+
+  return "adaptive";
+}
+
+function textHasSerialVisionSignal(value: string | null | undefined) {
+  const text = String(value || "");
+
+  return (
+    /\b(?:serial(?:ed)?|numbered|numbered\s+to|limited\s+to|one\s+of\s+one|1\s+of\s+1|1\/1)\b/i.test(text) ||
+    /\b(?!20\d{2}\s*\/\s*\d{2}\b)\d{1,3}\s*\/\s*(?:1|5|10|15|20|25|49|50|75|99|100|149|150|199|250|299|399|499|999|1000)\b/i.test(text) ||
+    /\b\/(?:1|5|10|15|20|25|49|50|75|99|100|149|150|199|250|299|399|499|999|1000)\b/i.test(text)
+  );
+}
+
+function shouldRunSerialVision(params: {
+  ai: InstaCompAiResult;
+  externalOcr: ExternalOcrResult | null;
+  requestedTier?: string | null;
+}) {
+  if (params.externalOcr?.serialNumber || params.ai.serialNumber) return true;
+
+  const mode = normalizedSerialVisionMode();
+  if (mode === "off") return false;
+  if (mode === "always") return true;
+
+  const tier = aiCouncilTier(params.requestedTier);
+  if (tier === "courtroom") return true;
+
+  const evidenceText = [
+    params.externalOcr?.text,
+    params.ai.notes,
+    params.ai.parallel,
+    params.ai.setName,
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return textHasSerialVisionSignal(evidenceText);
+}
+
+function shouldPreflightSerialVision(params: {
+  externalOcr: ExternalOcrResult | null;
+  requestedTier?: string | null;
+}) {
+  if (params.externalOcr?.serialNumber) return false;
+
+  const mode = normalizedSerialVisionMode();
+  if (mode === "off") return false;
+  if (mode === "always") return true;
+
+  const tier = aiCouncilTier(params.requestedTier);
+  if (tier === "courtroom") return true;
+
+  return textHasSerialVisionSignal(params.externalOcr?.text);
+}
+
 function buildAiCouncilPrompt(params: {
   externalOcr: ExternalOcrResult | null;
   providerLabel: string;
@@ -1272,7 +1339,13 @@ Rules:
   }
 
   const scanModels = Array.from(
-    new Set([INSTACOMP_OPENAI_MODEL, INSTACOMP_OPENAI_FALLBACK_MODEL].filter(Boolean))
+    new Set(
+      [
+        INSTACOMP_SERIAL_OPENAI_MODEL,
+        INSTACOMP_OPENAI_FALLBACK_MODEL,
+        INSTACOMP_OPENAI_MODEL,
+      ].filter(Boolean)
+    )
   );
   let response: Response | null = null;
   let errorText = "";
@@ -2917,21 +2990,39 @@ export async function POST(req: NextRequest) {
       ...detailImages,
     ];
     const externalOcr = await getBestExternalOcr(externalOcrImages);
+    const preflightSerialOcrPromise = shouldPreflightSerialVision({
+      externalOcr,
+      requestedTier: requestedAiCouncilTier,
+    })
+      ? detectSerialNumberWithOpenAI(
+          frontDataUrl,
+          backDataUrl,
+          detailImages.slice(0, 16),
+          externalOcr
+        )
+      : null;
 
-    const [baseAi, serialOcr] = await Promise.all([
-      identifyCardWithOpenAI(
-        frontDataUrl,
-        backDataUrl,
-        detailImages.slice(0, 8),
-        externalOcr
-      ),
-      detectSerialNumberWithOpenAI(
-        frontDataUrl,
-        backDataUrl,
-        detailImages,
-        externalOcr
-      ),
-    ]);
+    const baseAi = await identifyCardWithOpenAI(
+      frontDataUrl,
+      backDataUrl,
+      detailImages.slice(0, 8),
+      externalOcr
+    );
+    const serialOcr =
+      (preflightSerialOcrPromise
+        ? await preflightSerialOcrPromise
+        : shouldRunSerialVision({
+              ai: baseAi,
+              externalOcr,
+              requestedTier: requestedAiCouncilTier,
+            })
+          ? await detectSerialNumberWithOpenAI(
+              frontDataUrl,
+              backDataUrl,
+              detailImages.slice(0, 16),
+              externalOcr
+            )
+          : null);
     const mergedSerialAi = mergeSerialOcrResult(baseAi, serialOcr);
     const guardedAi = applyInstaCompIdentityGuard(mergedSerialAi, {
       externalOcrText: externalOcr?.text || null,
@@ -3071,6 +3162,8 @@ export async function POST(req: NextRequest) {
         secondaryVisionReasons: consensusEscalation.reasons,
         aiCouncil,
         extractedSerialNumber: externalOcr?.serialNumber || null,
+        serialVisionMode: normalizedSerialVisionMode(),
+        serialVisionSkipped: !serialOcr,
         serialVisionCheckedImages: serialOcr?.checkedImages || 0,
         serialVisionSerialNumber: serialOcr?.serialNumber || ai.serialNumber || null,
         serialVisionEvidence: serialOcr?.evidence || null,

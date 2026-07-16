@@ -188,6 +188,8 @@ type ScanResponse = {
       }[];
     };
     extractedSerialNumber: string | null;
+    serialVisionMode?: "adaptive" | "always" | "off" | string | null;
+    serialVisionSkipped?: boolean | null;
     serialVisionCheckedImages?: number | null;
     serialVisionSerialNumber?: string | null;
     serialVisionEvidence?: string | null;
@@ -11837,6 +11839,8 @@ function OcrDiagnosticsPanel({ result }: { result: ScanResponse }) {
               ? `${serialVisionSerial}${
                   serialVisionImages ? ` (${serialVisionImages} checked)` : ""
                 }`
+              : diagnostics.serialVisionSkipped
+                ? `Skipped (${diagnostics.serialVisionMode || "adaptive"})`
               : "None found"
           }
         />
@@ -11935,12 +11939,17 @@ function OcrDiagnosticsMini({ result }: { result: ScanResponse | null }) {
   const aiCouncilLabel = diagnostics.aiCouncil
     ? ` - AI +${diagnostics.aiCouncil.completedReaders}/${diagnostics.aiCouncil.desiredReaders}`
     : "";
+  const serialVisionLabel = serialVisionSerial
+    ? `found ${serialVisionSerial}`
+    : diagnostics.serialVisionSkipped
+      ? `skipped ${diagnostics.serialVisionMode || "adaptive"}`
+      : "did not find a serial";
 
   if (!providerConfigured) {
     return (
       <div style={{ marginTop: 6, color: "#8a1f1f", fontSize: 12, fontWeight: 900 }}>
         OCR: PaddleOCR/Google not configured - serial vision{" "}
-        {serialVisionSerial ? `found ${serialVisionSerial}` : "did not find a serial"}
+        {serialVisionLabel}
         {speedLaneLabel}
         {councilLabel}
         {aiCouncilLabel}
@@ -11952,7 +11961,7 @@ function OcrDiagnosticsMini({ result }: { result: ScanResponse | null }) {
     return (
       <div style={{ marginTop: 6, color: "#7a4f00", fontSize: 12, fontWeight: 900 }}>
         OCR: no Paddle/Google text - serial vision{" "}
-        {serialVisionSerial ? `found ${serialVisionSerial}` : "did not find a serial"}
+        {serialVisionLabel}
         {speedLaneLabel}
         {councilLabel}
         {aiCouncilLabel}
