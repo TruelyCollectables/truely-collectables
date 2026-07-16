@@ -218,6 +218,16 @@ function readCatalogEvidence(result) {
   );
 }
 
+function readOperatorReview(result) {
+  return (
+    result?.operatorReview ||
+    result?.result?.operatorReview ||
+    result?.predicted?.operatorReview ||
+    result?.ai?.operatorReview ||
+    null
+  );
+}
+
 function buildPlaceholderManifest(cards) {
   const cardRows = Array.from({ length: cards }, (_, index) => {
     const id = String(index + 1).padStart(3, "0");
@@ -1321,6 +1331,7 @@ function scoreCard(card, result) {
   const actual = readResultFields(result);
   const consensus = readConsensus(result);
   const catalogEvidence = readCatalogEvidence(result);
+  const operatorReview = readOperatorReview(result);
   const consensusReviewRequired = consensus?.status === "review_required";
   const catalogConfirmed =
     catalogEvidence?.catalogConfirmed === true ||
@@ -1385,6 +1396,11 @@ function scoreCard(card, result) {
       ? consensus.reviewReasons
       : [],
     hasCatalogEvidence: Boolean(catalogEvidence),
+    hasOperatorReview: Boolean(operatorReview),
+    operatorMarkedWrong: operatorReview?.markedWrong === true,
+    operatorMarkedCorrect:
+      operatorReview?.markedCorrect === true ||
+      (Boolean(operatorReview) && operatorReview?.markedWrong !== true),
     catalogConfirmed,
     catalogReviewRequired,
     catalogReviewReasons: Array.isArray(catalogEvidence?.reviewReasons)
@@ -1536,6 +1552,15 @@ function summarizeScores(
   const catalogMissingEvidenceIds = cardScores
     .filter((item) => item.hasResult && !item.hasCatalogEvidence)
     .map((item) => item.trialCardId);
+  const operatorReviewedScores = cardScores.filter(
+    (item) => item.hasResult && item.hasOperatorReview,
+  );
+  const operatorMarkedWrongIds = operatorReviewedScores
+    .filter((item) => item.operatorMarkedWrong)
+    .map((item) => item.trialCardId);
+  const operatorMarkedCorrectIds = operatorReviewedScores
+    .filter((item) => item.operatorMarkedCorrect)
+    .map((item) => item.trialCardId);
   const identityFieldTotal = cardScores.reduce((sum, item) => sum + item.identityFieldTotal, 0);
   const identityFieldPassed = cardScores.reduce((sum, item) => sum + item.identityFieldPassed, 0);
   const combinedPassed = identityExactPassed + serialNumberPassed + serialRunPassed;
@@ -1598,6 +1623,18 @@ function summarizeScores(
           cardScores.length - catalogMissingEvidenceIds.length,
           cardScores.length,
         ),
+      },
+      operatorReview: {
+        reviewed: operatorReviewedScores.length,
+        markedWrong: operatorMarkedWrongIds.length,
+        markedCorrect: operatorMarkedCorrectIds.length,
+        markedWrongIds: operatorMarkedWrongIds,
+        accuracyPercent: percent(
+          operatorMarkedCorrectIds.length,
+          operatorReviewedScores.length,
+        ),
+        gradingMode:
+          "operator wrong-checkbox triage; use the full answer-key manifest for final 94% certification",
       },
     },
     accuracy: {
@@ -1836,6 +1873,11 @@ function printTextReport(report) {
   console.log(
     `Catalog evidence: confirmed ${report.observed.catalogEvidence.confirmed}, review ${report.observed.catalogEvidence.reviewRequired}, missing ${report.observed.catalogEvidence.missing} (${report.observed.catalogEvidence.coveragePercent ?? "n/a"}% coverage)`
   );
+  if (report.observed.operatorReview?.reviewed > 0) {
+    console.log(
+      `Operator review: wrong ${report.observed.operatorReview.markedWrong}/${report.observed.operatorReview.reviewed}, quick accuracy ${report.observed.operatorReview.accuracyPercent ?? "n/a"}%`
+    );
+  }
   console.log("");
   console.log(report.targetMet ? "PASS target met" : "FAIL target not met");
 

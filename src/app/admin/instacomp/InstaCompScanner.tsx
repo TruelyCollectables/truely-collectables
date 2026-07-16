@@ -276,6 +276,7 @@ type BatchCard = {
   backPreviewUrl: string | null;
   status: BatchCardStatus;
   selected: boolean;
+  operatorMarkedWrong?: boolean;
   result: ScanResponse | null;
   marketPrice: number | null;
   customTitle: string;
@@ -1478,6 +1479,7 @@ function batchExportRows(items: BatchCardViewItem[]) {
       draftReady: draftReadinessErrors(card).length === 0,
       draftReadinessErrors: draftReadinessErrors(card).join("; "),
       selectedForDraft: card.selected && isDraftableBatchCard(card),
+      operatorMarkedWrong: Boolean(card.operatorMarkedWrong),
       frontFileName: card.file.name,
       backFileName: card.backFile?.name || "",
       pairedImages: Boolean(card.backFile),
@@ -1584,6 +1586,11 @@ function batchJsonPayload(items: BatchCardViewItem[], fileScope: "all" | "view")
       paired: cards.filter((card) => card.backFile).length,
       selectedForDraft: cards.filter(
         (card) => card.selected && isDraftableBatchCard(card)
+      ).length,
+      operatorMarkedWrong: cards.filter((card) => card.operatorMarkedWrong)
+        .length,
+      operatorMarkedCorrect: cards.filter(
+        (card) => card.status === "done" && !card.operatorMarkedWrong
       ).length,
       draftable: cards.filter(isDraftableBatchCard).length,
       draftsCreated: cards.filter((card) => card.draftStatus === "created")
@@ -1763,6 +1770,11 @@ function instacompTrialResultRows(items: BatchCardViewItem[]) {
         consensus: result.consensus || null,
         review: result.review || null,
         catalogEvidence: instacompTrialCatalogEvidenceSummary(result),
+        operatorReview: {
+          markedWrong: Boolean(card.operatorMarkedWrong),
+          markedCorrect: !card.operatorMarkedWrong,
+          reviewMode: "operator_wrong_checkbox",
+        },
         actual: {
           player: ai.player || "",
           year: ai.year || "",
@@ -1807,6 +1819,22 @@ function instacompTrialResultsPayload(items: BatchCardViewItem[]) {
         (card) => card.catalogEvidence?.status === "review_required"
       ).length,
       missingCatalogEvidence: cards.filter((card) => !card.catalogEvidence).length,
+      operatorMarkedWrong: cards.filter((card) => card.operatorReview.markedWrong)
+        .length,
+      operatorMarkedCorrect: cards.filter(
+        (card) => card.operatorReview.markedCorrect
+      ).length,
+      operatorReviewAccuracyPercent:
+        cards.length > 0
+          ? Number(
+              (
+                (cards.filter((card) => card.operatorReview.markedCorrect)
+                  .length /
+                  cards.length) *
+                100
+              ).toFixed(2)
+            )
+          : null,
       rowsWithTiming: timedRows.length,
       averageElapsedMs:
         timedRows.length > 0
@@ -4264,6 +4292,7 @@ export default function InstaCompScanner({
       selected:
         fixture.selected ??
         (status !== "error" && draftStatus !== "created" && draftStatus !== "drafting"),
+      operatorMarkedWrong: false,
       result,
       marketPrice,
       customTitle: result ? cardResultTitle(result, frontFile.name) : "",
@@ -5842,6 +5871,7 @@ export default function InstaCompScanner({
         backPreviewUrl: pair.back ? createBatchPreviewUrl(pair.back.file) : null,
         status: "queued",
         selected: true,
+        operatorMarkedWrong: false,
         result: null,
         marketPrice: null,
         customTitle: "",
@@ -5983,6 +6013,7 @@ export default function InstaCompScanner({
         const resetAfterRotation = {
           status: "queued" as const,
           selected: true,
+          operatorMarkedWrong: false,
           result: null,
           marketPrice: null,
           customTitle: "",
@@ -6455,6 +6486,16 @@ export default function InstaCompScanner({
     updateBatchCard(cardId, (card) => ({
       ...card,
       selected,
+    }));
+  }
+
+  function toggleBatchCardOperatorMarkedWrong(
+    cardId: string,
+    operatorMarkedWrong: boolean
+  ) {
+    updateBatchCard(cardId, (card) => ({
+      ...card,
+      operatorMarkedWrong,
     }));
   }
 
@@ -7048,6 +7089,7 @@ export default function InstaCompScanner({
     updateBatchCard(card.id, (current) => ({
       ...current,
       status: "queued",
+      operatorMarkedWrong: false,
       error: null,
       result: null,
       marketPrice: null,
@@ -7098,6 +7140,7 @@ export default function InstaCompScanner({
         updateBatchCard(card.id, (current) => ({
           ...current,
           status: "queued",
+          operatorMarkedWrong: false,
           error: null,
           scanQueuedAt: new Date().toISOString(),
           scanStartedAt: null,
@@ -10636,6 +10679,7 @@ export default function InstaCompScanner({
                 onQuantityChange={handleBatchQuantityChange}
                 onPriceChange={handleBatchPriceChange}
                 onSelectedChange={toggleBatchCardSelected}
+                onOperatorMarkedWrongChange={toggleBatchCardOperatorMarkedWrong}
                 onRotateImage={rotateBatchCardImage}
                 onAddToTrade={addBatchCardToTrade}
                 onRetry={retryBatchCard}
@@ -11634,6 +11678,7 @@ function BatchCardRow({
   onQuantityChange,
   onPriceChange,
   onSelectedChange,
+  onOperatorMarkedWrongChange,
   onRotateImage,
   onAddToTrade,
   onRetry,
@@ -11649,6 +11694,10 @@ function BatchCardRow({
   onQuantityChange: (cardId: string, value: string) => void;
   onPriceChange: (cardId: string, value: string) => void;
   onSelectedChange: (cardId: string, selected: boolean) => void;
+  onOperatorMarkedWrongChange: (
+    cardId: string,
+    operatorMarkedWrong: boolean
+  ) => void;
   onRotateImage: (
     cardId: string,
     side: "primary" | "paired",
@@ -11803,6 +11852,35 @@ function BatchCardRow({
                   Serial #: {serialNumber || "none detected"}
                 </span>
               </div>
+            ) : null}
+            {card.status === "done" && card.result ? (
+              <label
+                style={{
+                  display: "inline-flex",
+                  gap: 8,
+                  alignItems: "center",
+                  marginTop: 8,
+                  padding: "6px 10px",
+                  border: card.operatorMarkedWrong
+                    ? "1px solid #dc2626"
+                    : "1px solid #d1d5db",
+                  borderRadius: 999,
+                  background: card.operatorMarkedWrong ? "#fef2f2" : "white",
+                  color: card.operatorMarkedWrong ? "#991b1b" : "#374151",
+                  fontSize: 12,
+                  fontWeight: 900,
+                }}
+                title="Check this when the scanner got the card wrong. Trial export will grade these as misses."
+              >
+                <input
+                  type="checkbox"
+                  checked={Boolean(card.operatorMarkedWrong)}
+                  onChange={(event) =>
+                    onOperatorMarkedWrongChange(card.id, event.target.checked)
+                  }
+                />
+                Wrong / needs fix
+              </label>
             ) : null}
             {(draftErrors.length > 0 || displayReviewWarnings.length > 0) && (
               <div
