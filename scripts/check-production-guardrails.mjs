@@ -3530,6 +3530,7 @@ assertFileIncludes("instacomp printed-variant identity guard source", "src/lib/i
   "Outliers",
   "Future Watch",
   "Spectrum FX",
+  "ai.notes",
   "Insert - exact type uncertain",
   "Acetate / clear parallel - exact type uncertain",
   "Identity guardrail",
@@ -3544,6 +3545,8 @@ assertFileIncludes("instacomp printed-variant identity guard scan route", "src/a
 assertFileIncludes("instacomp printed-variant identity guard simulations", "scripts/run-instacomp-identity-guard-simulations.ts", [
   "printed Limited Red overrides base",
   "Upper Deck Clear Cut overrides base and set",
+  "AI notes Outliers cannot remain base without OCR text",
+  "AI notes clear acetate stock cannot remain base without OCR text",
   "printed SP Authentic Outliers cannot remain base",
   "printed Spectrum FX keeps collector acronym casing",
   "printed generic insert cannot remain base",
@@ -3594,6 +3597,7 @@ assertFileIncludes("instacomp printed-variant identity guard manual", "docs/TCOS
   "Outliers",
   "Future Watch",
   "Spectrum FX",
+  "AI-vision-note-visible",
   "uncertain insert cues are marked for review",
 ]);
 assertFileIncludes("instacomp trial results export manual", "docs/TCOS_OPERATOR_MANUAL.md", [

@@ -141,7 +141,12 @@ function detectPrintedVariantSignal(text: string): VariantSignal | null {
     };
   }
 
-  if (/\binsert\b/i.test(text) || /\bsubset\b/i.test(text)) {
+  if (
+    /\binsert\s+(?:card|cards|set|subset)\b/i.test(text) ||
+    /\bspecial\s+insert\b/i.test(text) ||
+    /\bfrom\s+this\s+subset\b/i.test(text) ||
+    /\bsubset\s+(?:card|cards|set)\b/i.test(text)
+  ) {
     return {
       label: "Insert - exact type uncertain",
       reason: "printed text indicates an insert/subset but exact insert name needs review",
@@ -167,6 +172,7 @@ export function applyInstaCompIdentityGuard(
       context.externalOcrText,
       ai.setName,
       ai.brand,
+      ai.notes,
     ]
       .filter(Boolean)
       .join(" "),

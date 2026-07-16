@@ -52,6 +52,50 @@ const scenarios: Scenario[] = [
     },
   },
   {
+    name: "AI notes Outliers cannot remain base without OCR text",
+    ai: {
+      ...baseAi,
+      player: "Connor McDavid",
+      year: "2025-26",
+      brand: "Upper Deck",
+      setName: "SP Authentic",
+      cardNumber: "O-8",
+      parallel: "Base",
+      team: "Edmonton Oilers",
+      notes: "Vision note: front/back printed text says OUTLIERS but structured parallel stayed Base.",
+    },
+    externalOcrText: "",
+    expect(actual) {
+      assert(actual.parallel === "Outliers", `Expected Outliers from notes, received ${actual.parallel}`);
+      assert(
+        actual.notes?.includes("printed text indicates insert/subset Outliers") === true,
+        "Expected notes-driven Outliers guardrail note",
+      );
+    },
+  },
+  {
+    name: "AI notes clear acetate stock cannot remain base without OCR text",
+    ai: {
+      ...baseAi,
+      player: "Dylan Larkin",
+      year: "2022-23",
+      brand: "Upper Deck",
+      setName: "Extended Series",
+      cardNumber: "656",
+      parallel: "Base",
+      team: "Detroit Red Wings",
+      notes: "Vision note: card has transparent acetate stock and clear/ghosted back logo treatment.",
+    },
+    externalOcrText: "",
+    expect(actual) {
+      assert(
+        actual.parallel === "Acetate / clear parallel - exact type uncertain",
+        `Expected acetate review from notes, received ${actual.parallel}`,
+      );
+      assert(actual.confidence <= 0.84, `Expected review confidence, received ${actual.confidence}`);
+    },
+  },
+  {
     name: "printed SP Authentic Outliers cannot remain base",
     ai: {
       ...baseAi,
