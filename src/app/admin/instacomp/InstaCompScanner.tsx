@@ -6761,7 +6761,7 @@ export default function InstaCompScanner({
     setBatchPauseRequested(false);
     setBatchError(null);
     setBatchDraftMessage(
-      "InstaComp Auto-Pilot is scanning the lot, reading OCR text, finding comps, and preparing ready draft listings."
+      "InstaComp™ Auto-Pilot is scanning the lot, reading OCR text, finding comps, and preparing ready draft listings."
     );
 
     let persistentJobId: string | null = persistentJob?.id || null;
@@ -8392,7 +8392,7 @@ export default function InstaCompScanner({
           >
             <div>
               <h3 style={{ margin: "0 0 4px", fontSize: 24 }}>
-                InstaComp Auto-Pilot
+                InstaComp™ Auto-Pilot
               </h3>
               <p style={{ margin: 0, color: "#d1fae5", fontWeight: 800 }}>
                 One button after upload: scan the lot, read card text, pull comps,
@@ -8444,7 +8444,7 @@ export default function InstaCompScanner({
                 ? "Scanning..."
                 : batchDrafting
                   ? "Creating Drafts..."
-                  : "Run InstaComp Auto-Pilot"}
+                  : "Run InstaComp™ Auto-Pilot"}
             </button>
           </div>
           <small style={{ color: "#e5e7eb", fontWeight: 800 }}>
