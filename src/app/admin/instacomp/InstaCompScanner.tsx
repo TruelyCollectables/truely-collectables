@@ -451,6 +451,7 @@ const INSTACOMP_BATCH_DEFAULT_CONCURRENCY = 6;
 const INSTACOMP_BATCH_MAX_CONCURRENCY = 10;
 const INSTACOMP_JOB_UPLOAD_CONCURRENCY = 10;
 const INSTACOMP_JOB_CLAIM_CHUNK_SIZE = 5;
+const INSTACOMP_RATE_LIMIT_RETRY_SECONDS = 60;
 const INSTACOMP_FINAL_TRIAL_TARGET_CARDS = 100;
 const INSTACOMP_FINAL_TRIAL_TARGET_AVERAGE_SECONDS = 15;
 const INSTACOMP_FINAL_TRIAL_TARGET_P95_SECONDS = 45;
@@ -1978,6 +1979,12 @@ function isDatabaseConnectionPressureText(value: unknown) {
   );
 }
 
+function isOpenAIRateLimitText(value: unknown) {
+  return /\b(rate[_\s-]?limit[_\s-]?exceeded|rate limit reached|tokens per min|requests per min|TPM|RPM)\b/i.test(
+    String(value || "")
+  );
+}
+
 function isDatabaseConnectionPressureError(value: unknown) {
   const error = value as
     | {
@@ -1994,6 +2001,25 @@ function isDatabaseConnectionPressureError(value: unknown) {
     isDatabaseConnectionPressureText(error?.details) ||
     (String(error?.code || "") === "INSTACOMP_JOB_DATABASE_ERROR" &&
       Number(error?.status || 0) >= 500)
+  );
+}
+
+function isOpenAIRateLimitError(value: unknown) {
+  const error = value as
+    | {
+        message?: unknown;
+        code?: unknown;
+        status?: unknown;
+        details?: unknown;
+      }
+    | null
+    | undefined;
+
+  return (
+    isOpenAIRateLimitText(error?.message) ||
+    isOpenAIRateLimitText(error?.details) ||
+    String(error?.code || "").toLowerCase() === "rate_limit_exceeded" ||
+    Number(error?.status || 0) === 429
   );
 }
 
@@ -3066,6 +3092,7 @@ export default function InstaCompScanner({
     useState(!testMode);
   const batchPauseRequestedRef = useRef(false);
   const databasePressurePauseRef = useRef(false);
+  const openAIRateLimitPauseRef = useRef(false);
   const batchPreviewUrlsRef = useRef<string[]>([]);
   const persistentBindingsRef = useRef<Map<string, PersistentJobBinding>>(
     new Map()
@@ -3448,6 +3475,20 @@ export default function InstaCompScanner({
   const batchErrorCount = batchCards.filter(
     (card) => card.status === "error"
   ).length;
+  const batchRateLimitErrorCards = batchCards.filter(
+    (card) => card.status === "error" && isOpenAIRateLimitText(card.error)
+  );
+  const batchRateLimitErrorCount = batchRateLimitErrorCards.length;
+  const batchRateLimitErrorBatchCardIds = new Set(
+    batchRateLimitErrorCards.map((card) => card.id)
+  );
+  const batchOperatorMarkedWrongCards = batchCards.filter(
+    (card) => card.status === "done" && card.result && card.operatorMarkedWrong
+  );
+  const batchOperatorMarkedWrongCount = batchOperatorMarkedWrongCards.length;
+  const batchOperatorMarkedWrongCardIds = new Set(
+    batchOperatorMarkedWrongCards.map((card) => card.id)
+  );
   const batchScanningCount = batchCards.filter(
     (card) => card.status === "scanning"
   ).length;
@@ -6260,6 +6301,7 @@ export default function InstaCompScanner({
     setPersistentJobPreparing(false);
     persistentBindingsRef.current.clear();
     persistentClientBatchIdRef.current = null;
+    openAIRateLimitPauseRef.current = false;
     try {
       window.localStorage.removeItem(INSTACOMP_LAST_JOB_STORAGE_KEY);
     } catch {
@@ -6440,6 +6482,7 @@ export default function InstaCompScanner({
       : INSTACOMP_BATCH_DEFAULT_CONCURRENCY;
 
     databasePressurePauseRef.current = false;
+    openAIRateLimitPauseRef.current = false;
     setBatchConcurrency(nextConcurrency);
   }
 
@@ -6466,6 +6509,21 @@ export default function InstaCompScanner({
     return true;
   }
 
+  function requestBatchOpenAIRateLimitPause() {
+    if (openAIRateLimitPauseRef.current) {
+      return true;
+    }
+
+    openAIRateLimitPauseRef.current = true;
+    batchPauseRequestedRef.current = true;
+    setBatchPauseRequested(true);
+    setBatchConcurrency(1);
+    setBatchError(
+      `OpenAI token rate limit hit. InstaComp paused before claiming more work and backed FAF Parallel Scans down to 1. Wait about ${INSTACOMP_RATE_LIMIT_RETRY_SECONDS} seconds, then use Continue Rate-Limited.`
+    );
+    return true;
+  }
+
   function handleBatchDatabasePressureError(error: unknown) {
     if (!isDatabaseConnectionPressureError(error)) {
       return false;
@@ -6474,12 +6532,28 @@ export default function InstaCompScanner({
     return requestBatchDatabasePressurePause();
   }
 
+  function handleBatchOpenAIRateLimitError(error: unknown) {
+    if (!isOpenAIRateLimitError(error)) {
+      return false;
+    }
+
+    return requestBatchOpenAIRateLimitPause();
+  }
+
   function handleBatchDatabasePressure(card: BatchCard) {
     if (card.status !== "error" || !isDatabaseConnectionPressureText(card.error)) {
       return false;
     }
 
     return requestBatchDatabasePressurePause();
+  }
+
+  function handleBatchOpenAIRateLimit(card: BatchCard) {
+    if (card.status !== "error" || !isOpenAIRateLimitText(card.error)) {
+      return false;
+    }
+
+    return requestBatchOpenAIRateLimitPause();
   }
 
   function toggleBatchCardSelected(cardId: string, selected: boolean) {
@@ -6874,6 +6948,7 @@ export default function InstaCompScanner({
     updateBatchCard(card.id, (current) => ({
       ...current,
       status: "scanning",
+      operatorMarkedWrong: false,
       error: null,
       scanStartedAt,
       scanCompletedAt: null,
@@ -6964,6 +7039,10 @@ export default function InstaCompScanner({
             },
           });
         } catch (error) {
+          if (handleBatchOpenAIRateLimitError(error)) {
+            return;
+          }
+
           if (handleBatchDatabasePressureError(error)) {
             return;
           }
@@ -7041,6 +7120,7 @@ export default function InstaCompScanner({
 
           const scannedCard = await scanOneBatchCard(card, item);
           completedCards.push(scannedCard);
+          handleBatchOpenAIRateLimit(scannedCard);
           handleBatchDatabasePressure(scannedCard);
         }
       }
@@ -7101,12 +7181,18 @@ export default function InstaCompScanner({
     }));
 
     batchPauseRequestedRef.current = false;
+    openAIRateLimitPauseRef.current = false;
     setBatchRunning(true);
 
     try {
       await scanPersistentJob(binding.jobId, batchCards);
     } catch (error: any) {
-      setBatchError(error?.message || "Could not retry this queued card.");
+      if (
+        !handleBatchOpenAIRateLimitError(error) &&
+        !handleBatchDatabasePressureError(error)
+      ) {
+        setBatchError(error?.message || "Could not retry this queued card.");
+      }
     } finally {
       setBatchRunning(false);
     }
@@ -7159,7 +7245,11 @@ export default function InstaCompScanner({
   }
 
   async function scanBatch(
-    options: { retryOnly?: boolean; onlyCardIds?: Set<string> } = {}
+    options: {
+      retryOnly?: boolean;
+      wrongOnly?: boolean;
+      onlyCardIds?: Set<string>;
+    } = {}
   ) {
     if (batchRunning || batchDrafting || persistentJobPreparing) return;
 
@@ -7169,9 +7259,15 @@ export default function InstaCompScanner({
     }
 
     const cardsToScan = batchCards
-      .filter((card) =>
-        options.retryOnly ? card.status === "error" : card.status !== "done"
-      )
+      .filter((card) => {
+        if (options.wrongOnly) {
+          return card.status === "done" && Boolean(card.operatorMarkedWrong);
+        }
+
+        return options.retryOnly
+          ? card.status === "error"
+          : card.status !== "done";
+      })
       .filter((card) => !options.onlyCardIds || options.onlyCardIds.has(card.id));
 
     if (!cardsToScan.length) {
@@ -7181,8 +7277,14 @@ export default function InstaCompScanner({
         emptyMessage = "No failed cards are waiting for retry.";
       }
 
+      if (options.wrongOnly) {
+        emptyMessage = "No wrong-marked cards are waiting for retry.";
+      }
+
       if (options.onlyCardIds) {
-        emptyMessage = "No visible failed cards are waiting for retry.";
+        emptyMessage = options.wrongOnly
+          ? "No selected wrong-marked cards are waiting for retry."
+          : "No visible failed cards are waiting for retry.";
       }
 
       setBatchError(emptyMessage);
@@ -7224,6 +7326,7 @@ export default function InstaCompScanner({
 
     batchPauseRequestedRef.current = false;
     databasePressurePauseRef.current = false;
+    openAIRateLimitPauseRef.current = false;
     setBatchRunning(true);
     setBatchPauseRequested(false);
     setBatchError(null);
@@ -7241,6 +7344,7 @@ export default function InstaCompScanner({
         cursor += 1;
 
         const scannedCard = await scanOneBatchCard(card);
+        handleBatchOpenAIRateLimit(scannedCard);
         handleBatchDatabasePressure(scannedCard);
         completedThisRun += 1;
       }
@@ -7248,7 +7352,7 @@ export default function InstaCompScanner({
 
     try {
       if (persistentJobId) {
-        if (options.retryOnly) {
+        if (options.retryOnly || options.wrongOnly) {
           await requeuePersistentCards(cardsToScan);
         }
 
@@ -7273,7 +7377,10 @@ export default function InstaCompScanner({
         );
       }
     } catch (error: any) {
-      if (!handleBatchDatabasePressureError(error)) {
+      if (
+        !handleBatchOpenAIRateLimitError(error) &&
+        !handleBatchDatabasePressureError(error)
+      ) {
         setBatchError(error?.message || "The persistent scan job stopped.");
       }
     } finally {
@@ -7291,6 +7398,7 @@ export default function InstaCompScanner({
 
     batchPauseRequestedRef.current = false;
     databasePressurePauseRef.current = false;
+    openAIRateLimitPauseRef.current = false;
     setBatchRunning(true);
     setBatchPauseRequested(false);
     setBatchError(null);
@@ -7351,6 +7459,7 @@ export default function InstaCompScanner({
 
         const scannedCard = await scanOneBatchCard(card);
         completedCards.push(scannedCard);
+        handleBatchOpenAIRateLimit(scannedCard);
         handleBatchDatabasePressure(scannedCard);
       }
     }
@@ -7369,7 +7478,10 @@ export default function InstaCompScanner({
       }
     } catch (error: any) {
       scanProcessingFailed = true;
-      if (!handleBatchDatabasePressureError(error)) {
+      if (
+        !handleBatchOpenAIRateLimitError(error) &&
+        !handleBatchDatabasePressureError(error)
+      ) {
         setBatchError(error?.message || "Auto-Pilot scan processing stopped.");
       }
     } finally {
@@ -7413,6 +7525,30 @@ export default function InstaCompScanner({
     await scanBatch({
       retryOnly: true,
       onlyCardIds: visibleFailedBatchCardIds,
+    });
+  }
+
+  async function retryRateLimitedBatchCards() {
+    if (!batchRateLimitErrorCount) {
+      setBatchError("No OpenAI rate-limited rows are waiting for retry.");
+      return;
+    }
+
+    await scanBatch({
+      retryOnly: true,
+      onlyCardIds: batchRateLimitErrorBatchCardIds,
+    });
+  }
+
+  async function retryOperatorMarkedWrongBatchCards() {
+    if (!batchOperatorMarkedWrongCount) {
+      setBatchError("No wrong-marked rows are waiting for retry.");
+      return;
+    }
+
+    await scanBatch({
+      wrongOnly: true,
+      onlyCardIds: batchOperatorMarkedWrongCardIds,
     });
   }
 
@@ -9144,6 +9280,57 @@ export default function InstaCompScanner({
             }}
           >
             {batchPauseRequested ? "Pausing..." : "Pause After Current"}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => void retryRateLimitedBatchCards()}
+            disabled={
+              batchRunning ||
+              batchDrafting ||
+              batchRateLimitErrorCount === 0
+            }
+            style={{
+              ...secondaryButtonStyle,
+              borderColor: "#b45309",
+              color: "#92400e",
+              cursor:
+                batchRunning || batchDrafting || batchRateLimitErrorCount === 0
+                  ? "not-allowed"
+                  : "pointer",
+              opacity:
+                batchRunning || batchDrafting || batchRateLimitErrorCount === 0
+                  ? 0.55
+                  : 1,
+            }}
+            title={`Wait about ${INSTACOMP_RATE_LIMIT_RETRY_SECONDS} seconds after a token-rate limit, then retry only those failed rows.`}
+          >
+            Continue Rate-Limited ({batchRateLimitErrorCount})
+          </button>
+
+          <button
+            type="button"
+            onClick={() => void retryOperatorMarkedWrongBatchCards()}
+            disabled={
+              batchRunning ||
+              batchDrafting ||
+              batchOperatorMarkedWrongCount === 0
+            }
+            style={{
+              ...secondaryButtonStyle,
+              borderColor: "#dc2626",
+              color: "#991b1b",
+              cursor:
+                batchRunning || batchDrafting || batchOperatorMarkedWrongCount === 0
+                  ? "not-allowed"
+                  : "pointer",
+              opacity:
+                batchRunning || batchDrafting || batchOperatorMarkedWrongCount === 0
+                  ? 0.55
+                  : 1,
+            }}
+          >
+            Retry Wrong ({batchOperatorMarkedWrongCount})
           </button>
 
           <button
