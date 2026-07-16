@@ -37,7 +37,11 @@ export default function AdminLoginPage() {
               : "Too many failed attempts. Try again later.",
           );
         } else {
-          setError(data.error || "Wrong password");
+          const attempts =
+            typeof data.attemptsRemaining === "number"
+              ? ` ${data.attemptsRemaining} attempt${data.attemptsRemaining === 1 ? "" : "s"} left before lockout.`
+              : "";
+          setError(`${data.error || "Wrong password"}${attempts}`);
         }
 
         return;

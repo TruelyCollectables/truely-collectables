@@ -23,6 +23,11 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         success: false,
+        code:
+          loginCheck.reason === "locked_out" ||
+          loginCheck.reason === "too_many_failed_attempts"
+            ? "admin_locked_out"
+            : "admin_blocked",
         error:
           loginCheck.reason === "locked_out" ||
           loginCheck.reason === "too_many_failed_attempts"
@@ -42,7 +47,11 @@ export async function POST(req: Request) {
 
   if (!process.env.ADMIN_PASSWORD) {
     return NextResponse.json(
-      { success: false, error: "Admin password is not configured" },
+      {
+        success: false,
+        code: "admin_password_missing",
+        error: "Admin password is not configured. Set ADMIN_PASSWORD and restart the server.",
+      },
       { status: 500 }
     );
   }
@@ -59,6 +68,7 @@ export async function POST(req: Request) {
     return NextResponse.json(
       {
         success: false,
+        code: "invalid_admin_password",
         error: "Invalid password",
         attemptsRemaining: Math.max(
           loginCheck.maxFailedAttempts - loginCheck.failedAttempts - 1,

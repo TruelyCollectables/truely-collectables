@@ -1282,6 +1282,29 @@ function sellerStagedInventorySearchLabel(item: SellerStagedItem) {
   return "Search Seller Drafts";
 }
 
+function sellerStagedInstaCompHref(items: SellerStagedItem[]) {
+  const selectedItems = items.slice(0, 25);
+  const params = new URLSearchParams();
+  const searchText = selectedItems
+    .map((item) => item.sku?.trim() || item.title.trim())
+    .filter(Boolean)
+    .slice(0, 5)
+    .join(" | ");
+
+  params.set("source", "seller-ebay-staging");
+  params.set("rows", String(items.length));
+
+  if (searchText) {
+    params.set("q", searchText);
+  }
+
+  for (const item of selectedItems) {
+    params.append("stagedItemId", item.id);
+  }
+
+  return `/admin/instacomp?${params.toString()}`;
+}
+
 function sellerMatchedInventoryHref(match: {
   title: string;
   sellerScope: "store_owned" | "same_seller" | "other_seller";
@@ -3826,6 +3849,9 @@ export default function SellerConnectionsPanel({
     .map((item) => item.id);
   const selectedReadyCount = selectedSummary.ready;
   const selectedDraftCleanupCount = selectedSummary.draft_cleanup;
+  const selectedInstaCompHref = selectedStageItems.length
+    ? sellerStagedInstaCompHref(selectedStageItems)
+    : "/admin/instacomp?source=seller-ebay-staging";
   const selectionGuidance = selectedQueueGuidance(selectedSummary);
   const lastPromotionDraftLink = sellerDraftOutputHref(
     inventorySummary,
@@ -4437,9 +4463,11 @@ export default function SellerConnectionsPanel({
                   isSavingProvider.length > 0 ||
                   isStagingItems
                 }
-                className="rounded-md border border-amber-400 bg-amber-50 px-4 py-2 text-sm font-black text-amber-950 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-60"
+                className="rounded-md border border-emerald-500 bg-emerald-600 px-4 py-2 text-sm font-black text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {isStagingAll ? "Staging All Remaining..." : "Stage All Remaining"}
+                {isStagingAll
+                  ? "Bringing Listings Over..."
+                  : "1-Click Bring eBay Listings to TCOS"}
               </button>
             ) : null}
             {isStagingAll ? (
@@ -4968,6 +4996,12 @@ export default function SellerConnectionsPanel({
                 {recentImportJobs.length} runs
               </span>
             </div>
+            <p className="mt-3 max-w-4xl text-xs font-semibold leading-5 text-neutral-500">
+              One-click import stages your eBay listings into TCOS review first.
+              Nothing goes live automatically. After staging, select card rows
+              and send them to InstaComp™ cleanup before promoting them into
+              TCOS seller drafts.
+            </p>
 
             <div className="mt-4 grid gap-3 xl:grid-cols-2">
               {recentImportJobs.map((job) => (
@@ -5565,6 +5599,16 @@ export default function SellerConnectionsPanel({
                 </div>
 
                 <div className="flex flex-wrap gap-2">
+                  <Link
+                    href={selectedInstaCompHref}
+                    className={`rounded-md border px-3 py-2 text-xs font-black ${
+                      selectedStageItems.length
+                        ? "border-blue-300 bg-blue-50 text-blue-800 hover:bg-blue-100"
+                        : "pointer-events-none border-neutral-200 bg-neutral-50 text-neutral-400"
+                    }`}
+                  >
+                    Send Selected to InstaComp™ ({selectedStageItems.length})
+                  </Link>
                   <button
                     type="button"
                     onClick={() => promoteSelectedStageItems()}
@@ -6110,6 +6154,12 @@ export default function SellerConnectionsPanel({
                               className="text-xs font-bold text-neutral-700 underline"
                             >
                               {sellerStagedInventorySearchLabel(item)}
+                            </Link>
+                            <Link
+                              href={sellerStagedInstaCompHref([item])}
+                              className="text-xs font-bold text-blue-700 underline"
+                            >
+                              Send to InstaComp™
                             </Link>
                           </div>
                           {categoryHint ? (

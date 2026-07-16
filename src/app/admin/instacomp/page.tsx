@@ -58,8 +58,21 @@ function confidence(value: number | null) {
   return `${Math.round(Number(value) * 100)}%`;
 }
 
-export default async function InstaCompAdminPage() {
+export default async function InstaCompAdminPage({
+  searchParams,
+}: {
+  searchParams?: Promise<{
+    source?: string;
+    rows?: string;
+    q?: string;
+    stagedItemId?: string | string[];
+  }>;
+}) {
   const recentScans = await getRecentScans();
+  const params = (await searchParams) || {};
+  const openedFromSellerEbayStaging = params.source === "seller-ebay-staging";
+  const stagedRowCount = Number(params.rows || 0);
+  const importedQuery = typeof params.q === "string" ? params.q : "";
 
   return (
     <main
@@ -78,6 +91,35 @@ export default async function InstaCompAdminPage() {
           market price.
         </p>
       </div>
+
+      {openedFromSellerEbayStaging ? (
+        <section
+          style={{
+            marginBottom: 18,
+            border: "1px solid #bfdbfe",
+            borderRadius: 12,
+            padding: 16,
+            background: "#eff6ff",
+          }}
+        >
+          <h2 style={{ margin: "0 0 6px" }}>
+            Seller eBay listings ready for InstaComp™ cleanup
+          </h2>
+          <p style={{ margin: 0, color: "#1f2937", lineHeight: 1.5 }}>
+            {stagedRowCount > 0
+              ? `${stagedRowCount} staged eBay row${stagedRowCount === 1 ? "" : "s"} selected. `
+              : ""}
+            Upload or scan the matching card fronts/backs here, review the
+            detected identity/comps, then create TCOS seller drafts from the
+            cleaned InstaComp™ result.
+          </p>
+          {importedQuery ? (
+            <p style={{ margin: "8px 0 0", color: "#1d4ed8", fontWeight: 800 }}>
+              Import context: {importedQuery}
+            </p>
+          ) : null}
+        </section>
+      ) : null}
 
       <InstaCompScanner />
 
