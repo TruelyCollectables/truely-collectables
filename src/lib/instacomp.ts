@@ -50,6 +50,9 @@ export type InstaCompComp = {
   sourceCategory: InstaCompSourceCategory;
   matchScore: number;
   flags: string[];
+  soldAt?: string | null;
+  listedAt?: string | null;
+  observedAt?: string | null;
 };
 
 export type InstaCompProviderResult = {

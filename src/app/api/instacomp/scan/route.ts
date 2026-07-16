@@ -1789,6 +1789,8 @@ async function getEbayProvider(
         source: "ebay_active" as const,
         sourceLabel: "eBay Active",
         sourceCategory: "marketplace" as const,
+        listedAt: item?.itemCreationDate ? String(item.itemCreationDate) : null,
+        observedAt: new Date().toISOString(),
       };
     })
     .filter((item: Omit<InstaCompComp, "matchScore" | "flags">) => {
@@ -2425,6 +2427,47 @@ function extractPriceFromSearchText(value: string) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function extractCompEventDateIso(value: string) {
+  const normalized = value.replace(/\s+/g, " ").trim();
+  const monthName =
+    "(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|Jul(?:y)?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)";
+  const monthDateMatch =
+    normalized.match(
+      new RegExp(`\\b${monthName}\\.?\\s+([0-9]{1,2})(?:,)?\\s+(20[0-9]{2})\\b`, "i")
+    ) ||
+    normalized.match(
+      new RegExp(`\\b([0-9]{1,2})\\s+${monthName}\\.?\\s+(20[0-9]{2})\\b`, "i")
+    );
+  const isoLikeMatch = normalized.match(/\b(20[0-9]{2})[-/](0?[1-9]|1[0-2])[-/](0?[1-9]|[12][0-9]|3[01])\b/);
+  const agoMatch = normalized.match(/\b([0-9]{1,3})\s+(day|days|week|weeks|month|months)\s+ago\b/i);
+
+  let date: Date | null = null;
+
+  if (monthDateMatch) {
+    date = new Date(monthDateMatch[0].replace(/\./g, ""));
+  } else if (isoLikeMatch) {
+    date = new Date(
+      `${isoLikeMatch[1]}-${isoLikeMatch[2].padStart(2, "0")}-${isoLikeMatch[3].padStart(2, "0")}`
+    );
+  } else if (agoMatch) {
+    const amount = Number(agoMatch[1]);
+    const unit = agoMatch[2].toLowerCase();
+    const days = unit.startsWith("month")
+      ? amount * 30
+      : unit.startsWith("week")
+        ? amount * 7
+        : amount;
+
+    if (Number.isFinite(days)) {
+      date = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+    }
+  }
+
+  return date && Number.isFinite(date.getTime())
+    ? date.toISOString().slice(0, 10)
+    : null;
+}
+
 function externalProviderLabel(provider: ExternalSearchProvider | null) {
   if (provider === "serpapi") return "SerpApi";
   if (provider === "google_cse") return "Google CSE";
@@ -2635,8 +2678,8 @@ async function getExternalSearchProvider(
     void storeCachedExternalSearchItems(cacheKey, provider, query, searchItems);
   }
 
-  const rawComps: Omit<InstaCompComp, "matchScore" | "flags">[] = searchItems
-    .map((item) => {
+  const rawComps = searchItems
+    .map((item): Omit<InstaCompComp, "matchScore" | "flags"> | null => {
       const source = identifyExternalSource(item.url);
       const searchText = `${item.title} ${item.snippet}`;
       const price = extractPriceFromSearchText(searchText);
@@ -2652,6 +2695,9 @@ async function getExternalSearchProvider(
         source: `external_${slugifySource(source.label)}`,
         sourceLabel: source.label,
         sourceCategory: source.category,
+        soldAt:
+          source.category === "sold" ? extractCompEventDateIso(searchText) : null,
+        observedAt: new Date().toISOString(),
       };
     })
     .filter(

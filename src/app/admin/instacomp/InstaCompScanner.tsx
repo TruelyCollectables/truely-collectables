@@ -40,6 +40,9 @@ type ActiveComp = {
   sourceCategory: "sold" | "marketplace" | "auction" | "pricing" | "reference" | "broad";
   matchScore: number;
   flags: string[];
+  soldAt?: string | null;
+  listedAt?: string | null;
+  observedAt?: string | null;
 };
 
 type SourceCoverageItem = {
@@ -1510,6 +1513,7 @@ function compGuidanceLabel(comp: ActiveComp) {
 }
 
 function compPriceBasisLabel(comp: ActiveComp) {
+  if (isHistoricalSoldComp(comp)) return "historical sold comp - not priced";
   if (comp.sourceCategory === "sold") return "sold comp";
   if (comp.flags?.includes("serial #")) return "exact serial";
   if (comp.flags?.includes("numbered run")) return "same print run";
@@ -1522,9 +1526,60 @@ function compPriceBasisLabel(comp: ActiveComp) {
   return sourceCategoryLabels[comp.sourceCategory] || "reference";
 }
 
+const CURRENT_SOLD_COMP_MAX_AGE_DAYS = 45;
+
+function compEventDate(comp: ActiveComp) {
+  const rawDate =
+    comp.sourceCategory === "sold"
+      ? comp.soldAt || null
+      : comp.listedAt || comp.observedAt || null;
+  if (!rawDate) return null;
+
+  const parsed = new Date(rawDate);
+
+  return Number.isFinite(parsed.getTime()) ? parsed : null;
+}
+
+function compAgeDays(comp: ActiveComp) {
+  const date = compEventDate(comp);
+  if (!date) return null;
+
+  return Math.floor((Date.now() - date.getTime()) / (24 * 60 * 60 * 1000));
+}
+
+function isHistoricalSoldComp(comp: ActiveComp) {
+  if (comp.sourceCategory !== "sold") return false;
+
+  const ageDays = compAgeDays(comp);
+
+  return ageDays !== null && ageDays > CURRENT_SOLD_COMP_MAX_AGE_DAYS;
+}
+
+function compFreshnessLabel(comp: ActiveComp) {
+  const ageDays = compAgeDays(comp);
+
+  if (isHistoricalSoldComp(comp)) {
+    return `Historical sale ${ageDays}d old - shown, not priced`;
+  }
+
+  if (comp.sourceCategory === "sold" && ageDays !== null) {
+    return `Current sale ${ageDays}d old`;
+  }
+
+  if (comp.sourceCategory === "sold") {
+    return "Sold date unknown";
+  }
+
+  return null;
+}
+
 function marketPricingExplanation(result: ScanResponse) {
-  const marketComps = effectiveMarketValueComps(result);
+  const marketComps = currentMarketValueComps(result);
   const soldComps = result.soldComps || [];
+  const currentSoldComps = soldComps.filter(
+    (comp) => isUsableMarketComp(comp) && !isHistoricalSoldComp(comp)
+  );
+  const historicalSoldComps = soldComps.filter(isHistoricalSoldComp);
   const activeComps = marketComps.filter(
     (comp) => comp.sourceCategory === "marketplace"
   );
@@ -1539,11 +1594,17 @@ function marketPricingExplanation(result: ScanResponse) {
       compGuidanceLabel(comp)?.startsWith("same print run")
   );
   const basis =
-    soldComps.length > 0
-      ? "sold comps"
-      : activeComps.length > 0
-        ? "active listings"
-        : adjustedComps.length > 0
+    currentSoldComps.length > 0
+      ? `${currentSoldComps.length} current sold comp${
+          currentSoldComps.length === 1 ? "" : "s"
+        }${
+          historicalSoldComps.length
+            ? ` / ${historicalSoldComps.length} historical`
+            : ""
+        }`
+    : activeComps.length > 0
+      ? "active listings"
+      : adjustedComps.length > 0
           ? "serial-adjusted guidance"
           : sameRunGuidance.length > 0
             ? "same-run pricing guidance"
@@ -1555,6 +1616,8 @@ function marketPricingExplanation(result: ScanResponse) {
     basis,
     marketComps,
     soldComps,
+    currentSoldComps,
+    historicalSoldComps,
     activeComps,
     adjustedComps,
     sameRunGuidance,
@@ -2201,6 +2264,12 @@ function effectiveMarketValueComps(result: ScanResponse | null | undefined) {
   return directComps.length ? directComps : providerMarketComps(result);
 }
 
+function currentMarketValueComps(result: ScanResponse | null | undefined) {
+  return effectiveMarketValueComps(result).filter(
+    (comp) => !isHistoricalSoldComp(comp)
+  );
+}
+
 function statsFromComps(comps: ActiveComp[]) {
   const prices = comps
     .map((comp) => roundedPositiveMoney(comp.price))
@@ -2235,25 +2304,40 @@ function statsFromComps(comps: ActiveComp[]) {
 }
 
 function effectiveMarketStats(result: ScanResponse | null | undefined) {
-  if (roundedPositiveMoney(result?.stats?.suggestedPrice) !== null) {
-    return result!.stats;
+  const currentStats = statsFromComps(currentMarketValueComps(result));
+
+  if (roundedPositiveMoney(currentStats.suggestedPrice) !== null) {
+    return currentStats;
   }
 
-  return statsFromComps(effectiveMarketValueComps(result));
+  return statsFromComps([]);
 }
 
 function primaryCompComps(result: ScanResponse | null | undefined) {
   if (!result) return [];
 
   const soldComps = (result.soldComps || []).filter(isUsableMarketComp);
+  const currentSoldComps = soldComps.filter(
+    (comp) => !isHistoricalSoldComp(comp)
+  );
 
-  if (soldComps.length) return uniqueComps(soldComps);
+  if (currentSoldComps.length) return uniqueComps(currentSoldComps);
 
-  return uniqueComps(effectiveMarketValueComps(result));
+  return uniqueComps(currentMarketValueComps(result));
 }
 
 function primaryCompStats(result: ScanResponse | null | undefined) {
   return statsFromComps(primaryCompComps(result));
+}
+
+function primaryCompEvidenceComps(result: ScanResponse | null | undefined) {
+  if (!result) return [];
+
+  return uniqueComps([
+    ...(result.soldComps || []).filter(isUsableMarketComp),
+    ...primaryCompComps(result),
+    ...effectiveMarketValueComps(result),
+  ]);
 }
 
 function primaryCompPriceForCard(card: BatchCard) {
@@ -2267,13 +2351,31 @@ function compPriceBasisForResult(result: ScanResponse | null | undefined) {
   if (!result) return "No comps";
 
   const soldComps = (result.soldComps || []).filter(isUsableMarketComp);
+  const currentSoldComps = soldComps.filter(
+    (comp) => !isHistoricalSoldComp(comp)
+  );
+  const historicalSoldComps = soldComps.filter(isHistoricalSoldComp);
 
-  if (soldComps.length) return `${soldComps.length} sold comp${soldComps.length === 1 ? "" : "s"}`;
+  if (currentSoldComps.length) {
+    return `${currentSoldComps.length} current sold comp${
+      currentSoldComps.length === 1 ? "" : "s"
+    }${
+      historicalSoldComps.length
+        ? ` / ${historicalSoldComps.length} historical`
+        : ""
+    }`;
+  }
 
   const comps = primaryCompComps(result);
 
   if (comps.length) {
-    return `${comps.length} usable comp${comps.length === 1 ? "" : "s"}`;
+    return `${comps.length} current usable comp${comps.length === 1 ? "" : "s"}`;
+  }
+
+  if (historicalSoldComps.length) {
+    return `${historicalSoldComps.length} historical sold comp${
+      historicalSoldComps.length === 1 ? "" : "s"
+    } - not priced`;
   }
 
   return "No usable comps";
@@ -12251,9 +12353,9 @@ export default function InstaCompScanner({
             <h2 style={{ marginTop: 0 }}>InstaComp™ Suggested Pricing</h2>
 
             <p style={{ marginTop: 0, color: "#555" }}>
-              Comp price is shown first from usable sold comps when available,
-              then exact usable comp matches. Market guidance stays underneath
-              as the smaller secondary number.
+              Current sold comps drive the suggested price first. Older dated
+              sales stay visible as comp history, but they do not pull down
+              today&apos;s InstaComp™ Suggested price.
             </p>
 
             <div
@@ -12985,8 +13087,9 @@ function MarketPricingExplanation({ result }: { result: ScanResponse }) {
           marginTop: 10,
         }}
       >
-        <Info label="Usable comps" value={String(explanation.marketComps.length)} />
-        <Info label="Sold comps" value={String(explanation.soldComps.length)} />
+        <Info label="Priced comps" value={String(explanation.marketComps.length)} />
+        <Info label="Current sold" value={String(explanation.currentSoldComps.length)} />
+        <Info label="Historical" value={String(explanation.historicalSoldComps.length)} />
         <Info label="Active listings" value={String(explanation.activeComps.length)} />
         <Info label="Adjusted runs" value={String(explanation.adjustedComps.length)} />
       </div>
@@ -13020,6 +13123,7 @@ function MarketPricingExplanation({ result }: { result: ScanResponse }) {
                 <small style={{ color: "#666" }}>
                   {comp.sourceLabel || comp.source} - {compPriceBasisLabel(comp)}
                   {compGuidanceLabel(comp) ? ` - ${compGuidanceLabel(comp)}` : ""}
+                  {compFreshnessLabel(comp) ? ` - ${compFreshnessLabel(comp)}` : ""}
                 </small>
               </div>
               <strong>{money(comp.price)}</strong>
@@ -13199,8 +13303,11 @@ function BatchCardRow({
   const compPrice = primaryCompPriceForCard(card);
   const compStats = primaryCompStats(card.result);
   const compBasis = compPriceBasisForResult(card.result);
-  const usableComps = primaryCompComps(card.result);
-  const usableCompCount = usableComps.length;
+  const pricingComps = primaryCompComps(card.result);
+  const evidenceComps = primaryCompEvidenceComps(card.result);
+  const pricingCompCount = pricingComps.length;
+  const evidenceCompCount = evidenceComps.length;
+  const historicalCompCount = evidenceComps.filter(isHistoricalSoldComp).length;
   const compRange =
     compStats.low && compStats.high && compStats.low !== compStats.high
       ? `${money(compStats.low)}-${money(compStats.high)}`
@@ -13551,7 +13658,7 @@ function BatchCardRow({
             <div style={{ fontWeight: 900, fontSize: 20 }}>
               {money(compPrice)}
             </div>
-            {usableCompCount ? (
+            {evidenceCompCount ? (
               <button
                 type="button"
                 onClick={() => setShowUsableComps((current) => !current)}
@@ -13736,7 +13843,7 @@ function BatchCardRow({
           </div>
         </div>
 
-        {showUsableComps && usableCompCount ? (
+        {showUsableComps && evidenceCompCount ? (
           <div
             style={{
               marginTop: 12,
@@ -13756,18 +13863,23 @@ function BatchCardRow({
               }}
             >
               <strong>
-                Usable comps for InstaComp™ Suggested ({usableCompCount})
+                Comp evidence for InstaComp™ Suggested ({evidenceCompCount})
               </strong>
               <span style={{ color: "#1d4ed8", fontSize: 12, fontWeight: 900 }}>
                 {money(compPrice)}
               </span>
             </div>
             <p style={{ margin: "6px 0 10px", color: "#555", fontSize: 12 }}>
-              Sold comps are preferred first. Active/current exact matches stay
-              visible as backup guidance until sale-date freshness is stored.
+              {pricingCompCount} current comp{pricingCompCount === 1 ? "" : "s"}{" "}
+              drive the suggested price
+              {historicalCompCount
+                ? `; ${historicalCompCount} older sold comp${
+                    historicalCompCount === 1 ? "" : "s"
+                  } stay visible as history but do not price.`
+                : "."}
             </p>
             <div style={{ display: "grid", gap: 8 }}>
-              {usableComps.map((comp, compIndex) => (
+              {evidenceComps.map((comp, compIndex) => (
                 <a
                   key={`${card.id}-usable-comp-${comp.url}-${compIndex}`}
                   href={comp.url}
@@ -13803,6 +13915,9 @@ function BatchCardRow({
                       {compPriceBasisLabel(comp)} · Match {comp.matchScore}
                       {compGuidanceLabel(comp)
                         ? ` · ${compGuidanceLabel(comp)}`
+                        : ""}
+                      {compFreshnessLabel(comp)
+                        ? ` · ${compFreshnessLabel(comp)}`
                         : ""}
                     </small>
                   </span>

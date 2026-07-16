@@ -4240,7 +4240,7 @@ Per card, InstaComp™ can display:
 - comp-provider status, included comps, suggested price, and research links
 - market price basis, including active listings, sold comps when available, same-run guidance, and serial-adjusted guidance
 - `InstaComp™ Suggested` pricing on batch rows, with the usable-comp count/range clickable so operators can open each source item used by the suggestion
-- current `InstaComp™ Suggested` pricing prefers usable sold comps first, then exact usable active/current matches; the next pricing-data upgrade should store sale/listing dates so stale sales can be excluded or down-weighted instead of merely relying on the current scan result set
+- current `InstaComp™ Suggested` pricing prefers usable current sold comps first, then exact usable active/current matches. Dated sold comps older than the current-pricing freshness window stay visible in the comp-evidence drawer as history, but they are not used to calculate the current suggested price. Undated sold comps remain usable until richer provider sale dates are available.
 
 The multipart fallback creates targeted serial-stamp, edge, band, contrast, and inverted crops in the browser. Durable jobs normally send only the stored front/back derivatives to the scan route. When PaddleOCR receives no more than two card-side images, its worker creates five grayscale, auto-contrast serial regions per image (top-right, top-left, middle-right, bottom-right, and bottom-left) until the configured prediction-image cap is reached.
 
@@ -5324,7 +5324,7 @@ Recent InstaComp™ catch-up through current local checkpoint:
 - `Buy Me on TCOS` and `Trade For Me on TCOS` buttons were added as sale/trade search handoffs for detected cards.
 - `Add to Available for Trade` was added for seller-owned scans. It creates or reuses a collection item marked Available for Trade, writes the handoff back to the scan row, and is mutually exclusive with sell-draft creation.
 - Batch rows now show `InstaComp™ Suggested` as the primary price, keep smaller `Market guidance` underneath, and make the usable-comp count/range clickable. Opening the panel shows every usable comp as a source link with title, source, basis, match score, and price so operators can inspect the real-world evidence before accepting the suggestion.
-- Future comp freshness work should store sale/listing timestamps and let `InstaComp™ Suggested` prefer current/recent sales while down-weighting or excluding stale comps.
+- Comp freshness now keeps older dated sold comps visible as history while excluding them from `InstaComp™ Suggested`; the next provider-data upgrade should capture more sale/listing timestamps so this current-vs-historical split gets sharper across every source.
 - The trade handoff is protected by `20260716010000_add_instacomp_trade_handoff.sql`; apply it before using Available for Trade.
 - Lint is now clean with zero warnings after removing dead COMC active-provider code and aligning the claim route with the five-card mini-pack throughput.
 
