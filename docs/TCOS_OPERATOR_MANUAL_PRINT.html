@@ -3798,6 +3798,9 @@ rear</code></pre>
 <p>If editing JSON for 100 cards is too slow, write the local spreadsheet-style answer sheet:</p>
 <pre><code>npm run instacomp:trial:groundtruth:sheet</code></pre>
 <p>That command writes ignored local file <code>instacomp-trial-groundtruth.local.tsv</code> with columns for <code>trialCardId</code>, image paths, player, year, setName, cardNumber, brand, parallel, variation, serial number, team, sport, rookie/autograph/relic flags, and notes. Open it in Numbers, Excel, or Google Sheets, fill the answer key from the physical cards, save it as TSV, then apply it back to the manifest:</p>
+<p>For faster visual filling, write the local answer-key HTML review sheet:</p>
+<pre><code>npm run instacomp:trial:answer-key-html</code></pre>
+<p>That command writes ignored local file <code>instacomp-trial-answer-key.local.html</code> with front/back thumbnails, current TSV identity fields, missing-field status, and the exact apply/recheck commands. It is a local guide only: it does not scan cards, deploy, publish listings, buy postage, create Checkout, call production APIs, approve live money, release payouts, mutate images, or apply worksheet values.</p>
 <pre><code>npm run instacomp:trial:groundtruth:apply</code></pre>
 <p>The apply command only updates the local manifest from matching <code>trialCardId</code> rows. It does not scan, deploy, publish listings, buy postage, create Checkout, or touch production APIs.</p>
 <ol>
@@ -4800,6 +4803,7 @@ Invoke-WebRequest -UseBasicParsing http://127.0.0.1:3000/admin/login</code></pre
 <li>InstaComp final tester status now reports whether the ignored local answer-key guide exists, matches the current ground-truth audit, and needs to be refreshed before the 100-card tester run.</li>
 <li>InstaComp final tester status now shows raw <code>instacomp-trial-inbox/</code> accepted image counts separately from normalized <code>instacomp-trial-images/</code>, so operators can see whether scanner files have been copied before staging.</li>
 <li>InstaComp final tester status now reads ignored worksheet <code>instacomp-trial-groundtruth.local.tsv</code> directly and reports row count, core-ready rows, required-column health, and the exact apply/recheck next step.</li>
+<li>InstaComp now has a local visual answer-key HTML guide: <code>npm run instacomp:trial:answer-key-html</code> writes ignored <code>instacomp-trial-answer-key.local.html</code> with front/back thumbnails beside TSV fields, missing-field status, and apply/recheck commands so the 100-card answer key can be filled faster before the final tester run.</li>
 <li>The 100-card final tester now has a local ground-truth TSV worksheet flow: <code>npm run instacomp:trial:groundtruth:sheet</code> writes <code>instacomp-trial-groundtruth.local.tsv</code>, the operator can fill the answer key in a spreadsheet, and <code>npm run instacomp:trial:groundtruth:apply</code> applies matching <code>trialCardId</code> rows back to the ignored local manifest before audit/scoring.</li>
 <li>Clear Cut detection now treats clear/acetate stock, Clear Cut text, and matching back-logo evidence as variant signals that can override generic set/base guesses.</li>
 <li>COMC active-price ingestion is removed from the comp equation. COMC, Sportlots, Panini America, Upper Deck, Cardboard Connection, Blowout Cards, TCDB, and similar sources remain reference/checklist context for identity review when usage rights allow.</li>

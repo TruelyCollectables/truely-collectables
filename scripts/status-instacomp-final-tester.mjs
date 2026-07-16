@@ -502,6 +502,56 @@ function readTrialGroundTruthWorksheetStatus(manifestAudit) {
   }
 }
 
+function readTrialAnswerKeyHtmlStatus(manifestAudit, worksheetStatus) {
+  const htmlPath = "instacomp-trial-answer-key.local.html";
+  const absolutePath = join(repoRoot, htmlPath);
+
+  if (!existsSync(absolutePath)) {
+    return {
+      path: htmlPath,
+      exists: false,
+      matchesCurrentWorksheet: false,
+      next:
+        "Run npm run instacomp:trial:answer-key-html to write the local visual answer-key review sheet.",
+      error: null,
+    };
+  }
+
+  try {
+    const text = readFileSync(absolutePath, "utf8");
+    const expectedCards = manifestAudit.expectedCards ?? worksheetStatus.rowCount ?? 100;
+    const readyRows =
+      worksheetStatus.coreReadyRows ?? manifestAudit.readyRows ?? "unknown";
+    const matchesCurrentWorksheet =
+      text.includes("TCOS InstaComp Trial Answer-Key Review") &&
+      text.includes(`Answer key ${readyRows}/${expectedCards}`) &&
+      text.includes("npm run instacomp:trial:groundtruth:apply") &&
+      text.includes("http://localhost:3000/admin/instacomp");
+
+    return {
+      path: htmlPath,
+      exists: true,
+      matchesCurrentWorksheet,
+      next: matchesCurrentWorksheet
+        ? worksheetStatus.coreReadyRows >= expectedCards
+          ? "Visual answer-key sheet matches the filled worksheet; apply the TSV and rerun intake."
+          : "Visual answer-key sheet matches the current worksheet; use it beside the TSV while filling missing fields."
+        : "Rerun npm run instacomp:trial:answer-key-html so the visual sheet matches the current TSV/manifest.",
+      error: null,
+    };
+  } catch (error) {
+    return {
+      path: htmlPath,
+      exists: true,
+      matchesCurrentWorksheet: false,
+      next: `Rerun npm run instacomp:trial:answer-key-html; visual sheet could not be read: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 const manifestPath = "instacomp-trial-manifest.local.json";
 const resultsPath = "instacomp-trial-results.local.json";
 const trialInboxDir = "instacomp-trial-inbox";
@@ -537,6 +587,7 @@ const trialImageDropZoneGuide = {
     "npm run instacomp:trial:prep",
     "npm run instacomp:trial:sync-images",
     "npm run instacomp:trial:groundtruth:sheet",
+    "npm run instacomp:trial:answer-key-html",
     "npm run instacomp:trial:groundtruth:apply",
     "npm run instacomp:trial:groundtruth",
     "npm run instacomp:trial:preflight",
@@ -558,6 +609,10 @@ const trialIntakePacket = readTrialIntakePacketStatus(
 );
 const trialGroundTruthGuide = readTrialGroundTruthGuideStatus(trialManifestAudit);
 const trialGroundTruthWorksheet = readTrialGroundTruthWorksheetStatus(trialManifestAudit);
+const trialAnswerKeyHtml = readTrialAnswerKeyHtmlStatus(
+  trialManifestAudit,
+  trialGroundTruthWorksheet,
+);
 
 const checklist = [
   {
@@ -651,6 +706,16 @@ const checklist = [
         ? "ready_to_score"
         : "guide_current_but_needs_groundtruth"
       : "needs_answer_key_guide",
+  },
+  {
+    key: "trial_answer_key_html",
+    label:
+      "The local visual answer-key HTML sheet can show trial front/back thumbnails next to TSV identity fields so the 100-card answer key can be filled faster and with fewer row mistakes.",
+    status: trialAnswerKeyHtml.matchesCurrentWorksheet
+      ? trialManifestAudit.readyToScore
+        ? "ready_to_score"
+        : "html_current_but_needs_groundtruth"
+      : "needs_answer_key_html",
   },
   {
     key: "trial_prep_bundle",
@@ -784,6 +849,7 @@ const readiness = {
     manifestAudit: trialManifestAudit,
     groundTruthWorksheet: trialGroundTruthWorksheet,
     groundTruthGuide: trialGroundTruthGuide,
+    answerKeyHtml: trialAnswerKeyHtml,
     imageAudit: trialImageAudit,
     imageMap: trialImageMap,
     intakePacket: trialIntakePacket,
@@ -797,6 +863,7 @@ const readiness = {
     intakeTrial: "npm run instacomp:trial:intake",
     initTrial: "npm run instacomp:trial:init",
     writeTrialGroundTruthSheet: "npm run instacomp:trial:groundtruth:sheet",
+    writeTrialAnswerKeyHtml: "npm run instacomp:trial:answer-key-html",
     applyTrialGroundTruthSheet: "npm run instacomp:trial:groundtruth:apply",
     refreshTrialAnswerKeyGuide: "npm run instacomp:trial:intake",
     prepTrial: "npm run instacomp:trial:prep",
@@ -876,6 +943,13 @@ if (jsonOutput) {
     console.log(`- trial answer-key guide error: ${readiness.localTrial.groundTruthGuide.error}`);
   }
   console.log(`- trial answer-key guide next: ${readiness.localTrial.groundTruthGuide.next}`);
+  console.log(
+    `- trial answer-key HTML: ${readiness.localTrial.answerKeyHtml.exists ? "present" : "missing"} - ${readiness.localTrial.answerKeyHtml.matchesCurrentWorksheet ? "matches worksheet" : "not ready"} - ${readiness.localTrial.answerKeyHtml.path}`,
+  );
+  if (readiness.localTrial.answerKeyHtml.error) {
+    console.log(`- trial answer-key HTML error: ${readiness.localTrial.answerKeyHtml.error}`);
+  }
+  console.log(`- trial answer-key HTML next: ${readiness.localTrial.answerKeyHtml.next}`);
   console.log(
     `- trial raw scanner inbox exists: ${readiness.localTrial.inboxDirExists ? "yes" : "no"}`,
   );
@@ -959,6 +1033,7 @@ if (jsonOutput) {
   console.log(`- intake cockpit: ${readiness.commands.intakeTrial}`);
   console.log(`- init trial: ${readiness.commands.initTrial}`);
   console.log(`- write trial ground truth sheet: ${readiness.commands.writeTrialGroundTruthSheet}`);
+  console.log(`- write trial answer-key HTML: ${readiness.commands.writeTrialAnswerKeyHtml}`);
   console.log(`- apply trial ground truth sheet: ${readiness.commands.applyTrialGroundTruthSheet}`);
   console.log(`- refresh trial answer-key guide: ${readiness.commands.refreshTrialAnswerKeyGuide}`);
   console.log(`- prep trial bundle: ${readiness.commands.prepTrial}`);

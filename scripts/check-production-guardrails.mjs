@@ -1191,6 +1191,7 @@ assertScriptIncludes("verify:instacomp", [
   "simulate:instacomp-trial-prep",
   "simulate:instacomp-trial-stage",
   "simulate:instacomp-trial-sync-images",
+  "simulate:instacomp-trial-answer-key-html",
   "simulate:instacomp-trial-intake",
   "simulate:instacomp-trial-monitor",
   "simulate:instacomp-trial",
@@ -1249,6 +1250,12 @@ assertScriptIncludes("simulate:instacomp-trial-sync-images", [
   "--receipt-md .codex-run/instacomp-trial-image-sync-fixture.local.md",
   "--image-prefix ./instacomp-trial-images",
 ]);
+assertScriptIncludes("simulate:instacomp-trial-answer-key-html", [
+  "scripts/write-instacomp-trial-answer-key-html.mjs",
+  "--manifest scripts/fixtures/instacomp-trial-manifest.example.json",
+  "--worksheet .codex-run/missing-instacomp-trial-answer-key-fixture.local.tsv",
+  "--output .codex-run/instacomp-trial-answer-key-fixture.local.html",
+]);
 assertScriptIncludes("simulate:instacomp-trial-intake", [
   "scripts/run-instacomp-trial-intake.mjs",
   "--source scripts/fixtures/instacomp-trial-images.example",
@@ -1275,6 +1282,12 @@ assertScriptIncludes("instacomp:trial:report", [
 assertScriptIncludes("instacomp:trial:groundtruth:sheet", [
   "scripts/run-instacomp-trial-report.mjs",
   "--write-groundtruth-sheet instacomp-trial-groundtruth.local.tsv",
+]);
+assertScriptIncludes("instacomp:trial:answer-key-html", [
+  "scripts/write-instacomp-trial-answer-key-html.mjs",
+  "--manifest instacomp-trial-manifest.local.json",
+  "--worksheet instacomp-trial-groundtruth.local.tsv",
+  "--output instacomp-trial-answer-key.local.html",
 ]);
 assertScriptIncludes("instacomp:trial:groundtruth:apply", [
   "scripts/run-instacomp-trial-report.mjs",
@@ -1352,6 +1365,15 @@ assertScriptIncludes("instacomp:trial:monitor", [
 ]);
 assertScriptIncludes("instacomp:trial:monitor:json", [
   "scripts/watch-instacomp-trial-readiness.mjs --json",
+]);
+assertFileIncludes("instacomp trial answer-key HTML generator", "scripts/write-instacomp-trial-answer-key-html.mjs", [
+  "tcos.instacompTrialAnswerKeyHtml.v1",
+  "TCOS InstaComp Trial Answer-Key Review",
+  "front/back thumbnails",
+  "npm run instacomp:trial:groundtruth:apply",
+  "http://localhost:3000/admin/instacomp",
+  "Local answer-key HTML guide only",
+  "Does not scan cards, deploy, publish listings, buy postage, create Checkout, call production APIs, approve live money, release payouts, mutate images, or apply worksheet values.",
 ]);
 assertScriptIncludes("instacomp:trial:ready", [
   "instacomp:trial:groundtruth",
@@ -3942,6 +3964,7 @@ assertFileIncludes("instacomp trial intake cockpit source", "scripts/run-instaco
   "year",
   "setName",
   "cardNumber",
+  "npm run instacomp:trial:answer-key-html",
   "npm run instacomp:trial:groundtruth:apply",
   "Image staging dry-run is clean",
   "Local InstaComp trial intake cockpit only. Ensures local trial folders, runs dry-run staging, local prep, and local image-path sync; does not apply staging",
@@ -3952,6 +3975,7 @@ assertFileIncludes("instacomp local trial ignore rules", ".gitignore", [
   "/instacomp-trial-*.local.json",
   "/instacomp-trial-*.local.md",
   "/instacomp-trial-*.local.tsv",
+  "/instacomp-trial-*.local.html",
 ]);
 assertFileIncludes("instacomp trial readiness monitor source", "scripts/watch-instacomp-trial-readiness.mjs", [
   "tcos.instacompTrialReadinessWatch.v1",
@@ -4050,6 +4074,7 @@ assertFileIncludes("instacomp final tester status includes trial image audit", "
   "trial_groundtruth_manifest",
   "trial_groundtruth_sheet",
   "trial_groundtruth_guide",
+  "trial_answer_key_html",
   "trial_prep_bundle",
   "trial_intake_cockpit",
   "trial_image_staging",
@@ -4060,6 +4085,7 @@ assertFileIncludes("instacomp final tester status includes trial image audit", "
   "trial_image_map",
   "trial_preflight_gate",
   "writeTrialGroundTruthSheet",
+  "writeTrialAnswerKeyHtml",
   "applyTrialGroundTruthSheet",
   "refreshTrialAnswerKeyGuide",
   "intakeTrial",
@@ -4079,6 +4105,7 @@ assertFileIncludes("instacomp final tester status includes trial image audit", "
   "readTrialIntakePacketStatus",
   "readTrialGroundTruthGuideStatus",
   "readTrialGroundTruthWorksheetStatus",
+  "readTrialAnswerKeyHtmlStatus",
   "trialImageDropZoneGuide",
   "acceptedImageFileExtensions",
   "countAcceptedImageFilesIfPresent",
@@ -4113,6 +4140,11 @@ assertFileIncludes("instacomp final tester status includes trial image audit", "
   "instacomp-trial-groundtruth-guide.local.md",
   "guide_current_but_needs_groundtruth",
   "needs_answer_key_guide",
+  "trial answer-key HTML:",
+  "trial answer-key HTML next:",
+  "instacomp-trial-answer-key.local.html",
+  "html_current_but_needs_groundtruth",
+  "needs_answer_key_html",
   "trial raw scanner inbox:",
   "trial raw scanner inbox files:",
   "trial raw scanner inbox next:",
@@ -4127,6 +4159,7 @@ assertFileIncludes("instacomp final tester status includes trial image audit", "
   "npm run instacomp:trial:sync-images",
   "npm run instacomp:trial:monitor",
   "npm run instacomp:trial:groundtruth:sheet",
+  "npm run instacomp:trial:answer-key-html",
   "npm run instacomp:trial:groundtruth:apply",
   "npm run instacomp:trial:preflight",
   "npm run instacomp:trial:ready",
