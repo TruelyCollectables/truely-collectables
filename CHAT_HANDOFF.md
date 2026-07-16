@@ -222,6 +222,7 @@ These may fail production smoke until a successful Vercel deploy lands the queue
   - Gate: do not start this until the operator is satisfied the current scanner test pass is ready to preserve.
   - Goal: make InstaComp faster and more accurate by checking TCOS-owned verified card truth before paying/waiting for outside AI or source search.
   - MVP scope: add TCOS-owned card catalog, variant, identity-evidence, correction, and source-cache storage; check the local knowledge base first during InstaComp scans; save confirmed/corrected rows back into it; cache checklist evidence from Sportlots, Upper Deck, Panini, Cardboard Connection, TCDB/Trading Card DB, and approved free/cheap sources; show `TCOS verified`, `external verified`, or `needs review`; and keep exact comps/pricing blocked unless identity evidence is strong enough.
+  - Trust rule: corrected cards enter as `learning`; the same card identity becomes `tcos_trusted` only after the third distinct operator-confirmed sighting. Reprocessing the same saved scan item must not double-count.
   - Expected build size: about 6–9 focused build hours for the MVP backbone; 2–3 days for polished duplicate merging, image fingerprinting, admin review queues, bulk imports, and full catalog management.
 - Next priority after the Card Knowledge Base MVP: build the “Vicodin” InstaComp speed MVP.
   - Goal: make scans feel dramatically faster without sacrificing accuracy.

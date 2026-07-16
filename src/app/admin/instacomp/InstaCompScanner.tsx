@@ -331,6 +331,10 @@ type BatchCard = {
   persistentClientId?: string;
   persistentJobId?: string | null;
   persistentItemId?: string | null;
+  knowledgeEntryId?: string | null;
+  knowledgeSavedAt?: string | null;
+  knowledgeTrustStatus?: "learning" | "tcos_trusted" | "needs_review" | string | null;
+  knowledgeConfirmedCount?: number | null;
   frontStoragePath?: string | null;
   backStoragePath?: string | null;
   pairingConfidence?: number | null;
@@ -3225,6 +3229,7 @@ export default function InstaCompScanner({
   const [batchCards, setBatchCards] = useState<BatchCard[]>([]);
   const [batchRunning, setBatchRunning] = useState(false);
   const [batchDrafting, setBatchDrafting] = useState(false);
+  const [batchKnowledgeSaving, setBatchKnowledgeSaving] = useState(false);
   const [batchConcurrency, setBatchConcurrency] = useState(
     INSTACOMP_BATCH_DEFAULT_CONCURRENCY
   );
@@ -3543,6 +3548,10 @@ export default function InstaCompScanner({
               persistentClientId: item.client_item_id,
               persistentJobId: job.id,
               persistentItemId: item.id,
+              knowledgeEntryId: null,
+              knowledgeSavedAt: null,
+              knowledgeTrustStatus: null,
+              knowledgeConfirmedCount: null,
               frontStoragePath: item.front_storage_path,
               backStoragePath: item.back_storage_path || null,
               pairingConfidence:
@@ -3681,6 +3690,12 @@ export default function InstaCompScanner({
   const batchDraftableCount = batchCards.filter(isDraftableBatchCard).length;
   const batchDraftCreatedCount = batchCards.filter(
     (card) => card.draftStatus === "created"
+  ).length;
+  const batchKnowledgeSavedCount = batchCards.filter(
+    (card) => card.knowledgeEntryId
+  ).length;
+  const batchKnowledgeTrustedCount = batchCards.filter(
+    (card) => card.knowledgeTrustStatus === "tcos_trusted"
   ).length;
   const batchCreatedInstaCompDraftHref = batchDraftCreatedCount
     ? sellerInventoryInstaCompDraftHref()
@@ -7011,6 +7026,92 @@ export default function InstaCompScanner({
     );
   }
 
+  async function processSavedLotToKnowledgeBase() {
+    if (batchRunning || batchDrafting || batchKnowledgeSaving) return;
+
+    if (!persistentJob?.id) {
+      setBatchError(
+        "Run Batch InstaComp first so there is a saved lot to process into the TCOS Card DB."
+      );
+      return;
+    }
+
+    const itemIds = batchCards
+      .filter((card) => card.status === "done" && card.result && card.persistentItemId)
+      .map((card) => card.persistentItemId as string);
+
+    if (!itemIds.length) {
+      setBatchError("No completed saved-lot rows are ready for the TCOS Card DB.");
+      return;
+    }
+
+    setBatchKnowledgeSaving(true);
+    setBatchError(null);
+    setBatchDraftMessage(
+      `Processing ${itemIds.length} confirmed card row${
+        itemIds.length === 1 ? "" : "s"
+      } into the TCOS Card DB...`
+    );
+
+    try {
+      const data = await persistentJobJson(
+        `/api/instacomp/jobs/${persistentJob.id}/knowledge-base`,
+        {
+          method: "POST",
+          body: { itemIds },
+        }
+      );
+      const processed = Array.isArray(data.processed) ? data.processed : [];
+      const byItemId = new Map<string, Record<string, any>>(
+        processed.map((item: any) => [
+          String(item.itemId),
+          item.entry && typeof item.entry === "object" ? item.entry : {},
+        ])
+      );
+
+      setBatchCards((current) =>
+        current.map((card) => {
+          if (!card.persistentItemId) return card;
+
+          const entry = byItemId.get(card.persistentItemId);
+          if (!entry?.id) return card;
+
+          return {
+            ...card,
+            knowledgeEntryId: String(entry.id),
+            knowledgeSavedAt: new Date().toISOString(),
+            knowledgeTrustStatus: entry.trust_status || null,
+            knowledgeConfirmedCount:
+              entry.confirmed_count === null || entry.confirmed_count === undefined
+                ? null
+                : Number(entry.confirmed_count),
+          };
+        })
+      );
+
+      setBatchDraftMessage(
+        `TCOS Card DB processed ${data.processedCount || 0} row${
+          data.processedCount === 1 ? "" : "s"
+        }. Trusted ${data.trustedCount || 0}; learning ${
+          data.learningCount || 0
+        }. A card becomes TCOS trusted on the 3rd confirmed sighting.`
+      );
+
+      if (data.skippedCount) {
+        setBatchError(
+          `${data.skippedCount} row${
+            data.skippedCount === 1 ? "" : "s"
+          } skipped because scan identity was missing.`
+        );
+      }
+    } catch (error: any) {
+      setBatchError(error?.message || "Could not process this lot into the TCOS Card DB.");
+      setBatchDraftMessage(null);
+    } finally {
+      setBatchKnowledgeSaving(false);
+    }
+  }
+
   function setAllDoneBatchCardsSelected(selected: boolean) {
     setBatchCards((current) =>
       current.map((card) => {
@@ -9966,23 +10067,76 @@ export default function InstaCompScanner({
             type="button"
             onClick={() => void saveSelectedBatchCorrections()}
             disabled={
-              batchRunning || batchDrafting || selectedSavableCorrectionCount === 0
+              batchRunning ||
+              batchDrafting ||
+              batchKnowledgeSaving ||
+              selectedSavableCorrectionCount === 0
             }
             style={{
               ...secondaryButtonStyle,
               borderColor: "#0f5132",
               color: "#0f5132",
               cursor:
-                batchRunning || batchDrafting || selectedSavableCorrectionCount === 0
+                batchRunning ||
+                batchDrafting ||
+                batchKnowledgeSaving ||
+                selectedSavableCorrectionCount === 0
                   ? "not-allowed"
                   : "pointer",
               opacity:
-                batchRunning || batchDrafting || selectedSavableCorrectionCount === 0
+                batchRunning ||
+                batchDrafting ||
+                batchKnowledgeSaving ||
+                selectedSavableCorrectionCount === 0
                   ? 0.55
                   : 1,
             }}
           >
             Save Selected Corrections ({selectedSavableCorrectionCount})
+          </button>
+
+          <button
+            type="button"
+            onClick={() => void processSavedLotToKnowledgeBase()}
+            disabled={
+              batchRunning ||
+              batchDrafting ||
+              batchKnowledgeSaving ||
+              !persistentJob ||
+              batchDoneCount === 0
+            }
+            style={{
+              ...buttonStyle,
+              background:
+                batchRunning ||
+                batchDrafting ||
+                batchKnowledgeSaving ||
+                !persistentJob ||
+                batchDoneCount === 0
+                  ? "#999"
+                  : "#0f5132",
+              borderColor:
+                batchRunning ||
+                batchDrafting ||
+                batchKnowledgeSaving ||
+                !persistentJob ||
+                batchDoneCount === 0
+                  ? "#999"
+                  : "#0f5132",
+              cursor:
+                batchRunning ||
+                batchDrafting ||
+                batchKnowledgeSaving ||
+                !persistentJob ||
+                batchDoneCount === 0
+                  ? "not-allowed"
+                  : "pointer",
+            }}
+            title="Save completed rows from this saved InstaComp lot into the TCOS Card DB. They become trusted only after 3 confirmed sightings."
+          >
+            {batchKnowledgeSaving
+              ? "Processing TCOS DB..."
+              : `Process Saved Lot to TCOS DB (${batchDoneCount})`}
           </button>
 
           <button
@@ -10394,6 +10548,12 @@ export default function InstaCompScanner({
               ? ` - ${batchOperatorMarkedWrongCount} marked problems`
               : ""}
             {batchDraftCreatedCount ? ` - ${batchDraftCreatedCount} drafts` : ""}
+            {batchKnowledgeSavedCount
+              ? ` - ${batchKnowledgeSavedCount} TCOS DB`
+              : ""}
+            {batchKnowledgeTrustedCount
+              ? ` - ${batchKnowledgeTrustedCount} TCOS trusted`
+              : ""}
           </strong>
         </div>
 
@@ -11496,7 +11656,7 @@ export default function InstaCompScanner({
                 key={card.id}
                 card={card}
                 index={index}
-                batchBusy={batchRunning || batchDrafting}
+                batchBusy={batchRunning || batchDrafting || batchKnowledgeSaving}
                 onApplyPrice={applyBatchPrice}
                 onTitleChange={handleBatchTitleChange}
                 onQuantityChange={handleBatchQuantityChange}
@@ -12723,6 +12883,35 @@ function BatchCardRow({
                 >
                   Serial #: {serialNumber || "none detected"}
                 </span>
+                {card.knowledgeEntryId ? (
+                  <span
+                    style={{
+                      border:
+                        card.knowledgeTrustStatus === "tcos_trusted"
+                          ? "1px solid #047857"
+                          : "1px solid #1d4ed8",
+                      borderRadius: 999,
+                      background:
+                        card.knowledgeTrustStatus === "tcos_trusted"
+                          ? "#ecfdf5"
+                          : "#eff6ff",
+                      color:
+                        card.knowledgeTrustStatus === "tcos_trusted"
+                          ? "#065f46"
+                          : "#1d4ed8",
+                      fontSize: 12,
+                      fontWeight: 900,
+                      padding: "3px 8px",
+                    }}
+                    title="TCOS trusts a card identity after 3 confirmed sightings."
+                  >
+                    TCOS DB:{" "}
+                    {card.knowledgeTrustStatus === "tcos_trusted"
+                      ? "trusted"
+                      : "learning"}{" "}
+                    ({card.knowledgeConfirmedCount || 0}/3)
+                  </span>
+                ) : null}
               </div>
             ) : null}
             {card.status === "done" && card.result ? (
