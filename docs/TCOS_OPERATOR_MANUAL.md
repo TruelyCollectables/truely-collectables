@@ -5066,7 +5066,7 @@ Safety rules:
 - disconnecting deletes stored seller eBay tokens but retains staging/history/inventory
 - eBay revocation or account-deletion notifications must disable future access without deleting audit history
 
-Scheduled seller reconciliation currently runs daily at 09:00 UTC through Vercel cron and requires `CRON_SECRET`. The reconciliation endpoint is ready to be called every 3 hours, but Vercel Hobby projects only support daily cron cadence; a 2- or 3-hour production schedule requires Vercel Pro/Enterprise or an external scheduler that calls `/api/cron/seller-ebay-reconciliation` with `Authorization: Bearer {CRON_SECRET}`. The current cron endpoint processes one connected seller per invocation and one reconciliation/import batch. Multiple connected sellers may require a faster cadence, more scheduled calls, or a future scaling change.
+Scheduled seller reconciliation runs every 3 hours through GitHub Actions workflow `.github/workflows/seller-marketplace-reconciliation.yml`, which calls `/api/cron/seller-ebay-reconciliation` with `Authorization: Bearer {CRON_SECRET}`. The workflow requires GitHub secret `TCOS_CRON_SECRET` to match the production `CRON_SECRET`; optional repository variable `TCOS_RECONCILIATION_URL` can override the default `https://truelycollectables.com/api/cron/seller-ebay-reconciliation`. Vercel cron remains as a daily 09:00 UTC safety fallback because Vercel Hobby projects only support daily cron cadence. The current cron endpoint processes one connected seller per invocation and one reconciliation/import batch. Multiple connected sellers may require a faster cadence, more scheduled calls, or a future scaling change.
 
 ## 36. Local Startup, Backup Verification, And Laptop-Failure Recovery
 
