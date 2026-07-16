@@ -195,6 +195,34 @@ function readTrialImageMapStatus(audit) {
 const manifestPath = "instacomp-trial-manifest.local.json";
 const resultsPath = "instacomp-trial-results.local.json";
 const trialImagesDir = "instacomp-trial-images";
+const trialImagesAbsolutePath = join(repoRoot, trialImagesDir);
+const trialImageDropZoneGuide = {
+  localPath: trialImagesAbsolutePath,
+  ignoredByGit: true,
+  expectedCards: 100,
+  expectedImages: 200,
+  acceptedImageExtensions: [
+    ".jpg",
+    ".jpeg",
+    ".png",
+    ".webp",
+    ".heic",
+    ".heif",
+    ".gif",
+    ".bmp",
+    ".tif",
+    ".tiff",
+  ],
+  orderedScannerPattern:
+    "Plain ordered image files are paired as 1+2, 3+4, 5+6, etc. Example: scan_0001.jpg is card 001 front and scan_0002.jpg is card 001 back.",
+  explicitPairPattern:
+    "Explicit side filenames can use front/fr/f/obverse and back/bk/b/reverse/rear. Example: 001-front.jpg + 001-back.jpg.",
+  afterCopyCommands: [
+    "npm run instacomp:trial:audit",
+    "npm run instacomp:trial:map",
+    "npm run status:instacomp-final-tester",
+  ],
+};
 const trialImageCount = countFilesIfPresent(trialImagesDir);
 const trialImageAudit = runTrialImageAudit();
 const trialImageMap = readTrialImageMapStatus(trialImageAudit);
@@ -310,9 +338,11 @@ const readiness = {
     resultsPath,
     resultsExists: existsSync(join(repoRoot, resultsPath)),
     imagesDir: trialImagesDir,
-    imagesDirExists: existsSync(join(repoRoot, trialImagesDir)),
+    imagesAbsolutePath: trialImagesAbsolutePath,
+    imagesDirExists: existsSync(trialImagesAbsolutePath),
     imageFileCount: trialImageCount,
     expectedImageCount: 200,
+    imageDropZoneGuide: trialImageDropZoneGuide,
     imageAudit: trialImageAudit,
     imageMap: trialImageMap,
   },
@@ -349,6 +379,17 @@ if (jsonOutput) {
   console.log(`- git working tree clean: ${readiness.git.workingTreeClean ? "yes" : "no"}`);
   console.log(`- trial manifest: ${readiness.localTrial.manifestExists ? "present" : "missing"}`);
   console.log(`- trial results: ${readiness.localTrial.resultsExists ? "present" : "missing"}`);
+  console.log(`- trial image folder exists: ${readiness.localTrial.imagesDirExists ? "yes" : "no"}`);
+  console.log(`- trial image drop zone: ${readiness.localTrial.imagesAbsolutePath}`);
+  console.log(
+    `- accepted trial image patterns: ordered scanner files pair 1+2, 3+4, 5+6; or explicit 001-front.jpg + 001-back.jpg`,
+  );
+  console.log(
+    `- accepted trial side words: front/fr/f/obverse and back/bk/b/reverse/rear`,
+  );
+  console.log(
+    `- after copying images: ${readiness.localTrial.imageDropZoneGuide.afterCopyCommands.join(" | ")}`,
+  );
   console.log(
     `- trial images: ${readiness.localTrial.imageFileCount}/${readiness.localTrial.expectedImageCount} files in ${trialImagesDir}`,
   );
