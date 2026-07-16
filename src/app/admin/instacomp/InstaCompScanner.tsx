@@ -174,6 +174,10 @@ type BatchCard = {
   id: string;
   file: File;
   backFile: File | null;
+  originalFile?: File | null;
+  originalBackFile?: File | null;
+  frontRotationDegrees?: number;
+  backRotationDegrees?: number;
   previewUrl: string;
   backPreviewUrl: string | null;
   status: BatchCardStatus;
@@ -2331,12 +2335,32 @@ async function canvasToJpegFile(
 
 const IMAGE_ROTATION_STEP_DEGREES = 45;
 
-function rotatedImageName(file: File, direction: "left" | "right") {
-  const baseName = file.name.replace(/\.[^.]+$/, "") || "card";
-  return `${baseName}-rotated-${direction}-${IMAGE_ROTATION_STEP_DEGREES}.jpg`;
+function normalizeRotationDegrees(value: number) {
+  return ((Math.round(value) % 360) + 360) % 360;
 }
 
-async function rotateImageFile(file: File, direction: "left" | "right") {
+function originalRotationFileName(file: File) {
+  const fallback = file.name || "card.jpg";
+  const dotIndex = fallback.lastIndexOf(".");
+  const baseName = dotIndex > 0 ? fallback.slice(0, dotIndex) : fallback;
+  const extension = dotIndex > 0 ? fallback.slice(dotIndex) : ".jpg";
+  const cleanBaseName =
+    baseName.replace(/(?:-rotated-(?:left|right)-45)+$/gi, "") || "card";
+
+  return `${cleanBaseName}${extension || ".jpg"}`;
+}
+
+function nextRotationDegrees(current: number | null | undefined, direction: "left" | "right") {
+  return normalizeRotationDegrees(
+    (current || 0) + (direction === "left" ? -IMAGE_ROTATION_STEP_DEGREES : IMAGE_ROTATION_STEP_DEGREES)
+  );
+}
+
+async function rotateImageFile(file: File, degrees: number) {
+  const normalizedDegrees = normalizeRotationDegrees(degrees);
+
+  if (normalizedDegrees === 0) return file;
+
   const image = await loadImageElement(file);
   const sourceWidth = image.naturalWidth || image.width;
   const sourceHeight = image.naturalHeight || image.height;
@@ -2348,9 +2372,7 @@ async function rotateImageFile(file: File, direction: "left" | "right") {
 
   if (!context) return file;
 
-  const radians =
-    (direction === "left" ? -IMAGE_ROTATION_STEP_DEGREES : IMAGE_ROTATION_STEP_DEGREES) *
-    (Math.PI / 180);
+  const radians = normalizedDegrees * (Math.PI / 180);
   const cos = Math.abs(Math.cos(radians));
   const sin = Math.abs(Math.sin(radians));
   const outputWidth = Math.ceil(sourceWidth * cos + sourceHeight * sin);
@@ -2366,7 +2388,7 @@ async function rotateImageFile(file: File, direction: "left" | "right") {
   context.imageSmoothingQuality = "high";
   context.drawImage(image, -sourceWidth / 2, -sourceHeight / 2);
 
-  return canvasToJpegFile(canvas, rotatedImageName(file, direction), {
+  return canvasToJpegFile(canvas, originalRotationFileName(file), {
     initialQuality: 0.92,
   });
 }
@@ -2640,6 +2662,10 @@ export default function InstaCompScanner({
 }: InstaCompScannerProps) {
   const [frontImage, setFrontImage] = useState<File | null>(null);
   const [backImage, setBackImage] = useState<File | null>(null);
+  const [frontOriginalImage, setFrontOriginalImage] = useState<File | null>(null);
+  const [backOriginalImage, setBackOriginalImage] = useState<File | null>(null);
+  const [frontRotationDegrees, setFrontRotationDegrees] = useState(0);
+  const [backRotationDegrees, setBackRotationDegrees] = useState(0);
   const [frontPreview, setFrontPreview] = useState<string | null>(null);
   const [backPreview, setBackPreview] = useState<string | null>(null);
   const [result, setResult] = useState<ScanResponse | null>(null);
@@ -2922,6 +2948,10 @@ export default function InstaCompScanner({
               id: cardId,
               file: frontFile,
               backFile,
+              originalFile: frontFile,
+              originalBackFile: backFile,
+              frontRotationDegrees: 0,
+              backRotationDegrees: 0,
               previewUrl: frontUrl,
               backPreviewUrl: backUrl,
               status: isDone && storedResult ? "done" : isFailed ? "error" : "queued",
@@ -3341,6 +3371,8 @@ export default function InstaCompScanner({
 
   function handleFrontChange(file: File | null) {
     setFrontImage(file);
+    setFrontOriginalImage(file);
+    setFrontRotationDegrees(0);
     setResult(null);
     setError(null);
 
@@ -3350,6 +3382,8 @@ export default function InstaCompScanner({
 
   function handleBackChange(file: File | null) {
     setBackImage(file);
+    setBackOriginalImage(file);
+    setBackRotationDegrees(0);
     setResult(null);
     setError(null);
 
@@ -3360,7 +3394,10 @@ export default function InstaCompScanner({
   async function rotateSingleImage(side: "front" | "back", direction: "left" | "right") {
     if (loading || batchRunning || batchDrafting) return;
 
-    const file = side === "front" ? frontImage : backImage;
+    const file =
+      side === "front"
+        ? frontOriginalImage || frontImage
+        : backOriginalImage || backImage;
 
     if (!file) return;
 
@@ -3368,12 +3405,22 @@ export default function InstaCompScanner({
     setResult(null);
 
     try {
-      const rotatedFile = await rotateImageFile(file, direction);
+      const nextDegrees =
+        side === "front"
+          ? nextRotationDegrees(frontRotationDegrees, direction)
+          : nextRotationDegrees(backRotationDegrees, direction);
+      const rotatedFile = await rotateImageFile(file, nextDegrees);
 
       if (side === "front") {
-        handleFrontChange(rotatedFile);
+        setFrontImage(rotatedFile);
+        setFrontRotationDegrees(nextDegrees);
+        if (frontPreview) URL.revokeObjectURL(frontPreview);
+        setFrontPreview(URL.createObjectURL(rotatedFile));
       } else {
-        handleBackChange(rotatedFile);
+        setBackImage(rotatedFile);
+        setBackRotationDegrees(nextDegrees);
+        if (backPreview) URL.revokeObjectURL(backPreview);
+        setBackPreview(URL.createObjectURL(rotatedFile));
       }
     } catch (error: any) {
       setError(error?.message || "Could not rotate this image.");
@@ -3860,6 +3907,10 @@ export default function InstaCompScanner({
       id: `${fixture.slug}-${Date.now()}-${index}`,
       file: frontFile,
       backFile,
+      originalFile: frontFile,
+      originalBackFile: backFile,
+      frontRotationDegrees: 0,
+      backRotationDegrees: 0,
       previewUrl: createBatchPreviewUrl(frontFile),
       backPreviewUrl: backFile ? createBatchPreviewUrl(backFile) : null,
       status,
@@ -5432,6 +5483,10 @@ export default function InstaCompScanner({
         id: `${pair.front.file.name}-${pair.front.file.lastModified}-${pair.front.file.size}-${pair.back?.file.name || "front-only"}-${Date.now()}-${index}`,
         file: pair.front.file,
         backFile: pair.back?.file || null,
+        originalFile: pair.front.file,
+        originalBackFile: pair.back?.file || null,
+        frontRotationDegrees: 0,
+        backRotationDegrees: 0,
         previewUrl: createBatchPreviewUrl(pair.front.file),
         backPreviewUrl: pair.back ? createBatchPreviewUrl(pair.back.file) : null,
         status: "queued",
@@ -5542,7 +5597,10 @@ export default function InstaCompScanner({
     if (batchRunning || batchDrafting) return;
 
     const card = batchCards.find((row) => row.id === cardId);
-    const file = side === "primary" ? card?.file : card?.backFile;
+    const file =
+      side === "primary"
+        ? card?.originalFile || card?.file
+        : card?.originalBackFile || card?.backFile;
 
     if (!card || !file || card.draftStatus !== "idle") return;
 
@@ -5557,7 +5615,11 @@ export default function InstaCompScanner({
     setBatchDraftMessage(null);
 
     try {
-      const rotatedFile = await rotateImageFile(file, direction);
+      const nextDegrees =
+        side === "primary"
+          ? nextRotationDegrees(card.frontRotationDegrees, direction)
+          : nextRotationDegrees(card.backRotationDegrees, direction);
+      const rotatedFile = await rotateImageFile(file, nextDegrees);
       const rotatedPreviewUrl = createBatchPreviewUrl(rotatedFile);
 
       persistentBindingsRef.current.delete(cardId);
@@ -5583,6 +5645,8 @@ export default function InstaCompScanner({
           return {
             ...current,
             file: rotatedFile,
+            originalFile: file,
+            frontRotationDegrees: nextDegrees,
             previewUrl: rotatedPreviewUrl,
             ...resetAfterRotation,
           };
@@ -5592,6 +5656,8 @@ export default function InstaCompScanner({
         return {
           ...current,
           backFile: rotatedFile,
+          originalBackFile: file,
+          backRotationDegrees: nextDegrees,
           backPreviewUrl: rotatedPreviewUrl,
           ...resetAfterRotation,
         };
@@ -5827,6 +5893,10 @@ export default function InstaCompScanner({
 
     setFrontImage(null);
     setBackImage(null);
+    setFrontOriginalImage(null);
+    setBackOriginalImage(null);
+    setFrontRotationDegrees(0);
+    setBackRotationDegrees(0);
     setFrontPreview(null);
     setBackPreview(null);
     setResult(null);
