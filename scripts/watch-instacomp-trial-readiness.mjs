@@ -67,6 +67,7 @@ function buildMonitorReport(iteration = 1) {
   const imageMap = localTrial.imageMap || {};
   const intakePacket = localTrial.intakePacket || {};
   const answerKeyHtml = localTrial.answerKeyHtml || {};
+  const answerKeyValidation = localTrial.answerKeyValidation || {};
 
   const groundTruthReady = Boolean(manifestAudit.readyToScore);
   const imagesReady = Boolean(imageAudit.readyToScan);
@@ -85,16 +86,34 @@ function buildMonitorReport(iteration = 1) {
   if (status.ok && !groundTruthReady) {
     const visualAnswerKeyReady =
       Boolean(answerKeyHtml.exists) && Boolean(answerKeyHtml.matchesCurrentWorksheet);
+    const validationCurrent = Boolean(answerKeyValidation.matchesCurrentWorksheet);
+    const validationClean = validationCurrent && Boolean(answerKeyValidation.ok);
+    const visualAnswerKeyPath = answerKeyHtml.path || "instacomp-trial-answer-key.local.html";
+    const validationNext = validationClean
+      ? "Answer-key validation is clean. Run npm run instacomp:trial:groundtruth:apply, then npm run instacomp:trial:groundtruth."
+      : validationCurrent
+        ? `Use ${visualAnswerKeyPath} beside instacomp-trial-groundtruth.local.tsv. ${
+            answerKeyValidation.next ||
+            "Fix the validation issues, save the TSV, then rerun npm run instacomp:trial:answer-key:validate."
+          }`
+        : "Run npm run instacomp:trial:answer-key:validate before applying the TSV back to the manifest.";
     blockers.push({
       key: "ground_truth_not_ready",
       label: `${manifestAudit.readyRows ?? 0}/${manifestAudit.expectedCards ?? 100} answer-key rows are core-ready.`,
       next:
         (visualAnswerKeyReady
-          ? `Use ${answerKeyHtml.path || "instacomp-trial-answer-key.local.html"} beside instacomp-trial-groundtruth.local.tsv, fill the missing answer-key rows, then run npm run instacomp:trial:groundtruth:apply.`
+          ? validationNext
           : answerKeyHtml.next) ||
         manifestAudit.next ||
-        "Fill instacomp-trial-groundtruth.local.tsv, then run npm run instacomp:trial:groundtruth:apply.",
+        "Fill instacomp-trial-groundtruth.local.tsv, then run npm run instacomp:trial:answer-key:validate before applying it.",
       firstRows: manifestAudit.firstMissingCoreRows || [],
+      answerKeyValidation: {
+        exists: Boolean(answerKeyValidation.exists),
+        matchesCurrentWorksheet: validationCurrent,
+        ok: validationClean,
+        path: answerKeyValidation.path || "instacomp-trial-answer-key-validation.local.json",
+        next: validationNext,
+      },
     });
   }
   if (status.ok && !imagesReady) {
@@ -131,6 +150,8 @@ function buildMonitorReport(iteration = 1) {
       normalizedImages: localTrial.imagesAbsolutePath || null,
       worksheet: "instacomp-trial-groundtruth.local.tsv",
       answerKeyHtml: answerKeyHtml.path || "instacomp-trial-answer-key.local.html",
+      answerKeyValidation:
+        answerKeyValidation.path || "instacomp-trial-answer-key-validation.local.json",
       manifest: localTrial.manifestPath || "instacomp-trial-manifest.local.json",
       preflightJson: "instacomp-trial-preflight.local.json",
       preflightMarkdown: "instacomp-trial-preflight.local.md",
@@ -142,6 +163,15 @@ function buildMonitorReport(iteration = 1) {
       next:
         answerKeyHtml.next ||
         "Run npm run instacomp:trial:answer-key-html to refresh the local visual answer-key sheet.",
+    },
+    answerKeyValidation: {
+      exists: Boolean(answerKeyValidation.exists),
+      matchesCurrentWorksheet: Boolean(answerKeyValidation.matchesCurrentWorksheet),
+      ok: Boolean(answerKeyValidation.ok),
+      path: answerKeyValidation.path || "instacomp-trial-answer-key-validation.local.json",
+      next:
+        answerKeyValidation.next ||
+        "Run npm run instacomp:trial:answer-key:validate before applying the TSV back to the manifest.",
     },
     progress: {
       groundTruthRows: {
@@ -171,6 +201,7 @@ function buildMonitorReport(iteration = 1) {
       watch: "node scripts/watch-instacomp-trial-readiness.mjs --watch",
       intake: "npm run instacomp:trial:intake",
       writeAnswerKeyHtml: "npm run instacomp:trial:answer-key-html",
+      validateAnswerKey: "npm run instacomp:trial:answer-key:validate",
       applyGroundTruth: "npm run instacomp:trial:groundtruth:apply",
       preflight: "npm run instacomp:trial:preflight",
       score: "npm run instacomp:trial:score",
@@ -208,6 +239,13 @@ function printReport(report) {
     `- visual answer key: ${report.answerKeyHtml.exists ? "present" : "missing"} - ${
       report.answerKeyHtml.matchesCurrentWorksheet ? "matches worksheet" : "not ready"
     } - ${report.paths.answerKeyHtml}`,
+  );
+  console.log(
+    `- answer-key validation: ${report.answerKeyValidation.exists ? "present" : "missing"} - ${
+      report.answerKeyValidation.matchesCurrentWorksheet ? "matches worksheet" : "not ready"
+    } - ${report.answerKeyValidation.ok ? "clean" : "needs fixes"} - ${
+      report.paths.answerKeyValidation
+    }`,
   );
 
   if (report.blockers.length > 0) {
