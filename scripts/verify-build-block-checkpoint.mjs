@@ -229,6 +229,12 @@ if (payload) {
     );
     checks.push(
       check(
+        fallbackCommands.includes("npm run instacomp:trial:preflight"),
+        "local build fallback preserves InstaComp trial preflight command",
+      ),
+    );
+    checks.push(
+      check(
         fallbackCommands.includes("npm run instacomp:trial:ready"),
         "local build fallback preserves InstaComp trial ready gate command",
       ),
@@ -241,8 +247,8 @@ if (payload) {
     );
     checks.push(
       check(
-        payload.localBuildFallback.next?.includes("audit and map images before scanning"),
-        "local build fallback tells the operator to audit and map images before scanning",
+        payload.localBuildFallback.next?.includes("audit/map/preflight images before scanning"),
+        "local build fallback tells the operator to audit/map/preflight images before scanning",
         payload.localBuildFallback.next || null,
       ),
     );

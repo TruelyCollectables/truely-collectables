@@ -190,6 +190,12 @@ if (payload) {
     );
     checks.push(
       check(
+        commands.includes("npm run instacomp:trial:preflight"),
+        "fallback selection preserves InstaComp trial preflight command",
+      ),
+    );
+    checks.push(
+      check(
         commands.includes("npm run instacomp:trial:ready"),
         "fallback selection preserves InstaComp trial ready gate command",
       ),
@@ -202,8 +208,8 @@ if (payload) {
     );
     checks.push(
       check(
-        payload.next?.includes("audit and map images before scanning"),
-        "fallback selection tells the operator to audit and map images before scanning",
+        payload.next?.includes("audit/map/preflight images before scanning"),
+        "fallback selection tells the operator to audit/map/preflight images before scanning",
         payload.next || null,
       ),
     );
