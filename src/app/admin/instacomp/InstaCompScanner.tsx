@@ -255,6 +255,7 @@ type OperatorCorrectionSnapshot = {
   savedAt: string;
   savedFrom: "admin_instacomp";
   customTitle: string;
+  customSerialNumber: string;
   customQuantity: string;
   customPrice: string;
   operatorMarkedWrong: boolean;
@@ -317,6 +318,7 @@ type BatchCard = {
   result: ScanResponse | null;
   marketPrice: number | null;
   customTitle: string;
+  customSerialNumber: string;
   customQuantity: string;
   customPrice: string;
   error: string | null;
@@ -2246,6 +2248,7 @@ function correctionSnapshotForCard(card: BatchCard): OperatorCorrectionSnapshot 
     savedAt: new Date().toISOString(),
     savedFrom: "admin_instacomp",
     customTitle: draftTitleForCard(card),
+    customSerialNumber: card.customSerialNumber.trim(),
     customQuantity: String(draftQuantityForCard(card)),
     customPrice: card.customPrice.trim(),
     operatorMarkedWrong: Boolean(card.operatorMarkedWrong),
@@ -2261,6 +2264,27 @@ function scanResultWithOperatorCorrections(card: BatchCard) {
   return {
     ...card.result,
     operatorCorrections: correctionSnapshotForCard(card),
+  };
+}
+
+function scanResultWithSerialNumber(
+  result: ScanResponse | null,
+  serialNumber: string | null
+) {
+  if (!result) return null;
+
+  return {
+    ...result,
+    ai: {
+      ...result.ai,
+      serialNumber,
+    },
+    ocrDiagnostics: result.ocrDiagnostics
+      ? {
+          ...result.ocrDiagnostics,
+          serialVisionSerialNumber: serialNumber,
+        }
+      : result.ocrDiagnostics,
   };
 }
 
@@ -2297,6 +2321,7 @@ function resetDraftEditsForCard(card: BatchCard) {
   return {
     ...card,
     customTitle: cardResultTitle(card.result, card.file.name),
+    customSerialNumber: card.result?.ai.serialNumber || "",
     customQuantity: "1",
     customPrice: marketPrice ? marketPrice.toFixed(2) : "",
     draftStatus: card.draftStatus === "error" ? "idle" : card.draftStatus,
@@ -3265,6 +3290,9 @@ export default function InstaCompScanner({
   const persistentBindingsRef = useRef<Map<string, PersistentJobBinding>>(
     new Map()
   );
+  const serialOverrideByItemIdRef = useRef<Map<string, string | null>>(
+    new Map()
+  );
   const persistentClientBatchIdRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -3528,6 +3556,8 @@ export default function InstaCompScanner({
                       item.front_original_filename || "Recovered card"
                     )
                   : ""),
+              customSerialNumber:
+                savedCorrections?.customSerialNumber ?? storedResult?.ai.serialNumber ?? "",
               customQuantity: savedCorrections?.customQuantity || "1",
               customPrice:
                 savedCorrections?.customPrice ??
@@ -4423,6 +4453,12 @@ export default function InstaCompScanner({
 
     if (claimedItem) {
       for (let attempt = 0; attempt < 4; attempt += 1) {
+        const hasSerialOverride = serialOverrideByItemIdRef.current.has(
+          claimedItem.id
+        );
+        const operatorSerialNumberOverride = hasSerialOverride
+          ? serialOverrideByItemIdRef.current.get(claimedItem.id) ?? null
+          : undefined;
         const response = await fetchWithFreshAccountSession("/api/instacomp/scan", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -4431,6 +4467,7 @@ export default function InstaCompScanner({
             itemId: claimedItem.id,
             leaseToken: claimedItem.leaseToken || claimedItem.lease_token,
             aiCouncilTier,
+            ...(hasSerialOverride ? { operatorSerialNumberOverride } : {}),
           }),
         });
         const data = await response.json().catch(() => ({}));
@@ -4605,6 +4642,7 @@ export default function InstaCompScanner({
       result,
       marketPrice,
       customTitle: result ? cardResultTitle(result, frontFile.name) : "",
+      customSerialNumber: result?.ai.serialNumber || "",
       customQuantity: fixture.customQuantity || "1",
       customPrice:
         fixture.customPrice ??
@@ -6185,6 +6223,7 @@ export default function InstaCompScanner({
         result: null,
         marketPrice: null,
         customTitle: "",
+        customSerialNumber: "",
         customQuantity: "1",
         customPrice: "",
         error: null,
@@ -6729,6 +6768,22 @@ export default function InstaCompScanner({
     }));
   }
 
+  function handleBatchSerialChange(cardId: string, value: string) {
+    updateBatchCard(cardId, (card) => {
+      const serialNumber = value.trim() || null;
+
+      return {
+        ...card,
+        customSerialNumber: value,
+        result: scanResultWithSerialNumber(card.result, serialNumber),
+        marketPrice: null,
+        customPrice: "",
+        draftStatus: card.draftStatus === "error" ? "idle" : card.draftStatus,
+        draftError: card.draftStatus === "error" ? null : card.draftError,
+      };
+    });
+  }
+
   function handleBatchQuantityChange(cardId: string, value: string) {
     updateBatchCard(cardId, (card) => ({
       ...card,
@@ -6942,6 +6997,52 @@ export default function InstaCompScanner({
     return correctedResult;
   }
 
+  async function repriceBatchCardWithSerialCorrection(card: BatchCard) {
+    if (!card.persistentJobId || !card.persistentItemId) {
+      return persistBatchCardCorrections(card);
+    }
+
+    const serialOverride = card.customSerialNumber.trim() || null;
+    serialOverrideByItemIdRef.current.set(card.persistentItemId, serialOverride);
+
+    try {
+      await requeuePersistentCards([card]);
+      const [repricedCard] = await scanPersistentJob(card.persistentJobId, [card]);
+
+      if (!repricedCard?.result) {
+        throw new Error("InstaComp could not reprice this row after the serial edit.");
+      }
+
+      const marketPrice = effectiveMarketStats(repricedCard.result).suggestedPrice;
+      const correctedCard: BatchCard = {
+        ...repricedCard,
+        customTitle: card.customTitle || cardResultTitle(repricedCard.result, card.file.name),
+        customSerialNumber: repricedCard.result.ai.serialNumber || "",
+        customQuantity: card.customQuantity,
+        customPrice: marketPrice ? marketPrice.toFixed(2) : "",
+        operatorMarkedWrong: card.operatorMarkedWrong,
+        operatorNeedsMoreInfo: card.operatorNeedsMoreInfo,
+      };
+      const correctedResult = await persistBatchCardCorrections(correctedCard);
+
+      updateBatchCard(card.id, (current) => ({
+        ...current,
+        result: correctedResult,
+        marketPrice,
+        customTitle: correctedCard.customTitle,
+        customSerialNumber: correctedCard.customSerialNumber,
+        customQuantity: correctedCard.customQuantity,
+        customPrice: correctedCard.customPrice,
+        operatorMarkedWrong: correctedCard.operatorMarkedWrong,
+        operatorNeedsMoreInfo: correctedCard.operatorNeedsMoreInfo,
+      }));
+
+      return correctedResult;
+    } finally {
+      serialOverrideByItemIdRef.current.delete(card.persistentItemId);
+    }
+  }
+
   async function saveBatchCardCorrections(cardId: string) {
     if (batchRunning || batchDrafting) return;
 
@@ -6949,24 +7050,23 @@ export default function InstaCompScanner({
 
     if (!card) return;
 
+    batchPauseRequestedRef.current = false;
+    databasePressurePauseRef.current = false;
+    openAIRateLimitPauseRef.current = false;
+    setBatchRunning(true);
     setBatchError(null);
-    setBatchDraftMessage("Saving correction edits...");
+    setBatchDraftMessage("Saving corrections and repricing this row...");
 
     try {
-      const correctedResult = await persistBatchCardCorrections(card);
-
-      updateBatchCard(card.id, (current) => ({
-        ...current,
-        result: correctedResult,
-        marketPrice: marketPriceForCard({
-          ...current,
-          result: correctedResult,
-        }),
-      }));
-      setBatchDraftMessage("Saved corrections for this InstaComp row.");
+      await repriceBatchCardWithSerialCorrection(card);
+      setBatchDraftMessage(
+        "Saved corrections and repriced this InstaComp row with the corrected serial."
+      );
     } catch (error: any) {
       setBatchError(error?.message || "Could not save correction edits.");
       setBatchDraftMessage(null);
+    } finally {
+      setBatchRunning(false);
     }
   }
 
@@ -6984,9 +7084,13 @@ export default function InstaCompScanner({
       return;
     }
 
+    batchPauseRequestedRef.current = false;
+    databasePressurePauseRef.current = false;
+    openAIRateLimitPauseRef.current = false;
+    setBatchRunning(true);
     setBatchError(null);
     setBatchDraftMessage(
-      `Saving corrections for ${cardsToSave.length} selected row${
+      `Saving corrections and repricing ${cardsToSave.length} selected row${
         cardsToSave.length === 1 ? "" : "s"
       }...`
     );
@@ -6996,7 +7100,7 @@ export default function InstaCompScanner({
 
     for (const card of cardsToSave) {
       try {
-        const correctedResult = await persistBatchCardCorrections(card);
+        const correctedResult = await repriceBatchCardWithSerialCorrection(card);
         savedCount += 1;
         updateBatchCard(card.id, (current) => ({
           ...current,
@@ -7024,6 +7128,7 @@ export default function InstaCompScanner({
         savedCount === 1 ? "" : "s"
       }.`
     );
+    setBatchRunning(false);
   }
 
   async function processSavedLotToKnowledgeBase() {
@@ -7531,6 +7636,7 @@ export default function InstaCompScanner({
         marketPrice,
         customTitle:
           current.customTitle || cardResultTitle(scanResult, current.file.name),
+        customSerialNumber: scanResult.ai.serialNumber || "",
         customPrice: marketPrice ? marketPrice.toFixed(2) : current.customPrice,
         error: null,
         scanStartedAt: current.scanStartedAt || scanStartedAt,
@@ -11659,6 +11765,7 @@ export default function InstaCompScanner({
                 batchBusy={batchRunning || batchDrafting || batchKnowledgeSaving}
                 onApplyPrice={applyBatchPrice}
                 onTitleChange={handleBatchTitleChange}
+                onSerialChange={handleBatchSerialChange}
                 onQuantityChange={handleBatchQuantityChange}
                 onPriceChange={handleBatchPriceChange}
                 onSelectedChange={toggleBatchCardSelected}
@@ -12698,6 +12805,7 @@ function BatchCardRow({
   batchBusy,
   onApplyPrice,
   onTitleChange,
+  onSerialChange,
   onQuantityChange,
   onPriceChange,
   onSelectedChange,
@@ -12716,6 +12824,7 @@ function BatchCardRow({
   batchBusy: boolean;
   onApplyPrice: (cardId: string, multiplier: number) => void;
   onTitleChange: (cardId: string, value: string) => void;
+  onSerialChange: (cardId: string, value: string) => void;
   onQuantityChange: (cardId: string, value: string) => void;
   onPriceChange: (cardId: string, value: string) => void;
   onSelectedChange: (cardId: string, selected: boolean) => void;
@@ -13301,6 +13410,24 @@ function BatchCardRow({
               alignItems: "end",
             }}
           >
+            <label style={{ display: "grid", gap: 6, fontWeight: 800 }}>
+              Serial #
+              <input
+                type="text"
+                value={card.customSerialNumber}
+                onChange={(event) =>
+                  onSerialChange(card.id, event.target.value)
+                }
+                placeholder="Blank = no serial, e.g. 12/150"
+                style={{
+                  border: "1px solid #ccc",
+                  borderRadius: 8,
+                  padding: "10px 12px",
+                  fontWeight: 800,
+                }}
+              />
+            </label>
+
             <label style={{ display: "grid", gap: 6, fontWeight: 800 }}>
               Quantity
               <input

@@ -20,6 +20,7 @@ export type TcosCardKnowledgeResultPayload = {
   catalogEvidence?: unknown;
   operatorCorrections?: {
     customTitle?: string | null;
+    customSerialNumber?: string | null;
     customQuantity?: string | null;
     customPrice?: string | null;
     operatorMarkedWrong?: boolean | null;

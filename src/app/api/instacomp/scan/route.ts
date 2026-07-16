@@ -772,6 +772,45 @@ function normalizedSerialVisionMode() {
   return "adaptive";
 }
 
+function normalizeOperatorSerialNumberOverride(value: unknown, present: boolean) {
+  if (!present) return undefined;
+
+  const text = String(value ?? "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 80);
+  const comparable = text.toLowerCase();
+
+  if (
+    !text ||
+    comparable === "none" ||
+    comparable === "no serial" ||
+    comparable === "no serial number" ||
+    comparable === "not serial numbered"
+  ) {
+    return null;
+  }
+
+  return text;
+}
+
+function applyOperatorSerialNumberOverride(
+  ai: InstaCompAiResult,
+  override: string | null | undefined,
+): InstaCompAiResult {
+  if (override === undefined) return ai;
+
+  const note = override
+    ? `Operator serial override: ${override}.`
+    : "Operator serial override: no serial number.";
+
+  return {
+    ...ai,
+    serialNumber: override,
+    notes: [ai.notes, note].filter(Boolean).join(" "),
+  };
+}
+
 function textHasSerialVisionSignal(value: string | null | undefined) {
   const text = String(value || "");
 
@@ -3068,6 +3107,10 @@ async function loadPersistentJobScan(
     detailImageFiles: [] as File[],
     aiCouncilTier:
       typeof body?.aiCouncilTier === "string" ? body.aiCouncilTier : null,
+    operatorSerialNumberOverride: normalizeOperatorSerialNumberOverride(
+      body?.operatorSerialNumberOverride,
+      Object.prototype.hasOwnProperty.call(body, "operatorSerialNumberOverride"),
+    ),
     context: {
       supabase,
       jobId,
@@ -3186,6 +3229,7 @@ async function failPersistentJobScan(
 export async function POST(req: NextRequest) {
   let persistentContext: PersistentJobScanContext | null = null;
   let requestedAiCouncilTier: string | null = null;
+  let operatorSerialNumberOverride: string | null | undefined = undefined;
 
   try {
     const actor = await requireInstaCompJobActor(req);
@@ -3218,16 +3262,24 @@ export async function POST(req: NextRequest) {
       detailImageFiles = queuedScan.detailImageFiles;
       persistentContext = queuedScan.context;
       requestedAiCouncilTier = queuedScan.aiCouncilTier;
+      operatorSerialNumberOverride = queuedScan.operatorSerialNumberOverride;
     } else {
       const formData = await req.formData();
       const submittedFront = formData.get("frontImage");
       const submittedBack = formData.get("backImage");
       const submittedAiCouncilTier = formData.get("aiCouncilTier");
+      const submittedOperatorSerialNumberOverride = formData.get(
+        "operatorSerialNumberOverride",
+      );
 
       frontImage = submittedFront instanceof File ? submittedFront : null;
       backImage = submittedBack instanceof File ? submittedBack : null;
       requestedAiCouncilTier =
         typeof submittedAiCouncilTier === "string" ? submittedAiCouncilTier : null;
+      operatorSerialNumberOverride = normalizeOperatorSerialNumberOverride(
+        submittedOperatorSerialNumberOverride,
+        typeof submittedOperatorSerialNumberOverride === "string",
+      );
       detailImageFiles = formData
         .getAll("detailImages")
         .filter((file): file is File => file instanceof File && file.size > 0)
@@ -3357,7 +3409,25 @@ export async function POST(req: NextRequest) {
               externalOcr
             )
           : null);
-    const mergedSerialAi = mergeSerialOcrResult(baseAi, serialOcr);
+    const baseAiForConsensus = applyOperatorSerialNumberOverride(
+      baseAi,
+      operatorSerialNumberOverride,
+    );
+    const consensusSerialOcr =
+      operatorSerialNumberOverride === undefined
+        ? serialOcr
+        : operatorSerialNumberOverride
+          ? {
+              serialNumber: operatorSerialNumberOverride,
+              confidence: 1,
+              checkedImages: 0,
+              evidence: "Operator serial override.",
+            }
+          : null;
+    const mergedSerialAi = applyOperatorSerialNumberOverride(
+      mergeSerialOcrResult(baseAi, serialOcr),
+      operatorSerialNumberOverride,
+    );
     const guardedAi = applyInstaCompIdentityGuard(mergedSerialAi, {
       externalOcrText: externalOcr?.text || null,
     });
@@ -3385,7 +3455,10 @@ export async function POST(req: NextRequest) {
       readers: aiCouncilRaw.readers.map((reader) => ({
         ...reader,
         ai: applyInstaCompIdentityGuard(
-          mergeSerialOcrResult(reader.ai, serialOcr),
+          applyOperatorSerialNumberOverride(
+            mergeSerialOcrResult(reader.ai, serialOcr),
+            operatorSerialNumberOverride,
+          ),
           {
             externalOcrText: externalOcr?.text || null,
           },
@@ -3394,11 +3467,11 @@ export async function POST(req: NextRequest) {
     };
 
     const consensusReaders = buildInstaCompConsensusReaders({
-      baseAi,
+      baseAi: baseAiForConsensus,
       mergedSerialAi,
       guardedAi,
       aiCouncil,
-      serialOcr,
+      serialOcr: consensusSerialOcr,
       externalOcr,
     });
     const consensus = buildInstaCompMultiScannerConsensus({
@@ -3508,6 +3581,10 @@ export async function POST(req: NextRequest) {
         serialVisionCheckedImages: serialOcr?.checkedImages || 0,
         serialVisionSerialNumber: serialOcr?.serialNumber || ai.serialNumber || null,
         serialVisionEvidence: serialOcr?.evidence || null,
+        operatorSerialNumberOverride:
+          operatorSerialNumberOverride === undefined
+            ? null
+            : operatorSerialNumberOverride,
         textExcerpt: externalOcr?.text ? externalOcr.text.slice(0, 1200) : null,
       },
       searchQuery: queries.primary,
