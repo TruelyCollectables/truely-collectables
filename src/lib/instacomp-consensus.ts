@@ -53,6 +53,7 @@ export type InstaCompConsensusFieldDecision = {
     | "agreed"
     | "single_reader"
     | "specific_variant_over_base"
+    | "positive_marker_over_negative_default"
     | "weighted_reader_choice"
     | "catalog_referee"
     | "review_required";
@@ -111,6 +112,20 @@ const CRITICAL_FIELDS = new Set<InstaCompConsensusField>([
   "player",
   "parallel",
   "serialNumber",
+  "isAuto",
+  "isRelic",
+]);
+
+const HARD_REVIEW_CONFLICT_FIELDS = new Set<InstaCompConsensusField>([
+  "year",
+  "setName",
+  "cardNumber",
+  "player",
+  "serialNumber",
+]);
+
+const POSITIVE_MARKER_FIELDS = new Set<InstaCompConsensusField>([
+  "isRookie",
   "isAuto",
   "isRelic",
 ]);
@@ -249,6 +264,10 @@ function uniqueStrings(values: string[]) {
   return [...new Set(values.filter(Boolean))];
 }
 
+function hasBooleanValue(group: ValueGroup, value: boolean) {
+  return typeof group.value === "boolean" && group.value === value;
+}
+
 function catalogValueForField(
   catalogReferee: InstaCompConsensusCatalogReferee | null | undefined,
   field: InstaCompConsensusField,
@@ -328,9 +347,38 @@ function buildFieldDecision(params: {
     }
   }
 
+  if (POSITIVE_MARKER_FIELDS.has(field)) {
+    const positiveGroups = groups.filter((group) => hasBooleanValue(group, true));
+    const negativeGroups = groups.filter((group) => hasBooleanValue(group, false));
+
+    if (positiveGroups.length === 1 && negativeGroups.length > 0) {
+      const [positive] = positiveGroups;
+
+      return {
+        field,
+        status: "positive_marker_over_negative_default",
+        value: true,
+        sources: uniqueStrings(positive.sources),
+        conflictingValues: uniqueStrings(negativeGroups.map((group) => String(group.value))),
+        reason: `Positive printed/checklist ${fieldLabel} evidence beat a generic negative default.`,
+      };
+    }
+  }
+
   const [top, second] = groups;
   const conflictingValues = uniqueStrings(groups.slice(1).map((group) => String(group.value)));
   const decisiveGap = top.score - (second?.score || 0);
+
+  if (HARD_REVIEW_CONFLICT_FIELDS.has(field)) {
+    return {
+      field,
+      status: "review_required",
+      value: top.value,
+      sources: uniqueStrings(top.sources),
+      conflictingValues,
+      reason: `Readers disagreed on critical ${fieldLabel}; checklist/catalog confirmation is required before this identity can be trusted.`,
+    };
+  }
 
   if (decisiveGap >= 0.35 && !top.hasUncertain) {
     return {

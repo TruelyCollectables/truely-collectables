@@ -100,6 +100,16 @@ function readResultFields(result) {
   return result?.actual || result?.result || result?.predicted || result?.ai || result || {};
 }
 
+function readConsensus(result) {
+  return (
+    result?.consensus ||
+    result?.result?.consensus ||
+    result?.predicted?.consensus ||
+    result?.ai?.consensus ||
+    null
+  );
+}
+
 function buildPlaceholderManifest(cards) {
   const cardRows = Array.from({ length: cards }, (_, index) => {
     const id = String(index + 1).padStart(3, "0");
@@ -227,6 +237,8 @@ function imageStats(manifestPath, cards) {
 function scoreCard(card, result) {
   const expected = card.expected || {};
   const actual = readResultFields(result);
+  const consensus = readConsensus(result);
+  const consensusReviewRequired = consensus?.status === "review_required";
   const mismatches = [];
   let identityFieldTotal = 0;
   let identityFieldPassed = 0;
@@ -281,6 +293,10 @@ function scoreCard(card, result) {
     serialNumberPassed,
     serialRunEligible,
     serialRunPassed,
+    consensusReviewRequired,
+    consensusReviewReasons: Array.isArray(consensus?.reviewReasons)
+      ? consensus.reviewReasons
+      : [],
     mismatches,
   };
 }
@@ -306,6 +322,9 @@ function summarizeScores(manifest, manifestPath, results, targetAccuracyPercent)
   const serialNumberPassed = cardScores.filter((item) => item.serialNumberPassed).length;
   const serialRunTotal = cardScores.filter((item) => item.serialRunEligible).length;
   const serialRunPassed = cardScores.filter((item) => item.serialRunPassed).length;
+  const consensusReviewIds = cardScores
+    .filter((item) => item.consensusReviewRequired)
+    .map((item) => item.trialCardId);
   const identityFieldTotal = cardScores.reduce((sum, item) => sum + item.identityFieldTotal, 0);
   const identityFieldPassed = cardScores.reduce((sum, item) => sum + item.identityFieldPassed, 0);
   const combinedPassed = identityExactPassed + serialNumberPassed + serialRunPassed;
@@ -315,10 +334,12 @@ function summarizeScores(manifest, manifestPath, results, targetAccuracyPercent)
     .filter((item) => !item.hasResult)
     .map((item) => item.trialCardId);
   const failures = cardScores
-    .filter((item) => item.mismatches.length > 0 || !item.hasResult)
+    .filter((item) => item.mismatches.length > 0 || item.consensusReviewRequired || !item.hasResult)
     .map((item) => ({
       trialCardId: item.trialCardId,
       hasResult: item.hasResult,
+      consensusReviewRequired: item.consensusReviewRequired,
+      consensusReviewReasons: item.consensusReviewReasons,
       mismatches: item.mismatches,
     }));
 
@@ -340,6 +361,7 @@ function summarizeScores(manifest, manifestPath, results, targetAccuracyPercent)
       ...imageSummary,
       results: results.cards.length,
       missingResultIds,
+      consensusReviewIds,
     },
     accuracy: {
       identityExact: {
@@ -381,7 +403,8 @@ function summarizeScores(manifest, manifestPath, results, targetAccuracyPercent)
     combinedPercent >= targetAccuracyPercent &&
     (identityPercent === null || identityPercent >= targetAccuracyPercent) &&
     (serialPercent === null || serialPercent >= targetAccuracyPercent) &&
-    missingResultIds.length === 0;
+    missingResultIds.length === 0 &&
+    consensusReviewIds.length === 0;
 
   if (manifest.cards.length < report.target.targetCards) {
     report.warnings.push(
@@ -398,6 +421,11 @@ function summarizeScores(manifest, manifestPath, results, targetAccuracyPercent)
   }
   if (missingResultIds.length > 0) {
     report.warnings.push(`${missingResultIds.length} card(s) are missing trial results.`);
+  }
+  if (consensusReviewIds.length > 0) {
+    report.warnings.push(
+      `${consensusReviewIds.length} card(s) still require multi-scanner consensus review.`
+    );
   }
 
   return report;
@@ -443,6 +471,13 @@ function printTextReport(report) {
         console.log(`- ${failure.trialCardId}: missing result`);
         continue;
       }
+      if (failure.consensusReviewRequired) {
+        const reasons = failure.consensusReviewReasons.length
+          ? failure.consensusReviewReasons.join(", ")
+          : "no detailed reason supplied";
+        console.log(`- ${failure.trialCardId}: consensus review required (${reasons})`);
+      }
+      if (failure.mismatches.length === 0) continue;
       const details = failure.mismatches
         .map((item) => `${item.field} expected=${JSON.stringify(item.expected)} actual=${JSON.stringify(item.actual)}`)
         .join("; ");

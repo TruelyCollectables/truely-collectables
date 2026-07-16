@@ -3940,9 +3940,10 @@ The report prints:
 - exact serial-number accuracy
 - serial-run accuracy
 - combined identity-and-serial accuracy
+- any cards still blocked by multi-scanner consensus review
 - the exact trial card IDs and fields that missed
 
-The trial is considered a 94% pass only when combined identity-and-serial accuracy is at least `94%`, card-identity exact accuracy is at least `94%`, exact serial-number accuracy is at least `94%` when serial-numbered cards are present, and no manifest row is missing a result.
+The trial is considered a 94% pass only when combined identity-and-serial accuracy is at least `94%`, card-identity exact accuracy is at least `94%`, exact serial-number accuracy is at least `94%` when serial-numbered cards are present, no manifest row is missing a result, and no card still has `review_required` from InstaComp™ Multi-Scanner Consensus. Critical player, set, card-number, year, and serial-number disagreements must be resolved by checklist/catalog evidence or operator review before the tester can honestly pass.
 
 Use `npm run simulate:instacomp-trial` to verify the scorekeeper itself with committed fixture data. The fixture intentionally stays tiny; the real 100-card manifest and results are local files ignored by Git because they can include personal inventory paths and scan results.
 

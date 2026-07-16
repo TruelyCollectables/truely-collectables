@@ -164,6 +164,71 @@ const scenarios = [
       assert(consensus.suggestedQuestion?.includes("player"), "Expected player question");
     },
   },
+  {
+    name: "critical card number disagreement cannot be won by weight alone",
+    run() {
+      const consensus = buildInstaCompMultiScannerConsensus({
+        baseIdentity: baseAi,
+        readers: [
+          primary({
+            ...baseAi,
+            cardNumber: "O-8",
+            confidence: 0.99,
+          }),
+          {
+            readerId: "second-vision",
+            label: "Second AI vision",
+            kind: "other",
+            identity: { cardNumber: "0-8" },
+            confidence: 0.5,
+            evidence: ["second reader saw zero-eight instead of letter O-eight"],
+          },
+        ],
+      });
+
+      assert(consensus.status === "review_required", "Expected critical card number review");
+      assert(
+        consensus.reviewReasons.includes("multi_scanner_cardNumber_disagreement"),
+        "Expected card number disagreement reason",
+      );
+    },
+  },
+  {
+    name: "positive autograph marker beats generic false default",
+    run() {
+      const consensus = buildInstaCompMultiScannerConsensus({
+        baseIdentity: {
+          ...baseAi,
+          isAuto: false,
+        },
+        readers: [
+          primary({
+            ...baseAi,
+            isAuto: false,
+          }),
+          {
+            readerId: "printed-auto-guard",
+            label: "OCR/printed evidence guard",
+            kind: "ocr_printed_evidence",
+            identity: { isAuto: true },
+            confidence: 0.92,
+            evidence: ["front/back text identifies autograph issue"],
+          },
+        ],
+      });
+
+      assert(consensus.status === "consensus_confirmed", "Expected positive marker consensus");
+      assert(consensus.finalIdentity.isAuto === true, "Expected autograph marker to apply");
+      assert(
+        consensus.fieldDecisions.some(
+          (decision) =>
+            decision.field === "isAuto" &&
+            decision.status === "positive_marker_over_negative_default",
+        ),
+        "Expected positive marker over negative default decision",
+      );
+    },
+  },
 ];
 
 const failures: string[] = [];
