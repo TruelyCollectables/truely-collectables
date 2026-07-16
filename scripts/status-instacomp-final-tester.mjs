@@ -328,13 +328,13 @@ const checklist = [
   {
     key: "trial_results_export",
     label:
-      "Admin InstaComp can export or copy completed visible batch rows as tcos.instacompTrialResults.v1 JSON for the 94% scorekeeper, including consensus/review status and row-stable trialCardId values.",
+      "Admin InstaComp can export or copy completed visible batch rows as tcos.instacompTrialResults.v1 JSON for the 94% scorekeeper, including consensus/review status, row-stable trialCardId values, and per-row timing evidence.",
     status: "ready_to_test",
   },
   {
     key: "trial_failure_report",
     label:
-      "The 94% scorekeeper can write tcos.instacompTrialFailureReport.v1 JSON with missing rows, mismatched fields, consensus-review blockers, and suggested fix actions.",
+      "The 94% scorekeeper can enforce timing evidence plus average/p95 speed targets and write tcos.instacompTrialFailureReport.v1 JSON with missing rows, mismatched fields, consensus-review blockers, speed misses, and suggested fix actions.",
     status: "ready_to_test",
   },
   {
@@ -368,7 +368,7 @@ const checklist = [
   {
     key: "hundred_card_trial",
     label:
-      "100-card / 200-scan final trial must score at least 94% against the local ground-truth manifest.",
+      "100-card / 200-scan final trial must score at least 94% against the local ground-truth manifest and pass the FAF speed gate: timing required, average <= 15s/card, p95 <= 45s/card.",
     status: existsSync(join(repoRoot, manifestPath)) && existsSync(join(repoRoot, resultsPath))
       ? "ready_to_score"
       : trialImageAudit.readyToScan
@@ -421,13 +421,13 @@ const readiness = {
     writeTrialPacket: "npm run instacomp:trial:packet",
     readyTrialImages: "npm run instacomp:trial:ready",
     scoreTrial:
-      "npm run instacomp:trial:report -- --manifest instacomp-trial-manifest.local.json --results instacomp-trial-results.local.json --target 94",
+      "npm run instacomp:trial:score",
     scoreTrialFailures: "npm run instacomp:trial:failures",
     fullLocalSafety:
       "npm run lint && npm run verify:instacomp && npm run build && npm run check:production-guardrails",
   },
   next:
-    "Run the 100-card lot through the wired Multi-Scanner Consensus path, score it against 94%, record misses, and clean the UI before calling it done-done.",
+    "Run the 100-card lot through the wired Multi-Scanner Consensus path, score it against 94% plus the FAF timing gate, record misses, and clean the UI before calling it done-done.",
   safeBuildBoundary:
     "This InstaComp tester status is read-only. It does not approve live money, buy postage, release payouts, create Checkout, publish listings, or start production deploys.",
 };

@@ -245,6 +245,10 @@ type BatchCard = {
   backStoragePath?: string | null;
   pairingConfidence?: number | null;
   pairingMethod?: "filename" | "upload_order" | "front_only";
+  scanQueuedAt?: string | null;
+  scanStartedAt?: string | null;
+  scanCompletedAt?: string | null;
+  scanElapsedMs?: number | null;
 };
 
 type PersistentJobBinding = {
@@ -1589,6 +1593,13 @@ function instacompTrialResultRows(items: BatchCardViewItem[]) {
         frontFileName: card.file.name,
         backFileName: card.backFile?.name || "",
         scanId: result.scanId,
+        timing: {
+          queuedAt: card.scanQueuedAt || null,
+          startedAt: card.scanStartedAt || null,
+          completedAt: card.scanCompletedAt || null,
+          elapsedMs: card.scanElapsedMs ?? null,
+        },
+        scanElapsedMs: card.scanElapsedMs ?? null,
         consensus: result.consensus || null,
         review: result.review || null,
         actual: {
@@ -1613,6 +1624,7 @@ function instacompTrialResultRows(items: BatchCardViewItem[]) {
 
 function instacompTrialResultsPayload(items: BatchCardViewItem[]) {
   const cards = instacompTrialResultRows(items);
+  const timedRows = cards.filter((card) => Number(card.timing?.elapsedMs) > 0);
 
   return {
     schema: "tcos.instacompTrialResults.v1",
@@ -1627,6 +1639,16 @@ function instacompTrialResultsPayload(items: BatchCardViewItem[]) {
         (card) => card.consensus?.status === "review_required"
       ).length,
       missingConsensus: cards.filter((card) => !card.consensus).length,
+      rowsWithTiming: timedRows.length,
+      averageElapsedMs:
+        timedRows.length > 0
+          ? Math.round(
+              timedRows.reduce(
+                (sum, card) => sum + (Number(card.timing?.elapsedMs) || 0),
+                0
+              ) / timedRows.length
+            )
+          : null,
     },
     cards,
   };
@@ -3142,6 +3164,10 @@ export default function InstaCompScanner({
                   : item.back_storage_path
                     ? "filename"
                     : "front_only",
+              scanQueuedAt: item.created_at || null,
+              scanStartedAt: item.processing_started_at || null,
+              scanCompletedAt: item.processed_at || item.updated_at || null,
+              scanElapsedMs: null,
             };
           }
         );
@@ -4089,6 +4115,10 @@ export default function InstaCompScanner({
       tradeStatus: "idle",
       tradeError: null,
       tradeCollectionItemId: null,
+      scanQueuedAt: completed ? new Date(Date.now() - 6000).toISOString() : null,
+      scanStartedAt: completed ? new Date(Date.now() - 5000).toISOString() : null,
+      scanCompletedAt: completed ? new Date().toISOString() : null,
+      scanElapsedMs: completed ? 5000 : null,
     };
   }
 
@@ -5656,6 +5686,10 @@ export default function InstaCompScanner({
         tradeCollectionItemId: null,
         pairingConfidence: pair.pairingConfidence,
         pairingMethod: pair.pairingMethod,
+        scanQueuedAt: new Date().toISOString(),
+        scanStartedAt: null,
+        scanCompletedAt: null,
+        scanElapsedMs: null,
       }));
       const pairedCount = acceptedPairs.filter((pair) => pair.back).length;
 
@@ -6621,10 +6655,16 @@ export default function InstaCompScanner({
     claimedItem?: PersistentClaimedItem
   ) {
     const persistentBinding = persistentBindingsRef.current.get(card.id);
+    const scanStartedAtMs = Date.now();
+    const scanStartedAt = new Date(scanStartedAtMs).toISOString();
+
     updateBatchCard(card.id, (current) => ({
       ...current,
       status: "scanning",
       error: null,
+      scanStartedAt,
+      scanCompletedAt: null,
+      scanElapsedMs: null,
     }));
 
     try {
@@ -6643,6 +6683,9 @@ export default function InstaCompScanner({
           current.customTitle || cardResultTitle(scanResult, current.file.name),
         customPrice: marketPrice ? marketPrice.toFixed(2) : current.customPrice,
         error: null,
+        scanStartedAt: current.scanStartedAt || scanStartedAt,
+        scanCompletedAt: new Date().toISOString(),
+        scanElapsedMs: Date.now() - scanStartedAtMs,
         ...(persistentBinding
           ? {
               persistentClientId: persistentBinding.clientItemId,
@@ -6661,6 +6704,9 @@ export default function InstaCompScanner({
         ...current,
         status: "error",
         error: err?.message || "Scan failed.",
+        scanStartedAt: current.scanStartedAt || scanStartedAt,
+        scanCompletedAt: new Date().toISOString(),
+        scanElapsedMs: Date.now() - scanStartedAtMs,
         ...(persistentBinding
           ? {
               persistentClientId: persistentBinding.clientItemId,
@@ -6834,6 +6880,10 @@ export default function InstaCompScanner({
       result: null,
       marketPrice: null,
       customPrice: "",
+      scanQueuedAt: new Date().toISOString(),
+      scanStartedAt: null,
+      scanCompletedAt: null,
+      scanElapsedMs: null,
     }));
 
     batchPauseRequestedRef.current = false;
@@ -6877,6 +6927,10 @@ export default function InstaCompScanner({
           ...current,
           status: "queued",
           error: null,
+          scanQueuedAt: new Date().toISOString(),
+          scanStartedAt: null,
+          scanCompletedAt: null,
+          scanElapsedMs: null,
         }));
       }
     }

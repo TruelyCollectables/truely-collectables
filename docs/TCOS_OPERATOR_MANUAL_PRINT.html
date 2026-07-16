@@ -3790,13 +3790,13 @@ rear</code></pre>
 <p>That command runs the image audit, writes the front/back image-map receipt, and prints <code>status:instacomp-final-tester</code>. It must pass before the 100-card lot should be scanned.</p>
 <ol>
 <li>Run the lot through <code>/admin/instacomp</code> or <code>/admin/products/new</code> using the safest durable batch workflow below.</li>
-<li>From <code>/admin/instacomp</code>, use <code>Export Trial Results</code> or <code>Copy Trial Results</code> after the batch finishes, then save the exported JSON as <code>instacomp-trial-results.local.json</code>. The export uses schema <code>tcos.instacompTrialResults.v1</code>, preserves row-stable trialCardId values such as <code>trial-card-001</code>, includes the detected <code>actual</code> fields, carries consensus/review status, and only includes completed visible scan rows. If you manually build the file instead, each row must use the same <code>trialCardId</code> as the manifest and can put detected fields under <code>actual</code>, <code>result</code>, <code>predicted</code>, or <code>ai</code>.</li>
-<li>Score the trial:</li>
+<li>From <code>/admin/instacomp</code>, use <code>Export Trial Results</code> or <code>Copy Trial Results</code> after the batch finishes, then save the exported JSON as <code>instacomp-trial-results.local.json</code>. The export uses schema <code>tcos.instacompTrialResults.v1</code>, preserves row-stable trialCardId values such as <code>trial-card-001</code>, includes the detected <code>actual</code> fields, carries consensus/review status, includes per-row timing evidence, and only includes completed visible scan rows. If you manually build the file instead, each row must use the same <code>trialCardId</code> as the manifest and can put detected fields under <code>actual</code>, <code>result</code>, <code>predicted</code>, or <code>ai</code>; to satisfy the speed gate, include timing under <code>timing.elapsedMs</code>, <code>scanTiming.elapsedMs</code>, or <code>scanElapsedMs</code>.</li>
+<li>Score the trial with the official accuracy + FAF timing gate:</li>
 </ol>
-<pre><code>npm run instacomp:trial:report -- --manifest instacomp-trial-manifest.local.json --results instacomp-trial-results.local.json --target 94</code></pre>
+<pre><code>npm run instacomp:trial:score</code></pre>
 <p>To save the miss list as a durable fix queue, run:</p>
 <pre><code>npm run instacomp:trial:failures</code></pre>
-<p>That command writes <code>instacomp-trial-failures.local.json</code> with schema <code>tcos.instacompTrialFailureReport.v1</code>. The file includes missing result rows, mismatched fields, multi-scanner consensus-review rows, suggested actions, and the read-only no-money/no-postage/no-deploy side-effect boundary.</p>
+<p>That command writes <code>instacomp-trial-failures.local.json</code> with schema <code>tcos.instacompTrialFailureReport.v1</code>. The file includes missing result rows, mismatched fields, multi-scanner consensus-review rows, speed misses, suggested actions, and the read-only no-money/no-postage/no-deploy side-effect boundary.</p>
 <p>The report prints:</p>
 <ul>
 <li>card count and declared scan count</li>
@@ -3806,11 +3806,15 @@ rear</code></pre>
 <li>exact serial-number accuracy</li>
 <li>serial-run accuracy</li>
 <li>combined identity-and-serial accuracy</li>
+<li>timing-evidence coverage</li>
+<li>average seconds per completed card</li>
+<li>p95 seconds per completed card</li>
+<li>the slowest trial rows</li>
 <li>any cards still blocked by multi-scanner consensus review</li>
 <li>the exact trial card IDs and fields that missed</li>
 <li>the optional failure-report path, failure-row count, and consensus-review-row count when <code>--write-failure-report</code> is used</li>
 </ul>
-<p>The trial is considered a 94% pass only when combined identity-and-serial accuracy is at least <code>94%</code>, card-identity exact accuracy is at least <code>94%</code>, exact serial-number accuracy is at least <code>94%</code> when serial-numbered cards are present, no manifest row is missing a result, and no card still has <code>review_required</code> from InstaComp™ Multi-Scanner Consensus. Critical player, set, card-number, year, and serial-number disagreements must be resolved by checklist/catalog evidence or operator review before the tester can honestly pass.</p>
+<p>The trial is considered a pass only when combined identity-and-serial accuracy is at least <code>94%</code>, card-identity exact accuracy is at least <code>94%</code>, exact serial-number accuracy is at least <code>94%</code> when serial-numbered cards are present, every completed row includes timing evidence, average scan speed is <code>15</code> seconds per card or faster, p95 scan speed is <code>45</code> seconds per card or faster, no manifest row is missing a result, and no card still has <code>review_required</code> from InstaComp™ Multi-Scanner Consensus. Critical player, set, card-number, year, and serial-number disagreements must be resolved by checklist/catalog evidence or operator review before the tester can honestly pass.</p>
 <p>Use <code>npm run simulate:instacomp-trial</code> to verify the scorekeeper itself with committed fixture data. The fixture intentionally stays tiny; the real 100-card manifest and results are local files ignored by Git because they can include personal inventory paths and scan results.</p>
 <h3>Durable queue prerequisite</h3>
 <p>Apply this migration to the Supabase project used by TCOS before using the saved queue:</p>

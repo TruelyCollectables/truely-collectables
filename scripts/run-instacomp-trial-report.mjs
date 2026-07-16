@@ -4,6 +4,8 @@ import path from "node:path";
 
 const DEFAULT_TARGET_CARDS = 100;
 const DEFAULT_TARGET_ACCURACY = 94;
+const DEFAULT_TARGET_AVERAGE_SECONDS_PER_CARD = 15;
+const DEFAULT_TARGET_P95_SECONDS_PER_CARD = 45;
 const DEFAULT_TRIAL_IMAGE_DIR = "instacomp-trial-images";
 const imageExtensions = new Set([
   ".jpg",
@@ -49,6 +51,13 @@ function hasFlag(name) {
   return args.includes(name);
 }
 
+function readPositiveSecondsFlag(name, fallback = null) {
+  const value = getFlagValue(name);
+  if (value === null || value === undefined) return fallback;
+  const numeric = Number.parseFloat(value);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : fallback;
+}
+
 function usage() {
   return [
     "InstaComp 100-card trial report",
@@ -60,6 +69,14 @@ function usage() {
     "  node scripts/run-instacomp-trial-report.mjs --manifest instacomp-trial-manifest.local.json --results instacomp-trial-results.local.json --target 94",
     "",
     "Useful flags:",
+    "  --target <percent>",
+    "                   required accuracy percentage, defaults to 94",
+    "  --target-average-seconds-per-card <seconds>",
+    `                   optional speed gate for average completed-card scan time; final tester target is ${DEFAULT_TARGET_AVERAGE_SECONDS_PER_CARD}`,
+    "  --target-p95-seconds-per-card <seconds>",
+    `                   optional speed gate for p95 completed-card scan time; final tester target is ${DEFAULT_TARGET_P95_SECONDS_PER_CARD}`,
+    "  --require-timing",
+    "                   fail when the results export has no completed-card timing evidence",
     "  --audit-images <dir>",
     "                   audit a local front/back trial image folder before scanning",
     "  --expected-cards <count>",
@@ -361,7 +378,7 @@ function buildTrialIntakePacketMarkdown(report, imageMapRows) {
     "npm run instacomp:trial:ready",
     "npm run status:instacomp-final-tester",
     "# after scanning/exporting results:",
-    "npm run instacomp:trial:report -- --manifest instacomp-trial-manifest.local.json --results instacomp-trial-results.local.json --target 94",
+    "npm run instacomp:trial:score",
     "npm run instacomp:trial:failures",
     "```",
     "",
@@ -808,15 +825,114 @@ function percent(passed, total) {
   return Number(((passed / total) * 100).toFixed(2));
 }
 
-function summarizeScores(manifest, manifestPath, results, targetAccuracyPercent) {
+function finitePositiveNumber(value) {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+}
+
+function secondsFromMilliseconds(value) {
+  const milliseconds = finitePositiveNumber(value);
+  if (milliseconds === null) return null;
+  return Number((milliseconds / 1000).toFixed(2));
+}
+
+function readScanElapsedMs(result) {
+  return (
+    finitePositiveNumber(result?.timing?.elapsedMs) ??
+    finitePositiveNumber(result?.scanTiming?.elapsedMs) ??
+    finitePositiveNumber(result?.scanElapsedMs) ??
+    finitePositiveNumber(result?.elapsedMs) ??
+    null
+  );
+}
+
+function percentile(sortedValues, percentileValue) {
+  if (!sortedValues.length) return null;
+  const index = Math.ceil((percentileValue / 100) * sortedValues.length) - 1;
+  return sortedValues[Math.min(sortedValues.length - 1, Math.max(0, index))];
+}
+
+function summarizeTiming(cardScores, results, speedTargets) {
+  const completedTimingRows = cardScores
+    .map((score) => ({
+      trialCardId: score.trialCardId,
+      elapsedMs: score.scanElapsedMs,
+      elapsedSeconds: secondsFromMilliseconds(score.scanElapsedMs),
+    }))
+    .filter((row) => row.elapsedMs !== null);
+  const elapsedMsValues = completedTimingRows
+    .map((row) => row.elapsedMs)
+    .sort((left, right) => left - right);
+  const totalElapsedMs =
+    finitePositiveNumber(results?.summary?.totalElapsedMs) ??
+    finitePositiveNumber(results?.timing?.totalElapsedMs) ??
+    finitePositiveNumber(results?.batchTiming?.totalElapsedMs) ??
+    null;
+  const averageElapsedMs =
+    elapsedMsValues.length > 0
+      ? elapsedMsValues.reduce((sum, value) => sum + value, 0) / elapsedMsValues.length
+      : null;
+  const p95ElapsedMs = percentile(elapsedMsValues, 95);
+  const slowestRows = completedTimingRows
+    .slice()
+    .sort((left, right) => right.elapsedMs - left.elapsedMs)
+    .slice(0, 10);
+  const averageTargetMs =
+    speedTargets.targetAverageSecondsPerCard === null
+      ? null
+      : speedTargets.targetAverageSecondsPerCard * 1000;
+  const p95TargetMs =
+    speedTargets.targetP95SecondsPerCard === null
+      ? null
+      : speedTargets.targetP95SecondsPerCard * 1000;
+  const timingCoveragePassed =
+    !speedTargets.requireTiming || completedTimingRows.length === cardScores.length;
+  const averagePassed =
+    averageTargetMs === null ||
+    (averageElapsedMs !== null && averageElapsedMs <= averageTargetMs);
+  const p95Passed =
+    p95TargetMs === null || (p95ElapsedMs !== null && p95ElapsedMs <= p95TargetMs);
+
+  return {
+    targetAverageSecondsPerCard: speedTargets.targetAverageSecondsPerCard,
+    targetP95SecondsPerCard: speedTargets.targetP95SecondsPerCard,
+    requireTiming: speedTargets.requireTiming,
+    completedRowsWithTiming: completedTimingRows.length,
+    totalResultRows: cardScores.length,
+    totalElapsedSeconds: secondsFromMilliseconds(totalElapsedMs),
+    averageSecondsPerCard: secondsFromMilliseconds(averageElapsedMs),
+    p95SecondsPerCard: secondsFromMilliseconds(p95ElapsedMs),
+    slowestRows,
+    timingCoveragePassed,
+    averagePassed,
+    p95Passed,
+    targetMet: timingCoveragePassed && averagePassed && p95Passed,
+  };
+}
+
+function summarizeScores(
+  manifest,
+  manifestPath,
+  results,
+  targetAccuracyPercent,
+  speedTargets = {
+    targetAverageSecondsPerCard: null,
+    targetP95SecondsPerCard: null,
+    requireTiming: false,
+  }
+) {
   const resultById = new Map(
     results.cards
       .filter((item) => isKnown(item.trialCardId))
       .map((item) => [String(item.trialCardId), item])
   );
-  const cardScores = manifest.cards.map((card) =>
-    scoreCard(card, resultById.get(String(card.trialCardId)))
-  );
+  const cardScores = manifest.cards.map((card) => {
+    const result = resultById.get(String(card.trialCardId));
+    return {
+      ...scoreCard(card, result),
+      scanElapsedMs: result ? readScanElapsedMs(result) : null,
+    };
+  });
 
   const identityExactTotal = cardScores.filter((item) => item.identityExactEligible).length;
   const identityExactPassed = cardScores.filter((item) => item.identityExactPassed).length;
@@ -857,6 +973,9 @@ function summarizeScores(manifest, manifestPath, results, targetAccuracyPercent)
         manifest.targetScans ??
         (manifest.targetCards ? Number(manifest.targetCards) * 2 : DEFAULT_TARGET_CARDS * 2),
       targetAccuracyPercent,
+      targetAverageSecondsPerCard: speedTargets.targetAverageSecondsPerCard,
+      targetP95SecondsPerCard: speedTargets.targetP95SecondsPerCard,
+      requireTiming: speedTargets.requireTiming,
     },
     observed: {
       cards: manifest.cards.length,
@@ -892,6 +1011,7 @@ function summarizeScores(manifest, manifestPath, results, targetAccuracyPercent)
         percent: percent(combinedPassed, combinedTotal),
       },
     },
+    speed: summarizeTiming(cardScores, results, speedTargets),
     targetMet: false,
     warnings: [],
     failures,
@@ -906,7 +1026,8 @@ function summarizeScores(manifest, manifestPath, results, targetAccuracyPercent)
     (identityPercent === null || identityPercent >= targetAccuracyPercent) &&
     (serialPercent === null || serialPercent >= targetAccuracyPercent) &&
     missingResultIds.length === 0 &&
-    consensusReviewIds.length === 0;
+    consensusReviewIds.length === 0 &&
+    report.speed.targetMet;
 
   if (manifest.cards.length < report.target.targetCards) {
     report.warnings.push(
@@ -927,6 +1048,21 @@ function summarizeScores(manifest, manifestPath, results, targetAccuracyPercent)
   if (consensusReviewIds.length > 0) {
     report.warnings.push(
       `${consensusReviewIds.length} card(s) still require multi-scanner consensus review.`
+    );
+  }
+  if (report.speed.requireTiming && !report.speed.timingCoveragePassed) {
+    report.warnings.push(
+      `Timing evidence is required, but ${report.speed.completedRowsWithTiming}/${report.speed.totalResultRows} completed result row(s) include elapsed time.`
+    );
+  }
+  if (!report.speed.averagePassed) {
+    report.warnings.push(
+      `Average scan speed ${report.speed.averageSecondsPerCard ?? "n/a"}s/card is slower than target ${report.speed.targetAverageSecondsPerCard}s/card.`
+    );
+  }
+  if (!report.speed.p95Passed) {
+    report.warnings.push(
+      `P95 scan speed ${report.speed.p95SecondsPerCard ?? "n/a"}s/card is slower than target ${report.speed.targetP95SecondsPerCard}s/card.`
     );
   }
 
@@ -979,6 +1115,10 @@ function buildFailureReport(report) {
         report.accuracy.combinedIdentityAndSerial.percent,
       identityExactPercent: report.accuracy.identityExact.percent,
       serialNumberExactPercent: report.accuracy.serialNumberExact.percent,
+      averageSecondsPerCard: report.speed.averageSecondsPerCard,
+      p95SecondsPerCard: report.speed.p95SecondsPerCard,
+      completedRowsWithTiming: report.speed.completedRowsWithTiming,
+      speedTargetMet: report.speed.targetMet,
     },
     warnings: report.warnings,
     observed: {
@@ -1034,6 +1174,31 @@ function printTextReport(report) {
     `Combined identity + serial: ${report.accuracy.combinedIdentityAndSerial.passed}/${report.accuracy.combinedIdentityAndSerial.total} (${report.accuracy.combinedIdentityAndSerial.percent ?? "n/a"}%)`
   );
   console.log("");
+  console.log(
+    `Timing evidence: ${report.speed.completedRowsWithTiming}/${report.speed.totalResultRows} row(s)`
+  );
+  console.log(
+    `Average speed: ${report.speed.averageSecondsPerCard ?? "n/a"}s/card${
+      report.speed.targetAverageSecondsPerCard === null
+        ? ""
+        : ` (target <= ${report.speed.targetAverageSecondsPerCard}s)`
+    }`
+  );
+  console.log(
+    `P95 speed: ${report.speed.p95SecondsPerCard ?? "n/a"}s/card${
+      report.speed.targetP95SecondsPerCard === null
+        ? ""
+        : ` (target <= ${report.speed.targetP95SecondsPerCard}s)`
+    }`
+  );
+  if (report.speed.slowestRows.length > 0) {
+    const slowest = report.speed.slowestRows
+      .slice(0, 5)
+      .map((row) => `${row.trialCardId} ${row.elapsedSeconds}s`)
+      .join(", ");
+    console.log(`Slowest rows: ${slowest}`);
+  }
+  console.log("");
   console.log(report.targetMet ? "PASS target met" : "FAIL target not met");
 
   if (report.warnings.length > 0) {
@@ -1077,6 +1242,12 @@ if (await writeManifestTemplate()) {
     const targetAccuracyPercent = Number.parseFloat(
       getFlagValue("--target", String(DEFAULT_TARGET_ACCURACY))
     );
+    const targetAverageSecondsPerCard = readPositiveSecondsFlag(
+      "--target-average-seconds-per-card"
+    );
+    const targetP95SecondsPerCard = readPositiveSecondsFlag(
+      "--target-p95-seconds-per-card"
+    );
     const manifestInput = getFlagValue("--manifest");
     const resultsInput = getFlagValue("--results");
 
@@ -1096,7 +1267,12 @@ if (await writeManifestTemplate()) {
         manifest,
         manifestPath,
         results,
-        Number.isFinite(targetAccuracyPercent) ? targetAccuracyPercent : DEFAULT_TARGET_ACCURACY
+        Number.isFinite(targetAccuracyPercent) ? targetAccuracyPercent : DEFAULT_TARGET_ACCURACY,
+        {
+          targetAverageSecondsPerCard,
+          targetP95SecondsPerCard,
+          requireTiming: hasFlag("--require-timing"),
+        }
       );
       const failureReportInput =
         getFlagValue("--write-failure-report") || getFlagValue("--failure-report");

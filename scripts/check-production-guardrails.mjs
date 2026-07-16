@@ -1189,6 +1189,9 @@ assertScriptIncludes("simulate:instacomp-identity-guard", [
 assertScriptIncludes("simulate:instacomp-trial", [
   "scripts/run-instacomp-trial-report.mjs",
   "--target 94",
+  "--target-average-seconds-per-card 15",
+  "--target-p95-seconds-per-card 45",
+  "--require-timing",
 ]);
 assertScriptIncludes("instacomp:trial:init", [
   "scripts/run-instacomp-trial-report.mjs",
@@ -1197,6 +1200,13 @@ assertScriptIncludes("instacomp:trial:init", [
 ]);
 assertScriptIncludes("instacomp:trial:report", [
   "scripts/run-instacomp-trial-report.mjs",
+]);
+assertScriptIncludes("instacomp:trial:score", [
+  "scripts/run-instacomp-trial-report.mjs",
+  "--target 94",
+  "--target-average-seconds-per-card 15",
+  "--target-p95-seconds-per-card 45",
+  "--require-timing",
 ]);
 assertScriptIncludes("instacomp:trial:audit", [
   "scripts/run-instacomp-trial-report.mjs",
@@ -1220,6 +1230,9 @@ assertScriptIncludes("instacomp:trial:ready", [
 ]);
 assertScriptIncludes("instacomp:trial:failures", [
   "scripts/run-instacomp-trial-report.mjs",
+  "--target-average-seconds-per-card 15",
+  "--target-p95-seconds-per-card 45",
+  "--require-timing",
   "--write-failure-report instacomp-trial-failures.local.json",
 ]);
 assertScriptIncludes("status:production", [
@@ -1336,6 +1349,7 @@ assertFileIncludes("30-minute build block checkpoint source", "scripts/status-bu
   "npm run instacomp:trial:map",
   "npm run instacomp:trial:packet",
   "npm run instacomp:trial:ready",
+  "npm run instacomp:trial:score",
   "keep live money/postage/payout/Checkout/deploy paths gated",
   "npm run prepare:build-block-checkpoint",
   "TCOS 30-minute build block checkpoint:",
@@ -1537,6 +1551,7 @@ assertFileIncludes("30-minute next build block action verifier source", "scripts
   "fallback selection preserves InstaComp trial image map command",
   "fallback selection preserves InstaComp trial intake packet command",
   "fallback selection preserves InstaComp trial ready gate command",
+  "fallback selection preserves InstaComp speed-gated trial score command",
   "fallback selection tells the operator to audit and map images before scanning",
   "fallback selection preserves live-money/postage/deploy gates",
   "next-action go-live evidence verifier is ok",
@@ -1609,6 +1624,7 @@ assertFileIncludes("30-minute build block checkpoint verifier source", "scripts/
   "local build fallback preserves InstaComp trial image map command",
   "local build fallback preserves InstaComp trial intake packet command",
   "local build fallback preserves InstaComp trial ready gate command",
+  "local build fallback preserves InstaComp speed-gated trial score command",
   "local build fallback tells the operator to audit and map images before scanning",
   "local build fallback preserves live-money/postage/deploy gates",
   "checkpoint go-live evidence verifier is ok",
@@ -3596,6 +3612,9 @@ assertFileIncludes("instacomp trial results export UI wiring", "src/app/admin/in
   "Export Trial Results",
   "Copy Trial Results",
   "trial-card-",
+  "scanElapsedMs",
+  "rowsWithTiming",
+  "averageElapsedMs",
 ]);
 assertFileIncludes("instacomp multi-scanner consensus simulations", "scripts/run-instacomp-consensus-simulations.ts", [
   "obvious complete identity stays on fast lane",
@@ -3631,12 +3650,17 @@ assertFileIncludes("instacomp trial results export manual", "docs/TCOS_OPERATOR_
   "Copy Trial Results",
   "tcos.instacompTrialResults.v1",
   "row-stable trialCardId",
+  "per-row timing evidence",
 ]);
 assertFileIncludes("instacomp trial failure report source", "scripts/run-instacomp-trial-report.mjs", [
   "tcos.instacompTrialFailureReport.v1",
   "--write-failure-report",
   "consensus_review_required",
   "suggestedAction",
+  "targetAverageSecondsPerCard",
+  "targetP95SecondsPerCard",
+  "requireTiming",
+  "Timing evidence",
 ]);
 assertFileIncludes("instacomp trial image audit source", "scripts/run-instacomp-trial-report.mjs", [
   "tcos.instacompTrialImageAudit.v1",
@@ -3707,6 +3731,8 @@ assertFileIncludes("instacomp final tester status includes trial image audit", "
   "accepted trial side words:",
   "after copying images:",
   "npm run instacomp:trial:ready",
+  "npm run instacomp:trial:score",
+  "FAF speed gate",
   "ordered scanner files pair 1+2, 3+4, 5+6",
   "001-front.jpg + 001-back.jpg",
   "missing fronts/backs",

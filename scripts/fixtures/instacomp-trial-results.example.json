@@ -4,6 +4,9 @@
   "cards": [
     {
       "trialCardId": "fixture-001",
+      "timing": {
+        "elapsedMs": 4200
+      },
       "actual": {
         "player": "Shohei Ohtani",
         "year": "2023",
@@ -22,6 +25,9 @@
     },
     {
       "trialCardId": "fixture-002",
+      "timing": {
+        "elapsedMs": 5100
+      },
       "actual": {
         "player": "Caitlin Clark",
         "year": "2024",
@@ -38,6 +44,9 @@
     },
     {
       "trialCardId": "fixture-003",
+      "timing": {
+        "elapsedMs": 8800
+      },
       "actual": {
         "player": "Tom Brady",
         "year": "2020",

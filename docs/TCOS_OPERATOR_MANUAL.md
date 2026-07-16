@@ -3956,11 +3956,11 @@ npm run instacomp:trial:ready
 
 That command runs the image audit, writes the front/back image-map receipt, and prints `status:instacomp-final-tester`. It must pass before the 100-card lot should be scanned.
 6. Run the lot through `/admin/instacomp` or `/admin/products/new` using the safest durable batch workflow below.
-7. From `/admin/instacomp`, use `Export Trial Results` or `Copy Trial Results` after the batch finishes, then save the exported JSON as `instacomp-trial-results.local.json`. The export uses schema `tcos.instacompTrialResults.v1`, preserves row-stable trialCardId values such as `trial-card-001`, includes the detected `actual` fields, carries consensus/review status, and only includes completed visible scan rows. If you manually build the file instead, each row must use the same `trialCardId` as the manifest and can put detected fields under `actual`, `result`, `predicted`, or `ai`.
-8. Score the trial:
+7. From `/admin/instacomp`, use `Export Trial Results` or `Copy Trial Results` after the batch finishes, then save the exported JSON as `instacomp-trial-results.local.json`. The export uses schema `tcos.instacompTrialResults.v1`, preserves row-stable trialCardId values such as `trial-card-001`, includes the detected `actual` fields, carries consensus/review status, includes per-row timing evidence, and only includes completed visible scan rows. If you manually build the file instead, each row must use the same `trialCardId` as the manifest and can put detected fields under `actual`, `result`, `predicted`, or `ai`; to satisfy the speed gate, include timing under `timing.elapsedMs`, `scanTiming.elapsedMs`, or `scanElapsedMs`.
+8. Score the trial with the official accuracy + FAF timing gate:
 
 ```bash
-npm run instacomp:trial:report -- --manifest instacomp-trial-manifest.local.json --results instacomp-trial-results.local.json --target 94
+npm run instacomp:trial:score
 ```
 
 To save the miss list as a durable fix queue, run:
@@ -3969,7 +3969,7 @@ To save the miss list as a durable fix queue, run:
 npm run instacomp:trial:failures
 ```
 
-That command writes `instacomp-trial-failures.local.json` with schema `tcos.instacompTrialFailureReport.v1`. The file includes missing result rows, mismatched fields, multi-scanner consensus-review rows, suggested actions, and the read-only no-money/no-postage/no-deploy side-effect boundary.
+That command writes `instacomp-trial-failures.local.json` with schema `tcos.instacompTrialFailureReport.v1`. The file includes missing result rows, mismatched fields, multi-scanner consensus-review rows, speed misses, suggested actions, and the read-only no-money/no-postage/no-deploy side-effect boundary.
 
 The report prints:
 
@@ -3980,11 +3980,15 @@ The report prints:
 - exact serial-number accuracy
 - serial-run accuracy
 - combined identity-and-serial accuracy
+- timing-evidence coverage
+- average seconds per completed card
+- p95 seconds per completed card
+- the slowest trial rows
 - any cards still blocked by multi-scanner consensus review
 - the exact trial card IDs and fields that missed
 - the optional failure-report path, failure-row count, and consensus-review-row count when `--write-failure-report` is used
 
-The trial is considered a 94% pass only when combined identity-and-serial accuracy is at least `94%`, card-identity exact accuracy is at least `94%`, exact serial-number accuracy is at least `94%` when serial-numbered cards are present, no manifest row is missing a result, and no card still has `review_required` from InstaComp™ Multi-Scanner Consensus. Critical player, set, card-number, year, and serial-number disagreements must be resolved by checklist/catalog evidence or operator review before the tester can honestly pass.
+The trial is considered a pass only when combined identity-and-serial accuracy is at least `94%`, card-identity exact accuracy is at least `94%`, exact serial-number accuracy is at least `94%` when serial-numbered cards are present, every completed row includes timing evidence, average scan speed is `15` seconds per card or faster, p95 scan speed is `45` seconds per card or faster, no manifest row is missing a result, and no card still has `review_required` from InstaComp™ Multi-Scanner Consensus. Critical player, set, card-number, year, and serial-number disagreements must be resolved by checklist/catalog evidence or operator review before the tester can honestly pass.
 
 Use `npm run simulate:instacomp-trial` to verify the scorekeeper itself with committed fixture data. The fixture intentionally stays tiny; the real 100-card manifest and results are local files ignored by Git because they can include personal inventory paths and scan results.
 
