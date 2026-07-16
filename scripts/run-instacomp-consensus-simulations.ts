@@ -497,8 +497,8 @@ for (const scenario of scenarios) {
 }
 
 if (failures.length) {
-  console.error(`InstaComp consensus simulations failed: ${failures.length}`);
+  console.error(`InstaComp™ consensus simulations failed: ${failures.length}`);
   process.exit(1);
 }
 
-console.log(`InstaComp consensus simulations: ${scenarios.length}/${scenarios.length} passed.`);
+console.log(`InstaComp™ consensus simulations: ${scenarios.length}/${scenarios.length} passed.`);

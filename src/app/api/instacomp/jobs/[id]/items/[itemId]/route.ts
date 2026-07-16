@@ -166,7 +166,7 @@ async function loadItem(params: {
 
   if (!data) {
     throw new InstaCompJobServerError(
-      "InstaComp job item was not found.",
+      "InstaComp™ job item was not found.",
       404,
       "INSTACOMP_JOB_ITEM_NOT_FOUND",
     );
@@ -221,7 +221,7 @@ export async function PATCH(request: Request, context: RouteContext) {
         !CLIENT_ITEM_STATUSES.has(requestedStatus)
       ) {
         throw new InstaCompJobServerError(
-          "status is not client-writable for an InstaComp item.",
+          "status is not client-writable for an InstaComp™ item.",
           400,
           "INSTACOMP_ITEM_STATUS_NOT_CLIENT_WRITABLE",
         );
@@ -232,7 +232,7 @@ export async function PATCH(request: Request, context: RouteContext) {
         !CLIENT_ITEM_TRANSITIONS[String(item.status)]?.has(requestedStatus)
       ) {
         throw new InstaCompJobServerError(
-          `InstaComp item cannot transition from ${item.status} to ${requestedStatus}.`,
+          `InstaComp™ item cannot transition from ${item.status} to ${requestedStatus}.`,
           409,
           "INSTACOMP_INVALID_ITEM_TRANSITION",
         );
@@ -287,7 +287,7 @@ export async function PATCH(request: Request, context: RouteContext) {
 
     if (Object.prototype.hasOwnProperty.call(body, "draft")) {
       throw new InstaCompJobServerError(
-        "Draft links may only be written by the seller-scoped InstaComp draft endpoint.",
+        "Draft links may only be written by the seller-scoped InstaComp™ draft endpoint.",
         400,
         "INSTACOMP_DRAFT_LINK_NOT_CLIENT_WRITABLE",
       );

@@ -244,7 +244,7 @@ function buildStagePlan({ files, expectedCards, sourceDir, targetDir }) {
 function buildMarkdown(report) {
   const previewRows = report.rows.slice(0, 25);
   return [
-    "# TCOS InstaComp Trial Image Stage Receipt",
+    "# TCOS InstaComp™ Trial Image Stage Receipt",
     "",
     `Generated: ${report.generatedAt}`,
     "",
@@ -380,7 +380,7 @@ async function main() {
         : blockers[0]?.next ||
           "Fix the listed image staging blockers, then rerun npm run instacomp:trial:stage-images.",
     safeBuildBoundary:
-      "Local InstaComp trial image staging only. Does not delete source files, scan cards, deploy, publish listings, buy postage, create Checkout, call production APIs, approve live money, release payouts, or change runtime switches.",
+      "Local InstaComp™ trial image staging only. Does not delete source files, scan cards, deploy, publish listings, buy postage, create Checkout, call production APIs, approve live money, release payouts, or change runtime switches.",
   };
 
   const receiptJsonPath = resolveFromRepo(receiptJsonInput);
@@ -393,7 +393,7 @@ async function main() {
   if (jsonOutput) {
     console.log(JSON.stringify(report, null, 2));
   } else {
-    console.log("TCOS InstaComp trial image staging:");
+    console.log("TCOS InstaComp™ trial image staging:");
     console.log(`- source: ${report.paths.source}`);
     console.log(`- target: ${report.paths.target}`);
     console.log(`- mode: ${report.apply ? "apply" : "dry run"}`);

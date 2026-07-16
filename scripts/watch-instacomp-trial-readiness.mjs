@@ -248,7 +248,7 @@ function buildMonitorReport(iteration = 1) {
   if (!status.ok) {
     blockers.push({
       key: "final_tester_status_unreadable",
-      label: "Could not read the InstaComp final tester JSON status.",
+      label: "Could not read the InstaComp™ final tester JSON status.",
       next: status.stderr || "Run npm run status:instacomp-final-tester:json directly.",
     });
   }
@@ -401,7 +401,7 @@ function buildMonitorReport(iteration = 1) {
       score: "npm run instacomp:trial:score",
     },
     safeBuildBoundary:
-      "Local InstaComp trial readiness monitoring only. Does not scan cards, deploy, publish listings, buy postage, create Checkout, call production APIs, approve live money, release payouts, or change runtime switches.",
+      "Local InstaComp™ trial readiness monitoring only. Does not scan cards, deploy, publish listings, buy postage, create Checkout, call production APIs, approve live money, release payouts, or change runtime switches.",
   };
 }
 
@@ -411,7 +411,7 @@ function printReport(report) {
     return;
   }
 
-  console.log("TCOS InstaComp trial readiness monitor:");
+  console.log("TCOS InstaComp™ trial readiness monitor:");
   console.log(`- generated: ${report.generatedAt}`);
   console.log(`- iteration: ${report.iteration}`);
   console.log(`- tester URL: ${report.testerUrl}`);

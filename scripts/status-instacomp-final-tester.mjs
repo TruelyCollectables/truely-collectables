@@ -307,7 +307,7 @@ function readTrialIntakePacketStatus(audit, imageMap) {
   try {
     const text = readFileSync(absolutePath, "utf8");
     const matchesCurrentAudit =
-      text.includes("# TCOS InstaComp Trial Intake Packet") &&
+      text.includes("# TCOS InstaComp™ Trial Intake Packet") &&
       text.includes(`Expected cards: ${audit.expectedCards}`) &&
       text.includes(`Parsed image files: ${audit.parsedImageFiles}`) &&
       text.includes(`Complete front/back pairs: ${audit.completePairs}`) &&
@@ -364,7 +364,7 @@ function readTrialGroundTruthGuideStatus(manifestAudit) {
         text.includes((firstMissingRow.missing || []).join(", "))
       : true;
     const matchesCurrentAudit =
-      text.includes("# TCOS InstaComp Trial Answer-Key Guide") &&
+      text.includes("# TCOS InstaComp™ Trial Answer-Key Guide") &&
       text.includes(`Ready answer-key rows: ${readyRows}/${expectedCards}`) &&
       text.includes(`Missing core rows: ${missingCoreRows}`) &&
       text.includes(`Duplicate trialCardId rows: ${duplicateTrialCardIdCount}`) &&
@@ -523,7 +523,7 @@ function readTrialAnswerKeyHtmlStatus(manifestAudit, worksheetStatus) {
     const readyRows =
       worksheetStatus.coreReadyRows ?? manifestAudit.readyRows ?? "unknown";
     const matchesCurrentWorksheet =
-      text.includes("TCOS InstaComp Trial Answer-Key Review") &&
+      text.includes("TCOS InstaComp™ Trial Answer-Key Review") &&
       text.includes(`Answer key ${readyRows}/${expectedCards}`) &&
       text.includes("npm run instacomp:trial:groundtruth:apply") &&
       text.includes("http://localhost:3000/admin/instacomp");
@@ -837,7 +837,7 @@ const checklist = [
   {
     key: "trial_results_export",
     label:
-      "Admin InstaComp can export or copy completed visible batch rows as tcos.instacompTrialResults.v1 JSON for the 94% scorekeeper, including consensus/review status, row-stable trialCardId values, and per-row timing evidence.",
+      "Admin InstaComp™ can export or copy completed visible batch rows as tcos.instacompTrialResults.v1 JSON for the 94% scorekeeper, including consensus/review status, row-stable trialCardId values, and per-row timing evidence.",
     status: "ready_to_test",
   },
   {
@@ -849,7 +849,7 @@ const checklist = [
   {
     key: "trial_speed_gate_hud",
     label:
-      "Admin InstaComp shows a Final Tester Gate HUD with visible result count, timing coverage, average speed, p95 speed, and FAF PASS/NOT READY status before export.",
+      "Admin InstaComp™ shows a Final Tester Gate HUD with visible result count, timing coverage, average speed, p95 speed, and FAF PASS/NOT READY status before export.",
     status: "ready_to_test",
   },
   {
@@ -1070,13 +1070,13 @@ const readiness = {
   next:
     "Run the 100-card lot through the wired Multi-Scanner Consensus path, score it against 94% plus the FAF timing gate, record misses, and clean the UI before calling it done-done.",
   safeBuildBoundary:
-    "This InstaComp tester status is read-only. It does not approve live money, buy postage, release payouts, create Checkout, publish listings, or start production deploys.",
+    "This InstaComp™ tester status is read-only. It does not approve live money, buy postage, release payouts, create Checkout, publish listings, or start production deploys.",
 };
 
 if (jsonOutput) {
   console.log(JSON.stringify(readiness, null, 2));
 } else {
-  console.log("TCOS InstaComp final tester readiness:");
+  console.log("TCOS InstaComp™ final tester readiness:");
   console.log(`- target ready by local: ${readiness.targetReadyByLocal}`);
   console.log(`- priority: ${readiness.priority}`);
   console.log(`- tester URL: ${readiness.testerUrl}`);

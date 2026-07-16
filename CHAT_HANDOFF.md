@@ -93,7 +93,7 @@ The preflight helper:
 
 The verify helper:
 
-- runs lint, InstaComp queue/accuracy simulations, LetterTrack evidence checks, shipping purchase-attempt audit simulations, the twenty-scenario shipping simulation suite, build, production guardrail checks, and production preflight;
+- runs lint, InstaComp™ queue/accuracy simulations, LetterTrack evidence checks, shipping purchase-attempt audit simulations, the twenty-scenario shipping simulation suite, build, production guardrail checks, and production preflight;
 - is quota-safe because it does not start a Vercel deployment.
 
 The launch helper:
@@ -140,7 +140,7 @@ Most recent notable validation:
   - Made `SMOKE_BASE_URL` and `SMOKE_UNWANTED_ALIAS_URL` fail closed on credentials, explicit ports (including `:443` and `:80`), paths, queries, fragments, IPs, single-label names, and malformed DNS labels before authentication or network requests.
   - Closed the same explicit-default-port parser edge in deploy target validation.
   - Added deterministic target self-tests, direct failure fixtures, shared launch-readiness contracts, smoke coverage, and operator documentation.
-  - Lint, InstaComp verification, shipping verification, production build, production guardrails, both dependency audits, and regenerated manual HTML/PDF passed; the pre-commit preflight stopped only on the expected dirty worktree without starting a deployment.
+  - Lint, InstaComp™ verification, shipping verification, production build, production guardrails, both dependency audits, and regenerated manual HTML/PDF passed; the pre-commit preflight stopped only on the expected dirty worktree without starting a deployment.
 - `cc36a5b Harden marketplace packet intake guardrails`
   - Added visible `/seller/marketplaces` no-op chips for no payout release, no order fulfillment, and no automatic under-$20 protection activation.
   - Updated production smoke and guardrails.
@@ -218,21 +218,21 @@ These may fail production smoke until a successful Vercel deploy lands the queue
 
 ## Next safe steps
 
-- EXTREMELY HOT top priority after the current InstaComp accuracy pass: build the `TCOS Card Knowledge Base MVP`.
+- EXTREMELY HOT top priority after the current InstaComp™ accuracy pass: build the `TCOS Card Knowledge Base MVP`.
   - Gate: do not start this until the operator is satisfied the current scanner test pass is ready to preserve.
-  - Goal: make InstaComp faster and more accurate by checking TCOS-owned verified card truth before paying/waiting for outside AI or source search.
-  - MVP scope: add TCOS-owned card catalog, variant, identity-evidence, correction, and source-cache storage; check the local knowledge base first during InstaComp scans; save confirmed/corrected rows back into it; cache checklist evidence from Sportlots, Upper Deck, Panini, Cardboard Connection, TCDB/Trading Card DB, and approved free/cheap sources; show `TCOS verified`, `external verified`, or `needs review`; and keep exact comps/pricing blocked unless identity evidence is strong enough.
+  - Goal: make InstaComp™ faster and more accurate by checking TCOS-owned verified card truth before paying/waiting for outside AI or source search.
+  - MVP scope: add TCOS-owned card catalog, variant, identity-evidence, correction, and source-cache storage; check the local knowledge base first during InstaComp™ scans; save confirmed/corrected rows back into it; cache checklist evidence from Sportlots, Upper Deck, Panini, Cardboard Connection, TCDB/Trading Card DB, and approved free/cheap sources; show `TCOS verified`, `external verified`, or `needs review`; and keep exact comps/pricing blocked unless identity evidence is strong enough.
   - Trust rule: corrected cards enter as `learning`; the same card identity becomes `tcos_trusted` only after the third distinct operator-confirmed sighting. Reprocessing the same saved scan item must not double-count.
   - Accountability rule: every TCOS Card DB observation records the submitting actor. Seller submissions store `submitted_by_account_id`, `submitted_by_actor_type = seller`, and `submitted_store_id`; admin submissions store `submitted_by_actor_type = admin`.
-  - Serial correction rule: completed rows have an editable `Serial #` field. Blank means no serial. `Save Corrections` requeues the row, applies the operator serial override before catalog/consensus/comps, reruns InstaComp pricing, and then persists the corrected result.
+  - Serial correction rule: completed rows have an editable `Serial #` field. Blank means no serial. `Save Corrections` requeues the row, applies the operator serial override before catalog/consensus/comps, reruns InstaComp™ pricing, and then persists the corrected result.
   - Image correction rule: use `Swap Front/Back` under paired thumbnails when an upload pair is reversed, then `Retry Row` to rescan that row with the corrected side order.
-  - Graded slab rule: InstaComp now reads grading company, grade, certification number, cert lookup URL, and grading evidence separately from card serial numbers. Batch rows show a grading badge/link, draft titles append grader/grade, seller drafts receive authenticity cert provider/number, trade handoffs save grade company/value/certification number, and exact comp filtering requires matching grader/grade evidence for graded targets.
-  - Slab cert comp rule: InstaComp backup comp queries include the slab certification number when one is detected, and exact-match scoring flags/boosts comp titles that include the same cert number. Treat this as cert-specific marketplace evidence, not a guaranteed official grader sale-history feed.
+  - Graded slab rule: InstaComp™ now reads grading company, grade, certification number, cert lookup URL, and grading evidence separately from card serial numbers. Batch rows show a grading badge/link, draft titles append grader/grade, seller drafts receive authenticity cert provider/number, trade handoffs save grade company/value/certification number, and exact comp filtering requires matching grader/grade evidence for graded targets.
+  - Slab cert comp rule: InstaComp™ backup comp queries include the slab certification number when one is detected, and exact-match scoring flags/boosts comp titles that include the same cert number. Treat this as cert-specific marketplace evidence, not a guaranteed official grader sale-history feed.
   - Collector pickup comp rule: `/account` collection item creation now captures slab cert number, pickup source, price paid, optional card show/event, opt-in collector-reported comp metadata, and optional brag-feed post creation. Pickup prices remain private collection data unless the collector opts in, and opted-in values stay user-reported until TCOS trust rules promote them.
   - Comp refresh rule: saved lot rows now have a per-row `Refresh Comps` button and selected completed saved rows can be checked and run through `Refresh Selected Comps` so only those rows are re-comped/repriced and persisted.
-  - Higher-tier import cleanup rule: eBay import should become the first marketplace import path that can offer optional paid/subscription-gated InstaScan/InstaComp enrichment for imported sports cards, Pokémon, trading cards, and other supported collectable-card rows. Preserve original eBay listing ID/SKU/price/quantity/photos/aspects, then let sellers batch-scan/enrich selected imported card rows, review corrections, and apply TCOS-normalized title, checklist identity, slab cert, serial, comp pricing, and listing recommendations back to staged inventory. Do not auto-overwrite live eBay listings without explicit approval and audit history.
+  - Higher-tier import cleanup rule: eBay import should become the first marketplace import path that can offer optional paid/subscription-gated InstaScan™/InstaComp™ enrichment for imported sports cards, Pokémon, trading cards, and other supported collectable-card rows. Preserve original eBay listing ID/SKU/price/quantity/photos/aspects, then let sellers batch-scan/enrich selected imported card rows, review corrections, and apply TCOS-normalized title, checklist identity, slab cert, serial, comp pricing, and listing recommendations back to staged inventory. Do not auto-overwrite live eBay listings without explicit approval and audit history.
   - Expected build size: about 6–9 focused build hours for the MVP backbone; 2–3 days for polished duplicate merging, image fingerprinting, admin review queues, bulk imports, and full catalog management.
-- Next priority after the Card Knowledge Base MVP: build the “Vicodin” InstaComp speed MVP.
+- Next priority after the Card Knowledge Base MVP: build the “Vicodin” InstaComp™ speed MVP.
   - Goal: make scans feel dramatically faster without sacrificing accuracy.
   - MVP scope: move scan work off the browser into true server-side/background workers, return fast identity first, enrich comps/pricing second, cache checklist/catalog lookups, keep provider calls split into fast-path versus slow-path, and show live progress from durable job state.
   - Expected build size: about 6–10 focused build hours for MVP; 2–4 days for production-scale hardening with worker deployment, monitoring, budgets, rate limits, and load testing.

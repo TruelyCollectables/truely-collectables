@@ -151,7 +151,7 @@ function readIntakePacketStatus(imageAudit, imageMapStatus, intakePacketPath) {
   try {
     const text = readFileSync(resolved, "utf8");
     const matchesCurrentAudit =
-      text.includes("# TCOS InstaComp Trial Intake Packet") &&
+      text.includes("# TCOS InstaComp™ Trial Intake Packet") &&
       text.includes(`Expected cards: ${imageAudit?.expected?.cards}`) &&
       text.includes(`Parsed image files: ${imageAudit?.observed?.parsedImageFiles}`) &&
       text.includes(`Complete front/back pairs: ${imageAudit?.observed?.completePairs}`) &&
@@ -460,7 +460,7 @@ function buildPreflight() {
       failures: "npm run instacomp:trial:failures",
     },
     next: readyToScan
-      ? "Preflight is green. Run the 100-card lot through InstaComp, export trial results, then score with npm run instacomp:trial:score."
+      ? "Preflight is green. Run the 100-card lot through InstaComp™, export trial results, then score with npm run instacomp:trial:score."
       : blockers[0]?.next || "Fix the listed blocker, then rerun npm run instacomp:trial:preflight.",
     safeBuildBoundary:
       "This preflight is local/read-only. It does not scan cards, deploy, publish listings, buy postage, create Checkout, call production APIs, approve live money, release payouts, or change runtime switches.",
@@ -468,7 +468,7 @@ function buildPreflight() {
 }
 
 function printPreflight(report) {
-  console.log("TCOS InstaComp final tester preflight:");
+  console.log("TCOS InstaComp™ final tester preflight:");
   console.log(`- ready to scan: ${report.readyToScan ? "YES" : "NO"}`);
   console.log(`- scan permit: ${report.scanPermit.status} - ${report.scanPermit.summary}`);
   console.log(`- scan warning: ${report.scanPermit.operatorWarning}`);

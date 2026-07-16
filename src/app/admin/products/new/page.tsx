@@ -38,7 +38,7 @@ export default function NewProductPage() {
           Add Products
         </h1>
         <p className="mt-2 max-w-3xl text-gray-600">
-          Drop a lot of card photos into InstaComp to identify cards, estimate
+          Drop a lot of card photos into InstaComp™ to identify cards, estimate
           prices, and create draft listings. Use the manual form underneath only
           when you already know exactly what you want to enter.
         </p>
@@ -48,7 +48,7 @@ export default function NewProductPage() {
         <div className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
           <h2 className="text-2xl font-bold">AI Lot Scanner</h2>
           <p className="mt-1 text-sm text-emerald-950">
-            This is the fast path: upload the whole lot, run InstaComp, review
+            This is the fast path: upload the whole lot, run InstaComp™, review
             the AI results, then create draft listings before anything goes live.
           </p>
         </div>

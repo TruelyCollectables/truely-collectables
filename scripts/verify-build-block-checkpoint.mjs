@@ -206,73 +206,73 @@ if (payload) {
   checks.push(
     check(
       fallbackCommands.includes("npm run instacomp:trial:prep"),
-      "local build fallback preserves InstaComp trial prep bundle command",
+      "local build fallback preserves InstaComp™ trial prep bundle command",
     ),
   );
   checks.push(
     check(
       fallbackCommands.includes("npm run instacomp:trial:intake"),
-      "local build fallback preserves InstaComp trial intake cockpit command",
+      "local build fallback preserves InstaComp™ trial intake cockpit command",
     ),
   );
   checks.push(
     check(
       fallbackCommands.includes("npm run instacomp:trial:stage-images"),
-      "local build fallback preserves InstaComp trial image staging command",
+      "local build fallback preserves InstaComp™ trial image staging command",
     ),
   );
   checks.push(
     check(
       fallbackCommands.includes("npm run instacomp:trial:sync-images"),
-      "local build fallback preserves InstaComp trial image-path sync command",
+      "local build fallback preserves InstaComp™ trial image-path sync command",
     ),
   );
   checks.push(
     check(
       fallbackCommands.includes("npm run instacomp:trial:monitor"),
-      "local build fallback preserves InstaComp trial readiness monitor command",
+      "local build fallback preserves InstaComp™ trial readiness monitor command",
     ),
   );
       checks.push(
         check(
           fallbackCommands.includes("npm run instacomp:trial:groundtruth"),
-          "local build fallback preserves InstaComp trial ground-truth manifest audit command",
+          "local build fallback preserves InstaComp™ trial ground-truth manifest audit command",
         ),
       );
       checks.push(
         check(
           fallbackCommands.includes("npm run instacomp:trial:audit"),
-          "local build fallback preserves InstaComp trial image audit command",
+          "local build fallback preserves InstaComp™ trial image audit command",
       ),
     );
     checks.push(
       check(
         fallbackCommands.includes("npm run instacomp:trial:map"),
-        "local build fallback preserves InstaComp trial image map command",
+        "local build fallback preserves InstaComp™ trial image map command",
       ),
     );
     checks.push(
       check(
         fallbackCommands.includes("npm run instacomp:trial:packet"),
-        "local build fallback preserves InstaComp trial intake packet command",
+        "local build fallback preserves InstaComp™ trial intake packet command",
       ),
     );
     checks.push(
       check(
         fallbackCommands.includes("npm run instacomp:trial:preflight"),
-        "local build fallback preserves InstaComp trial preflight command",
+        "local build fallback preserves InstaComp™ trial preflight command",
       ),
     );
     checks.push(
       check(
         fallbackCommands.includes("npm run instacomp:trial:ready"),
-        "local build fallback preserves InstaComp trial ready gate command",
+        "local build fallback preserves InstaComp™ trial ready gate command",
       ),
     );
     checks.push(
       check(
         fallbackCommands.includes("npm run instacomp:trial:score"),
-        "local build fallback preserves InstaComp speed-gated trial score command",
+        "local build fallback preserves InstaComp™ speed-gated trial score command",
       ),
     );
     checks.push(

@@ -1597,7 +1597,7 @@ npm run preflight:production`}
               before production deploy. The deploy helper also blocks
               uncommitted deploy-relevant files, and the preflight command
               checks that without starting a Vercel deployment. Use verify to
-              run lint, InstaComp regressions, LetterTrack evidence checks, shipping purchase-attempt audit simulations, the
+              run lint, InstaComp™ regressions, LetterTrack evidence checks, shipping purchase-attempt audit simulations, the
               twenty-scenario shipping simulation suite, build, production
               guardrail checks, and production preflight together. Production
               smoke also POSTs <code>/api/admin/shipping/simulations</code> to

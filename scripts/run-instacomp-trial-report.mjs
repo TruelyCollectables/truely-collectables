@@ -99,7 +99,7 @@ function readPositiveSecondsFlag(name, fallback = null) {
 
 function usage() {
   return [
-    "InstaComp 100-card trial report",
+    "InstaComp™ 100-card trial report",
     "",
     "Create a local 100-card manifest:",
     "  node scripts/run-instacomp-trial-report.mjs --init-manifest instacomp-trial-manifest.local.json --cards 100",
@@ -257,7 +257,7 @@ function buildPlaceholderManifest(cards) {
 
   return {
     schema: "tcos.instacompTrialManifest.v1",
-    trialName: "InstaComp 100-card front/back accuracy trial",
+    trialName: "InstaComp™ 100-card front/back accuracy trial",
     targetCards: cards,
     targetScans: cards * 2,
     targetAccuracyPercent: DEFAULT_TARGET_ACCURACY,
@@ -284,7 +284,7 @@ async function writeManifestTemplate() {
 
   await mkdir(path.dirname(resolved), { recursive: true });
   await writeFile(resolved, `${JSON.stringify(manifest, null, 2)}\n`);
-  console.log(`Created InstaComp trial manifest template: ${resolved}`);
+  console.log(`Created InstaComp™ trial manifest template: ${resolved}`);
   console.log(`Cards: ${cards}`);
   console.log(`Expected scans: ${cards * 2}`);
   return true;
@@ -528,7 +528,7 @@ async function writeGroundTruthSheet() {
     if (hasFlag("--json")) {
       console.log(JSON.stringify(report, null, 2));
     } else {
-      console.log("InstaComp trial ground-truth worksheet written:");
+      console.log("InstaComp™ trial ground-truth worksheet written:");
       console.log(`- sheet: ${report.sheetPath}`);
       console.log(`- manifest: ${report.manifestPath}`);
       console.log(`- rows: ${report.rows}`);
@@ -577,7 +577,7 @@ async function applyGroundTruthSheet() {
     if (hasFlag("--json")) {
       console.log(JSON.stringify(report, null, 2));
     } else {
-      console.log("InstaComp trial ground-truth worksheet applied:");
+      console.log("InstaComp™ trial ground-truth worksheet applied:");
       console.log(`- sheet: ${report.sheetPath}`);
       console.log(`- written manifest: ${report.writtenManifestPath}`);
       console.log(`- updated rows: ${report.observed.updatedRows}/${report.observed.manifestRows}`);
@@ -720,7 +720,7 @@ function auditManifestGroundTruth(manifest, manifestPath, expectedCards) {
 }
 
 function printManifestAudit(report) {
-  console.log("InstaComp trial ground-truth manifest audit:");
+  console.log("InstaComp™ trial ground-truth manifest audit:");
   console.log(`Cards expected: ${report.expected.cards}`);
   console.log(`Manifest rows: ${report.observed.cards}`);
   console.log(`Core-ready rows: ${report.observed.readyRows}/${report.observed.cards}`);
@@ -883,7 +883,7 @@ function buildTrialIntakePacketMarkdown(report, imageMapRows) {
   const readyLabel = report.readyToScan ? "YES - ready to upload/scan" : "NO - fix image intake first";
 
   return [
-    "# TCOS InstaComp Trial Intake Packet",
+    "# TCOS InstaComp™ Trial Intake Packet",
     "",
     `Generated: ${report.generatedAt}`,
     "",
@@ -1230,7 +1230,7 @@ async function auditTrialImages() {
 }
 
 function printImageAudit(report) {
-  console.log("InstaComp trial image audit:");
+  console.log("InstaComp™ trial image audit:");
   console.log(`Cards expected: ${report.expected.cards}`);
   console.log(`Images expected: ${report.expected.images}`);
   console.log(`Parsed image files: ${report.observed.parsedImageFiles}`);
@@ -1593,7 +1593,7 @@ function summarizeScores(
   const report = {
     schema: "tcos.instacompTrialReport.v1",
     generatedAt: new Date().toISOString(),
-    trialName: manifest.trialName || "InstaComp trial",
+    trialName: manifest.trialName || "InstaComp™ trial",
     sideEffectBoundary:
       "Read-only scoring report. Does not publish listings, buy postage, create Checkout, deploy, or call production APIs.",
     target: {
@@ -1822,7 +1822,7 @@ async function writeFailureReport(filePath, report) {
 }
 
 function printTextReport(report) {
-  console.log(`InstaComp trial report: ${report.trialName}`);
+  console.log(`InstaComp™ trial report: ${report.trialName}`);
   console.log(`Cards: ${report.observed.cards}/${report.target.targetCards}`);
   console.log(`Declared scans: ${report.observed.declaredScanCount}/${report.target.targetScans}`);
   console.log(`Front/back pairs: ${report.observed.declaredFrontBackPairs}`);

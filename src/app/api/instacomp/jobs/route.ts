@@ -106,7 +106,7 @@ export async function POST(request: Request) {
       required: true,
       label: "clientBatchId",
     })!;
-    const name = cleanInstaCompText(body.name, 200) || "InstaComp card lot";
+    const name = cleanInstaCompText(body.name, 200) || "InstaComp™ card lot";
     const totalItems = boundedInstaCompInteger({
       value: body.totalItems,
       label: "totalItems",
@@ -218,7 +218,7 @@ export async function POST(request: Request) {
 
     if ((activeJobCount || 0) >= 3) {
       throw new InstaCompJobServerError(
-        "Finish or cancel an active InstaComp lot before creating another one.",
+        "Finish or cancel an active InstaComp™ lot before creating another one.",
         429,
         "INSTACOMP_ACTIVE_JOB_LIMIT",
       );
@@ -251,7 +251,7 @@ export async function POST(request: Request) {
 
     if (dailyCardCount + totalItems > dailyCardLimit) {
       throw new InstaCompJobServerError(
-        `This account reached the ${dailyCardLimit.toLocaleString("en-US")}-card daily InstaComp intake limit.`,
+        `This account reached the ${dailyCardLimit.toLocaleString("en-US")}-card daily InstaComp™ intake limit.`,
         429,
         "INSTACOMP_DAILY_CARD_LIMIT",
         {
@@ -326,7 +326,7 @@ export async function POST(request: Request) {
         }
 
         throw new InstaCompJobServerError(
-          "clientBatchId already belongs to another InstaComp job.",
+          "clientBatchId already belongs to another InstaComp™ job.",
           409,
           "INSTACOMP_CLIENT_BATCH_CONFLICT",
         );
@@ -364,7 +364,7 @@ export async function GET(request: Request) {
 
     if (status && !INSTACOMP_JOB_STATUSES.has(status)) {
       throw new InstaCompJobServerError(
-        "status is not a valid InstaComp job status.",
+        "status is not a valid InstaComp™ job status.",
         400,
         "INSTACOMP_INVALID_JOB_STATUS",
       );

@@ -199,7 +199,7 @@ async function forceCancelInstaCompJobItems(params: {
       draft_reservation_expires_at: null,
       completed_at: now,
       last_error_code: "job_force_cancelled",
-      last_error: "The InstaComp job was force-cancelled by Clear Batch.",
+      last_error: "The InstaComp™ job was force-cancelled by Clear Batch.",
     })
     .eq("job_id", params.jobId)
     .in("status", [
@@ -284,7 +284,7 @@ export async function PATCH(request: Request, context: RouteContext) {
 
     if (requestedStatus && !["queued", "cancelling"].includes(requestedStatus)) {
       throw new InstaCompJobServerError(
-        "Clients may only queue or cancel an InstaComp job.",
+        "Clients may only queue or cancel an InstaComp™ job.",
         400,
         "INSTACOMP_JOB_STATUS_NOT_CLIENT_WRITABLE",
       );
@@ -293,7 +293,7 @@ export async function PATCH(request: Request, context: RouteContext) {
     if (requestedStatus === "queued") {
       if (String(job.status) !== "uploading") {
         throw new InstaCompJobServerError(
-          `InstaComp job cannot be queued from ${job.status}.`,
+          `InstaComp™ job cannot be queued from ${job.status}.`,
           409,
           "INSTACOMP_INVALID_JOB_TRANSITION",
         );
@@ -311,7 +311,7 @@ export async function PATCH(request: Request, context: RouteContext) {
     if (cancelRequested || requestedStatus === "cancelling") {
       if (["completed", "cancelled"].includes(String(job.status))) {
         throw new InstaCompJobServerError(
-          `InstaComp job cannot be cancelled from ${job.status}.`,
+          `InstaComp™ job cannot be cancelled from ${job.status}.`,
           409,
           "INSTACOMP_INVALID_JOB_TRANSITION",
         );

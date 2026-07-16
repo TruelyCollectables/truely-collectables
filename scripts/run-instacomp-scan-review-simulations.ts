@@ -189,7 +189,7 @@ for (const result of results) {
 const failed = results.filter((result) => result.status === "failed");
 
 console.log(
-  `InstaComp scan review simulations: ${results.length - failed.length}/${results.length} passed.`,
+  `InstaComp™ scan review simulations: ${results.length - failed.length}/${results.length} passed.`,
 );
 
 if (failed.length) process.exitCode = 1;

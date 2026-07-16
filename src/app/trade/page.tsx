@@ -20,7 +20,7 @@ export default async function TradeSearchPage({
         </p>
         <h1 className="mt-2 text-4xl font-black">Trade For Me on TCOS</h1>
         <p className="mt-3 max-w-3xl text-neutral-600">
-          This is the permanent trade-side search target for InstaComp card
+          This is the permanent trade-side search target for InstaComp™ card
           identity. As the trading platform comes online, this page will match
           collector wants, trade inventory, completed trades, and TCOS-only
           trade confidence data.
@@ -69,7 +69,7 @@ export default async function TradeSearchPage({
         </section>
       ) : (
         <section className="mt-6 rounded border bg-neutral-50 p-5 text-neutral-700">
-          Enter a card search above, or launch this page from InstaComp with
+          Enter a card search above, or launch this page from InstaComp™ with
           the Trade For Me on TCOS button.
         </section>
       )}

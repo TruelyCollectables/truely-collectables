@@ -64,7 +64,7 @@ To run the full quota-safe production readiness check:
 npm run verify:production
 ```
 
-This runs lint, the InstaComp queue, accuracy, catalog identity, printed-variant identity guard, and 100-card trial scorekeeper simulations, the LetterTrack evidence checks, shipping purchase-attempt audit simulations, the twenty-scenario shipping simulation suite, build, and the production preflight without starting a Vercel deployment.
+This runs lint, the InstaComp™ queue, accuracy, catalog identity, printed-variant identity guard, and 100-card trial scorekeeper simulations, the LetterTrack evidence checks, shipping purchase-attempt audit simulations, the twenty-scenario shipping simulation suite, build, and the production preflight without starting a Vercel deployment.
 It also runs `npm run check:production-guardrails`, which syntax-checks the production deploy/smoke helpers and shipping simulation runner, verifies the package script chain still includes the required shipping/production/launch commands, verifies the named smoke contracts for launch readiness, Launch Gate Drill, production smoke, live payment/shipping gates, admin shipping controls, shipping simulations, shipping provider exports, LetterTrack CSV, and shipping exceptions, verifies the named `queued-feature smoke manifest` rejects unknown or duplicate check names, verifies the deploy preflight env-flag path, verifies the live deploy safety contract for Vercel quota messaging, local quota cooldown marker/override handling, unwanted alias removal, clean-domain aliasing, and post-deploy smoke handoff, verifies smoke/deploy/guardrail diagnostic redaction self-tests, and verifies the clean production domain cannot be confused with the unwanted `truely-collectables-tt3b.vercel.app` alias.
 
 Tailwind source detection is bounded to `src/**` by `source(none)` plus the explicit `@source "../**/*.{js,ts,jsx,tsx,mdx}"` rule in `src/app/globals.css`. Keep this boundary intact so cold builds do not recursively scan the FileProvider workspace, generated caches, documentation artifacts, Git metadata, or dependencies.
@@ -77,7 +77,7 @@ For the normal launch path, run the one-shot command:
 npm run launch:production
 ```
 
-This runs lint, InstaComp regression simulations, LetterTrack evidence checks, shipping purchase-attempt audit simulations, the twenty-scenario shipping simulation suite, build, production guardrail checks, production preflight, production deploy, and production smoke in order.
+This runs lint, InstaComp™ regression simulations, LetterTrack evidence checks, shipping purchase-attempt audit simulations, the twenty-scenario shipping simulation suite, build, production guardrail checks, production preflight, production deploy, and production smoke in order.
 
 If you need to run the steps separately, deploy first:
 

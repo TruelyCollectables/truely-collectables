@@ -116,7 +116,7 @@ function buildMarkdown(report) {
   const blockers = report.blockers || [];
 
   return [
-    "# TCOS InstaComp Trial Intake Cockpit",
+    "# TCOS InstaComp™ Trial Intake Cockpit",
     "",
     `Generated: ${report.generatedAt}`,
     "",
@@ -168,7 +168,7 @@ function buildMarkdown(report) {
 
 function buildSourceGuide({ expectedCards, sourcePath, targetPath }) {
   return [
-    "TCOS InstaComp Trial Inbox",
+    "TCOS InstaComp™ Trial Inbox",
     "",
     "Drop raw scanner exports for the 100-card trial in this folder.",
     "",
@@ -197,9 +197,9 @@ function buildSourceGuide({ expectedCards, sourcePath, targetPath }) {
 
 function buildTargetGuide({ expectedCards, sourcePath, targetPath }) {
   return [
-    "TCOS InstaComp Trial Images",
+    "TCOS InstaComp™ Trial Images",
     "",
-    "This folder is for normalized trial image pairs used by the 100-card InstaComp final tester.",
+    "This folder is for normalized trial image pairs used by the 100-card InstaComp™ final tester.",
     "",
     `Expected lot: ${expectedCards} cards / ${Number(expectedCards) * 2} images`,
     "",
@@ -236,7 +236,7 @@ function buildGroundTruthGuide(report) {
   const readyRows = manifestAudit.readyRows || 0;
 
   return [
-    "# TCOS InstaComp Trial Answer-Key Guide",
+    "# TCOS InstaComp™ Trial Answer-Key Guide",
     "",
     `Generated: ${report.generatedAt}`,
     "",
@@ -466,7 +466,7 @@ async function main() {
         ...blocker,
       })),
     safeBuildBoundary:
-      "Local InstaComp trial intake cockpit only. Ensures local trial folders, runs dry-run staging, local prep, and local image-path sync; does not apply staging, delete source files, scan cards, deploy, publish listings, buy postage, create Checkout, call production APIs, approve live money, release payouts, or change runtime switches.",
+      "Local InstaComp™ trial intake cockpit only. Ensures local trial folders, runs dry-run staging, local prep, and local image-path sync; does not apply staging, delete source files, scan cards, deploy, publish listings, buy postage, create Checkout, call production APIs, approve live money, release payouts, or change runtime switches.",
   };
   report.next = buildNext(report);
 
@@ -488,7 +488,7 @@ async function main() {
   const stage = report.steps.stageImages.payload || {};
   const prep = report.steps.prepTrial.payload || {};
   const sync = report.steps.syncImages.payload || {};
-  console.log("TCOS InstaComp trial intake cockpit:");
+  console.log("TCOS InstaComp™ trial intake cockpit:");
   console.log(`- source inbox: ${report.paths.source}`);
   console.log(`- target images: ${report.paths.target}`);
   console.log(`- folders ensured: ${report.folderPrep.ensured ? "yes" : "no"}`);

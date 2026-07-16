@@ -203,7 +203,7 @@ function buildHtml(report) {
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>TCOS InstaComp Trial Answer-Key Review</title>
+  <title>TCOS InstaComp™ Trial Answer-Key Review</title>
   <style>
     :root { color-scheme: light; font-family: Arial, Helvetica, sans-serif; }
     body { margin: 0; background: #f7f2ee; color: #171717; }
@@ -251,7 +251,7 @@ function buildHtml(report) {
 </head>
 <body>
   <header>
-    <h1>TCOS InstaComp Trial Answer-Key Review</h1>
+    <h1>TCOS InstaComp™ Trial Answer-Key Review</h1>
     <div class="small">Generated ${escapeHtml(report.generatedAt)}. Local-only front/back thumbnails guide for filling the TSV answer key; does not scan cards, deploy, publish listings, create Checkout, buy postage, approve live money, or release payouts.</div>
     <div class="summary">
       <span class="pill ${report.readyRows === report.expectedCards ? "ok" : "bad"}">Answer key ${report.readyRows}/${report.expectedCards}</span>
@@ -487,7 +487,7 @@ async function main() {
     return;
   }
 
-  console.log("TCOS InstaComp trial answer-key HTML written:");
+  console.log("TCOS InstaComp™ trial answer-key HTML written:");
   console.log(`- output: ${outputPath}`);
   console.log(`- manifest: ${manifestPath}`);
   console.log(`- worksheet: ${worksheet.exists ? worksheet.path : "missing"}`);

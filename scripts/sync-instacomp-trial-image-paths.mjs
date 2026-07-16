@@ -221,7 +221,7 @@ function markdownCell(value) {
 function buildMarkdown(report) {
   const rows = report.previewRows || [];
   return [
-    "# TCOS InstaComp Trial Image Path Sync",
+    "# TCOS InstaComp™ Trial Image Path Sync",
     "",
     `Generated: ${report.generatedAt}`,
     "",
@@ -322,7 +322,7 @@ async function main() {
       ? "Image paths are synced. Run npm run instacomp:trial:groundtruth:sheet if you need a fresh blank sheet, or keep filling the existing worksheet and run npm run instacomp:trial:monitor."
       : "Fix missing image-map rows/fronts/backs or worksheet columns, then rerun npm run instacomp:trial:sync-images.",
     safeBuildBoundary:
-      "Local InstaComp trial image-path sync only. Updates local manifest image paths and optional local worksheet image columns; does not change answer-key identity fields, scan cards, deploy, publish listings, buy postage, create Checkout, call production APIs, approve live money, release payouts, or change runtime switches.",
+      "Local InstaComp™ trial image-path sync only. Updates local manifest image paths and optional local worksheet image columns; does not change answer-key identity fields, scan cards, deploy, publish listings, buy postage, create Checkout, call production APIs, approve live money, release payouts, or change runtime switches.",
   };
 
   const resolvedReceiptJsonPath = resolveFromRepo(receiptJsonPath);
@@ -337,7 +337,7 @@ async function main() {
     return;
   }
 
-  console.log("TCOS InstaComp trial image-path sync:");
+  console.log("TCOS InstaComp™ trial image-path sync:");
   console.log(`- ok: ${report.ok ? "yes" : "no"}`);
   console.log(`- manifest: ${report.paths.writtenManifest}`);
   console.log(`- image map: ${report.paths.imageMap}`);

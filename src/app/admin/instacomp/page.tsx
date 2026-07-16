@@ -37,7 +37,7 @@ async function getRecentScans(): Promise<ScanRow[]> {
     .limit(15);
 
   if (error) {
-    console.error("Failed loading InstaComp scans:", error);
+    console.error("Failed loading InstaComp™ scans:", error);
     return [];
   }
 

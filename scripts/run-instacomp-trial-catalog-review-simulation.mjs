@@ -28,7 +28,7 @@ const failureReportPath = path.join(
 const results = JSON.parse(readFileSync(sourceResultsPath, "utf8"));
 const reviewCard = results.cards.find((card) => card.trialCardId === "fixture-002");
 if (!reviewCard) {
-  throw new Error("fixture-002 is missing from the InstaComp trial results fixture");
+  throw new Error("fixture-002 is missing from the InstaComp™ trial results fixture");
 }
 
 reviewCard.catalogEvidence = {
@@ -132,6 +132,6 @@ if (
   throw new Error("Expected failure report to classify fixture-002 as catalog_review_required");
 }
 
-console.log("PASS catalog-review-required row blocks the InstaComp final tester target");
+console.log("PASS catalog-review-required row blocks the InstaComp™ final tester target");
 console.log(`- report: ${reviewResultsPath}`);
 console.log(`- failure report: ${failureReportPath}`);

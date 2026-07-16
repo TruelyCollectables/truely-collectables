@@ -289,7 +289,7 @@ function buildValidation({ manifest, manifestPath, worksheetPath, worksheetText,
           ? "Fill the missing player/year/setName/cardNumber fields, save the TSV, then rerun npm run instacomp:trial:answer-key:validate."
           : "Fix the worksheet ID/row-count issues, save the TSV, then rerun npm run instacomp:trial:answer-key:validate.",
     safeBuildBoundary:
-      "Local InstaComp trial answer-key validation only. Reads local manifest/worksheet and writes local receipts; does not apply worksheet values, mutate images, scan cards, deploy, publish listings, buy postage, create Checkout, call production APIs, approve live money, release payouts, or change runtime switches.",
+      "Local InstaComp™ trial answer-key validation only. Reads local manifest/worksheet and writes local receipts; does not apply worksheet values, mutate images, scan cards, deploy, publish listings, buy postage, create Checkout, call production APIs, approve live money, release payouts, or change runtime switches.",
   };
 }
 
@@ -342,7 +342,7 @@ function buildMissingWorksheetReport({ manifest, manifestPath, worksheetPath, ex
     next:
       "Run npm run instacomp:trial:groundtruth:sheet to create the TSV, fill it, then rerun npm run instacomp:trial:answer-key:validate.",
     safeBuildBoundary:
-      "Local InstaComp trial answer-key validation only. Reads local manifest/worksheet and writes local receipts; does not apply worksheet values, mutate images, scan cards, deploy, publish listings, buy postage, create Checkout, call production APIs, approve live money, release payouts, or change runtime switches.",
+      "Local InstaComp™ trial answer-key validation only. Reads local manifest/worksheet and writes local receipts; does not apply worksheet values, mutate images, scan cards, deploy, publish listings, buy postage, create Checkout, call production APIs, approve live money, release payouts, or change runtime switches.",
   };
 }
 
@@ -353,7 +353,7 @@ function issueList(items, formatter, empty = "none") {
 
 function buildMarkdown(report) {
   const lines = [
-    "# TCOS InstaComp Trial Answer-Key Validation",
+    "# TCOS InstaComp™ Trial Answer-Key Validation",
     "",
     `- Schema: \`${report.schema}\``,
     `- Generated: ${report.generatedAt}`,
@@ -463,7 +463,7 @@ async function main() {
     return;
   }
 
-  console.log("TCOS InstaComp trial answer-key validation:");
+  console.log("TCOS InstaComp™ trial answer-key validation:");
   console.log(`- schema: ${report.schema}`);
   console.log(`- ok / ready to apply: ${report.ok ? "yes" : "no"}`);
   console.log(

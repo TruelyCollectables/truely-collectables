@@ -147,7 +147,7 @@ function deploySafetyMarkdownLines() {
   return [
     `## ${DEPLOY_SAFETY.section}`,
     "",
-    "- Run `npm run verify:production` before launch work; it covers InstaComp regressions, LetterTrack evidence checks, shipping purchase-attempt audit simulations, the twenty-scenario shipping simulation suite, build, production guardrails, and production preflight.",
+    "- Run `npm run verify:production` before launch work; it covers InstaComp™ regressions, LetterTrack evidence checks, shipping purchase-attempt audit simulations, the twenty-scenario shipping simulation suite, build, production guardrails, and production preflight.",
     `- If Vercel reports \`${DEPLOY_SAFETY.quotaBlockCode}\`, ${DEPLOY_SAFETY.quotaResetInstruction.replace("npm run launch:production", "`npm run launch:production`")}`,
     `- Between build blocks, run \`${DEPLOY_SAFETY.quotaStatusCommand}\`. ${DEPLOY_SAFETY.quotaStatusDescription}`,
     `- ${DEPLOY_SAFETY.quotaUploadWarning} Marker: \`${DEPLOY_SAFETY.quotaCooldownMarkerPath}\`. Override only intentionally with \`${DEPLOY_SAFETY.quotaRetryOverrideEnv}\` or \`${DEPLOY_SAFETY.quotaRetryOverrideFlag}\`.`,
@@ -358,7 +358,7 @@ function markdownForHandoffBundle(
     "",
     "## Production Deploy Commands",
     "",
-    "- Before deploying, run `npm run verify:production`; it covers InstaComp regressions, LetterTrack evidence checks, shipping purchase-attempt audit simulations, the twenty-scenario shipping simulation suite, build, production guardrails, and production preflight.",
+    "- Before deploying, run `npm run verify:production`; it covers InstaComp™ regressions, LetterTrack evidence checks, shipping purchase-attempt audit simulations, the twenty-scenario shipping simulation suite, build, production guardrails, and production preflight.",
     `- Check the local Vercel cooldown with \`${DEPLOY_SAFETY.quotaStatusCommand}\`; it is read-only and starts no upload or deployment.`,
     "- If Vercel deploy quota is open, run `npm run launch:production`.",
     `- If Vercel reports \`${DEPLOY_SAFETY.quotaBlockCode}\`, ${DEPLOY_SAFETY.quotaResetInstruction.replace("npm run launch:production", "the launch helper")}`,

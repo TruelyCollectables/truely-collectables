@@ -41,7 +41,7 @@ export async function POST(request: Request, context: RouteContext) {
 
     if (!ownedItem) {
       throw new InstaCompJobServerError(
-        "InstaComp job item was not found.",
+        "InstaComp™ job item was not found.",
         404,
         "INSTACOMP_JOB_ITEM_NOT_FOUND",
       );

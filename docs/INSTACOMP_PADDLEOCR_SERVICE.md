@@ -1,6 +1,6 @@
-# InstaComp PaddleOCR service contract
+# InstaComp™ PaddleOCR service contract
 
-InstaComp can use PaddleOCR as its first real OCR provider for tiny serial-number stamps, card numbers, player names, set text, and back-of-card details.
+InstaComp™ can use PaddleOCR as its first real OCR provider for tiny serial-number stamps, card numbers, player names, set text, and back-of-card details.
 
 The Next app does not run PaddleOCR directly. PaddleOCR runs as a separate HTTP service so the web app remains deployable and the CPU-heavy model can be restarted independently.
 
@@ -40,9 +40,9 @@ Keep the worker bound to `127.0.0.1` unless it is placed behind authentication, 
 
 ## Durable queue behavior
 
-After `supabase/migrations/20260711010000_create_instacomp_scan_job_queue.sql` is applied, a persistent InstaComp job creates high-resolution front/back derivatives and uploads them directly to private Supabase Storage. The browser claims a saved row, then the Next server downloads those saved derivatives and calls PaddleOCR. Image bytes do not have to be resent from the browser for every retry.
+After `supabase/migrations/20260711010000_create_instacomp_scan_job_queue.sql` is applied, a persistent InstaComp™ job creates high-resolution front/back derivatives and uploads them directly to private Supabase Storage. The browser claims a saved row, then the Next server downloads those saved derivatives and calls PaddleOCR. Image bytes do not have to be resent from the browser for every retry.
 
-The queue can resume saved work after a reload, but the browser currently acts as the worker. OCR calls do not continue while all InstaComp tabs are closed. Queue uploads require SHA-256 digests, use non-overwriting signed targets, and are revalidated before OCR and again before draft promotion.
+The queue can resume saved work after a reload, but the browser currently acts as the worker. OCR calls do not continue while all InstaComp™ tabs are closed. Queue uploads require SHA-256 digests, use non-overwriting signed targets, and are revalidated before OCR and again before draft promotion.
 
 ## Request
 
@@ -128,7 +128,7 @@ Preferred response:
 
 ## What the UI shows
 
-The InstaComp scan result displays OCR diagnostics:
+The InstaComp™ scan result displays OCR diagnostics:
 
 - whether PaddleOCR is configured;
 - whether Google Vision fallback is configured;
@@ -149,7 +149,7 @@ Invoke-RestMethod http://127.0.0.1:8008/health
 npm run simulate:instacomp-jobs
 ```
 
-The health endpoint proves only that the HTTP process is listening. Run an authenticated real-card request or one complete InstaComp queue row to test model loading, OCR, generated crops, and the configured timeout. Confirm that the response reports `provider: paddleocr`, contains a sensible `checkedImages` value, and returns text when the card has readable text.
+The health endpoint proves only that the HTTP process is listening. Run an authenticated real-card request or one complete InstaComp™ queue row to test model loading, OCR, generated crops, and the configured timeout. Confirm that the response reports `provider: paddleocr`, contains a sensible `checkedImages` value, and returns text when the card has readable text.
 
 ## Troubleshooting
 

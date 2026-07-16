@@ -888,7 +888,7 @@ function testImageFile(name: string, label: string, color: string) {
   <rect x="54" y="54" width="372" height="424" rx="16" fill="${color}" opacity="0.18"/>
   <text x="240" y="255" text-anchor="middle" font-family="Arial, sans-serif" font-size="42" font-weight="800" fill="#111">TCOS</text>
   <text x="240" y="315" text-anchor="middle" font-family="Arial, sans-serif" font-size="28" font-weight="800" fill="#111">${safeLabel}</text>
-  <text x="240" y="545" text-anchor="middle" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#444">InstaComp Test Model</text>
+  <text x="240" y="545" text-anchor="middle" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#444">InstaComp™ Test Model</text>
 </svg>`.trim();
 
   return new File([svg], name, {
@@ -3121,7 +3121,7 @@ async function createSerialDetailCrops(file: File, side: "front" | "back") {
 
     return crops;
   } catch (error) {
-    console.warn("InstaComp detail crop generation failed:", error);
+    console.warn("InstaComp™ detail crop generation failed:", error);
     return [];
   }
 }
@@ -3189,7 +3189,7 @@ async function optimizeScanImage(file: File) {
   if (cached) return cached;
 
   const pending = optimizeScanImageUncached(file).catch((error) => {
-    console.warn("InstaComp image optimization failed:", error);
+    console.warn("InstaComp™ image optimization failed:", error);
     return file;
   });
 
@@ -3675,7 +3675,7 @@ export default function InstaCompScanner({
         setPersistentJob(job);
         setBatchCards(recoveredCards);
         setBatchDraftMessage(
-          `Recovered InstaComp job ${job.id.slice(0, 8)} with ${recoveredCards.length} card row${
+          `Recovered InstaComp™ job ${job.id.slice(0, 8)} with ${recoveredCards.length} card row${
             recoveredCards.length === 1 ? "" : "s"
           }.`
         );
@@ -4156,7 +4156,7 @@ export default function InstaCompScanner({
         return data;
       }
 
-      const error = new Error(data?.error || "InstaComp job request failed.") as Error & {
+      const error = new Error(data?.error || "InstaComp™ job request failed.") as Error & {
         code?: string;
         status?: number;
         details?: unknown;
@@ -4173,7 +4173,7 @@ export default function InstaCompScanner({
       throw error;
     }
 
-    throw new Error("InstaComp job request failed after database backoff.");
+    throw new Error("InstaComp™ job request failed after database backoff.");
   }
 
   function bindPersistentCard(cardId: string, binding: PersistentJobBinding) {
@@ -4235,7 +4235,7 @@ export default function InstaCompScanner({
   }) {
     const body = {
       clientBatchId: params.clientBatchId,
-      name: `InstaComp lot ${new Date().toLocaleString()}`,
+      name: `InstaComp™ lot ${new Date().toLocaleString()}`,
       totalItems: params.totalItems,
       requestedConcurrency: batchConcurrency,
       autoCreateDrafts: params.autoCreateDrafts,
@@ -4262,7 +4262,7 @@ export default function InstaCompScanner({
       }
 
       setBatchDraftMessage(
-        `Closed ${closedCount} stale active InstaComp lot${
+        `Closed ${closedCount} stale active InstaComp™ lot${
           closedCount === 1 ? "" : "s"
         } and retried this upload.`
       );
@@ -5122,7 +5122,7 @@ export default function InstaCompScanner({
     const totals = summarizeTestModelRunRecords(testModelRunRecords);
     const latestRuns = testModelRunRecords.slice(0, 5);
     const summaryLines = [
-      "InstaComp Test Run Ledger Summary",
+      "InstaComp™ Test Run Ledger Summary",
       "Route: /instacomp-test",
       `Runs: ${totals.runs}`,
       `Checks: ${totals.passedChecks} passed, ${totals.failedChecks} failed`,
@@ -5535,7 +5535,7 @@ export default function InstaCompScanner({
     const rowLimit = 12;
     const visibleProblemRows = rowDetails.slice(0, rowLimit);
     const summaryLines = [
-      "InstaComp Test Model Failure Summary",
+      "InstaComp™ Test Model Failure Summary",
       "Route: /instacomp-test",
       `Scenario: ${testModelCheckScenario.replace("_", " ")}`,
       `Failing smoke checks: ${failedChecks.length}`,
@@ -5604,7 +5604,7 @@ export default function InstaCompScanner({
       (card) => isDraftableBatchCard(card) && draftReadinessErrors(card).length > 0
     ).length;
     const summaryLines = [
-      "InstaComp Current View Summary",
+      "InstaComp™ Current View Summary",
       "Route: /instacomp-test",
       `View: ${BATCH_FILTER_LABELS[batchFilter]}`,
       `Sort: ${BATCH_SORT_LABELS[batchSort]}`,
@@ -5729,7 +5729,7 @@ export default function InstaCompScanner({
       .filter(Boolean)
       .join("; ");
     const summaryLines = [
-      "InstaComp Test Row Summary",
+      "InstaComp™ Test Row Summary",
       "Route: /instacomp-test",
       `Row: #${row.row}`,
       `Title: ${row.title || row.frontFileName}`,
@@ -5880,7 +5880,7 @@ export default function InstaCompScanner({
     const failedChecks = checks.filter((check) => !check.pass);
     const latestRun = testModelRunRecords[0] || null;
     const summaryLines = [
-      "InstaComp Test Model QA Summary",
+      "InstaComp™ Test Model QA Summary",
       "Route: /instacomp-test",
       `Scenario: ${testModelCheckScenario.replace("_", " ")}`,
       checks.length
@@ -6461,7 +6461,7 @@ export default function InstaCompScanner({
         };
       });
       setBatchDraftMessage(
-        "Image rotated without clearing the scan. Retry this row when you want InstaComp to rescan the corrected local image."
+        "Image rotated without clearing the scan. Retry this row when you want InstaComp™ to rescan the corrected local image."
       );
     } catch (error: any) {
       setBatchError(error?.message || "Could not rotate this batch image.");
@@ -6485,7 +6485,7 @@ export default function InstaCompScanner({
     persistentBindingsRef.current.delete(cardId);
     setBatchError(null);
     setBatchDraftMessage(
-      "Front/back images swapped. Retry this row when you want InstaComp to rescan the corrected pair."
+      "Front/back images swapped. Retry this row when you want InstaComp™ to rescan the corrected pair."
     );
 
     updateBatchCard(cardId, (current) => {
@@ -6699,7 +6699,7 @@ export default function InstaCompScanner({
         }
       } catch (error: any) {
         setBatchError(
-          error?.message || "Could not cancel the saved InstaComp job."
+          error?.message || "Could not cancel the saved InstaComp™ job."
         );
         return;
       }
@@ -6923,7 +6923,7 @@ export default function InstaCompScanner({
     batchPauseRequestedRef.current = true;
     setBatchPauseRequested(true);
     setBatchError(
-      "Pause requested. Current claimed InstaComp mini-pack will finish first."
+      "Pause requested. Current claimed InstaComp™ mini-pack will finish first."
     );
   }
 
@@ -6937,7 +6937,7 @@ export default function InstaCompScanner({
     setBatchPauseRequested(true);
     setBatchConcurrency((current) => Math.max(1, current - 1));
     setBatchError(
-      `Database connection pressure detected. InstaComp paused before claiming more work, backed concurrency down by 1, and will use ${INSTACOMP_JOB_CLAIM_CHUNK_SIZE}-card mini-packs on resume to reduce queue round-trips.`
+      `Database connection pressure detected. InstaComp™ paused before claiming more work, backed concurrency down by 1, and will use ${INSTACOMP_JOB_CLAIM_CHUNK_SIZE}-card mini-packs on resume to reduce queue round-trips.`
     );
     return true;
   }
@@ -6952,7 +6952,7 @@ export default function InstaCompScanner({
     setBatchPauseRequested(true);
     setBatchConcurrency(1);
     setBatchError(
-      `OpenAI token rate limit hit. InstaComp paused before claiming more work and backed FAF Parallel Scans down to 1. Wait about ${INSTACOMP_RATE_LIMIT_RETRY_SECONDS} seconds, then use Continue Rate-Limited.`
+      `OpenAI token rate limit hit. InstaComp™ paused before claiming more work and backed FAF Parallel Scans down to 1. Wait about ${INSTACOMP_RATE_LIMIT_RETRY_SECONDS} seconds, then use Continue Rate-Limited.`
     );
     return true;
   }
@@ -7087,7 +7087,7 @@ export default function InstaCompScanner({
   async function persistBatchCardCorrections(card: BatchCard) {
     if (!isCorrectionSavableBatchCard(card)) {
       throw new Error(
-        "This row is not attached to a saved InstaComp lot yet. Run Batch InstaComp first, then save corrections."
+        "This row is not attached to a saved InstaComp™ lot yet. Run Batch InstaComp™ first, then save corrections."
       );
     }
 
@@ -7125,7 +7125,7 @@ export default function InstaCompScanner({
       const [repricedCard] = await scanPersistentJob(card.persistentJobId, [card]);
 
       if (!repricedCard?.result) {
-        throw new Error("InstaComp could not reprice this row after the serial edit.");
+        throw new Error("InstaComp™ could not reprice this row after the serial edit.");
       }
 
       const marketPrice = effectiveMarketStats(repricedCard.result).suggestedPrice;
@@ -7175,7 +7175,7 @@ export default function InstaCompScanner({
     try {
       await repriceBatchCardWithSerialCorrection(card);
       setBatchDraftMessage(
-        "Saved corrections and repriced this InstaComp row with the corrected serial."
+        "Saved corrections and repriced this InstaComp™ row with the corrected serial."
       );
     } catch (error: any) {
       setBatchError(error?.message || "Could not save correction edits.");
@@ -7194,7 +7194,7 @@ export default function InstaCompScanner({
 
     if (!cardsToSave.length) {
       setBatchError(
-        "Select completed rows from a saved InstaComp lot before saving corrections."
+        "Select completed rows from a saved InstaComp™ lot before saving corrections."
       );
       return;
     }
@@ -7255,7 +7255,7 @@ export default function InstaCompScanner({
 
     if (!isCorrectionSavableBatchCard(card)) {
       setBatchError(
-        "Run Batch InstaComp first so this row has a saved lot record, then refresh comps."
+        "Run Batch InstaComp™ first so this row has a saved lot record, then refresh comps."
       );
       return;
     }
@@ -7283,7 +7283,7 @@ export default function InstaCompScanner({
             ? current.customPrice
             : marketPrice.toFixed(2),
       }));
-      setBatchDraftMessage("Refreshed comps for this InstaComp row.");
+      setBatchDraftMessage("Refreshed comps for this InstaComp™ row.");
     } catch (error: any) {
       if (
         !handleBatchOpenAIRateLimitError(error) &&
@@ -7306,7 +7306,7 @@ export default function InstaCompScanner({
 
     if (!cardsToRefresh.length) {
       setBatchError(
-        "Select completed rows from a saved InstaComp lot before refreshing comps."
+        "Select completed rows from a saved InstaComp™ lot before refreshing comps."
       );
       return;
     }
@@ -7376,7 +7376,7 @@ export default function InstaCompScanner({
 
     if (!persistentJob?.id) {
       setBatchError(
-        "Run Batch InstaComp first so there is a saved lot to process into the TCOS Card DB."
+        "Run Batch InstaComp™ first so there is a saved lot to process into the TCOS Card DB."
       );
       return;
     }
@@ -7983,7 +7983,7 @@ export default function InstaCompScanner({
 
           if (["uploading", "cancelling"].includes(jobStatus)) {
             throw new Error(
-              `InstaComp job is ${jobStatus}; finish recovery or cancellation before scanning.`
+              `InstaComp™ job is ${jobStatus}; finish recovery or cancellation before scanning.`
             );
           }
 
@@ -7991,7 +7991,7 @@ export default function InstaCompScanner({
 
           if (emptyClaimCount >= 120) {
             throw new Error(
-              "InstaComp queue made no progress for several minutes. The job is still saved; use Resume to try again."
+              "InstaComp™ queue made no progress for several minutes. The job is still saved; use Resume to try again."
             );
           }
           await new Promise((resolve) =>
@@ -8064,7 +8064,7 @@ export default function InstaCompScanner({
         `/api/instacomp/jobs/${binding.jobId}/items/${binding.itemId}/retry`,
         {
           method: "POST",
-          body: { reason: "Seller requested a retry from InstaComp." },
+          body: { reason: "Seller requested a retry from InstaComp™." },
         }
       );
     } catch (error: any) {
@@ -8123,7 +8123,7 @@ export default function InstaCompScanner({
             `/api/instacomp/jobs/${binding.jobId}/items/${binding.itemId}/retry`,
             {
               method: "POST",
-              body: { reason: "Seller requested a batch retry from InstaComp." },
+              body: { reason: "Seller requested a batch retry from InstaComp™." },
             }
           );
         } catch (error: any) {
@@ -9207,7 +9207,7 @@ export default function InstaCompScanner({
             background: "#f8fbff",
           }}
         >
-          <h2 style={{ marginTop: 0 }}>InstaComp Test Model</h2>
+          <h2 style={{ marginTop: 0 }}>InstaComp™ Test Model</h2>
           <div
             style={{
               display: "flex",
@@ -9977,7 +9977,7 @@ export default function InstaCompScanner({
           </div>
           <p style={{ margin: "8px 0 14px", color: "#555" }}>
             Drop photos in card-pair order. If filenames include front/back,
-            InstaComp uses them; otherwise it groups image 1 with 2, image 3
+            InstaComp™ uses them; otherwise it groups image 1 with 2, image 3
             with 4, and so on. Single-image cards still scan, but paired images
             improve identification.
           </p>
@@ -10218,7 +10218,7 @@ export default function InstaCompScanner({
               ? "Batch is scanning..."
               : batchPauseRequested
                 ? "Resume Batch"
-                : "Run Batch InstaComp"}
+                : "Run Batch InstaComp™"}
           </button>
 
           <button
@@ -10510,7 +10510,7 @@ export default function InstaCompScanner({
                   ? "not-allowed"
                   : "pointer",
             }}
-            title="Save completed rows from this saved InstaComp lot into the TCOS Card DB. They become trusted only after 3 confirmed sightings."
+            title="Save completed rows from this saved InstaComp™ lot into the TCOS Card DB. They become trusted only after 3 confirmed sightings."
           >
             {batchKnowledgeSaving
               ? "Processing TCOS DB..."
@@ -11302,7 +11302,7 @@ export default function InstaCompScanner({
                   textDecoration: "none",
                 }}
               >
-                Open InstaComp Drafts
+                Open InstaComp™ Drafts
               </a>
             ) : null}
           </div>
@@ -12366,7 +12366,7 @@ export default function InstaCompScanner({
             <h2 style={{ marginTop: 0 }}>Comp Source Coverage</h2>
 
             <p style={{ marginTop: 0, color: "#555" }}>
-              InstaComp tracks these sources for market value, sold value, and
+              InstaComp™ tracks these sources for market value, sold value, and
               remaining-card coverage. Only included sources affect pricing.
             </p>
 
@@ -13560,7 +13560,7 @@ function BatchCardRow({
               <div style={{ color: "#555", fontSize: 12, fontWeight: 800 }}>
                 Draft price: {money(draftPrice.price)}
                 {draftPrice.source === "instacomp_market"
-                  ? " - InstaComp comps"
+                  ? " - InstaComp™ comps"
                   : " - manual"}
               </div>
             ) : null}
@@ -13617,8 +13617,8 @@ function BatchCardRow({
                 disabled={!canSaveCorrections}
                 title={
                   canSaveCorrections
-                    ? "Save edited title, quantity, price, and review marks to this saved InstaComp lot row."
-                    : "Run Batch InstaComp first so this row has a saved lot record, then save corrections."
+                    ? "Save edited title, quantity, price, and review marks to this saved InstaComp™ lot row."
+                    : "Run Batch InstaComp™ first so this row has a saved lot record, then save corrections."
                 }
                 style={{
                   ...secondaryButtonStyle,
@@ -13638,8 +13638,8 @@ function BatchCardRow({
                 disabled={!canRefreshComps}
                 title={
                   canRefreshComps
-                    ? "Refresh comps and market price for this saved InstaComp row."
-                    : "Run Batch InstaComp first so this row has a saved lot record, then refresh comps."
+                    ? "Refresh comps and market price for this saved InstaComp™ row."
+                    : "Run Batch InstaComp™ first so this row has a saved lot record, then refresh comps."
                 }
                 style={{
                   ...secondaryButtonStyle,
@@ -13740,7 +13740,7 @@ function BatchCardRow({
                 {card.draftSku ? ` - ${card.draftSku}` : ""}
                 {" - "}
                 <a href={draftHref}>
-                  Open in InstaComp drafts
+                  Open in InstaComp™ drafts
                 </a>
               </>
             )}

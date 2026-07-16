@@ -75,4 +75,4 @@ assert(
   "fingerprint should normalize comparable identity fields",
 );
 
-console.log("InstaComp card knowledge simulations passed.");
+console.log("InstaComp™ card knowledge simulations passed.");

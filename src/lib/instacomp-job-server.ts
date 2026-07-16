@@ -107,7 +107,7 @@ function bearerToken(request: Request) {
 export function requireInstaCompJobSupabase(): SupabaseClient {
   if (!process.env.NEXT_PUBLIC_SUPABASE_URL?.trim()) {
     throw new InstaCompJobServerError(
-      "InstaComp job storage is not configured.",
+      "InstaComp™ job storage is not configured.",
       503,
       "INSTACOMP_SUPABASE_URL_MISSING",
     );
@@ -115,7 +115,7 @@ export function requireInstaCompJobSupabase(): SupabaseClient {
 
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()) {
     throw new InstaCompJobServerError(
-      "InstaComp persistent jobs require the Supabase service-role key.",
+      "InstaComp™ persistent jobs require the Supabase service-role key.",
       503,
       "INSTACOMP_SERVICE_ROLE_MISSING",
     );
@@ -219,7 +219,7 @@ export async function getAccessibleInstaCompJob(params: {
 
   if (!data) {
     throw new InstaCompJobServerError(
-      "InstaComp job was not found.",
+      "InstaComp™ job was not found.",
       404,
       "INSTACOMP_JOB_NOT_FOUND",
     );
@@ -261,7 +261,7 @@ export function isInstaCompMigrationMissing(error: DatabaseError | unknown) {
 export function throwInstaCompDatabaseError(error: DatabaseError | unknown): never {
   if (isInstaCompMigrationMissing(error)) {
     throw new InstaCompJobServerError(
-      "InstaComp persistent jobs are unavailable until the scan-job migration is applied.",
+      "InstaComp™ persistent jobs are unavailable until the scan-job migration is applied.",
       503,
       "INSTACOMP_JOB_MIGRATION_REQUIRED",
     );
@@ -270,7 +270,7 @@ export function throwInstaCompDatabaseError(error: DatabaseError | unknown): nev
   const databaseError = (error || {}) as DatabaseError;
 
   throw new InstaCompJobServerError(
-    databaseError.message || "InstaComp job database operation failed.",
+    databaseError.message || "InstaComp™ job database operation failed.",
     500,
     "INSTACOMP_JOB_DATABASE_ERROR",
     process.env.NODE_ENV === "development" ? databaseError : undefined,
@@ -284,7 +284,7 @@ export function throwInstaCompRpcError(error: DatabaseError | unknown): never {
 
   const databaseError = (error || {}) as DatabaseError;
   const code = String(databaseError.code || "").toUpperCase();
-  const message = databaseError.message || "InstaComp queue action failed.";
+  const message = databaseError.message || "InstaComp™ queue action failed.";
 
   if (code === "P0002") {
     throw new InstaCompJobServerError(
@@ -427,7 +427,7 @@ export async function createInstaCompSignedUpload(params: {
 
     throw new InstaCompJobServerError(
       missingBucket
-        ? "InstaComp image storage is unavailable until the private bucket migration is applied."
+        ? "InstaComp™ image storage is unavailable until the private bucket migration is applied."
         : message,
       missingBucket ? 503 : 500,
       missingBucket
@@ -575,7 +575,7 @@ export function instaCompJobErrorResponse(error: unknown) {
     );
   }
 
-  const message = error instanceof Error ? error.message : "InstaComp job failed.";
+  const message = error instanceof Error ? error.message : "InstaComp™ job failed.";
 
   return Response.json(
     {

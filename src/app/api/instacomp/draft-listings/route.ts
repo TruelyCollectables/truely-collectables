@@ -221,12 +221,12 @@ async function uploadDraftImage(params: {
   if (!params.file || params.file.size <= 0) return null;
 
   if (!params.file.type.startsWith("image/")) {
-    throw new InventoryEngineError("InstaComp draft images must be image files.", 400);
+    throw new InventoryEngineError("InstaComp™ draft images must be image files.", 400);
   }
 
   if (params.file.size > MAX_INSTACOMP_DRAFT_IMAGE_BYTES) {
     throw new InventoryEngineError(
-      "InstaComp draft images must be 12MB or smaller.",
+      "InstaComp™ draft images must be 12MB or smaller.",
       400,
     );
   }
@@ -286,7 +286,7 @@ async function persistentDraftImageFiles(params: {
 
   if (!params.jobId || !params.itemId) {
     throw new InventoryEngineError(
-      "A persistent InstaComp draft requires both its job ID and item ID.",
+      "A persistent InstaComp™ draft requires both its job ID and item ID.",
       400,
     );
   }
@@ -303,14 +303,14 @@ async function persistentDraftImageFiles(params: {
 
   if (!job) {
     throw new InventoryEngineError(
-      "The persistent InstaComp job was not found for this seller.",
+      "The persistent InstaComp™ job was not found for this seller.",
       404,
     );
   }
 
   if (["cancelling", "cancelled", "failed"].includes(String(job.status))) {
     throw new InventoryEngineError(
-      "A cancelling, cancelled, or failed InstaComp job cannot create drafts.",
+      "A cancelling, cancelled, or failed InstaComp™ job cannot create drafts.",
       409,
     );
   }
@@ -328,14 +328,14 @@ async function persistentDraftImageFiles(params: {
 
   if (!item?.front_storage_path) {
     throw new InventoryEngineError(
-      "The persistent InstaComp row is missing its front image.",
+      "The persistent InstaComp™ row is missing its front image.",
       409,
     );
   }
 
   if (!["completed", "review_required"].includes(String(item.status))) {
     throw new InventoryEngineError(
-      "Finish or review the InstaComp scan before creating its draft.",
+      "Finish or review the InstaComp™ scan before creating its draft.",
       409,
     );
   }
@@ -346,7 +346,7 @@ async function persistentDraftImageFiles(params: {
 
   if (item.trade_collection_item_id) {
     throw new InventoryEngineError(
-      "This InstaComp row is already marked Available for Trade. Remove the trade handoff before creating a sell draft.",
+      "This InstaComp™ row is already marked Available for Trade. Remove the trade handoff before creating a sell draft.",
       409,
     );
   }
@@ -366,7 +366,7 @@ async function persistentDraftImageFiles(params: {
 
     if (error || !data) {
       throw new InventoryEngineError(
-        error?.message || "Could not load the persistent InstaComp image.",
+        error?.message || "Could not load the persistent InstaComp™ image.",
         500,
       );
     }
@@ -378,14 +378,14 @@ async function persistentDraftImageFiles(params: {
       bytes.byteLength !== expectedSizeBytes
     ) {
       throw new InventoryEngineError(
-        "A persistent InstaComp image changed size after it was scanned.",
+        "A persistent InstaComp™ image changed size after it was scanned.",
         409,
       );
     }
 
     if (!expectedSha256) {
       throw new InventoryEngineError(
-        "A persistent InstaComp image is missing its required integrity digest.",
+        "A persistent InstaComp™ image is missing its required integrity digest.",
         409,
       );
     }
@@ -396,7 +396,7 @@ async function persistentDraftImageFiles(params: {
 
     if (actualSha256 !== expectedSha256.toLowerCase()) {
       throw new InventoryEngineError(
-        "A persistent InstaComp image changed after it was scanned. Cancel this row and upload it again.",
+        "A persistent InstaComp™ image changed after it was scanned. Cancel this row and upload it again.",
         409,
       );
     }
@@ -455,14 +455,14 @@ async function markPersistentItemDrafted(params: {
 
   if (!ownedJob) {
     throw new InventoryEngineError(
-      "The persistent InstaComp job was not found for this seller.",
+      "The persistent InstaComp™ job was not found for this seller.",
       404,
     );
   }
 
   if (!params.reservationToken) {
     throw new InventoryEngineError(
-      "The persistent InstaComp row does not have an active draft reservation.",
+      "The persistent InstaComp™ row does not have an active draft reservation.",
       409,
     );
   }
@@ -485,7 +485,7 @@ async function markPersistentItemDrafted(params: {
     draftedItem.draft_inventory_item_id !== params.inventoryItemId
   ) {
     throw new InventoryEngineError(
-      "The InstaComp row could not be linked to its reserved draft.",
+      "The InstaComp™ row could not be linked to its reserved draft.",
       409,
     );
   }
@@ -533,7 +533,7 @@ async function releasePersistentItemDraftReservation(params: {
   );
 
   if (error) {
-    console.error("InstaComp draft reservation release error:", error);
+    console.error("InstaComp™ draft reservation release error:", error);
   }
 }
 
@@ -587,7 +587,7 @@ function buildAuthenticity(ai: InstaCompDraftAi | null | undefined) {
       certProvider: ai.gradingCompany || null,
       certNumber: ai.certificationNumber || null,
       authenticityNotes: [
-        ai.gradeValue ? `InstaComp detected slab grade ${ai.gradeValue}.` : null,
+        ai.gradeValue ? `InstaComp™ detected slab grade ${ai.gradeValue}.` : null,
         ai.certificationLookupUrl
           ? `Review cert lookup: ${ai.certificationLookupUrl}`
           : null,
@@ -606,7 +606,7 @@ function buildAuthenticity(ai: InstaCompDraftAi | null | undefined) {
     status: "unverified_as_is",
     autographSource: "other",
     authenticityNotes:
-      "InstaComp detected an autograph. Review certification and authenticity disclosure before activating this draft.",
+      "InstaComp™ detected an autograph. Review certification and authenticity disclosure before activating this draft.",
   });
 }
 
@@ -648,8 +648,8 @@ function buildDescription(params: {
     "",
     ...details,
     "",
-    "Draft created from an InstaComp batch scan. Verify the photos, condition, authenticity, shipping, and final pricing before activation.",
-    params.scanId ? `InstaComp Scan ID: ${params.scanId}` : null,
+    "Draft created from an InstaComp™ batch scan. Verify the photos, condition, authenticity, shipping, and final pricing before activation.",
+    params.scanId ? `InstaComp™ Scan ID: ${params.scanId}` : null,
     params.searchQuery ? `Comp Query: ${params.searchQuery}` : null,
   ]
     .filter((line) => line !== null)
@@ -693,7 +693,7 @@ function existingDraftSuccessItem(params: {
     scanId: params.scanId,
     legacyProductId: legacyProductIdNumber(params.row.legacy_product_id),
     inventoryItemId: params.row.id,
-    title: cleanText(params.row.title, 240) || "Existing InstaComp draft",
+    title: cleanText(params.row.title, 240) || "Existing InstaComp™ draft",
     sku: cleanText(params.row.sku, 120),
     price: moneyNumber(params.row.price),
     frontImageUrl: cleanText(instacomp.frontImageUrl, 2000),
@@ -791,7 +791,7 @@ function unavailableResponse() {
   return Response.json(
     {
       error:
-        "InstaComp draft listing creation is not available until inventory migrations are applied.",
+        "InstaComp™ draft listing creation is not available until inventory migrations are applied.",
     },
     { status: 503 },
   );
@@ -807,7 +807,7 @@ export async function POST(request: Request) {
 
     if (items.length === 0) {
       return Response.json(
-        { error: "At least one scanned InstaComp row is required." },
+        { error: "At least one scanned InstaComp™ row is required." },
         { status: 400 },
       );
     }
@@ -821,7 +821,7 @@ export async function POST(request: Request) {
       return Response.json(
         {
           error:
-            "Production InstaComp drafts require a completed persistent queue row.",
+            "Production InstaComp™ drafts require a completed persistent queue row.",
           code: "INSTACOMP_PERSISTENT_DRAFT_REQUIRED",
         },
         { status: 409 },
@@ -845,7 +845,7 @@ export async function POST(request: Request) {
       const clientId = cleanText(item.clientId, 160);
       const scanId = cleanText(item.scanId, 120);
       const fallbackTitle =
-        cleanText(item.fileName, 180) || `InstaComp Draft ${index + 1}`;
+        cleanText(item.fileName, 180) || `InstaComp™ Draft ${index + 1}`;
       const backFileName = cleanText(item.backFileName, 240);
       const hasBackImage = Boolean(item.hasBackImage || backFileName);
       const title = cleanText(item.title, 200) || titleFromAi(ai, fallbackTitle);
@@ -865,16 +865,16 @@ export async function POST(request: Request) {
       }
 
       if (item.persistentJobId && !persistentJobId) {
-        validationErrors.push("Persistent InstaComp job ID is invalid.");
+        validationErrors.push("Persistent InstaComp™ job ID is invalid.");
       }
 
       if (item.persistentItemId && !persistentItemId) {
-        validationErrors.push("Persistent InstaComp item ID is invalid.");
+        validationErrors.push("Persistent InstaComp™ item ID is invalid.");
       }
 
       if (Boolean(persistentJobId) !== Boolean(persistentItemId)) {
         validationErrors.push(
-          "Persistent InstaComp job and item IDs must be provided together.",
+          "Persistent InstaComp™ job and item IDs must be provided together.",
         );
       }
 
@@ -883,7 +883,7 @@ export async function POST(request: Request) {
         (item.frontImageFile || item.backImageFile)
       ) {
         validationErrors.push(
-          "Persistent InstaComp drafts must use their verified private images; do not attach replacement files.",
+          "Persistent InstaComp™ drafts must use their verified private images; do not attach replacement files.",
         );
       }
 
@@ -941,7 +941,7 @@ export async function POST(request: Request) {
 
           if (!linkedInventoryItem) {
             throw new InventoryEngineError(
-              "This InstaComp row is linked to an inventory item that is no longer available. An operator must repair the link before retrying.",
+              "This InstaComp™ row is linked to an inventory item that is no longer available. An operator must repair the link before retrying.",
               409,
             );
           }
@@ -976,7 +976,7 @@ export async function POST(request: Request) {
 
             if (!linkedInventoryItem) {
               throw new InventoryEngineError(
-                "This InstaComp row is linked to an inventory item that is no longer available. An operator must repair the link before retrying.",
+                "This InstaComp™ row is linked to an inventory item that is no longer available. An operator must repair the link before retrying.",
                 409,
               );
             }
@@ -1118,7 +1118,7 @@ export async function POST(request: Request) {
               });
 
             if (backImageError) {
-              console.error("InstaComp draft back image insert error:", backImageError);
+              console.error("InstaComp™ draft back image insert error:", backImageError);
               metadataWarning = "Draft created, but back image was not attached.";
             }
           }
@@ -1153,7 +1153,7 @@ export async function POST(request: Request) {
                 },
               },
               notes:
-                "InstaComp batch draft - verify photos, condition, pricing, shipping, and authenticity before activation.",
+                "InstaComp™ batch draft - verify photos, condition, pricing, shipping, and authenticity before activation.",
               updated_at: new Date().toISOString(),
             })
             .eq("id", promotedItem.inventoryItemId)
@@ -1165,10 +1165,10 @@ export async function POST(request: Request) {
           const { error: metadataError } = await metadataQuery;
 
           if (metadataError) {
-            console.error("InstaComp draft metadata update error:", metadataError);
+            console.error("InstaComp™ draft metadata update error:", metadataError);
             metadataWarning = metadataWarning
-              ? `${metadataWarning} InstaComp metadata was not saved.`
-              : "Draft created, but InstaComp metadata was not saved.";
+              ? `${metadataWarning} InstaComp™ metadata was not saved.`
+              : "Draft created, but InstaComp™ metadata was not saved.";
           }
         }
 
@@ -1290,7 +1290,7 @@ export async function POST(request: Request) {
 
     return Response.json(
       {
-        error: error.message || "Could not create InstaComp draft listings.",
+        error: error.message || "Could not create InstaComp™ draft listings.",
       },
       { status: 500 },
     );

@@ -600,7 +600,7 @@ function runCatalogIdentitySimulationSuite() {
   scenarios.push(
     scenario(
       "no_approved_catalog_source_blocks_lookup_before_comps",
-      "When no approved online catalog source is available, InstaComp records review_required and keeps exact comp trust blocked.",
+      "When no approved online catalog source is available, InstaComp™ records review_required and keeps exact comp trust blocked.",
       blockedLookupPlan.status === "review_required" &&
         blockedLookupPlan.approvedSources.length === 0 &&
         blockedLookupPlan.reviewReasons.includes(
@@ -707,7 +707,7 @@ function runCatalogIdentitySimulationSuite() {
   scenarios.push(
     scenario(
       "missing_catalog_candidates_force_review_required",
-      "No catalog candidates means InstaComp cannot claim catalog-confirmed identity and must keep the row in Needs Review.",
+      "No catalog candidates means InstaComp™ cannot claim catalog-confirmed identity and must keep the row in Needs Review.",
       missingCandidates.status === "review_required" &&
         missingCandidates.reviewReasons.includes(
           "no catalog candidates were available",
@@ -885,7 +885,7 @@ for (const item of result.scenarios) {
 }
 
 console.log(
-  `InstaComp catalog identity simulations: ${result.passed_count}/${result.scenario_count} passed; expected ${result.expected_scenario_count} scenarios.`,
+  `InstaComp™ catalog identity simulations: ${result.passed_count}/${result.scenario_count} passed; expected ${result.expected_scenario_count} scenarios.`,
 );
 console.log(
   `${result.scenario_coverage_status === "passed" ? "PASS" : "FAIL"} instacomp_catalog_identity_expected_scenario_count - expected ${result.expected_scenario_count}, found ${result.scenario_count}`,

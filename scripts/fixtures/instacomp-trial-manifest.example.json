@@ -1,6 +1,6 @@
 {
   "schema": "tcos.instacompTrialManifest.v1",
-  "trialName": "InstaComp trial harness fixture",
+  "trialName": "InstaComp™ trial harness fixture",
   "targetCards": 3,
   "targetScans": 6,
   "targetAccuracyPercent": 94,

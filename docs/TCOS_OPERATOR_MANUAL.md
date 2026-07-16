@@ -16,7 +16,7 @@ Last updated: 2026-07-15 21:49 MDT / 2026-07-16 03:49 UTC
 
 This is the working manual for Totally Collectibles OS (TCOS). It must stay current as features are added.
 
-This revision includes the durable InstaComp batch queue and PaddleOCR worker, faster InstaComp image preparation and five-card queue claim mini-packs, database-pressure pause/governor behavior, 45-degree local image rotation and thumbnail zoom review, graded-slab certification capture, slab-cert comp search weighting, collection pickup/card-show collector-reported comp capture, InstaComp-to-seller-draft handoff, InstaComp-to-Available-for-Trade handoff, seller inventory InstaComp lane, seller marketplace export packets, seller eBay staging and reconciliation, Stripe payment reliability controls, seller payout guards, shipping/coverage operations, and complete laptop-failure disaster recovery. Procedures labeled `dry run`, `draft`, `review`, `export`, or `not configured` are not production completion claims.
+This revision includes the durable InstaComp™ batch queue and PaddleOCR worker, faster InstaComp™ image preparation and five-card queue claim mini-packs, database-pressure pause/governor behavior, 45-degree local image rotation and thumbnail zoom review, graded-slab certification capture, slab-cert comp search weighting, collection pickup/card-show collector-reported comp capture, InstaComp™-to-seller-draft handoff, InstaComp™-to-Available-for-Trade handoff, seller inventory InstaComp™ lane, seller marketplace export packets, seller eBay staging and reconciliation, Stripe payment reliability controls, seller payout guards, shipping/coverage operations, and complete laptop-failure disaster recovery. Procedures labeled `dry run`, `draft`, `review`, `export`, or `not configured` are not production completion claims.
 
 ## Deterministic Application Fonts
 
@@ -285,7 +285,7 @@ Daily operator path:
 
 1. Open `/admin/login`.
 2. Log in with the admin password.
-3. Open `/admin/products/new` to scan a card lot with InstaComp or add one product manually.
+3. Open `/admin/products/new` to scan a card lot with InstaComp™ or add one product manually.
 4. Open `/admin/products` to review drafts, pricing, descriptions, status, and listing readiness.
 5. Open `/admin/orders` and `/admin/shipping` to handle paid orders, labels, coverage, tracking, and exceptions.
 6. Open `/admin/offers` to handle customer offers.
@@ -342,9 +342,9 @@ Daily production safety order:
 | `/admin` | Admin dashboard |
 | `/admin/accounts` | Customer account lookup and linked order/offer activity |
 | `/admin/products` | Product list |
-| `/admin/products/new` | InstaComp lot scanner plus manual product entry |
+| `/admin/products/new` | InstaComp™ lot scanner plus manual product entry |
 | `/admin/products/[id]` | Edit product and pricing tools |
-| `/admin/instacomp` | Dedicated InstaComp scan lab and batch workflow |
+| `/admin/instacomp` | Dedicated InstaComp™ scan lab and batch workflow |
 | `/admin/inventory` | Inventory operations workspace |
 | `/admin/orders` | Fulfillment center |
 | `/admin/settings` | Store operations and marketplace integration controls for the active TCOS store |
@@ -653,11 +653,11 @@ Open:
 
 The page has two paths.
 
-### InstaComp lot scanner
+### InstaComp™ lot scanner
 
-Use the scanner at the top for card images and card lots. It accepts up to 500 card rows, pairs fronts and backs, performs OCR and AI identification, searches configured comp sources, and can create non-public TCOS draft listings. The exact operating procedure is in `Section 32: InstaComp Production Operation`.
+Use the scanner at the top for card images and card lots. It accepts up to 500 card rows, pairs fronts and backs, performs OCR and AI identification, searches configured comp sources, and can create non-public TCOS draft listings. The exact operating procedure is in `Section 32: InstaComp™ Production Operation`.
 
-Nothing from InstaComp should be treated as publicly verified merely because a scan completed. Review the player, year, set, card number, parallel, serial number, autograph/relic signals, condition, comps, title, price, and photos before activation or cross-listing.
+Nothing from InstaComp™ should be treated as publicly verified merely because a scan completed. Review the player, year, set, card number, parallel, serial number, autograph/relic signals, condition, comps, title, price, and photos before activation or cross-listing.
 
 ### Manual product entry
 
@@ -876,7 +876,7 @@ Example searches:
 
 When checking comps, ignore listings that are not the same card or same grade. A raw card, PSA 10, BGS 9.5, autographed card, patch card, serial-numbered parallel, and base card are different markets.
 
-For graded slabs, InstaComp stores the grading company, grade value, grading certification number, and official lookup URL separately from the card's own serial numbering. Comp query backups include the certification number when the scan finds one, and comp scoring gives extra weight to sold/listing titles that include the exact slab cert. A slab-cert sale match is useful evidence, but it is still not a live official population report or a guaranteed sale history from the grader unless the source explicitly provides that data.
+For graded slabs, InstaComp™ stores the grading company, grade value, grading certification number, and official lookup URL separately from the card's own serial numbering. Comp query backups include the certification number when the scan finds one, and comp scoring gives extra weight to sold/listing titles that include the exact slab cert. A slab-cert sale match is useful evidence, but it is still not a live official population report or a guaranteed sale history from the grader unless the source explicitly provides that data.
 
 ## 11. Suggested Price
 
@@ -990,11 +990,11 @@ It does not delete eBay inventory.
 
 Future higher-tier import upgrade:
 
-- eBay import should be the first marketplace import path that can offer a paid InstaScan/InstaComp cleanup lane for card inventory.
-- When an imported eBay row maps to sports cards, Pokémon, trading cards, or another supported collectable card category, the seller should be able to run the item through InstaScan/InstaComp instead of accepting the raw imported title/aspects.
+- eBay import should be the first marketplace import path that can offer a paid InstaScan™/InstaComp™ cleanup lane for card inventory.
+- When an imported eBay row maps to sports cards, Pokémon, trading cards, or another supported collectable card category, the seller should be able to run the item through InstaScan™/InstaComp™ instead of accepting the raw imported title/aspects.
 - The cleanup lane should preserve the original eBay listing ID, SKU, price, quantity, photos, item specifics, and source evidence while adding TCOS-normalized title, card identity, set/checklist evidence, serial-number evidence, graded-slab evidence, comp pricing, and draft/listing recommendations.
 - This should be gated by subscription tier or paid usage because it uses premium scanning, catalog, AI, and comp resources.
-- The first MVP should let sellers select imported eBay card rows, run InstaScan/InstaComp enrichment in batch, review corrections, then apply the cleaned professional TCOS data back to staged seller inventory before activation or sync.
+- The first MVP should let sellers select imported eBay card rows, run InstaScan™/InstaComp™ enrichment in batch, review corrections, then apply the cleaned professional TCOS data back to staged seller inventory before activation or sync.
 - Never overwrite the seller's live eBay listing automatically from this cleanup lane without explicit seller/admin approval and a sync-safe audit record.
 
 Current eBay category mapper output:
@@ -1675,7 +1675,7 @@ Post-current-goal collection cockpit backlog:
 - `Hold` should keep the item in the collector shelf as not available while preserving estimated value and collection history
 - `Trade` should mark the item trade-available and connect it to the trade-target/want-ad layer without creating payment, payout, shipping, or order activity
 - `Sell` should start a seller-inventory draft handoff from the collection item, not a live listing, checkout, auction, postage purchase, or payout release
-- the same cockpit should surface integrated pricing context from the saved estimated value, imported value confidence, InstaComp/collector-intelligence research links, and future comp refresh jobs
+- the same cockpit should surface integrated pricing context from the saved estimated value, imported value confidence, InstaComp™/collector-intelligence research links, and future comp refresh jobs
 - set-builder work should evolve from set needs and `Complete The Set Or Run` research links into checklist progress, missing-card filters, and pricing-aware upgrade/trade/sell decisions
 
 Foundation tables:
@@ -1768,7 +1768,7 @@ Collection imports:
 - duplicate checks use source marketplace plus source item ID when available, then title/category/certification fallback matching
 - `account_collection_import_jobs` stores row, import, skip, and error counts when the migration is available
 - successful import responses include `X-TCOS-Collector-Import-Source`, `X-TCOS-Collector-Import-Rows`, `X-TCOS-Collector-Import-Imported`, `X-TCOS-Collector-Import-Skipped`, `X-TCOS-Collector-Import-Errors`, and `X-TCOS-Collector-Import-Job` headers so the browser response can be reconciled with the import job audit row
-- Future higher-tier imports should offer optional InstaScan/InstaComp enrichment for imported sports cards, Pokémon, trading cards, and supported collectable-card rows so collectors and sellers can clean raw marketplace exports into professional TCOS card identities with checklist evidence, slab certs, serial numbers, comps, and normalized titles.
+- Future higher-tier imports should offer optional InstaScan™/InstaComp™ enrichment for imported sports cards, Pokémon, trading cards, and supported collectable-card rows so collectors and sellers can clean raw marketplace exports into professional TCOS card identities with checklist evidence, slab certs, serial numbers, comps, and normalized titles.
 
 Messaging foundation:
 
@@ -1813,7 +1813,7 @@ Goal:
 - connect or upload from an outside sales outlet
 - preview detected items
 - import into TCOS inventory or the collector's private collection
-- offer a higher-tier InstaScan/InstaComp cleanup lane for imported card inventory, starting with eBay imports
+- offer a higher-tier InstaScan™/InstaComp™ cleanup lane for imported card inventory, starting with eBay imports
 - preserve source IDs, source marketplace, listing URLs, images, descriptions, prices, condition, quantity, and category evidence
 - map items through the same Universal Inventory Engine category and attribute system
 - prevent duplicate imports by source listing ID, SKU, and normalized title
@@ -2132,9 +2132,9 @@ Seller constants live in:
 src/lib/legal.ts
 ```
 
-### Current: InstaComp AI Collectable Scan Assist
+### Current: InstaComp™ AI Collectable Scan Assist
 
-The sports-card scanning foundation is implemented as InstaComp. The dedicated scanner is at `/admin/instacomp`, and the same production scanner is embedded at `/admin/products/new`.
+The sports-card scanning foundation is implemented as InstaComp™. The dedicated scanner is at `/admin/instacomp`, and the same production scanner is embedded at `/admin/products/new`.
 
 Current behavior:
 
@@ -2163,24 +2163,24 @@ Current behavior:
 - supports thumbnail zoom review, 45-degree left/right local image rotation, and a row-level `Swap Front/Back` control before retry; rotation uses the original local file plus cumulative degrees so filenames do not stack repeated `rotated-right-45` suffixes and repeated clicks do not shrink the preview
 - pauses on database connection pressure, backs browser concurrency down by one, and resumes with five-card claim mini-packs to reduce queue round-trips
 
-The browser currently acts as the queue worker. Uploaded jobs and results survive a reload, but OCR and AI work do not continue while every InstaComp browser tab is closed. This is a durable, resumable browser-driven queue, not a detached background worker.
+The browser currently acts as the queue worker. Uploaded jobs and results survive a reload, but OCR and AI work do not continue while every InstaComp™ browser tab is closed. This is a durable, resumable browser-driven queue, not a detached background worker.
 
-The complete operator procedure, local PaddleOCR startup, diagnostics, and failure recovery are in `Section 32: InstaComp Production Operation`.
+The complete operator procedure, local PaddleOCR startup, diagnostics, and failure recovery are in `Section 32: InstaComp™ Production Operation`.
 
 The system must not rely on AI guessing alone. AI and OCR propose facts; the operator must compare those facts with both card images and trusted references before activation, pricing, or cross-listing. A displayed confidence score is evidence for triage, not a guarantee of exact identity.
 
 Future scanner catalog identity requirement:
 
-- EXTREMELY HOT next main build priority as of July 16, 2026: build the `TCOS Card Knowledge Base MVP` before the next major speed/polish block. This is now the first thing to do after the current scanner test pass because it makes InstaComp faster and more accurate by checking TCOS-owned verified card truth before paying/waiting for outside AI or source search.
-- MVP scope for the `TCOS Card Knowledge Base`: create TCOS-owned card catalog, variant, identity-evidence, correction, and source-cache storage; check this local knowledge base first during InstaComp scans; save confirmed/corrected InstaComp rows back into it; cache source-specific checklist evidence from Sportlots, Upper Deck, Panini, Cardboard Connection, TCDB/Trading Card DB, and approved free/cheap sources; show whether a row is `TCOS verified`, `external verified`, or `needs review`; and keep exact comps/pricing blocked unless the identity evidence is strong enough.
-- Current MVP flow: after reviewing a saved InstaComp lot, click `Save Corrections` / `Save Selected Corrections`, then click `Process Saved Lot to TCOS DB`. This writes completed saved-lot rows into `tcos_card_knowledge_entries` and one deduped observation per source scan item into `tcos_card_knowledge_observations`.
-- Serial correction flow: each completed row has an editable `Serial #` field. Leave it blank when the card is not serial-numbered, or enter the exact visible serial such as `12/150`. Clicking `Save Corrections` requeues that row, applies the operator serial override before catalog/consensus/comps, reruns InstaComp pricing, then saves the corrected result.
-- Image correction flow: if an upload pair is reversed, click `Swap Front/Back` under the row thumbnails, then click `Retry Row` so InstaComp rescans the corrected front/back order. This keeps the current scan visible until the operator chooses to retry.
-- Graded slab flow: when a slab label is visible, InstaComp shows grader, grade, cert number, and a `verify` link in the row. Draft titles append the detected grader/grade, seller drafts receive authenticity cert provider/number, trade handoffs save grade company/value/certification number, and graded comp matching requires matching grader/grade evidence. Operators must still verify the official grading lookup before claiming the cert is confirmed.
+- EXTREMELY HOT next main build priority as of July 16, 2026: build the `TCOS Card Knowledge Base MVP` before the next major speed/polish block. This is now the first thing to do after the current scanner test pass because it makes InstaComp™ faster and more accurate by checking TCOS-owned verified card truth before paying/waiting for outside AI or source search.
+- MVP scope for the `TCOS Card Knowledge Base`: create TCOS-owned card catalog, variant, identity-evidence, correction, and source-cache storage; check this local knowledge base first during InstaComp™ scans; save confirmed/corrected InstaComp™ rows back into it; cache source-specific checklist evidence from Sportlots, Upper Deck, Panini, Cardboard Connection, TCDB/Trading Card DB, and approved free/cheap sources; show whether a row is `TCOS verified`, `external verified`, or `needs review`; and keep exact comps/pricing blocked unless the identity evidence is strong enough.
+- Current MVP flow: after reviewing a saved InstaComp™ lot, click `Save Corrections` / `Save Selected Corrections`, then click `Process Saved Lot to TCOS DB`. This writes completed saved-lot rows into `tcos_card_knowledge_entries` and one deduped observation per source scan item into `tcos_card_knowledge_observations`.
+- Serial correction flow: each completed row has an editable `Serial #` field. Leave it blank when the card is not serial-numbered, or enter the exact visible serial such as `12/150`. Clicking `Save Corrections` requeues that row, applies the operator serial override before catalog/consensus/comps, reruns InstaComp™ pricing, then saves the corrected result.
+- Image correction flow: if an upload pair is reversed, click `Swap Front/Back` under the row thumbnails, then click `Retry Row` so InstaComp™ rescans the corrected front/back order. This keeps the current scan visible until the operator chooses to retry.
+- Graded slab flow: when a slab label is visible, InstaComp™ shows grader, grade, cert number, and a `verify` link in the row. Draft titles append the detected grader/grade, seller drafts receive authenticity cert provider/number, trade handoffs save grade company/value/certification number, and graded comp matching requires matching grader/grade evidence. Operators must still verify the official grading lookup before claiming the cert is confirmed.
 - Comp refresh flow: each saved lot row has `Refresh Comps` to rerun the row's comp/pricing pass and persist the refreshed result. Operators can also check multiple completed saved rows and click `Refresh Selected Comps` to re-comp only those selected rows, without reprocessing the rest of the batch.
 - TCOS trust rule: a card identity is `learning` for the first and second confirmed sightings. It becomes `tcos_trusted` only after the third distinct operator-confirmed sighting of that same identity. Reprocessing the same saved scan item does not double-count.
 - Submitter accountability rule: every TCOS Card DB observation records who submitted it. Seller submissions store `submitted_by_account_id`, `submitted_by_actor_type = seller`, and `submitted_store_id`. Admin submissions store `submitted_by_actor_type = admin`. This lets TCOS find repeat bad submitters, ask them to fix their information, or quarantine future submissions if needed.
-- The build target is one uninterrupted MVP block: schema/migrations, local-first lookup, correction capture, source-specific checklist expansion, visible evidence indicators, focused InstaComp sims, build, production guardrails, commit, and push only after green verification.
+- The build target is one uninterrupted MVP block: schema/migrations, local-first lookup, correction capture, source-specific checklist expansion, visible evidence indicators, focused InstaComp™ sims, build, production guardrails, commit, and push only after green verification.
 - Expected build size: about 6–9 focused build hours for the MVP backbone; 2–3 days for polished duplicate merging, image fingerprinting, admin review queues, bulk imports, and full catalog management.
 - `InstaComp™ Multi-Scanner Consensus` is already present as the adaptive consensus layer; future consensus work should now feed into and learn from the TCOS Card Knowledge Base instead of remaining only per-scan evidence.
 - each card should be submitted to independent AI/OCR readers that produce structured findings for year, manufacturer, set, card number, player, team, parallel/insert, visible variation clues, serial text, front/back OCR, and confidence evidence
@@ -2190,7 +2190,7 @@ Future scanner catalog identity requirement:
 - the consensus layer must use checklist/catalog truth as the referee, not majority vote alone, so two scanners calling a card `Base` cannot override a confirmed `Outliers`, `Clear Cut`, `Canvas`, `Limited Red`, `Future Watch`, serial run, autograph, relic, or other printed/cataloged variation
 - the review packet should preserve a concise reason trail showing which reader saw which clue, which checklist/catalog candidate matched, why the final identity won, and what still needs review
 - consensus confidence should unlock speed on easy cards and stricter review on valuable, rare, serial-numbered, or conflicting cards; if the consensus/catalog evidence is incomplete, the row must stay `Needs Review`
-- InstaComp should connect to one or more approved online card catalog/checklist sources so scanned cards can be matched against structured card identity data before comps are trusted
+- InstaComp™ should connect to one or more approved online card catalog/checklist sources so scanned cards can be matched against structured card identity data before comps are trusted
 - catalog provider adapters must build a lookup plan from scanned identity fields, filter out any source that lacks API availability or TCOS-approved commercial/storage/display permissions, and keep exact comp trust blocked until at least one approved source can be queried
 - the scan route now runs a starter `TCOS Curated Checklist` referee for known high-risk hockey rows such as SP Authentic Outliers `O-8`, Upper Deck Extended Series Canvas `C-369`, Clear Cut `UD3-28` / `656`, and SP Authentic Future Watch Spectrum FX `S-50`; this is local TCOS-curated evidence, not a replacement for approved external vendor/checklist provider adapters
 - this catalog layer should show known cards and their variations, including base cards, parallels, refractors, short prints, image variations, autographs, relics/patches, serial-numbered print runs, inserts, promos, grading/certification identifiers when available, and manufacturer checklist identifiers
@@ -2198,12 +2198,12 @@ Future scanner catalog identity requirement:
 - provider lookup results must be aggregated before identity resolution: candidates from approved providers may enter the exact-match pool, candidates from unapproved or unknown providers must be ignored as trusted evidence, and provider failures, timeouts, empty results, and ignored-source reasons must remain visible for operator review
 - the scanner review packet should show the selected catalog match, alternate matches, provider summaries, warnings, review reasons, suggested operator action, and safe-use boundary; exact comps, public rare-variant claims, auto-pricing, and trade-value recommendations remain blocked unless the packet is `ready_for_exact_comps`
 - scan rows and seller drafts should save a compact catalog evidence snapshot with schema `tcos.instacomp.catalogEvidence.v1`, selected source attribution, action-permission flags, review blockers, and audit flags so later activation, exact comps, pricing, and trade decisions can prove why catalog identity was trusted or blocked
-- catalog identity matching should happen before or alongside pricing lookup, so InstaComp can use catalog-confirmed year, brand, set, card number, player, team, parallel/variant, serial-number range, and checklist ID when pulling comps
+- catalog identity matching should happen before or alongside pricing lookup, so InstaComp™ can use catalog-confirmed year, brand, set, card number, player, team, parallel/variant, serial-number range, and checklist ID when pulling comps
 - the scanner should compare OCR/vision facts, front/back image clues, card-number text, back-of-card fine print, serial numbers, color/foil/refractor pattern, autograph/relic markers, and visible logos against the catalog candidate list
-- when one catalog candidate is strongly supported, InstaComp should attach the catalog/source ID, source label, source URL, match explanation, and confidence evidence to the scan row and draft listing
+- when one catalog candidate is strongly supported, InstaComp™ should attach the catalog/source ID, source label, source URL, match explanation, and confidence evidence to the scan row and draft listing
 - scan results now return and save `catalogEvidence` in the scan record's raw comp payload so later sell, trade, draft, and review actions can prove whether catalog identity was confirmed, which source/candidate matched, what review blockers remain, and which money/trade actions are still blocked
-- when catalog evidence cannot prove the exact variation, InstaComp must keep the row in `review_required` and ask for one targeted operator confirmation instead of guessing
-- catalog identity data and pricing/comps data must remain separate; catalog data answers “what exact card is this?” while InstaComp/comps answer “what is this confirmed card worth?”
+- when catalog evidence cannot prove the exact variation, InstaComp™ must keep the row in `review_required` and ask for one targeted operator confirmation instead of guessing
+- catalog identity data and pricing/comps data must remain separate; catalog data answers “what exact card is this?” while InstaComp™/comps answer “what is this confirmed card worth?”
 - exact comp search should be trusted only behind a catalog identity comp gate: `catalog_confirmed` rows may use catalog-normalized fields for exact comps, while `review_required` rows must preserve review reasons and block trusted exact-comp claims until an operator confirms the identity
 - every catalog source must be evaluated for API availability, licensing, caching limits, attribution rules, and whether TCOS may store, display, or use the data commercially
 - the operator UI should clearly show the catalog-confirmed match, alternate plausible matches, mismatched clues, and why the system accepted or rejected each candidate
@@ -2305,7 +2305,7 @@ Autograph, certification, and provenance disclosure policy:
 Variant and parallel resolver requirements:
 
 - TCOS should identify the exact variation or parallel whenever visual evidence and checklist data support it
-- InstaComp should query the approved catalog identity layer before trusting comp matches, so base/parallel/refractor/short-print/image-variation/autograph/relic/serial-numbered cards do not get priced as the wrong card
+- InstaComp™ should query the approved catalog identity layer before trusting comp matches, so base/parallel/refractor/short-print/image-variation/autograph/relic/serial-numbered cards do not get priced as the wrong card
 - every selected variant should preserve the matched catalog/checklist ID, source label, source URL, and the visible evidence that made the match
 - do not show a long list of near-duplicate options when the evidence resolves the match
 - if the card is a refractor, TCOS should not ask whether it is pink, blue, green, gold, base, wave, mojo, cracked ice, shimmer, lava, scope, x-fractor, atomic, numbered, or unnumbered unless the scan/checklist evidence cannot prove the answer
@@ -2519,10 +2519,10 @@ Trade platform product model:
 
 Trade pricing access model:
 
-- the `2 USD/month` trade subscription should include a basic book-price style value reference for trade fairness, not full InstaComp access
-- InstaComp should stay reserved for the next paid tier up so collectors have a clear reason to upgrade when they want deeper comps, confidence scoring, and research links
+- the `2 USD/month` trade subscription should include a basic book-price style value reference for trade fairness, not full InstaComp™ access
+- InstaComp™ should stay reserved for the next paid tier up so collectors have a clear reason to upgrade when they want deeper comps, confidence scoring, and research links
 - upgraded pricing access should still respect marketplace limits, usage limits, trade limits, anti-scraping protections, and any collector-intelligence fairness rules
-- trade offers should clearly label whether values come from book-price guidance, user-entered declared values, or upgraded InstaComp/collector-intelligence pricing
+- trade offers should clearly label whether values come from book-price guidance, user-entered declared values, or upgraded InstaComp™/collector-intelligence pricing
 - the basic book-price reference should help both sides discuss fair value without implying a guaranteed sale price, cash offer, payout amount, tax basis, or appraisal
 
 Trade reputation model:
@@ -3226,7 +3226,7 @@ INSTACOMP_OPENAI_MODEL=
 INSTACOMP_OPENAI_FALLBACK_MODEL=
 ```
 
-InstaComp OCR:
+InstaComp™ OCR:
 
 ```env
 PADDLEOCR_API_URL=http://127.0.0.1:8008/ocr
@@ -3254,7 +3254,7 @@ PRICECHARTING_API_TOKEN=
 SERPAPI_API_KEY=
 ```
 
-COMC Apify active-listing ingestion is retired from InstaComp comp pricing. COMC remains available as a checklist/reference/search source through ordinary research links and catalog-reference prompts.
+COMC Apify active-listing ingestion is retired from InstaComp™ comp pricing. COMC remains available as a checklist/reference/search source through ordinary research links and catalog-reference prompts.
 
 Shipping provider readiness:
 
@@ -3408,7 +3408,7 @@ Apply every migration in timestamp order. Do not rely on a hand-selected subset.
 
 The authoritative list is the complete `supabase/migrations` directory, including all earlier account, inventory, evidence, security, seller, and payout migrations. Apply migrations before using features that depend on new tables. A missing migration can appear as an unavailable page, `503`, failed draft creation, missing reconciliation data, or an unsafe launch-readiness blocker.
 
-The durable InstaComp queue is unavailable until this migration has been applied to the target Supabase project:
+The durable InstaComp™ queue is unavailable until this migration has been applied to the target Supabase project:
 
 ```text
 supabase/migrations/20260711010000_create_instacomp_scan_job_queue.sql
@@ -3416,7 +3416,7 @@ supabase/migrations/20260711010000_create_instacomp_scan_job_queue.sql
 
 It creates the job/item tables, private `instacomp-job-images` bucket, row-level-security policies, service-role grants, and claim/finish/fail/retry database functions. Applying the file locally does not update the hosted project. Use the Supabase CLI with authenticated database access or paste the complete migration into the target project's SQL Editor, then verify that it completed without errors.
 
-The InstaComp Available-for-Trade button is unavailable until this migration has been applied:
+The InstaComp™ Available-for-Trade button is unavailable until this migration has been applied:
 
 ```text
 supabase/migrations/20260716010000_add_instacomp_trade_handoff.sql
@@ -3447,9 +3447,9 @@ Expected:
 - compile succeeds
 - TypeScript succeeds
 - route generation succeeds
-- the full InstaComp verifier succeeds, including queue state, accuracy, catalog identity, printed-variant identity guard, scan-review, and 100-card trial scorekeeper fixture checks
-- all InstaComp queue state simulations succeed
-- all InstaComp catalog identity simulations succeed, including exact catalog confirmation, unapproved-source review, ambiguity review, serial-run mismatch review, and missing-candidate review
+- the full InstaComp™ verifier succeeds, including queue state, accuracy, catalog identity, printed-variant identity guard, scan-review, and 100-card trial scorekeeper fixture checks
+- all InstaComp™ queue state simulations succeed
+- all InstaComp™ catalog identity simulations succeed, including exact catalog confirmation, unapproved-source review, ambiguity review, serial-run mismatch review, and missing-candidate review
 - `docs/TCOS_OPERATOR_MANUAL_PRINT.html` is regenerated
 - `docs/TCOS_OPERATOR_MANUAL.pdf` is regenerated with the ownership watermark
 - `TCOS_MANUAL_BROWSER_PATH` can point the manual PDF generator at a custom local browser executable
@@ -3463,7 +3463,7 @@ cd C:\Projects\truely-collectables\services\paddleocr-service
 Invoke-RestMethod http://127.0.0.1:8008/health
 ```
 
-For an InstaComp queue change, also run the direct TypeScript check and verify formatting:
+For an InstaComp™ queue change, also run the direct TypeScript check and verify formatting:
 
 ```powershell
 npx tsc --noEmit
@@ -3487,7 +3487,7 @@ Do:
 - check comps before repricing important cards
 - apply suggested price only after reviewing comps
 - update tracking before marking shipped
-- verify every InstaComp draft against front/back images before activation
+- verify every InstaComp™ draft against front/back images before activation
 - use only real provider references when recording postage, Coverage, claims, or seller payouts
 - run reconciliation before live-payment approval
 - verify the Transcend backup after material changes
@@ -3580,11 +3580,11 @@ The health endpoint is not an inference test. Check:
 
 Restart both TCOS and PaddleOCR after environment changes.
 
-### InstaComp says request body exceeded 10 MB
+### InstaComp™ says request body exceeded 10 MB
 
 This normally indicates the older multipart fallback path, not the durable queue path. Confirm the queue migration is installed. The browser fallback optimizes each full image to approximately `900 KB`, each crop to approximately `180 KB`, and targets a request below `3.75 MB`; still reshoot or resize an unusually large source and retry only the affected row.
 
-### InstaComp reports `INSTACOMP_JOB_MIGRATION_REQUIRED`
+### InstaComp™ reports `INSTACOMP_JOB_MIGRATION_REQUIRED`
 
 The web code can reach Supabase, but the durable queue schema is not installed in that project. Apply the entire file below to the same Supabase project used by the running app:
 
@@ -3592,25 +3592,25 @@ The web code can reach Supabase, but the durable queue schema is not installed i
 supabase/migrations/20260711010000_create_instacomp_scan_job_queue.sql
 ```
 
-The migration also creates the private image bucket and queue functions. Reload InstaComp after the SQL succeeds. Do not work around this error by making the image bucket public.
+The migration also creates the private image bucket and queue functions. Reload InstaComp™ after the SQL succeeds. Do not work around this error by making the image bucket public.
 
-### InstaComp reports `INSTACOMP_JOB_STORAGE_REQUIRED`
+### InstaComp™ reports `INSTACOMP_JOB_STORAGE_REQUIRED`
 
 Confirm the migration completed through its Storage statements and that the private bucket named `instacomp-job-images` exists. Confirm `SUPABASE_SERVICE_ROLE_KEY` belongs to the same project as `NEXT_PUBLIC_SUPABASE_URL`, then restart the web app. Never place the service-role key in a browser-exposed `NEXT_PUBLIC_` variable.
 
-### A saved InstaComp lot does not continue after closing the browser
+### A saved InstaComp™ lot does not continue after closing the browser
 
 This is expected in the current architecture. Supabase preserves the job, uploaded originals, per-row state, results, and retry information, but the open browser tab currently claims and processes work. Reopen `/admin/products/new` or `/admin/instacomp` in the same ownership context and use the recovered job. A detached server worker has not been deployed yet.
 
-### InstaComp recovery shows an incomplete upload
+### InstaComp™ recovery shows an incomplete upload
 
-Keep the original files until registration and upload finish. InstaComp can confirm objects that finished uploading before a page interruption and can resume registered rows. If the interruption occurred before every row was registered, clear/cancel that partial job and reselect the original lot; do not assume unregistered local files were copied to Supabase.
+Keep the original files until registration and upload finish. InstaComp™ can confirm objects that finished uploading before a page interruption and can resume registered rows. If the interruption occurred before every row was registered, clear/cancel that partial job and reselect the original lot; do not assume unregistered local files were copied to Supabase.
 
-### An InstaComp job stays `cancelling`
+### An InstaComp™ job stays `cancelling`
 
 An already-processing row may hold a worker lease. Keep the page open briefly and retry `Clear Batch` after the lease is released or expires. Do not delete queue rows or private Storage objects manually; the queue cancellation functions preserve consistent job counts.
 
-### InstaComp scans but cannot create drafts
+### InstaComp™ scans but cannot create drafts
 
 Check:
 
@@ -3756,7 +3756,7 @@ src/app/admin/offers
 src/app/api/offers
 ```
 
-InstaComp and OCR:
+InstaComp™ and OCR:
 
 ```text
 src/app/admin/instacomp
@@ -3832,9 +3832,9 @@ C:\Projects\TCOS_DISASTER_RECOVERY\TCOS_FULL_DISASTER_RECOVERY_20260711-064539\R
 C:\Projects\TCOS_DISASTER_RECOVERY\TCOS_FULL_DISASTER_RECOVERY_20260711-064539\scripts
 ```
 
-## 32. InstaComp Production Operation
+## 32. InstaComp™ Production Operation
 
-InstaComp is the current TCOS sports-card image intake, identification, comp-assist, and draft-listing system.
+InstaComp™ is the current TCOS sports-card image intake, identification, comp-assist, and draft-listing system.
 
 Primary routes:
 
@@ -3856,7 +3856,7 @@ Primary routes:
 
 Use `/admin/products/new` for normal lot intake. Use `/admin/instacomp` when a dedicated scan-lab view or recent-scan history is easier.
 
-### Start InstaComp locally
+### Start InstaComp™ locally
 
 The local scanner requires two running services:
 
@@ -3901,7 +3901,7 @@ The admin pages require the admin login at `http://localhost:3000/admin/login`. 
 - if the browser has a valid active seller session and membership, that seller owns the queue job and drafts created from it;
 - otherwise, a valid admin cookie owns the queue job on behalf of the active store, and drafts are store-owned with `seller_account_id` left null.
 
-Log in to `http://localhost:3000/account/login` before uploading when the lot must belong to a particular seller. If seller login happened after InstaComp was already open, refresh the page before creating the job. Do not change seller accounts midway through a saved job.
+Log in to `http://localhost:3000/account/login` before uploading when the lot must belong to a particular seller. If seller login happened after InstaComp™ was already open, refresh the page before creating the job. Do not change seller accounts midway through a saved job.
 
 For long-running seller jobs, the browser refreshes the stored Supabase session when it is within five minutes of expiration before authenticated queue, scan, and draft calls. If refresh fails after the token is expired, the stored session is cleared and the operator must log in again. The admin cookie and seller token remain separate credentials.
 
@@ -3953,9 +3953,9 @@ Front-only cards scan, but the back frequently contains the strongest year, set,
 
 ### 100-card trial run and 94% accuracy scorecard
 
-Use this trial when TCOS needs a real-world InstaComp accuracy check before trusting a new scan batch. The target trial is about `100` cards with front and back images, or about `200` scans.
+Use this trial when TCOS needs a real-world InstaComp™ accuracy check before trusting a new scan batch. The target trial is about `100` cards with front and back images, or about `200` scans.
 
-The trial harness is local and read-only. It does not publish listings, buy postage, create Checkout sessions, deploy, change live-money flags, or call production APIs. It only scores a completed InstaComp run against a ground-truth manifest.
+The trial harness is local and read-only. It does not publish listings, buy postage, create Checkout sessions, deploy, change live-money flags, or call production APIs. It only scores a completed InstaComp™ run against a ground-truth manifest.
 
 Fast path: run the one-command local intake cockpit first:
 
@@ -4151,21 +4151,21 @@ Use this controlled workflow:
 2. Drop the front/back images into the batch area.
 3. Confirm the displayed pairing before scanning.
 4. Leave `Parallel Scans` at the default `4`. The allowed range is `1` through `6`; use `1` or `2` if the laptop becomes unstable or Supabase reports connection pressure.
-5. Click `Run Batch InstaComp`.
+5. Click `Run Batch InstaComp™`.
 6. Wait while the browser creates an idempotent job, registers no more than 50 rows at a time, creates bounded high-resolution derivatives, uploads them to private Storage with up to 6 concurrent signed uploads, confirms each registered chunk, and queues the job.
-7. Keep the InstaComp tab open while it claims and scans rows. The browser claims up to 5 queue rows per worker mini-pack to reduce database round-trips. `Pause` stops new work only after current requests finish.
+7. Keep the InstaComp™ tab open while it claims and scans rows. The browser claims up to 5 queue rows per worker mini-pack to reduce database round-trips. `Pause` stops new work only after current requests finish.
 8. Inspect every `completed` and `review_required` row. A completed request is not a promise that the card identity is exact.
 9. Correct the title, positive listing price, quantity, identity fields, and price evidence.
 10. Filter to `Clean Ready` when possible.
 11. Select only cards whose photos and printed facts you personally verified.
 12. Create drafts; the browser sends persistent draft requests one card at a time with limited parallelism instead of one oversized lot request.
-13. Use `Open InstaComp Drafts` from the success message, or `Open in InstaComp drafts` on an individual row, to open `/seller/inventory?status=draft&source=instacomp` with the relevant search/filter already applied.
-14. In Seller Inventory, keep the `Source` filter on `InstaComp`, inspect each draft, and fix any remaining readiness blockers before activation.
+13. Use `Open InstaComp™ Drafts` from the success message, or `Open in InstaComp™ drafts` on an individual row, to open `/seller/inventory?status=draft&source=instacomp` with the relevant search/filter already applied.
+14. In Seller Inventory, keep the `Source` filter on `InstaComp™`, inspect each draft, and fix any remaining readiness blockers before activation.
 15. For a trade-only card, use `Add to Available for Trade` instead of creating a sell draft. The trade handoff creates or reuses a seller-owned collection item marked Available for Trade. Do not use both sell-draft and trade handoff on the same scan row.
 16. For cross-listing prep only, select verified ready drafts and use `Copy Marketplace Packet` or `Download Marketplace CSV`. These files do not publish to eBay, Whatnot, or another external storefront.
 17. Activate only after the seller inventory readiness check, photos, title, price, shipping, authenticity, and platform-specific requirements are verified.
 
-`Run InstaComp Auto-Pilot` scans unfinished rows and attempts draft creation only for rows that pass both technical draft readiness and the queue review gate. A row marked `review_required` is not automatically drafted. Auto-Pilot never publishes a live listing.
+`Run InstaComp™ Auto-Pilot` scans unfinished rows and attempts draft creation only for rows that pass both technical draft readiness and the queue review gate. A row marked `review_required` is not automatically drafted. Auto-Pilot never publishes a live listing.
 
 If Auto-Pilot is paused, it finishes current scan requests but does not run its draft-creation phase.
 
@@ -4173,7 +4173,7 @@ Failed rows can be retried individually, all at once, or through the current vis
 
 Use the thumbnail zoom and rotate controls before retrying a row whose image is sideways or hard to inspect. Each rotate click applies a 45-degree left or right correction from the original local image and updates the preview. Rotation requires the original file to still be present in the browser; recovered remote-only saved-lot images must be reselected locally before rotation can be applied.
 
-If a row or claim request reports database connection pressure, InstaComp pauses before claiming more work, reduces browser concurrency by one, and displays the pressure message. Wait for Supabase to catch up, then resume. Do not repeatedly click resume while the database is still reporting `Too many connections`.
+If a row or claim request reports database connection pressure, InstaComp™ pauses before claiming more work, reduces browser concurrency by one, and displays the pressure message. Wait for Supabase to catch up, then resume. Do not repeatedly click resume while the database is still reporting `Too many connections`.
 
 ### Registration, upload, recovery, and resume
 
@@ -4186,9 +4186,9 @@ The durable flow separates image transfer from expensive OCR/AI work:
 5. The browser marks the complete job `queued`, claims rows with leases in up to 5-card mini-packs, and calls the JSON scan path using job/item IDs instead of resending image bytes.
 6. The server downloads the private derivatives, verifies their registered size and SHA-256 digest, performs OCR/AI/comp work, and atomically records either `completed`, `review_required`, a retry, or a terminal failure.
 
-The current browser stores the active job reference locally and also checks the server for the newest recoverable job. Reloading or reopening InstaComp can restore registered rows, signed image previews, saved results, counts, and retry state. If an object uploaded immediately before a crash but its confirmation did not finish, recovery can confirm the existing object. If the browser crashed before later files were registered or uploaded, those local file bytes do not exist on the server; cancel/clear the partial job and reselect the original files.
+The current browser stores the active job reference locally and also checks the server for the newest recoverable job. Reloading or reopening InstaComp™ can restore registered rows, signed image previews, saved results, counts, and retry state. If an object uploaded immediately before a crash but its confirmation did not finish, recovery can confirm the existing object. If the browser crashed before later files were registered or uploaded, those local file bytes do not exist on the server; cancel/clear the partial job and reselect the original files.
 
-Important limitation: the browser is still the worker. Closing all InstaComp tabs stops new claims and therefore stops scanning. The job remains durable and resumable in Supabase, but it does not continue autonomously until a detached worker is deployed.
+Important limitation: the browser is still the worker. Closing all InstaComp™ tabs stops new claims and therefore stops scanning. The job remains durable and resumable in Supabase, but it does not continue autonomously until a detached worker is deployed.
 
 Queue job statuses:
 
@@ -4212,9 +4212,9 @@ Queue creation guardrails currently allow no more than three active jobs and 1,5
 
 The claim API caps one browser worker claim at 5 rows. Keep the browser and server cap aligned when changing scan throughput; raising browser concurrency without aligning claim limits only increases polling pressure without increasing completed-card throughput.
 
-### What InstaComp reads
+### What InstaComp™ reads
 
-Per card, InstaComp can display:
+Per card, InstaComp™ can display:
 
 - player or subject
 - year
@@ -4224,12 +4224,12 @@ Per card, InstaComp can display:
 - parallel or finish
 - serial number such as `087/250`
 - serial OCR rejects impossible fractions such as `0/25` or `99/25`; valid listing and search labels use the print run (`/25`) while preserving `1/1`
-- the production InstaComp accuracy gate also verifies that invalid serials cannot constrain comp searches, exact results keep the same print run, excluded lots/graded cards stay out of raw-card results, and guidance prices identify serial-run adjustments
+- the production InstaComp™ accuracy gate also verifies that invalid serials cannot constrain comp searches, exact results keep the same print run, excluded lots/graded cards stay out of raw-card results, and guidance prices identify serial-run adjustments
 - the printed-variant identity guard prevents OCR-visible or AI-vision-note-visible Limited Red, Clear Cut, Outliers, Future Watch, Spectrum FX, acetate/clear-stock, insert, subset, color foil, refractor, prizm, holo, wave, shimmer, ice, laser, scope, pulsar, mojo, and mosaic cues from staying as `Base`; Upper Deck clear-stock cards with centered/ghosted back-logo cues are promoted to `Clear Cut`, exact printed cues are promoted into the parallel/set fields, and uncertain insert cues are marked for review
 - exact comps for a named non-base parallel must also contain full or strong partial parallel evidence, preventing a same-card/same-print-run listing in the wrong color from entering exact market value
 - exact comps must contain the detected player and card number whenever those identifiers are available, preventing another card from the same set/parallel/print run from clearing the score threshold
 - exact comps must also contain the detected year and brand when available, preventing strong but wrong-year or wrong-brand listings from entering exact market value
-- when InstaComp identifies an autograph or relic card, exact comps must contain matching autograph or relic title evidence; ordinary base copies remain available only as broader guidance when otherwise relevant
+- when InstaComp™ identifies an autograph or relic card, exact comps must contain matching autograph or relic title evidence; ordinary base copies remain available only as broader guidance when otherwise relevant
 - autograph and relic/patch signals
 - team and sport
 - condition clue
@@ -4332,18 +4332,18 @@ Draft creation facts:
 - reserves each persistent queue row in the database before creating inventory, so simultaneous draft clicks cannot create two listings for the same saved row
 - copies the saved high-resolution derivatives from private job Storage into inventory media
 - rechecks saved image size and SHA-256 immediately before draft promotion, so listing photos cannot silently differ from the analyzed photos
-- builds server-side draft titles with the shared InstaComp title helper, so numbered cards use the print run such as `/50`, invalid serial fractions are omitted, and true one-of-one cards keep `1/1`
+- builds server-side draft titles with the shared InstaComp™ title helper, so numbered cards use the print run such as `/50`, invalid serial fractions are omitted, and true one-of-one cards keep `1/1`
 - enforces a 3 MB per-saved-image limit after high-resolution browser normalization
 - sends persistent draft rows individually with browser concurrency limited to two
 - checks SKU, dedupe key, client ID, and scan ID before reusing an existing draft
 - can report a metadata/back-image warning after the base draft succeeds
-- returns `503` when required inventory or InstaComp queue migrations are missing
+- returns `503` when required inventory or InstaComp™ queue migrations are missing
 
 A new browser re-upload/rescan can produce new client and scan IDs. Do not assume cross-session duplicate prevention is perfect; check Seller Inventory before retrying a large draft operation.
 
 ### Available for Trade handoff
 
-Seller-owned InstaComp rows can be sent to the trade side instead of the sell side with `Add to Available for Trade`. This route is:
+Seller-owned InstaComp™ rows can be sent to the trade side instead of the sell side with `Add to Available for Trade`. This route is:
 
 ```text
 /api/instacomp/trade-items
@@ -4352,9 +4352,9 @@ Seller-owned InstaComp rows can be sent to the trade side instead of the sell si
 Trade handoff facts:
 
 - requires the card owner to be signed in as a seller account;
-- requires a completed or reviewable persistent InstaComp row;
+- requires a completed or reviewable persistent InstaComp™ row;
 - creates or reuses an `account_collection_items` row for the seller account and active store;
-- marks the collection item as Available for Trade and stores an InstaComp evidence snapshot in metadata;
+- marks the collection item as Available for Trade and stores an InstaComp™ evidence snapshot in metadata;
 - saves the resulting collection item ID back to `instacomp_scan_items.trade_collection_item_id`;
 - records `trade_available_at`;
 - refuses trade handoff when the scan row already created a sell draft;
@@ -4370,12 +4370,12 @@ The database constraint allows `draft_inventory_item_id` or `trade_collection_it
 
 Use the `Buy Me on TCOS` and `Trade For Me on TCOS` buttons as search/discovery handoffs. They do not create a listing or trade item by themselves; they help operators and future customers search for the detected card on the TCOS sale and trade surfaces.
 
-### Seller Inventory InstaComp lane and marketplace export packets
+### Seller Inventory InstaComp™ lane and marketplace export packets
 
-Seller-created InstaComp drafts appear in Seller Inventory with:
+Seller-created InstaComp™ drafts appear in Seller Inventory with:
 
-- `Source = InstaComp`
-- an InstaComp badge on the item card
+- `Source = InstaComp™`
+- an InstaComp™ badge on the item card
 - scan ID
 - detected serial number when present
 - listing price source such as `instacomp_market` or `manual`
@@ -4403,7 +4403,7 @@ Seller Inventory supports the URL-safe lane:
 /seller/inventory?status=draft&source=instacomp
 ```
 
-Use the `Readiness` filter to separate `Ready` drafts from `Needs work` drafts. The Seller Command Center shows `InstaComp Ready` and routes to ready InstaComp drafts when no higher-priority needs-work draft pressure exists.
+Use the `Readiness` filter to separate `Ready` drafts from `Needs work` drafts. The Seller Command Center shows `InstaComp™ Ready` and routes to ready InstaComp™ drafts when no higher-priority needs-work draft pressure exists.
 
 Marketplace packet controls in Seller Inventory:
 
@@ -4412,7 +4412,7 @@ Marketplace packet controls in Seller Inventory:
 - `Download Marketplace CSV` downloads selected ready rows in spreadsheet form
 - the Bulk Controls panel displays visible guardrails before export: cross-list prep only, no external publishing, no postage purchase, and the ready-row export count
 - only activation-ready selected rows are included
-- the export contains TCOS inventory ID, SKU, title, price, quantity, category, condition, description, image URL, shipping method, postage estimate, Coverage fields, Standard Envelope delivery-evidence requirement, under-$20 seller-protection provider/rate/max/cap/claim/refund/not-insurance fields, shipping-purchase guardrail fields, InstaComp scan ID, serial number, market/listing price evidence, and readiness blockers
+- the export contains TCOS inventory ID, SKU, title, price, quantity, category, condition, description, image URL, shipping method, postage estimate, Coverage fields, Standard Envelope delivery-evidence requirement, under-$20 seller-protection provider/rate/max/cap/claim/refund/not-insurance fields, shipping-purchase guardrail fields, InstaComp™ scan ID, serial number, market/listing price evidence, and readiness blockers
 - copied/downloaded JSON packets also include packet-level `crosslist_prep_only`, `externalPublishingApproved = false`, `shippingPurchaseIncluded = false`, shipping warning metadata, seller-protection warning metadata, an operator checklist, a prohibited-action manifest, and export context with selected count, ready count, visible count, active filters, and search text
 - downloaded marketplace CSV rows include matching prohibited-action columns for external publishing, postage purchase, Coverage policy creation, seller payout release, and order fulfillment
 - marketplace exports do not opt the seller into TCOS Under-$20 Seller Protection, create insurance, buy postage, or reimburse shipping; the opt-in must exist before fulfillment and a seller-protection reimbursement requires LetterTrack/USPS IMb delivery evidence that does not show delivered under TCOS rules
@@ -4438,7 +4438,7 @@ Failed to parse body as FormData
 Workaround:
 
 1. Confirm `20260711010000_create_instacomp_scan_job_queue.sql` is applied so the durable path can start.
-2. Use `Run Batch InstaComp` for large lots.
+2. Use `Run Batch InstaComp™` for large lots.
 3. Let the browser optimize a fallback full image to about `900 KB` and a detail crop to about `180 KB`.
 4. If parsing still fails, reduce the affected source resolution and retry only that row.
 5. Never increase platform request limits as a substitute for the private direct-upload queue.
@@ -4469,7 +4469,7 @@ If a serial is visible but missing:
 
 Never describe a suggested price as verified sold value unless the included comp set actually contains verified sold transactions.
 
-### InstaComp failure lookup
+### InstaComp™ failure lookup
 
 `OCR configured but did not return usable text`:
 
@@ -4496,7 +4496,7 @@ Health works but first scan fails:
 
 `Sign in to a seller account before creating drafts`:
 
-- this message belongs to the older seller-only flow; for a seller-owned durable job, log in at `/account/login` and refresh InstaComp; for a store-owned job, confirm the admin cookie is valid
+- this message belongs to the older seller-only flow; for a seller-owned durable job, log in at `/account/login` and refresh InstaComp™; for a store-owned job, confirm the admin cookie is valid
 
 `Unauthorized`:
 
@@ -5201,7 +5201,7 @@ Do not erase the working laptop until the external verification passes.
    http://localhost:3000/admin/login
    ```
 
-10. Log in and run a known-card InstaComp test before doing new production work.
+10. Log in and run a known-card InstaComp™ test before doing new production work.
 
 The restore script refuses to merge into an existing app folder unless `-Force` is supplied. Avoid `-Force` unless an intentional merge is required and the old folder has already been preserved.
 
@@ -5294,23 +5294,23 @@ Checklist for future changes:
 
 The app should not get ahead of the documentation.
 
-Recent InstaComp catch-up through current local checkpoint:
+Recent InstaComp™ catch-up through current local checkpoint:
 
 - Batch image rotation now works for single-card and batch rows with 45-degree left/right clicks. Rotation is based on the original local image plus cumulative degrees, strips repeated rotated filename suffixes, and avoids repeated-preview shrinkage. Recovered remote-only saved-lot images must be reselected locally before rotation.
 - Batch thumbnails can be clicked for larger image review, with zoom-oriented controls so operators can inspect wrong pairings, Clear Cut backs, serial stamps, and variant clues before retrying.
 - The scanner no longer prints `Front` and `Back` labels under thumbnails; it groups paired images by upload/pair order while retaining internal front/back pairing state.
 - Clear Batch and cancellation recovery now handle active worker leases more safely. If cancellation is waiting for an existing lease, the saved lot remains recoverable and the operator should retry Clear Batch shortly instead of manually deleting queue rows.
-- InstaComp title generation suppresses generic `Base`, strips duplicate player/release/parallel/card-number echoes, treats Upper Deck as manufacturer for O-Pee-Chee Platinum, preserves Upper Deck Series 1/2/Extended as release names, preserves true one-of-one display, and uses serial print runs such as `/50` instead of exact copy numbers except for `1/1`.
+- InstaComp™ title generation suppresses generic `Base`, strips duplicate player/release/parallel/card-number echoes, treats Upper Deck as manufacturer for O-Pee-Chee Platinum, preserves Upper Deck Series 1/2/Extended as release names, preserves true one-of-one display, and uses serial print runs such as `/50` instead of exact copy numbers except for `1/1`.
 - Printed variant/parallel identity is guarded so OCR-visible or AI-vision-note-visible Limited Red, Clear Cut, Outliers, Future Watch, Spectrum FX, acetate/clear-stock, insert, color foil, refractor, prizm, holo, wave, shimmer, ice, laser, scope, pulsar, mojo, mosaic, and similar cues cannot stay as generic base. Upper Deck clear-stock cards with centered/ghosted back-logo cues are promoted to `Clear Cut`; ambiguous printed cues stay in review rather than being overclaimed.
 - The TCOS curated checklist referee now includes known Outliers, Future Watch Spectrum FX, Clear Cut, Canvas Young Guns, and O-Pee-Chee Platinum Limited Red examples. It normalizes Upper Deck as the manufacturer for O-Pee-Chee Platinum instead of duplicating Upper Deck into the set title, and can override a generic `Base` scan when approved checklist evidence confirms the printed parallel.
-- InstaComp trial exports now preserve compact catalog evidence per row, including catalog status, source/catalog ID, match score, matched/mismatched evidence, review blockers, safe-use boundary, and exact-comp/action permissions so the 100-card tester can prove why a row was trusted or held for review.
-- InstaComp trial scoring now prints catalog/checklist evidence coverage, writes catalog review blockers into the failure report, and blocks a final tester pass when available catalog evidence still says review-required. Missing catalog evidence is tracked as checklist coverage debt, not as an automatic score failure.
-- InstaComp Multi-Scanner Consensus now has visible fast/full council policy with adaptive second-reader escalation. High-confidence complete cards stay in the `fast_lane` / `fast_lane_council`; low-confidence, incomplete, front-only, weak-pairing, serial-numbered, uncertain, or printed-variant-signal cards move to `escalated_multi_ai` / `full_council`, run a second independent AI identity reader, and preserve the risk tier, scanner plan, and escalation reasons in OCR diagnostics.
-- InstaComp trial intake now writes ignored local guide `instacomp-trial-groundtruth-guide.local.md` with answer-key row progress, first missing rows, examples, required fields, and the exact commands to apply/recheck the 100-card answer key.
-- InstaComp final tester status now reports whether the ignored local answer-key guide exists, matches the current ground-truth audit, and needs to be refreshed before the 100-card tester run.
-- InstaComp final tester status now shows raw `instacomp-trial-inbox/` accepted image counts separately from normalized `instacomp-trial-images/`, so operators can see whether scanner files have been copied before staging.
-- InstaComp final tester status now reads ignored worksheet `instacomp-trial-groundtruth.local.tsv` directly and reports row count, core-ready rows, required-column health, and the exact apply/recheck next step.
-- InstaComp now has a local visual answer-key HTML guide: `npm run instacomp:trial:answer-key-html` writes ignored `instacomp-trial-answer-key.local.html` with front/back thumbnails beside TSV fields, missing-field status, and apply/recheck commands so the 100-card answer key can be filled faster before the final tester run.
+- InstaComp™ trial exports now preserve compact catalog evidence per row, including catalog status, source/catalog ID, match score, matched/mismatched evidence, review blockers, safe-use boundary, and exact-comp/action permissions so the 100-card tester can prove why a row was trusted or held for review.
+- InstaComp™ trial scoring now prints catalog/checklist evidence coverage, writes catalog review blockers into the failure report, and blocks a final tester pass when available catalog evidence still says review-required. Missing catalog evidence is tracked as checklist coverage debt, not as an automatic score failure.
+- InstaComp™ Multi-Scanner Consensus now has visible fast/full council policy with adaptive second-reader escalation. High-confidence complete cards stay in the `fast_lane` / `fast_lane_council`; low-confidence, incomplete, front-only, weak-pairing, serial-numbered, uncertain, or printed-variant-signal cards move to `escalated_multi_ai` / `full_council`, run a second independent AI identity reader, and preserve the risk tier, scanner plan, and escalation reasons in OCR diagnostics.
+- InstaComp™ trial intake now writes ignored local guide `instacomp-trial-groundtruth-guide.local.md` with answer-key row progress, first missing rows, examples, required fields, and the exact commands to apply/recheck the 100-card answer key.
+- InstaComp™ final tester status now reports whether the ignored local answer-key guide exists, matches the current ground-truth audit, and needs to be refreshed before the 100-card tester run.
+- InstaComp™ final tester status now shows raw `instacomp-trial-inbox/` accepted image counts separately from normalized `instacomp-trial-images/`, so operators can see whether scanner files have been copied before staging.
+- InstaComp™ final tester status now reads ignored worksheet `instacomp-trial-groundtruth.local.tsv` directly and reports row count, core-ready rows, required-column health, and the exact apply/recheck next step.
+- InstaComp™ now has a local visual answer-key HTML guide: `npm run instacomp:trial:answer-key-html` writes ignored `instacomp-trial-answer-key.local.html` with front/back thumbnails beside TSV fields, missing-field status, and apply/recheck commands so the 100-card answer key can be filled faster before the final tester run.
 - The 100-card final tester now has a local ground-truth TSV worksheet flow: `npm run instacomp:trial:groundtruth:sheet` writes `instacomp-trial-groundtruth.local.tsv`, the operator can fill the answer key in a spreadsheet, and `npm run instacomp:trial:groundtruth:apply` applies matching `trialCardId` rows back to the ignored local manifest before audit/scoring.
 - Clear Cut detection now treats clear/acetate stock, Clear Cut text, and matching back-logo evidence as variant signals that can override generic set/base guesses.
 - COMC active-price ingestion is removed from the comp equation. COMC, Sportlots, Panini America, Upper Deck, Cardboard Connection, Blowout Cards, TCDB, and similar sources remain reference/checklist context for identity review when usage rights allow.
@@ -5318,7 +5318,7 @@ Recent InstaComp catch-up through current local checkpoint:
 - Upload/scan throughput was raised for the durable queue: row registration and confirmation chunks are 50, signed upload concurrency is 6, default browser scan concurrency is 4, maximum browser scan concurrency is 6, and queue claim mini-packs are 5 rows with a matching server cap.
 - Front/back image optimization and serial-detail crop preparation run in parallel where safe, and the JSON scan route converts front/back/detail image data concurrently before OCR/AI work.
 - Database connection pressure now trips a browser-side pressure governor: scanning pauses before claiming more work, browser concurrency backs down by one, and the operator sees a specific pressure message instead of repeated generic failures.
-- InstaComp Auto-Pilot branding now includes `InstaComp™`.
+- InstaComp™ Auto-Pilot branding now includes `InstaComp™`.
 - `Buy Me on TCOS` and `Trade For Me on TCOS` buttons were added as sale/trade search handoffs for detected cards.
 - `Add to Available for Trade` was added for seller-owned scans. It creates or reuses a collection item marked Available for Trade, writes the handoff back to the scan row, and is mutually exclusive with sell-draft creation.
 - The trade handoff is protected by `20260716010000_add_instacomp_trade_handoff.sql`; apply it before using Available for Trade.
@@ -5326,9 +5326,9 @@ Recent InstaComp catch-up through current local checkpoint:
 
 Recent seller workspace wording cleanup:
 
-- InstaComp draft success links now open the Seller Inventory InstaComp lane directly through `Open InstaComp Drafts` and `Open in InstaComp drafts`.
-- Seller Inventory now has a `Source` filter with an `InstaComp` lane, InstaComp item badges, scan/serial/price-source details, and ready-row marketplace packet export controls.
-- InstaComp draft titles now prefer serial-run display such as `/50` instead of exact copy-number display such as `07/50`; true one-of-one cards remain `1/1`. Admin scanner, test scanner, server draft creation, and comp-search title generation share the same draft-title/serial-run helpers so the behavior does not drift.
+- InstaComp™ draft success links now open the Seller Inventory InstaComp™ lane directly through `Open InstaComp™ Drafts` and `Open in InstaComp™ drafts`.
+- Seller Inventory now has a `Source` filter with an `InstaComp™` lane, InstaComp™ item badges, scan/serial/price-source details, and ready-row marketplace packet export controls.
+- InstaComp™ draft titles now prefer serial-run display such as `/50` instead of exact copy-number display such as `07/50`; true one-of-one cards remain `1/1`. Admin scanner, test scanner, server draft creation, and comp-search title generation share the same draft-title/serial-run helpers so the behavior does not drift.
 - Seller Inventory rows now show the default Standard Envelope/Ground Advantage shipping plan, estimated postage, Coverage requirement, Coverage type, and Standard Envelope under-$20 seller-protection warning; selected rows now show a shipping mix summary before activation or marketplace export, and selected ready-row marketplace packets include self-contained 2% reserve, `$20.00` cap, claim trigger, not-insurance, and shipping-excluded reimbursement fields.
 - Seller Inventory Selection Summary now shows a selected-row activation check with activatable, needs-work, active, archived, and top-blocker counts before `Activate Ready`.
 - Seller Inventory Bulk Action Follow-Up now groups failed rows by blocker reason and lets operators keep only a specific blocker group selected for cleanup.
@@ -5339,7 +5339,7 @@ Recent seller workspace wording cleanup:
 - Seller Inventory Bulk Controls now show the marketplace export guardrails on-screen before copy/download actions.
 - Seller Connections now includes a Marketplace Packet Intake card explaining that Seller Inventory marketplace packets are cross-list prep only, auction prep defaults to the TCOS standard `3-day auction`, and packets do not publish externally, buy postage, create Coverage policies, release seller payouts, fulfill orders, create insurance, or activate TCOS Under-$20 Seller Protection; it routes sellers back to ready and needs-work Seller Inventory rows.
 - Seller Connections now keeps a session-saved safe marketplace API receipt trail with `Copy Safe Receipt`, `Download Safe Receipt`, `Copy Trail`, `Download Trail`, and `Clear Trail` controls for auth/import/staging/reconcile/order-import/promotion handoffs.
-- Seller Command Center now shows `InstaComp Ready` and routes to ready InstaComp drafts when that is the safest inventory shortcut.
+- Seller Command Center now shows `InstaComp™ Ready` and routes to ready InstaComp™ drafts when that is the safest inventory shortcut.
 - Seller order surface labels now use `Seller Order Workspace`, `Search orders`, `Order views`, and `Reset Order View` wording instead of the older workflow phrasing.
 - Seller dashboard order signal chips now read `Shipping Orders`, `Cash-Out Orders`, `Action Orders`, and `Completed Orders`.
 - Seller payout shortcuts now use `Blocked Payouts`, `Cash-Out Payouts`, `Attention Payouts`, and `Paid Payouts`, and seller inventory order follow-up labels now use `Shipping Orders`.

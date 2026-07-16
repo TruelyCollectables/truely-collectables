@@ -1498,7 +1498,7 @@ Rules:
   }
 
   if (!response?.ok) {
-    console.error("InstaComp serial OCR failed:", errorText);
+    console.error("InstaComp™ serial OCR failed:", errorText);
     return null;
   }
 
@@ -1911,7 +1911,7 @@ async function getCachedExternalSearchItems(
     .maybeSingle();
 
   if (error) {
-    console.error("InstaComp cache read error:", error);
+    console.error("InstaComp™ cache read error:", error);
     return null;
   }
 
@@ -1975,7 +1975,7 @@ async function storeCachedExternalSearchItems(
   );
 
   if (error) {
-    console.error("InstaComp cache write error:", error);
+    console.error("InstaComp™ cache write error:", error);
   }
 }
 
@@ -2273,7 +2273,7 @@ async function getPriceChartingProvider(
       : results.length
         ? "SportsCardsPro / PriceCharting returned filtered ungraded guide price matches."
         : products.length
-          ? "SportsCardsPro / PriceCharting returned products, but no ungraded exact guide price passed the InstaComp filter."
+          ? "SportsCardsPro / PriceCharting returned products, but no ungraded exact guide price passed the InstaComp™ filter."
           : "SportsCardsPro / PriceCharting returned no product matches.",
     results,
     searchUrl,
@@ -2459,7 +2459,7 @@ async function fetchGoogleCseItems(
     const response = await fetch(url.toString());
 
     if (!response.ok) {
-      console.error("Google CSE InstaComp error:", await response.text());
+      console.error("Google CSE InstaComp™ error:", await response.text());
 
       return {
         ok: false,
@@ -2484,7 +2484,7 @@ async function fetchGoogleCseItems(
       errorMessage: null,
     };
   } catch (error) {
-    console.error("Google CSE InstaComp exception:", error);
+    console.error("Google CSE InstaComp™ exception:", error);
 
     return {
       ok: false,
@@ -2516,7 +2516,7 @@ async function fetchSerpApiItems(
     const response = await fetch(url.toString());
 
     if (!response.ok) {
-      console.error("SerpApi InstaComp error:", await response.text());
+      console.error("SerpApi InstaComp™ error:", await response.text());
 
       return {
         ok: false,
@@ -2541,7 +2541,7 @@ async function fetchSerpApiItems(
       errorMessage: null,
     };
   } catch (error) {
-    console.error("SerpApi InstaComp exception:", error);
+    console.error("SerpApi InstaComp™ exception:", error);
 
     return {
       ok: false,
@@ -2855,7 +2855,7 @@ async function saveScanToSupabase(input: {
     .single();
 
   if (error) {
-    console.error("Supabase InstaComp save error:", error);
+    console.error("Supabase InstaComp™ save error:", error);
     return null;
   }
 
@@ -2900,7 +2900,7 @@ function buildSourceCoverage(
 
       let status: InstaCompSourceCoverage["status"] = "registered";
       let message: string | null =
-        "Registered InstaComp source. Live result ingestion is ready when provider access is configured.";
+        "Registered InstaComp™ source. Live result ingestion is ready when provider access is configured.";
 
       if (count > 0) {
         status = "included";
@@ -3102,7 +3102,7 @@ async function loadPersistentJobScan(
 
   if (!item) {
     throw new InstaCompJobServerError(
-      "The queued InstaComp card was not found.",
+      "The queued InstaComp™ card was not found.",
       404,
       "INSTACOMP_JOB_ITEM_NOT_FOUND"
     );
@@ -3254,7 +3254,7 @@ async function failPersistentJobScan(
   context: PersistentJobScanContext,
   error: unknown
 ) {
-  const message = error instanceof Error ? error.message : "InstaComp scan failed.";
+  const message = error instanceof Error ? error.message : "InstaComp™ scan failed.";
   const { error: persistenceError } = await context.supabase.rpc(
     "tcos_fail_instacomp_scan_item",
     {
@@ -3268,7 +3268,7 @@ async function failPersistentJobScan(
   );
 
   if (persistenceError) {
-    console.error("Could not persist InstaComp queued scan failure:", persistenceError);
+    console.error("Could not persist InstaComp™ queued scan failure:", persistenceError);
   }
 }
 
@@ -3385,7 +3385,7 @@ export async function POST(req: NextRequest) {
 
       if (detailImage.size > MAX_SCAN_DETAIL_IMAGE_BYTES) {
         throw new InstaCompJobServerError(
-          "Each InstaComp detail crop must be 512KB or smaller.",
+          "Each InstaComp™ detail crop must be 512KB or smaller.",
           413,
           "INSTACOMP_SCAN_DETAIL_TOO_LARGE"
         );
@@ -3410,7 +3410,7 @@ export async function POST(req: NextRequest) {
 
     if (totalInputBytes > MAX_SCAN_INPUT_BYTES) {
       throw new InstaCompJobServerError(
-        "One InstaComp card scan may contain at most 20MB of image data.",
+        "One InstaComp™ card scan may contain at most 20MB of image data.",
         413,
         "INSTACOMP_SCAN_INPUT_TOO_LARGE"
       );
@@ -3656,8 +3656,8 @@ export async function POST(req: NextRequest) {
         scanReview.trustedForPricing
           ? "Market value, high, low, and sold ranges are calculated from included live matches only. Registered sources remain visible until provider access is configured."
           : canUseListingGuidance
-            ? "InstaComp found exact active marketplace listing guidance. Sold comps may still be unavailable, so review the row before trusting market value, draft title, activation, or comps."
-          : "InstaComp found provider candidates, but exact card identity/pricing evidence is not strong enough. Review the row before trusting market value, draft title, activation, or comps.",
+            ? "InstaComp™ found exact active marketplace listing guidance. Sold comps may still be unavailable, so review the row before trusting market value, draft title, activation, or comps."
+          : "InstaComp™ found provider candidates, but exact card identity/pricing evidence is not strong enough. Review the row before trusting market value, draft title, activation, or comps.",
       ...(persistentContext
         ? {
             queue: {
@@ -3680,7 +3680,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json(responsePayload);
   } catch (error: any) {
-    console.error("InstaComp scan error:", error);
+    console.error("InstaComp™ scan error:", error);
 
     if (persistentContext) {
       await failPersistentJobScan(persistentContext, error);
@@ -3694,7 +3694,7 @@ export async function POST(req: NextRequest) {
     }
 
     return jsonError(
-      error?.message || "InstaComp scan failed.",
+      error?.message || "InstaComp™ scan failed.",
       500,
       process.env.NODE_ENV === "development" ? error : undefined
     );

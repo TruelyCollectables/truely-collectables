@@ -175,7 +175,7 @@ export async function POST(request: Request) {
 
     if (Boolean(body.persistentJobId) !== Boolean(persistentJobId)) {
       throw new InstaCompJobServerError(
-        "Persistent InstaComp job ID is invalid.",
+        "Persistent InstaComp™ job ID is invalid.",
         400,
         "INSTACOMP_TRADE_INVALID_JOB_ID",
       );
@@ -183,7 +183,7 @@ export async function POST(request: Request) {
 
     if (Boolean(body.persistentItemId) !== Boolean(persistentItemId)) {
       throw new InstaCompJobServerError(
-        "Persistent InstaComp item ID is invalid.",
+        "Persistent InstaComp™ item ID is invalid.",
         400,
         "INSTACOMP_TRADE_INVALID_ITEM_ID",
       );
@@ -191,7 +191,7 @@ export async function POST(request: Request) {
 
     if (Boolean(persistentJobId) !== Boolean(persistentItemId)) {
       throw new InstaCompJobServerError(
-        "Persistent InstaComp job and item IDs must be provided together.",
+        "Persistent InstaComp™ job and item IDs must be provided together.",
         400,
         "INSTACOMP_TRADE_PERSISTENT_IDS_REQUIRED",
       );
@@ -212,7 +212,7 @@ export async function POST(request: Request) {
 
       if (!job) {
         throw new InstaCompJobServerError(
-          "The persistent InstaComp job was not found for this seller.",
+          "The persistent InstaComp™ job was not found for this seller.",
           404,
           "INSTACOMP_TRADE_JOB_NOT_FOUND",
         );
@@ -230,7 +230,7 @@ export async function POST(request: Request) {
       if (itemError) {
         if (isMissingTradeHandoffSchema(itemError)) {
           throw new InstaCompJobServerError(
-            "Apply the InstaComp trade handoff migration before using Available for Trade.",
+            "Apply the InstaComp™ trade handoff migration before using Available for Trade.",
             503,
             "INSTACOMP_TRADE_SCHEMA_MISSING",
           );
@@ -241,7 +241,7 @@ export async function POST(request: Request) {
 
       if (!item) {
         throw new InstaCompJobServerError(
-          "The persistent InstaComp row was not found.",
+          "The persistent InstaComp™ row was not found.",
           404,
           "INSTACOMP_TRADE_ITEM_NOT_FOUND",
         );
@@ -249,7 +249,7 @@ export async function POST(request: Request) {
 
       if (!["completed", "review_required"].includes(String(item.status))) {
         throw new InstaCompJobServerError(
-          "Finish or review the InstaComp scan before adding it to Available for Trade.",
+          "Finish or review the InstaComp™ scan before adding it to Available for Trade.",
           409,
           "INSTACOMP_TRADE_SCAN_NOT_DONE",
         );
@@ -257,7 +257,7 @@ export async function POST(request: Request) {
 
       if (item.draft_inventory_item_id) {
         throw new InstaCompJobServerError(
-          "This InstaComp row already created a sell draft and cannot also be marked Available for Trade.",
+          "This InstaComp™ row already created a sell draft and cannot also be marked Available for Trade.",
           409,
           "INSTACOMP_TRADE_BLOCKED_BY_SELL_DRAFT",
         );
@@ -291,7 +291,7 @@ export async function POST(request: Request) {
     const fallbackTitle =
       cleanText(persistedItem?.front_original_filename, 180) ||
       cleanText(body.fileName, 180) ||
-      "InstaComp trade card";
+      "InstaComp™ trade card";
     const title = tradeTitle({ ...body, ai }, fallbackTitle);
     const marketPrice =
       moneyNumber(compactRecord(persistedPayload.stats).suggestedPrice) ??
@@ -344,7 +344,7 @@ export async function POST(request: Request) {
         visibility: "community",
         is_favorite: false,
         notes:
-          "Available for Trade from InstaComp. This card is trade-only unless the owner removes the trade handoff.",
+          "Available for Trade from InstaComp™. This card is trade-only unless the owner removes the trade handoff.",
         metadata,
       })
       .select("id,title")
@@ -381,13 +381,13 @@ export async function POST(request: Request) {
           .update({
             is_active: false,
             notes:
-              "Archived automatically because the InstaComp row could not be linked to trade.",
+              "Archived automatically because the InstaComp™ row could not be linked to trade.",
           })
           .eq("id", collectionItem.id);
 
         if (isMissingTradeHandoffSchema(linkError)) {
           throw new InstaCompJobServerError(
-            "Apply the InstaComp trade handoff migration before using Available for Trade.",
+            "Apply the InstaComp™ trade handoff migration before using Available for Trade.",
             503,
             "INSTACOMP_TRADE_SCHEMA_MISSING",
           );
@@ -402,12 +402,12 @@ export async function POST(request: Request) {
           .update({
             is_active: false,
             notes:
-              "Archived automatically because this InstaComp row was already assigned to sell or trade.",
+              "Archived automatically because this InstaComp™ row was already assigned to sell or trade.",
           })
           .eq("id", collectionItem.id);
 
         throw new InstaCompJobServerError(
-          "This InstaComp row was already assigned to sell or trade.",
+          "This InstaComp™ row was already assigned to sell or trade.",
           409,
           "INSTACOMP_TRADE_ROW_ALREADY_ASSIGNED",
         );

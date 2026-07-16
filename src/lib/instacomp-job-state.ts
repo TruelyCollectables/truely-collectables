@@ -181,7 +181,7 @@ export function validateInstaCompJobCardCount(value: number) {
   if (count > MAX_INSTACOMP_JOB_CARDS) {
     throw new InstaCompJobStateError(
       "card_limit_exceeded",
-      `InstaComp jobs support at most ${MAX_INSTACOMP_JOB_CARDS} cards.`,
+      `InstaComp™ jobs support at most ${MAX_INSTACOMP_JOB_CARDS} cards.`,
     );
   }
 
@@ -202,7 +202,7 @@ export function transitionInstaCompJob(
   if (!canTransitionInstaCompJob(current, next)) {
     throw new InstaCompJobStateError(
       "invalid_job_transition",
-      `InstaComp job cannot transition from ${current} to ${next}.`,
+      `InstaComp™ job cannot transition from ${current} to ${next}.`,
     );
   }
 
@@ -223,7 +223,7 @@ export function transitionInstaCompJobItem(
   if (!canTransitionInstaCompJobItem(current, next)) {
     throw new InstaCompJobStateError(
       "invalid_item_transition",
-      `InstaComp job item cannot transition from ${current} to ${next}.`,
+      `InstaComp™ job item cannot transition from ${current} to ${next}.`,
     );
   }
 
@@ -239,7 +239,7 @@ export function summarizeInstaCompJobItems(
   if (items.length > MAX_INSTACOMP_JOB_CARDS) {
     throw new InstaCompJobStateError(
       "card_limit_exceeded",
-      `InstaComp jobs support at most ${MAX_INSTACOMP_JOB_CARDS} cards.`,
+      `InstaComp™ jobs support at most ${MAX_INSTACOMP_JOB_CARDS} cards.`,
     );
   }
 
@@ -413,7 +413,7 @@ export function failInstaCompJobItem(
   const message =
     error instanceof Error
       ? error.message
-      : String(error || "InstaComp scan failed");
+      : String(error || "InstaComp™ scan failed");
 
   return {
     ...cloneItem(item),
@@ -436,14 +436,14 @@ export function retryInstaCompJobItem(
   if (item.status !== "failed") {
     throw new InstaCompJobStateError(
       "item_not_retryable",
-      "Only failed InstaComp job items can be retried.",
+      "Only failed InstaComp™ job items can be retried.",
     );
   }
 
   if (attemptCount >= maxAttempts) {
     throw new InstaCompJobStateError(
       "attempts_exhausted",
-      "InstaComp job item has exhausted its retry attempts.",
+      "InstaComp™ job item has exhausted its retry attempts.",
     );
   }
 

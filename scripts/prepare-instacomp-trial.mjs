@@ -73,7 +73,7 @@ function buildPrepMarkdown(report) {
     : [];
 
   return [
-    "# TCOS InstaComp Trial Prep Bundle",
+    "# TCOS InstaComp™ Trial Prep Bundle",
     "",
     `Generated: ${report.generatedAt}`,
     "",
@@ -248,7 +248,7 @@ async function main() {
     ],
     { allowFailure: true },
   );
-  const preflight = parseJsonOutput("InstaComp trial preflight", preflightRun.stdout);
+  const preflight = parseJsonOutput("InstaComp™ trial preflight", preflightRun.stdout);
 
   const report = {
     schema: "tcos.instacompTrialPrepBundle.v1",
@@ -269,7 +269,7 @@ async function main() {
       ? "Preflight is green. Scan the lot at http://localhost:3000/admin/instacomp, export trial results, then run npm run instacomp:trial:score."
       : preflight.next || "Fix the listed preflight blockers, then rerun npm run instacomp:trial:prep.",
     safeBuildBoundary:
-      "Local InstaComp trial prep only. Does not scan cards, deploy, publish listings, buy postage, create Checkout, call production APIs, approve live money, release payouts, or change runtime switches.",
+      "Local InstaComp™ trial prep only. Does not scan cards, deploy, publish listings, buy postage, create Checkout, call production APIs, approve live money, release payouts, or change runtime switches.",
   };
 
   const preflightJsonPath = resolveFromRepo(preflightJson);
@@ -284,7 +284,7 @@ async function main() {
     return;
   }
 
-  console.log("TCOS InstaComp trial prep bundle:");
+  console.log("TCOS InstaComp™ trial prep bundle:");
   console.log(`- ready to scan: ${report.readyToScan ? "YES" : "NO"}`);
   console.log(`- worksheet: ${worksheet}`);
   console.log(`- intake packet: ${intakePacket}`);

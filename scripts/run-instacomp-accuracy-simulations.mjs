@@ -7,14 +7,14 @@ import ts from "typescript";
 
 const instacompSourceUrl = new URL("../src/lib/instacomp.ts", import.meta.url);
 const serialSourceUrl = new URL("../src/lib/instacomp-serial.ts", import.meta.url);
+const gradingCertSourceUrl = new URL("../src/lib/grading-cert.ts", import.meta.url);
 const draftTitleSourceUrl = new URL(
   "../src/lib/instacomp-draft-title.ts",
   import.meta.url
 );
-const instacompSource = (await readFile(instacompSourceUrl, "utf8")).replace(
-  '"./instacomp-serial"',
-  JSON.stringify(serialSourceUrl.href)
-);
+const instacompSource = (await readFile(instacompSourceUrl, "utf8"))
+  .replace('"./instacomp-serial"', JSON.stringify(serialSourceUrl.href))
+  .replace('"./grading-cert"', JSON.stringify(gradingCertSourceUrl.href));
 const draftTitleSource = (await readFile(draftTitleSourceUrl, "utf8")).replace(
   '"./instacomp-serial"',
   JSON.stringify(serialSourceUrl.href)
@@ -476,6 +476,6 @@ check(
   guidanceMatches[0] ? `$${guidanceMatches[0].price}` : "no match"
 );
 
-console.log(`InstaComp accuracy simulations: ${total - failed}/${total} passed.`);
+console.log(`InstaComp™ accuracy simulations: ${total - failed}/${total} passed.`);
 
 if (failed > 0) process.exitCode = 1;

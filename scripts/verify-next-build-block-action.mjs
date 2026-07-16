@@ -167,73 +167,73 @@ if (payload) {
     checks.push(
       check(
         commands.includes("npm run instacomp:trial:prep"),
-        "fallback selection preserves InstaComp trial prep bundle command",
+        "fallback selection preserves InstaComp™ trial prep bundle command",
       ),
     );
     checks.push(
       check(
         commands.includes("npm run instacomp:trial:intake"),
-        "fallback selection preserves InstaComp trial intake cockpit command",
+        "fallback selection preserves InstaComp™ trial intake cockpit command",
       ),
     );
     checks.push(
       check(
         commands.includes("npm run instacomp:trial:stage-images"),
-        "fallback selection preserves InstaComp trial image staging command",
+        "fallback selection preserves InstaComp™ trial image staging command",
       ),
     );
     checks.push(
       check(
         commands.includes("npm run instacomp:trial:sync-images"),
-        "fallback selection preserves InstaComp trial image-path sync command",
+        "fallback selection preserves InstaComp™ trial image-path sync command",
       ),
     );
     checks.push(
       check(
         commands.includes("npm run instacomp:trial:monitor"),
-        "fallback selection preserves InstaComp trial readiness monitor command",
+        "fallback selection preserves InstaComp™ trial readiness monitor command",
       ),
     );
       checks.push(
         check(
           commands.includes("npm run instacomp:trial:groundtruth"),
-          "fallback selection preserves InstaComp trial ground-truth manifest audit command",
+          "fallback selection preserves InstaComp™ trial ground-truth manifest audit command",
         ),
       );
       checks.push(
         check(
           commands.includes("npm run instacomp:trial:audit"),
-          "fallback selection preserves InstaComp trial image audit command",
+          "fallback selection preserves InstaComp™ trial image audit command",
       ),
     );
     checks.push(
       check(
         commands.includes("npm run instacomp:trial:map"),
-        "fallback selection preserves InstaComp trial image map command",
+        "fallback selection preserves InstaComp™ trial image map command",
       ),
     );
     checks.push(
       check(
         commands.includes("npm run instacomp:trial:packet"),
-        "fallback selection preserves InstaComp trial intake packet command",
+        "fallback selection preserves InstaComp™ trial intake packet command",
       ),
     );
     checks.push(
       check(
         commands.includes("npm run instacomp:trial:preflight"),
-        "fallback selection preserves InstaComp trial preflight command",
+        "fallback selection preserves InstaComp™ trial preflight command",
       ),
     );
     checks.push(
       check(
         commands.includes("npm run instacomp:trial:ready"),
-        "fallback selection preserves InstaComp trial ready gate command",
+        "fallback selection preserves InstaComp™ trial ready gate command",
       ),
     );
     checks.push(
       check(
         commands.includes("npm run instacomp:trial:score"),
-        "fallback selection preserves InstaComp speed-gated trial score command",
+        "fallback selection preserves InstaComp™ speed-gated trial score command",
       ),
     );
     checks.push(

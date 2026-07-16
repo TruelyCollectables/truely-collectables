@@ -137,7 +137,7 @@ const sourceFilters: Array<{
   label: string;
 }> = [
   { value: "all", label: "All sources" },
-  { value: "instacomp", label: "InstaComp" },
+  { value: "instacomp", label: "InstaComp™" },
   { value: "manual", label: "Manual/other" },
 ];
 
@@ -1918,11 +1918,11 @@ export default function SellerInventoryPage() {
             value={loading ? "..." : String(summary?.draftNeedsWorkCount || 0)}
           />
           <Metric
-            label="InstaComp Drafts"
+            label="InstaComp™ Drafts"
             value={loading ? "..." : String(summary?.instacompDraftCount || 0)}
           />
           <Metric
-            label="InstaComp Ready"
+            label="InstaComp™ Ready"
             value={
               loading ? "..." : String(summary?.instacompReadyDraftCount || 0)
             }
@@ -2970,7 +2970,7 @@ export default function SellerInventoryPage() {
                   {item.instaComp?.isInstaCompDraft ? (
                     <div className="mt-4 rounded-md border border-sky-200 bg-sky-50 px-3 py-2">
                       <p className="text-xs font-black uppercase tracking-[0.14em] text-sky-900">
-                        InstaComp draft
+                        InstaComp™ draft
                       </p>
                       <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-sky-950">
                         <Info

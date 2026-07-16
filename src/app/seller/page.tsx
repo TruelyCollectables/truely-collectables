@@ -867,7 +867,7 @@ export default function SellerPage() {
       : (dashboard.inventorySummary?.instacompReadyDraftCount || 0) > 0
         ? {
             href: inventoryInstaCompHref,
-            label: "Ready InstaComp Drafts",
+            label: "Ready InstaComp™ Drafts",
           }
       : (dashboard.inventorySummary?.draftReadyCount || 0) > 0
         ? {
@@ -917,7 +917,7 @@ export default function SellerPage() {
       {
         title: "Inventory Workspace",
         detail: dashboard.inventorySummary
-          ? `${dashboard.inventorySummary.draftReadyCount} ready draft(s), ${dashboard.inventorySummary.instacompReadyDraftCount || 0} ready from InstaComp, ${dashboard.inventorySummary.activeCount} active listing(s).`
+          ? `${dashboard.inventorySummary.draftReadyCount} ready draft(s), ${dashboard.inventorySummary.instacompReadyDraftCount || 0} ready from InstaComp™, ${dashboard.inventorySummary.activeCount} active listing(s).`
           : "Manage seller drafts, live listings, and description updates.",
         href: inventoryWorkspaceLink.href,
         label: `Open ${inventoryWorkspaceLink.label}`,
@@ -1042,7 +1042,7 @@ export default function SellerPage() {
             }
           />
           <Metric
-            label="InstaComp Ready"
+            label="InstaComp™ Ready"
             value={
               loading
                 ? "..."
@@ -1548,13 +1548,13 @@ export default function SellerPage() {
                   value={String(dashboard.inventorySummary?.draftCount || 0)}
                 />
                 <Info
-                  label="InstaComp Drafts"
+                  label="InstaComp™ Drafts"
                   value={String(
                     dashboard.inventorySummary?.instacompDraftCount || 0,
                   )}
                 />
                 <Info
-                  label="InstaComp Ready"
+                  label="InstaComp™ Ready"
                   value={String(
                     dashboard.inventorySummary?.instacompReadyDraftCount || 0,
                   )}

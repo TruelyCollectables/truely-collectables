@@ -258,7 +258,7 @@ for (const item of scenarios) {
 }
 
 console.log(
-  `InstaComp job simulations: ${scenarios.length - failed.length}/${scenarios.length} passed.`,
+  `InstaComp™ job simulations: ${scenarios.length - failed.length}/${scenarios.length} passed.`,
 );
 
 if (failed.length > 0) process.exitCode = 1;

@@ -569,7 +569,7 @@ function testImageFile(name: string, label: string, color: string) {
   <rect x="54" y="54" width="372" height="424" rx="16" fill="${color}" opacity="0.18"/>
   <text x="240" y="255" text-anchor="middle" font-family="Arial, sans-serif" font-size="42" font-weight="800" fill="#111">TCOS</text>
   <text x="240" y="315" text-anchor="middle" font-family="Arial, sans-serif" font-size="28" font-weight="800" fill="#111">${safeLabel}</text>
-  <text x="240" y="545" text-anchor="middle" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#444">InstaComp Test Model</text>
+  <text x="240" y="545" text-anchor="middle" font-family="Arial, sans-serif" font-size="18" font-weight="700" fill="#444">InstaComp™ Test Model</text>
 </svg>`.trim();
 
   return new File([svg], name, {
@@ -2656,7 +2656,7 @@ export default function InstaCompScanner({
     const totals = summarizeTestModelRunRecords(testModelRunRecords);
     const latestRuns = testModelRunRecords.slice(0, 5);
     const summaryLines = [
-      "InstaComp Test Run Ledger Summary",
+      "InstaComp™ Test Run Ledger Summary",
       "Route: /instacomp-test",
       `Runs: ${totals.runs}`,
       `Checks: ${totals.passedChecks} passed, ${totals.failedChecks} failed`,
@@ -3069,7 +3069,7 @@ export default function InstaCompScanner({
     const rowLimit = 12;
     const visibleProblemRows = rowDetails.slice(0, rowLimit);
     const summaryLines = [
-      "InstaComp Test Model Failure Summary",
+      "InstaComp™ Test Model Failure Summary",
       "Route: /instacomp-test",
       `Scenario: ${testModelCheckScenario.replace("_", " ")}`,
       `Failing smoke checks: ${failedChecks.length}`,
@@ -3138,7 +3138,7 @@ export default function InstaCompScanner({
       (card) => isDraftableBatchCard(card) && draftReadinessErrors(card).length > 0
     ).length;
     const summaryLines = [
-      "InstaComp Current View Summary",
+      "InstaComp™ Current View Summary",
       "Route: /instacomp-test",
       `View: ${BATCH_FILTER_LABELS[batchFilter]}`,
       `Sort: ${BATCH_SORT_LABELS[batchSort]}`,
@@ -3263,7 +3263,7 @@ export default function InstaCompScanner({
       .filter(Boolean)
       .join("; ");
     const summaryLines = [
-      "InstaComp Test Row Summary",
+      "InstaComp™ Test Row Summary",
       "Route: /instacomp-test",
       `Row: #${row.row}`,
       `Title: ${row.title || row.frontFileName}`,
@@ -3414,7 +3414,7 @@ export default function InstaCompScanner({
     const failedChecks = checks.filter((check) => !check.pass);
     const latestRun = testModelRunRecords[0] || null;
     const summaryLines = [
-      "InstaComp Test Model QA Summary",
+      "InstaComp™ Test Model QA Summary",
       "Route: /instacomp-test",
       `Scenario: ${testModelCheckScenario.replace("_", " ")}`,
       checks.length
@@ -5280,7 +5280,7 @@ export default function InstaCompScanner({
             background: "#f8fbff",
           }}
         >
-          <h2 style={{ marginTop: 0 }}>InstaComp Test Model</h2>
+          <h2 style={{ marginTop: 0 }}>InstaComp™ Test Model</h2>
           <div
             style={{
               display: "flex",
@@ -6123,7 +6123,7 @@ export default function InstaCompScanner({
               ? "Batch is scanning..."
               : batchPauseRequested
                 ? "Resume Batch"
-                : "Run Batch InstaComp"}
+                : "Run Batch InstaComp™"}
           </button>
 
           <button
@@ -7710,7 +7710,7 @@ export default function InstaCompScanner({
 
             <p style={{ marginTop: 0, color: "#555" }}>
               Market value, high, and low are calculated from included live
-              source matches only. Registered sources stay in InstaComp coverage
+              source matches only. Registered sources stay in InstaComp™ coverage
               until live ingestion is configured.
             </p>
 
@@ -7800,7 +7800,7 @@ export default function InstaCompScanner({
             <h2 style={{ marginTop: 0 }}>Comp Source Coverage</h2>
 
             <p style={{ marginTop: 0, color: "#555" }}>
-              InstaComp tracks these sources for market value, sold value, and
+              InstaComp™ tracks these sources for market value, sold value, and
               remaining-card coverage. Only included sources affect pricing.
             </p>
 

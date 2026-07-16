@@ -239,7 +239,7 @@ for (const result of results) {
 const failed = results.filter((result) => result.status === "failed");
 
 console.log(
-  `InstaComp identity guard simulations: ${results.length - failed.length}/${results.length} passed.`,
+  `InstaComp™ identity guard simulations: ${results.length - failed.length}/${results.length} passed.`,
 );
 
 if (failed.length) process.exitCode = 1;
