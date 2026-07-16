@@ -179,6 +179,7 @@ function buildLocalBuildFallback(status, recommendation) {
       "npm run instacomp:trial:init",
       "npm run instacomp:trial:audit",
       "npm run instacomp:trial:map",
+      "npm run instacomp:trial:packet",
       "npm run instacomp:trial:ready",
       "npm run instacomp:trial:report -- --manifest instacomp-trial-manifest.local.json --results instacomp-trial-results.local.json --target 94",
       "npm run status:build-block",

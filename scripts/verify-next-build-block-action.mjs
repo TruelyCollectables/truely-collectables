@@ -178,6 +178,12 @@ if (payload) {
     );
     checks.push(
       check(
+        commands.includes("npm run instacomp:trial:packet"),
+        "fallback selection preserves InstaComp trial intake packet command",
+      ),
+    );
+    checks.push(
+      check(
         commands.includes("npm run instacomp:trial:ready"),
         "fallback selection preserves InstaComp trial ready gate command",
       ),

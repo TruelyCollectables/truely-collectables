@@ -217,6 +217,12 @@ if (payload) {
     );
     checks.push(
       check(
+        fallbackCommands.includes("npm run instacomp:trial:packet"),
+        "local build fallback preserves InstaComp trial intake packet command",
+      ),
+    );
+    checks.push(
+      check(
         fallbackCommands.includes("npm run instacomp:trial:ready"),
         "local build fallback preserves InstaComp trial ready gate command",
       ),
