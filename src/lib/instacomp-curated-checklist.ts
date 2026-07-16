@@ -109,6 +109,21 @@ const TCOS_CURATED_CHECKLIST_CANDIDATES: InstaCompCatalogCandidateIdentity[] = [
     isAuto: false,
     isRelic: false,
   },
+  {
+    catalogId: "tcos-2024-25-o-pee-chee-platinum-201-limited-red",
+    sourceUrl: "tcos://instacomp/curated-checklist/2024-25-o-pee-chee-platinum/201-limited-red",
+    player: "Connor Bedard",
+    year: "2024-25",
+    brand: "Upper Deck",
+    setName: "O-Pee-Chee Platinum",
+    cardNumber: "201",
+    parallel: "Limited Red",
+    variation: "Limited Red",
+    team: "Chicago Blackhawks",
+    sport: "Hockey",
+    isAuto: false,
+    isRelic: false,
+  },
 ];
 
 function cleanText(value: string | null | undefined) {
@@ -153,6 +168,9 @@ function extractSerialRun(serialNumber: string | null | undefined) {
 function normalizeSetNameForCuratedChecklist(setName: string | null | undefined) {
   const cleaned = cleanText(setName);
 
+  if (/\bo[-\s]*pee[-\s]*chee\b/i.test(cleaned) && /\bplatinum\b/i.test(cleaned)) {
+    return "O-Pee-Chee Platinum";
+  }
   if (/\bsp\s+authentic\b/i.test(cleaned)) return "SP Authentic Hockey";
   if (/\bextended\s+series\b/i.test(cleaned)) return "Upper Deck Extended Series";
 

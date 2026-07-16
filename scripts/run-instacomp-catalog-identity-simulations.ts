@@ -39,6 +39,7 @@ const CATALOG_IDENTITY_EXPECTED_SCENARIO_KEYS = [
   "serial_run_mismatch_forces_review_required",
   "missing_catalog_candidates_force_review_required",
   "curated_checklist_confirms_printed_outliers_over_base",
+  "curated_checklist_confirms_opc_platinum_limited_red_over_base",
   "curated_checklist_stays_silent_for_unknown_cards",
 ] as const;
 const CATALOG_IDENTITY_EXPECTED_SCENARIO_COUNT =
@@ -759,6 +760,55 @@ function runCatalogIdentitySimulationSuite() {
         compIdentity: curatedOutliersEvidence?.compIdentity,
         sourceAttribution: curatedOutliersEvidence?.sourceAttribution,
         referee: curatedOutliersReferee,
+      },
+    ),
+  );
+
+  const opcLimitedRedAi: InstaCompAiResult = {
+    player: "Connor Bedard",
+    year: "2024-25",
+    brand: "Upper Deck",
+    setName: "Upper Deck O-Pee-Chee Platinum",
+    cardNumber: "201",
+    parallel: "Base",
+    serialNumber: null,
+    team: "Chicago Blackhawks",
+    sport: "Hockey",
+    isRookie: true,
+    isAuto: false,
+    isRelic: false,
+    conditionGuess: null,
+    confidence: 0.95,
+    notes:
+      "Primary vision called the card Base, but printed front text reads Limited Red.",
+  };
+  const opcLimitedRedEvidence = buildInstaCompCuratedChecklistEvidence({
+    ai: opcLimitedRedAi,
+    externalOcrText:
+      "2024-25 O-PEE-CHEE PLATINUM CONNOR BEDARD ROOKIE LIMITED RED 201 CHICAGO BLACKHAWKS",
+    capturedAt: "2026-07-16T12:05:00.000Z",
+  });
+  const opcLimitedRedReferee = catalogEvidenceToConsensusReferee(
+    opcLimitedRedEvidence,
+  );
+  scenarios.push(
+    scenario(
+      "curated_checklist_confirms_opc_platinum_limited_red_over_base",
+      "The starter TCOS curated checklist normalizes Upper Deck as the manufacturer, confirms O-Pee-Chee Platinum Limited Red, and overrides a generic Base read.",
+      opcLimitedRedEvidence?.status === "catalog_confirmed" &&
+        opcLimitedRedEvidence.catalogConfirmed &&
+        opcLimitedRedEvidence.compIdentity?.setName === "O-Pee-Chee Platinum" &&
+        opcLimitedRedEvidence.compIdentity?.parallel === "Limited Red" &&
+        opcLimitedRedEvidence.selectedMatch?.catalogId ===
+          "tcos-2024-25-o-pee-chee-platinum-201-limited-red" &&
+        opcLimitedRedReferee?.status === "catalog_confirmed" &&
+        opcLimitedRedReferee.identity?.setName === "O-Pee-Chee Platinum" &&
+        opcLimitedRedReferee.identity?.parallel === "Limited Red",
+      {
+        status: opcLimitedRedEvidence?.status,
+        compIdentity: opcLimitedRedEvidence?.compIdentity,
+        selectedMatch: opcLimitedRedEvidence?.selectedMatch,
+        referee: opcLimitedRedReferee,
       },
     ),
   );

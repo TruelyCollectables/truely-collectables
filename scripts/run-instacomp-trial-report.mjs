@@ -208,6 +208,16 @@ function readConsensus(result) {
   );
 }
 
+function readCatalogEvidence(result) {
+  return (
+    result?.catalogEvidence ||
+    result?.result?.catalogEvidence ||
+    result?.predicted?.catalogEvidence ||
+    result?.ai?.catalogEvidence ||
+    null
+  );
+}
+
 function buildPlaceholderManifest(cards) {
   const cardRows = Array.from({ length: cards }, (_, index) => {
     const id = String(index + 1).padStart(3, "0");
@@ -1310,7 +1320,12 @@ function scoreCard(card, result) {
   const expected = card.expected || {};
   const actual = readResultFields(result);
   const consensus = readConsensus(result);
+  const catalogEvidence = readCatalogEvidence(result);
   const consensusReviewRequired = consensus?.status === "review_required";
+  const catalogConfirmed =
+    catalogEvidence?.catalogConfirmed === true ||
+    catalogEvidence?.status === "catalog_confirmed";
+  const catalogReviewRequired = catalogEvidence?.status === "review_required";
   const mismatches = [];
   let identityFieldTotal = 0;
   let identityFieldPassed = 0;
@@ -1369,6 +1384,22 @@ function scoreCard(card, result) {
     consensusReviewReasons: Array.isArray(consensus?.reviewReasons)
       ? consensus.reviewReasons
       : [],
+    hasCatalogEvidence: Boolean(catalogEvidence),
+    catalogConfirmed,
+    catalogReviewRequired,
+    catalogReviewReasons: Array.isArray(catalogEvidence?.reviewReasons)
+      ? catalogEvidence.reviewReasons
+      : [],
+    catalogId:
+      catalogEvidence?.catalogId ||
+      catalogEvidence?.sourceAttribution?.catalogId ||
+      catalogEvidence?.selectedMatch?.catalogId ||
+      null,
+    catalogSourceLabel:
+      catalogEvidence?.sourceLabel ||
+      catalogEvidence?.sourceAttribution?.sourceLabel ||
+      catalogEvidence?.selectedMatch?.sourceLabel ||
+      null,
     mismatches,
   };
 }
@@ -1496,6 +1527,15 @@ function summarizeScores(
   const consensusReviewIds = cardScores
     .filter((item) => item.consensusReviewRequired)
     .map((item) => item.trialCardId);
+  const catalogConfirmedIds = cardScores
+    .filter((item) => item.catalogConfirmed)
+    .map((item) => item.trialCardId);
+  const catalogReviewIds = cardScores
+    .filter((item) => item.catalogReviewRequired)
+    .map((item) => item.trialCardId);
+  const catalogMissingEvidenceIds = cardScores
+    .filter((item) => item.hasResult && !item.hasCatalogEvidence)
+    .map((item) => item.trialCardId);
   const identityFieldTotal = cardScores.reduce((sum, item) => sum + item.identityFieldTotal, 0);
   const identityFieldPassed = cardScores.reduce((sum, item) => sum + item.identityFieldPassed, 0);
   const combinedPassed = identityExactPassed + serialNumberPassed + serialRunPassed;
@@ -1511,6 +1551,11 @@ function summarizeScores(
       hasResult: item.hasResult,
       consensusReviewRequired: item.consensusReviewRequired,
       consensusReviewReasons: item.consensusReviewReasons,
+      catalogConfirmed: item.catalogConfirmed,
+      catalogReviewRequired: item.catalogReviewRequired,
+      catalogReviewReasons: item.catalogReviewReasons,
+      catalogId: item.catalogId,
+      catalogSourceLabel: item.catalogSourceLabel,
       mismatches: item.mismatches,
     }));
 
@@ -1536,6 +1581,9 @@ function summarizeScores(
       results: results.cards.length,
       missingResultIds,
       consensusReviewIds,
+      catalogConfirmedIds,
+      catalogReviewIds,
+      catalogMissingEvidenceIds,
     },
     accuracy: {
       identityExact: {
@@ -1663,6 +1711,8 @@ function buildFailureReport(report) {
       totalFailures: failures.length,
       missingResults: failures.filter((failure) => failure.issueType === "missing_result").length,
       consensusReviewRequired: failures.filter((failure) => failure.consensusReviewRequired).length,
+      catalogConfirmedFailures: failures.filter((failure) => failure.catalogConfirmed).length,
+      catalogReviewFailures: failures.filter((failure) => failure.catalogReviewRequired).length,
       fieldMismatchCards: failures.filter((failure) => failure.mismatches.length > 0).length,
       combinedIdentityAndSerialPercent:
         report.accuracy.combinedIdentityAndSerial.percent,

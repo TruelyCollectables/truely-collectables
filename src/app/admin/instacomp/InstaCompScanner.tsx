@@ -1710,6 +1710,35 @@ function instacompTrialSpeedGate(items: BatchCardViewItem[]) {
   };
 }
 
+function instacompTrialCatalogEvidenceSummary(result: ScanResponse) {
+  const catalogEvidence = result.catalogEvidence || null;
+  if (!catalogEvidence) return null;
+
+  return {
+    schema: catalogEvidence.schema,
+    status: catalogEvidence.status,
+    operatorState: catalogEvidence.operatorState,
+    catalogConfirmed: catalogEvidence.catalogConfirmed,
+    sourceLabel:
+      catalogEvidence.sourceAttribution?.sourceLabel ||
+      catalogEvidence.selectedMatch?.sourceLabel ||
+      null,
+    catalogId:
+      catalogEvidence.sourceAttribution?.catalogId ||
+      catalogEvidence.selectedMatch?.catalogId ||
+      null,
+    matchScore: catalogEvidence.selectedMatch?.score ?? null,
+    identity: catalogEvidence.selectedMatch?.identity || null,
+    matchedEvidence: catalogEvidence.selectedMatch?.matchedEvidence || [],
+    mismatchedEvidence: catalogEvidence.selectedMatch?.mismatchedEvidence || [],
+    reviewReasons: catalogEvidence.reviewReasons,
+    suggestedQuestion: catalogEvidence.suggestedQuestion,
+    operatorAction: catalogEvidence.operatorAction,
+    safeUseBoundary: catalogEvidence.safeUseBoundary,
+    actionPermissions: catalogEvidence.actionPermissions,
+  };
+}
+
 function instacompTrialResultRows(items: BatchCardViewItem[]) {
   return items
     .filter(({ card }) => card.status === "done" && card.result?.ai)
@@ -1733,6 +1762,7 @@ function instacompTrialResultRows(items: BatchCardViewItem[]) {
         scanElapsedMs: card.scanElapsedMs ?? null,
         consensus: result.consensus || null,
         review: result.review || null,
+        catalogEvidence: instacompTrialCatalogEvidenceSummary(result),
         actual: {
           player: ai.player || "",
           year: ai.year || "",
@@ -1770,6 +1800,13 @@ function instacompTrialResultsPayload(items: BatchCardViewItem[]) {
         (card) => card.consensus?.status === "review_required"
       ).length,
       missingConsensus: cards.filter((card) => !card.consensus).length,
+      catalogConfirmed: cards.filter(
+        (card) => card.catalogEvidence?.catalogConfirmed === true
+      ).length,
+      catalogReviewRequired: cards.filter(
+        (card) => card.catalogEvidence?.status === "review_required"
+      ).length,
+      missingCatalogEvidence: cards.filter((card) => !card.catalogEvidence).length,
       rowsWithTiming: timedRows.length,
       averageElapsedMs:
         timedRows.length > 0
