@@ -295,9 +295,9 @@ if (payload) {
       Array.isArray(evidence.checkpoint?.summary?.liveMoneyMissingBootstrapEnvironment) &&
         (evidence.checkpoint?.summary?.liveMoneyState !== "BLOCKED_UNEVALUATED" ||
           evidence.checkpoint.summary.liveMoneyMissingBootstrapEnvironment.length > 0),
-      "history checkpoint live-money missing bootstrap environment is recorded",
+      "history checkpoint live-money missing bootstrap environment matches state",
       Array.isArray(evidence.checkpoint?.summary?.liveMoneyMissingBootstrapEnvironment)
-        ? evidence.checkpoint.summary.liveMoneyMissingBootstrapEnvironment.join(", ")
+        ? evidence.checkpoint.summary.liveMoneyMissingBootstrapEnvironment.join(", ") || "none detected"
         : null,
     ),
   );
@@ -306,9 +306,9 @@ if (payload) {
       Array.isArray(evidence.nextAction?.summary?.liveMoneyMissingBootstrapEnvironment) &&
         (evidence.nextAction?.summary?.liveMoneyState !== "BLOCKED_UNEVALUATED" ||
           evidence.nextAction.summary.liveMoneyMissingBootstrapEnvironment.length > 0),
-      "history next-action live-money missing bootstrap environment is recorded",
+      "history next-action live-money missing bootstrap environment matches state",
       Array.isArray(evidence.nextAction?.summary?.liveMoneyMissingBootstrapEnvironment)
-        ? evidence.nextAction.summary.liveMoneyMissingBootstrapEnvironment.join(", ")
+        ? evidence.nextAction.summary.liveMoneyMissingBootstrapEnvironment.join(", ") || "none detected"
         : null,
     ),
   );
@@ -317,9 +317,9 @@ if (payload) {
       Array.isArray(evidence.goLiveRunway?.summary?.liveMoneyMissingBootstrapEnvironment) &&
         (evidence.goLiveRunway?.summary?.liveMoneyState !== "BLOCKED_UNEVALUATED" ||
           evidence.goLiveRunway.summary.liveMoneyMissingBootstrapEnvironment.length > 0),
-      "history runway live-money missing bootstrap environment is recorded",
+      "history runway live-money missing bootstrap environment matches state",
       Array.isArray(evidence.goLiveRunway?.summary?.liveMoneyMissingBootstrapEnvironment)
-        ? evidence.goLiveRunway.summary.liveMoneyMissingBootstrapEnvironment.join(", ")
+        ? evidence.goLiveRunway.summary.liveMoneyMissingBootstrapEnvironment.join(", ") || "none detected"
         : null,
     ),
   );

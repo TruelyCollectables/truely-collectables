@@ -326,11 +326,15 @@ if (payload) {
   );
   checks.push(
     check(
-      payload.liveMoney?.missingBootstrapEnvironment?.length > 0,
-      "checkpoint live-money missing bootstrap environment is recorded",
-      Array.isArray(payload.liveMoney?.missingBootstrapEnvironment)
-        ? payload.liveMoney.missingBootstrapEnvironment.join(", ")
-        : null,
+      payload.liveMoney?.state === "BLOCKED_UNEVALUATED"
+        ? payload.liveMoney?.missingBootstrapEnvironment?.length > 0
+        : Array.isArray(payload.liveMoney?.missingBootstrapEnvironment),
+      "checkpoint live-money missing bootstrap environment matches state",
+      `${payload.liveMoney?.state || "unknown"} / ${
+        Array.isArray(payload.liveMoney?.missingBootstrapEnvironment)
+          ? payload.liveMoney.missingBootstrapEnvironment.join(", ") || "none detected"
+          : "not recorded"
+      }`,
     ),
   );
   checks.push(
