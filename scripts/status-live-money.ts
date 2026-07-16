@@ -1,7 +1,10 @@
+import { loadEnvConfig } from "@next/env";
 import { evaluateLivePaymentLaunch } from "../src/lib/live-payment-launch";
 import { LIVE_MONEY_JSON_EVIDENCE } from "../src/lib/live-money-evidence";
 import { createSupabaseServerClient } from "../src/lib/supabase-server";
 import { getActiveStoreId } from "../src/lib/stores";
+
+loadEnvConfig(process.cwd());
 
 type LiveMoneyState =
   | "BLOCKED_UNEVALUATED"
