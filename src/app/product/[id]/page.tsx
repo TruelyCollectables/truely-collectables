@@ -1,5 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
+import type { Metadata } from "next";
+import { cache } from "react";
 import OfferForm from "./OfferForm";
 import ProductActions from "./ProductActions";
 import {
@@ -11,11 +13,102 @@ import {
 } from "../../../lib/authenticity";
 import { buildCollectorIntelligence } from "../../../lib/collector-intelligence";
 import { createSupabaseServerClient } from "../../../lib/supabase-server";
+import { configuredSiteOrigin } from "../../../lib/site-origin";
 import { getStoreSettings } from "../../../lib/store-settings";
 import { inventoryEngine } from "../../../modules/inventory";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+const getProduct = cache(async (id: string) => {
+  const numericId = Number(id);
+
+  if (!Number.isFinite(numericId)) return null;
+
+  return inventoryEngine.getByLegacyProductId(numericId);
+});
+
+function absoluteUrl(value: string | null | undefined) {
+  if (!value) return null;
+
+  try {
+    return new URL(value, configuredSiteOrigin()).toString();
+  } catch {
+    return null;
+  }
+}
+
+function productDescription(product: NonNullable<Awaited<ReturnType<typeof getProduct>>>) {
+  return (
+    product.description ||
+    [
+      product.title,
+      product.player ? `featuring ${product.player}` : "",
+      product.sport ? `in ${product.sport}` : "",
+      `available from Truely Collectables for $${Number(product.price).toFixed(2)}.`,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .slice(0, 300)
+  );
+}
+
+function safeJsonLd(value: unknown) {
+  return JSON.stringify(value).replaceAll("<", "\\u003c");
+}
+
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ id: string }>;
+}): Promise<Metadata> {
+  const { id } = await params;
+  const product = await getProduct(id);
+  const origin = configuredSiteOrigin();
+
+  if (!product) {
+    return {
+      title: "Product Not Found | Truely Collectables",
+      robots: {
+        index: false,
+        follow: true,
+      },
+    };
+  }
+
+  const title = `${product.title} | Truely Collectables`;
+  const description = productDescription(product);
+  const image = absoluteUrl(product.imageUrl);
+  const canonicalPath = `/product/${product.legacyProductId}`;
+
+  return {
+    title,
+    description,
+    alternates: {
+      canonical: canonicalPath,
+    },
+    openGraph: {
+      title,
+      description,
+      url: `${origin}${canonicalPath}`,
+      type: "website",
+      images: image
+        ? [
+            {
+              url: image,
+              alt: product.title,
+            },
+          ]
+        : undefined,
+    },
+    twitter: {
+      card: image ? "summary_large_image" : "summary",
+      title,
+      description,
+      images: image ? [image] : undefined,
+    },
+  };
+}
 
 function statusLabel(status: string, quantity: number) {
   if (quantity <= 0) return "Sold Out";
@@ -44,7 +137,7 @@ export default async function ProductPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = await params;
-  const product = await inventoryEngine.getByLegacyProductId(Number(id));
+  const product = await getProduct(id);
 
   if (!product) {
     return (
@@ -73,6 +166,37 @@ export default async function ProductPage({
   const intelligence = buildCollectorIntelligence(product, {
     storeDisplayName: storeSettings.displayName,
   });
+  const productUrl = `${configuredSiteOrigin()}/product/${product.legacyProductId}`;
+  const imageUrl = absoluteUrl(product.imageUrl);
+  const productJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Product",
+    name: product.title,
+    description: productDescription(product),
+    image: imageUrl ? [imageUrl] : undefined,
+    sku: product.sku || String(product.legacyProductId),
+    mpn: product.ebayItemId || product.sku || String(product.legacyProductId),
+    category: product.sport || "Collectibles",
+    brand: {
+      "@type": "Brand",
+      name: product.sport || "Sports Cards",
+    },
+    url: productUrl,
+    offers: {
+      "@type": "Offer",
+      url: productUrl,
+      priceCurrency: "USD",
+      price: Number(product.price).toFixed(2),
+      availability: isSoldOut
+        ? "https://schema.org/OutOfStock"
+        : "https://schema.org/InStock",
+      itemCondition: "https://schema.org/UsedCondition",
+      seller: {
+        "@type": "Organization",
+        name: storeSettings.displayName,
+      },
+    },
+  };
   const authenticityCallout = getAuthenticityCallout(product.authenticity);
   const authenticityBadges = buildAuthenticityBadges(product.authenticity);
   const facts = [
@@ -86,6 +210,11 @@ export default async function ProductPage({
 
   return (
     <main className="mx-auto max-w-7xl px-6 py-8">
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: safeJsonLd(productJsonLd) }}
+      />
+
       <Link href="/shop" className="inline-block text-sm font-bold underline">
         Back to Shop
       </Link>
