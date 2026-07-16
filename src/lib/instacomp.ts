@@ -399,6 +399,8 @@ export function buildCompLinks(query: string): InstaCompLinks {
   const goldinUrl = `https://goldin.co/search?q=${encoded}`;
   const fanaticsUrl = `https://www.fanaticscollect.com/search?q=${encoded}`;
   const sportlotsUrl = googleSiteUrl("sportlots.com");
+  const paniniAmericaUrl = googleSiteUrl("paniniamerica.net");
+  const upperDeckUrl = googleSiteUrl("upperdeck.com");
   const mercariUrl = `https://www.mercari.com/search/?keyword=${encoded}`;
   const facebookMarketplaceUrl = `https://www.facebook.com/marketplace/search/?query=${encoded}`;
   const googleShoppingUrl = `https://www.google.com/search?tbm=shop&q=${encoded}`;
@@ -409,9 +411,7 @@ export function buildCompLinks(query: string): InstaCompLinks {
     { label: "130point", url: one30pointUrl, category: "sold" },
     { label: "PSA APR", url: googleSiteUrl("psacard.com/auctionprices"), category: "sold" },
     { label: "eBay Active", url: ebayActiveUrl, category: "marketplace" },
-    { label: "COMC", url: comcUrl, category: "marketplace" },
     { label: "MySlabs", url: myslabsUrl, category: "marketplace" },
-    { label: "Sportlots", url: sportlotsUrl, category: "marketplace" },
     { label: "Mercari", url: mercariUrl, category: "marketplace" },
     { label: "Facebook Marketplace", url: facebookMarketplaceUrl, category: "marketplace" },
     { label: "Whatnot", url: googleSiteUrl("whatnot.com"), category: "marketplace" },
@@ -433,6 +433,10 @@ export function buildCompLinks(query: string): InstaCompLinks {
     { label: "PriceCharting", url: googleSiteUrl("pricecharting.com"), category: "pricing" },
     { label: "CollX", url: googleSiteUrl("collx.app"), category: "pricing" },
     { label: "Cardbase", url: googleSiteUrl("cardbase.com"), category: "pricing" },
+    { label: "COMC Checklist", url: comcUrl, category: "reference" },
+    { label: "Sportlots Checklist", url: sportlotsUrl, category: "reference" },
+    { label: "Panini America Checklist", url: paniniAmericaUrl, category: "reference" },
+    { label: "Upper Deck Checklist", url: upperDeckUrl, category: "reference" },
     { label: "TCDB", url: googleSiteUrl("tcdb.com"), category: "reference" },
     { label: "Trading Card DB", url: googleSiteUrl("tradingcarddb.com"), category: "reference" },
     { label: "Cardboard Connection", url: googleSiteUrl("cardboardconnection.com"), category: "reference" },

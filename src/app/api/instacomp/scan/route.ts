@@ -69,6 +69,7 @@ const PADDLEOCR_TIMEOUT_MS = Number.isFinite(requestedPaddleOcrTimeoutMs)
   ? Math.max(1000, Math.min(requestedPaddleOcrTimeoutMs, 180000))
   : 120000;
 const DEAD_PROVIDER_COOLDOWN_MS = 10 * 60 * 1000;
+const COMC_PROVIDER_TIMEOUT_MS = 4500;
 let paddleOcrDisabledUntil = 0;
 let comcProviderDisabledUntil = 0;
 const MAX_SCAN_SOURCE_IMAGE_BYTES = 12 * 1024 * 1024;
@@ -376,12 +377,13 @@ Critical inspection workflow:
 3. Serial numbers are often foil-stamped and tiny. Inspect both images for formats like 7/25, 07/50, 007/199, 1 of 1, one-of-one, /5, /10, /25, /49, /50, /75, /99, /100, /149, /150, /199, /250, /299, /399, /499, /999. Return the exact visible format in serialNumber.
 4. Parallel/insert identity matters for price. If the card text, OCR text, or visible design says Limited Red, Red Limited, Clear Cut, Acetate, Canvas, Dazzlers, Young Guns, Portraits, Rookie Materials, Honor Roll, another insert/subset, or another printed color/foil/parallel name, do not call the card Base. Return the printed collector-market name in parallel and use the printed insert/subset as setName when appropriate.
 5. If a visible design cue strongly indicates the parallel, return the best collector-market name in parallel, such as "Limited Red", "Clear Cut", "Silver Prizm", "Green Prizm", "Blue Refractor", "Gold Wave", "Orange Ice", "Purple Shimmer", "Red White Blue Prizm", "Holo", "Refractor", "Chrome Refractor", "Mosaic Reactive Orange", "Sepia Refractor", "X-Fractor", "Atomic Refractor", or "Base".
-6. Use "Base" only when the card appears to be the normal base version and there are no visible or OCR-detected insert, subset, acetate/clear-stock, foil, color, refractor/prizm, or numbering cues. Use null only when the image quality prevents a fair call.
-7. Panini Select products use levels such as Concourse, Premier Level, and Courtside. These are set/product levels, not insert or parallel names. Put the level in setName when visible (for example "WNBA Select - Premier Level") and keep parallel null unless a true parallel cue such as Prizm, Green Prizm, Silver Prizm, Zebra, Tie-Dye, Gold, etc. is visible.
-8. Do not hallucinate serial numbers. Only return serialNumber when visible or explicitly printed/stamped.
-9. Do not overclaim exact parallels. If the color/finish or insert/clear-stock cue is visible but the exact market name is uncertain, use a cautious descriptive value like "Blue parallel - exact type uncertain" or "Insert - exact type uncertain" instead of Base.
-10. If front/back disagree, prefer the printed back for card number/year/set, and explain the conflict in notes.
-11. If the image is not a sports card, still describe what it appears to be and lower confidence.
+6. Upper Deck Clear Cut / acetate rule: if an Upper Deck card looks transparent or acetate-like, has a washed/see-through back, a centered team logo/player-name treatment, ghosted player silhouette, or clear-stock design while keeping the normal base card number, return parallel "Clear Cut". Do this even if the printed words "Clear Cut" are not visible. Example: Upper Deck Extended Series cards with a normal front but a translucent/clear back and centered logo/name are Clear Cut parallels, not base.
+7. Use "Base" only when the card appears to be the normal base version and there are no visible or OCR-detected insert, subset, acetate/clear-stock, foil, color, refractor/prizm, or numbering cues. Use null only when the image quality prevents a fair call.
+8. Panini Select products use levels such as Concourse, Premier Level, and Courtside. These are set/product levels, not insert or parallel names. Put the level in setName when visible (for example "WNBA Select - Premier Level") and keep parallel null unless a true parallel cue such as Prizm, Green Prizm, Silver Prizm, Zebra, Tie-Dye, Gold, etc. is visible.
+9. Do not hallucinate serial numbers. Only return serialNumber when visible or explicitly printed/stamped.
+10. Do not overclaim exact parallels. If the color/finish or insert/clear-stock cue is visible but the exact market name is uncertain, use a cautious descriptive value like "Blue parallel - exact type uncertain" or "Insert - exact type uncertain" instead of Base.
+11. If front/back disagree, prefer the printed back for card number/year/set, and explain the conflict in notes.
+12. If the image is not a sports card, still describe what it appears to be and lower confidence.
 
 Field rules:
 - Confidence must be between 0 and 1.
@@ -1075,12 +1077,19 @@ async function getComcProvider(
     },
   };
 
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    COMC_PROVIDER_TIMEOUT_MS
+  );
+
   try {
     const response = await fetch(endpoint, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
       },
+      signal: controller.signal,
       body: JSON.stringify(input),
     });
 
@@ -1169,6 +1178,8 @@ async function getComcProvider(
       results: [],
       searchUrl,
     };
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
@@ -1349,7 +1360,18 @@ const externalSearchSources: ExternalSearchSource[] = [
     domain: "psacard.com/auctionprices",
     category: "sold",
   },
-  { label: "Sportlots", domain: "sportlots.com", category: "marketplace" },
+  { label: "Sportlots Checklist", domain: "sportlots.com", category: "reference" },
+  { label: "COMC Checklist", domain: "comc.com", category: "reference" },
+  {
+    label: "Panini America Checklist",
+    domain: "paniniamerica.net",
+    category: "reference",
+  },
+  {
+    label: "Upper Deck Checklist",
+    domain: "upperdeck.com",
+    category: "reference",
+  },
   { label: "Mercari", domain: "mercari.com", category: "marketplace" },
   {
     label: "Facebook Marketplace",
@@ -1881,10 +1903,6 @@ function buildSourceCoverage(
   for (const provider of providers) {
     if (provider.label === "eBay Active") {
       directProviderBySourceLabel.set("ebay active", provider);
-    }
-
-    if (provider.label === "COMC Active") {
-      directProviderBySourceLabel.set("comc", provider);
     }
   }
 
@@ -2427,17 +2445,15 @@ export async function POST(req: NextRequest) {
     const links = buildCompLinks(queries.primary);
     const compQueries = [queries.primary, ...queries.backupQueries];
 
-    const [ebayProvider, comcProvider, tcosProvider, externalSearchProvider] =
+    const [ebayProvider, tcosProvider, externalSearchProvider] =
       await Promise.all([
         getBestEbayProvider(compQueries, ai, links.ebayActiveUrl),
-        getBestComcProvider(compQueries, ai, links.comcUrl),
         getTcosInventoryProvider(queries.primary, ai),
         getExternalSearchProvider(queries.primary, ai, links.broadCardMarketUrl),
       ]);
 
     const providers = [
       ebayProvider,
-      comcProvider,
       tcosProvider,
       externalSearchProvider,
     ];
