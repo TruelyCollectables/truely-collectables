@@ -74,11 +74,12 @@ const scenarios: Scenario[] = [
     },
   },
   {
-    name: "normal base with no printed signal stays base",
+    name: "normal base with no printed signal is suppressed",
     ai: baseAi,
     externalOcrText: "Fixture Player 2024 Upper Deck Card 1 National Hockey League.",
     expect(actual) {
-      assert(actual.parallel === "Base", `Expected Base unchanged, received ${actual.parallel}`);
+      assert(actual.parallel === null, `Expected Base suppressed, received ${actual.parallel}`);
+      assert(actual.notes?.includes("suppressed generic Base") === true, "Expected suppressed base note");
     },
   },
 ];

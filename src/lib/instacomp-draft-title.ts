@@ -54,6 +54,19 @@ function comparableTitlePart(value: string | null | undefined) {
     .trim();
 }
 
+function isGenericBaseTitlePart(value: string | null | undefined) {
+  const comparable = comparableTitlePart(value);
+
+  return (
+    comparable === "base" ||
+    comparable === "base card" ||
+    comparable === "standard" ||
+    comparable === "standard card" ||
+    comparable === "regular" ||
+    comparable === "regular card"
+  );
+}
+
 function stripLeadingBrandFromSetName(brand: string, setName: string) {
   const cleanBrand = cleanDraftTitlePhrase(brand, 80);
   let cleanSetName = cleanDraftTitlePhrase(setName, 120);
@@ -94,6 +107,49 @@ function stripLeadingPhrase(value: string | null | undefined, phrase: string | n
   }
 
   return cleanValue;
+}
+
+function stripTrailingPhrase(value: string | null | undefined, phrase: string | null | undefined) {
+  const cleanValue = cleanDraftTitlePhrase(value);
+  const cleanPhrase = cleanDraftTitlePhrase(phrase);
+
+  if (!cleanValue || !cleanPhrase) return cleanValue;
+
+  const phraseTokens = cleanPhrase.split(" ").filter(Boolean);
+  const valueTokens = cleanValue.split(" ").filter(Boolean);
+
+  if (
+    phraseTokens.length > 0 &&
+    valueTokens.length > phraseTokens.length &&
+    comparableTitlePart(valueTokens.slice(-phraseTokens.length).join(" ")) ===
+      comparableTitlePart(cleanPhrase)
+  ) {
+    return valueTokens.slice(0, -phraseTokens.length).join(" ");
+  }
+
+  return cleanValue;
+}
+
+function stripBoundaryPhrase(value: string | null | undefined, phrase: string | null | undefined) {
+  return stripTrailingPhrase(stripLeadingPhrase(value, phrase), phrase);
+}
+
+function stripBoundaryPhrases(value: string | null | undefined, phrases: Array<string | null | undefined>) {
+  let cleaned = cleanDraftTitlePhrase(value);
+
+  for (let index = 0; index < 4; index += 1) {
+    const previous = cleaned;
+
+    for (const phrase of phrases) {
+      cleaned = stripBoundaryPhrase(cleaned, phrase);
+    }
+
+    cleaned = collapseRepeatedTokenRuns(cleaned);
+
+    if (comparableTitlePart(cleaned) === comparableTitlePart(previous)) break;
+  }
+
+  return cleaned;
 }
 
 function setNameAlreadyContainsBrand(brand: string, setName: string) {
@@ -141,6 +197,25 @@ function releaseTitleParts(ai: InstaCompDraftTitleAi | null | undefined) {
   ].filter(Boolean);
 }
 
+function cleanParallelTitlePart(ai: InstaCompDraftTitleAi | null | undefined) {
+  const parallel = cleanDraftTitlePhrase(ai?.parallel, 120);
+
+  if (!parallel || isGenericBaseTitlePart(parallel)) return "";
+
+  const cardNumber = cleanDraftTitlePart(ai?.cardNumber, 40).replace(/^#/, "");
+  const releaseParts = releaseTitleParts(ai);
+  const stripped = stripBoundaryPhrases(parallel, [
+    ai?.player,
+    ai?.year,
+    cardNumber,
+    cardNumber ? `#${cardNumber}` : null,
+    ...releaseParts,
+    releaseParts.join(" "),
+  ]);
+
+  return isGenericBaseTitlePart(stripped) ? "" : stripped;
+}
+
 function appendUniqueTitlePart(parts: string[], part: string | null | undefined) {
   const cleaned = cleanDraftTitlePhrase(part);
   const comparable = comparableTitlePart(cleaned);
@@ -180,7 +255,7 @@ export function buildInstaCompDraftTitle(
   releaseTitleParts(ai).forEach((part) => appendUniqueTitlePart(parts, part));
   appendUniqueTitlePart(parts, ai?.player);
   appendUniqueTitlePart(parts, ai?.isRookie ? "Rookie" : null);
-  appendUniqueTitlePart(parts, stripLeadingPhrase(ai?.parallel, ai?.player));
+  appendUniqueTitlePart(parts, cleanParallelTitlePart(ai));
   appendUniqueTitlePart(
     parts,
     ai?.cardNumber

@@ -33,7 +33,14 @@ function compactText(value: string | null | undefined) {
 
 function isBaseParallel(value: string | null | undefined) {
   const normalized = compactText(value);
-  return normalized === "base" || normalized === "base card";
+  return (
+    normalized === "base" ||
+    normalized === "base card" ||
+    normalized === "standard" ||
+    normalized === "standard card" ||
+    normalized === "regular" ||
+    normalized === "regular card"
+  );
 }
 
 function hasUncertainText(value: string | null | undefined) {
@@ -64,6 +71,7 @@ export function buildInstaCompScanReview(
   const identityReviewReasons: string[] = [];
   const pricingReviewReasons: string[] = [];
   const ocrText = compactText(input.externalOcrText);
+  const printedVariantDetected = hasPrintedVariantSignal(ocrText);
 
   if ((ai.confidence || 0) < TRUSTED_IDENTITY_CONFIDENCE) {
     identityReviewReasons.push("low_identification_confidence");
@@ -72,7 +80,7 @@ export function buildInstaCompScanReview(
   if (!ai.year) identityReviewReasons.push("missing_year");
   if (!ai.brand && !ai.setName) identityReviewReasons.push("missing_brand_and_set");
   if (!ai.cardNumber) identityReviewReasons.push("missing_card_number");
-  if (!ai.parallel || hasUncertainText(ai.parallel)) {
+  if (hasUncertainText(ai.parallel)) {
     identityReviewReasons.push("parallel_needs_review");
   }
   if (hasUncertainText(ai.notes)) {
@@ -86,7 +94,7 @@ export function buildInstaCompScanReview(
   ) {
     identityReviewReasons.push("front_back_pairing_needs_review");
   }
-  if (hasPrintedVariantSignal(ocrText) && (!ai.parallel || isBaseParallel(ai.parallel))) {
+  if (printedVariantDetected && (!ai.parallel || isBaseParallel(ai.parallel))) {
     identityReviewReasons.push("ocr_variant_signal_not_resolved");
   }
 

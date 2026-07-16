@@ -96,6 +96,19 @@ const scenarios: Scenario[] = [
     },
   },
   {
+    name: "base card without printed variant signal can price without base label",
+    ai: { parallel: null },
+    externalOcrText: "BACK OCR Connor Bedard 2024-25 O-Pee-Chee Platinum card 201",
+    marketValueComps: [comp("sale one"), comp("sale two")],
+    expect(actual) {
+      assert(actual.trustedForPricing, `Expected base identity trusted, got ${actual.reviewReasons.join(", ")}`);
+      assert(
+        !actual.reviewReasons.includes("parallel_needs_review"),
+        "Expected no parallel review for base/no-variant card",
+      );
+    },
+  },
+  {
     name: "one comp is not enough for autoprice",
     marketValueComps: [comp("sale one")],
     expect(actual) {

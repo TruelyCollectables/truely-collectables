@@ -149,10 +149,21 @@ export function applyInstaCompIdentityGuard(
       .join(" "),
   );
   const signal = detectPrintedVariantSignal(combinedEvidence);
+  const currentParallel = ai.parallel || null;
+
+  if (!signal && currentParallel && isBaseParallel(currentParallel)) {
+    return {
+      ...ai,
+      parallel: null,
+      notes: appendNote(
+        ai.notes,
+        "Identity guardrail suppressed generic Base parallel label; base cards stay unlabelled unless the printed card name requires it.",
+      ),
+    };
+  }
 
   if (!signal) return ai;
 
-  const currentParallel = ai.parallel || null;
   const shouldOverrideBase = isBaseParallel(currentParallel);
   const shouldPreserveSpecificParallel =
     currentParallel &&

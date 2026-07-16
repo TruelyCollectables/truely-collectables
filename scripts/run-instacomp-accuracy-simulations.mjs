@@ -238,6 +238,66 @@ check(
   playerAlreadyInParallelDraftTitle
 );
 
+const baseParallelDraftTitle = buildInstaCompDraftTitle(
+  {
+    player: "Connor Bedard",
+    year: "2024-25",
+    brand: "Upper Deck",
+    setName: "O-Pee-Chee Platinum",
+    cardNumber: "201",
+    parallel: "Base",
+    serialNumber: null,
+    isRookie: true,
+  },
+  "fallback.jpg"
+);
+check(
+  "draft title suppresses generic base parallel",
+  baseParallelDraftTitle ===
+    "2024-25 O-Pee-Chee Platinum Connor Bedard Rookie #201",
+  baseParallelDraftTitle
+);
+
+const echoedParallelDraftTitle = buildInstaCompDraftTitle(
+  {
+    player: "Connor Bedard",
+    year: "2024-25",
+    brand: "Upper Deck",
+    setName: "O-Pee-Chee Platinum",
+    cardNumber: "201",
+    parallel: "Connor Bedard Limited Red Connor Bedard",
+    serialNumber: null,
+    isRookie: true,
+  },
+  "fallback.jpg"
+);
+check(
+  "draft title strips player echoes from parallel",
+  echoedParallelDraftTitle ===
+    "2024-25 O-Pee-Chee Platinum Connor Bedard Rookie Limited Red #201",
+  echoedParallelDraftTitle
+);
+
+const releaseEchoParallelDraftTitle = buildInstaCompDraftTitle(
+  {
+    player: "Connor Bedard",
+    year: "2024-25",
+    brand: "Upper Deck",
+    setName: "O-Pee-Chee Platinum",
+    cardNumber: "201",
+    parallel: "O-Pee-Chee Platinum Limited Red #201",
+    serialNumber: null,
+    isRookie: true,
+  },
+  "fallback.jpg"
+);
+check(
+  "draft title strips release and card-number echoes from parallel",
+  releaseEchoParallelDraftTitle ===
+    "2024-25 O-Pee-Chee Platinum Connor Bedard Rookie Limited Red #201",
+  releaseEchoParallelDraftTitle
+);
+
 const invalidSerialQuery = buildInstaCompQueries({ ...target, serialNumber: "99/25" });
 check("invalid serial cannot constrain comp search", !invalidSerialQuery.primary.includes("/25"), invalidSerialQuery.primary);
 
