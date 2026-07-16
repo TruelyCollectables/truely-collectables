@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 type RouteContext = { params: Promise<{ id: string }> };
-const INSTACOMP_SAFE_CLAIM_LIMIT = 3;
+const INSTACOMP_SAFE_CLAIM_LIMIT = 5;
 
 function claimedItemForClient(item: Record<string, any>) {
   const { lease_token: leaseToken, ...safeItem } = item;
@@ -33,7 +33,7 @@ export async function POST(request: Request, context: RouteContext) {
     const supabase = requireInstaCompJobSupabase();
     const { id } = await context.params;
     const jobId = requireUuid(id, "Job ID");
-    const job = await getAccessibleInstaCompJob({
+    await getAccessibleInstaCompJob({
       supabase,
       actor,
       jobId,
