@@ -271,6 +271,72 @@ const scenarios = [
     },
   },
   {
+    name: "fast lane exposes thin single-reader council warning",
+    run() {
+      const decision = decideInstaCompConsensusEscalation({
+        ai: {
+          ...baseAi,
+          setName: "Upper Deck Extended Series",
+          cardNumber: "656",
+          parallel: null,
+          confidence: 0.98,
+          notes: "Straightforward card identity.",
+        },
+        externalOcrText: null,
+        hasBackImage: true,
+        pairingConfidence: 0.96,
+      });
+      const consensus = buildInstaCompMultiScannerConsensus({
+        baseIdentity: baseAi,
+        readers: [primary(baseAi)],
+        escalation: decision,
+      });
+
+      assert(consensus.status === "consensus_confirmed", "Thin fast lane stays confirmed");
+      assert(consensus.councilReadiness.status === "warning", "Expected thin-council warning");
+      assert(
+        consensus.councilReadiness.reasons.includes(
+          "fast_lane_single_reader_no_supporting_scanner",
+        ),
+        "Expected visible fast-lane thin evidence reason",
+      );
+      assert(consensus.trustedForIdentity, "Warning should not block a high-confidence fast lane");
+    },
+  },
+  {
+    name: "full council missing second AI reader forces review",
+    run() {
+      const decision = decideInstaCompConsensusEscalation({
+        ai: {
+          ...baseAi,
+          cardNumber: "O-8",
+          parallel: "Base",
+          confidence: 0.96,
+          notes: "Primary reader called the card Base.",
+        },
+        externalOcrText: "OUTLIERS CONNOR MCDAVID O-8",
+        hasBackImage: true,
+        pairingConfidence: 0.96,
+      });
+      const consensus = buildInstaCompMultiScannerConsensus({
+        baseIdentity: baseAi,
+        readers: [primary(baseAi)],
+        escalation: decision,
+      });
+
+      assert(consensus.status === "review_required", "Incomplete full council must need review");
+      assert(
+        consensus.reviewReasons.includes("full_council_missing_second_ai_reader"),
+        "Expected missing second AI reader review reason",
+      );
+      assert(
+        consensus.councilReadiness.missingReaderKinds.includes("secondary_vision"),
+        "Expected missing secondary reader kind",
+      );
+      assert(!consensus.trustedForIdentity, "Incomplete full council cannot be trusted");
+    },
+  },
+  {
     name: "specific printed clear cut beats generic base without catalog",
     run() {
       const consensus = buildInstaCompMultiScannerConsensus({

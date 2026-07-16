@@ -21,6 +21,7 @@ export type InstaCompConsensusIdentity = Partial<
 
 export type InstaCompConsensusReaderKind =
   | "primary_vision"
+  | "secondary_vision"
   | "serial_vision"
   | "ocr_printed_evidence"
   | "catalog_referee"
@@ -76,6 +77,17 @@ export type InstaCompMultiScannerConsensus = {
   schema: "tcos.instacomp.multiScannerConsensus.v1";
   status: "consensus_confirmed" | "review_required";
   trustedForIdentity: boolean;
+  councilReadiness: {
+    status: "ready" | "warning" | "review_required";
+    speedLane: InstaCompConsensusEscalationDecision["speedLane"] | "unknown";
+    councilMode: InstaCompConsensusEscalationDecision["councilMode"] | "unknown";
+    independentReaderCount: number;
+    presentReaderKinds: InstaCompConsensusReaderKind[];
+    requiredReaderKinds: InstaCompConsensusReaderKind[];
+    missingReaderKinds: InstaCompConsensusReaderKind[];
+    reasons: string[];
+    explanation: string;
+  };
   finalIdentity: InstaCompConsensusIdentity;
   readerSummaries: InstaCompConsensusReaderSummary[];
   fieldDecisions: InstaCompConsensusFieldDecision[];
@@ -591,12 +603,89 @@ function suggestedQuestion(decisions: InstaCompConsensusFieldDecision[]) {
   return `Confirm the ${displayField(firstReview.field)} before trusting exact comps or creating sell/trade handoffs.`;
 }
 
+function councilReadiness(params: {
+  readers: InstaCompConsensusReaderFinding[];
+  catalogReferee?: InstaCompConsensusCatalogReferee | null;
+  escalation?: InstaCompConsensusEscalationDecision | null;
+}): InstaCompMultiScannerConsensus["councilReadiness"] {
+  const presentReaderKinds = uniqueStrings(
+    params.readers.map((reader) => reader.kind),
+  ) as InstaCompConsensusReaderKind[];
+  const requiredReaderKinds: InstaCompConsensusReaderKind[] = ["primary_vision"];
+  const reasons: string[] = [];
+  const hasCatalogConfirmation = params.catalogReferee?.status === "catalog_confirmed";
+  const supportReaderCount = params.readers.filter(
+    (reader) => reader.kind !== "primary_vision",
+  ).length + (hasCatalogConfirmation ? 1 : 0);
+
+  if (params.escalation?.runSecondaryVision) {
+    requiredReaderKinds.push("secondary_vision");
+  }
+
+  if (!presentReaderKinds.includes("primary_vision")) {
+    reasons.push("missing_primary_ai_vision_reader");
+  }
+
+  if (
+    params.escalation?.runSecondaryVision &&
+    !presentReaderKinds.includes("secondary_vision")
+  ) {
+    reasons.push("full_council_missing_second_ai_reader");
+  }
+
+  if (params.catalogReferee?.status === "review_required") {
+    reasons.push("catalog_referee_needs_review");
+  }
+
+  if (
+    !params.escalation?.runSecondaryVision &&
+    supportReaderCount === 0
+  ) {
+    reasons.push("fast_lane_single_reader_no_supporting_scanner");
+  }
+
+  const missingReaderKinds = requiredReaderKinds.filter(
+    (kind) => !presentReaderKinds.includes(kind),
+  );
+  const hardReviewReasons = reasons.filter(
+    (reason) => reason !== "fast_lane_single_reader_no_supporting_scanner",
+  );
+  const status = hardReviewReasons.length
+    ? "review_required"
+    : reasons.length
+      ? "warning"
+      : "ready";
+
+  return {
+    status,
+    speedLane: params.escalation?.speedLane || "unknown",
+    councilMode: params.escalation?.councilMode || "unknown",
+    independentReaderCount: params.readers.length + (hasCatalogConfirmation ? 1 : 0),
+    presentReaderKinds,
+    requiredReaderKinds,
+    missingReaderKinds,
+    reasons: uniqueStrings(reasons),
+    explanation:
+      status === "ready"
+        ? "Scanner council has the required independent readers for this lane."
+        : status === "warning"
+          ? "Fast-lane council completed, but it only had one independent scanner voice; keep the thin-evidence warning visible during review."
+          : `Scanner council is incomplete for this lane: ${hardReviewReasons.join(", ")}.`,
+  };
+}
+
 export function buildInstaCompMultiScannerConsensus(params: {
   readers: InstaCompConsensusReaderFinding[];
   baseIdentity?: InstaCompConsensusIdentity | null;
   catalogReferee?: InstaCompConsensusCatalogReferee | null;
+  escalation?: InstaCompConsensusEscalationDecision | null;
 }): InstaCompMultiScannerConsensus {
   const readers = params.readers.filter((reader) => reader.readerId && reader.label);
+  const readiness = councilReadiness({
+    readers,
+    catalogReferee: params.catalogReferee,
+    escalation: params.escalation,
+  });
   const fieldDecisions = CONSENSUS_FIELDS.flatMap((field) => {
     const decision = buildFieldDecision({
       field,
@@ -616,12 +705,15 @@ export function buildInstaCompMultiScannerConsensus(params: {
   }
 
   const reviewReasons = uniqueStrings(
-    fieldDecisions.flatMap((decision) => {
-      if (decision.status !== "review_required") return [];
-      if (!CRITICAL_FIELDS.has(decision.field)) return [];
+    [
+      ...fieldDecisions.flatMap((decision) => {
+        if (decision.status !== "review_required") return [];
+        if (!CRITICAL_FIELDS.has(decision.field)) return [];
 
-      return [`multi_scanner_${decision.field}_disagreement`];
-    }),
+        return [`multi_scanner_${decision.field}_disagreement`];
+      }),
+      ...(readiness.status === "review_required" ? readiness.reasons : []),
+    ],
   );
   const status = reviewReasons.length ? "review_required" : "consensus_confirmed";
 
@@ -629,6 +721,7 @@ export function buildInstaCompMultiScannerConsensus(params: {
     schema: "tcos.instacomp.multiScannerConsensus.v1",
     status,
     trustedForIdentity: status === "consensus_confirmed",
+    councilReadiness: readiness,
     finalIdentity,
     readerSummaries: readers.map(readerSummary),
     fieldDecisions,

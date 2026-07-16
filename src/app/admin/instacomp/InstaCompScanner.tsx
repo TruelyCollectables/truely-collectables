@@ -77,6 +77,17 @@ type ConsensusResult = {
   schema: "tcos.instacomp.multiScannerConsensus.v1";
   status: "consensus_confirmed" | "review_required";
   trustedForIdentity: boolean;
+  councilReadiness?: {
+    status: "ready" | "warning" | "review_required";
+    speedLane: string;
+    councilMode: string;
+    independentReaderCount: number;
+    presentReaderKinds: string[];
+    requiredReaderKinds: string[];
+    missingReaderKinds: string[];
+    reasons: string[];
+    explanation: string;
+  };
   reviewReasons: string[];
   reasonTrail: string[];
   suggestedQuestion: string | null;
@@ -10947,6 +10958,15 @@ function ConsensusMini({ result }: { result: ScanResponse | null }) {
   if (!consensus) return null;
 
   const confirmed = consensus.status === "consensus_confirmed";
+  const readiness = consensus.councilReadiness;
+  const readinessLabel =
+    readiness?.status === "review_required"
+      ? "council incomplete"
+      : readiness?.status === "warning"
+        ? "thin council"
+        : readiness?.status === "ready"
+          ? "council ready"
+          : null;
 
   return (
     <div
@@ -10960,6 +10980,7 @@ function ConsensusMini({ result }: { result: ScanResponse | null }) {
       Consensus: {confirmed ? "confirmed" : "needs review"} -{" "}
       {consensus.readerSummaries.length} reader
       {consensus.readerSummaries.length === 1 ? "" : "s"}
+      {readinessLabel ? ` - ${readinessLabel}` : ""}
       {consensus.reasonTrail[0] ? ` - ${consensus.reasonTrail[0]}` : ""}
     </div>
   );
@@ -10971,6 +10992,7 @@ function ConsensusPanel({ result }: { result: ScanResponse }) {
   if (!consensus) return null;
 
   const confirmed = consensus.status === "consensus_confirmed";
+  const readiness = consensus.councilReadiness;
   const topDecisions = consensus.fieldDecisions.slice(0, 8);
 
   return (
@@ -11009,7 +11031,27 @@ function ConsensusPanel({ result }: { result: ScanResponse }) {
           label="Trusted Identity"
           value={consensus.trustedForIdentity ? "Yes" : "No"}
         />
+        {readiness && (
+          <>
+            <Info
+              label="Council Verdict"
+              value={readiness.status.replaceAll("_", " ")}
+            />
+            <Info
+              label="Council Voices"
+              value={String(readiness.independentReaderCount)}
+            />
+          </>
+        )}
       </div>
+      {readiness && readiness.status !== "ready" && (
+        <p style={{ margin: "10px 0 0", color: "#7a4f00", fontWeight: 900 }}>
+          Council: {readiness.explanation}
+          {readiness.missingReaderKinds.length > 0
+            ? ` Missing: ${readiness.missingReaderKinds.join(", ")}.`
+            : ""}
+        </p>
+      )}
       {consensus.suggestedQuestion && (
         <p style={{ margin: "10px 0 0", color: "#7a4f00", fontWeight: 900 }}>
           Question: {consensus.suggestedQuestion}

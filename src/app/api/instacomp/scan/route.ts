@@ -860,7 +860,7 @@ function buildInstaCompConsensusReaders(params: {
       buildInstaCompReaderFindingFromAi({
         readerId: "secondary_vision",
         label: "Second AI vision",
-        kind: "other",
+        kind: "secondary_vision",
         ai: params.secondaryAi,
         evidence: [
           "adaptive multi-scanner escalation identity pass",
@@ -2371,6 +2371,7 @@ export async function POST(req: NextRequest) {
     const consensus = buildInstaCompMultiScannerConsensus({
       readers: consensusReaders,
       baseIdentity: guardedAi,
+      escalation: consensusEscalation,
     });
     const ai = applyInstaCompConsensusToAi(guardedAi, consensus);
 

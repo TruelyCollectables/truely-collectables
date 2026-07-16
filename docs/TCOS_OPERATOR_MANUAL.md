@@ -2147,6 +2147,7 @@ Future scanner catalog identity requirement:
 - each card should be submitted to independent AI/OCR readers that produce structured findings for year, manufacturer, set, card number, player, team, parallel/insert, visible variation clues, serial text, front/back OCR, and confidence evidence
 - readers should not simply copy one another; TCOS should compare independent findings, detect disagreements, and escalate only the uncertain cards to an additional reader or operator question
 - adaptive consensus escalation is now the required speed posture: obvious complete cards stay on the `fast_lane` / `fast_lane_council`, while low-confidence cards, missing critical fields, front-only/weak pairings, serial-numbered signals, autograph/relic signals, uncertain identity text, insert-style card-number prefixes such as `O-8`, `C-369`, `UD3-28`, or `S-50` that are still being treated as generic Base, or printed variant cues such as Outliers/Clear Cut/Limited Red escalate to `escalated_multi_ai` / `full_council` and run a second independent AI identity reader before comps are trusted
+- each scan response now carries a council-readiness verdict: fast-lane rows can show a visible `thin council` warning when only one scanner voice was available, while full-council rows are forced to review if the required second AI reader is missing
 - the consensus layer must use checklist/catalog truth as the referee, not majority vote alone, so two scanners calling a card `Base` cannot override a confirmed `Outliers`, `Clear Cut`, `Canvas`, `Limited Red`, `Future Watch`, serial run, autograph, relic, or other printed/cataloged variation
 - the review packet should preserve a concise reason trail showing which reader saw which clue, which checklist/catalog candidate matched, why the final identity won, and what still needs review
 - consensus confidence should unlock speed on easy cards and stricter review on valuable, rare, serial-numbered, or conflicting cards; if the consensus/catalog evidence is incomplete, the row must stay `Needs Review`
@@ -4193,7 +4194,7 @@ Per card, InstaComp can display:
 - confidence
 - AI notes
 - OCR provider, checked-image count, OCR text excerpt, and OCR serial
-- consensus speed lane and scanner-council mode, including whether the row stayed `fast_lane` / `fast_lane_council`, escalated to `escalated_multi_ai` / `full_council`, the risk tier, and the scanner plan used for that row
+- consensus speed lane, scanner-council mode, and council-readiness verdict, including whether the row stayed `fast_lane` / `fast_lane_council`, escalated to `escalated_multi_ai` / `full_council`, the risk tier, missing required reader kinds, thin-council warnings, and the scanner plan used for that row
 - comp-provider status, included comps, suggested price, and research links
 - market price basis, including active listings, sold comps when available, same-run guidance, and serial-adjusted guidance
 
