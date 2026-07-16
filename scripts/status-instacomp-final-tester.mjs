@@ -334,6 +334,7 @@ const trialImageDropZoneGuide = {
   explicitPairPattern:
     "Explicit side filenames can use front/fr/f/obverse and back/bk/b/reverse/rear. Example: 001-front.jpg + 001-back.jpg.",
   afterCopyCommands: [
+    "npm run instacomp:trial:intake",
     "npm run instacomp:trial:stage-images",
     "npm run instacomp:trial:stage-images -- --apply",
     "npm run instacomp:trial:prep",
@@ -438,6 +439,12 @@ const checklist = [
     key: "trial_prep_bundle",
     label:
       "The one-command local prep bundle can create a missing manifest, preserve an existing answer sheet, refresh the image-map/intake packet, and write JSON/Markdown preflight proof before scan time is spent.",
+    status: "ready_to_test",
+  },
+  {
+    key: "trial_intake_cockpit",
+    label:
+      "The one-command local intake cockpit can dry-run staging, refresh prep/preflight receipts, sync manifest/worksheet image paths, and write one JSON/Markdown next-action receipt without applying staging or touching live systems.",
     status: "ready_to_test",
   },
   {
@@ -551,6 +558,7 @@ const readiness = {
     buildConsensus:
       "Implement InstaComp™ Multi-Scanner Consensus before the final July 16 tester pass.",
     verifyHarness: "npm run verify:instacomp",
+    intakeTrial: "npm run instacomp:trial:intake",
     initTrial: "npm run instacomp:trial:init",
     writeTrialGroundTruthSheet: "npm run instacomp:trial:groundtruth:sheet",
     applyTrialGroundTruthSheet: "npm run instacomp:trial:groundtruth:apply",
@@ -668,6 +676,7 @@ if (jsonOutput) {
   console.log("");
   console.log("Commands:");
   console.log(`- verify harness: ${readiness.commands.verifyHarness}`);
+  console.log(`- intake cockpit: ${readiness.commands.intakeTrial}`);
   console.log(`- init trial: ${readiness.commands.initTrial}`);
   console.log(`- write trial ground truth sheet: ${readiness.commands.writeTrialGroundTruthSheet}`);
   console.log(`- apply trial ground truth sheet: ${readiness.commands.applyTrialGroundTruthSheet}`);

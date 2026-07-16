@@ -211,6 +211,12 @@ if (payload) {
   );
   checks.push(
     check(
+      fallbackCommands.includes("npm run instacomp:trial:intake"),
+      "local build fallback preserves InstaComp trial intake cockpit command",
+    ),
+  );
+  checks.push(
+    check(
       fallbackCommands.includes("npm run instacomp:trial:stage-images"),
       "local build fallback preserves InstaComp trial image staging command",
     ),

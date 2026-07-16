@@ -3915,6 +3915,14 @@ Use this trial when TCOS needs a real-world InstaComp accuracy check before trus
 
 The trial harness is local and read-only. It does not publish listings, buy postage, create Checkout sessions, deploy, change live-money flags, or call production APIs. It only scores a completed InstaComp run against a ground-truth manifest.
 
+Fast path: run the one-command local intake cockpit first:
+
+```bash
+npm run instacomp:trial:intake
+```
+
+That command prints schema `tcos.instacompTrialIntakeCockpit.v1`, dry-runs image staging, refreshes the prep/preflight receipts, syncs manifest/worksheet image paths from the current image map, and writes `instacomp-trial-intake.local.json` plus `instacomp-trial-intake.local.md` with one next action. It does not apply staging, delete source files, scan cards, deploy, publish listings, buy postage, create Checkout, call production APIs, approve live money, release payouts, or change runtime switches.
+
 1. Put the trial images in a local folder such as `instacomp-trial-images/`.
 2. Name each card pair with a stable number, for example `001-front.jpg`, `001-back.jpg`, through `100-front.jpg`, `100-back.jpg`. If the scanner exports plain ordered files such as `scan_0001.jpg`, `scan_0002.jpg`, and so on, keep the folder sorted in intended upload order; the audit treats `1+2`, `3+4`, and onward as front/back pairs when no explicit front/back token is present.
 3. If the scanner exports raw files that need to be normalized, drop them in ignored local folder `instacomp-trial-inbox/`, then dry-run the local image staging helper:

@@ -3767,6 +3767,9 @@ rear</code></pre>
 <h3>100-card trial run and 94% accuracy scorecard</h3>
 <p>Use this trial when TCOS needs a real-world InstaComp accuracy check before trusting a new scan batch. The target trial is about <code>100</code> cards with front and back images, or about <code>200</code> scans.</p>
 <p>The trial harness is local and read-only. It does not publish listings, buy postage, create Checkout sessions, deploy, change live-money flags, or call production APIs. It only scores a completed InstaComp run against a ground-truth manifest.</p>
+<p>Fast path: run the one-command local intake cockpit first:</p>
+<pre><code>npm run instacomp:trial:intake</code></pre>
+<p>That command prints schema <code>tcos.instacompTrialIntakeCockpit.v1</code>, dry-runs image staging, refreshes the prep/preflight receipts, syncs manifest/worksheet image paths from the current image map, and writes <code>instacomp-trial-intake.local.json</code> plus <code>instacomp-trial-intake.local.md</code> with one next action. It does not apply staging, delete source files, scan cards, deploy, publish listings, buy postage, create Checkout, call production APIs, approve live money, release payouts, or change runtime switches.</p>
 <ol>
 <li>Put the trial images in a local folder such as <code>instacomp-trial-images/</code>.</li>
 <li>Name each card pair with a stable number, for example <code>001-front.jpg</code>, <code>001-back.jpg</code>, through <code>100-front.jpg</code>, <code>100-back.jpg</code>. If the scanner exports plain ordered files such as <code>scan_0001.jpg</code>, <code>scan_0002.jpg</code>, and so on, keep the folder sorted in intended upload order; the audit treats <code>1+2</code>, <code>3+4</code>, and onward as front/back pairs when no explicit front/back token is present.</li>
