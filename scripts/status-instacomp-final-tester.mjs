@@ -24,6 +24,75 @@ function countFilesIfPresent(relativeDir) {
   return readdirSync(dir).filter((name) => !name.startsWith(".")).length;
 }
 
+function runTrialManifestAudit() {
+  const command = [
+    "node",
+    "scripts/run-instacomp-trial-report.mjs",
+    "--manifest",
+    "instacomp-trial-manifest.local.json",
+    "--audit-manifest",
+    "--expected-cards",
+    "100",
+    "--json",
+  ];
+  const result = spawnSync(command[0], command.slice(1), {
+    cwd: repoRoot,
+    encoding: "utf8",
+    maxBuffer: statusJsonMaxBuffer,
+  });
+  const stdout = (result.stdout || "").trim();
+
+  try {
+    const payload = JSON.parse(stdout);
+    const problems = payload.problems || {};
+
+    return {
+      command: "npm run instacomp:trial:groundtruth",
+      available: true,
+      readyToScore: Boolean(payload.readyToScore),
+      expectedCards: payload.expected?.cards ?? null,
+      observedCards: payload.observed?.cards ?? null,
+      readyRows: payload.observed?.readyRows ?? null,
+      missingCoreRows: payload.observed?.missingCoreRows ?? null,
+      duplicateTrialCardIdCount: payload.observed?.duplicateTrialCardIds ?? null,
+      missingTrialCardIdCount: payload.observed?.missingTrialCardIds ?? null,
+      shortManifestRows: payload.observed?.shortManifestRows ?? null,
+      coreFields: Array.isArray(payload.expected?.coreFields)
+        ? payload.expected.coreFields
+        : [],
+      firstMissingCoreRows: Array.isArray(problems.missingCoreFields)
+        ? problems.missingCoreFields.slice(0, 5)
+        : [],
+      next: payload.next || "Run npm run instacomp:trial:groundtruth.",
+      exitStatus: result.status,
+      error: result.status === 0 ? null : (result.stderr || "").trim() || null,
+    };
+  } catch (error) {
+    return {
+      command: "npm run instacomp:trial:groundtruth",
+      available: false,
+      readyToScore: false,
+      expectedCards: null,
+      observedCards: null,
+      readyRows: null,
+      missingCoreRows: null,
+      duplicateTrialCardIdCount: null,
+      missingTrialCardIdCount: null,
+      shortManifestRows: null,
+      coreFields: [],
+      firstMissingCoreRows: [],
+      next:
+        "Run npm run instacomp:trial:groundtruth directly to inspect ground-truth manifest readiness.",
+      exitStatus: result.status,
+      error:
+        (result.stderr || "").trim() ||
+        `Could not parse trial ground-truth audit JSON: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+    };
+  }
+}
+
 function runTrialImageAudit() {
   const command = [
     "node",
@@ -265,11 +334,13 @@ const trialImageDropZoneGuide = {
   explicitPairPattern:
     "Explicit side filenames can use front/fr/f/obverse and back/bk/b/reverse/rear. Example: 001-front.jpg + 001-back.jpg.",
   afterCopyCommands: [
+    "npm run instacomp:trial:groundtruth",
     "npm run instacomp:trial:ready",
     "npm run status:instacomp-final-tester",
   ],
 };
 const trialImageCount = countFilesIfPresent(trialImagesDir);
+const trialManifestAudit = runTrialManifestAudit();
 const trialImageAudit = runTrialImageAudit();
 const trialImageMap = readTrialImageMapStatus(trialImageAudit);
 const trialIntakePacket = readTrialIntakePacketStatus(
@@ -344,6 +415,12 @@ const checklist = [
     status: "ready_to_test",
   },
   {
+    key: "trial_groundtruth_manifest",
+    label:
+      "The pre-scan ground-truth manifest audit can prove each trial row has expected player, year, set, and card number before scanner time is spent or the 94% scorekeeper is trusted.",
+    status: trialManifestAudit.readyToScore ? "ready_to_score" : "needs_groundtruth",
+  },
+  {
     key: "trial_image_audit",
     label:
       "The pre-scan image audit can catch missing fronts/backs, duplicate images, unknown filenames, and extra files before the 100-card lot burns scanner time.",
@@ -376,7 +453,9 @@ const checklist = [
     label:
       "100-card / 200-scan final trial must score at least 94% against the local ground-truth manifest and pass the FAF speed gate: timing required, average <= 15s/card, p95 <= 45s/card.",
     status: existsSync(join(repoRoot, manifestPath)) && existsSync(join(repoRoot, resultsPath))
-      ? "ready_to_score"
+      ? trialManifestAudit.readyToScore
+        ? "ready_to_score"
+        : "needs_groundtruth"
       : trialImageAudit.readyToScan
         ? "ready_to_scan"
         : "needs_local_trial_files",
@@ -411,6 +490,7 @@ const readiness = {
     imageFileCount: trialImageCount,
     expectedImageCount: 200,
     imageDropZoneGuide: trialImageDropZoneGuide,
+    manifestAudit: trialManifestAudit,
     imageAudit: trialImageAudit,
     imageMap: trialImageMap,
     intakePacket: trialIntakePacket,
@@ -422,6 +502,7 @@ const readiness = {
       "Implement InstaComp™ Multi-Scanner Consensus before the final July 16 tester pass.",
     verifyHarness: "npm run verify:instacomp",
     initTrial: "npm run instacomp:trial:init",
+    auditTrialGroundTruth: "npm run instacomp:trial:groundtruth",
     auditTrialImages: "npm run instacomp:trial:audit",
     mapTrialImages: "npm run instacomp:trial:map",
     writeTrialPacket: "npm run instacomp:trial:packet",
@@ -450,6 +531,26 @@ if (jsonOutput) {
   console.log(`- git working tree clean: ${readiness.git.workingTreeClean ? "yes" : "no"}`);
   console.log(`- trial manifest: ${readiness.localTrial.manifestExists ? "present" : "missing"}`);
   console.log(`- trial results: ${readiness.localTrial.resultsExists ? "present" : "missing"}`);
+  console.log(
+    `- trial ground truth ready: ${readiness.localTrial.manifestAudit.readyToScore ? "yes" : "no"}`,
+  );
+  console.log(
+    `- trial ground truth rows: ${readiness.localTrial.manifestAudit.readyRows ?? "unknown"}/${readiness.localTrial.manifestAudit.expectedCards ?? "unknown"} core-ready`,
+  );
+  console.log(
+    `- trial ground truth core fields: ${readiness.localTrial.manifestAudit.coreFields.length ? readiness.localTrial.manifestAudit.coreFields.join(", ") : "unknown"}`,
+  );
+  console.log(
+    `- trial ground truth problems: missing core rows ${readiness.localTrial.manifestAudit.missingCoreRows ?? "unknown"}, duplicate trialCardId rows ${readiness.localTrial.manifestAudit.duplicateTrialCardIdCount ?? "unknown"}, missing trialCardId rows ${readiness.localTrial.manifestAudit.missingTrialCardIdCount ?? "unknown"}, short manifest rows ${readiness.localTrial.manifestAudit.shortManifestRows ?? "unknown"}`,
+  );
+  if (readiness.localTrial.manifestAudit.firstMissingCoreRows.length > 0) {
+    console.log(
+      `- first missing ground-truth rows: ${readiness.localTrial.manifestAudit.firstMissingCoreRows
+        .map((row) => `${row.trialCardId} missing ${row.missing.join("/")}`)
+        .join(", ")}`,
+    );
+  }
+  console.log(`- trial ground truth next: ${readiness.localTrial.manifestAudit.next}`);
   console.log(`- trial image folder exists: ${readiness.localTrial.imagesDirExists ? "yes" : "no"}`);
   console.log(`- trial image drop zone: ${readiness.localTrial.imagesAbsolutePath}`);
   console.log(
@@ -509,6 +610,7 @@ if (jsonOutput) {
   console.log("Commands:");
   console.log(`- verify harness: ${readiness.commands.verifyHarness}`);
   console.log(`- init trial: ${readiness.commands.initTrial}`);
+  console.log(`- audit trial ground truth: ${readiness.commands.auditTrialGroundTruth}`);
   console.log(`- audit trial images: ${readiness.commands.auditTrialImages}`);
   console.log(`- map trial images: ${readiness.commands.mapTrialImages}`);
   console.log(`- write trial packet: ${readiness.commands.writeTrialPacket}`);

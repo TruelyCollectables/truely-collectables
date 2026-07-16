@@ -203,10 +203,16 @@ if (payload) {
         "local build fallback preserves checkpoint handoff command",
       ),
     );
-    checks.push(
-      check(
-        fallbackCommands.includes("npm run instacomp:trial:audit"),
-        "local build fallback preserves InstaComp trial image audit command",
+      checks.push(
+        check(
+          fallbackCommands.includes("npm run instacomp:trial:groundtruth"),
+          "local build fallback preserves InstaComp trial ground-truth manifest audit command",
+        ),
+      );
+      checks.push(
+        check(
+          fallbackCommands.includes("npm run instacomp:trial:audit"),
+          "local build fallback preserves InstaComp trial image audit command",
       ),
     );
     checks.push(

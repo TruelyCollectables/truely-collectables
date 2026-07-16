@@ -3923,8 +3923,15 @@ The trial harness is local and read-only. It does not publish listings, buy post
 npm run instacomp:trial:init
 ```
 
-4. Open `instacomp-trial-manifest.local.json` and fill the `expected` fields from the physical card before using the scan result. Important expected fields are player/subject, year, brand, set, card number, parallel, variation, team, sport, autograph/relic/rookie flags, exact serial number such as `07/50`, and serial run such as `/50`.
-5. Before scanning, audit the folder so missing fronts/backs, duplicate images, unknown filenames, and extra files are caught before the scanner wastes time:
+4. Open `instacomp-trial-manifest.local.json` and fill the `expected` fields from the physical card before using the scan result. Required ground-truth fields for scoring are player/subject, year, set, and card number. Important recommended fields are brand/manufacturer, parallel, variation, team, sport, autograph/relic/rookie flags, exact serial number such as `07/50`, and serial run such as `/50`.
+5. Before scanning, audit the ground-truth manifest:
+
+```bash
+npm run instacomp:trial:groundtruth
+```
+
+That command is local and read-only. It prints schema `tcos.instacompTrialManifestAudit.v1` and fails until every `trial-card-###` row has player/year/set/card number filled, no `trialCardId` rows are blank, and no duplicate `trialCardId` values exist. This prevents a fake `94%` pass when the answer key is still empty.
+6. Before scanning, audit the folder so missing fronts/backs, duplicate images, unknown filenames, and extra files are caught before the scanner wastes time:
 
 ```bash
 npm run instacomp:trial:audit
@@ -3954,11 +3961,11 @@ For the normal pre-scan gate, run the one-shot readiness command:
 npm run instacomp:trial:ready
 ```
 
-That command runs the image audit, writes the front/back image-map receipt, and prints `status:instacomp-final-tester`. It must pass before the 100-card lot should be scanned.
-6. Run the lot through `/admin/instacomp` or `/admin/products/new` using the safest durable batch workflow below.
-7. From `/admin/instacomp`, check the `Final Tester Gate` HUD before export. It shows visible result count, timing coverage, average speed, p95 speed, slowest rows, and the `FAF PASS` / `NOT READY` status against the final tester targets.
-8. Use `Export Trial Results` or `Copy Trial Results` after the batch finishes, then save the exported JSON as `instacomp-trial-results.local.json`. The export uses schema `tcos.instacompTrialResults.v1`, preserves row-stable trialCardId values such as `trial-card-001`, includes the detected `actual` fields, carries consensus/review status, includes per-row timing evidence, and only includes completed visible scan rows. If you manually build the file instead, each row must use the same `trialCardId` as the manifest and can put detected fields under `actual`, `result`, `predicted`, or `ai`; to satisfy the speed gate, include timing under `timing.elapsedMs`, `scanTiming.elapsedMs`, or `scanElapsedMs`.
-9. Score the trial with the official accuracy + FAF timing gate:
+That command runs the ground-truth manifest audit, runs the image audit, writes the front/back image-map receipt, and prints `status:instacomp-final-tester`. It must pass before the 100-card lot should be scanned.
+7. Run the lot through `/admin/instacomp` or `/admin/products/new` using the safest durable batch workflow below.
+8. From `/admin/instacomp`, check the `Final Tester Gate` HUD before export. It shows visible result count, timing coverage, average speed, p95 speed, slowest rows, and the `FAF PASS` / `NOT READY` status against the final tester targets.
+9. Use `Export Trial Results` or `Copy Trial Results` after the batch finishes, then save the exported JSON as `instacomp-trial-results.local.json`. The export uses schema `tcos.instacompTrialResults.v1`, preserves row-stable trialCardId values such as `trial-card-001`, includes the detected `actual` fields, carries consensus/review status, includes per-row timing evidence, and only includes completed visible scan rows. If you manually build the file instead, each row must use the same `trialCardId` as the manifest and can put detected fields under `actual`, `result`, `predicted`, or `ai`; to satisfy the speed gate, include timing under `timing.elapsedMs`, `scanTiming.elapsedMs`, or `scanElapsedMs`.
+10. Score the trial with the official accuracy + FAF timing gate:
 
 ```bash
 npm run instacomp:trial:score

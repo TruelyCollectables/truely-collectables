@@ -164,10 +164,16 @@ if (payload) {
         "fallback selection preserves checkpoint handoff command",
       ),
     );
-    checks.push(
-      check(
-        commands.includes("npm run instacomp:trial:audit"),
-        "fallback selection preserves InstaComp trial image audit command",
+      checks.push(
+        check(
+          commands.includes("npm run instacomp:trial:groundtruth"),
+          "fallback selection preserves InstaComp trial ground-truth manifest audit command",
+        ),
+      );
+      checks.push(
+        check(
+          commands.includes("npm run instacomp:trial:audit"),
+          "fallback selection preserves InstaComp trial image audit command",
       ),
     );
     checks.push(

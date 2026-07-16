@@ -36,6 +36,8 @@ const identityFields = [
   "isAuto",
   "isRelic",
 ];
+const manifestCoreFields = ["player", "year", "setName", "cardNumber"];
+const manifestRecommendedFields = ["brand", "parallel", "team", "sport"];
 
 const args = process.argv.slice(2);
 
@@ -68,6 +70,9 @@ function usage() {
     "Score a completed trial:",
     "  node scripts/run-instacomp-trial-report.mjs --manifest instacomp-trial-manifest.local.json --results instacomp-trial-results.local.json --target 94",
     "",
+    "Audit the local ground-truth manifest before scanning/scoring:",
+    "  node scripts/run-instacomp-trial-report.mjs --manifest instacomp-trial-manifest.local.json --audit-manifest --expected-cards 100",
+    "",
     "Useful flags:",
     "  --target <percent>",
     "                   required accuracy percentage, defaults to 94",
@@ -79,6 +84,8 @@ function usage() {
     "                   fail when the results export has no completed-card timing evidence",
     "  --audit-images <dir>",
     "                   audit a local front/back trial image folder before scanning",
+    "  --audit-manifest",
+    "                   audit expected player/year/set/card-number ground truth before scanning or scoring",
     "  --expected-cards <count>",
     "                   expected card count for --audit-images when manifest target is absent",
     "  --write-image-map <path>",
@@ -239,6 +246,227 @@ function validateResultsShape(results) {
   if (!Array.isArray(results.cards)) {
     throw new Error("Results must include a cards array.");
   }
+}
+
+function readExpectedFields(card) {
+  return card?.expected || {};
+}
+
+function countKnownFields(expected, fields) {
+  return fields.filter((field) => isKnown(expected[field])).length;
+}
+
+function auditManifestGroundTruth(manifest, manifestPath, expectedCards) {
+  validateManifestShape(manifest);
+
+  const trialCardIds = new Map();
+  const duplicateTrialCardIds = [];
+  const missingTrialCardIds = [];
+  const missingCoreFields = [];
+  const recommendedFieldWarnings = [];
+  const serialWarnings = [];
+  const cards = manifest.cards.map((card, index) => {
+    const ordinal = padTrialNumber(index + 1);
+    const trialCardId = isKnown(card.trialCardId)
+      ? String(card.trialCardId)
+      : `trial-card-${ordinal}`;
+    const expected = readExpectedFields(card);
+    const missingCore = manifestCoreFields.filter((field) => !isKnown(expected[field]));
+    const missingRecommended = manifestRecommendedFields.filter(
+      (field) => !isKnown(expected[field]),
+    );
+    const identityKnown = countKnownFields(expected, identityFields);
+    const serialKnown = countKnownFields(expected, ["serialNumber", "serialRun"]);
+
+    if (!isKnown(card.trialCardId)) {
+      missingTrialCardIds.push({ row: index + 1, fallbackTrialCardId: trialCardId });
+    }
+
+    if (trialCardIds.has(trialCardId)) {
+      duplicateTrialCardIds.push({
+        trialCardId,
+        firstRow: trialCardIds.get(trialCardId),
+        duplicateRow: index + 1,
+      });
+    } else {
+      trialCardIds.set(trialCardId, index + 1);
+    }
+
+    if (missingCore.length > 0) {
+      missingCoreFields.push({
+        trialCardId,
+        row: index + 1,
+        missing: missingCore,
+      });
+    }
+
+    if (missingRecommended.length > 0) {
+      recommendedFieldWarnings.push({
+        trialCardId,
+        row: index + 1,
+        missing: missingRecommended,
+      });
+    }
+
+    if (isKnown(expected.serialNumber) && !isKnown(expected.serialRun)) {
+      serialWarnings.push({
+        trialCardId,
+        row: index + 1,
+        warning: "serialNumber is filled but serialRun is blank",
+      });
+    }
+
+    return {
+      trialCardId,
+      row: index + 1,
+      coreFieldsKnown: manifestCoreFields.length - missingCore.length,
+      coreFieldsTotal: manifestCoreFields.length,
+      missingCoreFields: missingCore,
+      identityFieldsKnown: identityKnown,
+      serialFieldsKnown: serialKnown,
+      readyForScore: missingCore.length === 0,
+    };
+  });
+
+  const shortManifestRows = Math.max(0, expectedCards - manifest.cards.length);
+  const readyRows = cards.filter((card) => card.readyForScore).length;
+  const readyToScore =
+    manifest.cards.length >= expectedCards &&
+    shortManifestRows === 0 &&
+    missingTrialCardIds.length === 0 &&
+    duplicateTrialCardIds.length === 0 &&
+    missingCoreFields.length === 0;
+
+  return {
+    schema: "tcos.instacompTrialManifestAudit.v1",
+    generatedAt: new Date().toISOString(),
+    sideEffectBoundary:
+      "Read-only ground-truth manifest audit. Does not publish listings, buy postage, create Checkout, deploy, scan cards, call production APIs, approve live money, or mutate trial images.",
+    manifestPath,
+    expected: {
+      cards: expectedCards,
+      coreFields: manifestCoreFields,
+      recommendedFields: manifestRecommendedFields,
+    },
+    observed: {
+      cards: manifest.cards.length,
+      readyRows,
+      missingCoreRows: missingCoreFields.length,
+      duplicateTrialCardIds: duplicateTrialCardIds.length,
+      missingTrialCardIds: missingTrialCardIds.length,
+      shortManifestRows,
+    },
+    readyToScore,
+    cards: cards.slice(0, 25),
+    problems: {
+      missingCoreFields,
+      duplicateTrialCardIds,
+      missingTrialCardIds,
+      shortManifestRows,
+    },
+    warnings: {
+      recommendedFieldWarnings,
+      serialWarnings,
+    },
+    next: readyToScore
+      ? "Ground-truth manifest is ready. Run npm run instacomp:trial:ready, scan the lot in /admin/instacomp, export results, then run npm run instacomp:trial:score."
+      : "Fill the missing player/year/set/card-number ground-truth fields and fix duplicate or missing trialCardId rows before scanning or scoring.",
+  };
+}
+
+function printManifestAudit(report) {
+  console.log("InstaComp trial ground-truth manifest audit:");
+  console.log(`Cards expected: ${report.expected.cards}`);
+  console.log(`Manifest rows: ${report.observed.cards}`);
+  console.log(`Core-ready rows: ${report.observed.readyRows}/${report.observed.cards}`);
+  console.log(`Core fields: ${report.expected.coreFields.join(", ")}`);
+  console.log(`Ready to score: ${report.readyToScore ? "yes" : "no"}`);
+  if (report.manifestPath) console.log(`Manifest: ${report.manifestPath}`);
+
+  const problemLines = [
+    ["missing core fields", report.problems.missingCoreFields],
+    ["duplicate trialCardId rows", report.problems.duplicateTrialCardIds],
+    ["missing trialCardId rows", report.problems.missingTrialCardIds],
+  ];
+
+  if (
+    report.problems.shortManifestRows > 0 ||
+    problemLines.some(([, rows]) => rows.length > 0)
+  ) {
+    console.log("");
+    console.log("Problems:");
+    if (report.problems.shortManifestRows > 0) {
+      console.log(`- short manifest rows: ${report.problems.shortManifestRows}`);
+    }
+    for (const [label, rows] of problemLines) {
+      if (rows.length === 0) continue;
+      console.log(`- ${label}: ${rows.length}`);
+      for (const row of rows.slice(0, 10)) {
+        console.log(`  - ${typeof row === "string" ? row : JSON.stringify(row)}`);
+      }
+      if (rows.length > 10) console.log(`  - ... ${rows.length - 10} more`);
+    }
+  }
+
+  if (
+    report.warnings.recommendedFieldWarnings.length > 0 ||
+    report.warnings.serialWarnings.length > 0
+  ) {
+    console.log("");
+    console.log("Warnings:");
+    if (report.warnings.recommendedFieldWarnings.length > 0) {
+      console.log(
+        `- recommended fields missing on ${report.warnings.recommendedFieldWarnings.length} row(s)`,
+      );
+    }
+    for (const warning of report.warnings.serialWarnings.slice(0, 10)) {
+      console.log(`- ${warning.trialCardId}: ${warning.warning}`);
+    }
+  }
+
+  console.log("");
+  console.log(`Next: ${report.next}`);
+}
+
+async function auditTrialManifest() {
+  if (!hasFlag("--audit-manifest")) return false;
+
+  const manifestInput = getFlagValue("--manifest");
+  const expectedCardsValue = Number.parseInt(
+    getFlagValue("--expected-cards", String(DEFAULT_TARGET_CARDS)),
+    10,
+  );
+  const expectedCards =
+    Number.isFinite(expectedCardsValue) && expectedCardsValue > 0
+      ? expectedCardsValue
+      : DEFAULT_TARGET_CARDS;
+
+  if (!manifestInput) {
+    console.error("Missing --manifest path for --audit-manifest.\n\n" + usage());
+    process.exitCode = 1;
+    return true;
+  }
+
+  try {
+    const { resolved: manifestPath, data: manifest } = await readJsonFile(
+      manifestInput,
+      "manifest",
+    );
+    const report = auditManifestGroundTruth(manifest, manifestPath, expectedCards);
+
+    if (hasFlag("--json")) {
+      console.log(JSON.stringify(report, null, 2));
+    } else {
+      printManifestAudit(report);
+    }
+
+    if (!report.readyToScore) process.exitCode = 1;
+  } catch (error) {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  }
+
+  return true;
 }
 
 function padTrialNumber(value) {
@@ -610,7 +838,7 @@ async function auditTrialImages() {
     orderedPairAssignments: orderedPairAssignments.slice(0, 25),
     warnings,
     next: ready
-      ? "Run the lot through /admin/instacomp, export trial results, then score with npm run instacomp:trial:report."
+      ? "Run npm run instacomp:trial:groundtruth, then run the lot through /admin/instacomp, export trial results, and score with npm run instacomp:trial:score."
       : "Fix the missing, duplicate, unknown, or extra image files before scanning the 100-card lot.",
   };
 
@@ -1235,6 +1463,8 @@ function printTextReport(report) {
 
 if (await writeManifestTemplate()) {
   // Template mode already handled the command.
+} else if (await auditTrialManifest()) {
+  // Manifest-audit mode already handled the command.
 } else if (await auditTrialImages()) {
   // Image-audit mode already handled the command.
 } else {

@@ -3774,7 +3774,12 @@ rear</code></pre>
 </ol>
 <pre><code>npm run instacomp:trial:init</code></pre>
 <ol>
-<li>Open <code>instacomp-trial-manifest.local.json</code> and fill the <code>expected</code> fields from the physical card before using the scan result. Important expected fields are player/subject, year, brand, set, card number, parallel, variation, team, sport, autograph/relic/rookie flags, exact serial number such as <code>07/50</code>, and serial run such as <code>/50</code>.</li>
+<li>Open <code>instacomp-trial-manifest.local.json</code> and fill the <code>expected</code> fields from the physical card before using the scan result. Required ground-truth fields for scoring are player/subject, year, set, and card number. Important recommended fields are brand/manufacturer, parallel, variation, team, sport, autograph/relic/rookie flags, exact serial number such as <code>07/50</code>, and serial run such as <code>/50</code>.</li>
+<li>Before scanning, audit the ground-truth manifest:</li>
+</ol>
+<pre><code>npm run instacomp:trial:groundtruth</code></pre>
+<p>That command is local and read-only. It prints schema <code>tcos.instacompTrialManifestAudit.v1</code> and fails until every <code>trial-card-###</code> row has player/year/set/card number filled, no <code>trialCardId</code> rows are blank, and no duplicate <code>trialCardId</code> values exist. This prevents a fake <code>94%</code> pass when the answer key is still empty.</p>
+<ol>
 <li>Before scanning, audit the folder so missing fronts/backs, duplicate images, unknown filenames, and extra files are caught before the scanner wastes time:</li>
 </ol>
 <pre><code>npm run instacomp:trial:audit</code></pre>
@@ -3787,7 +3792,7 @@ rear</code></pre>
 <p>That command writes ignored local files <code>instacomp-trial-image-map.local.json</code> and <code>instacomp-trial-intake-packet.local.md</code>. The packet is a Markdown receipt with schema-backed audit counts, the local image folder, ready/not-ready status, the first pairing-preview rows, problem counts, accepted filename patterns, and the next commands. It uses <code>--allow-not-ready</code>, so it can document missing files before the folder is complete without pretending the lot is ready to scan.</p>
 <p>For the normal pre-scan gate, run the one-shot readiness command:</p>
 <pre><code>npm run instacomp:trial:ready</code></pre>
-<p>That command runs the image audit, writes the front/back image-map receipt, and prints <code>status:instacomp-final-tester</code>. It must pass before the 100-card lot should be scanned.</p>
+<p>That command runs the ground-truth manifest audit, runs the image audit, writes the front/back image-map receipt, and prints <code>status:instacomp-final-tester</code>. It must pass before the 100-card lot should be scanned.</p>
 <ol>
 <li>Run the lot through <code>/admin/instacomp</code> or <code>/admin/products/new</code> using the safest durable batch workflow below.</li>
 <li>From <code>/admin/instacomp</code>, check the <code>Final Tester Gate</code> HUD before export. It shows visible result count, timing coverage, average speed, p95 speed, slowest rows, and the <code>FAF PASS</code> / <code>NOT READY</code> status against the final tester targets.</li>
