@@ -66,6 +66,7 @@ function buildMonitorReport(iteration = 1) {
   const imageAudit = localTrial.imageAudit || {};
   const imageMap = localTrial.imageMap || {};
   const intakePacket = localTrial.intakePacket || {};
+  const answerKeyHtml = localTrial.answerKeyHtml || {};
 
   const groundTruthReady = Boolean(manifestAudit.readyToScore);
   const imagesReady = Boolean(imageAudit.readyToScan);
@@ -82,10 +83,15 @@ function buildMonitorReport(iteration = 1) {
     });
   }
   if (status.ok && !groundTruthReady) {
+    const visualAnswerKeyReady =
+      Boolean(answerKeyHtml.exists) && Boolean(answerKeyHtml.matchesCurrentWorksheet);
     blockers.push({
       key: "ground_truth_not_ready",
       label: `${manifestAudit.readyRows ?? 0}/${manifestAudit.expectedCards ?? 100} answer-key rows are core-ready.`,
       next:
+        (visualAnswerKeyReady
+          ? `Use ${answerKeyHtml.path || "instacomp-trial-answer-key.local.html"} beside instacomp-trial-groundtruth.local.tsv, fill the missing answer-key rows, then run npm run instacomp:trial:groundtruth:apply.`
+          : answerKeyHtml.next) ||
         manifestAudit.next ||
         "Fill instacomp-trial-groundtruth.local.tsv, then run npm run instacomp:trial:groundtruth:apply.",
       firstRows: manifestAudit.firstMissingCoreRows || [],
@@ -120,11 +126,22 @@ function buildMonitorReport(iteration = 1) {
     receiptsCurrent: receiptsReady,
     testerUrl: payload.testerUrl || "http://localhost:3000/admin/instacomp",
     paths: {
+      rawInbox: localTrial.inboxAbsolutePath || "instacomp-trial-inbox",
       imageDropZone: localTrial.imagesAbsolutePath || null,
+      normalizedImages: localTrial.imagesAbsolutePath || null,
       worksheet: "instacomp-trial-groundtruth.local.tsv",
+      answerKeyHtml: answerKeyHtml.path || "instacomp-trial-answer-key.local.html",
       manifest: localTrial.manifestPath || "instacomp-trial-manifest.local.json",
       preflightJson: "instacomp-trial-preflight.local.json",
       preflightMarkdown: "instacomp-trial-preflight.local.md",
+    },
+    answerKeyHtml: {
+      exists: Boolean(answerKeyHtml.exists),
+      matchesCurrentWorksheet: Boolean(answerKeyHtml.matchesCurrentWorksheet),
+      path: answerKeyHtml.path || "instacomp-trial-answer-key.local.html",
+      next:
+        answerKeyHtml.next ||
+        "Run npm run instacomp:trial:answer-key-html to refresh the local visual answer-key sheet.",
     },
     progress: {
       groundTruthRows: {
@@ -152,6 +169,8 @@ function buildMonitorReport(iteration = 1) {
       monitor: "npm run instacomp:trial:monitor",
       monitorJson: "npm run instacomp:trial:monitor:json",
       watch: "node scripts/watch-instacomp-trial-readiness.mjs --watch",
+      intake: "npm run instacomp:trial:intake",
+      writeAnswerKeyHtml: "npm run instacomp:trial:answer-key-html",
       applyGroundTruth: "npm run instacomp:trial:groundtruth:apply",
       preflight: "npm run instacomp:trial:preflight",
       score: "npm run instacomp:trial:score",
@@ -182,8 +201,14 @@ function printReport(report) {
     `- pairs: ${report.progress.imagePairs.complete}/${report.progress.imagePairs.expected} complete (${report.progress.imagePairs.percent}%)`,
   );
   console.log(`- receipts current: ${report.receiptsCurrent ? "yes" : "no"}`);
+  console.log(`- raw scanner inbox: ${report.paths.rawInbox}`);
   console.log(`- image drop zone: ${report.paths.imageDropZone}`);
   console.log(`- worksheet: ${report.paths.worksheet}`);
+  console.log(
+    `- visual answer key: ${report.answerKeyHtml.exists ? "present" : "missing"} - ${
+      report.answerKeyHtml.matchesCurrentWorksheet ? "matches worksheet" : "not ready"
+    } - ${report.paths.answerKeyHtml}`,
+  );
 
   if (report.blockers.length > 0) {
     console.log("- blockers:");
