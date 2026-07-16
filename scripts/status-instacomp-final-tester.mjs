@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { extname, join } from "node:path";
 import { spawnSync } from "node:child_process";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,6 +7,18 @@ import { fileURLToPath } from "node:url";
 const repoRoot = dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
 const jsonOutput = process.argv.includes("--json");
 const statusJsonMaxBuffer = 64 * 1024 * 1024;
+const acceptedImageFileExtensions = new Set([
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".webp",
+  ".heic",
+  ".heif",
+  ".gif",
+  ".bmp",
+  ".tif",
+  ".tiff",
+]);
 
 function runGit(args) {
   const result = spawnSync("git", args, {
@@ -17,11 +29,26 @@ function runGit(args) {
   return result.status === 0 ? (result.stdout || "").trim() : "";
 }
 
-function countFilesIfPresent(relativeDir) {
+function countAcceptedImageFilesIfPresent(relativeDir) {
   const dir = join(repoRoot, relativeDir);
   if (!existsSync(dir)) return 0;
 
-  return readdirSync(dir).filter((name) => !name.startsWith(".")).length;
+  return readdirSync(dir).filter(
+    (name) =>
+      !name.startsWith(".") &&
+      acceptedImageFileExtensions.has(extname(name).toLowerCase()),
+  ).length;
+}
+
+function countNonImageFilesIfPresent(relativeDir) {
+  const dir = join(repoRoot, relativeDir);
+  if (!existsSync(dir)) return 0;
+
+  return readdirSync(dir).filter(
+    (name) =>
+      !name.startsWith(".") &&
+      !acceptedImageFileExtensions.has(extname(name).toLowerCase()),
+  ).length;
 }
 
 function runTrialManifestAudit() {
@@ -348,7 +375,8 @@ const trialImageDropZoneGuide = {
     "npm run status:instacomp-final-tester",
   ],
 };
-const trialImageCount = countFilesIfPresent(trialImagesDir);
+const trialImageCount = countAcceptedImageFilesIfPresent(trialImagesDir);
+const trialNonImageFileCount = countNonImageFilesIfPresent(trialImagesDir);
 const trialManifestAudit = runTrialManifestAudit();
 const trialImageAudit = runTrialImageAudit();
 const trialImageMap = readTrialImageMapStatus(trialImageAudit);
@@ -545,6 +573,7 @@ const readiness = {
     imagesAbsolutePath: trialImagesAbsolutePath,
     imagesDirExists: existsSync(trialImagesAbsolutePath),
     imageFileCount: trialImageCount,
+    nonImageFileCount: trialNonImageFileCount,
     expectedImageCount: 200,
     imageDropZoneGuide: trialImageDropZoneGuide,
     manifestAudit: trialManifestAudit,
@@ -630,7 +659,10 @@ if (jsonOutput) {
     `- after copying images: ${readiness.localTrial.imageDropZoneGuide.afterCopyCommands.join(" | ")}`,
   );
   console.log(
-    `- trial images: ${readiness.localTrial.imageFileCount}/${readiness.localTrial.expectedImageCount} files in ${trialImagesDir}`,
+    `- trial image files: ${readiness.localTrial.imageFileCount}/${readiness.localTrial.expectedImageCount} accepted images in ${trialImagesDir}`,
+  );
+  console.log(
+    `- trial non-image files ignored: ${readiness.localTrial.nonImageFileCount}`,
   );
   console.log(
     `- trial image audit ready: ${readiness.localTrial.imageAudit.readyToScan ? "yes" : "no"}`,
