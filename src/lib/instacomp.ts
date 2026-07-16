@@ -2,6 +2,7 @@ import {
   extractInstaCompSerialNumber,
   serialRunDisplayLabel,
 } from "./instacomp-serial";
+import { gradingSearchPart, normalizeGradingCompany } from "./grading-cert";
 
 export type InstaCompAiResult = {
   player: string | null;
@@ -11,6 +12,11 @@ export type InstaCompAiResult = {
   cardNumber: string | null;
   parallel: string | null;
   serialNumber: string | null;
+  gradingCompany?: string | null;
+  gradeValue?: string | null;
+  certificationNumber?: string | null;
+  certificationLookupUrl?: string | null;
+  gradingEvidence?: string | null;
   team: string | null;
   sport: string | null;
   isRookie: boolean;
@@ -292,8 +298,10 @@ function parallelTokens(value: string | null | undefined) {
 export function buildInstaCompQueries(ai: InstaCompAiResult) {
   const serialRun = serialRunSearchToken(ai.serialNumber);
   const parallelPart = searchParallelPart(ai.parallel);
+  const gradePart = gradingSearchPart(ai);
 
   const primaryParts = [
+    gradePart,
     cleanPart(ai.year),
     cleanPart(ai.brand),
     cleanPart(ai.setName),
@@ -308,6 +316,7 @@ export function buildInstaCompQueries(ai: InstaCompAiResult) {
 
   const backupQueries = [
     [
+      gradePart,
       cleanPart(ai.player),
       cleanPart(ai.brand),
       cleanPart(ai.setName),
@@ -318,6 +327,7 @@ export function buildInstaCompQueries(ai: InstaCompAiResult) {
       .trim(),
 
     [
+      gradePart,
       cleanPart(ai.player),
       parallelPart,
       serialRun,
@@ -328,6 +338,7 @@ export function buildInstaCompQueries(ai: InstaCompAiResult) {
       .trim(),
 
     [
+      gradePart,
       cleanPart(ai.player),
       cleanPart(ai.year),
       cleanPart(ai.brand),
@@ -338,7 +349,7 @@ export function buildInstaCompQueries(ai: InstaCompAiResult) {
       .join(" ")
       .trim(),
 
-    [cleanPart(ai.player), cleanPart(ai.year), cleanPart(ai.brand)]
+    [gradePart, cleanPart(ai.player), cleanPart(ai.year), cleanPart(ai.brand)]
       .filter(Boolean)
       .join(" ")
       .trim(),
@@ -504,7 +515,12 @@ export function looksLikeBadCompTitle(title: string, ai?: InstaCompAiResult) {
     " slab",
   ];
 
-  if (ai && !ai.conditionGuess?.toLowerCase().includes("graded")) {
+  if (
+    ai &&
+    !normalizeGradingCompany(ai.gradingCompany) &&
+    !ai.gradeValue &&
+    !ai.conditionGuess?.toLowerCase().includes("graded")
+  ) {
     if (containsAny(` ${t} `, gradedWords)) return true;
   }
 
@@ -537,6 +553,8 @@ export function scoreCompMatch(title: string, ai: InstaCompAiResult) {
   const parallelTokenList = parallelTokens(ai.parallel);
   const cardNumber = normalizeCardNumber(ai.cardNumber);
   const serial = serialNumberParts(ai.serialNumber);
+  const grader = normalizeText(normalizeGradingCompany(ai.gradingCompany));
+  const grade = normalizeText(ai.gradeValue);
 
   if (player && t.includes(player)) {
     score += 30;
@@ -628,6 +646,28 @@ export function scoreCompMatch(title: string, ai: InstaCompAiResult) {
     }
   }
 
+  if (grader && containsAny(` ${t} `, [` ${grader} `, `${grader} `])) {
+    score += 20;
+    flags.push("grader");
+  }
+
+  if (grade) {
+    const gradePatterns = [
+      ` ${grader} ${grade} `,
+      ` ${grade} graded `,
+      ` grade ${grade} `,
+      ` graded ${grade} `,
+      ` mint ${grade} `,
+      ` gem mint ${grade} `,
+      ` ${grade} `,
+    ].filter(Boolean);
+
+    if (gradePatterns.some((pattern) => ` ${t} `.includes(pattern))) {
+      score += 20;
+      flags.push("grade");
+    }
+  }
+
   if (ai.isRookie && containsAny(` ${t} `, [" rookie ", " rc "])) {
     score += 8;
     flags.push("rookie");
@@ -677,6 +717,8 @@ export function filterAndRankExactMatches(
   const setCanReplaceBrandEvidence = meaningfulTokens(ai.setName).length >= 2;
   const requiresAutographEvidence = ai.isAuto;
   const requiresRelicEvidence = ai.isRelic;
+  const requiresGraderEvidence = Boolean(normalizeGradingCompany(ai.gradingCompany));
+  const requiresGradeEvidence = Boolean(ai.gradeValue);
 
   return comps
     .map((comp) => {
@@ -700,7 +742,9 @@ export function filterAndRankExactMatches(
           (setCanReplaceBrandEvidence && comp.flags.includes("set")) ||
           comp.flags.includes("set partial")) &&
         (!requiresAutographEvidence || comp.flags.includes("autograph")) &&
-        (!requiresRelicEvidence || comp.flags.includes("relic"))
+        (!requiresRelicEvidence || comp.flags.includes("relic")) &&
+        (!requiresGraderEvidence || comp.flags.includes("grader")) &&
+        (!requiresGradeEvidence || comp.flags.includes("grade"))
     )
     .filter(
       (comp) =>

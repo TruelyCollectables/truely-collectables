@@ -31,6 +31,11 @@ type TradeItemRequest = {
     cardNumber?: string | null;
     parallel?: string | null;
     serialNumber?: string | null;
+    gradingCompany?: string | null;
+    gradeValue?: string | null;
+    certificationNumber?: string | null;
+    certificationLookupUrl?: string | null;
+    gradingEvidence?: string | null;
     team?: string | null;
     sport?: string | null;
     isRookie?: boolean;
@@ -331,6 +336,9 @@ export async function POST(request: Request) {
         acquisition_source: "instacomp",
         estimated_value: marketPrice,
         value_confidence: marketPrice ? "instacomp_market" : "needs_review",
+        grade_company: cleanText(ai?.gradingCompany, 80),
+        grade_value: cleanText(ai?.gradeValue, 40),
+        certification_number: cleanText(ai?.certificationNumber, 80),
         condition: conditionFromAi(ai),
         ownership_status: "owned",
         visibility: "community",

@@ -2122,8 +2122,10 @@ Current behavior:
 - uses PaddleOCR first when `PADDLEOCR_API_URL` is configured
 - can use Google Vision as an optional OCR fallback
 - uses OpenAI vision for structured card identification and a dedicated serial-number pass
+- detects grading slab details separately from raw card identity, including grading company, grade, certification number, grading evidence, and a lookup link when supported; slab certification numbers must not be treated as card serial numbers
 - prefers printed back evidence for year, set, card number, and manufacturer when front/back evidence conflicts
 - searches configured TCOS, eBay, sold/marketplace providers, and broader research providers; COMC is kept as checklist/reference context and is not used in the active comp equation
+- when a graded slab is detected, comp search and exact comp filtering include the grader/grade so raw-card comps do not contaminate PSA/BGS/SGC/CGC/etc. markets
 - displays player, year, brand, set, card number, parallel, serial number, team, sport, condition clue, confidence, comps, and OCR diagnostics
 - shows `Buy Me on TCOS` and `Trade For Me on TCOS` lookup actions so the detected card can be searched against TCOS sale and trade surfaces
 - creates seller-owned drafts when a valid seller session owns the job, or store-owned drafts when an admin session owns the job
@@ -2148,6 +2150,7 @@ Future scanner catalog identity requirement:
 - Current MVP flow: after reviewing a saved InstaComp lot, click `Save Corrections` / `Save Selected Corrections`, then click `Process Saved Lot to TCOS DB`. This writes completed saved-lot rows into `tcos_card_knowledge_entries` and one deduped observation per source scan item into `tcos_card_knowledge_observations`.
 - Serial correction flow: each completed row has an editable `Serial #` field. Leave it blank when the card is not serial-numbered, or enter the exact visible serial such as `12/150`. Clicking `Save Corrections` requeues that row, applies the operator serial override before catalog/consensus/comps, reruns InstaComp pricing, then saves the corrected result.
 - Image correction flow: if an upload pair is reversed, click `Swap Front/Back` under the row thumbnails, then click `Retry Row` so InstaComp rescans the corrected front/back order. This keeps the current scan visible until the operator chooses to retry.
+- Graded slab flow: when a slab label is visible, InstaComp shows grader, grade, cert number, and a `verify` link in the row. Draft titles append the detected grader/grade, seller drafts receive authenticity cert provider/number, trade handoffs save grade company/value/certification number, and graded comp matching requires matching grader/grade evidence. Operators must still verify the official grading lookup before claiming the cert is confirmed.
 - TCOS trust rule: a card identity is `learning` for the first and second confirmed sightings. It becomes `tcos_trusted` only after the third distinct operator-confirmed sighting of that same identity. Reprocessing the same saved scan item does not double-count.
 - Submitter accountability rule: every TCOS Card DB observation records who submitted it. Seller submissions store `submitted_by_account_id`, `submitted_by_actor_type = seller`, and `submitted_store_id`. Admin submissions store `submitted_by_actor_type = admin`. This lets TCOS find repeat bad submitters, ask them to fix their information, or quarantine future submissions if needed.
 - The build target is one uninterrupted MVP block: schema/migrations, local-first lookup, correction capture, source-specific checklist expansion, visible evidence indicators, focused InstaComp sims, build, production guardrails, commit, and push only after green verification.

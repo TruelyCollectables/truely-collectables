@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { getFreshAccountSession } from "@/src/app/account/account-session";
 import { buildInstaCompDraftTitle } from "@/src/lib/instacomp-draft-title";
+import { gradingLookupUrl } from "@/src/lib/grading-cert";
 
 type AiResult = {
   player: string | null;
@@ -13,6 +14,11 @@ type AiResult = {
   cardNumber: string | null;
   parallel: string | null;
   serialNumber: string | null;
+  gradingCompany?: string | null;
+  gradeValue?: string | null;
+  certificationNumber?: string | null;
+  certificationLookupUrl?: string | null;
+  gradingEvidence?: string | null;
   team: string | null;
   sport: string | null;
   isRookie: boolean;
@@ -193,6 +199,11 @@ type ScanResponse = {
     serialVisionCheckedImages?: number | null;
     serialVisionSerialNumber?: string | null;
     serialVisionEvidence?: string | null;
+    gradingCompany?: string | null;
+    gradeValue?: string | null;
+    certificationNumber?: string | null;
+    certificationLookupUrl?: string | null;
+    gradingEvidence?: string | null;
     textExcerpt: string | null;
   };
   searchQuery: string;
@@ -2009,6 +2020,23 @@ function cardResultTitle(result: ScanResponse | null, fallback: string) {
   fallback = cleanRotationFileName(fallback);
   if (!result) return fallback;
   return buildInstaCompDraftTitle(result.ai, fallback);
+}
+
+function gradingSummary(ai: AiResult | null | undefined) {
+  const parts = [
+    ai?.gradingCompany || null,
+    ai?.gradeValue ? `Grade ${ai.gradeValue}` : null,
+    ai?.certificationNumber ? `Cert ${ai.certificationNumber}` : null,
+  ].filter(Boolean);
+
+  return parts.length ? parts.join(" · ") : null;
+}
+
+function certificationLookupHref(ai: AiResult | null | undefined) {
+  return (
+    ai?.certificationLookupUrl ||
+    gradingLookupUrl(ai?.gradingCompany, ai?.certificationNumber)
+  );
 }
 
 function draftTitleForCard(card: BatchCard) {
@@ -11947,6 +11975,12 @@ export default function InstaCompScanner({
               <Info label="Card #" value={result.ai.cardNumber} />
               <Info label="Parallel" value={result.ai.parallel} />
               <Info label="Serial #" value={result.ai.serialNumber} />
+              <Info label="Grader" value={result.ai.gradingCompany || null} />
+              <Info label="Grade" value={result.ai.gradeValue || null} />
+              <Info
+                label="Cert #"
+                value={result.ai.certificationNumber || null}
+              />
               <Info label="Team" value={result.ai.team} />
               <Info label="Sport" value={result.ai.sport} />
               <Info label="Rookie" value={result.ai.isRookie ? "Yes" : "No"} />
@@ -11963,6 +11997,25 @@ export default function InstaCompScanner({
                 <strong>AI Notes:</strong> {result.ai.notes}
               </p>
             )}
+
+            {gradingSummary(result.ai) ? (
+              <p style={{ marginTop: 10, color: "#555" }}>
+                <strong>Grading:</strong> {gradingSummary(result.ai)}
+                {certificationLookupHref(result.ai) ? (
+                  <>
+                    {" "}
+                    <a
+                      href={certificationLookupHref(result.ai) || "#"}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      Verify cert
+                    </a>
+                  </>
+                ) : null}
+                {result.ai.gradingEvidence ? ` — ${result.ai.gradingEvidence}` : ""}
+              </p>
+            ) : null}
 
             <OcrDiagnosticsPanel result={result} />
             <ConsensusPanel result={result} />
@@ -12536,6 +12589,20 @@ function OcrDiagnosticsPanel({ result }: { result: ScanResponse }) {
               : "None found"
           }
         />
+        <Info
+          label="Grading"
+          value={
+            gradingSummary({
+              ...result.ai,
+              gradingCompany:
+                diagnostics.gradingCompany || result.ai.gradingCompany,
+              gradeValue: diagnostics.gradeValue || result.ai.gradeValue,
+              certificationNumber:
+                diagnostics.certificationNumber ||
+                result.ai.certificationNumber,
+            }) || "None detected"
+          }
+        />
       </div>
       {!providerConfigured && (
         <p style={{ margin: "10px 0 0", color: "#8a1f1f", fontWeight: 900 }}>
@@ -12553,6 +12620,11 @@ function OcrDiagnosticsPanel({ result }: { result: ScanResponse }) {
       {diagnostics.serialVisionEvidence && (
         <p style={{ margin: "10px 0 0", color: "#555", fontWeight: 800 }}>
           Serial evidence: {diagnostics.serialVisionEvidence}
+        </p>
+      )}
+      {diagnostics.gradingEvidence && (
+        <p style={{ margin: "10px 0 0", color: "#555", fontWeight: 800 }}>
+          Grading evidence: {diagnostics.gradingEvidence}
         </p>
       )}
       {diagnostics.scannerPlan?.length ? (
@@ -12900,6 +12972,8 @@ function BatchCardRow({
   const title = draftTitleForCard(card);
   const aiTitle = cardResultTitle(card.result, card.file.name);
   const serialNumber = card.result?.ai.serialNumber || null;
+  const grading = gradingSummary(card.result?.ai);
+  const gradingHref = certificationLookupHref(card.result?.ai);
   const confidence = card.result
     ? confidenceLabel(card.result.ai.confidence)
     : "Pending";
@@ -13065,6 +13139,35 @@ function BatchCardRow({
                 >
                   Serial #: {serialNumber || "none detected"}
                 </span>
+                {grading ? (
+                  <span
+                    style={{
+                      border: "1px solid #7c3aed",
+                      borderRadius: 999,
+                      background: "#f5f3ff",
+                      color: "#5b21b6",
+                      fontSize: 12,
+                      fontWeight: 900,
+                      padding: "3px 8px",
+                    }}
+                    title={card.result?.ai.gradingEvidence || "Detected grading slab details."}
+                  >
+                    Grading: {grading}
+                    {gradingHref ? (
+                      <>
+                        {" "}
+                        <a
+                          href={gradingHref}
+                          target="_blank"
+                          rel="noreferrer"
+                          style={{ color: "#5b21b6" }}
+                        >
+                          verify
+                        </a>
+                      </>
+                    ) : null}
+                  </span>
+                ) : null}
                 {card.knowledgeEntryId ? (
                   <span
                     style={{

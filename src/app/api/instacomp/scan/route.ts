@@ -44,6 +44,7 @@ import {
   buildInstaCompCuratedChecklistEvidence,
   catalogEvidenceToConsensusReferee,
 } from "../../../../lib/instacomp-curated-checklist";
+import { detectGradingDetails } from "../../../../lib/grading-cert";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -313,6 +314,9 @@ async function getPaddleOcr(
             "parallel",
             "autograph",
             "relic",
+            "grading_company",
+            "grade",
+            "certification_number",
           ],
         },
       }),
@@ -465,22 +469,24 @@ Return JSON only.
 Critical inspection workflow:
 1. Read the front first for player, team, product line, brand marks, rookie logos, autograph/relic indicators, chrome/prizm/refractor wording, color, border, foil, wave, shimmer, cracked ice, mosaic, mojo, pulsar, scope, laser, sparkle, raywave, x-fractor, atomic, disco, holo, negative, sepia, prism, and other parallel clues.
 2. Read the back second for copyright year, printed card number, set/subset name, team, manufacturer text, printed insert names, printed parallel names, and tiny serial-number stamps.
-3. Serial numbers are often foil-stamped and tiny. Inspect both images for formats like 7/25, 07/50, 007/199, 1 of 1, one-of-one, /5, /10, /25, /49, /50, /75, /99, /100, /149, /150, /199, /250, /299, /399, /499, /999. Return the exact visible format in serialNumber.
-4. Parallel/insert identity matters for price. If the card text, OCR text, or visible design says Limited Red, Red Limited, Clear Cut, Acetate, Canvas, Dazzlers, Young Guns, Portraits, Rookie Materials, Honor Roll, another insert/subset, or another printed color/foil/parallel name, do not call the card Base. Return the printed collector-market name in parallel and use the printed insert/subset as setName when appropriate.
-5. If a visible design cue strongly indicates the parallel, return the best collector-market name in parallel, such as "Limited Red", "Clear Cut", "Silver Prizm", "Green Prizm", "Blue Refractor", "Gold Wave", "Orange Ice", "Purple Shimmer", "Red White Blue Prizm", "Holo", "Refractor", "Chrome Refractor", "Mosaic Reactive Orange", "Sepia Refractor", "X-Fractor", "Atomic Refractor", or "Base".
-6. Upper Deck Clear Cut / acetate rule: if an Upper Deck card looks transparent or acetate-like, has a washed/see-through back, a centered team logo/player-name treatment, ghosted player silhouette, or clear-stock design while keeping the normal base card number, return parallel "Clear Cut". Do this even if the printed words "Clear Cut" are not visible. Example: Upper Deck Extended Series cards with a normal front but a translucent/clear back and centered logo/name are Clear Cut parallels, not base.
-7. Use "Base" only when the card appears to be the normal base version and there are no visible or OCR-detected insert, subset, acetate/clear-stock, foil, color, refractor/prizm, or numbering cues. Use null only when the image quality prevents a fair call.
-8. Panini Select products use levels such as Concourse, Premier Level, and Courtside. These are set/product levels, not insert or parallel names. Put the level in setName when visible (for example "WNBA Select - Premier Level") and keep parallel null unless a true parallel cue such as Prizm, Green Prizm, Silver Prizm, Zebra, Tie-Dye, Gold, etc. is visible.
-9. Do not hallucinate serial numbers. Only return serialNumber when visible or explicitly printed/stamped.
-10. Do not overclaim exact parallels. If the color/finish or insert/clear-stock cue is visible but the exact market name is uncertain, use a cautious descriptive value like "Blue parallel - exact type uncertain" or "Insert - exact type uncertain" instead of Base.
-11. If front/back disagree, prefer the printed back for card number/year/set, and explain the conflict in notes.
-12. For checklist identity, prefer manufacturer/checklist evidence from Upper Deck, Panini America, Sportlots, COMC checklist pages, Cardboard Connection, TCDB/Trading Card DB, and similar checklist references before generic marketplace titles. Blowout Cards and Blowout Forums can provide helpful collector context, but treat forum claims as review/reference evidence unless they agree with printed card or checklist evidence.
-13. If the image is not a sports card, still describe what it appears to be and lower confidence.
+3. If the card is inside a grading slab, inspect the label separately from the card. Return the grading company in gradingCompany, the visible grade in gradeValue, the slab certification number in certificationNumber, and never confuse the slab certification number with the card serialNumber.
+4. Serial numbers are often foil-stamped and tiny on the card itself. Inspect both images for formats like 7/25, 07/50, 007/199, 1 of 1, one-of-one, /5, /10, /25, /49, /50, /75, /99, /100, /149, /150, /199, /250, /299, /399, /499, /999. Return the exact visible card stamp in serialNumber.
+5. Parallel/insert identity matters for price. If the card text, OCR text, or visible design says Limited Red, Red Limited, Clear Cut, Acetate, Canvas, Dazzlers, Young Guns, Portraits, Rookie Materials, Honor Roll, another insert/subset, or another printed color/foil/parallel name, do not call the card Base. Return the printed collector-market name in parallel and use the printed insert/subset as setName when appropriate.
+6. If a visible design cue strongly indicates the parallel, return the best collector-market name in parallel, such as "Limited Red", "Clear Cut", "Silver Prizm", "Green Prizm", "Blue Refractor", "Gold Wave", "Orange Ice", "Purple Shimmer", "Red White Blue Prizm", "Holo", "Refractor", "Chrome Refractor", "Mosaic Reactive Orange", "Sepia Refractor", "X-Fractor", "Atomic Refractor", or "Base".
+7. Upper Deck Clear Cut / acetate rule: if an Upper Deck card looks transparent or acetate-like, has a washed/see-through back, a centered team logo/player-name treatment, ghosted player silhouette, or clear-stock design while keeping the normal base card number, return parallel "Clear Cut". Do this even if the printed words "Clear Cut" are not visible. Example: Upper Deck Extended Series cards with a normal front but a translucent/clear back and centered logo/name are Clear Cut parallels, not base.
+8. Use "Base" only when the card appears to be the normal base version and there are no visible or OCR-detected insert, subset, acetate/clear-stock, foil, color, refractor/prizm, or numbering cues. Use null only when the image quality prevents a fair call.
+9. Panini Select products use levels such as Concourse, Premier Level, and Courtside. These are set/product levels, not insert or parallel names. Put the level in setName when visible (for example "WNBA Select - Premier Level") and keep parallel null unless a true parallel cue such as Prizm, Green Prizm, Silver Prizm, Zebra, Tie-Dye, Gold, etc. is visible.
+10. Do not hallucinate serial numbers or grading cert numbers. Only return serialNumber when a card stamp is visible or explicitly printed/stamped. Only return certificationNumber when a slab label cert is visible or present in OCR text.
+11. Do not overclaim exact parallels. If the color/finish or insert/clear-stock cue is visible but the exact market name is uncertain, use a cautious descriptive value like "Blue parallel - exact type uncertain" or "Insert - exact type uncertain" instead of Base.
+12. If front/back disagree, prefer the printed back for card number/year/set, and explain the conflict in notes.
+13. For checklist identity, prefer manufacturer/checklist evidence from Upper Deck, Panini America, Sportlots, COMC checklist pages, Cardboard Connection, TCDB/Trading Card DB, and similar checklist references before generic marketplace titles. Blowout Cards and Blowout Forums can provide helpful collector context, but treat forum claims as review/reference evidence unless they agree with printed card or checklist evidence.
+14. If the image is not a sports card, still describe what it appears to be and lower confidence.
 
 Field rules:
 - Confidence must be between 0 and 1.
-- player, year, brand, setName, cardNumber, parallel, serialNumber, team, sport, conditionGuess, and notes may be null only when not visible/inferable.
+- player, year, brand, setName, cardNumber, parallel, serialNumber, gradingCompany, gradeValue, certificationNumber, certificationLookupUrl, team, sport, conditionGuess, and notes may be null only when not visible/inferable.
 - notes must include short evidence for parallel and serial-number decisions, for example: "Parallel evidence: green prizm border. Serial evidence: visible 07/50 stamp on back." If absent, say what was checked.
+ - gradingEvidence must include short evidence for slab decisions when a graded slab is visible, for example: "PSA label; grade 10; cert 12345678." If no slab is visible, return null.
   `.trim();
 
   const content: any[] = [
@@ -505,7 +511,7 @@ Rules:
       ? [
           {
             type: "text",
-            text: "SECOND AI CONSENSUS PASS: act as an independent skeptical reader. Do not copy the first scanner. Re-check player, year, set/product line, card number, insert/subset/parallel, serial number, autograph/relic, and any clear-stock/acetate or color/foil cues. If the exact variation is not proven, say what is uncertain in notes instead of calling it Base.",
+            text: "SECOND AI CONSENSUS PASS: act as an independent skeptical reader. Do not copy the first scanner. Re-check player, year, set/product line, card number, insert/subset/parallel, card serial number, grading slab company, slab grade, slab certification number, autograph/relic, and any clear-stock/acetate or color/foil cues. If the exact variation is not proven, say what is uncertain in notes instead of calling it Base.",
           },
         ]
       : []),
@@ -513,13 +519,13 @@ Rules:
       ? [
           {
             type: "text",
-            text: `OCR TEXT EXTRACTED FROM FRONT/BACK/CROPS (${externalOcr.provider}, ${externalOcr.checkedImages} image(s)): ${externalOcr.text.slice(0, 6000)} Use this text heavily for exact player, set, card number, copyright year, manufacturer, parallel wording, and serial number.`,
+            text: `OCR TEXT EXTRACTED FROM FRONT/BACK/CROPS (${externalOcr.provider}, ${externalOcr.checkedImages} image(s)): ${externalOcr.text.slice(0, 6000)} Use this text heavily for exact player, set, card number, copyright year, manufacturer, parallel wording, card serial number, grading company, slab grade, and slab certification number.`,
           },
         ]
       : []),
     {
       type: "text",
-      text: "FRONT IMAGE: inspect player, product line, rookie logo, color/foil/refractor/prizm/parallel cues, autograph/relic cues, and visible serial stamp.",
+      text: "FRONT IMAGE: inspect player, product line, rookie logo, color/foil/refractor/prizm/parallel cues, autograph/relic cues, visible card serial stamp, and any grading slab label with company, grade, and cert number.",
     },
     {
       type: "image_url",
@@ -533,7 +539,7 @@ Rules:
   if (backDataUrl) {
     content.push({
       type: "text",
-      text: "BACK IMAGE: inspect copyright year, manufacturer text, set/subset, printed card number, team, odds text, and tiny foil serial-number stamps.",
+      text: "BACK IMAGE: inspect copyright year, manufacturer text, set/subset, printed card number, team, odds text, tiny foil card serial-number stamps, and any grading slab barcode/label/cert text.",
     });
     content.push({
       type: "image_url",
@@ -547,7 +553,7 @@ Rules:
   if (detailImages.length) {
     content.push({
       type: "text",
-      text: "ZOOM DETAIL IMAGES: these are cropped closeups from the same card images. Prioritize these for serial-number OCR, foil stamps, color/parallel names, and tiny printed identifiers. If a serial number is visible in any crop, return it exactly.",
+      text: "ZOOM DETAIL IMAGES: these are cropped closeups from the same card images. Prioritize these for card serial-number OCR, slab cert OCR, grading labels, foil stamps, color/parallel names, and tiny printed identifiers. If a card serial number or slab certification number is visible in any crop, return it exactly in the correct field.",
     });
 
     detailImages.forEach((image, index) => {
@@ -602,6 +608,11 @@ Rules:
               cardNumber: { type: ["string", "null"] },
               parallel: { type: ["string", "null"] },
               serialNumber: { type: ["string", "null"] },
+              gradingCompany: { type: ["string", "null"] },
+              gradeValue: { type: ["string", "null"] },
+              certificationNumber: { type: ["string", "null"] },
+              certificationLookupUrl: { type: ["string", "null"] },
+              gradingEvidence: { type: ["string", "null"] },
               team: { type: ["string", "null"] },
               sport: { type: ["string", "null"] },
               isRookie: { type: "boolean" },
@@ -619,6 +630,11 @@ Rules:
               "cardNumber",
               "parallel",
               "serialNumber",
+              "gradingCompany",
+              "gradeValue",
+              "certificationNumber",
+              "certificationLookupUrl",
+              "gradingEvidence",
               "team",
               "sport",
               "isRookie",
@@ -656,15 +672,7 @@ Rules:
     throw new Error("OpenAI returned no scan content.");
   }
 
-  const parsed = JSON.parse(text) as InstaCompAiResult;
-
-  return {
-    ...parsed,
-    confidence:
-      typeof parsed.confidence === "number"
-        ? Math.max(0, Math.min(1, parsed.confidence))
-        : 0,
-  };
+  return normalizeInstaCompAiResult(JSON.parse(text));
 }
 
 function aiCouncilTier(requestedTier?: string | null) {
@@ -741,7 +749,7 @@ function normalizeInstaCompAiResult(value: unknown): InstaCompAiResult {
     value && typeof value === "object" ? (value as Record<string, unknown>) : {};
   const rawConfidence = Number(record.confidence);
 
-  return {
+  const normalized = {
     player: cleanNullableString(record.player),
     year: cleanNullableString(record.year),
     brand: cleanNullableString(record.brand),
@@ -749,6 +757,11 @@ function normalizeInstaCompAiResult(value: unknown): InstaCompAiResult {
     cardNumber: cleanNullableString(record.cardNumber),
     parallel: cleanNullableString(record.parallel),
     serialNumber: cleanNullableString(record.serialNumber),
+    gradingCompany: cleanNullableString(record.gradingCompany),
+    gradeValue: cleanNullableString(record.gradeValue),
+    certificationNumber: cleanNullableString(record.certificationNumber),
+    certificationLookupUrl: cleanNullableString(record.certificationLookupUrl),
+    gradingEvidence: cleanNullableString(record.gradingEvidence),
     team: cleanNullableString(record.team),
     sport: cleanNullableString(record.sport),
     isRookie: normalizeAiBoolean(record.isRookie),
@@ -759,6 +772,17 @@ function normalizeInstaCompAiResult(value: unknown): InstaCompAiResult {
       ? Math.max(0, Math.min(1, rawConfidence))
       : 0,
     notes: cleanNullableString(record.notes),
+  };
+
+  const gradingDetails = detectGradingDetails(null, normalized);
+
+  return {
+    ...normalized,
+    gradingCompany: gradingDetails.gradingCompany,
+    gradeValue: gradingDetails.gradeValue,
+    certificationNumber: gradingDetails.certificationNumber,
+    certificationLookupUrl: gradingDetails.certificationLookupUrl,
+    gradingEvidence: gradingDetails.evidence || normalized.gradingEvidence,
   };
 }
 
@@ -863,6 +887,26 @@ function shouldPreflightSerialVision(params: {
   return textHasSerialVisionSignal(params.externalOcr?.text);
 }
 
+function mergeGradingDetection(
+  ai: InstaCompAiResult,
+  externalOcr: ExternalOcrResult | null
+): InstaCompAiResult {
+  const gradingDetails = detectGradingDetails(externalOcr?.text || null, ai);
+
+  return {
+    ...ai,
+    gradingCompany: gradingDetails.gradingCompany,
+    gradeValue: gradingDetails.gradeValue,
+    certificationNumber: gradingDetails.certificationNumber,
+    certificationLookupUrl: gradingDetails.certificationLookupUrl,
+    gradingEvidence: gradingDetails.evidence || ai.gradingEvidence || null,
+    conditionGuess:
+      gradingDetails.gradingCompany && !/graded/i.test(ai.conditionGuess || "")
+        ? [ai.conditionGuess, "Graded"].filter(Boolean).join(" - ")
+        : ai.conditionGuess,
+  };
+}
+
 function buildAiCouncilPrompt(params: {
   externalOcr: ExternalOcrResult | null;
   providerLabel: string;
@@ -871,15 +915,17 @@ function buildAiCouncilPrompt(params: {
 You are ${params.providerLabel}, an independent InstaComp™ sports-card identity witness for TCOS.
 
 Return JSON only with exactly these fields:
-player, year, brand, setName, cardNumber, parallel, serialNumber, team, sport, isRookie, isAuto, isRelic, conditionGuess, confidence, notes.
+player, year, brand, setName, cardNumber, parallel, serialNumber, gradingCompany, gradeValue, certificationNumber, certificationLookupUrl, gradingEvidence, team, sport, isRookie, isAuto, isRelic, conditionGuess, confidence, notes.
 
 Rules:
 - Identify the exact sports card from the front/back images.
+- If the card is in a grading slab, read the slab label separately and return gradingCompany, gradeValue, and certificationNumber. Do not put the slab cert in serialNumber.
 - If the card says Outliers, Canvas, Clear Cut, Future Watch, Spectrum FX, Young Guns, Dazzlers, Portraits, Rookie Materials, Honor Roll, or another insert/subset, do not call it Base.
 - Upper Deck is the manufacturer unless the product is actually Upper Deck Series 1, Series 2, Extended Series, or a similarly printed Upper Deck product name. For SP Authentic, use setName like "SP Authentic" or "SP Authentic - Outliers", not "Upper Deck SP Authentic Hockey" unless the printed product says that.
 - Use "Base" only when no insert, subset, clear-stock, acetate, color, refractor/prizm, foil, autograph/relic, or serial cue is visible.
 - Clear/transparent/washed-back Upper Deck acetate cards with centered logo/player-name treatment are Clear Cut parallels.
 - Do not hallucinate serial numbers. Return serialNumber only when visible or present in OCR text.
+- Do not hallucinate slab certification numbers. Return certificationNumber only when visible or present in OCR text.
 - Confidence must be 0 to 1.
 - notes must explain the exact visible evidence for set, parallel/insert, card number, and serial decision.
 ${
@@ -3388,10 +3434,13 @@ export async function POST(req: NextRequest) {
         )
       : null;
 
-    const baseAi = await identifyCardWithOpenAI(
-      frontDataUrl,
-      backDataUrl,
-      detailImages.slice(0, 8),
+    const baseAi = mergeGradingDetection(
+      await identifyCardWithOpenAI(
+        frontDataUrl,
+        backDataUrl,
+        detailImages.slice(0, 8),
+        externalOcr
+      ),
       externalOcr
     );
     const serialOcr =
@@ -3456,7 +3505,7 @@ export async function POST(req: NextRequest) {
         ...reader,
         ai: applyInstaCompIdentityGuard(
           applyOperatorSerialNumberOverride(
-            mergeSerialOcrResult(reader.ai, serialOcr),
+            mergeGradingDetection(mergeSerialOcrResult(reader.ai, serialOcr), externalOcr),
             operatorSerialNumberOverride,
           ),
           {
@@ -3581,6 +3630,11 @@ export async function POST(req: NextRequest) {
         serialVisionCheckedImages: serialOcr?.checkedImages || 0,
         serialVisionSerialNumber: serialOcr?.serialNumber || ai.serialNumber || null,
         serialVisionEvidence: serialOcr?.evidence || null,
+        gradingCompany: ai.gradingCompany || null,
+        gradeValue: ai.gradeValue || null,
+        certificationNumber: ai.certificationNumber || null,
+        certificationLookupUrl: ai.certificationLookupUrl || null,
+        gradingEvidence: ai.gradingEvidence || null,
         operatorSerialNumberOverride:
           operatorSerialNumberOverride === undefined
             ? null

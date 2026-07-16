@@ -30,6 +30,11 @@ type InstaCompDraftAi = {
   cardNumber?: string | null;
   parallel?: string | null;
   serialNumber?: string | null;
+  gradingCompany?: string | null;
+  gradeValue?: string | null;
+  certificationNumber?: string | null;
+  certificationLookupUrl?: string | null;
+  gradingEvidence?: string | null;
   team?: string | null;
   sport?: string | null;
   isRookie?: boolean;
@@ -576,6 +581,23 @@ function buildSku(params: {
 }
 
 function buildAuthenticity(ai: InstaCompDraftAi | null | undefined) {
+  if (ai?.gradingCompany) {
+    return sanitizeAuthenticityProfile({
+      status: "verified_cert",
+      certProvider: ai.gradingCompany || null,
+      certNumber: ai.certificationNumber || null,
+      authenticityNotes: [
+        ai.gradeValue ? `InstaComp detected slab grade ${ai.gradeValue}.` : null,
+        ai.certificationLookupUrl
+          ? `Review cert lookup: ${ai.certificationLookupUrl}`
+          : null,
+        ai.gradingEvidence || null,
+      ]
+        .filter(Boolean)
+        .join(" "),
+    });
+  }
+
   if (!ai?.isAuto) {
     return sanitizeAuthenticityProfile(null);
   }
@@ -602,6 +624,14 @@ function buildDescription(params: {
     params.ai?.cardNumber ? `Card Number: ${params.ai.cardNumber}` : null,
     params.ai?.parallel ? `Parallel: ${params.ai.parallel}` : null,
     params.ai?.serialNumber ? `Serial Number: ${params.ai.serialNumber}` : null,
+    params.ai?.gradingCompany ? `Grader: ${params.ai.gradingCompany}` : null,
+    params.ai?.gradeValue ? `Grade: ${params.ai.gradeValue}` : null,
+    params.ai?.certificationNumber
+      ? `Certification Number: ${params.ai.certificationNumber}`
+      : null,
+    params.ai?.certificationLookupUrl
+      ? `Cert Lookup: ${params.ai.certificationLookupUrl}`
+      : null,
     params.ai?.isRookie ? "Rookie: Yes" : null,
     params.ai?.isAuto ? "Autograph: Review required" : null,
     params.ai?.isRelic ? "Relic/Memorabilia: Review required" : null,

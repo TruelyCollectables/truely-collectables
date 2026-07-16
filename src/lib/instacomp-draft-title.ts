@@ -8,6 +8,8 @@ export type InstaCompDraftTitleAi = {
   cardNumber?: string | null;
   parallel?: string | null;
   serialNumber?: string | null;
+  gradingCompany?: string | null;
+  gradeValue?: string | null;
   isRookie?: boolean | null;
 };
 
@@ -296,6 +298,13 @@ function appendUniqueTitlePart(parts: string[], part: string | null | undefined)
   parts.push(cleaned);
 }
 
+function gradingTitlePart(ai: InstaCompDraftTitleAi | null | undefined) {
+  const company = cleanDraftTitlePart(ai?.gradingCompany, 30).toUpperCase();
+  const grade = cleanDraftTitlePart(ai?.gradeValue, 20);
+
+  return [company, grade].filter(Boolean).join(" ").trim();
+}
+
 export function buildInstaCompDraftTitle(
   ai: InstaCompDraftTitleAi | null | undefined,
   fallback: string,
@@ -315,6 +324,7 @@ export function buildInstaCompDraftTitle(
       : null,
   );
   appendUniqueTitlePart(parts, serialRun);
+  appendUniqueTitlePart(parts, gradingTitlePart(ai));
 
   const title = parts
     .join(" ")

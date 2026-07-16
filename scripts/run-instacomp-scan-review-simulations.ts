@@ -1,5 +1,12 @@
 import { buildInstaCompScanReview } from "../src/lib/instacomp-scan-review";
-import type { InstaCompAiResult, InstaCompComp, InstaCompStats } from "../src/lib/instacomp";
+import {
+  buildInstaCompQueries,
+  filterAndRankExactMatches,
+  looksLikeBadCompTitle,
+  type InstaCompAiResult,
+  type InstaCompComp,
+  type InstaCompStats,
+} from "../src/lib/instacomp";
 
 type Scenario = {
   name: string;
@@ -186,3 +193,45 @@ console.log(
 );
 
 if (failed.length) process.exitCode = 1;
+
+try {
+  const gradedAi: InstaCompAiResult = {
+    ...trustedAi,
+    gradingCompany: "PSA",
+    gradeValue: "10",
+    certificationNumber: "12345678",
+    certificationLookupUrl: "https://www.psacard.com/cert/12345678/psa",
+    gradingEvidence: "PSA label; grade 10; cert 12345678.",
+    conditionGuess: "Graded",
+  };
+  const queries = buildInstaCompQueries(gradedAi);
+  const filtered = filterAndRankExactMatches(
+    [
+      {
+        ...comp("2024-25 Upper Deck O-Pee-Chee Platinum Connor Bedard Limited Red #201 PSA 10"),
+        price: 200,
+      },
+      {
+        ...comp("2024-25 Upper Deck O-Pee-Chee Platinum Connor Bedard Limited Red #201 raw"),
+        price: 45,
+      },
+    ],
+    gradedAi,
+  );
+
+  assert(queries.primary.includes("PSA 10"), "Expected graded query to include PSA 10");
+  assert(filtered.length === 1, "Expected only the matching graded comp");
+  assert(filtered[0]?.title.includes("PSA 10"), "Expected PSA 10 comp to survive");
+  assert(
+    looksLikeBadCompTitle("Connor Bedard PSA 10", trustedAi),
+    "Expected graded comp to be excluded for raw target",
+  );
+  console.log("PASS graded slab comps require matching grader and grade");
+} catch (error) {
+  console.log(
+    `FAIL graded slab comps require matching grader and grade - ${
+      error instanceof Error ? error.message : String(error)
+    }`,
+  );
+  process.exitCode = 1;
+}
