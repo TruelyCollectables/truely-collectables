@@ -402,9 +402,12 @@ function readTrialGroundTruthGuideStatus(manifestAudit) {
 
 const manifestPath = "instacomp-trial-manifest.local.json";
 const resultsPath = "instacomp-trial-results.local.json";
+const trialInboxDir = "instacomp-trial-inbox";
 const trialImagesDir = "instacomp-trial-images";
+const trialInboxAbsolutePath = join(repoRoot, trialInboxDir);
 const trialImagesAbsolutePath = join(repoRoot, trialImagesDir);
 const trialImageDropZoneGuide = {
+  rawInboxLocalPath: trialInboxAbsolutePath,
   localPath: trialImagesAbsolutePath,
   ignoredByGit: true,
   expectedCards: 100,
@@ -440,6 +443,8 @@ const trialImageDropZoneGuide = {
     "npm run status:instacomp-final-tester",
   ],
 };
+const trialInboxImageCount = countAcceptedImageFilesIfPresent(trialInboxDir);
+const trialInboxNonImageFileCount = countNonImageFilesIfPresent(trialInboxDir);
 const trialImageCount = countAcceptedImageFilesIfPresent(trialImagesDir);
 const trialNonImageFileCount = countNonImageFilesIfPresent(trialImagesDir);
 const trialManifestAudit = runTrialManifestAudit();
@@ -558,6 +563,17 @@ const checklist = [
     status: "ready_to_test",
   },
   {
+    key: "trial_raw_inbox_dropzone",
+    label:
+      "The final tester status can show how many accepted scanner image files are waiting in the raw instacomp-trial-inbox drop zone before staging.",
+    status:
+      trialInboxImageCount >= 200
+        ? "ready_for_intake"
+        : trialInboxImageCount > 0
+          ? "partial_raw_inbox"
+          : "needs_local_trial_files",
+  },
+  {
     key: "trial_image_path_sync",
     label:
       "The local image-path sync can update manifest and worksheet front/back image columns from the current image-map receipt without changing answer-key identity fields.",
@@ -645,6 +661,11 @@ const readiness = {
     manifestExists: existsSync(join(repoRoot, manifestPath)),
     resultsPath,
     resultsExists: existsSync(join(repoRoot, resultsPath)),
+    inboxDir: trialInboxDir,
+    inboxAbsolutePath: trialInboxAbsolutePath,
+    inboxDirExists: existsSync(trialInboxAbsolutePath),
+    inboxImageFileCount: trialInboxImageCount,
+    inboxNonImageFileCount: trialInboxNonImageFileCount,
     imagesDir: trialImagesDir,
     imagesAbsolutePath: trialImagesAbsolutePath,
     imagesDirExists: existsSync(trialImagesAbsolutePath),
@@ -732,6 +753,25 @@ if (jsonOutput) {
     console.log(`- trial answer-key guide error: ${readiness.localTrial.groundTruthGuide.error}`);
   }
   console.log(`- trial answer-key guide next: ${readiness.localTrial.groundTruthGuide.next}`);
+  console.log(
+    `- trial raw scanner inbox exists: ${readiness.localTrial.inboxDirExists ? "yes" : "no"}`,
+  );
+  console.log(`- trial raw scanner inbox: ${readiness.localTrial.inboxAbsolutePath}`);
+  console.log(
+    `- trial raw scanner inbox files: ${readiness.localTrial.inboxImageFileCount}/${readiness.localTrial.expectedImageCount} accepted images in ${trialInboxDir}`,
+  );
+  console.log(
+    `- trial raw scanner inbox non-image files ignored: ${readiness.localTrial.inboxNonImageFileCount}`,
+  );
+  console.log(
+    `- trial raw scanner inbox next: ${
+      readiness.localTrial.inboxImageFileCount >= readiness.localTrial.expectedImageCount
+        ? "Run npm run instacomp:trial:intake to dry-run staging and refresh the local receipts."
+        : readiness.localTrial.inboxImageFileCount > 0
+          ? "Keep copying scanner files until the inbox has about 200 accepted images, then run npm run instacomp:trial:intake."
+          : "Copy scanner files into instacomp-trial-inbox, then run npm run instacomp:trial:intake."
+    }`,
+  );
   console.log(`- trial image folder exists: ${readiness.localTrial.imagesDirExists ? "yes" : "no"}`);
   console.log(`- trial image drop zone: ${readiness.localTrial.imagesAbsolutePath}`);
   console.log(
