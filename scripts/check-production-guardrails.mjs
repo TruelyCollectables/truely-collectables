@@ -1207,6 +1207,12 @@ assertScriptIncludes("instacomp:trial:map", [
   "scripts/run-instacomp-trial-report.mjs",
   "--write-image-map instacomp-trial-image-map.local.json",
 ]);
+assertScriptIncludes("instacomp:trial:packet", [
+  "scripts/run-instacomp-trial-report.mjs",
+  "--write-image-map instacomp-trial-image-map.local.json",
+  "--write-intake-packet instacomp-trial-intake-packet.local.md",
+  "--allow-not-ready",
+]);
 assertScriptIncludes("instacomp:trial:ready", [
   "instacomp:trial:audit",
   "instacomp:trial:map",
@@ -3637,7 +3643,12 @@ assertFileIncludes("instacomp trial image audit source", "scripts/run-instacomp-
   "unpairedOrderedFiles",
   "tcos.instacompTrialImageMap.v1",
   "--write-image-map",
+  "--write-intake-packet",
+  "--allow-not-ready",
+  "TCOS InstaComp Trial Intake Packet",
+  "buildTrialIntakePacketMarkdown",
   "imageMap",
+  "intakePacket",
   "missingFronts",
   "duplicateFronts",
   "unknownFiles",
@@ -3651,9 +3662,13 @@ assertFileIncludes("instacomp trial image audit manual", "docs/TCOS_OPERATOR_MAN
   "1+2",
   "ordered-pair candidate files",
   "npm run instacomp:trial:map",
+  "npm run instacomp:trial:packet",
   "npm run instacomp:trial:ready",
   "instacomp-trial-image-map.local.json",
+  "instacomp-trial-intake-packet.local.md",
   "tcos.instacompTrialImageMap.v1",
+  "readable operator intake packet",
+  "--allow-not-ready",
 ]);
 assertFileIncludes("instacomp trial failure report manual", "docs/TCOS_OPERATOR_MANUAL.md", [
   "npm run instacomp:trial:failures",
@@ -3677,7 +3692,9 @@ assertFileIncludes("instacomp final tester status includes trial image audit", "
   "auditTrialImages",
   "mapTrialImages",
   "readyTrialImages",
+  "writeTrialPacket",
   "readTrialImageMapStatus",
+  "readTrialIntakePacketStatus",
   "trialImageDropZoneGuide",
   "tcos.instacompTrialImageMap.v1",
   "matchesCurrentAudit",
@@ -3696,6 +3713,8 @@ assertFileIncludes("instacomp final tester status includes trial image audit", "
   "trial image audit ready:",
   "trial image map:",
   "trial image map next:",
+  "trial intake packet:",
+  "trial intake packet next:",
   "trial ordered-pair files:",
   "orderedPairCandidateFiles",
   "firstMissingFronts",

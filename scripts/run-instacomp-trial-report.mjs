@@ -66,6 +66,10 @@ function usage() {
     "                   expected card count for --audit-images when manifest target is absent",
     "  --write-image-map <path>",
     "                   write a local JSON front/back mapping receipt during --audit-images",
+    "  --write-intake-packet <path>",
+    "                   write a local Markdown operator packet with counts, pairing preview, problems, and next commands",
+    "  --allow-not-ready",
+    "                   with --audit-images, write/print the packet without returning a failing exit code when images are incomplete",
     "  --json            print machine-readable JSON only",
     "  --require-files   fail when manifest image paths do not exist locally",
     "  --write-failure-report <path>",
@@ -252,6 +256,122 @@ function naturalFileSort(left, right) {
   });
 }
 
+function markdownCell(value) {
+  return String(value ?? "")
+    .replace(/\|/g, "\\|")
+    .replace(/\r?\n/g, " ")
+    .trim();
+}
+
+function buildProblemPreviewRows(report) {
+  const rows = [];
+  const problemGroups = [
+    ["Missing front", report.problems.missingFronts],
+    ["Missing back", report.problems.missingBacks],
+    ["Duplicate front", report.problems.duplicateFronts],
+    ["Duplicate back", report.problems.duplicateBacks],
+    ["Unknown image", report.problems.unknownFiles],
+    ["Extra image", report.problems.extraFiles],
+    ["Unpaired ordered image", report.problems.unpairedOrderedFiles],
+  ];
+
+  for (const [label, items] of problemGroups) {
+    for (const item of items.slice(0, 12)) {
+      rows.push({
+        type: label,
+        detail: typeof item === "string" ? item : JSON.stringify(item),
+      });
+    }
+  }
+
+  return rows;
+}
+
+function buildTrialIntakePacketMarkdown(report, imageMapRows) {
+  const problemRows = buildProblemPreviewRows(report);
+  const mapRows = imageMapRows.slice(0, 25);
+  const readyLabel = report.readyToScan ? "YES - ready to upload/scan" : "NO - fix image intake first";
+
+  return [
+    "# TCOS InstaComp Trial Intake Packet",
+    "",
+    `Generated: ${report.generatedAt}`,
+    "",
+    "Safe boundary: local read-only trial intake packet. It does not publish listings, buy postage, create Checkout, deploy, scan cards, call production APIs, approve live money, or change runtime switches.",
+    "",
+    "## Status",
+    "",
+    `- Ready to scan: ${readyLabel}`,
+    `- Manifest: ${report.manifestPath || "not provided"}`,
+    `- Image folder: ${report.imageDir}`,
+    `- Expected cards: ${report.expected.cards}`,
+    `- Expected images: ${report.expected.images}`,
+    `- Parsed image files: ${report.observed.parsedImageFiles}`,
+    `- Complete front/back pairs: ${report.observed.completePairs}`,
+    `- Ordered-pair candidate files: ${report.observed.orderedPairCandidateFiles}`,
+    `- Ordered-pair complete pairs: ${report.observed.orderedPairCompletePairs}`,
+    report.imageMap?.writtenPath ? `- Image map receipt: ${report.imageMap.writtenPath}` : "- Image map receipt: not written",
+    "",
+    "## Accepted file patterns",
+    "",
+    "- Ordered scanner files are paired as `1+2`, `3+4`, `5+6`, etc. Example: `scan_0001.jpg` is card 001 front and `scan_0002.jpg` is card 001 back.",
+    "- Explicit side filenames can use `front`, `fr`, `f`, `obverse` and `back`, `bk`, `b`, `reverse`, `rear`. Example: `001-front.jpg` + `001-back.jpg`.",
+    "",
+    "## Pairing preview",
+    "",
+    "| Trial card | Front image | Front source | Back image | Back source |",
+    "| --- | --- | --- | --- | --- |",
+    ...mapRows.map((row) =>
+      [
+        markdownCell(row.trialCardId),
+        markdownCell(row.frontImage || "MISSING"),
+        markdownCell(row.frontSource || "-"),
+        markdownCell(row.backImage || "MISSING"),
+        markdownCell(row.backSource || "-"),
+      ].join(" | ").replace(/^/, "| ").replace(/$/, " |"),
+    ),
+    mapRows.length < imageMapRows.length
+      ? `\nShowing first ${mapRows.length} of ${imageMapRows.length} rows. Use the JSON image map for the full receipt.`
+      : "",
+    "",
+    "## Problems",
+    "",
+    `- Missing fronts: ${report.problems.missingFronts.length}`,
+    `- Missing backs: ${report.problems.missingBacks.length}`,
+    `- Duplicate fronts: ${report.problems.duplicateFronts.length}`,
+    `- Duplicate backs: ${report.problems.duplicateBacks.length}`,
+    `- Unknown image files: ${report.problems.unknownFiles.length}`,
+    `- Extra image files: ${report.problems.extraFiles.length}`,
+    `- Unpaired ordered image files: ${report.problems.unpairedOrderedFiles.length}`,
+    "",
+    ...(problemRows.length
+      ? [
+          "| Type | Detail |",
+          "| --- | --- |",
+          ...problemRows.map((row) => `| ${markdownCell(row.type)} | ${markdownCell(row.detail)} |`),
+          "",
+        ]
+      : ["No intake problems detected.", ""]),
+    report.warnings.length ? "## Warnings" : "",
+    ...report.warnings.map((warning) => `- ${warning}`),
+    report.warnings.length ? "" : "",
+    "## Next commands",
+    "",
+    "```bash",
+    "npm run instacomp:trial:ready",
+    "npm run status:instacomp-final-tester",
+    "# after scanning/exporting results:",
+    "npm run instacomp:trial:report -- --manifest instacomp-trial-manifest.local.json --results instacomp-trial-results.local.json --target 94",
+    "npm run instacomp:trial:failures",
+    "```",
+    "",
+    `Next: ${report.next}`,
+    "",
+  ]
+    .filter((line, index, lines) => !(line === "" && lines[index - 1] === "" && lines[index + 1] === ""))
+    .join("\n");
+}
+
 function expectedImageAuditRows(manifest, expectedCards) {
   const cardCount =
     Array.isArray(manifest?.cards) && manifest.cards.length > 0
@@ -274,6 +394,8 @@ async function auditTrialImages() {
   const manifestInput = getFlagValue("--manifest");
   const imageDirInput = getFlagValue("--audit-images", DEFAULT_TRIAL_IMAGE_DIR);
   const imageMapInput = getFlagValue("--write-image-map") || getFlagValue("--image-map");
+  const intakePacketInput = getFlagValue("--write-intake-packet");
+  const allowNotReady = hasFlag("--allow-not-ready");
   const expectedCardsValue = Number.parseInt(
     getFlagValue("--expected-cards", String(DEFAULT_TARGET_CARDS)),
     10
@@ -465,6 +587,9 @@ async function auditTrialImages() {
       previewRows: imageMapRows.slice(0, 10),
       writtenPath: null,
     },
+    intakePacket: {
+      writtenPath: null,
+    },
     orderedPairAssignments: orderedPairAssignments.slice(0, 25),
     warnings,
     next: ready
@@ -495,13 +620,22 @@ async function auditTrialImages() {
     report.imageMap.writtenPath = resolvedImageMapPath;
   }
 
+  if (intakePacketInput) {
+    const resolvedIntakePacketPath = path.resolve(intakePacketInput);
+    const intakePacketMarkdown = buildTrialIntakePacketMarkdown(report, imageMapRows);
+
+    await mkdir(path.dirname(resolvedIntakePacketPath), { recursive: true });
+    await writeFile(resolvedIntakePacketPath, `${intakePacketMarkdown}\n`);
+    report.intakePacket.writtenPath = resolvedIntakePacketPath;
+  }
+
   if (hasFlag("--json")) {
     console.log(JSON.stringify(report, null, 2));
   } else {
     printImageAudit(report);
   }
 
-  if (!report.readyToScan) process.exitCode = 1;
+  if (!report.readyToScan && !allowNotReady) process.exitCode = 1;
   return true;
 }
 
@@ -519,6 +653,9 @@ function printImageAudit(report) {
   }
   if (report.imageMap?.writtenPath) {
     console.log(`Image map written: ${report.imageMap.writtenPath}`);
+  }
+  if (report.intakePacket?.writtenPath) {
+    console.log(`Intake packet written: ${report.intakePacket.writtenPath}`);
   }
   console.log(`Ready to scan: ${report.readyToScan ? "yes" : "no"}`);
   if (report.manifestPath) console.log(`Manifest: ${report.manifestPath}`);

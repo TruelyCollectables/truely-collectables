@@ -3940,6 +3940,14 @@ npm run instacomp:trial:map
 
 That command writes ignored local file `instacomp-trial-image-map.local.json` with schema `tcos.instacompTrialImageMap.v1`. Use it to confirm which scanner file became the front and back for each `trial-card-###` row before uploading the lot.
 
+To save a readable operator intake packet before scanning, run:
+
+```bash
+npm run instacomp:trial:packet
+```
+
+That command writes ignored local files `instacomp-trial-image-map.local.json` and `instacomp-trial-intake-packet.local.md`. The packet is a Markdown receipt with schema-backed audit counts, the local image folder, ready/not-ready status, the first pairing-preview rows, problem counts, accepted filename patterns, and the next commands. It uses `--allow-not-ready`, so it can document missing files before the folder is complete without pretending the lot is ready to scan.
+
 For the normal pre-scan gate, run the one-shot readiness command:
 
 ```bash

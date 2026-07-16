@@ -172,7 +172,9 @@ function readTrialImageMapStatus(audit) {
         backSource: row.backSource || null,
       })),
       next: matchesCurrentAudit
-        ? "Image map receipt matches the current audit; confirm it before uploading the lot."
+        ? audit.readyToScan
+          ? "Image map receipt matches the current audit; confirm it before uploading the lot."
+          : "Image map receipt matches the current incomplete audit; fix the missing image files, then rerun npm run instacomp:trial:packet."
         : "Rerun npm run instacomp:trial:map so the local front/back receipt matches the current image audit.",
       error: null,
     };
@@ -188,6 +190,51 @@ function readTrialImageMapStatus(audit) {
       firstMappedRows: [],
       next: "Rerun npm run instacomp:trial:map to replace the unreadable image-map receipt.",
       error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
+function readTrialIntakePacketStatus(audit, imageMap) {
+  const packetPath = "instacomp-trial-intake-packet.local.md";
+  const absolutePath = join(repoRoot, packetPath);
+
+  if (!existsSync(absolutePath)) {
+    return {
+      path: packetPath,
+      exists: false,
+      matchesCurrentAudit: false,
+      next:
+        "Run npm run instacomp:trial:packet to write the local operator intake packet before scanning.",
+    };
+  }
+
+  try {
+    const text = readFileSync(absolutePath, "utf8");
+    const matchesCurrentAudit =
+      text.includes("# TCOS InstaComp Trial Intake Packet") &&
+      text.includes(`Expected cards: ${audit.expectedCards}`) &&
+      text.includes(`Parsed image files: ${audit.parsedImageFiles}`) &&
+      text.includes(`Complete front/back pairs: ${audit.completePairs}`) &&
+      (!imageMap.exists || text.includes("Image map receipt:"));
+
+    return {
+      path: packetPath,
+      exists: true,
+      matchesCurrentAudit,
+      next: matchesCurrentAudit
+        ? audit.readyToScan
+          ? "Intake packet matches the current audit; use it as the pre-scan receipt."
+          : "Intake packet matches the current incomplete audit; fix missing image files, then rerun npm run instacomp:trial:packet."
+        : "Rerun npm run instacomp:trial:packet so the packet matches the current image folder.",
+    };
+  } catch (error) {
+    return {
+      path: packetPath,
+      exists: true,
+      matchesCurrentAudit: false,
+      next: `Rerun npm run instacomp:trial:packet; packet could not be read: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
     };
   }
 }
@@ -225,6 +272,10 @@ const trialImageDropZoneGuide = {
 const trialImageCount = countFilesIfPresent(trialImagesDir);
 const trialImageAudit = runTrialImageAudit();
 const trialImageMap = readTrialImageMapStatus(trialImageAudit);
+const trialIntakePacket = readTrialIntakePacketStatus(
+  trialImageAudit,
+  trialImageMap,
+);
 
 const checklist = [
   {
@@ -297,10 +348,22 @@ const checklist = [
     label:
       "The pre-scan image-map receipt can prove which uploaded scanner file became each trial card front/back pair before the lot is scanned.",
     status: trialImageMap.matchesCurrentAudit
-      ? "ready_to_scan"
+      ? trialImageAudit.readyToScan
+        ? "ready_to_scan"
+        : "packet_current_but_needs_files"
       : trialImageAudit.readyToScan
         ? "needs_image_map"
         : "needs_local_trial_files",
+  },
+  {
+    key: "trial_intake_packet",
+    label:
+      "The pre-scan intake packet can give the operator a readable image-count, pairing-preview, problem-list, and next-command receipt before scanner time is spent.",
+    status: trialIntakePacket.matchesCurrentAudit
+      ? trialImageAudit.readyToScan
+        ? "ready_to_scan"
+        : "packet_current_but_needs_files"
+      : "needs_trial_packet",
   },
   {
     key: "hundred_card_trial",
@@ -344,6 +407,7 @@ const readiness = {
     imageDropZoneGuide: trialImageDropZoneGuide,
     imageAudit: trialImageAudit,
     imageMap: trialImageMap,
+    intakePacket: trialIntakePacket,
   },
   checklist,
   commands: {
@@ -354,6 +418,7 @@ const readiness = {
     initTrial: "npm run instacomp:trial:init",
     auditTrialImages: "npm run instacomp:trial:audit",
     mapTrialImages: "npm run instacomp:trial:map",
+    writeTrialPacket: "npm run instacomp:trial:packet",
     readyTrialImages: "npm run instacomp:trial:ready",
     scoreTrial:
       "npm run instacomp:trial:report -- --manifest instacomp-trial-manifest.local.json --results instacomp-trial-results.local.json --target 94",
@@ -413,6 +478,10 @@ if (jsonOutput) {
   }
   console.log(`- trial image map next: ${readiness.localTrial.imageMap.next}`);
   console.log(
+    `- trial intake packet: ${readiness.localTrial.intakePacket.exists ? "present" : "missing"} - ${readiness.localTrial.intakePacket.matchesCurrentAudit ? "matches audit" : "not ready"}`,
+  );
+  console.log(`- trial intake packet next: ${readiness.localTrial.intakePacket.next}`);
+  console.log(
     `- trial image audit problems: missing fronts ${readiness.localTrial.imageAudit.missingFrontCount ?? "unknown"}, missing backs ${readiness.localTrial.imageAudit.missingBackCount ?? "unknown"}, duplicates ${Number(readiness.localTrial.imageAudit.duplicateFrontCount || 0) + Number(readiness.localTrial.imageAudit.duplicateBackCount || 0)}, unknown files ${readiness.localTrial.imageAudit.unknownFileCount ?? "unknown"}, extra files ${readiness.localTrial.imageAudit.extraFileCount ?? "unknown"}`,
   );
   if (readiness.localTrial.imageAudit.firstMissingFronts.length > 0) {
@@ -436,6 +505,7 @@ if (jsonOutput) {
   console.log(`- init trial: ${readiness.commands.initTrial}`);
   console.log(`- audit trial images: ${readiness.commands.auditTrialImages}`);
   console.log(`- map trial images: ${readiness.commands.mapTrialImages}`);
+  console.log(`- write trial packet: ${readiness.commands.writeTrialPacket}`);
   console.log(`- ready trial images: ${readiness.commands.readyTrialImages}`);
   console.log(`- score trial: ${readiness.commands.scoreTrial}`);
   console.log(`- score + write failure report: ${readiness.commands.scoreTrialFailures}`);

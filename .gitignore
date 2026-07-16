@@ -43,6 +43,7 @@ __pycache__/
 
 # Local InstaComp trial files can contain personal inventory paths/results
 /instacomp-trial-*.local.json
+/instacomp-trial-*.local.md
 /instacomp-trial-images/
 
 # vercel

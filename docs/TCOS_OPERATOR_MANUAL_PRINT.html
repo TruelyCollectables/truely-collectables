@@ -3782,6 +3782,9 @@ rear</code></pre>
 <p>To save a local front/back receipt before scanning, run:</p>
 <pre><code>npm run instacomp:trial:map</code></pre>
 <p>That command writes ignored local file <code>instacomp-trial-image-map.local.json</code> with schema <code>tcos.instacompTrialImageMap.v1</code>. Use it to confirm which scanner file became the front and back for each <code>trial-card-###</code> row before uploading the lot.</p>
+<p>To save a readable operator intake packet before scanning, run:</p>
+<pre><code>npm run instacomp:trial:packet</code></pre>
+<p>That command writes ignored local files <code>instacomp-trial-image-map.local.json</code> and <code>instacomp-trial-intake-packet.local.md</code>. The packet is a Markdown receipt with schema-backed audit counts, the local image folder, ready/not-ready status, the first pairing-preview rows, problem counts, accepted filename patterns, and the next commands. It uses <code>--allow-not-ready</code>, so it can document missing files before the folder is complete without pretending the lot is ready to scan.</p>
 <p>For the normal pre-scan gate, run the one-shot readiness command:</p>
 <pre><code>npm run instacomp:trial:ready</code></pre>
 <p>That command runs the image audit, writes the front/back image-map receipt, and prints <code>status:instacomp-final-tester</code>. It must pass before the 100-card lot should be scanned.</p>
