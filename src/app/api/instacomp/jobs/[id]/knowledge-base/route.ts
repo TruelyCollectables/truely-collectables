@@ -6,6 +6,7 @@ import {
 import {
   INSTACOMP_JOB_ITEM_TABLE,
   InstaCompJobServerError,
+  type InstaCompJobActor,
   getAccessibleInstaCompJob,
   instaCompJobErrorResponse,
   readInstaCompJson,
@@ -54,7 +55,12 @@ function isKnowledgeSchemaMissing(error: { code?: string; message?: string }) {
     message.includes(KNOWLEDGE_ENTRY_TABLE) ||
     message.includes(KNOWLEDGE_OBSERVATION_TABLE) ||
     message.includes("knowledge_entry_id") ||
-    message.includes("knowledge_saved_at")
+    message.includes("knowledge_saved_at") ||
+    message.includes("submitted_by_account_id") ||
+    message.includes("submitted_by_actor_type") ||
+    message.includes("submitted_store_id") ||
+    message.includes("latest_submitted_by_account_id") ||
+    message.includes("latest_submitted_by_actor_type")
   );
 }
 
@@ -107,6 +113,7 @@ async function refreshTrustStatus(params: {
 
 async function processItemIntoKnowledgeBase(params: {
   supabase: ReturnType<typeof requireInstaCompJobSupabase>;
+  actor: InstaCompJobActor;
   job: Record<string, any>;
   item: Record<string, any>;
   now: string;
@@ -129,6 +136,9 @@ async function processItemIntoKnowledgeBase(params: {
   const ai = objectRecord(resultPayload.ai);
   const stats = objectRecord(resultPayload.stats);
   const soldStats = objectRecord(resultPayload.soldStats);
+  const submittedByAccountId =
+    params.actor.type === "seller" ? params.actor.sellerAccountId : null;
+  const submittedByActorType = params.actor.type;
   const upsertPayload = {
     identity_fingerprint: draft.identityFingerprint,
     title: draft.title,
@@ -149,6 +159,9 @@ async function processItemIntoKnowledgeBase(params: {
     latest_scan_job_id: params.job.id,
     latest_scan_item_id: params.item.id,
     latest_scan_id: resultPayload.scanId || null,
+    latest_submitted_by_account_id: submittedByAccountId,
+    latest_submitted_by_actor_type: submittedByActorType,
+    latest_submitted_at: params.now,
     front_image_sha256: params.item.front_image_sha256 || null,
     back_image_sha256: params.item.back_image_sha256 || null,
     front_storage_path: params.item.front_storage_path || null,
@@ -206,6 +219,9 @@ async function processItemIntoKnowledgeBase(params: {
         source_scan_item_id: params.item.id,
         source_scan_id: resultPayload.scanId || null,
         confirmation_status: "operator_confirmed",
+        submitted_by_account_id: submittedByAccountId,
+        submitted_by_actor_type: submittedByActorType,
+        submitted_store_id: params.actor.storeId,
         title: draft.title,
         front_image_sha256: params.item.front_image_sha256 || null,
         back_image_sha256: params.item.back_image_sha256 || null,
@@ -312,6 +328,7 @@ export async function POST(request: Request, context: RouteContext) {
     for (const item of ((items || []) as Array<Record<string, any>>)) {
       const result = await processItemIntoKnowledgeBase({
         supabase,
+        actor,
         job,
         item: item as Record<string, any>,
         now,
