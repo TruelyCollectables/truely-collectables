@@ -235,6 +235,7 @@ const readiness = {
     verifyHarness: "npm run verify:instacomp",
     initTrial: "npm run instacomp:trial:init",
     auditTrialImages: "npm run instacomp:trial:audit",
+    mapTrialImages: "npm run instacomp:trial:map",
     scoreTrial:
       "npm run instacomp:trial:report -- --manifest instacomp-trial-manifest.local.json --results instacomp-trial-results.local.json --target 94",
     scoreTrialFailures: "npm run instacomp:trial:failures",
@@ -294,6 +295,7 @@ if (jsonOutput) {
   console.log(`- verify harness: ${readiness.commands.verifyHarness}`);
   console.log(`- init trial: ${readiness.commands.initTrial}`);
   console.log(`- audit trial images: ${readiness.commands.auditTrialImages}`);
+  console.log(`- map trial images: ${readiness.commands.mapTrialImages}`);
   console.log(`- score trial: ${readiness.commands.scoreTrial}`);
   console.log(`- score + write failure report: ${readiness.commands.scoreTrialFailures}`);
   console.log(`- full local safety: ${readiness.commands.fullLocalSafety}`);

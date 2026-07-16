@@ -1203,6 +1203,10 @@ assertScriptIncludes("instacomp:trial:audit", [
   "--audit-images instacomp-trial-images",
   "--expected-cards 100",
 ]);
+assertScriptIncludes("instacomp:trial:map", [
+  "scripts/run-instacomp-trial-report.mjs",
+  "--write-image-map instacomp-trial-image-map.local.json",
+]);
 assertScriptIncludes("instacomp:trial:failures", [
   "scripts/run-instacomp-trial-report.mjs",
   "--write-failure-report instacomp-trial-failures.local.json",
@@ -3589,6 +3593,9 @@ assertFileIncludes("instacomp trial image audit source", "scripts/run-instacomp-
   "orderedPairAssignments",
   "orderedPairCandidateFiles",
   "unpairedOrderedFiles",
+  "tcos.instacompTrialImageMap.v1",
+  "--write-image-map",
+  "imageMap",
   "missingFronts",
   "duplicateFronts",
   "unknownFiles",
@@ -3601,6 +3608,9 @@ assertFileIncludes("instacomp trial image audit manual", "docs/TCOS_OPERATOR_MAN
   "plain ordered files",
   "1+2",
   "ordered-pair candidate files",
+  "npm run instacomp:trial:map",
+  "instacomp-trial-image-map.local.json",
+  "tcos.instacompTrialImageMap.v1",
 ]);
 assertFileIncludes("instacomp trial failure report manual", "docs/TCOS_OPERATOR_MANUAL.md", [
   "npm run instacomp:trial:failures",
@@ -3621,6 +3631,7 @@ assertFileIncludes("instacomp final tester status includes trial failure report"
 assertFileIncludes("instacomp final tester status includes trial image audit", "scripts/status-instacomp-final-tester.mjs", [
   "trial_image_audit",
   "auditTrialImages",
+  "mapTrialImages",
   "missing fronts/backs",
   "runTrialImageAudit",
   "imageAudit",

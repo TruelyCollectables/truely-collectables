@@ -64,6 +64,8 @@ function usage() {
     "                   audit a local front/back trial image folder before scanning",
     "  --expected-cards <count>",
     "                   expected card count for --audit-images when manifest target is absent",
+    "  --write-image-map <path>",
+    "                   write a local JSON front/back mapping receipt during --audit-images",
     "  --json            print machine-readable JSON only",
     "  --require-files   fail when manifest image paths do not exist locally",
     "  --write-failure-report <path>",
@@ -271,6 +273,7 @@ async function auditTrialImages() {
 
   const manifestInput = getFlagValue("--manifest");
   const imageDirInput = getFlagValue("--audit-images", DEFAULT_TRIAL_IMAGE_DIR);
+  const imageMapInput = getFlagValue("--write-image-map") || getFlagValue("--image-map");
   const expectedCardsValue = Number.parseInt(
     getFlagValue("--expected-cards", String(DEFAULT_TARGET_CARDS)),
     10
@@ -343,6 +346,7 @@ async function auditTrialImages() {
   const duplicateBacks = [];
   const completePairs = [];
   const orderedPairAssignments = [];
+  const imageMapRows = [];
   const sortedOrderedPairFiles = orderedPairFiles.sort(naturalFileSort);
 
   for (const [index, row] of expectedRows.entries()) {
@@ -359,6 +363,17 @@ async function auditTrialImages() {
         back: orderedBack,
       });
     }
+
+    imageMapRows.push({
+      trialCardId: row.trialCardId,
+      ordinal: row.ordinal,
+      frontImage: group.front[0] || orderedFront || null,
+      frontSource: group.front[0] ? "explicit_filename" : orderedFront ? "ordered_pair" : null,
+      backImage: group.back[0] || orderedBack || null,
+      backSource: group.back[0] ? "explicit_filename" : orderedBack ? "ordered_pair" : null,
+      frontCandidates: [...group.front, orderedFront].filter(Boolean),
+      backCandidates: [...group.back, orderedBack].filter(Boolean),
+    });
 
     if (frontCount === 0) {
       missingFronts.push(row.trialCardId);
@@ -445,12 +460,40 @@ async function auditTrialImages() {
       extraFiles,
       unpairedOrderedFiles,
     },
+    imageMap: {
+      rowCount: imageMapRows.length,
+      previewRows: imageMapRows.slice(0, 10),
+      writtenPath: null,
+    },
     orderedPairAssignments: orderedPairAssignments.slice(0, 25),
     warnings,
     next: ready
       ? "Run the lot through /admin/instacomp, export trial results, then score with npm run instacomp:trial:report."
       : "Fix the missing, duplicate, unknown, or extra image files before scanning the 100-card lot.",
   };
+
+  if (imageMapInput) {
+    const resolvedImageMapPath = path.resolve(imageMapInput);
+    const imageMapPayload = {
+      schema: "tcos.instacompTrialImageMap.v1",
+      generatedAt: report.generatedAt,
+      sourceAuditSchema: report.schema,
+      sideEffectBoundary:
+        "Read-only image map. Does not publish listings, buy postage, create Checkout, deploy, scan cards, or call production APIs.",
+      manifestPath,
+      imageDir: resolvedImageDir,
+      readyToScan: report.readyToScan,
+      expected: report.expected,
+      observed: report.observed,
+      problems: report.problems,
+      rows: imageMapRows,
+      next: report.next,
+    };
+
+    await mkdir(path.dirname(resolvedImageMapPath), { recursive: true });
+    await writeFile(resolvedImageMapPath, `${JSON.stringify(imageMapPayload, null, 2)}\n`);
+    report.imageMap.writtenPath = resolvedImageMapPath;
+  }
 
   if (hasFlag("--json")) {
     console.log(JSON.stringify(report, null, 2));
@@ -473,6 +516,9 @@ function printImageAudit(report) {
     console.log(
       `Ordered-pair complete pairs: ${report.observed.orderedPairCompletePairs}`,
     );
+  }
+  if (report.imageMap?.writtenPath) {
+    console.log(`Image map written: ${report.imageMap.writtenPath}`);
   }
   console.log(`Ready to scan: ${report.readyToScan ? "yes" : "no"}`);
   if (report.manifestPath) console.log(`Manifest: ${report.manifestPath}`);
