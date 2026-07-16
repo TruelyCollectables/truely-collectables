@@ -94,6 +94,7 @@ type ConsensusResult = {
       | "agreed"
       | "single_reader"
       | "specific_variant_over_base"
+      | "positive_marker_over_negative_default"
       | "weighted_reader_choice"
       | "catalog_referee"
       | "review_required";
@@ -1544,6 +1545,88 @@ function exportBatchJson(items: BatchCardViewItem[], fileScope: "all" | "view") 
     JSON.stringify(payload, null, 2),
     "application/json;charset=utf-8"
   );
+}
+
+function serialRunFromSerialNumber(value: string | null | undefined) {
+  const cleaned = String(value || "")
+    .normalize("NFKC")
+    .replace(/[｜⁄]/g, "/")
+    .replace(/\bof\b/gi, "/")
+    .replace(/[Oo]/g, "0")
+    .replace(/[Il|]/g, "1")
+    .replace(/[^0-9/]+/g, "")
+    .replace(/\/+/g, "/")
+    .replace(/^\/|\/$/g, "");
+  const parts = cleaned.split("/").filter(Boolean);
+
+  if (parts.length < 2) return "";
+
+  const denominator = Number.parseInt(parts[parts.length - 1], 10);
+
+  return Number.isFinite(denominator) && denominator > 0
+    ? `/${denominator}`
+    : "";
+}
+
+function trialCardIdForBatchIndex(index: number) {
+  return `trial-card-${String(index + 1).padStart(3, "0")}`;
+}
+
+function instacompTrialResultRows(items: BatchCardViewItem[]) {
+  return items
+    .filter(({ card }) => card.status === "done" && card.result?.ai)
+    .map(({ card, index }) => {
+      const result = card.result as ScanResponse;
+      const ai = result.ai;
+
+      return {
+        trialCardId: trialCardIdForBatchIndex(index),
+        sourceClientId: card.persistentClientId || card.id,
+        sourceRow: index + 1,
+        frontFileName: card.file.name,
+        backFileName: card.backFile?.name || "",
+        scanId: result.scanId,
+        consensus: result.consensus || null,
+        review: result.review || null,
+        actual: {
+          player: ai.player || "",
+          year: ai.year || "",
+          brand: ai.brand || "",
+          setName: ai.setName || "",
+          cardNumber: ai.cardNumber || "",
+          parallel: ai.parallel || "",
+          variation: "",
+          serialNumber: ai.serialNumber || "",
+          serialRun: serialRunFromSerialNumber(ai.serialNumber),
+          team: ai.team || "",
+          sport: ai.sport || "",
+          isRookie: ai.isRookie,
+          isAuto: ai.isAuto,
+          isRelic: ai.isRelic,
+        },
+      };
+    });
+}
+
+function instacompTrialResultsPayload(items: BatchCardViewItem[]) {
+  const cards = instacompTrialResultRows(items);
+
+  return {
+    schema: "tcos.instacompTrialResults.v1",
+    exportedAt: new Date().toISOString(),
+    source: "admin_instacomp_batch_export",
+    instructions:
+      "Save this as instacomp-trial-results.local.json next to instacomp-trial-manifest.local.json, then run npm run instacomp:trial:report -- --manifest instacomp-trial-manifest.local.json --results instacomp-trial-results.local.json --target 94.",
+    summary: {
+      exportedCards: cards.length,
+      sourceRows: items.length,
+      consensusReviewRequired: cards.filter(
+        (card) => card.consensus?.status === "review_required"
+      ).length,
+      missingConsensus: cards.filter((card) => !card.consensus).length,
+    },
+    cards,
+  };
 }
 
 function draftListingItemsForCards(cards: BatchCard[]) {
@@ -3426,6 +3509,9 @@ export default function InstaCompScanner({
       .map(({ card }) => card.id)
   );
   const visibleDraftErrorCount = visibleDraftErrorBatchCardIds.size;
+  const visibleTrialResultCount = visibleBatchCards.filter(
+    ({ card }) => card.status === "done" && Boolean(card.result?.ai)
+  ).length;
   const testModelPassedCount = testModelChecks.filter((check) => check.pass).length;
   const testModelFailedCount = testModelChecks.length - testModelPassedCount;
 
@@ -7117,6 +7203,48 @@ export default function InstaCompScanner({
     });
   }
 
+  function exportVisibleTrialResults() {
+    const payload = instacompTrialResultsPayload(visibleBatchCards);
+
+    if (!payload.cards.length) {
+      setBatchError("No completed visible scan rows are available for the trial results export.");
+      return;
+    }
+
+    downloadTextFile(
+      `instacomp-trial-results-${exportTimestamp()}.json`,
+      JSON.stringify(payload, null, 2),
+      "application/json;charset=utf-8"
+    );
+    setBatchError(null);
+    setBatchDraftMessage(
+      `Exported ${payload.cards.length} trial result row${
+        payload.cards.length === 1 ? "" : "s"
+      } for the 94% scorekeeper.`
+    );
+  }
+
+  async function copyVisibleTrialResults() {
+    const payload = instacompTrialResultsPayload(visibleBatchCards);
+
+    if (!payload.cards.length) {
+      setBatchError("No completed visible scan rows are available to copy as trial results.");
+      return;
+    }
+
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+      setBatchError(null);
+      setBatchDraftMessage(
+        `Copied ${payload.cards.length} trial result row${
+          payload.cards.length === 1 ? "" : "s"
+        } for the 94% scorekeeper.`
+      );
+    } catch {
+      setBatchError("Could not copy the trial results JSON.");
+    }
+  }
+
   function exportSelectedDraftPayload() {
     if (!selectedDraftReadyCount) {
       setBatchError("Select at least one ready draft row to export.");
@@ -9012,6 +9140,52 @@ export default function InstaCompScanner({
             }}
           >
             Export View JSON
+          </button>
+
+          <button
+            type="button"
+            onClick={exportVisibleTrialResults}
+            disabled={
+              batchRunning || batchDrafting || visibleTrialResultCount === 0
+            }
+            style={{
+              ...secondaryButtonStyle,
+              borderColor: "#1d4ed8",
+              color: "#1d4ed8",
+              cursor:
+                batchRunning || batchDrafting || visibleTrialResultCount === 0
+                  ? "not-allowed"
+                  : "pointer",
+              opacity:
+                batchRunning || batchDrafting || visibleTrialResultCount === 0
+                  ? 0.55
+                  : 1,
+            }}
+          >
+            Export Trial Results ({visibleTrialResultCount})
+          </button>
+
+          <button
+            type="button"
+            onClick={() => void copyVisibleTrialResults()}
+            disabled={
+              batchRunning || batchDrafting || visibleTrialResultCount === 0
+            }
+            style={{
+              ...secondaryButtonStyle,
+              borderColor: "#1d4ed8",
+              color: "#1d4ed8",
+              cursor:
+                batchRunning || batchDrafting || visibleTrialResultCount === 0
+                  ? "not-allowed"
+                  : "pointer",
+              opacity:
+                batchRunning || batchDrafting || visibleTrialResultCount === 0
+                  ? 0.55
+                  : 1,
+            }}
+          >
+            Copy Trial Results ({visibleTrialResultCount})
           </button>
 
           <button

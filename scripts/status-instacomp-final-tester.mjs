@@ -77,6 +77,12 @@ const checklist = [
     status: "ready_to_test",
   },
   {
+    key: "trial_results_export",
+    label:
+      "Admin InstaComp can export or copy completed visible batch rows as tcos.instacompTrialResults.v1 JSON for the 94% scorekeeper, including consensus/review status and row-stable trialCardId values.",
+    status: "ready_to_test",
+  },
+  {
     key: "hundred_card_trial",
     label:
       "100-card / 200-scan final trial must score at least 94% against the local ground-truth manifest.",

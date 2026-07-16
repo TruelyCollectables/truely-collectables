@@ -3924,7 +3924,7 @@ npm run instacomp:trial:init
 
 4. Open `instacomp-trial-manifest.local.json` and fill the `expected` fields from the physical card before using the scan result. Important expected fields are player/subject, year, brand, set, card number, parallel, variation, team, sport, autograph/relic/rookie flags, exact serial number such as `07/50`, and serial run such as `/50`.
 5. Run the lot through `/admin/instacomp` or `/admin/products/new` using the safest durable batch workflow below.
-6. Save the completed InstaComp outputs into `instacomp-trial-results.local.json` using schema `tcos.instacompTrialResults.v1`. Each row must use the same `trialCardId` and can put detected fields under `actual`, `result`, `predicted`, or `ai`.
+6. From `/admin/instacomp`, use `Export Trial Results` or `Copy Trial Results` after the batch finishes, then save the exported JSON as `instacomp-trial-results.local.json`. The export uses schema `tcos.instacompTrialResults.v1`, preserves row-stable trialCardId values such as `trial-card-001`, includes the detected `actual` fields, carries consensus/review status, and only includes completed visible scan rows. If you manually build the file instead, each row must use the same `trialCardId` as the manifest and can put detected fields under `actual`, `result`, `predicted`, or `ai`.
 7. Score the trial:
 
 ```bash

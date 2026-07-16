@@ -3534,6 +3534,13 @@ assertFileIncludes("instacomp multi-scanner consensus UI wiring", "src/app/admin
   "ConsensusPanel",
   "InstaComp™ Multi-Scanner Consensus",
 ]);
+assertFileIncludes("instacomp trial results export UI wiring", "src/app/admin/instacomp/InstaCompScanner.tsx", [
+  "instacompTrialResultsPayload",
+  "tcos.instacompTrialResults.v1",
+  "Export Trial Results",
+  "Copy Trial Results",
+  "trial-card-",
+]);
 assertFileIncludes("instacomp multi-scanner consensus simulations", "scripts/run-instacomp-consensus-simulations.ts", [
   "catalog referee overrides two generic base scanner votes",
   "specific printed clear cut beats generic base without catalog",
@@ -3550,6 +3557,17 @@ assertFileIncludes("instacomp printed-variant identity guard manual", "docs/TCOS
   "Limited Red",
   "Clear Cut",
   "uncertain insert cues are marked for review",
+]);
+assertFileIncludes("instacomp trial results export manual", "docs/TCOS_OPERATOR_MANUAL.md", [
+  "Export Trial Results",
+  "Copy Trial Results",
+  "tcos.instacompTrialResults.v1",
+  "row-stable trialCardId",
+]);
+assertFileIncludes("instacomp final tester status includes trial export", "scripts/status-instacomp-final-tester.mjs", [
+  "trial_results_export",
+  "tcos.instacompTrialResults.v1 JSON",
+  "row-stable trialCardId",
 ]);
 assertFileIncludes("instacomp catalog identity resolver source", "src/lib/instacomp-catalog-identity.ts", [
   "InstaCompCatalogIdentityInput",
