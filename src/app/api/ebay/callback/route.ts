@@ -4,6 +4,7 @@ import {
   parseSellerMarketplaceOAuthState,
 } from "../../../../lib/marketplace-token-crypto";
 import { fetchSellerEbayIdentity } from "../../../../lib/seller-ebay";
+import { configuredSiteOrigin } from "../../../../lib/site-origin";
 import { getActiveStoreId } from "../../../../lib/stores";
 import { getStoreSettings } from "../../../../lib/store-settings";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
@@ -27,7 +28,7 @@ function sellerRedirect(
   status: "connected" | "error",
   message?: string,
 ) {
-  const redirectUrl = new URL("/seller/marketplaces", request.url);
+  const redirectUrl = new URL("/seller/marketplaces", configuredSiteOrigin());
   redirectUrl.searchParams.set("ebay", status);
 
   if (message) {
