@@ -30,6 +30,12 @@ const trialImageCount = countFilesIfPresent(trialImagesDir);
 
 const checklist = [
   {
+    key: "multi_scanner_consensus",
+    label:
+      "InstaComp™ Multi-Scanner Consensus is the next build piece: independent AI/OCR readers submit structured findings, TCOS consensus compares them, and checklist/catalog truth is the referee before comps, sell, or trade confidence is trusted.",
+    status: "next_to_build",
+  },
+  {
     key: "durable_batch_queue",
     label: "Durable batch upload, queue claims, retry, clear batch, and recovery are testable.",
     status: "ready_to_test",
@@ -111,6 +117,8 @@ const readiness = {
   checklist,
   commands: {
     openTester: "http://localhost:3000/admin/instacomp",
+    buildConsensus:
+      "Implement InstaComp™ Multi-Scanner Consensus before the final July 16 tester pass.",
     verifyHarness: "npm run verify:instacomp",
     initTrial: "npm run instacomp:trial:init",
     scoreTrial:
@@ -119,7 +127,7 @@ const readiness = {
       "npm run lint && npm run verify:instacomp && npm run build && npm run check:production-guardrails",
   },
   next:
-    "Run the InstaComp final tester path first: verify the harness, run the 100-card lot, score it against 94%, record misses, then clean the UI before calling it done-done.",
+    "Build InstaComp™ Multi-Scanner Consensus first, then verify the harness, run the 100-card lot, score it against 94%, record misses, and clean the UI before calling it done-done.",
   safeBuildBoundary:
     "This InstaComp tester status is read-only. It does not approve live money, buy postage, release payouts, create Checkout, publish listings, or start production deploys.",
 };

@@ -2143,6 +2143,12 @@ The system must not rely on AI guessing alone. AI and OCR propose facts; the ope
 
 Future scanner catalog identity requirement:
 
+- next build priority as of July 15, 2026: build `InstaComp™ Multi-Scanner Consensus` before the final 100-card tester pass
+- each card should be submitted to independent AI/OCR readers that produce structured findings for year, manufacturer, set, card number, player, team, parallel/insert, visible variation clues, serial text, front/back OCR, and confidence evidence
+- readers should not simply copy one another; TCOS should compare independent findings, detect disagreements, and escalate only the uncertain cards to an additional reader or operator question
+- the consensus layer must use checklist/catalog truth as the referee, not majority vote alone, so two scanners calling a card `Base` cannot override a confirmed `Outliers`, `Clear Cut`, `Canvas`, `Limited Red`, `Future Watch`, serial run, autograph, relic, or other printed/cataloged variation
+- the review packet should preserve a concise reason trail showing which reader saw which clue, which checklist/catalog candidate matched, why the final identity won, and what still needs review
+- consensus confidence should unlock speed on easy cards and stricter review on valuable, rare, serial-numbered, or conflicting cards; if the consensus/catalog evidence is incomplete, the row must stay `Needs Review`
 - InstaComp should connect to one or more approved online card catalog/checklist sources so scanned cards can be matched against structured card identity data before comps are trusted
 - catalog provider adapters must build a lookup plan from scanned identity fields, filter out any source that lacks API availability or TCOS-approved commercial/storage/display permissions, and keep exact comp trust blocked until at least one approved source can be queried
 - this catalog layer should show known cards and their variations, including base cards, parallels, refractors, short prints, image variations, autographs, relics/patches, serial-numbered print runs, inserts, promos, grading/certification identifiers when available, and manufacturer checklist identifiers

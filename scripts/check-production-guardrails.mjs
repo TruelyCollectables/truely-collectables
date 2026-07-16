@@ -1305,6 +1305,8 @@ assertFileIncludes("30-minute build block checkpoint source", "scripts/status-bu
   "backup runway warning:",
   "localBuildFallback",
   "The primary blocker needs operator Supabase/env access or the external Vercel quota window",
+  "InstaComp Multi-Scanner Consensus is now first in the local goal stack",
+  "Build InstaComp™ Multi-Scanner Consensus first",
   "keep live money/postage/payout/Checkout/deploy paths gated",
   "npm run prepare:build-block-checkpoint",
   "TCOS 30-minute build block checkpoint:",
@@ -3635,6 +3637,12 @@ assertFileIncludes(
 );
 assertFileIncludes("instacomp catalog identity roadmap manual contract", "docs/TCOS_OPERATOR_MANUAL.md", [
   "Future scanner catalog identity requirement:",
+  "next build priority as of July 15, 2026: build `InstaComp™ Multi-Scanner Consensus` before the final 100-card tester pass",
+  "independent AI/OCR readers",
+  "checklist/catalog truth as the referee",
+  "two scanners calling a card `Base` cannot override",
+  "the review packet should preserve a concise reason trail",
+  "consensus confidence should unlock speed on easy cards",
   "approved online card catalog/checklist sources",
   "structured card identity data before comps are trusted",
   "catalog provider adapters must build a lookup plan",
