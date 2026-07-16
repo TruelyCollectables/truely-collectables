@@ -56,21 +56,33 @@ function parseJsonResult(result, command) {
 function acceptedSchedulerPosture(status) {
   const schedulerProof = status?.schedulerProof || {};
   const launchdRuntime = status?.launchdRuntime || {};
+  const scheduleCurrent = status?.scheduleHealth?.state === "current";
   const automaticProven = schedulerProof.automaticRunProven === true;
   const manualCurrentPendingAutomatic =
     schedulerProof.state === "automatic_unproven" &&
     launchdRuntime.loaded === true &&
     launchdRuntime.runs === 0;
+  const manualCurrentAfterAutomaticFailure =
+    schedulerProof.state === "automatic_failed" &&
+    launchdRuntime.loaded === true &&
+    scheduleCurrent === true &&
+    Boolean(status?.scheduleHealth?.latestBackupAt);
 
   return {
     automaticProven,
     manualCurrentPendingAutomatic,
-    accepted: automaticProven || manualCurrentPendingAutomatic,
+    manualCurrentAfterAutomaticFailure,
+    accepted:
+      automaticProven ||
+      manualCurrentPendingAutomatic ||
+      manualCurrentAfterAutomaticFailure,
     mode: automaticProven
       ? "automatic_proven"
       : manualCurrentPendingAutomatic
         ? "manual_current_pending_automatic"
-        : schedulerProof.state || "unknown",
+        : manualCurrentAfterAutomaticFailure
+          ? "manual_current_after_automatic_failure"
+          : schedulerProof.state || "unknown",
   };
 }
 
@@ -165,6 +177,7 @@ function buildStatus() {
       schedulerAccepted: scheduler.accepted,
       automaticRunProven: scheduler.automaticProven,
       manualCurrentPendingAutomatic: scheduler.manualCurrentPendingAutomatic,
+      manualCurrentAfterAutomaticFailure: scheduler.manualCurrentAfterAutomaticFailure,
     },
     next,
     safeBuildBoundary:

@@ -158,8 +158,9 @@ if (payload) {
   checks.push(
     check(
       payload.checks?.automaticRunProven === true ||
-        payload.checks?.manualCurrentPendingAutomatic === true,
-      "backup scheduler proof is accepted or explicitly pending automatic proof",
+        payload.checks?.manualCurrentPendingAutomatic === true ||
+        payload.checks?.manualCurrentAfterAutomaticFailure === true,
+      "backup scheduler proof is accepted, explicitly pending automatic proof, or manually current after automatic failure",
       payload.schedulerProofMode || null,
     ),
   );
