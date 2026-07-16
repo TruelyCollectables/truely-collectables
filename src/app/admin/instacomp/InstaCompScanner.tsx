@@ -12248,7 +12248,7 @@ export default function InstaCompScanner({
               background: "white",
             }}
           >
-            <h2 style={{ marginTop: 0 }}>Comp Pricing</h2>
+            <h2 style={{ marginTop: 0 }}>InstaComp™ Suggested Pricing</h2>
 
             <p style={{ marginTop: 0, color: "#555" }}>
               Comp price is shown first from usable sold comps when available,
@@ -12277,7 +12277,7 @@ export default function InstaCompScanner({
                 value={primaryCompStats(result).high}
               />
               <PriceBox
-                label="Comp Suggested"
+                label="InstaComp™ Suggested"
                 value={primaryCompStats(result).suggestedPrice}
                 strong
               />
@@ -12322,13 +12322,13 @@ export default function InstaCompScanner({
                 onClick={() =>
                   copyPrice(
                     primaryCompStats(result).suggestedPrice,
-                    "Comp price"
+                    "InstaComp™ Suggested price"
                   )
                 }
                 disabled={!primaryCompStats(result).suggestedPrice}
                 style={buttonStyle}
               >
-                Copy Comp Price
+                Copy InstaComp™ Suggested
               </button>
 
               <button
@@ -13183,6 +13183,7 @@ function BatchCardRow({
   onCopySummary?: (card: BatchCard, index: number) => void | Promise<void>;
   onCopyDraftPayload?: (card: BatchCard, index: number) => void | Promise<void>;
 }) {
+  const [showUsableComps, setShowUsableComps] = useState(false);
   const title = draftTitleForCard(card);
   const aiTitle = cardResultTitle(card.result, card.file.name);
   const serialNumber = card.result?.ai.serialNumber || null;
@@ -13198,6 +13199,12 @@ function BatchCardRow({
   const compPrice = primaryCompPriceForCard(card);
   const compStats = primaryCompStats(card.result);
   const compBasis = compPriceBasisForResult(card.result);
+  const usableComps = primaryCompComps(card.result);
+  const usableCompCount = usableComps.length;
+  const compRange =
+    compStats.low && compStats.high && compStats.low !== compStats.high
+      ? `${money(compStats.low)}-${money(compStats.high)}`
+      : null;
   const draftPrice = draftPriceHandoffForCard(card);
   const priceButtonsDisabled = !compPrice || card.status !== "done";
   const displayReviewWarnings = reviewWarnings.filter(
@@ -13539,17 +13546,38 @@ function BatchCardRow({
 
           <div style={{ textAlign: "right", minWidth: 150 }}>
             <div style={{ color: "#666", fontSize: 12, fontWeight: 800 }}>
-              Comps
+              InstaComp™ Suggested
             </div>
             <div style={{ fontWeight: 900, fontSize: 20 }}>
               {money(compPrice)}
             </div>
-            <div style={{ color: "#555", fontSize: 11, fontWeight: 800 }}>
-              {compBasis}
-              {compStats.low && compStats.high && compStats.low !== compStats.high
-                ? ` / ${money(compStats.low)}-${money(compStats.high)}`
-                : ""}
-            </div>
+            {usableCompCount ? (
+              <button
+                type="button"
+                onClick={() => setShowUsableComps((current) => !current)}
+                aria-expanded={showUsableComps}
+                style={{
+                  marginTop: 2,
+                  border: "none",
+                  background: "transparent",
+                  color: "#1d4ed8",
+                  fontSize: 11,
+                  fontWeight: 900,
+                  padding: 0,
+                  cursor: "pointer",
+                  textDecoration: "underline",
+                  textAlign: "right",
+                }}
+                title="Open the usable comp links used by InstaComp™ Suggested."
+              >
+                {compBasis}
+                {compRange ? ` / ${compRange}` : ""} ▾
+              </button>
+            ) : (
+              <div style={{ color: "#555", fontSize: 11, fontWeight: 800 }}>
+                {compBasis}
+              </div>
+            )}
             <div style={{ marginTop: 7, color: "#666", fontSize: 11, fontWeight: 800 }}>
               Market guidance
             </div>
@@ -13707,6 +13735,83 @@ function BatchCardRow({
             </div>
           </div>
         </div>
+
+        {showUsableComps && usableCompCount ? (
+          <div
+            style={{
+              marginTop: 12,
+              border: "1px solid #bfdbfe",
+              borderRadius: 10,
+              background: "#eff6ff",
+              padding: 12,
+            }}
+          >
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                justifyContent: "space-between",
+                gap: 8,
+                alignItems: "baseline",
+              }}
+            >
+              <strong>
+                Usable comps for InstaComp™ Suggested ({usableCompCount})
+              </strong>
+              <span style={{ color: "#1d4ed8", fontSize: 12, fontWeight: 900 }}>
+                {money(compPrice)}
+              </span>
+            </div>
+            <p style={{ margin: "6px 0 10px", color: "#555", fontSize: 12 }}>
+              Sold comps are preferred first. Active/current exact matches stay
+              visible as backup guidance until sale-date freshness is stored.
+            </p>
+            <div style={{ display: "grid", gap: 8 }}>
+              {usableComps.map((comp, compIndex) => (
+                <a
+                  key={`${card.id}-usable-comp-${comp.url}-${compIndex}`}
+                  href={comp.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  style={{
+                    display: "grid",
+                    gridTemplateColumns: "minmax(0, 1fr) auto",
+                    gap: 10,
+                    alignItems: "center",
+                    border: "1px solid #dbeafe",
+                    borderRadius: 8,
+                    padding: "8px 10px",
+                    background: "white",
+                    color: "inherit",
+                    textDecoration: "none",
+                  }}
+                >
+                  <span style={{ minWidth: 0 }}>
+                    <span
+                      style={{
+                        display: "block",
+                        overflow: "hidden",
+                        textOverflow: "ellipsis",
+                        whiteSpace: "nowrap",
+                        fontWeight: 900,
+                      }}
+                    >
+                      {comp.title}
+                    </span>
+                    <small style={{ color: "#555", fontWeight: 800 }}>
+                      {comp.sourceLabel || comp.source} ·{" "}
+                      {compPriceBasisLabel(comp)} · Match {comp.matchScore}
+                      {compGuidanceLabel(comp)
+                        ? ` · ${compGuidanceLabel(comp)}`
+                        : ""}
+                    </small>
+                  </span>
+                  <strong>{money(comp.price)}</strong>
+                </a>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         {card.error && (
           <p style={{ color: "crimson", fontWeight: 700 }}>{card.error}</p>
