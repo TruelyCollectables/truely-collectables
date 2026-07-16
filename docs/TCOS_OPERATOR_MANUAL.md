@@ -988,6 +988,15 @@ Import behavior:
 
 It does not delete eBay inventory.
 
+Future higher-tier import upgrade:
+
+- eBay import should be the first marketplace import path that can offer a paid InstaScan/InstaComp cleanup lane for card inventory.
+- When an imported eBay row maps to sports cards, Pokémon, trading cards, or another supported collectable card category, the seller should be able to run the item through InstaScan/InstaComp instead of accepting the raw imported title/aspects.
+- The cleanup lane should preserve the original eBay listing ID, SKU, price, quantity, photos, item specifics, and source evidence while adding TCOS-normalized title, card identity, set/checklist evidence, serial-number evidence, graded-slab evidence, comp pricing, and draft/listing recommendations.
+- This should be gated by subscription tier or paid usage because it uses premium scanning, catalog, AI, and comp resources.
+- The first MVP should let sellers select imported eBay card rows, run InstaScan/InstaComp enrichment in batch, review corrections, then apply the cleaned professional TCOS data back to staged seller inventory before activation or sync.
+- Never overwrite the seller's live eBay listing automatically from this cleanup lane without explicit seller/admin approval and a sync-safe audit record.
+
 Current eBay category mapper output:
 
 - `sports_cards`
@@ -1759,6 +1768,7 @@ Collection imports:
 - duplicate checks use source marketplace plus source item ID when available, then title/category/certification fallback matching
 - `account_collection_import_jobs` stores row, import, skip, and error counts when the migration is available
 - successful import responses include `X-TCOS-Collector-Import-Source`, `X-TCOS-Collector-Import-Rows`, `X-TCOS-Collector-Import-Imported`, `X-TCOS-Collector-Import-Skipped`, `X-TCOS-Collector-Import-Errors`, and `X-TCOS-Collector-Import-Job` headers so the browser response can be reconciled with the import job audit row
+- Future higher-tier imports should offer optional InstaScan/InstaComp enrichment for imported sports cards, Pokémon, trading cards, and supported collectable-card rows so collectors and sellers can clean raw marketplace exports into professional TCOS card identities with checklist evidence, slab certs, serial numbers, comps, and normalized titles.
 
 Messaging foundation:
 
@@ -1803,6 +1813,7 @@ Goal:
 - connect or upload from an outside sales outlet
 - preview detected items
 - import into TCOS inventory or the collector's private collection
+- offer a higher-tier InstaScan/InstaComp cleanup lane for imported card inventory, starting with eBay imports
 - preserve source IDs, source marketplace, listing URLs, images, descriptions, prices, condition, quantity, and category evidence
 - map items through the same Universal Inventory Engine category and attribute system
 - prevent duplicate imports by source listing ID, SKU, and normalized title
