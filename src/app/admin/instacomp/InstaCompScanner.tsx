@@ -121,6 +121,9 @@ type ScanResponse = {
     provider: string | null;
     checkedImages: number;
     speedLane?: "fast_lane" | "escalated_multi_ai" | null;
+    councilMode?: "fast_lane_council" | "full_council" | null;
+    consensusRiskTier?: "low" | "medium" | "high" | null;
+    scannerPlan?: string[];
     secondaryVisionRan?: boolean | null;
     secondaryVisionReasons?: string[];
     extractedSerialNumber: string | null;
@@ -11165,6 +11168,18 @@ function OcrDiagnosticsPanel({ result }: { result: ScanResponse }) {
           }
         />
         <Info
+          label="Council mode"
+          value={
+            diagnostics.councilMode === "full_council"
+              ? `Full council${diagnostics.consensusRiskTier ? ` - ${diagnostics.consensusRiskTier} risk` : ""}`
+              : diagnostics.councilMode === "fast_lane_council"
+                ? `Fast council${diagnostics.consensusRiskTier ? ` - ${diagnostics.consensusRiskTier} risk` : ""}`
+                : diagnostics.consensusRiskTier
+                  ? `${diagnostics.consensusRiskTier} risk`
+                  : "Not reported"
+          }
+        />
+        <Info
           label="OCR Serial"
           value={diagnostics.extractedSerialNumber || "None found"}
         />
@@ -11197,6 +11212,11 @@ function OcrDiagnosticsPanel({ result }: { result: ScanResponse }) {
           Serial evidence: {diagnostics.serialVisionEvidence}
         </p>
       )}
+      {diagnostics.scannerPlan?.length ? (
+        <p style={{ margin: "10px 0 0", color: "#555", fontWeight: 800 }}>
+          Scanner plan: {diagnostics.scannerPlan.join(" → ").replaceAll("_", " ")}
+        </p>
+      ) : null}
       {diagnostics.textExcerpt && (
         <pre
           style={{
@@ -11244,6 +11264,12 @@ function OcrDiagnosticsMini({ result }: { result: ScanResponse | null }) {
       : diagnostics.speedLane === "fast_lane"
         ? " - fast lane"
         : "";
+  const councilLabel =
+    diagnostics.councilMode === "full_council"
+      ? ` - full council${diagnostics.consensusRiskTier ? `/${diagnostics.consensusRiskTier}` : ""}`
+      : diagnostics.councilMode === "fast_lane_council"
+        ? ` - fast council${diagnostics.consensusRiskTier ? `/${diagnostics.consensusRiskTier}` : ""}`
+        : "";
 
   if (!providerConfigured) {
     return (
@@ -11251,6 +11277,7 @@ function OcrDiagnosticsMini({ result }: { result: ScanResponse | null }) {
         OCR: PaddleOCR/Google not configured - serial vision{" "}
         {serialVisionSerial ? `found ${serialVisionSerial}` : "did not find a serial"}
         {speedLaneLabel}
+        {councilLabel}
       </div>
     );
   }
@@ -11261,6 +11288,7 @@ function OcrDiagnosticsMini({ result }: { result: ScanResponse | null }) {
         OCR: no Paddle/Google text - serial vision{" "}
         {serialVisionSerial ? `found ${serialVisionSerial}` : "did not find a serial"}
         {speedLaneLabel}
+        {councilLabel}
       </div>
     );
   }
@@ -11274,6 +11302,7 @@ function OcrDiagnosticsMini({ result }: { result: ScanResponse | null }) {
         ? " by vision"
         : ""}
       {speedLaneLabel}
+      {councilLabel}
     </div>
   );
 }

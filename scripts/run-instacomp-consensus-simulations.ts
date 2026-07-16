@@ -58,8 +58,18 @@ const scenarios = [
       });
 
       assert(decision.speedLane === "fast_lane", "Expected obvious card fast lane");
+      assert(decision.councilMode === "fast_lane_council", "Expected fast council");
+      assert(decision.riskTier === "low", "Expected low-risk fast lane");
       assert(!decision.runSecondaryVision, "Fast lane must not run second AI reader");
       assert(decision.reasons.length === 0, "Fast lane should not have escalation reasons");
+      assert(
+        !decision.scannerPlan.includes("secondary_ai_vision"),
+        "Fast lane must not spend the second AI reader",
+      );
+      assert(
+        decision.scannerPlan.includes("catalog_referee_when_available"),
+        "Fast lane must still include catalog referee when available",
+      );
     },
   },
   {
@@ -103,7 +113,13 @@ const scenarios = [
       });
 
       assert(decision.speedLane === "escalated_multi_ai", "Expected escalation lane");
+      assert(decision.councilMode === "full_council", "Expected full council");
+      assert(decision.riskTier === "high", "Expected high-risk variant escalation");
       assert(decision.runSecondaryVision, "Variant signal must run second AI reader");
+      assert(
+        decision.scannerPlan.includes("secondary_ai_vision"),
+        "Full council must include second AI reader",
+      );
       assert(
         decision.reasons.includes("printed_variant_signal_needs_second_reader"),
         "Expected printed variant escalation reason",
@@ -201,6 +217,7 @@ const scenarios = [
       });
 
       assert(decision.runSecondaryVision, "Low-confidence incomplete card must escalate");
+      assert(decision.riskTier === "high", "Expected high-risk uncertain identity");
       assert(
         decision.reasons.includes("primary_confidence_below_fast_lane"),
         "Expected low-confidence escalation reason",

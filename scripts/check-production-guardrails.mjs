@@ -3736,6 +3736,10 @@ assertFileIncludes("instacomp multi-scanner consensus source", "src/lib/instacom
   "tcos.instacomp.multiScannerConsensus.v1",
   "tcos.instacomp.consensusEscalation.v1",
   "decideInstaCompConsensusEscalation",
+  "fast_lane_council",
+  "full_council",
+  "scannerPlanForEscalation",
+  "HIGH_RISK_ESCALATION_REASONS",
   "hasNumberedSignal",
   "printed_variant_signal_needs_second_reader",
   "insert_card_number_prefix_needs_second_reader",
@@ -3755,6 +3759,8 @@ assertFileIncludes("instacomp multi-scanner consensus route wiring", "src/app/ap
   "secondary_consensus",
   "applyInstaCompConsensusToAi",
   "consensusEscalation",
+  "consensusRiskTier",
+  "scannerPlan",
   "consensus,",
 ]);
 assertFileIncludes("instacomp multi-scanner consensus UI wiring", "src/app/admin/instacomp/InstaCompScanner.tsx", [
@@ -3762,6 +3768,10 @@ assertFileIncludes("instacomp multi-scanner consensus UI wiring", "src/app/admin
   "ConsensusMini",
   "ConsensusPanel",
   "InstaComp™ Multi-Scanner Consensus",
+  "Council mode",
+  "Scanner plan",
+  "full council",
+  "fast council",
 ]);
 assertFileIncludes("instacomp trial results export UI wiring", "src/app/admin/instacomp/InstaCompScanner.tsx", [
   "instacompTrialResultsPayload",
@@ -3787,6 +3797,8 @@ assertFileIncludes("instacomp multi-scanner consensus simulations", "scripts/run
   "named insert card-number prefix can stay fast lane",
   "autograph or relic marker escalates even at high confidence",
   "low confidence or missing critical fields escalates to second AI identity reader",
+  "Expected full council",
+  "Expected fast council",
   "catalog referee overrides two generic base scanner votes",
   "specific printed clear cut beats generic base without catalog",
   "serial reader fills missing serial number",

@@ -563,7 +563,7 @@ const checklist = [
   {
     key: "multi_scanner_consensus",
     label:
-      "InstaComp™ Multi-Scanner Consensus is wired into scan results: independent AI/OCR readers submit structured findings, TCOS consensus compares them, checklist/catalog truth can referee, and the UI shows the reason trail before comps, sell, or trade confidence is trusted.",
+      "InstaComp™ Multi-Scanner Consensus is wired into scan results: independent AI/OCR readers submit structured findings, TCOS consensus compares them, checklist/catalog truth can referee, fast/full council mode plus risk tier are visible, and the UI shows the reason trail before comps, sell, or trade confidence is trusted.",
     status: "ready_to_test",
   },
   {

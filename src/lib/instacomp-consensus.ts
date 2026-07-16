@@ -93,8 +93,11 @@ export type InstaCompMultiScannerConsensus = {
 export type InstaCompConsensusEscalationDecision = {
   schema: "tcos.instacomp.consensusEscalation.v1";
   speedLane: "fast_lane" | "escalated_multi_ai";
+  councilMode: "fast_lane_council" | "full_council";
+  riskTier: "low" | "medium" | "high";
   runSecondaryVision: boolean;
   reasons: string[];
+  scannerPlan: string[];
   explanation: string;
 };
 
@@ -137,6 +140,36 @@ const POSITIVE_MARKER_FIELDS = new Set<InstaCompConsensusField>([
   "isAuto",
   "isRelic",
 ]);
+
+const HIGH_RISK_ESCALATION_REASONS = new Set([
+  "printed_variant_signal_needs_second_reader",
+  "insert_card_number_prefix_needs_second_reader",
+  "autograph_or_relic_signal_needs_second_reader",
+  "front_back_pairing_needs_review",
+  "uncertain_identity_text_needs_second_reader",
+  "serial_numbered_or_numbered_signal",
+]);
+
+function escalationRiskTier(reasons: string[]) {
+  if (!reasons.length) return "low" as const;
+  if (reasons.some((reason) => HIGH_RISK_ESCALATION_REASONS.has(reason))) {
+    return "high" as const;
+  }
+
+  return "medium" as const;
+}
+
+function scannerPlanForEscalation(runSecondaryVision: boolean) {
+  return [
+    "primary_ai_vision",
+    "serial_vision_ocr",
+    "external_ocr_printed_evidence",
+    "printed_evidence_guard",
+    ...(runSecondaryVision ? ["secondary_ai_vision"] : []),
+    "catalog_referee_when_available",
+    "tcos_consensus_vote",
+  ];
+}
 
 function cleanText(value: string | null | undefined) {
   return String(value || "")
@@ -313,15 +346,21 @@ export function decideInstaCompConsensusEscalation(params: {
 
   const uniqueReasons = uniqueStrings(reasons);
   const runSecondaryVision = uniqueReasons.length > 0;
+  const riskTier = escalationRiskTier(uniqueReasons);
+  const councilMode = runSecondaryVision ? "full_council" : "fast_lane_council";
+  const scannerPlan = scannerPlanForEscalation(runSecondaryVision);
 
   return {
     schema: "tcos.instacomp.consensusEscalation.v1",
     speedLane: runSecondaryVision ? "escalated_multi_ai" : "fast_lane",
+    councilMode,
+    riskTier,
     runSecondaryVision,
     reasons: uniqueReasons,
+    scannerPlan,
     explanation: runSecondaryVision
-      ? `Escalated to a second AI identity reader because ${uniqueReasons.join(", ")}.`
-      : "Fast lane: primary vision, OCR, serial reader, and guardrails supplied enough evidence without an extra AI identity pass.",
+      ? `Full council: primary vision, OCR/printed evidence, serial reader, guardrails, catalog referee, and a second AI identity reader because ${uniqueReasons.join(", ")}.`
+      : "Fast council: primary vision, OCR/printed evidence, serial reader, guardrails, catalog referee, and consensus supplied enough evidence without an extra AI identity pass.",
   };
 }
 
