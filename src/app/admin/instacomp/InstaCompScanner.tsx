@@ -325,9 +325,9 @@ type TestModelRunRecord = {
 
 const MAX_BATCH_CARDS = 500;
 const MAX_SCAN_IMAGE_BYTES = 900_000;
-const MAX_PERSISTENT_SOURCE_IMAGE_BYTES = 3_000_000;
+const MAX_PERSISTENT_SOURCE_IMAGE_BYTES = 1_200_000;
 const MAX_SCAN_IMAGE_DIMENSION = 2600;
-const MAX_PERSISTENT_IMAGE_DIMENSION = 3600;
+const MAX_PERSISTENT_IMAGE_DIMENSION = 2600;
 const MAX_DETAIL_CROP_BYTES = 180_000;
 const MAX_SCAN_REQUEST_BYTES = 3_750_000;
 const DRAFT_UPLOAD_CONCURRENCY = 2;
@@ -1550,6 +1550,26 @@ function sellerInventoryInstaCompDraftHref(search?: string | null) {
   return `/seller/inventory?${params.toString()}`;
 }
 
+function tcosCardSearchQuery(result: ScanResponse | null, fallback: string) {
+  return cardResultTitle(result, fallback).replace(/\s+/g, " ").trim();
+}
+
+function tcosBuySearchHref(query: string) {
+  const params = new URLSearchParams();
+
+  if (query.trim()) params.set("q", query.trim());
+
+  return `/shop${params.toString() ? `?${params.toString()}` : ""}`;
+}
+
+function tcosTradeSearchHref(query: string) {
+  const params = new URLSearchParams();
+
+  if (query.trim()) params.set("q", query.trim());
+
+  return `/trade${params.toString() ? `?${params.toString()}` : ""}`;
+}
+
 function draftQuantityForCard(card: BatchCard) {
   const parsed = Number(card.customQuantity);
 
@@ -2459,7 +2479,7 @@ async function preparePersistentStorageImage(file: File) {
     );
     let outputWidth = Math.max(1, Math.round(sourceWidth * scale));
     let outputHeight = Math.max(1, Math.round(sourceHeight * scale));
-    let quality = 0.94;
+    let quality = 0.88;
 
     for (let attempt = 0; attempt < 8; attempt += 1) {
       const canvas = document.createElement("canvas");
@@ -2496,7 +2516,7 @@ async function preparePersistentStorageImage(file: File) {
     }
 
     throw new Error(
-      `${file.name} could not be reduced below the 3MB private-upload limit.`,
+      `${file.name} could not be reduced below the private-upload limit.`,
     );
   })();
 
@@ -9851,6 +9871,10 @@ export default function InstaCompScanner({
             </div>
 
             <ExternalSearchUsage result={result} />
+
+            <TcosCardSearchActions
+              query={tcosCardSearchQuery(result, frontImage?.name || "card")}
+            />
           </section>
 
           <section
@@ -10388,6 +10412,77 @@ function PriceBox({
   );
 }
 
+function TcosCardSearchActions({
+  query,
+  compact = false,
+}: {
+  query: string;
+  compact?: boolean;
+}) {
+  const cleanQuery = query.trim();
+
+  if (!cleanQuery) return null;
+
+  return (
+    <div
+      style={{
+        marginTop: compact ? 10 : 14,
+        display: "flex",
+        flexWrap: "wrap",
+        gap: 8,
+        alignItems: "center",
+      }}
+    >
+      {!compact ? (
+        <div
+          style={{
+            flexBasis: "100%",
+            color: "#555",
+            fontSize: 12,
+            fontWeight: 900,
+            textTransform: "uppercase",
+            letterSpacing: 0.4,
+          }}
+        >
+          Search this card on TCOS
+        </div>
+      ) : null}
+
+      <a
+        href={tcosBuySearchHref(cleanQuery)}
+        style={{
+          ...secondaryButtonStyle,
+          padding: compact ? "7px 9px" : "9px 12px",
+          borderColor: "#0f5132",
+          color: "#0f5132",
+          textDecoration: "none",
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        Buy Me on TCOS
+      </a>
+
+      <a
+        href={tcosTradeSearchHref(cleanQuery)}
+        style={{
+          ...secondaryButtonStyle,
+          padding: compact ? "7px 9px" : "9px 12px",
+          borderColor: "#1d4ed8",
+          color: "#1d4ed8",
+          textDecoration: "none",
+          display: "inline-flex",
+          alignItems: "center",
+          justifyContent: "center",
+        }}
+      >
+        Trade For Me on TCOS
+      </a>
+    </div>
+  );
+}
+
 function BatchCardRow({
   card,
   index,
@@ -10431,6 +10526,7 @@ function BatchCardRow({
     (warning) => !(warning === "No listing price" && missingPriceDraftError)
   );
   const draftHref = sellerInventoryInstaCompDraftHref(card.draftSku || title);
+  const tcosSearchQuery = tcosCardSearchQuery(card.result, title);
   const canSelectForDraft = isDraftableBatchCard(card);
   const canCopyDraftPayload = Boolean(onCopyDraftPayload) && canSelectForDraft;
   const canRetry =
@@ -10586,6 +10682,9 @@ function BatchCardRow({
             )}
             <OcrDiagnosticsMini result={card.result} />
             <ExternalSearchMini result={card.result} />
+            {card.result ? (
+              <TcosCardSearchActions query={tcosSearchQuery} compact />
+            ) : null}
           </div>
 
           <div style={{ textAlign: "right" }}>
