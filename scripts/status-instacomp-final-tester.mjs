@@ -32,8 +32,8 @@ const checklist = [
   {
     key: "multi_scanner_consensus",
     label:
-      "InstaComp™ Multi-Scanner Consensus is the next build piece: independent AI/OCR readers submit structured findings, TCOS consensus compares them, and checklist/catalog truth is the referee before comps, sell, or trade confidence is trusted.",
-    status: "next_to_build",
+      "InstaComp™ Multi-Scanner Consensus is wired into scan results: independent AI/OCR readers submit structured findings, TCOS consensus compares them, checklist/catalog truth can referee, and the UI shows the reason trail before comps, sell, or trade confidence is trusted.",
+    status: "ready_to_test",
   },
   {
     key: "durable_batch_queue",
@@ -127,7 +127,7 @@ const readiness = {
       "npm run lint && npm run verify:instacomp && npm run build && npm run check:production-guardrails",
   },
   next:
-    "Build InstaComp™ Multi-Scanner Consensus first, then verify the harness, run the 100-card lot, score it against 94%, record misses, and clean the UI before calling it done-done.",
+    "Run the 100-card lot through the wired Multi-Scanner Consensus path, score it against 94%, record misses, and clean the UI before calling it done-done.",
   safeBuildBoundary:
     "This InstaComp tester status is read-only. It does not approve live money, buy postage, release payouts, create Checkout, publish listings, or start production deploys.",
 };
