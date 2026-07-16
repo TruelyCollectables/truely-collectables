@@ -621,6 +621,106 @@ function readTrialAnswerKeyValidationStatus(worksheetStatus) {
   }
 }
 
+function runTrialPreflightStatus() {
+  const command = [
+    "node",
+    "scripts/run-instacomp-trial-preflight.mjs",
+    "--manifest",
+    "instacomp-trial-manifest.local.json",
+    "--images",
+    "instacomp-trial-images",
+    "--image-map",
+    "instacomp-trial-image-map.local.json",
+    "--intake-packet",
+    "instacomp-trial-intake-packet.local.md",
+    "--expected-cards",
+    "100",
+    "--allow-not-ready",
+    "--json",
+  ];
+  const result = spawnSync(command[0], command.slice(1), {
+    cwd: repoRoot,
+    encoding: "utf8",
+    maxBuffer: statusJsonMaxBuffer,
+  });
+  const stdout = (result.stdout || "").trim();
+
+  try {
+    const payload = JSON.parse(stdout);
+    const scanPermit = payload.scanPermit || {};
+    const operatorNextActions = Array.isArray(payload.operatorNextActions)
+      ? payload.operatorNextActions
+      : [];
+    const blockers = Array.isArray(payload.blockers) ? payload.blockers : [];
+
+    return {
+      command: "npm run instacomp:trial:preflight",
+      available: true,
+      generatedAt: payload.generatedAt || null,
+      readyToScan: Boolean(payload.readyToScan),
+      scanPermit: {
+        status:
+          scanPermit.status ||
+          (payload.readyToScan ? "SCAN_PERMIT_GRANTED" : "SCAN_PERMIT_BLOCKED"),
+        canScan: Boolean(scanPermit.canScan),
+        summary:
+          scanPermit.summary ||
+          (payload.readyToScan
+            ? "Answer key and image receipts are ready."
+            : "Do not scan yet; preflight still has blockers."),
+        operatorWarning: scanPermit.operatorWarning || null,
+        progress: scanPermit.progress || {},
+      },
+      blockerCount: blockers.length,
+      blockers: blockers.slice(0, 5).map((blocker) => ({
+        key: blocker.key || "unknown",
+        label: blocker.label || "",
+        next: blocker.next || "",
+      })),
+      operatorNextActions: operatorNextActions.slice(0, 6).map((action) => ({
+        key: action.key || "unknown",
+        type: action.type || "unknown",
+        command: action.command || "",
+        why: action.why || "",
+      })),
+      next: payload.next || "Run npm run instacomp:trial:preflight.",
+      exitStatus: result.status,
+      error: result.status === 0 ? null : (result.stderr || "").trim() || null,
+    };
+  } catch (error) {
+    return {
+      command: "npm run instacomp:trial:preflight",
+      available: false,
+      generatedAt: null,
+      readyToScan: false,
+      scanPermit: {
+        status: "SCAN_PERMIT_UNKNOWN",
+        canScan: false,
+        summary: "Preflight JSON could not be read; do not scan until preflight is repaired.",
+        operatorWarning: "Run preflight directly before spending scanner time.",
+        progress: {},
+      },
+      blockerCount: null,
+      blockers: [],
+      operatorNextActions: [
+        {
+          key: "rerun_preflight",
+          type: "command",
+          command: "npm run instacomp:trial:preflight",
+          why: "Inspect the preflight error directly and restore scan-permit proof.",
+        },
+      ],
+      next: "Run npm run instacomp:trial:preflight directly to inspect the scan-permit error.",
+      exitStatus: result.status,
+      error:
+        (result.stderr || "").trim() ||
+        `Could not parse trial preflight JSON: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+    };
+  }
+}
+
 const manifestPath = "instacomp-trial-manifest.local.json";
 const resultsPath = "instacomp-trial-results.local.json";
 const trialInboxDir = "instacomp-trial-inbox";
@@ -684,6 +784,7 @@ const trialAnswerKeyHtml = readTrialAnswerKeyHtmlStatus(
   trialGroundTruthWorksheet,
 );
 const trialAnswerKeyValidation = readTrialAnswerKeyValidationStatus(trialGroundTruthWorksheet);
+const trialPreflight = runTrialPreflightStatus();
 
 const checklist = [
   {
@@ -861,13 +962,11 @@ const checklist = [
     key: "trial_preflight_gate",
     label:
       "The one-shot final tester preflight can prove the answer key, image pairs, image-map receipt, and intake packet are all current, then issue an explicit scan permit and ordered operator next actions before the operator spends scanner time.",
-    status:
-      trialManifestAudit.readyToScore &&
-      trialImageAudit.readyToScan &&
-      trialImageMap.matchesCurrentAudit &&
-      trialIntakePacket.matchesCurrentAudit
-        ? "ready_to_scan"
-        : "needs_preflight",
+    status: trialPreflight.readyToScan
+      ? "scan_permit_granted"
+      : trialPreflight.available
+        ? "scan_permit_blocked"
+        : "needs_preflight_repair",
   },
   {
     key: "trial_intake_packet",
@@ -935,6 +1034,7 @@ const readiness = {
     imageAudit: trialImageAudit,
     imageMap: trialImageMap,
     intakePacket: trialIntakePacket,
+    preflight: trialPreflight,
   },
   checklist,
   commands: {
@@ -1103,6 +1203,32 @@ if (jsonOutput) {
     `- trial intake packet: ${readiness.localTrial.intakePacket.exists ? "present" : "missing"} - ${readiness.localTrial.intakePacket.matchesCurrentAudit ? "matches audit" : "not ready"}`,
   );
   console.log(`- trial intake packet next: ${readiness.localTrial.intakePacket.next}`);
+  console.log(
+    `- trial scan permit: ${readiness.localTrial.preflight.scanPermit.status} - ${readiness.localTrial.preflight.scanPermit.summary}`,
+  );
+  if (readiness.localTrial.preflight.scanPermit.operatorWarning) {
+    console.log(
+      `- trial scan warning: ${readiness.localTrial.preflight.scanPermit.operatorWarning}`,
+    );
+  }
+  console.log(
+    `- trial preflight blockers: ${readiness.localTrial.preflight.blockerCount ?? "unknown"}`,
+  );
+  if (readiness.localTrial.preflight.blockers.length > 0) {
+    console.log(
+      `- first preflight blockers: ${readiness.localTrial.preflight.blockers
+        .map((blocker) => `${blocker.key}: ${blocker.next}`)
+        .join(" | ")}`,
+    );
+  }
+  if (readiness.localTrial.preflight.operatorNextActions.length > 0) {
+    console.log(
+      `- trial preflight next actions: ${readiness.localTrial.preflight.operatorNextActions
+        .map((action, index) => `${index + 1}. ${action.command}`)
+        .join(" | ")}`,
+    );
+  }
+  console.log(`- trial preflight next: ${readiness.localTrial.preflight.next}`);
   console.log(
     `- trial image audit problems: missing fronts ${readiness.localTrial.imageAudit.missingFrontCount ?? "unknown"}, missing backs ${readiness.localTrial.imageAudit.missingBackCount ?? "unknown"}, duplicates ${Number(readiness.localTrial.imageAudit.duplicateFrontCount || 0) + Number(readiness.localTrial.imageAudit.duplicateBackCount || 0)}, unknown files ${readiness.localTrial.imageAudit.unknownFileCount ?? "unknown"}, extra files ${readiness.localTrial.imageAudit.extraFileCount ?? "unknown"}`,
   );
