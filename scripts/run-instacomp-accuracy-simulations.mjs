@@ -334,8 +334,28 @@ const containedParallelDraftTitle = buildInstaCompDraftTitle(
 check(
   "draft title suppresses parallel already contained in set name",
   containedParallelDraftTitle ===
-    "2025-26 Upper Deck SP Authentic - Future Watch Spectrum FX Level 1 Matthew Robertson #S-50",
+    "2025-26 SP Authentic - Future Watch Spectrum FX Level 1 Matthew Robertson #S-50",
   containedParallelDraftTitle,
+);
+
+const spAuthenticOutliersDraftTitle = buildInstaCompDraftTitle(
+  {
+    player: "Connor McDavid",
+    year: "2025-26",
+    brand: "Upper Deck",
+    setName: "SP Authentic Hockey",
+    cardNumber: "O-8",
+    parallel: "Outliers",
+    serialNumber: null,
+    isRookie: false,
+  },
+  "fallback.jpg",
+);
+check(
+  "draft title treats Upper Deck as manufacturer for SP Authentic and strips sport words",
+  spAuthenticOutliersDraftTitle ===
+    "2025-26 SP Authentic Connor McDavid Outliers #O-8",
+  spAuthenticOutliersDraftTitle,
 );
 
 const invalidSerialQuery = buildInstaCompQueries({ ...target, serialNumber: "99/25" });

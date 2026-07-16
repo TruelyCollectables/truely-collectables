@@ -94,6 +94,30 @@ function stripLeadingBrandFromSetName(brand: string, setName: string) {
   return cleanSetName;
 }
 
+function stripGenericSportReleaseWords(value: string | null | undefined) {
+  const cleanValue = cleanDraftTitlePhrase(value, 120);
+  if (!cleanValue) return "";
+
+  return cleanValue
+    .split(" ")
+    .filter((token) => {
+      const comparable = comparableTitlePart(token);
+
+      return ![
+        "baseball",
+        "basketball",
+        "football",
+        "hockey",
+        "soccer",
+        "sports",
+        "trading",
+        "card",
+        "cards",
+      ].includes(comparable);
+    })
+    .join(" ");
+}
+
 function stripLeadingPhrase(value: string | null | undefined, phrase: string | null | undefined) {
   const cleanValue = cleanDraftTitlePhrase(value);
   const cleanPhrase = cleanDraftTitlePhrase(phrase);
@@ -187,6 +211,7 @@ function isUpperDeckManufacturerOnlyForSetName(brand: string, setName: string) {
 
   return (
     comparableSetName.includes("opchee") ||
+    comparableSetName.includes("sp authentic") ||
     comparableSetName.startsWith("opc ") ||
     comparableSetName === "opc"
   );
@@ -205,7 +230,7 @@ function releaseTitleParts(ai: InstaCompDraftTitleAi | null | undefined) {
   const brand = cleanDraftTitlePhrase(ai?.brand, 80);
   const setName = stripLeadingBrandFromSetName(
     brand,
-    cleanDraftTitlePhrase(ai?.setName, 120),
+    stripGenericSportReleaseWords(ai?.setName),
   );
 
   return [

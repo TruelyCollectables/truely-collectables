@@ -348,9 +348,9 @@ const MAX_DETAIL_CROP_BYTES = 180_000;
 const MAX_SCAN_REQUEST_BYTES = 3_750_000;
 const DRAFT_UPLOAD_CONCURRENCY = 2;
 const INSTACOMP_JOB_ITEM_CHUNK_SIZE = 50;
-const INSTACOMP_BATCH_DEFAULT_CONCURRENCY = 4;
-const INSTACOMP_BATCH_MAX_CONCURRENCY = 6;
-const INSTACOMP_JOB_UPLOAD_CONCURRENCY = 6;
+const INSTACOMP_BATCH_DEFAULT_CONCURRENCY = 6;
+const INSTACOMP_BATCH_MAX_CONCURRENCY = 10;
+const INSTACOMP_JOB_UPLOAD_CONCURRENCY = 10;
 const INSTACOMP_JOB_CLAIM_CHUNK_SIZE = 5;
 const INSTACOMP_LAST_JOB_STORAGE_KEY = "tcos-instacomp-last-job-v1";
 const EMPTY_CARD_PREVIEW =
@@ -8633,7 +8633,7 @@ export default function InstaCompScanner({
               fontWeight: 900,
             }}
           >
-            Parallel Scans
+            FAF Parallel Scans
             <input
               type="number"
               min="1"

@@ -3466,6 +3466,8 @@ assertFileIncludes("shipping purchase attempt audit simulation runner", "scripts
 assertFileIncludes("instacomp shared draft title contract", "src/lib/instacomp-draft-title.ts", [
   "buildInstaCompDraftTitle",
   "serialRunDisplayLabel",
+  "sp authentic",
+  "stripGenericSportReleaseWords",
   "ai?.isRookie ? \"Rookie\"",
   "serialRun",
 ]);
@@ -3487,6 +3489,7 @@ assertFileIncludes("instacomp accuracy draft title simulations", "scripts/run-in
   "draft title uses print run instead of exact serial",
   "draft title preserves true one-of-one",
   "invalid serial is omitted from draft title",
+  "draft title treats Upper Deck as manufacturer for SP Authentic and strips sport words",
 ]);
 assertFileIncludes("instacomp printed-variant identity guard source", "src/lib/instacomp-identity-guard.ts", [
   "applyInstaCompIdentityGuard",
