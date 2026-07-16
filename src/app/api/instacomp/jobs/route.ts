@@ -20,6 +20,33 @@ export const dynamic = "force-dynamic";
 const LEGACY_INSTACOMP_JOB_CONCURRENCY_LIMIT = 6;
 const INSTACOMP_JOB_SAFE_CONCURRENCY_LIMIT = 6;
 const INSTACOMP_JOB_SAFE_DEFAULT_CONCURRENCY = 4;
+const INSTACOMP_SELLER_DAILY_CARD_LIMIT = 1500;
+const INSTACOMP_LOCAL_ADMIN_DAILY_CARD_LIMIT = 10_000;
+
+function readPositiveIntegerEnv(name: string) {
+  const value = process.env[name]?.trim();
+
+  if (!value) return null;
+
+  const parsed = Number(value);
+
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function dailyCardLimitForActor(actorType: "admin" | "seller") {
+  if (actorType !== "admin") return INSTACOMP_SELLER_DAILY_CARD_LIMIT;
+
+  const configured = readPositiveIntegerEnv("INSTACOMP_ADMIN_DAILY_CARD_LIMIT");
+
+  if (process.env.NODE_ENV === "production") {
+    return configured || INSTACOMP_SELLER_DAILY_CARD_LIMIT;
+  }
+
+  return Math.max(
+    INSTACOMP_SELLER_DAILY_CARD_LIMIT,
+    configured || INSTACOMP_LOCAL_ADMIN_DAILY_CARD_LIMIT,
+  );
+}
 
 function isLegacyConcurrencyConstraintError(error: {
   code?: string | null;
@@ -220,11 +247,18 @@ export async function POST(request: Request) {
       0,
     );
 
-    if (dailyCardCount + totalItems > 1500) {
+    const dailyCardLimit = dailyCardLimitForActor(actor.type);
+
+    if (dailyCardCount + totalItems > dailyCardLimit) {
       throw new InstaCompJobServerError(
-        "This account reached the 1,500-card daily InstaComp intake limit.",
+        `This account reached the ${dailyCardLimit.toLocaleString("en-US")}-card daily InstaComp intake limit.`,
         429,
         "INSTACOMP_DAILY_CARD_LIMIT",
+        {
+          dailyCardCount,
+          requestedItems: totalItems,
+          dailyCardLimit,
+        },
       );
     }
 
