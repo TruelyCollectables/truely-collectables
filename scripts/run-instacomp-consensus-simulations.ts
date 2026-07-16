@@ -46,11 +46,13 @@ const scenarios = [
       const decision = decideInstaCompConsensusEscalation({
         ai: {
           ...baseAi,
+          setName: "Upper Deck Extended Series",
+          cardNumber: "656",
           parallel: null,
           confidence: 0.97,
           notes: "Base-like card checked; no variant, serial, autograph, or relic evidence visible.",
         },
-        externalOcrText: "2025-26 SP Authentic Connor McDavid O-8 Edmonton Oilers",
+        externalOcrText: "2025-26 Upper Deck Extended Series Connor McDavid 656 Edmonton Oilers",
         hasBackImage: true,
         pairingConfidence: 0.96,
       });
@@ -66,12 +68,14 @@ const scenarios = [
       const decision = decideInstaCompConsensusEscalation({
         ai: {
           ...baseAi,
+          setName: "Upper Deck Extended Series",
+          cardNumber: "656",
           parallel: null,
           confidence: 0.97,
           notes: "Back copyright reads 2024/25; no serial stamp visible.",
         },
         externalOcrText:
-          "2024/25 Upper Deck authenticated CLC NHLPA Connor McDavid O-8",
+          "2024/25 Upper Deck authenticated CLC NHLPA Connor McDavid 656",
         hasBackImage: true,
         pairingConfidence: 0.96,
       });
@@ -103,6 +107,77 @@ const scenarios = [
       assert(
         decision.reasons.includes("printed_variant_signal_needs_second_reader"),
         "Expected printed variant escalation reason",
+      );
+    },
+  },
+  {
+    name: "insert card-number prefix cannot fast-lane as generic base",
+    run() {
+      const decision = decideInstaCompConsensusEscalation({
+        ai: {
+          ...baseAi,
+          cardNumber: "C-369",
+          parallel: "Base",
+          confidence: 0.97,
+          notes: "Primary reader called it a normal base card.",
+        },
+        externalOcrText: null,
+        hasBackImage: true,
+        pairingConfidence: 0.96,
+      });
+
+      assert(decision.speedLane === "escalated_multi_ai", "Expected prefix escalation");
+      assert(decision.runSecondaryVision, "Insert prefix must run second AI reader");
+      assert(
+        decision.reasons.includes("insert_card_number_prefix_needs_second_reader"),
+        "Expected insert card-number prefix reason",
+      );
+    },
+  },
+  {
+    name: "named insert card-number prefix can stay fast lane",
+    run() {
+      const decision = decideInstaCompConsensusEscalation({
+        ai: {
+          ...baseAi,
+          cardNumber: "C-369",
+          setName: "Upper Deck Canvas",
+          parallel: "Canvas",
+          confidence: 0.97,
+          notes: "Canvas insert is printed and named by the reader.",
+        },
+        externalOcrText: "UPPER DECK CANVAS C-369",
+        hasBackImage: true,
+        pairingConfidence: 0.96,
+      });
+
+      assert(decision.speedLane === "fast_lane", "Named insert should not pay for second reader");
+      assert(
+        !decision.reasons.includes("insert_card_number_prefix_needs_second_reader"),
+        "Named insert should not include prefix escalation reason",
+      );
+    },
+  },
+  {
+    name: "autograph or relic marker escalates even at high confidence",
+    run() {
+      const decision = decideInstaCompConsensusEscalation({
+        ai: {
+          ...baseAi,
+          parallel: null,
+          isAuto: true,
+          confidence: 0.98,
+          notes: "Autograph issue; signature marker visible on front.",
+        },
+        externalOcrText: "AUTHENTIC AUTOGRAPH",
+        hasBackImage: true,
+        pairingConfidence: 0.96,
+      });
+
+      assert(decision.speedLane === "escalated_multi_ai", "Auto card must escalate");
+      assert(
+        decision.reasons.includes("autograph_or_relic_signal_needs_second_reader"),
+        "Expected autograph/relic escalation reason",
       );
     },
   },

@@ -214,6 +214,29 @@ function containsPrintedVariantSignal(value: string | null | undefined) {
   ) || hasNumberedSignal(value);
 }
 
+function hasAutographOrRelicSignal(params: {
+  ai: InstaCompConsensusIdentity;
+  evidenceText: string;
+}) {
+  if (params.ai.isAuto === true || params.ai.isRelic === true) return true;
+  const signalPattern =
+    /\b(autograph|auto(?:graphed)?|signed|signature|signatures|relic|patch|jersey|swatch|materials?|memorabilia|game[-\s]*used)\b/i;
+  const evidenceClauses = params.evidenceText.split(/[.;]/g);
+
+  return evidenceClauses.some(
+    (clause) =>
+      signalPattern.test(clause) &&
+      !/\b(?:no|not|without|absent|none|neither)\b/i.test(clause),
+  );
+}
+
+function hasInsertStyleCardNumberPrefix(cardNumber: string | boolean | null | undefined) {
+  if (typeof cardNumber === "boolean") return false;
+  const normalized = cleanText(cardNumber).toUpperCase().replace(/\s+/g, "");
+
+  return /^(?:O|C|UD\d+|S|FW|FWA|RM|HR|POR|D|CC|YG)-?\d+[A-Z]?$/.test(normalized);
+}
+
 function hasNumberedSignal(value: string | null | undefined) {
   const text = String(value || "");
   const numberedPattern =
@@ -267,6 +290,17 @@ export function decideInstaCompConsensusEscalation(params: {
 
   if (printedVariantDetected && (!params.ai.parallel || isGenericBase(params.ai.parallel))) {
     reasons.push("printed_variant_signal_needs_second_reader");
+  }
+
+  if (
+    hasInsertStyleCardNumberPrefix(params.ai.cardNumber) &&
+    (!params.ai.parallel || isGenericBase(params.ai.parallel))
+  ) {
+    reasons.push("insert_card_number_prefix_needs_second_reader");
+  }
+
+  if (hasAutographOrRelicSignal({ ai: params.ai, evidenceText })) {
+    reasons.push("autograph_or_relic_signal_needs_second_reader");
   }
 
   if (isUncertain(params.ai.parallel) || isUncertain(params.ai.notes)) {
