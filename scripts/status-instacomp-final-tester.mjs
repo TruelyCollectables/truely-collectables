@@ -218,8 +218,7 @@ const trialImageDropZoneGuide = {
   explicitPairPattern:
     "Explicit side filenames can use front/fr/f/obverse and back/bk/b/reverse/rear. Example: 001-front.jpg + 001-back.jpg.",
   afterCopyCommands: [
-    "npm run instacomp:trial:audit",
-    "npm run instacomp:trial:map",
+    "npm run instacomp:trial:ready",
     "npm run status:instacomp-final-tester",
   ],
 };
@@ -355,6 +354,7 @@ const readiness = {
     initTrial: "npm run instacomp:trial:init",
     auditTrialImages: "npm run instacomp:trial:audit",
     mapTrialImages: "npm run instacomp:trial:map",
+    readyTrialImages: "npm run instacomp:trial:ready",
     scoreTrial:
       "npm run instacomp:trial:report -- --manifest instacomp-trial-manifest.local.json --results instacomp-trial-results.local.json --target 94",
     scoreTrialFailures: "npm run instacomp:trial:failures",
@@ -436,6 +436,7 @@ if (jsonOutput) {
   console.log(`- init trial: ${readiness.commands.initTrial}`);
   console.log(`- audit trial images: ${readiness.commands.auditTrialImages}`);
   console.log(`- map trial images: ${readiness.commands.mapTrialImages}`);
+  console.log(`- ready trial images: ${readiness.commands.readyTrialImages}`);
   console.log(`- score trial: ${readiness.commands.scoreTrial}`);
   console.log(`- score + write failure report: ${readiness.commands.scoreTrialFailures}`);
   console.log(`- full local safety: ${readiness.commands.fullLocalSafety}`);

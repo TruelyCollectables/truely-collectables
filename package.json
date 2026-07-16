@@ -26,6 +26,7 @@
     "instacomp:trial:report": "node scripts/run-instacomp-trial-report.mjs",
     "instacomp:trial:audit": "node scripts/run-instacomp-trial-report.mjs --manifest instacomp-trial-manifest.local.json --audit-images instacomp-trial-images --expected-cards 100",
     "instacomp:trial:map": "node scripts/run-instacomp-trial-report.mjs --manifest instacomp-trial-manifest.local.json --audit-images instacomp-trial-images --expected-cards 100 --write-image-map instacomp-trial-image-map.local.json",
+    "instacomp:trial:ready": "npm run instacomp:trial:audit && npm run instacomp:trial:map && npm run status:instacomp-final-tester",
     "instacomp:trial:failures": "node scripts/run-instacomp-trial-report.mjs --manifest instacomp-trial-manifest.local.json --results instacomp-trial-results.local.json --target 94 --write-failure-report instacomp-trial-failures.local.json",
     "simulate:lettertrack-evidence": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-lettertrack-evidence-simulations.mjs",
     "simulate:shipping": "node --import tsx scripts/run-shipping-simulations.ts",

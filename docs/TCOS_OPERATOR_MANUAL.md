@@ -3938,6 +3938,14 @@ npm run instacomp:trial:map
 ```
 
 That command writes ignored local file `instacomp-trial-image-map.local.json` with schema `tcos.instacompTrialImageMap.v1`. Use it to confirm which scanner file became the front and back for each `trial-card-###` row before uploading the lot.
+
+For the normal pre-scan gate, run the one-shot readiness command:
+
+```bash
+npm run instacomp:trial:ready
+```
+
+That command runs the image audit, writes the front/back image-map receipt, and prints `status:instacomp-final-tester`. It must pass before the 100-card lot should be scanned.
 6. Run the lot through `/admin/instacomp` or `/admin/products/new` using the safest durable batch workflow below.
 7. From `/admin/instacomp`, use `Export Trial Results` or `Copy Trial Results` after the batch finishes, then save the exported JSON as `instacomp-trial-results.local.json`. The export uses schema `tcos.instacompTrialResults.v1`, preserves row-stable trialCardId values such as `trial-card-001`, includes the detected `actual` fields, carries consensus/review status, and only includes completed visible scan rows. If you manually build the file instead, each row must use the same `trialCardId` as the manifest and can put detected fields under `actual`, `result`, `predicted`, or `ai`.
 8. Score the trial:

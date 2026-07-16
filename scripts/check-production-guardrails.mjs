@@ -1207,6 +1207,11 @@ assertScriptIncludes("instacomp:trial:map", [
   "scripts/run-instacomp-trial-report.mjs",
   "--write-image-map instacomp-trial-image-map.local.json",
 ]);
+assertScriptIncludes("instacomp:trial:ready", [
+  "instacomp:trial:audit",
+  "instacomp:trial:map",
+  "status:instacomp-final-tester",
+]);
 assertScriptIncludes("instacomp:trial:failures", [
   "scripts/run-instacomp-trial-report.mjs",
   "--write-failure-report instacomp-trial-failures.local.json",
@@ -1323,6 +1328,7 @@ assertFileIncludes("30-minute build block checkpoint source", "scripts/status-bu
   "audit and map images before scanning",
   "npm run instacomp:trial:audit",
   "npm run instacomp:trial:map",
+  "npm run instacomp:trial:ready",
   "keep live money/postage/payout/Checkout/deploy paths gated",
   "npm run prepare:build-block-checkpoint",
   "TCOS 30-minute build block checkpoint:",
@@ -1522,6 +1528,7 @@ assertFileIncludes("30-minute next build block action verifier source", "scripts
   "fallback selection preserves checkpoint handoff command",
   "fallback selection preserves InstaComp trial image audit command",
   "fallback selection preserves InstaComp trial image map command",
+  "fallback selection preserves InstaComp trial ready gate command",
   "fallback selection tells the operator to audit and map images before scanning",
   "fallback selection preserves live-money/postage/deploy gates",
   "next-action go-live evidence verifier is ok",
@@ -1592,6 +1599,7 @@ assertFileIncludes("30-minute build block checkpoint verifier source", "scripts/
   "local build fallback preserves checkpoint handoff command",
   "local build fallback preserves InstaComp trial image audit command",
   "local build fallback preserves InstaComp trial image map command",
+  "local build fallback preserves InstaComp trial ready gate command",
   "local build fallback tells the operator to audit and map images before scanning",
   "local build fallback preserves live-money/postage/deploy gates",
   "checkpoint go-live evidence verifier is ok",
@@ -3614,6 +3622,7 @@ assertFileIncludes("instacomp trial image audit manual", "docs/TCOS_OPERATOR_MAN
   "1+2",
   "ordered-pair candidate files",
   "npm run instacomp:trial:map",
+  "npm run instacomp:trial:ready",
   "instacomp-trial-image-map.local.json",
   "tcos.instacompTrialImageMap.v1",
 ]);
@@ -3638,6 +3647,7 @@ assertFileIncludes("instacomp final tester status includes trial image audit", "
   "trial_image_map",
   "auditTrialImages",
   "mapTrialImages",
+  "readyTrialImages",
   "readTrialImageMapStatus",
   "trialImageDropZoneGuide",
   "tcos.instacompTrialImageMap.v1",
@@ -3647,6 +3657,7 @@ assertFileIncludes("instacomp final tester status includes trial image audit", "
   "accepted trial image patterns:",
   "accepted trial side words:",
   "after copying images:",
+  "npm run instacomp:trial:ready",
   "ordered scanner files pair 1+2, 3+4, 5+6",
   "001-front.jpg + 001-back.jpg",
   "missing fronts/backs",
