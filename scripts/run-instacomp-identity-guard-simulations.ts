@@ -74,7 +74,7 @@ const scenarios: Scenario[] = [
     },
   },
   {
-    name: "AI notes clear acetate stock cannot remain base without OCR text",
+    name: "AI notes Upper Deck clear-stock back-logo cue becomes Clear Cut",
     ai: {
       ...baseAi,
       player: "Dylan Larkin",
@@ -84,13 +84,35 @@ const scenarios: Scenario[] = [
       cardNumber: "656",
       parallel: "Base",
       team: "Detroit Red Wings",
-      notes: "Vision note: card has transparent acetate stock and clear/ghosted back logo treatment.",
+      notes: "Vision note: card has transparent acetate stock and centered team logo / ghosted back logo treatment.",
+    },
+    externalOcrText: "",
+    expect(actual) {
+      assert(actual.parallel === "Clear Cut", `Expected Clear Cut from visual cue, received ${actual.parallel}`);
+      assert(actual.setName === "Extended Series", `Expected Extended Series setName preserved, received ${actual.setName}`);
+      assert(
+        actual.notes?.includes("Upper Deck clear-stock back-logo cue indicates Clear Cut") === true,
+        "Expected Clear Cut visual-cue guardrail note",
+      );
+    },
+  },
+  {
+    name: "non Upper Deck acetate note stays review instead of Clear Cut",
+    ai: {
+      ...baseAi,
+      player: "Fixture Player",
+      year: "2024",
+      brand: "Panini",
+      setName: "Select",
+      cardNumber: "88",
+      parallel: "Base",
+      notes: "Vision note: card has transparent acetate stock and ghosted back logo treatment.",
     },
     externalOcrText: "",
     expect(actual) {
       assert(
         actual.parallel === "Acetate / clear parallel - exact type uncertain",
-        `Expected acetate review from notes, received ${actual.parallel}`,
+        `Expected acetate review from non Upper Deck notes, received ${actual.parallel}`,
       );
       assert(actual.confidence <= 0.84, `Expected review confidence, received ${actual.confidence}`);
     },

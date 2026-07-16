@@ -11,6 +11,7 @@ const baseParallelPattern = /^\s*(base|base card|standard|regular)\s*$/i;
 const printedVariantGuardrailExamples = [
   "Limited Red",
   "Clear Cut",
+  "Upper Deck clear-stock back-logo cue",
   "Outliers",
   "Future Watch",
   "Spectrum FX",
@@ -99,6 +100,19 @@ function detectPrintedVariantSignal(text: string): VariantSignal | null {
       label: "Clear Cut",
       setName: "Clear Cut",
       reason: "printed text indicates Upper Deck Clear Cut / Clear Cut",
+      confidence: "exact",
+    };
+  }
+
+  if (
+    /\bupper\s+deck\b/i.test(text) &&
+    /\b(?:transparent|translucent|acetate|clear[-\s]*stock|clear\s*\/\s*ghosted)\b/i.test(text) &&
+    /\b(?:centered\s+(?:team\s+)?logo|ghosted\s+back\s+logo|back\s+logo|team\s+logo|player[-\s]*name\s+treatment|clear\s+back)\b/i.test(text)
+  ) {
+    return {
+      label: "Clear Cut",
+      setName: "Clear Cut",
+      reason: "Upper Deck clear-stock back-logo cue indicates Clear Cut",
       confidence: "exact",
     };
   }

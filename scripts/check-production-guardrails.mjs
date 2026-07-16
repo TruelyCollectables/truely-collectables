@@ -3531,6 +3531,7 @@ assertFileIncludes("instacomp printed-variant identity guard source", "src/lib/i
   "Future Watch",
   "Spectrum FX",
   "ai.notes",
+  "Upper Deck clear-stock back-logo cue indicates Clear Cut",
   "Insert - exact type uncertain",
   "Acetate / clear parallel - exact type uncertain",
   "Identity guardrail",
@@ -3546,7 +3547,8 @@ assertFileIncludes("instacomp printed-variant identity guard simulations", "scri
   "printed Limited Red overrides base",
   "Upper Deck Clear Cut overrides base and set",
   "AI notes Outliers cannot remain base without OCR text",
-  "AI notes clear acetate stock cannot remain base without OCR text",
+  "AI notes Upper Deck clear-stock back-logo cue becomes Clear Cut",
+  "non Upper Deck acetate note stays review instead of Clear Cut",
   "printed SP Authentic Outliers cannot remain base",
   "printed Spectrum FX keeps collector acronym casing",
   "printed generic insert cannot remain base",
@@ -3598,6 +3600,7 @@ assertFileIncludes("instacomp printed-variant identity guard manual", "docs/TCOS
   "Future Watch",
   "Spectrum FX",
   "AI-vision-note-visible",
+  "Upper Deck clear-stock cards with centered/ghosted back-logo cues are promoted to `Clear Cut`",
   "uncertain insert cues are marked for review",
 ]);
 assertFileIncludes("instacomp trial results export manual", "docs/TCOS_OPERATOR_MANUAL.md", [
