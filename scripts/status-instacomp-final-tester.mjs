@@ -552,6 +552,75 @@ function readTrialAnswerKeyHtmlStatus(manifestAudit, worksheetStatus) {
   }
 }
 
+function readTrialAnswerKeyValidationStatus(worksheetStatus) {
+  const receiptPath = "instacomp-trial-answer-key-validation.local.json";
+  const markdownPath = "instacomp-trial-answer-key-validation.local.md";
+  const absolutePath = join(repoRoot, receiptPath);
+
+  if (!existsSync(absolutePath)) {
+    return {
+      path: receiptPath,
+      markdownPath,
+      exists: false,
+      ok: false,
+      matchesCurrentWorksheet: false,
+      readyCoreRows: 0,
+      rowCount: 0,
+      next:
+        "Run npm run instacomp:trial:answer-key:validate before applying the TSV back to the manifest.",
+      error: null,
+    };
+  }
+
+  try {
+    const payload = JSON.parse(readFileSync(absolutePath, "utf8"));
+    const matchesCurrentWorksheet =
+      payload.schema === "tcos.instacompTrialAnswerKeyValidation.v1" &&
+      payload.worksheet?.path === "instacomp-trial-groundtruth.local.tsv" &&
+      Number(payload.worksheet?.rowCount || 0) === Number(worksheetStatus.rowCount || 0) &&
+      Number(payload.counts?.readyCoreRows || 0) === Number(worksheetStatus.coreReadyRows || 0);
+
+    return {
+      path: receiptPath,
+      markdownPath,
+      exists: true,
+      ok: Boolean(payload.ok),
+      matchesCurrentWorksheet,
+      readyCoreRows: Number(payload.counts?.readyCoreRows || 0),
+      rowCount: Number(payload.worksheet?.rowCount || 0),
+      missingCoreRows: Number(payload.counts?.missingCoreRows || 0),
+      duplicateTrialCardIds: Number(payload.counts?.duplicateTrialCardIds || 0),
+      missingTrialCardIdRows: Number(payload.counts?.missingTrialCardIdRows || 0),
+      missingWorksheetTrialCardIds: Number(payload.counts?.missingWorksheetTrialCardIds || 0),
+      extraWorksheetTrialCardIds: Number(payload.counts?.extraWorksheetTrialCardIds || 0),
+      imagePathDriftRows: Number(payload.counts?.imagePathDriftRows || 0),
+      rowOrderDriftRows: Number(payload.counts?.rowOrderDriftRows || 0),
+      booleanWarnings: Number(payload.counts?.booleanWarnings || 0),
+      next: matchesCurrentWorksheet
+        ? payload.ok
+          ? "Answer-key validation is clean. Run npm run instacomp:trial:groundtruth:apply."
+          : payload.next ||
+            "Fix the answer-key validation issues, then rerun npm run instacomp:trial:answer-key:validate."
+        : "Rerun npm run instacomp:trial:answer-key:validate so the validation receipt matches the current TSV.",
+      error: null,
+    };
+  } catch (error) {
+    return {
+      path: receiptPath,
+      markdownPath,
+      exists: true,
+      ok: false,
+      matchesCurrentWorksheet: false,
+      readyCoreRows: 0,
+      rowCount: 0,
+      next: `Rerun npm run instacomp:trial:answer-key:validate; validation receipt could not be read: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 const manifestPath = "instacomp-trial-manifest.local.json";
 const resultsPath = "instacomp-trial-results.local.json";
 const trialInboxDir = "instacomp-trial-inbox";
@@ -588,6 +657,7 @@ const trialImageDropZoneGuide = {
     "npm run instacomp:trial:sync-images",
     "npm run instacomp:trial:groundtruth:sheet",
     "npm run instacomp:trial:answer-key-html",
+    "npm run instacomp:trial:answer-key:validate",
     "npm run instacomp:trial:groundtruth:apply",
     "npm run instacomp:trial:groundtruth",
     "npm run instacomp:trial:preflight",
@@ -613,6 +683,7 @@ const trialAnswerKeyHtml = readTrialAnswerKeyHtmlStatus(
   trialManifestAudit,
   trialGroundTruthWorksheet,
 );
+const trialAnswerKeyValidation = readTrialAnswerKeyValidationStatus(trialGroundTruthWorksheet);
 
 const checklist = [
   {
@@ -716,6 +787,16 @@ const checklist = [
         ? "ready_to_score"
         : "html_current_but_needs_groundtruth"
       : "needs_answer_key_html",
+  },
+  {
+    key: "trial_answer_key_validation",
+    label:
+      "The local answer-key validator can check copied/downloaded TSV rows for required columns, duplicate/missing IDs, row-count drift, missing player/year/set/card-number fields, image-path drift, and safe no-apply side effects before the manifest is updated.",
+    status: trialAnswerKeyValidation.matchesCurrentWorksheet
+      ? trialAnswerKeyValidation.ok
+        ? "validated_ready_to_apply"
+        : "validation_current_but_needs_groundtruth"
+      : "needs_answer_key_validation",
   },
   {
     key: "trial_prep_bundle",
@@ -850,6 +931,7 @@ const readiness = {
     groundTruthWorksheet: trialGroundTruthWorksheet,
     groundTruthGuide: trialGroundTruthGuide,
     answerKeyHtml: trialAnswerKeyHtml,
+    answerKeyValidation: trialAnswerKeyValidation,
     imageAudit: trialImageAudit,
     imageMap: trialImageMap,
     intakePacket: trialIntakePacket,
@@ -864,6 +946,7 @@ const readiness = {
     initTrial: "npm run instacomp:trial:init",
     writeTrialGroundTruthSheet: "npm run instacomp:trial:groundtruth:sheet",
     writeTrialAnswerKeyHtml: "npm run instacomp:trial:answer-key-html",
+    validateTrialAnswerKey: "npm run instacomp:trial:answer-key:validate",
     applyTrialGroundTruthSheet: "npm run instacomp:trial:groundtruth:apply",
     refreshTrialAnswerKeyGuide: "npm run instacomp:trial:intake",
     prepTrial: "npm run instacomp:trial:prep",
@@ -951,6 +1034,17 @@ if (jsonOutput) {
   }
   console.log(`- trial answer-key HTML next: ${readiness.localTrial.answerKeyHtml.next}`);
   console.log(
+    `- trial answer-key validation: ${readiness.localTrial.answerKeyValidation.exists ? "present" : "missing"} - ${readiness.localTrial.answerKeyValidation.matchesCurrentWorksheet ? "matches worksheet" : "not ready"} - ${readiness.localTrial.answerKeyValidation.ok ? "clean" : "needs fixes"} - ${readiness.localTrial.answerKeyValidation.path}`,
+  );
+  if (readiness.localTrial.answerKeyValidation.error) {
+    console.log(
+      `- trial answer-key validation error: ${readiness.localTrial.answerKeyValidation.error}`,
+    );
+  }
+  console.log(
+    `- trial answer-key validation next: ${readiness.localTrial.answerKeyValidation.next}`,
+  );
+  console.log(
     `- trial raw scanner inbox exists: ${readiness.localTrial.inboxDirExists ? "yes" : "no"}`,
   );
   console.log(`- trial raw scanner inbox: ${readiness.localTrial.inboxAbsolutePath}`);
@@ -1034,6 +1128,7 @@ if (jsonOutput) {
   console.log(`- init trial: ${readiness.commands.initTrial}`);
   console.log(`- write trial ground truth sheet: ${readiness.commands.writeTrialGroundTruthSheet}`);
   console.log(`- write trial answer-key HTML: ${readiness.commands.writeTrialAnswerKeyHtml}`);
+  console.log(`- validate trial answer key: ${readiness.commands.validateTrialAnswerKey}`);
   console.log(`- apply trial ground truth sheet: ${readiness.commands.applyTrialGroundTruthSheet}`);
   console.log(`- refresh trial answer-key guide: ${readiness.commands.refreshTrialAnswerKeyGuide}`);
   console.log(`- prep trial bundle: ${readiness.commands.prepTrial}`);

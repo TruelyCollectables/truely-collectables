@@ -3986,6 +3986,14 @@ npm run instacomp:trial:answer-key-html
 
 That command writes ignored local file `instacomp-trial-answer-key.local.html` with front/back thumbnails, editable current TSV identity fields, missing-field status, and the exact apply/recheck commands. Use `Copy updated TSV` or `Download updated TSV` after editing, save the result over `instacomp-trial-groundtruth.local.tsv`, then run `npm run instacomp:trial:groundtruth:apply`. It is a local guide only: it does not scan cards, deploy, publish listings, buy postage, create Checkout, call production APIs, approve live money, release payouts, mutate images, write the TSV automatically, or apply worksheet values.
 
+Before applying a copied or downloaded TSV, validate the answer key:
+
+```bash
+npm run instacomp:trial:answer-key:validate
+```
+
+That command prints schema `tcos.instacompTrialAnswerKeyValidation.v1`, checks the local worksheet against the manifest for required columns, duplicate/missing IDs, row-count drift, missing `player`/`year`/`setName`/`cardNumber` fields, image-path drift, row-order drift, and odd rookie/autograph/relic boolean values. It writes ignored local receipts `instacomp-trial-answer-key-validation.local.json` and `instacomp-trial-answer-key-validation.local.md`. It does not apply worksheet values, mutate images, scan cards, deploy, publish listings, buy postage, create Checkout, call production APIs, approve live money, release payouts, or change runtime switches.
+
 ```bash
 npm run instacomp:trial:groundtruth:apply
 ```
