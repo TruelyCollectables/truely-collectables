@@ -6399,6 +6399,52 @@ export default function InstaCompScanner({
     }
   }
 
+  function swapBatchCardImages(cardId: string) {
+    if (batchRunning || batchDrafting || batchKnowledgeSaving) return;
+
+    const card = batchCards.find((row) => row.id === cardId);
+
+    if (!card?.backFile || card.draftStatus !== "idle") return;
+
+    if (card.file.size <= 0 || card.backFile.size <= 0) {
+      setBatchError(
+        "This recovered saved-lot pair is remote-only in this browser. Reselect the original images, then swap before retrying."
+      );
+      return;
+    }
+
+    persistentBindingsRef.current.delete(cardId);
+    setBatchError(null);
+    setBatchDraftMessage(
+      "Front/back images swapped. Retry this row when you want InstaComp to rescan the corrected pair."
+    );
+
+    updateBatchCard(cardId, (current) => {
+      if (!current.backFile || !current.backPreviewUrl) return current;
+
+      return {
+        ...current,
+        file: current.backFile,
+        backFile: current.file,
+        originalFile: current.originalBackFile || current.backFile,
+        originalBackFile: current.originalFile || current.file,
+        frontRotationDegrees: current.backRotationDegrees || 0,
+        backRotationDegrees: current.frontRotationDegrees || 0,
+        previewUrl: current.backPreviewUrl,
+        backPreviewUrl: current.previewUrl,
+        status: current.status === "error" ? "queued" : current.status,
+        error: current.status === "error" ? null : current.error,
+        persistentClientId: undefined,
+        persistentJobId: null,
+        persistentItemId: null,
+        frontStoragePath: null,
+        backStoragePath: null,
+        pairingMethod: "upload_order",
+        pairingConfidence: 1,
+      };
+    });
+  }
+
   function removeBatchCard(cardId: string) {
     if (batchRunning || batchDrafting || persistentJob) return;
 
@@ -11772,6 +11818,7 @@ export default function InstaCompScanner({
                 onOperatorMarkedWrongChange={toggleBatchCardOperatorMarkedWrong}
                 onOperatorNeedsMoreInfoChange={toggleBatchCardOperatorNeedsMoreInfo}
                 onRotateImage={rotateBatchCardImage}
+                onSwapImages={swapBatchCardImages}
                 onSaveCorrections={saveBatchCardCorrections}
                 onAddToTrade={addBatchCardToTrade}
                 onRetry={retryBatchCard}
@@ -12812,6 +12859,7 @@ function BatchCardRow({
   onOperatorMarkedWrongChange,
   onOperatorNeedsMoreInfoChange,
   onRotateImage,
+  onSwapImages,
   onSaveCorrections,
   onAddToTrade,
   onRetry,
@@ -12841,6 +12889,7 @@ function BatchCardRow({
     side: "primary" | "paired",
     direction: "left" | "right"
   ) => void | Promise<void>;
+  onSwapImages: (cardId: string) => void;
   onSaveCorrections: (cardId: string) => void | Promise<void>;
   onAddToTrade: (cardId: string) => void | Promise<void>;
   onRetry: (cardId: string) => void;
@@ -12875,6 +12924,11 @@ function BatchCardRow({
     !batchBusy && card.draftStatus === "idle" && card.tradeStatus === "idle";
   const canRotatePrimary = canRotate && card.file.size > 0;
   const canRotatePaired = canRotate && Boolean(card.backFile?.size);
+  const canSwapImages =
+    canRotate &&
+    Boolean(card.backFile) &&
+    card.file.size > 0 &&
+    Boolean(card.backFile?.size);
   const canSaveCorrections = !batchBusy && isCorrectionSavableBatchCard(card);
   const canAddToTrade =
     !batchBusy &&
@@ -12925,6 +12979,25 @@ function BatchCardRow({
             onRotateLeft={() => void onRotateImage(card.id, "paired", "left")}
             onRotateRight={() => void onRotateImage(card.id, "paired", "right")}
           />
+        ) : null}
+        {card.backPreviewUrl ? (
+          <button
+            type="button"
+            onClick={() => onSwapImages(card.id)}
+            disabled={!canSwapImages}
+            title="Swap front and back images, then Retry Row to rescan the corrected pair."
+            style={{
+              ...secondaryButtonStyle,
+              alignSelf: "end",
+              padding: "7px 9px",
+              borderColor: "#1d4ed8",
+              color: "#1d4ed8",
+              opacity: canSwapImages ? 1 : 0.5,
+              cursor: canSwapImages ? "pointer" : "not-allowed",
+            }}
+          >
+            Swap Front/Back
+          </button>
         ) : null}
       </div>
 

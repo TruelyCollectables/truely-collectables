@@ -225,6 +225,7 @@ These may fail production smoke until a successful Vercel deploy lands the queue
   - Trust rule: corrected cards enter as `learning`; the same card identity becomes `tcos_trusted` only after the third distinct operator-confirmed sighting. Reprocessing the same saved scan item must not double-count.
   - Accountability rule: every TCOS Card DB observation records the submitting actor. Seller submissions store `submitted_by_account_id`, `submitted_by_actor_type = seller`, and `submitted_store_id`; admin submissions store `submitted_by_actor_type = admin`.
   - Serial correction rule: completed rows have an editable `Serial #` field. Blank means no serial. `Save Corrections` requeues the row, applies the operator serial override before catalog/consensus/comps, reruns InstaComp pricing, and then persists the corrected result.
+  - Image correction rule: use `Swap Front/Back` under paired thumbnails when an upload pair is reversed, then `Retry Row` to rescan that row with the corrected side order.
   - Expected build size: about 6–9 focused build hours for the MVP backbone; 2–3 days for polished duplicate merging, image fingerprinting, admin review queues, bulk imports, and full catalog management.
 - Next priority after the Card Knowledge Base MVP: build the “Vicodin” InstaComp speed MVP.
   - Goal: make scans feel dramatically faster without sacrificing accuracy.
