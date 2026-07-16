@@ -2290,6 +2290,38 @@ async function canvasToJpegFile(
   return new File([blob], fileName, { type: "image/jpeg" });
 }
 
+function rotatedImageName(file: File, direction: "left" | "right") {
+  const baseName = file.name.replace(/\.[^.]+$/, "") || "card";
+  return `${baseName}-rotated-${direction}.jpg`;
+}
+
+async function rotateImageFile(file: File, direction: "left" | "right") {
+  const image = await loadImageElement(file);
+  const sourceWidth = image.naturalWidth || image.width;
+  const sourceHeight = image.naturalHeight || image.height;
+
+  if (!sourceWidth || !sourceHeight) return file;
+
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+
+  if (!context) return file;
+
+  canvas.width = sourceHeight;
+  canvas.height = sourceWidth;
+  context.fillStyle = "#fff";
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.translate(canvas.width / 2, canvas.height / 2);
+  context.rotate(direction === "left" ? -Math.PI / 2 : Math.PI / 2);
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = "high";
+  context.drawImage(image, -sourceWidth / 2, -sourceHeight / 2);
+
+  return canvasToJpegFile(canvas, rotatedImageName(file, direction), {
+    initialQuality: 0.92,
+  });
+}
+
 function enhanceSerialCrop(
   context: CanvasRenderingContext2D,
   width: number,
@@ -3271,6 +3303,29 @@ export default function InstaCompScanner({
 
     if (backPreview) URL.revokeObjectURL(backPreview);
     setBackPreview(file ? URL.createObjectURL(file) : null);
+  }
+
+  async function rotateSingleImage(side: "front" | "back", direction: "left" | "right") {
+    if (loading || batchRunning || batchDrafting) return;
+
+    const file = side === "front" ? frontImage : backImage;
+
+    if (!file) return;
+
+    setError(null);
+    setResult(null);
+
+    try {
+      const rotatedFile = await rotateImageFile(file, direction);
+
+      if (side === "front") {
+        handleFrontChange(rotatedFile);
+      } else {
+        handleBackChange(rotatedFile);
+      }
+    } catch (error: any) {
+      setError(error?.message || "Could not rotate this image.");
+    }
   }
 
   async function persistentJobJson(
@@ -5402,6 +5457,74 @@ export default function InstaCompScanner({
       ) {
         previewUrls.splice(index, 1);
       }
+    }
+  }
+
+  function forgetBatchPreviewUrl(url: string | null | undefined) {
+    if (!url) return;
+
+    URL.revokeObjectURL(url);
+
+    const previewUrls = batchPreviewUrlsRef.current;
+    const index = previewUrls.indexOf(url);
+
+    if (index >= 0) {
+      previewUrls.splice(index, 1);
+    }
+  }
+
+  async function rotateBatchCardImage(
+    cardId: string,
+    side: "primary" | "paired",
+    direction: "left" | "right"
+  ) {
+    if (batchRunning || batchDrafting || persistentJob) return;
+
+    const card = batchCards.find((row) => row.id === cardId);
+    const file = side === "primary" ? card?.file : card?.backFile;
+
+    if (!card || !file || card.draftStatus !== "idle") return;
+
+    setBatchError(null);
+    setBatchDraftMessage(null);
+
+    try {
+      const rotatedFile = await rotateImageFile(file, direction);
+      const rotatedPreviewUrl = createBatchPreviewUrl(rotatedFile);
+
+      updateBatchCard(cardId, (current) => {
+        if (side === "primary") {
+          forgetBatchPreviewUrl(current.previewUrl);
+          return {
+            ...current,
+            file: rotatedFile,
+            previewUrl: rotatedPreviewUrl,
+            status: "queued",
+            selected: true,
+            result: null,
+            marketPrice: null,
+            customTitle: "",
+            customPrice: "",
+            error: null,
+          };
+        }
+
+        forgetBatchPreviewUrl(current.backPreviewUrl);
+        return {
+          ...current,
+          backFile: rotatedFile,
+          backPreviewUrl: rotatedPreviewUrl,
+          status: "queued",
+          selected: true,
+          result: null,
+          marketPrice: null,
+          customTitle: "",
+          customPrice: "",
+          error: null,
+        };
+      });
+    } catch (error: any) {
+      setBatchError(error?.message || "Could not rotate this batch image.");
     }
   }
 
@@ -8069,10 +8192,10 @@ export default function InstaCompScanner({
             Drag card images here or choose files
           </div>
           <p style={{ margin: "8px 0 14px", color: "#555" }}>
-            Drop photos in front/back order for each card. If filenames include
-            front/back, InstaComp uses them; otherwise it pairs image 1 with 2,
-            image 3 with 4, and so on. Front-only cards still scan, but paired
-            backs improve identification.
+            Drop photos in card-pair order. If filenames include front/back,
+            InstaComp uses them; otherwise it groups image 1 with 2, image 3
+            with 4, and so on. Single-image cards still scan, but paired images
+            improve identification.
           </p>
           <input
             type="file"
@@ -9697,6 +9820,7 @@ export default function InstaCompScanner({
                 onQuantityChange={handleBatchQuantityChange}
                 onPriceChange={handleBatchPriceChange}
                 onSelectedChange={toggleBatchCardSelected}
+                onRotateImage={rotateBatchCardImage}
                 onRetry={retryBatchCard}
                 onRemove={removeBatchCard}
                 onCopySummary={
@@ -9740,19 +9864,12 @@ export default function InstaCompScanner({
             />
 
             {frontPreview && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={frontPreview}
-                alt="Front preview"
-                style={{
-                  marginTop: 12,
-                  width: "100%",
-                  maxHeight: 320,
-                  objectFit: "contain",
-                  border: "1px solid #eee",
-                  borderRadius: 8,
-                  background: "#fafafa",
-                }}
+              <ImagePreviewWithRotation
+                url={frontPreview}
+                alt="Primary card image preview"
+                disabled={loading}
+                onRotateLeft={() => void rotateSingleImage("front", "left")}
+                onRotateRight={() => void rotateSingleImage("front", "right")}
               />
             )}
           </div>
@@ -9769,19 +9886,12 @@ export default function InstaCompScanner({
             />
 
             {backPreview && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={backPreview}
-                alt="Back preview"
-                style={{
-                  marginTop: 12,
-                  width: "100%",
-                  maxHeight: 320,
-                  objectFit: "contain",
-                  border: "1px solid #eee",
-                  borderRadius: 8,
-                  background: "#fafafa",
-                }}
+              <ImagePreviewWithRotation
+                url={backPreview}
+                alt="Paired card image preview"
+                disabled={loading}
+                onRotateLeft={() => void rotateSingleImage("back", "left")}
+                onRotateRight={() => void rotateSingleImage("back", "right")}
               />
             )}
           </div>
@@ -10492,6 +10602,7 @@ function BatchCardRow({
   onQuantityChange,
   onPriceChange,
   onSelectedChange,
+  onRotateImage,
   onRetry,
   onRemove,
   onCopySummary,
@@ -10505,6 +10616,11 @@ function BatchCardRow({
   onQuantityChange: (cardId: string, value: string) => void;
   onPriceChange: (cardId: string, value: string) => void;
   onSelectedChange: (cardId: string, selected: boolean) => void;
+  onRotateImage: (
+    cardId: string,
+    side: "primary" | "paired",
+    direction: "left" | "right"
+  ) => void | Promise<void>;
   onRetry: (cardId: string) => void;
   onRemove: (cardId: string) => void;
   onCopySummary?: (card: BatchCard, index: number) => void | Promise<void>;
@@ -10532,6 +10648,7 @@ function BatchCardRow({
   const canRetry =
     (card.status === "error" || card.status === "done") && !batchBusy;
   const canRemove = !batchBusy && card.draftStatus !== "drafting";
+  const canRotate = !batchBusy && card.draftStatus === "idle";
   const rowBorder = draftErrors.length
     ? "1px solid #e3a2a2"
     : reviewWarnings.length
@@ -10560,9 +10677,19 @@ function BatchCardRow({
       }}
     >
       <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-        <Thumbnail url={card.previewUrl} label="Front" />
+        <Thumbnail
+          url={card.previewUrl}
+          canRotate={canRotate}
+          onRotateLeft={() => void onRotateImage(card.id, "primary", "left")}
+          onRotateRight={() => void onRotateImage(card.id, "primary", "right")}
+        />
         {card.backPreviewUrl ? (
-          <Thumbnail url={card.backPreviewUrl} label="Back" />
+          <Thumbnail
+            url={card.backPreviewUrl}
+            canRotate={canRotate && Boolean(card.backFile)}
+            onRotateLeft={() => void onRotateImage(card.id, "paired", "left")}
+            onRotateRight={() => void onRotateImage(card.id, "paired", "right")}
+          />
         ) : null}
       </div>
 
@@ -10926,13 +11053,114 @@ function BatchCardRow({
   );
 }
 
-function Thumbnail({ url, label }: { url: string; label: string }) {
+function ImageRotationControls({
+  disabled,
+  onRotateLeft,
+  onRotateRight,
+}: {
+  disabled?: boolean;
+  onRotateLeft: () => void;
+  onRotateRight: () => void;
+}) {
+  return (
+    <div
+      style={{
+        display: "flex",
+        gap: 6,
+        justifyContent: "center",
+        marginTop: 6,
+      }}
+    >
+      <button
+        type="button"
+        onClick={onRotateLeft}
+        disabled={disabled}
+        aria-label="Rotate image left"
+        title="Rotate left"
+        style={{
+          ...secondaryButtonStyle,
+          padding: "5px 8px",
+          minWidth: 34,
+          opacity: disabled ? 0.45 : 1,
+          cursor: disabled ? "not-allowed" : "pointer",
+        }}
+      >
+        ↺
+      </button>
+      <button
+        type="button"
+        onClick={onRotateRight}
+        disabled={disabled}
+        aria-label="Rotate image right"
+        title="Rotate right"
+        style={{
+          ...secondaryButtonStyle,
+          padding: "5px 8px",
+          minWidth: 34,
+          opacity: disabled ? 0.45 : 1,
+          cursor: disabled ? "not-allowed" : "pointer",
+        }}
+      >
+        ↻
+      </button>
+    </div>
+  );
+}
+
+function ImagePreviewWithRotation({
+  url,
+  alt,
+  disabled,
+  onRotateLeft,
+  onRotateRight,
+}: {
+  url: string;
+  alt: string;
+  disabled?: boolean;
+  onRotateLeft: () => void;
+  onRotateRight: () => void;
+}) {
+  return (
+    <div style={{ marginTop: 12 }}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={url}
+        alt={alt}
+        style={{
+          width: "100%",
+          maxHeight: 320,
+          objectFit: "contain",
+          border: "1px solid #eee",
+          borderRadius: 8,
+          background: "#fafafa",
+        }}
+      />
+      <ImageRotationControls
+        disabled={disabled}
+        onRotateLeft={onRotateLeft}
+        onRotateRight={onRotateRight}
+      />
+    </div>
+  );
+}
+
+function Thumbnail({
+  url,
+  canRotate,
+  onRotateLeft,
+  onRotateRight,
+}: {
+  url: string;
+  canRotate: boolean;
+  onRotateLeft: () => void;
+  onRotateRight: () => void;
+}) {
   return (
     <div style={{ display: "grid", gap: 4 }}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
         src={url}
-        alt=""
+        alt="Card image preview"
         style={{
           width: 96,
           height: 128,
@@ -10942,9 +11170,11 @@ function Thumbnail({ url, label }: { url: string; label: string }) {
           background: "white",
         }}
       />
-      <small style={{ color: "#666", fontWeight: 800, textAlign: "center" }}>
-        {label}
-      </small>
+      <ImageRotationControls
+        disabled={!canRotate}
+        onRotateLeft={onRotateLeft}
+        onRotateRight={onRotateRight}
+      />
     </div>
   );
 }
