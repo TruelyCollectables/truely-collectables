@@ -94,6 +94,9 @@ function buildNext(report) {
   if (stage?.readyToApply && !stage?.applied) {
     return "Image staging dry-run is clean. Run npm run instacomp:trial:stage-images -- --apply, then rerun npm run instacomp:trial:intake.";
   }
+  if (stage?.observed?.sourceImageFiles === 0) {
+    return `Copy scanner files into ${report.paths.source}, then rerun npm run instacomp:trial:intake.`;
+  }
   if (stage && !stage.readyToApply) {
     return stage.next || "Fix image staging blockers, then rerun npm run instacomp:trial:intake.";
   }
@@ -128,6 +131,7 @@ function buildMarkdown(report) {
     `- Stageable cards: ${stage.observed?.stageableCards ?? 0}/${stage.expected?.cards ?? report.expectedCards}`,
     `- Planned copies: ${stage.observed?.plannedCopies ?? 0}/${stage.expected?.images ?? report.expectedCards * 2}`,
     `- Synced image pairs: ${sync.observed?.completeImagePairs ?? 0}/${sync.observed?.imageMapRows ?? report.expectedCards}`,
+    `- Folders ensured: ${report.folderPrep.ensured ? "YES" : "NO"}`,
     "",
     "## Paths",
     "",
@@ -185,6 +189,20 @@ async function main() {
   const intakeMarkdown = getFlagValue("--intake-md", "instacomp-trial-intake.local.md");
   const imagePrefix = getFlagValue("--image-prefix", `./${target}`);
   const jsonOutput = hasFlag("--json");
+  const ensureFolders = !hasFlag("--no-ensure-folders");
+  const sourcePath = resolveFromRepo(source);
+  const targetPath = resolveFromRepo(target);
+  const folderPrep = {
+    ensured: ensureFolders,
+    source: sourcePath,
+    target: targetPath,
+    safeLocalOnly: true,
+  };
+
+  if (ensureFolders) {
+    await mkdir(sourcePath, { recursive: true });
+    await mkdir(targetPath, { recursive: true });
+  }
 
   const stageImages = runJsonStep(
     "stage images dry-run",
@@ -254,9 +272,10 @@ async function main() {
     schema: "tcos.instacompTrialIntakeCockpit.v1",
     generatedAt: new Date().toISOString(),
     expectedCards: Number(expectedCards),
+    folderPrep,
     paths: {
-      source: resolveFromRepo(source),
-      target: resolveFromRepo(target),
+      source: sourcePath,
+      target: targetPath,
       manifest,
       worksheet,
       imageMap,
@@ -281,7 +300,7 @@ async function main() {
         ...blocker,
       })),
     safeBuildBoundary:
-      "Local InstaComp trial intake cockpit only. Runs dry-run staging, local prep, and local image-path sync; does not apply staging, delete source files, scan cards, deploy, publish listings, buy postage, create Checkout, call production APIs, approve live money, release payouts, or change runtime switches.",
+      "Local InstaComp trial intake cockpit only. Ensures local trial folders, runs dry-run staging, local prep, and local image-path sync; does not apply staging, delete source files, scan cards, deploy, publish listings, buy postage, create Checkout, call production APIs, approve live money, release payouts, or change runtime switches.",
   };
   report.next = buildNext(report);
 
@@ -303,6 +322,7 @@ async function main() {
   console.log("TCOS InstaComp trial intake cockpit:");
   console.log(`- source inbox: ${report.paths.source}`);
   console.log(`- target images: ${report.paths.target}`);
+  console.log(`- folders ensured: ${report.folderPrep.ensured ? "yes" : "no"}`);
   console.log(`- stage ready to apply: ${stage.readyToApply ? "yes" : "no"}`);
   console.log(`- stageable cards: ${stage.observed?.stageableCards ?? 0}/${stage.expected?.cards ?? expectedCards}`);
   console.log(`- prep ready to scan: ${prep.readyToScan ? "yes" : "no"}`);
