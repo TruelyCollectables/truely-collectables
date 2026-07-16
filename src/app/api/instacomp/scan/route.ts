@@ -40,6 +40,10 @@ import {
   publicEndpointRateLimitResponse,
 } from "../../../../lib/public-endpoint-rate-limit";
 import { applyInstaCompIdentityGuard } from "../../../../lib/instacomp-identity-guard";
+import {
+  buildInstaCompCuratedChecklistEvidence,
+  catalogEvidenceToConsensusReferee,
+} from "../../../../lib/instacomp-curated-checklist";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -1708,6 +1712,7 @@ async function saveScanToSupabase(input: {
   marketValueComps: InstaCompComp[];
   soldComps: InstaCompComp[];
   remainingCards: InstaCompComp[];
+  catalogEvidence?: unknown;
 }) {
   if (!SUPABASE_URL || !SUPABASE_KEY) {
     return null;
@@ -1766,6 +1771,7 @@ async function saveScanToSupabase(input: {
         soldStats: input.soldStats,
         remainingCards: input.remainingCards,
         sourceLinks: input.links,
+        catalogEvidence: input.catalogEvidence || null,
       } as any,
     })
     .select("id")
@@ -2333,6 +2339,11 @@ export async function POST(req: NextRequest) {
     const guardedAi = applyInstaCompIdentityGuard(mergedSerialAi, {
       externalOcrText: externalOcr?.text || null,
     });
+    const catalogEvidence = buildInstaCompCuratedChecklistEvidence({
+      ai: guardedAi,
+      externalOcrText: externalOcr?.text || null,
+    });
+    const catalogReferee = catalogEvidenceToConsensusReferee(catalogEvidence);
     const consensusEscalation = decideInstaCompConsensusEscalation({
       ai: guardedAi,
       externalOcrText: externalOcr?.text || null,
@@ -2371,6 +2382,7 @@ export async function POST(req: NextRequest) {
     const consensus = buildInstaCompMultiScannerConsensus({
       readers: consensusReaders,
       baseIdentity: guardedAi,
+      catalogReferee,
       escalation: consensusEscalation,
     });
     const ai = applyInstaCompConsensusToAi(guardedAi, consensus);
@@ -2437,6 +2449,7 @@ export async function POST(req: NextRequest) {
       marketValueComps,
       soldComps,
       remainingCards,
+      catalogEvidence,
     });
 
     const reviewReasons = scanReview.reviewReasons;
@@ -2447,6 +2460,7 @@ export async function POST(req: NextRequest) {
       review: scanReview,
       consensus,
       consensusEscalation,
+      catalogEvidence,
       ocrDiagnostics: {
         paddleOcrConfigured: Boolean(PADDLEOCR_API_URL),
         googleVisionConfigured: Boolean(GOOGLE_VISION_API_KEY),

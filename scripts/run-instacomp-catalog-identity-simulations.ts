@@ -1,4 +1,9 @@
 import {
+  buildInstaCompCuratedChecklistEvidence,
+  catalogEvidenceToConsensusReferee,
+} from "../src/lib/instacomp-curated-checklist";
+import type { InstaCompAiResult } from "../src/lib/instacomp";
+import {
   aggregateInstaCompCatalogProviderResults,
   attachInstaCompCatalogSourcePolicy,
   buildInstaCompCatalogLookupPlan,
@@ -33,6 +38,8 @@ const CATALOG_IDENTITY_EXPECTED_SCENARIO_KEYS = [
   "review_required_gate_blocks_exact_comp_trust",
   "serial_run_mismatch_forces_review_required",
   "missing_catalog_candidates_force_review_required",
+  "curated_checklist_confirms_printed_outliers_over_base",
+  "curated_checklist_stays_silent_for_unknown_cards",
 ] as const;
 const CATALOG_IDENTITY_EXPECTED_SCENARIO_COUNT =
   CATALOG_IDENTITY_EXPECTED_SCENARIO_KEYS.length;
@@ -707,6 +714,74 @@ function runCatalogIdentitySimulationSuite() {
       {
         status: missingCandidates.status,
         reviewReasons: missingCandidates.reviewReasons,
+      },
+    ),
+  );
+
+  const outliersAi: InstaCompAiResult = {
+    player: "Connor McDavid",
+    year: "2025-26",
+    brand: "Upper Deck",
+    setName: "Upper Deck SP Authentic Hockey",
+    cardNumber: "O-8",
+    parallel: "Base",
+    serialNumber: null,
+    team: "Edmonton Oilers",
+    sport: "Hockey",
+    isRookie: false,
+    isAuto: false,
+    isRelic: false,
+    conditionGuess: null,
+    confidence: 0.96,
+    notes: "Primary vision called it Base, but the back reads Outliers.",
+  };
+  const curatedOutliersEvidence = buildInstaCompCuratedChecklistEvidence({
+    ai: outliersAi,
+    externalOcrText: "OUTLIERS CONNOR MCDAVID O-8 SP AUTHENTIC HOCKEY",
+    capturedAt: "2026-07-16T12:00:00.000Z",
+  });
+  const curatedOutliersReferee = catalogEvidenceToConsensusReferee(
+    curatedOutliersEvidence,
+  );
+  scenarios.push(
+    scenario(
+      "curated_checklist_confirms_printed_outliers_over_base",
+      "The starter TCOS curated checklist confirms a known printed Outliers card and exposes it as a consensus catalog referee instead of leaving the row as generic Base.",
+      curatedOutliersEvidence?.status === "catalog_confirmed" &&
+        curatedOutliersEvidence.catalogConfirmed &&
+        curatedOutliersEvidence.compIdentity?.parallel === "Outliers" &&
+        curatedOutliersEvidence.sourceAttribution?.source ===
+          "tcos_curated_checklist" &&
+        curatedOutliersReferee?.status === "catalog_confirmed" &&
+        curatedOutliersReferee.identity?.parallel === "Outliers",
+      {
+        status: curatedOutliersEvidence?.status,
+        compIdentity: curatedOutliersEvidence?.compIdentity,
+        sourceAttribution: curatedOutliersEvidence?.sourceAttribution,
+        referee: curatedOutliersReferee,
+      },
+    ),
+  );
+
+  const unknownCuratedEvidence = buildInstaCompCuratedChecklistEvidence({
+    ai: {
+      ...outliersAi,
+      player: "Unknown Player",
+      year: "1999",
+      setName: "Unknown Set",
+      cardNumber: "999",
+      parallel: "Base",
+      notes: "No known curated checklist cues.",
+    },
+    externalOcrText: "UNKNOWN SET 999",
+  });
+  scenarios.push(
+    scenario(
+      "curated_checklist_stays_silent_for_unknown_cards",
+      "The starter TCOS curated checklist does not invent a catalog referee for cards outside its known candidate set.",
+      unknownCuratedEvidence === null,
+      {
+        evidence: unknownCuratedEvidence,
       },
     ),
   );

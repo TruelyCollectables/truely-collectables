@@ -122,6 +122,43 @@ type ConsensusResult = {
   };
 };
 
+type CatalogEvidenceResult = {
+  schema: "tcos.instacomp.catalogEvidence.v1";
+  status: "catalog_confirmed" | "review_required";
+  operatorState: "ready_for_exact_comps" | "needs_operator_review";
+  catalogConfirmed: boolean;
+  selectedMatch: {
+    catalogId: string;
+    sourceLabel: string;
+    score: number;
+    matchedEvidence: string[];
+    mismatchedEvidence: string[];
+    identity: {
+      player?: string | null;
+      year?: string | null;
+      setName?: string | null;
+      cardNumber?: string | null;
+      parallel?: string | null;
+      variation?: string | null;
+    };
+  } | null;
+  reviewReasons: string[];
+  suggestedQuestion: string | null;
+  operatorAction: string;
+  safeUseBoundary: string;
+  sourceAttribution: {
+    sourceLabel: string;
+    catalogId: string;
+  } | null;
+  actionPermissions: {
+    exactCompSearchAllowed: boolean;
+    trustedForExactComps: boolean;
+    publicListingClaimAllowed: boolean;
+    autoPriceAllowed: boolean;
+    tradeValueRecommendationAllowed: boolean;
+  };
+};
+
 type ScanResponse = {
   ok: boolean;
   scanId: string | null;
@@ -182,6 +219,7 @@ type ScanResponse = {
   };
   note: string;
   consensus?: ConsensusResult;
+  catalogEvidence?: CatalogEvidenceResult | null;
   review?: {
     status: "trusted_for_pricing" | "review_required";
     trustedForPricing: boolean;
@@ -10993,6 +11031,7 @@ function ConsensusPanel({ result }: { result: ScanResponse }) {
 
   const confirmed = consensus.status === "consensus_confirmed";
   const readiness = consensus.councilReadiness;
+  const catalogEvidence = result.catalogEvidence || null;
   const topDecisions = consensus.fieldDecisions.slice(0, 8);
 
   return (
@@ -11043,7 +11082,37 @@ function ConsensusPanel({ result }: { result: ScanResponse }) {
             />
           </>
         )}
+        {catalogEvidence && (
+          <>
+            <Info
+              label="Catalog Status"
+              value={catalogEvidence.status.replaceAll("_", " ")}
+            />
+            <Info
+              label="Catalog Match"
+              value={
+                catalogEvidence.selectedMatch
+                  ? `${catalogEvidence.selectedMatch.catalogId} (${catalogEvidence.selectedMatch.score})`
+                  : "Needs review"
+              }
+            />
+          </>
+        )}
       </div>
+      {catalogEvidence && (
+        <p
+          style={{
+            margin: "10px 0 0",
+            color: catalogEvidence.catalogConfirmed ? "#0f5132" : "#7a4f00",
+            fontWeight: 900,
+          }}
+        >
+          Catalog: {catalogEvidence.operatorAction}
+          {catalogEvidence.reviewReasons.length > 0
+            ? ` Review: ${catalogEvidence.reviewReasons.join("; ")}.`
+            : ""}
+        </p>
+      )}
       {readiness && readiness.status !== "ready" && (
         <p style={{ margin: "10px 0 0", color: "#7a4f00", fontWeight: 900 }}>
           Council: {readiness.explanation}
