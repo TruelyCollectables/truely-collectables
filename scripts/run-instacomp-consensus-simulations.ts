@@ -2,6 +2,7 @@ import {
   applyInstaCompConsensusToAi,
   buildInstaCompMultiScannerConsensus,
   buildInstaCompReaderFindingFromAi,
+  decideInstaCompConsensusEscalation,
   type InstaCompConsensusReaderFinding,
 } from "../src/lib/instacomp-consensus";
 import type { InstaCompAiResult } from "../src/lib/instacomp";
@@ -39,6 +40,100 @@ function primary(ai: InstaCompAiResult): InstaCompConsensusReaderFinding {
 }
 
 const scenarios = [
+  {
+    name: "obvious complete identity stays on fast lane",
+    run() {
+      const decision = decideInstaCompConsensusEscalation({
+        ai: {
+          ...baseAi,
+          parallel: null,
+          confidence: 0.97,
+          notes: "Base-like card checked; no variant, serial, autograph, or relic evidence visible.",
+        },
+        externalOcrText: "2025-26 SP Authentic Connor McDavid O-8 Edmonton Oilers",
+        hasBackImage: true,
+        pairingConfidence: 0.96,
+      });
+
+      assert(decision.speedLane === "fast_lane", "Expected obvious card fast lane");
+      assert(!decision.runSecondaryVision, "Fast lane must not run second AI reader");
+      assert(decision.reasons.length === 0, "Fast lane should not have escalation reasons");
+    },
+  },
+  {
+    name: "copyright season slash does not trigger numbered-card escalation",
+    run() {
+      const decision = decideInstaCompConsensusEscalation({
+        ai: {
+          ...baseAi,
+          parallel: null,
+          confidence: 0.97,
+          notes: "Back copyright reads 2024/25; no serial stamp visible.",
+        },
+        externalOcrText:
+          "2024/25 Upper Deck authenticated CLC NHLPA Connor McDavid O-8",
+        hasBackImage: true,
+        pairingConfidence: 0.96,
+      });
+
+      assert(decision.speedLane === "fast_lane", "Copyright year must stay fast lane");
+      assert(
+        !decision.reasons.includes("serial_numbered_or_numbered_signal"),
+        "Copyright year must not look like a serial-numbered card",
+      );
+    },
+  },
+  {
+    name: "printed variant signal escalates to second AI identity reader",
+    run() {
+      const decision = decideInstaCompConsensusEscalation({
+        ai: {
+          ...baseAi,
+          parallel: "Base",
+          confidence: 0.96,
+          notes: "Primary reader called the card Base.",
+        },
+        externalOcrText: "OUTLIERS CONNOR MCDAVID O-8",
+        hasBackImage: true,
+        pairingConfidence: 0.96,
+      });
+
+      assert(decision.speedLane === "escalated_multi_ai", "Expected escalation lane");
+      assert(decision.runSecondaryVision, "Variant signal must run second AI reader");
+      assert(
+        decision.reasons.includes("printed_variant_signal_needs_second_reader"),
+        "Expected printed variant escalation reason",
+      );
+    },
+  },
+  {
+    name: "low confidence or missing critical fields escalates to second AI identity reader",
+    run() {
+      const decision = decideInstaCompConsensusEscalation({
+        ai: {
+          player: "Connor McDavid",
+          year: "2025-26",
+          brand: "Upper Deck",
+          setName: null,
+          cardNumber: null,
+          parallel: null,
+          confidence: 0.81,
+          notes: "Exact set and card number uncertain.",
+        },
+        externalOcrText: null,
+        hasBackImage: true,
+        pairingConfidence: 0.9,
+      });
+
+      assert(decision.runSecondaryVision, "Low-confidence incomplete card must escalate");
+      assert(
+        decision.reasons.includes("primary_confidence_below_fast_lane"),
+        "Expected low-confidence escalation reason",
+      );
+      assert(decision.reasons.includes("missing_setName"), "Expected missing set reason");
+      assert(decision.reasons.includes("missing_cardNumber"), "Expected missing card reason");
+    },
+  },
   {
     name: "catalog referee overrides two generic base scanner votes",
     run() {

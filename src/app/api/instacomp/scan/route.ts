@@ -20,6 +20,7 @@ import {
   applyInstaCompConsensusToAi,
   buildInstaCompMultiScannerConsensus,
   buildInstaCompReaderFindingFromAi,
+  decideInstaCompConsensusEscalation,
   type InstaCompConsensusIdentity,
   type InstaCompConsensusReaderFinding,
 } from "../../../../lib/instacomp-consensus";
@@ -359,7 +360,11 @@ async function identifyCardWithOpenAI(
   frontDataUrl: string,
   backDataUrl?: string,
   detailImages: InstaCompDetailImage[] = [],
-  externalOcr: ExternalOcrResult | null = null
+  externalOcr: ExternalOcrResult | null = null,
+  options: {
+    readerFocus?: "primary" | "secondary_consensus";
+    models?: string[];
+  } = {},
 ) {
   if (!OPENAI_API_KEY) {
     throw new Error("Missing OPENAI_API_KEY.");
@@ -411,6 +416,14 @@ Rules:
 - If the image is not a sports card, still describe what it appears to be and lower confidence.
       */
     },
+    ...(options.readerFocus === "secondary_consensus"
+      ? [
+          {
+            type: "text",
+            text: "SECOND AI CONSENSUS PASS: act as an independent skeptical reader. Do not copy the first scanner. Re-check player, year, set/product line, card number, insert/subset/parallel, serial number, autograph/relic, and any clear-stock/acetate or color/foil cues. If the exact variation is not proven, say what is uncertain in notes instead of calling it Base.",
+          },
+        ]
+      : []),
     ...(externalOcr?.text
       ? [
           {
@@ -468,7 +481,12 @@ Rules:
   }
 
   const scanModels = Array.from(
-    new Set([INSTACOMP_OPENAI_MODEL, INSTACOMP_OPENAI_FALLBACK_MODEL].filter(Boolean))
+    new Set(
+      (options.models?.length
+        ? options.models
+        : [INSTACOMP_OPENAI_MODEL, INSTACOMP_OPENAI_FALLBACK_MODEL]
+      ).filter(Boolean),
+    ),
   );
   let response: Response | null = null;
   let errorText = "";
@@ -805,6 +823,7 @@ function buildInstaCompConsensusReaders(params: {
   baseAi: InstaCompAiResult;
   mergedSerialAi: InstaCompAiResult;
   guardedAi: InstaCompAiResult;
+  secondaryAi: InstaCompAiResult | null;
   serialOcr: InstaCompSerialOcrResult | null;
   externalOcr: ExternalOcrResult | null;
 }) {
@@ -834,6 +853,24 @@ function buildInstaCompConsensusReaders(params: {
           `serial reader found ${params.serialOcr.serialNumber}`,
       ],
     });
+  }
+
+  if (params.secondaryAi) {
+    readers.push(
+      buildInstaCompReaderFindingFromAi({
+        readerId: "secondary_vision",
+        label: "Second AI vision",
+        kind: "other",
+        ai: params.secondaryAi,
+        evidence: [
+          "adaptive multi-scanner escalation identity pass",
+          params.externalOcr?.provider
+            ? `${params.externalOcr.provider} OCR text was provided to the second reader`
+            : "second reader used card images without external OCR text",
+        ],
+        weight: 0.95,
+      }),
+    );
   }
 
   const printedGuardIdentity = buildChangedIdentityFinding(
@@ -2296,10 +2333,38 @@ export async function POST(req: NextRequest) {
     const guardedAi = applyInstaCompIdentityGuard(mergedSerialAi, {
       externalOcrText: externalOcr?.text || null,
     });
+    const consensusEscalation = decideInstaCompConsensusEscalation({
+      ai: guardedAi,
+      externalOcrText: externalOcr?.text || null,
+      hasBackImage: Boolean(backDataUrl),
+      pairingConfidence: persistentContext?.pairingConfidence ?? null,
+    });
+    let secondaryAi: InstaCompAiResult | null = null;
+
+    if (consensusEscalation.runSecondaryVision) {
+      const secondaryRawAi = await identifyCardWithOpenAI(
+        frontDataUrl,
+        backDataUrl,
+        detailImages.slice(0, 8),
+        externalOcr,
+        {
+          readerFocus: "secondary_consensus",
+          models: [INSTACOMP_OPENAI_FALLBACK_MODEL, INSTACOMP_OPENAI_MODEL],
+        },
+      );
+      secondaryAi = applyInstaCompIdentityGuard(
+        mergeSerialOcrResult(secondaryRawAi, serialOcr),
+        {
+          externalOcrText: externalOcr?.text || null,
+        },
+      );
+    }
+
     const consensusReaders = buildInstaCompConsensusReaders({
       baseAi,
       mergedSerialAi,
       guardedAi,
+      secondaryAi,
       serialOcr,
       externalOcr,
     });
@@ -2380,11 +2445,15 @@ export async function POST(req: NextRequest) {
       ai,
       review: scanReview,
       consensus,
+      consensusEscalation,
       ocrDiagnostics: {
         paddleOcrConfigured: Boolean(PADDLEOCR_API_URL),
         googleVisionConfigured: Boolean(GOOGLE_VISION_API_KEY),
         provider: externalOcr?.provider || null,
         checkedImages: externalOcr?.checkedImages || 0,
+        speedLane: consensusEscalation.speedLane,
+        secondaryVisionRan: consensusEscalation.runSecondaryVision,
+        secondaryVisionReasons: consensusEscalation.reasons,
         extractedSerialNumber: externalOcr?.serialNumber || null,
         serialVisionCheckedImages: serialOcr?.checkedImages || 0,
         serialVisionSerialNumber: serialOcr?.serialNumber || ai.serialNumber || null,

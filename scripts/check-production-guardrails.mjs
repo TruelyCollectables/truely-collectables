@@ -3556,6 +3556,10 @@ assertFileIncludes("instacomp printed-variant identity guard simulations", "scri
 ]);
 assertFileIncludes("instacomp multi-scanner consensus source", "src/lib/instacomp-consensus.ts", [
   "tcos.instacomp.multiScannerConsensus.v1",
+  "tcos.instacomp.consensusEscalation.v1",
+  "decideInstaCompConsensusEscalation",
+  "hasNumberedSignal",
+  "printed_variant_signal_needs_second_reader",
   "buildInstaCompMultiScannerConsensus",
   "applyInstaCompConsensusToAi",
   "specific_variant_over_base",
@@ -3565,7 +3569,10 @@ assertFileIncludes("instacomp multi-scanner consensus source", "src/lib/instacom
 assertFileIncludes("instacomp multi-scanner consensus route wiring", "src/app/api/instacomp/scan/route.ts", [
   "buildInstaCompMultiScannerConsensus",
   "buildInstaCompConsensusReaders",
+  "decideInstaCompConsensusEscalation",
+  "secondary_consensus",
   "applyInstaCompConsensusToAi",
+  "consensusEscalation",
   "consensus,",
 ]);
 assertFileIncludes("instacomp multi-scanner consensus UI wiring", "src/app/admin/instacomp/InstaCompScanner.tsx", [
@@ -3582,6 +3589,10 @@ assertFileIncludes("instacomp trial results export UI wiring", "src/app/admin/in
   "trial-card-",
 ]);
 assertFileIncludes("instacomp multi-scanner consensus simulations", "scripts/run-instacomp-consensus-simulations.ts", [
+  "obvious complete identity stays on fast lane",
+  "copyright season slash does not trigger numbered-card escalation",
+  "printed variant signal escalates to second AI identity reader",
+  "low confidence or missing critical fields escalates to second AI identity reader",
   "catalog referee overrides two generic base scanner votes",
   "specific printed clear cut beats generic base without catalog",
   "serial reader fills missing serial number",
@@ -3600,6 +3611,9 @@ assertFileIncludes("instacomp printed-variant identity guard manual", "docs/TCOS
   "Future Watch",
   "Spectrum FX",
   "AI-vision-note-visible",
+  "adaptive second-reader escalation",
+  "fast_lane",
+  "escalated_multi_ai",
   "Upper Deck clear-stock cards with centered/ghosted back-logo cues are promoted to `Clear Cut`",
   "uncertain insert cues are marked for review",
 ]);

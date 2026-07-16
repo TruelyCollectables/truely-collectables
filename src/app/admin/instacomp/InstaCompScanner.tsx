@@ -120,6 +120,9 @@ type ScanResponse = {
     googleVisionConfigured: boolean;
     provider: string | null;
     checkedImages: number;
+    speedLane?: "fast_lane" | "escalated_multi_ai" | null;
+    secondaryVisionRan?: boolean | null;
+    secondaryVisionReasons?: string[];
     extractedSerialNumber: string | null;
     serialVisionCheckedImages?: number | null;
     serialVisionSerialNumber?: string | null;
@@ -10931,6 +10934,20 @@ function OcrDiagnosticsPanel({ result }: { result: ScanResponse }) {
         <Info label="Provider" value={diagnostics.provider || "None"} />
         <Info label="Images OCR'd" value={String(diagnostics.checkedImages || 0)} />
         <Info
+          label="Speed lane"
+          value={
+            diagnostics.speedLane === "escalated_multi_ai"
+              ? `Escalated multi-AI${
+                  diagnostics.secondaryVisionReasons?.length
+                    ? `: ${diagnostics.secondaryVisionReasons.slice(0, 2).join(", ")}`
+                    : ""
+                }`
+              : diagnostics.speedLane === "fast_lane"
+                ? "Fast lane"
+                : "Not reported"
+          }
+        />
+        <Info
           label="OCR Serial"
           value={diagnostics.extractedSerialNumber || "None found"}
         />
@@ -11004,12 +11021,19 @@ function OcrDiagnosticsMini({ result }: { result: ScanResponse | null }) {
     diagnostics.paddleOcrConfigured || diagnostics.googleVisionConfigured;
   const serialVisionSerial =
     diagnostics.serialVisionSerialNumber || result?.ai.serialNumber || null;
+  const speedLaneLabel =
+    diagnostics.speedLane === "escalated_multi_ai"
+      ? " - escalated multi-AI"
+      : diagnostics.speedLane === "fast_lane"
+        ? " - fast lane"
+        : "";
 
   if (!providerConfigured) {
     return (
       <div style={{ marginTop: 6, color: "#8a1f1f", fontSize: 12, fontWeight: 900 }}>
         OCR: PaddleOCR/Google not configured - serial vision{" "}
         {serialVisionSerial ? `found ${serialVisionSerial}` : "did not find a serial"}
+        {speedLaneLabel}
       </div>
     );
   }
@@ -11019,6 +11043,7 @@ function OcrDiagnosticsMini({ result }: { result: ScanResponse | null }) {
       <div style={{ marginTop: 6, color: "#7a4f00", fontSize: 12, fontWeight: 900 }}>
         OCR: no Paddle/Google text - serial vision{" "}
         {serialVisionSerial ? `found ${serialVisionSerial}` : "did not find a serial"}
+        {speedLaneLabel}
       </div>
     );
   }
@@ -11031,6 +11056,7 @@ function OcrDiagnosticsMini({ result }: { result: ScanResponse | null }) {
       {!diagnostics.extractedSerialNumber && serialVisionSerial
         ? " by vision"
         : ""}
+      {speedLaneLabel}
     </div>
   );
 }

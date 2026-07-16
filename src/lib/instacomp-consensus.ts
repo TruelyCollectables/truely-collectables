@@ -90,6 +90,14 @@ export type InstaCompMultiScannerConsensus = {
   suggestedQuestion: string | null;
 };
 
+export type InstaCompConsensusEscalationDecision = {
+  schema: "tcos.instacomp.consensusEscalation.v1";
+  speedLane: "fast_lane" | "escalated_multi_ai";
+  runSecondaryVision: boolean;
+  reasons: string[];
+  explanation: string;
+};
+
 const CONSENSUS_FIELDS: InstaCompConsensusField[] = [
   "year",
   "brand",
@@ -198,6 +206,89 @@ function isUncertain(value: string | boolean | null | undefined) {
   return /\b(uncertain|unknown|unsure|not sure|cannot confirm|ambiguous|maybe|possibly|exact type uncertain)\b/i.test(
     String(value || ""),
   );
+}
+
+function containsPrintedVariantSignal(value: string | null | undefined) {
+  return /\b(limited\s+(?:red|blue|green|gold|orange|purple|black|silver)|clear\s*cut|acetate|transparent|translucent|clear[-\s]*stock|canvas|dazzlers?|young\s+guns?|portraits?|rookie\s+materials?|honou?r\s+roll|outliers|spectrum\s+fx|future\s+watch|insert|subset|parallel|refractor|prizm|prism|holo|foil|wave|shimmer|ice|laser|scope|pulsar|mojo|mosaic|sparkle|atomic|x-fractor|sepia|numbered\s+(?:to|\/))\b/i.test(
+    String(value || ""),
+  ) || hasNumberedSignal(value);
+}
+
+function hasNumberedSignal(value: string | null | undefined) {
+  const text = String(value || "");
+  const numberedPattern =
+    /\b(?!20\d{2}\s*\/\s*\d{2}\b)(\d{1,3})\s*\/\s*(1|5|10|15|20|25|49|50|75|99|100|149|150|199|250|299|399|499|999|1000)\b/g;
+
+  return numberedPattern.test(text) || /\b(?:one\s+of\s+one|1\s+of\s+1)\b/i.test(text);
+}
+
+export function decideInstaCompConsensusEscalation(params: {
+  ai: InstaCompConsensusIdentity & { confidence?: number | null; notes?: string | null };
+  externalOcrText?: string | null;
+  hasBackImage?: boolean;
+  pairingConfidence?: number | null;
+}): InstaCompConsensusEscalationDecision {
+  const reasons: string[] = [];
+  const confidence =
+    typeof params.ai.confidence === "number" && Number.isFinite(params.ai.confidence)
+      ? params.ai.confidence
+      : null;
+  const evidenceText = [
+    params.externalOcrText,
+    params.ai.setName,
+    params.ai.parallel,
+    params.ai.notes,
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const printedVariantDetected = containsPrintedVariantSignal(evidenceText);
+
+  if (confidence !== null && confidence < 0.94) {
+    reasons.push("primary_confidence_below_fast_lane");
+  }
+
+  for (const field of ["player", "year", "setName", "cardNumber"] as const) {
+    if (!knownValue(fieldValue(params.ai, field))) {
+      reasons.push(`missing_${field}`);
+    }
+  }
+
+  if (params.hasBackImage === false) {
+    reasons.push("front_only_scan");
+  }
+
+  if (
+    params.pairingConfidence !== null &&
+    params.pairingConfidence !== undefined &&
+    params.pairingConfidence < 0.75
+  ) {
+    reasons.push("front_back_pairing_needs_review");
+  }
+
+  if (printedVariantDetected && (!params.ai.parallel || isGenericBase(params.ai.parallel))) {
+    reasons.push("printed_variant_signal_needs_second_reader");
+  }
+
+  if (isUncertain(params.ai.parallel) || isUncertain(params.ai.notes)) {
+    reasons.push("uncertain_identity_text_needs_second_reader");
+  }
+
+  if (params.ai.serialNumber || hasNumberedSignal(evidenceText)) {
+    reasons.push("serial_numbered_or_numbered_signal");
+  }
+
+  const uniqueReasons = uniqueStrings(reasons);
+  const runSecondaryVision = uniqueReasons.length > 0;
+
+  return {
+    schema: "tcos.instacomp.consensusEscalation.v1",
+    speedLane: runSecondaryVision ? "escalated_multi_ai" : "fast_lane",
+    runSecondaryVision,
+    reasons: uniqueReasons,
+    explanation: runSecondaryVision
+      ? `Escalated to a second AI identity reader because ${uniqueReasons.join(", ")}.`
+      : "Fast lane: primary vision, OCR, serial reader, and guardrails supplied enough evidence without an extra AI identity pass.",
+  };
 }
 
 function readerScore(reader: InstaCompConsensusReaderFinding) {
