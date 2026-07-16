@@ -3774,6 +3774,11 @@ rear</code></pre>
 <pre><code>npm run instacomp:trial:init</code></pre>
 <ol>
 <li>Open <code>instacomp-trial-manifest.local.json</code> and fill the <code>expected</code> fields from the physical card before using the scan result. Important expected fields are player/subject, year, brand, set, card number, parallel, variation, team, sport, autograph/relic/rookie flags, exact serial number such as <code>07/50</code>, and serial run such as <code>/50</code>.</li>
+<li>Before scanning, audit the folder so missing fronts/backs, duplicate images, unknown filenames, and extra files are caught before the scanner wastes time:</li>
+</ol>
+<pre><code>npm run instacomp:trial:audit</code></pre>
+<p>The audit is read-only and writes nothing. It prints schema <code>tcos.instacompTrialImageAudit.v1</code>, confirms the expected 100 cards / 200 images, and fails until every numbered card has exactly one front and one back image.</p>
+<ol>
 <li>Run the lot through <code>/admin/instacomp</code> or <code>/admin/products/new</code> using the safest durable batch workflow below.</li>
 <li>From <code>/admin/instacomp</code>, use <code>Export Trial Results</code> or <code>Copy Trial Results</code> after the batch finishes, then save the exported JSON as <code>instacomp-trial-results.local.json</code>. The export uses schema <code>tcos.instacompTrialResults.v1</code>, preserves row-stable trialCardId values such as <code>trial-card-001</code>, includes the detected <code>actual</code> fields, carries consensus/review status, and only includes completed visible scan rows. If you manually build the file instead, each row must use the same <code>trialCardId</code> as the manifest and can put detected fields under <code>actual</code>, <code>result</code>, <code>predicted</code>, or <code>ai</code>.</li>
 <li>Score the trial:</li>

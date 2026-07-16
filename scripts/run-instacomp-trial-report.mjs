@@ -1,9 +1,24 @@
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const DEFAULT_TARGET_CARDS = 100;
 const DEFAULT_TARGET_ACCURACY = 94;
+const DEFAULT_TRIAL_IMAGE_DIR = "instacomp-trial-images";
+const imageExtensions = new Set([
+  ".jpg",
+  ".jpeg",
+  ".png",
+  ".webp",
+  ".heic",
+  ".heif",
+  ".gif",
+  ".bmp",
+  ".tif",
+  ".tiff",
+]);
+const frontTokens = new Set(["front", "fr", "f", "obverse"]);
+const backTokens = new Set(["back", "bk", "b", "reverse", "rear"]);
 
 const identityFields = [
   "player",
@@ -45,6 +60,10 @@ function usage() {
     "  node scripts/run-instacomp-trial-report.mjs --manifest instacomp-trial-manifest.local.json --results instacomp-trial-results.local.json --target 94",
     "",
     "Useful flags:",
+    "  --audit-images <dir>",
+    "                   audit a local front/back trial image folder before scanning",
+    "  --expected-cards <count>",
+    "                   expected card count for --audit-images when manifest target is absent",
     "  --json            print machine-readable JSON only",
     "  --require-files   fail when manifest image paths do not exist locally",
     "  --write-failure-report <path>",
@@ -197,6 +216,255 @@ function validateResultsShape(results) {
   if (!Array.isArray(results.cards)) {
     throw new Error("Results must include a cards array.");
   }
+}
+
+function padTrialNumber(value) {
+  return String(value).padStart(3, "0");
+}
+
+function sideFromFilename(filename) {
+  const parsed = path.parse(filename);
+  const tokens = parsed.name
+    .toLowerCase()
+    .split(/[\s._-]+/)
+    .filter(Boolean);
+  const last = tokens.at(-1);
+  if (frontTokens.has(last)) return "front";
+  if (backTokens.has(last)) return "back";
+  return null;
+}
+
+function trialNumberFromFilename(filename) {
+  const parsed = path.parse(filename);
+  const matches = [...parsed.name.matchAll(/\d+/g)].map((match) => match[0]);
+  if (matches.length === 0) return null;
+  const numeric = Number.parseInt(matches.at(-1), 10);
+  if (!Number.isFinite(numeric) || numeric <= 0) return null;
+  return padTrialNumber(numeric);
+}
+
+function expectedImageAuditRows(manifest, expectedCards) {
+  const cardCount =
+    Array.isArray(manifest?.cards) && manifest.cards.length > 0
+      ? manifest.cards.length
+      : expectedCards;
+
+  return Array.from({ length: cardCount }, (_, index) => {
+    const ordinal = padTrialNumber(index + 1);
+    const manifestCard = manifest?.cards?.[index];
+    return {
+      ordinal,
+      trialCardId: manifestCard?.trialCardId || `trial-card-${ordinal}`,
+    };
+  });
+}
+
+async function auditTrialImages() {
+  if (!hasFlag("--audit-images")) return false;
+
+  const manifestInput = getFlagValue("--manifest");
+  const imageDirInput = getFlagValue("--audit-images", DEFAULT_TRIAL_IMAGE_DIR);
+  const expectedCardsValue = Number.parseInt(
+    getFlagValue("--expected-cards", String(DEFAULT_TARGET_CARDS)),
+    10
+  );
+  const expectedCards =
+    Number.isFinite(expectedCardsValue) && expectedCardsValue > 0
+      ? expectedCardsValue
+      : DEFAULT_TARGET_CARDS;
+
+  let manifest = null;
+  let manifestPath = null;
+  const warnings = [];
+  if (manifestInput) {
+    const loaded = await readJsonFile(manifestInput, "manifest");
+    manifestPath = loaded.resolved;
+    manifest = loaded.data;
+    validateManifestShape(manifest);
+  } else {
+    warnings.push(
+      "No manifest was provided; auditing image count and filename pairs only."
+    );
+  }
+
+  const resolvedImageDir = path.resolve(imageDirInput);
+  const expectedRows = expectedImageAuditRows(manifest, expectedCards);
+  const expectedOrdinals = new Set(expectedRows.map((row) => row.ordinal));
+  const groups = new Map();
+  const unknownFiles = [];
+  const nonImageFiles = [];
+
+  let entries = [];
+  if (existsSync(resolvedImageDir)) {
+    entries = await readdir(resolvedImageDir, { withFileTypes: true });
+  } else {
+    warnings.push(`Image folder does not exist: ${resolvedImageDir}`);
+  }
+
+  for (const entry of entries) {
+    if (!entry.isFile() || entry.name.startsWith(".")) continue;
+    const extension = path.extname(entry.name).toLowerCase();
+    if (!imageExtensions.has(extension)) {
+      nonImageFiles.push(entry.name);
+      continue;
+    }
+
+    const side = sideFromFilename(entry.name);
+    const ordinal = trialNumberFromFilename(entry.name);
+    if (!side || !ordinal) {
+      unknownFiles.push({
+        file: entry.name,
+        reason: !side && !ordinal ? "missing number and side token" : !side ? "missing side token" : "missing card number",
+      });
+      continue;
+    }
+
+    const group = groups.get(ordinal) || { ordinal, front: [], back: [] };
+    group[side].push(entry.name);
+    groups.set(ordinal, group);
+  }
+
+  const missingFronts = [];
+  const missingBacks = [];
+  const duplicateFronts = [];
+  const duplicateBacks = [];
+  const completePairs = [];
+
+  for (const row of expectedRows) {
+    const group = groups.get(row.ordinal) || { ordinal: row.ordinal, front: [], back: [] };
+    if (group.front.length === 0) {
+      missingFronts.push(row.trialCardId);
+    } else if (group.front.length > 1) {
+      duplicateFronts.push({
+        trialCardId: row.trialCardId,
+        files: group.front,
+      });
+    }
+
+    if (group.back.length === 0) {
+      missingBacks.push(row.trialCardId);
+    } else if (group.back.length > 1) {
+      duplicateBacks.push({
+        trialCardId: row.trialCardId,
+        files: group.back,
+      });
+    }
+
+    if (group.front.length === 1 && group.back.length === 1) {
+      completePairs.push(row.trialCardId);
+    }
+  }
+
+  const extraFiles = [...groups.values()]
+    .filter((group) => !expectedOrdinals.has(group.ordinal))
+    .flatMap((group) =>
+      [...group.front, ...group.back].map((file) => ({
+        file,
+        parsedCardNumber: group.ordinal,
+      }))
+    );
+
+  const imageFileCount = [...groups.values()].reduce(
+    (sum, group) => sum + group.front.length + group.back.length,
+    0
+  ) + unknownFiles.length;
+  const expectedImageCount = expectedRows.length * 2;
+  const ready =
+    expectedRows.length > 0 &&
+    imageFileCount >= expectedImageCount &&
+    missingFronts.length === 0 &&
+    missingBacks.length === 0 &&
+    duplicateFronts.length === 0 &&
+    duplicateBacks.length === 0 &&
+    unknownFiles.length === 0 &&
+    extraFiles.length === 0;
+
+  const report = {
+    schema: "tcos.instacompTrialImageAudit.v1",
+    generatedAt: new Date().toISOString(),
+    sideEffectBoundary:
+      "Read-only image audit. Does not publish listings, buy postage, create Checkout, deploy, scan cards, or call production APIs.",
+    manifestPath,
+    imageDir: resolvedImageDir,
+    expected: {
+      cards: expectedRows.length,
+      images: expectedImageCount,
+    },
+    observed: {
+      parsedImageFiles: imageFileCount,
+      completePairs: completePairs.length,
+      nonImageFiles,
+    },
+    readyToScan: ready,
+    problems: {
+      missingFronts,
+      missingBacks,
+      duplicateFronts,
+      duplicateBacks,
+      unknownFiles,
+      extraFiles,
+    },
+    warnings,
+    next: ready
+      ? "Run the lot through /admin/instacomp, export trial results, then score with npm run instacomp:trial:report."
+      : "Fix the missing, duplicate, unknown, or extra image files before scanning the 100-card lot.",
+  };
+
+  if (hasFlag("--json")) {
+    console.log(JSON.stringify(report, null, 2));
+  } else {
+    printImageAudit(report);
+  }
+
+  if (!report.readyToScan) process.exitCode = 1;
+  return true;
+}
+
+function printImageAudit(report) {
+  console.log("InstaComp trial image audit:");
+  console.log(`Cards expected: ${report.expected.cards}`);
+  console.log(`Images expected: ${report.expected.images}`);
+  console.log(`Parsed image files: ${report.observed.parsedImageFiles}`);
+  console.log(`Complete front/back pairs: ${report.observed.completePairs}`);
+  console.log(`Ready to scan: ${report.readyToScan ? "yes" : "no"}`);
+  if (report.manifestPath) console.log(`Manifest: ${report.manifestPath}`);
+  console.log(`Image folder: ${report.imageDir}`);
+
+  if (report.warnings.length > 0) {
+    console.log("");
+    console.log("Warnings:");
+    for (const warning of report.warnings) console.log(`- ${warning}`);
+  }
+
+  const problemLines = [
+    ["missing fronts", report.problems.missingFronts],
+    ["missing backs", report.problems.missingBacks],
+    ["duplicate fronts", report.problems.duplicateFronts],
+    ["duplicate backs", report.problems.duplicateBacks],
+    ["unknown image files", report.problems.unknownFiles],
+    ["extra image files", report.problems.extraFiles],
+  ];
+
+  if (problemLines.some(([, rows]) => rows.length > 0)) {
+    console.log("");
+    console.log("Problems:");
+    for (const [label, rows] of problemLines) {
+      if (rows.length === 0) continue;
+      console.log(`- ${label}: ${rows.length}`);
+      for (const row of rows.slice(0, 10)) {
+        console.log(`  - ${typeof row === "string" ? row : JSON.stringify(row)}`);
+      }
+      if (rows.length > 10) console.log(`  - ... ${rows.length - 10} more`);
+    }
+  }
+
+  if (report.observed.nonImageFiles.length > 0) {
+    console.log("");
+    console.log(`Ignored non-image files: ${report.observed.nonImageFiles.length}`);
+  }
+
+  console.log("");
+  console.log(`Next: ${report.next}`);
 }
 
 function imageStats(manifestPath, cards) {
@@ -570,6 +838,8 @@ function printTextReport(report) {
 
 if (await writeManifestTemplate()) {
   // Template mode already handled the command.
+} else if (await auditTrialImages()) {
+  // Image-audit mode already handled the command.
 } else {
   try {
     const targetAccuracyPercent = Number.parseFloat(

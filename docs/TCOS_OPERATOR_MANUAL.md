@@ -3923,9 +3923,16 @@ npm run instacomp:trial:init
 ```
 
 4. Open `instacomp-trial-manifest.local.json` and fill the `expected` fields from the physical card before using the scan result. Important expected fields are player/subject, year, brand, set, card number, parallel, variation, team, sport, autograph/relic/rookie flags, exact serial number such as `07/50`, and serial run such as `/50`.
-5. Run the lot through `/admin/instacomp` or `/admin/products/new` using the safest durable batch workflow below.
-6. From `/admin/instacomp`, use `Export Trial Results` or `Copy Trial Results` after the batch finishes, then save the exported JSON as `instacomp-trial-results.local.json`. The export uses schema `tcos.instacompTrialResults.v1`, preserves row-stable trialCardId values such as `trial-card-001`, includes the detected `actual` fields, carries consensus/review status, and only includes completed visible scan rows. If you manually build the file instead, each row must use the same `trialCardId` as the manifest and can put detected fields under `actual`, `result`, `predicted`, or `ai`.
-7. Score the trial:
+5. Before scanning, audit the folder so missing fronts/backs, duplicate images, unknown filenames, and extra files are caught before the scanner wastes time:
+
+```bash
+npm run instacomp:trial:audit
+```
+
+The audit is read-only and writes nothing. It prints schema `tcos.instacompTrialImageAudit.v1`, confirms the expected 100 cards / 200 images, and fails until every numbered card has exactly one front and one back image.
+6. Run the lot through `/admin/instacomp` or `/admin/products/new` using the safest durable batch workflow below.
+7. From `/admin/instacomp`, use `Export Trial Results` or `Copy Trial Results` after the batch finishes, then save the exported JSON as `instacomp-trial-results.local.json`. The export uses schema `tcos.instacompTrialResults.v1`, preserves row-stable trialCardId values such as `trial-card-001`, includes the detected `actual` fields, carries consensus/review status, and only includes completed visible scan rows. If you manually build the file instead, each row must use the same `trialCardId` as the manifest and can put detected fields under `actual`, `result`, `predicted`, or `ai`.
+8. Score the trial:
 
 ```bash
 npm run instacomp:trial:report -- --manifest instacomp-trial-manifest.local.json --results instacomp-trial-results.local.json --target 94

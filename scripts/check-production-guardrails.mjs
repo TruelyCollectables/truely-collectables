@@ -1198,6 +1198,11 @@ assertScriptIncludes("instacomp:trial:init", [
 assertScriptIncludes("instacomp:trial:report", [
   "scripts/run-instacomp-trial-report.mjs",
 ]);
+assertScriptIncludes("instacomp:trial:audit", [
+  "scripts/run-instacomp-trial-report.mjs",
+  "--audit-images instacomp-trial-images",
+  "--expected-cards 100",
+]);
 assertScriptIncludes("instacomp:trial:failures", [
   "scripts/run-instacomp-trial-report.mjs",
   "--write-failure-report instacomp-trial-failures.local.json",
@@ -3574,6 +3579,19 @@ assertFileIncludes("instacomp trial failure report source", "scripts/run-instaco
   "consensus_review_required",
   "suggestedAction",
 ]);
+assertFileIncludes("instacomp trial image audit source", "scripts/run-instacomp-trial-report.mjs", [
+  "tcos.instacompTrialImageAudit.v1",
+  "auditTrialImages",
+  "missingFronts",
+  "duplicateFronts",
+  "unknownFiles",
+]);
+assertFileIncludes("instacomp trial image audit manual", "docs/TCOS_OPERATOR_MANUAL.md", [
+  "npm run instacomp:trial:audit",
+  "missing fronts/backs",
+  "duplicate images",
+  "extra files",
+]);
 assertFileIncludes("instacomp trial failure report manual", "docs/TCOS_OPERATOR_MANUAL.md", [
   "npm run instacomp:trial:failures",
   "instacomp-trial-failures.local.json",
@@ -3589,6 +3607,11 @@ assertFileIncludes("instacomp final tester status includes trial failure report"
   "trial_failure_report",
   "tcos.instacompTrialFailureReport.v1 JSON",
   "scoreTrialFailures",
+]);
+assertFileIncludes("instacomp final tester status includes trial image audit", "scripts/status-instacomp-final-tester.mjs", [
+  "trial_image_audit",
+  "auditTrialImages",
+  "missing fronts/backs",
 ]);
 assertFileIncludes("instacomp catalog identity resolver source", "src/lib/instacomp-catalog-identity.ts", [
   "InstaCompCatalogIdentityInput",

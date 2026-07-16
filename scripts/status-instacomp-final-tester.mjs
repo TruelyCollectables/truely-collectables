@@ -89,6 +89,12 @@ const checklist = [
     status: "ready_to_test",
   },
   {
+    key: "trial_image_audit",
+    label:
+      "The pre-scan image audit can catch missing fronts/backs, duplicate images, unknown filenames, and extra files before the 100-card lot burns scanner time.",
+    status: "ready_to_test",
+  },
+  {
     key: "hundred_card_trial",
     label:
       "100-card / 200-scan final trial must score at least 94% against the local ground-truth manifest.",
@@ -133,6 +139,7 @@ const readiness = {
       "Implement InstaComp™ Multi-Scanner Consensus before the final July 16 tester pass.",
     verifyHarness: "npm run verify:instacomp",
     initTrial: "npm run instacomp:trial:init",
+    auditTrialImages: "npm run instacomp:trial:audit",
     scoreTrial:
       "npm run instacomp:trial:report -- --manifest instacomp-trial-manifest.local.json --results instacomp-trial-results.local.json --target 94",
     scoreTrialFailures: "npm run instacomp:trial:failures",
@@ -169,6 +176,7 @@ if (jsonOutput) {
   console.log("Commands:");
   console.log(`- verify harness: ${readiness.commands.verifyHarness}`);
   console.log(`- init trial: ${readiness.commands.initTrial}`);
+  console.log(`- audit trial images: ${readiness.commands.auditTrialImages}`);
   console.log(`- score trial: ${readiness.commands.scoreTrial}`);
   console.log(`- score + write failure report: ${readiness.commands.scoreTrialFailures}`);
   console.log(`- full local safety: ${readiness.commands.fullLocalSafety}`);
