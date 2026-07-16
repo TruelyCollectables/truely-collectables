@@ -205,6 +205,12 @@ if (payload) {
     );
     checks.push(
       check(
+        fallbackCommands.includes("npm run instacomp:trial:audit"),
+        "local build fallback preserves InstaComp trial image audit command",
+      ),
+    );
+    checks.push(
+      check(
         payload.localBuildFallback.next?.includes("keep live money/postage/payout/Checkout/deploy paths gated"),
         "local build fallback preserves live-money/postage/deploy gates",
         payload.localBuildFallback.next || null,

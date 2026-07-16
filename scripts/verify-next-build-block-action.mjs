@@ -166,6 +166,12 @@ if (payload) {
     );
     checks.push(
       check(
+        commands.includes("npm run instacomp:trial:audit"),
+        "fallback selection preserves InstaComp trial image audit command",
+      ),
+    );
+    checks.push(
+      check(
         payload.next?.includes("keep live money/postage/payout/Checkout/deploy paths gated"),
         "fallback selection preserves live-money/postage/deploy gates",
         payload.next || null,
