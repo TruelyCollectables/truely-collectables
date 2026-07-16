@@ -351,7 +351,7 @@ const INSTACOMP_JOB_ITEM_CHUNK_SIZE = 50;
 const INSTACOMP_BATCH_DEFAULT_CONCURRENCY = 4;
 const INSTACOMP_BATCH_MAX_CONCURRENCY = 6;
 const INSTACOMP_JOB_UPLOAD_CONCURRENCY = 6;
-const INSTACOMP_JOB_CLAIM_CHUNK_SIZE = 3;
+const INSTACOMP_JOB_CLAIM_CHUNK_SIZE = 5;
 const INSTACOMP_LAST_JOB_STORAGE_KEY = "tcos-instacomp-last-job-v1";
 const EMPTY_CARD_PREVIEW =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='560' viewBox='0 0 400 560'%3E%3Crect width='400' height='560' fill='%23e5e7eb'/%3E%3Ctext x='200' y='280' text-anchor='middle' fill='%236b7280' font-family='Arial' font-size='24'%3ERecovered card%3C/text%3E%3C/svg%3E";
@@ -2722,6 +2722,7 @@ export default function InstaCompScanner({
   const [testModelRunRecordsLoaded, setTestModelRunRecordsLoaded] =
     useState(!testMode);
   const batchPauseRequestedRef = useRef(false);
+  const databasePressurePauseRef = useRef(false);
   const batchPreviewUrlsRef = useRef<string[]>([]);
   const persistentBindingsRef = useRef<Map<string, PersistentJobBinding>>(
     new Map()
@@ -6073,6 +6074,7 @@ export default function InstaCompScanner({
       ? Math.max(1, Math.min(INSTACOMP_BATCH_MAX_CONCURRENCY, Math.floor(parsed)))
       : INSTACOMP_BATCH_DEFAULT_CONCURRENCY;
 
+    databasePressurePauseRef.current = false;
     setBatchConcurrency(nextConcurrency);
   }
 
@@ -6084,18 +6086,35 @@ export default function InstaCompScanner({
     );
   }
 
+  function requestBatchDatabasePressurePause() {
+    if (databasePressurePauseRef.current) {
+      return true;
+    }
+
+    databasePressurePauseRef.current = true;
+    batchPauseRequestedRef.current = true;
+    setBatchPauseRequested(true);
+    setBatchConcurrency((current) => Math.max(1, current - 1));
+    setBatchError(
+      `Database connection pressure detected. InstaComp paused before claiming more work, backed concurrency down by 1, and will use ${INSTACOMP_JOB_CLAIM_CHUNK_SIZE}-card mini-packs on resume to reduce queue round-trips.`
+    );
+    return true;
+  }
+
+  function handleBatchDatabasePressureError(error: unknown) {
+    if (!isDatabaseConnectionPressureError(error)) {
+      return false;
+    }
+
+    return requestBatchDatabasePressurePause();
+  }
+
   function handleBatchDatabasePressure(card: BatchCard) {
     if (card.status !== "error" || !isDatabaseConnectionPressureText(card.error)) {
       return false;
     }
 
-    batchPauseRequestedRef.current = true;
-    setBatchPauseRequested(true);
-    setBatchConcurrency((current) => Math.max(1, current - 1));
-    setBatchError(
-      "Database connection pressure detected. InstaComp paused before claiming more work and backed concurrency down by 1; resume after the database catches up."
-    );
-    return true;
+    return requestBatchDatabasePressurePause();
   }
 
   function toggleBatchCardSelected(cardId: string, selected: boolean) {
@@ -6546,17 +6565,24 @@ export default function InstaCompScanner({
       let emptyClaimCount = 0;
 
       while (!batchPauseRequestedRef.current) {
-        const claimed = await persistentJobJson(
-          `/api/instacomp/jobs/${jobId}/claim`,
-          {
+        let claimed: any;
+
+        try {
+          claimed = await persistentJobJson(`/api/instacomp/jobs/${jobId}/claim`, {
             method: "POST",
             body: {
               workerId,
               limit: INSTACOMP_JOB_CLAIM_CHUNK_SIZE,
               leaseSeconds: 900,
             },
+          });
+        } catch (error) {
+          if (handleBatchDatabasePressureError(error)) {
+            return;
           }
-        );
+
+          throw error;
+        }
 
         if (claimed.job) {
           setPersistentJob(claimed.job as PersistentJobSummary);
@@ -6800,6 +6826,7 @@ export default function InstaCompScanner({
     }
 
     batchPauseRequestedRef.current = false;
+    databasePressurePauseRef.current = false;
     setBatchRunning(true);
     setBatchPauseRequested(false);
     setBatchError(null);
@@ -6849,7 +6876,9 @@ export default function InstaCompScanner({
         );
       }
     } catch (error: any) {
-      setBatchError(error?.message || "The persistent scan job stopped.");
+      if (!handleBatchDatabasePressureError(error)) {
+        setBatchError(error?.message || "The persistent scan job stopped.");
+      }
     } finally {
       setBatchRunning(false);
     }
@@ -6864,6 +6893,7 @@ export default function InstaCompScanner({
     if (batchRunning || batchDrafting || persistentJobPreparing) return;
 
     batchPauseRequestedRef.current = false;
+    databasePressurePauseRef.current = false;
     setBatchRunning(true);
     setBatchPauseRequested(false);
     setBatchError(null);
@@ -6942,7 +6972,9 @@ export default function InstaCompScanner({
       }
     } catch (error: any) {
       scanProcessingFailed = true;
-      setBatchError(error?.message || "Auto-Pilot scan processing stopped.");
+      if (!handleBatchDatabasePressureError(error)) {
+        setBatchError(error?.message || "Auto-Pilot scan processing stopped.");
+      }
     } finally {
       setBatchRunning(false);
     }
