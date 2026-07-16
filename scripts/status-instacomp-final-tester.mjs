@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const repoRoot = dirname(fileURLToPath(new URL("../package.json", import.meta.url)));
 const jsonOutput = process.argv.includes("--json");
+const statusJsonMaxBuffer = 64 * 1024 * 1024;
 
 function runGit(args) {
   const result = spawnSync("git", args, {
@@ -23,10 +24,98 @@ function countFilesIfPresent(relativeDir) {
   return readdirSync(dir).filter((name) => !name.startsWith(".")).length;
 }
 
+function runTrialImageAudit() {
+  const command = [
+    "node",
+    "scripts/run-instacomp-trial-report.mjs",
+    "--manifest",
+    "instacomp-trial-manifest.local.json",
+    "--audit-images",
+    "instacomp-trial-images",
+    "--expected-cards",
+    "100",
+    "--json",
+  ];
+  const result = spawnSync(command[0], command.slice(1), {
+    cwd: repoRoot,
+    encoding: "utf8",
+    maxBuffer: statusJsonMaxBuffer,
+  });
+  const stdout = (result.stdout || "").trim();
+
+  try {
+    const payload = JSON.parse(stdout);
+    const problems = payload.problems || {};
+
+    return {
+      command: "npm run instacomp:trial:audit",
+      available: true,
+      readyToScan: Boolean(payload.readyToScan),
+      expectedCards: payload.expected?.cards ?? null,
+      expectedImages: payload.expected?.images ?? null,
+      parsedImageFiles: payload.observed?.parsedImageFiles ?? null,
+      completePairs: payload.observed?.completePairs ?? null,
+      missingFrontCount: Array.isArray(problems.missingFronts)
+        ? problems.missingFronts.length
+        : null,
+      missingBackCount: Array.isArray(problems.missingBacks)
+        ? problems.missingBacks.length
+        : null,
+      duplicateFrontCount: Array.isArray(problems.duplicateFronts)
+        ? problems.duplicateFronts.length
+        : null,
+      duplicateBackCount: Array.isArray(problems.duplicateBacks)
+        ? problems.duplicateBacks.length
+        : null,
+      unknownFileCount: Array.isArray(problems.unknownFiles)
+        ? problems.unknownFiles.length
+        : null,
+      extraFileCount: Array.isArray(problems.extraFiles)
+        ? problems.extraFiles.length
+        : null,
+      firstMissingFronts: Array.isArray(problems.missingFronts)
+        ? problems.missingFronts.slice(0, 5)
+        : [],
+      firstMissingBacks: Array.isArray(problems.missingBacks)
+        ? problems.missingBacks.slice(0, 5)
+        : [],
+      next: payload.next || "Run npm run instacomp:trial:audit.",
+      exitStatus: result.status,
+      error: result.status === 0 ? null : (result.stderr || "").trim() || null,
+    };
+  } catch (error) {
+    return {
+      command: "npm run instacomp:trial:audit",
+      available: false,
+      readyToScan: false,
+      expectedCards: null,
+      expectedImages: null,
+      parsedImageFiles: null,
+      completePairs: null,
+      missingFrontCount: null,
+      missingBackCount: null,
+      duplicateFrontCount: null,
+      duplicateBackCount: null,
+      unknownFileCount: null,
+      extraFileCount: null,
+      firstMissingFronts: [],
+      firstMissingBacks: [],
+      next: "Run npm run instacomp:trial:audit directly to inspect image-folder readiness.",
+      exitStatus: result.status,
+      error:
+        (result.stderr || "").trim() ||
+        `Could not parse trial image audit JSON: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+    };
+  }
+}
+
 const manifestPath = "instacomp-trial-manifest.local.json";
 const resultsPath = "instacomp-trial-results.local.json";
 const trialImagesDir = "instacomp-trial-images";
 const trialImageCount = countFilesIfPresent(trialImagesDir);
+const trialImageAudit = runTrialImageAudit();
 
 const checklist = [
   {
@@ -98,9 +187,10 @@ const checklist = [
     key: "hundred_card_trial",
     label:
       "100-card / 200-scan final trial must score at least 94% against the local ground-truth manifest.",
-    status:
-      existsSync(join(repoRoot, manifestPath)) && existsSync(join(repoRoot, resultsPath))
-        ? "ready_to_score"
+    status: existsSync(join(repoRoot, manifestPath)) && existsSync(join(repoRoot, resultsPath))
+      ? "ready_to_score"
+      : trialImageAudit.readyToScan
+        ? "ready_to_scan"
         : "needs_local_trial_files",
   },
   {
@@ -131,6 +221,7 @@ const readiness = {
     imagesDirExists: existsSync(join(repoRoot, trialImagesDir)),
     imageFileCount: trialImageCount,
     expectedImageCount: 200,
+    imageAudit: trialImageAudit,
   },
   checklist,
   commands: {
@@ -167,6 +258,25 @@ if (jsonOutput) {
   console.log(
     `- trial images: ${readiness.localTrial.imageFileCount}/${readiness.localTrial.expectedImageCount} files in ${trialImagesDir}`,
   );
+  console.log(
+    `- trial image audit ready: ${readiness.localTrial.imageAudit.readyToScan ? "yes" : "no"}`,
+  );
+  console.log(
+    `- trial image audit pairs: ${readiness.localTrial.imageAudit.completePairs ?? "unknown"}/${readiness.localTrial.imageAudit.expectedCards ?? "unknown"}`,
+  );
+  console.log(
+    `- trial image audit problems: missing fronts ${readiness.localTrial.imageAudit.missingFrontCount ?? "unknown"}, missing backs ${readiness.localTrial.imageAudit.missingBackCount ?? "unknown"}, duplicates ${Number(readiness.localTrial.imageAudit.duplicateFrontCount || 0) + Number(readiness.localTrial.imageAudit.duplicateBackCount || 0)}, unknown files ${readiness.localTrial.imageAudit.unknownFileCount ?? "unknown"}, extra files ${readiness.localTrial.imageAudit.extraFileCount ?? "unknown"}`,
+  );
+  if (readiness.localTrial.imageAudit.firstMissingFronts.length > 0) {
+    console.log(
+      `- first missing fronts: ${readiness.localTrial.imageAudit.firstMissingFronts.join(", ")}`,
+    );
+  }
+  if (readiness.localTrial.imageAudit.firstMissingBacks.length > 0) {
+    console.log(
+      `- first missing backs: ${readiness.localTrial.imageAudit.firstMissingBacks.join(", ")}`,
+    );
+  }
   console.log("");
   console.log("Done-done tester checklist:");
   for (const item of checklist) {

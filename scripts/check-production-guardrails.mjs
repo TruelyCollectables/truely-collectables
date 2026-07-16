@@ -3616,6 +3616,10 @@ assertFileIncludes("instacomp final tester status includes trial image audit", "
   "trial_image_audit",
   "auditTrialImages",
   "missing fronts/backs",
+  "runTrialImageAudit",
+  "imageAudit",
+  "trial image audit ready:",
+  "firstMissingFronts",
 ]);
 assertFileIncludes("instacomp catalog identity resolver source", "src/lib/instacomp-catalog-identity.ts", [
   "InstaCompCatalogIdentityInput",
