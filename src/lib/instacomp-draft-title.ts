@@ -158,6 +158,17 @@ function stripBoundaryPhrases(value: string | null | undefined, phrases: Array<s
   return cleaned;
 }
 
+function containsComparablePhrase(value: string | null | undefined, phrase: string | null | undefined) {
+  const comparableValue = comparableTitlePart(value);
+  const comparablePhrase = comparableTitlePart(phrase);
+
+  return Boolean(
+    comparableValue &&
+      comparablePhrase &&
+      ` ${comparableValue} `.includes(` ${comparablePhrase} `),
+  );
+}
+
 function setNameAlreadyContainsBrand(brand: string, setName: string) {
   const comparableBrand = comparableTitlePart(brand);
   const comparableSetName = comparableTitlePart(setName);
@@ -220,6 +231,14 @@ function cleanParallelTitlePart(ai: InstaCompDraftTitleAi | null | undefined) {
     ...releaseParts,
     releaseParts.join(" "),
   ]);
+  const comparableStripped = comparableTitlePart(stripped);
+
+  if (
+    comparableStripped &&
+    releaseParts.some((part) => containsComparablePhrase(part, comparableStripped))
+  ) {
+    return "";
+  }
 
   return isGenericBaseTitlePart(stripped) ? "" : stripped;
 }

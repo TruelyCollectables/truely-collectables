@@ -318,6 +318,26 @@ check(
   uncertainParallelDraftTitle,
 );
 
+const containedParallelDraftTitle = buildInstaCompDraftTitle(
+  {
+    player: "Matthew Robertson",
+    year: "2025-26",
+    brand: "Upper Deck",
+    setName: "SP Authentic - Future Watch Spectrum FX Level 1",
+    cardNumber: "S-50",
+    parallel: "Spectrum FX",
+    serialNumber: null,
+    isRookie: false,
+  },
+  "fallback.jpg"
+);
+check(
+  "draft title suppresses parallel already contained in set name",
+  containedParallelDraftTitle ===
+    "2025-26 Upper Deck SP Authentic - Future Watch Spectrum FX Level 1 Matthew Robertson #S-50",
+  containedParallelDraftTitle,
+);
+
 const invalidSerialQuery = buildInstaCompQueries({ ...target, serialNumber: "99/25" });
 check("invalid serial cannot constrain comp search", !invalidSerialQuery.primary.includes("/25"), invalidSerialQuery.primary);
 
