@@ -1188,6 +1188,7 @@ assertScriptIncludes("verify:instacomp", [
   "simulate:instacomp-trial-groundtruth-sheet",
   "simulate:instacomp-trial-groundtruth",
   "simulate:instacomp-trial-preflight",
+  "simulate:instacomp-trial-prep",
   "simulate:instacomp-trial",
 ]);
 assertScriptIncludes("simulate:instacomp-identity-guard", [
@@ -1218,6 +1219,13 @@ assertScriptIncludes("simulate:instacomp-trial-preflight", [
   "scripts/run-instacomp-trial-preflight.mjs",
   "--image-map .codex-run/instacomp-trial-image-map-fixture.local.json",
   "--intake-packet .codex-run/instacomp-trial-intake-packet-fixture.local.md",
+]);
+assertScriptIncludes("simulate:instacomp-trial-prep", [
+  "scripts/prepare-instacomp-trial.mjs",
+  "--worksheet .codex-run/instacomp-trial-groundtruth-prep-fixture.local.tsv",
+  "--preflight-json .codex-run/instacomp-trial-prep-fixture.local.json",
+  "--preflight-md .codex-run/instacomp-trial-prep-fixture.local.md",
+  "--force-worksheet",
 ]);
 assertScriptIncludes("instacomp:trial:init", [
   "scripts/run-instacomp-trial-report.mjs",
@@ -1268,6 +1276,13 @@ assertScriptIncludes("instacomp:trial:preflight", [
   "--images instacomp-trial-images",
   "--image-map instacomp-trial-image-map.local.json",
   "--intake-packet instacomp-trial-intake-packet.local.md",
+  "--expected-cards 100",
+]);
+assertScriptIncludes("instacomp:trial:prep", [
+  "scripts/prepare-instacomp-trial.mjs",
+  "--worksheet instacomp-trial-groundtruth.local.tsv",
+  "--preflight-json instacomp-trial-preflight.local.json",
+  "--preflight-md instacomp-trial-preflight.local.md",
   "--expected-cards 100",
 ]);
 assertScriptIncludes("instacomp:trial:ready", [
@@ -1394,6 +1409,7 @@ assertFileIncludes("30-minute build block checkpoint source", "scripts/status-bu
   "Run the July 16 InstaComp final tester next",
   "audit the ground-truth manifest",
   "audit/map/preflight images before scanning",
+  "npm run instacomp:trial:prep",
   "npm run instacomp:trial:groundtruth",
   "npm run instacomp:trial:audit",
   "npm run instacomp:trial:map",
@@ -1598,6 +1614,7 @@ assertFileIncludes("30-minute next build block action verifier source", "scripts
   "primaryNext",
   "primary commands:",
   "fallback selection preserves checkpoint handoff command",
+  "fallback selection preserves InstaComp trial prep bundle command",
   "fallback selection preserves InstaComp trial ground-truth manifest audit command",
   "fallback selection preserves InstaComp trial image audit command",
   "fallback selection preserves InstaComp trial image map command",
@@ -1673,6 +1690,7 @@ assertFileIncludes("30-minute build block checkpoint verifier source", "scripts/
   "localBuildFallback",
   "checkpoint local build fallback availability is recorded",
   "local build fallback preserves checkpoint handoff command",
+  "local build fallback preserves InstaComp trial prep bundle command",
   "local build fallback preserves InstaComp trial ground-truth manifest audit command",
   "local build fallback preserves InstaComp trial image audit command",
   "local build fallback preserves InstaComp trial image map command",
@@ -3782,7 +3800,17 @@ assertFileIncludes("instacomp trial preflight source", "scripts/run-instacomp-tr
   "http://localhost:3000/admin/instacomp",
   "does not scan cards, deploy, publish listings, buy postage, create Checkout",
 ]);
+assertFileIncludes("instacomp trial prep bundle source", "scripts/prepare-instacomp-trial.mjs", [
+  "tcos.instacompTrialPrepBundle.v1",
+  "Existing answer-key worksheet preserved",
+  "--force-worksheet",
+  "instacomp-trial-preflight.local.json",
+  "instacomp-trial-preflight.local.md",
+  "Local InstaComp trial prep only. Does not scan cards, deploy, publish listings, buy postage, create Checkout",
+]);
 assertFileIncludes("instacomp trial ground-truth manifest audit manual", "docs/TCOS_OPERATOR_MANUAL.md", [
+  "npm run instacomp:trial:prep",
+  "tcos.instacompTrialPrepBundle.v1",
   "npm run instacomp:trial:groundtruth:sheet",
   "instacomp-trial-groundtruth.local.tsv",
   "npm run instacomp:trial:groundtruth:apply",
@@ -3839,11 +3867,13 @@ assertFileIncludes("instacomp final tester status includes speed-gate HUD", "scr
 assertFileIncludes("instacomp final tester status includes trial image audit", "scripts/status-instacomp-final-tester.mjs", [
   "trial_groundtruth_manifest",
   "trial_groundtruth_sheet",
+  "trial_prep_bundle",
   "trial_image_audit",
   "trial_image_map",
   "trial_preflight_gate",
   "writeTrialGroundTruthSheet",
   "applyTrialGroundTruthSheet",
+  "prepTrial",
   "auditTrialGroundTruth",
   "auditTrialImages",
   "mapTrialImages",
@@ -3865,6 +3895,7 @@ assertFileIncludes("instacomp final tester status includes trial image audit", "
   "accepted trial image patterns:",
   "accepted trial side words:",
   "after copying images:",
+  "npm run instacomp:trial:prep",
   "npm run instacomp:trial:groundtruth:sheet",
   "npm run instacomp:trial:groundtruth:apply",
   "npm run instacomp:trial:preflight",

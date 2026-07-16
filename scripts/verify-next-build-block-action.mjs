@@ -164,6 +164,12 @@ if (payload) {
         "fallback selection preserves checkpoint handoff command",
       ),
     );
+    checks.push(
+      check(
+        commands.includes("npm run instacomp:trial:prep"),
+        "fallback selection preserves InstaComp trial prep bundle command",
+      ),
+    );
       checks.push(
         check(
           commands.includes("npm run instacomp:trial:groundtruth"),

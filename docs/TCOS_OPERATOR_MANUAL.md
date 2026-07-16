@@ -3917,7 +3917,15 @@ The trial harness is local and read-only. It does not publish listings, buy post
 
 1. Put the trial images in a local folder such as `instacomp-trial-images/`.
 2. Name each card pair with a stable number, for example `001-front.jpg`, `001-back.jpg`, through `100-front.jpg`, `100-back.jpg`. If the scanner exports plain ordered files such as `scan_0001.jpg`, `scan_0002.jpg`, and so on, keep the folder sorted in intended upload order; the audit treats `1+2`, `3+4`, and onward as front/back pairs when no explicit front/back token is present.
-3. Create the local manifest:
+3. Run the one-command local prep bundle:
+
+```bash
+npm run instacomp:trial:prep
+```
+
+That command prints schema `tcos.instacompTrialPrepBundle.v1`, creates `instacomp-trial-manifest.local.json` if it is missing, writes `instacomp-trial-groundtruth.local.tsv` only when the worksheet does not already exist, refreshes `instacomp-trial-image-map.local.json`, refreshes `instacomp-trial-intake-packet.local.md`, and writes `instacomp-trial-preflight.local.json` plus `instacomp-trial-preflight.local.md`. It is safe to rerun while the answer sheet is being filled because it preserves an existing worksheet by default. It is local/read-only for live systems and does not scan cards, deploy, publish listings, buy postage, create Checkout, call production APIs, approve live money, release payouts, or change runtime switches.
+
+If you need only the manifest, create the local manifest:
 
 ```bash
 npm run instacomp:trial:init
