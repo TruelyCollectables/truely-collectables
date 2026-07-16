@@ -64,6 +64,16 @@ type CollectionItem = {
   visibility: string;
   is_favorite: boolean;
   notes: string | null;
+  metadata?: {
+    collector_comp?: {
+      opted_in?: boolean;
+      viable_comp?: boolean;
+      source?: string | null;
+      price?: number | null;
+      card_show_name?: string | null;
+      confidence?: string | null;
+    };
+  } | null;
   created_at: string;
 };
 
@@ -141,6 +151,15 @@ type BragPost = {
   reaction_count: number;
   comment_count: number;
   click_count: number;
+  metadata?: {
+    collector_comp?: {
+      opted_in?: boolean;
+      viable_comp?: boolean;
+      source?: string | null;
+      price?: number | null;
+      card_show_name?: string | null;
+    };
+  } | null;
   created_at: string;
   authorLabel: string;
 };
@@ -542,7 +561,20 @@ export default function AccountPage() {
   const [collectionCondition, setCollectionCondition] = useState("");
   const [collectionGradeCompany, setCollectionGradeCompany] = useState("");
   const [collectionGradeValue, setCollectionGradeValue] = useState("");
+  const [collectionCertificationNumber, setCollectionCertificationNumber] =
+    useState("");
   const [collectionEstimatedValue, setCollectionEstimatedValue] = useState("");
+  const [collectionAcquisitionSource, setCollectionAcquisitionSource] =
+    useState("card_show");
+  const [collectionAcquisitionPrice, setCollectionAcquisitionPrice] =
+    useState("");
+  const [collectionCardShowName, setCollectionCardShowName] = useState("");
+  const [collectionSharePurchaseAsComp, setCollectionSharePurchaseAsComp] =
+    useState(false);
+  const [collectionCreateBragPost, setCollectionCreateBragPost] =
+    useState(false);
+  const [collectionBragVisibility, setCollectionBragVisibility] =
+    useState("community");
   const [collectionNotes, setCollectionNotes] = useState("");
   const [wishTitle, setWishTitle] = useState("");
   const [wishType, setWishType] = useState("wish_list");
@@ -1306,11 +1338,27 @@ export default function AccountPage() {
           data.collectionItem as CollectionItem,
           ...current,
         ]);
+        if (data.bragPost) {
+          setBragFeed((current) => [
+            {
+              ...(data.bragPost as BragPost),
+              authorLabel: collectorProfile?.collector_handle || "You",
+            },
+            ...current,
+          ]);
+        }
         setCollectionTitle("");
         setCollectionCondition("");
         setCollectionGradeCompany("");
         setCollectionGradeValue("");
+        setCollectionCertificationNumber("");
         setCollectionEstimatedValue("");
+        setCollectionAcquisitionSource("card_show");
+        setCollectionAcquisitionPrice("");
+        setCollectionCardShowName("");
+        setCollectionSharePurchaseAsComp(false);
+        setCollectionCreateBragPost(false);
+        setCollectionBragVisibility("community");
         setCollectionNotes("");
       }
 
@@ -2255,6 +2303,18 @@ export default function AccountPage() {
                         ) : null}
                         <div className="mt-3 flex flex-wrap gap-2 text-xs font-bold uppercase text-neutral-500">
                           {post.order_id ? <span>Order #{post.order_id}</span> : null}
+                          {post.metadata?.collector_comp?.price ? (
+                            <span>
+                              Pickup{" "}
+                              {formatCurrency(post.metadata.collector_comp.price)}
+                            </span>
+                          ) : null}
+                          {post.metadata?.collector_comp?.card_show_name ? (
+                            <span>{post.metadata.collector_comp.card_show_name}</span>
+                          ) : null}
+                          {post.metadata?.collector_comp?.viable_comp ? (
+                            <span className="text-blue-700">Collector comp</span>
+                          ) : null}
                           <span>{post.reaction_count} reactions</span>
                           <span>{post.comment_count} comments</span>
                           <span>{post.click_count} visits</span>
@@ -2566,7 +2626,14 @@ export default function AccountPage() {
                       condition: collectionCondition,
                       gradeCompany: collectionGradeCompany,
                       gradeValue: collectionGradeValue,
+                      certificationNumber: collectionCertificationNumber,
                       estimatedValue: collectionEstimatedValue,
+                      acquisitionSource: collectionAcquisitionSource,
+                      acquisitionPrice: collectionAcquisitionPrice,
+                      cardShowName: collectionCardShowName,
+                      sharePurchaseAsComp: collectionSharePurchaseAsComp,
+                      createBragPost: collectionCreateBragPost,
+                      bragVisibility: collectionBragVisibility,
                       notes: collectionNotes,
                     });
                   }}
@@ -2606,7 +2673,7 @@ export default function AccountPage() {
                       />
                     </label>
                   </div>
-                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-4">
                     <label className="text-sm font-bold text-neutral-700">
                       Grader
                       <input
@@ -2630,6 +2697,17 @@ export default function AccountPage() {
                       />
                     </label>
                     <label className="text-sm font-bold text-neutral-700">
+                      Slab Cert #
+                      <input
+                        value={collectionCertificationNumber}
+                        onChange={(event) =>
+                          setCollectionCertificationNumber(event.target.value)
+                        }
+                        className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
+                        placeholder="12345678"
+                      />
+                    </label>
+                    <label className="text-sm font-bold text-neutral-700">
                       Value
                       <input
                         type="number"
@@ -2642,6 +2720,97 @@ export default function AccountPage() {
                         placeholder="125"
                       />
                     </label>
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+                    <label className="text-sm font-bold text-neutral-700">
+                      Pickup Source
+                      <select
+                        value={collectionAcquisitionSource}
+                        onChange={(event) =>
+                          setCollectionAcquisitionSource(event.target.value)
+                        }
+                        className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
+                      >
+                        <option value="card_show">Card show</option>
+                        <option value="shop">Local shop</option>
+                        <option value="online">Online</option>
+                        <option value="trade">Trade</option>
+                        <option value="break">Break</option>
+                        <option value="other">Other</option>
+                      </select>
+                    </label>
+                    <label className="text-sm font-bold text-neutral-700">
+                      What They Paid
+                      <input
+                        type="number"
+                        step="0.01"
+                        value={collectionAcquisitionPrice}
+                        onChange={(event) =>
+                          setCollectionAcquisitionPrice(event.target.value)
+                        }
+                        className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
+                        placeholder="80"
+                      />
+                    </label>
+                    <label className="text-sm font-bold text-neutral-700">
+                      Card Show / Event
+                      <input
+                        value={collectionCardShowName}
+                        onChange={(event) =>
+                          setCollectionCardShowName(event.target.value)
+                        }
+                        className="mt-1 w-full rounded border border-neutral-300 px-3 py-2"
+                        placeholder="Denver Card Show"
+                      />
+                    </label>
+                  </div>
+                  <div className="rounded border border-blue-100 bg-blue-50 p-3">
+                    <label className="flex items-start gap-3 text-sm font-bold text-blue-950">
+                      <input
+                        type="checkbox"
+                        checked={collectionSharePurchaseAsComp}
+                        onChange={(event) =>
+                          setCollectionSharePurchaseAsComp(event.target.checked)
+                        }
+                        className="mt-1 h-4 w-4"
+                      />
+                      <span>
+                        Use this pickup price as a collector-reported comp
+                        <span className="block text-xs font-semibold text-blue-800">
+                          Only turn this on when the paid price is real. TCOS
+                          stores it as user-reported until it earns trust.
+                        </span>
+                      </span>
+                    </label>
+                    <label className="mt-3 flex items-start gap-3 text-sm font-bold text-blue-950">
+                      <input
+                        type="checkbox"
+                        checked={collectionCreateBragPost}
+                        onChange={(event) =>
+                          setCollectionCreateBragPost(event.target.checked)
+                        }
+                        className="mt-1 h-4 w-4"
+                      />
+                      <span>Post this pickup to the brag feed</span>
+                    </label>
+                    {collectionCreateBragPost ? (
+                      <label className="mt-3 block text-sm font-bold text-blue-950">
+                        Brag Visibility
+                        <select
+                          value={collectionBragVisibility}
+                          onChange={(event) =>
+                            setCollectionBragVisibility(event.target.value)
+                          }
+                          className="mt-1 w-full rounded border border-blue-200 bg-white px-3 py-2"
+                        >
+                          <option value="community">Community</option>
+                          <option value="followers">Followers</option>
+                          <option value="friends">Friends</option>
+                          <option value="public">Public</option>
+                          <option value="private">Private</option>
+                        </select>
+                      </label>
+                    ) : null}
                   </div>
                   <label className="text-sm font-bold text-neutral-700">
                     Notes
@@ -2678,8 +2847,20 @@ export default function AccountPage() {
                         }`}
                         badges={[
                           item.condition || "",
+                          item.certification_number
+                            ? `Cert ${item.certification_number}`
+                            : "",
                           item.estimated_value
                             ? formatCurrency(item.estimated_value)
+                            : "",
+                          item.acquisition_price
+                            ? `Paid ${formatCurrency(item.acquisition_price)}`
+                            : "",
+                          item.metadata?.collector_comp?.viable_comp
+                            ? "Collector comp"
+                            : "",
+                          item.metadata?.collector_comp?.card_show_name
+                            ? `Show: ${item.metadata.collector_comp.card_show_name}`
                             : "",
                           item.is_favorite ? "Favorite" : "",
                         ]}

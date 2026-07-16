@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { getAuthenticatedAccountFromRequest } from "../../../../../lib/account-auth";
+import { PLATFORM_DOMAIN } from "../../../../../lib/legal";
 import { getActiveStoreId } from "../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
 
@@ -32,6 +33,31 @@ function cleanYear(value: unknown) {
   return cleanText(value).replace(/[^0-9]/g, "").slice(0, 4) || null;
 }
 
+function cleanVisibility(value: unknown) {
+  const text = cleanNullableText(value) || "friends";
+
+  return ["private", "friends", "followers", "community", "public"].includes(text)
+    ? text
+    : "friends";
+}
+
+function siteBaseUrl() {
+  return (
+    process.env.NEXT_PUBLIC_SITE_URL ||
+    process.env.SITE_URL ||
+    `https://${PLATFORM_DOMAIN}`
+  ).replace(/\/$/, "");
+}
+
+function createShareSlug() {
+  const random =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}-${Math.random()}`;
+
+  return random.replace(/[^a-z0-9]/gi, "").slice(0, 16).toLowerCase();
+}
+
 function defaultWishExpiryIso(wishType: string) {
   if (wishType !== "want_ad") return null;
 
@@ -47,7 +73,8 @@ function isMissingCollectorTables(error: { code?: string; message?: string }) {
     error.code === "42P01" ||
     error.code === "42703" ||
     message.includes("account_collection_items") ||
-    message.includes("account_wish_list_items")
+    message.includes("account_wish_list_items") ||
+    message.includes("account_brag_posts")
   );
 }
 
@@ -97,7 +124,7 @@ export async function GET(request: Request) {
       supabase
         .from("account_collection_items")
         .select(
-          "id,title,category,item_type,image_url,acquisition_source,acquisition_price,estimated_value,value_confidence,grade_company,grade_value,certification_number,condition,ownership_status,visibility,is_favorite,notes,created_at",
+          "id,title,category,item_type,image_url,acquisition_source,acquisition_price,estimated_value,value_confidence,grade_company,grade_value,certification_number,condition,ownership_status,visibility,is_favorite,notes,metadata,created_at",
         )
         .eq("store_id", storeId)
         .eq("account_id", account.id)
@@ -170,6 +197,27 @@ export async function POST(request: Request) {
     }
 
     if (kind === "collection_item") {
+      const acquisitionPrice = cleanMoney(body.acquisitionPrice);
+      const acquisitionSource =
+        cleanNullableText(body.acquisitionSource) ||
+        (cleanNullableText(body.cardShowName) ? "card_show" : null);
+      const cardShowName = cleanNullableText(body.cardShowName);
+      const sharePurchaseAsComp = body.sharePurchaseAsComp === true;
+      const createBragPost = body.createBragPost === true;
+      const bragVisibility = cleanVisibility(body.bragVisibility);
+      const metadata = {
+        collector_comp: {
+          opted_in: sharePurchaseAsComp,
+          viable_comp: sharePurchaseAsComp && acquisitionPrice !== null,
+          source: acquisitionSource,
+          price: acquisitionPrice,
+          card_show_name: cardShowName,
+          confidence: sharePurchaseAsComp
+            ? "collector_reported_purchase"
+            : "private_collection_record",
+          submitted_at: new Date().toISOString(),
+        },
+      };
       const { data, error } = await supabase
         .from("account_collection_items")
         .insert({
@@ -179,9 +227,13 @@ export async function POST(request: Request) {
           category: cleanNullableText(body.category),
           item_type: cleanNullableText(body.itemType) || "collectable",
           image_url: cleanNullableText(body.imageUrl),
-          acquisition_source: cleanNullableText(body.acquisitionSource),
-          acquisition_price: cleanMoney(body.acquisitionPrice),
+          acquisition_source: acquisitionSource,
+          acquisition_price: acquisitionPrice,
           estimated_value: cleanMoney(body.estimatedValue),
+          value_confidence:
+            sharePurchaseAsComp && acquisitionPrice !== null
+              ? "collector_reported_comp"
+              : null,
           grade_company: cleanNullableText(body.gradeCompany),
           grade_value: cleanNullableText(body.gradeValue),
           certification_number: cleanNullableText(body.certificationNumber),
@@ -190,6 +242,7 @@ export async function POST(request: Request) {
           visibility: cleanNullableText(body.visibility) || "private",
           is_favorite: body.isFavorite === true,
           notes: cleanNullableText(body.notes),
+          metadata,
         })
         .select("*")
         .single();
@@ -199,8 +252,54 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: error.message }, { status: 400 });
       }
 
+      let bragPost = null;
+
+      if (createBragPost) {
+        const shareSlug = createShareSlug();
+        const shareUrl = `${siteBaseUrl()}/brag/${shareSlug}`;
+        const bragBody =
+          cleanNullableText(body.bragBody) ||
+          [
+            cardShowName ? `Picked up at ${cardShowName}.` : null,
+            sharePurchaseAsComp && acquisitionPrice !== null
+              ? `Reported pickup price: $${acquisitionPrice.toFixed(2)}.`
+              : null,
+            cleanNullableText(body.notes),
+          ]
+            .filter(Boolean)
+            .join(" ");
+        const { data: bragData, error: bragError } = await supabase
+          .from("account_brag_posts")
+          .insert({
+            store_id: storeId,
+            account_id: account.id,
+            collection_item_id: data.id,
+            title: `Card show pickup: ${title}`,
+            body: bragBody || null,
+            image_url: data.image_url || null,
+            share_slug: shareSlug,
+            share_url: shareUrl,
+            visibility: bragVisibility,
+            metadata: {
+              source: "collection_pickup",
+              collector_comp: metadata.collector_comp,
+              share_footer: `Find your next collectable at ${PLATFORM_DOMAIN}`,
+            },
+          })
+          .select("*")
+          .single();
+
+        if (bragError) {
+          if (!isMissingCollectorTables(bragError)) {
+            return NextResponse.json({ error: bragError.message }, { status: 400 });
+          }
+        } else {
+          bragPost = bragData;
+        }
+      }
+
       return NextResponse.json(
-        { success: true, collectionItem: data },
+        { success: true, collectionItem: data, bragPost },
         {
           headers: collectorMutationHeaders({
             kind,

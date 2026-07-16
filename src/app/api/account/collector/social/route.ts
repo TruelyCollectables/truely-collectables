@@ -247,7 +247,7 @@ export async function GET(request: Request) {
     const { data: feedRows, error: feedError } = await supabase
       .from("account_brag_posts")
       .select(
-        "id,account_id,order_id,collection_item_id,product_id,title,body,image_url,share_slug,share_url,visibility,reaction_count,comment_count,click_count,created_at",
+        "id,account_id,order_id,collection_item_id,product_id,title,body,image_url,share_slug,share_url,visibility,reaction_count,comment_count,click_count,metadata,created_at",
       )
       .eq("store_id", storeId)
       .in("account_id", feedAuthorIds)

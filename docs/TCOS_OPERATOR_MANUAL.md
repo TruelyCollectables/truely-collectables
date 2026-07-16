@@ -16,7 +16,7 @@ Last updated: 2026-07-15 21:49 MDT / 2026-07-16 03:49 UTC
 
 This is the working manual for Totally Collectibles OS (TCOS). It must stay current as features are added.
 
-This revision includes the durable InstaComp batch queue and PaddleOCR worker, faster InstaComp image preparation and five-card queue claim mini-packs, database-pressure pause/governor behavior, 45-degree local image rotation and thumbnail zoom review, InstaComp-to-seller-draft handoff, InstaComp-to-Available-for-Trade handoff, seller inventory InstaComp lane, seller marketplace export packets, seller eBay staging and reconciliation, Stripe payment reliability controls, seller payout guards, shipping/coverage operations, and complete laptop-failure disaster recovery. Procedures labeled `dry run`, `draft`, `review`, `export`, or `not configured` are not production completion claims.
+This revision includes the durable InstaComp batch queue and PaddleOCR worker, faster InstaComp image preparation and five-card queue claim mini-packs, database-pressure pause/governor behavior, 45-degree local image rotation and thumbnail zoom review, graded-slab certification capture, slab-cert comp search weighting, collection pickup/card-show collector-reported comp capture, InstaComp-to-seller-draft handoff, InstaComp-to-Available-for-Trade handoff, seller inventory InstaComp lane, seller marketplace export packets, seller eBay staging and reconciliation, Stripe payment reliability controls, seller payout guards, shipping/coverage operations, and complete laptop-failure disaster recovery. Procedures labeled `dry run`, `draft`, `review`, `export`, or `not configured` are not production completion claims.
 
 ## Deterministic Application Fonts
 
@@ -876,6 +876,8 @@ Example searches:
 
 When checking comps, ignore listings that are not the same card or same grade. A raw card, PSA 10, BGS 9.5, autographed card, patch card, serial-numbered parallel, and base card are different markets.
 
+For graded slabs, InstaComp stores the grading company, grade value, grading certification number, and official lookup URL separately from the card's own serial numbering. Comp query backups include the certification number when the scan finds one, and comp scoring gives extra weight to sold/listing titles that include the exact slab cert. A slab-cert sale match is useful evidence, but it is still not a live official population report or a guaranteed sale history from the grader unless the source explicitly provides that data.
+
 ## 11. Suggested Price
 
 Suggested price uses a CollX-style method:
@@ -1570,7 +1572,9 @@ Current behavior:
 - `/account` shows recent linked orders for the logged-in customer
 - `/api/account/orders` responses include `X-TCOS-Account-Orders`, `X-TCOS-Account-Orders-Dry-Run-Shipping-Blocked`, and `X-TCOS-Account-Orders-Seller-Item` headers so account order history can be reconciled without exposing hidden dry-run tracking/carrier values
 - `/account` lets customers save a collector handle, bio, collecting focus, location label, social URLs, visibility, and message preference
-- `/account` lets customers save owned collection items with category, condition, grade, estimated value, and notes
+- `/account` lets customers save owned collection items with category, condition, slab cert number, estimated value, pickup source, price paid, optional card-show/event name, and notes
+- `/account` can mark an owned pickup price as a collector-reported comp when the collector opts in; that comp is stored as user-reported evidence and should not be treated as fully trusted until TCOS review/trust rules promote it
+- `/account` can create a brag-feed post from a collection pickup, including the reported pickup price and optional card show/event when supplied
 - `/account` lets customers save wish list items, 30-day want ads, set needs, and trade targets
 - `/account` lets customers download their collection as CSV or a full catalog JSON backup
 - `/account` lets customers save favorite teams/sports and market watchlist items
@@ -1618,7 +1622,13 @@ Collection Shelf supports:
 - condition
 - grade company
 - grade value
+- slab certification number
 - estimated value
+- pickup source
+- pickup price
+- optional card show/event name
+- collector-reported comp opt-in
+- optional brag-feed post creation
 - ownership status
 - privacy/visibility
 - favorite flag
@@ -1644,6 +1654,10 @@ Current behavior:
 - removing a collection item soft-archives it
 - removing a wish list item cancels it
 - want ads default to a 30-day expiration
+- collection pickup prices are saved as private collection data by default
+- a pickup price becomes a collector-reported comp only when the collector opts in while saving the item
+- collector-reported comps preserve source, price, card show/event name, confidence label, and submission timestamp in collection metadata
+- optional collection-pickup brag posts preserve the same collector comp metadata so the brag feed can show pickup price, card-show/event evidence, and TCOS share traffic
 - matching, AI identification, image uploads, alerts, and outside marketplace links are future layers on this foundation
 
 Post-current-goal collection cockpit backlog:
@@ -1719,6 +1733,7 @@ Collection dashboard API:
 
 - `/api/account/collector/items` lists the logged-in collector's private collection shelf and active/matched/renewed wish-list rows
 - the same endpoint creates `collection_item` and `wish_list_item` rows, archives collection rows, and cancels wish-list rows without creating storefront products, orders, checkout rows, or Stripe activity
+- collection item creation accepts `certificationNumber`, `acquisitionSource`, `acquisitionPrice`, `cardShowName`, `sharePurchaseAsComp`, `createBragPost`, and `bragVisibility`; opted-in pickup prices are saved in collection metadata as collector-reported comps and optional brag posts are inserted into `account_brag_posts`
 - list responses include `X-TCOS-Collector-Items` and `X-TCOS-Collector-Wish-List` headers so the dashboard payload can be reconciled with the returned counts
 - create/archive/cancel responses include `X-TCOS-Collector-Item-Kind`, `X-TCOS-Collector-Mutation`, and `X-TCOS-Collector-Item-Id` headers so browser traces can identify the exact collector mutation without parsing the JSON body
 

@@ -208,7 +208,9 @@ try {
   const filtered = filterAndRankExactMatches(
     [
       {
-        ...comp("2024-25 Upper Deck O-Pee-Chee Platinum Connor Bedard Limited Red #201 PSA 10"),
+        ...comp(
+          "2024-25 Upper Deck O-Pee-Chee Platinum Connor Bedard Limited Red #201 PSA 10 cert 12345678",
+        ),
         price: 200,
       },
       {
@@ -220,8 +222,16 @@ try {
   );
 
   assert(queries.primary.includes("PSA 10"), "Expected graded query to include PSA 10");
+  assert(
+    queries.backupQueries.some((query) => query.includes("cert 12345678")),
+    "Expected graded backup queries to include cert number",
+  );
   assert(filtered.length === 1, "Expected only the matching graded comp");
   assert(filtered[0]?.title.includes("PSA 10"), "Expected PSA 10 comp to survive");
+  assert(
+    filtered[0]?.flags.includes("cert #"),
+    "Expected cert-number comp match to be flagged",
+  );
   assert(
     looksLikeBadCompTitle("Connor Bedard PSA 10", trustedAi),
     "Expected graded comp to be excluded for raw target",

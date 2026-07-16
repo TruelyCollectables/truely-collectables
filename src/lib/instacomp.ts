@@ -2,7 +2,11 @@ import {
   extractInstaCompSerialNumber,
   serialRunDisplayLabel,
 } from "./instacomp-serial";
-import { gradingSearchPart, normalizeGradingCompany } from "./grading-cert";
+import {
+  cleanCertificationNumber,
+  gradingSearchPart,
+  normalizeGradingCompany,
+} from "./grading-cert";
 
 export type InstaCompAiResult = {
   player: string | null;
@@ -220,6 +224,12 @@ function serialRunSearchToken(value: string | null | undefined) {
   return serialRunDisplayLabel(value) || "";
 }
 
+function certificationNumberSearchToken(value: string | null | undefined) {
+  const cert = cleanCertificationNumber(value);
+
+  return cert ? `cert ${cert}` : "";
+}
+
 function serialRunDenominator(value: string | null | undefined) {
   const serial = serialNumberParts(value);
   const denominator = Number(serial.denominator);
@@ -299,6 +309,7 @@ export function buildInstaCompQueries(ai: InstaCompAiResult) {
   const serialRun = serialRunSearchToken(ai.serialNumber);
   const parallelPart = searchParallelPart(ai.parallel);
   const gradePart = gradingSearchPart(ai);
+  const certPart = certificationNumberSearchToken(ai.certificationNumber);
 
   const primaryParts = [
     gradePart,
@@ -315,6 +326,27 @@ export function buildInstaCompQueries(ai: InstaCompAiResult) {
   const primary = primaryParts.join(" ").replace(/\s+/g, " ").trim();
 
   const backupQueries = [
+    [
+      gradePart,
+      cleanPart(ai.player),
+      cleanPart(ai.year),
+      cleanPart(ai.brand),
+      certPart,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .trim(),
+
+    [
+      gradePart,
+      cleanPart(ai.player),
+      cleanPart(ai.setName),
+      certPart,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .trim(),
+
     [
       gradePart,
       cleanPart(ai.player),
@@ -555,6 +587,7 @@ export function scoreCompMatch(title: string, ai: InstaCompAiResult) {
   const serial = serialNumberParts(ai.serialNumber);
   const grader = normalizeText(normalizeGradingCompany(ai.gradingCompany));
   const grade = normalizeText(ai.gradeValue);
+  const certificationNumber = cleanCertificationNumber(ai.certificationNumber);
 
   if (player && t.includes(player)) {
     score += 30;
@@ -665,6 +698,16 @@ export function scoreCompMatch(title: string, ai: InstaCompAiResult) {
     if (gradePatterns.some((pattern) => ` ${t} `.includes(pattern))) {
       score += 20;
       flags.push("grade");
+    }
+  }
+
+  if (certificationNumber) {
+    const compactTitle = t.replace(/[^a-z0-9]/g, "").toUpperCase();
+    const compactCert = certificationNumber.replace(/[^A-Z0-9]/g, "");
+
+    if (compactCert && compactTitle.includes(compactCert)) {
+      score += 35;
+      flags.push("cert #");
     }
   }
 
