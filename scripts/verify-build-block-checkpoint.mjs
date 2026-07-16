@@ -217,6 +217,12 @@ if (payload) {
   );
   checks.push(
     check(
+      fallbackCommands.includes("npm run instacomp:trial:sync-images"),
+      "local build fallback preserves InstaComp trial image-path sync command",
+    ),
+  );
+  checks.push(
+    check(
       fallbackCommands.includes("npm run instacomp:trial:monitor"),
       "local build fallback preserves InstaComp trial readiness monitor command",
     ),

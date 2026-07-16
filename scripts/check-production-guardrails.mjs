@@ -1190,6 +1190,7 @@ assertScriptIncludes("verify:instacomp", [
   "simulate:instacomp-trial-preflight",
   "simulate:instacomp-trial-prep",
   "simulate:instacomp-trial-stage",
+  "simulate:instacomp-trial-sync-images",
   "simulate:instacomp-trial-monitor",
   "simulate:instacomp-trial",
 ]);
@@ -1238,6 +1239,14 @@ assertScriptIncludes("simulate:instacomp-trial-stage", [
   "--expected-cards 3",
   "--apply",
   "--overwrite",
+]);
+assertScriptIncludes("simulate:instacomp-trial-sync-images", [
+  "scripts/sync-instacomp-trial-image-paths.mjs",
+  "--image-map .codex-run/instacomp-trial-image-sync-map-fixture.local.json",
+  "--write-manifest .codex-run/instacomp-trial-image-sync-manifest-fixture.local.json",
+  "--receipt-json .codex-run/instacomp-trial-image-sync-fixture.local.json",
+  "--receipt-md .codex-run/instacomp-trial-image-sync-fixture.local.md",
+  "--image-prefix ./instacomp-trial-images",
 ]);
 assertScriptIncludes("simulate:instacomp-trial-monitor", [
   "scripts/watch-instacomp-trial-readiness.mjs",
@@ -1308,6 +1317,14 @@ assertScriptIncludes("instacomp:trial:stage-images", [
   "--receipt-json instacomp-trial-stage.local.json",
   "--receipt-md instacomp-trial-stage.local.md",
   "--expected-cards 100",
+]);
+assertScriptIncludes("instacomp:trial:sync-images", [
+  "scripts/sync-instacomp-trial-image-paths.mjs",
+  "--manifest instacomp-trial-manifest.local.json",
+  "--image-map instacomp-trial-image-map.local.json",
+  "--worksheet instacomp-trial-groundtruth.local.tsv",
+  "--receipt-json instacomp-trial-image-path-sync.local.json",
+  "--receipt-md instacomp-trial-image-path-sync.local.md",
 ]);
 assertScriptIncludes("instacomp:trial:monitor", [
   "scripts/watch-instacomp-trial-readiness.mjs",
@@ -1441,6 +1458,7 @@ assertFileIncludes("30-minute build block checkpoint source", "scripts/status-bu
   "audit/map/preflight images before scanning",
   "npm run instacomp:trial:stage-images",
   "npm run instacomp:trial:prep",
+  "npm run instacomp:trial:sync-images",
   "npm run instacomp:trial:monitor",
   "npm run instacomp:trial:groundtruth",
   "npm run instacomp:trial:audit",
@@ -1648,6 +1666,7 @@ assertFileIncludes("30-minute next build block action verifier source", "scripts
   "fallback selection preserves checkpoint handoff command",
   "fallback selection preserves InstaComp trial prep bundle command",
   "fallback selection preserves InstaComp trial image staging command",
+  "fallback selection preserves InstaComp trial image-path sync command",
   "fallback selection preserves InstaComp trial readiness monitor command",
   "fallback selection preserves InstaComp trial ground-truth manifest audit command",
   "fallback selection preserves InstaComp trial image audit command",
@@ -1726,6 +1745,7 @@ assertFileIncludes("30-minute build block checkpoint verifier source", "scripts/
   "local build fallback preserves checkpoint handoff command",
   "local build fallback preserves InstaComp trial prep bundle command",
   "local build fallback preserves InstaComp trial image staging command",
+  "local build fallback preserves InstaComp trial image-path sync command",
   "local build fallback preserves InstaComp trial readiness monitor command",
   "local build fallback preserves InstaComp trial ground-truth manifest audit command",
   "local build fallback preserves InstaComp trial image audit command",
@@ -3855,6 +3875,17 @@ assertFileIncludes("instacomp trial image staging source", "scripts/stage-instac
   "Dry run is clean",
   "Local InstaComp trial image staging only. Does not delete source files, scan cards, deploy, publish listings, buy postage, create Checkout",
 ]);
+assertFileIncludes("instacomp trial image-path sync source", "scripts/sync-instacomp-trial-image-paths.mjs", [
+  "tcos.instacompTrialImagePathSync.v1",
+  "instacomp-trial-image-map.local.json",
+  "instacomp-trial-groundtruth.local.tsv",
+  "instacomp-trial-image-path-sync.local.json",
+  "instacomp-trial-image-path-sync.local.md",
+  "frontImage",
+  "backImage",
+  "does not change answer-key identity fields",
+  "Local InstaComp trial image-path sync only. Updates local manifest image paths",
+]);
 assertFileIncludes("instacomp local trial ignore rules", ".gitignore", [
   "/instacomp-trial-inbox/",
   "/instacomp-trial-images/",
@@ -3883,6 +3914,11 @@ assertFileIncludes("instacomp trial ground-truth manifest audit manual", "docs/T
   "Existing target files block apply unless you explicitly add `--overwrite`",
   "npm run instacomp:trial:prep",
   "tcos.instacompTrialPrepBundle.v1",
+  "npm run instacomp:trial:sync-images",
+  "tcos.instacompTrialImagePathSync.v1",
+  "updates only `frontImage` and `backImage`",
+  "preserves answer-key identity fields",
+  "instacomp-trial-image-path-sync.local.json",
   "npm run instacomp:trial:monitor",
   "tcos.instacompTrialReadinessWatch.v1",
   "answer-key row progress",
@@ -3946,6 +3982,7 @@ assertFileIncludes("instacomp final tester status includes trial image audit", "
   "trial_groundtruth_sheet",
   "trial_prep_bundle",
   "trial_image_staging",
+  "trial_image_path_sync",
   "trial_readiness_monitor",
   "trial_image_audit",
   "trial_image_map",
@@ -3955,6 +3992,7 @@ assertFileIncludes("instacomp final tester status includes trial image audit", "
   "prepTrial",
   "stageTrialImages",
   "applyStagedTrialImages",
+  "syncTrialImages",
   "monitorTrial",
   "monitorTrialJson",
   "auditTrialGroundTruth",
@@ -3981,6 +4019,7 @@ assertFileIncludes("instacomp final tester status includes trial image audit", "
   "npm run instacomp:trial:stage-images",
   "npm run instacomp:trial:stage-images -- --apply",
   "npm run instacomp:trial:prep",
+  "npm run instacomp:trial:sync-images",
   "npm run instacomp:trial:monitor",
   "npm run instacomp:trial:groundtruth:sheet",
   "npm run instacomp:trial:groundtruth:apply",

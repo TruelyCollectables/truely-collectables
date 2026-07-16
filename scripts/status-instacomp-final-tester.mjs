@@ -337,6 +337,7 @@ const trialImageDropZoneGuide = {
     "npm run instacomp:trial:stage-images",
     "npm run instacomp:trial:stage-images -- --apply",
     "npm run instacomp:trial:prep",
+    "npm run instacomp:trial:sync-images",
     "npm run instacomp:trial:groundtruth:sheet",
     "npm run instacomp:trial:groundtruth:apply",
     "npm run instacomp:trial:groundtruth",
@@ -446,6 +447,12 @@ const checklist = [
     status: "ready_to_test",
   },
   {
+    key: "trial_image_path_sync",
+    label:
+      "The local image-path sync can update manifest and worksheet front/back image columns from the current image-map receipt without changing answer-key identity fields.",
+    status: "ready_to_test",
+  },
+  {
     key: "trial_readiness_monitor",
     label:
       "The local readiness monitor can show answer-key rows, image-file count, complete pairs, stale receipts, first missing rows/files, and the exact next command while the 100-card lot is being loaded.",
@@ -550,6 +557,7 @@ const readiness = {
     prepTrial: "npm run instacomp:trial:prep",
     stageTrialImages: "npm run instacomp:trial:stage-images",
     applyStagedTrialImages: "npm run instacomp:trial:stage-images -- --apply",
+    syncTrialImages: "npm run instacomp:trial:sync-images",
     monitorTrial: "npm run instacomp:trial:monitor",
     monitorTrialJson: "npm run instacomp:trial:monitor:json",
     auditTrialGroundTruth: "npm run instacomp:trial:groundtruth",
@@ -666,6 +674,7 @@ if (jsonOutput) {
   console.log(`- prep trial bundle: ${readiness.commands.prepTrial}`);
   console.log(`- dry-run trial image staging: ${readiness.commands.stageTrialImages}`);
   console.log(`- apply trial image staging: ${readiness.commands.applyStagedTrialImages}`);
+  console.log(`- sync trial image paths: ${readiness.commands.syncTrialImages}`);
   console.log(`- monitor trial readiness: ${readiness.commands.monitorTrial}`);
   console.log(`- audit trial ground truth: ${readiness.commands.auditTrialGroundTruth}`);
   console.log(`- audit trial images: ${readiness.commands.auditTrialImages}`);

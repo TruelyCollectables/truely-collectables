@@ -3938,6 +3938,14 @@ npm run instacomp:trial:prep
 
 That command prints schema `tcos.instacompTrialPrepBundle.v1`, creates `instacomp-trial-manifest.local.json` if it is missing, writes `instacomp-trial-groundtruth.local.tsv` only when the worksheet does not already exist, refreshes `instacomp-trial-image-map.local.json`, refreshes `instacomp-trial-intake-packet.local.md`, and writes `instacomp-trial-preflight.local.json` plus `instacomp-trial-preflight.local.md`. It is safe to rerun while the answer sheet is being filled because it preserves an existing worksheet by default. It is local/read-only for live systems and does not scan cards, deploy, publish listings, buy postage, create Checkout, call production APIs, approve live money, release payouts, or change runtime switches.
 
+If staged files use non-`.jpg` extensions or the worksheet/manifest needs to match the latest image-map receipt, sync only the front/back image paths:
+
+```bash
+npm run instacomp:trial:sync-images
+```
+
+That command prints schema `tcos.instacompTrialImagePathSync.v1`, reads `instacomp-trial-image-map.local.json`, updates only `frontImage` and `backImage` in `instacomp-trial-manifest.local.json`, preserves answer-key identity fields, and updates only the image columns in `instacomp-trial-groundtruth.local.tsv` when that worksheet exists. It writes `instacomp-trial-image-path-sync.local.json` plus `instacomp-trial-image-path-sync.local.md`. It is local/read-only for live systems and does not scan cards, deploy, publish listings, buy postage, create Checkout, call production APIs, approve live money, release payouts, or change runtime switches.
+
 While loading images or filling the answer key, run the local readiness monitor:
 
 ```bash

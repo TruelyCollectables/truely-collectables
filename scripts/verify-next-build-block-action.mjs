@@ -178,6 +178,12 @@ if (payload) {
     );
     checks.push(
       check(
+        commands.includes("npm run instacomp:trial:sync-images"),
+        "fallback selection preserves InstaComp trial image-path sync command",
+      ),
+    );
+    checks.push(
+      check(
         commands.includes("npm run instacomp:trial:monitor"),
         "fallback selection preserves InstaComp trial readiness monitor command",
       ),
