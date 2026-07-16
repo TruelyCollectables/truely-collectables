@@ -45,6 +45,7 @@ function buildConnectors(storeDisplayName: string): Connector[] {
       status: "active_foundation",
       description:
         "Seller-safe eBay OAuth, encrypted token storage, and connection health refresh are live for seller accounts on the active store.",
+      href: "/seller/marketplaces",
       actionLabel: "Open Seller Connections",
     },
     {
@@ -52,6 +53,7 @@ function buildConnectors(storeDisplayName: string): Connector[] {
       status: "active_foundation",
       description:
         "Seller-scoped eBay preview, staging, duplicate review, bulk cleanup, promotion into draft inventory, and import-run visibility are live on the active store.",
+      href: "/seller/marketplaces",
       actionLabel: "Open Seller Connections",
     },
     {
