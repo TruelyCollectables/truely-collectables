@@ -4667,7 +4667,7 @@ dryrun-</code></pre>
 <li>disconnecting deletes stored seller eBay tokens but retains staging/history/inventory</li>
 <li>eBay revocation or account-deletion notifications must disable future access without deleting audit history</li>
 </ul>
-<p>Scheduled seller reconciliation runs at 09:00 UTC and requires <code>CRON_SECRET</code>. The current cron processes one connected seller per invocation and one reconciliation/import batch. Multiple connected sellers may require a more frequent schedule or a future scaling change.</p>
+<p>Scheduled seller reconciliation runs every 3 hours and requires <code>CRON_SECRET</code>. The current cron processes one connected seller per invocation and one reconciliation/import batch. Multiple connected sellers may require an external scheduler, a faster cadence, or a future scaling change. Vercel Hobby projects only support daily cron cadence, so the 3-hour schedule requires Vercel Pro/Enterprise or an external scheduler that calls <code>/api/cron/seller-ebay-reconciliation</code> with the cron authorization.</p>
 <h2>36. Local Startup, Backup Verification, And Laptop-Failure Recovery</h2>
 <h3>MacBook nightly emergency backup</h3>
 <p>The MacBook nightly emergency backup is a fast source recovery path for daily work. Run it manually with:</p>
