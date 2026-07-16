@@ -251,6 +251,14 @@ type ScanResponse = {
 type BatchCardStatus = "queued" | "scanning" | "done" | "error";
 type DraftListingStatus = "idle" | "drafting" | "created" | "error";
 type TradeHandoffStatus = "idle" | "adding" | "created" | "error";
+type AiCouncilTier =
+  | "adaptive"
+  | "basic"
+  | "mid"
+  | "pro"
+  | "dealer"
+  | "high_end"
+  | "courtroom";
 type BatchCardFilter =
   | "all"
   | "selected"
@@ -480,6 +488,37 @@ const PRICE_BUTTONS = [
   { label: "+20%", multiplier: 1.2 },
   { label: "-5%", multiplier: 0.95 },
   { label: "-10%", multiplier: 0.9 },
+];
+const AI_COUNCIL_TIER_OPTIONS: Array<{
+  value: AiCouncilTier;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: "adaptive",
+    label: "Adaptive",
+    description: "Extra AI only when risk/uncertainty says it is worth it.",
+  },
+  {
+    value: "mid",
+    label: "Mid: +1 AI",
+    description: "Primary reader plus one extra AI witness.",
+  },
+  {
+    value: "pro",
+    label: "Pro: +2 AI",
+    description: "Primary reader plus two extra AI witnesses.",
+  },
+  {
+    value: "high_end",
+    label: "High-End: 5-AI",
+    description: "Primary reader plus up to four extra witnesses.",
+  },
+  {
+    value: "basic",
+    label: "Basic",
+    description: "Primary reader and checklist/OCR only.",
+  },
 ];
 const LOW_CONFIDENCE_THRESHOLD = 0.85;
 
@@ -3080,6 +3119,8 @@ export default function InstaCompScanner({
   const [batchConcurrency, setBatchConcurrency] = useState(
     INSTACOMP_BATCH_DEFAULT_CONCURRENCY
   );
+  const [aiCouncilTier, setAiCouncilTier] =
+    useState<AiCouncilTier>("adaptive");
   const [batchFilter, setBatchFilter] = useState<BatchCardFilter>("all");
   const [batchSort, setBatchSort] = useState<BatchCardSort>("original");
   const [batchSearch, setBatchSearch] = useState("");
@@ -4178,6 +4219,7 @@ export default function InstaCompScanner({
             jobId: claimedItem.job_id,
             itemId: claimedItem.id,
             leaseToken: claimedItem.leaseToken || claimedItem.lease_token,
+            aiCouncilTier,
           }),
         });
         const data = await response.json().catch(() => ({}));
@@ -4212,6 +4254,7 @@ export default function InstaCompScanner({
     ]);
     const formData = new FormData();
     formData.append("frontImage", optimizedFront);
+    formData.append("aiCouncilTier", aiCouncilTier);
 
     if (optimizedBack) {
       formData.append("backImage", optimizedBack);
@@ -9239,6 +9282,44 @@ export default function InstaCompScanner({
                 fontWeight: 900,
               }}
             />
+          </label>
+
+          <label
+            style={{
+              display: "grid",
+              gap: 4,
+              color: "#333",
+              fontSize: 12,
+              fontWeight: 900,
+            }}
+          >
+            AI Council
+            <select
+              value={aiCouncilTier}
+              disabled={batchRunning || batchDrafting || persistentJobPreparing}
+              onChange={(event) =>
+                setAiCouncilTier(event.target.value as AiCouncilTier)
+              }
+              style={{
+                minWidth: 158,
+                border: "1px solid #bbb",
+                borderRadius: 8,
+                padding: "9px 10px",
+                fontWeight: 900,
+                background: "white",
+              }}
+              title={
+                AI_COUNCIL_TIER_OPTIONS.find(
+                  (option) => option.value === aiCouncilTier
+                )?.description || "Choose how many AI witnesses to use."
+              }
+            >
+              {AI_COUNCIL_TIER_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
           </label>
 
           <button

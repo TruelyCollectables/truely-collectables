@@ -639,8 +639,8 @@ Rules:
   };
 }
 
-function aiCouncilTier() {
-  const normalized = String(INSTACOMP_AI_COUNCIL_TIER || "adaptive")
+function aiCouncilTier(requestedTier?: string | null) {
+  const normalized = String(requestedTier || INSTACOMP_AI_COUNCIL_TIER || "adaptive")
     .toLowerCase()
     .replace(/[^a-z0-9_-]/g, "");
 
@@ -662,8 +662,8 @@ function aiCouncilTier() {
   return "adaptive";
 }
 
-function desiredAiCouncilReaders(runSecondaryVision: boolean) {
-  const tier = aiCouncilTier();
+function desiredAiCouncilReaders(runSecondaryVision: boolean, requestedTier?: string | null) {
+  const tier = aiCouncilTier(requestedTier);
 
   if (tier === "basic") return 0;
   if (tier === "mid") return 1;
@@ -1084,13 +1084,17 @@ async function runAiCouncilReader(params: {
 
 async function runInstaCompAiCouncil(params: {
   runSecondaryVision: boolean;
+  requestedTier?: string | null;
   frontDataUrl: string;
   backDataUrl?: string;
   detailImages: InstaCompDetailImage[];
   externalOcr: ExternalOcrResult | null;
 }): Promise<InstaCompAiCouncilRun> {
-  const desiredReaders = desiredAiCouncilReaders(params.runSecondaryVision);
-  const tier = aiCouncilTier();
+  const desiredReaders = desiredAiCouncilReaders(
+    params.runSecondaryVision,
+    params.requestedTier,
+  );
+  const tier = aiCouncilTier(params.requestedTier);
   const providerPlan: InstaCompAiCouncilProvider[] = [
     "openai_secondary",
     "gemini",
@@ -2637,6 +2641,8 @@ async function loadPersistentJobScan(
     frontImage: frontImage!,
     backImage,
     detailImageFiles: [] as File[],
+    aiCouncilTier:
+      typeof body?.aiCouncilTier === "string" ? body.aiCouncilTier : null,
     context: {
       supabase,
       jobId,
@@ -2754,6 +2760,7 @@ async function failPersistentJobScan(
 
 export async function POST(req: NextRequest) {
   let persistentContext: PersistentJobScanContext | null = null;
+  let requestedAiCouncilTier: string | null = null;
 
   try {
     const actor = await requireInstaCompJobActor(req);
@@ -2785,13 +2792,17 @@ export async function POST(req: NextRequest) {
       backImage = queuedScan.backImage;
       detailImageFiles = queuedScan.detailImageFiles;
       persistentContext = queuedScan.context;
+      requestedAiCouncilTier = queuedScan.aiCouncilTier;
     } else {
       const formData = await req.formData();
       const submittedFront = formData.get("frontImage");
       const submittedBack = formData.get("backImage");
+      const submittedAiCouncilTier = formData.get("aiCouncilTier");
 
       frontImage = submittedFront instanceof File ? submittedFront : null;
       backImage = submittedBack instanceof File ? submittedBack : null;
+      requestedAiCouncilTier =
+        typeof submittedAiCouncilTier === "string" ? submittedAiCouncilTier : null;
       detailImageFiles = formData
         .getAll("detailImages")
         .filter((file): file is File => file instanceof File && file.size > 0)
@@ -2920,6 +2931,7 @@ export async function POST(req: NextRequest) {
     });
     const aiCouncilRaw = await runInstaCompAiCouncil({
       runSecondaryVision: consensusEscalation.runSecondaryVision,
+      requestedTier: requestedAiCouncilTier,
       frontDataUrl,
       backDataUrl,
       detailImages,
