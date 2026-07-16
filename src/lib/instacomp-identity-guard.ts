@@ -140,8 +140,6 @@ export function applyInstaCompIdentityGuard(
   const combinedEvidence = cleanSignalText(
     [
       context.externalOcrText,
-      ai.notes,
-      ai.parallel,
       ai.setName,
       ai.brand,
     ]
@@ -150,6 +148,17 @@ export function applyInstaCompIdentityGuard(
   );
   const signal = detectPrintedVariantSignal(combinedEvidence);
   const currentParallel = ai.parallel || null;
+
+  if (!signal && currentParallel && /uncertain|unknown|unsure|ambiguous|exact type uncertain/i.test(currentParallel)) {
+    return {
+      ...ai,
+      parallel: null,
+      notes: appendNote(
+        ai.notes,
+        `Identity guardrail suppressed uncertain parallel label "${currentParallel}" because OCR/printed evidence did not confirm it.`,
+      ),
+    };
+  }
 
   if (!signal && currentParallel && isBaseParallel(currentParallel)) {
     return {

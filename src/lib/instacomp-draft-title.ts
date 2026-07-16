@@ -67,6 +67,12 @@ function isGenericBaseTitlePart(value: string | null | undefined) {
   );
 }
 
+function isUncertainTitlePart(value: string | null | undefined) {
+  return /\b(uncertain|unknown|unsure|not sure|cannot confirm|ambiguous|maybe|possibly|exact type uncertain)\b/i.test(
+    String(value || ""),
+  );
+}
+
 function stripLeadingBrandFromSetName(brand: string, setName: string) {
   const cleanBrand = cleanDraftTitlePhrase(brand, 80);
   let cleanSetName = cleanDraftTitlePhrase(setName, 120);
@@ -200,7 +206,9 @@ function releaseTitleParts(ai: InstaCompDraftTitleAi | null | undefined) {
 function cleanParallelTitlePart(ai: InstaCompDraftTitleAi | null | undefined) {
   const parallel = cleanDraftTitlePhrase(ai?.parallel, 120);
 
-  if (!parallel || isGenericBaseTitlePart(parallel)) return "";
+  if (!parallel || isGenericBaseTitlePart(parallel) || isUncertainTitlePart(parallel)) {
+    return "";
+  }
 
   const cardNumber = cleanDraftTitlePart(ai?.cardNumber, 40).replace(/^#/, "");
   const releaseParts = releaseTitleParts(ai);

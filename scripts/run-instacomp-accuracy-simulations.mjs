@@ -298,8 +298,51 @@ check(
   releaseEchoParallelDraftTitle
 );
 
+const uncertainParallelDraftTitle = buildInstaCompDraftTitle(
+  {
+    player: "Jewell Loyd",
+    year: "2025",
+    brand: "Panini",
+    setName: "WNBA Select - Premier Level",
+    cardNumber: "142",
+    parallel: "Insert - exact type uncertain",
+    serialNumber: null,
+    isRookie: false,
+  },
+  "fallback.jpg"
+);
+check(
+  "draft title suppresses uncertain parallel labels",
+  uncertainParallelDraftTitle ===
+    "2025 Panini WNBA Select - Premier Level Jewell Loyd #142",
+  uncertainParallelDraftTitle,
+);
+
 const invalidSerialQuery = buildInstaCompQueries({ ...target, serialNumber: "99/25" });
 check("invalid serial cannot constrain comp search", !invalidSerialQuery.primary.includes("/25"), invalidSerialQuery.primary);
+
+const uncertainInsertQuery = buildInstaCompQueries({
+  player: "Jewell Loyd",
+  year: "2025",
+  brand: "Panini",
+  setName: "WNBA Select - Premier Level",
+  cardNumber: "142",
+  parallel: "Insert - exact type uncertain",
+  serialNumber: null,
+  team: "Las Vegas Aces",
+  sport: "Basketball",
+  isRookie: false,
+  isAuto: false,
+  isRelic: false,
+  conditionGuess: "Raw",
+  confidence: 0.84,
+  notes: null,
+});
+check(
+  "uncertain insert label is omitted from comp search query",
+  !/insert|uncertain/i.test(uncertainInsertQuery.primary),
+  uncertainInsertQuery.primary,
+);
 
 const exactMatches = filterAndRankExactMatches(
   [
@@ -319,6 +362,37 @@ check(
   "exact ranking keeps only the valid year/brand/player/card/run/parallel comp",
   exactMatches.length === 1 && exactMatches[0].price === 120,
   `${exactMatches.length} match(es)`
+);
+
+const wnbaSelectMatches = filterAndRankExactMatches(
+  [
+    comp("2025 Select WNBA Jewell Loyd Premier Level #142", 6),
+    comp("2025 Select WNBA Jewell Loyd Courtside #142", 12),
+    comp("2025 Select WNBA Aja Wilson Premier Level #142", 8),
+  ],
+  {
+    player: "Jewell Loyd",
+    year: "2025",
+    brand: "Panini",
+    setName: "WNBA Select - Premier Level",
+    cardNumber: "142",
+    parallel: "Insert - exact type uncertain",
+    serialNumber: null,
+    team: "Las Vegas Aces",
+    sport: "Basketball",
+    isRookie: false,
+    isAuto: false,
+    isRelic: false,
+    conditionGuess: "Raw",
+    confidence: 0.84,
+    notes: null,
+  },
+  10,
+);
+check(
+  "WNBA Select comps can match without Panini brand word or uncertain insert term",
+  wnbaSelectMatches.length === 1 && wnbaSelectMatches[0].price === 6,
+  `${wnbaSelectMatches.length} match(es): ${wnbaSelectMatches.map((item) => item.title).join(" | ")}`,
 );
 
 const autographMatches = filterAndRankExactMatches(

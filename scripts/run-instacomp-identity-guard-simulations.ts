@@ -82,6 +82,21 @@ const scenarios: Scenario[] = [
       assert(actual.notes?.includes("suppressed generic Base") === true, "Expected suppressed base note");
     },
   },
+  {
+    name: "uncertain insert label without printed signal is suppressed",
+    ai: {
+      ...baseAi,
+      setName: "WNBA Select - Premier Level",
+      parallel: "Insert - exact type uncertain",
+      notes: "Parallel evidence: level text visible, exact insert unclear.",
+    },
+    externalOcrText:
+      "Fixture Player 2025 Panini WNBA Select Premier Level Card 142.",
+    expect(actual) {
+      assert(actual.parallel === null, `Expected uncertain insert suppressed, received ${actual.parallel}`);
+      assert(actual.notes?.includes("suppressed uncertain parallel") === true, "Expected uncertain parallel note");
+    },
+  },
 ];
 
 const results: Array<{ name: string; status: "passed" | "failed"; error?: string }> = [];

@@ -143,6 +143,33 @@ function containsAny(text: string, words: string[]) {
   return words.some((word) => text.includes(word));
 }
 
+function meaningfulTokens(value: string | null | undefined) {
+  return normalizeText(value)
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter(Boolean)
+    .filter(
+      (token) =>
+        ![
+          "the",
+          "and",
+          "card",
+          "cards",
+          "trading",
+          "basketball",
+          "hockey",
+          "baseball",
+          "football",
+          "level",
+          "series",
+          "set",
+          "panini",
+          "upper",
+          "deck",
+        ].includes(token)
+    );
+}
+
 function normalizeCardNumber(value: string | null | undefined) {
   if (!value) return "";
   return String(value).toLowerCase().replace("#", "").trim();
@@ -216,13 +243,34 @@ function serialRunAdjustmentFactor(targetDenominator: number, compDenominator: n
 
 function isBaseParallel(value: string | null | undefined) {
   const normalized = normalizeText(value);
-  return normalized === "base" || normalized === "base card";
+  return (
+    normalized === "base" ||
+    normalized === "base card" ||
+    normalized === "standard" ||
+    normalized === "standard card" ||
+    normalized === "regular" ||
+    normalized === "regular card"
+  );
+}
+
+function isUncertainParallel(value: string | null | undefined) {
+  return /\b(uncertain|unknown|unsure|not sure|cannot confirm|ambiguous|maybe|possibly|exact type uncertain)\b/i.test(
+    String(value || ""),
+  );
+}
+
+function searchParallelPart(value: string | null | undefined) {
+  if (!value || isBaseParallel(value) || isUncertainParallel(value)) return "";
+
+  return cleanPart(value);
 }
 
 function parallelTokens(value: string | null | undefined) {
   const normalized = normalizeText(value);
 
-  if (!normalized || isBaseParallel(value)) return [];
+  if (!normalized || isBaseParallel(value) || isUncertainParallel(value)) {
+    return [];
+  }
 
   return normalized
     .split(/\s+/)
@@ -243,6 +291,7 @@ function parallelTokens(value: string | null | undefined) {
 
 export function buildInstaCompQueries(ai: InstaCompAiResult) {
   const serialRun = serialRunSearchToken(ai.serialNumber);
+  const parallelPart = searchParallelPart(ai.parallel);
 
   const primaryParts = [
     cleanPart(ai.year),
@@ -250,7 +299,7 @@ export function buildInstaCompQueries(ai: InstaCompAiResult) {
     cleanPart(ai.setName),
     cleanPart(ai.player),
     ai.isRookie ? "rookie" : "",
-    cleanPart(ai.parallel),
+    parallelPart,
     ai.cardNumber ? `#${cleanPart(ai.cardNumber).replace(/^#/, "")}` : "",
     serialRun,
   ].filter(Boolean);
@@ -270,7 +319,7 @@ export function buildInstaCompQueries(ai: InstaCompAiResult) {
 
     [
       cleanPart(ai.player),
-      cleanPart(ai.parallel),
+      parallelPart,
       serialRun,
       ai.cardNumber ? `#${cleanPart(ai.cardNumber).replace(/^#/, "")}` : "",
     ]
@@ -282,7 +331,7 @@ export function buildInstaCompQueries(ai: InstaCompAiResult) {
       cleanPart(ai.player),
       cleanPart(ai.year),
       cleanPart(ai.brand),
-      cleanPart(ai.parallel),
+      parallelPart,
       serialRun,
     ]
       .filter(Boolean)
@@ -472,6 +521,7 @@ export function scoreCompMatch(title: string, ai: InstaCompAiResult) {
   const year = normalizeText(ai.year);
   const brand = normalizeText(ai.brand);
   const setName = normalizeText(ai.setName);
+  const setTokens = meaningfulTokens(ai.setName);
   const parallel = normalizeText(ai.parallel);
   const parallelTokenList = parallelTokens(ai.parallel);
   const cardNumber = normalizeCardNumber(ai.cardNumber);
@@ -495,6 +545,15 @@ export function scoreCompMatch(title: string, ai: InstaCompAiResult) {
   if (setName && t.includes(setName)) {
     score += 15;
     flags.push("set");
+  } else if (setTokens.length) {
+    const matchedSetTokens = setTokens.filter((token) =>
+      containsAny(` ${t} `, [` ${token} `, `-${token} `, `/${token} `])
+    );
+
+    if (matchedSetTokens.length >= Math.min(3, setTokens.length)) {
+      score += Math.min(12, matchedSetTokens.length * 4);
+      flags.push("set partial");
+    }
   }
 
   if (cardNumber) {
@@ -601,7 +660,10 @@ export function filterAndRankExactMatches(
   const requiresPlayerEvidence = Boolean(normalizeText(ai.player));
   const requiresCardNumberEvidence = Boolean(normalizeCardNumber(ai.cardNumber));
   const requiresYearEvidence = Boolean(normalizeText(ai.year));
-  const requiresBrandEvidence = Boolean(normalizeText(ai.brand));
+  const requiresBrandOrSetEvidence = Boolean(
+    normalizeText(ai.brand) || normalizeText(ai.setName),
+  );
+  const setCanReplaceBrandEvidence = meaningfulTokens(ai.setName).length >= 2;
   const requiresAutographEvidence = ai.isAuto;
   const requiresRelicEvidence = ai.isRelic;
 
@@ -622,7 +684,10 @@ export function filterAndRankExactMatches(
         (!requiresPlayerEvidence || comp.flags.includes("player")) &&
         (!requiresCardNumberEvidence || comp.flags.includes("card #")) &&
         (!requiresYearEvidence || comp.flags.includes("year")) &&
-        (!requiresBrandEvidence || comp.flags.includes("brand")) &&
+        (!requiresBrandOrSetEvidence ||
+          comp.flags.includes("brand") ||
+          (setCanReplaceBrandEvidence && comp.flags.includes("set")) ||
+          comp.flags.includes("set partial")) &&
         (!requiresAutographEvidence || comp.flags.includes("autograph")) &&
         (!requiresRelicEvidence || comp.flags.includes("relic"))
     )

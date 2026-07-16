@@ -372,10 +372,11 @@ Critical inspection workflow:
 4. Parallel/insert identity matters for price. If the card text, OCR text, or visible design says Limited Red, Red Limited, Clear Cut, Acetate, Canvas, Dazzlers, Young Guns, Portraits, Rookie Materials, Honor Roll, another insert/subset, or another printed color/foil/parallel name, do not call the card Base. Return the printed collector-market name in parallel and use the printed insert/subset as setName when appropriate.
 5. If a visible design cue strongly indicates the parallel, return the best collector-market name in parallel, such as "Limited Red", "Clear Cut", "Silver Prizm", "Green Prizm", "Blue Refractor", "Gold Wave", "Orange Ice", "Purple Shimmer", "Red White Blue Prizm", "Holo", "Refractor", "Chrome Refractor", "Mosaic Reactive Orange", "Sepia Refractor", "X-Fractor", "Atomic Refractor", or "Base".
 6. Use "Base" only when the card appears to be the normal base version and there are no visible or OCR-detected insert, subset, acetate/clear-stock, foil, color, refractor/prizm, or numbering cues. Use null only when the image quality prevents a fair call.
-7. Do not hallucinate serial numbers. Only return serialNumber when visible or explicitly printed/stamped.
-8. Do not overclaim exact parallels. If the color/finish or insert/clear-stock cue is visible but the exact market name is uncertain, use a cautious descriptive value like "Blue parallel - exact type uncertain" or "Insert - exact type uncertain" instead of Base.
-9. If front/back disagree, prefer the printed back for card number/year/set, and explain the conflict in notes.
-10. If the image is not a sports card, still describe what it appears to be and lower confidence.
+7. Panini Select products use levels such as Concourse, Premier Level, and Courtside. These are set/product levels, not insert or parallel names. Put the level in setName when visible (for example "WNBA Select - Premier Level") and keep parallel null unless a true parallel cue such as Prizm, Green Prizm, Silver Prizm, Zebra, Tie-Dye, Gold, etc. is visible.
+8. Do not hallucinate serial numbers. Only return serialNumber when visible or explicitly printed/stamped.
+9. Do not overclaim exact parallels. If the color/finish or insert/clear-stock cue is visible but the exact market name is uncertain, use a cautious descriptive value like "Blue parallel - exact type uncertain" or "Insert - exact type uncertain" instead of Base.
+10. If front/back disagree, prefer the printed back for card number/year/set, and explain the conflict in notes.
+11. If the image is not a sports card, still describe what it appears to be and lower confidence.
 
 Field rules:
 - Confidence must be between 0 and 1.
