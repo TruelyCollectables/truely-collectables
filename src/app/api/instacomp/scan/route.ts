@@ -2367,9 +2367,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const frontDataUrl = await fileToDataUrl(frontImage);
-
-    let backDataUrl: string | undefined;
+    let backImageForScan: File | null = null;
 
     if (backImage instanceof File && backImage.size > 0) {
       if (!ALLOWED_SCAN_IMAGE_TYPES.has(backImage.type.toLowerCase())) {
@@ -2388,12 +2386,10 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      backDataUrl = await fileToDataUrl(backImage);
+      backImageForScan = backImage;
     }
 
-    const detailImages: InstaCompDetailImage[] = [];
-
-    for (const detailImage of detailImageFiles) {
+    const detailImageJobs = detailImageFiles.map(async (detailImage) => {
       if (!ALLOWED_SCAN_IMAGE_TYPES.has(detailImage.type.toLowerCase())) {
         throw new InstaCompJobServerError(
           "Detail crops must be JPEG, PNG, or WebP images.",
@@ -2410,11 +2406,17 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      detailImages.push({
+      return {
         name: detailImage.name || "detail-crop.jpg",
         dataUrl: await fileToDataUrl(detailImage),
-      });
-    }
+      } satisfies InstaCompDetailImage;
+    });
+
+    const [frontDataUrl, backDataUrl, detailImages] = await Promise.all([
+      fileToDataUrl(frontImage),
+      backImageForScan ? fileToDataUrl(backImageForScan) : Promise.resolve(undefined),
+      Promise.all(detailImageJobs),
+    ]);
 
     const totalInputBytes =
       frontImage.size +

@@ -2450,7 +2450,7 @@ async function createSerialDetailCrops(file: File, side: "front" | "back") {
 
     if (!sourceWidth || !sourceHeight) return crops;
 
-    for (const spec of SERIAL_DETAIL_CROP_SPECS) {
+    const cropJobs = SERIAL_DETAIL_CROP_SPECS.map(async (spec) => {
       const sourceX = Math.round(sourceWidth * spec.x);
       const sourceY = Math.round(sourceHeight * spec.y);
       const cropWidth = Math.max(1, Math.round(sourceWidth * spec.width));
@@ -2460,7 +2460,7 @@ async function createSerialDetailCrops(file: File, side: "front" | "back") {
       const canvas = document.createElement("canvas");
       const context = canvas.getContext("2d");
 
-      if (!context) continue;
+      if (!context) return null;
 
       canvas.width = outputWidth;
       canvas.height = outputHeight;
@@ -2479,17 +2479,19 @@ async function createSerialDetailCrops(file: File, side: "front" | "back") {
       );
       enhanceSerialCrop(context, outputWidth, outputHeight, spec.enhance);
 
-      crops.push(
-        await canvasToJpegFile(
-          canvas,
-          `${side}-serial-detail-${spec.label}-${file.name || "card"}.jpg`,
-          {
-            initialQuality: spec.enhance ? 0.8 : 0.84,
-            maxBytes: MAX_DETAIL_CROP_BYTES,
-          }
-        )
+      return canvasToJpegFile(
+        canvas,
+        `${side}-serial-detail-${spec.label}-${file.name || "card"}.jpg`,
+        {
+          initialQuality: spec.enhance ? 0.8 : 0.84,
+          maxBytes: MAX_DETAIL_CROP_BYTES,
+        }
       );
-    }
+    });
+
+    const cropResults = await Promise.all(cropJobs);
+
+    crops.push(...cropResults.filter((crop): crop is File => Boolean(crop)));
 
     return crops;
   } catch (error) {
