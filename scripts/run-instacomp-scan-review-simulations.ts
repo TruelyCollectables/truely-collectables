@@ -9,6 +9,10 @@ type Scenario = {
   hasBackImage?: boolean;
   pairingConfidence?: number | null;
   externalOcrText?: string | null;
+  consensus?: {
+    status: "consensus_confirmed" | "review_required";
+    reviewReasons: string[];
+  } | null;
   expect: (actual: ReturnType<typeof buildInstaCompScanReview>) => void;
 };
 
@@ -109,6 +113,25 @@ const scenarios: Scenario[] = [
     },
   },
   {
+    name: "multi-scanner disagreement blocks autoprice",
+    consensus: {
+      status: "review_required",
+      reviewReasons: ["multi_scanner_player_disagreement"],
+    },
+    marketValueComps: [comp("sale one"), comp("sale two")],
+    expect(actual) {
+      assert(!actual.trustedForPricing, "Expected consensus disagreement pricing blocked");
+      assert(
+        actual.reviewReasons.includes("multi_scanner_consensus_needs_review"),
+        "Expected consensus review reason",
+      );
+      assert(
+        actual.reviewReasons.includes("multi_scanner_player_disagreement"),
+        "Expected field disagreement reason",
+      );
+    },
+  },
+  {
     name: "one comp is not enough for autoprice",
     marketValueComps: [comp("sale one")],
     expect(actual) {
@@ -135,6 +158,7 @@ for (const scenario of scenarios) {
       hasBackImage: scenario.hasBackImage ?? true,
       pairingConfidence: scenario.pairingConfidence ?? 0.98,
       externalOcrText: scenario.externalOcrText || null,
+      consensus: scenario.consensus || null,
     });
     scenario.expect(actual);
     results.push({ name: scenario.name, status: "passed" });

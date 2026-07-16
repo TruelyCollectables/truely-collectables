@@ -73,6 +73,43 @@ type ProviderResult = {
   };
 };
 
+type ConsensusResult = {
+  schema: "tcos.instacomp.multiScannerConsensus.v1";
+  status: "consensus_confirmed" | "review_required";
+  trustedForIdentity: boolean;
+  reviewReasons: string[];
+  reasonTrail: string[];
+  suggestedQuestion: string | null;
+  readerSummaries: Array<{
+    readerId: string;
+    label: string;
+    kind: string;
+    confidence: number | null;
+    knownFieldCount: number;
+    evidence: string[];
+  }>;
+  fieldDecisions: Array<{
+    field: string;
+    status:
+      | "agreed"
+      | "single_reader"
+      | "specific_variant_over_base"
+      | "weighted_reader_choice"
+      | "catalog_referee"
+      | "review_required";
+    value: string | boolean | null;
+    sources: string[];
+    conflictingValues: string[];
+    reason: string;
+  }>;
+  catalogReferee: {
+    status: "catalog_confirmed" | "review_required" | "not_available";
+    sourceLabel: string | null;
+    catalogId: string | null;
+    matchExplanation: string | null;
+  };
+};
+
 type ScanResponse = {
   ok: boolean;
   scanId: string | null;
@@ -126,6 +163,7 @@ type ScanResponse = {
     suggestedPrice: number | null;
   };
   note: string;
+  consensus?: ConsensusResult;
   review?: {
     status: "trusted_for_pricing" | "review_required";
     trustedForPricing: boolean;
@@ -1902,6 +1940,7 @@ function queueReviewReasonLabel(reason: string) {
     ocr_variant_signal_not_resolved: "OCR variant signal unresolved",
     front_only_scan: "Front only",
     front_back_pairing_needs_review: "Front/back pairing needs review",
+    multi_scanner_consensus_needs_review: "Multi-scanner consensus needs review",
     missing_usable_comps: "Missing usable comps",
     insufficient_exact_comp_evidence: "Insufficient exact comp evidence",
   };
@@ -10260,6 +10299,7 @@ export default function InstaCompScanner({
             )}
 
             <OcrDiagnosticsPanel result={result} />
+            <ConsensusPanel result={result} />
 
             <div
               style={{
@@ -10500,6 +10540,109 @@ function Info({ label, value }: { label: string; value: any }) {
         {label}
       </div>
       <div style={{ fontWeight: 800 }}>{value || "—"}</div>
+    </div>
+  );
+}
+
+function ConsensusMini({ result }: { result: ScanResponse | null }) {
+  const consensus = result?.consensus;
+
+  if (!consensus) return null;
+
+  const confirmed = consensus.status === "consensus_confirmed";
+
+  return (
+    <div
+      style={{
+        marginTop: 6,
+        color: confirmed ? "#0f5132" : "#7a4f00",
+        fontSize: 12,
+        fontWeight: 900,
+      }}
+    >
+      Consensus: {confirmed ? "confirmed" : "needs review"} -{" "}
+      {consensus.readerSummaries.length} reader
+      {consensus.readerSummaries.length === 1 ? "" : "s"}
+      {consensus.reasonTrail[0] ? ` - ${consensus.reasonTrail[0]}` : ""}
+    </div>
+  );
+}
+
+function ConsensusPanel({ result }: { result: ScanResponse }) {
+  const consensus = result.consensus;
+
+  if (!consensus) return null;
+
+  const confirmed = consensus.status === "consensus_confirmed";
+  const topDecisions = consensus.fieldDecisions.slice(0, 8);
+
+  return (
+    <div
+      style={{
+        marginTop: 14,
+        padding: 14,
+        borderRadius: 10,
+        border: confirmed ? "1px solid #9bd6ac" : "1px solid #e7c979",
+        background: confirmed ? "#f0fff4" : "#fffaf0",
+      }}
+    >
+      <h3 style={{ margin: "0 0 10px" }}>
+        InstaComp™ Multi-Scanner Consensus
+      </h3>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "repeat(auto-fit, minmax(150px, 1fr))",
+          gap: 10,
+        }}
+      >
+        <Info label="Status" value={confirmed ? "Confirmed" : "Needs Review"} />
+        <Info
+          label="Readers"
+          value={String(consensus.readerSummaries.length)}
+        />
+        <Info
+          label="Catalog Referee"
+          value={
+            consensus.catalogReferee.sourceLabel ||
+            consensus.catalogReferee.status.replaceAll("_", " ")
+          }
+        />
+        <Info
+          label="Trusted Identity"
+          value={consensus.trustedForIdentity ? "Yes" : "No"}
+        />
+      </div>
+      {consensus.suggestedQuestion && (
+        <p style={{ margin: "10px 0 0", color: "#7a4f00", fontWeight: 900 }}>
+          Question: {consensus.suggestedQuestion}
+        </p>
+      )}
+      {consensus.reviewReasons.length > 0 && (
+        <p style={{ margin: "10px 0 0", color: "#7a4f00", fontWeight: 800 }}>
+          Review: {consensus.reviewReasons.map(queueReviewReasonLabel).join("; ")}
+        </p>
+      )}
+      {topDecisions.length > 0 && (
+        <div style={{ display: "grid", gap: 6, marginTop: 10 }}>
+          {topDecisions.map((decision) => (
+            <div
+              key={`${decision.field}-${String(decision.value)}`}
+              style={{
+                padding: "8px 10px",
+                border: "1px solid #e5e5e5",
+                borderRadius: 8,
+                background: "white",
+                fontSize: 12,
+                fontWeight: 800,
+              }}
+            >
+              <strong>{decision.field}:</strong>{" "}
+              {String(decision.value ?? "—")} — {decision.reason}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -11116,6 +11259,7 @@ function BatchCardRow({
               </div>
             )}
             <OcrDiagnosticsMini result={card.result} />
+            <ConsensusMini result={card.result} />
             <ExternalSearchMini result={card.result} />
             {card.result ? (
               <TcosCardSearchActions query={tcosSearchQuery} compact />

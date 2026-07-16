@@ -7,6 +7,10 @@ export type InstaCompScanReviewInput = {
   hasBackImage: boolean;
   pairingConfidence: number | null;
   externalOcrText?: string | null;
+  consensus?: {
+    status: "consensus_confirmed" | "review_required";
+    reviewReasons: string[];
+  } | null;
 };
 
 export type InstaCompScanReview = {
@@ -96,6 +100,12 @@ export function buildInstaCompScanReview(
   }
   if (printedVariantDetected && (!ai.parallel || isBaseParallel(ai.parallel))) {
     identityReviewReasons.push("ocr_variant_signal_not_resolved");
+  }
+  if (input.consensus?.status === "review_required") {
+    identityReviewReasons.push(
+      "multi_scanner_consensus_needs_review",
+      ...input.consensus.reviewReasons,
+    );
   }
 
   const exactCompCount = exactCompEvidenceCount(input.marketValueComps);

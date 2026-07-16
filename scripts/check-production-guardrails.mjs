@@ -3514,6 +3514,37 @@ assertFileIncludes("instacomp printed-variant identity guard simulations", "scri
   "printed generic insert cannot remain base",
   "normal base with no printed signal stays base",
 ]);
+assertFileIncludes("instacomp multi-scanner consensus source", "src/lib/instacomp-consensus.ts", [
+  "tcos.instacomp.multiScannerConsensus.v1",
+  "buildInstaCompMultiScannerConsensus",
+  "applyInstaCompConsensusToAi",
+  "specific_variant_over_base",
+  "catalog_referee",
+  "multi_scanner_",
+]);
+assertFileIncludes("instacomp multi-scanner consensus route wiring", "src/app/api/instacomp/scan/route.ts", [
+  "buildInstaCompMultiScannerConsensus",
+  "buildInstaCompConsensusReaders",
+  "applyInstaCompConsensusToAi",
+  "consensus,",
+]);
+assertFileIncludes("instacomp multi-scanner consensus UI wiring", "src/app/admin/instacomp/InstaCompScanner.tsx", [
+  "type ConsensusResult",
+  "ConsensusMini",
+  "ConsensusPanel",
+  "InstaComp™ Multi-Scanner Consensus",
+]);
+assertFileIncludes("instacomp multi-scanner consensus simulations", "scripts/run-instacomp-consensus-simulations.ts", [
+  "catalog referee overrides two generic base scanner votes",
+  "specific printed clear cut beats generic base without catalog",
+  "serial reader fills missing serial number",
+  "unresolved player disagreement blocks trusted identity",
+]);
+assertFileIncludes("instacomp verify includes consensus simulations", "package.json", [
+  "simulate:instacomp-consensus",
+  "run-instacomp-consensus-simulations.ts",
+  "simulate:instacomp-accuracy && npm run simulate:instacomp-consensus",
+]);
 assertFileIncludes("instacomp printed-variant identity guard manual", "docs/TCOS_OPERATOR_MANUAL.md", [
   "printed-variant identity guard",
   "Limited Red",

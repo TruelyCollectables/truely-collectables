@@ -17,6 +17,13 @@ import {
 import { extractInstaCompSerialNumber } from "../../../../lib/instacomp-serial";
 import { buildInstaCompScanReview } from "../../../../lib/instacomp-scan-review";
 import {
+  applyInstaCompConsensusToAi,
+  buildInstaCompMultiScannerConsensus,
+  buildInstaCompReaderFindingFromAi,
+  type InstaCompConsensusIdentity,
+  type InstaCompConsensusReaderFinding,
+} from "../../../../lib/instacomp-consensus";
+import {
   INSTACOMP_JOB_IMAGE_BUCKET,
   INSTACOMP_JOB_ITEM_TABLE,
   InstaCompJobServerError,
@@ -763,6 +770,96 @@ function mergeSerialOcrResult(
       .filter(Boolean)
       .join(" "),
   };
+}
+
+function buildChangedIdentityFinding(
+  before: InstaCompAiResult,
+  after: InstaCompAiResult,
+): InstaCompConsensusIdentity {
+  const identity: InstaCompConsensusIdentity = {};
+  const fields: Array<keyof InstaCompConsensusIdentity> = [
+    "player",
+    "year",
+    "brand",
+    "setName",
+    "cardNumber",
+    "parallel",
+    "serialNumber",
+    "team",
+    "sport",
+    "isRookie",
+    "isAuto",
+    "isRelic",
+  ];
+
+  for (const field of fields) {
+    if (before[field] !== after[field]) {
+      (identity as Record<string, unknown>)[field] = after[field];
+    }
+  }
+
+  return identity;
+}
+
+function buildInstaCompConsensusReaders(params: {
+  baseAi: InstaCompAiResult;
+  mergedSerialAi: InstaCompAiResult;
+  guardedAi: InstaCompAiResult;
+  serialOcr: InstaCompSerialOcrResult | null;
+  externalOcr: ExternalOcrResult | null;
+}) {
+  const readers: InstaCompConsensusReaderFinding[] = [
+    buildInstaCompReaderFindingFromAi({
+      readerId: "primary_vision",
+      label: "Primary AI vision",
+      kind: "primary_vision",
+      ai: params.baseAi,
+      evidence: ["front/back image model identity pass"],
+      weight: 1,
+    }),
+  ];
+
+  if (params.serialOcr?.serialNumber) {
+    readers.push({
+      readerId: "serial_vision",
+      label: "Serial vision/OCR",
+      kind: "serial_vision",
+      identity: {
+        serialNumber: params.serialOcr.serialNumber,
+      },
+      confidence: params.serialOcr.confidence,
+      weight: 1.25,
+      evidence: [
+        params.serialOcr.evidence ||
+          `serial reader found ${params.serialOcr.serialNumber}`,
+      ],
+    });
+  }
+
+  const printedGuardIdentity = buildChangedIdentityFinding(
+    params.mergedSerialAi,
+    params.guardedAi,
+  );
+  const printedGuardFields = Object.keys(printedGuardIdentity);
+
+  if (printedGuardFields.length > 0) {
+    readers.push({
+      readerId: "ocr_printed_evidence_guard",
+      label: "OCR/printed evidence guard",
+      kind: "ocr_printed_evidence",
+      identity: printedGuardIdentity,
+      confidence: Math.max(0.84, params.guardedAi.confidence || 0),
+      weight: 1.15,
+      evidence: [
+        params.guardedAi.notes || "printed/OCR evidence adjusted identity fields",
+        params.externalOcr?.provider
+          ? `${params.externalOcr.provider} OCR supplied ${params.externalOcr.checkedImages} image text pass(es)`
+          : "vision-only printed evidence guard",
+      ],
+    });
+  }
+
+  return readers;
 }
 
 async function getEbayAppToken() {
@@ -2195,12 +2292,22 @@ export async function POST(req: NextRequest) {
         externalOcr
       ),
     ]);
-    const ai = applyInstaCompIdentityGuard(
-      mergeSerialOcrResult(baseAi, serialOcr),
-      {
-        externalOcrText: externalOcr?.text || null,
-      }
-    );
+    const mergedSerialAi = mergeSerialOcrResult(baseAi, serialOcr);
+    const guardedAi = applyInstaCompIdentityGuard(mergedSerialAi, {
+      externalOcrText: externalOcr?.text || null,
+    });
+    const consensusReaders = buildInstaCompConsensusReaders({
+      baseAi,
+      mergedSerialAi,
+      guardedAi,
+      serialOcr,
+      externalOcr,
+    });
+    const consensus = buildInstaCompMultiScannerConsensus({
+      readers: consensusReaders,
+      baseIdentity: guardedAi,
+    });
+    const ai = applyInstaCompConsensusToAi(guardedAi, consensus);
 
     const queries = buildInstaCompQueries(ai);
     const links = buildCompLinks(queries.primary);
@@ -2236,6 +2343,7 @@ export async function POST(req: NextRequest) {
       hasBackImage: Boolean(backDataUrl),
       pairingConfidence: persistentContext?.pairingConfidence ?? null,
       externalOcrText: externalOcr?.text || null,
+      consensus,
     });
     const exactListingGuidanceComps = rawMarketValueComps.filter(
       isExactListingGuidanceComp
@@ -2271,6 +2379,7 @@ export async function POST(req: NextRequest) {
       scanId,
       ai,
       review: scanReview,
+      consensus,
       ocrDiagnostics: {
         paddleOcrConfigured: Boolean(PADDLEOCR_API_URL),
         googleVisionConfigured: Boolean(GOOGLE_VISION_API_KEY),
