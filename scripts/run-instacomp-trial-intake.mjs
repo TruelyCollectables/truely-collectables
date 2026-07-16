@@ -226,6 +226,87 @@ function buildTargetGuide({ expectedCards, sourcePath, targetPath }) {
   ].join("\n");
 }
 
+function buildGroundTruthGuide(report) {
+  const manifestAudit = report.steps.prepTrial?.payload?.preflight?.manifestAudit || {};
+  const problems = manifestAudit.problems || {};
+  const firstMissingRows = Array.isArray(problems.firstMissingCoreRows)
+    ? problems.firstMissingCoreRows
+    : [];
+  const expectedCards = manifestAudit.expectedCards || report.expectedCards;
+  const readyRows = manifestAudit.readyRows || 0;
+
+  return [
+    "# TCOS InstaComp Trial Answer-Key Guide",
+    "",
+    `Generated: ${report.generatedAt}`,
+    "",
+    "Fill this before trusting the 94% final tester score.",
+    "",
+    "## Progress",
+    "",
+    `- Ready answer-key rows: ${readyRows}/${expectedCards}`,
+    `- Missing core rows: ${problems.missingCoreRows ?? "unknown"}`,
+    `- Duplicate trialCardId rows: ${problems.duplicateTrialCardIds ?? "unknown"}`,
+    `- Missing trialCardId rows: ${problems.missingTrialCardIds ?? "unknown"}`,
+    "",
+    "## Required columns",
+    "",
+    "These four fields are required for every row:",
+    "",
+    "- player",
+    "- year",
+    "- setName",
+    "- cardNumber",
+    "",
+    "Strongly recommended fields:",
+    "",
+    "- brand",
+    "- parallel",
+    "- variation",
+    "- serialNumber",
+    "- serialRun",
+    "- team",
+    "- sport",
+    "- isRookie",
+    "- isAuto",
+    "- isRelic",
+    "",
+    "## Examples",
+    "",
+    "| player | year | setName | cardNumber | brand | parallel | serialNumber | serialRun |",
+    "| --- | --- | --- | --- | --- | --- | --- | --- |",
+    "| Connor McDavid | 2025-26 | SP Authentic Hockey Outliers | O-8 | Upper Deck | Outliers |  |  |",
+    "| Seth Jarvis | 2025-26 | Upper Deck Extended Series Clear Cut | UD3-28 | Upper Deck | Clear Cut |  |  |",
+    "| Matthew Robertson | 2025-26 | SP Authentic Future Watch Spectrum FX Level 1 | S-50 | Upper Deck | Spectrum FX Level 1 |  |  |",
+    "",
+    "## First missing rows",
+    "",
+    ...(firstMissingRows.length
+      ? [
+          "| Trial card | Spreadsheet row | Missing fields |",
+          "| --- | ---: | --- |",
+          ...firstMissingRows.map(
+            (row) =>
+              `| ${markdownCell(row.trialCardId)} | ${markdownCell(row.row)} | ${markdownCell((row.missing || []).join(", "))} |`,
+          ),
+        ]
+      : ["No missing core rows reported by the latest intake preflight."]),
+    "",
+    "## Commands",
+    "",
+    "After editing the TSV:",
+    "",
+    "```bash",
+    "npm run instacomp:trial:groundtruth:apply",
+    "npm run instacomp:trial:intake",
+    "npm run instacomp:trial:monitor",
+    "```",
+    "",
+    "Safe boundary: local answer-key guide only. Does not scan cards, deploy, publish listings, buy postage, create Checkout, approve live money, or release payouts.",
+    "",
+  ].join("\n");
+}
+
 async function main() {
   const expectedCards = getFlagValue("--expected-cards", "100");
   const source = getFlagValue("--source", "instacomp-trial-inbox");
@@ -249,6 +330,10 @@ async function main() {
   const syncWriteManifest = getFlagValue("--sync-write-manifest", manifest);
   const intakeJson = getFlagValue("--intake-json", "instacomp-trial-intake.local.json");
   const intakeMarkdown = getFlagValue("--intake-md", "instacomp-trial-intake.local.md");
+  const answerKeyGuide = getFlagValue(
+    "--answer-key-guide",
+    "instacomp-trial-groundtruth-guide.local.md",
+  );
   const imagePrefix = getFlagValue("--image-prefix", `./${target}`);
   const jsonOutput = hasFlag("--json");
   const ensureFolders = !hasFlag("--no-ensure-folders");
@@ -356,6 +441,7 @@ async function main() {
       intakePacket,
       intakeJson,
       intakeMarkdown,
+      answerKeyGuide,
     },
     steps: {
       stageImages,
@@ -380,10 +466,13 @@ async function main() {
 
   const intakeJsonPath = resolveFromRepo(intakeJson);
   const intakeMarkdownPath = resolveFromRepo(intakeMarkdown);
+  const answerKeyGuidePath = resolveFromRepo(answerKeyGuide);
   await mkdir(dirname(intakeJsonPath), { recursive: true });
   await mkdir(dirname(intakeMarkdownPath), { recursive: true });
+  await mkdir(dirname(answerKeyGuidePath), { recursive: true });
   await writeFile(intakeJsonPath, `${JSON.stringify(report, null, 2)}\n`);
   await writeFile(intakeMarkdownPath, buildMarkdown(report));
+  await writeFile(answerKeyGuidePath, buildGroundTruthGuide(report));
 
   if (jsonOutput) {
     console.log(JSON.stringify(report, null, 2));
@@ -403,6 +492,7 @@ async function main() {
   console.log(`- image paths synced OK: ${sync.ok ? "yes" : "no"}`);
   console.log(`- intake JSON: ${intakeJson}`);
   console.log(`- intake Markdown: ${intakeMarkdown}`);
+  console.log(`- answer-key guide: ${answerKeyGuide}`);
   console.log(`Next: ${report.next}`);
   console.log(`Safe build boundary: ${report.safeBuildBoundary}`);
 }
