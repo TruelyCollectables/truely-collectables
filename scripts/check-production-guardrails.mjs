@@ -1252,10 +1252,11 @@ assertScriptIncludes("simulate:instacomp-trial-sync-images", [
 assertScriptIncludes("simulate:instacomp-trial-intake", [
   "scripts/run-instacomp-trial-intake.mjs",
   "--source scripts/fixtures/instacomp-trial-images.example",
-  "--target scripts/fixtures/instacomp-trial-images.example",
+  "--target .codex-run/instacomp-trial-intake-images-fixture",
   "--intake-json .codex-run/instacomp-trial-intake-fixture.local.json",
   "--intake-md .codex-run/instacomp-trial-intake-fixture.local.md",
   "--sync-write-manifest .codex-run/instacomp-trial-intake-manifest-fixture.local.json",
+  "--no-ensure-folders",
   "--expected-cards 3",
 ]);
 assertScriptIncludes("simulate:instacomp-trial-monitor", [
@@ -3917,6 +3918,9 @@ assertFileIncludes("instacomp trial intake cockpit source", "scripts/run-instaco
   "folderPrep",
   "await mkdir(sourcePath",
   "await mkdir(targetPath",
+  "README_TCOS_INSTACOMP_TRIAL.txt",
+  "buildSourceGuide",
+  "buildTargetGuide",
   "Image staging dry-run is clean",
   "Local InstaComp trial intake cockpit only. Ensures local trial folders, runs dry-run staging, local prep, and local image-path sync; does not apply staging",
 ]);
@@ -3943,6 +3947,7 @@ assertFileIncludes("instacomp trial ground-truth manifest audit manual", "docs/T
   "npm run instacomp:trial:intake",
   "tcos.instacompTrialIntakeCockpit.v1",
   "ensures the local `instacomp-trial-inbox/` and `instacomp-trial-images/` folders exist",
+  "writes `README_TCOS_INSTACOMP_TRIAL.txt` guide files inside both ignored folders",
   "instacomp-trial-intake.local.json",
   "one next action",
   "npm run instacomp:trial:stage-images",

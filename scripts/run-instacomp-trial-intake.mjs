@@ -132,6 +132,8 @@ function buildMarkdown(report) {
     `- Planned copies: ${stage.observed?.plannedCopies ?? 0}/${stage.expected?.images ?? report.expectedCards * 2}`,
     `- Synced image pairs: ${sync.observed?.completeImagePairs ?? 0}/${sync.observed?.imageMapRows ?? report.expectedCards}`,
     `- Folders ensured: ${report.folderPrep.ensured ? "YES" : "NO"}`,
+    `- Inbox guide: ${report.folderPrep.guides?.sourceGuide || "not written"}`,
+    `- Target guide: ${report.folderPrep.guides?.targetGuide || "not written"}`,
     "",
     "## Paths",
     "",
@@ -160,6 +162,66 @@ function buildMarkdown(report) {
     "## Next",
     "",
     report.next,
+    "",
+  ].join("\n");
+}
+
+function buildSourceGuide({ expectedCards, sourcePath, targetPath }) {
+  return [
+    "TCOS InstaComp Trial Inbox",
+    "",
+    "Drop raw scanner exports for the 100-card trial in this folder.",
+    "",
+    `Expected lot: ${expectedCards} cards / ${Number(expectedCards) * 2} images`,
+    "",
+    "Accepted patterns:",
+    "- Plain ordered scanner files: scan_0001.jpg, scan_0002.jpg, scan_0003.jpg...",
+    "  TCOS pairs them as 1+2, 3+4, 5+6, etc.",
+    "- Explicit pairs: 001-front.jpg + 001-back.jpg through 100-front.jpg + 100-back.jpg",
+    "- Side words accepted: front, fr, f, obverse, back, bk, b, reverse, rear",
+    "- Image extensions accepted: jpg, jpeg, png, webp, heic, heif, gif, bmp, tif, tiff",
+    "",
+    "Next command from the repo root:",
+    "npm run instacomp:trial:intake",
+    "",
+    "When the dry-run is clean, the cockpit will tell you to run:",
+    "npm run instacomp:trial:stage-images -- --apply",
+    "",
+    `Source inbox: ${sourcePath}`,
+    `Normalized target folder: ${targetPath}`,
+    "",
+    "Safe boundary: local trial intake only. This folder guide does not scan cards, deploy, publish listings, buy postage, create Checkout, approve live money, or release payouts.",
+    "",
+  ].join("\n");
+}
+
+function buildTargetGuide({ expectedCards, sourcePath, targetPath }) {
+  return [
+    "TCOS InstaComp Trial Images",
+    "",
+    "This folder is for normalized trial image pairs used by the 100-card InstaComp final tester.",
+    "",
+    `Expected lot: ${expectedCards} cards / ${Number(expectedCards) * 2} images`,
+    "",
+    "Preferred normalized shape:",
+    "- 001-front.jpg",
+    "- 001-back.jpg",
+    "- 002-front.jpg",
+    "- 002-back.jpg",
+    "- ... through 100-front / 100-back",
+    "",
+    "If your scanner files are raw/unrenamed, put them in the inbox first:",
+    sourcePath,
+    "",
+    "Then run from the repo root:",
+    "npm run instacomp:trial:intake",
+    "",
+    "After apply/prep/sync, monitor readiness with:",
+    "npm run instacomp:trial:monitor",
+    "",
+    `Normalized target folder: ${targetPath}`,
+    "",
+    "Safe boundary: local trial intake only. This folder guide does not scan cards, deploy, publish listings, buy postage, create Checkout, approve live money, or release payouts.",
     "",
   ].join("\n");
 }
@@ -196,12 +258,24 @@ async function main() {
     ensured: ensureFolders,
     source: sourcePath,
     target: targetPath,
+    guides: {
+      sourceGuide: resolve(sourcePath, "README_TCOS_INSTACOMP_TRIAL.txt"),
+      targetGuide: resolve(targetPath, "README_TCOS_INSTACOMP_TRIAL.txt"),
+    },
     safeLocalOnly: true,
   };
 
   if (ensureFolders) {
     await mkdir(sourcePath, { recursive: true });
     await mkdir(targetPath, { recursive: true });
+    await writeFile(
+      folderPrep.guides.sourceGuide,
+      buildSourceGuide({ expectedCards, sourcePath, targetPath }),
+    );
+    await writeFile(
+      folderPrep.guides.targetGuide,
+      buildTargetGuide({ expectedCards, sourcePath, targetPath }),
+    );
   }
 
   const stageImages = runJsonStep(
