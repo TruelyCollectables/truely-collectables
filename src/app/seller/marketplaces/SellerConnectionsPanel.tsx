@@ -64,6 +64,8 @@ type SellerStagedItem = {
   updated_at: string;
 };
 
+const SELLER_STAGED_PROMOTION_BATCH_SIZE = 100;
+
 type SellerImportJob = {
   id: string;
   status: string;
@@ -3422,6 +3424,25 @@ export default function SellerConnectionsPanel({
     });
   }
 
+  async function promoteAllReadyStageItems() {
+    await runBulkPromotion({
+      stageItemIds: readyStageItemIds,
+      progressKey: "bulk-promote-all-ready",
+      emptyMessage: "No ready staged listings are available to promote.",
+      mode: "ready",
+    });
+  }
+
+  async function promoteAllDraftCleanupStageItems() {
+    await runBulkPromotion({
+      stageItemIds: draftCleanupStageItemIds,
+      progressKey: "bulk-promote-all-draft-cleanup",
+      emptyMessage:
+        "No draft-cleanup staged listings are available to promote.",
+      mode: "draft_cleanup",
+    });
+  }
+
   async function runBulkPromotion(params: {
     stageItemIds: string[];
     progressKey: string;
@@ -3453,16 +3474,23 @@ export default function SellerConnectionsPanel({
     let operationReceipt: SellerMarketplaceOperationReceipt | null = null;
 
     try {
-      const result = await promoteSellerStagedItem({
-        accessToken: session.access_token,
-        stagedItemIds: params.stageItemIds,
-      });
-      promotedCount = result.promotedCount || result.promotedItems.length;
-      promotedStageItemIds = result.promotedItems.map((item) => item.stagedItemId);
-      promotedItems = result.promotedItems;
-      promotionErrors = result.errors;
-      firstError = result.errors[0]?.error || "";
-      operationReceipt = result.operationReceipt;
+      for (let index = 0; index < params.stageItemIds.length; index += SELLER_STAGED_PROMOTION_BATCH_SIZE) {
+        const chunk = params.stageItemIds.slice(
+          index,
+          index + SELLER_STAGED_PROMOTION_BATCH_SIZE,
+        );
+        const result = await promoteSellerStagedItem({
+          accessToken: session.access_token,
+          stagedItemIds: chunk,
+        });
+        promotedItems = [...promotedItems, ...result.promotedItems];
+        promotionErrors = [...promotionErrors, ...result.errors];
+        operationReceipt = result.operationReceipt;
+      }
+
+      promotedCount = promotedItems.length;
+      promotedStageItemIds = promotedItems.map((item) => item.stagedItemId);
+      firstError = promotionErrors[0]?.error || "";
       } catch (error: any) {
         rememberOperationErrorReceipt(error);
         firstError = error.message || "Could not bulk promote seller staged items.";
@@ -3485,8 +3513,8 @@ export default function SellerConnectionsPanel({
     if (firstError && promotedCount > 0) {
       setMessage(
         params.mode === "draft_cleanup"
-          ? `Promoted ${promotedCount} staged listing(s) into drafts that still need activation cleanup. ${firstError}`
-          : `Promoted ${promotedCount} staged listing(s). ${firstError}`,
+          ? `Promoted ${promotedCount} of ${params.stageItemIds.length} staged listing(s) into drafts that still need activation cleanup. ${firstError}`
+          : `Promoted ${promotedCount} of ${params.stageItemIds.length} staged listing(s). ${firstError}`,
       );
     } else if (firstError) {
       setMessage(firstError);
@@ -5057,6 +5085,20 @@ export default function SellerConnectionsPanel({
                 >
                   Select Ready ({readyStageItemIds.length})
                 </button>
+                <button
+                  type="button"
+                  onClick={() => void promoteAllReadyStageItems()}
+                  disabled={
+                    readyStageItemIds.length === 0 ||
+                    Boolean(promotingStageItemId) ||
+                    updatingStageItemId.startsWith("bulk-")
+                  }
+                  className="rounded-md border border-emerald-900 bg-emerald-900 px-3 py-2 text-xs font-black text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {promotingStageItemId === "bulk-promote-all-ready"
+                    ? "Promoting All..."
+                    : `Promote All Ready (${readyStageItemIds.length})`}
+                </button>
               </div>
             </div>
 
@@ -5085,6 +5127,20 @@ export default function SellerConnectionsPanel({
                   className="rounded-md border border-amber-300 bg-white px-3 py-2 text-xs font-bold text-amber-800 hover:bg-amber-100"
                 >
                   Show Cleanup ({draftCleanupStageItemIds.length})
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void promoteAllDraftCleanupStageItems()}
+                  disabled={
+                    draftCleanupStageItemIds.length === 0 ||
+                    Boolean(promotingStageItemId) ||
+                    updatingStageItemId.startsWith("bulk-")
+                  }
+                  className="rounded-md border border-amber-900 bg-amber-900 px-3 py-2 text-xs font-black text-white hover:bg-amber-800 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {promotingStageItemId === "bulk-promote-all-draft-cleanup"
+                    ? "Promoting Cleanup..."
+                    : `Promote Cleanup (${draftCleanupStageItemIds.length})`}
                 </button>
               </div>
             </div>
