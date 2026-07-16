@@ -181,6 +181,47 @@ async function assertReadyToQueue(params: {
   }
 }
 
+async function forceCancelInstaCompJobItems(params: {
+  supabase: ReturnType<typeof requireInstaCompJobSupabase>;
+  jobId: string;
+}) {
+  const now = new Date().toISOString();
+  const { error } = await params.supabase
+    .from(INSTACOMP_JOB_ITEM_TABLE)
+    .update({
+      status: "cancelled",
+      lease_token: null,
+      lease_owner: null,
+      lease_expires_at: null,
+      draft_reservation_token: null,
+      draft_reservation_expires_at: null,
+      completed_at: now,
+      last_error_code: "job_force_cancelled",
+      last_error: "The InstaComp job was force-cancelled by Clear Batch.",
+    })
+    .eq("job_id", params.jobId)
+    .in("status", [
+      "awaiting_upload",
+      "queued",
+      "processing",
+      "retry_wait",
+      "failed",
+    ]);
+
+  if (error) throwInstaCompDatabaseError(error);
+
+  const { error: reservationError } = await params.supabase
+    .from(INSTACOMP_JOB_ITEM_TABLE)
+    .update({
+      draft_reservation_token: null,
+      draft_reservation_expires_at: null,
+    })
+    .eq("job_id", params.jobId)
+    .not("draft_reservation_token", "is", null);
+
+  if (reservationError) throwInstaCompDatabaseError(reservationError);
+}
+
 export async function PATCH(request: Request, context: RouteContext) {
   try {
     const actor = await requireInstaCompJobActor(request);
@@ -226,6 +267,18 @@ export async function PATCH(request: Request, context: RouteContext) {
 
     const requestedStatus = cleanInstaCompText(body.status, 40);
     const cancelRequested = body.cancelRequested === true;
+    const forceCancel = body.forceCancel === true;
+
+    if (
+      Object.prototype.hasOwnProperty.call(body, "forceCancel") &&
+      typeof body.forceCancel !== "boolean"
+    ) {
+      throw new InstaCompJobServerError(
+        "forceCancel must be true or false.",
+        400,
+        "INSTACOMP_INVALID_BOOLEAN",
+      );
+    }
 
     if (requestedStatus && !["queued", "cancelling"].includes(requestedStatus)) {
       throw new InstaCompJobServerError(
@@ -286,6 +339,10 @@ export async function PATCH(request: Request, context: RouteContext) {
     const { data: updatedJob, error } = await updateQuery.select("*").single();
 
     if (error) throwInstaCompDatabaseError(error);
+
+    if (forceCancel && (cancelRequested || requestedStatus === "cancelling")) {
+      await forceCancelInstaCompJobItems({ supabase, jobId });
+    }
 
     await refreshInstaCompJobCounts(supabase, jobId);
 

@@ -5370,14 +5370,18 @@ export default function InstaCompScanner({
           `/api/instacomp/jobs/${persistentJob.id}`,
           {
             method: "PATCH",
-            body: { status: "cancelling", cancelRequested: true },
+            body: {
+              status: "cancelling",
+              cancelRequested: true,
+              forceCancel: true,
+            },
           }
         );
         setPersistentJob(cancelled.job as PersistentJobSummary);
 
         if (cancelled.job?.status === "cancelling") {
           setBatchError(
-            "Cancellation is waiting for an existing worker lease to expire. The saved lot is still recoverable; try Clear Batch again shortly."
+            "Clear Batch force-cancelled active workers, but the saved lot is still closing in storage. Try Clear Batch again in a few seconds."
           );
           return;
         }
