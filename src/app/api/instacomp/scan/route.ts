@@ -70,13 +70,21 @@ const INSTACOMP_OLLAMA_MODEL =
 const INSTACOMP_AI_COUNCIL_TIER =
   process.env.INSTACOMP_AI_COUNCIL_TIER || "adaptive";
 const requestedAiCouncilTimeoutMs = Number(
-  process.env.INSTACOMP_AI_COUNCIL_TIMEOUT_MS || 75000
+  process.env.INSTACOMP_AI_COUNCIL_TIMEOUT_MS || 25000
 );
 const INSTACOMP_AI_COUNCIL_TIMEOUT_MS = Number.isFinite(
   requestedAiCouncilTimeoutMs
 )
   ? Math.max(5000, Math.min(requestedAiCouncilTimeoutMs, 180000))
-  : 75000;
+  : 25000;
+const requestedOllamaCouncilTimeoutMs = Number(
+  process.env.INSTACOMP_OLLAMA_COUNCIL_TIMEOUT_MS || 12000
+);
+const INSTACOMP_OLLAMA_COUNCIL_TIMEOUT_MS = Number.isFinite(
+  requestedOllamaCouncilTimeoutMs
+)
+  ? Math.max(3000, Math.min(requestedOllamaCouncilTimeoutMs, 60000))
+  : 12000;
 
 const EBAY_CLIENT_ID = process.env.EBAY_CLIENT_ID;
 const EBAY_CLIENT_SECRET = process.env.EBAY_CLIENT_SECRET;
@@ -668,7 +676,8 @@ function desiredAiCouncilReaders(runSecondaryVision: boolean, requestedTier?: st
   if (tier === "basic") return 0;
   if (tier === "mid") return 1;
   if (tier === "pro" || tier === "dealer") return 2;
-  if (tier === "high_end" || tier === "high-end" || tier === "courtroom") {
+  if (tier === "high_end" || tier === "high-end") return 3;
+  if (tier === "courtroom") {
     return 4;
   }
 
@@ -763,16 +772,17 @@ ${
 async function withAiCouncilTimeout<T>(
   promise: Promise<T>,
   label: string,
+  timeoutMs = INSTACOMP_AI_COUNCIL_TIMEOUT_MS,
 ): Promise<T> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), INSTACOMP_AI_COUNCIL_TIMEOUT_MS);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     return await Promise.race([
       promise,
       new Promise<T>((_, reject) => {
         controller.signal.addEventListener("abort", () =>
-          reject(new Error(`${label} timed out after ${INSTACOMP_AI_COUNCIL_TIMEOUT_MS}ms`)),
+          reject(new Error(`${label} timed out after ${timeoutMs}ms`)),
         );
       }),
     ]);
@@ -1013,6 +1023,10 @@ async function runAiCouncilReader(params: {
   }
 
   try {
+    const timeoutMs =
+      params.provider === "ollama"
+        ? INSTACOMP_OLLAMA_COUNCIL_TIMEOUT_MS
+        : INSTACOMP_AI_COUNCIL_TIMEOUT_MS;
     const ai = await withAiCouncilTimeout(
       params.provider === "openai_secondary"
         ? identifyCardWithOpenAI(
@@ -1046,6 +1060,7 @@ async function runAiCouncilReader(params: {
                 params.externalOcr,
               ),
       providerMeta.label,
+      timeoutMs,
     );
     const durationMs = Date.now() - startedAt;
 
@@ -1099,8 +1114,11 @@ async function runInstaCompAiCouncil(params: {
     "openai_secondary",
     "gemini",
     "groq",
-    "ollama",
   ];
+
+  if (tier === "courtroom") {
+    providerPlan.push("ollama");
+  }
 
   if (desiredReaders <= 0) {
     return {

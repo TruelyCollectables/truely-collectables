@@ -511,8 +511,13 @@ const AI_COUNCIL_TIER_OPTIONS: Array<{
   },
   {
     value: "high_end",
-    label: "High-End: 5-AI",
-    description: "Primary reader plus up to four extra witnesses.",
+    label: "High-End Fast: +3 AI",
+    description: "Primary reader plus up to three fast cloud witnesses.",
+  },
+  {
+    value: "courtroom",
+    label: "Max: 5-AI + Local",
+    description: "Primary reader plus cloud witnesses and local Ollama. Strongest but slowest.",
   },
   {
     value: "basic",
