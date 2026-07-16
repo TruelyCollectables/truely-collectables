@@ -2279,6 +2279,14 @@ function batchCardReviewWarnings(card: BatchCard) {
     warnings.push("Draft failed");
   }
 
+  if (card.operatorMarkedWrong) {
+    warnings.push("Operator marked wrong");
+  }
+
+  if (card.operatorNeedsMoreInfo) {
+    warnings.push("Operator needs more info");
+  }
+
   if (!card.backFile) {
     warnings.push("Front only");
   }
@@ -2367,8 +2375,17 @@ function isDraftableBatchCard(card: BatchCard) {
   );
 }
 
+function isOperatorMarkedProblemBatchCard(card: BatchCard) {
+  return (
+    card.status === "done" &&
+    Boolean(card.result) &&
+    Boolean(card.operatorMarkedWrong || card.operatorNeedsMoreInfo)
+  );
+}
+
 function isTestModelProblemBatchCard(card: BatchCard) {
   return (
+    isOperatorMarkedProblemBatchCard(card) ||
     card.status === "error" ||
     card.draftStatus === "error" ||
     batchCardReviewWarnings(card).length > 0 ||
@@ -2390,7 +2407,13 @@ function testModelRunProblemCounts(cards: BatchCard[]) {
 }
 
 function batchCardMatchesFilter(card: BatchCard, filter: BatchCardFilter) {
-  if (filter === "selected") return card.selected && isDraftableBatchCard(card);
+  if (filter === "selected") {
+    return (
+      card.selected &&
+      (isDraftableBatchCard(card) ||
+        (card.status === "done" && Boolean(card.result)))
+    );
+  }
   if (filter === "problems") return isTestModelProblemBatchCard(card);
   if (filter === "draftable") return isDraftableBatchCard(card);
   if (filter === "ready") {
@@ -3565,10 +3588,7 @@ export default function InstaCompScanner({
     batchRateLimitErrorCards.map((card) => card.id)
   );
   const batchOperatorMarkedWrongCards = batchCards.filter(
-    (card) =>
-      card.status === "done" &&
-      card.result &&
-      (card.operatorMarkedWrong || card.operatorNeedsMoreInfo)
+    isOperatorMarkedProblemBatchCard
   );
   const batchOperatorMarkedWrongCount = batchOperatorMarkedWrongCards.length;
   const batchOperatorMarkedWrongCardIds = new Set(
@@ -3584,6 +3604,9 @@ export default function InstaCompScanner({
   const selectedReviewableBatchCards = batchCards.filter(
     (card) => card.selected && card.status === "done" && Boolean(card.result)
   );
+  const selectedOperatorMarkedProblemCount = batchCards.filter(
+    (card) => card.selected && isOperatorMarkedProblemBatchCard(card)
+  ).length;
   const selectedPriceableBatchCards = selectedDoneBatchCards.filter(
     (card) => marketPriceForCard(card)
   );
@@ -3703,7 +3726,7 @@ export default function InstaCompScanner({
   const selectedDraftErrorCount = selectedDraftErrorBatchCardIds.size;
   const selectedDraftSummary =
     selectedDoneBatchCards.length > 0
-      ? `Selected ${selectedDoneBatchCards.length} - Ready ${selectedDraftReadyCount} - Ready Review ${selectedReadyReviewCount} - Clean Ready ${selectedCleanReadyCount} - Clean ${selectedCleanCount} - Clean Fix ${selectedCleanDraftFixCount} - Fix ${selectedDraftFixCount} - Review ${selectedReviewCount} - Review Fix ${selectedReviewDraftFixCount}`
+      ? `Selected ${selectedDoneBatchCards.length} - Ready ${selectedDraftReadyCount} - Ready Review ${selectedReadyReviewCount} - Clean Ready ${selectedCleanReadyCount} - Clean ${selectedCleanCount} - Clean Fix ${selectedCleanDraftFixCount} - Fix ${selectedDraftFixCount} - Review ${selectedReviewCount} - Review Fix ${selectedReviewDraftFixCount} - Marked Problems ${selectedOperatorMarkedProblemCount}`
       : "No draft rows selected";
   const batchViewIsReset =
     batchFilter === "all" && batchSort === "original" && !batchSearch;
@@ -6724,9 +6747,18 @@ export default function InstaCompScanner({
     cardId: string,
     operatorMarkedWrong: boolean
   ) {
+    if (operatorMarkedWrong) {
+      setBatchError(null);
+      setBatchFilter("problems");
+      setBatchDraftMessage(
+        "Marked 1 row wrong. It is now selected in Problems; use Process Marked Problems to rerun it or Export Trial Results to grade it."
+      );
+    }
+
     updateBatchCard(cardId, (card) => ({
       ...card,
       operatorMarkedWrong,
+      selected: operatorMarkedWrong ? true : card.selected,
       operatorNeedsMoreInfo: operatorMarkedWrong ? false : card.operatorNeedsMoreInfo,
     }));
   }
@@ -6735,9 +6767,18 @@ export default function InstaCompScanner({
     cardId: string,
     operatorNeedsMoreInfo: boolean
   ) {
+    if (operatorNeedsMoreInfo) {
+      setBatchError(null);
+      setBatchFilter("problems");
+      setBatchDraftMessage(
+        "Marked 1 row needs more info. It is now selected in Problems; use Process Marked Problems to rerun it or Export Trial Results to grade it."
+      );
+    }
+
     updateBatchCard(cardId, (card) => ({
       ...card,
       operatorNeedsMoreInfo,
+      selected: operatorNeedsMoreInfo ? true : card.selected,
       operatorMarkedWrong: operatorNeedsMoreInfo ? false : card.operatorMarkedWrong,
     }));
   }
@@ -6759,15 +6800,19 @@ export default function InstaCompScanner({
     }
 
     setBatchError(null);
+    if (reviewState !== "clear") {
+      setBatchFilter("problems");
+      setBatchSort("original");
+    }
     setBatchDraftMessage(
       reviewState === "wrong"
         ? `Marked ${selectedDoneIds.size} selected completed row${
             selectedDoneIds.size === 1 ? "" : "s"
-          } wrong for trial grading.`
+          } wrong. They are now in Problems; use Process Marked Problems to rerun them or Export Trial Results to grade them.`
         : reviewState === "needs_more_info"
           ? `Marked ${selectedDoneIds.size} selected completed row${
               selectedDoneIds.size === 1 ? "" : "s"
-            } needs more info for trial grading.`
+            } needs more info. They are now in Problems; use Process Marked Problems to rerun them or Export Trial Results to grade them.`
           : `Cleared operator review marks on ${selectedDoneIds.size} selected completed row${
               selectedDoneIds.size === 1 ? "" : "s"
             }.`
@@ -6847,6 +6892,28 @@ export default function InstaCompScanner({
       current.map((card) => ({
         ...card,
         selected: readyDraftableBatchCardIds.has(card.id),
+      }))
+    );
+  }
+
+  function selectOperatorMarkedProblemBatchCards() {
+    if (!batchOperatorMarkedWrongCount) {
+      setBatchError("No wrong or needs-more-info rows are available to select.");
+      return;
+    }
+
+    setBatchError(null);
+    setBatchFilter("problems");
+    setBatchSort("original");
+    setBatchDraftMessage(
+      `Selected ${batchOperatorMarkedWrongCount} marked problem row${
+        batchOperatorMarkedWrongCount === 1 ? "" : "s"
+      }. Use Process Marked Problems to rerun them.`
+    );
+    setBatchCards((current) =>
+      current.map((card) => ({
+        ...card,
+        selected: batchOperatorMarkedWrongCardIds.has(card.id),
       }))
     );
   }
@@ -7497,12 +7564,12 @@ export default function InstaCompScanner({
       }
 
       if (options.wrongOnly) {
-        emptyMessage = "No wrong-marked cards are waiting for retry.";
+        emptyMessage = "No wrong or needs-more-info cards are waiting to process.";
       }
 
       if (options.onlyCardIds) {
         emptyMessage = options.wrongOnly
-          ? "No selected wrong-marked cards are waiting for retry."
+          ? "No selected wrong or needs-more-info cards are waiting to process."
           : "No visible failed cards are waiting for retry.";
       }
 
@@ -7761,10 +7828,12 @@ export default function InstaCompScanner({
 
   async function retryOperatorMarkedWrongBatchCards() {
     if (!batchOperatorMarkedWrongCount) {
-      setBatchError("No wrong-marked rows are waiting for retry.");
+      setBatchError("No wrong or needs-more-info rows are waiting to process.");
       return;
     }
 
+    setBatchFilter("problems");
+    setBatchSort("original");
     await scanBatch({
       wrongOnly: true,
       onlyCardIds: batchOperatorMarkedWrongCardIds,
@@ -9587,7 +9656,32 @@ export default function InstaCompScanner({
                   : 1,
             }}
           >
-            Retry Wrong ({batchOperatorMarkedWrongCount})
+            Process Marked Problems ({batchOperatorMarkedWrongCount})
+          </button>
+
+          <button
+            type="button"
+            onClick={selectOperatorMarkedProblemBatchCards}
+            disabled={
+              batchRunning ||
+              batchDrafting ||
+              batchOperatorMarkedWrongCount === 0
+            }
+            style={{
+              ...secondaryButtonStyle,
+              borderColor: "#7c3aed",
+              color: "#5b21b6",
+              cursor:
+                batchRunning || batchDrafting || batchOperatorMarkedWrongCount === 0
+                  ? "not-allowed"
+                  : "pointer",
+              opacity:
+                batchRunning || batchDrafting || batchOperatorMarkedWrongCount === 0
+                  ? 0.55
+                  : 1,
+            }}
+          >
+            Select Marked Problems ({batchOperatorMarkedWrongCount})
           </button>
 
           <button
@@ -10093,6 +10187,9 @@ export default function InstaCompScanner({
             {batchReviewCount ? ` - ${batchReviewCount} review` : ""}
             {reviewDraftFixCount ? ` - ${reviewDraftFixCount} review fix` : ""}
             {batchDraftFixCount ? ` - ${batchDraftFixCount} fix` : ""}
+            {batchOperatorMarkedWrongCount
+              ? ` - ${batchOperatorMarkedWrongCount} marked problems`
+              : ""}
             {batchDraftCreatedCount ? ` - ${batchDraftCreatedCount} drafts` : ""}
           </strong>
         </div>
