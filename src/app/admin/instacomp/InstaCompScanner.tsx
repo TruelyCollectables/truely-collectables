@@ -347,11 +347,11 @@ const MAX_PERSISTENT_IMAGE_DIMENSION = 2600;
 const MAX_DETAIL_CROP_BYTES = 180_000;
 const MAX_SCAN_REQUEST_BYTES = 3_750_000;
 const DRAFT_UPLOAD_CONCURRENCY = 2;
-const INSTACOMP_JOB_ITEM_CHUNK_SIZE = 25;
+const INSTACOMP_JOB_ITEM_CHUNK_SIZE = 50;
 const INSTACOMP_BATCH_DEFAULT_CONCURRENCY = 4;
 const INSTACOMP_BATCH_MAX_CONCURRENCY = 6;
-const INSTACOMP_JOB_UPLOAD_CONCURRENCY = 4;
-const INSTACOMP_JOB_CLAIM_CHUNK_SIZE = 1;
+const INSTACOMP_JOB_UPLOAD_CONCURRENCY = 6;
+const INSTACOMP_JOB_CLAIM_CHUNK_SIZE = 3;
 const INSTACOMP_LAST_JOB_STORAGE_KEY = "tcos-instacomp-last-job-v1";
 const EMPTY_CARD_PREVIEW =
   "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='560' viewBox='0 0 400 560'%3E%3Crect width='400' height='560' fill='%23e5e7eb'/%3E%3Ctext x='200' y='280' text-anchor='middle' fill='%236b7280' font-family='Arial' font-size='24'%3ERecovered card%3C/text%3E%3C/svg%3E";
@@ -1566,9 +1566,9 @@ function shortDateTime(value: string | null | undefined) {
 }
 
 function cardResultTitle(result: ScanResponse | null, fallback: string) {
-  const cleanFallback = cleanRotationFileName(fallback);
-  if (!result) return cleanFallback;
-  return buildInstaCompDraftTitle(result.ai, cleanFallback);
+  fallback = cleanRotationFileName(fallback);
+  if (!result) return fallback;
+  return buildInstaCompDraftTitle(result.ai, fallback);
 }
 
 function draftTitleForCard(card: BatchCard) {
@@ -6077,7 +6077,9 @@ export default function InstaCompScanner({
   function requestBatchPause() {
     batchPauseRequestedRef.current = true;
     setBatchPauseRequested(true);
-    setBatchError("Pause requested. Current scan requests will finish first.");
+    setBatchError(
+      "Pause requested. Current claimed InstaComp mini-pack will finish first."
+    );
   }
 
   function toggleBatchCardSelected(cardId: string, selected: boolean) {
@@ -6588,8 +6590,6 @@ export default function InstaCompScanner({
         emptyClaimCount = 0;
 
         for (const item of claimedItems) {
-          if (batchPauseRequestedRef.current) break;
-
           const card = cardsByClientId.get(item.client_item_id);
 
           if (!card) {

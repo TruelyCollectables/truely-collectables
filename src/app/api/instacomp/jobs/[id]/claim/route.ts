@@ -16,7 +16,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 type RouteContext = { params: Promise<{ id: string }> };
-const INSTACOMP_SAFE_CLAIM_LIMIT = 1;
+const INSTACOMP_SAFE_CLAIM_LIMIT = 3;
 
 function claimedItemForClient(item: Record<string, any>) {
   const { lease_token: leaseToken, ...safeItem } = item;

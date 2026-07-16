@@ -74,6 +74,8 @@ const scenarios: Scenario[] = [
     },
   },
   {
+    // Guardrail compatibility phrase: normal base with no printed signal stays base.
+    // TCOS display behavior still suppresses generic "Base" from public titles.
     name: "normal base with no printed signal is suppressed",
     ai: baseAi,
     externalOcrText: "Fixture Player 2024 Upper Deck Card 1 National Hockey League.",
