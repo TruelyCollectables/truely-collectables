@@ -3,7 +3,7 @@
   "crons": [
     {
       "path": "/api/cron/seller-ebay-reconciliation",
-      "schedule": "0 */3 * * *"
+      "schedule": "0 9 * * *"
     },
     {
       "path": "/api/cron/stripe-reconciliation",
