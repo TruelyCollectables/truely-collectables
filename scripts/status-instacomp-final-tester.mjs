@@ -400,6 +400,108 @@ function readTrialGroundTruthGuideStatus(manifestAudit) {
   }
 }
 
+function readTrialGroundTruthWorksheetStatus(manifestAudit) {
+  const worksheetPath = "instacomp-trial-groundtruth.local.tsv";
+  const absolutePath = join(repoRoot, worksheetPath);
+  const requiredColumns = ["trialCardId", "player", "year", "setName", "cardNumber"];
+
+  if (!existsSync(absolutePath)) {
+    return {
+      path: worksheetPath,
+      exists: false,
+      rowCount: 0,
+      coreReadyRows: 0,
+      missingCoreRows: manifestAudit.expectedCards ?? null,
+      requiredColumnsPresent: false,
+      missingColumns: requiredColumns,
+      firstMissingRows: [],
+      next:
+        "Run npm run instacomp:trial:groundtruth:sheet to create the local TSV worksheet, then fill the answer key.",
+      error: null,
+    };
+  }
+
+  try {
+    const text = readFileSync(absolutePath, "utf8");
+    const lines = text
+      .split(/\r?\n/)
+      .map((line) => line.trimEnd())
+      .filter((line) => line.length > 0);
+    const header = lines[0]?.split("\t") || [];
+    const missingColumns = requiredColumns.filter((column) => !header.includes(column));
+    const columnIndex = new Map(header.map((column, index) => [column, index]));
+    const dataRows = lines.slice(1);
+    const firstMissingRows = [];
+    let coreReadyRows = 0;
+
+    for (const [index, line] of dataRows.entries()) {
+      const cells = line.split("\t");
+      const missing = ["player", "year", "setName", "cardNumber"].filter((column) => {
+        const cellIndex = columnIndex.get(column);
+        return cellIndex === undefined || !(cells[cellIndex] || "").trim();
+      });
+      if (missing.length === 0) {
+        coreReadyRows += 1;
+      } else if (firstMissingRows.length < 5) {
+        const trialCardIdIndex = columnIndex.get("trialCardId");
+        firstMissingRows.push({
+          trialCardId:
+            trialCardIdIndex === undefined || !(cells[trialCardIdIndex] || "").trim()
+              ? `row-${index + 2}`
+              : cells[trialCardIdIndex].trim(),
+          row: index + 2,
+          missing,
+        });
+      }
+    }
+
+    const expectedCards = manifestAudit.expectedCards ?? dataRows.length;
+    const requiredColumnsPresent = missingColumns.length === 0;
+    const missingCoreRows = requiredColumnsPresent
+      ? Math.max(0, expectedCards - coreReadyRows)
+      : expectedCards;
+    const currentWithManifest =
+      requiredColumnsPresent &&
+      dataRows.length === expectedCards &&
+      coreReadyRows === (manifestAudit.readyRows ?? coreReadyRows) &&
+      missingCoreRows === (manifestAudit.missingCoreRows ?? missingCoreRows);
+
+    return {
+      path: worksheetPath,
+      exists: true,
+      rowCount: dataRows.length,
+      coreReadyRows,
+      missingCoreRows,
+      requiredColumnsPresent,
+      missingColumns,
+      currentWithManifest,
+      firstMissingRows,
+      next: !requiredColumnsPresent
+        ? "Regenerate the TSV with npm run instacomp:trial:groundtruth:sheet; required columns are missing."
+        : coreReadyRows >= expectedCards
+          ? "Worksheet core fields are filled. Run npm run instacomp:trial:groundtruth:apply, then npm run instacomp:trial:intake."
+          : "Fill player/year/setName/cardNumber in the TSV, save it, run npm run instacomp:trial:groundtruth:apply, then rerun npm run instacomp:trial:intake.",
+      error: null,
+    };
+  } catch (error) {
+    return {
+      path: worksheetPath,
+      exists: true,
+      rowCount: 0,
+      coreReadyRows: 0,
+      missingCoreRows: manifestAudit.expectedCards ?? null,
+      requiredColumnsPresent: false,
+      missingColumns: requiredColumns,
+      currentWithManifest: false,
+      firstMissingRows: [],
+      next: `Rerun npm run instacomp:trial:groundtruth:sheet; worksheet could not be read: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
+
 const manifestPath = "instacomp-trial-manifest.local.json";
 const resultsPath = "instacomp-trial-results.local.json";
 const trialInboxDir = "instacomp-trial-inbox";
@@ -455,6 +557,7 @@ const trialIntakePacket = readTrialIntakePacketStatus(
   trialImageMap,
 );
 const trialGroundTruthGuide = readTrialGroundTruthGuideStatus(trialManifestAudit);
+const trialGroundTruthWorksheet = readTrialGroundTruthWorksheetStatus(trialManifestAudit);
 
 const checklist = [
   {
@@ -532,7 +635,12 @@ const checklist = [
     key: "trial_groundtruth_sheet",
     label:
       "The local ground-truth worksheet can export the 100-card manifest to an ignored TSV, let the operator fill the answer key in a spreadsheet, and apply it back to the manifest before the audit.",
-    status: "ready_to_test",
+    status: trialGroundTruthWorksheet.requiredColumnsPresent
+      ? trialGroundTruthWorksheet.coreReadyRows >=
+        (trialManifestAudit.expectedCards ?? trialGroundTruthWorksheet.rowCount)
+        ? "ready_to_apply"
+        : "worksheet_current_but_needs_groundtruth"
+      : "needs_groundtruth_sheet",
   },
   {
     key: "trial_groundtruth_guide",
@@ -674,6 +782,7 @@ const readiness = {
     expectedImageCount: 200,
     imageDropZoneGuide: trialImageDropZoneGuide,
     manifestAudit: trialManifestAudit,
+    groundTruthWorksheet: trialGroundTruthWorksheet,
     groundTruthGuide: trialGroundTruthGuide,
     imageAudit: trialImageAudit,
     imageMap: trialImageMap,
@@ -746,6 +855,20 @@ if (jsonOutput) {
     );
   }
   console.log(`- trial ground truth next: ${readiness.localTrial.manifestAudit.next}`);
+  console.log(
+    `- trial answer-key worksheet: ${readiness.localTrial.groundTruthWorksheet.exists ? "present" : "missing"} - rows ${readiness.localTrial.groundTruthWorksheet.coreReadyRows}/${readiness.localTrial.groundTruthWorksheet.rowCount} core-ready - ${readiness.localTrial.groundTruthWorksheet.path}`,
+  );
+  console.log(
+    `- trial answer-key worksheet columns: ${readiness.localTrial.groundTruthWorksheet.requiredColumnsPresent ? "ok" : `missing ${readiness.localTrial.groundTruthWorksheet.missingColumns.join(", ")}`}`,
+  );
+  if (readiness.localTrial.groundTruthWorksheet.error) {
+    console.log(
+      `- trial answer-key worksheet error: ${readiness.localTrial.groundTruthWorksheet.error}`,
+    );
+  }
+  console.log(
+    `- trial answer-key worksheet next: ${readiness.localTrial.groundTruthWorksheet.next}`,
+  );
   console.log(
     `- trial answer-key guide: ${readiness.localTrial.groundTruthGuide.exists ? "present" : "missing"} - ${readiness.localTrial.groundTruthGuide.matchesCurrentAudit ? "matches audit" : "not ready"} - ${readiness.localTrial.groundTruthGuide.path}`,
   );
