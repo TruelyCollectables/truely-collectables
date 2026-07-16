@@ -12,11 +12,11 @@ Main TCOS website/domain: TotallyCollectibles.com.
 
 Flagship store / Store #1: Truely Collectables.
 
-Last updated: 2026-07-12
+Last updated: 2026-07-15 21:49 MDT / 2026-07-16 03:49 UTC
 
 This is the working manual for Totally Collectibles OS (TCOS). It must stay current as features are added.
 
-This revision includes the durable InstaComp batch queue and PaddleOCR worker, InstaComp-to-seller-draft handoff, seller inventory InstaComp lane, seller marketplace export packets, seller eBay staging and reconciliation, Stripe payment reliability controls, seller payout guards, shipping/coverage operations, and complete laptop-failure disaster recovery. Procedures labeled `dry run`, `draft`, `review`, `export`, or `not configured` are not production completion claims.
+This revision includes the durable InstaComp batch queue and PaddleOCR worker, faster InstaComp image preparation and five-card queue claim mini-packs, database-pressure pause/governor behavior, 45-degree local image rotation and thumbnail zoom review, InstaComp-to-seller-draft handoff, InstaComp-to-Available-for-Trade handoff, seller inventory InstaComp lane, seller marketplace export packets, seller eBay staging and reconciliation, Stripe payment reliability controls, seller payout guards, shipping/coverage operations, and complete laptop-failure disaster recovery. Procedures labeled `dry run`, `draft`, `review`, `export`, or `not configured` are not production completion claims.
 
 ## Deterministic Application Fonts
 
@@ -2115,7 +2115,7 @@ Current behavior:
 - accepts up to 500 card rows in one durable batch job
 - accepts front-only cards but performs better with front/back pairs
 - pairs files by explicit front/back filename signals when available; otherwise it pairs upload 1 with 2, 3 with 4, and so on
-- registers and confirms rows in chunks of at most 25 and uploads original images directly to private Supabase Storage
+- registers and confirms rows in chunks of at most 50 and uploads original images directly to private Supabase Storage
 - can recover a saved server job after a page reload or browser restart and resume eligible unfinished rows
 - creates targeted contrast, inverted, edge, band, and serial-stamp crops in the browser for the multipart fallback path; the local PaddleOCR service creates its own targeted serial crops for durable jobs that supply only the original card sides
 - sends no more than the configured OCR image limit through the PaddleOCR path
@@ -2123,13 +2123,17 @@ Current behavior:
 - can use Google Vision as an optional OCR fallback
 - uses OpenAI vision for structured card identification and a dedicated serial-number pass
 - prefers printed back evidence for year, set, card number, and manufacturer when front/back evidence conflicts
-- searches configured TCOS, eBay, COMC, and broader comp providers
+- searches configured TCOS, eBay, sold/marketplace providers, and broader research providers; COMC is kept as checklist/reference context and is not used in the active comp equation
 - displays player, year, brand, set, card number, parallel, serial number, team, sport, condition clue, confidence, comps, and OCR diagnostics
+- shows `Buy Me on TCOS` and `Trade For Me on TCOS` lookup actions so the detected card can be searched against TCOS sale and trade surfaces
 - creates seller-owned drafts when a valid seller session owns the job, or store-owned drafts when an admin session owns the job
+- lets a seller-owned scan row be added to Available for Trade instead of creating a sell draft; a row cannot do both
 - refreshes a stored seller session before long-running authenticated queue and draft requests when the token is close to expiration
 - never activates or publicly publishes those drafts automatically
 - keeps low-confidence, incomplete identity, uncertain-parallel, front-only, weak-pairing, and missing-comp rows in `review_required`; Auto-Pilot does not silently create drafts from those rows
 - uses item leases and bounded retry attempts so an interrupted row can be reclaimed without two workers completing the same attempt
+- supports thumbnail zoom review and 45-degree left/right local image rotation before retry; rotation uses the original local file plus cumulative degrees so filenames do not stack repeated `rotated-right-45` suffixes and repeated clicks do not shrink the preview
+- pauses on database connection pressure, backs browser concurrency down by one, and resumes with five-card claim mini-packs to reduce queue round-trips
 
 The browser currently acts as the queue worker. Uploaded jobs and results survive a reload, but OCR and AI work do not continue while every InstaComp browser tab is closed. This is a durable, resumable browser-driven queue, not a detached background worker.
 
@@ -3198,10 +3202,10 @@ Optional comps:
 GOOGLE_SEARCH_API_KEY=
 GOOGLE_SEARCH_ENGINE_ID=
 PRICECHARTING_API_TOKEN=
-APIFY_TOKEN=
-COMC_APIFY_ACTOR_ID=
 SERPAPI_API_KEY=
 ```
+
+COMC Apify active-listing ingestion is retired from InstaComp comp pricing. COMC remains available as a checklist/reference/search source through ordinary research links and catalog-reference prompts.
 
 Shipping provider readiness:
 
@@ -3350,6 +3354,7 @@ Apply every migration in timestamp order. Do not rely on a hand-selected subset.
 20260711010000_create_instacomp_scan_job_queue.sql
 20260711185500_create_live_shipping_launch_gate.sql
 20260712174000_add_seller_protection_financial_adjustments.sql
+20260716010000_add_instacomp_trade_handoff.sql
 ```
 
 The authoritative list is the complete `supabase/migrations` directory, including all earlier account, inventory, evidence, security, seller, and payout migrations. Apply migrations before using features that depend on new tables. A missing migration can appear as an unavailable page, `503`, failed draft creation, missing reconciliation data, or an unsafe launch-readiness blocker.
@@ -3362,6 +3367,14 @@ supabase/migrations/20260711010000_create_instacomp_scan_job_queue.sql
 
 It creates the job/item tables, private `instacomp-job-images` bucket, row-level-security policies, service-role grants, and claim/finish/fail/retry database functions. Applying the file locally does not update the hosted project. Use the Supabase CLI with authenticated database access or paste the complete migration into the target project's SQL Editor, then verify that it completed without errors.
 
+The InstaComp Available-for-Trade button is unavailable until this migration has been applied:
+
+```text
+supabase/migrations/20260716010000_add_instacomp_trade_handoff.sql
+```
+
+It adds `trade_collection_item_id`, `trade_available_at`, an index, and a sell-or-trade check constraint to `instacomp_scan_items` so one scan row cannot create both a sell draft and a trade collection item.
+
 Reference:
 
 - [Supabase database migrations](https://supabase.com/docs/guides/deployment/database-migrations)
@@ -3373,6 +3386,7 @@ Run:
 ```bash
 npm run lint
 npm run build
+npm run verify:instacomp
 npm run simulate:instacomp-jobs
 npm run simulate:instacomp-catalog-identity
 npm run manual:pdf
@@ -3380,10 +3394,11 @@ npm run manual:pdf
 
 Expected:
 
-- lint succeeds
+- lint succeeds with zero errors and zero warnings
 - compile succeeds
 - TypeScript succeeds
 - route generation succeeds
+- the full InstaComp verifier succeeds, including queue state, accuracy, catalog identity, printed-variant identity guard, scan-review, and 100-card trial scorekeeper fixture checks
 - all InstaComp queue state simulations succeed
 - all InstaComp catalog identity simulations succeed, including exact catalog confirmation, unapproved-source review, ambiguity review, serial-run mismatch review, and missing-candidate review
 - `docs/TCOS_OPERATOR_MANUAL_PRINT.html` is regenerated
@@ -3787,6 +3802,7 @@ Primary routes:
 /api/instacomp/jobs/[id]/items/[itemId]/complete
 /api/instacomp/jobs/[id]/items/[itemId]/fail
 /api/instacomp/jobs/[id]/items/[itemId]/retry
+/api/instacomp/trade-items
 ```
 
 Use `/admin/products/new` for normal lot intake. Use `/admin/instacomp` when a dedicated scan-lab view or recent-scan history is easier.
@@ -3948,10 +3964,10 @@ Use this controlled workflow:
 1. Open `/admin/products/new`.
 2. Drop the front/back images into the batch area.
 3. Confirm the displayed pairing before scanning.
-4. Leave `Parallel Scans` at the default `3`. The allowed range is `1` through `6`; use `1` or `2` if the laptop becomes unstable.
+4. Leave `Parallel Scans` at the default `4`. The allowed range is `1` through `6`; use `1` or `2` if the laptop becomes unstable or Supabase reports connection pressure.
 5. Click `Run Batch InstaComp`.
-6. Wait while the browser creates an idempotent job, registers no more than 25 rows at a time, creates bounded high-resolution derivatives, uploads them to private Storage, confirms each registered chunk, and queues the job.
-7. Keep the InstaComp tab open while it claims and scans rows. `Pause` stops new work only after current requests finish.
+6. Wait while the browser creates an idempotent job, registers no more than 50 rows at a time, creates bounded high-resolution derivatives, uploads them to private Storage with up to 6 concurrent signed uploads, confirms each registered chunk, and queues the job.
+7. Keep the InstaComp tab open while it claims and scans rows. The browser claims up to 5 queue rows per worker mini-pack to reduce database round-trips. `Pause` stops new work only after current requests finish.
 8. Inspect every `completed` and `review_required` row. A completed request is not a promise that the card identity is exact.
 9. Correct the title, positive listing price, quantity, identity fields, and price evidence.
 10. Filter to `Clean Ready` when possible.
@@ -3959,8 +3975,9 @@ Use this controlled workflow:
 12. Create drafts; the browser sends persistent draft requests one card at a time with limited parallelism instead of one oversized lot request.
 13. Use `Open InstaComp Drafts` from the success message, or `Open in InstaComp drafts` on an individual row, to open `/seller/inventory?status=draft&source=instacomp` with the relevant search/filter already applied.
 14. In Seller Inventory, keep the `Source` filter on `InstaComp`, inspect each draft, and fix any remaining readiness blockers before activation.
-15. For cross-listing prep only, select verified ready drafts and use `Copy Marketplace Packet` or `Download Marketplace CSV`. These files do not publish to eBay, Whatnot, or another external storefront.
-16. Activate only after the seller inventory readiness check, photos, title, price, shipping, authenticity, and platform-specific requirements are verified.
+15. For a trade-only card, use `Add to Available for Trade` instead of creating a sell draft. The trade handoff creates or reuses a seller-owned collection item marked Available for Trade. Do not use both sell-draft and trade handoff on the same scan row.
+16. For cross-listing prep only, select verified ready drafts and use `Copy Marketplace Packet` or `Download Marketplace CSV`. These files do not publish to eBay, Whatnot, or another external storefront.
+17. Activate only after the seller inventory readiness check, photos, title, price, shipping, authenticity, and platform-specific requirements are verified.
 
 `Run InstaComp Auto-Pilot` scans unfinished rows and attempts draft creation only for rows that pass both technical draft readiness and the queue review gate. A row marked `review_required` is not automatically drafted. Auto-Pilot never publishes a live listing.
 
@@ -3968,15 +3985,19 @@ If Auto-Pilot is paused, it finishes current scan requests but does not run its 
 
 Failed rows can be retried individually, all at once, or through the current visible filter.
 
+Use the thumbnail zoom and rotate controls before retrying a row whose image is sideways or hard to inspect. Each rotate click applies a 45-degree left or right correction from the original local image and updates the preview. Rotation requires the original file to still be present in the browser; recovered remote-only saved-lot images must be reselected locally before rotation can be applied.
+
+If a row or claim request reports database connection pressure, InstaComp pauses before claiming more work, reduces browser concurrency by one, and displays the pressure message. Wait for Supabase to catch up, then resume. Do not repeatedly click resume while the database is still reporting `Too many connections`.
+
 ### Registration, upload, recovery, and resume
 
 The durable flow separates image transfer from expensive OCR/AI work:
 
 1. The browser creates a job with a stable client batch ID so an identical create request can be replayed safely.
-2. It registers rows in chunks of at most 25.
+2. It registers rows in chunks of at most 50.
 3. Supabase returns short-lived, non-overwriting signed upload targets for the private bucket. Every registered image requires a browser-computed SHA-256 digest.
-4. The browser uploads the bounded card-side derivatives and bulk-confirms no more than 25 registered rows per request.
-5. The browser marks the complete job `queued`, claims rows with leases, and calls the JSON scan path using job/item IDs instead of resending image bytes.
+4. The browser uploads the bounded card-side derivatives with up to 6 concurrent signed uploads and bulk-confirms no more than 50 registered rows per request.
+5. The browser marks the complete job `queued`, claims rows with leases in up to 5-card mini-packs, and calls the JSON scan path using job/item IDs instead of resending image bytes.
 6. The server downloads the private derivatives, verifies their registered size and SHA-256 digest, performs OCR/AI/comp work, and atomically records either `completed`, `review_required`, a retry, or a terminal failure.
 
 The current browser stores the active job reference locally and also checks the server for the newest recoverable job. Reloading or reopening InstaComp can restore registered rows, signed image previews, saved results, counts, and retry state. If an object uploaded immediately before a crash but its confirmation did not finish, recovery can confirm the existing object. If the browser crashed before later files were registered or uploaded, those local file bytes do not exist on the server; cancel/clear the partial job and reselect the original files.
@@ -4002,6 +4023,8 @@ Queue item statuses:
 Rows default to at most three attempts. Claims use expiring leases and the database selects available rows with row locks, which prevents two workers from owning the same live attempt. A retryable failure enters `retry_wait`; an expired lease can be reclaimed until attempts are exhausted. Manual retry returns an eligible terminal row to the queue. Cancellation immediately cancels unclaimed work and waits for any still-valid processing lease before finalizing the job.
 
 Queue creation guardrails currently allow no more than three active jobs and 1,500 submitted card rows in a rolling 24-hour period for the same ownership context. Finish or cancel an existing lot instead of repeatedly creating replacements. Each individual job still has the 500-row maximum and configured scan concurrency from 1 through 6.
+
+The claim API caps one browser worker claim at 5 rows. Keep the browser and server cap aligned when changing scan throughput; raising browser concurrency without aligning claim limits only increases polling pressure without increasing completed-card throughput.
 
 ### What InstaComp reads
 
@@ -4131,6 +4154,35 @@ Draft creation facts:
 
 A new browser re-upload/rescan can produce new client and scan IDs. Do not assume cross-session duplicate prevention is perfect; check Seller Inventory before retrying a large draft operation.
 
+### Available for Trade handoff
+
+Seller-owned InstaComp rows can be sent to the trade side instead of the sell side with `Add to Available for Trade`. This route is:
+
+```text
+/api/instacomp/trade-items
+```
+
+Trade handoff facts:
+
+- requires the card owner to be signed in as a seller account;
+- requires a completed or reviewable persistent InstaComp row;
+- creates or reuses an `account_collection_items` row for the seller account and active store;
+- marks the collection item as Available for Trade and stores an InstaComp evidence snapshot in metadata;
+- saves the resulting collection item ID back to `instacomp_scan_items.trade_collection_item_id`;
+- records `trade_available_at`;
+- refuses trade handoff when the scan row already created a sell draft;
+- refuses sell-draft duplication when the row is already marked Available for Trade.
+
+The sell/trade exclusivity is enforced by:
+
+```text
+supabase/migrations/20260716010000_add_instacomp_trade_handoff.sql
+```
+
+The database constraint allows `draft_inventory_item_id` or `trade_collection_item_id`, not both. If the route returns a migration-required error, apply that migration before using `Add to Available for Trade`.
+
+Use the `Buy Me on TCOS` and `Trade For Me on TCOS` buttons as search/discovery handoffs. They do not create a listing or trade item by themselves; they help operators and future customers search for the detected card on the TCOS sale and trade surfaces.
+
 ### Seller Inventory InstaComp lane and marketplace export packets
 
 Seller-created InstaComp drafts appear in Seller Inventory with:
@@ -4223,7 +4275,8 @@ If a serial is visible but missing:
 - suggested price is the median of included live matches
 - the configured eBay Browse provider returns active asking prices, not completed-sales proof
 - registered sold-data sources may appear as research links without live ingestion
-- COMC ingestion depends on configured Apify actor access and credits
+- COMC active-price ingestion has been removed from the comp equation; COMC remains a checklist/reference/search source only
+- Sportlots, Panini America, Upper Deck, Cardboard Connection, Blowout Cards, TCDB, and COMC checklist pages can help identity review, but checklist/reference sources must not be treated as sold comps unless a permitted sold-price provider supplies transaction evidence
 - provider failure can leave the identification result usable while comps remain incomplete
 - Supabase scan-save failure can leave `scanId` empty even when the browser displays the result
 
@@ -5053,6 +5106,26 @@ Checklist for future changes:
 12. Run the external `VERIFY_BACKUP.ps1` and require a clean result.
 
 The app should not get ahead of the documentation.
+
+Recent InstaComp catch-up through commit `087bda1`:
+
+- Batch image rotation now works for single-card and batch rows with 45-degree left/right clicks. Rotation is based on the original local image plus cumulative degrees, strips repeated rotated filename suffixes, and avoids repeated-preview shrinkage. Recovered remote-only saved-lot images must be reselected locally before rotation.
+- Batch thumbnails can be clicked for larger image review, with zoom-oriented controls so operators can inspect wrong pairings, Clear Cut backs, serial stamps, and variant clues before retrying.
+- The scanner no longer prints `Front` and `Back` labels under thumbnails; it groups paired images by upload/pair order while retaining internal front/back pairing state.
+- Clear Batch and cancellation recovery now handle active worker leases more safely. If cancellation is waiting for an existing lease, the saved lot remains recoverable and the operator should retry Clear Batch shortly instead of manually deleting queue rows.
+- InstaComp title generation suppresses generic `Base`, strips duplicate player/release/parallel/card-number echoes, treats Upper Deck as manufacturer for O-Pee-Chee Platinum, preserves Upper Deck Series 1/2/Extended as release names, preserves true one-of-one display, and uses serial print runs such as `/50` instead of exact copy numbers except for `1/1`.
+- Printed variant/parallel identity is guarded so visible Limited Red, Clear Cut, acetate/clear-stock, insert, color foil, refractor, prizm, holo, wave, shimmer, ice, laser, scope, pulsar, mojo, mosaic, and similar cues cannot stay as generic base. Ambiguous printed cues stay in review rather than being overclaimed.
+- Clear Cut detection now treats clear/acetate stock, Clear Cut text, and matching back-logo evidence as variant signals that can override generic set/base guesses.
+- COMC active-price ingestion is removed from the comp equation. COMC, Sportlots, Panini America, Upper Deck, Cardboard Connection, Blowout Cards, TCDB, and similar sources remain reference/checklist context for identity review when usage rights allow.
+- External provider failures and dead providers are skipped during batch scans so one failed provider does not stall the entire batch.
+- Upload/scan throughput was raised for the durable queue: row registration and confirmation chunks are 50, signed upload concurrency is 6, default browser scan concurrency is 4, maximum browser scan concurrency is 6, and queue claim mini-packs are 5 rows with a matching server cap.
+- Front/back image optimization and serial-detail crop preparation run in parallel where safe, and the JSON scan route converts front/back/detail image data concurrently before OCR/AI work.
+- Database connection pressure now trips a browser-side pressure governor: scanning pauses before claiming more work, browser concurrency backs down by one, and the operator sees a specific pressure message instead of repeated generic failures.
+- InstaComp Auto-Pilot branding now includes `InstaComp™`.
+- `Buy Me on TCOS` and `Trade For Me on TCOS` buttons were added as sale/trade search handoffs for detected cards.
+- `Add to Available for Trade` was added for seller-owned scans. It creates or reuses a collection item marked Available for Trade, writes the handoff back to the scan row, and is mutually exclusive with sell-draft creation.
+- The trade handoff is protected by `20260716010000_add_instacomp_trade_handoff.sql`; apply it before using Available for Trade.
+- Lint is now clean with zero warnings after removing dead COMC active-provider code and aligning the claim route with the five-card mini-pack throughput.
 
 Recent seller workspace wording cleanup:
 
