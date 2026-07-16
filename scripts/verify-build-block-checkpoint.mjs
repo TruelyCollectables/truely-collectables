@@ -211,6 +211,12 @@ if (payload) {
   );
   checks.push(
     check(
+      fallbackCommands.includes("npm run instacomp:trial:stage-images"),
+      "local build fallback preserves InstaComp trial image staging command",
+    ),
+  );
+  checks.push(
+    check(
       fallbackCommands.includes("npm run instacomp:trial:monitor"),
       "local build fallback preserves InstaComp trial readiness monitor command",
     ),

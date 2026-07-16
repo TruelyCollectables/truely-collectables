@@ -172,6 +172,12 @@ if (payload) {
     );
     checks.push(
       check(
+        commands.includes("npm run instacomp:trial:stage-images"),
+        "fallback selection preserves InstaComp trial image staging command",
+      ),
+    );
+    checks.push(
+      check(
         commands.includes("npm run instacomp:trial:monitor"),
         "fallback selection preserves InstaComp trial readiness monitor command",
       ),

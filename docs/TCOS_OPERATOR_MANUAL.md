@@ -3917,7 +3917,20 @@ The trial harness is local and read-only. It does not publish listings, buy post
 
 1. Put the trial images in a local folder such as `instacomp-trial-images/`.
 2. Name each card pair with a stable number, for example `001-front.jpg`, `001-back.jpg`, through `100-front.jpg`, `100-back.jpg`. If the scanner exports plain ordered files such as `scan_0001.jpg`, `scan_0002.jpg`, and so on, keep the folder sorted in intended upload order; the audit treats `1+2`, `3+4`, and onward as front/back pairs when no explicit front/back token is present.
-3. Run the one-command local prep bundle:
+3. If the scanner exports raw files that need to be normalized, drop them in ignored local folder `instacomp-trial-inbox/`, then dry-run the local image staging helper:
+
+```bash
+npm run instacomp:trial:stage-images
+```
+
+That command prints schema `tcos.instacompTrialImageStage.v1`, writes `instacomp-trial-stage.local.json` plus `instacomp-trial-stage.local.md`, and shows whether the raw scanner files can be copied into `instacomp-trial-images/` as normalized `001-front`, `001-back`, `002-front`, `002-back` files. It accepts explicit front/back filenames or plain ordered scanner exports. The default is a dry run; when the receipt is clean, apply it:
+
+```bash
+npm run instacomp:trial:stage-images -- --apply
+```
+
+The staging helper copies files only; it does not delete originals. Existing target files block apply unless you explicitly add `--overwrite`. It is local/read-only for live systems and does not scan cards, deploy, publish listings, buy postage, create Checkout, call production APIs, approve live money, release payouts, or change runtime switches.
+4. Run the one-command local prep bundle:
 
 ```bash
 npm run instacomp:trial:prep
@@ -3939,7 +3952,7 @@ If you need only the manifest, create the local manifest:
 npm run instacomp:trial:init
 ```
 
-4. Open `instacomp-trial-manifest.local.json` and fill the `expected` fields from the physical card before using the scan result. Required ground-truth fields for scoring are player/subject, year, set, and card number. Important recommended fields are brand/manufacturer, parallel, variation, team, sport, autograph/relic/rookie flags, exact serial number such as `07/50`, and serial run such as `/50`.
+5. Open `instacomp-trial-manifest.local.json` and fill the `expected` fields from the physical card before using the scan result. Required ground-truth fields for scoring are player/subject, year, set, and card number. Important recommended fields are brand/manufacturer, parallel, variation, team, sport, autograph/relic/rookie flags, exact serial number such as `07/50`, and serial run such as `/50`.
 
 If editing JSON for 100 cards is too slow, write the local spreadsheet-style answer sheet:
 
@@ -3954,14 +3967,14 @@ npm run instacomp:trial:groundtruth:apply
 ```
 
 The apply command only updates the local manifest from matching `trialCardId` rows. It does not scan, deploy, publish listings, buy postage, create Checkout, or touch production APIs.
-5. Before scanning, audit the ground-truth manifest:
+6. Before scanning, audit the ground-truth manifest:
 
 ```bash
 npm run instacomp:trial:groundtruth
 ```
 
 That command is local and read-only. It prints schema `tcos.instacompTrialManifestAudit.v1` and fails until every `trial-card-###` row has player/year/set/card number filled, no `trialCardId` rows are blank, and no duplicate `trialCardId` values exist. This prevents a fake `94%` pass when the answer key is still empty.
-6. Before scanning, audit the folder so missing fronts/backs, duplicate images, unknown filenames, and extra files are caught before the scanner wastes time:
+7. Before scanning, audit the folder so missing fronts/backs, duplicate images, unknown filenames, and extra files are caught before the scanner wastes time:
 
 ```bash
 npm run instacomp:trial:audit

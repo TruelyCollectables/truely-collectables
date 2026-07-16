@@ -334,6 +334,8 @@ const trialImageDropZoneGuide = {
   explicitPairPattern:
     "Explicit side filenames can use front/fr/f/obverse and back/bk/b/reverse/rear. Example: 001-front.jpg + 001-back.jpg.",
   afterCopyCommands: [
+    "npm run instacomp:trial:stage-images",
+    "npm run instacomp:trial:stage-images -- --apply",
     "npm run instacomp:trial:prep",
     "npm run instacomp:trial:groundtruth:sheet",
     "npm run instacomp:trial:groundtruth:apply",
@@ -435,6 +437,12 @@ const checklist = [
     key: "trial_prep_bundle",
     label:
       "The one-command local prep bundle can create a missing manifest, preserve an existing answer sheet, refresh the image-map/intake packet, and write JSON/Markdown preflight proof before scan time is spent.",
+    status: "ready_to_test",
+  },
+  {
+    key: "trial_image_staging",
+    label:
+      "The local image staging helper can dry-run raw scanner exports from instacomp-trial-inbox, normalize clean pairs into instacomp-trial-images as 001-front/001-back files, and write a receipt without deleting originals.",
     status: "ready_to_test",
   },
   {
@@ -540,6 +548,8 @@ const readiness = {
     writeTrialGroundTruthSheet: "npm run instacomp:trial:groundtruth:sheet",
     applyTrialGroundTruthSheet: "npm run instacomp:trial:groundtruth:apply",
     prepTrial: "npm run instacomp:trial:prep",
+    stageTrialImages: "npm run instacomp:trial:stage-images",
+    applyStagedTrialImages: "npm run instacomp:trial:stage-images -- --apply",
     monitorTrial: "npm run instacomp:trial:monitor",
     monitorTrialJson: "npm run instacomp:trial:monitor:json",
     auditTrialGroundTruth: "npm run instacomp:trial:groundtruth",
@@ -654,6 +664,8 @@ if (jsonOutput) {
   console.log(`- write trial ground truth sheet: ${readiness.commands.writeTrialGroundTruthSheet}`);
   console.log(`- apply trial ground truth sheet: ${readiness.commands.applyTrialGroundTruthSheet}`);
   console.log(`- prep trial bundle: ${readiness.commands.prepTrial}`);
+  console.log(`- dry-run trial image staging: ${readiness.commands.stageTrialImages}`);
+  console.log(`- apply trial image staging: ${readiness.commands.applyStagedTrialImages}`);
   console.log(`- monitor trial readiness: ${readiness.commands.monitorTrial}`);
   console.log(`- audit trial ground truth: ${readiness.commands.auditTrialGroundTruth}`);
   console.log(`- audit trial images: ${readiness.commands.auditTrialImages}`);
