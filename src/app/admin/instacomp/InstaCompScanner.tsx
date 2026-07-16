@@ -3739,6 +3739,8 @@ export default function InstaCompScanner({
     (card) => card.selected && isCorrectionSavableBatchCard(card)
   );
   const selectedSavableCorrectionCount = selectedSavableCorrectionCards.length;
+  const selectedRefreshableCompCards = selectedSavableCorrectionCards;
+  const selectedRefreshableCompCount = selectedRefreshableCompCards.length;
   const selectedOperatorMarkedProblemCount = batchCards.filter(
     (card) => card.selected && isOperatorMarkedProblemBatchCard(card)
   ).length;
@@ -7205,6 +7207,131 @@ export default function InstaCompScanner({
     setBatchRunning(false);
   }
 
+  async function refreshBatchCardComps(cardId: string) {
+    if (batchRunning || batchDrafting || batchKnowledgeSaving) return;
+
+    const card = batchCards.find((row) => row.id === cardId);
+
+    if (!card) return;
+
+    if (!isCorrectionSavableBatchCard(card)) {
+      setBatchError(
+        "Run Batch InstaComp first so this row has a saved lot record, then refresh comps."
+      );
+      return;
+    }
+
+    batchPauseRequestedRef.current = false;
+    databasePressurePauseRef.current = false;
+    openAIRateLimitPauseRef.current = false;
+    setBatchRunning(true);
+    setBatchError(null);
+    setBatchDraftMessage("Refreshing comps for this row...");
+
+    try {
+      const refreshedResult = await repriceBatchCardWithSerialCorrection(card);
+      const marketPrice = marketPriceForCard({
+        ...card,
+        result: refreshedResult,
+      });
+
+      updateBatchCard(card.id, (current) => ({
+        ...current,
+        result: refreshedResult,
+        marketPrice,
+        customPrice:
+          current.customPrice.trim() || !marketPrice
+            ? current.customPrice
+            : marketPrice.toFixed(2),
+      }));
+      setBatchDraftMessage("Refreshed comps for this InstaComp row.");
+    } catch (error: any) {
+      if (
+        !handleBatchOpenAIRateLimitError(error) &&
+        !handleBatchDatabasePressureError(error)
+      ) {
+        setBatchError(error?.message || "Could not refresh comps for this row.");
+      }
+      setBatchDraftMessage(null);
+    } finally {
+      setBatchRunning(false);
+    }
+  }
+
+  async function refreshSelectedBatchComps() {
+    if (batchRunning || batchDrafting || batchKnowledgeSaving) return;
+
+    const cardsToRefresh = batchCards.filter(
+      (card) => card.selected && isCorrectionSavableBatchCard(card)
+    );
+
+    if (!cardsToRefresh.length) {
+      setBatchError(
+        "Select completed rows from a saved InstaComp lot before refreshing comps."
+      );
+      return;
+    }
+
+    batchPauseRequestedRef.current = false;
+    databasePressurePauseRef.current = false;
+    openAIRateLimitPauseRef.current = false;
+    setBatchRunning(true);
+    setBatchError(null);
+    setBatchDraftMessage(
+      `Refreshing comps for ${cardsToRefresh.length} selected row${
+        cardsToRefresh.length === 1 ? "" : "s"
+      }...`
+    );
+
+    let refreshedCount = 0;
+    const failedTitles: string[] = [];
+
+    for (const card of cardsToRefresh) {
+      try {
+        const refreshedResult = await repriceBatchCardWithSerialCorrection(card);
+        const marketPrice = marketPriceForCard({
+          ...card,
+          result: refreshedResult,
+        });
+
+        refreshedCount += 1;
+        updateBatchCard(card.id, (current) => ({
+          ...current,
+          result: refreshedResult,
+          marketPrice,
+          customPrice:
+            current.customPrice.trim() || !marketPrice
+              ? current.customPrice
+              : marketPrice.toFixed(2),
+        }));
+      } catch (error) {
+        if (handleBatchOpenAIRateLimitError(error) || handleBatchDatabasePressureError(error)) {
+          failedTitles.push(draftTitleForCard(card));
+          break;
+        }
+
+        failedTitles.push(draftTitleForCard(card));
+      }
+    }
+
+    if (failedTitles.length) {
+      setBatchError(
+        `Refreshed ${refreshedCount}/${cardsToRefresh.length} selected row${
+          cardsToRefresh.length === 1 ? "" : "s"
+        }. Failed: ${failedTitles.slice(0, 3).join(", ")}${
+          failedTitles.length > 3 ? "..." : ""
+        }`
+      );
+    }
+
+    setBatchDraftMessage(
+      `Refreshed comps for ${refreshedCount} selected row${
+        refreshedCount === 1 ? "" : "s"
+      }.`
+    );
+    setBatchRunning(false);
+  }
+
   async function processSavedLotToKnowledgeBase() {
     if (batchRunning || batchDrafting || batchKnowledgeSaving) return;
 
@@ -10277,6 +10404,38 @@ export default function InstaCompScanner({
 
           <button
             type="button"
+            onClick={() => void refreshSelectedBatchComps()}
+            disabled={
+              batchRunning ||
+              batchDrafting ||
+              batchKnowledgeSaving ||
+              selectedRefreshableCompCount === 0
+            }
+            style={{
+              ...secondaryButtonStyle,
+              borderColor: "#7c3aed",
+              color: "#5b21b6",
+              cursor:
+                batchRunning ||
+                batchDrafting ||
+                batchKnowledgeSaving ||
+                selectedRefreshableCompCount === 0
+                  ? "not-allowed"
+                  : "pointer",
+              opacity:
+                batchRunning ||
+                batchDrafting ||
+                batchKnowledgeSaving ||
+                selectedRefreshableCompCount === 0
+                  ? 0.55
+                  : 1,
+            }}
+          >
+            Refresh Selected Comps ({selectedRefreshableCompCount})
+          </button>
+
+          <button
+            type="button"
             onClick={() => void processSavedLotToKnowledgeBase()}
             disabled={
               batchRunning ||
@@ -11847,6 +12006,7 @@ export default function InstaCompScanner({
                 onOperatorNeedsMoreInfoChange={toggleBatchCardOperatorNeedsMoreInfo}
                 onRotateImage={rotateBatchCardImage}
                 onSwapImages={swapBatchCardImages}
+                onRefreshComps={refreshBatchCardComps}
                 onSaveCorrections={saveBatchCardCorrections}
                 onAddToTrade={addBatchCardToTrade}
                 onRetry={retryBatchCard}
@@ -12932,6 +13092,7 @@ function BatchCardRow({
   onOperatorNeedsMoreInfoChange,
   onRotateImage,
   onSwapImages,
+  onRefreshComps,
   onSaveCorrections,
   onAddToTrade,
   onRetry,
@@ -12962,6 +13123,7 @@ function BatchCardRow({
     direction: "left" | "right"
   ) => void | Promise<void>;
   onSwapImages: (cardId: string) => void;
+  onRefreshComps: (cardId: string) => void | Promise<void>;
   onSaveCorrections: (cardId: string) => void | Promise<void>;
   onAddToTrade: (cardId: string) => void | Promise<void>;
   onRetry: (cardId: string) => void;
@@ -13004,6 +13166,7 @@ function BatchCardRow({
     card.file.size > 0 &&
     Boolean(card.backFile?.size);
   const canSaveCorrections = !batchBusy && isCorrectionSavableBatchCard(card);
+  const canRefreshComps = canSaveCorrections;
   const canAddToTrade =
     !batchBusy &&
     card.status === "done" &&
@@ -13400,6 +13563,27 @@ function BatchCardRow({
                 }}
               >
                 Save Corrections
+              </button>
+
+              <button
+                type="button"
+                onClick={() => void onRefreshComps(card.id)}
+                disabled={!canRefreshComps}
+                title={
+                  canRefreshComps
+                    ? "Refresh comps and market price for this saved InstaComp row."
+                    : "Run Batch InstaComp first so this row has a saved lot record, then refresh comps."
+                }
+                style={{
+                  ...secondaryButtonStyle,
+                  padding: "8px 10px",
+                  borderColor: "#7c3aed",
+                  color: "#5b21b6",
+                  opacity: canRefreshComps ? 1 : 0.5,
+                  cursor: canRefreshComps ? "pointer" : "not-allowed",
+                }}
+              >
+                Refresh Comps
               </button>
 
               <button

@@ -227,6 +227,7 @@ These may fail production smoke until a successful Vercel deploy lands the queue
   - Serial correction rule: completed rows have an editable `Serial #` field. Blank means no serial. `Save Corrections` requeues the row, applies the operator serial override before catalog/consensus/comps, reruns InstaComp pricing, and then persists the corrected result.
   - Image correction rule: use `Swap Front/Back` under paired thumbnails when an upload pair is reversed, then `Retry Row` to rescan that row with the corrected side order.
   - Graded slab rule: InstaComp now reads grading company, grade, certification number, cert lookup URL, and grading evidence separately from card serial numbers. Batch rows show a grading badge/link, draft titles append grader/grade, seller drafts receive authenticity cert provider/number, trade handoffs save grade company/value/certification number, and exact comp filtering requires matching grader/grade evidence for graded targets.
+  - Comp refresh rule: saved lot rows now have a per-row `Refresh Comps` button and selected completed saved rows can be checked and run through `Refresh Selected Comps` so only those rows are re-comped/repriced and persisted.
   - Expected build size: about 6–9 focused build hours for the MVP backbone; 2–3 days for polished duplicate merging, image fingerprinting, admin review queues, bulk imports, and full catalog management.
 - Next priority after the Card Knowledge Base MVP: build the “Vicodin” InstaComp speed MVP.
   - Goal: make scans feel dramatically faster without sacrificing accuracy.
