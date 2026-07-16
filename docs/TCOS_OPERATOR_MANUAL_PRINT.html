@@ -3768,7 +3768,7 @@ rear</code></pre>
 <p>The trial harness is local and read-only. It does not publish listings, buy postage, create Checkout sessions, deploy, change live-money flags, or call production APIs. It only scores a completed InstaComp run against a ground-truth manifest.</p>
 <ol>
 <li>Put the trial images in a local folder such as <code>instacomp-trial-images/</code>.</li>
-<li>Name each card pair with a stable number, for example <code>001-front.jpg</code>, <code>001-back.jpg</code>, through <code>100-front.jpg</code>, <code>100-back.jpg</code>.</li>
+<li>Name each card pair with a stable number, for example <code>001-front.jpg</code>, <code>001-back.jpg</code>, through <code>100-front.jpg</code>, <code>100-back.jpg</code>. If the scanner exports plain ordered files such as <code>scan_0001.jpg</code>, <code>scan_0002.jpg</code>, and so on, keep the folder sorted in intended upload order; the audit treats <code>1+2</code>, <code>3+4</code>, and onward as front/back pairs when no explicit front/back token is present.</li>
 <li>Create the local manifest:</li>
 </ol>
 <pre><code>npm run instacomp:trial:init</code></pre>
@@ -3777,7 +3777,7 @@ rear</code></pre>
 <li>Before scanning, audit the folder so missing fronts/backs, duplicate images, unknown filenames, and extra files are caught before the scanner wastes time:</li>
 </ol>
 <pre><code>npm run instacomp:trial:audit</code></pre>
-<p>The audit is read-only and writes nothing. It prints schema <code>tcos.instacompTrialImageAudit.v1</code>, confirms the expected 100 cards / 200 images, and fails until every numbered card has exactly one front and one back image.</p>
+<p>The audit is read-only and writes nothing. It prints schema <code>tcos.instacompTrialImageAudit.v1</code>, confirms the expected 100 cards / 200 images, reports ordered-pair candidate files and complete pairs, and fails until every card has exactly one front and one back image.</p>
 <ol>
 <li>Run the lot through <code>/admin/instacomp</code> or <code>/admin/products/new</code> using the safest durable batch workflow below.</li>
 <li>From <code>/admin/instacomp</code>, use <code>Export Trial Results</code> or <code>Copy Trial Results</code> after the batch finishes, then save the exported JSON as <code>instacomp-trial-results.local.json</code>. The export uses schema <code>tcos.instacompTrialResults.v1</code>, preserves row-stable trialCardId values such as <code>trial-card-001</code>, includes the detected <code>actual</code> fields, carries consensus/review status, and only includes completed visible scan rows. If you manually build the file instead, each row must use the same <code>trialCardId</code> as the manifest and can put detected fields under <code>actual</code>, <code>result</code>, <code>predicted</code>, or <code>ai</code>.</li>

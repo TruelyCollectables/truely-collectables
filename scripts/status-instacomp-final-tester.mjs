@@ -55,6 +55,8 @@ function runTrialImageAudit() {
       expectedImages: payload.expected?.images ?? null,
       parsedImageFiles: payload.observed?.parsedImageFiles ?? null,
       completePairs: payload.observed?.completePairs ?? null,
+      orderedPairCandidateFiles: payload.observed?.orderedPairCandidateFiles ?? null,
+      orderedPairCompletePairs: payload.observed?.orderedPairCompletePairs ?? null,
       missingFrontCount: Array.isArray(problems.missingFronts)
         ? problems.missingFronts.length
         : null,
@@ -92,6 +94,8 @@ function runTrialImageAudit() {
       expectedImages: null,
       parsedImageFiles: null,
       completePairs: null,
+      orderedPairCandidateFiles: null,
+      orderedPairCompletePairs: null,
       missingFrontCount: null,
       missingBackCount: null,
       duplicateFrontCount: null,
@@ -263,6 +267,9 @@ if (jsonOutput) {
   );
   console.log(
     `- trial image audit pairs: ${readiness.localTrial.imageAudit.completePairs ?? "unknown"}/${readiness.localTrial.imageAudit.expectedCards ?? "unknown"}`,
+  );
+  console.log(
+    `- trial ordered-pair files: ${readiness.localTrial.imageAudit.orderedPairCandidateFiles ?? "unknown"} files / ${readiness.localTrial.imageAudit.orderedPairCompletePairs ?? "unknown"} pairs`,
   );
   console.log(
     `- trial image audit problems: missing fronts ${readiness.localTrial.imageAudit.missingFrontCount ?? "unknown"}, missing backs ${readiness.localTrial.imageAudit.missingBackCount ?? "unknown"}, duplicates ${Number(readiness.localTrial.imageAudit.duplicateFrontCount || 0) + Number(readiness.localTrial.imageAudit.duplicateBackCount || 0)}, unknown files ${readiness.localTrial.imageAudit.unknownFileCount ?? "unknown"}, extra files ${readiness.localTrial.imageAudit.extraFileCount ?? "unknown"}`,

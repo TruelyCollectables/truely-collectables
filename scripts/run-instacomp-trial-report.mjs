@@ -243,6 +243,13 @@ function trialNumberFromFilename(filename) {
   return padTrialNumber(numeric);
 }
 
+function naturalFileSort(left, right) {
+  return left.localeCompare(right, undefined, {
+    numeric: true,
+    sensitivity: "base",
+  });
+}
+
 function expectedImageAuditRows(manifest, expectedCards) {
   const cardCount =
     Array.isArray(manifest?.cards) && manifest.cards.length > 0
@@ -292,6 +299,7 @@ async function auditTrialImages() {
   const expectedOrdinals = new Set(expectedRows.map((row) => row.ordinal));
   const groups = new Map();
   const unknownFiles = [];
+  const orderedPairFiles = [];
   const nonImageFiles = [];
 
   let entries = [];
@@ -310,11 +318,16 @@ async function auditTrialImages() {
     }
 
     const side = sideFromFilename(entry.name);
+    if (!side) {
+      orderedPairFiles.push(entry.name);
+      continue;
+    }
+
     const ordinal = trialNumberFromFilename(entry.name);
-    if (!side || !ordinal) {
+    if (!ordinal) {
       unknownFiles.push({
         file: entry.name,
-        reason: !side && !ordinal ? "missing number and side token" : !side ? "missing side token" : "missing card number",
+        reason: "missing card number",
       });
       continue;
     }
@@ -329,31 +342,53 @@ async function auditTrialImages() {
   const duplicateFronts = [];
   const duplicateBacks = [];
   const completePairs = [];
+  const orderedPairAssignments = [];
+  const sortedOrderedPairFiles = orderedPairFiles.sort(naturalFileSort);
 
-  for (const row of expectedRows) {
+  for (const [index, row] of expectedRows.entries()) {
     const group = groups.get(row.ordinal) || { ordinal: row.ordinal, front: [], back: [] };
-    if (group.front.length === 0) {
+    const orderedFront = sortedOrderedPairFiles[index * 2] || null;
+    const orderedBack = sortedOrderedPairFiles[index * 2 + 1] || null;
+    const frontCount = group.front.length + (orderedFront ? 1 : 0);
+    const backCount = group.back.length + (orderedBack ? 1 : 0);
+
+    if (orderedFront || orderedBack) {
+      orderedPairAssignments.push({
+        trialCardId: row.trialCardId,
+        front: orderedFront,
+        back: orderedBack,
+      });
+    }
+
+    if (frontCount === 0) {
       missingFronts.push(row.trialCardId);
-    } else if (group.front.length > 1) {
+    } else if (frontCount > 1) {
       duplicateFronts.push({
         trialCardId: row.trialCardId,
-        files: group.front,
+        files: [...group.front, orderedFront].filter(Boolean),
       });
     }
 
-    if (group.back.length === 0) {
+    if (backCount === 0) {
       missingBacks.push(row.trialCardId);
-    } else if (group.back.length > 1) {
+    } else if (backCount > 1) {
       duplicateBacks.push({
         trialCardId: row.trialCardId,
-        files: group.back,
+        files: [...group.back, orderedBack].filter(Boolean),
       });
     }
 
-    if (group.front.length === 1 && group.back.length === 1) {
+    if (frontCount === 1 && backCount === 1) {
       completePairs.push(row.trialCardId);
     }
   }
+
+  const unpairedOrderedFiles = sortedOrderedPairFiles
+    .slice(expectedRows.length * 2)
+    .map((file) => ({
+      file,
+      reason: "ordered image has no matching trial-card slot",
+    }));
 
   const extraFiles = [...groups.values()]
     .filter((group) => !expectedOrdinals.has(group.ordinal))
@@ -367,7 +402,7 @@ async function auditTrialImages() {
   const imageFileCount = [...groups.values()].reduce(
     (sum, group) => sum + group.front.length + group.back.length,
     0
-  ) + unknownFiles.length;
+  ) + sortedOrderedPairFiles.length + unknownFiles.length;
   const expectedImageCount = expectedRows.length * 2;
   const ready =
     expectedRows.length > 0 &&
@@ -377,7 +412,8 @@ async function auditTrialImages() {
     duplicateFronts.length === 0 &&
     duplicateBacks.length === 0 &&
     unknownFiles.length === 0 &&
-    extraFiles.length === 0;
+    extraFiles.length === 0 &&
+    unpairedOrderedFiles.length === 0;
 
   const report = {
     schema: "tcos.instacompTrialImageAudit.v1",
@@ -393,6 +429,10 @@ async function auditTrialImages() {
     observed: {
       parsedImageFiles: imageFileCount,
       completePairs: completePairs.length,
+      orderedPairCandidateFiles: sortedOrderedPairFiles.length,
+      orderedPairCompletePairs: orderedPairAssignments.filter(
+        (item) => item.front && item.back,
+      ).length,
       nonImageFiles,
     },
     readyToScan: ready,
@@ -403,7 +443,9 @@ async function auditTrialImages() {
       duplicateBacks,
       unknownFiles,
       extraFiles,
+      unpairedOrderedFiles,
     },
+    orderedPairAssignments: orderedPairAssignments.slice(0, 25),
     warnings,
     next: ready
       ? "Run the lot through /admin/instacomp, export trial results, then score with npm run instacomp:trial:report."
@@ -426,6 +468,12 @@ function printImageAudit(report) {
   console.log(`Images expected: ${report.expected.images}`);
   console.log(`Parsed image files: ${report.observed.parsedImageFiles}`);
   console.log(`Complete front/back pairs: ${report.observed.completePairs}`);
+  console.log(`Ordered-pair candidate files: ${report.observed.orderedPairCandidateFiles}`);
+  if (report.observed.orderedPairCandidateFiles > 0) {
+    console.log(
+      `Ordered-pair complete pairs: ${report.observed.orderedPairCompletePairs}`,
+    );
+  }
   console.log(`Ready to scan: ${report.readyToScan ? "yes" : "no"}`);
   if (report.manifestPath) console.log(`Manifest: ${report.manifestPath}`);
   console.log(`Image folder: ${report.imageDir}`);
@@ -443,6 +491,7 @@ function printImageAudit(report) {
     ["duplicate backs", report.problems.duplicateBacks],
     ["unknown image files", report.problems.unknownFiles],
     ["extra image files", report.problems.extraFiles],
+    ["unpaired ordered image files", report.problems.unpairedOrderedFiles],
   ];
 
   if (problemLines.some(([, rows]) => rows.length > 0)) {

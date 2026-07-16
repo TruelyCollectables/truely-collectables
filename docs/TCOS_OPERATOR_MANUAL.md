@@ -3915,7 +3915,7 @@ Use this trial when TCOS needs a real-world InstaComp accuracy check before trus
 The trial harness is local and read-only. It does not publish listings, buy postage, create Checkout sessions, deploy, change live-money flags, or call production APIs. It only scores a completed InstaComp run against a ground-truth manifest.
 
 1. Put the trial images in a local folder such as `instacomp-trial-images/`.
-2. Name each card pair with a stable number, for example `001-front.jpg`, `001-back.jpg`, through `100-front.jpg`, `100-back.jpg`.
+2. Name each card pair with a stable number, for example `001-front.jpg`, `001-back.jpg`, through `100-front.jpg`, `100-back.jpg`. If the scanner exports plain ordered files such as `scan_0001.jpg`, `scan_0002.jpg`, and so on, keep the folder sorted in intended upload order; the audit treats `1+2`, `3+4`, and onward as front/back pairs when no explicit front/back token is present.
 3. Create the local manifest:
 
 ```bash
@@ -3929,7 +3929,7 @@ npm run instacomp:trial:init
 npm run instacomp:trial:audit
 ```
 
-The audit is read-only and writes nothing. It prints schema `tcos.instacompTrialImageAudit.v1`, confirms the expected 100 cards / 200 images, and fails until every numbered card has exactly one front and one back image.
+The audit is read-only and writes nothing. It prints schema `tcos.instacompTrialImageAudit.v1`, confirms the expected 100 cards / 200 images, reports ordered-pair candidate files and complete pairs, and fails until every card has exactly one front and one back image.
 6. Run the lot through `/admin/instacomp` or `/admin/products/new` using the safest durable batch workflow below.
 7. From `/admin/instacomp`, use `Export Trial Results` or `Copy Trial Results` after the batch finishes, then save the exported JSON as `instacomp-trial-results.local.json`. The export uses schema `tcos.instacompTrialResults.v1`, preserves row-stable trialCardId values such as `trial-card-001`, includes the detected `actual` fields, carries consensus/review status, and only includes completed visible scan rows. If you manually build the file instead, each row must use the same `trialCardId` as the manifest and can put detected fields under `actual`, `result`, `predicted`, or `ai`.
 8. Score the trial:

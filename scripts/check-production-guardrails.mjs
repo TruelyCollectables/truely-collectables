@@ -3586,6 +3586,9 @@ assertFileIncludes("instacomp trial failure report source", "scripts/run-instaco
 assertFileIncludes("instacomp trial image audit source", "scripts/run-instacomp-trial-report.mjs", [
   "tcos.instacompTrialImageAudit.v1",
   "auditTrialImages",
+  "orderedPairAssignments",
+  "orderedPairCandidateFiles",
+  "unpairedOrderedFiles",
   "missingFronts",
   "duplicateFronts",
   "unknownFiles",
@@ -3595,6 +3598,9 @@ assertFileIncludes("instacomp trial image audit manual", "docs/TCOS_OPERATOR_MAN
   "missing fronts/backs",
   "duplicate images",
   "extra files",
+  "plain ordered files",
+  "1+2",
+  "ordered-pair candidate files",
 ]);
 assertFileIncludes("instacomp trial failure report manual", "docs/TCOS_OPERATOR_MANUAL.md", [
   "npm run instacomp:trial:failures",
@@ -3619,6 +3625,8 @@ assertFileIncludes("instacomp final tester status includes trial image audit", "
   "runTrialImageAudit",
   "imageAudit",
   "trial image audit ready:",
+  "trial ordered-pair files:",
+  "orderedPairCandidateFiles",
   "firstMissingFronts",
 ]);
 assertFileIncludes("instacomp catalog identity resolver source", "src/lib/instacomp-catalog-identity.ts", [
