@@ -218,8 +218,12 @@ These may fail production smoke until a successful Vercel deploy lands the queue
 
 ## Next safe steps
 
-- Top priority after the current InstaComp accuracy pass: build the “Vicodin” InstaComp speed MVP.
-  - Gate: do not start this until the operator is satisfied the current scanner identity/parallels/comps behavior is accurate enough to preserve.
+- EXTREMELY HOT top priority after the current InstaComp accuracy pass: build the `TCOS Card Knowledge Base MVP`.
+  - Gate: do not start this until the operator is satisfied the current scanner test pass is ready to preserve.
+  - Goal: make InstaComp faster and more accurate by checking TCOS-owned verified card truth before paying/waiting for outside AI or source search.
+  - MVP scope: add TCOS-owned card catalog, variant, identity-evidence, correction, and source-cache storage; check the local knowledge base first during InstaComp scans; save confirmed/corrected rows back into it; cache checklist evidence from Sportlots, Upper Deck, Panini, Cardboard Connection, TCDB/Trading Card DB, and approved free/cheap sources; show `TCOS verified`, `external verified`, or `needs review`; and keep exact comps/pricing blocked unless identity evidence is strong enough.
+  - Expected build size: about 6–9 focused build hours for the MVP backbone; 2–3 days for polished duplicate merging, image fingerprinting, admin review queues, bulk imports, and full catalog management.
+- Next priority after the Card Knowledge Base MVP: build the “Vicodin” InstaComp speed MVP.
   - Goal: make scans feel dramatically faster without sacrificing accuracy.
   - MVP scope: move scan work off the browser into true server-side/background workers, return fast identity first, enrich comps/pricing second, cache checklist/catalog lookups, keep provider calls split into fast-path versus slow-path, and show live progress from durable job state.
   - Expected build size: about 6–10 focused build hours for MVP; 2–4 days for production-scale hardening with worker deployment, monitoring, budgets, rate limits, and load testing.

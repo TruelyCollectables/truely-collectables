@@ -248,6 +248,19 @@ type ScanResponse = {
     status: "completed" | "review_required";
     reviewReasons: string[];
   };
+  operatorCorrections?: OperatorCorrectionSnapshot | null;
+};
+
+type OperatorCorrectionSnapshot = {
+  savedAt: string;
+  savedFrom: "admin_instacomp";
+  customTitle: string;
+  customQuantity: string;
+  customPrice: string;
+  operatorMarkedWrong: boolean;
+  operatorNeedsMoreInfo: boolean;
+  listingPrice: number | null;
+  priceSource: "manual" | "instacomp_market" | "missing";
 };
 
 type BatchCardStatus = "queued" | "scanning" | "done" | "error";
@@ -2215,8 +2228,55 @@ function draftPriceHandoffForCard(card: BatchCard) {
 
   return {
     price: marketPrice,
-    source: marketPrice === null ? "missing" : ("instacomp_market" as const),
+    source:
+      marketPrice === null
+        ? ("missing" as const)
+        : ("instacomp_market" as const),
   };
+}
+
+function correctionSnapshotForCard(card: BatchCard): OperatorCorrectionSnapshot {
+  const draftPrice = draftPriceHandoffForCard(card);
+
+  return {
+    savedAt: new Date().toISOString(),
+    savedFrom: "admin_instacomp",
+    customTitle: draftTitleForCard(card),
+    customQuantity: String(draftQuantityForCard(card)),
+    customPrice: card.customPrice.trim(),
+    operatorMarkedWrong: Boolean(card.operatorMarkedWrong),
+    operatorNeedsMoreInfo: Boolean(card.operatorNeedsMoreInfo),
+    listingPrice: draftPrice.price,
+    priceSource: draftPrice.source,
+  };
+}
+
+function scanResultWithOperatorCorrections(card: BatchCard) {
+  if (!card.result) return null;
+
+  return {
+    ...card.result,
+    operatorCorrections: correctionSnapshotForCard(card),
+  };
+}
+
+function operatorCorrectionsFromResult(
+  result: ScanResponse | null | undefined
+): OperatorCorrectionSnapshot | null {
+  const corrections = result?.operatorCorrections;
+
+  if (!corrections || typeof corrections !== "object") return null;
+
+  return corrections;
+}
+
+function isCorrectionSavableBatchCard(card: BatchCard) {
+  return (
+    card.status === "done" &&
+    Boolean(card.result) &&
+    Boolean(card.persistentJobId) &&
+    Boolean(card.persistentItemId)
+  );
 }
 
 function draftListingPriceForCard(card: BatchCard) {
@@ -3429,6 +3489,7 @@ export default function InstaCompScanner({
               (Number.isFinite(Number(item.suggested_price))
                 ? Number(item.suggested_price)
                 : null);
+            const savedCorrections = operatorCorrectionsFromResult(storedResult);
 
             bindings.set(cardId, {
               jobId: job.id,
@@ -3450,21 +3511,24 @@ export default function InstaCompScanner({
               backPreviewUrl: backUrl,
               status: isDone && storedResult ? "done" : isFailed ? "error" : "queued",
               selected: !item.draft_inventory_item_id,
-              operatorMarkedWrong: false,
-              operatorNeedsMoreInfo: false,
+              operatorMarkedWrong: Boolean(savedCorrections?.operatorMarkedWrong),
+              operatorNeedsMoreInfo: Boolean(savedCorrections?.operatorNeedsMoreInfo),
               result: storedResult,
               marketPrice: effectiveSuggestedPrice,
-              customTitle: storedResult
-                ? cardResultTitle(
-                    storedResult,
-                    item.front_original_filename || "Recovered card"
-                  )
-                : "",
-              customQuantity: "1",
+              customTitle:
+                savedCorrections?.customTitle ||
+                (storedResult
+                  ? cardResultTitle(
+                      storedResult,
+                      item.front_original_filename || "Recovered card"
+                    )
+                  : ""),
+              customQuantity: savedCorrections?.customQuantity || "1",
               customPrice:
-                effectiveSuggestedPrice != null
+                savedCorrections?.customPrice ??
+                (effectiveSuggestedPrice != null
                   ? Number(effectiveSuggestedPrice).toFixed(2)
-                  : "",
+                  : ""),
               error: isFailed
                 ? item.last_error || "Queued scan needs another attempt."
                 : null,
@@ -3604,6 +3668,10 @@ export default function InstaCompScanner({
   const selectedReviewableBatchCards = batchCards.filter(
     (card) => card.selected && card.status === "done" && Boolean(card.result)
   );
+  const selectedSavableCorrectionCards = batchCards.filter(
+    (card) => card.selected && isCorrectionSavableBatchCard(card)
+  );
+  const selectedSavableCorrectionCount = selectedSavableCorrectionCards.length;
   const selectedOperatorMarkedProblemCount = batchCards.filter(
     (card) => card.selected && isOperatorMarkedProblemBatchCard(card)
   ).length;
@@ -6831,6 +6899,118 @@ export default function InstaCompScanner({
     );
   }
 
+  async function persistBatchCardCorrections(card: BatchCard) {
+    if (!isCorrectionSavableBatchCard(card)) {
+      throw new Error(
+        "This row is not attached to a saved InstaComp lot yet. Run Batch InstaComp first, then save corrections."
+      );
+    }
+
+    const correctedResult = scanResultWithOperatorCorrections(card);
+
+    if (!correctedResult) {
+      throw new Error("This row does not have a scan result to save.");
+    }
+
+    await persistentJobJson(
+      `/api/instacomp/jobs/${card.persistentJobId}/items/${card.persistentItemId}`,
+      {
+        method: "PATCH",
+        body: {
+          result: correctedResult,
+          reviewReasons: batchCardReviewWarnings(card),
+          analysisModel: "manual_correction_v1",
+        },
+      }
+    );
+
+    return correctedResult;
+  }
+
+  async function saveBatchCardCorrections(cardId: string) {
+    if (batchRunning || batchDrafting) return;
+
+    const card = batchCards.find((row) => row.id === cardId);
+
+    if (!card) return;
+
+    setBatchError(null);
+    setBatchDraftMessage("Saving correction edits...");
+
+    try {
+      const correctedResult = await persistBatchCardCorrections(card);
+
+      updateBatchCard(card.id, (current) => ({
+        ...current,
+        result: correctedResult,
+        marketPrice: marketPriceForCard({
+          ...current,
+          result: correctedResult,
+        }),
+      }));
+      setBatchDraftMessage("Saved corrections for this InstaComp row.");
+    } catch (error: any) {
+      setBatchError(error?.message || "Could not save correction edits.");
+      setBatchDraftMessage(null);
+    }
+  }
+
+  async function saveSelectedBatchCorrections() {
+    if (batchRunning || batchDrafting) return;
+
+    const cardsToSave = batchCards.filter(
+      (card) => card.selected && isCorrectionSavableBatchCard(card)
+    );
+
+    if (!cardsToSave.length) {
+      setBatchError(
+        "Select completed rows from a saved InstaComp lot before saving corrections."
+      );
+      return;
+    }
+
+    setBatchError(null);
+    setBatchDraftMessage(
+      `Saving corrections for ${cardsToSave.length} selected row${
+        cardsToSave.length === 1 ? "" : "s"
+      }...`
+    );
+
+    let savedCount = 0;
+    const failedTitles: string[] = [];
+
+    for (const card of cardsToSave) {
+      try {
+        const correctedResult = await persistBatchCardCorrections(card);
+        savedCount += 1;
+        updateBatchCard(card.id, (current) => ({
+          ...current,
+          result: correctedResult,
+          marketPrice: marketPriceForCard({
+            ...current,
+            result: correctedResult,
+          }),
+        }));
+      } catch {
+        failedTitles.push(draftTitleForCard(card));
+      }
+    }
+
+    if (failedTitles.length) {
+      setBatchError(
+        `Saved ${savedCount}/${cardsToSave.length} correction edits. Failed: ${failedTitles
+          .slice(0, 3)
+          .join(", ")}${failedTitles.length > 3 ? "..." : ""}`
+      );
+    }
+
+    setBatchDraftMessage(
+      `Saved corrections for ${savedCount} selected row${
+        savedCount === 1 ? "" : "s"
+      }.`
+    );
+  }
+
   function setAllDoneBatchCardsSelected(selected: boolean) {
     setBatchCards((current) =>
       current.map((card) => {
@@ -9783,6 +9963,29 @@ export default function InstaCompScanner({
           </button>
 
           <button
+            type="button"
+            onClick={() => void saveSelectedBatchCorrections()}
+            disabled={
+              batchRunning || batchDrafting || selectedSavableCorrectionCount === 0
+            }
+            style={{
+              ...secondaryButtonStyle,
+              borderColor: "#0f5132",
+              color: "#0f5132",
+              cursor:
+                batchRunning || batchDrafting || selectedSavableCorrectionCount === 0
+                  ? "not-allowed"
+                  : "pointer",
+              opacity:
+                batchRunning || batchDrafting || selectedSavableCorrectionCount === 0
+                  ? 0.55
+                  : 1,
+            }}
+          >
+            Save Selected Corrections ({selectedSavableCorrectionCount})
+          </button>
+
+          <button
             onClick={createDraftListings}
             disabled={createDraftButtonDisabled}
             style={{
@@ -11302,6 +11505,7 @@ export default function InstaCompScanner({
                 onOperatorMarkedWrongChange={toggleBatchCardOperatorMarkedWrong}
                 onOperatorNeedsMoreInfoChange={toggleBatchCardOperatorNeedsMoreInfo}
                 onRotateImage={rotateBatchCardImage}
+                onSaveCorrections={saveBatchCardCorrections}
                 onAddToTrade={addBatchCardToTrade}
                 onRetry={retryBatchCard}
                 onRemove={removeBatchCard}
@@ -12340,6 +12544,7 @@ function BatchCardRow({
   onOperatorMarkedWrongChange,
   onOperatorNeedsMoreInfoChange,
   onRotateImage,
+  onSaveCorrections,
   onAddToTrade,
   onRetry,
   onRemove,
@@ -12367,6 +12572,7 @@ function BatchCardRow({
     side: "primary" | "paired",
     direction: "left" | "right"
   ) => void | Promise<void>;
+  onSaveCorrections: (cardId: string) => void | Promise<void>;
   onAddToTrade: (cardId: string) => void | Promise<void>;
   onRetry: (cardId: string) => void;
   onRemove: (cardId: string) => void;
@@ -12400,6 +12606,7 @@ function BatchCardRow({
     !batchBusy && card.draftStatus === "idle" && card.tradeStatus === "idle";
   const canRotatePrimary = canRotate && card.file.size > 0;
   const canRotatePaired = canRotate && Boolean(card.backFile?.size);
+  const canSaveCorrections = !batchBusy && isCorrectionSavableBatchCard(card);
   const canAddToTrade =
     !batchBusy &&
     card.status === "done" &&
@@ -12699,6 +12906,27 @@ function BatchCardRow({
                   Copy Draft Payload
                 </button>
               )}
+
+              <button
+                type="button"
+                onClick={() => void onSaveCorrections(card.id)}
+                disabled={!canSaveCorrections}
+                title={
+                  canSaveCorrections
+                    ? "Save edited title, quantity, price, and review marks to this saved InstaComp lot row."
+                    : "Run Batch InstaComp first so this row has a saved lot record, then save corrections."
+                }
+                style={{
+                  ...secondaryButtonStyle,
+                  padding: "8px 10px",
+                  borderColor: "#0f5132",
+                  color: "#0f5132",
+                  opacity: canSaveCorrections ? 1 : 0.5,
+                  cursor: canSaveCorrections ? "pointer" : "not-allowed",
+                }}
+              >
+                Save Corrections
+              </button>
 
               <button
                 type="button"
