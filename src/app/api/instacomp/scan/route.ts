@@ -56,6 +56,27 @@ const INSTACOMP_OPENAI_FALLBACK_MODEL =
   process.env.INSTACOMP_OPENAI_FALLBACK_MODEL ||
   process.env.OPENAI_MODEL ||
   "gpt-4.1-mini";
+const GEMINI_API_KEY =
+  process.env.GEMINI_API_KEY || process.env.GOOGLE_GEMINI_API_KEY;
+const GROQ_API_KEY = process.env.GROQ_API_KEY;
+const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL;
+const INSTACOMP_GEMINI_MODEL =
+  process.env.INSTACOMP_GEMINI_MODEL || "gemini-2.5-flash";
+const INSTACOMP_GROQ_MODEL =
+  process.env.INSTACOMP_GROQ_MODEL ||
+  "meta-llama/llama-4-scout-17b-16e-instruct";
+const INSTACOMP_OLLAMA_MODEL =
+  process.env.INSTACOMP_OLLAMA_MODEL || "llava";
+const INSTACOMP_AI_COUNCIL_TIER =
+  process.env.INSTACOMP_AI_COUNCIL_TIER || "adaptive";
+const requestedAiCouncilTimeoutMs = Number(
+  process.env.INSTACOMP_AI_COUNCIL_TIMEOUT_MS || 75000
+);
+const INSTACOMP_AI_COUNCIL_TIMEOUT_MS = Number.isFinite(
+  requestedAiCouncilTimeoutMs
+)
+  ? Math.max(5000, Math.min(requestedAiCouncilTimeoutMs, 180000))
+  : 75000;
 
 const EBAY_CLIENT_ID = process.env.EBAY_CLIENT_ID;
 const EBAY_CLIENT_SECRET = process.env.EBAY_CLIENT_SECRET;
@@ -140,6 +161,38 @@ type ExternalOcrResult = {
   text: string;
   serialNumber: string | null;
   checkedImages: number;
+};
+
+type InstaCompAiCouncilProvider =
+  | "openai_secondary"
+  | "gemini"
+  | "groq"
+  | "ollama";
+
+type InstaCompAiCouncilReader = {
+  provider: InstaCompAiCouncilProvider;
+  readerId: string;
+  label: string;
+  model: string;
+  ai: InstaCompAiResult;
+  durationMs: number;
+};
+
+type InstaCompAiCouncilAttempt = {
+  provider: InstaCompAiCouncilProvider;
+  label: string;
+  model: string;
+  status: "completed" | "not_configured" | "error" | "skipped";
+  durationMs: number | null;
+  message: string | null;
+};
+
+type InstaCompAiCouncilRun = {
+  tier: string;
+  desiredReaders: number;
+  completedReaders: number;
+  readers: InstaCompAiCouncilReader[];
+  attempts: InstaCompAiCouncilAttempt[];
 };
 
 function dataUrlToBase64(dataUrl: string) {
@@ -586,6 +639,520 @@ Rules:
   };
 }
 
+function aiCouncilTier() {
+  const normalized = String(INSTACOMP_AI_COUNCIL_TIER || "adaptive")
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, "");
+
+  if (
+    [
+      "basic",
+      "adaptive",
+      "mid",
+      "pro",
+      "dealer",
+      "high_end",
+      "high-end",
+      "courtroom",
+    ].includes(normalized)
+  ) {
+    return normalized;
+  }
+
+  return "adaptive";
+}
+
+function desiredAiCouncilReaders(runSecondaryVision: boolean) {
+  const tier = aiCouncilTier();
+
+  if (tier === "basic") return 0;
+  if (tier === "mid") return 1;
+  if (tier === "pro" || tier === "dealer") return 2;
+  if (tier === "high_end" || tier === "high-end" || tier === "courtroom") {
+    return 4;
+  }
+
+  return runSecondaryVision ? 1 : 0;
+}
+
+function dataUrlMimeType(dataUrl: string) {
+  return dataUrl.match(/^data:([^;]+);base64,/)?.[1] || "image/jpeg";
+}
+
+function parseAiJsonText(text: string) {
+  const trimmed = String(text || "").trim();
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)\s*```/i)?.[1];
+  const candidate = (fenced || trimmed).trim();
+  const objectText =
+    candidate.startsWith("{") && candidate.endsWith("}")
+      ? candidate
+      : candidate.slice(candidate.indexOf("{"), candidate.lastIndexOf("}") + 1);
+
+  return JSON.parse(objectText);
+}
+
+function cleanNullableString(value: unknown) {
+  if (typeof value !== "string") return null;
+  const cleaned = value.replace(/\s+/g, " ").trim();
+
+  return cleaned || null;
+}
+
+function normalizeAiBoolean(value: unknown) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    return /^(true|yes|y|1)$/i.test(value.trim());
+  }
+
+  return false;
+}
+
+function normalizeInstaCompAiResult(value: unknown): InstaCompAiResult {
+  const record =
+    value && typeof value === "object" ? (value as Record<string, unknown>) : {};
+  const rawConfidence = Number(record.confidence);
+
+  return {
+    player: cleanNullableString(record.player),
+    year: cleanNullableString(record.year),
+    brand: cleanNullableString(record.brand),
+    setName: cleanNullableString(record.setName),
+    cardNumber: cleanNullableString(record.cardNumber),
+    parallel: cleanNullableString(record.parallel),
+    serialNumber: cleanNullableString(record.serialNumber),
+    team: cleanNullableString(record.team),
+    sport: cleanNullableString(record.sport),
+    isRookie: normalizeAiBoolean(record.isRookie),
+    isAuto: normalizeAiBoolean(record.isAuto),
+    isRelic: normalizeAiBoolean(record.isRelic),
+    conditionGuess: cleanNullableString(record.conditionGuess),
+    confidence: Number.isFinite(rawConfidence)
+      ? Math.max(0, Math.min(1, rawConfidence))
+      : 0,
+    notes: cleanNullableString(record.notes),
+  };
+}
+
+function buildAiCouncilPrompt(params: {
+  externalOcr: ExternalOcrResult | null;
+  providerLabel: string;
+}) {
+  return `
+You are ${params.providerLabel}, an independent InstaComp™ sports-card identity witness for TCOS.
+
+Return JSON only with exactly these fields:
+player, year, brand, setName, cardNumber, parallel, serialNumber, team, sport, isRookie, isAuto, isRelic, conditionGuess, confidence, notes.
+
+Rules:
+- Identify the exact sports card from the front/back images.
+- If the card says Outliers, Canvas, Clear Cut, Future Watch, Spectrum FX, Young Guns, Dazzlers, Portraits, Rookie Materials, Honor Roll, or another insert/subset, do not call it Base.
+- Upper Deck is the manufacturer unless the product is actually Upper Deck Series 1, Series 2, Extended Series, or a similarly printed Upper Deck product name. For SP Authentic, use setName like "SP Authentic" or "SP Authentic - Outliers", not "Upper Deck SP Authentic Hockey" unless the printed product says that.
+- Use "Base" only when no insert, subset, clear-stock, acetate, color, refractor/prizm, foil, autograph/relic, or serial cue is visible.
+- Clear/transparent/washed-back Upper Deck acetate cards with centered logo/player-name treatment are Clear Cut parallels.
+- Do not hallucinate serial numbers. Return serialNumber only when visible or present in OCR text.
+- Confidence must be 0 to 1.
+- notes must explain the exact visible evidence for set, parallel/insert, card number, and serial decision.
+${
+  params.externalOcr?.text
+    ? `\nOCR TEXT (${params.externalOcr.provider}, ${params.externalOcr.checkedImages} image(s)): ${params.externalOcr.text.slice(0, 6000)}`
+    : ""
+}
+  `.trim();
+}
+
+async function withAiCouncilTimeout<T>(
+  promise: Promise<T>,
+  label: string,
+): Promise<T> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), INSTACOMP_AI_COUNCIL_TIMEOUT_MS);
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        controller.signal.addEventListener("abort", () =>
+          reject(new Error(`${label} timed out after ${INSTACOMP_AI_COUNCIL_TIMEOUT_MS}ms`)),
+        );
+      }),
+    ]);
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function identifyCardWithGemini(
+  frontDataUrl: string,
+  backDataUrl: string | undefined,
+  detailImages: InstaCompDetailImage[],
+  externalOcr: ExternalOcrResult | null,
+) {
+  if (!GEMINI_API_KEY) {
+    throw new Error("Missing GEMINI_API_KEY.");
+  }
+
+  const parts: any[] = [
+    { text: buildAiCouncilPrompt({ externalOcr, providerLabel: "Gemini" }) },
+    { text: "FRONT IMAGE" },
+    {
+      inlineData: {
+        mimeType: dataUrlMimeType(frontDataUrl),
+        data: dataUrlToBase64(frontDataUrl),
+      },
+    },
+  ];
+
+  if (backDataUrl) {
+    parts.push(
+      { text: "BACK IMAGE" },
+      {
+        inlineData: {
+          mimeType: dataUrlMimeType(backDataUrl),
+          data: dataUrlToBase64(backDataUrl),
+        },
+      },
+    );
+  }
+
+  for (const image of detailImages.slice(0, 8)) {
+    parts.push(
+      { text: `DETAIL IMAGE: ${image.name}` },
+      {
+        inlineData: {
+          mimeType: dataUrlMimeType(image.dataUrl),
+          data: dataUrlToBase64(image.dataUrl),
+        },
+      },
+    );
+  }
+
+  const response = await fetch(
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
+      INSTACOMP_GEMINI_MODEL,
+    )}:generateContent?key=${encodeURIComponent(GEMINI_API_KEY)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ role: "user", parts }],
+        generationConfig: {
+          temperature: 0,
+          responseMimeType: "application/json",
+        },
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(`Gemini scan failed: ${await response.text()}`);
+  }
+
+  const data = await response.json();
+  const text = data?.candidates?.[0]?.content?.parts
+    ?.map((part: any) => part?.text || "")
+    .join("\n");
+
+  if (!text) throw new Error("Gemini returned no scan content.");
+
+  return normalizeInstaCompAiResult(parseAiJsonText(text));
+}
+
+async function identifyCardWithGroq(
+  frontDataUrl: string,
+  backDataUrl: string | undefined,
+  detailImages: InstaCompDetailImage[],
+  externalOcr: ExternalOcrResult | null,
+) {
+  if (!GROQ_API_KEY) {
+    throw new Error("Missing GROQ_API_KEY.");
+  }
+
+  const content: any[] = [
+    { type: "text", text: buildAiCouncilPrompt({ externalOcr, providerLabel: "Groq vision" }) },
+    { type: "text", text: "FRONT IMAGE" },
+    { type: "image_url", image_url: { url: frontDataUrl } },
+  ];
+
+  if (backDataUrl) {
+    content.push(
+      { type: "text", text: "BACK IMAGE" },
+      { type: "image_url", image_url: { url: backDataUrl } },
+    );
+  }
+
+  for (const image of detailImages.slice(0, 8)) {
+    content.push(
+      { type: "text", text: `DETAIL IMAGE: ${image.name}` },
+      { type: "image_url", image_url: { url: image.dataUrl } },
+    );
+  }
+
+  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${GROQ_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      model: INSTACOMP_GROQ_MODEL,
+      temperature: 0,
+      response_format: { type: "json_object" },
+      messages: [{ role: "user", content }],
+    }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`Groq scan failed: ${await response.text()}`);
+  }
+
+  const data = await response.json();
+  const text = data?.choices?.[0]?.message?.content;
+
+  if (!text) throw new Error("Groq returned no scan content.");
+
+  return normalizeInstaCompAiResult(parseAiJsonText(text));
+}
+
+async function identifyCardWithOllama(
+  frontDataUrl: string,
+  backDataUrl: string | undefined,
+  detailImages: InstaCompDetailImage[],
+  externalOcr: ExternalOcrResult | null,
+) {
+  if (!OLLAMA_BASE_URL) {
+    throw new Error("Missing OLLAMA_BASE_URL.");
+  }
+
+  const images = [
+    frontDataUrl,
+    ...(backDataUrl ? [backDataUrl] : []),
+    ...detailImages.slice(0, 6).map((image) => image.dataUrl),
+  ].map(dataUrlToBase64);
+
+  const response = await fetch(
+    `${OLLAMA_BASE_URL.replace(/\/+$/, "")}/api/chat`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: INSTACOMP_OLLAMA_MODEL,
+        stream: false,
+        format: "json",
+        messages: [
+          {
+            role: "user",
+            content: buildAiCouncilPrompt({
+              externalOcr,
+              providerLabel: "Local Ollama vision",
+            }),
+            images,
+          },
+        ],
+      }),
+    },
+  );
+
+  if (!response.ok) {
+    throw new Error(`Ollama scan failed: ${await response.text()}`);
+  }
+
+  const data = await response.json();
+  const text = data?.message?.content;
+
+  if (!text) throw new Error("Ollama returned no scan content.");
+
+  return normalizeInstaCompAiResult(parseAiJsonText(text));
+}
+
+async function runAiCouncilReader(params: {
+  provider: InstaCompAiCouncilProvider;
+  frontDataUrl: string;
+  backDataUrl?: string;
+  detailImages: InstaCompDetailImage[];
+  externalOcr: ExternalOcrResult | null;
+}): Promise<{
+  reader: InstaCompAiCouncilReader | null;
+  attempt: InstaCompAiCouncilAttempt;
+}> {
+  const startedAt = Date.now();
+  const providerMeta = {
+    openai_secondary: {
+      label: "OpenAI skeptical reader",
+      model: INSTACOMP_OPENAI_FALLBACK_MODEL,
+      configured: Boolean(OPENAI_API_KEY),
+    },
+    gemini: {
+      label: "Gemini vision reader",
+      model: INSTACOMP_GEMINI_MODEL,
+      configured: Boolean(GEMINI_API_KEY),
+    },
+    groq: {
+      label: "Groq fast vision reader",
+      model: INSTACOMP_GROQ_MODEL,
+      configured: Boolean(GROQ_API_KEY),
+    },
+    ollama: {
+      label: "Local Ollama vision reader",
+      model: INSTACOMP_OLLAMA_MODEL,
+      configured: Boolean(OLLAMA_BASE_URL),
+    },
+  }[params.provider];
+
+  if (!providerMeta.configured) {
+    return {
+      reader: null,
+      attempt: {
+        provider: params.provider,
+        label: providerMeta.label,
+        model: providerMeta.model,
+        status: "not_configured",
+        durationMs: null,
+        message: "Provider key/base URL is not configured.",
+      },
+    };
+  }
+
+  try {
+    const ai = await withAiCouncilTimeout(
+      params.provider === "openai_secondary"
+        ? identifyCardWithOpenAI(
+            params.frontDataUrl,
+            params.backDataUrl,
+            params.detailImages.slice(0, 8),
+            params.externalOcr,
+            {
+              readerFocus: "secondary_consensus",
+              models: [INSTACOMP_OPENAI_FALLBACK_MODEL, INSTACOMP_OPENAI_MODEL],
+            },
+          )
+        : params.provider === "gemini"
+          ? identifyCardWithGemini(
+              params.frontDataUrl,
+              params.backDataUrl,
+              params.detailImages,
+              params.externalOcr,
+            )
+          : params.provider === "groq"
+            ? identifyCardWithGroq(
+                params.frontDataUrl,
+                params.backDataUrl,
+                params.detailImages,
+                params.externalOcr,
+              )
+            : identifyCardWithOllama(
+                params.frontDataUrl,
+                params.backDataUrl,
+                params.detailImages,
+                params.externalOcr,
+              ),
+      providerMeta.label,
+    );
+    const durationMs = Date.now() - startedAt;
+
+    return {
+      reader: {
+        provider: params.provider,
+        readerId: params.provider,
+        label: providerMeta.label,
+        model: providerMeta.model,
+        ai,
+        durationMs,
+      },
+      attempt: {
+        provider: params.provider,
+        label: providerMeta.label,
+        model: providerMeta.model,
+        status: "completed",
+        durationMs,
+        message: null,
+      },
+    };
+  } catch (error: any) {
+    return {
+      reader: null,
+      attempt: {
+        provider: params.provider,
+        label: providerMeta.label,
+        model: providerMeta.model,
+        status: "error",
+        durationMs: Date.now() - startedAt,
+        message: String(error?.message || error).slice(0, 500),
+      },
+    };
+  }
+}
+
+async function runInstaCompAiCouncil(params: {
+  runSecondaryVision: boolean;
+  frontDataUrl: string;
+  backDataUrl?: string;
+  detailImages: InstaCompDetailImage[];
+  externalOcr: ExternalOcrResult | null;
+}): Promise<InstaCompAiCouncilRun> {
+  const desiredReaders = desiredAiCouncilReaders(params.runSecondaryVision);
+  const tier = aiCouncilTier();
+  const providerPlan: InstaCompAiCouncilProvider[] = [
+    "openai_secondary",
+    "gemini",
+    "groq",
+    "ollama",
+  ];
+
+  if (desiredReaders <= 0) {
+    return {
+      tier,
+      desiredReaders,
+      completedReaders: 0,
+      readers: [],
+      attempts: providerPlan.map((provider) => ({
+        provider,
+        label:
+          provider === "openai_secondary"
+            ? "OpenAI skeptical reader"
+            : provider === "gemini"
+              ? "Gemini vision reader"
+              : provider === "groq"
+                ? "Groq fast vision reader"
+                : "Local Ollama vision reader",
+        model:
+          provider === "openai_secondary"
+            ? INSTACOMP_OPENAI_FALLBACK_MODEL
+            : provider === "gemini"
+              ? INSTACOMP_GEMINI_MODEL
+              : provider === "groq"
+                ? INSTACOMP_GROQ_MODEL
+                : INSTACOMP_OLLAMA_MODEL,
+        status: "skipped",
+        durationMs: null,
+        message: "This tier/lane did not require another AI witness.",
+      })),
+    };
+  }
+
+  const attempts = await Promise.all(
+    providerPlan.slice(0, desiredReaders).map((provider) =>
+      runAiCouncilReader({
+        provider,
+        frontDataUrl: params.frontDataUrl,
+        backDataUrl: params.backDataUrl,
+        detailImages: params.detailImages,
+        externalOcr: params.externalOcr,
+      }),
+    ),
+  );
+  const readers = attempts.flatMap((attempt) =>
+    attempt.reader ? [attempt.reader] : [],
+  );
+
+  return {
+    tier,
+    desiredReaders,
+    completedReaders: readers.length,
+    readers,
+    attempts: attempts.map((attempt) => attempt.attempt),
+  };
+}
+
 async function detectSerialNumberWithOpenAI(
   frontDataUrl: string,
   backDataUrl?: string,
@@ -827,7 +1394,7 @@ function buildInstaCompConsensusReaders(params: {
   baseAi: InstaCompAiResult;
   mergedSerialAi: InstaCompAiResult;
   guardedAi: InstaCompAiResult;
-  secondaryAi: InstaCompAiResult | null;
+  aiCouncil: InstaCompAiCouncilRun;
   serialOcr: InstaCompSerialOcrResult | null;
   externalOcr: ExternalOcrResult | null;
 }) {
@@ -859,23 +1426,24 @@ function buildInstaCompConsensusReaders(params: {
     });
   }
 
-  if (params.secondaryAi) {
+  params.aiCouncil.readers.forEach((councilReader, index) => {
     readers.push(
       buildInstaCompReaderFindingFromAi({
-        readerId: "secondary_vision",
-        label: "Second AI vision",
+        readerId: `secondary_vision_${councilReader.readerId}`,
+        label: councilReader.label,
         kind: "secondary_vision",
-        ai: params.secondaryAi,
+        ai: councilReader.ai,
         evidence: [
-          "adaptive multi-scanner escalation identity pass",
+          `AI council ${params.aiCouncil.tier} identity witness ${index + 1}/${params.aiCouncil.desiredReaders}`,
+          `${councilReader.label} used ${councilReader.model} in ${councilReader.durationMs}ms`,
           params.externalOcr?.provider
-            ? `${params.externalOcr.provider} OCR text was provided to the second reader`
-            : "second reader used card images without external OCR text",
+            ? `${params.externalOcr.provider} OCR text was provided to this reader`
+            : "reader used card images without external OCR text",
         ],
-        weight: 0.95,
+        weight: councilReader.provider === "openai_secondary" ? 0.95 : 0.9,
       }),
     );
-  }
+  });
 
   const printedGuardIdentity = buildChangedIdentityFinding(
     params.mergedSerialAi,
@@ -2350,32 +2918,31 @@ export async function POST(req: NextRequest) {
       hasBackImage: Boolean(backDataUrl),
       pairingConfidence: persistentContext?.pairingConfidence ?? null,
     });
-    let secondaryAi: InstaCompAiResult | null = null;
-
-    if (consensusEscalation.runSecondaryVision) {
-      const secondaryRawAi = await identifyCardWithOpenAI(
-        frontDataUrl,
-        backDataUrl,
-        detailImages.slice(0, 8),
-        externalOcr,
-        {
-          readerFocus: "secondary_consensus",
-          models: [INSTACOMP_OPENAI_FALLBACK_MODEL, INSTACOMP_OPENAI_MODEL],
-        },
-      );
-      secondaryAi = applyInstaCompIdentityGuard(
-        mergeSerialOcrResult(secondaryRawAi, serialOcr),
-        {
-          externalOcrText: externalOcr?.text || null,
-        },
-      );
-    }
+    const aiCouncilRaw = await runInstaCompAiCouncil({
+      runSecondaryVision: consensusEscalation.runSecondaryVision,
+      frontDataUrl,
+      backDataUrl,
+      detailImages,
+      externalOcr,
+    });
+    const aiCouncil: InstaCompAiCouncilRun = {
+      ...aiCouncilRaw,
+      readers: aiCouncilRaw.readers.map((reader) => ({
+        ...reader,
+        ai: applyInstaCompIdentityGuard(
+          mergeSerialOcrResult(reader.ai, serialOcr),
+          {
+            externalOcrText: externalOcr?.text || null,
+          },
+        ),
+      })),
+    };
 
     const consensusReaders = buildInstaCompConsensusReaders({
       baseAi,
       mergedSerialAi,
       guardedAi,
-      secondaryAi,
+      aiCouncil,
       serialOcr,
       externalOcr,
     });
@@ -2470,8 +3037,9 @@ export async function POST(req: NextRequest) {
         councilMode: consensusEscalation.councilMode,
         consensusRiskTier: consensusEscalation.riskTier,
         scannerPlan: consensusEscalation.scannerPlan,
-        secondaryVisionRan: consensusEscalation.runSecondaryVision,
+        secondaryVisionRan: aiCouncil.completedReaders > 0,
         secondaryVisionReasons: consensusEscalation.reasons,
+        aiCouncil,
         extractedSerialNumber: externalOcr?.serialNumber || null,
         serialVisionCheckedImages: serialOcr?.checkedImages || 0,
         serialVisionSerialNumber: serialOcr?.serialNumber || ai.serialNumber || null,

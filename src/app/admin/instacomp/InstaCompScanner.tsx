@@ -174,6 +174,19 @@ type ScanResponse = {
     scannerPlan?: string[];
     secondaryVisionRan?: boolean | null;
     secondaryVisionReasons?: string[];
+    aiCouncil?: {
+      tier: string;
+      desiredReaders: number;
+      completedReaders: number;
+      attempts: {
+        provider: string;
+        label: string;
+        model: string;
+        status: "completed" | "not_configured" | "error" | "skipped";
+        durationMs: number | null;
+        message: string | null;
+      }[];
+    };
     extractedSerialNumber: string | null;
     serialVisionCheckedImages?: number | null;
     serialVisionSerialNumber?: string | null;
@@ -11559,6 +11572,16 @@ function OcrDiagnosticsPanel({ result }: { result: ScanResponse }) {
           }
         />
         <Info
+          label="AI witnesses"
+          value={
+            diagnostics.aiCouncil
+              ? `${diagnostics.aiCouncil.completedReaders}/${diagnostics.aiCouncil.desiredReaders} extra + primary - ${diagnostics.aiCouncil.tier}`
+              : diagnostics.secondaryVisionRan
+                ? "Secondary ran"
+                : "None"
+          }
+        />
+        <Info
           label="OCR Serial"
           value={diagnostics.extractedSerialNumber || "None found"}
         />
@@ -11595,6 +11618,21 @@ function OcrDiagnosticsPanel({ result }: { result: ScanResponse }) {
         <p style={{ margin: "10px 0 0", color: "#555", fontWeight: 800 }}>
           Scanner plan: {diagnostics.scannerPlan.join(" → ").replaceAll("_", " ")}
         </p>
+      ) : null}
+      {diagnostics.aiCouncil?.attempts?.length ? (
+        <div style={{ marginTop: 10, color: "#555", fontWeight: 800 }}>
+          AI council:{" "}
+          {diagnostics.aiCouncil.attempts
+            .map((attempt) => {
+              const timing =
+                typeof attempt.durationMs === "number"
+                  ? `/${Math.round(attempt.durationMs / 100) / 10}s`
+                  : "";
+
+              return `${attempt.label} ${attempt.status}${timing}`;
+            })
+            .join(" | ")}
+        </div>
       ) : null}
       {diagnostics.textExcerpt && (
         <pre
@@ -11649,6 +11687,9 @@ function OcrDiagnosticsMini({ result }: { result: ScanResponse | null }) {
       : diagnostics.councilMode === "fast_lane_council"
         ? ` - fast council${diagnostics.consensusRiskTier ? `/${diagnostics.consensusRiskTier}` : ""}`
         : "";
+  const aiCouncilLabel = diagnostics.aiCouncil
+    ? ` - AI +${diagnostics.aiCouncil.completedReaders}/${diagnostics.aiCouncil.desiredReaders}`
+    : "";
 
   if (!providerConfigured) {
     return (
@@ -11657,6 +11698,7 @@ function OcrDiagnosticsMini({ result }: { result: ScanResponse | null }) {
         {serialVisionSerial ? `found ${serialVisionSerial}` : "did not find a serial"}
         {speedLaneLabel}
         {councilLabel}
+        {aiCouncilLabel}
       </div>
     );
   }
@@ -11668,6 +11710,7 @@ function OcrDiagnosticsMini({ result }: { result: ScanResponse | null }) {
         {serialVisionSerial ? `found ${serialVisionSerial}` : "did not find a serial"}
         {speedLaneLabel}
         {councilLabel}
+        {aiCouncilLabel}
       </div>
     );
   }
@@ -11682,6 +11725,7 @@ function OcrDiagnosticsMini({ result }: { result: ScanResponse | null }) {
         : ""}
       {speedLaneLabel}
       {councilLabel}
+      {aiCouncilLabel}
     </div>
   );
 }
