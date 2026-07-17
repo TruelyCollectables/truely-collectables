@@ -124,6 +124,14 @@ export default async function MarketIntelAdminPage({ searchParams }: PageProps) 
             action="Open Ingestion Health"
             tone="cyan"
           />
+          <Workbench
+            eyebrow="Operating Reports"
+            title="Daily Intelligence + Alerts"
+            detail="Persistent duplicate-suppressed alerts, direct live links, daily Shark List reports, market movers, and portfolio results."
+            href={addAdminHandoff("/admin/market-intel/reports", handoff)}
+            action="Open Reports + Alerts"
+            tone="amber"
+          />
         </section>
 
         <section className="rounded-xl border border-neutral-200 bg-white p-6 shadow-sm">
@@ -165,13 +173,14 @@ export default async function MarketIntelAdminPage({ searchParams }: PageProps) 
 
         <section id="roadmap" className="rounded-xl border border-neutral-800 bg-[#101418] p-6 text-white">
           <p className="text-xs font-black uppercase tracking-[0.18em] text-amber-300">
-            Beta One Build Order
+            Beta One Operating Loop
           </p>
-          <h2 className="mt-1 text-3xl font-black">The data pipeline is becoming operational</h2>
+          <h2 className="mt-1 text-3xl font-black">Track → Value → Score → Alert → Buy → Measure</h2>
           <p className="mt-3 max-w-4xl font-semibold text-neutral-300">
-            Watchlists, purchases, sold comps, deal scoring, and a normalized ingestion gateway are connected.
-            The next work is wiring the hourly research automation into this endpoint, persisting alert delivery,
-            and generating the daily intelligence report directly from Beta One data.
+            The private foundation now connects watchlists, exact-card market values,
+            normalized listings, deal scoring, alerts, reports, purchases, and realized GP.
+            The remaining Beta One work is integration hardening, real-data seeding,
+            delivery adapters, and repeated live testing against actual buys and sales.
           </p>
         </section>
       </div>
