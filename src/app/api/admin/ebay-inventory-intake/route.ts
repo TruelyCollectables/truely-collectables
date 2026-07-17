@@ -29,6 +29,13 @@ type InventoryRow = {
   updated_at: string | null;
 };
 
+let ebayAppTokenCache:
+  | {
+      token: string;
+      expiresAt: number;
+    }
+  | null = null;
+
 function getSupabaseClient() {
   return createSupabaseServerClient({ admin: true });
 }
@@ -87,6 +94,10 @@ function readinessProblems(product: ProductRow, inventory: InventoryRow | null) 
 }
 
 async function getEbayAppToken() {
+  if (ebayAppTokenCache && ebayAppTokenCache.expiresAt > Date.now()) {
+    return ebayAppTokenCache.token;
+  }
+
   if (!process.env.EBAY_CLIENT_ID || !process.env.EBAY_CLIENT_SECRET) {
     return null;
   }
@@ -110,10 +121,21 @@ async function getEbayAppToken() {
   const data = await response.json().catch(() => ({}));
 
   if (!response.ok || !data.access_token) {
+    ebayAppTokenCache = null;
     return null;
   }
 
-  return String(data.access_token);
+  const expiresInSeconds = Number(data.expires_in || 0);
+  const safeTtlMs =
+    Number.isFinite(expiresInSeconds) && expiresInSeconds > 120
+      ? (expiresInSeconds - 60) * 1000
+      : 30 * 60 * 1000;
+  ebayAppTokenCache = {
+    token: String(data.access_token),
+    expiresAt: Date.now() + safeTtlMs,
+  };
+
+  return ebayAppTokenCache.token;
 }
 
 async function fetchEbaySnapshot(ebayItemId: string) {
