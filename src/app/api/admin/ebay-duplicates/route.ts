@@ -393,10 +393,17 @@ async function loadProductForMerge(productId: number) {
     .select("id,sku,title,price,quantity,image_url,ebay_item_id,last_seen_at,created_at")
     .eq("store_id", storeId)
     .eq("id", productId)
-    .single();
+    .limit(1);
 
   if (error) throw error;
-  return data as ProductRow;
+
+  const row = ((data || []) as ProductRow[])[0] || null;
+
+  if (!row) {
+    throw new Error(`Product ${productId} was not found. Refresh duplicates and try again.`);
+  }
+
+  return row;
 }
 
 async function loadInventoryForProduct(productId: number) {
@@ -407,10 +414,12 @@ async function loadInventoryForProduct(productId: number) {
     .select("id,legacy_product_id,status,quantity,price,metadata,updated_at")
     .eq("store_id", storeId)
     .eq("legacy_product_id", productId)
-    .maybeSingle();
+    .order("updated_at", { ascending: false, nullsFirst: false })
+    .limit(1);
 
   if (error) throw error;
-  return (data || null) as InventoryRow | null;
+
+  return (((data || []) as InventoryRow[])[0] || null) as InventoryRow | null;
 }
 
 async function mergeDuplicate(params: {
@@ -521,7 +530,7 @@ async function mergeDuplicate(params: {
         },
       })
       .eq("store_id", storeId)
-      .eq("id", keeperInventory.id);
+      .eq("legacy_product_id", keeper.id);
 
     if (error) throw error;
   }
@@ -545,7 +554,7 @@ async function mergeDuplicate(params: {
         },
       })
       .eq("store_id", storeId)
-      .eq("id", duplicateInventory.id);
+      .eq("legacy_product_id", duplicate.id);
 
     if (error) throw error;
   }
