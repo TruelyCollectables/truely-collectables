@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { deliverPendingMarketIntelAlerts } from "../../../../../../../lib/market-intel-delivery";
-import { isAuthorizedMarketIntelIngest } from "../../../../../../../lib/market-intel-ingestion";
+import { deliverPendingMarketIntelAlerts } from "../../../../../../lib/market-intel-delivery";
+import { isAuthorizedMarketIntelIngest } from "../../../../../../lib/market-intel-ingestion";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
