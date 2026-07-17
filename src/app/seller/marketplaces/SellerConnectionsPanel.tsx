@@ -4345,7 +4345,7 @@ export default function SellerConnectionsPanel({
   if (!authChecked) {
     return (
       <section className="rounded-md border border-neutral-200 bg-white p-5">
-        <h2 className="text-2xl font-black">Your Connections</h2>
+        <h2 className="text-2xl font-black">eBay Listings</h2>
         <p className="mt-2 text-sm leading-6 text-neutral-600">
           Refreshing your TCOS account session...
         </p>
@@ -4356,10 +4356,10 @@ export default function SellerConnectionsPanel({
   if (!session) {
     return (
       <section className="rounded-md border border-neutral-200 bg-white p-5">
-        <h2 className="text-2xl font-black">Your Connections</h2>
+        <h2 className="text-2xl font-black">eBay Listings</h2>
         <p className="mt-2 text-sm leading-6 text-neutral-600">
-          Log in from the account page to view seller-specific marketplace
-          connections. Store #1 foundation stats remain visible above.
+          Log in from the account page to import eBay listings, compare pricing,
+          and activate ready TCOS drafts.
         </p>
       </section>
     );
@@ -4369,10 +4369,10 @@ export default function SellerConnectionsPanel({
     <section className="rounded-md border border-neutral-200 bg-white">
       <div className="flex flex-wrap items-start justify-between gap-3 border-b border-neutral-200 p-5">
         <div>
-          <h2 className="text-2xl font-black">Your Connections</h2>
+          <h2 className="text-2xl font-black">eBay Listings</h2>
           <p className="mt-1 text-sm text-neutral-600">
-            Seller-scoped marketplace connection records for the active TCOS
-            store.
+            Connect eBay, import active listings, compare pricing with
+            InstaComp™, and move ready drafts live on Truely Collectables.
           </p>
         </div>
         {isLoading ? (
@@ -4383,7 +4383,9 @@ export default function SellerConnectionsPanel({
       </div>
 
       <div className="grid gap-3 border-b border-neutral-200 bg-neutral-50 p-5 md:grid-cols-2">
-        {requestableProviders.map((provider) => (
+        {requestableProviders
+          .filter((provider) => provider.provider === "ebay")
+          .map((provider) => (
           <button
             key={provider.provider}
             type="button"
@@ -4402,6 +4404,160 @@ export default function SellerConnectionsPanel({
             </p>
           </button>
         ))}
+        <div className="rounded-md border border-neutral-200 bg-white px-4 py-3">
+          <p className="font-black text-neutral-950">Coming later</p>
+          <p className="mt-1 text-sm leading-6 text-neutral-600">
+            Shopify, Whatnot, Etsy, Mercari, and other connectors stay off this
+            screen until eBay listings are dead simple.
+          </p>
+        </div>
+      </div>
+
+      <div className="border-b border-emerald-200 bg-emerald-50 p-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div className="max-w-3xl">
+            <p className="text-xs font-black uppercase tracking-[0.14em] text-emerald-800">
+              Make listings live
+            </p>
+            <h3 className="mt-1 text-xl font-black text-emerald-950">
+              eBay → TCOS live listing runway
+            </h3>
+            <p className="mt-2 text-sm leading-6 text-emerald-900">
+              This is the simple path: bring eBay listings over, clear exact
+              duplicates and obvious blockers, promote clean rows into TCOS
+              drafts, then activate ready drafts. Once an item is{" "}
+              <span className="font-black">ACTIVE</span> in Seller Inventory, it
+              is live on the TCOS shop.
+            </p>
+          </div>
+          <Link
+            href="/seller/inventory?status=draft&readiness=ready"
+            className="rounded-md bg-emerald-950 px-4 py-2 text-sm font-black text-white hover:bg-emerald-900"
+          >
+            Open ready drafts
+          </Link>
+        </div>
+
+        <div className="mt-4 grid gap-3 xl:grid-cols-3">
+          <div className="rounded-md border border-emerald-200 bg-white p-4">
+            <p className="text-xs font-black uppercase tracking-[0.14em] text-emerald-700">
+              Step 1
+            </p>
+            <h4 className="mt-1 text-lg font-black text-neutral-950">
+              Bring eBay listings over
+            </h4>
+            <p className="mt-2 text-sm leading-6 text-neutral-700">
+              Pull your active eBay listings into TCOS staging. This does not
+              make anything live yet.
+            </p>
+            <button
+              type="button"
+              onClick={() => stageAllRemaining()}
+              disabled={
+                !canUseSellerEbayTools ||
+                isLoadingPreview ||
+                isSavingProvider.length > 0 ||
+                isStagingItems ||
+                hasReachedEndOfEbayInventory
+              }
+              className="mt-4 rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-500"
+            >
+              {isStagingAll
+                ? "Importing eBay..."
+                : hasReachedEndOfEbayInventory
+                  ? "eBay import done"
+                  : "Import my eBay listings"}
+            </button>
+          </div>
+
+          <div className="rounded-md border border-emerald-200 bg-white p-4">
+            <p className="text-xs font-black uppercase tracking-[0.14em] text-emerald-700">
+              Step 2
+            </p>
+            <h4 className="mt-1 text-lg font-black text-neutral-950">
+              Clean and create drafts
+            </h4>
+            <p className="mt-2 text-sm leading-6 text-neutral-700">
+              Exact same-listing duplicates can go to Duplicate Trash. Select
+              rows below to compare eBay price against InstaComp™ before clean
+              staged rows become seller drafts.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Link
+                href={selectedInstaCompHref}
+                className={`rounded-md border px-3 py-2 text-xs font-black ${
+                  selectedStageItems.length
+                    ? "border-blue-300 bg-blue-50 text-blue-800 hover:bg-blue-100"
+                    : "pointer-events-none border-neutral-200 bg-neutral-50 text-neutral-400"
+                }`}
+              >
+                Compare selected pricing ({selectedStageItems.length})
+              </Link>
+              <button
+                type="button"
+                onClick={() =>
+                  void trashExactDuplicateStageItems(exactDuplicateTrashStageItemIds)
+                }
+                disabled={
+                  exactDuplicateTrashStageItemIds.length === 0 ||
+                  updatingStageItemId.startsWith("bulk-") ||
+                  Boolean(promotingStageItemId)
+                }
+                className="rounded-md border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-black text-rose-900 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Trash dups ({exactDuplicateTrashStageItemIds.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => void promoteAllReadyStageItems()}
+                disabled={
+                  readyStageItemIds.length === 0 ||
+                  Boolean(promotingStageItemId) ||
+                  updatingStageItemId.startsWith("bulk-")
+                }
+                className="rounded-md bg-emerald-700 px-3 py-2 text-xs font-black text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-emerald-300"
+              >
+                {promotingStageItemId === "bulk-promote-all-ready"
+                  ? "Creating drafts..."
+                  : `Create drafts (${readyStageItemIds.length})`}
+              </button>
+              <button
+                type="button"
+                onClick={() => focusStageLane("blocked")}
+                className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-xs font-bold hover:bg-neutral-50"
+              >
+                Review blockers ({blockedStageItemIds.length})
+              </button>
+            </div>
+          </div>
+
+          <div className="rounded-md border border-emerald-200 bg-white p-4">
+            <p className="text-xs font-black uppercase tracking-[0.14em] text-emerald-700">
+              Step 3
+            </p>
+            <h4 className="mt-1 text-lg font-black text-neutral-950">
+              Activate ready drafts
+            </h4>
+            <p className="mt-2 text-sm leading-6 text-neutral-700">
+              Open ready drafts, select them, and hit Activate Ready. That is
+              the switch that makes them live on TruelyCollectables.com.
+            </p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Link
+                href="/seller/inventory?status=draft&readiness=ready"
+                className="rounded-md bg-emerald-950 px-3 py-2 text-xs font-black text-white hover:bg-emerald-900"
+              >
+                Activate ready drafts ({inventorySummary?.draftReadyCount || 0})
+              </Link>
+              <Link
+                href="/seller/inventory?status=draft&readiness=needs_work"
+                className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-black text-amber-900 hover:bg-amber-100"
+              >
+                Fix needs-work ({inventorySummary?.draftNeedsWorkCount || 0})
+              </Link>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div className="border-b border-sky-200 bg-sky-50 p-5">
@@ -5898,7 +6054,7 @@ export default function SellerConnectionsPanel({
                         : "pointer-events-none border-neutral-200 bg-neutral-50 text-neutral-400"
                     }`}
                   >
-                    Send Selected to InstaComp™ ({selectedStageItems.length})
+                    Compare Selected Pricing in InstaComp™ ({selectedStageItems.length})
                   </Link>
                   <button
                     type="button"
@@ -6466,7 +6622,7 @@ export default function SellerConnectionsPanel({
                               href={sellerStagedInstaCompHref([item])}
                               className="text-xs font-bold text-blue-700 underline"
                             >
-                              Send to InstaComp™
+                              Compare price in InstaComp™
                             </Link>
                           </div>
                           {categoryHint ? (

@@ -41,20 +41,20 @@ function buildConnectors(storeDisplayName: string): Connector[] {
       actionLabel: "Open eBay Health",
     },
     {
-      name: "Seller eBay Connection",
+      name: "eBay Listings",
       status: "active_foundation",
       description:
-        "Seller-safe eBay OAuth, encrypted token storage, and connection health refresh are live for seller accounts on the active store.",
+        "Seller-safe eBay connection, one-click import, duplicate cleanup, TCOS draft creation, and activation handoff are live for seller accounts.",
       href: "/seller/marketplaces",
-      actionLabel: "Open Seller Connections",
+      actionLabel: "Open eBay Listings",
     },
     {
-      name: "Seller eBay Importer",
+      name: "InstaComp™ price check",
       status: "active_foundation",
       description:
-        "Seller-scoped eBay preview, staging, duplicate review, bulk cleanup, promotion into draft inventory, and import-run visibility are live on the active store.",
-      href: "/seller/marketplaces",
-      actionLabel: "Open Seller Connections",
+        "Imported eBay rows can be sent to InstaComp™ so sellers can compare eBay listing price against TCOS market guidance before activation.",
+      href: "/seller/marketplaces?stage=staged",
+      actionLabel: "Open Price Check",
     },
     {
       name: "Shopify",
@@ -1067,16 +1067,16 @@ export default async function SellerMarketplacesPage() {
         <div className="mx-auto flex max-w-7xl flex-col gap-5 px-6 py-6 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.16em] text-amber-300">
-              TCOS Seller Sync
+              TCOS eBay Listings
             </p>
             <h1 className="mt-2 text-4xl font-black tracking-tight">
-              Seller Connections
+              eBay Listings
             </h1>
             <p className="mt-2 max-w-3xl text-sm text-neutral-300">
-              Seller-facing control center for marketplace import and sync
-              connections. The current live foundation is Store #1 scoped so
-              {storeSettings.displayName} keeps working while seller-specific
-              connectors are built around it.
+              One seller-facing place to connect eBay, import active listings
+              to Truely Collectables, keep eBay pricing as the starting listing
+              price, compare pricing through InstaComp™, and activate ready
+              drafts on the TCOS shop.
             </p>
           </div>
 
@@ -1152,14 +1152,16 @@ export default async function SellerMarketplacesPage() {
           </div>
         </section>
 
+        <SellerConnectionsPanel ebaySyncEnabled={storeSettings.ebaySyncEnabled} />
+
         <section className="rounded-md border border-sky-200 bg-sky-50 p-5 text-sky-950">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <p className="text-sm font-black uppercase tracking-[0.16em]">
-                Marketplace Packet Intake
+                Advanced exports
               </p>
               <h2 className="mt-2 text-2xl font-black">
-                Seller Inventory exports are prep files, not live publishing.
+                Marketplace packets are advanced prep files.
               </h2>
               <p className="mt-2 max-w-3xl text-sm font-semibold leading-6">
                 Use `Copy Marketplace Packet`, `Download Marketplace Packet`, or
@@ -1215,7 +1217,7 @@ export default async function SellerMarketplacesPage() {
         <section className="rounded-md border border-neutral-200 bg-white">
           <div className="flex flex-wrap items-start justify-between gap-4 border-b border-neutral-200 p-5">
             <div>
-              <h2 className="text-2xl font-black">Available Connectors</h2>
+              <h2 className="text-2xl font-black">Advanced connector status</h2>
               <p className="mt-1 max-w-3xl text-sm text-neutral-600">
                 eBay stays first because the active TCOS inventory engine,
                 reconciliation board, and quantity-sync safety controls already
@@ -1233,8 +1235,6 @@ export default async function SellerMarketplacesPage() {
             ))}
           </div>
         </section>
-
-        <SellerConnectionsPanel ebaySyncEnabled={storeSettings.ebaySyncEnabled} />
 
         <section className="rounded-md border border-neutral-200 bg-white p-5">
           <h2 className="text-2xl font-black">Seller-Safe Build Progress</h2>
