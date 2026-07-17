@@ -308,6 +308,34 @@ export class InventoryEngine {
     });
   }
 
+  private mapProductsWithInventory(
+    products: any[] | null,
+    inventoryItems: any[] | null,
+  ): UniversalInventoryItem[] {
+    const byLegacyProductId = new Map<number, InventoryItem>();
+    const bySku = new Map<string, InventoryItem>();
+
+    for (const item of (inventoryItems ?? []) as InventoryItem[]) {
+      if (item.legacy_product_id) {
+        byLegacyProductId.set(Number(item.legacy_product_id), item);
+      }
+
+      if (item.sku) {
+        bySku.set(item.sku, item);
+      }
+    }
+
+    return (products ?? []).map((productRow) => {
+      const legacyProduct = mapLegacyProduct(productRow);
+      const inventoryItem =
+        byLegacyProductId.get(legacyProduct.id) ??
+        (legacyProduct.sku ? bySku.get(legacyProduct.sku) : null) ??
+        null;
+
+      return mapUniversal(legacyProduct, inventoryItem);
+    });
+  }
+
   async listAvailable(
     params: {
       query?: string;
@@ -335,27 +363,23 @@ export class InventoryEngine {
       query = query.eq("sport", params.sport);
     }
 
-    const { data: products, error } = await query;
+    const [
+      { data: products, error },
+      { data: inventoryItems, error: inventoryError },
+    ] = await Promise.all([
+      query,
+      this.database
+        .from("inventory_items")
+        .select("*")
+        .eq("store_id", this.storeId),
+    ]);
 
     if (error) throw error;
+    if (inventoryError) throw inventoryError;
 
-    const items: UniversalInventoryItem[] = [];
-
-    for (const product of products ?? []) {
-      const legacyProduct = mapLegacyProduct(product);
-      const inventoryItem =
-        (await this.repository.getByLegacyProductId(legacyProduct.id)) ??
-        (legacyProduct.sku
-          ? await this.repository.getBySku(legacyProduct.sku)
-          : null);
-      const item = mapUniversal(legacyProduct, inventoryItem);
-
-      if (item.quantity > 0 && item.status === "active") {
-        items.push(item);
-      }
-    }
-
-    return items;
+    return this.mapProductsWithInventory(products ?? [], inventoryItems ?? []).filter(
+      (item) => item.quantity > 0 && item.status === "active",
+    );
   }
 
   async listAvailableSports(): Promise<string[]> {
@@ -367,28 +391,25 @@ export class InventoryEngine {
   }
 
   async listAll(): Promise<UniversalInventoryItem[]> {
-    const { data: products, error } = await this.database
-      .from("products")
-      .select("*")
-      .eq("store_id", this.storeId)
-      .order("id");
+    const [
+      { data: products, error },
+      { data: inventoryItems, error: inventoryError },
+    ] = await Promise.all([
+      this.database
+        .from("products")
+        .select("*")
+        .eq("store_id", this.storeId)
+        .order("id"),
+      this.database
+        .from("inventory_items")
+        .select("*")
+        .eq("store_id", this.storeId),
+    ]);
 
     if (error) throw error;
+    if (inventoryError) throw inventoryError;
 
-    const items: UniversalInventoryItem[] = [];
-
-    for (const product of products ?? []) {
-      const legacyProduct = mapLegacyProduct(product);
-      const inventoryItem =
-        (await this.repository.getByLegacyProductId(legacyProduct.id)) ??
-        (legacyProduct.sku
-          ? await this.repository.getBySku(legacyProduct.sku)
-          : null);
-
-      items.push(mapUniversal(legacyProduct, inventoryItem));
-    }
-
-    return items;
+    return this.mapProductsWithInventory(products ?? [], inventoryItems ?? []);
   }
 
   async getBridgeStatus(): Promise<InventoryBridgeStatus> {
