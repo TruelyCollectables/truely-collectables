@@ -15,9 +15,14 @@ export default function OfferActions({
   const router = useRouter();
   const [loading, setLoading] = useState("");
   const [counterAmount, setCounterAmount] = useState("");
+  const [message, setMessage] = useState<{
+    tone: "success" | "error" | "info";
+    text: string;
+  } | null>(null);
 
   async function updateStatus(newStatus: string) {
     setLoading(newStatus);
+    setMessage({ tone: "info", text: `Saving offer as ${newStatus}...` });
 
     try {
       const res = await fetch("/api/offers/update-status", {
@@ -34,14 +39,18 @@ export default function OfferActions({
       const data = await res.json();
 
       if (!res.ok) {
-        alert(data.error || "Failed");
+        setMessage({ tone: "error", text: data.error || "Could not update offer." });
         return;
       }
 
+      setMessage({
+        tone: "success",
+        text: `Offer ${newStatus}.`,
+      });
       router.refresh();
     } catch (error) {
       console.error(error);
-      alert("Failed");
+      setMessage({ tone: "error", text: "Could not update offer." });
     } finally {
       setLoading("");
     }
@@ -49,11 +58,12 @@ export default function OfferActions({
 
   async function sendCounterOffer() {
     if (!counterAmount) {
-      alert("Enter a counter amount");
+      setMessage({ tone: "error", text: "Enter a counter amount." });
       return;
     }
 
     setLoading("counter");
+    setMessage({ tone: "info", text: "Sending counter offer..." });
 
     try {
       const res = await fetch("/api/offers/counter", {
@@ -70,15 +80,15 @@ export default function OfferActions({
       const data = await res.json();
 
       if (!res.ok) {
-        alert(data.error || "Failed");
+        setMessage({ tone: "error", text: data.error || "Could not send counter offer." });
         return;
       }
 
-      alert("Counter offer sent");
+      setMessage({ tone: "success", text: "Counter offer sent." });
       router.refresh();
     } catch (error) {
       console.error(error);
-      alert("Failed");
+      setMessage({ tone: "error", text: "Could not send counter offer." });
     } finally {
       setLoading("");
     }
@@ -132,6 +142,29 @@ export default function OfferActions({
       >
         {loading === "counter" ? "Sending..." : "Counter Offer"}
       </button>
+
+      {message ? <ActionNotice tone={message.tone}>{message.text}</ActionNotice> : null}
     </div>
+  );
+}
+
+function ActionNotice({
+  tone,
+  children,
+}: {
+  tone: "success" | "error" | "info";
+  children: React.ReactNode;
+}) {
+  const className =
+    tone === "success"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-950"
+      : tone === "error"
+        ? "border-rose-200 bg-rose-50 text-rose-950"
+        : "border-blue-200 bg-blue-50 text-blue-950";
+
+  return (
+    <p className={`rounded border px-3 py-2 text-xs font-bold ${className}`}>
+      {children}
+    </p>
   );
 }

@@ -33,9 +33,14 @@ export default function PayoutRequestActions({
   const [adminNote, setAdminNote] = useState("");
   const [providerPayoutReference, setProviderPayoutReference] = useState("");
   const [finalProcessorFeeAmount, setFinalProcessorFeeAmount] = useState("");
+  const [message, setMessage] = useState<{
+    tone: "success" | "error" | "info";
+    text: string;
+  } | null>(null);
 
   async function updateStatus(nextStatus: PayoutStatus) {
     setLoading(nextStatus);
+    setMessage({ tone: "info", text: "Saving payout request status..." });
 
     try {
       const response = await fetch("/api/admin/seller-payouts/requests", {
@@ -54,17 +59,27 @@ export default function PayoutRequestActions({
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        alert(data.error || "Could not update payout request.");
+        setMessage({
+          tone: "error",
+          text: data.error || "Could not update payout request.",
+        });
         return;
       }
 
       setAdminNote("");
       setProviderPayoutReference("");
       setFinalProcessorFeeAmount("");
+      setMessage({
+        tone: "success",
+        text: `Payout request moved to ${nextStatus}.`,
+      });
       router.refresh();
     } catch (error) {
       console.error(error);
-      alert("Could not update payout request.");
+      setMessage({
+        tone: "error",
+        text: "Could not update payout request.",
+      });
     } finally {
       setLoading("");
     }
@@ -182,6 +197,29 @@ export default function PayoutRequestActions({
       >
         {loading === "cancelled" ? "Saving..." : "Cancel Request"}
       </button>
+
+      {message ? <ActionNotice tone={message.tone}>{message.text}</ActionNotice> : null}
     </div>
+  );
+}
+
+function ActionNotice({
+  tone,
+  children,
+}: {
+  tone: "success" | "error" | "info";
+  children: React.ReactNode;
+}) {
+  const className =
+    tone === "success"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-950"
+      : tone === "error"
+        ? "border-rose-200 bg-rose-50 text-rose-950"
+        : "border-blue-200 bg-blue-50 text-blue-950";
+
+  return (
+    <p className={`rounded border px-2 py-1 text-xs font-bold ${className}`}>
+      {children}
+    </p>
   );
 }

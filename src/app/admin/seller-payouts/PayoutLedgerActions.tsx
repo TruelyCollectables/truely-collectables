@@ -24,9 +24,14 @@ export default function PayoutLedgerActions({
   const router = useRouter();
   const [loading, setLoading] = useState("");
   const [adminNote, setAdminNote] = useState("");
+  const [message, setMessage] = useState<{
+    tone: "success" | "error" | "info";
+    text: string;
+  } | null>(null);
 
   async function updateStatus(nextStatus: LedgerStatus) {
     setLoading(nextStatus);
+    setMessage({ tone: "info", text: "Saving payout ledger status..." });
 
     try {
       const response = await fetch("/api/admin/seller-payouts/ledger", {
@@ -43,15 +48,25 @@ export default function PayoutLedgerActions({
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        alert(data.error || "Could not update seller payout ledger row.");
+        setMessage({
+          tone: "error",
+          text: data.error || "Could not update seller payout ledger row.",
+        });
         return;
       }
 
       setAdminNote("");
+      setMessage({
+        tone: "success",
+        text: `Payout ledger row moved to ${nextStatus.replaceAll("_", " ")}.`,
+      });
       router.refresh();
     } catch (error) {
       console.error(error);
-      alert("Could not update seller payout ledger row.");
+      setMessage({
+        tone: "error",
+        text: "Could not update seller payout ledger row.",
+      });
     } finally {
       setLoading("");
     }
@@ -123,6 +138,28 @@ export default function PayoutLedgerActions({
       >
         {loading === "cancelled" ? "Saving..." : "Cancel Row"}
       </button>
+      {message ? <ActionNotice tone={message.tone}>{message.text}</ActionNotice> : null}
     </div>
+  );
+}
+
+function ActionNotice({
+  tone,
+  children,
+}: {
+  tone: "success" | "error" | "info";
+  children: React.ReactNode;
+}) {
+  const className =
+    tone === "success"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-950"
+      : tone === "error"
+        ? "border-rose-200 bg-rose-50 text-rose-950"
+        : "border-blue-200 bg-blue-50 text-blue-950";
+
+  return (
+    <p className={`rounded border px-2 py-1 text-xs font-bold ${className}`}>
+      {children}
+    </p>
   );
 }
