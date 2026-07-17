@@ -1024,6 +1024,44 @@ function metadataRecord(value: unknown) {
     : null;
 }
 
+function isResolvedStageItem(item: SellerStagedItem) {
+  return item.stage_status === "mapped" || item.stage_status === "skipped";
+}
+
+function isActivePromotionBlocked(item: SellerStagedItem) {
+  return item.promotion_guard?.blocked === true && !isResolvedStageItem(item);
+}
+
+function isDuplicateTrashItem(item: SellerStagedItem) {
+  const metadata = metadataRecord(item.metadata);
+  const stageTrash = metadataRecord(metadata?.stage_trash);
+
+  return (
+    item.stage_status === "skipped" &&
+    (metadataTextValue(metadata, "trash_kind") === "duplicate" ||
+      metadata?.duplicate_trash === true ||
+      metadataTextValue(stageTrash, "kind") === "duplicate")
+  );
+}
+
+function isExactDuplicateTrashCandidate(item: SellerStagedItem) {
+  if (isResolvedStageItem(item)) return false;
+
+  const guard = item.promotion_guard;
+  if (!guard?.blocked) return false;
+
+  return (
+    guard.alreadyPromoted ||
+    guard.reasons.includes("existing_ebay_item") ||
+    guard.matches.some((match) => match.matchType === "ebay_item_id")
+  );
+}
+
+function stagedStatusLabel(item: SellerStagedItem) {
+  if (isDuplicateTrashItem(item)) return "DUPLICATE TRASH";
+  return label(item.stage_status);
+}
+
 function authenticityBadgeTone(tone: "neutral" | "emerald" | "amber" | "sky") {
   if (tone === "emerald") {
     return "border-emerald-200 bg-emerald-50 text-emerald-800";
@@ -1547,12 +1585,16 @@ function stageSignals(item: SellerStagedItem) {
     signals.push({ label: "Draft created", tone: "positive" });
   }
 
+  if (isDuplicateTrashItem(item)) {
+    signals.push({ label: "Dup trash - verify", tone: "warning" });
+  }
+
   if (
-    item.promotion_guard?.blocked &&
-    item.promotion_guard.matches.some((match) => match.sellerScope === "same_seller")
+    isActivePromotionBlocked(item) &&
+    item.promotion_guard?.matches.some((match) => match.sellerScope === "same_seller")
   ) {
     signals.push({ label: "Existing seller match", tone: "warning" });
-  } else if (item.promotion_guard?.blocked) {
+  } else if (isActivePromotionBlocked(item)) {
     signals.push({ label: "Store conflict", tone: "warning" });
   }
 
@@ -1582,12 +1624,12 @@ function stageSignals(item: SellerStagedItem) {
 }
 
 function stageLaneFilter(item: SellerStagedItem): StageFilter {
-  if (item.promotion_guard?.blocked) return "blocked";
+  if (item.stage_status === "mapped") return "mapped";
+  if (item.stage_status === "skipped") return "skipped";
+  if (isActivePromotionBlocked(item)) return "blocked";
   if (item.stage_status === "needs_review") return "needs_review";
   if (hasDraftActivationCleanup(item)) return "draft_cleanup";
   if (isDraftActivationReadyStageItem(item)) return "ready";
-  if (item.stage_status === "mapped") return "mapped";
-  if (item.stage_status === "skipped") return "skipped";
   return "staged";
 }
 
@@ -1635,6 +1677,14 @@ function stageLaneBadge(item: SellerStagedItem) {
   }
 
   if (filter === "skipped") {
+    if (isDuplicateTrashItem(item)) {
+      return {
+        label: "Duplicate trash lane",
+        tone: "border-rose-200 bg-rose-50 text-rose-800",
+        filter,
+      };
+    }
+
     return {
       label: "Skipped lane",
       tone: "border-neutral-200 bg-neutral-100 text-neutral-700",
@@ -1650,7 +1700,7 @@ function stageLaneBadge(item: SellerStagedItem) {
 }
 
 function stageWorkPriority(item: SellerStagedItem) {
-  if (item.promotion_guard?.blocked) return 0;
+  if (isActivePromotionBlocked(item)) return 0;
   if (item.stage_status === "needs_review") return 1;
   if (hasDraftActivationCleanup(item)) return 2;
   if (isDraftActivationReadyStageItem(item)) return 3;
@@ -1702,7 +1752,7 @@ function stageItemIdsForFilter(
         (item) =>
           canPromoteStageItem(item) ||
           item.stage_status === "needs_review" ||
-          item.promotion_guard?.blocked === true,
+          isActivePromotionBlocked(item),
       )
       .map((item) => item.id);
   }
@@ -1719,7 +1769,7 @@ function stageItemIdsForFilter(
 
   if (filter === "blocked") {
     return items
-      .filter((item) => item.promotion_guard?.blocked === true)
+      .filter((item) => isActivePromotionBlocked(item))
       .map((item) => item.id);
   }
 
@@ -1783,7 +1833,7 @@ function stageLaneTitle(filter: StageFilter) {
   if (filter === "needs_review") return "Review lane";
   if (filter === "staged") return "Staged lane";
   if (filter === "mapped") return "Mapped lane";
-  if (filter === "skipped") return "Sold / archived lane";
+  if (filter === "skipped") return "Trash / archived lane";
   return "Working staged rows";
 }
 
@@ -1813,7 +1863,7 @@ function stageLaneDetail(filter: StageFilter) {
   }
 
   if (filter === "skipped") {
-    return "These rows are sold, ended, out-of-stock, or intentionally archived out of the active selling workflow.";
+    return "These rows are sold, ended, out-of-stock, or intentionally archived out of the active selling workflow. Duplicate-trash rows stay here until you verify before permanent delete.";
   }
 
   return "This workspace shows active seller work only; sold, ended, mapped, and archived rows stay out of the way unless you open their lanes.";
@@ -2224,6 +2274,44 @@ async function updateSellerStagedItemStatus(params: {
     stagedItem: (data.stagedItem || null) as SellerStagedItem | null,
     stagedItems: (data.stagedItems || []) as SellerStagedItem[],
     updatedCount: Number(data.updatedCount || 0),
+    operationReceipt,
+  };
+}
+
+async function trashDuplicateSellerStagedItems(params: {
+  accessToken: string;
+  stagedItemIds: string[];
+}) {
+  const response = await fetch(
+    "/api/account/seller/marketplace-connections/ebay/staged-items",
+    {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${params.accessToken}`,
+      },
+      body: JSON.stringify({
+        stagedItemIds: params.stagedItemIds,
+        duplicateTrash: true,
+      }),
+    },
+  );
+  const data = await response.json();
+  const operationReceipt = sellerMarketplaceStagedReceipt(response.headers);
+
+  if (!response.ok) {
+    throw new SellerMarketplaceOperationError(
+      data.error || "Could not move duplicate staged items to trash.",
+      operationReceipt,
+    );
+  }
+
+  return {
+    stagedItem: (data.stagedItem || null) as SellerStagedItem | null,
+    stagedItems: (data.stagedItems || []) as SellerStagedItem[],
+    updatedCount: Number(data.updatedCount || 0),
+    skippedCount: Number(data.skippedCount || 0),
+    duplicateTrashCount: Number(data.duplicateTrashCount || 0),
     operationReceipt,
   };
 }
@@ -3353,6 +3441,47 @@ export default function SellerConnectionsPanel({
     await setBulkStageStatusForIds(targetIds, stageStatus);
   }
 
+  async function trashExactDuplicateStageItems(stageItemIds: string[]) {
+    if (!session?.access_token || stageItemIds.length === 0) {
+      if (session?.access_token) {
+        setMessage("No exact eBay duplicate staged listings are selected.");
+      }
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `Move ${stageItemIds.length} exact eBay duplicate staged row(s) to Duplicate Trash? They will be hidden from active work but not permanently deleted until you verify them.`,
+    );
+
+    if (!confirmed) return;
+
+    setUpdatingStageItemId("bulk-duplicate-trash");
+    setMessage("");
+    setLastBulkPromotionSuccesses([]);
+    setLastBulkPromotionErrors([]);
+
+    try {
+      const result = await trashDuplicateSellerStagedItems({
+        accessToken: session.access_token,
+        stagedItemIds: stageItemIds,
+      });
+      setLatestMarketplaceOperationReceipt(result.operationReceipt);
+      await refreshSellerStageState(session.access_token, { silent: true });
+      await refreshSellerInventoryState(session.access_token, { silent: true });
+      setSelectedStageItemIds((current) =>
+        current.filter((id) => !stageItemIds.includes(id)),
+      );
+      setMessage(
+        `${result.duplicateTrashCount || result.updatedCount} exact duplicate staged listing(s) moved to Duplicate Trash for verification before permanent delete.${result.skippedCount > 0 ? ` ${result.skippedCount} SKU-only or resolved row(s) were left alone.` : ""}`,
+      );
+    } catch (error: any) {
+      rememberOperationErrorReceipt(error);
+      setMessage(error.message || "Could not move duplicate staged items to trash.");
+    } finally {
+      setUpdatingStageItemId("");
+    }
+  }
+
   async function promoteStageItem(stagedItemId: string) {
     if (!session?.access_token) return;
     const stagedItem = stagedItems.find((item) => item.id === stagedItemId);
@@ -3626,8 +3755,12 @@ export default function SellerConnectionsPanel({
         summary.attention += 1;
       }
 
-      if (item.promotion_guard?.blocked) {
+      if (isActivePromotionBlocked(item)) {
         summary.blocked += 1;
+      }
+
+      if (isDuplicateTrashItem(item)) {
+        summary.duplicate_trash += 1;
       }
 
       if (isDraftActivationReadyStageItem(item)) {
@@ -3652,6 +3785,7 @@ export default function SellerConnectionsPanel({
       skipped: 0,
       attention: 0,
       blocked: 0,
+      duplicate_trash: 0,
       ready: 0,
       draft_cleanup: 0,
       promoted: 0,
@@ -3664,7 +3798,7 @@ export default function SellerConnectionsPanel({
     .filter((item) => {
       if (stageFilter === "all") return true;
       if (stageFilter === "draft_cleanup") return hasDraftActivationCleanup(item);
-      if (stageFilter === "blocked") return item.promotion_guard?.blocked === true;
+      if (stageFilter === "blocked") return isActivePromotionBlocked(item);
       if (stageFilter === "ready") {
         return isDraftActivationReadyStageItem(item);
       }
@@ -3711,7 +3845,10 @@ export default function SellerConnectionsPanel({
     .filter((item) => item.stage_status === "needs_review")
     .map((item) => item.id);
   const blockedVisibleStageItemIds = filteredStagedItems
-    .filter((item) => item.promotion_guard?.blocked === true)
+    .filter((item) => isActivePromotionBlocked(item))
+    .map((item) => item.id);
+  const duplicateTrashVisibleStageItemIds = filteredStagedItems
+    .filter((item) => isExactDuplicateTrashCandidate(item))
     .map((item) => item.id);
   const readyStageItemIds = stagedItems
     .filter((item) => isDraftActivationReadyStageItem(item))
@@ -3723,12 +3860,18 @@ export default function SellerConnectionsPanel({
     .filter((item) => item.stage_status === "needs_review")
     .map((item) => item.id);
   const blockedStageItems = stagedItems
-    .filter((item) => item.promotion_guard?.blocked)
+    .filter((item) => isActivePromotionBlocked(item))
     .sort(
       (left, right) =>
         new Date(right.updated_at).getTime() - new Date(left.updated_at).getTime(),
     );
   const blockedStageItemIds = blockedStageItems.map((item) => item.id);
+  const exactDuplicateTrashStageItems = stagedItems.filter((item) =>
+    isExactDuplicateTrashCandidate(item),
+  );
+  const exactDuplicateTrashStageItemIds = exactDuplicateTrashStageItems.map(
+    (item) => item.id,
+  );
   const promotedStageItemCount = stagedItems.filter(
     (item) => item.promotion_guard?.alreadyPromoted,
   ).length;
@@ -3765,8 +3908,12 @@ export default function SellerConnectionsPanel({
         summary.needs_review += 1;
       }
 
-      if (item.promotion_guard?.blocked) {
+      if (isActivePromotionBlocked(item)) {
         summary.blocked += 1;
+      }
+
+      if (isDuplicateTrashItem(item)) {
+        summary.duplicate_trash += 1;
       }
 
       if (item.stage_status === "mapped") {
@@ -3787,6 +3934,7 @@ export default function SellerConnectionsPanel({
       blocked: 0,
       mapped: 0,
       skipped: 0,
+      duplicate_trash: 0,
     },
   );
   const selectedReadyStageItemIds = stageItemIdsForFilter(
@@ -3805,6 +3953,9 @@ export default function SellerConnectionsPanel({
     selectedStageItems,
     "blocked",
   );
+  const selectedExactDuplicateTrashStageItemIds = selectedStageItems
+    .filter((item) => isExactDuplicateTrashCandidate(item))
+    .map((item) => item.id);
   const selectedDraftCleanupStageItemIds = selectedStageItems
     .filter((item) => hasDraftActivationCleanup(item))
     .map((item) => item.id);
@@ -3853,7 +4004,7 @@ export default function SellerConnectionsPanel({
     failedPromotionStageItemIds,
   );
   const failedPromotionConflictIds = failedPromotionStageItems
-    .filter((item) => item.promotion_guard?.blocked)
+    .filter((item) => isActivePromotionBlocked(item))
     .map((item) => item.id);
   const failedPromotionReadyIds = failedPromotionStageItems
     .filter((item) => isDraftActivationReadyStageItem(item))
@@ -3868,7 +4019,7 @@ export default function SellerConnectionsPanel({
     (summary, item) => {
       summary.total += 1;
 
-      if (item.promotion_guard?.blocked) {
+      if (isActivePromotionBlocked(item)) {
         summary.conflict += 1;
       }
 
@@ -5232,6 +5383,20 @@ export default function SellerConnectionsPanel({
                 >
                   Select Blocked ({blockedStageItemIds.length})
                 </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    void trashExactDuplicateStageItems(exactDuplicateTrashStageItemIds)
+                  }
+                  disabled={
+                    exactDuplicateTrashStageItemIds.length === 0 ||
+                    updatingStageItemId.startsWith("bulk-") ||
+                    Boolean(promotingStageItemId)
+                  }
+                  className="rounded-md border border-rose-300 bg-white px-3 py-2 text-xs font-black text-rose-900 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Trash Exact Dups ({exactDuplicateTrashStageItemIds.length})
+                </button>
               </div>
             </div>
 
@@ -5310,6 +5475,20 @@ export default function SellerConnectionsPanel({
                     className="rounded-md border border-rose-300 px-3 py-2 text-xs font-bold text-rose-800 hover:bg-rose-50"
                   >
                     Show blocked only ({blockedStageItems.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void trashExactDuplicateStageItems(exactDuplicateTrashStageItemIds)
+                    }
+                    disabled={
+                      exactDuplicateTrashStageItemIds.length === 0 ||
+                      updatingStageItemId.startsWith("bulk-") ||
+                      Boolean(promotingStageItemId)
+                    }
+                    className="rounded-md border border-rose-300 px-3 py-2 text-xs font-black text-rose-900 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Trash exact dups ({exactDuplicateTrashStageItemIds.length})
                   </button>
                   <button
                     type="button"
@@ -5658,6 +5837,20 @@ export default function SellerConnectionsPanel({
                   >
                     {`Select blocked visible (${blockedVisibleStageItemIds.length})`}
                   </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setSelectedStageItemIds((current) =>
+                        Array.from(
+                          new Set([...current, ...duplicateTrashVisibleStageItemIds]),
+                        ),
+                      )
+                    }
+                    disabled={duplicateTrashVisibleStageItemIds.length === 0}
+                    className="rounded-md border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-bold text-rose-900 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {`Select exact dups visible (${duplicateTrashVisibleStageItemIds.length})`}
+                  </button>
                   <span className="text-xs font-black uppercase text-neutral-500">
                     {selectedStageItemIds.length} selected
                   </span>
@@ -5687,6 +5880,11 @@ export default function SellerConnectionsPanel({
                   {selectedSummary.skipped > 0 ? (
                     <span className="text-xs font-black uppercase text-neutral-600">
                       {selectedSummary.skipped} skipped
+                    </span>
+                  ) : null}
+                  {selectedExactDuplicateTrashStageItemIds.length > 0 ? (
+                    <span className="text-xs font-black uppercase text-rose-800">
+                      {selectedExactDuplicateTrashStageItemIds.length} exact dups
                     </span>
                   ) : null}
                 </div>
@@ -5769,6 +5967,22 @@ export default function SellerConnectionsPanel({
                     className="rounded-md border border-rose-300 px-3 py-2 text-xs font-bold text-rose-800 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     {`Mark Skipped (${selectedMarkSkippedIds.length})`}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void trashExactDuplicateStageItems(
+                        selectedExactDuplicateTrashStageItemIds,
+                      )
+                    }
+                    disabled={
+                      selectedExactDuplicateTrashStageItemIds.length === 0 ||
+                      updatingStageItemId.startsWith("bulk-") ||
+                      Boolean(promotingStageItemId)
+                    }
+                    className="rounded-md border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-black text-rose-900 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {`Trash Exact Dups (${selectedExactDuplicateTrashStageItemIds.length})`}
                   </button>
                   <button
                     type="button"
@@ -6524,7 +6738,7 @@ export default function SellerConnectionsPanel({
                               item.stage_status,
                             )}`}
                           >
-                            {label(item.stage_status)}
+                            {stagedStatusLabel(item)}
                           </span>
                           <div className="mt-2">
                             <button
@@ -6590,6 +6804,22 @@ export default function SellerConnectionsPanel({
                             >
                               Skip
                             </button>
+                            {isExactDuplicateTrashCandidate(item) ? (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  void trashExactDuplicateStageItems([item.id])
+                                }
+                                disabled={
+                                  updatingStageItemId === item.id ||
+                                  updatingStageItemId.startsWith("bulk-") ||
+                                  promotingStageItemId === item.id
+                                }
+                                className="rounded border border-rose-300 bg-rose-50 px-2 py-1 text-[11px] font-black text-rose-900 hover:bg-rose-100 disabled:opacity-60"
+                              >
+                                Trash Dup
+                              </button>
+                            ) : null}
                             <button
                               type="button"
                               onClick={() => promoteStageItem(item.id)}

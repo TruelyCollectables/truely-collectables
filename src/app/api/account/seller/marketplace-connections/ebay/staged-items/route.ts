@@ -126,6 +126,10 @@ function cleanText(value: unknown) {
   return text.length > 0 ? text : null;
 }
 
+function isResolvedStageStatus(value: unknown) {
+  return value === "mapped" || value === "skipped";
+}
+
 function cleanCategoryHint(value: unknown) {
   const category = cleanText(value);
 
@@ -143,6 +147,21 @@ function metadataRecord(value: unknown) {
   return value && typeof value === "object"
     ? (value as Record<string, unknown>)
     : null;
+}
+
+function isExactDuplicateTrashCandidate(
+  item: ReturnType<typeof enrichStagedItems>[number],
+) {
+  if (isResolvedStageStatus(item.stage_status)) return false;
+
+  const guard = item.promotion_guard;
+  if (!guard?.blocked) return false;
+
+  return (
+    guard.alreadyPromoted ||
+    guard.reasons.includes("existing_ebay_item") ||
+    guard.matches.some((match) => match.matchType === "ebay_item_id")
+  );
 }
 
 async function loadDuplicateProducts(params: {
@@ -314,18 +333,20 @@ function summarizeImportJobOutcomes(stagedItems: Array<
     if (item.stage_status === "needs_review") summary.needs_review += 1;
     if (item.stage_status === "mapped") summary.mapped += 1;
     if (item.stage_status === "skipped") summary.skipped += 1;
-    if (item.promotion_guard?.blocked) summary.blocked += 1;
+    if (item.promotion_guard?.blocked && !isResolvedStageStatus(item.stage_status)) {
+      summary.blocked += 1;
+    }
     if (item.promotion_guard?.alreadyPromoted) summary.promoted += 1;
     if (
       item.stage_status === "staged" &&
-      item.promotion_guard?.blocked !== true &&
+      !item.promotion_guard?.blocked &&
       item.draft_activation_readiness?.ready
     ) {
       summary.ready += 1;
     }
     if (
       item.stage_status === "staged" &&
-      item.promotion_guard?.blocked !== true &&
+      !item.promotion_guard?.blocked &&
       item.draft_activation_readiness?.ready === false
     ) {
       summary.draft_cleanup += 1;
@@ -348,18 +369,20 @@ function summarizeStagedItems(stagedItems: Array<
       if (item.stage_status === "needs_review") summary.needsReview += 1;
       if (item.stage_status === "mapped") summary.mapped += 1;
       if (item.stage_status === "skipped") summary.skipped += 1;
-      if (item.promotion_guard?.blocked) summary.blocked += 1;
+      if (item.promotion_guard?.blocked && !isResolvedStageStatus(item.stage_status)) {
+        summary.blocked += 1;
+      }
       if (item.promotion_guard?.alreadyPromoted) summary.promoted += 1;
       if (
         item.stage_status === "staged" &&
-        item.promotion_guard?.blocked !== true &&
+        !item.promotion_guard?.blocked &&
         item.draft_activation_readiness?.ready
       ) {
         summary.ready += 1;
       }
       if (
         item.stage_status === "staged" &&
-        item.promotion_guard?.blocked !== true &&
+        !item.promotion_guard?.blocked &&
         item.draft_activation_readiness?.ready === false
       ) {
         summary.draftCleanup += 1;
@@ -694,6 +717,131 @@ export async function PATCH(request: Request) {
 
     if (body.authenticity !== undefined && authenticityError) {
       return Response.json({ error: authenticityError }, { status: 400 });
+    }
+
+    if (body.duplicateTrash === true) {
+      const { data: rows, error: rowsError } = await supabase
+        .from("seller_marketplace_staged_items")
+        .select(
+          "id,import_job_id,provider,source_item_id,sku,title,quantity,price,currency,offer_status,listing_status,item_condition,image_url,stage_status,metadata,updated_at",
+        )
+        .in("id", targetIds)
+        .eq("account_id", account.id)
+        .eq("store_id", storeId)
+        .eq("provider", "ebay");
+
+      if (rowsError) {
+        if (isMissingSellerStagingTables(rowsError)) {
+          return unavailableResponse();
+        }
+
+        throw rowsError;
+      }
+
+      const stagedRows = (rows || []) as SellerMarketplaceStagedItemRow[];
+      const skuValues = Array.from(
+        new Set(stagedRows.map((item) => cleanText(item.sku)).filter(Boolean)),
+      ) as string[];
+      const ebayItemIds = Array.from(
+        new Set(
+          stagedRows
+            .map((item) => {
+              const metadata = metadataRecord(item.metadata);
+              return (
+                cleanText(metadata?.source_listing_id) ||
+                cleanText(item.source_item_id)
+              );
+            })
+            .filter(Boolean),
+        ),
+      ) as string[];
+      const { skuMatches, ebayItemMatches } = await loadDuplicateProducts({
+        supabase,
+        storeId,
+        skuValues,
+        ebayItemIds,
+      });
+      const enrichedRows = enrichStagedItems({
+        accountId: account.id,
+        stagedItems: stagedRows,
+        skuMatches,
+        ebayItemMatches,
+      });
+      const exactDuplicateRows = enrichedRows.filter(isExactDuplicateTrashCandidate);
+      const nowIso = new Date().toISOString();
+      const updatedRows: SellerMarketplaceStagedItemRow[] = [];
+
+      for (const row of exactDuplicateRows) {
+        const existingMetadata = metadataRecord(row.metadata) || {};
+        const { data: updated, error: updateError } = await supabase
+          .from("seller_marketplace_staged_items")
+          .update({
+            stage_status: "skipped",
+            metadata: {
+              ...existingMetadata,
+              duplicate_trash: true,
+              trash_status: "pending_delete_verification",
+              trash_kind: "duplicate",
+              trash_note:
+                "Exact eBay listing duplicate moved out of active staging. Verify before permanent delete.",
+              duplicate_trash_at: nowIso,
+              duplicate_trash_reasons: row.promotion_guard?.reasons || [],
+              duplicate_trash_match_ids:
+                row.promotion_guard?.matches
+                  .filter((match) => match.matchType === "ebay_item_id")
+                  .map((match) => match.id) || [],
+              stage_trash: {
+                kind: "duplicate",
+                status: "pending_delete_verification",
+                reason: "exact_ebay_item_match",
+                trashed_at: nowIso,
+                verify_before_permanent_delete: true,
+              },
+            },
+            updated_at: nowIso,
+          })
+          .eq("id", row.id)
+          .eq("account_id", account.id)
+          .eq("store_id", storeId)
+          .eq("provider", "ebay")
+          .select(
+            "id,import_job_id,provider,source_item_id,sku,title,quantity,price,currency,offer_status,listing_status,item_condition,image_url,stage_status,metadata,updated_at",
+          )
+          .single();
+
+        if (updateError) {
+          if (isMissingSellerStagingTables(updateError)) {
+            return unavailableResponse();
+          }
+
+          throw updateError;
+        }
+
+        if (updated) {
+          updatedRows.push(updated as SellerMarketplaceStagedItemRow);
+        }
+      }
+
+      return Response.json(
+        {
+          success: true,
+          stagedItem: updatedRows[0] || null,
+          stagedItems: updatedRows,
+          updatedCount: updatedRows.length,
+          skippedCount: targetIds.length - updatedRows.length,
+          duplicateTrashCount: updatedRows.length,
+          skippedDuplicateTrashIds: targetIds.filter(
+            (id) => !updatedRows.some((row) => row.id === id),
+          ),
+        },
+        {
+          headers: sellerMarketplaceStagedMutationHeaders({
+            action: "update",
+            updatedCount: updatedRows.length,
+            stageStatus: "duplicate_trash",
+          }),
+        },
+      );
     }
 
     if (!stageStatus && stagedItemIds.length > 0) {
