@@ -61,6 +61,11 @@ function wholeQuantity(value: unknown) {
   return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
 }
 
+function positiveInteger(value: unknown) {
+  const parsed = Number(value || 0);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : 0;
+}
+
 function generatedSku(product: ProductRow) {
   return cleanText(product.sku) || `EBAY-${cleanText(product.ebay_item_id) || product.id}`;
 }
@@ -385,6 +390,42 @@ async function updateKeeperEbayQuantity(params: {
   };
 }
 
+async function bestEffortEbayAction(
+  action: string,
+  operation: () => Promise<Record<string, unknown>>,
+) {
+  try {
+    return { action, ...(await operation()) };
+  } catch (error) {
+    return {
+      action,
+      ok: false,
+      skipped: true,
+      message:
+        error instanceof Error
+          ? `${action} skipped: ${error.message}`
+          : `${action} skipped due to an unknown eBay error.`,
+    };
+  }
+}
+
+async function getBestEffortEbayStoreAccessToken(storeId: string) {
+  try {
+    return await getEbayStoreAccessToken(storeId);
+  } catch (error) {
+    return {
+      token: null,
+      action: "ebay_token_lookup",
+      ok: false,
+      skipped: true,
+      message:
+        error instanceof Error
+          ? `eBay token lookup skipped: ${error.message}`
+          : "eBay token lookup skipped due to an unknown error.",
+    };
+  }
+}
+
 async function loadProductForMerge(productId: number) {
   const supabase = getSupabaseClient();
   const storeId = getActiveStoreId();
@@ -422,6 +463,91 @@ async function loadInventoryForProduct(productId: number) {
   return (((data || []) as InventoryRow[])[0] || null) as InventoryRow | null;
 }
 
+async function collectMergeEbayActions(params: {
+  storeId: string;
+  keeper: ProductRow;
+  duplicate: ProductRow;
+  mergedQuantity: number;
+  keeperPrice: number;
+}) {
+  const tokenResult = await getBestEffortEbayStoreAccessToken(params.storeId);
+  const ebayActions: Array<Record<string, unknown>> = [];
+  const accessToken =
+    typeof tokenResult === "string" ? tokenResult : tokenResult?.token ?? null;
+
+  if (tokenResult && typeof tokenResult !== "string" && tokenResult.action) {
+    ebayActions.push(tokenResult);
+  }
+
+  if (!accessToken) {
+    ebayActions.push({
+      action: "ebay_skipped",
+      ok: false,
+      skipped: true,
+      message:
+        "No eBay seller access token available. Local TCOS merge still completed.",
+    });
+    return ebayActions;
+  }
+
+  ebayActions.push(
+    await bestEffortEbayAction("withdraw_duplicate_offer", () =>
+      withdrawDuplicateOffer({
+        accessToken,
+        duplicate: params.duplicate,
+      }),
+    ),
+  );
+  ebayActions.push(
+    await bestEffortEbayAction("update_keeper_quantity", () =>
+      updateKeeperEbayQuantity({
+        accessToken,
+        keeper: params.keeper,
+        quantity: params.mergedQuantity,
+        price: params.keeperPrice,
+      }),
+    ),
+  );
+
+  return ebayActions;
+}
+
+async function collectArchiveEbayActions(params: {
+  storeId: string;
+  duplicate: ProductRow;
+}) {
+  const tokenResult = await getBestEffortEbayStoreAccessToken(params.storeId);
+  const ebayActions: Array<Record<string, unknown>> = [];
+  const accessToken =
+    typeof tokenResult === "string" ? tokenResult : tokenResult?.token ?? null;
+
+  if (tokenResult && typeof tokenResult !== "string" && tokenResult.action) {
+    ebayActions.push(tokenResult);
+  }
+
+  if (!accessToken) {
+    ebayActions.push({
+      action: "ebay_skipped",
+      ok: false,
+      skipped: true,
+      message:
+        "No eBay seller access token available. Local TCOS archive still completed.",
+    });
+    return ebayActions;
+  }
+
+  ebayActions.push(
+    await bestEffortEbayAction("withdraw_duplicate_offer", () =>
+      withdrawDuplicateOffer({
+        accessToken,
+        duplicate: params.duplicate,
+      }),
+    ),
+  );
+
+  return ebayActions;
+}
+
 async function mergeDuplicate(params: {
   keeperProductId: number;
   duplicateProductId: number;
@@ -450,31 +576,13 @@ async function mergeDuplicate(params: {
   const mergedQuantity = keeperQuantity + duplicateQuantity;
   const keeperPrice = moneyNumber(keeper.price);
   const now = new Date().toISOString();
-  const accessToken = await getEbayStoreAccessToken(storeId);
-  const ebayActions: Array<Record<string, unknown>> = [];
-
-  if (accessToken) {
-    const withdrawResult = await withdrawDuplicateOffer({
-      accessToken,
-      duplicate,
-    });
-    ebayActions.push({ action: "withdraw_duplicate_offer", ...withdrawResult });
-
-    const quantityResult = await updateKeeperEbayQuantity({
-      accessToken,
-      keeper,
-      quantity: mergedQuantity,
-      price: keeperPrice,
-    });
-    ebayActions.push({ action: "update_keeper_quantity", ...quantityResult });
-  } else {
-    ebayActions.push({
-      action: "ebay_skipped",
-      ok: false,
-      skipped: true,
-      message: "No eBay seller access token available.",
-    });
-  }
+  const ebayActions = await collectMergeEbayActions({
+    storeId,
+    keeper,
+    duplicate,
+    mergedQuantity,
+    keeperPrice,
+  });
 
   const keeperMetadata =
     keeperInventory?.metadata && typeof keeperInventory.metadata === "object"
@@ -571,6 +679,99 @@ async function mergeDuplicate(params: {
   };
 }
 
+async function previewMergeDuplicate(params: {
+  keeperProductId: number;
+  duplicateProductId: number;
+}) {
+  if (params.keeperProductId === params.duplicateProductId) {
+    throw new Error("Keeper and duplicate must be different rows.");
+  }
+
+  const [keeper, duplicate] = await Promise.all([
+    loadProductForMerge(params.keeperProductId),
+    loadProductForMerge(params.duplicateProductId),
+  ]);
+  const keeperKey = duplicateIdentityKey(keeper);
+  const duplicateKey = duplicateIdentityKey(duplicate);
+
+  if (!keeperKey || keeperKey !== duplicateKey) {
+    throw new Error("Those rows do not look like exact duplicate listings.");
+  }
+
+  const keeperQuantity = wholeQuantity(keeper.quantity);
+  const duplicateQuantity = wholeQuantity(duplicate.quantity);
+
+  return {
+    keeperProductId: keeper.id,
+    duplicateProductId: duplicate.id,
+    title: keeper.title || "Untitled eBay listing",
+    price: moneyNumber(keeper.price),
+    previousKeeperQuantity: keeperQuantity,
+    duplicateQuantity,
+    mergedQuantity: keeperQuantity + duplicateQuantity,
+    dryRun: true,
+  };
+}
+
+async function archiveDuplicate(params: { duplicateProductId: number }) {
+  const supabase = getSupabaseClient();
+  const storeId = getActiveStoreId();
+  const duplicate = await loadProductForMerge(params.duplicateProductId);
+  const duplicateInventory = await loadInventoryForProduct(params.duplicateProductId);
+  const duplicateQuantity = wholeQuantity(duplicate.quantity);
+  const now = new Date().toISOString();
+  const duplicateMetadata =
+    duplicateInventory?.metadata && typeof duplicateInventory.metadata === "object"
+      ? { ...duplicateInventory.metadata }
+      : {};
+  const ebayActions = await collectArchiveEbayActions({
+    storeId,
+    duplicate,
+  });
+
+  const { error: duplicateProductError } = await supabase
+    .from("products")
+    .update({
+      quantity: 0,
+      last_seen_at: now,
+    })
+    .eq("store_id", storeId)
+    .eq("id", duplicate.id);
+
+  if (duplicateProductError) throw duplicateProductError;
+
+  if (duplicateInventory?.id) {
+    const { error } = await supabase
+      .from("inventory_items")
+      .update({
+        quantity: 0,
+        status: "archived",
+        updated_at: now,
+        metadata: {
+          ...duplicateMetadata,
+          duplicate_manual_archived: {
+            archived_at: now,
+            duplicate_product_id: duplicate.id,
+            duplicate_ebay_item_id: duplicate.ebay_item_id,
+            previous_quantity: duplicateQuantity,
+            ebay_actions: ebayActions,
+          },
+        },
+      })
+      .eq("store_id", storeId)
+      .eq("legacy_product_id", duplicate.id);
+
+    if (error) throw error;
+  }
+
+  return {
+    duplicateProductId: duplicate.id,
+    title: duplicate.title || "Untitled eBay listing",
+    previousQuantity: duplicateQuantity,
+    ebayActions,
+  };
+}
+
 export async function GET() {
   try {
     const groups = await buildDuplicateGroups();
@@ -597,14 +798,17 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => ({}));
     const action = cleanText(body.action);
 
-    if (action !== "merge-duplicate") {
+    if (action !== "merge-duplicate" && action !== "end-duplicate") {
       return Response.json(
         { success: false, error: "Unsupported duplicate action." },
         { status: 400 },
       );
     }
 
-    if (body.confirm !== "MERGE_DUPLICATE") {
+    if (
+      (action === "merge-duplicate" && body.confirm !== "MERGE_DUPLICATE") ||
+      (action === "end-duplicate" && body.confirm !== "END_DUPLICATE")
+    ) {
       return Response.json(
         {
           success: false,
@@ -614,14 +818,46 @@ export async function POST(request: Request) {
       );
     }
 
-    const keeperProductId = Number(body.keeperProductId || 0);
-    const duplicateProductId = Number(body.duplicateProductId || 0);
+    if (action === "end-duplicate") {
+      const duplicateProductId = positiveInteger(body.duplicateProductId);
 
-    if (!Number.isInteger(keeperProductId) || !Number.isInteger(duplicateProductId)) {
+      if (!duplicateProductId) {
+        return Response.json(
+          { success: false, error: "Duplicate product ID is required." },
+          { status: 400 },
+        );
+      }
+
+      const result = await archiveDuplicate({ duplicateProductId });
+
+      return Response.json({
+        success: true,
+        result,
+        message: `Ended/archived duplicate locally. Previous quantity was ${result.previousQuantity}.`,
+      });
+    }
+
+    const keeperProductId = positiveInteger(body.keeperProductId);
+    const duplicateProductId = positiveInteger(body.duplicateProductId);
+
+    if (!keeperProductId || !duplicateProductId) {
       return Response.json(
         { success: false, error: "Keeper and duplicate product IDs are required." },
         { status: 400 },
       );
+    }
+
+    if (body.dryRun === true) {
+      const result = await previewMergeDuplicate({
+        keeperProductId,
+        duplicateProductId,
+      });
+
+      return Response.json({
+        success: true,
+        result,
+        message: `Dry run: quantity ${result.previousKeeperQuantity} + ${result.duplicateQuantity} = ${result.mergedQuantity}.`,
+      });
     }
 
     const result = await mergeDuplicate({

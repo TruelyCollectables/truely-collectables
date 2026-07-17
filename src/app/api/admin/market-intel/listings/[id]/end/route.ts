@@ -3,6 +3,7 @@ import {
   adminHandoffFromUrl,
   adminRedirectUrl,
 } from "../../../../../../../lib/admin-handoff";
+import { requestOrigin } from "../../../../../../../lib/request-origin";
 import { createSupabaseServerClient } from "../../../../../../../lib/supabase-server";
 
 type RouteContext = {
@@ -15,21 +16,40 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
   try {
     const supabase = createSupabaseServerClient({ admin: true });
+    const now = new Date().toISOString();
     const { error } = await supabase
       .from("tcos_mi_listings")
       .update({
         listing_status: "ended",
-        ended_at: new Date().toISOString(),
-        last_seen_at: new Date().toISOString(),
+        ended_at: now,
+        last_seen_at: now,
       })
       .eq("id", id);
 
-    if (error) throw new Error(error.message);
+    if (error) {
+      const missingEndedAt =
+        error.message?.toLowerCase().includes("ended_at") ||
+        error.message?.toLowerCase().includes("schema cache");
+
+      if (!missingEndedAt) {
+        throw new Error(error.message);
+      }
+
+      const { error: fallbackError } = await supabase
+        .from("tcos_mi_listings")
+        .update({
+          listing_status: "ended",
+          last_seen_at: now,
+        })
+        .eq("id", id);
+
+      if (fallbackError) throw new Error(fallbackError.message);
+    }
 
     return NextResponse.redirect(
       adminRedirectUrl(
         "/admin/market-intel/deals?ended=1",
-        request.url,
+        requestOrigin(request),
         handoff,
       ),
       303,
@@ -40,7 +60,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     return NextResponse.redirect(
       adminRedirectUrl(
         `/admin/market-intel/deals?error=${encodeURIComponent(message)}`,
-        request.url,
+        requestOrigin(request),
         handoff,
       ),
       303,

@@ -198,6 +198,53 @@ export default function EbayDuplicateFinderClient() {
     }
   }
 
+  async function endDuplicate(group: DuplicateGroup, duplicateProductId: number) {
+    if (!duplicateProductId) {
+      setError("Pick a duplicate row to end/archive first.");
+      return;
+    }
+
+    setWorkingKey(group.key);
+    setNotice("");
+    setError("");
+
+    try {
+      const response = await fetch("/api/admin/ebay-duplicates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "end-duplicate",
+          duplicateProductId,
+          confirm: "END_DUPLICATE",
+        }),
+      });
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "Could not end/archive duplicate.");
+      }
+
+      const result = data.result || {};
+      const ebayWarnings = Array.isArray(result.ebayActions)
+        ? result.ebayActions
+            .filter((action: any) => action && action.ok === false)
+            .map((action: any) => action.message)
+            .filter(Boolean)
+        : [];
+
+      setNotice(
+        `${data.message || "Duplicate ended/archived."}${
+          ebayWarnings.length ? ` eBay warning: ${ebayWarnings.join(" | ")}` : ""
+        }`,
+      );
+      await loadGroups();
+    } catch (nextError: any) {
+      setError(nextError.message || "Could not end/archive duplicate.");
+    } finally {
+      setWorkingKey(null);
+    }
+  }
+
   return (
     <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
       <section className="rounded-xl border-4 border-amber-300 bg-amber-50 p-5 text-amber-950">
@@ -296,6 +343,20 @@ export default function EbayDuplicateFinderClient() {
                     {workingKey === group.key
                       ? "Merging..."
                       : "Merge Selected Duplicate"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void endDuplicate(group, duplicateProductId)}
+                    disabled={
+                      workingKey === group.key ||
+                      !duplicateProductId ||
+                      keeperProductId === duplicateProductId
+                    }
+                    className="rounded-md border border-rose-300 bg-white px-5 py-3 text-sm font-black text-rose-800 hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-neutral-300 disabled:text-neutral-400"
+                  >
+                    {workingKey === group.key
+                      ? "Working..."
+                      : "End/Archive Without Merge"}
                   </button>
                 </div>
 
