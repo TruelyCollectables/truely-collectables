@@ -6,7 +6,6 @@ import {
   AUTOGRAPH_SOURCES,
   authenticityStatusLabel,
   autographSourceLabel,
-  sanitizeAuthenticityProfile,
 } from "../../../../lib/authenticity";
 import { createServerInventoryEngine } from "../../../../lib/server-inventory-engine";
 import type { InventoryStatus } from "../../../../modules/inventory";
@@ -29,47 +28,6 @@ const INVENTORY_STATUSES: InventoryStatus[] = [
 
 function textValue(value: string | null) {
   return value ?? "";
-}
-
-function parseString(value: FormDataEntryValue | null) {
-  const text = String(value ?? "").trim();
-  return text.length > 0 ? text : null;
-}
-
-function parseNumber(value: FormDataEntryValue | null) {
-  const parsed = Number(value ?? 0);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-async function updateProduct(formData: FormData) {
-  "use server";
-
-  const adminInventoryEngine = createServerInventoryEngine();
-  const id = Number(formData.get("id"));
-  const status = String(formData.get("status") || "active") as InventoryStatus;
-  const authenticity = sanitizeAuthenticityProfile({
-    status: formData.get("authenticity_status"),
-    autographSource: formData.get("autograph_source"),
-    certProvider: formData.get("cert_provider"),
-    certNumber: formData.get("cert_number"),
-    guaranteedAuthenticators: formData.get("guaranteed_authenticators"),
-    provenanceEvidence: formData.get("provenance_evidence"),
-    authenticityNotes: formData.get("authenticity_notes"),
-  });
-
-  await adminInventoryEngine.updateProduct(id, {
-    title: String(formData.get("title") || "").trim(),
-    player: parseString(formData.get("player")),
-    sport: parseString(formData.get("sport")),
-    price: parseNumber(formData.get("price")),
-    quantity: Math.max(0, parseNumber(formData.get("quantity"))),
-    status,
-    imageUrl: parseString(formData.get("image_url")),
-    description: parseString(formData.get("description")),
-    authenticity,
-  });
-
-  redirect(`/admin/products/${id}`);
 }
 
 async function setProductStatus(formData: FormData) {
@@ -151,7 +109,7 @@ export default async function AdminProductEditPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams?: Promise<{ comps?: string }>;
+  searchParams?: Promise<{ comps?: string; saved?: string; saveError?: string }>;
 }) {
   const { id } = await params;
   const query = await searchParams;
@@ -209,11 +167,25 @@ export default async function AdminProductEditPage({
         </div>
       </div>
 
+      {query?.saved === "1" ? (
+        <div className="mb-6 rounded border border-emerald-300 bg-emerald-50 p-4 font-bold text-emerald-800">
+          Product saved.
+        </div>
+      ) : null}
+
+      {query?.saveError ? (
+        <div className="mb-6 rounded border border-rose-300 bg-rose-50 p-4 font-bold text-rose-800">
+          Save failed: {query.saveError}
+        </div>
+      ) : null}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <section className="lg:col-span-2">
-          <form action={updateProduct} className="space-y-4">
-            <input type="hidden" name="id" value={product.legacyProductId} />
-
+          <form
+            action={`/api/admin/products/${product.legacyProductId}/save`}
+            method="post"
+            className="space-y-4"
+          >
             <label className="block">
               <span className="font-bold">Title</span>
               <input
