@@ -2,6 +2,22 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "crons": [
     {
+      "path": "/api/cron/market-intel/ebay/scan?maxTargets=10&resultsPerTarget=10&minimumConfidence=70",
+      "schedule": "5 * * * *"
+    },
+    {
+      "path": "/api/cron/market-intel/alerts/sync",
+      "schedule": "15 * * * *"
+    },
+    {
+      "path": "/api/cron/market-intel/cleanup?staleAfterHours=26",
+      "schedule": "35 * * * *"
+    },
+    {
+      "path": "/api/cron/market-intel/reports/daily",
+      "schedule": "0 14 * * *"
+    },
+    {
       "path": "/api/cron/seller-ebay-reconciliation",
       "schedule": "30 1-23/3 * * *"
     },
