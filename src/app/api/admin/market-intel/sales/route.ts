@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
+import { createSupabaseServerClient } from "@/src/lib/supabase-server";
 
 function numberValue(formData: FormData, name: string, fallback = 0) {
   const raw = String(formData.get(name) ?? "").trim();
