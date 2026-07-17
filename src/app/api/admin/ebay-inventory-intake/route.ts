@@ -140,7 +140,7 @@ async function fetchEbaySnapshot(ebayItemId: string) {
         imageUrl:
           cleanText(data.image?.imageUrl) ||
           cleanText(data.thumbnailImages?.[0]?.imageUrl),
-        price: 0,
+        price: moneyNumber(data.price?.value),
       };
     }
   }
@@ -172,7 +172,9 @@ async function fetchEbaySnapshot(ebayItemId: string) {
   return {
     title: cleanText(item.Title),
     imageUrl: cleanText(picture),
-    price: 0,
+    price: moneyNumber(
+      item.ConvertedCurrentPrice?.Value ?? item.CurrentPrice?.Value,
+    ),
   };
 }
 
@@ -183,7 +185,8 @@ async function repairProductForLive(product: ProductRow) {
   const snapshot = ebayItemId ? await fetchEbaySnapshot(ebayItemId) : null;
   const sku = generatedSku(product);
   const title = snapshot?.title || product.title || "Untitled eBay listing";
-  const price = moneyNumber(product.price);
+  const snapshotPrice = moneyNumber(snapshot?.price);
+  const price = snapshotPrice > 0 ? snapshotPrice : moneyNumber(product.price);
   const imageUrl = snapshot?.imageUrl || cleanText(product.image_url);
   const quantity = Math.max(0, Number(product.quantity || 0));
   const now = new Date().toISOString();
@@ -235,7 +238,7 @@ async function repairProductForLive(product: ProductRow) {
     legacyProductId: item.legacyProductId,
     inventoryItemId: item.inventoryItemId,
     imageRefreshed: Boolean(snapshot?.imageUrl),
-    priceRefreshed: Boolean(snapshot?.price && snapshot.price > 0),
+    priceRefreshed: snapshotPrice > 0,
   };
 }
 
@@ -363,7 +366,11 @@ export async function POST(request: Request) {
         .slice(0, 1000)
     : [];
 
-  if (!["push-live", "apply-promo", "clear-promo"].includes(action)) {
+  if (
+    !["push-live", "refresh-ebay-data", "apply-promo", "clear-promo"].includes(
+      action,
+    )
+  ) {
     return Response.json(
       { success: false, error: "Unsupported intake action." },
       { status: 400 },
@@ -381,7 +388,7 @@ export async function POST(request: Request) {
   const storeId = getActiveStoreId();
   const { data: products, error: productsError } = await supabase
     .from("products")
-    .select("id,sku,title,price,quantity,image_url,ebay_item_id")
+    .select("id,sku,title,description,price,quantity,image_url,ebay_item_id")
     .eq("store_id", storeId)
     .in("id", productIds);
 
@@ -415,6 +422,46 @@ export async function POST(request: Request) {
     if (row.legacy_product_id) {
       inventoryByProductId.set(Number(row.legacy_product_id), row);
     }
+  }
+
+  if (action === "refresh-ebay-data") {
+    let refreshed = 0;
+    let priceRefreshed = 0;
+    let imageRefreshed = 0;
+    const refreshErrors: Array<{
+      productId: number;
+      title: string;
+      error: string;
+    }> = [];
+
+    for (const product of productRows) {
+      try {
+        const result = await repairProductForLive(product);
+        refreshed++;
+        if (result.priceRefreshed) priceRefreshed++;
+        if (result.imageRefreshed) imageRefreshed++;
+      } catch (refreshError: any) {
+        refreshErrors.push({
+          productId: product.id,
+          title: product.title || "Untitled eBay listing",
+          error: refreshError.message || "Refresh failed",
+        });
+      }
+    }
+
+    return Response.json({
+      success: true,
+      refreshed,
+      priceRefreshed,
+      imageRefreshed,
+      refreshErrors,
+      message:
+        refreshErrors.length > 0
+          ? `${refreshed} refreshed from current eBay data. ${refreshErrors.length} still need help.`
+          : `${refreshed} selected listing${
+              refreshed === 1 ? "" : "s"
+            } refreshed from current eBay price + pictures.`,
+    });
   }
 
   if (action === "apply-promo" || action === "clear-promo") {

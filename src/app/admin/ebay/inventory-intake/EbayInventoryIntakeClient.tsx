@@ -224,6 +224,35 @@ export default function EbayInventoryIntakeClient() {
     }
   }
 
+  async function refreshSelectedFromEbay() {
+    setWorking(true);
+    setNotice("");
+    setError("");
+
+    try {
+      const response = await fetch("/api/admin/ebay-inventory-intake", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "refresh-ebay-data",
+          productIds: selectedIds,
+        }),
+      });
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "Could not refresh selected eBay data.");
+      }
+
+      setNotice(data.message || "Selected listings refreshed from eBay.");
+      await loadRows();
+    } catch (nextError: any) {
+      setError(nextError.message || "Could not refresh selected eBay data.");
+    } finally {
+      setWorking(false);
+    }
+  }
+
   async function copySelectedForInstaComp() {
     const text = selectedRows
       .map((row) => `${row.title} | SKU ${row.sku || "missing"} | eBay ${row.ebayItemId || "missing"}`)
@@ -413,6 +442,16 @@ export default function EbayInventoryIntakeClient() {
                   {working
                     ? "Pushing..."
                     : `Repair + Push Selected Live (${selectedPushableIds.length})`}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void refreshSelectedFromEbay()}
+                  disabled={working || selectedIds.length === 0}
+                  className="rounded-md border border-emerald-300 bg-white px-4 py-3 text-sm font-black text-emerald-900 hover:bg-emerald-50 disabled:opacity-50"
+                >
+                  {working
+                    ? "Refreshing..."
+                    : `Refresh Current eBay Price + Pictures (${selectedIds.length})`}
                 </button>
                 <button
                   type="button"
