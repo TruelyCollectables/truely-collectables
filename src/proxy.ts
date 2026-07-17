@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { getClientIdentity } from "./lib/client-identity";
 import {
   ADMIN_SESSION_COOKIE_NAMES,
+  appendAdminSessionCookies,
   isValidAdminSessionValue,
 } from "./lib/admin-session";
 
@@ -204,6 +205,22 @@ export async function proxy(req: NextRequest) {
   }
 
   if (isProtectedPath(pathname)) {
+    const adminHandoff = req.nextUrl.searchParams.get("admin_handoff");
+
+    if (adminHandoff && (await isValidAdminSessionValue(adminHandoff))) {
+      const url = req.nextUrl.clone();
+      url.searchParams.delete("admin_handoff");
+      const response = NextResponse.redirect(url, 303);
+
+      appendAdminSessionCookies(
+        response.headers,
+        req.nextUrl.hostname,
+        adminHandoff,
+      );
+
+      return applySecurityHeaders(response, req);
+    }
+
     const adminCookies = ADMIN_SESSION_COOKIE_NAMES.flatMap((cookieName) =>
       req.cookies.getAll(cookieName).map((cookie) => cookie.value),
     );

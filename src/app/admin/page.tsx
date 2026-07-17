@@ -19,6 +19,7 @@ import {
 } from "../../lib/order-status";
 import { LIVE_MONEY_JSON_EVIDENCE } from "../../lib/live-money-evidence";
 import { EMERGENCY_BACKUP_EVIDENCE } from "../../lib/emergency-backup-evidence";
+import { createAdminSessionValue } from "../../lib/admin-session";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -244,6 +245,10 @@ export default async function AdminDashboard() {
   ]);
   const shippingProviderSetup = buildShippingProviderSetupPacket();
   const shippingDecision = shippingProviderSetup.decision;
+  const instaCompAdminHandoff = await createAdminSessionValue();
+  const instaCompAdminHref = `/admin/instacomp-direct?admin_handoff=${encodeURIComponent(
+    instaCompAdminHandoff,
+  )}`;
 
   const now = new Date();
   const today = new Date(now);
@@ -496,7 +501,7 @@ export default async function AdminDashboard() {
   ];
   const adminCommandTiles = [
     {
-      href: "/admin/instacomp-direct",
+      href: instaCompAdminHref,
       icon: "⚾",
       title: "InstaComp™",
       detail: `${priceRadarRows.length} pricing alert${
@@ -672,7 +677,7 @@ export default async function AdminDashboard() {
                 label={`${ignoredPriceRadarCount} ignored`}
                 tone={priceRadarIgnoreAvailable ? "amber" : "rose"}
               />
-              <LinkButton href="/admin/instacomp-direct" label="Open InstaComp™" />
+              <LinkButton href={instaCompAdminHref} label="Open InstaComp™" />
             </div>
           </div>
 
