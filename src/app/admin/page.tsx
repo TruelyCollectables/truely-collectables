@@ -496,7 +496,7 @@ export default async function AdminDashboard() {
   ];
   const adminCommandTiles = [
     {
-      href: "/admin/instacomp",
+      href: "/admin/instacomp-direct",
       icon: "⚾",
       title: "InstaComp™",
       detail: `${priceRadarRows.length} pricing alert${
@@ -672,7 +672,7 @@ export default async function AdminDashboard() {
                 label={`${ignoredPriceRadarCount} ignored`}
                 tone={priceRadarIgnoreAvailable ? "amber" : "rose"}
               />
-              <LinkButton href="/admin/instacomp" label="Open InstaComp™" />
+              <LinkButton href="/admin/instacomp-direct" label="Open InstaComp™" />
             </div>
           </div>
 
@@ -1560,7 +1560,7 @@ function AdminCommandTile({
   accent: string;
 }) {
   return (
-    <Link
+    <a
       href={href}
       className={`group rounded-xl border border-white/15 bg-gradient-to-br ${accent} p-4 text-neutral-950 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg`}
     >
@@ -1576,7 +1576,7 @@ function AdminCommandTile({
         {title}
       </h3>
       <p className="mt-1 text-sm font-bold text-neutral-600">{detail}</p>
-    </Link>
+    </a>
   );
 }
 
@@ -1777,12 +1777,12 @@ function InfoLine({ label, value }: { label: string; value: string }) {
 
 function LinkButton({ href, label }: { href: string; label: string }) {
   return (
-    <Link
+    <a
       href={href}
       className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-center font-bold hover:bg-white"
     >
       {label}
-    </Link>
+    </a>
   );
 }
 
