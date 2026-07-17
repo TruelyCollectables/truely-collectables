@@ -115,12 +115,13 @@
     "live-money:vercel-bootstrap-commands": "node scripts/live-money-env-packet.mjs --vercel-bootstrap-commands",
     "live-money:vercel-commands": "node scripts/live-money-env-packet.mjs --vercel-commands",
     "preflight:production": "node scripts/deploy-production.mjs --preflight-only",
-    "verify:production": "npm run lint && npm run check:admin-controls && npm run status:live-money && npm run verify:instacomp && npm run verify:shipping && npm run build && npm run check:production-guardrails && npm run preflight:production",
+    "verify:production": "npm run lint && npm run check:admin-controls && npm run check:admin-routes && npm run status:live-money && npm run verify:instacomp && npm run verify:shipping && npm run build && npm run check:production-guardrails && npm run preflight:production",
     "deploy:production": "node scripts/deploy-production.mjs",
     "smoke:production": "node scripts/smoke-production.mjs",
     "launch:production": "npm run verify:production && npm run deploy:production && npm run smoke:production",
     "lint": "eslint",
-    "check:admin-controls": "node scripts/check-admin-controls.mjs"
+    "check:admin-controls": "node scripts/check-admin-controls.mjs",
+    "check:admin-routes": "node scripts/check-admin-routes.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.108.1",
