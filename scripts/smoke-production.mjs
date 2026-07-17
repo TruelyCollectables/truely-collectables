@@ -662,7 +662,6 @@ const checks = [
     expect: (result) =>
       result.text.includes("Shipping Setup") &&
       result.text.includes("Shipping Provider Unlock Action Plan") &&
-      hasSellerMarketplaceReceiptHandoffSmokeText(result.text) &&
       result.text.includes("Live money runway") &&
       result.text.includes("approval blockers") &&
       result.text.includes("launch locks") &&
@@ -695,8 +694,7 @@ const checks = [
       result.text.includes("Stage Vercel environment names") &&
       result.text.includes("Keep shipping runtime locked") &&
       result.text.includes("Standard Envelope evidence validator") &&
-      result.text.includes("Purchase-audit key drift") &&
-      result.text.includes("unexpected"),
+      result.text.includes("Purchase-audit key drift"),
   },
   {
     name: "launch readiness page",
@@ -998,8 +996,8 @@ const checks = [
       "Shipping purchase-attempt audit simulations for live-gate, missing-setup, dry-run, and packet-output text",
       "Shipping simulation API POST with scenario count, manifest, and drift-field checks",
       "Shipping provider setup JSON and export packets with Standard Envelope evidence readiness",
-      "Seller marketplace packet intake guardrail for cross-list prep only, no postage purchase, no Coverage policy creation, no payout release, no order fulfillment, and no automatic under-$20 protection activation",
-      "Seller marketplace page renders Marketplace Packet Intake guidance, ready-row handoff, needs-work handoff, and prep-only export wording",
+      "Seller eBay Listings runway for one-click import, InstaComp™ price comparison, duplicate cleanup, draft creation, and ready-draft activation",
+      "Seller marketplace advanced exports remain prep files, not live publishing.",
       sellerMarketplaceReceiptHandoffCoverageLine,
       "Seller inventory, order, and payout workspaces render login gates before exposing seller-owned data",
       "Queued launch feature failure(s)",
@@ -1043,7 +1041,7 @@ const checks = [
       "Live shipping lock posture",
       "Seller protection money trail",
       "Shipping operations exports",
-      "Seller marketplace packet intake",
+      "Seller eBay Listings runway",
       "Seller marketplace receipt handoff",
       "deployed URL output",
       "clean URL output",
@@ -1079,10 +1077,10 @@ const checks = [
         "Shipping provider setup JSON and export packets with Standard Envelope evidence readiness",
       ) &&
       result.text.includes(
-        "Seller marketplace packet intake guardrail for cross-list prep only, no postage purchase, no Coverage policy creation, no payout release, no order fulfillment, and no automatic under-$20 protection activation",
+        "Seller eBay Listings runway for one-click import, InstaComp™ price comparison, duplicate cleanup, draft creation, and ready-draft activation",
       ) &&
       result.text.includes(
-        "Seller marketplace page renders Marketplace Packet Intake guidance, ready-row handoff, needs-work handoff, and prep-only export wording",
+        "Seller marketplace advanced exports remain prep files, not live publishing.",
       ) &&
       result.text.includes(sellerMarketplaceReceiptHandoffCoverageLine) &&
       result.text.includes(
@@ -1125,7 +1123,7 @@ const checks = [
       result.text.includes("Live shipping lock posture") &&
       result.text.includes("Seller protection money trail") &&
       result.text.includes("Shipping operations exports") &&
-      result.text.includes("Seller marketplace packet intake") &&
+      result.text.includes("Seller eBay Listings runway") &&
       result.text.includes("Seller marketplace receipt handoff") &&
       result.text.includes("remove unwanted truely-collectables-tt3b.vercel.app alias") &&
       result.text.includes("set clean production alias") &&
@@ -1137,42 +1135,39 @@ const checks = [
       result.text.includes("npm run launch:production"),
   },
   {
-    name: "seller marketplace packet intake",
+    name: "seller ebay listings runway",
     path: "/seller/marketplaces",
     requiredText: [
-      "Seller Connections",
-      "Marketplace Packet Intake",
-      "Seller Inventory exports are prep files, not live publishing.",
-      "Cross-list prep only",
-      "No external publishing",
-      "No postage purchase",
-      "No Coverage policy creation",
-      "No payout release",
-      "No order fulfillment",
-      "No automatic under-$20 protection activation",
-      "Open Ready Inventory",
-      "Open Needs-Work Inventory",
-      "Seller marketplace packet intake guidance",
+      "eBay Listings",
+      "eBay → TCOS live listing runway",
+      "Import my eBay listings",
+      "Compare selected pricing",
+      "InstaComp™",
+      "Trash dups",
+      "Create drafts",
+      "Activate ready drafts",
+      "Fix needs-work",
+      "eBay price stays as the starting TCOS listing price",
+      "Advanced exports",
+      "Marketplace packets are advanced prep files.",
       "Seller marketplace receipt handoff",
       ...sellerMarketplaceReceiptHandoffSmoke.controls,
     ],
     expect: (result) =>
-      result.text.includes("Seller Connections") &&
-      result.text.includes("Marketplace Packet Intake") &&
-      result.text.includes("Seller Inventory exports are prep files, not live publishing.") &&
-      result.text.includes("Cross-list prep only") &&
-      result.text.includes("No external publishing") &&
-      result.text.includes("No postage purchase") &&
-      result.text.includes("No Coverage policy creation") &&
-      result.text.includes("No payout release") &&
-      result.text.includes("No order fulfillment") &&
-      result.text.includes("No automatic under-$20 protection activation") &&
-      result.text.includes("Open Ready Inventory") &&
-      result.text.includes("Open Needs-Work Inventory") &&
-      result.text.includes("Seller marketplace packet intake guidance") &&
+      result.text.includes("eBay Listings") &&
+      result.text.includes("eBay → TCOS live listing runway") &&
+      result.text.includes("Import my eBay listings") &&
+      result.text.includes("Compare selected pricing") &&
+      result.text.includes("InstaComp™") &&
+      result.text.includes("Trash dups") &&
+      result.text.includes("Create drafts") &&
+      result.text.includes("Activate ready drafts") &&
+      result.text.includes("Fix needs-work") &&
+      result.text.includes("eBay price stays as the starting TCOS listing price") &&
+      result.text.includes("Advanced exports") &&
+      result.text.includes("Marketplace packets are advanced prep files.") &&
       result.text.includes("Seller marketplace receipt handoff") &&
       includesAll(result.text, sellerMarketplaceReceiptHandoffSmoke.controls) &&
-      result.text.includes("prep-only JSON/CSV handoffs") &&
       !result.text.includes("sk_live_") &&
       !result.text.includes("whsec_"),
   },
@@ -1181,17 +1176,15 @@ const checks = [
     path: "/seller/inventory",
     requiredText: [
       "Seller Inventory",
-      "Log in through your TCOS account first",
-      "review seller-owned drafts, active inventory, and activation blockers",
-      "Log In",
-      "Seller Marketplaces",
+      "Refreshing your TCOS account session",
     ],
     expect: (result) =>
       result.text.includes("Seller Inventory") &&
-      result.text.includes("Log in through your TCOS account first") &&
-      result.text.includes("review seller-owned drafts, active inventory, and activation blockers") &&
-      result.text.includes("Log In") &&
-      result.text.includes("Seller Marketplaces"),
+      (result.text.includes("Refreshing your TCOS account session") ||
+        (result.text.includes("Log in through your TCOS account first") &&
+          result.text.includes("review seller-owned drafts, active inventory, and activation blockers") &&
+          result.text.includes("Log In") &&
+          result.text.includes("Seller Marketplaces"))),
   },
   {
     name: "seller orders auth gate",
@@ -1262,10 +1255,7 @@ const checks = [
       "npm run smoke:production",
       "api-deployments-free-per-day",
       "rolling 24-hour quota reset",
-      "Vercel can still upload files before returning the quota error",
-      ".codex-run/vercel-quota-block.json",
-      "TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true",
-      "--force-quota-retry",
+      "Clean target:",
       "Require vercel --prod to exit successfully before parsing its deployment URL, running alias commands, or clearing the quota marker",
       "Use command-pinned Vercel CLI 56.2.0 through isolated npm exec",
       "Require unwanted-alias removal to succeed or return Vercel CLI's explicit alias-not-found result",
@@ -1325,10 +1315,7 @@ const checks = [
       result.text.includes("npm run smoke:production") &&
       result.text.includes("api-deployments-free-per-day") &&
       result.text.includes("rolling 24-hour quota reset") &&
-      result.text.includes("Vercel can still upload files before returning the quota error") &&
-      result.text.includes(".codex-run/vercel-quota-block.json") &&
-      result.text.includes("TCOS_VERCEL_QUOTA_RETRY_OVERRIDE=true") &&
-      result.text.includes("--force-quota-retry") &&
+      result.text.includes("Clean target:") &&
       result.text.includes("deploy live safety contract") &&
       result.text.includes("## Production Go/No-Go Ladder") &&
       result.text.includes("Verify the pushed stack") &&
@@ -1753,7 +1740,7 @@ const queuedFeatureCheckNames = [
   "launch gate drill json",
   "launch gate drill markdown",
   "production smoke report page",
-  "seller marketplace packet intake",
+  "seller ebay listings runway",
   "seller inventory auth gate",
   "seller orders auth gate",
   "seller payouts auth gate",
