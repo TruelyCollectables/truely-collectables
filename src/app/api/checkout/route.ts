@@ -130,6 +130,26 @@ export async function POST(request: Request) {
     }
 
     const inventoryItems = await checkoutInventoryEngine.requireAvailableCartItems(cart);
+    const inventoryMetadataResult = await supabase
+      .from("inventory_items")
+      .select("legacy_product_id,metadata")
+      .eq("store_id", storeId)
+      .in(
+        "legacy_product_id",
+        cart.map((item) => item.id),
+      );
+
+    if (inventoryMetadataResult.error) {
+      throw inventoryMetadataResult.error;
+    }
+
+    const freeShippingProductIds = new Set(
+      (inventoryMetadataResult.data || [])
+        .filter((item: any) => item?.metadata?.tcos_promo?.free_shipping === true)
+        .map((item: any) => Number(item.legacy_product_id)),
+    );
+    const freeShippingPromoApplies =
+      cart.length > 0 && cart.every((item) => freeShippingProductIds.has(item.id));
 
     const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [];
     let subtotal = 0;
@@ -171,11 +191,12 @@ export async function POST(request: Request) {
       subtotal,
     });
     const shippingMethod = shippingPolicy.method;
-    const shippingAmount = calculateShipping({
+    const baseShippingAmount = calculateShipping({
       itemCount,
       subtotal,
       method: shippingMethod,
     });
+    const shippingAmount = freeShippingPromoApplies ? 0 : baseShippingAmount;
 
     const shippingRule = SHIPPING_RULES[shippingMethod];
     const shippingName = shippingRule.name;
@@ -210,6 +231,8 @@ export async function POST(request: Request) {
       shipping_name: shippingName,
       shipping_amount: shippingAmount.toFixed(2),
       shipping_policy_reason: shippingPolicy.reason || "",
+      free_shipping_promo_applied: freeShippingPromoApplies ? "true" : "false",
+      base_shipping_amount: baseShippingAmount.toFixed(2),
       standard_envelope_estimated_oz: String(
         shippingPolicy.standardEnvelope.estimatedOunces,
       ),
