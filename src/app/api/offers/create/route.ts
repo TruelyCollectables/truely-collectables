@@ -10,7 +10,6 @@ import { getActiveStoreId } from "../../../../lib/stores";
 import { getAuthenticatedAccountFromRequest } from "../../../../lib/account-auth";
 import {
   InventoryEngineError,
-  inventoryEngine,
 } from "../../../../modules/inventory";
 import { configuredSiteOrigin } from "../../../../lib/site-origin";
 import {
@@ -19,6 +18,7 @@ import {
   publicEndpointRateLimitResponse,
 } from "../../../../lib/public-endpoint-rate-limit";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
+import { createServerInventoryEngine } from "../../../../lib/server-inventory-engine";
 
 const MAX_NAME_LENGTH = 120;
 const MAX_EMAIL_LENGTH = 254;
@@ -128,6 +128,7 @@ export async function POST(req: Request) {
 
     const clientIdentity = rateLimit.identity;
 
+    const inventoryEngine = createServerInventoryEngine();
     const [product] = await inventoryEngine.requireAvailableCartItems([
       { id: productId, quantity: 1 },
     ]);

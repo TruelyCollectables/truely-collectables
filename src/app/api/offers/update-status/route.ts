@@ -3,13 +3,13 @@ import Stripe from "stripe";
 import { Resend } from "resend";
 import {
   InventoryEngineError,
-  inventoryEngine,
 } from "../../../../modules/inventory";
 import { getStoreSettings } from "../../../../lib/store-settings";
 import { getActiveStoreId } from "../../../../lib/stores";
 import { trustedRequestOrigin } from "../../../../lib/site-origin";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 import { getStripePaymentRuntime } from "../../../../lib/live-payment-launch";
+import { createServerInventoryEngine } from "../../../../lib/server-inventory-engine";
 
 export const dynamic = "force-dynamic";
 
@@ -95,6 +95,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ success: true, offer: updatedOffer });
     }
 
+    const inventoryEngine = createServerInventoryEngine();
     await inventoryEngine.requireAvailableCartItems([
       { id: Number(offer.products.id), quantity: 1 },
     ]);

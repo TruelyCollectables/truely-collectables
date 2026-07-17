@@ -15,7 +15,7 @@ import { buildCollectorIntelligence } from "../../../lib/collector-intelligence"
 import { createSupabaseServerClient } from "../../../lib/supabase-server";
 import { configuredSiteOrigin } from "../../../lib/site-origin";
 import { getStoreSettings } from "../../../lib/store-settings";
-import { inventoryEngine } from "../../../modules/inventory";
+import { createServerInventoryEngine } from "../../../lib/server-inventory-engine";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -25,6 +25,7 @@ const getProduct = cache(async (id: string) => {
 
   if (!Number.isFinite(numericId)) return null;
 
+  const inventoryEngine = createServerInventoryEngine();
   return inventoryEngine.getByLegacyProductId(numericId);
 });
 

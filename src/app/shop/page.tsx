@@ -1,7 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import ClearCartOnSuccess from "../../components/ClearCartOnSuccess";
-import { inventoryEngine } from "../../modules/inventory";
+import { createServerInventoryEngine } from "../../lib/server-inventory-engine";
 import type { UniversalInventoryItem } from "../../modules/inventory";
 
 export const dynamic = "force-dynamic";
@@ -24,6 +24,7 @@ export default async function Shop({
   let error: Error | null = null;
 
   try {
+    const inventoryEngine = createServerInventoryEngine();
     products = await inventoryEngine.listAvailable({ query: q, sport });
     uniqueSports = await inventoryEngine.listAvailableSports();
   } catch (err: any) {

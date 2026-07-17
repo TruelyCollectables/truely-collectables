@@ -1,6 +1,6 @@
 import type { MetadataRoute } from "next";
 import { configuredSiteOrigin } from "../lib/site-origin";
-import { inventoryEngine } from "../modules/inventory";
+import { createServerInventoryEngine } from "../lib/server-inventory-engine";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 300;
@@ -33,6 +33,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     },
   ];
 
+  const inventoryEngine = createServerInventoryEngine();
   let products: Awaited<ReturnType<typeof inventoryEngine.listAvailable>> = [];
 
   try {
