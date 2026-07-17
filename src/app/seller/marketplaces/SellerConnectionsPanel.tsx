@@ -2024,7 +2024,7 @@ async function fetchSellerStagedItems(
   options?: { importJobId?: string | null; stageStatus?: StageFilter },
 ) {
   const searchParams = new URLSearchParams({
-    limit: "250",
+    limit: "1000",
     importJobLimit: "8",
   });
 
@@ -2061,7 +2061,7 @@ async function fetchSellerStagedItems(
     rowWindow: (data.rowWindow || {
       displayed: (data.stagedItems || []).length,
       matching: (data.stagedItems || []).length,
-      limit: 250,
+      limit: 1000,
       isWindowed: false,
     }) as SellerStageRowWindow,
     operationReceipt,
@@ -4433,143 +4433,92 @@ export default function SellerConnectionsPanel({
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="max-w-3xl">
             <p className="text-xs font-black uppercase tracking-[0.14em] text-emerald-800">
-              Make listings live
+              Simple eBay import
             </p>
-            <h3 className="mt-1 text-xl font-black text-emerald-950">
-              eBay → TCOS live listing runway
+            <h3 className="mt-1 text-3xl font-black text-emerald-950">
+              One button brings your eBay inventory to Truely Collectables.
             </h3>
             <p className="mt-2 text-sm leading-6 text-emerald-900">
-              This is the simple path: bring eBay listings over, clear exact
-              duplicates and obvious blockers, promote clean rows into TCOS
-              drafts, then activate ready drafts. Once an item is{" "}
-              <span className="font-black">ACTIVE</span> in Seller Inventory, it
-              is live on the TCOS shop.
+              Click the big button. TCOS imports your active eBay inventory,
+              keeps your eBay price as the starting TCOS price, and parks
+              everything here so you can choose what goes through InstaComp™
+              before anything goes live.
             </p>
           </div>
-          <Link
-            href="/seller/inventory?status=draft&readiness=ready"
-            className="rounded-md bg-emerald-950 px-4 py-2 text-sm font-black text-white hover:bg-emerald-900"
+          <button
+            type="button"
+            onClick={() => stageAllRemaining()}
+            disabled={
+              !canUseSellerEbayTools ||
+              isLoadingPreview ||
+              isSavingProvider.length > 0 ||
+              isStagingItems ||
+              hasReachedEndOfEbayInventory
+            }
+            className="min-w-[260px] rounded-xl bg-neutral-950 px-6 py-4 text-left text-base font-black uppercase tracking-[0.08em] text-white shadow-lg hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-500"
           >
-            Open ready drafts
-          </Link>
+            {isStagingAll
+              ? "Importing all eBay inventory..."
+              : hasReachedEndOfEbayInventory
+                ? "eBay inventory imported"
+                : "Import ALL eBay inventory"}
+            <span className="mt-1 block text-xs font-bold normal-case tracking-normal text-neutral-300">
+              Active eBay listings → Truely Collectables staging
+            </span>
+          </button>
         </div>
 
-        <div className="mt-4 grid gap-3 xl:grid-cols-3">
-          <div className="rounded-md border border-emerald-200 bg-white p-4">
-            <p className="text-xs font-black uppercase tracking-[0.14em] text-emerald-700">
-              Step 1
-            </p>
-            <h4 className="mt-1 text-lg font-black text-neutral-950">
-              Bring eBay listings over
-            </h4>
-            <p className="mt-2 text-sm leading-6 text-neutral-700">
-              Pull your active eBay listings into TCOS staging. This does not
-              make anything live yet.
-            </p>
-            <button
-              type="button"
-              onClick={() => stageAllRemaining()}
-              disabled={
-                !canUseSellerEbayTools ||
-                isLoadingPreview ||
-                isSavingProvider.length > 0 ||
-                isStagingItems ||
-                hasReachedEndOfEbayInventory
-              }
-              className="mt-4 rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-500"
-            >
-              {isStagingAll
-                ? "Importing eBay..."
-                : hasReachedEndOfEbayInventory
-                  ? "eBay import done"
-                  : "Import my eBay listings"}
-            </button>
-          </div>
-
-          <div className="rounded-md border border-emerald-200 bg-white p-4">
-            <p className="text-xs font-black uppercase tracking-[0.14em] text-emerald-700">
-              Step 2
-            </p>
-            <h4 className="mt-1 text-lg font-black text-neutral-950">
-              Clean and create drafts
-            </h4>
-            <p className="mt-2 text-sm leading-6 text-neutral-700">
-              Exact same-listing duplicates can go to Duplicate Trash. Select
-              rows below to compare eBay price against InstaComp™ before clean
-              staged rows become seller drafts.
-            </p>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <Link
-                href={selectedInstaCompHref}
-                className={`rounded-md border px-3 py-2 text-xs font-black ${
-                  selectedStageItems.length
-                    ? "border-blue-300 bg-blue-50 text-blue-800 hover:bg-blue-100"
-                    : "pointer-events-none border-neutral-200 bg-neutral-50 text-neutral-400"
-                }`}
-              >
-                Compare selected pricing ({selectedStageItems.length})
-              </Link>
+        <div className="mt-5 rounded-xl border border-emerald-200 bg-white p-4">
+          <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.14em] text-emerald-700">
+                After import
+              </p>
+              <h4 className="mt-1 text-xl font-black text-neutral-950">
+                Check boxes, then send what you want to InstaComp™.
+              </h4>
+              <p className="mt-1 text-sm font-semibold leading-6 text-neutral-700">
+                Select one, select a few, or select everything currently loaded.
+                InstaComp™ compares your eBay price against TCOS pricing before
+                you create drafts or activate listings.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={() =>
-                  void trashExactDuplicateStageItems(exactDuplicateTrashStageItemIds)
+                  setSelectedStageItemIds((current) =>
+                    Array.from(new Set([...current, ...visibleStageItemIds])),
+                  )
                 }
-                disabled={
-                  exactDuplicateTrashStageItemIds.length === 0 ||
-                  updatingStageItemId.startsWith("bulk-") ||
-                  Boolean(promotingStageItemId)
-                }
-                className="rounded-md border border-rose-300 bg-rose-50 px-3 py-2 text-xs font-black text-rose-900 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={visibleStageItemIds.length === 0}
+                className="rounded-md border border-blue-300 bg-blue-50 px-4 py-3 text-sm font-black text-blue-800 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Trash dups ({exactDuplicateTrashStageItemIds.length})
+                Select all loaded ({visibleStageItemIds.length})
               </button>
+              <Link
+                href={selectedInstaCompHref}
+                className={`rounded-md border px-4 py-3 text-sm font-black ${
+                  selectedStageItems.length
+                    ? "border-blue-500 bg-blue-600 text-white hover:bg-blue-700"
+                    : "pointer-events-none border-neutral-200 bg-neutral-50 text-neutral-400"
+                }`}
+              >
+                Send selected to InstaComp™ ({selectedStageItems.length})
+              </Link>
               <button
                 type="button"
-                onClick={() => void promoteAllReadyStageItems()}
-                disabled={
-                  readyStageItemIds.length === 0 ||
-                  Boolean(promotingStageItemId) ||
-                  updatingStageItemId.startsWith("bulk-")
-                }
-                className="rounded-md bg-emerald-700 px-3 py-2 text-xs font-black text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-emerald-300"
+                onClick={() => setSelectedStageItemIds([])}
+                disabled={selectedStageItemIds.length === 0}
+                className="rounded-md border border-neutral-300 bg-white px-4 py-3 text-sm font-bold text-neutral-800 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {promotingStageItemId === "bulk-promote-all-ready"
-                  ? "Creating drafts..."
-                  : `Create drafts (${readyStageItemIds.length})`}
+                Clear ({selectedStageItemIds.length})
               </button>
-              <button
-                type="button"
-                onClick={() => focusStageLane("blocked")}
-                className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-xs font-bold hover:bg-neutral-50"
-              >
-                Review blockers ({blockedStageItemIds.length})
-              </button>
-            </div>
-          </div>
-
-          <div className="rounded-md border border-emerald-200 bg-white p-4">
-            <p className="text-xs font-black uppercase tracking-[0.14em] text-emerald-700">
-              Step 3
-            </p>
-            <h4 className="mt-1 text-lg font-black text-neutral-950">
-              Activate ready drafts
-            </h4>
-            <p className="mt-2 text-sm leading-6 text-neutral-700">
-              Open ready drafts, select them, and hit Activate Ready. That is
-              the switch that makes them live on TruelyCollectables.com.
-            </p>
-            <div className="mt-4 flex flex-wrap gap-2">
               <Link
                 href="/seller/inventory?status=draft&readiness=ready"
-                className="rounded-md bg-emerald-950 px-3 py-2 text-xs font-black text-white hover:bg-emerald-900"
+                className="rounded-md bg-emerald-950 px-4 py-3 text-sm font-black text-white hover:bg-emerald-900"
               >
-                Activate ready drafts ({inventorySummary?.draftReadyCount || 0})
-              </Link>
-              <Link
-                href="/seller/inventory?status=draft&readiness=needs_work"
-                className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-black text-amber-900 hover:bg-amber-100"
-              >
-                Fix needs-work ({inventorySummary?.draftNeedsWorkCount || 0})
+                Activate drafts ({inventorySummary?.draftReadyCount || 0})
               </Link>
             </div>
           </div>

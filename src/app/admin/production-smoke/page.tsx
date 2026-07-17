@@ -29,7 +29,7 @@ const smokeChecks = [
   "Shipping provider setup JSON and export packets with Standard Envelope evidence readiness",
   "Ranked shipping exceptions CSV, including seller-protection refund-proof and payout blocker support",
   "LetterTrack Standard Envelope CSV export",
-  "Seller eBay Listings runway for one-click import, InstaComp™ price comparison, duplicate cleanup, draft creation, and ready-draft activation",
+  "Seller eBay Listings one-button import with checkbox selection and InstaComp™ price comparison",
   "Seller marketplace advanced exports remain prep files, not live publishing.",
   `Seller marketplace receipt handoff controls for ${sellerMarketplaceReceiptHandoffControlsText}`,
   "Seller inventory, order, and payout workspaces render login gates before exposing seller-owned data",
@@ -125,10 +125,10 @@ const manualVerificationChecks = [
       "Keep affected orders in shipping review and export the exception CSV before touching payouts.",
   },
   {
-    label: "Seller eBay Listings runway",
+    label: "Seller eBay Listings one-button import",
     href: "/seller/marketplaces",
     proof:
-      "The eBay Listings page shows the eBay → TCOS live listing runway: import active eBay listings, keep eBay prices as starting TCOS prices, compare selected rows in InstaComp™, trash exact duplicate staging rows, create TCOS drafts, and open ready drafts for activation.",
+      "The eBay Listings page shows one giant import button for active eBay inventory, keeps eBay prices as starting TCOS prices, and lets sellers select checkboxes, select all loaded rows, and send selected rows to InstaComp™ before draft activation.",
     ifBlocked:
       "Keep the seller in eBay Listings; import first, compare pricing second, create drafts third, then activate only ready Seller Inventory rows.",
   },

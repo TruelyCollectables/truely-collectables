@@ -998,7 +998,7 @@ const checks = [
       "Shipping purchase-attempt audit simulations for live-gate, missing-setup, dry-run, and packet-output text",
       "Shipping simulation API POST with scenario count, manifest, and drift-field checks",
       "Shipping provider setup JSON and export packets with Standard Envelope evidence readiness",
-      "Seller eBay Listings runway for one-click import, InstaComp™ price comparison, duplicate cleanup, draft creation, and ready-draft activation",
+      "Seller eBay Listings one-button import with checkbox selection and InstaComp™ price comparison",
       "Seller marketplace advanced exports remain prep files, not live publishing.",
       sellerMarketplaceReceiptHandoffCoverageLine,
       "Seller inventory, order, and payout workspaces render login gates before exposing seller-owned data",
@@ -1043,7 +1043,7 @@ const checks = [
       "Live shipping lock posture",
       "Seller protection money trail",
       "Shipping operations exports",
-      "Seller eBay Listings runway",
+      "Seller eBay Listings one-button import",
       "Seller marketplace receipt handoff",
       "deployed URL output",
       "clean URL output",
@@ -1079,7 +1079,7 @@ const checks = [
         "Shipping provider setup JSON and export packets with Standard Envelope evidence readiness",
       ) &&
       result.text.includes(
-        "Seller eBay Listings runway for one-click import, InstaComp™ price comparison, duplicate cleanup, draft creation, and ready-draft activation",
+        "Seller eBay Listings one-button import with checkbox selection and InstaComp™ price comparison",
       ) &&
       result.text.includes(
         "Seller marketplace advanced exports remain prep files, not live publishing.",
@@ -1125,7 +1125,7 @@ const checks = [
       result.text.includes("Live shipping lock posture") &&
       result.text.includes("Seller protection money trail") &&
       result.text.includes("Shipping operations exports") &&
-      result.text.includes("Seller eBay Listings runway") &&
+      result.text.includes("Seller eBay Listings one-button import") &&
       result.text.includes("Seller marketplace receipt handoff") &&
       result.text.includes("remove unwanted truely-collectables-tt3b.vercel.app alias") &&
       result.text.includes("set clean production alias") &&
@@ -1141,15 +1141,14 @@ const checks = [
     path: "/seller/marketplaces",
     requiredText: [
       "eBay Listings",
-      "eBay → TCOS live listing runway",
-      "Import my eBay listings",
-      "Compare selected pricing",
+      "One button brings your eBay inventory to Truely Collectables.",
+      "Import ALL eBay inventory",
+      "Select all loaded",
+      "Send selected to InstaComp™",
       "InstaComp™",
-      "Trash dups",
-      "Create drafts",
-      "Activate ready drafts",
-      "Fix needs-work",
-      "eBay price stays as the starting TCOS listing price",
+      "keeps your eBay price as the starting TCOS price",
+      "Check boxes, then send what you want to InstaComp™.",
+      "Activate drafts",
       "Advanced exports",
       "Marketplace packets are advanced prep files.",
       "Seller marketplace receipt handoff",
@@ -1157,15 +1156,14 @@ const checks = [
     ],
     expect: (result) =>
       result.text.includes("eBay Listings") &&
-      result.text.includes("eBay → TCOS live listing runway") &&
-      result.text.includes("Import my eBay listings") &&
-      result.text.includes("Compare selected pricing") &&
+      result.text.includes("One button brings your eBay inventory to Truely Collectables.") &&
+      result.text.includes("Import ALL eBay inventory") &&
+      result.text.includes("Select all loaded") &&
+      result.text.includes("Send selected to InstaComp™") &&
       result.text.includes("InstaComp™") &&
-      result.text.includes("Trash dups") &&
-      result.text.includes("Create drafts") &&
-      result.text.includes("Activate ready drafts") &&
-      result.text.includes("Fix needs-work") &&
-      result.text.includes("eBay price stays as the starting TCOS listing price") &&
+      result.text.includes("keeps your eBay price as the starting TCOS price") &&
+      result.text.includes("Check boxes, then send what you want to InstaComp™.") &&
+      result.text.includes("Activate drafts") &&
       result.text.includes("Advanced exports") &&
       result.text.includes("Marketplace packets are advanced prep files.") &&
       result.text.includes("Seller marketplace receipt handoff") &&

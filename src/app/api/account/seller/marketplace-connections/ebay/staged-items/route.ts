@@ -475,7 +475,7 @@ export async function GET(request: Request) {
     const supabase = getSupabaseClient();
     const storeId = getActiveStoreId();
     const { searchParams } = new URL(request.url);
-    const limit = cleanLimit(searchParams.get("limit"), 100, 250);
+    const limit = cleanLimit(searchParams.get("limit"), 1000, 1000);
     const stageStatus = cleanStageStatus(searchParams.get("stageStatus"));
     const importJobId = cleanText(searchParams.get("importJobId"));
     const importJobLimit = cleanLimit(searchParams.get("importJobLimit"));
