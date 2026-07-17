@@ -163,8 +163,8 @@ export default async function MarketIntelAdminPage({
           <Workbench
             eyebrow="Deal Engine"
             title="Shark List™"
-            detail={`${actionable.length} actionable opportunity${
-              actionable.length === 1 ? "" : "ies"
+            detail={`${actionable.length} actionable ${
+              actionable.length === 1 ? "opportunity" : "opportunities"
             } ranked by discount, expected GP, confidence, liquidity, and risk.`}
             href={addAdminHandoff("/admin/market-intel/deals", handoff)}
             action="Open Shark List"
@@ -249,7 +249,7 @@ export default async function MarketIntelAdminPage({
                     {row.priority}
                   </p>
                   <p className="mt-2 text-xs font-black uppercase tracking-wide text-neutral-500">
-                    {row.minimum_discount_pct}% below market · ${""}
+                    {row.minimum_discount_pct}% below market · $
                     {row.minimum_estimated_net_profit.toFixed(2)} minimum net
                   </p>
                 </div>
