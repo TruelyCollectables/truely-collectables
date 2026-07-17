@@ -38,14 +38,12 @@ export class InventoryRepository {
       .select("*")
       .eq("legacy_product_id", legacyProductId)
       .eq("store_id", this.storeId)
-      .single();
+      .order("updated_at", { ascending: false, nullsFirst: false })
+      .limit(1);
 
-    if (error) {
-      if (error.code === "PGRST116") return null;
-      throw error;
-    }
+    if (error) throw error;
 
-    return data as InventoryItem;
+    return (((data || []) as InventoryItem[])[0] || null) as InventoryItem | null;
   }
 
   async getBySku(sku: string): Promise<InventoryItem | null> {
@@ -54,14 +52,12 @@ export class InventoryRepository {
       .select("*")
       .eq("sku", sku)
       .eq("store_id", this.storeId)
-      .single();
+      .order("updated_at", { ascending: false, nullsFirst: false })
+      .limit(1);
 
-    if (error) {
-      if (error.code === "PGRST116") return null;
-      throw error;
-    }
+    if (error) throw error;
 
-    return data as InventoryItem;
+    return (((data || []) as InventoryItem[])[0] || null) as InventoryItem | null;
   }
 
   async list(params: InventorySearchParams = {}): Promise<InventoryItem[]> {
