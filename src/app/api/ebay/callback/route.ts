@@ -38,6 +38,17 @@ function sellerRedirect(
   return NextResponse.redirect(redirectUrl);
 }
 
+function adminRedirect(status: "connected" | "error", message?: string) {
+  const redirectUrl = new URL("/admin/ebay", configuredSiteOrigin());
+  redirectUrl.searchParams.set("ebay", status);
+
+  if (message) {
+    redirectUrl.searchParams.set("message", message.slice(0, 180));
+  }
+
+  return NextResponse.redirect(redirectUrl);
+}
+
 export async function GET(request: Request) {
   const clientId = process.env.EBAY_CLIENT_ID;
   const clientSecret = process.env.EBAY_CLIENT_SECRET;
@@ -248,17 +259,23 @@ export async function GET(request: Request) {
     return sellerRedirect(request, "connected");
   }
 
-  if (data.refresh_token) {
-    await supabase.from("ebay_tokens").insert({
-      store_id: storeId,
-      refresh_token: data.refresh_token,
-    });
+  if (!response.ok || !data.refresh_token) {
+    return adminRedirect(
+      "error",
+      data.error_description ||
+        data.error ||
+        "eBay authorization did not return a refresh token.",
+    );
   }
 
-  return NextResponse.json({
-    success: true,
-    token_received: !!data.access_token,
-    refresh_token_received: !!data.refresh_token,
-    expires_in: data.expires_in,
+  const { error: tokenInsertError } = await supabase.from("ebay_tokens").insert({
+    store_id: storeId,
+    refresh_token: data.refresh_token,
   });
+
+  if (tokenInsertError) {
+    return adminRedirect("error", tokenInsertError.message);
+  }
+
+  return adminRedirect("connected");
 }

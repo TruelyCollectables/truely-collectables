@@ -11,6 +11,11 @@ import { createSupabaseServerClient } from "../../../lib/supabase-server";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+type AdminEbaySearchParams = {
+  ebay?: string;
+  message?: string;
+};
+
 function money(value: number) {
   return `$${Number(value || 0).toFixed(2)}`;
 }
@@ -59,12 +64,24 @@ function getSupabaseClient() {
   return createSupabaseServerClient({ admin: true });
 }
 
-export default async function AdminEbayPage() {
+export default async function AdminEbayPage({
+  searchParams,
+}: {
+  searchParams?: Promise<AdminEbaySearchParams>;
+}) {
+  const params = (await searchParams) ?? {};
+  const supabase = getSupabaseClient();
+  const storeId = getActiveStoreId();
   const status = await inventoryEngine.getEbayReconciliationStatus();
-  const storeSettings = await getStoreSettings(
-    getSupabaseClient(),
-    getActiveStoreId(),
-  );
+  const storeSettings = await getStoreSettings(supabase, storeId);
+  const { data: ebayToken } = await supabase
+    .from("ebay_tokens")
+    .select("id")
+    .eq("store_id", storeId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const hasEbayRefreshToken = Boolean(ebayToken);
   const attentionRows = status.rows.filter(needsAttention);
   const otherRows = status.rows.filter((row) => !needsAttention(row));
   const visibleRows = [...attentionRows, ...otherRows].slice(0, 150);
@@ -105,11 +122,32 @@ export default async function AdminEbayPage() {
       </section>
 
       <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
+        {params.ebay ? (
+          <div
+            className={`rounded-md border px-4 py-3 text-sm font-bold ${
+              params.ebay === "connected"
+                ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                : "border-rose-200 bg-rose-50 text-rose-800"
+            }`}
+          >
+            {params.ebay === "connected"
+              ? "eBay is connected. You can import active listings now."
+              : params.message || "eBay connection did not complete."}
+          </div>
+        ) : null}
+
         {!storeSettings.ebaySyncEnabled ? (
           <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-800">
             eBay sync is disabled for this store. Imports, full sync,
             reconnect, and post-sale quantity updates are blocked until it is
             enabled in Store Settings.
+          </div>
+        ) : null}
+
+        {storeSettings.ebaySyncEnabled && !hasEbayRefreshToken ? (
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-900">
+            No eBay refresh token is saved for this store yet. Connect eBay
+            once, approve TCOS, then come back here and run the import.
           </div>
         ) : null}
 
@@ -131,12 +169,19 @@ export default async function AdminEbayPage() {
             </div>
 
             <div className="flex min-w-[280px] flex-col gap-2">
-              {storeSettings.ebaySyncEnabled ? (
+              {storeSettings.ebaySyncEnabled && hasEbayRefreshToken ? (
                 <Link
                   href="/api/ebay/full-sync?limit=100&maxBatches=25"
                   className="rounded-xl bg-neutral-950 px-6 py-4 text-center text-base font-black uppercase tracking-[0.08em] text-white hover:bg-neutral-800"
                 >
                   Import ALL eBay Now
+                </Link>
+              ) : storeSettings.ebaySyncEnabled ? (
+                <Link
+                  href="/api/ebay/auth"
+                  className="rounded-xl bg-amber-300 px-6 py-4 text-center text-base font-black uppercase tracking-[0.08em] text-neutral-950 hover:bg-amber-200"
+                >
+                  Connect eBay First
                 </Link>
               ) : (
                 <Link

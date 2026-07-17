@@ -158,6 +158,16 @@ export default async function EbaySyncControlPage({
   const runId = params.runId || new Date().toISOString();
   const storeId = getActiveStoreId();
   const supabase = getSupabaseClient();
+  const ebayTokenResult = supabase
+    ? await supabase
+        .from("ebay_tokens")
+        .select("id")
+        .eq("store_id", storeId)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle()
+    : { data: null, error: null };
+  const hasEbayRefreshToken = Boolean(ebayTokenResult.data);
   const [snapshotSummaryResult, blockedSummaryResult, inventoryStatsResult] =
     supabase
       ? await Promise.all([
@@ -238,6 +248,12 @@ export default async function EbaySyncControlPage({
           </section>
         ) : null}
 
+        {ebayTokenResult.error ? (
+          <section className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-900">
+            eBay token status could not be checked: {ebayTokenResult.error.message}
+          </section>
+        ) : null}
+
         <section className="rounded-xl border-4 border-emerald-400 bg-emerald-50 p-6 text-emerald-950 shadow-lg">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
             <div>
@@ -255,12 +271,21 @@ export default async function EbaySyncControlPage({
             </div>
 
             <div className="flex min-w-[280px] flex-col gap-2">
-              <Link
-                href="/api/ebay/full-sync?limit=100&maxBatches=25"
-                className="rounded-xl bg-neutral-950 px-6 py-4 text-center text-base font-black uppercase tracking-[0.08em] text-white hover:bg-neutral-800"
-              >
-                Import ALL eBay Now
-              </Link>
+              {hasEbayRefreshToken ? (
+                <Link
+                  href="/api/ebay/full-sync?limit=100&maxBatches=25"
+                  className="rounded-xl bg-neutral-950 px-6 py-4 text-center text-base font-black uppercase tracking-[0.08em] text-white hover:bg-neutral-800"
+                >
+                  Import ALL eBay Now
+                </Link>
+              ) : (
+                <Link
+                  href="/api/ebay/auth"
+                  className="rounded-xl bg-amber-300 px-6 py-4 text-center text-base font-black uppercase tracking-[0.08em] text-neutral-950 hover:bg-amber-200"
+                >
+                  Connect eBay First
+                </Link>
+              )}
               <Link
                 href="/admin/inventory"
                 className="rounded-xl border border-emerald-300 bg-white px-6 py-3 text-center text-sm font-black text-emerald-950 hover:bg-emerald-100"
