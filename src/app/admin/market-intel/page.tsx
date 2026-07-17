@@ -109,6 +109,14 @@ export default async function MarketIntelAdminPage({ searchParams }: PageProps) 
             tone="cyan"
           />
           <Workbench
+            eyebrow="First Live Adapter"
+            title="eBay Scanner"
+            detail="Scan active eBay listings through the Browse API, enforce exact-identity confidence, dedupe, ingest, and score."
+            href={addAdminHandoff("/admin/market-intel/ebay", handoff)}
+            action="Scan eBay"
+            tone="cyan"
+          />
+          <Workbench
             eyebrow="Deal Engine"
             title="Shark List™"
             detail="Ranked actionable buys, mislistings, wholesale lots, delivered-cost math, and expected net profit."
@@ -175,12 +183,12 @@ export default async function MarketIntelAdminPage({ searchParams }: PageProps) 
           <p className="text-xs font-black uppercase tracking-[0.18em] text-amber-300">
             Beta One Operating Loop
           </p>
-          <h2 className="mt-1 text-3xl font-black">Track → Value → Score → Alert → Buy → Measure</h2>
+          <h2 className="mt-1 text-3xl font-black">Track → Scan → Value → Score → Alert → Buy → Measure</h2>
           <p className="mt-3 max-w-4xl font-semibold text-neutral-300">
-            The private foundation now connects watchlists, exact-card market values,
-            normalized listings, deal scoring, alerts, reports, purchases, and realized GP.
-            The remaining Beta One work is integration hardening, real-data seeding,
-            delivery adapters, and repeated live testing against actual buys and sales.
+            eBay is the first live marketplace adapter. The same normalized ingestion
+            contract will support Etsy, Mercari, Fanatics Collect, COMC, CollX,
+            Whatnot, Facebook Marketplace, and other permitted data sources without
+            changing the core scoring or portfolio engine.
           </p>
         </section>
       </div>
