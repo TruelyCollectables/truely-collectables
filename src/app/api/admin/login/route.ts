@@ -72,6 +72,9 @@ export async function POST(req: Request) {
   const loginPayload = await readLoginPayload(req);
   const hostname = requestHostname(req);
   const loginCheck = await checkAdminLoginAllowed(req);
+  const isSoftLockout =
+    loginCheck.reason === "locked_out" ||
+    loginCheck.reason === "too_many_failed_attempts";
 
   if (!loginPayload.readable) {
     if (loginPayload.wantsRedirect) {
@@ -88,7 +91,7 @@ export async function POST(req: Request) {
     );
   }
 
-  if (!loginCheck.allowed) {
+  if (!loginCheck.allowed && !isSoftLockout) {
     await recordAdminLoginAttempt({
       check: loginCheck,
       success: false,
@@ -155,20 +158,27 @@ export async function POST(req: Request) {
     });
 
     if (loginPayload.wantsRedirect) {
-      return loginRedirect(req, "invalid");
+      return loginRedirect(req, isSoftLockout ? "locked" : "invalid");
     }
 
     return NextResponse.json(
       {
         success: false,
-        code: "invalid_admin_password",
-        error: "Invalid password",
-        attemptsRemaining: Math.max(
-          loginCheck.maxFailedAttempts - loginCheck.failedAttempts - 1,
-          0,
-        ),
+        code: isSoftLockout ? "admin_locked_out" : "invalid_admin_password",
+        error: isSoftLockout
+          ? "Too many failed login attempts. Enter the correct admin password to unlock this session."
+          : "Invalid password",
+        retryAfterSeconds: isSoftLockout
+          ? loginCheck.retryAfterSeconds
+          : undefined,
+        attemptsRemaining: isSoftLockout
+          ? 0
+          : Math.max(
+              loginCheck.maxFailedAttempts - loginCheck.failedAttempts - 1,
+              0,
+            ),
       },
-      { status: 401 }
+      { status: isSoftLockout ? 429 : 401 }
     );
   }
 

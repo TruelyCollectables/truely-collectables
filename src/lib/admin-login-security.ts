@@ -121,13 +121,18 @@ export async function checkAdminLoginAllowed(
   }
 
   const rows = (data ?? []) as LoginAttemptRow[];
-  const activeLockout = rows
+  const latestSuccessfulLoginAt =
+    rows.find((row) => row.success)?.created_at ?? null;
+  const failureWindowRows = latestSuccessfulLoginAt
+    ? rows.filter((row) => row.created_at > latestSuccessfulLoginAt)
+    : rows;
+  const activeLockout = failureWindowRows
     .map((row) => row.lockout_until)
     .filter(Boolean)
     .sort()
     .at(-1) ?? null;
   const retryAfterSeconds = secondsUntil(activeLockout);
-  const failedAttempts = rows.filter(
+  const failedAttempts = failureWindowRows.filter(
     (row) =>
       !row.success &&
       (!row.failure_reason || row.failure_reason === "invalid_password"),

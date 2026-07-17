@@ -12,7 +12,7 @@ function loginErrorMessage(code: string | string[] | undefined) {
   const errorCode = Array.isArray(code) ? code[0] : code;
 
   if (errorCode === "locked") {
-    return "Too many failed login attempts. Try again shortly.";
+    return "Too many failed attempts were recorded. Enter the correct admin password to unlock this session.";
   }
 
   if (errorCode === "blocked") {
@@ -52,7 +52,8 @@ export default async function AdminLoginPage({
         <h1 className="mt-2 text-3xl font-black">Admin Login</h1>
         <p className="mt-2 text-sm font-semibold text-neutral-600">
           Native login mode is active so the browser accepts the admin cookie
-          during a full-page submit.
+          during a full-page submit. Use the password configured as{" "}
+          <code>ADMIN_PASSWORD</code> on this running server.
         </p>
 
         <form
