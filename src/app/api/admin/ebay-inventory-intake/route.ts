@@ -29,6 +29,13 @@ type InventoryRow = {
   updated_at: string | null;
 };
 
+type InstaCompRepriceComp = {
+  title: string;
+  price: number;
+  url: string | null;
+  itemId: string | null;
+};
+
 let ebayAppTokenCache:
   | {
       token: string;
@@ -53,6 +60,20 @@ function moneyNumber(value: number | string | null | undefined) {
 
 function roundMoney(value: number) {
   return Math.round(value * 100) / 100;
+}
+
+function median(values: number[]) {
+  const sorted = values
+    .filter((value) => Number.isFinite(value) && value > 0)
+    .sort((left, right) => left - right);
+
+  if (sorted.length === 0) return 0;
+
+  const middle = Math.floor(sorted.length / 2);
+
+  return sorted.length % 2 === 0
+    ? (sorted[middle - 1] + sorted[middle]) / 2
+    : sorted[middle];
 }
 
 function clampDiscountPercent(value: unknown) {
@@ -487,6 +508,177 @@ async function markProductInactiveFromEbay(params: {
     .eq("legacy_product_id", params.product.id);
 }
 
+function buildInstaCompRepriceQuery(product: ProductRow) {
+  const title = (cleanText(product.title) || "").slice(0, 180);
+
+  return title
+    .replace(/\bPSA\s*(?:10|9|8|7|6|5|4|3|2|1)\b/gi, " ")
+    .replace(/\bBGS\s*(?:10|9\.5|9|8\.5|8|7\.5|7|6\.5|6)\b/gi, " ")
+    .replace(/\bHGA\s*(?:10|9\.5|9|8\.5|8|7\.5|7)\b/gi, " ")
+    .replace(/\bSGC\s*(?:10|9\.5|9|8\.5|8|7\.5|7)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 160);
+}
+
+function titleOverlapScore(left: string, right: string) {
+  const stopWords = new Set([
+    "the",
+    "and",
+    "for",
+    "with",
+    "card",
+    "cards",
+    "new",
+    "box",
+  ]);
+  const normalize = (value: string) =>
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9#/-]+/g, " ")
+      .split(/\s+/)
+      .map((part) => part.trim())
+      .filter((part) => part.length > 1 && !stopWords.has(part));
+  const leftParts = normalize(left);
+  const rightSet = new Set(normalize(right));
+
+  if (leftParts.length === 0 || rightSet.size === 0) return 0;
+
+  const matches = leftParts.filter((part) => rightSet.has(part)).length;
+
+  return matches / Math.max(leftParts.length, 1);
+}
+
+async function fetchInstaCompMarketplaceComps(product: ProductRow) {
+  const token = await getEbayAppToken();
+  const query = buildInstaCompRepriceQuery(product);
+  const ownEbayItemId = cleanText(product.ebay_item_id);
+
+  if (!token || !query) return [];
+
+  const searchUrl = new URL("https://api.ebay.com/buy/browse/v1/item_summary/search");
+  searchUrl.searchParams.set("q", query);
+  searchUrl.searchParams.set("limit", "25");
+  searchUrl.searchParams.set("filter", "buyingOptions:{FIXED_PRICE|AUCTION}");
+
+  const response = await fetch(searchUrl, {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
+      "Accept-Language": "en-US",
+    },
+    cache: "no-store",
+  });
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok) return [];
+
+  const summaries = Array.isArray(data.itemSummaries) ? data.itemSummaries : [];
+
+  return (summaries as any[])
+    .map((item: any): InstaCompRepriceComp | null => {
+      const price = moneyNumber(item?.price?.value);
+      const title = cleanText(item?.title)?.slice(0, 240) || null;
+      const itemId = cleanText(item?.legacyItemId) || cleanText(item?.itemId);
+
+      if (!title || price <= 0) return null;
+      if (ownEbayItemId && itemId && itemId.includes(ownEbayItemId)) return null;
+      if (titleOverlapScore(product.title || "", title) < 0.45) return null;
+
+      return {
+        title,
+        price,
+        url: cleanText(item?.itemWebUrl)?.slice(0, 1000) || null,
+        itemId,
+      };
+    })
+    .filter(
+      (item: InstaCompRepriceComp | null): item is InstaCompRepriceComp =>
+        Boolean(item),
+    )
+    .sort((left, right) => left.price - right.price)
+    .slice(0, 12);
+}
+
+async function instacompRepriceProduct(params: {
+  product: ProductRow;
+  inventory: InventoryRow | null;
+}) {
+  const supabase = getSupabaseClient();
+  const storeId = getActiveStoreId();
+  const comps = await fetchInstaCompMarketplaceComps(params.product);
+  const prices = comps.map((comp) => comp.price);
+  const marketMedian = median(prices);
+
+  if (comps.length < 2 || marketMedian <= 0) {
+    return {
+      productId: params.product.id,
+      title: params.product.title || "Untitled eBay listing",
+      updated: false,
+      previousPrice: moneyNumber(params.product.price),
+      suggestedPrice: null,
+      compCount: comps.length,
+      message: "No reliable active marketplace comp set found.",
+    };
+  }
+
+  const previousPrice = moneyNumber(params.product.price);
+  const suggestedPrice = Math.max(0.99, roundMoney(marketMedian * 0.95));
+  const now = new Date().toISOString();
+  const metadata =
+    params.inventory?.metadata && typeof params.inventory.metadata === "object"
+      ? { ...params.inventory.metadata }
+      : {};
+  const nextMetadata = {
+    ...metadata,
+    instacomp_single_reprice: {
+      source: "admin_ebay_inventory_intake",
+      strategy: "active_marketplace_median_minus_5_percent",
+      previous_price: previousPrice,
+      suggested_price: suggestedPrice,
+      market_median: roundMoney(marketMedian),
+      comp_count: comps.length,
+      repriced_at: now,
+      comps: comps.slice(0, 8),
+    },
+  };
+
+  const { error: productError } = await supabase
+    .from("products")
+    .update({
+      price: suggestedPrice,
+      last_seen_at: now,
+    })
+    .eq("store_id", storeId)
+    .eq("id", params.product.id);
+
+  if (productError) throw productError;
+
+  if (params.inventory?.id) {
+    const { error: inventoryError } = await supabase
+      .from("inventory_items")
+      .update({
+        price: suggestedPrice,
+        metadata: nextMetadata,
+        updated_at: now,
+      })
+      .eq("store_id", storeId)
+      .eq("id", params.inventory.id);
+
+    if (inventoryError) throw inventoryError;
+  }
+
+  return {
+    productId: params.product.id,
+    title: params.product.title || "Untitled eBay listing",
+    updated: true,
+    previousPrice,
+    suggestedPrice,
+    compCount: comps.length,
+    message: `InstaComp™ repriced from $${previousPrice.toFixed(2)} to $${suggestedPrice.toFixed(2)} from ${comps.length} active comps.`,
+  };
+}
+
 async function repairProductForLive(product: ProductRow) {
   const supabase = getSupabaseClient();
   const storeId = getActiveStoreId();
@@ -589,6 +781,11 @@ function mapIntakeRow(product: ProductRow, inventory: InventoryRow | null) {
     metadata.tcos_promo && typeof metadata.tcos_promo === "object"
       ? (metadata.tcos_promo as Record<string, unknown>)
       : {};
+  const singleReprice =
+    metadata.instacomp_single_reprice &&
+    typeof metadata.instacomp_single_reprice === "object"
+      ? (metadata.instacomp_single_reprice as Record<string, unknown>)
+      : {};
   const isLive =
     isReady &&
     inventory?.status === "active" &&
@@ -617,6 +814,18 @@ function mapIntakeRow(product: ProductRow, inventory: InventoryRow | null) {
       promo.original_price as number | string | null | undefined,
     ),
     promoFreeShipping: promo.free_shipping === true,
+    instaCompSuggestedPrice: moneyNumber(
+      singleReprice.suggested_price as number | string | null | undefined,
+    ),
+    instaCompPreviousPrice: moneyNumber(
+      singleReprice.previous_price as number | string | null | undefined,
+    ),
+    instaCompCompCount: Math.max(
+      0,
+      Math.floor(Number(singleReprice.comp_count || 0)),
+    ),
+    instaCompRepricedAt:
+      cleanText(singleReprice.repriced_at)?.slice(0, 80) || null,
     isReady,
     isLive,
     problems,
@@ -727,7 +936,13 @@ export async function POST(request: Request) {
     : [];
 
   if (
-    !["push-live", "refresh-ebay-data", "apply-promo", "clear-promo"].includes(
+    ![
+      "push-live",
+      "refresh-ebay-data",
+      "instacomp-reprice",
+      "apply-promo",
+      "clear-promo",
+    ].includes(
       action,
     )
   ) {
@@ -823,6 +1038,43 @@ export async function POST(request: Request) {
           : `${refreshed} selected listing${
               refreshed === 1 ? "" : "s"
             } refreshed from current eBay price + pictures.`,
+    });
+  }
+
+  if (action === "instacomp-reprice") {
+    let updated = 0;
+    const repriced: Array<Awaited<ReturnType<typeof instacompRepriceProduct>>> = [];
+    const repriceErrors: Array<{ productId: number; title: string; error: string }> = [];
+
+    for (const product of productRows) {
+      try {
+        const result = await instacompRepriceProduct({
+          product,
+          inventory: inventoryByProductId.get(product.id) ?? null,
+        });
+
+        if (result.updated) updated++;
+        repriced.push(result);
+      } catch (repriceError: any) {
+        repriceErrors.push({
+          productId: product.id,
+          title: product.title || "Untitled eBay listing",
+          error: repriceError.message || "InstaComp™ reprice failed",
+        });
+      }
+    }
+
+    return Response.json({
+      success: true,
+      updated,
+      repriced,
+      repriceErrors,
+      message:
+        updated > 0
+          ? `InstaComp™ repriced ${updated} selected listing${
+              updated === 1 ? "" : "s"
+            }.`
+          : "InstaComp™ did not find enough reliable comps to reprice the selected listing.",
     });
   }
 

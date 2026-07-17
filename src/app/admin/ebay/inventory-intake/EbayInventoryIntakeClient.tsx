@@ -22,6 +22,10 @@ type IntakeRow = {
   promoDiscountPercent: number;
   promoOriginalPrice: number;
   promoFreeShipping: boolean;
+  instaCompSuggestedPrice: number;
+  instaCompPreviousPrice: number;
+  instaCompCompCount: number;
+  instaCompRepricedAt: string | null;
   isReady: boolean;
   isLive: boolean;
   problems: string[];
@@ -84,6 +88,7 @@ export default function EbayInventoryIntakeClient() {
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
   const [promoWorking, setPromoWorking] = useState(false);
+  const [repriceWorkingIds, setRepriceWorkingIds] = useState<number[]>([]);
   const [discountPercent, setDiscountPercent] = useState("10");
   const [freeShipping, setFreeShipping] = useState(false);
   const [notice, setNotice] = useState("");
@@ -265,6 +270,68 @@ export default function EbayInventoryIntakeClient() {
 
     await navigator.clipboard.writeText(text);
     setNotice(`Copied ${selectedRows.length} selected row${selectedRows.length === 1 ? "" : "s"} for InstaComp™ cleanup.`);
+  }
+
+  async function instacompReprice(productIds: number[]) {
+    const uniqueIds = Array.from(new Set(productIds)).filter((id) => id > 0);
+
+    if (uniqueIds.length === 0) {
+      setError("Select at least one row first.");
+      return;
+    }
+
+    setRepriceWorkingIds((current) =>
+      Array.from(new Set([...current, ...uniqueIds])),
+    );
+    setNotice("");
+    setError("");
+
+    try {
+      const response = await fetch("/api/admin/ebay-inventory-intake", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "instacomp-reprice",
+          productIds: uniqueIds,
+        }),
+      });
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "Could not run InstaComp™ reprice.");
+      }
+
+      const repriced = Array.isArray(data.repriced) ? data.repriced : [];
+      const changed = repriced
+        .filter((item: any) => item?.updated)
+        .slice(0, 3)
+        .map(
+          (item: any) =>
+            `${item.title}: ${money(item.previousPrice)} → ${money(
+              item.suggestedPrice,
+            )}`,
+        );
+      const skippedCount = repriced.filter((item: any) => !item?.updated).length;
+      const errorCount = Array.isArray(data.repriceErrors)
+        ? data.repriceErrors.length
+        : 0;
+
+      setNotice(
+        changed.length > 0
+          ? `${data.message || "InstaComp™ reprice complete"} ${changed.join(
+              " | ",
+            )}${skippedCount || errorCount ? ` (${skippedCount + errorCount} skipped)` : ""}`
+          : data.message ||
+              "InstaComp™ did not find enough reliable comps to change the price.",
+      );
+      await loadRows();
+    } catch (nextError: any) {
+      setError(nextError.message || "Could not run InstaComp™ reprice.");
+    } finally {
+      setRepriceWorkingIds((current) =>
+        current.filter((id) => !uniqueIds.includes(id)),
+      );
+    }
   }
 
   async function applyPromo(action: "apply-promo" | "clear-promo") {
@@ -461,6 +528,16 @@ export default function EbayInventoryIntakeClient() {
                 >
                   Copy Selected For InstaComp™
                 </button>
+                <button
+                  type="button"
+                  onClick={() => void instacompReprice(selectedIds)}
+                  disabled={selectedIds.length === 0 || repriceWorkingIds.length > 0}
+                  className="rounded-md border border-blue-300 bg-blue-50 px-4 py-3 text-sm font-black text-blue-900 hover:bg-blue-100 disabled:opacity-50"
+                >
+                  {repriceWorkingIds.length > 0
+                    ? "InstaComp™ repricing..."
+                    : `InstaComp™ Reprice Selected (${selectedIds.length})`}
+                </button>
                 <Link
                   href="/admin/instacomp"
                   className="rounded-md border border-neutral-300 bg-white px-4 py-3 text-sm font-black hover:bg-neutral-50"
@@ -608,6 +685,14 @@ export default function EbayInventoryIntakeClient() {
                           {row.promoFreeShipping ? " · free shipping" : ""}
                         </p>
                       ) : null}
+                      {row.instaCompSuggestedPrice > 0 ? (
+                        <p className="mt-2 rounded border border-blue-200 bg-blue-50 px-2 py-1 text-[11px] font-black text-blue-900">
+                          InstaComp™ {money(row.instaCompSuggestedPrice)}
+                          {row.instaCompCompCount > 0
+                            ? ` · ${row.instaCompCompCount} comps`
+                            : ""}
+                        </p>
+                      ) : null}
                     </td>
                     <td className="px-4 py-4">
                       <span
@@ -657,11 +742,21 @@ export default function EbayInventoryIntakeClient() {
                             eBay
                           </a>
                         ) : null}
+                        <button
+                          type="button"
+                          onClick={() => void instacompReprice([row.productId])}
+                          disabled={repriceWorkingIds.includes(row.productId)}
+                          className="rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-xs font-black text-blue-800 hover:bg-blue-100 disabled:opacity-50"
+                        >
+                          {repriceWorkingIds.includes(row.productId)
+                            ? "Repricing..."
+                            : "InstaComp™ Reprice"}
+                        </button>
                         <Link
                           href={`/admin/instacomp?source=ebay-intake&product=${row.productId}`}
-                          className="rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-xs font-black text-blue-800 hover:bg-blue-100"
+                          className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-black hover:bg-neutral-50"
                         >
-                          InstaComp™
+                          Open
                         </Link>
                       </div>
                     </td>
