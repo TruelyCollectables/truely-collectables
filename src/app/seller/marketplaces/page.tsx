@@ -1121,6 +1121,54 @@ export default async function SellerMarketplacesPage() {
           </div>
         </section>
 
+        <section className="rounded-md border border-emerald-200 bg-emerald-50 p-5 text-emerald-950">
+          <p className="text-sm font-black uppercase tracking-[0.16em]">
+            eBay → TCOS live listing runway
+          </p>
+          <h2 className="mt-2 text-2xl font-black">
+            Import, price-check, draft, then activate — no rocket science.
+          </h2>
+          <p className="mt-2 max-w-4xl text-sm font-semibold leading-6">
+            Click Import my eBay listings to pull active eBay listings into
+            Truely Collectables. The eBay price stays as the starting TCOS
+            listing price, then Compare selected pricing in InstaComp™ shows
+            where your eBay price differs from TCOS market guidance before you
+            publish anything live.
+          </p>
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            <div className="rounded border border-emerald-200 bg-white p-4">
+              <p className="text-xs font-black uppercase tracking-[0.14em] text-emerald-700">
+                1. Import
+              </p>
+              <p className="mt-2 font-black">Import my eBay listings</p>
+              <p className="mt-1 text-sm font-semibold text-neutral-700">
+                Bring over your active eBay rows and keep sold/duplicate cleanup
+                out of the main working table.
+              </p>
+            </div>
+            <div className="rounded border border-emerald-200 bg-white p-4">
+              <p className="text-xs font-black uppercase tracking-[0.14em] text-emerald-700">
+                2. Check price
+              </p>
+              <p className="mt-2 font-black">Compare selected pricing</p>
+              <p className="mt-1 text-sm font-semibold text-neutral-700">
+                Use InstaComp™ to compare eBay price against TCOS suggested
+                market pricing, then Trash dups or Create drafts.
+              </p>
+            </div>
+            <div className="rounded border border-emerald-200 bg-white p-4">
+              <p className="text-xs font-black uppercase tracking-[0.14em] text-emerald-700">
+                3. Go live
+              </p>
+              <p className="mt-2 font-black">Activate ready drafts</p>
+              <p className="mt-1 text-sm font-semibold text-neutral-700">
+                Fix needs-work rows first, then activate only the clean ready
+                drafts so live TCOS listings do not publish half-baked.
+              </p>
+            </div>
+          </div>
+        </section>
+
         <section
           className={`rounded-md border p-5 ${
             storeSettings.ebaySyncEnabled

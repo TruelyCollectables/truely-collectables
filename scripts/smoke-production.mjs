@@ -36,7 +36,9 @@ const sellerMarketplaceReceiptHandoffSmoke = {
 const sellerMarketplaceReceiptHandoffControlsText =
   sellerMarketplaceReceiptHandoffSmoke.controls.join(", ");
 const sellerMarketplaceReceiptHandoffCoverageLine =
-  `Seller marketplace receipt handoff controls for ${sellerMarketplaceReceiptHandoffControlsText}`;
+  `Seller marketplace receipt handoff controls for ${sellerMarketplaceReceiptHandoffSmoke.controls
+    .slice(0, -1)
+    .join(", ")}, and ${sellerMarketplaceReceiptHandoffSmoke.controls.at(-1)}`;
 const sellerMarketplaceReceiptHandoffBundleText = [
   `## ${sellerMarketplaceReceiptHandoffSmoke.title}`,
   sellerMarketplaceReceiptHandoffSmoke.proofText,
@@ -1255,7 +1257,7 @@ const checks = [
       "npm run smoke:production",
       "api-deployments-free-per-day",
       "rolling 24-hour quota reset",
-      "Clean target:",
+      "clean production domain",
       "Require vercel --prod to exit successfully before parsing its deployment URL, running alias commands, or clearing the quota marker",
       "Use command-pinned Vercel CLI 56.2.0 through isolated npm exec",
       "Require unwanted-alias removal to succeed or return Vercel CLI's explicit alias-not-found result",
@@ -1315,7 +1317,7 @@ const checks = [
       result.text.includes("npm run smoke:production") &&
       result.text.includes("api-deployments-free-per-day") &&
       result.text.includes("rolling 24-hour quota reset") &&
-      result.text.includes("Clean target:") &&
+      result.text.includes("clean production domain") &&
       result.text.includes("deploy live safety contract") &&
       result.text.includes("## Production Go/No-Go Ladder") &&
       result.text.includes("Verify the pushed stack") &&
