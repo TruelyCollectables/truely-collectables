@@ -113,6 +113,55 @@ export default async function AdminEbayPage() {
           </div>
         ) : null}
 
+        <section className="rounded-xl border-4 border-emerald-400 bg-emerald-50 p-6 text-emerald-950 shadow-lg">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-sm font-black uppercase tracking-[0.18em] text-emerald-700">
+                1-click eBay sync
+              </p>
+              <h2 className="mt-2 text-4xl font-black tracking-tight">
+                Import ALL active eBay listings into TCOS
+              </h2>
+              <p className="mt-2 max-w-4xl text-sm font-bold leading-6 text-emerald-900">
+                This is the big button. It pulls your active eBay inventory,
+                keeps the eBay price as the TCOS starting price, updates sold
+                or inactive eBay listings, and sends anything questionable to
+                review instead of silently making a mess.
+              </p>
+            </div>
+
+            <div className="flex min-w-[280px] flex-col gap-2">
+              {storeSettings.ebaySyncEnabled ? (
+                <Link
+                  href="/api/ebay/full-sync?limit=100&maxBatches=25"
+                  className="rounded-xl bg-neutral-950 px-6 py-4 text-center text-base font-black uppercase tracking-[0.08em] text-white hover:bg-neutral-800"
+                >
+                  Import ALL eBay Now
+                </Link>
+              ) : (
+                <Link
+                  href="/admin/settings"
+                  className="rounded-xl bg-rose-700 px-6 py-4 text-center text-base font-black uppercase tracking-[0.08em] text-white hover:bg-rose-800"
+                >
+                  Enable eBay Sync First
+                </Link>
+              )}
+              <Link
+                href="/admin/ebay/sync-control"
+                className="rounded-xl border border-emerald-300 bg-white px-6 py-3 text-center text-sm font-black text-emerald-950 hover:bg-emerald-100"
+              >
+                Open guided import controls
+              </Link>
+              <Link
+                href="/admin/inventory"
+                className="rounded-xl border border-emerald-300 bg-white px-6 py-3 text-center text-sm font-black text-emerald-950 hover:bg-emerald-100"
+              >
+                Open TCOS inventory
+              </Link>
+            </div>
+          </div>
+        </section>
+
         <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
           <Metric label="Total Products" value={String(status.totalProducts)} />
           <Metric label="eBay Linked" value={String(status.ebayLinkedItems)} />

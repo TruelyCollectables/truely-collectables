@@ -4377,6 +4377,20 @@ export default function SellerConnectionsPanel({
           Log in from the account page to import eBay listings, compare pricing,
           and activate ready TCOS drafts.
         </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Link
+            href="/admin/ebay"
+            className="rounded-xl bg-neutral-950 px-5 py-3 text-sm font-black uppercase tracking-[0.08em] text-white hover:bg-neutral-800"
+          >
+            Admin 1-click eBay sync
+          </Link>
+          <Link
+            href="/account/login?next=/seller/marketplaces"
+            className="rounded-xl border border-neutral-300 px-5 py-3 text-sm font-black hover:bg-neutral-50"
+          >
+            Seller account login
+          </Link>
+        </div>
       </section>
     );
   }
