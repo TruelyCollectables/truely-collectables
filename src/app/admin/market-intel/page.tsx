@@ -140,6 +140,14 @@ export default async function MarketIntelAdminPage({ searchParams }: PageProps) 
             action="Open Reports + Alerts"
             tone="amber"
           />
+          <Workbench
+            eyebrow="Delivery"
+            title="Email Delivery Center"
+            detail="Send pending qualifying deals and daily intelligence through Resend, with delivery history and duplicate suppression."
+            href={addAdminHandoff("/admin/market-intel/delivery", handoff)}
+            action="Open Delivery Center"
+            tone="cyan"
+          />
         </section>
 
         <section className="rounded-xl border border-neutral-200 bg-white p-6 shadow-sm">
@@ -183,12 +191,12 @@ export default async function MarketIntelAdminPage({ searchParams }: PageProps) 
           <p className="text-xs font-black uppercase tracking-[0.18em] text-amber-300">
             Beta One Operating Loop
           </p>
-          <h2 className="mt-1 text-3xl font-black">Track → Scan → Value → Score → Alert → Buy → Measure</h2>
+          <h2 className="mt-1 text-3xl font-black">Track → Scan → Value → Score → Alert → Deliver → Buy → Measure</h2>
           <p className="mt-3 max-w-4xl font-semibold text-neutral-300">
-            eBay is the first live marketplace adapter. The same normalized ingestion
-            contract will support Etsy, Mercari, Fanatics Collect, COMC, CollX,
-            Whatnot, Facebook Marketplace, and other permitted data sources without
-            changing the core scoring or portfolio engine.
+            eBay is the first live marketplace adapter and Resend is the first delivery adapter.
+            The same normalized ingestion and outbox contracts can support additional permitted
+            marketplaces and delivery channels without changing exact-card valuation, deal scoring,
+            or portfolio performance tracking.
           </p>
         </section>
       </div>
