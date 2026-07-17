@@ -9,7 +9,18 @@ type AdminSessionCookieOptions = {
   sameSite: "lax";
   path: string;
   maxAge: number;
+  domain?: string;
 };
+
+function adminCookieDomain(hostname: string | null | undefined) {
+  const host = String(hostname || "").toLowerCase();
+
+  if (host === "truelycollectables.com" || host.endsWith(".truelycollectables.com")) {
+    return ".truelycollectables.com";
+  }
+
+  return undefined;
+}
 
 export function adminSessionCookieOptions(
   maxAge = ADMIN_SESSION_MAX_AGE_SECONDS,
@@ -25,6 +36,22 @@ export function adminSessionCookieOptions(
 
 export function expiredAdminSessionCookieOptions(): AdminSessionCookieOptions {
   return adminSessionCookieOptions(0);
+}
+
+export function adminSessionCookieOptionsForHost(
+  hostname: string | null | undefined,
+  maxAge = ADMIN_SESSION_MAX_AGE_SECONDS,
+): AdminSessionCookieOptions {
+  return {
+    ...adminSessionCookieOptions(maxAge),
+    ...(adminCookieDomain(hostname) ? { domain: adminCookieDomain(hostname) } : {}),
+  };
+}
+
+export function expiredAdminSessionCookieOptionsForHost(
+  hostname: string | null | undefined,
+): AdminSessionCookieOptions {
+  return adminSessionCookieOptionsForHost(hostname, 0);
 }
 
 function getSessionSecret(): string {

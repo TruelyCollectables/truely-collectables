@@ -2,11 +2,12 @@ import { NextResponse } from "next/server";
 import {
   ADMIN_SESSION_COOKIE_NAME,
   LEGACY_ADMIN_SESSION_COOKIE_NAME,
-  expiredAdminSessionCookieOptions,
+  expiredAdminSessionCookieOptionsForHost,
 } from "../../../lib/admin-session";
 import { configuredSiteOrigin } from "../../../lib/site-origin";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const hostname = new URL(request.url).hostname;
   const res = NextResponse.redirect(
     new URL("/admin/login", configuredSiteOrigin()),
   );
@@ -14,12 +15,12 @@ export async function GET() {
   res.cookies.set(
     ADMIN_SESSION_COOKIE_NAME,
     "",
-    expiredAdminSessionCookieOptions(),
+    expiredAdminSessionCookieOptionsForHost(hostname),
   );
   res.cookies.set(
     LEGACY_ADMIN_SESSION_COOKIE_NAME,
     "",
-    expiredAdminSessionCookieOptions(),
+    expiredAdminSessionCookieOptionsForHost(hostname),
   );
 
   return res;

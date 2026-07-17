@@ -2,9 +2,9 @@ import { NextResponse } from "next/server";
 import {
   ADMIN_SESSION_COOKIE_NAME,
   LEGACY_ADMIN_SESSION_COOKIE_NAME,
-  adminSessionCookieOptions,
+  adminSessionCookieOptionsForHost,
   createAdminSessionValue,
-  expiredAdminSessionCookieOptions,
+  expiredAdminSessionCookieOptionsForHost,
   verifyAdminPassword,
 } from "../../../../lib/admin-session";
 import {
@@ -14,6 +14,7 @@ import {
 
 export async function POST(req: Request) {
   const { password } = await req.json().catch(() => ({ password: "" }));
+  const hostname = new URL(req.url).hostname;
   const loginCheck = await checkAdminLoginAllowed(req);
 
   if (!loginCheck.allowed) {
@@ -93,12 +94,12 @@ export async function POST(req: Request) {
   res.cookies.set(
     LEGACY_ADMIN_SESSION_COOKIE_NAME,
     "",
-    expiredAdminSessionCookieOptions(),
+    expiredAdminSessionCookieOptionsForHost(hostname),
   );
   res.cookies.set(
     ADMIN_SESSION_COOKIE_NAME,
     sessionValue,
-    adminSessionCookieOptions(),
+    adminSessionCookieOptionsForHost(hostname),
   );
 
   return res;

@@ -174,8 +174,24 @@ function unauthorized(req: NextRequest) {
   return NextResponse.redirect(url);
 }
 
+function canonicalDomainRedirect(req: NextRequest) {
+  if (req.nextUrl.hostname.toLowerCase() !== "www.truelycollectables.com") {
+    return null;
+  }
+
+  const url = req.nextUrl.clone();
+  url.hostname = "truelycollectables.com";
+
+  return NextResponse.redirect(url, 308);
+}
+
 export async function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
+  const canonicalRedirect = canonicalDomainRedirect(req);
+
+  if (canonicalRedirect) {
+    return applySecurityHeaders(canonicalRedirect, req);
+  }
 
   if (!isIdentityCheckExempt(pathname) && !isLocalhostRequest(req)) {
     const clientIdentity = await getClientIdentity(req);
