@@ -5,14 +5,12 @@ import { getMarketIntelPurchaseDetail } from "../../../../../lib/market-intel";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-function money(value: number | null | undefined) {
-  return `$${Number(value || 0).toFixed(2)}`;
-}
-
-function label(value: string | null | undefined) {
-  if (!value) return "Not set";
-  return value.replaceAll("_", " ").toUpperCase();
-}
+const money = (value: number | null | undefined) =>
+  `$${Number(value || 0).toFixed(2)}`;
+const label = (value: string | null | undefined) =>
+  value ? value.replaceAll("_", " ").toUpperCase() : "NOT SET";
+const inputClass =
+  "mt-1 w-full rounded-md border border-neutral-300 bg-white px-3 py-2.5 outline-none focus:border-black";
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -25,13 +23,8 @@ export default async function MarketIntelPurchaseDetailPage({
 }: PageProps) {
   const { id } = await params;
   const query = await searchParams;
-
-  let data;
-  try {
-    data = await getMarketIntelPurchaseDetail(id);
-  } catch {
-    notFound();
-  }
+  const data = await getMarketIntelPurchaseDetail(id);
+  if (!data) notFound();
 
   const { lot, performance, sales, marketplaces } = data;
   const remaining = performance?.quantity_remaining ?? lot.quantity_purchased;
@@ -40,7 +33,7 @@ export default async function MarketIntelPurchaseDetailPage({
 
   return (
     <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
-      <section className="border-b border-neutral-800 bg-[#101418] text-white">
+      <header className="border-b border-neutral-800 bg-[#101418] text-white">
         <div className="mx-auto max-w-7xl px-6 py-8">
           <Link
             href="/admin/market-intel/purchases"
@@ -75,14 +68,14 @@ export default async function MarketIntelPurchaseDetailPage({
             ) : null}
           </div>
         </div>
-      </section>
+      </header>
 
       <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
         {query?.saved === "1" ? (
           <Notice tone="success">Sale saved and gross profit recalculated.</Notice>
         ) : null}
         {query?.saved === "received" ? (
-          <Notice tone="success">Purchase marked received and moved into inventory.</Notice>
+          <Notice tone="success">Purchase moved into inventory.</Notice>
         ) : null}
         {query?.error ? <Notice tone="error">{query.error}</Notice> : null}
 
@@ -90,10 +83,7 @@ export default async function MarketIntelPurchaseDetailPage({
           <Metric label="Total Cost" value={money(lot.total_acquisition_cost)} />
           <Metric label="Unit Cost" value={money(unitCost)} />
           <Metric label="Units Remaining" value={String(remaining)} />
-          <Metric
-            label="Realized GP"
-            value={money(performance?.realized_gross_profit)}
-          />
+          <Metric label="Realized GP" value={money(performance?.realized_gross_profit)} />
           <Metric label="Cash Break-even" value={`${progress.toFixed(1)}%`} />
         </section>
 
@@ -103,7 +93,7 @@ export default async function MarketIntelPurchaseDetailPage({
               <div>
                 <h2 className="text-2xl font-black">Record a Sale</h2>
                 <p className="mt-1 text-sm font-semibold text-neutral-600">
-                  Enter actual money received and actual costs. Beta One calculates net proceeds and GP.
+                  Enter actual sale money and expenses. Beta One calculates net proceeds and GP.
                 </p>
               </div>
               {lot.status === "awaiting_receipt" || lot.status === "ordered" ? (
@@ -127,7 +117,6 @@ export default async function MarketIntelPurchaseDetailPage({
               className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2"
             >
               <input type="hidden" name="purchaseLotId" value={lot.id} />
-
               <Field label="Marketplace">
                 <select name="marketplaceId" className={inputClass}>
                   <option value="">Not specified</option>
@@ -138,7 +127,6 @@ export default async function MarketIntelPurchaseDetailPage({
                   ))}
                 </select>
               </Field>
-
               <Field label="Sale date">
                 <input
                   name="soldAt"
@@ -148,7 +136,6 @@ export default async function MarketIntelPurchaseDetailPage({
                   className={inputClass}
                 />
               </Field>
-
               <Field label="Quantity sold">
                 <input
                   name="quantitySold"
@@ -160,7 +147,6 @@ export default async function MarketIntelPurchaseDetailPage({
                   className={inputClass}
                 />
               </Field>
-
               <Field label="Gross item sale">
                 <input
                   name="grossItemSales"
@@ -172,32 +158,18 @@ export default async function MarketIntelPurchaseDetailPage({
                   className={inputClass}
                 />
               </Field>
-
-              <Field label="Shipping charged">
-                <input name="shippingCharged" type="number" min="0" step="0.01" defaultValue="0" className={inputClass} />
-              </Field>
-              <Field label="Marketplace fees">
-                <input name="marketplaceFees" type="number" min="0" step="0.01" defaultValue="0" className={inputClass} />
-              </Field>
-              <Field label="Payment fees">
-                <input name="paymentProcessingFees" type="number" min="0" step="0.01" defaultValue="0" className={inputClass} />
-              </Field>
-              <Field label="Actual postage">
-                <input name="actualPostage" type="number" min="0" step="0.01" defaultValue="0" className={inputClass} />
-              </Field>
-              <Field label="Supplies">
-                <input name="suppliesCost" type="number" min="0" step="0.01" defaultValue="0" className={inputClass} />
-              </Field>
-              <Field label="Refunds / adjustments">
-                <input name="refundsAndAdjustments" type="number" min="0" step="0.01" defaultValue="0" className={inputClass} />
-              </Field>
+              <MoneyField name="shippingCharged" label="Shipping charged" />
+              <MoneyField name="marketplaceFees" label="Marketplace fees" />
+              <MoneyField name="paymentProcessingFees" label="Payment fees" />
+              <MoneyField name="actualPostage" label="Actual postage" />
+              <MoneyField name="suppliesCost" label="Supplies" />
+              <MoneyField name="refundsAndAdjustments" label="Refunds / adjustments" />
               <Field label="Order ID">
                 <input name="externalOrderId" className={inputClass} />
               </Field>
               <Field label="Notes">
                 <input name="notes" className={inputClass} />
               </Field>
-
               <button
                 type="submit"
                 disabled={remaining <= 0}
@@ -234,7 +206,7 @@ export default async function MarketIntelPurchaseDetailPage({
               </dl>
               <div className="mt-5">
                 <div className="mb-2 flex justify-between text-xs font-black text-neutral-500">
-                  <span>Cash break-even progress</span>
+                  <span>Cash break-even</span>
                   <span>{progress.toFixed(1)}%</span>
                 </div>
                 <div className="h-3 rounded-full bg-neutral-200">
@@ -245,11 +217,10 @@ export default async function MarketIntelPurchaseDetailPage({
                 </div>
               </div>
             </section>
-
             <section className="rounded-xl border border-amber-200 bg-amber-50 p-6">
               <h2 className="text-xl font-black">Cost Basis Rule</h2>
               <p className="mt-2 text-sm font-semibold leading-6 text-amber-950">
-                Every card from this lot carries a {money(unitCost)} cost basis. Realized GP equals net proceeds minus the cost basis of the units sold.
+                Every card carries a {money(unitCost)} cost basis. Realized GP equals net proceeds minus sold-unit cost basis.
               </p>
             </section>
           </aside>
@@ -270,10 +241,8 @@ export default async function MarketIntelPurchaseDetailPage({
                     <th className="px-5 py-3">Marketplace</th>
                     <th className="px-5 py-3">Qty</th>
                     <th className="px-5 py-3">Gross</th>
-                    <th className="px-5 py-3">Shipping</th>
                     <th className="px-5 py-3">Fees</th>
                     <th className="px-5 py-3">Postage</th>
-                    <th className="px-5 py-3">Supplies</th>
                     <th className="px-5 py-3">Net</th>
                     <th className="px-5 py-3">Sale GP</th>
                   </tr>
@@ -284,18 +253,15 @@ export default async function MarketIntelPurchaseDetailPage({
                       Number(sale.marketplace_fees || 0) +
                       Number(sale.payment_processing_fees || 0);
                     const saleGp =
-                      Number(sale.net_proceeds || 0) -
-                      sale.quantity_sold * unitCost;
+                      Number(sale.net_proceeds || 0) - sale.quantity_sold * unitCost;
                     return (
                       <tr key={sale.id}>
                         <td className="px-5 py-4">{new Date(sale.sold_at).toLocaleDateString()}</td>
                         <td className="px-5 py-4">{sale.marketplace?.name || "—"}</td>
                         <td className="px-5 py-4">{sale.quantity_sold}</td>
                         <td className="px-5 py-4">{money(sale.gross_item_sales)}</td>
-                        <td className="px-5 py-4">{money(sale.shipping_charged)}</td>
                         <td className="px-5 py-4">{money(fees)}</td>
                         <td className="px-5 py-4">{money(sale.actual_postage)}</td>
-                        <td className="px-5 py-4">{money(sale.supplies_cost)}</td>
                         <td className="px-5 py-4 font-black">{money(sale.net_proceeds)}</td>
                         <td className="px-5 py-4 font-black">{money(saleGp)}</td>
                       </tr>
@@ -311,15 +277,27 @@ export default async function MarketIntelPurchaseDetailPage({
   );
 }
 
-const inputClass =
-  "mt-1 w-full rounded-md border border-neutral-300 bg-white px-3 py-2.5 outline-none focus:border-black";
-
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="text-sm font-black text-neutral-700">
       {label}
       {children}
     </label>
+  );
+}
+
+function MoneyField({ name, label }: { name: string; label: string }) {
+  return (
+    <Field label={label}>
+      <input
+        name={name}
+        type="number"
+        min="0"
+        step="0.01"
+        defaultValue="0"
+        className={inputClass}
+      />
+    </Field>
   );
 }
 
