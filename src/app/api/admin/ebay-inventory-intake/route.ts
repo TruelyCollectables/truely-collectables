@@ -339,7 +339,8 @@ export async function GET() {
           .from("inventory_items")
           .select("id,legacy_product_id,category,status,quantity,price,metadata,updated_at")
           .eq("store_id", storeId)
-          .in("legacy_product_id", productIds);
+          .in("legacy_product_id", productIds)
+          .range(0, 4999);
 
   if (inventoryError) {
     return Response.json(
@@ -429,7 +430,8 @@ export async function POST(request: Request) {
           .from("inventory_items")
           .select("id,legacy_product_id,category,status,quantity,price,metadata,updated_at")
           .eq("store_id", storeId)
-          .in("legacy_product_id", productRows.map((product) => product.id));
+          .in("legacy_product_id", productRows.map((product) => product.id))
+          .range(0, 4999);
 
   if (inventoryError) {
     return Response.json(
