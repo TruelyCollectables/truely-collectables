@@ -14,7 +14,7 @@ export async function POST(request: NextRequest) {
     const result = await deliverPendingMarketIntelAlerts(limit);
     return NextResponse.redirect(
       adminRedirectUrl(
-        `/admin/market-intel/reports?alertsDelivered=${result.delivered}`,
+        `/admin/market-intel/delivery?alertsDelivered=${result.delivered}`,
         request.url,
         handoff,
       ),
@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
       error instanceof Error ? error.message : "Unable to deliver alerts.";
     return NextResponse.redirect(
       adminRedirectUrl(
-        `/admin/market-intel/reports?error=${encodeURIComponent(message)}`,
+        `/admin/market-intel/delivery?error=${encodeURIComponent(message)}`,
         request.url,
         handoff,
       ),
