@@ -104,6 +104,25 @@ export function appendExpiredAdminSessionCookies(
   }
 }
 
+export function appendAdminSessionCookies(
+  headers: Headers,
+  hostname: string | null | undefined,
+  sessionValue: string,
+) {
+  const hostOnlyOptions = adminSessionCookieOptions();
+  const domainOptions = adminSessionCookieOptionsForHost(hostname);
+  const optionVariants = domainOptions.domain
+    ? [hostOnlyOptions, domainOptions]
+    : [hostOnlyOptions];
+
+  for (const options of optionVariants) {
+    headers.append(
+      "Set-Cookie",
+      serializeCookie(ADMIN_SESSION_COOKIE_NAME, sessionValue, options),
+    );
+  }
+}
+
 function getSessionSecret(): string {
   return process.env.ADMIN_SESSION_SECRET || process.env.ADMIN_PASSWORD || "";
 }

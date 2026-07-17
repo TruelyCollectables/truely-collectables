@@ -1,7 +1,6 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import {
-  ADMIN_SESSION_COOKIE_NAME,
-  LEGACY_ADMIN_SESSION_COOKIE_NAME,
+  ADMIN_SESSION_COOKIE_NAMES,
   isValidAdminSessionValue,
 } from "./admin-session";
 import { MAX_INSTACOMP_JOB_CARDS } from "./instacomp-job-state";
@@ -174,16 +173,16 @@ export async function requireInstaCompJobActor(
     };
   }
 
-  const adminSession =
-    cookieValue(request, ADMIN_SESSION_COOKIE_NAME) ||
-    cookieValue(request, LEGACY_ADMIN_SESSION_COOKIE_NAME);
+  for (const cookieName of ADMIN_SESSION_COOKIE_NAMES) {
+    const adminSession = cookieValue(request, cookieName);
 
-  if (await isValidAdminSessionValue(adminSession)) {
-    return {
-      type: "admin",
-      storeId,
-      sellerAccountId: null,
-    };
+    if (await isValidAdminSessionValue(adminSession)) {
+      return {
+        type: "admin",
+        storeId,
+        sellerAccountId: null,
+      };
+    }
   }
 
   throw new InstaCompJobServerError(
