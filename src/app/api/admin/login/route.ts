@@ -9,6 +9,7 @@ import {
   checkAdminLoginAllowed,
   recordAdminLoginAttempt,
 } from "../../../../lib/admin-login-security";
+import { requestHostname, requestOrigin } from "../../../../lib/request-origin";
 
 type LoginPayload = {
   password: string;
@@ -28,7 +29,7 @@ function safeNextPath(value: FormDataEntryValue | string | null | undefined) {
 }
 
 function loginRedirect(req: Request, code: string) {
-  const url = new URL("/admin/login", req.url);
+  const url = new URL("/admin/login", requestOrigin(req));
   const nextPath = safeNextPath(new URL(req.url).searchParams.get("next"));
 
   url.searchParams.set("next", nextPath);
@@ -69,7 +70,7 @@ async function readLoginPayload(req: Request): Promise<LoginPayload> {
 
 export async function POST(req: Request) {
   const loginPayload = await readLoginPayload(req);
-  const hostname = new URL(req.url).hostname;
+  const hostname = requestHostname(req);
   const loginCheck = await checkAdminLoginAllowed(req);
 
   if (!loginPayload.readable) {
@@ -177,7 +178,7 @@ export async function POST(req: Request) {
   });
 
   const res = loginPayload.wantsRedirect
-    ? NextResponse.redirect(new URL(loginPayload.nextPath, req.url), 303)
+    ? NextResponse.redirect(new URL(loginPayload.nextPath, requestOrigin(req)), 303)
     : NextResponse.json({ success: true });
   const sessionValue = await createAdminSessionValue();
 

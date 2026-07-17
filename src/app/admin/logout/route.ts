@@ -2,12 +2,12 @@ import { NextResponse } from "next/server";
 import {
   appendExpiredAdminSessionCookies,
 } from "../../../lib/admin-session";
-import { configuredSiteOrigin } from "../../../lib/site-origin";
+import { requestHostname, requestOrigin } from "../../../lib/request-origin";
 
 export async function GET(request: Request) {
-  const hostname = new URL(request.url).hostname;
+  const hostname = requestHostname(request);
   const res = NextResponse.redirect(
-    new URL("/admin/login", configuredSiteOrigin()),
+    new URL("/admin/login", requestOrigin(request)),
   );
 
   appendExpiredAdminSessionCookies(res.headers, hostname);
