@@ -114,7 +114,6 @@ function readinessProblems(product: ProductRow, inventory: InventoryRow | null) 
   if (Number(product.quantity || 0) <= 0) problems.push("zero quantity");
   if (!String(product.image_url || "").trim()) problems.push("missing image");
   if (!String(product.sku || "").trim()) problems.push("missing sku");
-  if (!String(product.ebay_item_id || "").trim()) problems.push("missing eBay link");
   if (!inventory) problems.push("missing V2 inventory row");
 
   return problems;
@@ -603,6 +602,7 @@ async function fetchInstaCompMarketplaceComps(product: ProductRow) {
 async function instacompRepriceProduct(params: {
   product: ProductRow;
   inventory: InventoryRow | null;
+  apply?: boolean;
 }) {
   const supabase = getSupabaseClient();
   const storeId = getActiveStoreId();
@@ -639,26 +639,40 @@ async function instacompRepriceProduct(params: {
       market_median: roundMoney(marketMedian),
       comp_count: comps.length,
       repriced_at: now,
+      applied: params.apply === true,
       comps: comps.slice(0, 8),
     },
   };
 
-  const { error: productError } = await supabase
-    .from("products")
-    .update({
-      price: suggestedPrice,
-      last_seen_at: now,
-    })
-    .eq("store_id", storeId)
-    .eq("id", params.product.id);
+  if (params.apply) {
+    const { error: productError } = await supabase
+      .from("products")
+      .update({
+        price: suggestedPrice,
+        last_seen_at: now,
+      })
+      .eq("store_id", storeId)
+      .eq("id", params.product.id);
 
-  if (productError) throw productError;
+    if (productError) throw productError;
 
-  if (params.inventory?.id) {
+    if (params.inventory?.id) {
+      const { error: inventoryError } = await supabase
+        .from("inventory_items")
+        .update({
+          price: suggestedPrice,
+          metadata: nextMetadata,
+          updated_at: now,
+        })
+        .eq("store_id", storeId)
+        .eq("id", params.inventory.id);
+
+      if (inventoryError) throw inventoryError;
+    }
+  } else if (params.inventory?.id) {
     const { error: inventoryError } = await supabase
       .from("inventory_items")
       .update({
-        price: suggestedPrice,
         metadata: nextMetadata,
         updated_at: now,
       })
@@ -670,12 +684,14 @@ async function instacompRepriceProduct(params: {
 
   return {
     productId: params.product.id,
-    title: params.product.title || "Untitled eBay listing",
-    updated: true,
+    title: params.product.title || "Untitled TCOS listing",
+    updated: params.apply === true,
     previousPrice,
     suggestedPrice,
     compCount: comps.length,
-    message: `InstaComp™ repriced from $${previousPrice.toFixed(2)} to $${suggestedPrice.toFixed(2)} from ${comps.length} active comps.`,
+    message: params.apply
+      ? `InstaComp™ repriced from $${previousPrice.toFixed(2)} to $${suggestedPrice.toFixed(2)} from ${comps.length} active comps.`
+      : `InstaComp™ suggests $${suggestedPrice.toFixed(2)} from ${comps.length} active comps.`,
   };
 }
 
@@ -796,7 +812,7 @@ function mapIntakeRow(product: ProductRow, inventory: InventoryRow | null) {
     productId: product.id,
     inventoryItemId: inventory?.id ?? null,
     sku: product.sku,
-    title: product.title || "Untitled eBay listing",
+    title: product.title || "Untitled TCOS listing",
     price: moneyNumber(product.price),
     quantity: Number(product.quantity || 0),
     imageUrl: product.image_url,
@@ -867,7 +883,6 @@ export async function GET() {
       "id,sku,title,description,price,quantity,image_url,ebay_item_id,last_seen_at,created_at",
     )
     .eq("store_id", storeId)
-    .not("ebay_item_id", "is", null)
     .gt("quantity", 0)
     .order("last_seen_at", { ascending: false, nullsFirst: false })
     .range(0, 1999);
@@ -939,7 +954,8 @@ export async function POST(request: Request) {
     ![
       "push-live",
       "refresh-ebay-data",
-      "instacomp-reprice",
+      "instacomp-preview",
+      "instacomp-apply-reprice",
       "apply-promo",
       "clear-promo",
     ].includes(
@@ -1041,7 +1057,8 @@ export async function POST(request: Request) {
     });
   }
 
-  if (action === "instacomp-reprice") {
+  if (action === "instacomp-preview" || action === "instacomp-apply-reprice") {
+    const apply = action === "instacomp-apply-reprice";
     let updated = 0;
     const repriced: Array<Awaited<ReturnType<typeof instacompRepriceProduct>>> = [];
     const repriceErrors: Array<{ productId: number; title: string; error: string }> = [];
@@ -1051,6 +1068,7 @@ export async function POST(request: Request) {
         const result = await instacompRepriceProduct({
           product,
           inventory: inventoryByProductId.get(product.id) ?? null,
+          apply,
         });
 
         if (result.updated) updated++;
@@ -1070,11 +1088,25 @@ export async function POST(request: Request) {
       repriced,
       repriceErrors,
       message:
-        updated > 0
+        apply && updated > 0
           ? `InstaComp™ repriced ${updated} selected listing${
               updated === 1 ? "" : "s"
-            }.`
-          : "InstaComp™ did not find enough reliable comps to reprice the selected listing.",
+            }.${
+              repriceErrors.length > 0
+                ? ` ${repriceErrors.length} could not be updated and remain available to retry.`
+                : ""
+            }`
+          : apply
+            ? repriceErrors.length > 0
+              ? `InstaComp™ could not update ${repriceErrors.length} selected listing${
+                  repriceErrors.length === 1 ? "" : "s"
+                }. The proposals remain available to retry.`
+              : "InstaComp™ did not find enough reliable comps to reprice the selected listing."
+            : repriced.some((item) => item.suggestedPrice)
+              ? `InstaComp™ found ${repriced.filter((item) => item.suggestedPrice).length} price proposal${
+                  repriced.filter((item) => item.suggestedPrice).length === 1 ? "" : "s"
+                }. Review and accept before changing prices.`
+              : "InstaComp™ did not find enough reliable comps to propose a price.",
     });
   }
 
@@ -1204,6 +1236,26 @@ export async function POST(request: Request) {
         title: product.title || "Untitled eBay listing",
         problems,
       });
+      continue;
+    }
+
+    if (!cleanText(product.ebay_item_id)) {
+      if (inventory?.id) {
+        const { error: localActivateError } = await supabase
+          .from("inventory_items")
+          .update({
+            status: "active",
+            quantity: Math.max(0, Number(product.quantity || 0)),
+            price: moneyNumber(product.price),
+            updated_at: new Date().toISOString(),
+          })
+          .eq("store_id", storeId)
+          .eq("id", inventory.id);
+
+        if (localActivateError) throw localActivateError;
+      }
+
+      pushedLive++;
       continue;
     }
 

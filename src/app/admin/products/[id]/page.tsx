@@ -31,6 +31,15 @@ function textValue(value: string | null) {
   return value ?? "";
 }
 
+function adminHref(href: string, handoff: string) {
+  const [path, query = ""] = href.split("?", 2);
+  const params = new URLSearchParams(query);
+
+  params.set("admin_handoff", handoff);
+
+  return `${path}?${params.toString()}`;
+}
+
 async function setProductStatus(formData: FormData) {
   "use server";
 
@@ -122,7 +131,7 @@ export default async function AdminProductEditPage({
     return (
       <main className="p-8 max-w-5xl mx-auto">
         <h1 className="text-3xl font-bold mb-4">Product Not Found</h1>
-        <Link href="/admin/products" className="underline">
+        <Link href={adminHref("/admin/products", adminHandoff)} className="underline">
           Back to Products
         </Link>
       </main>
@@ -145,7 +154,7 @@ export default async function AdminProductEditPage({
     <main className="p-8 max-w-5xl mx-auto">
       <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
         <div>
-          <Link href="/admin/products" className="underline">
+          <Link href={adminHref("/admin/products", adminHandoff)} className="underline">
             Back to Products
           </Link>
 
@@ -469,6 +478,7 @@ export default async function AdminProductEditPage({
 
           <SalesCompsPanel
             productId={product.legacyProductId}
+            adminHandoff={adminHandoff}
             point130Url={`https://130point.com/sales/?search=${encodeURIComponent(
               [product.title, product.player, product.sport]
                 .filter(Boolean)
@@ -490,11 +500,13 @@ function money(value: number | null) {
 
 function SalesCompsPanel({
   productId,
+  adminHandoff,
   point130Url,
   salesComps,
   salesCompHistory,
 }: {
   productId: number;
+  adminHandoff: string;
   point130Url: string;
   salesComps: SalesCompSummary | null;
   salesCompHistory: SalesCompHistoryResult;
@@ -505,7 +517,7 @@ function SalesCompsPanel({
 
       <div className="space-y-3">
         <Link
-          href={`/admin/products/${productId}?comps=true`}
+          href={adminHref(`/admin/products/${productId}?comps=true`, adminHandoff)}
           className="block text-center border rounded px-4 py-2"
         >
           Check eBay Sold Comps

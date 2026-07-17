@@ -1561,15 +1561,23 @@ supabase/migrations/20260628113000_create_store_settings.sql</code></pre>
 </tr>
 <tr>
 <td><code>Refresh Current eBay Price + Pictures</code></td>
-<td>Pull current eBay price/image evidence back into TCOS for selected rows.</td>
+<td>Pull current eBay price/image evidence back into TCOS for selected eBay-linked rows. Local-only website inventory is left alone.</td>
 </tr>
 <tr>
-<td><code>InstaComp™ Reprice</code></td>
-<td>Run pricing help for one row.</td>
+<td><code>Preview InstaComp™</code></td>
+<td>Generate a price proposal for one row without changing its price.</td>
 </tr>
 <tr>
-<td><code>InstaComp™ Reprice Selected</code></td>
-<td>Run pricing help for all selected rows.</td>
+<td><code>Preview InstaComp™ Prices</code></td>
+<td>Generate proposals for selected rows without changing their prices.</td>
+</tr>
+<tr>
+<td><code>Accept Selected Prices</code></td>
+<td>Apply only the checked proposals. Unchecked or failed proposals remain unchanged.</td>
+</tr>
+<tr>
+<td><code>Decline All</code></td>
+<td>Close the current proposals without changing any prices.</td>
 </tr>
 <tr>
 <td><code>Repair + Push Selected Live</code></td>

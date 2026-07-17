@@ -1152,9 +1152,11 @@ The same operator pattern applies even when the card is Pokémon, TCG, or anothe
 | `Select All Showing` | Check every row currently visible under the search/filter. |
 | `Select Ready` | Check rows TCOS thinks can be pushed live. |
 | `Select Needs Help` | Check rows that need repair, manual review, or InstaComp™. |
-| `Refresh Current eBay Price + Pictures` | Pull current eBay price/image evidence back into TCOS for selected rows. |
-| `InstaComp™ Reprice` | Run pricing help for one row. |
-| `InstaComp™ Reprice Selected` | Run pricing help for all selected rows. |
+| `Refresh Current eBay Price + Pictures` | Pull current eBay price/image evidence back into TCOS for selected eBay-linked rows. Local-only website inventory is left alone. |
+| `Preview InstaComp™` | Generate a price proposal for one row without changing its price. |
+| `Preview InstaComp™ Prices` | Generate proposals for selected rows without changing their prices. |
+| `Accept Selected Prices` | Apply only the checked proposals. Unchecked or failed proposals remain unchanged. |
+| `Decline All` | Close the current proposals without changing any prices. |
 | `Repair + Push Selected Live` | Repair selected rows if possible and activate them on TCOS. |
 | `Edit` | Open the detailed product editor. |
 | `eBay` | Open the original eBay item page. |

@@ -40,6 +40,15 @@ type IntakeSummary = {
   value: number;
 };
 
+type PriceProposal = {
+  productId: number;
+  title: string;
+  previousPrice: number;
+  suggestedPrice: number | null;
+  compCount: number;
+  message: string;
+};
+
 type FilterMode = "all" | "needs_help" | "ready" | "live";
 
 const filters: Array<{ value: FilterMode; label: string }> = [
@@ -79,7 +88,20 @@ function rowStatus(row: IntakeRow) {
   return "Ready";
 }
 
-export default function EbayInventoryIntakeClient() {
+function adminHref(href: string, handoff: string) {
+  if (!handoff || !href.startsWith("/admin")) return href;
+
+  const [path, query = ""] = href.split("?", 2);
+  const params = new URLSearchParams(query);
+  params.set("admin_handoff", handoff);
+  return `${path}?${params.toString()}`;
+}
+
+export default function EbayInventoryIntakeClient({
+  adminHandoff,
+}: {
+  adminHandoff: string;
+}) {
   const [rows, setRows] = useState<IntakeRow[]>([]);
   const [summary, setSummary] = useState<IntakeSummary | null>(null);
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
@@ -89,6 +111,8 @@ export default function EbayInventoryIntakeClient() {
   const [working, setWorking] = useState(false);
   const [promoWorking, setPromoWorking] = useState(false);
   const [repriceWorkingIds, setRepriceWorkingIds] = useState<number[]>([]);
+  const [priceProposals, setPriceProposals] = useState<PriceProposal[]>([]);
+  const [acceptedProposalIds, setAcceptedProposalIds] = useState<number[]>([]);
   const [discountPercent, setDiscountPercent] = useState("10");
   const [freeShipping, setFreeShipping] = useState(false);
   const [notice, setNotice] = useState("");
@@ -127,6 +151,8 @@ export default function EbayInventoryIntakeClient() {
   }
 
   useEffect(() => {
+    // Initial data loading is the external synchronization owned by this effect.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadRows();
   }, []);
 
@@ -174,6 +200,9 @@ export default function EbayInventoryIntakeClient() {
           row.quantity > 0),
     )
     .map((row) => row.productId);
+  const selectedEbayIds = selectedRows
+    .filter((row) => Boolean(row.ebayItemId))
+    .map((row) => row.productId);
   const selectedNeedsHelpRows = selectedRows.filter((row) => !row.isReady);
 
   function toggleRow(productId: number) {
@@ -211,7 +240,7 @@ export default function EbayInventoryIntakeClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "push-live",
-          productIds: selectedIds,
+          productIds: selectedPushableIds,
         }),
       });
       const data = await response.json();
@@ -240,7 +269,7 @@ export default function EbayInventoryIntakeClient() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           action: "refresh-ebay-data",
-          productIds: selectedIds,
+          productIds: selectedEbayIds,
         }),
       });
       const data = await response.json();
@@ -272,7 +301,7 @@ export default function EbayInventoryIntakeClient() {
     setNotice(`Copied ${selectedRows.length} selected row${selectedRows.length === 1 ? "" : "s"} for InstaComp™ cleanup.`);
   }
 
-  async function instacompReprice(productIds: number[]) {
+  async function instacompPreview(productIds: number[]) {
     const uniqueIds = Array.from(new Set(productIds)).filter((id) => id > 0);
 
     if (uniqueIds.length === 0) {
@@ -291,47 +320,107 @@ export default function EbayInventoryIntakeClient() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action: "instacomp-reprice",
+          action: "instacomp-preview",
           productIds: uniqueIds,
         }),
       });
       const data = await response.json();
 
       if (!response.ok || !data.success) {
-        throw new Error(data.error || "Could not run InstaComp™ reprice.");
+        throw new Error(data.error || "Could not run InstaComp™ price preview.");
       }
 
       const repriced = Array.isArray(data.repriced) ? data.repriced : [];
-      const changed = repriced
-        .filter((item: any) => item?.updated)
-        .slice(0, 3)
-        .map(
-          (item: any) =>
-            `${item.title}: ${money(item.previousPrice)} → ${money(
-              item.suggestedPrice,
-            )}`,
-        );
-      const skippedCount = repriced.filter((item: any) => !item?.updated).length;
-      const errorCount = Array.isArray(data.repriceErrors)
-        ? data.repriceErrors.length
-        : 0;
+      const proposals = repriced
+        .filter((item: any) => Number(item?.suggestedPrice || 0) > 0)
+        .map((item: any) => ({
+          productId: Number(item.productId),
+          title: String(item.title || "Untitled listing"),
+          previousPrice: Number(item.previousPrice || 0),
+          suggestedPrice: Number(item.suggestedPrice || 0),
+          compCount: Number(item.compCount || 0),
+          message: String(item.message || ""),
+        })) as PriceProposal[];
 
+      setPriceProposals(proposals);
+      setAcceptedProposalIds(proposals.map((proposal) => proposal.productId));
       setNotice(
-        changed.length > 0
-          ? `${data.message || "InstaComp™ reprice complete"} ${changed.join(
-              " | ",
-            )}${skippedCount || errorCount ? ` (${skippedCount + errorCount} skipped)` : ""}`
+        proposals.length > 0
+          ? `${data.message || "InstaComp™ price proposals ready."} Review below, uncheck anything you do not want, then accept selected prices.`
           : data.message ||
-              "InstaComp™ did not find enough reliable comps to change the price.",
+              "InstaComp™ did not find enough reliable comps to propose a price.",
       );
       await loadRows();
     } catch (nextError: any) {
-      setError(nextError.message || "Could not run InstaComp™ reprice.");
+      setError(nextError.message || "Could not run InstaComp™ price preview.");
     } finally {
       setRepriceWorkingIds((current) =>
         current.filter((id) => !uniqueIds.includes(id)),
       );
     }
+  }
+
+  async function acceptSelectedInstaCompPrices() {
+    const productIds = acceptedProposalIds.filter((id) =>
+      priceProposals.some((proposal) => proposal.productId === id),
+    );
+
+    if (productIds.length === 0) {
+      setError("Select at least one InstaComp™ price proposal to accept.");
+      return;
+    }
+
+    setRepriceWorkingIds(productIds);
+    setNotice("");
+    setError("");
+
+    try {
+      const response = await fetch("/api/admin/ebay-inventory-intake", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "instacomp-apply-reprice",
+          productIds,
+        }),
+      });
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "Could not apply InstaComp™ prices.");
+      }
+
+      const appliedIds = (Array.isArray(data.repriced) ? data.repriced : [])
+        .filter((item: any) => item?.updated === true)
+        .map((item: any) => Number(item.productId))
+        .filter((id: number) => Number.isInteger(id) && id > 0);
+
+      setNotice(data.message || "Accepted selected InstaComp™ prices.");
+      setPriceProposals((current) =>
+        current.filter((proposal) => !appliedIds.includes(proposal.productId)),
+      );
+      setAcceptedProposalIds((current) =>
+        current.filter((id) => !appliedIds.includes(id)),
+      );
+      await loadRows();
+    } catch (nextError: any) {
+      setError(nextError.message || "Could not apply InstaComp™ prices.");
+    } finally {
+      setRepriceWorkingIds([]);
+    }
+  }
+
+  function toggleProposal(productId: number) {
+    setAcceptedProposalIds((current) =>
+      current.includes(productId)
+        ? current.filter((id) => id !== productId)
+        : [...current, productId],
+    );
+  }
+
+  function declineAllInstaCompPrices() {
+    setPriceProposals([]);
+    setAcceptedProposalIds([]);
+    setNotice("Declined current InstaComp™ price proposals. No prices were changed.");
   }
 
   async function applyPromo(action: "apply-promo" | "clear-promo") {
@@ -370,22 +459,25 @@ export default function EbayInventoryIntakeClient() {
       <section className="rounded-xl border-4 border-emerald-400 bg-emerald-50 p-5 text-emerald-950">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <h2 className="text-3xl font-black">Your eBay inventory for sale</h2>
+            <h2 className="text-3xl font-black">
+              Truely Collectables website inventory
+            </h2>
             <p className="mt-2 max-w-4xl text-sm font-bold leading-6">
               Sold/zero-quantity items are hidden here. This is the working list
-              for cards/items you can actually sell on Truely Collectables.
+              for inventory TCOS knows can appear on Truely Collectables, with
+              eBay-linked rows clearly marked when an outside listing exists.
             </p>
           </div>
 
           <div className="flex flex-wrap gap-2">
             <Link
-              href="/admin/ebay/import-runner"
+              href={adminHref("/admin/ebay/import-runner", adminHandoff)}
               className="rounded-md border border-emerald-300 bg-white px-4 py-2 text-sm font-black text-emerald-950 hover:bg-emerald-100"
             >
               Import / Resume eBay
             </Link>
             <Link
-              href="/admin/instacomp"
+              href={adminHref("/admin/instacomp", adminHandoff)}
               className="rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white hover:bg-neutral-800"
             >
               Open InstaComp™
@@ -396,7 +488,7 @@ export default function EbayInventoryIntakeClient() {
 
       {summary ? (
         <section className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-          <Metric label="For Sale Rows" value={String(summary.total)} />
+          <Metric label="Website Rows" value={String(summary.total)} />
           <Metric label="Needs Help" value={String(summary.needsHelp)} tone="amber" />
           <Metric label="Ready To Push" value={String(summary.ready)} tone="sky" />
           <Metric label="Live" value={String(summary.live)} tone="green" />
@@ -423,8 +515,9 @@ export default function EbayInventoryIntakeClient() {
             <div>
               <h2 className="text-2xl font-black">Simple Working Table</h2>
               <p className="mt-1 text-sm text-neutral-600">
-                Select everything that looks good, push it live, and leave the
-                messy rows for InstaComp™ cleanup.
+                Select everything that looks good, preview InstaComp™ pricing,
+                accept only the prices you want, and leave messy rows for manual
+                cleanup.
               </p>
             </div>
 
@@ -497,7 +590,7 @@ export default function EbayInventoryIntakeClient() {
                 {selectedIds.length} selected. {selectedReadyIds.length} ready,
                 {" "}
                 {selectedPushableIds.length - selectedReadyIds.length} repairable
-                from eBay, {selectedNeedsHelpRows.length} need InstaComp™/manual help.
+                from source data, {selectedNeedsHelpRows.length} need InstaComp™/manual help.
               </p>
               <div className="flex flex-wrap gap-2">
                 <button
@@ -513,12 +606,12 @@ export default function EbayInventoryIntakeClient() {
                 <button
                   type="button"
                   onClick={() => void refreshSelectedFromEbay()}
-                  disabled={working || selectedIds.length === 0}
+                  disabled={working || selectedEbayIds.length === 0}
                   className="rounded-md border border-emerald-300 bg-white px-4 py-3 text-sm font-black text-emerald-900 hover:bg-emerald-50 disabled:opacity-50"
                 >
                   {working
                     ? "Refreshing..."
-                    : `Refresh Current eBay Price + Pictures (${selectedIds.length})`}
+                    : `Refresh Current eBay Price + Pictures (${selectedEbayIds.length})`}
                 </button>
                 <button
                   type="button"
@@ -530,16 +623,16 @@ export default function EbayInventoryIntakeClient() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => void instacompReprice(selectedIds)}
+                  onClick={() => void instacompPreview(selectedIds)}
                   disabled={selectedIds.length === 0 || repriceWorkingIds.length > 0}
                   className="rounded-md border border-blue-300 bg-blue-50 px-4 py-3 text-sm font-black text-blue-900 hover:bg-blue-100 disabled:opacity-50"
                 >
                   {repriceWorkingIds.length > 0
                     ? "InstaComp™ repricing..."
-                    : `InstaComp™ Reprice Selected (${selectedIds.length})`}
+                    : `Preview InstaComp™ Prices (${selectedIds.length})`}
                 </button>
                 <Link
-                  href="/admin/instacomp"
+                  href={adminHref("/admin/instacomp", adminHandoff)}
                   className="rounded-md border border-neutral-300 bg-white px-4 py-3 text-sm font-black hover:bg-neutral-50"
                 >
                   Open InstaComp™
@@ -547,6 +640,93 @@ export default function EbayInventoryIntakeClient() {
               </div>
             </div>
           </div>
+
+          {priceProposals.length > 0 ? (
+            <div className="rounded-md border-2 border-blue-300 bg-blue-50 p-4">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <h3 className="text-lg font-black text-blue-950">
+                    InstaComp™ price proposals
+                  </h3>
+                  <p className="mt-1 text-sm font-bold text-blue-900">
+                    Nothing has changed yet. Uncheck any proposal you do not
+                    want, then accept selected prices.
+                  </p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setAcceptedProposalIds(
+                        priceProposals.map((proposal) => proposal.productId),
+                      )
+                    }
+                    className="rounded-md border border-blue-300 bg-white px-3 py-2 text-xs font-black text-blue-900"
+                  >
+                    Select All Proposals
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setAcceptedProposalIds([])}
+                    className="rounded-md border border-blue-300 bg-white px-3 py-2 text-xs font-black text-blue-900"
+                  >
+                    Unselect All
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void acceptSelectedInstaCompPrices()}
+                    disabled={
+                      acceptedProposalIds.length === 0 ||
+                      repriceWorkingIds.length > 0
+                    }
+                    className="rounded-md bg-blue-700 px-4 py-2 text-xs font-black text-white disabled:bg-neutral-500"
+                  >
+                    {repriceWorkingIds.length > 0
+                      ? "Applying..."
+                      : `Accept Selected Prices (${acceptedProposalIds.length})`}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={declineAllInstaCompPrices}
+                    disabled={repriceWorkingIds.length > 0}
+                    className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-xs font-black text-neutral-800 disabled:opacity-50"
+                  >
+                    Decline All
+                  </button>
+                </div>
+              </div>
+              <div className="mt-4 grid gap-2">
+                {priceProposals.map((proposal) => (
+                  <label
+                    key={proposal.productId}
+                    className="flex flex-col gap-2 rounded border border-blue-200 bg-white p-3 md:flex-row md:items-center md:justify-between"
+                  >
+                    <span className="flex items-start gap-3">
+                      <input
+                        type="checkbox"
+                        checked={acceptedProposalIds.includes(proposal.productId)}
+                        onChange={() => toggleProposal(proposal.productId)}
+                        className="mt-1 h-5 w-5 accent-blue-700"
+                      />
+                      <span>
+                        <span className="block font-black">
+                          {proposal.title}
+                        </span>
+                        <span className="text-xs font-bold text-neutral-600">
+                          {proposal.compCount} comps · current{" "}
+                          {money(proposal.previousPrice)} → suggested{" "}
+                          {money(proposal.suggestedPrice)}
+                        </span>
+                      </span>
+                    </span>
+                    <span className="text-xl font-black text-blue-900">
+                      {money(proposal.suggestedPrice)}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          ) : null}
 
           <div className="rounded-md border border-amber-200 bg-amber-50 p-4">
             <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
@@ -622,13 +802,13 @@ export default function EbayInventoryIntakeClient() {
               {loading ? (
                 <tr>
                   <td className="px-4 py-8 text-neutral-600" colSpan={6}>
-                    Loading eBay inventory...
+                    Loading Truely Collectables inventory...
                   </td>
                 </tr>
               ) : filteredRows.length === 0 ? (
                 <tr>
                   <td className="px-4 py-8 text-neutral-600" colSpan={6}>
-                    No eBay inventory rows match this view.
+                    No Truely Collectables inventory rows match this view.
                   </td>
                 </tr>
               ) : (
@@ -727,7 +907,10 @@ export default function EbayInventoryIntakeClient() {
                     <td className="px-4 py-4">
                       <div className="flex flex-wrap gap-2">
                         <Link
-                          href={`/admin/products/${row.productId}`}
+                          href={adminHref(
+                            `/admin/products/${row.productId}`,
+                            adminHandoff,
+                          )}
                           className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-black hover:bg-neutral-50"
                         >
                           Edit
@@ -744,16 +927,19 @@ export default function EbayInventoryIntakeClient() {
                         ) : null}
                         <button
                           type="button"
-                          onClick={() => void instacompReprice([row.productId])}
+                          onClick={() => void instacompPreview([row.productId])}
                           disabled={repriceWorkingIds.includes(row.productId)}
                           className="rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-xs font-black text-blue-800 hover:bg-blue-100 disabled:opacity-50"
                         >
                           {repriceWorkingIds.includes(row.productId)
-                            ? "Repricing..."
-                            : "InstaComp™ Reprice"}
+                            ? "Checking..."
+                            : "Preview InstaComp™"}
                         </button>
                         <Link
-                          href={`/admin/instacomp?source=ebay-intake&product=${row.productId}`}
+                          href={adminHref(
+                            `/admin/instacomp?source=ebay-intake&product=${row.productId}`,
+                            adminHandoff,
+                          )}
                           className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-black hover:bg-neutral-50"
                         >
                           Open
