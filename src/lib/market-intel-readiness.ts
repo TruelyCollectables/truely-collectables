@@ -63,7 +63,8 @@ export async function getMarketIntelReadiness() {
   const coreAccessible = coreTables.every(
     (table) => !tableResults.get(table)?.error,
   );
-  const alertTablesAccessible = ["tcos_mi_alerts", "tcos_mi_report_runs"].every(
+  const alertTableNames = ["tcos_mi_alerts", "tcos_mi_report_runs"] as const;
+  const alertTablesAccessible = alertTableNames.every(
     (table) => !tableResults.get(table)?.error,
   );
 
