@@ -1123,47 +1123,47 @@ export default async function SellerMarketplacesPage() {
 
         <section className="rounded-md border border-emerald-200 bg-emerald-50 p-5 text-emerald-950">
           <p className="text-sm font-black uppercase tracking-[0.16em]">
-            eBay → TCOS live listing runway
+            Simple eBay import
           </p>
           <h2 className="mt-2 text-2xl font-black">
-            Import, price-check, draft, then activate — no rocket science.
+            One button brings your eBay inventory to Truely Collectables.
           </h2>
           <p className="mt-2 max-w-4xl text-sm font-semibold leading-6">
-            Click Import my eBay listings to pull active eBay listings into
-            Truely Collectables. The eBay price stays as the starting TCOS
-            listing price, then Compare selected pricing in InstaComp™ shows
-            where your eBay price differs from TCOS market guidance before you
-            publish anything live.
+            Click Import ALL eBay inventory to pull active eBay listings into
+            Truely Collectables. TCOS keeps your eBay price as the starting TCOS
+            price. Then check boxes, Select all loaded, and Send selected to
+            InstaComp™ for price comparison before you create drafts or activate
+            anything live. Check boxes, then send what you want to InstaComp™.
           </p>
           <div className="mt-4 grid gap-3 md:grid-cols-3">
             <div className="rounded border border-emerald-200 bg-white p-4">
               <p className="text-xs font-black uppercase tracking-[0.14em] text-emerald-700">
-                1. Import
+                1. Import all
               </p>
-              <p className="mt-2 font-black">Import my eBay listings</p>
+              <p className="mt-2 font-black">Import ALL eBay inventory</p>
               <p className="mt-1 text-sm font-semibold text-neutral-700">
-                Bring over your active eBay rows and keep sold/duplicate cleanup
-                out of the main working table.
+                One click brings over active eBay listings. Nothing goes live
+                just because it imported.
               </p>
             </div>
             <div className="rounded border border-emerald-200 bg-white p-4">
               <p className="text-xs font-black uppercase tracking-[0.14em] text-emerald-700">
-                2. Check price
+                2. Check boxes
               </p>
-              <p className="mt-2 font-black">Compare selected pricing</p>
+              <p className="mt-2 font-black">Select all loaded</p>
               <p className="mt-1 text-sm font-semibold text-neutral-700">
-                Use InstaComp™ to compare eBay price against TCOS suggested
-                market pricing, then Trash dups or Create drafts.
+                Select one item, select a few, or select all loaded items.
+                Checkboxes control what gets sent forward.
               </p>
             </div>
             <div className="rounded border border-emerald-200 bg-white p-4">
               <p className="text-xs font-black uppercase tracking-[0.14em] text-emerald-700">
-                3. Go live
+                3. Compare
               </p>
-              <p className="mt-2 font-black">Activate ready drafts</p>
+              <p className="mt-2 font-black">Send selected to InstaComp™</p>
               <p className="mt-1 text-sm font-semibold text-neutral-700">
-                Fix needs-work rows first, then activate only the clean ready
-                drafts so live TCOS listings do not publish half-baked.
+                Use InstaComp™ to compare pricing, then create drafts and
+                Activate drafts when you are ready to go live.
               </p>
             </div>
           </div>
