@@ -101,12 +101,12 @@ export default async function MarketIntelAdminPage({ searchParams }: PageProps) 
             tone="cyan"
           />
           <Workbench
-            eyebrow="Next Build Slice"
+            eyebrow="Market Truth"
             title="Sold Comp Engine"
-            detail="Verified exact-card sales, market values, confidence, liquidity, and trend history."
-            href="#roadmap"
-            action="Queued Next"
-            tone="neutral"
+            detail="Create exact card identities, enter verified sales, and calculate market value, confidence, liquidity, and trends."
+            href={addAdminHandoff("/admin/market-intel/comps", handoff)}
+            action="Open Sold Comps"
+            tone="cyan"
           />
           <Workbench
             eyebrow="Next Build Slice"
@@ -159,11 +159,11 @@ export default async function MarketIntelAdminPage({ searchParams }: PageProps) 
           <p className="text-xs font-black uppercase tracking-[0.18em] text-amber-300">
             Beta One Build Order
           </p>
-          <h2 className="mt-1 text-3xl font-black">Foundation first, money engine next</h2>
+          <h2 className="mt-1 text-3xl font-black">Market truth before deal scoring</h2>
           <p className="mt-3 max-w-4xl font-semibold text-neutral-300">
-            Purchase tracking is live. Watchlist management is this slice. The next
-            workbench is exact-card sold comps and defensible market value, followed by
-            deal scoring and the Shark List™.
+            Purchase tracking and watchlist management are live. Exact-card sold comps and
+            defensible market value are the current workbench. Deal scoring and the Shark
+            List™ come next because every buy recommendation must be anchored to trustworthy value.
           </p>
         </section>
       </div>
