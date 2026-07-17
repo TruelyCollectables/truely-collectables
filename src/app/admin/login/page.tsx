@@ -42,6 +42,7 @@ export default async function AdminLoginPage({
   const params = await searchParams;
   const nextPath = safeNextPath(params.next);
   const error = loginErrorMessage(params.error);
+  const localDevelopmentLoginAvailable = process.env.NODE_ENV !== "production";
 
   return (
     <main className="mx-auto flex min-h-screen max-w-md flex-col justify-center px-6 py-12">
@@ -86,6 +87,26 @@ export default async function AdminLoginPage({
           <p className="mt-4 rounded border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-bold text-rose-800">
             {error}
           </p>
+        ) : null}
+
+        {localDevelopmentLoginAvailable ? (
+          <form
+            action={`/api/admin/login?next=${encodeURIComponent(nextPath)}`}
+            method="post"
+            className="mt-4"
+          >
+            <input type="hidden" name="next" value={nextPath} />
+            <input type="hidden" name="localDevelopmentLogin" value="1" />
+            <button
+              type="submit"
+              className="w-full rounded border border-amber-300 bg-amber-50 px-4 py-3 text-sm font-black text-amber-950 hover:bg-amber-100"
+            >
+              Open Admin Locally
+            </button>
+            <p className="mt-2 text-xs font-semibold text-neutral-500">
+              Localhost-only development rescue button. Disabled in production.
+            </p>
+          </form>
         ) : null}
       </div>
     </main>

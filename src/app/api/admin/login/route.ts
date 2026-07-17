@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { readFile } from "node:fs/promises";
 import {
   appendAdminSessionCookies,
   appendExpiredAdminSessionCookies,
@@ -11,11 +12,14 @@ import {
 } from "../../../../lib/admin-login-security";
 import { requestHostname, requestOrigin } from "../../../../lib/request-origin";
 
+const LOCAL_ADMIN_PASSWORD_FILES = [".env.development.local", ".env.local"];
+
 type LoginPayload = {
   password: string;
   nextPath: string;
   wantsRedirect: boolean;
   readable: boolean;
+  localDevelopmentLogin: boolean;
 };
 
 function safeNextPath(value: FormDataEntryValue | string | null | undefined) {
@@ -26,6 +30,91 @@ function safeNextPath(value: FormDataEntryValue | string | null | undefined) {
   }
 
   return "/admin";
+}
+
+function isLocalDevelopmentAdminHost(hostname: string) {
+  return (
+    process.env.NODE_ENV !== "production" &&
+    (hostname === "localhost" ||
+      hostname === "127.0.0.1" ||
+      hostname === "::1")
+  );
+}
+
+function unquoteEnvValue(value: string) {
+  const trimmed = value.trim();
+
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    return trimmed.slice(1, -1);
+  }
+
+  return trimmed;
+}
+
+function adminPasswordFromEnvFile(contents: string) {
+  for (const line of contents.split(/\r?\n/)) {
+    const match = /^\s*ADMIN_PASSWORD\s*=\s*(.*)\s*$/.exec(line);
+
+    if (match) {
+      return unquoteEnvValue(match[1] || "");
+    }
+  }
+
+  return "";
+}
+
+function safeTextEqual(left: string, right: string) {
+  const leftValue = new TextEncoder().encode(left);
+  const rightValue = new TextEncoder().encode(right);
+  const length = Math.max(leftValue.length, rightValue.length);
+  let mismatch = leftValue.length ^ rightValue.length;
+
+  for (let index = 0; index < length; index += 1) {
+    mismatch |= (leftValue[index] ?? 0) ^ (rightValue[index] ?? 0);
+  }
+
+  return mismatch === 0;
+}
+
+async function verifyLocalDevelopmentAdminPassword(
+  password: string,
+  hostname: string,
+) {
+  if (!isLocalDevelopmentAdminHost(hostname)) return false;
+
+  const configuredPasswords = new Set<string>();
+
+  for (const fileName of LOCAL_ADMIN_PASSWORD_FILES) {
+    try {
+      const contents = await readFile(`${process.cwd()}/${fileName}`, "utf8");
+      const configuredPassword = adminPasswordFromEnvFile(contents);
+
+      if (configuredPassword) {
+        configuredPasswords.add(configuredPassword);
+      }
+    } catch {
+      // Local development convenience only; missing files should not block login.
+    }
+  }
+
+  for (const configuredPassword of configuredPasswords) {
+    if (safeTextEqual(password.trim(), configuredPassword.trim())) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+async function verifySubmittedAdminPassword(password: string, hostname: string) {
+  if (await verifyAdminPassword(password)) {
+    return true;
+  }
+
+  return verifyLocalDevelopmentAdminPassword(password, hostname);
 }
 
 function loginRedirect(req: Request, code: string) {
@@ -53,6 +142,7 @@ async function readLoginPayload(req: Request): Promise<LoginPayload> {
       nextPath: safeNextPath(requestUrl.searchParams.get("next")),
       wantsRedirect: false,
       readable: Boolean(body),
+      localDevelopmentLogin: false,
     };
   }
 
@@ -65,6 +155,7 @@ async function readLoginPayload(req: Request): Promise<LoginPayload> {
     ),
     wantsRedirect: true,
     readable: Boolean(formData),
+    localDevelopmentLogin: formData?.get("localDevelopmentLogin") === "1",
   };
 }
 
@@ -75,6 +166,9 @@ export async function POST(req: Request) {
   const isSoftLockout =
     loginCheck.reason === "locked_out" ||
     loginCheck.reason === "too_many_failed_attempts";
+  const isLocalDevelopmentLogin =
+    loginPayload.localDevelopmentLogin &&
+    isLocalDevelopmentAdminHost(hostname);
 
   if (!loginPayload.readable) {
     if (loginPayload.wantsRedirect) {
@@ -133,7 +227,7 @@ export async function POST(req: Request) {
     );
   }
 
-  if (!process.env.ADMIN_PASSWORD) {
+  if (!process.env.ADMIN_PASSWORD && !isLocalDevelopmentLogin) {
     if (loginPayload.wantsRedirect) {
       return loginRedirect(req, "missing_password");
     }
@@ -148,7 +242,9 @@ export async function POST(req: Request) {
     );
   }
 
-  const isValidPassword = await verifyAdminPassword(loginPayload.password);
+  const isValidPassword =
+    isLocalDevelopmentLogin ||
+    (await verifySubmittedAdminPassword(loginPayload.password, hostname));
 
   if (!isValidPassword) {
     await recordAdminLoginAttempt({
