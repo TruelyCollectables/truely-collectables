@@ -1363,6 +1363,9 @@ export default async function AdminDashboard() {
               ) : null}
               <ShippingProviderUnlockPlan
                 actionPlan={shippingProviderSetup.actionPlan}
+                checklistHref={adminHref(
+                  "/api/admin/shipping/provider-setup?format=operator-checklist",
+                )}
               />
               <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
                 <LinkButton href="/admin/shipping" label="Shipping Ops" />
@@ -1491,7 +1494,7 @@ export default async function AdminDashboard() {
                 </p>
               </div>
               <Link
-                href="/admin/ebay/sync-control"
+                href={adminHref("/admin/ebay/sync-control")}
                 className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm font-bold hover:bg-white"
               >
                 Open Sync Control
@@ -1622,8 +1625,10 @@ function BaseAdminCommandTile({
 
 function ShippingProviderUnlockPlan({
   actionPlan,
+  checklistHref,
 }: {
   actionPlan: ProviderSetupActionPlanStep[];
+  checklistHref: string;
 }) {
   return (
     <div className="mt-4 rounded border border-indigo-200 bg-indigo-50 p-3 text-indigo-950">
@@ -1637,7 +1642,7 @@ function ShippingProviderUnlockPlan({
           </h3>
         </div>
         <Link
-          href="/api/admin/shipping/provider-setup?format=operator-checklist"
+          href={checklistHref}
           className="rounded border border-indigo-300 bg-white px-2 py-1 text-[11px] font-black"
         >
           Checklist
