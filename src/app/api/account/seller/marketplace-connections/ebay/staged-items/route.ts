@@ -407,9 +407,17 @@ function summarizeStagedItems(stagedItems: Array<
 function sellerMarketplaceStagedHeaders(params: {
   summary: ReturnType<typeof summarizeStagedItems>;
   importJobCount: number;
+  displayedCount: number;
+  matchingCount: number;
 }) {
   return {
     "X-TCOS-Seller-Marketplace-Staged-Rows": String(params.summary.total),
+    "X-TCOS-Seller-Marketplace-Staged-Displayed": String(
+      params.displayedCount,
+    ),
+    "X-TCOS-Seller-Marketplace-Staged-Matching": String(
+      params.matchingCount,
+    ),
     "X-TCOS-Seller-Marketplace-Staged-Ready": String(params.summary.ready),
     "X-TCOS-Seller-Marketplace-Staged-Draft-Cleanup": String(
       params.summary.draftCleanup,
@@ -489,28 +497,41 @@ export async function GET(request: Request) {
       .eq("account_id", account.id)
       .eq("store_id", storeId)
       .eq("provider", "ebay");
+    let stagedCountQuery = supabase
+      .from("seller_marketplace_staged_items")
+      .select("id", { count: "exact", head: true })
+      .eq("account_id", account.id)
+      .eq("store_id", storeId)
+      .eq("provider", "ebay");
 
     if (stageStatus) {
       stagedQuery = stagedQuery.eq("stage_status", stageStatus);
+      stagedCountQuery = stagedCountQuery.eq("stage_status", stageStatus);
     } else {
       stagedQuery = stagedQuery
+        .neq("stage_status", "skipped")
+        .neq("stage_status", "mapped");
+      stagedCountQuery = stagedCountQuery
         .neq("stage_status", "skipped")
         .neq("stage_status", "mapped");
     }
 
     if (importJobId) {
       stagedQuery = stagedQuery.eq("import_job_id", importJobId);
+      stagedCountQuery = stagedCountQuery.eq("import_job_id", importJobId);
     }
 
-    const [stagedResult, importJobsResult] = await Promise.all([
+    const [stagedResult, importJobsResult, stagedCountResult] = await Promise.all([
       stagedQuery
         .order("updated_at", { ascending: false })
         .limit(limit),
       importJobsQuery,
+      stagedCountQuery,
     ]);
 
-    if (stagedResult.error || importJobsResult.error) {
-      const error = stagedResult.error || importJobsResult.error;
+    if (stagedResult.error || importJobsResult.error || stagedCountResult.error) {
+      const error =
+        stagedResult.error || importJobsResult.error || stagedCountResult.error;
 
       if (error && isMissingSellerStagingTables(error)) {
         return unavailableResponse();
@@ -605,11 +626,21 @@ export async function GET(request: Request) {
           ...job,
           current_summary: job.id ? importJobSummaries[job.id] || undefined : undefined,
         })),
+        rowWindow: {
+          displayed: enrichedStagedItems.length,
+          matching: stagedCountResult.count ?? enrichedStagedItems.length,
+          limit,
+          isWindowed:
+            (stagedCountResult.count ?? enrichedStagedItems.length) >
+            enrichedStagedItems.length,
+        },
       },
       {
         headers: sellerMarketplaceStagedHeaders({
           summary: stagedSummary,
           importJobCount: importJobs.length,
+          displayedCount: enrichedStagedItems.length,
+          matchingCount: stagedCountResult.count ?? enrichedStagedItems.length,
         }),
       },
     );

@@ -100,6 +100,13 @@ type SellerStageAllProgress = {
   totalAvailable: number | null;
 };
 
+type SellerStageRowWindow = {
+  displayed: number;
+  matching: number;
+  limit: number;
+  isWindowed: boolean;
+};
+
 type SellerReconciliationRun = {
   id: string;
   status: string;
@@ -2017,7 +2024,7 @@ async function fetchSellerStagedItems(
   options?: { importJobId?: string | null; stageStatus?: StageFilter },
 ) {
   const searchParams = new URLSearchParams({
-    limit: options?.importJobId ? "250" : "100",
+    limit: "250",
     importJobLimit: "8",
   });
 
@@ -2051,6 +2058,12 @@ async function fetchSellerStagedItems(
     stagedItems: (data.stagedItems || []) as SellerStagedItem[],
     latestImportJob: (data.latestImportJob || null) as SellerImportJob | null,
     recentImportJobs: (data.recentImportJobs || []) as SellerImportJob[],
+    rowWindow: (data.rowWindow || {
+      displayed: (data.stagedItems || []).length,
+      matching: (data.stagedItems || []).length,
+      limit: 250,
+      isWindowed: false,
+    }) as SellerStageRowWindow,
     operationReceipt,
   };
 }
@@ -2417,6 +2430,8 @@ export default function SellerConnectionsPanel({
     PublicSellerMarketplaceConnection[]
   >([]);
   const [stagedItems, setStagedItems] = useState<SellerStagedItem[]>([]);
+  const [stageRowWindow, setStageRowWindow] =
+    useState<SellerStageRowWindow | null>(null);
   const [inventorySummary, setInventorySummary] =
     useState<SellerInventorySummary | null>(null);
   const [recentInventoryItems, setRecentInventoryItems] = useState<
@@ -2580,6 +2595,7 @@ export default function SellerConnectionsPanel({
         stageStatus: stageFilter,
       });
       setStagedItems(data.stagedItems);
+      setStageRowWindow(data.rowWindow);
       setLatestImportJob(data.latestImportJob);
       setRecentImportJobs(data.recentImportJobs);
       if (!options?.silent) {
@@ -5397,8 +5413,41 @@ export default function SellerConnectionsPanel({
         ) : null}
 
         {stagedItems.length > 0 ? (
-          <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
-            <div className="rounded-md border border-emerald-200 bg-emerald-50 p-4">
+          <>
+            <div
+              className={`mt-4 rounded-md border px-4 py-3 ${
+                stageRowWindow?.isWindowed
+                  ? "border-amber-200 bg-amber-50 text-amber-950"
+                  : "border-emerald-200 bg-emerald-50 text-emerald-950"
+              }`}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-sm font-black">
+                  Showing {stageRowWindow?.displayed ?? stagedItems.length} of{" "}
+                  {stageRowWindow?.matching ?? stagedItems.length} matching eBay
+                  staging rows
+                </p>
+                <span className="rounded border border-current bg-white/70 px-2 py-1 text-[11px] font-black uppercase">
+                  Display window: {stageRowWindow?.limit ?? stagedItems.length}
+                </span>
+              </div>
+              {stageRowWindow?.isWindowed ? (
+                <p className="mt-2 text-sm font-semibold leading-6">
+                  More staged rows exist than this page is currently showing.
+                  Import did not lose them — use the filters/search or focus an
+                  import run to work a smaller group, then refresh after drafts
+                  are created.
+                </p>
+              ) : (
+                <p className="mt-2 text-sm font-semibold leading-6">
+                  This view is showing every matching active staged row currently
+                  returned for this filter.
+                </p>
+              )}
+            </div>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+              <div className="rounded-md border border-emerald-200 bg-emerald-50 p-4">
               <p className="text-xs font-black uppercase tracking-[0.14em] text-emerald-800">
                 Ready To Promote
               </p>
@@ -5439,9 +5488,9 @@ export default function SellerConnectionsPanel({
                     : `Promote All Ready (${readyStageItemIds.length})`}
                 </button>
               </div>
-            </div>
+              </div>
 
-            <div className="rounded-md border border-amber-200 bg-amber-50 p-4">
+              <div className="rounded-md border border-amber-200 bg-amber-50 p-4">
               <p className="text-xs font-black uppercase tracking-[0.14em] text-amber-800">
                 Draft Cleanup
               </p>
@@ -5482,7 +5531,7 @@ export default function SellerConnectionsPanel({
                     : `Promote Cleanup (${draftCleanupStageItemIds.length})`}
                 </button>
               </div>
-            </div>
+              </div>
 
             <div className="rounded-md border border-amber-200 bg-amber-50 p-4">
               <p className="text-xs font-black uppercase tracking-[0.14em] text-amber-800">
@@ -5583,6 +5632,7 @@ export default function SellerConnectionsPanel({
               </div>
             </div>
           </div>
+          </>
         ) : null}
 
         {stagedItems.length > 0 ? (
