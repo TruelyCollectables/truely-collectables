@@ -152,6 +152,16 @@ export default function EbayInventoryIntakeClient() {
   const selectedReadyIds = selectedRows
     .filter((row) => row.isReady)
     .map((row) => row.productId);
+  const selectedPushableIds = selectedRows
+    .filter(
+      (row) =>
+        row.isReady ||
+        (row.ebayItemId &&
+          row.title.trim().length > 0 &&
+          row.price > 0 &&
+          row.quantity > 0),
+    )
+    .map((row) => row.productId);
   const selectedNeedsHelpRows = selectedRows.filter((row) => !row.isReady);
 
   function toggleRow(productId: number) {
@@ -350,19 +360,21 @@ export default function EbayInventoryIntakeClient() {
           <div className="rounded-md border border-neutral-200 bg-neutral-50 p-4">
             <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
               <p className="text-sm font-bold text-neutral-700">
-                {selectedIds.length} selected. {selectedReadyIds.length} ready
-                to push. {selectedNeedsHelpRows.length} need InstaComp™/manual help.
+                {selectedIds.length} selected. {selectedReadyIds.length} ready,
+                {" "}
+                {selectedPushableIds.length - selectedReadyIds.length} repairable
+                from eBay, {selectedNeedsHelpRows.length} need InstaComp™/manual help.
               </p>
               <div className="flex flex-wrap gap-2">
                 <button
                   type="button"
                   onClick={() => void pushSelectedLive()}
-                  disabled={working || selectedReadyIds.length === 0}
+                  disabled={working || selectedPushableIds.length === 0}
                   className="rounded-md bg-emerald-700 px-4 py-3 text-sm font-black text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-500"
                 >
                   {working
                     ? "Pushing..."
-                    : `Push Selected Live (${selectedReadyIds.length})`}
+                    : `Repair + Push Selected Live (${selectedPushableIds.length})`}
                 </button>
                 <button
                   type="button"

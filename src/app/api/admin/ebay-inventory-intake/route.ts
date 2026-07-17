@@ -1,8 +1,9 @@
-import { inventoryEngine } from "../../../../modules/inventory";
+import { createServerInventoryEngine } from "../../../../lib/server-inventory-engine";
 import { getActiveStoreId } from "../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 
 export const dynamic = "force-dynamic";
+export const maxDuration = 60;
 
 type ProductRow = {
   id: number;
@@ -35,6 +36,30 @@ function moneyNumber(value: number | string | null | undefined) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function cleanText(value: unknown) {
+  const text = String(value ?? "").trim();
+  return text.length > 0 ? text : null;
+}
+
+function generatedSku(product: ProductRow) {
+  const existingSku = cleanText(product.sku);
+  if (existingSku) return existingSku;
+
+  const ebayItemId = cleanText(product.ebay_item_id);
+  if (ebayItemId) return `EBAY-${ebayItemId}`;
+
+  return `TCOS-${product.id}`;
+}
+
+function canRepairForLive(product: ProductRow) {
+  return (
+    cleanText(product.title) !== null &&
+    cleanText(product.ebay_item_id) !== null &&
+    moneyNumber(product.price) > 0 &&
+    Number(product.quantity || 0) > 0
+  );
+}
+
 function readinessProblems(product: ProductRow, inventory: InventoryRow | null) {
   const problems: string[] = [];
 
@@ -47,6 +72,161 @@ function readinessProblems(product: ProductRow, inventory: InventoryRow | null) 
   if (!inventory) problems.push("missing V2 inventory row");
 
   return problems;
+}
+
+async function getEbayAppToken() {
+  if (!process.env.EBAY_CLIENT_ID || !process.env.EBAY_CLIENT_SECRET) {
+    return null;
+  }
+
+  const credentials = Buffer.from(
+    `${process.env.EBAY_CLIENT_ID}:${process.env.EBAY_CLIENT_SECRET}`,
+  ).toString("base64");
+
+  const response = await fetch("https://api.ebay.com/identity/v1/oauth2/token", {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${credentials}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      grant_type: "client_credentials",
+      scope: "https://api.ebay.com/oauth/api_scope",
+    }),
+  });
+
+  const data = await response.json().catch(() => ({}));
+
+  if (!response.ok || !data.access_token) {
+    return null;
+  }
+
+  return String(data.access_token);
+}
+
+async function fetchEbaySnapshot(ebayItemId: string) {
+  const token = await getEbayAppToken();
+
+  if (token) {
+    const browseUrl = new URL(
+      "https://api.ebay.com/buy/browse/v1/item/get_item_by_legacy_id",
+    );
+    browseUrl.searchParams.set("legacy_item_id", ebayItemId);
+
+    const response = await fetch(browseUrl, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        "X-EBAY-C-MARKETPLACE-ID": "EBAY_US",
+        "Accept-Language": "en-US",
+      },
+    });
+    const data = await response.json().catch(() => ({}));
+
+    if (response.ok) {
+      return {
+        title: cleanText(data.title),
+        imageUrl:
+          cleanText(data.image?.imageUrl) ||
+          cleanText(data.thumbnailImages?.[0]?.imageUrl),
+        price: moneyNumber(data.price?.value),
+      };
+    }
+  }
+
+  if (!process.env.EBAY_CLIENT_ID) {
+    return null;
+  }
+
+  const shoppingUrl = new URL("https://open.api.ebay.com/shopping");
+  shoppingUrl.searchParams.set("callname", "GetSingleItem");
+  shoppingUrl.searchParams.set("responseencoding", "JSON");
+  shoppingUrl.searchParams.set("appid", process.env.EBAY_CLIENT_ID);
+  shoppingUrl.searchParams.set("siteid", "0");
+  shoppingUrl.searchParams.set("version", "967");
+  shoppingUrl.searchParams.set("ItemID", ebayItemId);
+  shoppingUrl.searchParams.set("IncludeSelector", "Details");
+
+  const response = await fetch(shoppingUrl, { cache: "no-store" });
+  const data = await response.json().catch(() => ({}));
+  const item = data.Item || {};
+  const picture = Array.isArray(item.PictureURL)
+    ? item.PictureURL[0]
+    : item.PictureURL;
+
+  if (!response.ok || !item.ItemID) {
+    return null;
+  }
+
+  return {
+    title: cleanText(item.Title),
+    imageUrl: cleanText(picture),
+    price: moneyNumber(
+      item.ConvertedCurrentPrice?.Value ?? item.CurrentPrice?.Value,
+    ),
+  };
+}
+
+async function repairProductForLive(product: ProductRow) {
+  const supabase = getSupabaseClient();
+  const storeId = getActiveStoreId();
+  const ebayItemId = cleanText(product.ebay_item_id);
+  const snapshot = ebayItemId ? await fetchEbaySnapshot(ebayItemId) : null;
+  const sku = generatedSku(product);
+  const title = snapshot?.title || product.title || "Untitled eBay listing";
+  const price = snapshot?.price && snapshot.price > 0 ? snapshot.price : moneyNumber(product.price);
+  const imageUrl = snapshot?.imageUrl || cleanText(product.image_url);
+  const quantity = Math.max(0, Number(product.quantity || 0));
+  const now = new Date().toISOString();
+
+  if (!imageUrl) {
+    throw new Error("No eBay image found yet; refresh/import images before listing live.");
+  }
+
+  const { error: productError } = await supabase
+    .from("products")
+    .update({
+      sku,
+      title,
+      price,
+      quantity,
+      image_url: imageUrl,
+      last_seen_at: now,
+    })
+    .eq("store_id", storeId)
+    .eq("id", product.id);
+
+  if (productError) throw productError;
+
+  const engine = createServerInventoryEngine();
+  const item = await engine.upsertFromEbayListing({
+    sku,
+    title,
+    description: product.description || `Imported from eBay listing ${ebayItemId || product.id}.`,
+    price,
+    quantity,
+    imageUrl,
+    ebayItemId,
+    category: "sports cards",
+    categoryConfidence: imageUrl ? "medium" : "needs_image",
+    reviewRequired: !imageUrl,
+    attributes: {
+      ebay_item_id: ebayItemId,
+      tcos_import_source: "admin_ebay_inventory_intake",
+    },
+  });
+
+  await engine.setStatus({
+    legacyProductId: item.legacyProductId,
+    status: "active",
+  });
+
+  return {
+    productId: product.id,
+    legacyProductId: item.legacyProductId,
+    inventoryItemId: item.inventoryItemId,
+    imageRefreshed: Boolean(snapshot?.imageUrl),
+    priceRefreshed: Boolean(snapshot?.price && snapshot.price > 0),
+  };
 }
 
 function mapIntakeRow(product: ProductRow, inventory: InventoryRow | null) {
@@ -212,11 +392,30 @@ export async function POST(request: Request) {
   }
 
   let pushedLive = 0;
+  let repaired = 0;
   const skipped: Array<{ productId: number; title: string; problems: string[] }> = [];
+  const repairErrors: Array<{ productId: number; title: string; error: string }> = [];
 
   for (const product of productRows) {
     const inventory = inventoryByProductId.get(product.id) ?? null;
-    const problems = readinessProblems(product, inventory);
+    const initialProblems = readinessProblems(product, inventory);
+
+    if (initialProblems.length > 0 && canRepairForLive(product)) {
+      try {
+        await repairProductForLive(product);
+        repaired++;
+        pushedLive++;
+        continue;
+      } catch (repairError: any) {
+        repairErrors.push({
+          productId: product.id,
+          title: product.title || "Untitled eBay listing",
+          error: repairError.message || "Repair failed",
+        });
+      }
+    }
+
+    const problems = initialProblems;
 
     if (problems.length > 0) {
       skipped.push({
@@ -227,7 +426,7 @@ export async function POST(request: Request) {
       continue;
     }
 
-    await inventoryEngine.setStatus({
+    await createServerInventoryEngine().setStatus({
       legacyProductId: product.id,
       status: "active",
     });
@@ -237,10 +436,12 @@ export async function POST(request: Request) {
   return Response.json({
     success: true,
     pushedLive,
+    repaired,
     skipped,
+    repairErrors,
     message:
-      skipped.length > 0
-        ? `${pushedLive} pushed live. ${skipped.length} need help first.`
-        : `${pushedLive} selected listing${pushedLive === 1 ? "" : "s"} pushed live.`,
+      skipped.length > 0 || repairErrors.length > 0
+        ? `${pushedLive} pushed live (${repaired} repaired). ${skipped.length + repairErrors.length} still need help.`
+        : `${pushedLive} selected listing${pushedLive === 1 ? "" : "s"} pushed live (${repaired} repaired).`,
   });
 }
