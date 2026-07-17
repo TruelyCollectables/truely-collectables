@@ -236,6 +236,24 @@ function priceRadarTone(deltaPercent: number): "green" | "amber" | "rose" {
   return "rose";
 }
 
+function addAdminHandoff(href: string, handoff: string) {
+  if (
+    !handoff ||
+    href === "/admin/logout" ||
+    (!href.startsWith("/admin") && !href.startsWith("/api/admin"))
+  ) {
+    return href;
+  }
+
+  const [pathAndQuery, hash = ""] = href.split("#", 2);
+  const [path, query = ""] = pathAndQuery.split("?", 2);
+  const params = new URLSearchParams(query);
+
+  params.set("admin_handoff", handoff);
+
+  return `${path}?${params.toString()}${hash ? `#${hash}` : ""}`;
+}
+
 export default async function AdminDashboard() {
   const supabase = createSupabaseServerClient({ admin: true });
   const storeId = getActiveStoreId();
@@ -245,10 +263,27 @@ export default async function AdminDashboard() {
   ]);
   const shippingProviderSetup = buildShippingProviderSetupPacket();
   const shippingDecision = shippingProviderSetup.decision;
-  const instaCompAdminHandoff = await createAdminSessionValue();
-  const instaCompAdminHref = `/admin/instacomp-direct?admin_handoff=${encodeURIComponent(
-    instaCompAdminHandoff,
-  )}`;
+  const adminDashboardHandoff = await createAdminSessionValue();
+  const adminHref = (href: string) => addAdminHandoff(href, adminDashboardHandoff);
+  const CommandButton = (props: Parameters<typeof BaseCommandButton>[0]) => (
+    <BaseCommandButton {...props} href={adminHref(props.href)} />
+  );
+  const LinkButton = (props: Parameters<typeof BaseLinkButton>[0]) => (
+    <BaseLinkButton {...props} href={adminHref(props.href)} />
+  );
+  const AdminCommandTile = (props: Parameters<typeof BaseAdminCommandTile>[0]) => (
+    <BaseAdminCommandTile {...props} href={adminHref(props.href)} />
+  );
+  const QueuePanel = (props: Parameters<typeof BaseQueuePanel>[0]) => (
+    <BaseQueuePanel
+      {...props}
+      href={adminHref(props.href)}
+      rows={props.rows.map((row) => ({
+        ...row,
+        href: row.href ? adminHref(row.href) : row.href,
+      }))}
+    />
+  );
 
   const now = new Date();
   const today = new Date(now);
@@ -501,7 +536,7 @@ export default async function AdminDashboard() {
   ];
   const adminCommandTiles = [
     {
-      href: instaCompAdminHref,
+      href: "/admin/instacomp-direct",
       icon: "⚾",
       title: "InstaComp™",
       detail: `${priceRadarRows.length} pricing alert${
@@ -677,7 +712,7 @@ export default async function AdminDashboard() {
                 label={`${ignoredPriceRadarCount} ignored`}
                 tone={priceRadarIgnoreAvailable ? "amber" : "rose"}
               />
-              <LinkButton href={instaCompAdminHref} label="Open InstaComp™" />
+              <LinkButton href="/admin/instacomp-direct" label="Open InstaComp™" />
             </div>
           </div>
 
@@ -1551,7 +1586,7 @@ function MetricTile({
   );
 }
 
-function AdminCommandTile({
+function BaseAdminCommandTile({
   href,
   icon,
   title,
@@ -1636,7 +1671,7 @@ function ShippingProviderUnlockPlan({
   );
 }
 
-function CommandButton({
+function BaseCommandButton({
   href,
   label,
   primary,
@@ -1707,7 +1742,7 @@ function MiniLaunchCount({
   );
 }
 
-function QueuePanel({
+function BaseQueuePanel({
   title,
   href,
   empty,
@@ -1780,7 +1815,7 @@ function InfoLine({ label, value }: { label: string; value: string }) {
   );
 }
 
-function LinkButton({ href, label }: { href: string; label: string }) {
+function BaseLinkButton({ href, label }: { href: string; label: string }) {
   return (
     <a
       href={href}
