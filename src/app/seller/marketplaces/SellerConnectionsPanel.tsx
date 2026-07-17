@@ -4470,8 +4470,8 @@ export default function SellerConnectionsPanel({
 
         <p className="mt-4 text-xs font-semibold uppercase leading-5 text-neutral-500">
           Refunds and cancellations are flagged for review and never restore
-          stock automatically. Scheduled polling runs daily when seller sync is
-          active.
+          stock automatically. Scheduled polling runs on the staggered seller
+          heartbeat, about every 90 minutes while seller sync is active.
         </p>
       </div>
 
