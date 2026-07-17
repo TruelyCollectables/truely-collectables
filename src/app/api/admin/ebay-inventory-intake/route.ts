@@ -641,11 +641,16 @@ export async function POST(request: Request) {
       continue;
     }
 
-    await createServerInventoryEngine().setStatus({
-      legacyProductId: product.id,
-      status: "active",
-    });
-    pushedLive++;
+    try {
+      await repairProductForLive(product);
+      pushedLive++;
+    } catch (repairError: any) {
+      repairErrors.push({
+        productId: product.id,
+        title: product.title || "Untitled eBay listing",
+        error: repairError.message || "Push-live refresh failed",
+      });
+    }
   }
 
   return Response.json({
