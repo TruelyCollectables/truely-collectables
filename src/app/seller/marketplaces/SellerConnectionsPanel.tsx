@@ -17,7 +17,7 @@ import {
   STANDARD_AUCTION_POLICY_SUMMARY,
 } from "../../../lib/auction-policy";
 import {
-  getAccountSession,
+  getFreshAccountSession,
   type StoredAccountSession,
 } from "../../account/account-session";
 import type {
@@ -2323,9 +2323,8 @@ export default function SellerConnectionsPanel({
   ebaySyncEnabled: boolean;
 }) {
   const [initialStageWorkspace] = useState(initialStageWorkspaceState);
-  const [session] = useState<StoredAccountSession | null>(() =>
-    typeof window === "undefined" ? null : getAccountSession(),
-  );
+  const [session, setSession] = useState<StoredAccountSession | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
   const [connections, setConnections] = useState<
     PublicSellerMarketplaceConnection[]
   >([]);
@@ -2342,9 +2341,7 @@ export default function SellerConnectionsPanel({
     null,
   );
   const [recentImportJobs, setRecentImportJobs] = useState<SellerImportJob[]>([]);
-  const [isLoading, setIsLoading] = useState(
-    () => Boolean(session?.access_token),
-  );
+  const [isLoading, setIsLoading] = useState(true);
   const [isSavingProvider, setIsSavingProvider] = useState("");
   const [preview, setPreview] = useState<SellerEbayInventoryPreview | null>(
     null,
@@ -2456,6 +2453,30 @@ export default function SellerConnectionsPanel({
       marketplaceOperationReceiptHistory,
     );
   }, [marketplaceOperationReceiptHistory]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      const freshSession =
+        typeof window === "undefined"
+          ? null
+          : await getFreshAccountSession(5 * 60, true);
+
+      if (cancelled) return;
+
+      setSession(freshSession);
+      setAuthChecked(true);
+
+      if (!freshSession?.access_token) {
+        setIsLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const refreshSellerStageState = useCallback(async (
     accessToken: string,
@@ -4168,6 +4189,17 @@ export default function SellerConnectionsPanel({
         "No failed promotion rows are currently eligible for draft-cleanup retry.",
       mode: "draft_cleanup",
     });
+  }
+
+  if (!authChecked) {
+    return (
+      <section className="rounded-md border border-neutral-200 bg-white p-5">
+        <h2 className="text-2xl font-black">Your Connections</h2>
+        <p className="mt-2 text-sm leading-6 text-neutral-600">
+          Refreshing your TCOS account session...
+        </p>
+      </section>
+    );
   }
 
   if (!session) {

@@ -19,7 +19,7 @@ import {
   STANDARD_AUCTION_POLICY_SUMMARY,
 } from "../../../lib/auction-policy";
 import {
-  getAccountSession,
+  getFreshAccountSession,
   type StoredAccountSession,
 } from "../../account/account-session";
 
@@ -700,13 +700,12 @@ function bulkOrdersFollowUp(action: BulkInventoryAction | null) {
 export default function SellerInventoryPage() {
   const router = useRouter();
   const pathname = usePathname();
-  const [session] = useState<StoredAccountSession | null>(() =>
-    typeof window === "undefined" ? null : getAccountSession(),
-  );
+  const [session, setSession] = useState<StoredAccountSession | null>(null);
+  const [authChecked, setAuthChecked] = useState(false);
   const [initialFilters] = useState(initialInventoryFilters);
   const [summary, setSummary] = useState<SellerInventorySummary | null>(null);
   const [items, setItems] = useState<SellerInventoryItem[]>([]);
-  const [loading, setLoading] = useState(() => Boolean(session?.access_token));
+  const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
@@ -872,6 +871,30 @@ export default function SellerInventoryPage() {
       setRefreshing(false);
     }
   }
+
+  useEffect(() => {
+    let cancelled = false;
+
+    void (async () => {
+      const freshSession =
+        typeof window === "undefined"
+          ? null
+          : await getFreshAccountSession(5 * 60, true);
+
+      if (cancelled) return;
+
+      setSession(freshSession);
+      setAuthChecked(true);
+
+      if (!freshSession?.access_token) {
+        setLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     if (!session?.access_token) return;
@@ -1826,6 +1849,19 @@ export default function SellerInventoryPage() {
     } finally {
       setBulkAction(null);
     }
+  }
+
+  if (!authChecked) {
+    return (
+      <main className="min-h-screen bg-[#f4f1ea] p-6 text-neutral-950">
+        <div className="mx-auto max-w-4xl rounded-md border border-neutral-200 bg-white p-6">
+          <h1 className="text-3xl font-black">Seller Inventory</h1>
+          <p className="mt-3 text-sm text-neutral-600">
+            Refreshing your TCOS account session...
+          </p>
+        </div>
+      </main>
+    );
   }
 
   if (!session) {
