@@ -341,6 +341,7 @@ type BatchCard = {
   draftInventoryItemId: string | null;
   draftLegacyProductId: number | null;
   draftSku: string | null;
+  draftDuplicateAlert?: DraftDuplicateAlert | null;
   tradeStatus: TradeHandoffStatus;
   tradeError: string | null;
   tradeCollectionItemId: string | null;
@@ -412,12 +413,29 @@ type DraftListingResponse = {
     backImageUrl?: string | null;
     alreadyExisted?: boolean;
     metadataWarning?: string;
+    duplicateAlert?: DraftDuplicateAlert | null;
   }>;
   errors: Array<{
     clientId: string | null;
     scanId: string | null;
     title: string | null;
     error: string;
+  }>;
+};
+
+type DraftDuplicateAlert = {
+  message: string;
+  matchedPrice: number | null;
+  requestedPrice: number;
+  priceMatched: boolean;
+  mergeUrl: string;
+  matches: Array<{
+    legacyProductId: number;
+    title: string;
+    sku: string | null;
+    price: number;
+    quantity: number;
+    ebayItemId: string | null;
   }>;
 };
 
@@ -8985,6 +9003,7 @@ export default function InstaCompScanner({
                 ...card,
                 draftStatus: "drafting",
                 draftError: null,
+                draftDuplicateAlert: null,
               }
             : card
         )
@@ -9021,6 +9040,7 @@ export default function InstaCompScanner({
               ...card,
               draftStatus: "drafting",
               draftError: null,
+              draftDuplicateAlert: null,
             }
           : card
       )
@@ -9149,6 +9169,7 @@ export default function InstaCompScanner({
               draftInventoryItemId: created.inventoryItemId,
               draftLegacyProductId: created.legacyProductId,
               draftSku: created.sku,
+              draftDuplicateAlert: created.duplicateAlert || null,
             };
           }
 
@@ -9156,6 +9177,7 @@ export default function InstaCompScanner({
             ...card,
             draftStatus: "error",
             draftError: failed?.error || "Draft was not created.",
+            draftDuplicateAlert: null,
           };
         })
       );
@@ -13972,6 +13994,35 @@ function BatchCardRow({
             {card.draftStatus === "created" && card.draftError && (
               <div style={{ color: "#8a5a00", marginTop: 4 }}>
                 {card.draftError}
+              </div>
+            )}
+            {card.draftStatus === "created" && card.draftDuplicateAlert && (
+              <div
+                style={{
+                  marginTop: 8,
+                  padding: "8px 10px",
+                  borderRadius: 8,
+                  background: "#fff8e1",
+                  border: "1px solid #f1c75b",
+                  color: "#7a4a00",
+                }}
+              >
+                <div>{card.draftDuplicateAlert.message}</div>
+                {card.draftDuplicateAlert.matches.length > 0 && (
+                  <small style={{ display: "block", marginTop: 4 }}>
+                    Existing: {card.draftDuplicateAlert.matches[0].title}
+                    {" · "}
+                    {money(card.draftDuplicateAlert.matches[0].price)}
+                    {" · Qty "}
+                    {card.draftDuplicateAlert.matches[0].quantity}
+                  </small>
+                )}
+                <a
+                  href={card.draftDuplicateAlert.mergeUrl || "/admin/ebay/duplicates"}
+                  style={{ display: "inline-block", marginTop: 6 }}
+                >
+                  Open duplicate finder / merge
+                </a>
               </div>
             )}
           </div>

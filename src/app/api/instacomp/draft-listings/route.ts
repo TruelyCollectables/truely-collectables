@@ -1,6 +1,10 @@
 import { createHash, randomUUID } from "crypto";
 import { sanitizeAuthenticityProfile } from "../../../../lib/authenticity";
 import { buildInstaCompDraftTitle } from "../../../../lib/instacomp-draft-title";
+import {
+  findListingDuplicateAlert,
+  type ListingDuplicateAlert,
+} from "../../../../lib/listing-duplicate-alert";
 import { getActiveStoreId } from "../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 import {
@@ -85,6 +89,7 @@ type DraftListingSuccessItem = {
   backImageUrl: string | null;
   alreadyExisted: boolean;
   metadataWarning?: string;
+  duplicateAlert?: ListingDuplicateAlert | null;
 };
 
 type ExistingInstaCompDraftRow = {
@@ -1064,6 +1069,16 @@ export async function POST(request: Request) {
           ? Boolean(persistentImages.backFile)
           : hasBackImage;
 
+        const duplicateAlert = await findListingDuplicateAlert({
+          supabase,
+          storeId,
+          sellerAccountId,
+          title,
+          requestedPrice: price,
+        });
+        const listingPrice = duplicateAlert?.matchedPrice || price;
+        let metadataWarning: string | undefined;
+
         const frontImageUrl = await uploadDraftImage({
           supabase,
           storeId,
@@ -1096,14 +1111,12 @@ export async function POST(request: Request) {
           }),
           category: categoryFromAi(effectiveAi),
           condition: conditionFromAi(effectiveAi),
-          price,
+          price: listingPrice,
           quantity,
           imageUrl: frontImageUrl,
           sku,
           authenticity,
         });
-
-        let metadataWarning: string | undefined;
 
         if (promotedItem.inventoryItemId) {
           if (backImageUrl) {
@@ -1119,7 +1132,9 @@ export async function POST(request: Request) {
 
             if (backImageError) {
               console.error("InstaComp™ draft back image insert error:", backImageError);
-              metadataWarning = "Draft created, but back image was not attached.";
+              metadataWarning = metadataWarning
+                ? `${metadataWarning} Draft created, but back image was not attached.`
+                : "Draft created, but back image was not attached.";
             }
           }
 
@@ -1143,8 +1158,10 @@ export async function POST(request: Request) {
                   searchQuery: effectiveSearchQuery,
                   ai: effectiveAi,
                   marketPrice,
-                  listingPrice: price,
+                  listingPrice,
+                  originalRequestedListingPrice: price,
                   listingPriceSource: priceSource || null,
+                  duplicateAlert,
                   stats: effectiveStats,
                   soldStats: effectiveSoldStats,
                   sourceCoverage: effectiveSourceCoverage,
@@ -1184,6 +1201,7 @@ export async function POST(request: Request) {
           backImageUrl,
           alreadyExisted: false,
           metadataWarning,
+          duplicateAlert,
         });
         await markPersistentItemDrafted({
           supabase,
