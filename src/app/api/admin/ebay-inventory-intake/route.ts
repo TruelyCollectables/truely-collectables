@@ -350,7 +350,15 @@ async function fetchSellerInventorySaleability(params: {
     { headers },
   );
 
-  if (itemResponse.status === 404) return null;
+  if (itemResponse.status === 404) {
+    return {
+      saleable: false,
+      quantity: 0,
+      price: null,
+      source: "seller_inventory",
+      reasons: ["seller_inventory_item_not_found"],
+    };
+  }
 
   const itemData = await itemResponse.json().catch(() => ({}));
 
@@ -443,7 +451,13 @@ async function resolveEbaySaleability(params: {
 
   if (sellerSaleability) return sellerSaleability;
 
-  return saleabilityFromSnapshot(params.snapshot);
+  return {
+    saleable: false,
+    quantity: 0,
+    price: null,
+    source: "seller_inventory",
+    reasons: ["seller_active_listing_not_confirmed"],
+  } satisfies EbaySaleability;
 }
 
 async function markProductInactiveFromEbay(params: {
