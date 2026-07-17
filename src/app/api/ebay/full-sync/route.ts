@@ -22,6 +22,12 @@ function safeMaxBatches(value: string | null) {
 export async function GET(request: Request) {
   try {
     const url = new URL(request.url);
+    const accept = request.headers.get("accept") || "";
+
+    if (!url.searchParams.has("execute") && accept.includes("text/html")) {
+      return NextResponse.redirect(new URL("/admin/ebay/import-runner", url));
+    }
+
     const limit = safeLimit(url.searchParams.get("limit"));
     const maxBatches = safeMaxBatches(url.searchParams.get("maxBatches"));
     const results = [];

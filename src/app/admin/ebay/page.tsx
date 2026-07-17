@@ -112,8 +112,7 @@ export default async function AdminEbayPage({
             <CommandLink href="/api/ebay/test" label="Test Route" />
             {storeSettings.ebaySyncEnabled ? (
               <>
-                <CommandLink href="/api/ebay/import-listings?offset=0&limit=50" label="Import Batch" primary />
-                <CommandLink href="/api/ebay/full-sync" label="Full Sync" primary />
+                <CommandLink href="/admin/ebay/import-runner" label="Import Runner" primary />
                 <CommandLink href="/api/ebay/auth" label="Reconnect" danger />
               </>
             ) : null}
