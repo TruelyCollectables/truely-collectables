@@ -1,38 +1,36 @@
 import Link from "next/link";
-import EbayInventoryIntakeClient from "./EbayInventoryIntakeClient";
+import EbayDuplicateFinderClient from "./EbayDuplicateFinderClient";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
-export default function EbayInventoryIntakePage() {
+export default function EbayDuplicateFinderPage() {
   return (
     <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
       <section className="border-b border-neutral-200 bg-[#101418] text-white">
         <div className="mx-auto flex max-w-7xl flex-col gap-5 px-6 py-6 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.16em] text-amber-300">
-              Simple Intake
+              Duplicate Finder
             </p>
             <h1 className="mt-2 text-4xl font-black tracking-tight">
-              eBay Inventory Intake
+              eBay Duplicate Finder
             </h1>
             <p className="mt-2 max-w-3xl text-sm text-neutral-300">
-              One clean working table: review what is for sale, select rows,
-              push good listings live, and send problem rows to InstaComp™.
+              Find exact same-title/same-price active rows, keep one listing,
+              end/archive the duplicate, and roll the quantity into the keeper.
             </p>
           </div>
 
           <div className="flex flex-wrap gap-2">
             <HeaderLink href="/admin" label="Command Center" />
-            <HeaderLink href="/admin/ebay/import-runner" label="Import More" primary />
-            <HeaderLink href="/admin/ebay/duplicates" label="Duplicates" />
-            <HeaderLink href="/admin/instacomp" label="InstaComp™" />
-            <HeaderLink href="/shop" label="Shop" />
+            <HeaderLink href="/admin/ebay/inventory-intake" label="Inventory Intake" primary />
+            <HeaderLink href="/admin/ebay/import-runner" label="Import Runner" />
           </div>
         </div>
       </section>
 
-      <EbayInventoryIntakeClient />
+      <EbayDuplicateFinderClient />
     </main>
   );
 }
