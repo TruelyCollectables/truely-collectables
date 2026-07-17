@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { addAdminHandoff, ADMIN_HANDOFF_PARAM } from "../../../../../../lib/admin-handoff";
-import { getMarketIntelCompDetail } from "../../../../../../lib/market-intel-comps";
+import { addAdminHandoff, ADMIN_HANDOFF_PARAM } from "../../../../../lib/admin-handoff";
+import { getMarketIntelCompDetail } from "../../../../../lib/market-intel-comps";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
