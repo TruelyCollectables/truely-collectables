@@ -35,6 +35,12 @@ let ebayAppTokenCache:
       expiresAt: number;
     }
   | null = null;
+let ebayStoreTokenCache:
+  | {
+      token: string;
+      expiresAt: number;
+    }
+  | null = null;
 
 function getSupabaseClient() {
   return createSupabaseServerClient({ admin: true });
@@ -138,6 +144,63 @@ async function getEbayAppToken() {
   return ebayAppTokenCache.token;
 }
 
+async function getEbayStoreAccessToken(storeId: string) {
+  if (ebayStoreTokenCache && ebayStoreTokenCache.expiresAt > Date.now()) {
+    return ebayStoreTokenCache.token;
+  }
+
+  if (!process.env.EBAY_CLIENT_ID || !process.env.EBAY_CLIENT_SECRET) {
+    return null;
+  }
+
+  const supabase = getSupabaseClient();
+  const { data, error } = await supabase
+    .from("ebay_tokens")
+    .select("refresh_token")
+    .eq("store_id", storeId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .single();
+
+  if (error || !data?.refresh_token) {
+    return null;
+  }
+
+  const credentials = Buffer.from(
+    `${process.env.EBAY_CLIENT_ID}:${process.env.EBAY_CLIENT_SECRET}`,
+  ).toString("base64");
+  const response = await fetch("https://api.ebay.com/identity/v1/oauth2/token", {
+    method: "POST",
+    headers: {
+      Authorization: `Basic ${credentials}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: new URLSearchParams({
+      grant_type: "refresh_token",
+      refresh_token: String(data.refresh_token),
+      scope: "https://api.ebay.com/oauth/api_scope/sell.inventory",
+    }),
+  });
+  const tokenData = await response.json().catch(() => ({}));
+
+  if (!response.ok || !tokenData.access_token) {
+    ebayStoreTokenCache = null;
+    return null;
+  }
+
+  const expiresInSeconds = Number(tokenData.expires_in || 0);
+  ebayStoreTokenCache = {
+    token: String(tokenData.access_token),
+    expiresAt:
+      Date.now() +
+      (Number.isFinite(expiresInSeconds) && expiresInSeconds > 120
+        ? (expiresInSeconds - 60) * 1000
+        : 30 * 60 * 1000),
+  };
+
+  return ebayStoreTokenCache.token;
+}
+
 async function fetchEbaySnapshot(ebayItemId: string) {
   const token = await getEbayAppToken();
 
@@ -157,12 +220,30 @@ async function fetchEbaySnapshot(ebayItemId: string) {
     const data = await response.json().catch(() => ({}));
 
     if (response.ok) {
+      const availability = Array.isArray(data.estimatedAvailabilities)
+        ? data.estimatedAvailabilities[0]
+        : null;
+      const availableQuantity = Math.max(
+        0,
+        Math.floor(
+          Number(
+            availability?.estimatedAvailableQuantity ??
+              availability?.estimatedRemainingQuantity ??
+              0,
+          ),
+        ),
+      );
+
       return {
         title: cleanText(data.title),
         imageUrl:
           cleanText(data.image?.imageUrl) ||
           cleanText(data.thumbnailImages?.[0]?.imageUrl),
         price: moneyNumber(data.price?.value),
+        availabilityStatus: cleanText(availability?.estimatedAvailabilityStatus),
+        availableQuantity,
+        soldQuantity: moneyNumber(availability?.estimatedSoldQuantity),
+        itemEndDate: cleanText(data.itemEndDate),
       };
     }
   }
@@ -186,6 +267,12 @@ async function fetchEbaySnapshot(ebayItemId: string) {
   const picture = Array.isArray(item.PictureURL)
     ? item.PictureURL[0]
     : item.PictureURL;
+  const quantity = Math.max(
+    0,
+    Math.floor(
+      Number(item.Quantity || 0) - Math.max(0, Math.floor(Number(item.QuantitySold || 0))),
+    ),
+  );
 
   if (!response.ok || !item.ItemID) {
     return null;
@@ -197,7 +284,193 @@ async function fetchEbaySnapshot(ebayItemId: string) {
     price: moneyNumber(
       item.ConvertedCurrentPrice?.Value ?? item.CurrentPrice?.Value,
     ),
+    availabilityStatus:
+      cleanText(item.ListingStatus) === "Active" && quantity > 0
+        ? "IN_STOCK"
+        : cleanText(item.ListingStatus),
+    availableQuantity: quantity,
+    soldQuantity: moneyNumber(item.QuantitySold),
+    itemEndDate: cleanText(item.EndTime),
   };
+}
+
+type EbaySaleability = {
+  saleable: boolean;
+  quantity: number | null;
+  price: number | null;
+  source: "seller_inventory" | "browse";
+  reasons: string[];
+  offerStatus?: string | null;
+  listingStatus?: string | null;
+};
+
+function saleabilityFromSnapshot(
+  snapshot: Awaited<ReturnType<typeof fetchEbaySnapshot>> | null,
+): EbaySaleability | null {
+  if (!snapshot) return null;
+
+  const quantity = Math.max(0, Math.floor(Number(snapshot.availableQuantity || 0)));
+  const saleable = snapshot.availabilityStatus === "IN_STOCK" && quantity > 0;
+  const reasons: string[] = [];
+
+  if (!saleable) {
+    reasons.push(
+      snapshot.availabilityStatus
+        ? `browse_${snapshot.availabilityStatus.toLowerCase()}`
+        : "browse_not_confirmed_in_stock",
+    );
+    if (quantity <= 0) reasons.push("sold_or_zero_quantity");
+  }
+
+  return {
+    saleable,
+    quantity: saleable ? quantity : 0,
+    price: snapshot.price > 0 ? snapshot.price : null,
+    source: "browse",
+    reasons,
+  };
+}
+
+async function fetchSellerInventorySaleability(params: {
+  storeId: string;
+  sku: string;
+  ebayItemId: string | null;
+}): Promise<EbaySaleability | null> {
+  const accessToken = await getEbayStoreAccessToken(params.storeId);
+
+  if (!accessToken || !params.sku) return null;
+
+  const headers = {
+    Authorization: `Bearer ${accessToken}`,
+    "Content-Type": "application/json",
+    "Accept-Language": "en-US",
+  };
+  const itemResponse = await fetch(
+    `https://api.ebay.com/sell/inventory/v1/inventory_item/${encodeURIComponent(params.sku)}`,
+    { headers },
+  );
+
+  if (itemResponse.status === 404) return null;
+
+  const itemData = await itemResponse.json().catch(() => ({}));
+
+  if (!itemResponse.ok) return null;
+
+  const quantityNumber = Number(
+    itemData?.availability?.shipToLocationAvailability?.quantity,
+  );
+  const quantity =
+    Number.isFinite(quantityNumber) && quantityNumber >= 0
+      ? Math.floor(quantityNumber)
+      : null;
+  const offerResponse = await fetch(
+    `https://api.ebay.com/sell/inventory/v1/offer?sku=${encodeURIComponent(params.sku)}`,
+    { headers },
+  );
+  const offerData = await offerResponse.json().catch(() => ({}));
+
+  if (!offerResponse.ok) {
+    return {
+      saleable: false,
+      quantity,
+      price: null,
+      source: "seller_inventory",
+      reasons: [`offer_lookup_failed_${offerResponse.status}`],
+    };
+  }
+
+  const offers = Array.isArray(offerData?.offers) ? offerData.offers : [];
+  const matchingOffer = params.ebayItemId
+    ? offers.find(
+        (offer: any) =>
+          String(offer?.listing?.listingId || "") === params.ebayItemId,
+      )
+    : null;
+  const offer = matchingOffer || offers[0] || null;
+  const offerStatus = offer?.status ? String(offer.status) : null;
+  const listingStatus = offer?.listing?.listingStatus
+    ? String(offer.listing.listingStatus)
+    : null;
+  const listingId = offer?.listing?.listingId
+    ? String(offer.listing.listingId)
+    : null;
+  const listingOnHold = offer?.listing?.listingOnHold === true;
+  const listingMismatch = Boolean(
+    listingId && params.ebayItemId && listingId !== params.ebayItemId,
+  );
+  const saleable =
+    quantity !== null &&
+    quantity > 0 &&
+    offerStatus === "PUBLISHED" &&
+    listingStatus === "ACTIVE" &&
+    !listingOnHold &&
+    !listingMismatch;
+  const reasons: string[] = [];
+
+  if (offers.length === 0) reasons.push("offer_not_found");
+  if (quantity !== null && quantity <= 0) reasons.push("sold_or_zero_quantity");
+  if (offerStatus && offerStatus !== "PUBLISHED") {
+    reasons.push(`offer_${offerStatus.toLowerCase()}`);
+  }
+  if (listingStatus && listingStatus !== "ACTIVE") {
+    reasons.push(`listing_${listingStatus.toLowerCase()}`);
+  }
+  if (listingOnHold) reasons.push("listing_on_hold");
+  if (listingMismatch) reasons.push("listing_id_mismatch");
+
+  return {
+    saleable,
+    quantity,
+    price: moneyNumber(offer?.pricingSummary?.price?.value) || null,
+    source: "seller_inventory",
+    reasons,
+    offerStatus,
+    listingStatus,
+  };
+}
+
+async function resolveEbaySaleability(params: {
+  storeId: string;
+  sku: string;
+  ebayItemId: string | null;
+  snapshot: Awaited<ReturnType<typeof fetchEbaySnapshot>> | null;
+}) {
+  const sellerSaleability = await fetchSellerInventorySaleability({
+    storeId: params.storeId,
+    sku: params.sku,
+    ebayItemId: params.ebayItemId,
+  });
+
+  if (sellerSaleability) return sellerSaleability;
+
+  return saleabilityFromSnapshot(params.snapshot);
+}
+
+async function markProductInactiveFromEbay(params: {
+  product: ProductRow;
+  storeId: string;
+}) {
+  const supabase = getSupabaseClient();
+  const now = new Date().toISOString();
+
+  await supabase
+    .from("products")
+    .update({
+      quantity: 0,
+      last_seen_at: now,
+    })
+    .eq("store_id", params.storeId)
+    .eq("id", params.product.id);
+
+  await supabase
+    .from("inventory_items")
+    .update({
+      quantity: 0,
+      status: "sold",
+      updated_at: now,
+    })
+    .eq("store_id", params.storeId)
+    .eq("legacy_product_id", params.product.id);
 }
 
 async function repairProductForLive(product: ProductRow) {
@@ -206,11 +479,38 @@ async function repairProductForLive(product: ProductRow) {
   const ebayItemId = cleanText(product.ebay_item_id);
   const snapshot = ebayItemId ? await fetchEbaySnapshot(ebayItemId) : null;
   const sku = generatedSku(product);
+  const saleability = await resolveEbaySaleability({
+    storeId,
+    sku,
+    ebayItemId,
+    snapshot,
+  });
+
+  if (!saleability?.saleable) {
+    const reasons = saleability?.reasons?.length
+      ? saleability.reasons
+      : ["ebay_not_confirmed_for_sale"];
+    await markProductInactiveFromEbay({
+      product,
+      storeId,
+    });
+    throw new Error(`eBay listing is not currently for sale: ${reasons.join(", ")}`);
+  }
+
   const title = snapshot?.title || product.title || "Untitled eBay listing";
   const snapshotPrice = moneyNumber(snapshot?.price);
-  const price = snapshotPrice > 0 ? snapshotPrice : moneyNumber(product.price);
+  const saleabilityPrice = moneyNumber(saleability.price);
+  const price =
+    saleabilityPrice > 0
+      ? saleabilityPrice
+      : snapshotPrice > 0
+        ? snapshotPrice
+        : moneyNumber(product.price);
   const imageUrl = snapshot?.imageUrl || cleanText(product.image_url);
-  const quantity = Math.max(0, Number(product.quantity || 0));
+  const quantity = Math.max(
+    0,
+    Math.floor(Number(saleability.quantity ?? product.quantity ?? 0)),
+  );
   const now = new Date().toISOString();
 
   if (!imageUrl) {
@@ -260,7 +560,7 @@ async function repairProductForLive(product: ProductRow) {
     legacyProductId: item.legacyProductId,
     inventoryItemId: item.inventoryItemId,
     imageRefreshed: Boolean(snapshot?.imageUrl),
-    priceRefreshed: snapshotPrice > 0,
+    priceRefreshed: saleabilityPrice > 0 || snapshotPrice > 0,
   };
 }
 
