@@ -14,7 +14,14 @@ function label(value: string | null | undefined) {
 }
 
 export default async function MarketIntelPurchaseLedgerPage() {
-  const rows = await getMarketIntelPurchaseLedger();
+  let rows;
+
+  try {
+    rows = await getMarketIntelPurchaseLedger();
+  } catch (error) {
+    return <MarketIntelRuntimeError error={error} />;
+  }
+
   const totals = rows.reduce(
     (sum, row) => {
       sum.invested += Number(row.lot.total_acquisition_cost || 0);
@@ -116,7 +123,7 @@ export default async function MarketIntelPurchaseLedgerPage() {
                         </td>
                         <td className="px-5 py-4">{money(lot.unit_cost_basis)}</td>
                         <td className="px-5 py-4">
-                          {performance?.quantity_sold || 0} / {" "}
+                          {performance?.quantity_sold || 0} /{" "}
                           {performance?.quantity_remaining ?? lot.quantity_purchased}
                         </td>
                         <td className="px-5 py-4">
@@ -137,7 +144,8 @@ export default async function MarketIntelPurchaseLedgerPage() {
                                       performance?.dollars_to_cash_break_even || 0,
                                     ),
                                   ),
-                                )} left
+                                )}{" "}
+                                left
                               </span>
                             </div>
                             <div className="h-2 rounded-full bg-neutral-200">
@@ -156,6 +164,49 @@ export default async function MarketIntelPurchaseLedgerPage() {
             </div>
           )}
         </section>
+      </div>
+    </main>
+  );
+}
+
+function MarketIntelRuntimeError({ error }: { error: unknown }) {
+  const serviceKeyPresent = Boolean(
+    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim(),
+  );
+  const message = error instanceof Error ? error.message : "Unknown database error";
+
+  return (
+    <main className="min-h-screen bg-[#f4f1ea] px-6 py-10 text-neutral-950">
+      <div className="mx-auto max-w-3xl rounded-xl border border-rose-300 bg-white p-6 shadow-sm">
+        <p className="text-xs font-black uppercase tracking-[0.2em] text-rose-700">
+          TCOS Market Intel™ Beta One
+        </p>
+        <h1 className="mt-2 text-3xl font-black">Ledger connection failed</h1>
+        <p className="mt-3 font-semibold text-neutral-700">
+          The application deployed correctly, but the server could not read the private
+          Market Intel database tables.
+        </p>
+        <dl className="mt-6 space-y-3 rounded-lg bg-neutral-100 p-4 text-sm">
+          <div className="flex justify-between gap-4">
+            <dt className="font-black">Server Supabase key present</dt>
+            <dd>{serviceKeyPresent ? "YES" : "NO"}</dd>
+          </div>
+          <div>
+            <dt className="font-black">Database response</dt>
+            <dd className="mt-1 break-words font-mono text-xs text-rose-800">{message}</dd>
+          </div>
+        </dl>
+        <p className="mt-5 text-sm font-semibold text-neutral-700">
+          Apply the Beta One service-role grant migration and confirm
+          SUPABASE_SERVICE_ROLE_KEY is set in the Vercel Production environment, then
+          redeploy.
+        </p>
+        <Link
+          href="/admin"
+          className="mt-6 inline-block rounded-md bg-black px-4 py-2 font-black text-white"
+        >
+          Back to Admin
+        </Link>
       </div>
     </main>
   );
