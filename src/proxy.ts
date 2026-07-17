@@ -208,9 +208,14 @@ export async function proxy(req: NextRequest) {
     const adminHandoff = req.nextUrl.searchParams.get("admin_handoff");
 
     if (adminHandoff && (await isValidAdminSessionValue(adminHandoff))) {
-      const url = req.nextUrl.clone();
-      url.searchParams.delete("admin_handoff");
-      const response = NextResponse.redirect(url, 303);
+      const isSafeRedirectMethod = req.method === "GET" || req.method === "HEAD";
+      const response = isSafeRedirectMethod
+        ? (() => {
+            const url = req.nextUrl.clone();
+            url.searchParams.delete("admin_handoff");
+            return NextResponse.redirect(url, 303);
+          })()
+        : NextResponse.next();
 
       appendAdminSessionCookies(
         response.headers,

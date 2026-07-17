@@ -7,6 +7,7 @@ import {
   authenticityStatusLabel,
   autographSourceLabel,
 } from "../../../../lib/authenticity";
+import { createAdminSessionValue } from "../../../../lib/admin-session";
 import { createServerInventoryEngine } from "../../../../lib/server-inventory-engine";
 import type { InventoryStatus } from "../../../../modules/inventory";
 import { getSalesCompHistory, getSalesComps } from "../../../../lib/ebay";
@@ -114,6 +115,7 @@ export default async function AdminProductEditPage({
   const { id } = await params;
   const query = await searchParams;
   const adminInventoryEngine = createServerInventoryEngine();
+  const adminHandoff = await createAdminSessionValue();
   const product = await adminInventoryEngine.getByLegacyProductId(Number(id));
 
   if (!product) {
@@ -182,7 +184,9 @@ export default async function AdminProductEditPage({
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
         <section className="lg:col-span-2">
           <form
-            action={`/api/admin/products/${product.legacyProductId}/save`}
+            action={`/api/admin/products/${product.legacyProductId}/save?admin_handoff=${encodeURIComponent(
+              adminHandoff,
+            )}`}
             method="post"
             className="space-y-4"
           >
