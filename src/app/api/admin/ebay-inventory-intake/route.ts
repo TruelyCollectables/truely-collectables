@@ -309,6 +309,32 @@ function mapIntakeRow(product: ProductRow, inventory: InventoryRow | null) {
   };
 }
 
+async function fetchInventoryRowsForProductIds(
+  supabase: ReturnType<typeof getSupabaseClient>,
+  storeId: string,
+  productIds: number[],
+) {
+  const rows: InventoryRow[] = [];
+
+  for (let index = 0; index < productIds.length; index += 100) {
+    const batch = productIds.slice(index, index + 100);
+
+    if (batch.length === 0) continue;
+
+    const { data, error } = await supabase
+      .from("inventory_items")
+      .select("id,legacy_product_id,category,status,quantity,price,metadata,updated_at")
+      .eq("store_id", storeId)
+      .in("legacy_product_id", batch)
+      .range(0, 4999);
+
+    if (error) throw error;
+    rows.push(...((data || []) as InventoryRow[]));
+  }
+
+  return rows;
+}
+
 export async function GET() {
   const supabase = getSupabaseClient();
   const storeId = getActiveStoreId();
@@ -332,26 +358,23 @@ export async function GET() {
 
   const productRows = (products || []) as ProductRow[];
   const productIds = productRows.map((product) => product.id);
-  const { data: inventoryRows, error: inventoryError } =
-    productIds.length === 0
-      ? { data: [], error: null }
-      : await supabase
-          .from("inventory_items")
-          .select("id,legacy_product_id,category,status,quantity,price,metadata,updated_at")
-          .eq("store_id", storeId)
-          .in("legacy_product_id", productIds)
-          .range(0, 4999);
+  let inventoryRows: InventoryRow[] = [];
 
-  if (inventoryError) {
+  try {
+    inventoryRows =
+      productIds.length === 0
+        ? []
+        : await fetchInventoryRowsForProductIds(supabase, storeId, productIds);
+  } catch (inventoryError: any) {
     return Response.json(
-      { success: false, error: inventoryError.message },
+      { success: false, error: inventoryError.message || "Inventory lookup failed." },
       { status: 500 },
     );
   }
 
   const inventoryByProductId = new Map<number, InventoryRow>();
 
-  for (const row of (inventoryRows || []) as InventoryRow[]) {
+  for (const row of inventoryRows) {
     if (row.legacy_product_id) {
       inventoryByProductId.set(Number(row.legacy_product_id), row);
     }
@@ -423,26 +446,27 @@ export async function POST(request: Request) {
   }
 
   const productRows = (products || []) as ProductRow[];
-  const { data: inventoryRows, error: inventoryError } =
-    productRows.length === 0
-      ? { data: [], error: null }
-      : await supabase
-          .from("inventory_items")
-          .select("id,legacy_product_id,category,status,quantity,price,metadata,updated_at")
-          .eq("store_id", storeId)
-          .in("legacy_product_id", productRows.map((product) => product.id))
-          .range(0, 4999);
+  let inventoryRows: InventoryRow[] = [];
 
-  if (inventoryError) {
+  try {
+    inventoryRows =
+      productRows.length === 0
+        ? []
+        : await fetchInventoryRowsForProductIds(
+            supabase,
+            storeId,
+            productRows.map((product) => product.id),
+          );
+  } catch (inventoryError: any) {
     return Response.json(
-      { success: false, error: inventoryError.message },
+      { success: false, error: inventoryError.message || "Inventory lookup failed." },
       { status: 500 },
     );
   }
 
   const inventoryByProductId = new Map<number, InventoryRow>();
 
-  for (const row of (inventoryRows || []) as InventoryRow[]) {
+  for (const row of inventoryRows) {
     if (row.legacy_product_id) {
       inventoryByProductId.set(Number(row.legacy_product_id), row);
     }
