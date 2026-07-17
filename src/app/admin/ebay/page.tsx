@@ -171,10 +171,10 @@ export default async function AdminEbayPage({
             <div className="flex min-w-[280px] flex-col gap-2">
               {storeSettings.ebaySyncEnabled && hasEbayRefreshToken ? (
                 <Link
-                  href="/api/ebay/full-sync?limit=100&maxBatches=25"
+                  href="/admin/ebay/import-runner"
                   className="rounded-xl bg-neutral-950 px-6 py-4 text-center text-base font-black uppercase tracking-[0.08em] text-white hover:bg-neutral-800"
                 >
-                  Import ALL eBay Now
+                  Open eBay Import Runner
                 </Link>
               ) : storeSettings.ebaySyncEnabled ? (
                 <Link
