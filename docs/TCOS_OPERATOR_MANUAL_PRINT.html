@@ -141,7 +141,7 @@
 </head>
 <body>
   <div class="page-watermark">Property of Dag Danky Holdings LLC.</div>
-  <div class="print-meta">Generated 2026-07-16 from docs/TCOS_OPERATOR_MANUAL.md</div>
+  <div class="print-meta">Generated 2026-07-17 from docs/TCOS_OPERATOR_MANUAL.md</div>
   <h1>Totally Collectibles OS Operator Manual</h1>
 <p>Copyright 2026 Dag Danky Holdings LLC. All rights reserved.</p>
 <p>Authored by David Bakanas.</p>
@@ -149,7 +149,7 @@
 <p>Software platform: Totally Collectibles OS (TCOS).</p>
 <p>Main TCOS website/domain: TotallyCollectibles.com.</p>
 <p>Flagship store / Store #1: Truely Collectables.</p>
-<p>Last updated: 2026-07-15 21:49 MDT / 2026-07-16 03:49 UTC</p>
+<p>Last updated: 2026-07-17 09:48 MDT / 2026-07-17 15:48 UTC</p>
 <p>This is the working manual for Totally Collectibles OS (TCOS). It must stay current as features are added.</p>
 <p>This revision includes the durable InstaComp™ batch queue and PaddleOCR worker, faster InstaComp™ image preparation and five-card queue claim mini-packs, database-pressure pause/governor behavior, 45-degree local image rotation and thumbnail zoom review, graded-slab certification capture, slab-cert comp search weighting, collection pickup/card-show collector-reported comp capture, InstaComp™-to-seller-draft handoff, InstaComp™-to-Available-for-Trade handoff, seller inventory InstaComp™ lane, seller marketplace export packets, seller eBay staging and reconciliation, Stripe payment reliability controls, seller payout guards, shipping/coverage operations, and complete laptop-failure disaster recovery. Procedures labeled <code>dry run</code>, <code>draft</code>, <code>review</code>, <code>export</code>, or <code>not configured</code> are not production completion claims.</p>
 <h2>Deterministic Application Fonts</h2>
@@ -575,6 +575,10 @@
 <td>Store eBay connection and import operations</td>
 </tr>
 <tr>
+<td><code>/admin/ebay/inventory-intake</code></td>
+<td>Simple eBay listing intake table for editing, repricing, InstaComp™ checks, promos, and push-live work</td>
+</tr>
+<tr>
 <td><code>/admin/ebay/sync-control</code></td>
 <td>Controlled eBay batch sync launcher</td>
 </tr>
@@ -641,6 +645,10 @@
 <tr>
 <td><code>/api/admin/payment-simulations/checkout-e2e</code></td>
 <td>Runs the isolated storefront checkout end-to-end drill</td>
+</tr>
+<tr>
+<td><code>/api/admin/products/[id]/save</code></td>
+<td>Stable admin product save endpoint used by the product edit form; redirects back to the product edit page with <code>saved=1</code> or <code>saveError</code></td>
 </tr>
 <tr>
 <td><code>/api/admin/financial-reconciliation</code></td>
@@ -1118,7 +1126,557 @@ supabase/migrations/20260628113000_create_store_settings.sql</code></pre>
 <li>Updates V2 title/description/category/status/quantity/price.</li>
 <li>If image URL changed, adds a new primary <code>inventory_images</code> row.</li>
 <li>Publishes an in-memory inventory event.</li>
+<li>Redirects back to <code>/admin/products/[id]?saved=1</code> when the save succeeds.</li>
+<li>Redirects back with <code>saveError</code> when the save fails, so the operator sees the reason instead of landing on a blank 404 page.</li>
 </ol>
+<p>The edit form posts through the stable route:</p>
+<pre><code>/api/admin/products/[id]/save</code></pre>
+<p>This route exists so an old browser tab or deploy refresh does not leave the Save Product button pointing at a stale server-action URL. If an operator had the edit page open before a deploy, refresh the edit page once before saving.</p>
+<h2>7A. Plain-English Card Listing And InstaComp™ Workflow</h2>
+<p>This section is the operator hand-holding path. Use it when training a new person, recovering from confusion, or checking a card lot fast without trusting memory.</p>
+<p>Main rule:</p>
+<p>Do not make a card live unless the photo, title, price, quantity, and status all make sense. InstaComp™ helps; the operator still approves.</p>
+<h3>The four pages operators use most</h3>
+<table>
+<thead><tr>
+<th>Page</th>
+<th>Use it when</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><code>/admin</code></td>
+<td>You need the main command center and shortcuts.</td>
+</tr>
+<tr>
+<td><code>/admin/ebay/inventory-intake</code></td>
+<td>You imported eBay listings and want the clean working table. This is the normal daily card-listing page.</td>
+</tr>
+<tr>
+<td><code>/admin/products/[id]</code></td>
+<td>You need to edit one product's title, price, quantity, image URL, status, description, authenticity, or comps.</td>
+</tr>
+<tr>
+<td><code>/admin/instacomp</code></td>
+<td>You want the full InstaComp™ scan lab for card photos, batch scans, saved lots, corrections, draft creation, or TCOS Card DB processing.</td>
+</tr>
+</tbody></table>
+<h3>If the card already came from eBay</h3>
+<p>Use this path for listings imported from the Truely Collectables eBay account.</p>
+<ol>
+<li>Open:</li>
+</ol>
+<pre><code>/admin/ebay/inventory-intake</code></pre>
+<ol>
+<li>Look at the top summary cards:</li>
+</ol>
+<ul>
+<li><code>For Sale Rows</code> means rows TCOS thinks are still sellable.</li>
+<li><code>Needs Help</code> means something is missing or questionable.</li>
+<li><code>Ready To Push</code> means the row looks ready for TCOS activation.</li>
+<li><code>Live</code> means it is already active on the TCOS storefront.</li>
+<li><code>Value</code> is the working value of the visible imported inventory.</li>
+</ul>
+<ol>
+<li>Use the search box if you need one card:</li>
+</ol>
+<ul>
+<li>search by player</li>
+<li>search by set</li>
+<li>search by SKU</li>
+<li>search by eBay item ID</li>
+<li>search by words in the title</li>
+</ul>
+<ol>
+<li>Use the filter buttons:</li>
+</ol>
+<ul>
+<li><code>All for sale</code>: show everything TCOS thinks is sellable.</li>
+<li><code>Needs help</code>: show rows with missing image, SKU, price, quantity, V2 bridge, or other blockers.</li>
+<li><code>Ready to push</code>: show rows that can probably go live.</li>
+<li><code>Live</code>: show rows already active on TCOS.</li>
+</ul>
+<ol>
+<li>Review one row:</li>
+</ol>
+<ul>
+<li>check the thumbnail</li>
+<li>check the title</li>
+<li>check the price</li>
+<li>check the quantity</li>
+<li>check the status badge</li>
+<li>check the <code>Needs</code> badges</li>
+</ul>
+<ol>
+<li>If the picture or price looks stale, check the row box and click:</li>
+</ol>
+<pre><code>Refresh Current eBay Price + Pictures</code></pre>
+<p>Use this before editing when the imported price or image looks wrong.</p>
+<ol>
+<li>If the card looks underpriced, overpriced, or questionable, click the row button:</li>
+</ol>
+<pre><code>InstaComp™ Reprice</code></pre>
+<p>This reprices one card from the working table.</p>
+<ol>
+<li>If several cards need pricing help:</li>
+</ol>
+<ul>
+<li>check each card box</li>
+<li>or click <code>Select All Showing</code></li>
+<li>or click <code>Select Needs Help</code></li>
+<li>click <code>InstaComp™ Reprice Selected</code></li>
+</ul>
+<ol>
+<li>If the card needs manual editing, click:</li>
+</ol>
+<pre><code>Edit</code></pre>
+<p>This opens <code>/admin/products/[id]</code>.</p>
+<ol>
+<li>If the row is good and should go live on TCOS:</li>
+</ol>
+<ul>
+<li>check the row box</li>
+<li>click <code>Repair + Push Selected Live</code></li>
+<li>wait for the table to refresh</li>
+<li>verify the row moves to <code>Live</code></li>
+</ul>
+<ol>
+<li>If you want to run a sale:</li>
+</ol>
+<ul>
+<li>check the row boxes</li>
+<li>enter <code>% off</code></li>
+<li>optionally check <code>Free shipping</code></li>
+<li>click <code>Apply Promo</code></li>
+</ul>
+<ol>
+<li>If you want to remove a sale:</li>
+</ol>
+<ul>
+<li>check the row boxes</li>
+<li>click <code>Clear Promo</code></li>
+</ul>
+<h3>If the card is not on eBay yet</h3>
+<p>Use this path when adding a brand-new card manually or from photos.</p>
+<ol>
+<li>Open:</li>
+</ol>
+<pre><code>/admin/products/new</code></pre>
+<ol>
+<li>If you have front/back card photos, use the InstaComp™ scanner at the top.</li>
+</ol>
+<ol>
+<li>If you already know the card exactly and only need a simple product, use the manual product form.</li>
+</ol>
+<ol>
+<li>For manual entry, fill:</li>
+</ol>
+<ul>
+<li><code>Title</code></li>
+<li><code>Player</code></li>
+<li><code>Sport</code></li>
+<li><code>Price</code></li>
+<li><code>Quantity</code></li>
+<li><code>Image URL</code></li>
+<li><code>Description</code></li>
+</ul>
+<ol>
+<li>If you do not have a polished description, leave <code>Description</code> blank. TCOS can auto-fill one from the product data.</li>
+</ol>
+<ol>
+<li>Save the product.</li>
+</ol>
+<ol>
+<li>Open:</li>
+</ol>
+<pre><code>/admin/products</code></pre>
+<ol>
+<li>Find the product and click <code>Edit</code>.</li>
+</ol>
+<ol>
+<li>Confirm:</li>
+</ol>
+<ul>
+<li>title is not duplicated</li>
+<li>price is positive</li>
+<li>quantity is correct</li>
+<li>image URL works</li>
+<li>status is <code>active</code> only if the item is ready to sell</li>
+<li>description does not claim facts that are not proven</li>
+</ul>
+<h3>How to edit one card price</h3>
+<ol>
+<li>Open:</li>
+</ol>
+<pre><code>/admin/ebay/inventory-intake</code></pre>
+<ol>
+<li>Find the card.</li>
+</ol>
+<ol>
+<li>Click:</li>
+</ol>
+<pre><code>Edit</code></pre>
+<ol>
+<li>On the edit page, change:</li>
+</ol>
+<pre><code>Price</code></pre>
+<ol>
+<li>Check <code>Quantity</code>.</li>
+</ol>
+<ol>
+<li>Check <code>Status</code>.</li>
+</ol>
+<ol>
+<li>Click:</li>
+</ol>
+<pre><code>Save Product</code></pre>
+<ol>
+<li>Confirm the green message appears:</li>
+</ol>
+<pre><code>Product saved.</code></pre>
+<ol>
+<li>If the page shows <code>Save failed</code>, read the message and fix that field before trying again.</li>
+</ol>
+<ol>
+<li>If the browser lands on a 404 after save, refresh the edit page from the inventory table and try again. This should not happen with the stable save endpoint; if it does, capture the URL in the address bar and check production deploy status.</li>
+</ol>
+<h3>How to use InstaComp™ on one imported card</h3>
+<p>Use this when you want TCOS to check whether your eBay price is attractive.</p>
+<ol>
+<li>Open:</li>
+</ol>
+<pre><code>/admin/ebay/inventory-intake</code></pre>
+<ol>
+<li>Find the row.</li>
+</ol>
+<ol>
+<li>Click:</li>
+</ol>
+<pre><code>InstaComp™ Reprice</code></pre>
+<ol>
+<li>Wait for the button to finish.</li>
+</ol>
+<ol>
+<li>Check the row price area.</li>
+</ol>
+<ol>
+<li>If InstaComp™ found a suggestion, the row shows:</li>
+</ol>
+<pre><code>InstaComp™ $X.XX · N comps</code></pre>
+<ol>
+<li>If the new price is acceptable, no more action is needed.</li>
+</ol>
+<ol>
+<li>If the card needs more review, click <code>Edit</code> and inspect the product page.</li>
+</ol>
+<ol>
+<li>If the card is wrong or the comps are weak, open the full scanner:</li>
+</ol>
+<pre><code>/admin/instacomp</code></pre>
+<p>Then scan the physical card front/back instead of relying only on the imported eBay title.</p>
+<h3>How to use InstaComp™ on a lot of imported cards</h3>
+<p>Use this when you imported a large eBay batch and want pricing checked quickly.</p>
+<ol>
+<li>Open:</li>
+</ol>
+<pre><code>/admin/ebay/inventory-intake</code></pre>
+<ol>
+<li>Choose the filter:</li>
+</ol>
+<ul>
+<li>use <code>Ready to push</code> if you want fast pricing checks on clean rows</li>
+<li>use <code>Needs help</code> if you want to focus on problem rows</li>
+<li>use <code>All for sale</code> if you want everything visible</li>
+</ul>
+<ol>
+<li>Click:</li>
+</ol>
+<pre><code>Select All Showing</code></pre>
+<ol>
+<li>If the selection is too broad, click <code>Clear</code>, then check only the rows you want.</li>
+</ol>
+<ol>
+<li>Click:</li>
+</ol>
+<pre><code>InstaComp™ Reprice Selected</code></pre>
+<ol>
+<li>Wait. Do not keep clicking the same button while the rows are repricing.</li>
+</ol>
+<ol>
+<li>When the table refreshes, check prices and <code>Needs</code> badges.</li>
+</ol>
+<ol>
+<li>Use <code>Edit</code> on any row that still looks wrong.</li>
+</ol>
+<ol>
+<li>Push live only after the selected rows look right.</li>
+</ol>
+<h3>How to scan physical card photos with InstaComp™</h3>
+<p>Use this when the title is unknown, the card is a parallel/insert, the eBay title is bad, or the card is not listed anywhere yet.</p>
+<ol>
+<li>Open:</li>
+</ol>
+<pre><code>/admin/instacomp</code></pre>
+<ol>
+<li>Put image files in upload order.</li>
+</ol>
+<p>Best naming:</p>
+<pre><code>001-front.jpg
+001-back.jpg
+002-front.jpg
+002-back.jpg</code></pre>
+<ol>
+<li>Drop the files into the scanner.</li>
+</ol>
+<ol>
+<li>Check the displayed front/back pairing before running.</li>
+</ol>
+<ol>
+<li>If a pair is backwards, use:</li>
+</ol>
+<pre><code>Swap Front/Back</code></pre>
+<ol>
+<li>If a photo is sideways, use the rotate buttons before retrying the row.</li>
+</ol>
+<ol>
+<li>If you need a bigger look, click the thumbnail/zoom review.</li>
+</ol>
+<ol>
+<li>Click:</li>
+</ol>
+<pre><code>Run Batch InstaComp™</code></pre>
+<ol>
+<li>Keep the browser tab open.</li>
+</ol>
+<ol>
+<li>Wait until the rows are done, review-required, or failed.</li>
+</ol>
+<ol>
+<li>For each completed row, verify:</li>
+</ol>
+<ul>
+<li>player/subject</li>
+<li>year</li>
+<li>brand/manufacturer</li>
+<li>set name</li>
+<li>card number</li>
+<li>parallel or insert name</li>
+<li>serial number, if any</li>
+<li>slab grader and cert number, if graded</li>
+<li>title</li>
+<li>market price</li>
+<li>listing price</li>
+<li>front/back photos</li>
+</ul>
+<ol>
+<li>If serial number is wrong or missing:</li>
+</ol>
+<ul>
+<li>edit the <code>Serial #</code> field</li>
+<li>leave it blank if the card is not serial-numbered</li>
+<li>click <code>Save Corrections</code></li>
+</ul>
+<ol>
+<li>If the row needs fresh comps after a correction, click:</li>
+</ol>
+<pre><code>Refresh Comps</code></pre>
+<ol>
+<li>If the row is wrong, check the row as wrong/needs info and correct the fields before saving.</li>
+</ol>
+<ol>
+<li>After review, click:</li>
+</ol>
+<pre><code>Save Corrections</code></pre>
+<p>or:</p>
+<pre><code>Save Selected Corrections</code></pre>
+<ol>
+<li>When the lot is reviewed and correct, click:</li>
+</ol>
+<pre><code>Process Saved Lot to TCOS DB</code></pre>
+<p>This stores the confirmed card knowledge. A card identity does not become fully trusted until it has been confirmed three times.</p>
+<ol>
+<li>If you want to sell the card, create/send it to seller drafts.</li>
+</ol>
+<ol>
+<li>If you want to trade the card instead, click:</li>
+</ol>
+<pre><code>Add to Available for Trade</code></pre>
+<p>Do not create both a sell draft and a trade item for the same scan row.</p>
+<h3>How to make sure a Pokémon card or non-sports card can still be found</h3>
+<p>The same operator pattern applies even when the card is Pokémon, TCG, or another collectable card type.</p>
+<ol>
+<li>Search the inventory intake table by the strongest visible words:</li>
+</ol>
+<ul>
+<li>character name</li>
+<li>card name</li>
+<li>set name</li>
+<li>card number</li>
+<li>grading company</li>
+<li>cert number</li>
+<li>eBay item ID</li>
+<li>SKU</li>
+</ul>
+<ol>
+<li>If search does not find it, open:</li>
+</ol>
+<pre><code>/admin/products</code></pre>
+<ol>
+<li>Search or scroll the product list.</li>
+</ol>
+<ol>
+<li>If it still cannot be found, open:</li>
+</ol>
+<pre><code>/admin/instacomp</code></pre>
+<ol>
+<li>Upload the front/back images and run InstaComp™.</li>
+</ol>
+<ol>
+<li>If InstaComp™ cannot confidently identify it, manually enter the visible card title, card number, and set text from the physical card.</li>
+</ol>
+<ol>
+<li>Save corrections before creating a draft or pushing live.</li>
+</ol>
+<h3>What each common button means</h3>
+<table>
+<thead><tr>
+<th>Button</th>
+<th>Plain-English meaning</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><code>Import / Resume eBay</code></td>
+<td>Bring more active eBay listings into TCOS or continue an import run.</td>
+</tr>
+<tr>
+<td><code>Select All Showing</code></td>
+<td>Check every row currently visible under the search/filter.</td>
+</tr>
+<tr>
+<td><code>Select Ready</code></td>
+<td>Check rows TCOS thinks can be pushed live.</td>
+</tr>
+<tr>
+<td><code>Select Needs Help</code></td>
+<td>Check rows that need repair, manual review, or InstaComp™.</td>
+</tr>
+<tr>
+<td><code>Refresh Current eBay Price + Pictures</code></td>
+<td>Pull current eBay price/image evidence back into TCOS for selected rows.</td>
+</tr>
+<tr>
+<td><code>InstaComp™ Reprice</code></td>
+<td>Run pricing help for one row.</td>
+</tr>
+<tr>
+<td><code>InstaComp™ Reprice Selected</code></td>
+<td>Run pricing help for all selected rows.</td>
+</tr>
+<tr>
+<td><code>Repair + Push Selected Live</code></td>
+<td>Repair selected rows if possible and activate them on TCOS.</td>
+</tr>
+<tr>
+<td><code>Edit</code></td>
+<td>Open the detailed product editor.</td>
+</tr>
+<tr>
+<td><code>eBay</code></td>
+<td>Open the original eBay item page.</td>
+</tr>
+<tr>
+<td><code>Open</code></td>
+<td>Open the full InstaComp™ path for that product context.</td>
+</tr>
+<tr>
+<td><code>Apply Promo</code></td>
+<td>Add selected sale/free-shipping promo settings.</td>
+</tr>
+<tr>
+<td><code>Clear Promo</code></td>
+<td>Remove promo settings and restore saved original pricing.</td>
+</tr>
+<tr>
+<td><code>Save Product</code></td>
+<td>Save one product edit through the stable admin save endpoint.</td>
+</tr>
+<tr>
+<td><code>Check eBay Sold Comps</code></td>
+<td>Load sold-comp research on the product edit page.</td>
+</tr>
+<tr>
+<td><code>Apply Suggested Price</code></td>
+<td>Recalculate comps server-side and apply the suggested price if one exists.</td>
+</tr>
+</tbody></table>
+<h3>Safe order for a brand-new operator</h3>
+<p>Use this exact order when unsure:</p>
+<ol>
+<li>Open <code>/admin/ebay/inventory-intake</code>.</li>
+<li>Click <code>Needs help</code>.</li>
+<li>Select one row only.</li>
+<li>Click <code>Refresh Current eBay Price + Pictures</code>.</li>
+<li>Click <code>InstaComp™ Reprice</code>.</li>
+<li>Click <code>Edit</code>.</li>
+<li>Confirm title, price, quantity, image, and status.</li>
+<li>Click <code>Save Product</code>.</li>
+<li>Go back to <code>/admin/ebay/inventory-intake</code>.</li>
+<li>If the row is good, select it.</li>
+<li>Click <code>Repair + Push Selected Live</code>.</li>
+<li>Open <code>/shop</code> and confirm the item appears correctly.</li>
+</ol>
+<p>After the operator can do one card safely, use multi-select.</p>
+<h3>What not to do</h3>
+<ul>
+<li>Do not push a row live just because it imported.</li>
+<li>Do not trust an eBay title if the photo clearly says something else.</li>
+<li>Do not use the word <code>base</code> in a card title unless it is truly part of the card identity.</li>
+<li>Do not call <code>Upper Deck SP Authentic</code> by repeating <code>Upper Deck</code> as both manufacturer and set when the clean title should be the set/card identity.</li>
+<li>Do not treat slab certification numbers as card serial numbers.</li>
+<li>Do not let a six-month-old comp pull down current pricing when recent sales show the market moved.</li>
+<li>Do not create a sell draft and trade item from the same InstaComp™ row.</li>
+<li>Do not delete queue rows or storage files manually when InstaComp™ is paused or cancelling.</li>
+<li>Do not activate rows with missing image, zero price, zero quantity, or uncertain identity.</li>
+</ul>
+<h3>Fast troubleshooting</h3>
+<table>
+<thead><tr>
+<th>Problem</th>
+<th>What to do</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>Save Product goes to 404</td>
+<td>Refresh the edit page, reopen it from <code>/admin/ebay/inventory-intake</code>, and save again. The stable save route should return to <code>/admin/products/[id]?saved=1</code>. If it still 404s, capture the URL and verify production deploy status.</td>
+</tr>
+<tr>
+<td>Product saved but price looks old</td>
+<td>Use <code>Refresh Current eBay Price + Pictures</code>, then edit or run <code>InstaComp™ Reprice</code>.</td>
+</tr>
+<tr>
+<td>Images are missing</td>
+<td>Refresh from eBay first. If still missing, edit the product and paste a working image URL, or rescan/upload through InstaComp™.</td>
+</tr>
+<tr>
+<td>Sold items appear in the working table</td>
+<td>Refresh eBay data and check quantity/status. Sold or zero-quantity rows should be hidden from the normal for-sale view.</td>
+</tr>
+<tr>
+<td>InstaComp™ says no usable comps</td>
+<td>Verify the identity first. Then use physical-card evidence, external research links, and manual pricing until more reliable comps exist.</td>
+</tr>
+<tr>
+<td>InstaComp™ identifies the wrong parallel/insert</td>
+<td>Use front/back photo review, zoom, rotate/swap if needed, correct the title/fields, save corrections, and refresh comps.</td>
+</tr>
+<tr>
+<td>A row is stuck active/cancelling</td>
+<td>Wait for any worker lease to expire, then use the provided Clear Batch/Cancel controls. Do not manually delete database rows.</td>
+</tr>
+<tr>
+<td>Admin page asks for login again</td>
+<td>Use <code>https://truelycollectables.com/admin</code>, log out once, log back in, then open the admin destination from the dashboard.</td>
+</tr>
+</tbody></table>
 <h2>8. Quick Status Buttons</h2>
 <p>On <code>/admin/products/[id]</code>:</p>
 <ul>
