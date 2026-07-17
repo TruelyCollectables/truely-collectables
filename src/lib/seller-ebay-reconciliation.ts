@@ -476,10 +476,17 @@ export async function reconcileSellerEbayInventoryBatch(params: {
           expectedListingId: listingId,
         });
         const reasons: string[] = [];
+        const listingMismatch =
+          Boolean(remote.listingId && listingId && remote.listingId !== listingId);
+        const priceMismatch =
+          remote.price !== null && Math.abs(remote.price - localPrice) >= 0.01;
+        const canSyncPriceFromEbay =
+          priceMismatch && isRemoteSaleable(remote) && !listingMismatch;
+        let priceSyncedFromEbay = false;
 
         if (!remote.found) reasons.push("remote_inventory_item_not_found");
         if (remote.warning) reasons.push(remote.warning);
-        if (remote.listingId && listingId && remote.listingId !== listingId) {
+        if (listingMismatch) {
           reasons.push("listing_id_mismatch");
         }
         if (remote.offerStatus && remote.offerStatus !== "PUBLISHED") {
@@ -492,10 +499,7 @@ export async function reconcileSellerEbayInventoryBatch(params: {
           reasons.push(`listing_${remote.listingStatus.toLowerCase()}`);
         }
         if (remote.listingOnHold) reasons.push("listing_on_hold");
-        if (
-          remote.price !== null &&
-          Math.abs(remote.price - localPrice) >= 0.01
-        ) {
+        if (priceMismatch && !canSyncPriceFromEbay) {
           reasons.push("price_mismatch");
         }
         if (remote.quantity === null) reasons.push("remote_quantity_missing");
@@ -508,7 +512,6 @@ export async function reconcileSellerEbayInventoryBatch(params: {
         if (!inventory) reasons.push("inventory_item_missing");
 
         let quantityResult: QuantityCeilingRow | null = null;
-        const listingMismatch = reasons.includes("listing_id_mismatch");
 
         if (remote.quantity !== null && remote.found && !listingMismatch) {
           const { data: ceilingData, error: ceilingError } = await params.supabase
@@ -533,6 +536,37 @@ export async function reconcileSellerEbayInventoryBatch(params: {
             ? ceilingData[0]
             : ceilingData) as QuantityCeilingRow | null;
           counters.matched += 1;
+        }
+
+        if (canSyncPriceFromEbay && remote.price !== null) {
+          const priceSyncedAt = new Date().toISOString();
+          const { error: productPriceError } = await params.supabase
+            .from("products")
+            .update({
+              price: remote.price,
+              last_seen_at: priceSyncedAt,
+            })
+            .eq("id", product.id)
+            .eq("store_id", params.storeId)
+            .eq("seller_account_id", params.accountId);
+
+          if (productPriceError) throw productPriceError;
+
+          if (inventory?.id) {
+            const { error: inventoryPriceError } = await params.supabase
+              .from("inventory_items")
+              .update({
+                price: remote.price,
+                updated_at: priceSyncedAt,
+              })
+              .eq("id", inventory.id)
+              .eq("store_id", params.storeId)
+              .eq("seller_account_id", params.accountId);
+
+            if (inventoryPriceError) throw inventoryPriceError;
+          }
+
+          priceSyncedFromEbay = true;
         }
 
         const previousQuantity = nonNegativeInteger(
@@ -563,7 +597,12 @@ export async function reconcileSellerEbayInventoryBatch(params: {
             inventory_item_id:
               quantityResult?.inventory_item_id || inventory?.id || null,
             decision,
-            reason_codes: Array.from(new Set(reasons)),
+            reason_codes: Array.from(
+              new Set([
+                ...reasons,
+                ...(priceSyncedFromEbay ? ["price_synced_from_ebay"] : []),
+              ]),
+            ),
             remote_quantity: remote.quantity,
             local_quantity_after: nextQuantity,
             remote_price: remote.price,
@@ -572,6 +611,9 @@ export async function reconcileSellerEbayInventoryBatch(params: {
             sold_quantity: remote.soldQuantity,
             metadata: {
               remote_found: remote.found,
+              price_synced_from_ebay: priceSyncedFromEbay,
+              local_price_before: localPrice,
+              local_price_after: priceSyncedFromEbay ? remote.price : localPrice,
               inventory_status:
                 quantityResult?.inventory_status || inventory?.status || null,
             },
