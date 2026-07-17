@@ -109,12 +109,12 @@ export default async function MarketIntelAdminPage({ searchParams }: PageProps) 
             tone="cyan"
           />
           <Workbench
-            eyebrow="Next Build Slice"
+            eyebrow="Deal Engine"
             title="Shark List™"
-            detail="Ranked actionable buys, mislistings, wholesale lots, and cross-market arbitrage."
-            href="#roadmap"
-            action="After Comps"
-            tone="neutral"
+            detail="Ranked actionable buys, mislistings, wholesale lots, delivered-cost math, and expected net profit."
+            href={addAdminHandoff("/admin/market-intel/deals", handoff)}
+            action="Open Shark List"
+            tone="amber"
           />
         </section>
 
@@ -159,11 +159,11 @@ export default async function MarketIntelAdminPage({ searchParams }: PageProps) 
           <p className="text-xs font-black uppercase tracking-[0.18em] text-amber-300">
             Beta One Build Order
           </p>
-          <h2 className="mt-1 text-3xl font-black">Market truth before deal scoring</h2>
+          <h2 className="mt-1 text-3xl font-black">The core money loop is taking shape</h2>
           <p className="mt-3 max-w-4xl font-semibold text-neutral-300">
-            Purchase tracking and watchlist management are live. Exact-card sold comps and
-            defensible market value are the current workbench. Deal scoring and the Shark
-            List™ come next because every buy recommendation must be anchored to trustworthy value.
+            Watchlists, purchase tracking, exact-card sold comps, and deal scoring are now connected.
+            The next foundation work is automated marketplace ingestion, stale-listing controls,
+            and feeding qualified opportunities into alerts and daily intelligence reports.
           </p>
         </section>
       </div>
