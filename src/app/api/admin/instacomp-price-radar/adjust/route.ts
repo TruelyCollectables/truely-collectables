@@ -1,4 +1,5 @@
 import { NextResponse, type NextRequest } from "next/server";
+import { adminHandoffFromUrl, adminRedirectUrl } from "../../../../../lib/admin-handoff";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
 import { getActiveStoreId } from "../../../../../lib/stores";
 
@@ -17,7 +18,12 @@ const ALLOWED_MULTIPLIERS = new Set([
 ]);
 
 function adminRedirect(req: NextRequest, status: string) {
-  const url = new URL("/admin", req.url);
+  const requestUrl = new URL(req.url);
+  const url = adminRedirectUrl(
+    "/admin",
+    req.url,
+    adminHandoffFromUrl(requestUrl),
+  );
   url.searchParams.set("instacomp_price", status);
 
   return NextResponse.redirect(url, 303);

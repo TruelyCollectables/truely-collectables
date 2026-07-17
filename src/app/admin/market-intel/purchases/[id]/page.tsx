@@ -1,5 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { addAdminHandoff } from "../../../../../lib/admin-handoff";
+import { createAdminSessionValue } from "../../../../../lib/admin-session";
 import { getMarketIntelPurchaseDetail } from "../../../../../lib/market-intel";
 
 export const dynamic = "force-dynamic";
@@ -23,6 +25,8 @@ export default async function MarketIntelPurchaseDetailPage({
 }: PageProps) {
   const { id } = await params;
   const query = await searchParams;
+  const adminHandoff = await createAdminSessionValue();
+  const adminHref = (href: string) => addAdminHandoff(href, adminHandoff);
   const data = await getMarketIntelPurchaseDetail(id);
   if (!data) notFound();
 
@@ -36,7 +40,7 @@ export default async function MarketIntelPurchaseDetailPage({
       <header className="border-b border-neutral-800 bg-[#101418] text-white">
         <div className="mx-auto max-w-7xl px-6 py-8">
           <Link
-            href="/admin/market-intel/purchases"
+            href={adminHref("/admin/market-intel/purchases")}
             className="text-sm font-black text-amber-300 hover:underline"
           >
             ← Purchase Ledger
@@ -99,7 +103,9 @@ export default async function MarketIntelPurchaseDetailPage({
               {lot.status === "awaiting_receipt" || lot.status === "ordered" ? (
                 <form
                   method="post"
-                  action={`/api/admin/market-intel/purchases/${lot.id}/receive`}
+                  action={adminHref(
+                    `/api/admin/market-intel/purchases/${lot.id}/receive`,
+                  )}
                 >
                   <button
                     type="submit"
@@ -113,7 +119,7 @@ export default async function MarketIntelPurchaseDetailPage({
 
             <form
               method="post"
-              action="/api/admin/market-intel/sales"
+              action={adminHref("/api/admin/market-intel/sales")}
               className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2"
             >
               <input type="hidden" name="purchaseLotId" value={lot.id} />

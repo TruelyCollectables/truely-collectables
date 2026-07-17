@@ -1,4 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  adminHandoffFromUrl,
+  adminRedirectUrl,
+} from "@/src/lib/admin-handoff";
 import { createSupabaseServerClient } from "@/src/lib/supabase-server";
 
 type RouteContext = {
@@ -7,6 +11,7 @@ type RouteContext = {
 
 export async function POST(request: NextRequest, context: RouteContext) {
   const { id } = await context.params;
+  const adminHandoff = adminHandoffFromUrl(request.nextUrl);
 
   try {
     const supabase = createSupabaseServerClient({ admin: true });
@@ -20,19 +25,24 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     if (error) throw new Error(error.message);
 
-    return NextResponse.redirect(
-      new URL(`/admin/market-intel/purchases/${id}?saved=received`, request.url),
-      303,
+    const url = adminRedirectUrl(
+      `/admin/market-intel/purchases/${id}`,
+      request.url,
+      adminHandoff,
     );
+    url.searchParams.set("saved", "received");
+
+    return NextResponse.redirect(url, 303);
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unable to update purchase.";
-    return NextResponse.redirect(
-      new URL(
-        `/admin/market-intel/purchases/${id}?error=${encodeURIComponent(message)}`,
-        request.url,
-      ),
-      303,
+    const url = adminRedirectUrl(
+      `/admin/market-intel/purchases/${id}`,
+      request.url,
+      adminHandoff,
     );
+    url.searchParams.set("error", message);
+
+    return NextResponse.redirect(url, 303);
   }
 }

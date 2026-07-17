@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { addAdminHandoff } from "../../../../lib/admin-handoff";
+import { createAdminSessionValue } from "../../../../lib/admin-session";
 import { getMarketIntelPurchaseLedger } from "../../../../lib/market-intel";
 
 export const dynamic = "force-dynamic";
@@ -14,12 +16,14 @@ function label(value: string | null | undefined) {
 }
 
 export default async function MarketIntelPurchaseLedgerPage() {
+  const adminHandoff = await createAdminSessionValue();
+  const adminHref = (href: string) => addAdminHandoff(href, adminHandoff);
   let rows;
 
   try {
     rows = await getMarketIntelPurchaseLedger();
   } catch (error) {
-    return <MarketIntelRuntimeError error={error} />;
+    return <MarketIntelRuntimeError adminHref={adminHref} error={error} />;
   }
 
   const totals = rows.reduce(
@@ -51,7 +55,7 @@ export default async function MarketIntelPurchaseLedgerPage() {
               </p>
             </div>
             <Link
-              href="/admin"
+              href={adminHref("/admin")}
               className="w-fit rounded-md border border-neutral-600 px-4 py-2 text-sm font-black hover:bg-white hover:text-black"
             >
               Back to Admin
@@ -100,7 +104,7 @@ export default async function MarketIntelPurchaseLedgerPage() {
                       <tr key={lot.id} className="align-top hover:bg-amber-50/40">
                         <td className="px-5 py-4">
                           <Link
-                            href={`/admin/market-intel/purchases/${lot.id}`}
+                            href={adminHref(`/admin/market-intel/purchases/${lot.id}`)}
                             className="font-black text-blue-700 hover:underline"
                           >
                             #{lot.purchase_number}
@@ -169,7 +173,13 @@ export default async function MarketIntelPurchaseLedgerPage() {
   );
 }
 
-function MarketIntelRuntimeError({ error }: { error: unknown }) {
+function MarketIntelRuntimeError({
+  adminHref,
+  error,
+}: {
+  adminHref: (href: string) => string;
+  error: unknown;
+}) {
   const serviceKeyPresent = Boolean(
     process.env.SUPABASE_SERVICE_ROLE_KEY?.trim(),
   );
@@ -202,7 +212,7 @@ function MarketIntelRuntimeError({ error }: { error: unknown }) {
           redeploy.
         </p>
         <Link
-          href="/admin"
+          href={adminHref("/admin")}
           className="mt-6 inline-block rounded-md bg-black px-4 py-2 font-black text-white"
         >
           Back to Admin

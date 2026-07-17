@@ -1,4 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
+import {
+  adminHandoffFromUrl,
+  adminRedirectUrl,
+} from "@/src/lib/admin-handoff";
 import { createSupabaseServerClient } from "@/src/lib/supabase-server";
 
 function numberValue(formData: FormData, name: string, fallback = 0) {
@@ -14,12 +18,17 @@ function numberValue(formData: FormData, name: string, fallback = 0) {
 export async function POST(request: NextRequest) {
   const formData = await request.formData();
   const purchaseLotId = String(formData.get("purchaseLotId") ?? "").trim();
+  const adminHandoff = adminHandoffFromUrl(request.nextUrl);
 
   if (!purchaseLotId) {
-    return NextResponse.redirect(
-      new URL("/admin/market-intel/purchases?error=Missing purchase lot", request.url),
-      303,
+    const url = adminRedirectUrl(
+      "/admin/market-intel/purchases",
+      request.url,
+      adminHandoff,
     );
+    url.searchParams.set("error", "Missing purchase lot");
+
+    return NextResponse.redirect(url, 303);
   }
 
   try {
@@ -97,24 +106,24 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    return NextResponse.redirect(
-      new URL(
-        `/admin/market-intel/purchases/${purchaseLotId}?saved=1`,
-        request.url,
-      ),
-      303,
+    const url = adminRedirectUrl(
+      `/admin/market-intel/purchases/${purchaseLotId}`,
+      request.url,
+      adminHandoff,
     );
+    url.searchParams.set("saved", "1");
+
+    return NextResponse.redirect(url, 303);
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unable to save sale.";
-    return NextResponse.redirect(
-      new URL(
-        `/admin/market-intel/purchases/${purchaseLotId}?error=${encodeURIComponent(
-          message,
-        )}`,
-        request.url,
-      ),
-      303,
+    const url = adminRedirectUrl(
+      `/admin/market-intel/purchases/${purchaseLotId}`,
+      request.url,
+      adminHandoff,
     );
+    url.searchParams.set("error", message);
+
+    return NextResponse.redirect(url, 303);
   }
 }

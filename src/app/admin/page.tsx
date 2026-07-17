@@ -20,6 +20,8 @@ import {
 import { LIVE_MONEY_JSON_EVIDENCE } from "../../lib/live-money-evidence";
 import { EMERGENCY_BACKUP_EVIDENCE } from "../../lib/emergency-backup-evidence";
 import { createAdminSessionValue } from "../../lib/admin-session";
+import { addAdminHandoff } from "../../lib/admin-handoff";
+import { getMarketIntelPurchaseLedger } from "../../lib/market-intel";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -236,24 +238,6 @@ function priceRadarTone(deltaPercent: number): "green" | "amber" | "rose" {
   return "rose";
 }
 
-function addAdminHandoff(href: string, handoff: string) {
-  if (
-    !handoff ||
-    href === "/admin/logout" ||
-    (!href.startsWith("/admin") && !href.startsWith("/api/admin"))
-  ) {
-    return href;
-  }
-
-  const [pathAndQuery, hash = ""] = href.split("#", 2);
-  const [path, query = ""] = pathAndQuery.split("?", 2);
-  const params = new URLSearchParams(query);
-
-  params.set("admin_handoff", handoff);
-
-  return `${path}?${params.toString()}${hash ? `#${hash}` : ""}`;
-}
-
 type QueuePanelRow = {
   key: string;
   title: string;
@@ -302,6 +286,7 @@ export default async function AdminDashboard() {
     sellerConnectResult,
     salesCompSnapshotsResult,
     priceRadarIgnoresResult,
+    marketIntelResult,
   ] = await Promise.all([
       supabase
         .from("products")
@@ -383,6 +368,15 @@ export default async function AdminDashboard() {
         .from("instacomp_price_radar_ignores")
         .select("legacy_product_id,ignore_until,ignore_forever,updated_at")
         .eq("store_id", storeId),
+      getMarketIntelPurchaseLedger()
+        .then((data) => ({ data, error: null as Error | null }))
+        .catch((error: unknown) => ({
+          data: [],
+          error:
+            error instanceof Error
+              ? error
+              : new Error("Unable to load Market Intel purchases."),
+        })),
     ]);
 
   const products = (productsResult.data || []) as ProductRow[];
@@ -403,6 +397,7 @@ export default async function AdminDashboard() {
     (salesCompSnapshotsResult.data || []) as SalesCompSnapshotRow[];
   const priceRadarIgnores =
     (priceRadarIgnoresResult.data || []) as InstaCompPriceRadarIgnoreRow[];
+  const marketIntelRows = marketIntelResult.data;
   const syncPolicyAvailable =
     !syncDecisionsResult.error &&
     !blockedSyncResult.error &&
@@ -522,6 +517,39 @@ export default async function AdminDashboard() {
   const ignoredPriceRadarCount = ignoredPriceRadarProductIds.size;
   const compHistoryAvailable = !salesCompSnapshotsResult.error;
   const priceRadarIgnoreAvailable = !priceRadarIgnoresResult.error;
+  const marketIntelAvailable = !marketIntelResult.error;
+  const marketIntelTotals = marketIntelRows.reduce(
+    (sum, row) => {
+      const remaining =
+        row.performance?.quantity_remaining ?? row.lot.quantity_purchased;
+
+      sum.invested += Number(row.lot.total_acquisition_cost || 0);
+      sum.netProceeds += Number(row.performance?.realized_net_proceeds || 0);
+      sum.grossProfit += Number(row.performance?.realized_gross_profit || 0);
+      sum.remainingUnits += Number(remaining || 0);
+      sum.soldUnits += Number(row.performance?.quantity_sold || 0);
+      if (["ordered", "awaiting_receipt"].includes(row.lot.status)) {
+        sum.awaitingReceipt += 1;
+      }
+
+      return sum;
+    },
+    {
+      invested: 0,
+      netProceeds: 0,
+      grossProfit: 0,
+      remainingUnits: 0,
+      soldUnits: 0,
+      awaitingReceipt: 0,
+    },
+  );
+  const marketIntelBreakEven =
+    marketIntelTotals.invested > 0
+      ? Math.min(
+          100,
+          (marketIntelTotals.netProceeds / marketIntelTotals.invested) * 100,
+        )
+      : 0;
   const priceAdjustmentMultipliers = [
     { label: "-25%", value: "0.75" },
     { label: "-15%", value: "0.85" },
@@ -594,6 +622,17 @@ export default async function AdminDashboard() {
       }`,
       accent: "from-purple-100 to-white",
     },
+    {
+      href: "/admin/market-intel",
+      icon: "📈",
+      title: "Market Intel",
+      detail: marketIntelAvailable
+        ? `${marketIntelRows.length} purchase lot${
+            marketIntelRows.length === 1 ? "" : "s"
+          }`
+        : "Ledger unavailable",
+      accent: "from-cyan-100 to-white",
+    },
   ];
 
   const latestEbaySeen = ebayLinked
@@ -641,6 +680,13 @@ export default async function AdminDashboard() {
           sellerConnectNeedsAction.length === 1 ? "" : "s"
         } need onboarding action`
       : "Seller Connect onboarding is clear",
+    !marketIntelAvailable
+      ? "Market Intel purchase ledger is not available"
+      : marketIntelTotals.awaitingReceipt > 0
+      ? `${marketIntelTotals.awaitingReceipt} Market Intel purchase lot${
+          marketIntelTotals.awaitingReceipt === 1 ? "" : "s"
+        } waiting to be received`
+      : "Market Intel receipt queue is clear",
     `Shipping setup verdict: ${label(shippingDecision.status)} - ${shippingDecision.summary}`,
   ];
 
@@ -679,6 +725,10 @@ export default async function AdminDashboard() {
             <BaseCommandButton
               href={adminHref("/admin/financial-reconciliation")}
               label="Money Audit"
+            />
+            <BaseCommandButton
+              href={adminHref("/admin/market-intel")}
+              label="Market Intel"
             />
             <BaseCommandButton
               href={adminHref("/admin/payment-simulations")}
@@ -777,7 +827,7 @@ export default async function AdminDashboard() {
                         </span>
                       </div>
                       <Link
-                        href={`/admin/products/${product.id}`}
+                        href={adminHref(`/admin/products/${product.id}`)}
                         className="mt-2 block truncate text-xl font-black underline-offset-4 hover:underline"
                       >
                         {product.title || `Product #${product.id}`}
@@ -821,7 +871,7 @@ export default async function AdminDashboard() {
                         {priceAdjustmentMultipliers.map((multiplier) => (
                           <form
                             key={`${product.id}-${multiplier.value}`}
-                            action="/api/admin/instacomp-price-radar/adjust"
+                            action={adminHref("/api/admin/instacomp-price-radar/adjust")}
                             method="post"
                           >
                             <input
@@ -860,7 +910,7 @@ export default async function AdminDashboard() {
                         ].map(([duration, labelText]) => (
                           <form
                             key={`${product.id}-${duration}`}
-                            action="/api/admin/instacomp-price-radar/ignore"
+                            action={adminHref("/api/admin/instacomp-price-radar/ignore")}
                             method="post"
                           >
                             <input
@@ -1379,6 +1429,10 @@ export default async function AdminDashboard() {
                   label="Money Audit"
                 />
                 <BaseLinkButton
+                  href={adminHref("/admin/market-intel")}
+                  label="Market Intel"
+                />
+                <BaseLinkButton
                   href={adminHref("/admin/payment-simulations")}
                   label="Payment Tests"
                 />
@@ -1485,7 +1539,7 @@ export default async function AdminDashboard() {
           </aside>
         </section>
 
-        <section className="grid grid-cols-1 gap-6 xl:grid-cols-4">
+        <section className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-5">
           <StatusPanel
             title="Sales Pulse"
             rows={[
@@ -1519,6 +1573,20 @@ export default async function AdminDashboard() {
               ["Recent blocked", String(recentPolicyBlocked.length)],
               ["Recent needs review", String(recentNeedsReview.length)],
             ]}
+          />
+          <StatusPanel
+            title="Market Intel"
+            rows={
+              marketIntelAvailable
+                ? [
+                    ["Purchase lots", String(marketIntelRows.length)],
+                    ["Units remaining", String(marketIntelTotals.remainingUnits)],
+                    ["Net proceeds", money(marketIntelTotals.netProceeds)],
+                    ["Realized GP", money(marketIntelTotals.grossProfit)],
+                    ["Cash break-even", `${marketIntelBreakEven.toFixed(1)}%`],
+                  ]
+                : [["Status", "Not available"]]
+            }
           />
           <StatusPanel
             title="Trust And Evidence"
@@ -1557,7 +1625,7 @@ export default async function AdminDashboard() {
                 orders.slice(0, 6).map((order) => (
                   <Link
                     key={order.id}
-                    href={`/admin/orders/${order.id}`}
+                    href={adminHref(`/admin/orders/${order.id}`)}
                     className="grid gap-2 p-4 text-sm hover:bg-neutral-50 md:grid-cols-[1fr_auto_auto]"
                   >
                     <div>
