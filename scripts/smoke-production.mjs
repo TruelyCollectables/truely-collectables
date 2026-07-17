@@ -346,16 +346,6 @@ function hasJsonField(text, key, value) {
   return text.includes(`"${key}":${JSON.stringify(value)}`);
 }
 
-function hasSellerMarketplaceReceiptHandoffSmokeText(text) {
-  return includesAll(text, [
-    sellerMarketplaceReceiptHandoffSmoke.title,
-    sellerMarketplaceReceiptHandoffSmoke.proofText,
-    ...sellerMarketplaceReceiptHandoffSmoke.controls,
-    "not an audit ledger",
-    sellerMarketplaceReceiptHandoffSmoke.route,
-  ]);
-}
-
 function hasSellerMarketplaceReceiptHandoffJson(text) {
   return (
     hasJsonField(text, "title", sellerMarketplaceReceiptHandoffSmoke.title) &&

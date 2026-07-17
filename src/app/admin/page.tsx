@@ -254,6 +254,24 @@ function addAdminHandoff(href: string, handoff: string) {
   return `${path}?${params.toString()}${hash ? `#${hash}` : ""}`;
 }
 
+type QueuePanelRow = {
+  key: string;
+  title: string;
+  meta: string;
+  value: string;
+  href?: string;
+};
+
+function addAdminHandoffToRows(
+  rows: QueuePanelRow[],
+  adminHref: (href: string) => string,
+) {
+  return rows.map((row) => ({
+    ...row,
+    href: row.href ? adminHref(row.href) : row.href,
+  }));
+}
+
 export default async function AdminDashboard() {
   const supabase = createSupabaseServerClient({ admin: true });
   const storeId = getActiveStoreId();
@@ -265,25 +283,6 @@ export default async function AdminDashboard() {
   const shippingDecision = shippingProviderSetup.decision;
   const adminDashboardHandoff = await createAdminSessionValue();
   const adminHref = (href: string) => addAdminHandoff(href, adminDashboardHandoff);
-  const CommandButton = (props: Parameters<typeof BaseCommandButton>[0]) => (
-    <BaseCommandButton {...props} href={adminHref(props.href)} />
-  );
-  const LinkButton = (props: Parameters<typeof BaseLinkButton>[0]) => (
-    <BaseLinkButton {...props} href={adminHref(props.href)} />
-  );
-  const AdminCommandTile = (props: Parameters<typeof BaseAdminCommandTile>[0]) => (
-    <BaseAdminCommandTile {...props} href={adminHref(props.href)} />
-  );
-  const QueuePanel = (props: Parameters<typeof BaseQueuePanel>[0]) => (
-    <BaseQueuePanel
-      {...props}
-      href={adminHref(props.href)}
-      rows={props.rows.map((row) => ({
-        ...row,
-        href: row.href ? adminHref(row.href) : row.href,
-      }))}
-    />
-  );
 
   const now = new Date();
   const today = new Date(now);
@@ -664,21 +663,43 @@ export default async function AdminDashboard() {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <CommandButton href="/admin/products/new" label="Add Product" primary />
-            <CommandButton href="/admin/inventory" label="Inventory V2" />
-            <CommandButton href="/admin/accounts" label="Accounts" />
-            <CommandButton href="/admin/order-review-cases" label="Cases" />
-            <CommandButton href="/admin/shipping" label="Shipping" />
-            <CommandButton href="/admin/seller-payouts" label="Payouts" />
-            <CommandButton href="/admin/financial-reconciliation" label="Money Audit" />
-            <CommandButton href="/admin/payment-simulations" label="Payment Tests" />
-            <CommandButton href="/admin/ebay" label="eBay Health" />
-            <CommandButton href="/admin/settings" label="Settings" />
-            <CommandButton href="/admin/security" label="Security" />
-            <CommandButton href="/admin/ebay/sync-control" label="Sync Control" />
-            <CommandButton href="/admin/launch-readiness" label="Readiness" />
-            <CommandButton href="/admin/launch-gate-drill" label="Gate Drill" />
-            <CommandButton href="/admin/logout" label="Logout" danger />
+            <BaseCommandButton
+              href={adminHref("/admin/products/new")}
+              label="Add Product"
+              primary
+            />
+            <BaseCommandButton href={adminHref("/admin/inventory")} label="Inventory V2" />
+            <BaseCommandButton href={adminHref("/admin/accounts")} label="Accounts" />
+            <BaseCommandButton
+              href={adminHref("/admin/order-review-cases")}
+              label="Cases"
+            />
+            <BaseCommandButton href={adminHref("/admin/shipping")} label="Shipping" />
+            <BaseCommandButton href={adminHref("/admin/seller-payouts")} label="Payouts" />
+            <BaseCommandButton
+              href={adminHref("/admin/financial-reconciliation")}
+              label="Money Audit"
+            />
+            <BaseCommandButton
+              href={adminHref("/admin/payment-simulations")}
+              label="Payment Tests"
+            />
+            <BaseCommandButton href={adminHref("/admin/ebay")} label="eBay Health" />
+            <BaseCommandButton href={adminHref("/admin/settings")} label="Settings" />
+            <BaseCommandButton href={adminHref("/admin/security")} label="Security" />
+            <BaseCommandButton
+              href={adminHref("/admin/ebay/sync-control")}
+              label="Sync Control"
+            />
+            <BaseCommandButton
+              href={adminHref("/admin/launch-readiness")}
+              label="Readiness"
+            />
+            <BaseCommandButton
+              href={adminHref("/admin/launch-gate-drill")}
+              label="Gate Drill"
+            />
+            <BaseCommandButton href={adminHref("/admin/logout")} label="Logout" danger />
           </div>
         </div>
       </section>
@@ -712,7 +733,10 @@ export default async function AdminDashboard() {
                 label={`${ignoredPriceRadarCount} ignored`}
                 tone={priceRadarIgnoreAvailable ? "amber" : "rose"}
               />
-              <LinkButton href="/admin/instacomp-direct" label="Open InstaComp™" />
+              <BaseLinkButton
+                href={adminHref("/admin/instacomp-direct")}
+                label="Open InstaComp™"
+              />
             </div>
           </div>
 
@@ -883,9 +907,9 @@ export default async function AdminDashboard() {
           </div>
           <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {adminCommandTiles.map((tile) => (
-              <AdminCommandTile
+              <BaseAdminCommandTile
                 key={tile.href}
-                href={tile.href}
+                href={adminHref(tile.href)}
                 icon={tile.icon}
                 title={tile.title}
                 detail={tile.detail}
@@ -924,46 +948,52 @@ export default async function AdminDashboard() {
             </div>
 
             <div className="grid grid-cols-1 divide-y divide-neutral-200 lg:grid-cols-6 lg:divide-x lg:divide-y-0">
-              <QueuePanel
+              <BaseQueuePanel
                 title="Fulfillment"
-                href="/admin/orders"
+                href={adminHref("/admin/orders")}
                 empty="No orders waiting to ship."
-                rows={readyOrders.slice(0, 5).map((order) => ({
-                  key: String(order.id),
-                  title: `Order #${order.id}`,
-                  meta: order.customer_email || "No customer email",
-                  value: money(order.total),
-                  href: `/admin/orders/${order.id}`,
-                }))}
-              />
-              <QueuePanel
-                title="Order Review"
-                href="/admin/order-review-cases"
-                empty="No order cases or paid review holds."
-                rows={[
-                  ...activeOrderReviewCases.slice(0, 3).map((reviewCase) => ({
-                    key: `case-${reviewCase.id}`,
-                    title: reviewCase.title || `Case ${reviewCase.id}`,
-                    meta: `${label(reviewCase.case_type)} / ${label(
-                      reviewCase.severity,
-                    )}`,
-                    value: label(reviewCase.status),
-                    href: `/admin/order-review-cases?status=${
-                      reviewCase.status || "open"
-                    }`,
-                  })),
-                  ...reviewOrders.slice(0, 2).map((order) => ({
-                    key: `order-${order.id}`,
+                rows={addAdminHandoffToRows(
+                  readyOrders.slice(0, 5).map((order) => ({
+                    key: String(order.id),
                     title: `Order #${order.id}`,
-                    meta: label(order.fulfillment_status || order.status),
+                    meta: order.customer_email || "No customer email",
                     value: money(order.total),
                     href: `/admin/orders/${order.id}`,
                   })),
-                ].slice(0, 5)}
+                  adminHref,
+                )}
               />
-              <QueuePanel
+              <BaseQueuePanel
+                title="Order Review"
+                href={adminHref("/admin/order-review-cases")}
+                empty="No order cases or paid review holds."
+                rows={addAdminHandoffToRows(
+                  [
+                    ...activeOrderReviewCases.slice(0, 3).map((reviewCase) => ({
+                      key: `case-${reviewCase.id}`,
+                      title: reviewCase.title || `Case ${reviewCase.id}`,
+                      meta: `${label(reviewCase.case_type)} / ${label(
+                        reviewCase.severity,
+                      )}`,
+                      value: label(reviewCase.status),
+                      href: `/admin/order-review-cases?status=${
+                        reviewCase.status || "open"
+                      }`,
+                    })),
+                    ...reviewOrders.slice(0, 2).map((order) => ({
+                      key: `order-${order.id}`,
+                      title: `Order #${order.id}`,
+                      meta: label(order.fulfillment_status || order.status),
+                      value: money(order.total),
+                      href: `/admin/orders/${order.id}`,
+                    })),
+                  ].slice(0, 5),
+                  adminHref,
+                )}
+              />
+              <BaseQueuePanel
                 title="Offer Desk"
-                href="/admin/offers"
+                href={adminHref("/admin/offers")}
                 empty="No pending offers."
                 rows={[...pendingOffers, ...counteredOffers].slice(0, 5).map((offer) => ({
                   key: String(offer.id),
@@ -972,54 +1002,63 @@ export default async function AdminDashboard() {
                   value: money(offer.offer_amount),
                 }))}
               />
-              <QueuePanel
+              <BaseQueuePanel
                 title="Inventory Watch"
-                href="/admin/products"
+                href={adminHref("/admin/products")}
                 empty="No low-stock products."
-                rows={lowInventory.slice(0, 5).map((product) => ({
-                  key: String(product.id),
-                  title: product.title || `Product #${product.id}`,
-                  meta: product.ebay_item_id ? "eBay linked" : "Local only",
-                  value: `${Number(product.quantity || 0)} left`,
-                  href: `/admin/products/${product.id}`,
-                }))}
+                rows={addAdminHandoffToRows(
+                  lowInventory.slice(0, 5).map((product) => ({
+                    key: String(product.id),
+                    title: product.title || `Product #${product.id}`,
+                    meta: product.ebay_item_id ? "eBay linked" : "Local only",
+                    value: `${Number(product.quantity || 0)} left`,
+                    href: `/admin/products/${product.id}`,
+                  })),
+                  adminHref,
+                )}
               />
-              <QueuePanel
+              <BaseQueuePanel
                 title="Money Audit"
-                href="/admin/financial-reconciliation"
+                href={adminHref("/admin/financial-reconciliation")}
                 empty="No unmatched Stripe money."
-                rows={reconciliationAlerts.map((alert) => ({
-                  key: alert.id,
-                  title: alert.title,
-                  meta: `${label(alert.severity)} / ${label(alert.mismatch_type)}`,
-                  value: money(alert.difference_amount),
-                  href: "/admin/financial-reconciliation",
-                }))}
+                rows={addAdminHandoffToRows(
+                  reconciliationAlerts.map((alert) => ({
+                    key: alert.id,
+                    title: alert.title,
+                    meta: `${label(alert.severity)} / ${label(alert.mismatch_type)}`,
+                    value: money(alert.difference_amount),
+                    href: "/admin/financial-reconciliation",
+                  })),
+                  adminHref,
+                )}
               />
-              <QueuePanel
+              <BaseQueuePanel
                 title="Seller Connect"
-                href="/admin/seller-payouts"
+                href={adminHref("/admin/seller-payouts")}
                 empty={
                   sellerConnectUnavailable
                     ? "Connect readiness table is unavailable."
                     : "No seller onboarding action needed."
                 }
-                rows={sellerConnectNeedsAction.slice(0, 5).map((account) => {
-                  const dueCount =
-                    (account.requirements_currently_due || []).length +
-                    (account.requirements_past_due || []).length;
+                rows={addAdminHandoffToRows(
+                  sellerConnectNeedsAction.slice(0, 5).map((account) => {
+                    const dueCount =
+                      (account.requirements_currently_due || []).length +
+                      (account.requirements_past_due || []).length;
 
-                  return {
-                    key: account.id,
-                    title: account.provider_account_id,
-                    meta:
-                      dueCount > 0
-                        ? `${dueCount} Stripe requirement${dueCount === 1 ? "" : "s"}`
-                        : label(account.onboarding_status),
-                    value: account.payouts_enabled ? "Review" : "Blocked",
-                    href: "/admin/seller-payouts",
-                  };
-                })}
+                    return {
+                      key: account.id,
+                      title: account.provider_account_id,
+                      meta:
+                        dueCount > 0
+                          ? `${dueCount} Stripe requirement${dueCount === 1 ? "" : "s"}`
+                          : label(account.onboarding_status),
+                      value: account.payouts_enabled ? "Review" : "Blocked",
+                      href: "/admin/seller-payouts",
+                    };
+                  }),
+                  adminHref,
+                )}
               />
             </div>
           </div>
@@ -1282,44 +1321,83 @@ export default async function AdminDashboard() {
               </div>
 
               <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
-                <LinkButton href="/admin/launch-gate-drill" label="Gate Drill" />
-                <LinkButton href="/admin/launch-readiness" label="Readiness" />
-                <LinkButton href="/admin/live-payment-launch" label="Pay Gate" />
-                <LinkButton href="/admin/live-shipping-launch" label="Ship Gate" />
-                <LinkButton href="/api/admin/launch-readiness" label="Brief JSON" />
-                <LinkButton
-                  href="/api/admin/launch-readiness?format=markdown"
+                <BaseLinkButton
+                  href={adminHref("/admin/launch-gate-drill")}
+                  label="Gate Drill"
+                />
+                <BaseLinkButton
+                  href={adminHref("/admin/launch-readiness")}
+                  label="Readiness"
+                />
+                <BaseLinkButton
+                  href={adminHref("/admin/live-payment-launch")}
+                  label="Pay Gate"
+                />
+                <BaseLinkButton
+                  href={adminHref("/admin/live-shipping-launch")}
+                  label="Ship Gate"
+                />
+                <BaseLinkButton
+                  href={adminHref("/api/admin/launch-readiness")}
+                  label="Brief JSON"
+                />
+                <BaseLinkButton
+                  href={adminHref("/api/admin/launch-readiness?format=markdown")}
                   label="Brief MD"
                 />
-                <LinkButton
-                  href="/api/admin/launch-readiness?format=handoff-bundle"
+                <BaseLinkButton
+                  href={adminHref("/api/admin/launch-readiness?format=handoff-bundle")}
                   label="Hand-off Bundle"
                 />
-                <LinkButton href="/admin/production-smoke" label="Smoke Report" />
+                <BaseLinkButton
+                  href={adminHref("/admin/production-smoke")}
+                  label="Smoke Report"
+                />
               </div>
             </section>
 
             <section className="rounded-md border border-neutral-200 bg-white p-5">
               <h2 className="text-xl font-black">Command Links</h2>
               <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
-                <LinkButton href="/admin/products" label="Products" />
-                <LinkButton href="/admin/inventory" label="Inventory V2" />
-                <LinkButton href="/admin/ebay" label="eBay" />
-                <LinkButton href="/admin/settings" label="Settings" />
-                <LinkButton href="/admin/security" label="Security" />
-                <LinkButton href="/admin/accounts" label="Accounts" />
-                <LinkButton href="/admin/order-review-cases" label="Cases" />
-                <LinkButton href="/admin/shipping" label="Shipping" />
-                <LinkButton href="/admin/seller-payouts" label="Payouts" />
-                <LinkButton href="/admin/financial-reconciliation" label="Money Audit" />
-                <LinkButton href="/admin/payment-simulations" label="Payment Tests" />
-                <LinkButton href="/admin/production-smoke" label="Prod Smoke" />
-                <LinkButton href="/admin/orders" label="Orders" />
-                <LinkButton href="/admin/offers" label="Offers" />
-                <LinkButton href="/admin/files" label="Files" />
-                <LinkButton href="/admin/launch-readiness" label="Launch" />
-                <LinkButton href="/admin/launch-gate-drill" label="Gate Drill" />
-                <LinkButton href="/shop" label="Shop" />
+                <BaseLinkButton href={adminHref("/admin/products")} label="Products" />
+                <BaseLinkButton href={adminHref("/admin/inventory")} label="Inventory V2" />
+                <BaseLinkButton href={adminHref("/admin/ebay")} label="eBay" />
+                <BaseLinkButton href={adminHref("/admin/settings")} label="Settings" />
+                <BaseLinkButton href={adminHref("/admin/security")} label="Security" />
+                <BaseLinkButton href={adminHref("/admin/accounts")} label="Accounts" />
+                <BaseLinkButton
+                  href={adminHref("/admin/order-review-cases")}
+                  label="Cases"
+                />
+                <BaseLinkButton href={adminHref("/admin/shipping")} label="Shipping" />
+                <BaseLinkButton
+                  href={adminHref("/admin/seller-payouts")}
+                  label="Payouts"
+                />
+                <BaseLinkButton
+                  href={adminHref("/admin/financial-reconciliation")}
+                  label="Money Audit"
+                />
+                <BaseLinkButton
+                  href={adminHref("/admin/payment-simulations")}
+                  label="Payment Tests"
+                />
+                <BaseLinkButton
+                  href={adminHref("/admin/production-smoke")}
+                  label="Prod Smoke"
+                />
+                <BaseLinkButton href={adminHref("/admin/orders")} label="Orders" />
+                <BaseLinkButton href={adminHref("/admin/offers")} label="Offers" />
+                <BaseLinkButton href={adminHref("/admin/files")} label="Files" />
+                <BaseLinkButton
+                  href={adminHref("/admin/launch-readiness")}
+                  label="Launch"
+                />
+                <BaseLinkButton
+                  href={adminHref("/admin/launch-gate-drill")}
+                  label="Gate Drill"
+                />
+                <BaseLinkButton href={adminHref("/shop")} label="Shop" />
               </div>
             </section>
 
@@ -1368,23 +1446,38 @@ export default async function AdminDashboard() {
                 )}
               />
               <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
-                <LinkButton href="/admin/shipping" label="Shipping Ops" />
-                <LinkButton href="/admin/launch-readiness" label="Readiness" />
-                <LinkButton href="/admin/launch-gate-drill" label="Gate Drill" />
-                <LinkButton
-                  href="/api/admin/shipping/provider-setup"
+                <BaseLinkButton
+                  href={adminHref("/admin/shipping")}
+                  label="Shipping Ops"
+                />
+                <BaseLinkButton
+                  href={adminHref("/admin/launch-readiness")}
+                  label="Readiness"
+                />
+                <BaseLinkButton
+                  href={adminHref("/admin/launch-gate-drill")}
+                  label="Gate Drill"
+                />
+                <BaseLinkButton
+                  href={adminHref("/api/admin/shipping/provider-setup")}
                   label="Setup JSON"
                 />
-                <LinkButton
-                  href="/api/admin/shipping/provider-setup?format=env-template"
+                <BaseLinkButton
+                  href={adminHref(
+                    "/api/admin/shipping/provider-setup?format=env-template",
+                  )}
                   label="Env Template"
                 />
-                <LinkButton
-                  href="/api/admin/shipping/provider-setup?format=vercel-commands"
+                <BaseLinkButton
+                  href={adminHref(
+                    "/api/admin/shipping/provider-setup?format=vercel-commands",
+                  )}
                   label="Vercel Commands"
                 />
-                <LinkButton
-                  href="/api/admin/shipping/provider-setup?format=operator-checklist"
+                <BaseLinkButton
+                  href={adminHref(
+                    "/api/admin/shipping/provider-setup?format=operator-checklist",
+                  )}
                   label="Checklist"
                 />
               </div>

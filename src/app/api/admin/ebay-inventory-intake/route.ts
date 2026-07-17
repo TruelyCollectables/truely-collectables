@@ -324,33 +324,6 @@ type EbaySaleability = {
   listingStatus?: string | null;
 };
 
-function saleabilityFromSnapshot(
-  snapshot: Awaited<ReturnType<typeof fetchEbaySnapshot>> | null,
-): EbaySaleability | null {
-  if (!snapshot) return null;
-
-  const quantity = Math.max(0, Math.floor(Number(snapshot.availableQuantity || 0)));
-  const saleable = snapshot.availabilityStatus === "IN_STOCK" && quantity > 0;
-  const reasons: string[] = [];
-
-  if (!saleable) {
-    reasons.push(
-      snapshot.availabilityStatus
-        ? `browse_${snapshot.availabilityStatus.toLowerCase()}`
-        : "browse_not_confirmed_in_stock",
-    );
-    if (quantity <= 0) reasons.push("sold_or_zero_quantity");
-  }
-
-  return {
-    saleable,
-    quantity: saleable ? quantity : 0,
-    price: snapshot.price > 0 ? snapshot.price : null,
-    source: "browse",
-    reasons,
-  };
-}
-
 async function fetchSellerInventorySaleability(params: {
   storeId: string;
   sku: string;

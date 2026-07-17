@@ -63,10 +63,7 @@ export default function EbayDuplicateFinderClient() {
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
-  async function loadGroups() {
-    setLoading(true);
-    setError("");
-
+  async function fetchGroups() {
     try {
       const response = await fetch("/api/admin/ebay-duplicates", {
         cache: "no-store",
@@ -114,8 +111,18 @@ export default function EbayDuplicateFinderClient() {
     }
   }
 
+  async function loadGroups() {
+    setLoading(true);
+    setError("");
+    await fetchGroups();
+  }
+
   useEffect(() => {
-    void loadGroups();
+    const initialLoad = window.setTimeout(() => {
+      void fetchGroups();
+    }, 0);
+
+    return () => window.clearTimeout(initialLoad);
   }, []);
 
   const hasGroups = groups.length > 0;
