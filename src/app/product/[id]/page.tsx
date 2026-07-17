@@ -29,6 +29,18 @@ const getProduct = cache(async (id: string) => {
   return inventoryEngine.getByLegacyProductId(numericId);
 });
 
+function isPublicProduct(
+  product: Awaited<ReturnType<typeof getProduct>>,
+): product is NonNullable<Awaited<ReturnType<typeof getProduct>>> {
+  return Boolean(
+    product &&
+      product.inventoryItemId &&
+      product.imageUrl &&
+      product.quantity > 0 &&
+      product.status === "active",
+  );
+}
+
 function absoluteUrl(value: string | null | undefined) {
   if (!value) return null;
 
@@ -67,7 +79,7 @@ export async function generateMetadata({
   const product = await getProduct(id);
   const origin = configuredSiteOrigin();
 
-  if (!product) {
+  if (!isPublicProduct(product)) {
     return {
       title: "Product Not Found | Truely Collectables",
       robots: {
@@ -140,7 +152,7 @@ export default async function ProductPage({
   const { id } = await params;
   const product = await getProduct(id);
 
-  if (!product) {
+  if (!isPublicProduct(product)) {
     return (
       <main className="p-8 max-w-6xl mx-auto">
         <h1 className="text-3xl font-bold mb-4">Product Not Found</h1>

@@ -378,7 +378,11 @@ export class InventoryEngine {
     if (inventoryError) throw inventoryError;
 
     return this.mapProductsWithInventory(products ?? [], inventoryItems ?? []).filter(
-      (item) => item.quantity > 0 && item.status === "active",
+      (item) =>
+        item.inventoryItemId &&
+        item.imageUrl &&
+        item.quantity > 0 &&
+        item.status === "active",
     );
   }
 
@@ -733,20 +737,15 @@ export class InventoryEngine {
 
     if (error) throw error;
 
-    const universalItems: UniversalInventoryItem[] = [];
+    const { data: inventoryItems, error: inventoryError } = await this.database
+      .from("inventory_items")
+      .select("*")
+      .eq("store_id", this.storeId)
+      .in("legacy_product_id", ids);
 
-    for (const product of products ?? []) {
-      const legacyProduct = mapLegacyProduct(product);
-      const inventoryItem =
-        (await this.repository.getByLegacyProductId(legacyProduct.id)) ??
-        (legacyProduct.sku
-          ? await this.repository.getBySku(legacyProduct.sku)
-          : null);
+    if (inventoryError) throw inventoryError;
 
-      universalItems.push(mapUniversal(legacyProduct, inventoryItem));
-    }
-
-    return universalItems;
+    return this.mapProductsWithInventory(products ?? [], inventoryItems ?? []);
   }
 
   async requireAvailableCartItems(
@@ -764,6 +763,13 @@ export class InventoryEngine {
 
       if (!inventoryItem) {
         throw new InventoryEngineError(`Product ${cartItem.id} not found`, 404);
+      }
+
+      if (!inventoryItem.inventoryItemId) {
+        throw new InventoryEngineError(
+          `${inventoryItem.title} is not live inventory`,
+          400
+        );
       }
 
       if (inventoryItem.quantity < cartItem.quantity) {
