@@ -2,8 +2,7 @@ import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getClientIdentity } from "./lib/client-identity";
 import {
-  ADMIN_SESSION_COOKIE_NAME,
-  LEGACY_ADMIN_SESSION_COOKIE_NAME,
+  ADMIN_SESSION_COOKIE_NAMES,
   isValidAdminSessionValue,
 } from "./lib/admin-session";
 
@@ -205,10 +204,9 @@ export async function proxy(req: NextRequest) {
   }
 
   if (isProtectedPath(pathname)) {
-    const adminCookies = [
-      ...req.cookies.getAll(ADMIN_SESSION_COOKIE_NAME).map((cookie) => cookie.value),
-      ...req.cookies.getAll(LEGACY_ADMIN_SESSION_COOKIE_NAME).map((cookie) => cookie.value),
-    ];
+    const adminCookies = ADMIN_SESSION_COOKIE_NAMES.flatMap((cookieName) =>
+      req.cookies.getAll(cookieName).map((cookie) => cookie.value),
+    );
     let isValidSession = false;
 
     for (const adminCookie of adminCookies) {

@@ -1,8 +1,6 @@
 import { NextResponse } from "next/server";
 import {
-  ADMIN_SESSION_COOKIE_NAME,
-  LEGACY_ADMIN_SESSION_COOKIE_NAME,
-  expiredAdminSessionCookieOptionsForHost,
+  appendExpiredAdminSessionCookies,
 } from "../../../lib/admin-session";
 import { configuredSiteOrigin } from "../../../lib/site-origin";
 
@@ -12,16 +10,7 @@ export async function GET(request: Request) {
     new URL("/admin/login", configuredSiteOrigin()),
   );
 
-  res.cookies.set(
-    ADMIN_SESSION_COOKIE_NAME,
-    "",
-    expiredAdminSessionCookieOptionsForHost(hostname),
-  );
-  res.cookies.set(
-    LEGACY_ADMIN_SESSION_COOKIE_NAME,
-    "",
-    expiredAdminSessionCookieOptionsForHost(hostname),
-  );
+  appendExpiredAdminSessionCookies(res.headers, hostname);
 
   return res;
 }

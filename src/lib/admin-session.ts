@@ -1,7 +1,13 @@
 const ADMIN_SESSION_MAX_AGE_SECONDS = 60 * 60 * 24;
 
-export const ADMIN_SESSION_COOKIE_NAME = "tcos_admin_auth_v2";
+export const ADMIN_SESSION_COOKIE_NAME = "tcos_admin_auth_v3";
 export const LEGACY_ADMIN_SESSION_COOKIE_NAME = "admin_auth";
+export const PREVIOUS_ADMIN_SESSION_COOKIE_NAME = "tcos_admin_auth_v2";
+export const ADMIN_SESSION_COOKIE_NAMES = [
+  ADMIN_SESSION_COOKIE_NAME,
+  PREVIOUS_ADMIN_SESSION_COOKIE_NAME,
+  LEGACY_ADMIN_SESSION_COOKIE_NAME,
+] as const;
 
 type AdminSessionCookieOptions = {
   httpOnly: boolean;
@@ -52,6 +58,50 @@ export function expiredAdminSessionCookieOptionsForHost(
   hostname: string | null | undefined,
 ): AdminSessionCookieOptions {
   return adminSessionCookieOptionsForHost(hostname, 0);
+}
+
+function serializeCookie(
+  name: string,
+  value: string,
+  options: AdminSessionCookieOptions,
+) {
+  const parts = [
+    `${name}=${encodeURIComponent(value)}`,
+    `Max-Age=${options.maxAge}`,
+    `Path=${options.path}`,
+    `SameSite=${options.sameSite}`,
+  ];
+
+  if (options.domain) {
+    parts.push(`Domain=${options.domain}`);
+  }
+
+  if (options.httpOnly) {
+    parts.push("HttpOnly");
+  }
+
+  if (options.secure) {
+    parts.push("Secure");
+  }
+
+  return parts.join("; ");
+}
+
+export function appendExpiredAdminSessionCookies(
+  headers: Headers,
+  hostname: string | null | undefined,
+) {
+  const expiredHostOnlyOptions = expiredAdminSessionCookieOptions();
+  const expiredDomainOptions = expiredAdminSessionCookieOptionsForHost(hostname);
+  const optionVariants = expiredDomainOptions.domain
+    ? [expiredHostOnlyOptions, expiredDomainOptions]
+    : [expiredHostOnlyOptions];
+
+  for (const cookieName of ADMIN_SESSION_COOKIE_NAMES) {
+    for (const options of optionVariants) {
+      headers.append("Set-Cookie", serializeCookie(cookieName, "", options));
+    }
+  }
 }
 
 function getSessionSecret(): string {
