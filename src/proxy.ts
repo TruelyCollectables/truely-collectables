@@ -1,7 +1,11 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { getClientIdentity } from "./lib/client-identity";
-import { isValidAdminSessionValue } from "./lib/admin-session";
+import {
+  ADMIN_SESSION_COOKIE_NAME,
+  LEGACY_ADMIN_SESSION_COOKIE_NAME,
+  isValidAdminSessionValue,
+} from "./lib/admin-session";
 
 function applySecurityHeaders(response: NextResponse, req: NextRequest) {
   const isAdminOrApi =
@@ -185,7 +189,9 @@ export async function proxy(req: NextRequest) {
   }
 
   if (isProtectedPath(pathname)) {
-    const adminCookie = req.cookies.get("admin_auth")?.value;
+    const adminCookie =
+      req.cookies.get(ADMIN_SESSION_COOKIE_NAME)?.value ||
+      req.cookies.get(LEGACY_ADMIN_SESSION_COOKIE_NAME)?.value;
     const isValidSession = await isValidAdminSessionValue(adminCookie);
 
     if (!isValidSession) {

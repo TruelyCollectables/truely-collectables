@@ -1,5 +1,32 @@
 const ADMIN_SESSION_MAX_AGE_SECONDS = 60 * 60 * 24;
 
+export const ADMIN_SESSION_COOKIE_NAME = "tcos_admin_auth_v2";
+export const LEGACY_ADMIN_SESSION_COOKIE_NAME = "admin_auth";
+
+type AdminSessionCookieOptions = {
+  httpOnly: boolean;
+  secure: boolean;
+  sameSite: "lax";
+  path: string;
+  maxAge: number;
+};
+
+export function adminSessionCookieOptions(
+  maxAge = ADMIN_SESSION_MAX_AGE_SECONDS,
+): AdminSessionCookieOptions {
+  return {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: "/",
+    maxAge,
+  };
+}
+
+export function expiredAdminSessionCookieOptions(): AdminSessionCookieOptions {
+  return adminSessionCookieOptions(0);
+}
+
 function getSessionSecret(): string {
   return process.env.ADMIN_SESSION_SECRET || process.env.ADMIN_PASSWORD || "";
 }

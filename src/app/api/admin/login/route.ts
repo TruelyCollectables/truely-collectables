@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import {
-  adminSessionMaxAgeSeconds,
+  ADMIN_SESSION_COOKIE_NAME,
+  LEGACY_ADMIN_SESSION_COOKIE_NAME,
+  adminSessionCookieOptions,
   createAdminSessionValue,
+  expiredAdminSessionCookieOptions,
   verifyAdminPassword,
 } from "../../../../lib/admin-session";
 import {
@@ -87,13 +90,16 @@ export async function POST(req: Request) {
   const res = NextResponse.json({ success: true });
   const sessionValue = await createAdminSessionValue();
 
-  res.cookies.set("admin_auth", sessionValue, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: adminSessionMaxAgeSeconds,
-  });
+  res.cookies.set(
+    LEGACY_ADMIN_SESSION_COOKIE_NAME,
+    "",
+    expiredAdminSessionCookieOptions(),
+  );
+  res.cookies.set(
+    ADMIN_SESSION_COOKIE_NAME,
+    sessionValue,
+    adminSessionCookieOptions(),
+  );
 
   return res;
 }

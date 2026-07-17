@@ -1,5 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { isValidAdminSessionValue } from "./admin-session";
+import {
+  ADMIN_SESSION_COOKIE_NAME,
+  LEGACY_ADMIN_SESSION_COOKIE_NAME,
+  isValidAdminSessionValue,
+} from "./admin-session";
 import { MAX_INSTACOMP_JOB_CARDS } from "./instacomp-job-state";
 import { getActiveStoreId } from "./stores";
 import { createSupabaseServerClient } from "./supabase-server";
@@ -170,7 +174,9 @@ export async function requireInstaCompJobActor(
     };
   }
 
-  const adminSession = cookieValue(request, "admin_auth");
+  const adminSession =
+    cookieValue(request, ADMIN_SESSION_COOKIE_NAME) ||
+    cookieValue(request, LEGACY_ADMIN_SESSION_COOKIE_NAME);
 
   if (await isValidAdminSessionValue(adminSession)) {
     return {
