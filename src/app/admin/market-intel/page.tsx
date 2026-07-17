@@ -116,6 +116,14 @@ export default async function MarketIntelAdminPage({ searchParams }: PageProps) 
             action="Open Shark List"
             tone="amber"
           />
+          <Workbench
+            eyebrow="Data Pipeline"
+            title="Ingestion Health"
+            detail="Monitor hourly marketplace feeds, deduplication, price changes, stale listings, expired auctions, and unscored rows."
+            href={addAdminHandoff("/admin/market-intel/ingestion", handoff)}
+            action="Open Ingestion Health"
+            tone="cyan"
+          />
         </section>
 
         <section className="rounded-xl border border-neutral-200 bg-white p-6 shadow-sm">
@@ -159,11 +167,11 @@ export default async function MarketIntelAdminPage({ searchParams }: PageProps) 
           <p className="text-xs font-black uppercase tracking-[0.18em] text-amber-300">
             Beta One Build Order
           </p>
-          <h2 className="mt-1 text-3xl font-black">The core money loop is taking shape</h2>
+          <h2 className="mt-1 text-3xl font-black">The data pipeline is becoming operational</h2>
           <p className="mt-3 max-w-4xl font-semibold text-neutral-300">
-            Watchlists, purchase tracking, exact-card sold comps, and deal scoring are now connected.
-            The next foundation work is automated marketplace ingestion, stale-listing controls,
-            and feeding qualified opportunities into alerts and daily intelligence reports.
+            Watchlists, purchases, sold comps, deal scoring, and a normalized ingestion gateway are connected.
+            The next work is wiring the hourly research automation into this endpoint, persisting alert delivery,
+            and generating the daily intelligence report directly from Beta One data.
           </p>
         </section>
       </div>
