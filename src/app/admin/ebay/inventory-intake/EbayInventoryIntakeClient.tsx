@@ -18,6 +18,10 @@ type IntakeRow = {
   inventoryStatus: string;
   inventoryQuantity: number | null;
   inventoryPrice: number | null;
+  category: string | null;
+  promoDiscountPercent: number;
+  promoOriginalPrice: number;
+  promoFreeShipping: boolean;
   isReady: boolean;
   isLive: boolean;
   problems: string[];
@@ -79,6 +83,9 @@ export default function EbayInventoryIntakeClient() {
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [working, setWorking] = useState(false);
+  const [promoWorking, setPromoWorking] = useState(false);
+  const [discountPercent, setDiscountPercent] = useState("10");
+  const [freeShipping, setFreeShipping] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
@@ -229,6 +236,37 @@ export default function EbayInventoryIntakeClient() {
 
     await navigator.clipboard.writeText(text);
     setNotice(`Copied ${selectedRows.length} selected row${selectedRows.length === 1 ? "" : "s"} for InstaComp™ cleanup.`);
+  }
+
+  async function applyPromo(action: "apply-promo" | "clear-promo") {
+    setPromoWorking(true);
+    setNotice("");
+    setError("");
+
+    try {
+      const response = await fetch("/api/admin/ebay-inventory-intake", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action,
+          productIds: selectedIds,
+          discountPercent: Number(discountPercent || 0),
+          freeShipping,
+        }),
+      });
+      const data = await response.json();
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || "Could not update selected promos.");
+      }
+
+      setNotice(data.message || "Selected promos updated.");
+      await loadRows();
+    } catch (nextError: any) {
+      setError(nextError.message || "Could not update selected promos.");
+    } finally {
+      setPromoWorking(false);
+    }
   }
 
   return (
@@ -393,6 +431,61 @@ export default function EbayInventoryIntakeClient() {
               </div>
             </div>
           </div>
+
+          <div className="rounded-md border border-amber-200 bg-amber-50 p-4">
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+              <div>
+                <h3 className="text-sm font-black uppercase tracking-[0.08em] text-amber-950">
+                  Bulk sale controls
+                </h3>
+                <p className="mt-1 text-xs font-bold text-amber-900">
+                  Select products above, then apply a percentage sale and/or
+                  free-shipping flag. Clear promo restores the saved original
+                  price.
+                </p>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <label className="flex items-center gap-2 rounded-md border border-amber-300 bg-white px-3 py-2 text-xs font-black text-amber-950">
+                  <span>% off</span>
+                  <input
+                    type="number"
+                    min="0"
+                    max="95"
+                    step="1"
+                    value={discountPercent}
+                    onChange={(event) => setDiscountPercent(event.target.value)}
+                    className="w-16 rounded border border-amber-200 px-2 py-1"
+                  />
+                </label>
+                <label className="flex items-center gap-2 rounded-md border border-amber-300 bg-white px-3 py-2 text-xs font-black text-amber-950">
+                  <input
+                    type="checkbox"
+                    checked={freeShipping}
+                    onChange={(event) => setFreeShipping(event.target.checked)}
+                    className="h-4 w-4 accent-amber-600"
+                  />
+                  Free shipping
+                </label>
+                <button
+                  type="button"
+                  onClick={() => void applyPromo("apply-promo")}
+                  disabled={promoWorking || selectedIds.length === 0}
+                  className="rounded-md bg-amber-500 px-4 py-3 text-sm font-black text-neutral-950 hover:bg-amber-400 disabled:cursor-not-allowed disabled:bg-neutral-400"
+                >
+                  {promoWorking ? "Updating..." : `Apply Promo (${selectedIds.length})`}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void applyPromo("clear-promo")}
+                  disabled={promoWorking || selectedIds.length === 0}
+                  className="rounded-md border border-neutral-300 bg-white px-4 py-3 text-sm font-black hover:bg-neutral-50 disabled:opacity-50"
+                >
+                  Clear Promo
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div className="overflow-x-auto">
@@ -465,6 +558,17 @@ export default function EbayInventoryIntakeClient() {
                       <p className="mt-1 text-xs font-bold text-neutral-500">
                         Qty {row.quantity}
                       </p>
+                      {row.promoDiscountPercent > 0 || row.promoFreeShipping ? (
+                        <p className="mt-2 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] font-black text-amber-900">
+                          {row.promoDiscountPercent > 0
+                            ? `${row.promoDiscountPercent}% off`
+                            : "Promo"}{" "}
+                          {row.promoOriginalPrice > 0
+                            ? `from ${money(row.promoOriginalPrice)}`
+                            : ""}
+                          {row.promoFreeShipping ? " · free shipping" : ""}
+                        </p>
+                      ) : null}
                     </td>
                     <td className="px-4 py-4">
                       <span

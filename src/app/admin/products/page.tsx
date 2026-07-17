@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { inventoryEngine } from "../../../modules/inventory";
+import { createServerInventoryEngine } from "../../../lib/server-inventory-engine";
 import type { UniversalInventoryItem } from "../../../modules/inventory";
 
 export const dynamic = "force-dynamic";
@@ -10,7 +10,7 @@ export default async function AdminProductsPage() {
   let error: Error | null = null;
 
   try {
-    products = await inventoryEngine.listAll();
+    products = await createServerInventoryEngine().listAll();
   } catch (err: any) {
     error = err;
   }

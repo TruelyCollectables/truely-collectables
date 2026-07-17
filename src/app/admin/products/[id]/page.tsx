@@ -8,7 +8,7 @@ import {
   autographSourceLabel,
   sanitizeAuthenticityProfile,
 } from "../../../../lib/authenticity";
-import { inventoryEngine } from "../../../../modules/inventory";
+import { createServerInventoryEngine } from "../../../../lib/server-inventory-engine";
 import type { InventoryStatus } from "../../../../modules/inventory";
 import { getSalesCompHistory, getSalesComps } from "../../../../lib/ebay";
 import type {
@@ -44,6 +44,7 @@ function parseNumber(value: FormDataEntryValue | null) {
 async function updateProduct(formData: FormData) {
   "use server";
 
+  const adminInventoryEngine = createServerInventoryEngine();
   const id = Number(formData.get("id"));
   const status = String(formData.get("status") || "active") as InventoryStatus;
   const authenticity = sanitizeAuthenticityProfile({
@@ -56,7 +57,7 @@ async function updateProduct(formData: FormData) {
     authenticityNotes: formData.get("authenticity_notes"),
   });
 
-  await inventoryEngine.updateProduct(id, {
+  await adminInventoryEngine.updateProduct(id, {
     title: String(formData.get("title") || "").trim(),
     player: parseString(formData.get("player")),
     sport: parseString(formData.get("sport")),
@@ -74,10 +75,11 @@ async function updateProduct(formData: FormData) {
 async function setProductStatus(formData: FormData) {
   "use server";
 
+  const adminInventoryEngine = createServerInventoryEngine();
   const id = Number(formData.get("id"));
   const status = String(formData.get("status") || "active") as InventoryStatus;
 
-  await inventoryEngine.setStatus({
+  await adminInventoryEngine.setStatus({
     legacyProductId: id,
     status,
   });
@@ -88,9 +90,10 @@ async function setProductStatus(formData: FormData) {
 async function regenerateDescription(formData: FormData) {
   "use server";
 
+  const adminInventoryEngine = createServerInventoryEngine();
   const id = Number(formData.get("id"));
 
-  await inventoryEngine.regenerateDescription(id);
+  await adminInventoryEngine.regenerateDescription(id);
 
   redirect(`/admin/products/${id}`);
 }
@@ -98,9 +101,10 @@ async function regenerateDescription(formData: FormData) {
 async function generateAiDescription(formData: FormData) {
   "use server";
 
+  const adminInventoryEngine = createServerInventoryEngine();
   const id = Number(formData.get("id"));
 
-  await inventoryEngine.generateAiDescription(id);
+  await adminInventoryEngine.generateAiDescription(id);
 
   redirect(`/admin/products/${id}`);
 }
@@ -108,8 +112,9 @@ async function generateAiDescription(formData: FormData) {
 async function applySuggestedPrice(formData: FormData) {
   "use server";
 
+  const adminInventoryEngine = createServerInventoryEngine();
   const id = Number(formData.get("id"));
-  const product = await inventoryEngine.getByLegacyProductId(id);
+  const product = await adminInventoryEngine.getByLegacyProductId(id);
 
   if (!product) {
     redirect("/admin/products");
@@ -127,7 +132,7 @@ async function applySuggestedPrice(formData: FormData) {
     redirect(`/admin/products/${id}?comps=true`);
   }
 
-  await inventoryEngine.updateProduct(id, {
+  await adminInventoryEngine.updateProduct(id, {
     title: product.title,
     player: product.player,
     sport: product.sport,
@@ -150,7 +155,8 @@ export default async function AdminProductEditPage({
 }) {
   const { id } = await params;
   const query = await searchParams;
-  const product = await inventoryEngine.getByLegacyProductId(Number(id));
+  const adminInventoryEngine = createServerInventoryEngine();
+  const product = await adminInventoryEngine.getByLegacyProductId(Number(id));
 
   if (!product) {
     return (

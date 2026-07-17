@@ -21,9 +21,11 @@ type ProductRow = {
 type InventoryRow = {
   id: string;
   legacy_product_id: number | null;
+  category: string | null;
   status: string | null;
   quantity: number | null;
   price: number | string | null;
+  metadata: Record<string, unknown> | null;
   updated_at: string | null;
 };
 
@@ -34,6 +36,16 @@ function getSupabaseClient() {
 function moneyNumber(value: number | string | null | undefined) {
   const parsed = Number(value || 0);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function roundMoney(value: number) {
+  return Math.round(value * 100) / 100;
+}
+
+function clampDiscountPercent(value: unknown) {
+  const parsed = Number(value || 0);
+  if (!Number.isFinite(parsed)) return 0;
+  return Math.min(Math.max(parsed, 0), 95);
 }
 
 function cleanText(value: unknown) {
@@ -128,7 +140,7 @@ async function fetchEbaySnapshot(ebayItemId: string) {
         imageUrl:
           cleanText(data.image?.imageUrl) ||
           cleanText(data.thumbnailImages?.[0]?.imageUrl),
-        price: moneyNumber(data.price?.value),
+        price: 0,
       };
     }
   }
@@ -160,9 +172,7 @@ async function fetchEbaySnapshot(ebayItemId: string) {
   return {
     title: cleanText(item.Title),
     imageUrl: cleanText(picture),
-    price: moneyNumber(
-      item.ConvertedCurrentPrice?.Value ?? item.CurrentPrice?.Value,
-    ),
+    price: 0,
   };
 }
 
@@ -173,7 +183,7 @@ async function repairProductForLive(product: ProductRow) {
   const snapshot = ebayItemId ? await fetchEbaySnapshot(ebayItemId) : null;
   const sku = generatedSku(product);
   const title = snapshot?.title || product.title || "Untitled eBay listing";
-  const price = snapshot?.price && snapshot.price > 0 ? snapshot.price : moneyNumber(product.price);
+  const price = moneyNumber(product.price);
   const imageUrl = snapshot?.imageUrl || cleanText(product.image_url);
   const quantity = Math.max(0, Number(product.quantity || 0));
   const now = new Date().toISOString();
@@ -232,6 +242,14 @@ async function repairProductForLive(product: ProductRow) {
 function mapIntakeRow(product: ProductRow, inventory: InventoryRow | null) {
   const problems = readinessProblems(product, inventory);
   const isReady = problems.length === 0;
+  const metadata =
+    inventory?.metadata && typeof inventory.metadata === "object"
+      ? inventory.metadata
+      : {};
+  const promo =
+    metadata.tcos_promo && typeof metadata.tcos_promo === "object"
+      ? (metadata.tcos_promo as Record<string, unknown>)
+      : {};
   const isLive =
     isReady &&
     inventory?.status === "active" &&
@@ -252,6 +270,14 @@ function mapIntakeRow(product: ProductRow, inventory: InventoryRow | null) {
     inventoryStatus: inventory?.status ?? "missing",
     inventoryQuantity: inventory?.quantity ?? null,
     inventoryPrice: inventory ? moneyNumber(inventory.price) : null,
+    category: inventory?.category ?? null,
+    promoDiscountPercent: moneyNumber(
+      promo.discount_percent as number | string | null | undefined,
+    ),
+    promoOriginalPrice: moneyNumber(
+      promo.original_price as number | string | null | undefined,
+    ),
+    promoFreeShipping: promo.free_shipping === true,
     isReady,
     isLive,
     problems,
@@ -286,7 +312,7 @@ export async function GET() {
       ? { data: [], error: null }
       : await supabase
           .from("inventory_items")
-          .select("id,legacy_product_id,status,quantity,price,updated_at")
+          .select("id,legacy_product_id,category,status,quantity,price,metadata,updated_at")
           .eq("store_id", storeId)
           .in("legacy_product_id", productIds);
 
@@ -337,7 +363,7 @@ export async function POST(request: Request) {
         .slice(0, 1000)
     : [];
 
-  if (action !== "push-live") {
+  if (!["push-live", "apply-promo", "clear-promo"].includes(action)) {
     return Response.json(
       { success: false, error: "Unsupported intake action." },
       { status: 400 },
@@ -372,7 +398,7 @@ export async function POST(request: Request) {
       ? { data: [], error: null }
       : await supabase
           .from("inventory_items")
-          .select("id,legacy_product_id,status,quantity,price,updated_at")
+          .select("id,legacy_product_id,category,status,quantity,price,metadata,updated_at")
           .eq("store_id", storeId)
           .in("legacy_product_id", productRows.map((product) => product.id));
 
@@ -389,6 +415,100 @@ export async function POST(request: Request) {
     if (row.legacy_product_id) {
       inventoryByProductId.set(Number(row.legacy_product_id), row);
     }
+  }
+
+  if (action === "apply-promo" || action === "clear-promo") {
+    const discountPercent =
+      action === "apply-promo" ? clampDiscountPercent(body.discountPercent) : 0;
+    const freeShipping =
+      action === "apply-promo" ? body.freeShipping === true : false;
+    let updated = 0;
+    const skipped: Array<{ productId: number; title: string; problems: string[] }> = [];
+
+    for (const product of productRows) {
+      const inventory = inventoryByProductId.get(product.id) ?? null;
+
+      if (!inventory) {
+        skipped.push({
+          productId: product.id,
+          title: product.title || "Untitled eBay listing",
+          problems: ["missing V2 inventory row"],
+        });
+        continue;
+      }
+
+      const metadata =
+        inventory.metadata && typeof inventory.metadata === "object"
+          ? { ...inventory.metadata }
+          : {};
+      const promo =
+        metadata.tcos_promo && typeof metadata.tcos_promo === "object"
+          ? { ...(metadata.tcos_promo as Record<string, unknown>) }
+          : {};
+      const storedOriginalPrice = moneyNumber(
+        promo.original_price as number | string | null | undefined,
+      );
+      const currentProductPrice = moneyNumber(product.price);
+      const originalPrice =
+        storedOriginalPrice > 0 ? storedOriginalPrice : currentProductPrice;
+      const nextPrice =
+        action === "clear-promo"
+          ? originalPrice
+          : roundMoney(originalPrice * (1 - discountPercent / 100));
+      const nextMetadata =
+        action === "clear-promo"
+          ? {
+              ...metadata,
+              tcos_promo: {
+                original_price: originalPrice,
+                discount_percent: 0,
+                free_shipping: false,
+                cleared_at: new Date().toISOString(),
+              },
+            }
+          : {
+              ...metadata,
+              tcos_promo: {
+                original_price: originalPrice,
+                discount_percent: discountPercent,
+                free_shipping: freeShipping,
+                applied_at: new Date().toISOString(),
+                source: "admin_ebay_inventory_intake",
+              },
+            };
+
+      const { error: productUpdateError } = await supabase
+        .from("products")
+        .update({ price: nextPrice })
+        .eq("store_id", storeId)
+        .eq("id", product.id);
+
+      if (productUpdateError) throw productUpdateError;
+
+      const { error: inventoryUpdateError } = await supabase
+        .from("inventory_items")
+        .update({
+          price: nextPrice,
+          metadata: nextMetadata,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("store_id", storeId)
+        .eq("id", inventory.id);
+
+      if (inventoryUpdateError) throw inventoryUpdateError;
+
+      updated++;
+    }
+
+    return Response.json({
+      success: true,
+      updated,
+      skipped,
+      message:
+        action === "clear-promo"
+          ? `${updated} selected listing${updated === 1 ? "" : "s"} restored to original pricing.`
+          : `${updated} selected listing${updated === 1 ? "" : "s"} updated: ${discountPercent}% off${freeShipping ? " + free shipping flag" : ""}.`,
+    });
   }
 
   let pushedLive = 0;
