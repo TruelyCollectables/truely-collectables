@@ -1,10 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { useRouter } from "next/navigation";
 
 export default function AdminLoginPage() {
-  const router = useRouter();
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -14,6 +12,9 @@ export default function AdminLoginPage() {
     setError("");
     setIsSubmitting(true);
 
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), 15000);
+
     try {
       const res = await fetch("/api/admin/login", {
         method: "POST",
@@ -21,6 +22,8 @@ export default function AdminLoginPage() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({ password }),
+        credentials: "same-origin",
+        signal: controller.signal,
       });
 
       if (!res.ok) {
@@ -53,8 +56,15 @@ export default function AdminLoginPage() {
           ? nextPath
           : "/admin/products";
 
-      router.push(destination);
+      window.location.assign(destination);
+    } catch (err: any) {
+      setError(
+        err?.name === "AbortError"
+          ? "Admin login timed out. Refresh and try again."
+          : err?.message || "Admin login failed before the server responded.",
+      );
     } finally {
+      window.clearTimeout(timeoutId);
       setIsSubmitting(false);
     }
   }
