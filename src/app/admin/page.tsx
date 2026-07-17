@@ -120,6 +120,27 @@ type PublicInventoryStatsRow = {
   latest_ebay_seen_at: string | null;
 };
 
+type SalesCompSnapshotRow = {
+  id: number;
+  legacy_product_id: number;
+  query: string | null;
+  suggested_price: number | null;
+  suggested_price_method: string | null;
+  average_price: number | null;
+  median_price: number | null;
+  comp_count: number | null;
+  recent_comp_count: number | null;
+  source_status: string | null;
+  created_at: string;
+};
+
+type InstaCompPriceRadarIgnoreRow = {
+  legacy_product_id: number;
+  ignore_until: string | null;
+  ignore_forever: boolean | null;
+  updated_at: string | null;
+};
+
 function money(value: number | null | undefined) {
   return `$${Number(value || 0).toFixed(2)}`;
 }
@@ -143,6 +164,11 @@ function shortDate(value: string | null | undefined) {
 function percent(part: number, whole: number) {
   if (whole <= 0) return "0%";
   return `${Math.round((part / whole) * 100)}%`;
+}
+
+function signedPercent(value: number) {
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${Math.round(value)}%`;
 }
 
 function listValue(items: string[]) {
@@ -201,6 +227,14 @@ function launchPostureTone(status: LaunchGatePostureStatus): "green" | "amber" |
   return "rose";
 }
 
+function priceRadarTone(deltaPercent: number): "green" | "amber" | "rose" {
+  const absoluteDelta = Math.abs(deltaPercent);
+
+  if (absoluteDelta <= 5) return "green";
+  if (absoluteDelta <= 15) return "amber";
+  return "rose";
+}
+
 export default async function AdminDashboard() {
   const supabase = createSupabaseServerClient({ admin: true });
   const storeId = getActiveStoreId();
@@ -227,6 +261,8 @@ export default async function AdminDashboard() {
     inventoryStatsResult,
     reconciliationAlertsResult,
     sellerConnectResult,
+    salesCompSnapshotsResult,
+    priceRadarIgnoresResult,
   ] = await Promise.all([
       supabase
         .from("products")
@@ -294,6 +330,20 @@ export default async function AdminDashboard() {
         .eq("provider", "stripe_connect")
         .order("updated_at", { ascending: false })
         .limit(25),
+      supabase
+        .from("sales_comp_snapshots")
+        .select(
+          "id,legacy_product_id,query,suggested_price,suggested_price_method,average_price,median_price,comp_count,recent_comp_count,source_status,created_at",
+        )
+        .eq("store_id", storeId)
+        .not("suggested_price", "is", null)
+        .gt("suggested_price", 0)
+        .order("created_at", { ascending: false })
+        .limit(300),
+      supabase
+        .from("instacomp_price_radar_ignores")
+        .select("legacy_product_id,ignore_until,ignore_forever,updated_at")
+        .eq("store_id", storeId),
     ]);
 
   const products = (productsResult.data || []) as ProductRow[];
@@ -310,6 +360,10 @@ export default async function AdminDashboard() {
     (reconciliationAlertsResult.data || []) as ReconciliationAlertRow[];
   const sellerConnectAccounts =
     (sellerConnectResult.data || []) as SellerConnectRow[];
+  const salesCompSnapshots =
+    (salesCompSnapshotsResult.data || []) as SalesCompSnapshotRow[];
+  const priceRadarIgnores =
+    (priceRadarIgnoresResult.data || []) as InstaCompPriceRadarIgnoreRow[];
   const syncPolicyAvailable =
     !syncDecisionsResult.error &&
     !blockedSyncResult.error &&
@@ -378,6 +432,130 @@ export default async function AdminDashboard() {
       sum + Number(product.price || 0) * Number(product.quantity || 0),
     0,
   );
+  const productById = new Map(products.map((product) => [product.id, product]));
+  const latestCompByProduct = new Map<number, SalesCompSnapshotRow>();
+
+  for (const snapshot of salesCompSnapshots) {
+    const productId = Number(snapshot.legacy_product_id);
+
+    if (!latestCompByProduct.has(productId)) {
+      latestCompByProduct.set(productId, snapshot);
+    }
+  }
+
+  const ignoredPriceRadarProductIds = new Set(
+    priceRadarIgnores
+      .filter((ignore) => {
+        if (ignore.ignore_forever) return true;
+        if (!ignore.ignore_until) return false;
+        return new Date(ignore.ignore_until).getTime() > now.getTime();
+      })
+      .map((ignore) => Number(ignore.legacy_product_id)),
+  );
+  const priceRadarRows = [...latestCompByProduct.entries()]
+    .map(([productId, snapshot]) => {
+      const product = productById.get(productId);
+      const currentPrice = Number(product?.price || 0);
+      const marketPrice = Number(snapshot.suggested_price || 0);
+      const deltaPercent =
+        marketPrice > 0 ? ((currentPrice - marketPrice) / marketPrice) * 100 : 0;
+
+      return {
+        product,
+        snapshot,
+        currentPrice,
+        marketPrice,
+        deltaPercent,
+        absoluteDelta: Math.abs(deltaPercent),
+      };
+    })
+    .filter(
+      (row) =>
+        row.product &&
+        Number(row.product.quantity || 0) > 0 &&
+        row.currentPrice > 0 &&
+        row.marketPrice > 0 &&
+        row.absoluteDelta >= 3 &&
+        !ignoredPriceRadarProductIds.has(row.product.id),
+    )
+    .sort((left, right) => right.absoluteDelta - left.absoluteDelta)
+    .slice(0, 8);
+  const ignoredPriceRadarCount = ignoredPriceRadarProductIds.size;
+  const compHistoryAvailable = !salesCompSnapshotsResult.error;
+  const priceRadarIgnoreAvailable = !priceRadarIgnoresResult.error;
+  const priceAdjustmentMultipliers = [
+    { label: "-25%", value: "0.75" },
+    { label: "-15%", value: "0.85" },
+    { label: "-10%", value: "0.9" },
+    { label: "-5%", value: "0.95" },
+    { label: "Market", value: "1" },
+    { label: "+5%", value: "1.05" },
+    { label: "+10%", value: "1.1" },
+    { label: "+15%", value: "1.15" },
+    { label: "+25%", value: "1.25" },
+  ];
+  const adminCommandTiles = [
+    {
+      href: "/admin/instacomp",
+      icon: "⚾",
+      title: "InstaComp™",
+      detail: `${priceRadarRows.length} pricing alert${
+        priceRadarRows.length === 1 ? "" : "s"
+      }`,
+      accent: "from-amber-100 to-white",
+    },
+    {
+      href: "/admin/ebay/inventory-intake",
+      icon: "🏀",
+      title: "eBay Import",
+      detail: "One-button listing intake",
+      accent: "from-orange-100 to-white",
+    },
+    {
+      href: "/admin/products",
+      icon: "🏈",
+      title: "Products",
+      detail: `${activeProducts.length} active`,
+      accent: "from-lime-100 to-white",
+    },
+    {
+      href: "/admin/inventory",
+      icon: "🏒",
+      title: "Inventory V2",
+      detail: "Stock and marketplace truth",
+      accent: "from-sky-100 to-white",
+    },
+    {
+      href: "/admin/orders",
+      icon: "🥅",
+      title: "Orders",
+      detail: `${readyOrders.length} ready to ship`,
+      accent: "from-emerald-100 to-white",
+    },
+    {
+      href: "/admin/offers",
+      icon: "🥊",
+      title: "Best Offers",
+      detail: `${pendingOffers.length} pending`,
+      accent: "from-rose-100 to-white",
+    },
+    {
+      href: "/admin/ebay/duplicates",
+      icon: "🥎",
+      title: "Dupe Finder",
+      detail: "Merge or trash safely",
+      accent: "from-yellow-100 to-white",
+    },
+    {
+      href: "/admin/financial-reconciliation",
+      icon: "🏆",
+      title: "Money Audit",
+      detail: `${reconciliationAlerts.length} open alert${
+        reconciliationAlerts.length === 1 ? "" : "s"
+      }`,
+      accent: "from-purple-100 to-white",
+    },
+  ];
 
   const latestEbaySeen = ebayLinked
     .map((product) => product.last_seen_at)
@@ -466,6 +644,217 @@ export default async function AdminDashboard() {
       </section>
 
       <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
+        <section className="rounded-xl border border-neutral-200 bg-white shadow-sm">
+          <div className="flex flex-col gap-4 border-b border-neutral-200 p-5 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-blue-700">
+                InstaComp™ Pricing Radar
+              </p>
+              <h2 className="mt-1 text-3xl font-black">
+                Cards priced high, low, or ready to leave alone
+              </h2>
+              <p className="mt-2 max-w-3xl text-sm font-semibold text-neutral-600">
+                This is the first stop: compare your live price against the latest
+                InstaComp™ suggested price, then snap it to market or move it
+                above/below market in one click.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Pill
+                label={
+                  compHistoryAvailable
+                    ? `${salesCompSnapshots.length} comp snapshots checked`
+                    : "comp table unavailable"
+                }
+                tone={compHistoryAvailable ? "green" : "rose"}
+              />
+              <Pill
+                label={`${ignoredPriceRadarCount} ignored`}
+                tone={priceRadarIgnoreAvailable ? "amber" : "rose"}
+              />
+              <LinkButton href="/admin/instacomp" label="Open InstaComp™" />
+            </div>
+          </div>
+
+          {priceRadarRows.length === 0 ? (
+            <div className="p-5">
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-5">
+                <h3 className="text-xl font-black text-emerald-900">
+                  No pricing fires showing right now.
+                </h3>
+                <p className="mt-2 text-sm font-semibold text-emerald-800">
+                  Either your active cards are close to InstaComp™ market, or the
+                  comp history needs fresh scans. Run InstaComp™ on questionable
+                  listings and they will show up here automatically.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="divide-y divide-neutral-200">
+              {priceRadarRows.map((row) => {
+                const product = row.product!;
+                const tone = priceRadarTone(row.deltaPercent);
+                const isHigh = row.deltaPercent > 0;
+
+                return (
+                  <div
+                    key={`${product.id}-${row.snapshot.id}`}
+                    className="grid grid-cols-1 gap-4 p-5 xl:grid-cols-[1.2fr_0.55fr_1.15fr_0.75fr]"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Pill
+                          label={isHigh ? "priced high" : "priced low"}
+                          tone={tone}
+                        />
+                        <span className="text-xs font-black uppercase text-neutral-500">
+                          {row.snapshot.comp_count || 0} comps /{" "}
+                          {row.snapshot.recent_comp_count || 0} recent
+                        </span>
+                      </div>
+                      <Link
+                        href={`/admin/products/${product.id}`}
+                        className="mt-2 block truncate text-xl font-black underline-offset-4 hover:underline"
+                      >
+                        {product.title || `Product #${product.id}`}
+                      </Link>
+                      <p className="mt-1 truncate text-sm font-semibold text-neutral-600">
+                        Query: {row.snapshot.query || "No query saved"} · Last
+                        comped {shortDate(row.snapshot.created_at)}
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-3 gap-2 text-center xl:grid-cols-1">
+                      <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3">
+                        <p className="text-[11px] font-black uppercase text-neutral-500">
+                          Your price
+                        </p>
+                        <p className="text-xl font-black">{money(row.currentPrice)}</p>
+                      </div>
+                      <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
+                        <p className="text-[11px] font-black uppercase text-blue-700">
+                          Market
+                        </p>
+                        <p className="text-xl font-black text-blue-950">
+                          {money(row.marketPrice)}
+                        </p>
+                      </div>
+                      <div className="rounded-lg border border-neutral-200 bg-white p-3">
+                        <p className="text-[11px] font-black uppercase text-neutral-500">
+                          Gap
+                        </p>
+                        <p className="text-xl font-black">
+                          {signedPercent(row.deltaPercent)}
+                        </p>
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-widest text-neutral-500">
+                        Reprice selected card
+                      </p>
+                      <div className="mt-2 grid grid-cols-3 gap-2">
+                        {priceAdjustmentMultipliers.map((multiplier) => (
+                          <form
+                            key={`${product.id}-${multiplier.value}`}
+                            action="/api/admin/instacomp-price-radar/adjust"
+                            method="post"
+                          >
+                            <input
+                              type="hidden"
+                              name="productId"
+                              value={product.id}
+                            />
+                            <input
+                              type="hidden"
+                              name="multiplier"
+                              value={multiplier.value}
+                            />
+                            <button
+                              type="submit"
+                              className="w-full rounded-md border border-neutral-300 bg-white px-2 py-2 text-sm font-black hover:bg-neutral-50"
+                              title={`Set ${product.title || "card"} to ${
+                                multiplier.label
+                              }`}
+                            >
+                              {multiplier.label}
+                            </button>
+                          </form>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div>
+                      <p className="text-xs font-black uppercase tracking-widest text-neutral-500">
+                        Stop bugging me
+                      </p>
+                      <div className="mt-2 grid grid-cols-3 gap-2 xl:grid-cols-1">
+                        {[
+                          ["14d", "14 days"],
+                          ["30d", "30 days"],
+                          ["forever", "forever"],
+                        ].map(([duration, labelText]) => (
+                          <form
+                            key={`${product.id}-${duration}`}
+                            action="/api/admin/instacomp-price-radar/ignore"
+                            method="post"
+                          >
+                            <input
+                              type="hidden"
+                              name="productId"
+                              value={product.id}
+                            />
+                            <input
+                              type="hidden"
+                              name="duration"
+                              value={duration}
+                            />
+                            <button
+                              type="submit"
+                              className="w-full rounded-md border border-neutral-300 bg-neutral-50 px-2 py-2 text-sm font-black hover:bg-white"
+                            >
+                              Ignore {labelText}
+                            </button>
+                          </form>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </section>
+
+        <section className="rounded-xl border border-neutral-200 bg-[#101418] p-5 text-white shadow-sm">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-amber-300">
+                Admin Playbook
+              </p>
+              <h2 className="mt-1 text-3xl font-black">
+                Big buttons, clear jobs, no maze bullshit
+              </h2>
+            </div>
+            <p className="max-w-2xl text-sm font-semibold text-neutral-300">
+              Each tile goes to one workbench. Sports icons are unique so the
+              page can grow without every button looking like the same gray brick.
+            </p>
+          </div>
+          <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {adminCommandTiles.map((tile) => (
+              <AdminCommandTile
+                key={tile.href}
+                href={tile.href}
+                icon={tile.icon}
+                title={tile.title}
+                detail={tile.detail}
+                accent={tile.accent}
+              />
+            ))}
+          </div>
+        </section>
+
         <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
           <MetricTile label="Revenue Today" value={money(revenueToday)} detail="Paid orders since midnight" />
           <MetricTile label="Revenue Month" value={money(revenueMonth)} detail="Paid orders this month" />
@@ -1154,6 +1543,40 @@ function MetricTile({
       <p className="mt-3 text-3xl font-black tracking-tight">{value}</p>
       <p className="mt-2 text-sm text-neutral-600">{detail}</p>
     </div>
+  );
+}
+
+function AdminCommandTile({
+  href,
+  icon,
+  title,
+  detail,
+  accent,
+}: {
+  href: string;
+  icon: string;
+  title: string;
+  detail: string;
+  accent: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className={`group rounded-xl border border-white/15 bg-gradient-to-br ${accent} p-4 text-neutral-950 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg`}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <span className="grid size-16 place-items-center rounded-full border border-neutral-900/10 bg-white text-4xl shadow-sm">
+          {icon}
+        </span>
+        <span className="rounded-full border border-neutral-900/10 bg-white px-2 py-1 text-[11px] font-black uppercase text-neutral-600">
+          Open
+        </span>
+      </div>
+      <h3 className="mt-4 text-2xl font-black tracking-tight group-hover:underline">
+        {title}
+      </h3>
+      <p className="mt-1 text-sm font-bold text-neutral-600">{detail}</p>
+    </Link>
   );
 }
 

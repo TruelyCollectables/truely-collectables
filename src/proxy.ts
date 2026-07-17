@@ -205,10 +205,18 @@ export async function proxy(req: NextRequest) {
   }
 
   if (isProtectedPath(pathname)) {
-    const adminCookie =
-      req.cookies.get(ADMIN_SESSION_COOKIE_NAME)?.value ||
-      req.cookies.get(LEGACY_ADMIN_SESSION_COOKIE_NAME)?.value;
-    const isValidSession = await isValidAdminSessionValue(adminCookie);
+    const adminCookies = [
+      ...req.cookies.getAll(ADMIN_SESSION_COOKIE_NAME).map((cookie) => cookie.value),
+      ...req.cookies.getAll(LEGACY_ADMIN_SESSION_COOKIE_NAME).map((cookie) => cookie.value),
+    ];
+    let isValidSession = false;
+
+    for (const adminCookie of adminCookies) {
+      if (await isValidAdminSessionValue(adminCookie)) {
+        isValidSession = true;
+        break;
+      }
+    }
 
     if (!isValidSession) {
       return applySecurityHeaders(unauthorized(req), req);
