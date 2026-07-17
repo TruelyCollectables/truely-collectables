@@ -27,8 +27,8 @@ const CLIENT_ITEM_TRANSITIONS: Record<string, Set<string>> = {
   awaiting_upload: new Set(["cancelled"]),
   queued: new Set(["cancelled"]),
   processing: new Set(),
-  retry_wait: new Set(),
-  completed: new Set(),
+  retry_wait: new Set(["cancelled"]),
+  completed: new Set(["cancelled"]),
   review_required: new Set(["cancelled"]),
   failed: new Set(["cancelled"]),
   cancelled: new Set(["cancelled"]),
@@ -314,8 +314,13 @@ export async function PATCH(request: Request, context: RouteContext) {
     if (error) throwInstaCompDatabaseError(error);
 
     await refreshInstaCompJobCounts(supabase, jobId);
+    const job = await getAccessibleInstaCompJob({
+      supabase,
+      actor,
+      jobId,
+    });
 
-    return Response.json({ item: publicItem(updatedItem) });
+    return Response.json({ job, item: publicItem(updatedItem) });
   } catch (error) {
     return instaCompJobErrorResponse(error);
   }

@@ -6634,45 +6634,135 @@ export default function InstaCompScanner({
     });
   }
 
-  function removeBatchCard(cardId: string) {
-    if (batchRunning || batchDrafting || persistentJob) return;
+  async function cancelPersistentBatchCard(card: BatchCard) {
+    if (!card.persistentJobId || !card.persistentItemId) return null;
+
+    return persistentJobJson(
+      `/api/instacomp/jobs/${card.persistentJobId}/items/${card.persistentItemId}`,
+      {
+        method: "PATCH",
+        body: {
+          status: "cancelled",
+          error: {
+            code: "seller_removed_scan_row",
+            message:
+              "The seller removed this card row from the InstaComp™ scanner review.",
+          },
+        },
+      }
+    );
+  }
+
+  function forgetRemovedBatchCard(card: BatchCard) {
+    revokeBatchCardPreviewUrls(card);
+    persistentBindingsRef.current.delete(card.id);
+
+    if (card.persistentItemId) {
+      serialOverrideByItemIdRef.current.delete(card.persistentItemId);
+    }
+  }
+
+  async function removeBatchCard(cardId: string) {
+    if (batchRunning || batchDrafting) return;
 
     const card = batchCards.find((row) => row.id === cardId);
 
-    if (card) {
-      revokeBatchCardPreviewUrls(card);
-    }
+    if (!card || card.draftStatus === "drafting") return;
 
-    setBatchCards((current) => current.filter((row) => row.id !== cardId));
+    setBatchError(null);
+
+    try {
+      if (card.persistentJobId && card.persistentItemId) {
+        setBatchDraftMessage(
+          `Removing ${draftTitleForCard(card)} from the saved InstaComp™ lot...`
+        );
+        const data = await cancelPersistentBatchCard(card);
+
+        if (data?.job) {
+          setPersistentJob(data.job as PersistentJobSummary);
+        }
+      }
+
+      setBatchCards((current) =>
+        current.filter((row) => {
+          if (row.id !== cardId) return true;
+
+          forgetRemovedBatchCard(row);
+          return false;
+        })
+      );
+      setBatchDraftMessage(`Removed ${draftTitleForCard(card)} from this batch.`);
+    } catch (error: any) {
+      setBatchError(error?.message || "Could not remove this InstaComp™ row.");
+      setBatchDraftMessage(null);
+    }
   }
 
-  function removeBatchCardsByIds(
+  async function removeBatchCardsByIds(
     ids: Set<string>,
     count: number,
     emptyMessage: string,
     removedMessage: string
   ) {
-    if (batchRunning || batchDrafting || persistentJob) return;
+    if (batchRunning || batchDrafting) return;
 
     if (!count) {
       setBatchError(emptyMessage);
       return;
     }
 
-    setBatchError(null);
-    setBatchDraftMessage(removedMessage);
-    setBatchCards((current) =>
-      current.filter((card) => {
-        if (!ids.has(card.id)) return true;
-
-        revokeBatchCardPreviewUrls(card);
-        return false;
-      })
+    const cardsToRemove = batchCards.filter(
+      (card) => ids.has(card.id) && card.draftStatus !== "drafting"
     );
+
+    if (!cardsToRemove.length) {
+      setBatchError(emptyMessage);
+      return;
+    }
+
+    setBatchError(null);
+    const persistedCards = cardsToRemove.filter(
+      (card) => card.persistentJobId && card.persistentItemId
+    );
+
+    try {
+      if (persistedCards.length) {
+        setBatchDraftMessage(
+          `Removing ${cardsToRemove.length} row${
+            cardsToRemove.length === 1 ? "" : "s"
+          } from the saved InstaComp™ lot...`
+        );
+        const results = await Promise.all(
+          persistedCards.map((card) => cancelPersistentBatchCard(card))
+        );
+        const latestJob = results
+          .slice()
+          .reverse()
+          .find((result) => result?.job)?.job;
+
+        if (latestJob) {
+          setPersistentJob(latestJob as PersistentJobSummary);
+        }
+      }
+
+      const removeIds = new Set(cardsToRemove.map((card) => card.id));
+      setBatchDraftMessage(removedMessage);
+      setBatchCards((current) =>
+        current.filter((card) => {
+          if (!removeIds.has(card.id)) return true;
+
+          forgetRemovedBatchCard(card);
+          return false;
+        })
+      );
+    } catch (error: any) {
+      setBatchError(error?.message || "Could not remove these InstaComp™ rows.");
+      setBatchDraftMessage(null);
+    }
   }
 
   function removeVisibleFailedBatchCards() {
-    removeBatchCardsByIds(
+    void removeBatchCardsByIds(
       visibleFailedBatchCardIds,
       visibleFailedCount,
       "No visible failed rows are available to remove.",
@@ -6683,7 +6773,7 @@ export default function InstaCompScanner({
   }
 
   function removeVisibleDraftedBatchCards() {
-    removeBatchCardsByIds(
+    void removeBatchCardsByIds(
       visibleDraftedBatchCardIds,
       visibleDraftedCount,
       "No visible drafted rows are available to remove.",
@@ -13305,7 +13395,7 @@ function BatchCardRow({
   onSaveCorrections: (cardId: string) => void | Promise<void>;
   onAddToTrade: (cardId: string) => void | Promise<void>;
   onRetry: (cardId: string) => void;
-  onRemove: (cardId: string) => void;
+  onRemove: (cardId: string) => void | Promise<void>;
   onCopySummary?: (card: BatchCard, index: number) => void | Promise<void>;
   onCopyDraftPayload?: (card: BatchCard, index: number) => void | Promise<void>;
 }) {
@@ -13848,8 +13938,13 @@ function BatchCardRow({
 
               <button
                 type="button"
-                onClick={() => onRemove(card.id)}
+                onClick={() => void onRemove(card.id)}
                 disabled={!canRemove}
+                title={
+                  card.persistentJobId && card.persistentItemId
+                    ? "Cancel this saved InstaComp™ row and remove it from the visible batch."
+                    : "Remove this local upload row from the visible batch."
+                }
                 style={{
                   ...secondaryButtonStyle,
                   padding: "8px 10px",
