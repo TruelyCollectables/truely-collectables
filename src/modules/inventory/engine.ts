@@ -1050,13 +1050,24 @@ export class InventoryEngine {
       notes: notes || null,
     });
 
-    await this.repository.replaceGeneratedAttributes(
-      inventoryItem.id,
-      Object.entries(input.attributes ?? {}).map(([attribute_name, value]) => ({
-        attribute_name,
-        attribute_value: value,
-      })),
-    );
+    try {
+      await this.repository.replaceGeneratedAttributes(
+        inventoryItem.id,
+        Object.entries(input.attributes ?? {}).map(([attribute_name, value]) => ({
+          attribute_name,
+          attribute_value: value,
+        })),
+      );
+    } catch (attributeError: any) {
+      const message = String(attributeError?.message || "").toLowerCase();
+
+      if (
+        !message.includes("inventory_attributes") &&
+        !message.includes("permission denied")
+      ) {
+        throw attributeError;
+      }
+    }
 
     await eventBus.publish(
       "inventory.ebay_imported",
