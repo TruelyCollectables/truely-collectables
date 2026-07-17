@@ -51,6 +51,7 @@ type ProductRow = {
 type SellerInventoryResponseItem = {
   inventoryItemId: string;
   legacyProductId: number | null;
+  ownershipScope: "seller" | "store";
   title: string;
   description: string | null;
   sku: string | null;
@@ -213,6 +214,7 @@ function isMissingSellerInventoryTables(error: { code?: string; message?: string
 function mapInventoryItem(
   item: InventoryRow,
   productsById: Map<number, ProductRow>,
+  accountId: string,
 ): SellerInventoryResponseItem {
   const product = item.legacy_product_id
     ? productsById.get(item.legacy_product_id)
@@ -236,6 +238,7 @@ function mapInventoryItem(
   return {
     inventoryItemId: item.id,
     legacyProductId: item.legacy_product_id,
+    ownershipScope: item.seller_account_id === accountId ? "seller" : "store",
     title: item.title || "Untitled item",
     description: item.description || null,
     sku: item.sku || null,
@@ -270,6 +273,7 @@ function sellerInventoryHeaders(params: {
   draftNeedsWorkCount: number;
   activeCount: number;
   archivedCount: number;
+  storeOwnedCount: number;
   instacompDraftCount: number;
   instacompReadyDraftCount: number;
   standardEnvelopeCount: number;
@@ -284,6 +288,7 @@ function sellerInventoryHeaders(params: {
     ),
     "X-TCOS-Seller-Inventory-Active": String(params.activeCount),
     "X-TCOS-Seller-Inventory-Archived": String(params.archivedCount),
+    "X-TCOS-Seller-Inventory-Store-Owned": String(params.storeOwnedCount),
     "X-TCOS-Seller-Inventory-InstaComp-Drafts": String(
       params.instacompDraftCount,
     ),
@@ -315,14 +320,22 @@ export async function GET(request: Request) {
 
     const supabase = getSupabaseClient();
     const storeId = getActiveStoreId();
-    const { data: inventoryData, error: inventoryError } = await supabase
+    const isStoreOwnerAccount =
+      account.email === "sales@truelycollectables.com" ||
+      account.email === "sales@trulycollectables.com";
+    let inventoryQuery = supabase
       .from("inventory_items")
       .select(
         "id,legacy_product_id,seller_account_id,sku,title,description,category,condition,status,quantity,price,metadata,updated_at,created_at",
       )
       .eq("store_id", storeId)
-      .eq("seller_account_id", account.id)
       .order("updated_at", { ascending: false });
+
+    inventoryQuery = isStoreOwnerAccount
+      ? inventoryQuery.or(`seller_account_id.eq.${account.id},seller_account_id.is.null`)
+      : inventoryQuery.eq("seller_account_id", account.id);
+
+    const { data: inventoryData, error: inventoryError } = await inventoryQuery;
 
     if (inventoryError) {
       if (isMissingSellerInventoryTables(inventoryError)) {
@@ -377,7 +390,9 @@ export async function GET(request: Request) {
     const productsById = new Map(
       ((productData || []) as ProductRow[]).map((row) => [row.id, row]),
     );
-    const items = inventoryItems.map((item) => mapInventoryItem(item, productsById));
+    const items = inventoryItems.map((item) =>
+      mapInventoryItem(item, productsById, account.id),
+    );
     const recentItems = items.slice(0, 12);
     const totalQuantity = inventoryItems.reduce(
       (sum, item) => sum + Number(item.quantity || 0),
@@ -463,6 +478,8 @@ export async function GET(request: Request) {
       draftNeedsWorkCount,
       activeCount: inventoryItems.filter((item) => item.status === "active").length,
       archivedCount: inventoryItems.filter((item) => item.status === "archived")
+        .length,
+      storeOwnedCount: inventoryItems.filter((item) => !item.seller_account_id)
         .length,
       instacompDraftCount,
       instacompReadyDraftCount,

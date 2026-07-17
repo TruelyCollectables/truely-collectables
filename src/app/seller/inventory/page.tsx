@@ -30,6 +30,7 @@ type SellerInventorySummary = {
   draftNeedsWorkCount: number;
   activeCount: number;
   archivedCount: number;
+  storeOwnedCount: number;
   instacompDraftCount: number;
   instacompReadyDraftCount: number;
   totalQuantity: number;
@@ -39,6 +40,7 @@ type SellerInventorySummary = {
 type SellerInventoryItem = {
   inventoryItemId: string;
   legacyProductId: number | null;
+  ownershipScope?: "seller" | "store";
   title: string;
   description: string | null;
   sku: string | null;
@@ -1968,6 +1970,10 @@ export default function SellerInventoryPage() {
             value={loading ? "..." : String(summary?.activeCount || 0)}
           />
           <Metric
+            label="eBay Store Imports"
+            value={loading ? "..." : String(summary?.storeOwnedCount || 0)}
+          />
+          <Metric
             label="Units"
             value={loading ? "..." : String(summary?.totalQuantity || 0)}
           />
@@ -1995,7 +2001,8 @@ export default function SellerInventoryPage() {
               <h2 className="text-2xl font-black">Activation Readiness Board</h2>
               <p className="mt-1 max-w-3xl text-sm text-neutral-600">
                 Drafts only become painless to activate when the listing basics are
-                complete. This board keeps the cleanup work obvious.
+                complete. Imported eBay store listings show as active inventory,
+                not drafts.
               </p>
             </div>
 
@@ -2049,6 +2056,17 @@ export default function SellerInventoryPage() {
                 </p>
                 <p className="mt-2 text-sm text-neutral-600">
                   Seller-owned items already live inside the active store.
+                </p>
+              </div>
+              <div className="rounded-md border border-emerald-200 bg-emerald-50 p-4">
+                <p className="text-xs font-black uppercase text-emerald-700">
+                  eBay Store Imports
+                </p>
+                <p className="mt-2 text-2xl font-black">
+                  {summary?.storeOwnedCount || 0}
+                </p>
+                <p className="mt-2 text-sm text-emerald-900">
+                  Store-owned imports from eBay. Use Active or All to review them.
                 </p>
               </div>
             </div>
@@ -2110,7 +2128,8 @@ export default function SellerInventoryPage() {
               <div>
                 <h2 className="text-2xl font-black">Seller Inventory Workspace</h2>
                 <p className="mt-1 max-w-3xl text-sm text-neutral-600">
-                  This list stays seller-scoped. Draft readiness is calculated from
+                  This list shows seller-owned rows plus TCOS store-owned eBay
+                  imports for the store account. Draft readiness is calculated from
                   the inventory record plus linked product image coverage.
                 </p>
               </div>
@@ -3026,6 +3045,18 @@ export default function SellerInventoryPage() {
                           value={item.instaComp.hasBackImage ? "Yes" : "No"}
                         />
                       </div>
+                    </div>
+                  ) : null}
+
+                  {item.ownershipScope === "store" ? (
+                    <div className="mt-4 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2">
+                      <p className="text-xs font-black uppercase tracking-[0.14em] text-emerald-800">
+                        TCOS store-owned eBay import
+                      </p>
+                      <p className="mt-1 text-xs font-semibold text-emerald-950">
+                        This listing is already in the store catalog. Use Open
+                        Admin Product for the clean edit path.
+                      </p>
                     </div>
                   ) : null}
 
