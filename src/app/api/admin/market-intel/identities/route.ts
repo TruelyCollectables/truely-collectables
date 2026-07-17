@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   adminHandoffFromUrl,
   adminRedirectUrl,
-} from "../../../../../../lib/admin-handoff";
-import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
+} from "../../../../../lib/admin-handoff";
+import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
 
 function slug(value: string | null | undefined) {
   return String(value || "")
