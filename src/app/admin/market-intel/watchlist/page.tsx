@@ -76,7 +76,9 @@ export default async function MarketIntelWatchlistPage({ searchParams }: PagePro
                   <Check name="includeGraded" label="Graded" />
                   <Check name="includeLots" label="Lots / wholesale" />
                 </div>
-                <button className="rounded-md bg-black px-5 py-3 font-black text-white sm:col-span-2">
+                <button
+                  type="submit"
+                  className="rounded-md bg-black px-5 py-3 font-black text-white sm:col-span-2">
                   Add to Watchlist
                 </button>
               </form>
@@ -93,7 +95,9 @@ export default async function MarketIntelWatchlistPage({ searchParams }: PagePro
                 action={addAdminHandoff("/api/admin/market-intel/watchlist/seed", handoff)}
                 className="mt-4"
               >
-                <button className="rounded-md bg-cyan-700 px-4 py-2.5 text-sm font-black text-white">
+                <button
+                  type="submit"
+                  className="rounded-md bg-cyan-700 px-4 py-2.5 text-sm font-black text-white">
                   Load Current Watchlist
                 </button>
               </form>
@@ -132,7 +136,9 @@ export default async function MarketIntelWatchlistPage({ searchParams }: PagePro
                         method="post"
                         action={addAdminHandoff(`/api/admin/market-intel/watchlist/${row.id}/toggle`, handoff)}
                       >
-                        <button className={row.active ? "rounded-md border border-neutral-300 px-4 py-2 text-sm font-black" : "rounded-md bg-emerald-600 px-4 py-2 text-sm font-black text-white"}>
+                        <button
+                          type="submit"
+                          className={row.active ? "rounded-md border border-neutral-300 px-4 py-2 text-sm font-black" : "rounded-md bg-emerald-600 px-4 py-2 text-sm font-black text-white"}>
                           {row.active ? "Pause" : "Reactivate"}
                         </button>
                       </form>

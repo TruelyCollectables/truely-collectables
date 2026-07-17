@@ -299,6 +299,7 @@ export default function ShippingLabelActions({
 
       <div className="flex flex-wrap gap-3">
         <button
+          type="button"
           onClick={prepareLabelRecord}
           disabled={busy}
           className="rounded bg-neutral-950 px-4 py-2 font-bold text-white disabled:opacity-50"
@@ -307,6 +308,7 @@ export default function ShippingLabelActions({
         </button>
 
         <button
+          type="button"
           onClick={attemptProviderPurchase}
           disabled={providerActionsBlocked}
           className="rounded border border-neutral-950 bg-white px-4 py-2 font-bold text-neutral-950 disabled:opacity-50"
@@ -315,6 +317,7 @@ export default function ShippingLabelActions({
         </button>
 
         <button
+          type="button"
           onClick={() => {
             setShowManualForm((value) => !value);
             setShowVoidForm(false);
@@ -326,6 +329,7 @@ export default function ShippingLabelActions({
         </button>
 
         <button
+          type="button"
           onClick={() => {
             setShowVoidForm((value) => !value);
             setShowManualForm(false);
@@ -337,6 +341,7 @@ export default function ShippingLabelActions({
         </button>
 
         <button
+          type="button"
           onClick={openCoverageClaimDraft}
           disabled={providerActionsBlocked}
           className="rounded border border-amber-700 bg-amber-50 px-4 py-2 font-bold text-amber-950 disabled:opacity-50"
@@ -436,6 +441,7 @@ export default function ShippingLabelActions({
           </div>
 
           <button
+            type="button"
             onClick={recordManualPurchase}
             disabled={recording}
             className="mt-4 rounded bg-blue-700 px-4 py-2 font-bold text-white disabled:opacity-50"
@@ -502,6 +508,7 @@ export default function ShippingLabelActions({
           </div>
 
           <button
+            type="button"
             onClick={recordManualVoid}
             disabled={voiding}
             className="mt-4 rounded bg-red-700 px-4 py-2 font-bold text-white disabled:opacity-50"

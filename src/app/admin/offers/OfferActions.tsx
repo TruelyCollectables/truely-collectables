@@ -87,6 +87,7 @@ export default function OfferActions({
   return (
     <div className="space-y-2">
       <button
+        type="button"
         disabled={status !== "pending" || loading !== ""}
         onClick={() => updateStatus("accepted")}
         className="w-full bg-black text-white rounded py-2 disabled:opacity-50"
@@ -95,6 +96,7 @@ export default function OfferActions({
       </button>
 
       <button
+        type="button"
         disabled={status !== "pending" || loading !== ""}
         onClick={() => updateStatus("declined")}
         className="w-full border rounded py-2 disabled:opacity-50"
@@ -123,6 +125,7 @@ export default function OfferActions({
       />
 
       <button
+        type="button"
         disabled={status !== "pending" || loading !== ""}
         onClick={sendCounterOffer}
         className="w-full bg-blue-600 text-white rounded py-2 disabled:opacity-50"

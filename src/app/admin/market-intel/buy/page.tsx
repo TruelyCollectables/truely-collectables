@@ -289,7 +289,9 @@ function CandidateCard({
                 <input name="alreadyReceived" type="checkbox" />
                 Already received and in inventory
               </label>
-              <button className="w-full rounded-md bg-black px-4 py-3 font-black text-white">
+              <button
+                type="submit"
+                className="w-full rounded-md bg-black px-4 py-3 font-black text-white">
                 CREATE PURCHASE POSITION
               </button>
               <p className="text-xs font-semibold leading-5 text-amber-950">

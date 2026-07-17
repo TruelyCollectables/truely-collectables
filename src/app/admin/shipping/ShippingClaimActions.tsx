@@ -630,6 +630,7 @@ export default function ShippingClaimActions({
       <div className="flex flex-wrap gap-2">
         {actions.map((action) => (
           <button
+            type="button"
             key={action.status}
             onClick={() => updateClaimStatus(action.status)}
             disabled={

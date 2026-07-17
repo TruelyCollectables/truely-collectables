@@ -98,7 +98,9 @@ export default async function MarketIntelCompDetailPage({
                     handoff,
                   )}
                 >
-                  <button className="rounded-md bg-black px-4 py-2.5 text-sm font-black text-white">
+                  <button
+                    type="submit"
+                    className="rounded-md bg-black px-4 py-2.5 text-sm font-black text-white">
                     Recalculate
                   </button>
                 </form>
@@ -175,7 +177,9 @@ export default async function MarketIntelCompDetailPage({
                 <Check name="outlierFlag" label="Flag as outlier" />
                 <Check name="excluded" label="Exclude from value" />
               </div>
-              <button className="rounded-md bg-black px-5 py-3 font-black text-white sm:col-span-2">
+              <button
+                type="submit"
+                className="rounded-md bg-black px-5 py-3 font-black text-white sm:col-span-2">
                 Save Verified Comp
               </button>
             </form>

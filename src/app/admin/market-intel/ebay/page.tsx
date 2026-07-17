@@ -186,6 +186,7 @@ export default async function MarketIntelEbayPage({ searchParams }: PageProps) {
               />
 
               <button
+                type="submit"
                 disabled={!credentialsConfigured || compData.identities.length === 0}
                 className="w-full rounded-md bg-black px-4 py-3 font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
               >

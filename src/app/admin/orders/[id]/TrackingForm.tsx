@@ -163,6 +163,7 @@ export default function TrackingForm({
 
       <div className="flex gap-4">
         <button
+          type="button"
           onClick={saveTracking}
           disabled={saving || dryRunShippingBlocked}
           className="bg-blue-600 text-white px-5 py-2 rounded disabled:opacity-50"
@@ -171,6 +172,7 @@ export default function TrackingForm({
         </button>
 
         <button
+          type="button"
           onClick={markShipped}
           disabled={shipping || !canMarkShipped || dryRunShippingBlocked}
           className="bg-green-600 text-white px-5 py-2 rounded disabled:opacity-50"

@@ -180,6 +180,7 @@ export default async function MarketIntelDeliveryPage({
             >
               <input type="hidden" name="limit" value="10" />
               <button
+                type="submit"
                 disabled={!config.configured || !config.enabled || pending.length === 0}
                 className="w-full rounded-md bg-cyan-800 px-4 py-3 font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
               >
@@ -214,6 +215,7 @@ export default async function MarketIntelDeliveryPage({
                 <input type="hidden" name="reportId" value={latestReport.id} />
               ) : null}
               <button
+                type="submit"
                 disabled={!config.configured || !config.enabled || !latestReport}
                 className="w-full rounded-md bg-black px-4 py-3 font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
               >

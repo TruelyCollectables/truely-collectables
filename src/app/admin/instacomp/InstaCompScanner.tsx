@@ -10396,6 +10396,7 @@ export default function InstaCompScanner({
           </label>
 
           <button
+            type="button"
             onClick={() => void scanBatch()}
             disabled={
               batchRunning ||
@@ -10732,6 +10733,7 @@ export default function InstaCompScanner({
           </button>
 
           <button
+            type="button"
             onClick={createDraftListings}
             disabled={createDraftButtonDisabled}
             style={{
@@ -11107,6 +11109,7 @@ export default function InstaCompScanner({
           </div>
 
           <button
+            type="button"
             onClick={clearBatch}
             disabled={batchRunning || batchDrafting || !batchCards.length}
             style={{
@@ -12339,6 +12342,7 @@ export default function InstaCompScanner({
         </div>
 
         <button
+          type="button"
           onClick={scanCard}
           disabled={loading || !frontImage}
           style={{
@@ -12533,6 +12537,7 @@ export default function InstaCompScanner({
               }}
             >
               <button
+                type="button"
                 onClick={() =>
                   copyPrice(
                     primaryCompStats(result).suggestedPrice,
@@ -12546,6 +12551,7 @@ export default function InstaCompScanner({
               </button>
 
               <button
+                type="button"
                 onClick={() => copyPrice(marketPlus10, "Market +10%")}
                 disabled={!marketPlus10}
                 style={buttonStyle}
@@ -12554,6 +12560,7 @@ export default function InstaCompScanner({
               </button>
 
               <button
+                type="button"
                 onClick={() => copyPrice(marketMinus10, "Market -10%")}
                 disabled={!marketMinus10}
                 style={buttonStyle}

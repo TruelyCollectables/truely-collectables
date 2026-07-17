@@ -142,6 +142,7 @@ export default async function PackingSlipPage({
           </span>
         ) : (
           <button
+            type="button"
             onClick={() => window.print()}
             className="rounded border px-4 py-2"
           >

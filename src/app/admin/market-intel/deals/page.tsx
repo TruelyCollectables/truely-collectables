@@ -343,7 +343,9 @@ export default async function MarketIntelDealsPage({ searchParams }: PageProps) 
                   handoff,
                 )}
               >
-                <button className="rounded-md border border-neutral-500 px-4 py-2 text-sm font-black hover:bg-white hover:text-black">
+                <button
+                  type="submit"
+                  className="rounded-md border border-neutral-500 px-4 py-2 text-sm font-black hover:bg-white hover:text-black">
                   Rescore All
                 </button>
               </form>
@@ -455,7 +457,9 @@ export default async function MarketIntelDealsPage({ searchParams }: PageProps) 
                             handoff,
                           )}
                         >
-                          <button className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-black hover:bg-neutral-100">
+                          <button
+                            type="submit"
+                            className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-black hover:bg-neutral-100">
                             End Listing
                           </button>
                         </form>
@@ -554,7 +558,9 @@ function SharkCard({
             handoff,
           )}
         >
-          <button className="rounded-md border border-neutral-600 px-3 py-2 text-xs font-black hover:bg-neutral-800">
+          <button
+            type="submit"
+            className="rounded-md border border-neutral-600 px-3 py-2 text-xs font-black hover:bg-neutral-800">
             End Listing
           </button>
         </form>

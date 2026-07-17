@@ -71,6 +71,7 @@ export default function DryRunCleanupActions({
       />
       <div className="flex flex-wrap gap-2">
         <button
+          type="button"
           onClick={() => retireProof({ redirectToManual: true })}
           disabled={retiring}
           className="rounded bg-red-700 px-3 py-2 text-xs font-black text-white disabled:opacity-50"
@@ -78,6 +79,7 @@ export default function DryRunCleanupActions({
           {retiring ? "Retiring..." : "Retire + Record Real Label"}
         </button>
         <button
+          type="button"
           onClick={() => retireProof({ redirectToManual: false })}
           disabled={retiring}
           className="rounded border border-red-300 bg-white px-3 py-2 text-xs font-black text-red-950 disabled:opacity-50"

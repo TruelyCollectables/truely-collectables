@@ -168,7 +168,9 @@ export default async function MarketIntelReportsPage({
               Creates new alerts for currently actionable listings, refreshes still-valid
               opportunities, and expires pending alerts whose deal state no longer qualifies.
             </p>
-            <button className="mt-4 rounded-md bg-cyan-800 px-4 py-2.5 text-sm font-black text-white">
+            <button
+              type="submit"
+              className="mt-4 rounded-md bg-cyan-800 px-4 py-2.5 text-sm font-black text-white">
               Sync Alerts Now
             </button>
           </form>
@@ -189,7 +191,9 @@ export default async function MarketIntelReportsPage({
               Rebuilds today’s Top 10 Shark List, market movers, portfolio summary,
               and alert status from the latest Beta One database state.
             </p>
-            <button className="mt-4 rounded-md bg-black px-4 py-2.5 text-sm font-black text-white">
+            <button
+              type="submit"
+              className="mt-4 rounded-md bg-black px-4 py-2.5 text-sm font-black text-white">
               Generate Today’s Report
             </button>
           </form>
@@ -356,7 +360,9 @@ function AlertCard({
           )}
         >
           <input type="hidden" name="status" value="sent" />
-          <button className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-black text-white">
+          <button
+            type="submit"
+            className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-black text-white">
             Mark Sent
           </button>
         </form>
@@ -368,7 +374,9 @@ function AlertCard({
           )}
         >
           <input type="hidden" name="status" value="dismissed" />
-          <button className="rounded-md border border-neutral-300 px-4 py-2 text-sm font-black">
+          <button
+            type="submit"
+            className="rounded-md border border-neutral-300 px-4 py-2 text-sm font-black">
             Dismiss
           </button>
         </form>
