@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 type FeedbackTone = "success" | "error" | "info";
@@ -20,6 +20,7 @@ export default function TrackingForm({
   reviewMessage?: string;
   dryRunShippingBlocked?: boolean;
 }) {
+  const trackingActionRunningRef = useRef(false);
   const [carrier, setCarrier] = useState(currentCarrier || "USPS");
   const [trackingNumber, setTrackingNumber] = useState(
     currentTrackingNumber || ""
@@ -52,6 +53,14 @@ export default function TrackingForm({
   const canSubmitShipment = canSubmitTracking && canMarkShipped;
 
   async function saveTracking() {
+    if (trackingActionRunningRef.current || actionsBusy) {
+      setMessage({
+        tone: "info",
+        text: "Finish the current tracking action first.",
+      });
+      return;
+    }
+
     if (trackingBlockedReason) {
       setMessage(
         { tone: "error", text: trackingBlockedReason },
@@ -59,6 +68,7 @@ export default function TrackingForm({
       return;
     }
 
+    trackingActionRunningRef.current = true;
     setSaving(true);
     setMessage({ tone: "info", text: "Saving tracking..." });
 
@@ -86,11 +96,20 @@ export default function TrackingForm({
     } catch (err: any) {
       setMessage({ tone: "error", text: err?.message || "Failed to save tracking." });
     } finally {
+      trackingActionRunningRef.current = false;
       setSaving(false);
     }
   }
 
   async function markShipped() {
+    if (trackingActionRunningRef.current || actionsBusy) {
+      setMessage({
+        tone: "info",
+        text: "Finish the current tracking action first.",
+      });
+      return;
+    }
+
     if (trackingBlockedReason) {
       setMessage({ tone: "error", text: trackingBlockedReason });
       return;
@@ -106,6 +125,7 @@ export default function TrackingForm({
       return;
     }
 
+    trackingActionRunningRef.current = true;
     setShipping(true);
     setMessage({ tone: "info", text: "Saving tracking and marking shipped..." });
 
@@ -154,6 +174,7 @@ export default function TrackingForm({
     } catch (err: any) {
       setMessage({ tone: "error", text: err?.message || "Unable to mark shipped." });
     } finally {
+      trackingActionRunningRef.current = false;
       setShipping(false);
     }
   }
@@ -191,13 +212,13 @@ export default function TrackingForm({
         <button
           type="button"
           onClick={saveTracking}
-          disabled={!canSubmitTracking}
+          aria-disabled={!canSubmitTracking}
           aria-busy={saving}
           title={
             trackingDisabledReason ||
             "Save this tracking carrier and tracking number."
           }
-          className="rounded-2xl bg-blue-700 px-5 py-3 text-sm font-black text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-2xl bg-blue-700 px-5 py-3 text-sm font-black text-white shadow-sm aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
         >
           {saving ? "Saving..." : "Save Tracking"}
         </button>
@@ -205,14 +226,14 @@ export default function TrackingForm({
         <button
           type="button"
           onClick={markShipped}
-          disabled={!canSubmitShipment}
+          aria-disabled={!canSubmitShipment}
           aria-busy={shipping}
           title={
             shipping
               ? "Saving tracking and marking shipped..."
               : shipmentDisabledReason || "Save tracking and mark this order shipped."
           }
-          className="rounded-2xl bg-emerald-700 px-5 py-3 text-sm font-black text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-2xl bg-emerald-700 px-5 py-3 text-sm font-black text-white shadow-sm aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
         >
           {shipping ? "Marking shipped..." : "Mark Shipped"}
         </button>
