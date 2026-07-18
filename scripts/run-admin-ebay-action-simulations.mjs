@@ -41,8 +41,8 @@ scenario("eBay intake copy action reports clipboard failures inline", () => {
   for (const fragment of [
     "navigator.clipboard.writeText",
     "Chrome blocked clipboard access.",
-    "setError(",
-    "setNotice(",
+    "showError(",
+    "showNotice(",
   ]) {
     assert(
       inventoryIntakeSource.includes(fragment),
@@ -63,6 +63,28 @@ scenario("eBay intake bulk actions expose busy labels and disabled states", () =
     assert(
       inventoryIntakeSource.includes(fragment),
       `Expected eBay intake busy-state fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("eBay intake actions use a single live notice channel", () => {
+  for (const fragment of [
+    'type ActionNoticeTone = "success" | "error" | "info";',
+    "const showNotice = useCallback((message: string)",
+    "const showError = useCallback((message: string)",
+    "const clearMessages = useCallback(()",
+    "const loadRows = useCallback(async",
+    "preserveMessages?: boolean",
+    "await loadRows({ preserveMessages: true })",
+    "role={tone === \"error\" ? \"alert\" : \"status\"}",
+    "aria-live={tone === \"info\" ? \"polite\" : \"assertive\"}",
+    "aria-busy={working}",
+    "aria-busy={promoWorking}",
+    "aria-busy={repriceWorkingIds.length > 0}",
+  ]) {
+    assert(
+      inventoryIntakeSource.includes(fragment),
+      `Expected eBay intake live notice fragment ${fragment}.`,
     );
   }
 });

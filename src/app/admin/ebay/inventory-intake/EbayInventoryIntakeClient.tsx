@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 type IntakeRow = {
   productId: number;
@@ -50,6 +50,7 @@ type PriceProposal = {
 };
 
 type FilterMode = "all" | "needs_help" | "ready" | "live";
+type ActionNoticeTone = "success" | "error" | "info";
 
 const filters: Array<{ value: FilterMode; label: string }> = [
   { value: "all", label: "All for sale" },
@@ -118,9 +119,26 @@ export default function EbayInventoryIntakeClient({
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
-  async function loadRows() {
-    setLoading(true);
+  const showNotice = useCallback((message: string) => {
+    setNotice(message);
     setError("");
+  }, []);
+
+  const showError = useCallback((message: string) => {
+    setError(message);
+    setNotice("");
+  }, []);
+
+  const clearMessages = useCallback(() => {
+    setNotice("");
+    setError("");
+  }, []);
+
+  const loadRows = useCallback(async (options?: { preserveMessages?: boolean }) => {
+    setLoading(true);
+    if (!options?.preserveMessages) {
+      clearMessages();
+    }
 
     try {
       const response = await fetch("/api/admin/ebay-inventory-intake", {
@@ -142,19 +160,19 @@ export default function EbayInventoryIntakeClient({
         return current.filter((id) => available.has(id));
       });
     } catch (nextError: any) {
-      setError(nextError.message || "Could not load eBay inventory intake.");
+      showError(nextError.message || "Could not load eBay inventory intake.");
       setRows([]);
       setSummary(null);
     } finally {
       setLoading(false);
     }
-  }
+  }, [clearMessages, showError]);
 
   useEffect(() => {
     // Initial data loading is the external synchronization owned by this effect.
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadRows();
-  }, []);
+  }, [loadRows]);
 
   const filteredRows = useMemo(() => {
     const term = search.trim().toLowerCase();
@@ -231,8 +249,7 @@ export default function EbayInventoryIntakeClient({
 
   async function pushSelectedLive() {
     setWorking(true);
-    setNotice("");
-    setError("");
+    clearMessages();
 
     try {
       const response = await fetch("/api/admin/ebay-inventory-intake", {
@@ -249,10 +266,10 @@ export default function EbayInventoryIntakeClient({
         throw new Error(data.error || "Could not push selected listings live.");
       }
 
-      setNotice(data.message || "Selected listings pushed live.");
-      await loadRows();
+      showNotice(data.message || "Selected listings pushed live.");
+      await loadRows({ preserveMessages: true });
     } catch (nextError: any) {
-      setError(nextError.message || "Could not push selected listings live.");
+      showError(nextError.message || "Could not push selected listings live.");
     } finally {
       setWorking(false);
     }
@@ -260,8 +277,7 @@ export default function EbayInventoryIntakeClient({
 
   async function refreshSelectedFromEbay() {
     setWorking(true);
-    setNotice("");
-    setError("");
+    clearMessages();
 
     try {
       const response = await fetch("/api/admin/ebay-inventory-intake", {
@@ -278,10 +294,10 @@ export default function EbayInventoryIntakeClient({
         throw new Error(data.error || "Could not refresh selected eBay data.");
       }
 
-      setNotice(data.message || "Selected listings refreshed from eBay.");
-      await loadRows();
+      showNotice(data.message || "Selected listings refreshed from eBay.");
+      await loadRows({ preserveMessages: true });
     } catch (nextError: any) {
-      setError(nextError.message || "Could not refresh selected eBay data.");
+      showError(nextError.message || "Could not refresh selected eBay data.");
     } finally {
       setWorking(false);
     }
@@ -293,16 +309,15 @@ export default function EbayInventoryIntakeClient({
       .join("\n");
 
     if (!text.trim()) {
-      setError("Select at least one row first.");
+      showError("Select at least one row first.");
       return;
     }
 
     try {
       await navigator.clipboard.writeText(text);
-      setNotice(`Copied ${selectedRows.length} selected row${selectedRows.length === 1 ? "" : "s"} for InstaComp™ cleanup.`);
-      setError("");
+      showNotice(`Copied ${selectedRows.length} selected row${selectedRows.length === 1 ? "" : "s"} for InstaComp™ cleanup.`);
     } catch {
-      setError(
+      showError(
         "Chrome blocked clipboard access. Select the rows again and use your browser copy shortcut, or open InstaComp™ and paste the titles manually.",
       );
     }
@@ -312,15 +327,14 @@ export default function EbayInventoryIntakeClient({
     const uniqueIds = Array.from(new Set(productIds)).filter((id) => id > 0);
 
     if (uniqueIds.length === 0) {
-      setError("Select at least one row first.");
+      showError("Select at least one row first.");
       return;
     }
 
     setRepriceWorkingIds((current) =>
       Array.from(new Set([...current, ...uniqueIds])),
     );
-    setNotice("");
-    setError("");
+    clearMessages();
 
     try {
       const response = await fetch("/api/admin/ebay-inventory-intake", {
@@ -351,15 +365,15 @@ export default function EbayInventoryIntakeClient({
 
       setPriceProposals(proposals);
       setAcceptedProposalIds(proposals.map((proposal) => proposal.productId));
-      setNotice(
+      showNotice(
         proposals.length > 0
           ? `${data.message || "InstaComp™ price proposals ready."} Review below, uncheck anything you do not want, then accept selected prices.`
           : data.message ||
               "InstaComp™ did not find enough reliable comps to propose a price.",
       );
-      await loadRows();
+      await loadRows({ preserveMessages: true });
     } catch (nextError: any) {
-      setError(nextError.message || "Could not run InstaComp™ price preview.");
+      showError(nextError.message || "Could not run InstaComp™ price preview.");
     } finally {
       setRepriceWorkingIds((current) =>
         current.filter((id) => !uniqueIds.includes(id)),
@@ -373,13 +387,12 @@ export default function EbayInventoryIntakeClient({
     );
 
     if (productIds.length === 0) {
-      setError("Select at least one InstaComp™ price proposal to accept.");
+      showError("Select at least one InstaComp™ price proposal to accept.");
       return;
     }
 
     setRepriceWorkingIds(productIds);
-    setNotice("");
-    setError("");
+    clearMessages();
 
     try {
       const response = await fetch("/api/admin/ebay-inventory-intake", {
@@ -401,16 +414,16 @@ export default function EbayInventoryIntakeClient({
         .map((item: any) => Number(item.productId))
         .filter((id: number) => Number.isInteger(id) && id > 0);
 
-      setNotice(data.message || "Accepted selected InstaComp™ prices.");
+      showNotice(data.message || "Accepted selected InstaComp™ prices.");
       setPriceProposals((current) =>
         current.filter((proposal) => !appliedIds.includes(proposal.productId)),
       );
       setAcceptedProposalIds((current) =>
         current.filter((id) => !appliedIds.includes(id)),
       );
-      await loadRows();
+      await loadRows({ preserveMessages: true });
     } catch (nextError: any) {
-      setError(nextError.message || "Could not apply InstaComp™ prices.");
+      showError(nextError.message || "Could not apply InstaComp™ prices.");
     } finally {
       setRepriceWorkingIds([]);
     }
@@ -427,13 +440,12 @@ export default function EbayInventoryIntakeClient({
   function declineAllInstaCompPrices() {
     setPriceProposals([]);
     setAcceptedProposalIds([]);
-    setNotice("Declined current InstaComp™ price proposals. No prices were changed.");
+    showNotice("Declined current InstaComp™ price proposals. No prices were changed.");
   }
 
   async function applyPromo(action: "apply-promo" | "clear-promo") {
     setPromoWorking(true);
-    setNotice("");
-    setError("");
+    clearMessages();
 
     try {
       const response = await fetch("/api/admin/ebay-inventory-intake", {
@@ -452,10 +464,10 @@ export default function EbayInventoryIntakeClient({
         throw new Error(data.error || "Could not update selected promos.");
       }
 
-      setNotice(data.message || "Selected promos updated.");
-      await loadRows();
+      showNotice(data.message || "Selected promos updated.");
+      await loadRows({ preserveMessages: true });
     } catch (nextError: any) {
-      setError(nextError.message || "Could not update selected promos.");
+      showError(nextError.message || "Could not update selected promos.");
     } finally {
       setPromoWorking(false);
     }
@@ -505,15 +517,21 @@ export default function EbayInventoryIntakeClient({
       ) : null}
 
       {error ? (
-        <section className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-black text-rose-800">
+        <ActionNotice tone="error">
           {error}
-        </section>
+        </ActionNotice>
       ) : null}
 
       {notice ? (
-        <section className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-800">
+        <ActionNotice
+          tone={
+            working || promoWorking || repriceWorkingIds.length > 0
+              ? "info"
+              : "success"
+          }
+        >
           {notice}
-        </section>
+        </ActionNotice>
       ) : null}
 
       <section className="rounded-md border border-neutral-200 bg-white">
@@ -604,6 +622,7 @@ export default function EbayInventoryIntakeClient({
                   type="button"
                   onClick={() => void pushSelectedLive()}
                   disabled={working || selectedPushableIds.length === 0}
+                  aria-busy={working}
                   className="rounded-md bg-emerald-700 px-4 py-3 text-sm font-black text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-500"
                 >
                   {working
@@ -614,6 +633,7 @@ export default function EbayInventoryIntakeClient({
                   type="button"
                   onClick={() => void refreshSelectedFromEbay()}
                   disabled={working || selectedEbayIds.length === 0}
+                  aria-busy={working}
                   className="rounded-md border border-emerald-300 bg-white px-4 py-3 text-sm font-black text-emerald-900 hover:bg-emerald-50 disabled:opacity-50"
                 >
                   {working
@@ -632,6 +652,7 @@ export default function EbayInventoryIntakeClient({
                   type="button"
                   onClick={() => void instacompPreview(selectedIds)}
                   disabled={selectedIds.length === 0 || repriceWorkingIds.length > 0}
+                  aria-busy={repriceWorkingIds.length > 0}
                   className="rounded-md border border-blue-300 bg-blue-50 px-4 py-3 text-sm font-black text-blue-900 hover:bg-blue-100 disabled:opacity-50"
                 >
                   {repriceWorkingIds.length > 0
@@ -686,6 +707,7 @@ export default function EbayInventoryIntakeClient({
                       acceptedProposalIds.length === 0 ||
                       repriceWorkingIds.length > 0
                     }
+                    aria-busy={repriceWorkingIds.length > 0}
                     className="rounded-md bg-blue-700 px-4 py-2 text-xs font-black text-white disabled:bg-neutral-500"
                   >
                     {repriceWorkingIds.length > 0
@@ -774,6 +796,7 @@ export default function EbayInventoryIntakeClient({
                   type="button"
                   onClick={() => void applyPromo("apply-promo")}
                   disabled={promoWorking || selectedIds.length === 0}
+                  aria-busy={promoWorking}
                   className="rounded-md bg-amber-500 px-4 py-3 text-sm font-black text-neutral-950 hover:bg-amber-400 disabled:cursor-not-allowed disabled:bg-neutral-400"
                 >
                   {promoWorking ? "Updating..." : `Apply Promo (${selectedIds.length})`}
@@ -782,6 +805,7 @@ export default function EbayInventoryIntakeClient({
                   type="button"
                   onClick={() => void applyPromo("clear-promo")}
                   disabled={promoWorking || selectedIds.length === 0}
+                  aria-busy={promoWorking}
                   className="rounded-md border border-neutral-300 bg-white px-4 py-3 text-sm font-black hover:bg-neutral-50 disabled:opacity-50"
                 >
                   {promoWorking ? "Clearing..." : "Clear Promo"}
@@ -936,6 +960,7 @@ export default function EbayInventoryIntakeClient({
                           type="button"
                           onClick={() => void instacompPreview([row.productId])}
                           disabled={repriceWorkingIds.includes(row.productId)}
+                          aria-busy={repriceWorkingIds.includes(row.productId)}
                           className="rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-xs font-black text-blue-800 hover:bg-blue-100 disabled:opacity-50"
                         >
                           {repriceWorkingIds.includes(row.productId)
@@ -961,6 +986,31 @@ export default function EbayInventoryIntakeClient({
         </div>
       </section>
     </div>
+  );
+}
+
+function ActionNotice({
+  tone,
+  children,
+}: {
+  tone: ActionNoticeTone;
+  children: string;
+}) {
+  const toneClass =
+    tone === "error"
+      ? "border-rose-200 bg-rose-50 text-rose-800"
+      : tone === "info"
+        ? "border-blue-200 bg-blue-50 text-blue-900"
+        : "border-emerald-200 bg-emerald-50 text-emerald-800";
+
+  return (
+    <section
+      role={tone === "error" ? "alert" : "status"}
+      aria-live={tone === "info" ? "polite" : "assertive"}
+      className={`rounded-md border px-4 py-3 text-sm font-black ${toneClass}`}
+    >
+      {children}
+    </section>
   );
 }
 
