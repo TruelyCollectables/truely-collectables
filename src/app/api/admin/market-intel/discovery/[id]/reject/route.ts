@@ -1,3 +1,4 @@
+import { revalidatePath } from "next/cache";
 import { NextRequest, NextResponse } from "next/server";
 import {
   adminHandoffFromUrl,
@@ -18,9 +19,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
       id,
       String(formData.get("reason") ?? "").trim(),
     );
+    revalidatePath("/admin/market-intel/discovery");
     return NextResponse.redirect(
       adminRedirectUrl(
-        "/admin/market-intel/discovery?rejected=1",
+        `/admin/market-intel/discovery?rejected=1&resolved=${encodeURIComponent(id)}&t=${Date.now()}`,
         request.url,
         handoff,
       ),
@@ -29,6 +31,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unable to reject candidate.";
+    revalidatePath("/admin/market-intel/discovery");
     return NextResponse.redirect(
       adminRedirectUrl(
         `/admin/market-intel/discovery?error=${encodeURIComponent(message)}#candidate-${encodeURIComponent(id)}`,
