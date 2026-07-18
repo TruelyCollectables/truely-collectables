@@ -13,7 +13,20 @@ export const revalidate = 0;
 async function backfillInventory() {
   "use server";
 
-  await inventoryEngine.backfillInventoryItemsFromProducts();
+  let failure: string | null = null;
+
+  try {
+    await inventoryEngine.backfillInventoryItemsFromProducts();
+  } catch (error) {
+    failure =
+      error instanceof Error && error.message.trim()
+        ? error.message.trim().slice(0, 240)
+        : "Inventory backfill failed. Please try again.";
+  }
+
+  if (failure) {
+    redirect(`/admin/inventory?backfillError=${encodeURIComponent(failure)}`);
+  }
 
   redirect("/admin/inventory?backfill=complete");
 }
@@ -56,7 +69,7 @@ function needsAttention(row: InventoryBridgeRow) {
 export default async function AdminInventoryPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ backfill?: string }>;
+  searchParams?: Promise<{ backfill?: string; backfillError?: string }>;
 }) {
   const params = await searchParams;
   const status = await inventoryEngine.getBridgeStatus();
@@ -116,6 +129,11 @@ export default async function AdminInventoryPage({
         {params?.backfill === "complete" ? (
           <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800">
             Inventory backfill completed. Current bridge status is shown below.
+          </div>
+        ) : null}
+        {params?.backfillError ? (
+          <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-800">
+            Inventory backfill failed: {params.backfillError}
           </div>
         ) : null}
 

@@ -38,6 +38,15 @@ function addProductErrorPath(error: string) {
   return `/admin/products/new?error=${encodeURIComponent(error)}`;
 }
 
+function addProductFailurePath(error: unknown) {
+  const detail =
+    error instanceof Error && error.message.trim()
+      ? error.message.trim().slice(0, 240)
+      : "Manual product could not be created.";
+
+  return `/admin/products/new?error=create_failed&detail=${encodeURIComponent(detail)}`;
+}
+
 async function addProduct(formData: FormData) {
   "use server";
 
@@ -66,21 +75,35 @@ async function addProduct(formData: FormData) {
     redirect(addProductErrorPath("invalid_image_url"));
   }
 
-  await inventoryEngine.createManualProduct({
-    title,
-    player: player || null,
-    sport: sport || null,
-    price,
-    quantity,
-    description: description || null,
-    imageUrl,
-  });
+  let failurePath: string | null = null;
+
+  try {
+    await inventoryEngine.createManualProduct({
+      title,
+      player: player || null,
+      sport: sport || null,
+      price,
+      quantity,
+      description: description || null,
+      imageUrl,
+    });
+  } catch (error) {
+    failurePath = addProductFailurePath(error);
+  }
+
+  if (failurePath) {
+    redirect(failurePath);
+  }
 
   redirect("/admin/products");
 }
 
-function errorMessage(code: string | string[] | undefined) {
+function errorMessage(
+  code: string | string[] | undefined,
+  detail: string | string[] | undefined,
+) {
   const errorCode = Array.isArray(code) ? code[0] : code;
+  const detailText = Array.isArray(detail) ? detail[0] : detail;
 
   if (errorCode === "missing_title") return "Title is required.";
   if (errorCode === "invalid_price") return "Price must be greater than zero.";
@@ -90,6 +113,9 @@ function errorMessage(code: string | string[] | undefined) {
   if (errorCode === "invalid_image_url") {
     return "Image URL must begin with http:// or https://.";
   }
+  if (errorCode === "create_failed") {
+    return `Manual product was not created: ${detailText || "Please try again."}`;
+  }
 
   return "";
 }
@@ -97,10 +123,10 @@ function errorMessage(code: string | string[] | undefined) {
 export default async function NewProductPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ error?: string | string[] }>;
+  searchParams?: Promise<{ error?: string | string[]; detail?: string | string[] }>;
 }) {
   const query = await searchParams;
-  const error = errorMessage(query?.error);
+  const error = errorMessage(query?.error, query?.detail);
 
   return (
     <main className="space-y-8 bg-neutral-50 px-6 py-8 text-neutral-950">
