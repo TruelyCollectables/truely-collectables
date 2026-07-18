@@ -11,6 +11,9 @@ import {
 import {
   ADMIN_INVENTORY_STATUSES,
   adminProductStatusChangeError,
+  adminProductStatusPendingLabel,
+  adminProductStatusRequiresStock,
+  adminProductStatusSuccessMessage,
   parseAdminInventoryStatus,
   parseAdminProductId,
 } from "../../../../lib/admin-product-status";
@@ -98,7 +101,7 @@ async function setProductStatus(formData: FormData) {
     redirect(productSaveErrorPath(id!, failure));
   }
 
-  redirect(`/admin/products/${id}`);
+  redirect(`/admin/products/${id}?statusSaved=${status}`);
 }
 
 async function regenerateDescription(formData: FormData) {
@@ -220,13 +223,19 @@ export default async function AdminProductEditPage({
   searchParams,
 }: {
   params: Promise<{ id: string }>;
-  searchParams?: Promise<{ comps?: string; saved?: string; saveError?: string }>;
+  searchParams?: Promise<{
+    comps?: string;
+    saved?: string;
+    saveError?: string;
+    statusSaved?: string;
+  }>;
 }) {
   const { id } = await params;
   const query = await searchParams;
   const adminInventoryEngine = createServerInventoryEngine();
   const adminHandoff = await createAdminSessionValue();
   const product = await adminInventoryEngine.getByLegacyProductId(Number(id));
+  const savedStatus = parseAdminInventoryStatus(query?.statusSaved);
 
   if (!product) {
     return (
@@ -305,13 +314,28 @@ export default async function AdminProductEditPage({
       </section>
 
       {query?.saved === "1" ? (
-        <div className="rounded border border-emerald-300 bg-emerald-50 p-4 font-bold text-emerald-800">
+        <div
+          aria-live="polite"
+          className="rounded border border-emerald-300 bg-emerald-50 p-4 font-bold text-emerald-800"
+        >
           Product saved.
         </div>
       ) : null}
 
+      {savedStatus ? (
+        <div
+          aria-live="polite"
+          className="rounded border border-emerald-300 bg-emerald-50 p-4 font-bold text-emerald-800"
+        >
+          {adminProductStatusSuccessMessage(savedStatus)}
+        </div>
+      ) : null}
+
       {query?.saveError ? (
-        <div className="rounded border border-rose-300 bg-rose-50 p-4 font-bold text-rose-800">
+        <div
+          aria-live="assertive"
+          className="rounded border border-rose-300 bg-rose-50 p-4 font-bold text-rose-800"
+        >
           Save failed: {query.saveError}
         </div>
       ) : null}
@@ -602,24 +626,28 @@ export default async function AdminProductEditPage({
               <StatusButton
                 id={product.legacyProductId}
                 currentStatus={product.status}
+                quantity={product.quantity}
                 status="active"
                 label="Set Active"
               />
               <StatusButton
                 id={product.legacyProductId}
                 currentStatus={product.status}
+                quantity={product.quantity}
                 status="reserved"
                 label="Reserve"
               />
               <StatusButton
                 id={product.legacyProductId}
                 currentStatus={product.status}
+                quantity={product.quantity}
                 status="sold"
                 label="Mark Sold"
               />
               <StatusButton
                 id={product.legacyProductId}
                 currentStatus={product.status}
+                quantity={product.quantity}
                 status="archived"
                 label="Archive"
               />
@@ -891,31 +919,52 @@ function SalesCompsPanel({
 function StatusButton({
   currentStatus,
   id,
+  quantity,
   status,
   label,
 }: {
   currentStatus: InventoryStatus;
   id: number;
+  quantity: number;
   status: InventoryStatus;
   label: string;
 }) {
   const isCurrent = currentStatus === status;
+  const blockedForStock = adminProductStatusRequiresStock(status) && quantity <= 0;
+  const isDisabled = isCurrent || blockedForStock;
+  const title = isCurrent
+    ? `Already ${status}.`
+    : blockedForStock
+      ? "Set quantity to at least 1 in the product form before making this active or reserved."
+      : adminProductStatusSuccessMessage(status);
 
   return (
     <form action={setProductStatus}>
       <input type="hidden" name="id" value={id} />
       <input type="hidden" name="status" value={status} />
       <AdminSubmitButton
-        disabled={isCurrent}
+        disabled={isDisabled}
+        title={title}
         className={`w-full rounded-md px-4 py-2 text-sm font-black disabled:cursor-not-allowed ${
           isCurrent
             ? "border border-emerald-200 bg-emerald-50 text-emerald-950"
+            : blockedForStock
+              ? "border border-amber-200 bg-amber-50 text-amber-950"
             : "border border-neutral-300 bg-white hover:bg-neutral-50"
         }`}
-        pendingChildren={`Setting ${label.toLowerCase()}...`}
+        pendingChildren={adminProductStatusPendingLabel(status)}
       >
-        {isCurrent ? `Current: ${label}` : label}
+        {isCurrent
+          ? `Current: ${label}`
+          : blockedForStock
+            ? "Qty required first"
+            : label}
       </AdminSubmitButton>
+      {blockedForStock ? (
+        <p className="mt-1 text-xs font-black text-amber-800">
+          Quantity must be at least 1 before {status}.
+        </p>
+      ) : null}
     </form>
   );
 }

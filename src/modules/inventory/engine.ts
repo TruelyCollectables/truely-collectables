@@ -7,6 +7,7 @@ import {
   validateAuthenticityProfile,
 } from "../../lib/authenticity";
 import { STORE_BRAND_NAME } from "../../lib/legal";
+import { adminProductStatusChangeError } from "../../lib/admin-product-status";
 import { getStoreSettings } from "../../lib/store-settings";
 import { getActiveStoreId } from "../../lib/stores";
 import { eventBus } from "../../core/events/event-bus";
@@ -1506,6 +1507,16 @@ export class InventoryEngine {
 
     if (!current) {
       throw new InventoryEngineError("Product not found", 404);
+    }
+
+    const statusError = adminProductStatusChangeError({
+      productId: params.legacyProductId,
+      status: params.status,
+      quantity: current.quantity,
+    });
+
+    if (statusError) {
+      throw new InventoryEngineError(statusError, 400);
     }
 
     const nextQuantity =

@@ -1,9 +1,22 @@
 import {
   ADMIN_INVENTORY_STATUSES,
   adminProductStatusChangeError,
+  adminProductStatusPendingLabel,
+  adminProductStatusRequiresStock,
+  adminProductStatusSuccessMessage,
   parseAdminInventoryStatus,
   parseAdminProductId,
 } from "../src/lib/admin-product-status.ts";
+import { readFile } from "node:fs/promises";
+
+const productPageSource = await readFile(
+  new URL("../src/app/admin/products/[id]/page.tsx", import.meta.url),
+  "utf8",
+);
+const inventoryEngineSource = await readFile(
+  new URL("../src/modules/inventory/engine.ts", import.meta.url),
+  "utf8",
+);
 
 const scenarios = [];
 
@@ -49,6 +62,88 @@ scenario("returns operator-readable quick status errors", () => {
     adminProductStatusChangeError({ productId: 12, status: "archived" }) === null,
     "Valid status changes should pass.",
   );
+});
+
+scenario("requires stock before making inventory active or reserved", () => {
+  for (const status of ["active", "reserved"]) {
+    assert(
+      adminProductStatusRequiresStock(status),
+      `${status} should require stock.`,
+    );
+    assert(
+      adminProductStatusChangeError({
+        productId: 12,
+        status,
+        quantity: 0,
+      }) ===
+        "Set quantity to at least 1 before marking this product active or reserved.",
+      `${status} should reject zero-quantity activation.`,
+    );
+  }
+
+  assert(
+    adminProductStatusChangeError({
+      productId: 12,
+      status: "archived",
+      quantity: 0,
+    }) === null,
+    "Archive should still be allowed with zero quantity.",
+  );
+  assert(
+    adminProductStatusChangeError({
+      productId: 12,
+      status: "sold",
+      quantity: 0,
+    }) === null,
+    "Sold should still be allowed with zero quantity.",
+  );
+});
+
+scenario("exposes explicit pending and success copy for destructive statuses", () => {
+  assert(
+    adminProductStatusPendingLabel("archived") === "Ending / archiving...",
+    "Archive should get an explicit pending label.",
+  );
+  assert(
+    adminProductStatusSuccessMessage("sold") ===
+      "Product is marked sold and quantity was set to 0.",
+    "Sold should explain quantity side effect.",
+  );
+  assert(
+    adminProductStatusSuccessMessage("archived") ===
+      "Product was ended/archived and removed from active inventory.",
+    "Archive should explain active inventory removal.",
+  );
+});
+
+scenario("product quick-status UI reports status success and stock blockers", () => {
+  for (const fragment of [
+    "statusSaved",
+    "adminProductStatusSuccessMessage(savedStatus)",
+    "aria-live=\"polite\"",
+    "aria-live=\"assertive\"",
+    "Qty required first",
+    "Quantity must be at least 1 before",
+    "adminProductStatusPendingLabel(status)",
+  ]) {
+    assert(
+      productPageSource.includes(fragment),
+      `Expected product status UI fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("inventory engine enforces admin product status policy", () => {
+  for (const fragment of [
+    "adminProductStatusChangeError",
+    "quantity: current.quantity",
+    "throw new InventoryEngineError(statusError, 400)",
+  ]) {
+    assert(
+      inventoryEngineSource.includes(fragment),
+      `Expected inventory engine status-policy fragment ${fragment}.`,
+    );
+  }
 });
 
 const failed = [];
