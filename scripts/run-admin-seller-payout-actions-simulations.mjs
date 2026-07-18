@@ -135,6 +135,78 @@ scenario("connect refresh action exposes accessible busy and live feedback", () 
   }
 });
 
+scenario("seller payout page does not show false-empty payout queues", () => {
+  for (const fragment of [
+    "function safeErrorMessage",
+    "const payoutLedgerUnavailable = Boolean(error)",
+    "const platformFeeLedgerUnavailable = Boolean(platformFeeError)",
+    "const payoutRequestsUnavailable = Boolean(payoutRequestError)",
+    "const payoutAccountsUnavailable = Boolean(payoutAccountError)",
+    "const payoutAdminEventsUnavailable = Boolean(adminEventError)",
+    "safeErrorMessage(error)",
+    "safeErrorMessage(platformFeeError)",
+    "safeErrorMessage(payoutRequestError)",
+    "safeErrorMessage(payoutAccountError)",
+    "safeErrorMessage(adminEventError)",
+    "Seller Connect account list unavailable",
+    "Payout audit trail unavailable",
+    "Seller cash-out requests unavailable",
+    "Platform fee ledger unavailable",
+    "Seller payout ledger unavailable",
+    "Protection reserve unavailable",
+    "sourceUnavailable={payoutLedgerUnavailable}",
+    '? "Unavailable"',
+    "whether payout accounts exist",
+    "whether release, hold, or cash-out audit events exist",
+    "whether sellers are waiting on payout review",
+    "whether TCOS checkout fee rows exist",
+    "whether held, eligible, paid, or reversed payout rows",
+  ]) {
+    assert(
+      sources.page.includes(fragment),
+      `Expected seller payout unavailable-state fragment ${fragment}.`,
+    );
+  }
+
+  for (const [unavailable, empty, label] of [
+    [
+      "Seller Connect account list unavailable",
+      "No seller Connect accounts have started payout onboarding yet.",
+      "Connect accounts",
+    ],
+    [
+      "Payout audit trail unavailable",
+      "No payout audit events recorded yet.",
+      "audit events",
+    ],
+    [
+      "Seller cash-out requests unavailable",
+      "No seller cash-out requests found.",
+      "cash-out requests",
+    ],
+    [
+      "Platform fee ledger unavailable",
+      "No platform fee ledger entries found yet.",
+      "platform fees",
+    ],
+    [
+      "Seller payout ledger unavailable",
+      "No seller payout ledger entries found yet.",
+      "payout ledger",
+    ],
+  ]) {
+    const unavailableIndex = sources.page.indexOf(unavailable);
+    const emptyIndex = sources.page.indexOf(empty, unavailableIndex);
+
+    assert(unavailableIndex >= 0, `Expected ${label} unavailable state.`);
+    assert(emptyIndex >= 0, `Expected ${label} empty state.`);
+    assert(
+      unavailableIndex < emptyIndex,
+      `Expected ${label} unavailable state to render before its empty state.`,
+    );
+  }
+});
+
 const failed = [];
 
 for (const item of scenarios) {

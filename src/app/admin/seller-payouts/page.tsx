@@ -142,6 +142,13 @@ function money(value: number | string | null | undefined) {
   return `$${Number(value || 0).toFixed(2)}`;
 }
 
+function safeErrorMessage(error: { message?: string } | string | null | undefined) {
+  const message =
+    typeof error === "string" ? error : error?.message || "Unknown database error.";
+
+  return String(message).replace(/\s+/g, " ").trim().slice(0, 220);
+}
+
 function label(value: string | null | undefined) {
   if (!value) return "Not set";
   return value.replaceAll("_", " ").toUpperCase();
@@ -471,6 +478,11 @@ export default async function AdminSellerPayoutsPage() {
   const payoutRequests = (payoutRequestData || []) as SellerPayoutRequest[];
   const payoutAccounts = (payoutAccountData || []) as SellerPayoutAccount[];
   const adminEvents = (adminEventData || []) as SellerPayoutAdminEvent[];
+  const payoutLedgerUnavailable = Boolean(error);
+  const platformFeeLedgerUnavailable = Boolean(platformFeeError);
+  const payoutRequestsUnavailable = Boolean(payoutRequestError);
+  const payoutAccountsUnavailable = Boolean(payoutAccountError);
+  const payoutAdminEventsUnavailable = Boolean(adminEventError);
   const ledgerOrderIds = Array.from(
     new Set(entries.map((entry) => entry.order_id).filter(Boolean)),
   );
@@ -516,7 +528,7 @@ export default async function AdminSellerPayoutsPage() {
   } catch (error: any) {
     payoutRequestBlockerError = isMissingPayoutReviewGuardTable(error)
       ? "Apply the order review case and payout request entry migrations before payout review guards can verify dispute holds."
-      : error.message || "Could not load payout review blockers.";
+      : safeErrorMessage(error) || "Could not load payout review blockers.";
   }
 
   const profilesById = await getAccountProfilesByIds(
@@ -625,7 +637,7 @@ export default async function AdminSellerPayoutsPage() {
             <h2 className="text-xl font-black">Payout Ledger Not Available</h2>
             <p className="mt-2 text-sm font-semibold">
               Apply the seller payout ledger migration before using this page:
-              {` ${error.message}`}
+              {` ${safeErrorMessage(error)}`}
             </p>
           </section>
         ) : null}
@@ -637,7 +649,7 @@ export default async function AdminSellerPayoutsPage() {
             </h2>
             <p className="mt-2 text-sm font-semibold">
               Apply the platform fee ledger migration before using website
-              checkout rake reporting: {platformFeeError.message}
+              checkout rake reporting: {safeErrorMessage(platformFeeError)}
             </p>
           </section>
         ) : null}
@@ -649,7 +661,7 @@ export default async function AdminSellerPayoutsPage() {
             </h2>
             <p className="mt-2 text-sm font-semibold">
               Apply the seller payout request migration before using cash-out
-              review: {payoutRequestError.message}
+              review: {safeErrorMessage(payoutRequestError)}
             </p>
           </section>
         ) : null}
@@ -661,7 +673,7 @@ export default async function AdminSellerPayoutsPage() {
             </h2>
             <p className="mt-2 text-sm font-semibold">
               Apply the seller payout account migration before using Connect
-              readiness review: {payoutAccountError.message}
+              readiness review: {safeErrorMessage(payoutAccountError)}
             </p>
           </section>
         ) : null}
@@ -671,7 +683,7 @@ export default async function AdminSellerPayoutsPage() {
             <h2 className="text-xl font-black">Payout Audit Not Available</h2>
             <p className="mt-2 text-sm font-semibold">
               Apply the seller payout admin event migration before using audit
-              history: {adminEventError.message}
+              history: {safeErrorMessage(adminEventError)}
             </p>
           </section>
         ) : null}
@@ -679,38 +691,90 @@ export default async function AdminSellerPayoutsPage() {
         <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-7">
           <MetricTile
             label="Connect Active"
-            value={String(activePayoutAccounts.length)}
-            detail={`${payoutAccounts.length} seller Connect account(s)`}
+            value={
+              payoutAccountsUnavailable
+                ? "Unavailable"
+                : String(activePayoutAccounts.length)
+            }
+            detail={
+              payoutAccountsUnavailable
+                ? "Seller Connect account storage did not load"
+                : `${payoutAccounts.length} seller Connect account(s)`
+            }
           />
           <MetricTile
             label="Connect Action"
-            value={String(actionRequiredPayoutAccounts.length)}
-            detail="Need onboarding, review, or Stripe requirement cleanup"
+            value={
+              payoutAccountsUnavailable
+                ? "Unavailable"
+                : String(actionRequiredPayoutAccounts.length)
+            }
+            detail={
+              payoutAccountsUnavailable
+                ? "Connect cleanup counts unavailable"
+                : "Need onboarding, review, or Stripe requirement cleanup"
+            }
           />
           <MetricTile
             label="Held Payable"
-            value={money(heldPayableTotal)}
-            detail={`${heldEntries.length} held ledger row(s)`}
+            value={payoutLedgerUnavailable ? "Unavailable" : money(heldPayableTotal)}
+            detail={
+              payoutLedgerUnavailable
+                ? "Seller payout ledger did not load"
+                : `${heldEntries.length} held ledger row(s)`
+            }
           />
           <MetricTile
             label="Eligible Rows"
-            value={String(eligibleEntries.length)}
-            detail="Ready once release rules are enabled"
+            value={
+              payoutLedgerUnavailable
+                ? "Unavailable"
+                : String(eligibleEntries.length)
+            }
+            detail={
+              payoutLedgerUnavailable
+                ? "Eligibility counts unavailable"
+                : "Ready once release rules are enabled"
+            }
           />
           <MetricTile
             label="Website Rake"
-            value={money(allSitePlatformFeeTotal)}
-            detail={`${platformFeeEntries.length} TCOS checkout fee row(s)`}
+            value={
+              platformFeeLedgerUnavailable
+                ? "Unavailable"
+                : money(allSitePlatformFeeTotal)
+            }
+            detail={
+              platformFeeLedgerUnavailable
+                ? "Platform fee ledger did not load"
+                : `${platformFeeEntries.length} TCOS checkout fee row(s)`
+            }
           />
           <MetricTile
             label="Protection Reserve"
-            value={money(sellerProtectionSummary.reserveAmount)}
-            detail={`${sellerProtectionSummary.protectedRowCount} protected / ${sellerProtectionSummary.unprotectedRowCount} liable row(s)`}
+            value={
+              payoutLedgerUnavailable
+                ? "Unavailable"
+                : money(sellerProtectionSummary.reserveAmount)
+            }
+            detail={
+              payoutLedgerUnavailable
+                ? "Reserve counts unavailable"
+                : `${sellerProtectionSummary.protectedRowCount} protected / ${sellerProtectionSummary.unprotectedRowCount} liable row(s)`
+            }
           />
           <MetricTile
             label="Blocked Requests"
-            value={String(blockedOpenPayoutRequests.length)}
-            detail={`${openPayoutRequests.length} open cash-out request(s)`}
+            value={
+              payoutRequestsUnavailable
+                ? "Unavailable"
+                : String(blockedOpenPayoutRequests.length)
+            }
+            detail={
+              payoutRequestsUnavailable
+                ? "Cash-out request storage did not load"
+                : `${openPayoutRequests.length} open cash-out request(s)`
+            }
           />
         </section>
 
@@ -718,6 +782,7 @@ export default async function AdminSellerPayoutsPage() {
           summary={sellerProtectionSummary}
           title="Admin Under-$20 Protection Reserve"
           detail="Operator view of TCOS internal Standard Envelope seller-protection reserves across loaded payout ledger rows that carry under-$20 protection metadata. Shipping is excluded from reimbursement and protected item reimbursement remains capped at $20."
+          sourceUnavailable={payoutLedgerUnavailable}
         />
 
         <section className="rounded-md border border-neutral-200 bg-white">
@@ -741,7 +806,16 @@ export default async function AdminSellerPayoutsPage() {
             />
           </div>
 
-          {payoutAccounts.length === 0 ? (
+          {payoutAccountsUnavailable ? (
+            <div className="p-5 text-sm text-amber-950">
+              <p className="font-black">Seller Connect account list unavailable.</p>
+              <p className="mt-1 max-w-3xl font-semibold">
+                Seller Connect storage did not load, so this page cannot prove
+                whether payout accounts exist or need Stripe cleanup. Fix the
+                migration warning above before treating this queue as clear.
+              </p>
+            </div>
+          ) : payoutAccounts.length === 0 ? (
             <p className="p-5 text-sm text-neutral-600">
               No seller Connect accounts have started payout onboarding yet.
             </p>
@@ -847,7 +921,15 @@ export default async function AdminSellerPayoutsPage() {
             </p>
           </div>
 
-          {adminEvents.length === 0 ? (
+          {payoutAdminEventsUnavailable ? (
+            <div className="p-5 text-sm text-amber-950">
+              <p className="font-black">Payout audit trail unavailable.</p>
+              <p className="mt-1 max-w-3xl font-semibold">
+                Payout admin event storage did not load, so this page cannot
+                prove whether release, hold, or cash-out audit events exist.
+              </p>
+            </div>
+          ) : adminEvents.length === 0 ? (
             <p className="p-5 text-sm text-neutral-600">
               No payout audit events recorded yet.
             </p>
@@ -927,7 +1009,15 @@ export default async function AdminSellerPayoutsPage() {
             </div>
           ) : null}
 
-          {payoutRequests.length === 0 ? (
+          {payoutRequestsUnavailable ? (
+            <div className="p-5 text-sm text-amber-950">
+              <p className="font-black">Seller cash-out requests unavailable.</p>
+              <p className="mt-1 max-w-3xl font-semibold">
+                Cash-out request storage did not load, so this page cannot prove
+                whether sellers are waiting on payout review.
+              </p>
+            </div>
+          ) : payoutRequests.length === 0 ? (
             <p className="p-5 text-sm text-neutral-600">
               No seller cash-out requests found.
             </p>
@@ -1069,7 +1159,15 @@ export default async function AdminSellerPayoutsPage() {
             </p>
           </div>
 
-          {platformFeeEntries.length === 0 ? (
+          {platformFeeLedgerUnavailable ? (
+            <div className="p-5 text-sm text-amber-950">
+              <p className="font-black">Platform fee ledger unavailable.</p>
+              <p className="mt-1 max-w-3xl font-semibold">
+                Platform fee storage did not load, so this page cannot prove
+                whether TCOS checkout fee rows exist.
+              </p>
+            </div>
+          ) : platformFeeEntries.length === 0 ? (
             <p className="p-5 text-sm text-neutral-600">
               No platform fee ledger entries found yet.
             </p>
@@ -1168,7 +1266,16 @@ export default async function AdminSellerPayoutsPage() {
             </p>
           </div>
 
-          {entries.length === 0 ? (
+          {payoutLedgerUnavailable ? (
+            <div className="p-5 text-sm text-amber-950">
+              <p className="font-black">Seller payout ledger unavailable.</p>
+              <p className="mt-1 max-w-3xl font-semibold">
+                Seller payout ledger storage did not load, so this page cannot
+                prove whether held, eligible, paid, or reversed payout rows
+                exist.
+              </p>
+            </div>
+          ) : entries.length === 0 ? (
             <p className="p-5 text-sm text-neutral-600">
               No seller payout ledger entries found yet.
             </p>
@@ -1317,21 +1424,29 @@ function SellerProtectionCard({
   summary,
   title,
   detail,
+  sourceUnavailable = false,
 }: {
   summary: Under20SellerProtectionSellerVisibilitySummary;
   title: string;
   detail: string;
+  sourceUnavailable?: boolean;
 }) {
   return (
     <section
-      className={`rounded-md border p-5 ${sellerProtectionTone(summary.status)}`}
+      className={`rounded-md border p-5 ${
+        sourceUnavailable
+          ? "border-amber-200 bg-amber-50 text-amber-950"
+          : sellerProtectionTone(summary.status)
+      }`}
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-xs font-black uppercase tracking-[0.14em] opacity-70">
             {title}
           </p>
-          <h2 className="mt-1 text-2xl font-black">{summary.label}</h2>
+          <h2 className="mt-1 text-2xl font-black">
+            {sourceUnavailable ? "Protection reserve unavailable" : summary.label}
+          </h2>
         </div>
         <span className="rounded border border-current/20 px-2 py-1 text-xs font-black">
           2% reserve / $20 max / shipping excluded
@@ -1341,31 +1456,42 @@ function SellerProtectionCard({
         <div>
           <dt className="font-black uppercase opacity-70">Reserve</dt>
           <dd className="mt-1 text-lg font-black">
-            {money(summary.reserveAmount)}
+            {sourceUnavailable ? "Unavailable" : money(summary.reserveAmount)}
           </dd>
         </div>
         <div>
           <dt className="font-black uppercase opacity-70">Covered Items</dt>
           <dd className="mt-1 text-lg font-black">
-            {money(summary.reimbursableItemAmount)}
+            {sourceUnavailable
+              ? "Unavailable"
+              : money(summary.reimbursableItemAmount)}
           </dd>
         </div>
         <div>
           <dt className="font-black uppercase opacity-70">Shipping Excluded</dt>
           <dd className="mt-1 text-lg font-black">
-            {money(summary.shippingExcludedAmount)}
+            {sourceUnavailable
+              ? "Unavailable"
+              : money(summary.shippingExcludedAmount)}
           </dd>
         </div>
         <div>
           <dt className="font-black uppercase opacity-70">Rows</dt>
           <dd className="mt-1 text-lg font-black">
-            {summary.protectedRowCount} protected /{" "}
-            {summary.unprotectedRowCount} liable
+            {sourceUnavailable
+              ? "Unavailable"
+              : `${summary.protectedRowCount} protected / ${summary.unprotectedRowCount} liable`}
           </dd>
         </div>
       </dl>
       <p className="mt-4 text-sm opacity-85">{detail}</p>
-      {summary.status !== "not_applicable" ? (
+      {sourceUnavailable ? (
+        <p className="mt-2 text-xs font-semibold opacity-80">
+          Seller payout ledger storage did not load, so reserve and protection
+          row counts cannot be trusted yet.
+        </p>
+      ) : null}
+      {!sourceUnavailable && summary.status !== "not_applicable" ? (
         <p className="mt-2 text-xs font-semibold opacity-80">
           {summary.sellerResponsibility}
         </p>
