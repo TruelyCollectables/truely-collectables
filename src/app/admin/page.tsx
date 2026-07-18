@@ -1359,9 +1359,9 @@ export default async function AdminDashboard() {
                 Cards priced high, low, or ready to leave alone
               </h2>
               <p className="mt-2 max-w-3xl text-sm font-semibold text-neutral-600">
-                This is the first stop: compare your live price against the latest
-                InstaComp™ suggested price, then snap it to market or move it
-                above/below market in one click.
+                Review active cards against the latest InstaComp™ suggested
+                price, then align listings to market or intentionally hold a
+                premium/discount position in one click.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -1388,7 +1388,7 @@ export default async function AdminDashboard() {
             <div className="p-5">
               <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-5">
                 <h3 className="text-xl font-black text-emerald-900">
-                  No pricing fires showing right now.
+                  No pricing alerts need review right now.
                 </h3>
                 <p className="mt-2 text-sm font-semibold text-emerald-800">
                   Either your active cards are close to InstaComp™ market, or the
@@ -1494,7 +1494,7 @@ export default async function AdminDashboard() {
 
                     <div>
                       <p className="text-xs font-black uppercase tracking-widest text-neutral-500">
-                        Stop bugging me
+                        Alert visibility
                       </p>
                       <div className="mt-2 grid grid-cols-3 gap-2 xl:grid-cols-1">
                         {[
@@ -1545,12 +1545,13 @@ export default async function AdminDashboard() {
                 Admin Playbook
               </p>
               <h2 className="mt-1 text-3xl font-black">
-                Big buttons, clear jobs, no maze-like workflows
+                Purpose-built workbenches with clear ownership
               </h2>
             </div>
             <p className="max-w-2xl text-sm font-semibold text-neutral-300">
-              Each tile goes to one workbench. Sports icons are unique so the
-              page can grow without every button looking like the same gray brick.
+              Each tile opens one focused workflow with a distinct visual cue,
+              so operators can move quickly without confusing scan, inventory,
+              fulfillment, and launch tasks.
             </p>
           </div>
           <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">

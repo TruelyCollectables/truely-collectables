@@ -469,11 +469,22 @@ scenario("admin page shells do not strand operators", () => {
 
 scenario("admin command center uses professional playbook copy", () => {
   assert(
-    adminPageSource.includes("Big buttons, clear jobs, no maze-like workflows"),
+    adminPageSource.includes("Purpose-built workbenches with clear ownership"),
     "Expected admin playbook headline to use professional operator copy.",
   );
   assert(
-    !adminPageSource.toLowerCase().includes("bullshit"),
+    adminPageSource.includes(
+      "operators can move quickly without confusing scan, inventory",
+    ),
+    "Expected admin playbook detail to explain the operator workflow clearly.",
+  );
+  assert(
+    !adminPageSource.includes("Big buttons") &&
+      !adminPageSource.includes("gray brick") &&
+      !adminPageSource.includes("Stop bugging me") &&
+      !adminPageSource.includes("No pricing fires") &&
+      !adminPageSource.includes("This is the first stop") &&
+      !adminPageSource.toLowerCase().includes("bullshit"),
     "Expected admin command center to avoid rough operator copy.",
   );
 });
