@@ -225,6 +225,16 @@ scenario("growth spec forms and value-list refreshes label long-running posts", 
     "Saving model...",
     "Refreshing lists...",
     "Setting ",
+    "Save this future-growth thesis and calculate its projected exit, risk, and hold-period math.",
+    "Saves a scenario model only; it does not buy inventory or change active listings.",
+    "Save the default $25-per-card growth model for this scanned lot without purchasing the listing.",
+    "Creates a reviewable growth-spec model from this lot; buying stays manual.",
+    "Mark this Growth Spec thesis as ${label.toLowerCase()} for tracking without changing purchase or listing records.",
+    "Updates this thesis status only; purchase and listing records stay unchanged.",
+    "Refresh the curated Market Intel value watchlists while preserving exact-card research and history.",
+    "Reapplies prospect priorities and card-scope rules; saved exact cards, comps, purchases, and sales stay intact.",
+    "Refresh the curated value universe while preserving existing exact cards, comps, listings, purchases, and sales history.",
+    "Reapplies current prospect priorities and card-scope rules without deleting saved research history.",
   ]) {
     assert(
       sources.growthSpecs.includes(label) ||

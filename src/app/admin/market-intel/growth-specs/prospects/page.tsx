@@ -104,9 +104,13 @@ export default async function GrowthProspectUniversePage() {
             <AdminSubmitButton
               className="rounded-md bg-fuchsia-800 px-4 py-2.5 text-sm font-black text-white"
               pendingChildren="Refreshing lists..."
+              title="Refresh the curated value universe while preserving existing exact cards, comps, listings, purchases, and sales history."
             >
               Refresh Value Lists
             </AdminSubmitButton>
+            <p className="text-xs font-bold text-fuchsia-950 sm:text-right">
+              Reapplies current prospect priorities and card-scope rules without deleting saved research history.
+            </p>
           </div>
         </form>
 

@@ -84,9 +84,13 @@ export default async function GrowthSpecsLayout({
               <AdminSubmitButton
                 className="rounded-md border border-fuchsia-300 bg-white px-4 py-2 text-sm font-black"
                 pendingChildren="Refreshing lists..."
+                title="Refresh the curated Market Intel value watchlists while preserving exact-card research and history."
               >
                 Refresh Value Lists
               </AdminSubmitButton>
+              <p className="w-full text-xs font-bold text-fuchsia-950">
+                Reapplies prospect priorities and card-scope rules; saved exact cards, comps, purchases, and sales stay intact.
+              </p>
             </form>
           </div>
         </div>

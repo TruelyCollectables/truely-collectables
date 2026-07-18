@@ -307,9 +307,13 @@ export default async function MarketIntelGrowthSpecsPage({
               <AdminSubmitButton
                 className="rounded-md bg-black px-5 py-3 font-black text-white sm:col-span-2"
                 pendingChildren="Saving growth spec..."
+                title="Save this future-growth thesis and calculate its projected exit, risk, and hold-period math."
               >
                 Save Growth Spec Scenario
               </AdminSubmitButton>
+              <p className="text-xs font-bold text-neutral-600 sm:col-span-2">
+                Saves a scenario model only; it does not buy inventory or change active listings.
+              </p>
             </form>
           </section>
 
@@ -404,9 +408,13 @@ export default async function MarketIntelGrowthSpecsPage({
                       <AdminSubmitButton
                         className="rounded-md bg-fuchsia-300 px-4 py-2 text-sm font-black text-black hover:bg-fuchsia-200"
                         pendingChildren="Saving model..."
+                        title="Save the default $25-per-card growth model for this scanned lot without purchasing the listing."
                       >
                         Save Default $25 Model
                       </AdminSubmitButton>
+                      <p className="mt-2 text-xs font-bold text-neutral-300">
+                        Creates a reviewable growth-spec model from this lot; buying stays manual.
+                      </p>
                     </form>
                   </article>
                 ))}
@@ -552,9 +560,13 @@ function StatusButton({
       <AdminSubmitButton
         className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-black hover:bg-neutral-100"
         pendingChildren={`Setting ${label.toLowerCase()}...`}
+        title={`Mark this Growth Spec thesis as ${label.toLowerCase()} for tracking without changing purchase or listing records.`}
       >
         {label}
       </AdminSubmitButton>
+      <p className="mt-1 text-xs font-bold text-neutral-600">
+        Updates this thesis status only; purchase and listing records stay unchanged.
+      </p>
     </form>
   );
 }
