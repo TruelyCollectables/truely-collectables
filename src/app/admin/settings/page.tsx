@@ -5,6 +5,13 @@ import {
   STORE_BRAND_NAME,
 } from "../../../lib/legal";
 import {
+  adminStoreOperationalSettingsError,
+  cleanAdminSettingsText,
+  parseAdminEbayEnvironment,
+  parseAdminSellerCommissionPercent,
+  readableAdminStoreSettingsFailure,
+} from "../../../lib/admin-store-settings";
+import {
   getStoreSettings,
   type StoreOperationalSettings,
 } from "../../../lib/store-settings";
@@ -21,14 +28,11 @@ function getSupabaseClient() {
 }
 
 function optionalText(formData: FormData, key: string) {
-  const value = formData.get(key);
+  return cleanAdminSettingsText(formData.get(key));
+}
 
-  if (typeof value !== "string") {
-    return null;
-  }
-
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
+function settingsErrorPath(message: string) {
+  return `/admin/settings?settingsError=${encodeURIComponent(message.slice(0, 240))}`;
 }
 
 async function updateIntegrationSettings(formData: FormData) {
@@ -37,36 +41,48 @@ async function updateIntegrationSettings(formData: FormData) {
   const supabase = getSupabaseClient();
   const storeId = getActiveStoreId();
   const ebaySyncEnabled = formData.get("ebay_sync_enabled") === "on";
+  let saveFailure: string | null = null;
 
-  const { data: existingSettings, error: readError } = await supabase
-    .from("store_settings")
-    .select("metadata")
-    .eq("store_id", storeId)
-    .maybeSingle();
+  try {
+    const { data: existingSettings, error: readError } = await supabase
+      .from("store_settings")
+      .select("metadata")
+      .eq("store_id", storeId)
+      .maybeSingle();
 
-  if (readError) {
-    throw new Error(readError.message);
+    if (readError) {
+      throw new Error(readError.message);
+    }
+
+    const metadata =
+      existingSettings?.metadata && typeof existingSettings.metadata === "object"
+        ? existingSettings.metadata
+        : {};
+
+    const { error } = await supabase.from("store_settings").upsert(
+      {
+        store_id: storeId,
+        metadata: {
+          ...metadata,
+          ebay_sync_enabled: ebaySyncEnabled,
+        },
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "store_id" },
+    );
+
+    if (error) {
+      throw new Error(error.message);
+    }
+  } catch (error) {
+    saveFailure = readableAdminStoreSettingsFailure(
+      error,
+      "Could not save integration settings. Please try again.",
+    );
   }
 
-  const metadata =
-    existingSettings?.metadata && typeof existingSettings.metadata === "object"
-      ? existingSettings.metadata
-      : {};
-
-  const { error } = await supabase.from("store_settings").upsert(
-    {
-      store_id: storeId,
-      metadata: {
-        ...metadata,
-        ebay_sync_enabled: ebaySyncEnabled,
-      },
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "store_id" },
-  );
-
-  if (error) {
-    throw new Error(error.message);
+  if (saveFailure) {
+    redirect(settingsErrorPath(saveFailure));
   }
 
   redirect("/admin/settings?saved=integrations");
@@ -86,55 +102,64 @@ async function updateOperationalSettings(formData: FormData) {
   const orderFromEmail = optionalText(formData, "order_from_email");
   const ebayEnvironment = optionalText(formData, "ebay_environment");
   const ebayAccountLabel = optionalText(formData, "ebay_account_label");
-  const sellerCommissionPercent = Number(formData.get("seller_commission_percent"));
+  const sellerCommissionInput = formData.get("seller_commission_percent");
+  const validationError = adminStoreOperationalSettingsError({
+    sellerCommissionPercent: sellerCommissionInput,
+    ebayEnvironment,
+  });
 
-  if (
-    Number.isNaN(sellerCommissionPercent) ||
-    sellerCommissionPercent < 0 ||
-    sellerCommissionPercent > 100
-  ) {
-    throw new Error("Seller commission percent must be between 0 and 100.");
+  if (validationError) {
+    redirect(settingsErrorPath(validationError));
   }
 
-  if (
-    ebayEnvironment &&
-    ebayEnvironment !== "production" &&
-    ebayEnvironment !== "sandbox"
-  ) {
-    throw new Error("eBay environment must be production or sandbox.");
+  const sellerCommissionPercent =
+    parseAdminSellerCommissionPercent(sellerCommissionInput) ?? 0;
+  const normalizedEbayEnvironment =
+    parseAdminEbayEnvironment(ebayEnvironment) || "production";
+  let saveFailure: string | null = null;
+
+  try {
+    const { error: storeError } = await supabase
+      .from("stores")
+      .update({
+        primary_domain: primaryDomain,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", storeId);
+
+    if (storeError) {
+      throw new Error(storeError.message);
+    }
+
+    const { error: settingsError } = await supabase.from("store_settings").upsert(
+      {
+        store_id: storeId,
+        support_email: supportEmail,
+        sales_email: salesEmail,
+        offers_email: offersEmail,
+        evidence_email: evidenceEmail,
+        evidence_from_email: evidenceFromEmail,
+        order_from_email: orderFromEmail,
+        ebay_environment: normalizedEbayEnvironment,
+        ebay_account_label: ebayAccountLabel,
+        seller_commission_rate: sellerCommissionPercent / 100,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "store_id" },
+    );
+
+    if (settingsError) {
+      throw new Error(settingsError.message);
+    }
+  } catch (error) {
+    saveFailure = readableAdminStoreSettingsFailure(
+      error,
+      "Could not save store operations. Please try again.",
+    );
   }
 
-  const { error: storeError } = await supabase
-    .from("stores")
-    .update({
-      primary_domain: primaryDomain,
-      updated_at: new Date().toISOString(),
-    })
-    .eq("id", storeId);
-
-  if (storeError) {
-    throw new Error(storeError.message);
-  }
-
-  const { error: settingsError } = await supabase.from("store_settings").upsert(
-    {
-      store_id: storeId,
-      support_email: supportEmail,
-      sales_email: salesEmail,
-      offers_email: offersEmail,
-      evidence_email: evidenceEmail,
-      evidence_from_email: evidenceFromEmail,
-      order_from_email: orderFromEmail,
-      ebay_environment: ebayEnvironment || "production",
-      ebay_account_label: ebayAccountLabel,
-      seller_commission_rate: sellerCommissionPercent / 100,
-      updated_at: new Date().toISOString(),
-    },
-    { onConflict: "store_id" },
-  );
-
-  if (settingsError) {
-    throw new Error(settingsError.message);
+  if (saveFailure) {
+    redirect(settingsErrorPath(saveFailure));
   }
 
   redirect("/admin/settings?saved=operations");
@@ -148,7 +173,7 @@ async function loadSettings(): Promise<StoreOperationalSettings> {
 export default async function AdminSettingsPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ saved?: string }>;
+  searchParams?: Promise<{ saved?: string; settingsError?: string }>;
 }) {
   const params = await searchParams;
   const settings = await loadSettings();
@@ -184,6 +209,11 @@ export default async function AdminSettingsPage({
             {params.saved === "operations"
               ? "Store operations saved."
               : "Store settings saved."}
+          </div>
+        ) : null}
+        {params?.settingsError ? (
+          <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-800">
+            Settings were not saved: {params.settingsError}
           </div>
         ) : null}
 
@@ -222,6 +252,10 @@ export default async function AdminSettingsPage({
                 defaultValue={(settings.sellerCommissionRate * 100).toFixed(2)}
                 placeholder="8.00"
                 inputMode="decimal"
+                type="number"
+                min="0"
+                max="100"
+                step="0.01"
               />
               <Field
                 label="Support Email"
@@ -375,22 +409,33 @@ function Field({
   defaultValue,
   placeholder,
   inputMode,
+  type = "text",
+  min,
+  max,
+  step,
 }: {
   label: string;
   name: string;
   defaultValue: string;
   placeholder: string;
   inputMode?: "decimal" | "email" | "text";
+  type?: "number" | "text";
+  min?: string;
+  max?: string;
+  step?: string;
 }) {
   return (
     <label className="text-sm font-bold text-neutral-700">
       {label}
       <input
-        type="text"
+        type={type}
         name={name}
         defaultValue={defaultValue}
         placeholder={placeholder}
         inputMode={inputMode}
+        min={min}
+        max={max}
+        step={step}
         className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2"
       />
     </label>
