@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 export default function ShippingLabelActions({
@@ -24,6 +24,7 @@ export default function ShippingLabelActions({
   const [showVoidForm, setShowVoidForm] = useState(
     initialAction === "recordVoid",
   );
+  const shippingActionRunningRef = useRef(false);
   const [manualForm, setManualForm] = useState({
     provider: "",
     carrier: "USPS",
@@ -109,7 +110,25 @@ export default function ShippingLabelActions({
     voidForm.note.trim().length < 8 ? "audit note" : null,
   ].filter(Boolean);
 
+  function shippingActionBlockedReason(action: string) {
+    return shippingActionRunningRef.current || busy
+      ? `Finish the current shipping label action before ${action}.`
+      : "";
+  }
+
+  function showShippingActionBlocked(action: string) {
+    const blockedReason = shippingActionBlockedReason(action);
+
+    if (!blockedReason) return false;
+
+    setMessage(blockedReason);
+    return true;
+  }
+
   async function prepareLabelRecord() {
+    if (showShippingActionBlocked("preparing another label record")) return;
+
+    shippingActionRunningRef.current = true;
     setPreparing(true);
     setMessage("Preparing label + Coverage record...");
 
@@ -142,11 +161,14 @@ export default function ShippingLabelActions({
     } catch (error: any) {
       setMessage(error.message || "Could not prepare label record.");
     } finally {
+      shippingActionRunningRef.current = false;
       setPreparing(false);
     }
   }
 
   async function attemptProviderPurchase() {
+    if (showShippingActionBlocked("attempting provider purchase")) return;
+
     if (activeDryRunLabel) {
       setMessage(
         "The active label is a dry-run simulation. Record a real manual label or void this record before trying provider/claim actions.",
@@ -154,6 +176,7 @@ export default function ShippingLabelActions({
       return;
     }
 
+    shippingActionRunningRef.current = true;
     setPurchasing(true);
     setMessage("Checking provider purchase readiness...");
 
@@ -198,11 +221,14 @@ export default function ShippingLabelActions({
     } catch (error: any) {
       setMessage(error.message || "Could not attempt provider purchase.");
     } finally {
+      shippingActionRunningRef.current = false;
       setPurchasing(false);
     }
   }
 
   async function openCoverageClaimDraft() {
+    if (showShippingActionBlocked("opening a Coverage claim draft")) return;
+
     if (activeDryRunLabel) {
       setMessage(
         "Dry-run labels do not have real external Coverage policies. Record a real policy before opening a claim.",
@@ -210,6 +236,7 @@ export default function ShippingLabelActions({
       return;
     }
 
+    shippingActionRunningRef.current = true;
     setOpeningClaim(true);
     setMessage("Opening Coverage claim draft...");
 
@@ -242,11 +269,14 @@ export default function ShippingLabelActions({
     } catch (error: any) {
       setMessage(error.message || "Could not open coverage claim draft.");
     } finally {
+      shippingActionRunningRef.current = false;
       setOpeningClaim(false);
     }
   }
 
   async function recordManualPurchase() {
+    if (showShippingActionBlocked("recording manual label purchase")) return;
+
     if (manualPurchaseMissing.length > 0) {
       setMessage(
         `Manual purchase needs: ${manualPurchaseMissing.join(", ")}.`,
@@ -254,6 +284,7 @@ export default function ShippingLabelActions({
       return;
     }
 
+    shippingActionRunningRef.current = true;
     setRecording(true);
     setMessage("Recording manual label purchase...");
 
@@ -289,16 +320,20 @@ export default function ShippingLabelActions({
     } catch (error: any) {
       setMessage(error.message || "Could not record manual label purchase.");
     } finally {
+      shippingActionRunningRef.current = false;
       setRecording(false);
     }
   }
 
   async function recordManualVoid() {
+    if (showShippingActionBlocked("recording an external label void")) return;
+
     if (voidMissing.length > 0) {
       setMessage(`External void needs: ${voidMissing.join(", ")}.`);
       return;
     }
 
+    shippingActionRunningRef.current = true;
     setVoiding(true);
     setMessage("Recording external label void...");
 
@@ -334,6 +369,7 @@ export default function ShippingLabelActions({
     } catch (error: any) {
       setMessage(error.message || "Could not record external label void.");
     } finally {
+      shippingActionRunningRef.current = false;
       setVoiding(false);
     }
   }
@@ -359,9 +395,11 @@ export default function ShippingLabelActions({
         <button
           type="button"
           onClick={prepareLabelRecord}
-          disabled={busy}
+          aria-disabled={busy}
           aria-busy={preparing}
-          className="rounded-2xl bg-neutral-950 px-4 py-3 text-sm font-black text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
+          className={`rounded-2xl bg-neutral-950 px-4 py-3 text-sm font-black text-white shadow-sm ${
+            busy ? "cursor-not-allowed opacity-50" : ""
+          }`}
         >
           {preparing ? "Preparing label record..." : "Prepare Label + Coverage Record"}
         </button>
@@ -369,9 +407,11 @@ export default function ShippingLabelActions({
         <button
           type="button"
           onClick={attemptProviderPurchase}
-          disabled={providerActionsBlocked}
+          aria-disabled={providerActionsBlocked}
           aria-busy={purchasing}
-          className="rounded-2xl border border-neutral-950 bg-white px-4 py-3 text-sm font-black text-neutral-950 shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
+          className={`rounded-2xl border border-neutral-950 bg-white px-4 py-3 text-sm font-black text-neutral-950 shadow-sm ${
+            providerActionsBlocked ? "cursor-not-allowed opacity-50" : ""
+          }`}
         >
           {purchasing ? "Checking provider readiness..." : "Attempt Provider Purchase"}
         </button>
@@ -379,11 +419,14 @@ export default function ShippingLabelActions({
         <button
           type="button"
           onClick={() => {
+            if (showShippingActionBlocked("opening the manual purchase form")) return;
             setShowManualForm((value) => !value);
             setShowVoidForm(false);
           }}
-          disabled={busy}
-          className="rounded-2xl border border-blue-700 bg-blue-50 px-4 py-3 text-sm font-black text-blue-950 shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
+          aria-disabled={busy}
+          className={`rounded-2xl border border-blue-700 bg-blue-50 px-4 py-3 text-sm font-black text-blue-950 shadow-sm ${
+            busy ? "cursor-not-allowed opacity-50" : ""
+          }`}
         >
           {showManualForm ? "Hide Manual Record" : "Record Manual Purchase"}
         </button>
@@ -391,11 +434,14 @@ export default function ShippingLabelActions({
         <button
           type="button"
           onClick={() => {
+            if (showShippingActionBlocked("opening the external void form")) return;
             setShowVoidForm((value) => !value);
             setShowManualForm(false);
           }}
-          disabled={busy}
-          className="rounded-2xl border border-red-700 bg-red-50 px-4 py-3 text-sm font-black text-red-950 shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
+          aria-disabled={busy}
+          className={`rounded-2xl border border-red-700 bg-red-50 px-4 py-3 text-sm font-black text-red-950 shadow-sm ${
+            busy ? "cursor-not-allowed opacity-50" : ""
+          }`}
         >
           {showVoidForm ? "Hide Void Record" : "Record External Void"}
         </button>
@@ -403,9 +449,11 @@ export default function ShippingLabelActions({
         <button
           type="button"
           onClick={openCoverageClaimDraft}
-          disabled={providerActionsBlocked}
+          aria-disabled={providerActionsBlocked}
           aria-busy={openingClaim}
-          className="rounded-2xl border border-amber-700 bg-amber-50 px-4 py-3 text-sm font-black text-amber-950 shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
+          className={`rounded-2xl border border-amber-700 bg-amber-50 px-4 py-3 text-sm font-black text-amber-950 shadow-sm ${
+            providerActionsBlocked ? "cursor-not-allowed opacity-50" : ""
+          }`}
         >
           {openingClaim ? "Opening Coverage claim..." : "Open Coverage Claim Draft"}
         </button>
@@ -510,9 +558,13 @@ export default function ShippingLabelActions({
           <button
             type="button"
             onClick={recordManualPurchase}
-            disabled={busy || manualPurchaseMissing.length > 0}
+            aria-disabled={busy || manualPurchaseMissing.length > 0}
             aria-busy={recording}
-            className="mt-4 rounded-2xl bg-blue-800 px-4 py-3 text-sm font-black text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
+            className={`mt-4 rounded-2xl bg-blue-800 px-4 py-3 text-sm font-black text-white shadow-sm ${
+              busy || manualPurchaseMissing.length > 0
+                ? "cursor-not-allowed opacity-50"
+                : ""
+            }`}
           >
             {recording
               ? "Recording manual label + Coverage..."
@@ -586,9 +638,13 @@ export default function ShippingLabelActions({
           <button
             type="button"
             onClick={recordManualVoid}
-            disabled={busy || voidMissing.length > 0}
+            aria-disabled={busy || voidMissing.length > 0}
             aria-busy={voiding}
-            className="mt-4 rounded-2xl bg-red-800 px-4 py-3 text-sm font-black text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
+            className={`mt-4 rounded-2xl bg-red-800 px-4 py-3 text-sm font-black text-white shadow-sm ${
+              busy || voidMissing.length > 0
+                ? "cursor-not-allowed opacity-50"
+                : ""
+            }`}
           >
             {voiding ? "Recording external label void..." : "Save External Void"}
           </button>

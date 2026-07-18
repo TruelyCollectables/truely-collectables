@@ -86,6 +86,14 @@ scenario("order shipping label actions announce async provider work", () => {
     "aria-busy={preparing}",
     "aria-busy={purchasing}",
     "aria-busy={openingClaim}",
+    "const shippingActionRunningRef = useRef(false)",
+    "function shippingActionBlockedReason(action: string)",
+    "function showShippingActionBlocked(action: string)",
+    "Finish the current shipping label action before ${action}.",
+    "shippingActionRunningRef.current = true",
+    "shippingActionRunningRef.current = false",
+    "aria-disabled={busy}",
+    "aria-disabled={providerActionsBlocked}",
   ]) {
     assert(
       sources.orderLabelActions.includes(fragment),
@@ -98,8 +106,12 @@ scenario("manual shipping proof forms lock while any order shipping action is bu
   for (const fragment of [
     "Recording manual label + Coverage...",
     "Recording external label void...",
-    "disabled={busy || manualPurchaseMissing.length > 0}",
-    "disabled={busy || voidMissing.length > 0}",
+    "aria-disabled={busy || manualPurchaseMissing.length > 0}",
+    "aria-disabled={busy || voidMissing.length > 0}",
+    'showShippingActionBlocked("recording manual label purchase")',
+    'showShippingActionBlocked("recording an external label void")',
+    'showShippingActionBlocked("opening the manual purchase form")',
+    'showShippingActionBlocked("opening the external void form")',
     "aria-busy={recording}",
     "aria-busy={voiding}",
   ]) {
