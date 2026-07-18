@@ -3,8 +3,8 @@ import {
   adminHandoffFromUrl,
   adminRedirectUrl,
 } from "../../../../../../../lib/admin-handoff";
+import { endMarketIntelListing } from "../../../../../../../lib/market-intel-listing-state";
 import { requestOrigin } from "../../../../../../../lib/request-origin";
-import { createSupabaseServerClient } from "../../../../../../../lib/supabase-server";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -21,59 +21,19 @@ export async function POST(request: NextRequest, context: RouteContext) {
   const json = wantsJson(request);
 
   try {
-    const supabase = createSupabaseServerClient({ admin: true });
-    const now = new Date().toISOString();
-    const { data, error } = await supabase
-      .from("tcos_mi_listings")
-      .update({
-        listing_status: "ended",
-        ended_at: now,
-        last_seen_at: now,
-      })
-      .eq("id", id)
-      .eq("listing_status", "active")
-      .select("id,original_title,quantity")
-      .maybeSingle();
+    const ended = await endMarketIntelListing(id, {
+      onlyIfActive: true,
+      metadata: {
+        end_reason: "manual_admin",
+        end_source: "market-intel-deal-desk",
+      },
+    });
 
-    if (error) {
-      const missingEndedAt =
-        error.message?.toLowerCase().includes("ended_at") ||
-        error.message?.toLowerCase().includes("schema cache");
-
-      if (!missingEndedAt) {
-        throw new Error(error.message);
-      }
-
-      const { data: fallbackData, error: fallbackError } = await supabase
-        .from("tcos_mi_listings")
-        .update({
-          listing_status: "ended",
-          last_seen_at: now,
-        })
-        .eq("id", id)
-        .eq("listing_status", "active")
-        .select("id,original_title,quantity")
-        .maybeSingle();
-
-      if (fallbackError) throw new Error(fallbackError.message);
-      if (!fallbackData?.id) {
-        throw new Error("Listing was not found or is no longer active.");
-      }
-
-      if (json) {
-        return NextResponse.json({
-          success: true,
-          listingId: fallbackData.id,
-          message: `Ended listing${fallbackData.quantity ? ` with qty ${fallbackData.quantity}` : ""}.`,
-        });
-      }
-    } else if (!data?.id) {
-      throw new Error("Listing was not found or is no longer active.");
-    } else if (json) {
+    if (json) {
       return NextResponse.json({
         success: true,
-        listingId: data.id,
-        message: `Ended listing${data.quantity ? ` with qty ${data.quantity}` : ""}.`,
+        listingId: ended.id,
+        message: `Ended listing${ended.quantity ? ` with qty ${ended.quantity}` : ""}.`,
       });
     }
 
