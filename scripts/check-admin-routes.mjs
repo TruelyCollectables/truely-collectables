@@ -8,6 +8,16 @@ const checkedRoots = [adminRoot];
 const routePatterns = [];
 const violations = [];
 const fetchViolations = [];
+const segmentConfigReexportViolations = [];
+const routeSegmentConfigNames = new Set([
+  "dynamic",
+  "dynamicParams",
+  "revalidate",
+  "fetchCache",
+  "runtime",
+  "preferredRegion",
+  "maxDuration",
+]);
 
 function walk(dir, matcher) {
   return readdirSync(dir).flatMap((entry) => {
@@ -111,6 +121,45 @@ function extractFetchReferences(source) {
   return references;
 }
 
+function exportedNameForSpecifier(specifier) {
+  const trimmed = specifier.trim();
+  if (!trimmed) return null;
+
+  const aliasMatch = trimmed.match(/\bas\s+([A-Za-z_$][\w$]*)$/);
+  if (aliasMatch) return aliasMatch[1];
+
+  const localMatch = trimmed.match(/^([A-Za-z_$][\w$]*)$/);
+  return localMatch ? localMatch[1] : null;
+}
+
+function extractSegmentConfigReexports(source) {
+  const references = [];
+  const namedReexportPattern = /export\s*\{([^}]+)\}\s*from\s*(["'][^"']+["'])/g;
+  const starReexportPattern = /export\s+\*\s+from\s*(["'][^"']+["'])/g;
+  let match;
+
+  while ((match = namedReexportPattern.exec(source))) {
+    const names = match[1].split(",").map(exportedNameForSpecifier);
+    const configNames = names.filter((name) => routeSegmentConfigNames.has(name));
+
+    if (configNames.length > 0) {
+      references.push({
+        configNames,
+        offset: match.index,
+      });
+    }
+  }
+
+  while ((match = starReexportPattern.exec(source))) {
+    references.push({
+      configNames: ["*"],
+      offset: match.index,
+    });
+  }
+
+  return references;
+}
+
 const routeSourceCache = new Map();
 
 function routeSource(filePath) {
@@ -122,9 +171,23 @@ function routeSource(filePath) {
 }
 
 for (const sourceRoot of checkedRoots) {
-  for (const filePath of walk(sourceRoot, (file) => file.endsWith(".tsx"))) {
+  for (const filePath of walk(sourceRoot, (file) => file.endsWith(".tsx") || file.endsWith(".ts"))) {
     const source = readFileSync(filePath, "utf8");
     const relativePath = path.relative(root, filePath);
+    const isRouteSegmentFile =
+      filePath.endsWith(`${path.sep}page.tsx`) ||
+      filePath.endsWith(`${path.sep}layout.tsx`) ||
+      filePath.endsWith(`${path.sep}route.ts`);
+
+    if (isRouteSegmentFile) {
+      for (const reference of extractSegmentConfigReexports(source)) {
+        segmentConfigReexportViolations.push({
+          file: relativePath,
+          line: lineForOffset(source, reference.offset),
+          configNames: reference.configNames,
+        });
+      }
+    }
 
     for (const reference of extractInternalReferences(source)) {
       if (!pathMatchesRoute(reference.path)) {
@@ -153,6 +216,23 @@ for (const sourceRoot of checkedRoots) {
       }
     }
   }
+}
+
+if (segmentConfigReexportViolations.length) {
+  console.error("Admin route segment config check failed:");
+
+  for (const violation of segmentConfigReexportViolations) {
+    const names =
+      violation.configNames[0] === "*"
+        ? "star re-export"
+        : violation.configNames.join(", ");
+
+    console.error(
+      `- ${violation.file}:${violation.line} re-exports route segment config (${names}); export config directly from the route segment file instead.`,
+    );
+  }
+
+  process.exit(1);
 }
 
 if (violations.length) {

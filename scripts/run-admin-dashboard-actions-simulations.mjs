@@ -16,6 +16,10 @@ const instaCompFrameSource = await readFile(
   new URL("../src/app/admin/instacomp/InstaCompAdminFrame.tsx", import.meta.url),
   "utf8",
 );
+const adminRouteCheckSource = await readFile(
+  new URL("../scripts/check-admin-routes.mjs", import.meta.url),
+  "utf8",
+);
 
 const scenarios = [];
 
@@ -196,6 +200,21 @@ scenario("instacomp direct route owns its segment config", () => {
     ),
     "Expected InstaComp Direct page to advertise the fixed remove/retry workflow.",
   );
+});
+
+scenario("admin route checker blocks re-exported segment config", () => {
+  for (const fragment of [
+    "routeSegmentConfigNames",
+    "extractSegmentConfigReexports",
+    "Admin route segment config check failed",
+    "re-exports route segment config",
+    "export config directly from the route segment file instead",
+  ]) {
+    assert(
+      adminRouteCheckSource.includes(fragment),
+      `Expected admin route checker segment-config guard fragment ${fragment}.`,
+    );
+  }
 });
 
 scenario("instacomp operator shell explains no-dead-end row actions", () => {
