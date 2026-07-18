@@ -8,6 +8,7 @@ import {
   approveIdentityCandidate,
   type CandidateApprovalInput,
 } from "../../../../../../../lib/market-intel-identity-candidates";
+import { normalizeDuplicateIdentityKey } from "../../../../../../../lib/market-intel-identity-duplicate-guard";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -54,6 +55,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     };
 
     await assertCandidateBaseballPremiumPolicy(approval);
+    await normalizeDuplicateIdentityKey(approval);
     const result = await approveIdentityCandidate(approval);
     return NextResponse.redirect(
       adminRedirectUrl(
