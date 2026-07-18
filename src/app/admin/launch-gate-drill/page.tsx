@@ -48,41 +48,57 @@ export default async function LaunchGateDrillPage() {
   const report = await runLaunchGateDrill({ supabase, storeId });
 
   return (
-    <main className="min-h-screen bg-neutral-50 p-8 text-neutral-950">
-      <div className="mx-auto max-w-6xl">
-        <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="text-sm font-black uppercase tracking-widest text-neutral-500">
-              No-money runtime smoke
-            </p>
-            <h1 className="mt-2 text-4xl font-black">Launch Gate Drill</h1>
-            <p className="mt-2 max-w-3xl text-neutral-600">
-              This admin drill exercises the payment and shipping runtime gates
-              without creating Checkout Sessions, Stripe money objects, provider
-              labels, or postage purchases.
-            </p>
+    <main className="min-h-screen bg-neutral-50 px-6 py-8 text-neutral-950">
+      <div className="mx-auto max-w-6xl space-y-6">
+        <section className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm">
+          <div className="flex flex-wrap items-end justify-between gap-5">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-sky-700">
+                No-money runtime smoke
+              </p>
+              <h1 className="mt-2 text-4xl font-black tracking-tight">
+                Launch Gate Drill
+              </h1>
+              <p className="mt-3 max-w-3xl text-sm font-semibold leading-6 text-neutral-600">
+                This admin drill exercises the payment and shipping runtime gates
+                without creating Checkout Sessions, Stripe money objects,
+                provider labels, or postage purchases.
+              </p>
+              <p className="mt-2 text-xs font-bold text-neutral-400">
+                Report generated: {report.generatedAt}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-3">
+              <Link
+                href="/admin/launch-readiness"
+                className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50"
+              >
+                Launch Readiness
+              </Link>
+              <Link
+                href="/api/admin/launch-gate-drill?format=markdown"
+                className="rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white hover:bg-neutral-800"
+              >
+                Download Drill Report
+              </Link>
+              <Link
+                href="/admin/live-payment-launch"
+                className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50"
+              >
+                Payment Gate
+              </Link>
+              <Link
+                href="/admin/live-shipping-launch"
+                className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50"
+              >
+                Shipping Gate
+              </Link>
+            </div>
           </div>
-          <div className="flex flex-wrap gap-3">
-            <Link href="/admin/launch-readiness" className="rounded border bg-white px-4 py-2">
-              Launch Readiness
-            </Link>
-            <Link
-              href="/api/admin/launch-gate-drill?format=markdown"
-              className="rounded border bg-white px-4 py-2"
-            >
-              Download Drill Report
-            </Link>
-            <Link href="/admin/live-payment-launch" className="rounded border bg-white px-4 py-2">
-              Payment Gate
-            </Link>
-            <Link href="/admin/live-shipping-launch" className="rounded border bg-white px-4 py-2">
-              Shipping Gate
-            </Link>
-          </div>
-        </div>
+        </section>
 
         <section
-          className={`mb-8 rounded border p-6 ${
+          className={`rounded-3xl border p-6 shadow-sm ${
             report.summary.failed === 0
               ? "border-green-300 bg-green-50"
               : "border-red-300 bg-red-50"
@@ -90,39 +106,49 @@ export default async function LaunchGateDrillPage() {
         >
           <div className="grid gap-4 md:grid-cols-5">
             <div>
-              <p className="text-xs font-black uppercase text-neutral-500">Result</p>
+              <p className="text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
+                Result
+              </p>
               <p className="mt-1 text-2xl font-black">
                 {report.summary.failed === 0 ? "PASSED" : "FAILED"}
               </p>
             </div>
             <div>
-              <p className="text-xs font-black uppercase text-neutral-500">Passed</p>
+              <p className="text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
+                Passed
+              </p>
               <p className="mt-1 text-2xl font-black">{report.summary.passed}</p>
             </div>
             <div>
-              <p className="text-xs font-black uppercase text-neutral-500">Review</p>
+              <p className="text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
+                Review
+              </p>
               <p className="mt-1 text-2xl font-black">{report.summary.warning}</p>
             </div>
             <div>
-              <p className="text-xs font-black uppercase text-neutral-500">Failed</p>
+              <p className="text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
+                Failed
+              </p>
               <p className="mt-1 text-2xl font-black">{report.summary.failed}</p>
             </div>
             <div>
-              <p className="text-xs font-black uppercase text-neutral-500">Store</p>
+              <p className="text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
+                Store
+              </p>
               <p className="mt-1 text-sm font-black break-all">{report.storeId}</p>
             </div>
           </div>
           <dl className="mt-5 grid gap-3 text-sm md:grid-cols-2">
-            <div>
+            <div className="rounded-2xl border border-current/20 bg-white/70 p-4">
               <dt className="font-black">Payment Runtime</dt>
-              <dd>
+              <dd className="mt-1 font-semibold leading-6">
                 {report.payment.paymentMode.toUpperCase()} mode, live payments{" "}
                 {report.payment.livePaymentsEnabled ? "enabled" : "locked"}.
               </dd>
             </div>
-            <div>
+            <div className="rounded-2xl border border-current/20 bg-white/70 p-4">
               <dt className="font-black">Shipping Runtime</dt>
-              <dd>
+              <dd className="mt-1 font-semibold leading-6">
                 {report.shipping.purchaseMode.toUpperCase()} mode, live shipping{" "}
                 {report.shipping.liveShippingEnabled ? "enabled" : "locked"}.
                 Standard Envelope evidence validator is{" "}
@@ -131,9 +157,9 @@ export default async function LaunchGateDrillPage() {
                   : "blocked"}.
               </dd>
             </div>
-            <div>
+            <div className="rounded-2xl border border-current/20 bg-white/70 p-4 md:col-span-2">
               <dt className="font-black">Provider Purchase-Attempt Audit Suite</dt>
-              <dd>
+              <dd className="mt-1 font-semibold leading-6">
                 {report.shipping.purchaseAttemptAuditRunStatus.toUpperCase()} —{" "}
                 {report.shipping.purchaseAttemptAuditScenarioCount}/
                 {report.shipping.purchaseAttemptAuditExpectedScenarioCount}{" "}
@@ -146,15 +172,14 @@ export default async function LaunchGateDrillPage() {
               </dd>
             </div>
           </dl>
-          <p className="mt-5 text-sm">Report generated {report.generatedAt}.</p>
         </section>
 
-        <section className="mb-8 grid gap-4 md:grid-cols-2">
+        <section className="grid gap-4 md:grid-cols-2">
           <PostureCard title="Payment Launch Posture" posture={report.posture.payment} />
           <PostureCard title="Shipping Launch Posture" posture={report.posture.shipping} />
         </section>
 
-        <section className="mb-8 rounded border border-emerald-200 bg-emerald-50 p-6 text-emerald-950">
+        <section className="rounded-3xl border border-emerald-200 bg-emerald-50 p-6 text-emerald-950 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <p className="text-xs font-black uppercase tracking-widest">
@@ -169,7 +194,7 @@ export default async function LaunchGateDrillPage() {
             </div>
             <Link
               href="/admin/live-payment-launch"
-              className="rounded border border-emerald-300 bg-white px-4 py-2 text-sm font-black"
+              className="rounded-md border border-emerald-300 bg-white px-4 py-2 text-sm font-black hover:bg-emerald-100"
             >
               Open Live Payment Gate
             </Link>
@@ -191,7 +216,7 @@ export default async function LaunchGateDrillPage() {
               value={report.payment.warningCount}
               tone={report.payment.warningCount > 0 ? "yellow" : "green"}
             />
-            <div className="rounded border border-emerald-200 bg-white p-3">
+            <div className="rounded-2xl border border-emerald-200 bg-white p-3">
               <p
                 className={`text-2xl font-black ${
                   report.payment.livePaymentsEnabled
@@ -207,7 +232,7 @@ export default async function LaunchGateDrillPage() {
             </div>
           </div>
 
-          <div className="mt-5 rounded border border-emerald-200 bg-white p-4">
+          <div className="mt-5 rounded-2xl border border-emerald-200 bg-white p-4">
             <h3 className="font-black">Next live-money actions</h3>
             {report.payment.nextActions.length ? (
               <ul className="mt-3 list-disc space-y-2 pl-5 text-sm font-semibold leading-6">
@@ -230,7 +255,10 @@ export default async function LaunchGateDrillPage() {
 
         <section className="grid gap-4 md:grid-cols-2">
           {report.checks.map((item) => (
-            <article key={item.key} className={`rounded border p-5 ${tone(item.status)}`}>
+            <article
+              key={item.key}
+              className={`rounded-2xl border p-5 shadow-sm ${tone(item.status)}`}
+            >
               <div className="flex items-start justify-between gap-4">
                 <h2 className="font-black">{item.label}</h2>
                 <span className="rounded border border-current px-2 py-1 text-xs font-black uppercase">
@@ -242,13 +270,13 @@ export default async function LaunchGateDrillPage() {
           ))}
         </section>
 
-        <section className="mt-8 rounded border border-blue-200 bg-blue-50 p-6 text-blue-950">
+        <section className="rounded-3xl border border-blue-200 bg-blue-50 p-6 text-blue-950 shadow-sm">
           <h2 className="text-xl font-black">Side-effect Guardrails</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6">
             {report.sideEffectPolicy.assurance}
           </p>
           <div className="mt-5 grid gap-4 md:grid-cols-2">
-            <div className="rounded border border-blue-200 bg-white p-4">
+            <div className="rounded-2xl border border-blue-200 bg-white p-4">
               <h3 className="font-black">Allowed during this drill</h3>
               <ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-6">
                 {report.sideEffectPolicy.allowedOperations.map((operation) => (
@@ -256,7 +284,7 @@ export default async function LaunchGateDrillPage() {
                 ))}
               </ul>
             </div>
-            <div className="rounded border border-blue-200 bg-white p-4">
+            <div className="rounded-2xl border border-blue-200 bg-white p-4">
               <h3 className="font-black">Not allowed during this drill</h3>
               <ul className="mt-3 list-disc space-y-2 pl-5 text-sm leading-6">
                 {report.sideEffectPolicy.forbiddenOperations.map((operation) => (
@@ -267,7 +295,7 @@ export default async function LaunchGateDrillPage() {
           </div>
         </section>
 
-        <section className="mt-8 rounded border bg-white p-6">
+        <section className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm">
           <h2 className="text-xl font-black">What This Proves</h2>
           <div className="mt-4 grid gap-4 text-sm leading-6 md:grid-cols-3">
             <p>
