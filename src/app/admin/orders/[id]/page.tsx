@@ -166,8 +166,11 @@ type ShippingCoverageClaim = {
   created_at: string;
 };
 
-function money(value: number | null | undefined) {
-  return `$${Number(value || 0).toFixed(2)}`;
+function money(value: number | string | null | undefined) {
+  return new Intl.NumberFormat("en-US", {
+    currency: "USD",
+    style: "currency",
+  }).format(Number(value || 0));
 }
 
 function label(value: string | null | undefined) {
@@ -175,8 +178,45 @@ function label(value: string | null | undefined) {
   return value.replaceAll("_", " ").toUpperCase();
 }
 
+function statusTone(value: string | null | undefined) {
+  const normalized = String(value || "").toLowerCase();
+
+  if (normalized === "paid" || normalized === "active" || normalized === "shipped") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-950";
+  }
+
+  if (normalized.includes("review") || normalized.includes("hold")) {
+    return "border-amber-200 bg-amber-50 text-amber-950";
+  }
+
+  if (normalized === "refunded" || normalized === "failed" || normalized === "cancelled") {
+    return "border-red-200 bg-red-50 text-red-950";
+  }
+
+  return "border-neutral-200 bg-white text-neutral-950";
+}
+
 function dateLabel(value: string | null | undefined) {
   return value ? new Date(value).toLocaleString() : "Not saved";
+}
+
+function OrderMetric({
+  label: metricLabel,
+  tone = "border-neutral-200 bg-white text-neutral-950",
+  value,
+}: {
+  label: string;
+  tone?: string;
+  value: string;
+}) {
+  return (
+    <div className={`rounded-2xl border p-4 shadow-sm ${tone}`}>
+      <p className="text-xs font-black uppercase tracking-[0.14em] opacity-70">
+        {metricLabel}
+      </p>
+      <p className="mt-2 text-2xl font-black">{value}</p>
+    </div>
+  );
 }
 
 function metadataText(
@@ -314,12 +354,22 @@ export default async function AdminOrderDetailPage({
 
   if (error || !order) {
     return (
-      <main className="p-8">
-        <h1 className="text-3xl font-bold">Order Not Found</h1>
-        <pre>{error?.message}</pre>
-        <Link href="/admin/orders" className="underline">
-          Back to Fulfillment Center
-        </Link>
+      <main className="bg-neutral-50 px-6 py-8 text-neutral-950">
+        <section className="mx-auto max-w-4xl rounded-3xl border border-red-200 bg-white p-6 shadow-sm">
+          <p className="text-xs font-black uppercase tracking-[0.16em] text-red-700">
+            Order detail
+          </p>
+          <h1 className="mt-2 text-3xl font-black">Order not found</h1>
+          <p className="mt-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-950">
+            {error?.message || "This order no longer exists in the active store."}
+          </p>
+          <Link
+            href="/admin/orders"
+            className="mt-5 inline-block rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white"
+          >
+            Back to fulfillment center
+          </Link>
+        </section>
       </main>
     );
   }
@@ -597,49 +647,82 @@ export default async function AdminOrderDetailPage({
   );
 
   return (
-    <main className="p-8 max-w-5xl mx-auto">
-      <div className="mb-8">
-        <Link href="/admin/orders" className="underline">
-          ← Back to Fulfillment Center
-        </Link>
+    <main className="space-y-6 bg-neutral-50 px-6 py-8 text-neutral-950">
+      <section className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm">
+        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+          <div>
+            <Link
+              href="/admin/orders"
+              className="text-sm font-black text-neutral-600 underline"
+            >
+              ← Back to fulfillment center
+            </Link>
+            <p className="mt-5 text-xs font-black uppercase tracking-[0.18em] text-sky-700">
+              Order detail
+            </p>
+            <h1 className="mt-2 text-4xl font-black tracking-tight">
+              Order #{typedOrder.id}
+            </h1>
+            <p className="mt-3 text-sm font-semibold text-neutral-600">
+              Created {new Date(typedOrder.created_at).toLocaleString()} ·{" "}
+              {typedOrder.customer_email || "No customer email"}
+            </p>
+          </div>
 
-        <h1 className="text-4xl font-bold mt-4">Order #{typedOrder.id}</h1>
-
-        <p className="text-gray-600">
-          Created {new Date(typedOrder.created_at).toLocaleString()}
-        </p>
-      </div>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href={`/admin/orders/${typedOrder.id}/packing-slip`}
+              className="rounded-md border border-sky-300 bg-sky-50 px-4 py-2 text-sm font-black text-sky-950 hover:bg-sky-100"
+            >
+              Packing slip
+            </Link>
+            <Link
+              href="/admin/files"
+              className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50"
+            >
+              Evidence files
+            </Link>
+            <Link
+              href="/admin/orders"
+              className="rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white hover:bg-neutral-800"
+            >
+              Orders
+            </Link>
+          </div>
+        </div>
+      </section>
 
       {needsReview ? (
-        <section className="mb-6 rounded border border-amber-200 bg-amber-50 p-5 text-amber-950">
-          <h2 className="text-xl font-bold">Order Needs Review</h2>
+        <section className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-amber-950 shadow-sm">
+          <h2 className="text-xl font-black">Order needs review</h2>
           <p className="mt-2 text-sm font-semibold">{reviewMessage}</p>
         </section>
       ) : null}
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
-        <div className="border rounded-lg p-4">
-          <p className="text-sm text-gray-500">Payment</p>
-          <p className="text-2xl font-bold">{label(typedOrder.status)}</p>
-        </div>
-
-        <div className="border rounded-lg p-4">
-          <p className="text-sm text-gray-500">Fulfillment</p>
-          <p className="text-2xl font-bold">
-            {label(typedOrder.fulfillment_status)}
+      {activeDryRunShippingLabel ? (
+        <section className="rounded-2xl border border-red-200 bg-red-50 p-5 text-red-950 shadow-sm">
+          <h2 className="text-xl font-black">Dry-run shipping is still attached</h2>
+          <p className="mt-2 text-sm font-semibold">
+            Replace the simulated label/tracking with a real provider label before
+            treating this order as shipped.
           </p>
-        </div>
+        </section>
+      ) : null}
 
-        <div className="border rounded-lg p-4">
-          <p className="text-sm text-gray-500">Items Total</p>
-          <p className="text-2xl font-bold">{money(itemsTotal)}</p>
-        </div>
-
-        <div className="border rounded-lg p-4">
-          <p className="text-sm text-gray-500">Total Paid</p>
-          <p className="text-2xl font-bold">{money(totalPaid)}</p>
-        </div>
-      </div>
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-4">
+        <OrderMetric
+          label="Payment"
+          value={label(typedOrder.status)}
+          tone={statusTone(typedOrder.status)}
+        />
+        <OrderMetric
+          label="Fulfillment"
+          value={label(typedOrder.fulfillment_status)}
+          tone={statusTone(typedOrder.fulfillment_status)}
+        />
+        <OrderMetric label="Items total" value={money(itemsTotal)} />
+        <OrderMetric label="Total paid" value={money(totalPaid)} />
+      </section>
 
       {platformFeeLedger.length > 0 ? (
         <section className="border rounded-lg p-6 mb-6">
