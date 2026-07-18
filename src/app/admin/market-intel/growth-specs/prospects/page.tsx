@@ -1,4 +1,5 @@
 import Link from "next/link";
+import AdminSubmitButton from "../../../AdminSubmitButton";
 import { getMarketIntelWatchlist } from "../../../../../lib/market-intel-watchlist";
 import { GROWTH_PROSPECT_SEED_VERSION } from "../../../../../lib/market-intel-prospect-seed";
 
@@ -100,12 +101,12 @@ export default async function GrowthProspectUniversePage() {
                 purchases, and sales history.
               </p>
             </div>
-            <button
-              type="submit"
+            <AdminSubmitButton
               className="rounded-md bg-fuchsia-800 px-4 py-2.5 text-sm font-black text-white"
+              pendingChildren="Refreshing lists..."
             >
               Refresh Value Lists
-            </button>
+            </AdminSubmitButton>
           </div>
         </form>
 

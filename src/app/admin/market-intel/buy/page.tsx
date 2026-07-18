@@ -1,4 +1,5 @@
 import Link from "next/link";
+import AdminSubmitButton from "../../AdminSubmitButton";
 import {
   addAdminHandoff,
   ADMIN_HANDOFF_PARAM,
@@ -289,11 +290,12 @@ function CandidateCard({
                 <input name="alreadyReceived" type="checkbox" />
                 Already received and in inventory
               </label>
-              <button
-                type="submit"
-                className="w-full rounded-md bg-black px-4 py-3 font-black text-white">
+              <AdminSubmitButton
+                className="w-full rounded-md bg-black px-4 py-3 font-black text-white"
+                pendingChildren="Creating purchase position..."
+              >
                 CREATE PURCHASE POSITION
-              </button>
+              </AdminSubmitButton>
               <p className="text-xs font-semibold leading-5 text-amber-950">
                 Use the final amount you actually paid after accepted offers, shipping,
                 buyer fees, and tax. Beta One uses this as the real cost basis.

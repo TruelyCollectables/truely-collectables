@@ -1,4 +1,5 @@
 import Link from "next/link";
+import AdminSubmitButton from "../../AdminSubmitButton";
 import {
   addAdminHandoff,
   ADMIN_HANDOFF_PARAM,
@@ -197,11 +198,12 @@ export default async function MarketIntelIngestionPage({
                     className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 outline-none focus:border-black"
                   />
                 </label>
-                <button
-                  type="submit"
-                  className="mt-4 w-full rounded-md bg-black px-4 py-3 font-black text-white">
+                <AdminSubmitButton
+                  className="mt-4 w-full rounded-md bg-black px-4 py-3 font-black text-white"
+                  pendingChildren="Running cleanup..."
+                >
                   Run Cleanup Now
-                </button>
+                </AdminSubmitButton>
               </form>
             </div>
 

@@ -1,4 +1,5 @@
 import Link from "next/link";
+import AdminSubmitButton from "../../AdminSubmitButton";
 import {
   addAdminHandoff,
   ADMIN_HANDOFF_PARAM,
@@ -319,12 +320,12 @@ export default async function MarketIntelDealsPage({ searchParams }: PageProps) 
                   Title, category, card number, parallel, or player appears mislisted
                 </label>
 
-                <button
-                  type="submit"
+                <AdminSubmitButton
                   className="rounded-md bg-black px-5 py-3 font-black text-white sm:col-span-2"
+                  pendingChildren="Saving and scoring..."
                 >
                   Save Listing and Score Deal
-                </button>
+                </AdminSubmitButton>
               </form>
             )}
           </section>
@@ -344,11 +345,12 @@ export default async function MarketIntelDealsPage({ searchParams }: PageProps) 
                   handoff,
                 )}
               >
-                <button
-                  type="submit"
-                  className="rounded-md border border-neutral-500 px-4 py-2 text-sm font-black hover:bg-white hover:text-black">
+                <AdminSubmitButton
+                  className="rounded-md border border-neutral-500 px-4 py-2 text-sm font-black hover:bg-white hover:text-black"
+                  pendingChildren="Rescoring..."
+                >
                   Rescore All
-                </button>
+                </AdminSubmitButton>
               </form>
             </div>
 

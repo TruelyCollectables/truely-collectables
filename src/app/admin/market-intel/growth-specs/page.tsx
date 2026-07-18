@@ -1,4 +1,5 @@
 import Link from "next/link";
+import AdminSubmitButton from "../../AdminSubmitButton";
 import {
   addAdminHandoff,
   ADMIN_HANDOFF_PARAM,
@@ -303,12 +304,12 @@ export default async function MarketIntelGrowthSpecsPage({
                 placeholder="Maximum copies, sell-on-spike plan, grading plan, or reasons to abandon."
               />
 
-              <button
-                type="submit"
+              <AdminSubmitButton
                 className="rounded-md bg-black px-5 py-3 font-black text-white sm:col-span-2"
+                pendingChildren="Saving growth spec..."
               >
                 Save Growth Spec Scenario
-              </button>
+              </AdminSubmitButton>
             </form>
           </section>
 
@@ -400,12 +401,12 @@ export default async function MarketIntelGrowthSpecsPage({
                       <input type="hidden" name="suppliesPerCard" value="0.15" />
                       <input type="hidden" name="holdMonths" value="24" />
                       <input type="hidden" name="convictionScore" value="50" />
-                      <button
-                        type="submit"
+                      <AdminSubmitButton
                         className="rounded-md bg-fuchsia-300 px-4 py-2 text-sm font-black text-black hover:bg-fuchsia-200"
+                        pendingChildren="Saving model..."
                       >
                         Save Default $25 Model
-                      </button>
+                      </AdminSubmitButton>
                     </form>
                   </article>
                 ))}
@@ -548,12 +549,12 @@ function StatusButton({
       )}
     >
       <input type="hidden" name="status" value={status} />
-      <button
-        type="submit"
+      <AdminSubmitButton
         className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-black hover:bg-neutral-100"
+        pendingChildren={`Setting ${label.toLowerCase()}...`}
       >
         {label}
-      </button>
+      </AdminSubmitButton>
     </form>
   );
 }

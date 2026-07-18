@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import AdminSubmitButton from "../../../AdminSubmitButton";
 import { addAdminHandoff } from "../../../../../lib/admin-handoff";
 import { createAdminSessionValue } from "../../../../../lib/admin-session";
 import { getMarketIntelPurchaseDetail } from "../../../../../lib/market-intel";
@@ -107,12 +108,12 @@ export default async function MarketIntelPurchaseDetailPage({
                     `/api/admin/market-intel/purchases/${lot.id}/receive`,
                   )}
                 >
-                  <button
-                    type="submit"
+                  <AdminSubmitButton
                     className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-black text-white hover:bg-emerald-700"
+                    pendingChildren="Marking received..."
                   >
                     Mark Received
-                  </button>
+                  </AdminSubmitButton>
                 </form>
               ) : null}
             </div>
@@ -176,13 +177,13 @@ export default async function MarketIntelPurchaseDetailPage({
               <Field label="Notes">
                 <input name="notes" className={inputClass} />
               </Field>
-              <button
-                type="submit"
+              <AdminSubmitButton
                 disabled={remaining <= 0}
                 className="rounded-md bg-black px-5 py-3 font-black text-white hover:bg-neutral-800 disabled:opacity-40 sm:col-span-2"
+                pendingChildren="Saving sale..."
               >
                 Save Sale and Recalculate GP
-              </button>
+              </AdminSubmitButton>
             </form>
           </div>
 

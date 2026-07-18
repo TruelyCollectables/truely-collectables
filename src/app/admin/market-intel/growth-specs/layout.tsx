@@ -1,4 +1,5 @@
 import Link from "next/link";
+import AdminSubmitButton from "../../AdminSubmitButton";
 import { getMarketIntelWatchlist } from "../../../../lib/market-intel-watchlist";
 import {
   GROWTH_PROSPECT_COUNT,
@@ -68,12 +69,12 @@ export default async function GrowthSpecsLayout({
               View Value Watchlists
             </Link>
             <form method="post" action="/api/admin/market-intel/growth-specs/seed-prospects">
-              <button
-                type="submit"
+              <AdminSubmitButton
                 className="rounded-md border border-fuchsia-300 bg-white px-4 py-2 text-sm font-black"
+                pendingChildren="Refreshing lists..."
               >
                 Refresh Value Lists
-              </button>
+              </AdminSubmitButton>
             </form>
           </div>
         </div>
