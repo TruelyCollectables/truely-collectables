@@ -3,7 +3,9 @@ import "server-only";
 import {
   approveIdentityCandidate,
   rejectIdentityCandidate,
+  type CandidateApprovalInput,
 } from "./market-intel-identity-candidates";
+import { normalizeDuplicateIdentityKey } from "./market-intel-identity-duplicate-guard";
 import { createSupabaseServerClient } from "./supabase-server";
 
 type CandidateRow = {
@@ -67,10 +69,10 @@ async function approveFromDetected(candidate: CandidateRow) {
     "Product line",
   );
   const cardNumber = required(candidate.detected_card_number, "Exact card number");
-  const conditionType =
+  const conditionType: CandidateApprovalInput["conditionType"] =
     candidate.condition_type === "graded" ? "graded" : "raw";
 
-  await approveIdentityCandidate({
+  const approval: CandidateApprovalInput = {
     candidateId: candidate.id,
     seasonYear,
     manufacturer,
@@ -89,7 +91,10 @@ async function approveFromDetected(candidate: CandidateRow) {
     gradingCompany: String(candidate.grading_company || ""),
     grade: String(candidate.grade || ""),
     quantity: Math.max(1, Math.round(Number(candidate.quantity || 1))),
-  });
+  };
+
+  await normalizeDuplicateIdentityKey(approval);
+  await approveIdentityCandidate(approval);
 }
 
 export async function bulkApproveIdentityCandidates(
