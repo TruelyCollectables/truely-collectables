@@ -87,6 +87,7 @@
     "verify:instacomp": "npm run simulate:instacomp-row-actions && npm run simulate:instacomp-row-removal && npm run simulate:instacomp-jobs && npm run simulate:instacomp-accuracy && npm run simulate:instacomp-consensus && npm run simulate:instacomp-catalog-identity && npm run simulate:instacomp-card-knowledge && npm run simulate:instacomp-identity-guard && npm run simulate:instacomp-scan-review && npm run simulate:instacomp-trial-groundtruth-sheet && npm run simulate:instacomp-trial-groundtruth && npm run simulate:instacomp-trial-preflight && npm run simulate:instacomp-trial-prep && npm run simulate:instacomp-trial-stage && npm run simulate:instacomp-trial-sync-images && npm run simulate:instacomp-trial-answer-key-html && npm run simulate:instacomp-trial-answer-key-validation && npm run simulate:instacomp-trial-intake && npm run simulate:instacomp-trial-monitor && npm run simulate:instacomp-trial && npm run simulate:instacomp-trial-catalog-review",
     "verify:shipping": "npm run simulate:lettertrack-evidence && npm run simulate:shipping-purchase-audit && npm run simulate:shipping",
     "verify:admin-dashboard": "node scripts/verify-admin-dashboard.mjs",
+    "smoke:admin-runtime": "node scripts/smoke-admin-runtime.mjs",
     "check:production-guardrails": "node scripts/check-production-guardrails.mjs",
     "status:production": "node scripts/deploy-production.mjs --quota-status",
     "status:production:json": "node scripts/deploy-production.mjs --quota-status --json",
