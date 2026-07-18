@@ -3,8 +3,25 @@
 import { useEffect } from "react";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
+const MARKETPLACE_HOSTS = [
+  "ebay.",
+  "comc.com",
+  "collx.app",
+  "whatnot.com",
+  "fanaticscollect.com",
+  "mercari.com",
+  "poshmark.com",
+  "facebook.com",
+  "sportlots.com",
+  "myslabs.com",
+];
+
 function addHandoff(url: URL, handoff: string | null) {
-  if (handoff && url.origin === window.location.origin && !url.searchParams.has("admin_handoff")) {
+  if (
+    handoff &&
+    url.origin === window.location.origin &&
+    !url.searchParams.has("admin_handoff")
+  ) {
     url.searchParams.set("admin_handoff", handoff);
   }
   return url;
@@ -18,21 +35,13 @@ function identityFromCompHref(href: string) {
 function looksLikeMarketplaceSource(anchor: HTMLAnchorElement) {
   const url = new URL(anchor.href, window.location.origin);
   if (url.origin === window.location.origin) return false;
-  const text = `${anchor.textContent || ""} ${anchor.getAttribute("aria-label") || ""}`.toLowerCase();
-  return (
-    /ebay|comc|collx|whatnot|fanatics|mercari|poshmark|marketplace|listing|source/i.test(
-      `${url.hostname} ${text}`,
-    ) &&
-    Boolean(anchor.closest("article,tr,details,section"))
-  );
+  const hostname = url.hostname.toLowerCase();
+  return MARKETPLACE_HOSTS.some((host) => hostname.includes(host));
 }
 
-function controlsRoot(anchor: HTMLAnchorElement) {
-  return (
-    anchor.closest<HTMLElement>("article,tr,details") ||
-    anchor.parentElement ||
-    anchor
-  );
+function controlsRoot(anchor: HTMLAnchorElement, exactIdentity: boolean) {
+  if (exactIdentity) return anchor.parentElement || anchor;
+  return anchor.closest<HTMLElement>("article,tr") || anchor;
 }
 
 function createControls(input: {
@@ -71,6 +80,7 @@ function createControls(input: {
     if (track.disabled) return;
     track.disabled = true;
     track.textContent = "Tracking Today...";
+    status.removeAttribute("role");
     status.textContent = "Scanning this exact card and recording today’s snapshot...";
     try {
       const response = await fetch(input.trackUrl, {
@@ -82,7 +92,8 @@ function createControls(input: {
       if (!response.ok || !payload || payload.success !== true) {
         throw new Error(payload?.error || `Tracking failed with HTTP ${response.status}.`);
       }
-      status.textContent = payload.message || "Today’s exact-card observation was recorded.";
+      status.textContent =
+        payload.message || "Today’s exact-card observation was recorded.";
       input.onTracked();
     } catch (error) {
       status.setAttribute("role", "alert");
@@ -113,12 +124,22 @@ export default function UniversalInstaCompEnhancer() {
     const cleanups: Array<() => void> = [];
     const enhanced = new Set<HTMLElement>();
 
-    const currentIdentity = pathname.match(/^\/admin\/market-intel\/comps\/([^/]+)$/)?.[1];
+    const currentIdentity = pathname.match(
+      /^\/admin\/market-intel\/comps\/([^/]+)$/,
+    )?.[1];
     if (currentIdentity) {
-      const header = document.querySelector<HTMLElement>("main header > div, main > header > div");
-      if (header && !header.querySelector('[data-universal-instacomp-controls="1"]')) {
+      const header = document.querySelector<HTMLElement>(
+        "main header > div, main > header > div",
+      );
+      if (
+        header &&
+        !header.querySelector('[data-universal-instacomp-controls="1"]')
+      ) {
         const compUrl = addHandoff(
-          new URL(`/admin/market-intel/comps/${currentIdentity}`, window.location.origin),
+          new URL(
+            `/admin/market-intel/comps/${currentIdentity}`,
+            window.location.origin,
+          ),
           handoff,
         );
         const trackUrl = addHandoff(
@@ -142,16 +163,29 @@ export default function UniversalInstaCompEnhancer() {
       }
     }
 
-    for (const anchor of Array.from(document.querySelectorAll<HTMLAnchorElement>("a[href]"))) {
+    for (const anchor of Array.from(
+      document.querySelectorAll<HTMLAnchorElement>("a[href]"),
+    )) {
       let compUrl: URL | null = null;
       let trackUrl: URL | null = null;
       const identityId = identityFromCompHref(anchor.href);
-      const root = controlsRoot(anchor);
-      if (enhanced.has(root) || root.dataset.universalInstacompEnhanced === "1") continue;
+      const marketplaceSource = !identityId && looksLikeMarketplaceSource(anchor);
+      if (!identityId && !marketplaceSource) continue;
+
+      const root = controlsRoot(anchor, Boolean(identityId));
+      if (
+        enhanced.has(root) ||
+        root.dataset.universalInstacompEnhanced === "1"
+      ) {
+        continue;
+      }
 
       if (identityId) {
         compUrl = addHandoff(
-          new URL(`/admin/market-intel/comps/${identityId}`, window.location.origin),
+          new URL(
+            `/admin/market-intel/comps/${identityId}`,
+            window.location.origin,
+          ),
           handoff,
         );
         trackUrl = addHandoff(
@@ -161,24 +195,29 @@ export default function UniversalInstaCompEnhancer() {
           ),
           handoff,
         );
-      } else if (looksLikeMarketplaceSource(anchor)) {
+      } else {
         const sourceUrl = anchor.href;
         compUrl = addHandoff(
-          new URL("/api/admin/market-intel/instacomp/resolve", window.location.origin),
+          new URL(
+            "/api/admin/market-intel/instacomp/resolve",
+            window.location.origin,
+          ),
           handoff,
         );
         compUrl.searchParams.set("sourceUrl", sourceUrl);
         trackUrl = addHandoff(
-          new URL("/api/admin/market-intel/instacomp/resolve", window.location.origin),
+          new URL(
+            "/api/admin/market-intel/instacomp/resolve",
+            window.location.origin,
+          ),
           handoff,
         );
         trackUrl.searchParams.set("sourceUrl", sourceUrl);
       }
 
-      if (!compUrl || !trackUrl) continue;
       root.dataset.universalInstacompEnhanced = "1";
       enhanced.add(root);
-      const dark = Boolean(root.closest(".bg-\[\#101418\], .bg-neutral-950, .text-white"));
+      const dark = Boolean(root.closest(".text-white"));
       const controls = createControls({
         compUrl: `${compUrl.pathname}${compUrl.search}${compUrl.hash}`,
         trackUrl: `${trackUrl.pathname}${trackUrl.search}`,
@@ -186,7 +225,7 @@ export default function UniversalInstaCompEnhancer() {
         onTracked: () => router.refresh(),
       });
 
-      if (anchor.parentElement === root && anchor.tagName === "A") {
+      if (root === anchor || anchor.parentElement === root) {
         anchor.insertAdjacentElement("afterend", controls.wrapper);
       } else {
         root.appendChild(controls.wrapper);
