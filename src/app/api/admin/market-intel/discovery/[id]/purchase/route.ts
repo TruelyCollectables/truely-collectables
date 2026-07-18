@@ -48,6 +48,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       "totalAcquisitionCost",
       0,
     );
+    const bucketValue = text(formData, "portfolioBucket");
     const purchase = await recordDiscoveryCandidatePurchase({
       candidateId: id,
       seasonYear: text(formData, "seasonYear"),
@@ -74,13 +75,17 @@ export async function POST(request: NextRequest, context: RouteContext) {
       ),
       inboundShipping: numberField(formData, "inboundShipping", 0),
       salesTax: numberField(formData, "salesTax", 0),
+      buyerFees: numberField(formData, "buyerFees", 0),
+      otherCost: numberField(formData, "otherCost", 0),
       totalAcquisitionCost,
+      portfolioBucket: bucketValue === "hold" ? "hold" : "resale",
       purchaseDate: text(formData, "purchaseDate") || null,
       alreadyReceived: formData.get("alreadyReceived") === "on",
     });
 
     revalidatePath("/admin/market-intel/discovery");
     revalidatePath("/admin/market-intel/purchases");
+    revalidatePath("/admin/market-intel/purchases/ebay-intake");
     revalidatePath(`/admin/market-intel/purchases/${purchase.purchaseId}`);
 
     const redirectUrl = adminRedirectUrl(
@@ -107,6 +112,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const message =
       error instanceof Error ? error.message : "Unable to record Discovery purchase.";
     revalidatePath("/admin/market-intel/discovery");
+    revalidatePath("/admin/market-intel/purchases/ebay-intake");
 
     if (json) {
       return NextResponse.json(

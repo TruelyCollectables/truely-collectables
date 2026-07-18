@@ -16,7 +16,17 @@ function roundMoney(value: number) {
   return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 }
 
+function metadataNumber(
+  metadata: Record<string, unknown>,
+  key: string,
+  fallback = 0,
+) {
+  const value = Number(metadata[key]);
+  return Number.isFinite(value) ? value : fallback;
+}
+
 function approvalReadiness(candidate: {
+  purchaseInbox: boolean;
   detected_year: string | null;
   detected_manufacturer: string | null;
   detected_product_line: string | null;
@@ -37,18 +47,20 @@ function approvalReadiness(candidate: {
   if (!candidate.detected_product_line?.trim()) missing.push("product line");
   if (!candidate.detected_card_number?.trim()) missing.push("exact card number");
 
-  const parallel = String(candidate.detected_parallel_name || "")
-    .trim()
-    .toLowerCase();
-  const hasNonBaseSignal = Boolean(
-    (parallel && !["base", "base card", "regular", "standard"].includes(parallel)) ||
-      candidate.detected_insert_name?.trim() ||
-      candidate.detected_variation_name?.trim() ||
-      candidate.serial_numbered_to ||
-      candidate.autograph ||
-      candidate.memorabilia,
-  );
-  if (!hasNonBaseSignal) missing.push("premium non-base identity");
+  if (!candidate.purchaseInbox) {
+    const parallel = String(candidate.detected_parallel_name || "")
+      .trim()
+      .toLowerCase();
+    const hasNonBaseSignal = Boolean(
+      (parallel && !["base", "base card", "regular", "standard"].includes(parallel)) ||
+        candidate.detected_insert_name?.trim() ||
+        candidate.detected_variation_name?.trim() ||
+        candidate.serial_numbered_to ||
+        candidate.autograph ||
+        candidate.memorabilia,
+    );
+    if (!hasNonBaseSignal) missing.push("premium non-base identity");
+  }
 
   if (candidate.condition_type === "graded") {
     if (!candidate.grading_company?.trim()) missing.push("grading company");
@@ -78,7 +90,11 @@ export default async function IdentityDiscoveryLayout({
     ready: boolean;
     missing: string[];
     defaultTax: number;
+    buyerFees: number;
+    otherCost: number;
+    portfolioBucket: "resale" | "hold";
     purchaseDate: string;
+    purchaseInbox: boolean;
     approval: {
       seasonYear: string;
       manufacturer: string;
@@ -106,19 +122,38 @@ export default async function IdentityDiscoveryLayout({
     const workbench = await getIdentityDiscoveryWorkbench();
     const today = new Date().toISOString().slice(0, 10);
     candidates = workbench.pending.map((candidate) => {
-      const readiness = approvalReadiness(candidate);
+      const purchaseInbox = candidate.metadata.purchase_inbox === true;
+      const readiness = approvalReadiness({ ...candidate, purchaseInbox });
       const draft = kempPurchaseDraft(candidate.original_title);
-      const estimatedTax = roundMoney(
-        (candidate.asking_price + candidate.shipping_price) * DEFAULT_COLORADO_TAX_RATE,
-      );
-      const defaultTax = draft
-        ? roundMoney(
-            Math.max(
-              0,
-              draft.cost - candidate.asking_price - candidate.shipping_price,
-            ),
+      const itemPrice = purchaseInbox
+        ? metadataNumber(candidate.metadata, "actual_item_subtotal", candidate.asking_price)
+        : candidate.asking_price;
+      const shippingPrice = purchaseInbox
+        ? metadataNumber(
+            candidate.metadata,
+            "actual_inbound_shipping",
+            candidate.shipping_price,
           )
-        : estimatedTax;
+        : candidate.shipping_price;
+      const buyerFees = purchaseInbox
+        ? metadataNumber(candidate.metadata, "actual_buyer_fees", 0)
+        : 0;
+      const otherCost = purchaseInbox
+        ? metadataNumber(candidate.metadata, "actual_other_cost", 0)
+        : 0;
+      const estimatedTax = roundMoney(
+        (itemPrice + shippingPrice) * DEFAULT_COLORADO_TAX_RATE,
+      );
+      const defaultTax = purchaseInbox
+        ? metadataNumber(candidate.metadata, "actual_sales_tax", estimatedTax)
+        : draft
+          ? roundMoney(Math.max(0, draft.cost - itemPrice - shippingPrice))
+          : estimatedTax;
+      const purchaseDateFromMetadata = candidate.metadata.actual_purchase_date
+        ? String(candidate.metadata.actual_purchase_date).slice(0, 10)
+        : null;
+      const portfolioBucket: "resale" | "hold" =
+        candidate.metadata.portfolio_bucket === "hold" ? "hold" : "resale";
       const conditionType: "raw" | "graded" =
         candidate.condition_type === "graded" ? "graded" : "raw";
 
@@ -126,13 +161,17 @@ export default async function IdentityDiscoveryLayout({
         id: candidate.id,
         player: candidate.subject.name,
         title: candidate.original_title,
-        askingPrice: candidate.asking_price,
-        shippingPrice: candidate.shipping_price,
+        askingPrice: itemPrice,
+        shippingPrice,
         quantity: candidate.quantity,
         ready: readiness.ready,
         missing: readiness.missing,
         defaultTax,
-        purchaseDate: draft?.date ?? today,
+        buyerFees,
+        otherCost,
+        portfolioBucket,
+        purchaseDate: purchaseDateFromMetadata || draft?.date || today,
+        purchaseInbox,
         approval: {
           seasonYear: candidate.detected_year || "",
           manufacturer: candidate.detected_manufacturer || "",
@@ -179,15 +218,21 @@ export default async function IdentityDiscoveryLayout({
           defaultItemPrice: candidate.askingPrice,
           defaultShipping: candidate.shippingPrice,
           defaultTax: candidate.defaultTax,
+          defaultBuyerFees: candidate.buyerFees,
+          defaultOtherCost: candidate.otherCost,
+          defaultPortfolioBucket: candidate.portfolioBucket,
           defaultPurchaseDate: candidate.purchaseDate,
+          purchaseInbox: candidate.purchaseInbox,
         }))}
       />
       <BulkCandidateControls
         candidates={candidates.map((candidate) => ({
           id: candidate.id,
           player: candidate.player,
-          ready: candidate.ready,
-          missing: candidate.missing,
+          ready: candidate.ready && !candidate.purchaseInbox,
+          missing: candidate.purchaseInbox
+            ? ["use Mark Selected Purchased"]
+            : candidate.missing,
         }))}
       />
       <SelectedPurchaseControls
@@ -200,6 +245,9 @@ export default async function IdentityDiscoveryLayout({
           itemPrice: candidate.askingPrice,
           shippingPrice: candidate.shippingPrice,
           defaultTax: candidate.defaultTax,
+          defaultBuyerFees: candidate.buyerFees,
+          defaultOtherCost: candidate.otherCost,
+          defaultPortfolioBucket: candidate.portfolioBucket,
           purchaseDate: candidate.purchaseDate,
           approval: candidate.approval,
         }))}

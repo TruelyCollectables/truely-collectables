@@ -11,6 +11,7 @@ import {
 } from "../../../../../../../lib/market-intel-identity-candidates";
 import { normalizeDuplicateIdentityKey } from "../../../../../../../lib/market-intel-identity-duplicate-guard";
 import { normalizeDiscoveryApprovalInput } from "../../../../../../../lib/market-intel-discovery-repair";
+import { createSupabaseServerClient } from "../../../../../../../lib/supabase-server";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -32,6 +33,19 @@ export async function POST(request: NextRequest, context: RouteContext) {
   const { id } = await context.params;
   const handoff = adminHandoffFromUrl(new URL(request.url));
   try {
+    const supabase = createSupabaseServerClient({ admin: true });
+    const { data: candidate, error: candidateError } = await supabase
+      .from("tcos_mi_identity_candidates")
+      .select("metadata")
+      .eq("id", id)
+      .single();
+    if (candidateError) throw new Error(candidateError.message);
+    if (candidate.metadata?.purchase_inbox === true) {
+      throw new Error(
+        "This is an eBay Purchase Inbox row. Use Record as Purchased so the exact identity, cost basis, and Resale or Hold/Investment bucket are created together.",
+      );
+    }
+
     const formData = await request.formData();
     const conditionType: CandidateApprovalInput["conditionType"] =
       text(formData, "conditionType") === "graded" ? "graded" : "raw";

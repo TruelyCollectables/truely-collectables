@@ -1,5 +1,6 @@
 import Link from "next/link";
 import AdminSubmitButton from "../../AdminSubmitButton";
+import { seedDillonHeadHoardTarget } from "../../../../lib/market-intel-hoard-target-seed";
 import { getMarketIntelWatchlist } from "../../../../lib/market-intel-watchlist";
 import {
   GROWTH_PROSPECT_COUNT,
@@ -14,7 +15,7 @@ function isGrowthProspect(notes: string | null | undefined) {
   return String(notes || "").includes("[GROWTH_PROSPECT]");
 }
 
-function isCurrentSeed(notes: string | null | undefined) {
+function isCurrentCoreSeed(notes: string | null | undefined) {
   return String(notes || "").includes(
     `Seed version: ${GROWTH_PROSPECT_SEED_VERSION}`,
   );
@@ -24,17 +25,19 @@ export default async function GrowthSpecsLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   let rows = await getMarketIntelWatchlist();
-  let prospects = rows.filter(
-    (row) => row.active && isGrowthProspect(row.notes) && isCurrentSeed(row.notes),
+  const coreProspects = rows.filter(
+    (row) => row.active && isGrowthProspect(row.notes) && isCurrentCoreSeed(row.notes),
   );
 
-  if (prospects.length !== GROWTH_PROSPECT_COUNT) {
+  if (coreProspects.length !== GROWTH_PROSPECT_COUNT) {
     await seedMarketIntelGrowthProspects();
-    rows = await getMarketIntelWatchlist();
-    prospects = rows.filter(
-      (row) => row.active && isGrowthProspect(row.notes) && isCurrentSeed(row.notes),
-    );
   }
+
+  await seedDillonHeadHoardTarget();
+  rows = await getMarketIntelWatchlist();
+  const prospects = rows.filter(
+    (row) => row.active && isGrowthProspect(row.notes),
+  );
 
   const categories = new Set(
     prospects
@@ -54,6 +57,9 @@ export default async function GrowthSpecsLayout({
               {prospects.length} active targets across {categories.size} categories ·
               baseball-first · WNBA value · non-base only
             </p>
+            <p className="mt-1 text-xs font-bold text-fuchsia-800">
+              Dillon Head: 1st Bowman Chrome non-base hoard lane only.
+            </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Link
@@ -61,6 +67,12 @@ export default async function GrowthSpecsLayout({
               className="rounded-md bg-cyan-900 px-4 py-2 text-sm font-black text-white"
             >
               Discover Exact Cards
+            </Link>
+            <Link
+              href="/admin/market-intel/purchases/ebay-intake"
+              className="rounded-md bg-lime-800 px-4 py-2 text-sm font-black text-white"
+            >
+              Add eBay Purchase
             </Link>
             <Link
               href="/admin/market-intel/growth-specs/prospects"

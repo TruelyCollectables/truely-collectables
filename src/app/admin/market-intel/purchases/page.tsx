@@ -6,6 +6,10 @@ import { getMarketIntelPurchaseLedger } from "../../../../lib/market-intel";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+type PageProps = {
+  searchParams?: Promise<{ bucket?: string }>;
+};
+
 function money(value: number | null | undefined) {
   return `$${Number(value || 0).toFixed(2)}`;
 }
@@ -15,16 +19,33 @@ function label(value: string | null | undefined) {
   return value.replaceAll("_", " ").toUpperCase();
 }
 
-export default async function MarketIntelPurchaseLedgerPage() {
+function strategyBucket(metadata: Record<string, unknown>) {
+  return metadata.portfolio_bucket === "hold" ? "hold" : "resale";
+}
+
+function strategyLabel(bucket: "resale" | "hold") {
+  return bucket === "hold" ? "HOLD / INVESTMENT" : "RESALE";
+}
+
+export default async function MarketIntelPurchaseLedgerPage({
+  searchParams,
+}: PageProps) {
+  const query = await searchParams;
+  const bucket = query?.bucket === "hold" ? "hold" : query?.bucket === "resale" ? "resale" : "all";
   const adminHandoff = await createAdminSessionValue();
   const adminHref = (href: string) => addAdminHandoff(href, adminHandoff);
-  let rows;
+  let allRows;
 
   try {
-    rows = await getMarketIntelPurchaseLedger();
+    allRows = await getMarketIntelPurchaseLedger();
   } catch (error) {
     return <MarketIntelRuntimeError adminHref={adminHref} error={error} />;
   }
+
+  const rows =
+    bucket === "all"
+      ? allRows
+      : allRows.filter(({ lot }) => strategyBucket(lot.metadata) === bucket);
 
   const totals = rows.reduce(
     (sum, row) => {
@@ -39,6 +60,15 @@ export default async function MarketIntelPurchaseLedgerPage() {
     { invested: 0, netProceeds: 0, realizedProfit: 0, remaining: 0 },
   );
 
+  const strategyTotals = allRows.reduce(
+    (sum, row) => {
+      const strategy = strategyBucket(row.lot.metadata);
+      sum[strategy] += Number(row.lot.total_acquisition_cost || 0);
+      return sum;
+    },
+    { resale: 0, hold: 0 },
+  );
+
   return (
     <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
       <section className="border-b border-neutral-800 bg-[#101418] text-white">
@@ -50,42 +80,78 @@ export default async function MarketIntelPurchaseLedgerPage() {
               </p>
               <h1 className="mt-2 text-4xl font-black">Purchase Ledger</h1>
               <p className="mt-2 max-w-3xl text-sm font-semibold text-neutral-300">
-                Track delivered cost, quantity sold, net proceeds, break-even progress,
-                and actual gross profit for every Beta One purchase.
+                Separate fast-turn resale inventory from long-term Hold/Investment cards,
+                while tracking delivered cost, sales, break-even progress, and profit.
               </p>
             </div>
-            <Link
-              href={adminHref("/admin")}
-              className="w-fit rounded-md border border-neutral-600 px-4 py-2 text-sm font-black hover:bg-white hover:text-black"
-            >
-              Back to Admin
-            </Link>
+            <div className="flex flex-wrap gap-2">
+              <Link
+                href={adminHref("/admin/market-intel/purchases/ebay-intake")}
+                className="rounded-md bg-lime-700 px-4 py-2 text-sm font-black text-white"
+              >
+                Add eBay Purchase
+              </Link>
+              <Link
+                href={adminHref("/admin")}
+                className="rounded-md border border-neutral-600 px-4 py-2 text-sm font-black hover:bg-white hover:text-black"
+              >
+                Back to Admin
+              </Link>
+            </div>
           </div>
         </div>
       </section>
 
       <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
         <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <Metric label="Total Invested" value={money(totals.invested)} />
+          <Metric label={`${bucket === "all" ? "Total" : strategyLabel(bucket)} Invested`} value={money(totals.invested)} />
           <Metric label="Realized Net Proceeds" value={money(totals.netProceeds)} />
           <Metric label="Realized Gross Profit" value={money(totals.realizedProfit)} />
           <Metric label="Units Remaining" value={String(totals.remaining)} />
         </section>
 
+        <section className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Metric label="Resale Cost Basis" value={money(strategyTotals.resale)} />
+          <Metric label="Hold / Investment Cost Basis" value={money(strategyTotals.hold)} />
+        </section>
+
+        <nav className="flex flex-wrap gap-2 rounded-xl border border-neutral-200 bg-white p-3 shadow-sm">
+          <BucketLink href={adminHref("/admin/market-intel/purchases")} active={bucket === "all"}>
+            All Purchases ({allRows.length})
+          </BucketLink>
+          <BucketLink
+            href={adminHref("/admin/market-intel/purchases?bucket=resale")}
+            active={bucket === "resale"}
+          >
+            Resale ({allRows.filter(({ lot }) => strategyBucket(lot.metadata) === "resale").length})
+          </BucketLink>
+          <BucketLink
+            href={adminHref("/admin/market-intel/purchases?bucket=hold")}
+            active={bucket === "hold"}
+          >
+            Hold / Investment ({allRows.filter(({ lot }) => strategyBucket(lot.metadata) === "hold").length})
+          </BucketLink>
+        </nav>
+
         <section className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
           <div className="border-b border-neutral-200 p-5">
-            <h2 className="text-2xl font-black">Active Purchase Lots</h2>
+            <h2 className="text-2xl font-black">
+              {bucket === "all" ? "Active Purchase Lots" : strategyLabel(bucket)}
+            </h2>
           </div>
 
           {rows.length === 0 ? (
-            <p className="p-6 font-semibold text-neutral-600">No purchases recorded.</p>
+            <p className="p-6 font-semibold text-neutral-600">
+              No purchases in this strategy bucket.
+            </p>
           ) : (
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[1050px] text-left text-sm">
+              <table className="w-full min-w-[1180px] text-left text-sm">
                 <thead className="bg-neutral-100 text-xs font-black uppercase tracking-wider text-neutral-500">
                   <tr>
                     <th className="px-5 py-3">Purchase</th>
                     <th className="px-5 py-3">Collectible</th>
+                    <th className="px-5 py-3">Strategy</th>
                     <th className="px-5 py-3">Status</th>
                     <th className="px-5 py-3">Cost</th>
                     <th className="px-5 py-3">Unit Cost</th>
@@ -100,6 +166,7 @@ export default async function MarketIntelPurchaseLedgerPage() {
                     const progress = Number(
                       performance?.cash_break_even_progress_pct || 0,
                     );
+                    const strategy = strategyBucket(lot.metadata);
                     return (
                       <tr key={lot.id} className="align-top hover:bg-amber-50/40">
                         <td className="px-5 py-4">
@@ -120,6 +187,17 @@ export default async function MarketIntelPurchaseLedgerPage() {
                           <div className="mt-1 text-xs font-semibold text-neutral-500">
                             {lot.marketplace?.name || "Unknown source"}
                           </div>
+                        </td>
+                        <td className="px-5 py-4">
+                          <span
+                            className={
+                              strategy === "hold"
+                                ? "rounded-full border border-fuchsia-300 bg-fuchsia-50 px-3 py-1 text-xs font-black text-fuchsia-950"
+                                : "rounded-full border border-blue-300 bg-blue-50 px-3 py-1 text-xs font-black text-blue-950"
+                            }
+                          >
+                            {strategyLabel(strategy)}
+                          </span>
                         </td>
                         <td className="px-5 py-4 font-bold">{label(lot.status)}</td>
                         <td className="px-5 py-4 font-bold">
@@ -170,6 +248,29 @@ export default async function MarketIntelPurchaseLedgerPage() {
         </section>
       </div>
     </main>
+  );
+}
+
+function BucketLink({
+  href,
+  active,
+  children,
+}: {
+  href: string;
+  active: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <Link
+      href={href}
+      className={
+        active
+          ? "rounded-md bg-black px-4 py-2 text-sm font-black text-white"
+          : "rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-100"
+      }
+    >
+      {children}
+    </Link>
   );
 }
 

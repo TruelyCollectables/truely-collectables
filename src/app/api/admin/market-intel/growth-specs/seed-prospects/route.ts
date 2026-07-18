@@ -3,6 +3,7 @@ import {
   adminHandoffFromUrl,
   adminRedirectUrl,
 } from "../../../../../../lib/admin-handoff";
+import { seedDillonHeadHoardTarget } from "../../../../../../lib/market-intel-hoard-target-seed";
 import { seedMarketIntelGrowthProspects } from "../../../../../../lib/market-intel-prospect-seed";
 
 export async function POST(request: NextRequest) {
@@ -10,9 +11,10 @@ export async function POST(request: NextRequest) {
 
   try {
     const result = await seedMarketIntelGrowthProspects();
+    await seedDillonHeadHoardTarget();
     return NextResponse.redirect(
       adminRedirectUrl(
-        `/admin/market-intel/growth-specs?seeded=${result.total}`,
+        `/admin/market-intel/growth-specs?seeded=${result.total + 1}`,
         request.url,
         handoff,
       ),

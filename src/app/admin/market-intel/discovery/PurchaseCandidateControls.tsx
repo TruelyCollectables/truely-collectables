@@ -11,7 +11,11 @@ type PurchaseCandidate = {
   defaultItemPrice: number;
   defaultShipping: number;
   defaultTax: number;
+  defaultBuyerFees: number;
+  defaultOtherCost: number;
+  defaultPortfolioBucket: "resale" | "hold";
   defaultPurchaseDate: string;
+  purchaseInbox: boolean;
 };
 
 type PortalTarget = PurchaseCandidate & {
@@ -69,6 +73,16 @@ export default function PurchaseCandidateControls({
       );
       if (!approvalForm) continue;
 
+      if (candidate.purchaseInbox) {
+        const ordinaryApproveButton = approvalForm.querySelector<HTMLButtonElement>(
+          'button[type="submit"]',
+        );
+        if (ordinaryApproveButton) {
+          ordinaryApproveButton.disabled = true;
+          ordinaryApproveButton.style.display = "none";
+        }
+      }
+
       let target = article.querySelector<HTMLDivElement>(
         `[data-purchase-target="${candidate.id}"]`,
       );
@@ -83,9 +97,7 @@ export default function PurchaseCandidateControls({
       }
       next.push({ ...candidate, element: target, approvalForm });
     }
-    queueMicrotask(() => {
-      setTargets(next);
-    });
+    queueMicrotask(() => setTargets(next));
   }, [candidateKey, candidates]);
 
   const handoff = searchParams.get("admin_handoff");
@@ -116,7 +128,14 @@ function PurchaseCardForm({
   const [itemSubtotal, setItemSubtotal] = useState(target.defaultItemPrice);
   const [shipping, setShipping] = useState(target.defaultShipping);
   const [salesTax, setSalesTax] = useState(target.defaultTax);
-  const total = roundMoney(itemSubtotal + shipping + salesTax);
+  const [buyerFees, setBuyerFees] = useState(target.defaultBuyerFees);
+  const [otherCost, setOtherCost] = useState(target.defaultOtherCost);
+  const [bucket, setBucket] = useState<"resale" | "hold">(
+    target.defaultPortfolioBucket,
+  );
+  const total = roundMoney(
+    itemSubtotal + shipping + salesTax + buyerFees + otherCost,
+  );
 
   function mirrorApprovalFields(purchaseForm: HTMLFormElement) {
     purchaseForm
@@ -148,18 +167,24 @@ function PurchaseCardForm({
       <div className="flex flex-col gap-4">
         <div>
           <p className="text-xs font-black uppercase tracking-[0.16em]">
-            Already bought it?
+            {target.purchaseInbox ? "eBay Purchase Inbox" : "Already bought it?"}
           </p>
           <h3 className="mt-1 text-xl font-black">
             Approve Identity + Record Purchase
           </h3>
           <p className="mt-1 text-sm font-semibold">
-            Enter the actual receipt breakdown. Colorado tax defaults to an 8.00%
-            Parker estimate, but replace it with the exact marketplace tax charged.
+            Enter the exact receipt breakdown and choose whether this card belongs in
+            Resale or Hold/Investment.
           </p>
+          {target.purchaseInbox ? (
+            <p className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-black text-amber-950">
+              Purchase Inbox rows must be recorded here so the cost basis and strategy
+              bucket are not lost.
+            </p>
+          ) : null}
         </div>
 
-        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <MoneyField
             name="itemSubtotal"
             label="Item price"
@@ -178,12 +203,32 @@ function PurchaseCardForm({
             value={salesTax}
             onChange={setSalesTax}
           />
-          <div className="rounded-md border border-lime-400 bg-white px-3 py-2.5">
-            <p className="text-xs font-black uppercase tracking-wide text-lime-800">
-              Total paid
-            </p>
-            <p className="mt-1 text-xl font-black">${money(total)}</p>
-          </div>
+          <MoneyField
+            name="buyerFees"
+            label="Buyer fees"
+            value={buyerFees}
+            onChange={setBuyerFees}
+          />
+          <MoneyField
+            name="otherCost"
+            label="Other cost"
+            value={otherCost}
+            onChange={setOtherCost}
+          />
+          <label className="text-sm font-black">
+            Strategy bucket
+            <select
+              name="portfolioBucket"
+              value={bucket}
+              onChange={(event) =>
+                setBucket(event.target.value === "hold" ? "hold" : "resale")
+              }
+              className="mt-1 w-full rounded-md border border-lime-400 bg-white px-3 py-2.5"
+            >
+              <option value="resale">Resale</option>
+              <option value="hold">Hold / Investment</option>
+            </select>
+          </label>
           <label className="text-sm font-black">
             Purchase date
             <input
@@ -194,6 +239,12 @@ function PurchaseCardForm({
               className="mt-1 w-full rounded-md border border-lime-400 bg-white px-3 py-2.5"
             />
           </label>
+          <div className="rounded-md border border-lime-400 bg-white px-3 py-2.5">
+            <p className="text-xs font-black uppercase tracking-wide text-lime-800">
+              Total paid
+            </p>
+            <p className="mt-1 text-xl font-black">${money(total)}</p>
+          </div>
         </div>
 
         <label className="flex items-center gap-2 rounded-md border border-lime-300 bg-white px-3 py-3 text-sm font-black">
