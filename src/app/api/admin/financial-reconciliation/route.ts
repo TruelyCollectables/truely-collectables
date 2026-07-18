@@ -4,16 +4,16 @@ import {
   previousUtcDayWindow,
   reconcileStripeDaily,
 } from "../../../../lib/stripe-reconciliation";
+import {
+  cleanFinancialReconciliationNote,
+  financialReconciliationDecisionError,
+  parseFinancialReconciliationDecisionStatus,
+} from "../../../../lib/admin-financial-reconciliation";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 import { getOperationalStripeSecretKey } from "../../../../lib/stripe-credentials";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
-
-function cleanNote(value: unknown) {
-  const note = String(value || "").trim();
-  return note ? note.slice(0, 1000) : null;
-}
 
 export async function POST() {
   try {
@@ -44,12 +44,17 @@ export async function PATCH(request: Request) {
   try {
     const body = await request.json().catch(() => ({}));
     const itemId = String(body.itemId || "").trim();
-    const status = String(body.status || "").trim();
-    const resolutionNote = cleanNote(body.resolutionNote);
+    const status = parseFinancialReconciliationDecisionStatus(body.status);
+    const resolutionNote = cleanFinancialReconciliationNote(body.resolutionNote);
+    const decisionError = financialReconciliationDecisionError({
+      itemId,
+      status,
+      resolutionNote,
+    });
 
-    if (!itemId || !["resolved", "ignored"].includes(status) || !resolutionNote) {
+    if (decisionError) {
       return Response.json(
-        { error: "Item, resolution status, and note are required." },
+        { error: decisionError },
         { status: 400 },
       );
     }
@@ -58,8 +63,8 @@ export async function PATCH(request: Request) {
     const { data, error } = await supabase
       .from("stripe_reconciliation_items")
       .update({
-        item_status: status,
-        resolution_note: resolutionNote,
+        item_status: status!,
+        resolution_note: resolutionNote!,
         resolved_at: new Date().toISOString(),
         updated_at: new Date().toISOString(),
       })

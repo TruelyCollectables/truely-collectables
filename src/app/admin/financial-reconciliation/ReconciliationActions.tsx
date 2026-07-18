@@ -2,6 +2,10 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import {
+  FINANCIAL_RECONCILIATION_NOTE_MIN_LENGTH,
+  financialReconciliationDecisionError,
+} from "../../../lib/admin-financial-reconciliation";
 
 export default function ReconciliationActions({
   itemId,
@@ -19,7 +23,12 @@ export default function ReconciliationActions({
   );
   const [resolutionNote, setResolutionNote] = useState("");
   const trimmedResolutionNote = resolutionNote.trim();
-  const canSaveDecision = trimmedResolutionNote.length >= 8 && Boolean(itemId);
+  const canSaveDecision =
+    !financialReconciliationDecisionError({
+      itemId,
+      status: pendingStatus,
+      resolutionNote: trimmedResolutionNote,
+    }) && Boolean(pendingStatus);
 
   async function runNow() {
     setBusy(true);
@@ -40,13 +49,16 @@ export default function ReconciliationActions({
   }
 
   async function resolve(status: "resolved" | "ignored") {
-    if (!canSaveDecision || !itemId) {
+    const decisionError = financialReconciliationDecisionError({
+      itemId,
+      status,
+      resolutionNote: trimmedResolutionNote,
+    });
+
+    if (decisionError || !itemId) {
       setMessage({
         tone: "error",
-        text:
-          status === "resolved"
-            ? "Add a useful note explaining how this money difference was resolved."
-            : "Add a useful note explaining why this alert is safe to ignore.",
+        text: decisionError || "Reconciliation item is required.",
       });
       return;
     }
@@ -133,7 +145,7 @@ export default function ReconciliationActions({
             />
           </label>
           <p className="mt-1 text-xs font-semibold text-neutral-600">
-            Minimum 8 characters. This note becomes the audit trail for the decision.
+            Minimum {FINANCIAL_RECONCILIATION_NOTE_MIN_LENGTH} characters. This note becomes the audit trail for the decision.
           </p>
           <div className="mt-2 flex flex-wrap gap-2">
             <button
