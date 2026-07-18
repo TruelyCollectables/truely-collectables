@@ -132,9 +132,37 @@ scenario("eBay health page labels diagnostic actions for operators", () => {
     "Expected eBay health page to describe import controls professionally.",
   );
   assert(
+    ebayHealthSource.includes("Guided eBay sync"),
+    "Expected eBay health page to label import controls professionally.",
+  );
+  assert(
+    !ebayHealthSource.includes("Import ALL active"),
+    "Expected eBay health page to avoid shouted import copy.",
+  );
+  assert(
     !ebayHealthSource.includes("This is the big button"),
     "Expected eBay health page to avoid casual button copy.",
   );
+});
+
+scenario("eBay sync control page labels import controls professionally", () => {
+  for (const fragment of [
+    "Guided import",
+    "Import active eBay listings",
+    "Run the active-listing sync in 100-listing batches.",
+  ]) {
+    assert(
+      syncControlSource.includes(fragment),
+      `Expected eBay sync-control page professional copy fragment ${fragment}.`,
+    );
+  }
+
+  for (const fragment of ["Fast lane", "Import ALL active", "One click runs"]) {
+    assert(
+      !syncControlSource.includes(fragment),
+      `Expected eBay sync-control page to avoid casual import copy ${fragment}.`,
+    );
+  }
 });
 
 scenario("eBay import runner uses professional diagnostics copy", () => {

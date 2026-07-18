@@ -155,10 +155,10 @@ export default async function AdminEbayPage({
           <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <p className="text-sm font-black uppercase tracking-[0.18em] text-emerald-700">
-                1-click eBay sync
+                Guided eBay sync
               </p>
               <h2 className="mt-2 text-4xl font-black tracking-tight">
-                Import ALL active eBay listings into TCOS
+                Import active eBay listings into TCOS
               </h2>
               <p className="mt-2 max-w-4xl text-sm font-bold leading-6 text-emerald-900">
                 Start the guided import workflow for active eBay inventory,

@@ -21,6 +21,8 @@ const disallowedOperatorCopy = [
   "This is the big button",
   "silently making a mess",
   "real errors",
+  "1-click eBay sync",
+  "Import ALL active",
 ];
 
 const violations = [];
