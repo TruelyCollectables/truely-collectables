@@ -6,6 +6,7 @@ import {
   type CandidateApprovalInput,
 } from "./market-intel-identity-candidates";
 import { normalizeDuplicateIdentityKey } from "./market-intel-identity-duplicate-guard";
+import { normalizeDiscoveryApprovalInput } from "./market-intel-discovery-repair";
 import { createSupabaseServerClient } from "./supabase-server";
 
 export type DiscoveryPurchaseInput = CandidateApprovalInput & {
@@ -28,9 +29,10 @@ export async function recordDiscoveryCandidatePurchase(
     throw new Error("Purchase quantity must be a positive whole number.");
   }
 
-  await assertCandidateBaseballPremiumPolicy(input);
-  await normalizeDuplicateIdentityKey(input);
-  const approval = await approveIdentityCandidate(input);
+  const normalized = await normalizeDiscoveryApprovalInput(input);
+  await assertCandidateBaseballPremiumPolicy(normalized);
+  await normalizeDuplicateIdentityKey(normalized);
+  const approval = await approveIdentityCandidate(normalized);
   if (!approval.listingId) {
     throw new Error("The candidate was approved, but no normalized listing was created.");
   }
@@ -93,7 +95,7 @@ export async function recordDiscoveryCandidatePurchase(
       source_listing_id: listing.id,
       purchased_at: purchasedAt,
       status: alreadyReceived ? "in_inventory" : "awaiting_receipt",
-      quantity_purchased: input.quantity,
+      quantity_purchased: normalized.quantity,
       item_subtotal: input.totalAcquisitionCost,
       inbound_shipping: 0,
       buyer_fees: 0,
@@ -105,7 +107,7 @@ export async function recordDiscoveryCandidatePurchase(
       notes: `Purchased from the TCOS Discovery Desk: ${listing.original_title}. Actual out-the-door cost: $${input.totalAcquisitionCost.toFixed(2)}.`,
       metadata: {
         beta_one_purchase_source: "discovery_desk",
-        discovery_candidate_id: input.candidateId,
+        discovery_candidate_id: normalized.candidateId,
         source_listing_title: listing.original_title,
         source_listing_asking_price: Number(listing.asking_price || 0),
         source_listing_shipping_price: Number(listing.shipping_price || 0),
