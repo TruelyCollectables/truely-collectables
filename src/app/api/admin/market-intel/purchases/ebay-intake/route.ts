@@ -162,13 +162,13 @@ async function playerFromWatchlistTitle(title: string | undefined) {
     .limit(1000);
   if (error) throw new Error(error.message);
 
-  const matches = (data || [])
-    .map((row) => String(row.name || "").trim())
+  const matches = ((data || []) as Array<{ name?: unknown }>)
+    .map((row: { name?: unknown }) => String(row.name || "").trim())
     .filter(Boolean)
-    .sort((left, right) => normalize(right).length - normalize(left).length);
+    .sort((left: string, right: string) => normalize(right).length - normalize(left).length);
 
   return (
-    matches.find((name) => {
+    matches.find((name: string) => {
       const normalizedName = normalize(name);
       return normalizedName && normalizedTitle.includes(` ${normalizedName} `);
     }) || null
