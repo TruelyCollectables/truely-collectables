@@ -7698,7 +7698,18 @@ export default function InstaCompScanner({
   function markSelectedOperatorReview(
     reviewState: "wrong" | "needs_more_info" | "clear"
   ) {
-    if (batchRunning || batchDrafting) return;
+    const busyReason = batchBusyBlockedReason(
+      reviewState === "wrong"
+        ? "marking selected rows wrong"
+        : reviewState === "needs_more_info"
+          ? "marking selected rows as needs more info"
+          : "clearing selected review marks"
+    );
+
+    if (busyReason) {
+      setBatchError(busyReason);
+      return;
+    }
 
     const selectedDoneIds = new Set(
       batchCards
@@ -7818,7 +7829,12 @@ export default function InstaCompScanner({
   }
 
   async function saveBatchCardCorrections(cardId: string) {
-    if (batchRunning || batchDrafting) return;
+    const busyReason = batchBusyBlockedReason("saving row corrections");
+
+    if (busyReason) {
+      setBatchError(busyReason);
+      return;
+    }
 
     const card = batchCards.find((row) => row.id === cardId);
 
@@ -7850,7 +7866,14 @@ export default function InstaCompScanner({
   }
 
   async function saveSelectedBatchCorrections() {
-    if (batchRunning || batchDrafting) return;
+    const busyReason = batchKnowledgeSaving
+      ? "Finish TCOS Card DB processing before saving selected corrections."
+      : batchBusyBlockedReason("saving selected corrections");
+
+    if (busyReason) {
+      setBatchError(busyReason);
+      return;
+    }
 
     const cardsToSave = batchCards.filter(
       (card) => card.selected && isCorrectionSavableBatchCard(card)
@@ -7911,7 +7934,14 @@ export default function InstaCompScanner({
   }
 
   async function refreshBatchCardComps(cardId: string) {
-    if (batchRunning || batchDrafting || batchKnowledgeSaving) return;
+    const busyReason = batchKnowledgeSaving
+      ? "Finish TCOS Card DB processing before refreshing row comps."
+      : batchBusyBlockedReason("refreshing row comps");
+
+    if (busyReason) {
+      setBatchError(busyReason);
+      return;
+    }
 
     const card = batchCards.find((row) => row.id === cardId);
 
@@ -7967,7 +7997,14 @@ export default function InstaCompScanner({
   }
 
   async function refreshSelectedBatchComps() {
-    if (batchRunning || batchDrafting || batchKnowledgeSaving) return;
+    const busyReason = batchKnowledgeSaving
+      ? "Finish TCOS Card DB processing before refreshing selected comps."
+      : batchBusyBlockedReason("refreshing selected comps");
+
+    if (busyReason) {
+      setBatchError(busyReason);
+      return;
+    }
 
     const cardsToRefresh = batchCards.filter(
       (card) => card.selected && isCorrectionSavableBatchCard(card)
@@ -8041,7 +8078,14 @@ export default function InstaCompScanner({
   }
 
   async function processSavedLotToKnowledgeBase() {
-    if (batchRunning || batchDrafting || batchKnowledgeSaving) return;
+    const busyReason = batchKnowledgeSaving
+      ? "TCOS Card DB processing is already running."
+      : batchBusyBlockedReason("processing the saved lot into the TCOS Card DB");
+
+    if (busyReason) {
+      setBatchError(busyReason);
+      return;
+    }
 
     if (!persistentJob?.id) {
       setBatchError(
@@ -11266,7 +11310,7 @@ export default function InstaCompScanner({
           <button
             type="button"
             onClick={() => markSelectedOperatorReview("wrong")}
-            disabled={
+            aria-disabled={
               batchRunning || batchDrafting || selectedReviewableBatchCards.length === 0
             }
             style={{
@@ -11293,7 +11337,7 @@ export default function InstaCompScanner({
           <button
             type="button"
             onClick={() => markSelectedOperatorReview("needs_more_info")}
-            disabled={
+            aria-disabled={
               batchRunning || batchDrafting || selectedReviewableBatchCards.length === 0
             }
             style={{
@@ -11320,7 +11364,7 @@ export default function InstaCompScanner({
           <button
             type="button"
             onClick={() => markSelectedOperatorReview("clear")}
-            disabled={
+            aria-disabled={
               batchRunning || batchDrafting || selectedReviewableBatchCards.length === 0
             }
             style={{
@@ -11345,7 +11389,7 @@ export default function InstaCompScanner({
           <button
             type="button"
             onClick={() => void saveSelectedBatchCorrections()}
-            disabled={
+            aria-disabled={
               batchRunning ||
               batchDrafting ||
               batchKnowledgeSaving ||
@@ -11377,7 +11421,7 @@ export default function InstaCompScanner({
           <button
             type="button"
             onClick={() => void refreshSelectedBatchComps()}
-            disabled={
+            aria-disabled={
               batchRunning ||
               batchDrafting ||
               batchKnowledgeSaving ||
@@ -11409,7 +11453,7 @@ export default function InstaCompScanner({
           <button
             type="button"
             onClick={() => void processSavedLotToKnowledgeBase()}
-            disabled={
+            aria-disabled={
               batchRunning ||
               batchDrafting ||
               batchKnowledgeSaving ||
