@@ -208,6 +208,14 @@ scenario("admin runtime smoke covers critical operator routes", () => {
   }
 
   for (const fragment of [
+    "const authBoundaryChecks = [",
+    "unauthenticated admin page redirects to login",
+    "/admin/login?next=%2Fadmin%2Fproducts",
+    "unauthenticated admin API returns JSON 401",
+    "/api/admin/ebay-duplicates",
+    "expected JSON response",
+    "missing no-store cache header",
+    "async function smokeAuthBoundary(check)",
     "Local admin smoke login expected HTTP 303",
     "Local admin smoke login did not return an admin session cookie.",
     "unexpected redirect to",

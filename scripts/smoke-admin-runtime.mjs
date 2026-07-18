@@ -98,6 +98,20 @@ const redBoxFragments = [
   "Module not found",
   "Failed to compile",
 ];
+const authBoundaryChecks = [
+  {
+    label: "unauthenticated admin page redirects to login",
+    path: "/admin/products",
+    expectedStatus: "redirect",
+    expectedLocationFragment: "/admin/login?next=%2Fadmin%2Fproducts",
+  },
+  {
+    label: "unauthenticated admin API returns JSON 401",
+    path: "/api/admin/ebay-duplicates",
+    expectedStatus: 401,
+    expectedText: "Unauthorized",
+  },
+];
 
 let serverProcess = null;
 let serverOutput = "";
@@ -278,13 +292,79 @@ async function smokeRoute(route, cookieHeader) {
   };
 }
 
+async function smokeAuthBoundary(check) {
+  const response = await fetchWithTimeout(`${origin}${check.path}`, {
+    redirect: "manual",
+  });
+  const location = response.headers.get("location") || "";
+  const contentType = response.headers.get("content-type") || "";
+  const cacheControl = response.headers.get("cache-control") || "";
+  const body = await response.text().catch(() => "");
+  const failures = [];
+
+  if (check.expectedStatus === "redirect") {
+    if (response.status < 300 || response.status >= 400) {
+      failures.push(`expected redirect, received HTTP ${response.status}`);
+    }
+
+    if (
+      check.expectedLocationFragment &&
+      !location.includes(check.expectedLocationFragment)
+    ) {
+      failures.push(
+        `redirect location ${JSON.stringify(location || "missing")} did not include ${JSON.stringify(
+          check.expectedLocationFragment,
+        )}`,
+      );
+    }
+  } else if (response.status !== check.expectedStatus) {
+    failures.push(`expected HTTP ${check.expectedStatus}, received HTTP ${response.status}`);
+  }
+
+  if (check.expectedText && !body.includes(check.expectedText)) {
+    failures.push(`missing expected text ${JSON.stringify(check.expectedText)}`);
+  }
+
+  if (check.path.startsWith("/api/") && !contentType.includes("application/json")) {
+    failures.push(`expected JSON response, received ${contentType || "missing content-type"}`);
+  }
+
+  if (!cacheControl.includes("no-store")) {
+    failures.push("missing no-store cache header");
+  }
+
+  return {
+    ...check,
+    status: response.status,
+    location,
+    ok: failures.length === 0,
+    failures,
+  };
+}
+
 try {
   const serverMode = await ensureServer();
+  const authBoundaryResults = [];
+
+  for (const check of authBoundaryChecks) {
+    authBoundaryResults.push(await smokeAuthBoundary(check));
+  }
+
   const cookieHeader = await adminCookieHeader();
   const results = [];
 
   for (const route of smokeRoutes) {
     results.push(await smokeRoute(route, cookieHeader));
+  }
+
+  for (const result of authBoundaryResults) {
+    const prefix = result.ok ? "PASS" : "FAIL";
+    const locationDetail = result.location ? ` -> ${result.location}` : "";
+    const detail = result.failures.length
+      ? ` - ${result.failures.join("; ")}`
+      : "";
+
+    console.log(`${prefix} ${result.label} HTTP ${result.status}${locationDetail}${detail}`);
   }
 
   for (const result of results) {
@@ -296,10 +376,11 @@ try {
     console.log(`${prefix} ${result.path} HTTP ${result.status}${detail}`);
   }
 
-  const failed = results.filter((result) => !result.ok);
+  const allResults = [...authBoundaryResults, ...results];
+  const failed = allResults.filter((result) => !result.ok);
 
   console.log(
-    `Admin runtime smoke (${serverMode} dev server): ${results.length - failed.length}/${results.length} passed.`,
+    `Admin runtime smoke (${serverMode} dev server): ${allResults.length - failed.length}/${allResults.length} passed.`,
   );
 
   if (failed.length) {
