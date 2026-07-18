@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { markDiscoveryQueueDirty } from "./ResolvedCandidateCleanup";
 
@@ -33,6 +33,9 @@ export type SelectablePurchaseCandidate = {
   itemPrice: number;
   shippingPrice: number;
   defaultTax: number;
+  defaultBuyerFees: number;
+  defaultOtherCost: number;
+  defaultPortfolioBucket: "resale" | "hold";
   purchaseDate: string;
   approval: ApprovalFields;
 };
@@ -41,6 +44,9 @@ type PurchaseDraft = {
   itemSubtotal: number;
   shipping: number;
   salesTax: number;
+  buyerFees: number;
+  otherCost: number;
+  portfolioBucket: "resale" | "hold";
 };
 
 type PurchaseApiResponse =
@@ -85,17 +91,17 @@ export default function SelectedPurchaseControls({
   const [modalOpen, setModalOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [progress, setProgress] = useState({ completed: 0, total: 0, purchased: 0, skipped: 0 });
+  const [progress, setProgress] = useState({
+    completed: 0,
+    total: 0,
+    purchased: 0,
+    skipped: 0,
+  });
   const [purchaseDate, setPurchaseDate] = useState(
     candidates[0]?.purchaseDate || new Date().toISOString().slice(0, 10),
   );
   const [alreadyReceived, setAlreadyReceived] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, PurchaseDraft>>({});
-
-  const candidateById = useMemo(
-    () => new Map(candidates.map((candidate) => [candidate.id, candidate])),
-    [candidates],
-  );
 
   useEffect(() => {
     const cleanups: Array<() => void> = [];
@@ -133,9 +139,22 @@ export default function SelectedPurchaseControls({
     };
   }, [candidates]);
 
-  const selectedCandidates = candidates.filter((candidate) => selected.has(candidate.id));
+  const selectedCandidates = candidates.filter((candidate) =>
+    selected.has(candidate.id),
+  );
   const readySelected = selectedCandidates.filter((candidate) => candidate.ready);
   const incompleteSelected = selectedCandidates.length - readySelected.length;
+
+  function defaultDraft(candidate: SelectablePurchaseCandidate): PurchaseDraft {
+    return {
+      itemSubtotal: candidate.itemPrice,
+      shipping: candidate.shippingPrice,
+      salesTax: candidate.defaultTax,
+      buyerFees: candidate.defaultBuyerFees,
+      otherCost: candidate.defaultOtherCost,
+      portfolioBucket: candidate.defaultPortfolioBucket,
+    };
+  }
 
   function openPurchaseModal() {
     setError(null);
@@ -146,25 +165,45 @@ export default function SelectedPurchaseControls({
 
     const nextDrafts: Record<string, PurchaseDraft> = {};
     for (const candidate of readySelected) {
-      nextDrafts[candidate.id] = {
-        itemSubtotal: candidate.itemPrice,
-        shipping: candidate.shippingPrice,
-        salesTax: candidate.defaultTax,
-      };
+      nextDrafts[candidate.id] = defaultDraft(candidate);
     }
     setDrafts(nextDrafts);
-    setPurchaseDate(readySelected[0]?.purchaseDate || new Date().toISOString().slice(0, 10));
+    setPurchaseDate(
+      readySelected[0]?.purchaseDate || new Date().toISOString().slice(0, 10),
+    );
     setModalOpen(true);
   }
 
-  function updateDraft(candidateId: string, field: keyof PurchaseDraft, value: string) {
-    setDrafts((current) => ({
-      ...current,
-      [candidateId]: {
-        ...(current[candidateId] || { itemSubtotal: 0, shipping: 0, salesTax: 0 }),
-        [field]: nonNegative(value),
-      },
-    }));
+  function updateDraft(
+    candidateId: string,
+    field: keyof PurchaseDraft,
+    value: string,
+  ) {
+    setDrafts((current) => {
+      const candidate = candidates.find((item) => item.id === candidateId);
+      const existing =
+        current[candidateId] ||
+        (candidate ? defaultDraft(candidate) : {
+          itemSubtotal: 0,
+          shipping: 0,
+          salesTax: 0,
+          buyerFees: 0,
+          otherCost: 0,
+          portfolioBucket: "resale" as const,
+        });
+      return {
+        ...current,
+        [candidateId]: {
+          ...existing,
+          [field]:
+            field === "portfolioBucket"
+              ? value === "hold"
+                ? "hold"
+                : "resale"
+              : nonNegative(value),
+        },
+      };
+    });
   }
 
   async function recordSelectedPurchases() {
@@ -189,7 +228,11 @@ export default function SelectedPurchaseControls({
       const candidate = purchases[index];
       const draft = drafts[candidate.id];
       const totalAcquisitionCost = roundMoney(
-        draft.itemSubtotal + draft.shipping + draft.salesTax,
+        draft.itemSubtotal +
+          draft.shipping +
+          draft.salesTax +
+          draft.buyerFees +
+          draft.otherCost,
       );
       const formData = new FormData();
       const approval = candidate.approval;
@@ -216,6 +259,9 @@ export default function SelectedPurchaseControls({
       formData.set("itemSubtotal", money(draft.itemSubtotal));
       formData.set("inboundShipping", money(draft.shipping));
       formData.set("salesTax", money(draft.salesTax));
+      formData.set("buyerFees", money(draft.buyerFees));
+      formData.set("otherCost", money(draft.otherCost));
+      formData.set("portfolioBucket", draft.portfolioBucket);
       formData.set("totalAcquisitionCost", money(totalAcquisitionCost));
       formData.set("purchaseDate", purchaseDate);
       if (alreadyReceived) formData.set("alreadyReceived", "on");
@@ -231,7 +277,9 @@ export default function SelectedPurchaseControls({
           headers: { Accept: "application/json" },
           credentials: "same-origin",
         });
-        const payload = (await response.json().catch(() => null)) as PurchaseApiResponse | null;
+        const payload = (await response.json().catch(() => null)) as
+          | PurchaseApiResponse
+          | null;
         if (!response.ok || !payload || payload.success !== true) {
           const message =
             payload && "error" in payload
@@ -250,7 +298,9 @@ export default function SelectedPurchaseControls({
         }
       } catch (purchaseError) {
         firstError ||= `${candidate.player}: ${
-          purchaseError instanceof Error ? purchaseError.message : "Unknown purchase error."
+          purchaseError instanceof Error
+            ? purchaseError.message
+            : "Unknown purchase error."
         }`;
         skipped += 1;
       }
@@ -290,22 +340,25 @@ export default function SelectedPurchaseControls({
         </button>
         {incompleteSelected > 0 ? (
           <p className="rounded bg-amber-50 px-2 py-1 text-xs font-bold text-amber-950 shadow">
-            {incompleteSelected} selected incomplete card{incompleteSelected === 1 ? "" : "s"} will not be purchased.
+            {incompleteSelected} selected incomplete card
+            {incompleteSelected === 1 ? "" : "s"} will stay pending.
           </p>
         ) : null}
       </div>
 
       {modalOpen ? (
         <div className="fixed inset-0 z-[90] overflow-y-auto bg-black/70 p-4">
-          <div className="mx-auto my-6 max-w-6xl rounded-2xl bg-[#f4f1ea] p-5 shadow-2xl">
+          <div className="mx-auto my-6 max-w-7xl rounded-2xl bg-[#f4f1ea] p-5 shadow-2xl">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.18em] text-lime-800">
                   Selected Purchase Intake
                 </p>
-                <h2 className="mt-1 text-3xl font-black">Mark selected cards purchased</h2>
+                <h2 className="mt-1 text-3xl font-black">
+                  Mark selected cards purchased
+                </h2>
                 <p className="mt-2 max-w-3xl text-sm font-semibold text-neutral-700">
-                  Tax defaults to an 8.00% Parker, Colorado estimate on item plus shipping. Replace it with the actual marketplace tax from the receipt before recording.
+                  Confirm the exact receipt breakdown and choose Resale or Hold/Investment for each card.
                 </p>
               </div>
               <button
@@ -342,37 +395,86 @@ export default function SelectedPurchaseControls({
 
             <div className="mt-5 space-y-3">
               {readySelected.map((candidate) => {
-                const draft = drafts[candidate.id] || {
-                  itemSubtotal: candidate.itemPrice,
-                  shipping: candidate.shippingPrice,
-                  salesTax: candidate.defaultTax,
-                };
-                const total = roundMoney(draft.itemSubtotal + draft.shipping + draft.salesTax);
+                const draft = drafts[candidate.id] || defaultDraft(candidate);
+                const total = roundMoney(
+                  draft.itemSubtotal +
+                    draft.shipping +
+                    draft.salesTax +
+                    draft.buyerFees +
+                    draft.otherCost,
+                );
                 return (
-                  <article key={candidate.id} className="rounded-xl border border-neutral-300 bg-white p-4">
+                  <article
+                    key={candidate.id}
+                    className="rounded-xl border border-neutral-300 bg-white p-4"
+                  >
                     <p className="font-black">{candidate.player}</p>
-                    <p className="mt-1 text-sm font-semibold text-neutral-700">{candidate.title}</p>
-                    <div className="mt-3 grid gap-3 sm:grid-cols-4">
+                    <p className="mt-1 text-sm font-semibold text-neutral-700">
+                      {candidate.title}
+                    </p>
+                    <div className="mt-3 grid gap-3 sm:grid-cols-2 xl:grid-cols-7">
                       <MoneyInput
                         label="Item price"
                         value={draft.itemSubtotal}
                         disabled={busy}
-                        onChange={(value) => updateDraft(candidate.id, "itemSubtotal", value)}
+                        onChange={(value) =>
+                          updateDraft(candidate.id, "itemSubtotal", value)
+                        }
                       />
                       <MoneyInput
                         label="Shipping"
                         value={draft.shipping}
                         disabled={busy}
-                        onChange={(value) => updateDraft(candidate.id, "shipping", value)}
+                        onChange={(value) =>
+                          updateDraft(candidate.id, "shipping", value)
+                        }
                       />
                       <MoneyInput
                         label="Colorado tax"
                         value={draft.salesTax}
                         disabled={busy}
-                        onChange={(value) => updateDraft(candidate.id, "salesTax", value)}
+                        onChange={(value) =>
+                          updateDraft(candidate.id, "salesTax", value)
+                        }
                       />
+                      <MoneyInput
+                        label="Buyer fees"
+                        value={draft.buyerFees}
+                        disabled={busy}
+                        onChange={(value) =>
+                          updateDraft(candidate.id, "buyerFees", value)
+                        }
+                      />
+                      <MoneyInput
+                        label="Other cost"
+                        value={draft.otherCost}
+                        disabled={busy}
+                        onChange={(value) =>
+                          updateDraft(candidate.id, "otherCost", value)
+                        }
+                      />
+                      <label className="text-sm font-black">
+                        Strategy
+                        <select
+                          value={draft.portfolioBucket}
+                          disabled={busy}
+                          onChange={(event) =>
+                            updateDraft(
+                              candidate.id,
+                              "portfolioBucket",
+                              event.target.value,
+                            )
+                          }
+                          className="mt-1 w-full rounded-md border border-neutral-300 bg-white px-3 py-2.5"
+                        >
+                          <option value="resale">Resale</option>
+                          <option value="hold">Hold / Investment</option>
+                        </select>
+                      </label>
                       <div className="rounded-md border border-lime-300 bg-lime-50 px-3 py-2">
-                        <p className="text-xs font-black uppercase tracking-wide text-lime-800">Total paid</p>
+                        <p className="text-xs font-black uppercase tracking-wide text-lime-800">
+                          Total paid
+                        </p>
                         <p className="mt-1 text-xl font-black">${money(total)}</p>
                       </div>
                     </div>
@@ -402,7 +504,9 @@ export default function SelectedPurchaseControls({
                 disabled={busy || readySelected.length === 0 || !purchaseDate}
                 className="rounded-md bg-lime-700 px-5 py-3 font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
               >
-                {busy ? "Recording purchases..." : `Record ${readySelected.length} selected purchase${readySelected.length === 1 ? "" : "s"}`}
+                {busy
+                  ? "Recording purchases..."
+                  : `Record ${readySelected.length} selected purchase${readySelected.length === 1 ? "" : "s"}`}
               </button>
             </div>
           </div>
