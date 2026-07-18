@@ -7396,6 +7396,18 @@ export default function InstaCompScanner({
     return true;
   }
 
+  function batchActionTitle({
+    action,
+    blocked,
+    ready,
+  }: {
+    action: string;
+    blocked?: string;
+    ready: string;
+  }) {
+    return batchBusyBlockedReason(action) || blocked || ready;
+  }
+
   function testModelBusyBlockedReason(action: string) {
     if (batchDrafting) {
       return `Finish draft creation before ${action}.`;
@@ -11729,6 +11741,15 @@ export default function InstaCompScanner({
             type="button"
             onClick={createDraftListings}
             aria-disabled={createDraftButtonDisabled}
+            title={batchActionTitle({
+              action: "creating draft listings",
+              blocked: selectedDraftFixCount
+                ? "Fix or deselect selected rows that need edits before creating drafts."
+                : selectedDraftReadyCount === 0
+                  ? "Select at least one ready draft row before creating drafts."
+                  : "",
+              ready: "Create TCOS draft listings for the selected ready rows.",
+            })}
             style={{
               ...buttonStyle,
               background: createDraftButtonDisabled ? "#999" : "#0f5132",
@@ -11751,6 +11772,13 @@ export default function InstaCompScanner({
             type="button"
             onClick={() => setAllDoneBatchCardsSelected(true)}
             aria-disabled={batchRunning || batchDrafting || batchDraftableCount === 0}
+            title={batchActionTitle({
+              action: "selecting draftable rows",
+              blocked: batchDraftableCount === 0
+                ? "No draftable rows are available to select."
+                : "",
+              ready: "Select every completed row that can become a draft.",
+            })}
             style={{
               ...secondaryButtonStyle,
               cursor:
@@ -11770,6 +11798,13 @@ export default function InstaCompScanner({
             type="button"
             onClick={selectReadyDraftableBatchCards}
             aria-disabled={batchRunning || batchDrafting || readyDraftableCount === 0}
+            title={batchActionTitle({
+              action: "selecting ready draft rows",
+              blocked: readyDraftableCount === 0
+                ? "No ready rows are available to select."
+                : "",
+              ready: "Select draftable rows with no missing draft fields.",
+            })}
             style={{
               ...secondaryButtonStyle,
               cursor:
@@ -11789,6 +11824,13 @@ export default function InstaCompScanner({
             type="button"
             onClick={selectCleanDraftableBatchCards}
             aria-disabled={batchRunning || batchDrafting || cleanDraftableCount === 0}
+            title={batchActionTitle({
+              action: "selecting clean draft rows",
+              blocked: cleanDraftableCount === 0
+                ? "No clean rows are available to select."
+                : "",
+              ready: "Select draftable rows without review warnings.",
+            })}
             style={{
               ...secondaryButtonStyle,
               cursor:
@@ -11808,6 +11850,13 @@ export default function InstaCompScanner({
             type="button"
             onClick={selectCleanReadyDraftableBatchCards}
             aria-disabled={batchRunning || batchDrafting || cleanReadyCount === 0}
+            title={batchActionTitle({
+              action: "selecting clean ready draft rows",
+              blocked: cleanReadyCount === 0
+                ? "No clean ready rows are available to select."
+                : "",
+              ready: "Select rows that are clean, ready, and safe to draft.",
+            })}
             style={{
               ...secondaryButtonStyle,
               cursor:
@@ -11825,6 +11874,13 @@ export default function InstaCompScanner({
             type="button"
             onClick={() => setAllDoneBatchCardsSelected(false)}
             aria-disabled={batchRunning || batchDrafting || batchDraftableCount === 0}
+            title={batchActionTitle({
+              action: "deselecting draftable rows",
+              blocked: batchDraftableCount === 0
+                ? "No draftable rows are available to deselect."
+                : "",
+              ready: "Clear selection from every draftable row.",
+            })}
             style={{
               ...secondaryButtonStyle,
               cursor:
@@ -11844,6 +11900,13 @@ export default function InstaCompScanner({
             type="button"
             onClick={deselectDraftFixBatchCards}
             aria-disabled={batchRunning || batchDrafting || selectedDraftFixCount === 0}
+            title={batchActionTitle({
+              action: "deselecting selected rows that need fixes",
+              blocked: selectedDraftFixCount === 0
+                ? "No selected fix rows are available to deselect."
+                : "",
+              ready: "Deselect selected rows that still need draft fixes.",
+            })}
             style={{
               ...secondaryButtonStyle,
               cursor:
@@ -11863,6 +11926,13 @@ export default function InstaCompScanner({
             type="button"
             onClick={deselectReadyReviewBatchCards}
             aria-disabled={batchRunning || batchDrafting || selectedReadyReviewCount === 0}
+            title={batchActionTitle({
+              action: "deselecting selected ready review rows",
+              blocked: selectedReadyReviewCount === 0
+                ? "No selected ready review rows are available to deselect."
+                : "",
+              ready: "Deselect selected rows that are ready but still need review.",
+            })}
             style={{
               ...secondaryButtonStyle,
               cursor:
@@ -11884,6 +11954,13 @@ export default function InstaCompScanner({
             aria-disabled={
               batchRunning || batchDrafting || selectedReviewDraftFixCount === 0
             }
+            title={batchActionTitle({
+              action: "deselecting selected review fix rows",
+              blocked: selectedReviewDraftFixCount === 0
+                ? "No selected review fix rows are available to deselect."
+                : "",
+              ready: "Deselect selected review rows that also need draft fixes.",
+            })}
             style={{
               ...secondaryButtonStyle,
               cursor:
@@ -11905,6 +11982,13 @@ export default function InstaCompScanner({
             aria-disabled={
               batchRunning || batchDrafting || selectedCleanDraftFixCount === 0
             }
+            title={batchActionTitle({
+              action: "deselecting selected clean fix rows",
+              blocked: selectedCleanDraftFixCount === 0
+                ? "No selected clean fix rows are available to deselect."
+                : "",
+              ready: "Deselect selected clean rows that still need draft fixes.",
+            })}
             style={{
               ...secondaryButtonStyle,
               cursor:
@@ -11924,6 +12008,13 @@ export default function InstaCompScanner({
             type="button"
             onClick={deselectReviewBatchCards}
             aria-disabled={batchRunning || batchDrafting || selectedReviewCount === 0}
+            title={batchActionTitle({
+              action: "deselecting selected review rows",
+              blocked: selectedReviewCount === 0
+                ? "No selected review rows are available to deselect."
+                : "",
+              ready: "Deselect selected rows with review warnings.",
+            })}
             style={{
               ...secondaryButtonStyle,
               cursor:
@@ -11943,6 +12034,11 @@ export default function InstaCompScanner({
             type="button"
             onClick={exportVisibleBatchCsv}
             aria-disabled={!visibleBatchCards.length}
+            title={
+              visibleBatchCards.length
+                ? "Export the current visible InstaComp™ rows as CSV."
+                : "No visible InstaComp™ rows are available to export as CSV."
+            }
             style={{
               ...secondaryButtonStyle,
               cursor: !visibleBatchCards.length ? "not-allowed" : "pointer",
@@ -11956,6 +12052,11 @@ export default function InstaCompScanner({
             type="button"
             onClick={exportVisibleBatchJson}
             aria-disabled={!visibleBatchCards.length}
+            title={
+              visibleBatchCards.length
+                ? "Export the current visible InstaComp™ rows as JSON."
+                : "No visible InstaComp™ rows are available to export as JSON."
+            }
             style={{
               ...secondaryButtonStyle,
               cursor: !visibleBatchCards.length ? "not-allowed" : "pointer",
@@ -11971,6 +12072,13 @@ export default function InstaCompScanner({
             aria-disabled={
               batchRunning || batchDrafting || visibleTrialResultCount === 0
             }
+            title={batchActionTitle({
+              action: "exporting visible trial results",
+              blocked: visibleTrialResultCount === 0
+                ? "No visible trial result rows are available to export."
+                : "",
+              ready: "Export visible trial result rows for accuracy review.",
+            })}
             style={{
               ...secondaryButtonStyle,
               borderColor: "#1d4ed8",
@@ -12159,6 +12267,13 @@ export default function InstaCompScanner({
               type="button"
               onClick={exportSelectedDraftPayload}
               aria-disabled={exportDraftPayloadDisabled}
+              title={batchActionTitle({
+                action: "exporting selected draft payload",
+                blocked: selectedDraftReadyCount === 0
+                  ? "Select at least one ready draft row before exporting payload."
+                  : "",
+                ready: "Export the selected ready draft rows as a TCOS draft payload.",
+              })}
               style={{
                 ...secondaryButtonStyle,
                 padding: "8px 10px",
@@ -12173,6 +12288,13 @@ export default function InstaCompScanner({
                 type="button"
                 onClick={() => void copySelectedDraftPayload()}
                 aria-disabled={exportDraftPayloadDisabled}
+                title={batchActionTitle({
+                  action: "copying selected draft payload",
+                  blocked: selectedDraftReadyCount === 0
+                    ? "Select at least one ready draft row before copying payload."
+                    : "",
+                  ready: "Copy the selected ready draft rows as a TCOS draft payload.",
+                })}
                 style={{
                   ...secondaryButtonStyle,
                   padding: "8px 10px",
@@ -12189,6 +12311,13 @@ export default function InstaCompScanner({
               type="button"
               onClick={createSelectedReadyDraftListings}
               aria-disabled={createSelectedReadyDraftButtonDisabled}
+              title={batchActionTitle({
+                action: "creating selected ready draft listings",
+                blocked: selectedDraftReadyCount === 0
+                  ? "Select at least one ready draft row before creating drafts."
+                  : "",
+                ready: "Create TCOS draft listings for the selected ready rows.",
+              })}
               style={{
                 ...buttonStyle,
                 padding: "8px 10px",
@@ -12211,6 +12340,13 @@ export default function InstaCompScanner({
               type="button"
               onClick={exportSelectedCleanDraftPayload}
               aria-disabled={exportCleanDraftPayloadDisabled}
+              title={batchActionTitle({
+                action: "exporting selected clean draft payload",
+                blocked: selectedCleanReadyCount === 0
+                  ? "Select at least one clean ready row before exporting payload."
+                  : "",
+                ready: "Export selected clean ready rows as a TCOS draft payload.",
+              })}
               style={{
                 ...secondaryButtonStyle,
                 padding: "8px 10px",
@@ -12227,6 +12363,13 @@ export default function InstaCompScanner({
                 type="button"
                 onClick={() => void copySelectedCleanDraftPayload()}
                 aria-disabled={exportCleanDraftPayloadDisabled}
+                title={batchActionTitle({
+                  action: "copying selected clean draft payload",
+                  blocked: selectedCleanReadyCount === 0
+                    ? "Select at least one clean ready row before copying payload."
+                    : "",
+                  ready: "Copy selected clean ready rows as a TCOS draft payload.",
+                })}
                 style={{
                   ...secondaryButtonStyle,
                   padding: "8px 10px",
@@ -12245,6 +12388,13 @@ export default function InstaCompScanner({
               type="button"
               onClick={createSelectedCleanDraftListings}
               aria-disabled={exportCleanDraftPayloadDisabled}
+              title={batchActionTitle({
+                action: "creating selected clean draft listings",
+                blocked: selectedCleanReadyCount === 0
+                  ? "Select at least one clean ready row before creating drafts."
+                  : "",
+                ready: "Create TCOS draft listings only for selected clean ready rows.",
+              })}
               style={{
                 ...buttonStyle,
                 padding: "8px 10px",
