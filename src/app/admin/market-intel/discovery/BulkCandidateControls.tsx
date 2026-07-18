@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { createPortal, useFormStatus } from "react-dom";
+import { createPortal } from "react-dom";
 import { useSearchParams } from "next/navigation";
 
 type BulkCandidate = {
@@ -15,41 +15,23 @@ type PortalTarget = BulkCandidate & {
   element: HTMLDivElement;
 };
 
-function BulkSubmitButton({
-  children,
-  pendingChildren,
-  disabled = false,
-  name,
-  value,
-  className,
-  type = "submit",
-  onClick,
-}: {
-  children: React.ReactNode;
-  pendingChildren: React.ReactNode;
-  disabled?: boolean;
-  name: string;
-  value: string;
-  className: string;
-  type?: "button" | "submit";
-  onClick?: () => void;
-}) {
-  const { pending } = useFormStatus();
+type BulkApiResult = {
+  requested: number;
+  approved: number;
+  rejected: number;
+  skipped: number;
+  errors: Array<{ candidateId: string; message: string }>;
+};
 
-  return (
-    <button
-      type={type}
-      name={name}
-      value={value}
-      disabled={disabled || pending}
-      onClick={onClick}
-      aria-busy={pending}
-      className={className}
-    >
-      {pending ? pendingChildren : children}
-    </button>
-  );
-}
+type BulkProgress = {
+  processed: number;
+  total: number;
+  approved: number;
+  rejected: number;
+  skipped: number;
+};
+
+const BULK_CHUNK_SIZE = 3;
 
 export default function BulkCandidateControls({
   candidates,
@@ -60,6 +42,15 @@ export default function BulkCandidateControls({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [targets, setTargets] = useState<PortalTarget[]>([]);
   const [rejectConfirmOpen, setRejectConfirmOpen] = useState(false);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkError, setBulkError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<BulkProgress>({
+    processed: 0,
+    total: 0,
+    approved: 0,
+    rejected: 0,
+    skipped: 0,
+  });
   const candidateKey = useMemo(
     () => candidates.map((candidate) => candidate.id).join("|"),
     [candidates],
@@ -111,6 +102,7 @@ export default function BulkCandidateControls({
   const readyCandidates = candidates.filter((candidate) => candidate.ready);
 
   function toggleCandidate(id: string) {
+    if (bulkBusy) return;
     setRejectConfirmOpen(false);
     setSelected((current) => {
       const next = new Set(current);
@@ -121,29 +113,128 @@ export default function BulkCandidateControls({
   }
 
   function selectAll() {
+    if (bulkBusy) return;
     setSelected(new Set(candidates.map((candidate) => candidate.id)));
     setRejectConfirmOpen(false);
   }
 
   function selectReady() {
+    if (bulkBusy) return;
     setSelected(new Set(readyCandidates.map((candidate) => candidate.id)));
     setRejectConfirmOpen(false);
   }
 
   function clearSelected() {
+    if (bulkBusy) return;
     setSelected(new Set());
     setRejectConfirmOpen(false);
   }
 
   const handoff = searchParams.get("admin_handoff");
-  const action = handoff
+  const actionUrl = handoff
     ? `/api/admin/market-intel/discovery/bulk?admin_handoff=${encodeURIComponent(handoff)}`
     : "/api/admin/market-intel/discovery/bulk";
+
+  async function processSelected(action: "approve" | "reject") {
+    if (selectedCount === 0 || bulkBusy) return;
+
+    const ids = Array.from(selected);
+    let approved = 0;
+    let rejected = 0;
+    let skipped = 0;
+    let processed = 0;
+    let firstError = "";
+
+    setBulkBusy(true);
+    setBulkError(null);
+    setRejectConfirmOpen(false);
+    setProgress({
+      processed: 0,
+      total: ids.length,
+      approved: 0,
+      rejected: 0,
+      skipped: 0,
+    });
+
+    try {
+      for (let index = 0; index < ids.length; index += BULK_CHUNK_SIZE) {
+        const chunk = ids.slice(index, index + BULK_CHUNK_SIZE);
+        const formData = new FormData();
+        formData.set("action", action);
+        if (action === "reject") {
+          formData.set("reason", "Bulk rejected during Discovery Desk review.");
+        }
+        chunk.forEach((candidateId) => formData.append("candidateIds", candidateId));
+
+        const response = await fetch(actionUrl, {
+          method: "POST",
+          body: formData,
+          headers: { Accept: "application/json" },
+          credentials: "same-origin",
+        });
+
+        const payload = (await response.json().catch(() => null)) as
+          | { success: true; result: BulkApiResult }
+          | { success: false; error: string }
+          | null;
+
+        if (!response.ok || !payload || payload.success !== true) {
+          const message =
+            payload && "error" in payload
+              ? payload.error
+              : `Bulk ${action} chunk failed with HTTP ${response.status}.`;
+          firstError ||= message;
+          skipped += ids.length - processed;
+          setBulkError(message);
+          setProgress({
+            processed,
+            total: ids.length,
+            approved,
+            rejected,
+            skipped,
+          });
+          break;
+        }
+
+        approved += payload.result.approved;
+        rejected += payload.result.rejected;
+        skipped += payload.result.skipped;
+        processed += chunk.length;
+        firstError ||= payload.result.errors[0]?.message || "";
+        setProgress({
+          processed,
+          total: ids.length,
+          approved,
+          rejected,
+          skipped,
+        });
+      }
+
+      const params = new URLSearchParams({
+        bulk: "1",
+        requested: String(ids.length),
+        approved: String(approved),
+        rejected: String(rejected),
+        skipped: String(skipped),
+        processed: String(processed),
+      });
+      if (firstError) params.set("firstError", firstError.slice(0, 220));
+      if (handoff) params.set("admin_handoff", handoff);
+      window.location.assign(`/admin/market-intel/discovery?${params.toString()}`);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : `Unable to bulk ${action} candidates.`;
+      setBulkError(message);
+      setBulkBusy(false);
+    }
+  }
 
   const bulkResult = searchParams.get("bulk") === "1";
   const approved = Number(searchParams.get("approved") || 0);
   const rejected = Number(searchParams.get("rejected") || 0);
   const skipped = Number(searchParams.get("skipped") || 0);
+  const processed = Number(searchParams.get("processed") || 0);
+  const requested = Number(searchParams.get("requested") || 0);
   const firstError = searchParams.get("firstError");
   const bulkFailed =
     bulkResult && approved === 0 && rejected === 0 && skipped > 0;
@@ -157,13 +248,12 @@ export default function BulkCandidateControls({
               type="checkbox"
               checked={selected.has(target.id)}
               onChange={() => toggleCandidate(target.id)}
-              className="mt-0.5 h-5 w-5 accent-black"
+              disabled={bulkBusy}
+              className="mt-0.5 h-5 w-5 accent-black disabled:cursor-not-allowed disabled:opacity-50"
               aria-label={`Select ${target.player}`}
             />
             <span className="min-w-0">
-              <span className="block text-sm font-black">
-                Select this candidate
-              </span>
+              <span className="block text-sm font-black">Select this candidate</span>
               <span
                 className={
                   target.ready
@@ -196,6 +286,11 @@ export default function BulkCandidateControls({
           <p className="mt-1 text-sm font-bold">
             Approved {approved} · Rejected {rejected} · Skipped {skipped}
           </p>
+          {requested > 0 ? (
+            <p className="mt-1 text-xs font-semibold">
+              Processed {processed || requested} of {requested} selected candidates.
+            </p>
+          ) : null}
           {firstError ? (
             <p
               className={
@@ -211,20 +306,7 @@ export default function BulkCandidateControls({
       ) : null}
 
       {candidates.length > 0 ? (
-        <form
-          method="post"
-          action={action}
-          className="fixed inset-x-4 bottom-4 z-[60] mx-auto max-w-5xl rounded-xl border border-neutral-700 bg-[#101418] p-4 text-white shadow-2xl"
-        >
-          {Array.from(selected).map((candidateId) => (
-            <input
-              key={candidateId}
-              type="hidden"
-              name="candidateIds"
-              value={candidateId}
-            />
-          ))}
-
+        <div className="fixed inset-x-4 bottom-4 z-[60] mx-auto max-w-5xl rounded-xl border border-neutral-700 bg-[#101418] p-4 text-white shadow-2xl">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <p className="text-xs font-black uppercase tracking-[0.16em] text-cyan-300">
@@ -236,51 +318,60 @@ export default function BulkCandidateControls({
                   ? ` · ${selectedIncomplete} incomplete will be skipped`
                   : ""}
               </p>
+              {bulkBusy ? (
+                <p className="mt-2 text-sm font-black text-amber-300">
+                  Processing {progress.processed} of {progress.total} · Approved {progress.approved} · Rejected {progress.rejected} · Skipped {progress.skipped}
+                </p>
+              ) : null}
+              {bulkError ? (
+                <p className="mt-2 rounded-md border border-rose-400 bg-rose-950 px-3 py-2 text-sm font-bold text-rose-100">
+                  {bulkError}
+                </p>
+              ) : null}
             </div>
 
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
                 onClick={allSelected ? clearSelected : selectAll}
-                className="rounded-md border border-neutral-500 bg-white/10 px-3 py-2 text-sm font-black"
+                disabled={bulkBusy}
+                className="rounded-md border border-neutral-500 bg-white/10 px-3 py-2 text-sm font-black disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {allSelected ? "Clear All" : "Select All"}
               </button>
               <button
                 type="button"
                 onClick={selectReady}
-                className="rounded-md border border-cyan-500 bg-cyan-950 px-3 py-2 text-sm font-black text-cyan-100"
+                disabled={bulkBusy}
+                className="rounded-md border border-cyan-500 bg-cyan-950 px-3 py-2 text-sm font-black text-cyan-100 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Select Ready Only ({readyCandidates.length})
               </button>
-              <BulkSubmitButton
-                name="action"
-                value="approve"
-                disabled={selectedCount === 0}
-                onClick={() => setRejectConfirmOpen(false)}
+              <button
+                type="button"
+                disabled={selectedCount === 0 || bulkBusy}
+                onClick={() => void processSelected("approve")}
                 className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
-                pendingChildren="Approving selected..."
               >
-                Approve Selected
-              </BulkSubmitButton>
-              <BulkSubmitButton
-                type={rejectConfirmOpen ? "submit" : "button"}
-                name="action"
-                value="reject"
-                disabled={selectedCount === 0}
+                {bulkBusy ? "Processing selected..." : "Approve Selected"}
+              </button>
+              <button
+                type="button"
+                disabled={selectedCount === 0 || bulkBusy}
                 onClick={() => {
-                  if (!rejectConfirmOpen) setRejectConfirmOpen(true);
+                  if (rejectConfirmOpen) void processSelected("reject");
+                  else setRejectConfirmOpen(true);
                 }}
                 className="rounded-md bg-rose-700 px-4 py-2 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
-                pendingChildren="Rejecting selected..."
               >
                 {rejectConfirmOpen ? "Confirm Reject Selected" : "Reject Selected"}
-              </BulkSubmitButton>
+              </button>
               {rejectConfirmOpen ? (
                 <button
                   type="button"
                   onClick={() => setRejectConfirmOpen(false)}
-                  className="rounded-md border border-neutral-500 bg-white/10 px-3 py-2 text-sm font-black"
+                  disabled={bulkBusy}
+                  className="rounded-md border border-neutral-500 bg-white/10 px-3 py-2 text-sm font-black disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   Cancel Reject
                 </button>
@@ -290,11 +381,10 @@ export default function BulkCandidateControls({
           {rejectConfirmOpen ? (
             <p className="mt-3 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-sm font-black text-rose-950">
               Confirm rejecting {selectedCount} selected candidate
-              {selectedCount === 1 ? "" : "s"}. This will submit the selected
-              rows to the bulk reject action.
+              {selectedCount === 1 ? "" : "s"}. The browser will process them in small, committed chunks.
             </p>
           ) : null}
-        </form>
+        </div>
       ) : null}
     </>
   );
