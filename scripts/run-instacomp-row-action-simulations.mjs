@@ -209,9 +209,13 @@ scenario("scanner exposes selected duplicate quantity merge action", () => {
 
 scenario("selected quantity merge cannot leave the batch stuck busy", () => {
   for (const fragment of [
+    "const quantityMergeRunningRef = useRef(false)",
+    "quantityMergeRunningRef.current",
+    "Finish the current InstaComp™ quantity merge before merging again.",
+    "quantityMergeRunningRef.current = true",
     "setBatchRunning(true)",
     "Merging selected duplicate rows into",
-    "} finally {\n      setBatchRunning(false);\n    }",
+    "} finally {\n      quantityMergeRunningRef.current = false;\n      setBatchRunning(false);\n    }",
   ]) {
     assert(
       scannerSource.includes(fragment),

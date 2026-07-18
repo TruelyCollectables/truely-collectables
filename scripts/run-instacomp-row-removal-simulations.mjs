@@ -74,6 +74,21 @@ scenario("prevents duplicate row removal clicks", () => {
   );
 });
 
+scenario("row removal has a synchronous click guard", () => {
+  for (const fragment of [
+    "const removingBatchCardIdsRef = useRef<Set<string>>(new Set())",
+    "removingBatchCardIdsRef.current.has(cardId)",
+    "removingBatchCardIdsRef.current.add(cardId)",
+    "removingBatchCardIdsRef.current.delete(cardId)",
+    "removingBatchCardIdsRef.current.clear()",
+  ]) {
+    assert(
+      scannerSource.includes(fragment),
+      `Expected scanner synchronous removal guard fragment ${fragment}.`,
+    );
+  }
+});
+
 scenario("makes wrong scan row removal explicit", () => {
   assert(
     instaCompBatchRowRemovalLabel({

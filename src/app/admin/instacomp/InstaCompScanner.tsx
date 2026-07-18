@@ -3497,6 +3497,8 @@ export default function InstaCompScanner({
   const [removingBatchCardIds, setRemovingBatchCardIds] = useState<Set<string>>(
     () => new Set()
   );
+  const removingBatchCardIdsRef = useRef<Set<string>>(new Set());
+  const quantityMergeRunningRef = useRef(false);
   const [batchKnowledgeSaving, setBatchKnowledgeSaving] = useState(false);
   const [batchConcurrency, setBatchConcurrency] = useState(
     INSTACOMP_BATCH_DEFAULT_CONCURRENCY
@@ -6818,6 +6820,11 @@ export default function InstaCompScanner({
 
     if (!card) return;
 
+    if (removingBatchCardIdsRef.current.has(cardId)) {
+      setBatchError("This InstaComp™ row is already being removed.");
+      return;
+    }
+
     const blockedReason = instaCompBatchRowRemovalBlockedReason({
       batchDrafting,
       draftStatus: card.draftStatus,
@@ -6835,6 +6842,7 @@ export default function InstaCompScanner({
     const isPersisted = Boolean(persistentTarget.jobId && persistentTarget.itemId);
     const abortedActiveScan = abortBatchCardScan(cardId);
 
+    removingBatchCardIdsRef.current.add(cardId);
     setRemovingBatchCardIds((current) => new Set(current).add(cardId));
     setBatchCards((current) =>
       current.filter((row) => {
@@ -6870,6 +6878,7 @@ export default function InstaCompScanner({
       );
       setBatchDraftMessage(`Removed ${cardTitle} from the visible batch.`);
     } finally {
+      removingBatchCardIdsRef.current.delete(cardId);
       setRemovingBatchCardIds((current) => {
         const next = new Set(current);
         next.delete(cardId);
@@ -7132,6 +7141,9 @@ export default function InstaCompScanner({
     setPersistentJob(null);
     setPersistentUploadProgress(null);
     setPersistentJobPreparing(false);
+    removingBatchCardIdsRef.current.clear();
+    quantityMergeRunningRef.current = false;
+    setRemovingBatchCardIds(new Set());
     removedBatchCardIdsRef.current.clear();
     removedPersistentItemIdsRef.current.clear();
     removedPersistentClientIdsRef.current.clear();
@@ -7316,6 +7328,11 @@ export default function InstaCompScanner({
   async function mergeSelectedBatchQuantityRows() {
     if (showBatchBusyBlocked("merging selected duplicate quantities")) return;
 
+    if (quantityMergeRunningRef.current) {
+      setBatchError("Finish the current InstaComp™ quantity merge before merging again.");
+      return;
+    }
+
     const cardsToMerge = batchCards.filter(
       (card) => card.selected && isDraftableBatchCard(card)
     );
@@ -7358,6 +7375,7 @@ export default function InstaCompScanner({
       }))
       .filter(({ target }) => Boolean(target.jobId && target.itemId));
 
+    quantityMergeRunningRef.current = true;
     setBatchRunning(true);
     setBatchError(null);
     setBatchDraftMessage(
@@ -7446,6 +7464,7 @@ export default function InstaCompScanner({
         }${savedKeeperQuantity ? " Saved the merged keeper quantity." : " Review or save the keeper row before drafting if you refresh this lot."}`
       );
     } finally {
+      quantityMergeRunningRef.current = false;
       setBatchRunning(false);
     }
   }
