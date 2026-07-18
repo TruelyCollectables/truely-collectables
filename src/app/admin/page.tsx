@@ -1,4 +1,5 @@
 import Link from "next/link";
+import AdminSubmitButton from "./AdminSubmitButton";
 import { PLATFORM_SOFTWARE_NAME } from "../../lib/legal";
 import {
   buildShippingProviderSetupPacket,
@@ -884,15 +885,15 @@ export default async function AdminDashboard() {
                               name="multiplier"
                               value={multiplier.value}
                             />
-                            <button
-                              type="submit"
+                            <AdminSubmitButton
                               className="w-full rounded-md border border-neutral-300 bg-white px-2 py-2 text-sm font-black hover:bg-neutral-50"
+                              pendingChildren="Applying..."
                               title={`Set ${product.title || "card"} to ${
                                 multiplier.label
                               }`}
                             >
                               {multiplier.label}
-                            </button>
+                            </AdminSubmitButton>
                           </form>
                         ))}
                       </div>
@@ -923,12 +924,12 @@ export default async function AdminDashboard() {
                               name="duration"
                               value={duration}
                             />
-                            <button
-                              type="submit"
+                            <AdminSubmitButton
                               className="w-full rounded-md border border-neutral-300 bg-neutral-50 px-2 py-2 text-sm font-black hover:bg-white"
+                              pendingChildren="Ignoring..."
                             >
                               Ignore {labelText}
-                            </button>
+                            </AdminSubmitButton>
                           </form>
                         ))}
                       </div>
