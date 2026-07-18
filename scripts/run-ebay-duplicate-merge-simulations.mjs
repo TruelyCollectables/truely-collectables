@@ -184,6 +184,11 @@ await scenario("duplicate finder previews destructive end and merge actions", ()
   for (const fragment of [
     "type DuplicateAction",
     "type ActionNoticeTone",
+    "const workingActionRef = useRef<DuplicateAction>(null)",
+    "function setActiveDuplicateAction(action: DuplicateAction)",
+    "function duplicateActionBlockedReason(action: string)",
+    "function showDuplicateActionBlocked(action: string)",
+    "Finish the current duplicate cleanup action before ${action}.",
     "showNotice",
     "showError",
     "clearMessages",
@@ -199,6 +204,14 @@ await scenario("duplicate finder previews destructive end and merge actions", ()
     "aria-busy={groupMerging}",
     'aria-busy={groupWorking && workingAction?.kind === "end"}',
     "aria-busy={rowEnding}",
+    "disabled={duplicateCleanupBusy || isKeeper}",
+    "disabled={duplicateCleanupBusy ||",
+    'showDuplicateActionBlocked("starting another merge or end/archive")',
+    'showDuplicateActionBlocked("changing the keeper row")',
+    'showDuplicateActionBlocked("changing the duplicate row")',
+    'showDuplicateActionBlocked("rescanning duplicates")',
+    "allowDuringAction?: boolean",
+    "loadGroups({ preserveMessages: true, allowDuringAction: true })",
     "reconcileEbayDuplicateKeeperSelection",
     "reconcileEbayDuplicateRowSelection",
   ]) {
@@ -218,7 +231,7 @@ await scenario("duplicate finder clears stale notices across action outcomes", (
     "<ActionNotice tone=\"error\">",
     '<ActionNotice tone={workingAction ? "info" : "success"}>',
     "preserveMessages?: boolean",
-    "loadGroups({ preserveMessages: true })",
+    "loadGroups({ preserveMessages: true, allowDuringAction: true })",
   ]) {
     assert(
       duplicateFinderSource.includes(fragment),
