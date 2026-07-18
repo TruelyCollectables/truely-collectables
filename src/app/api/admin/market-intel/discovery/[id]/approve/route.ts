@@ -3,6 +3,7 @@ import {
   adminHandoffFromUrl,
   adminRedirectUrl,
 } from "../../../../../../../lib/admin-handoff";
+import { assertCandidateBaseballPremiumPolicy } from "../../../../../../../lib/market-intel-baseball-premium-enforcement";
 import { approveIdentityCandidate } from "../../../../../../../lib/market-intel-identity-candidates";
 
 type RouteContext = {
@@ -27,7 +28,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
   try {
     const formData = await request.formData();
     const conditionType = text(formData, "conditionType") === "graded" ? "graded" : "raw";
-    const result = await approveIdentityCandidate({
+    const approval = {
       candidateId: id,
       seasonYear: text(formData, "seasonYear"),
       manufacturer: text(formData, "manufacturer"),
@@ -46,7 +47,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
       gradingCompany: text(formData, "gradingCompany"),
       grade: text(formData, "grade"),
       quantity: Number(text(formData, "quantity") || 1),
-    });
+    };
+
+    await assertCandidateBaseballPremiumPolicy(approval);
+    const result = await approveIdentityCandidate(approval);
     return NextResponse.redirect(
       adminRedirectUrl(
         `/admin/market-intel/discovery?approved=1&identityId=${encodeURIComponent(result.identityId)}${result.listingId ? `&listingId=${encodeURIComponent(result.listingId)}` : ""}`,
