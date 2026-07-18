@@ -167,6 +167,11 @@ export default function BulkCandidateControls({
 
   function selectReady() {
     if (showBusyBlocked("selecting ready candidates")) return;
+    if (readyCandidates.length === 0) {
+      setBulkError("No candidates are approval-ready yet.");
+      return;
+    }
+
     setSelected(new Set(readyCandidates.map((candidate) => candidate.id)));
     setRejectConfirmOpen(false);
   }
@@ -175,6 +180,28 @@ export default function BulkCandidateControls({
     if (showBusyBlocked("clearing selected candidates")) return;
     setSelected(new Set());
     setRejectConfirmOpen(false);
+  }
+
+  function cancelRejectConfirmation() {
+    if (showBusyBlocked("canceling reject confirmation")) return;
+    setRejectConfirmOpen(false);
+  }
+
+  function rejectSelected() {
+    if (showBusyBlocked("rejecting selected candidates")) return;
+
+    if (selectedCount === 0) {
+      setBulkError("Select at least one candidate before rejecting.");
+      return;
+    }
+
+    if (rejectConfirmOpen) {
+      void processSelected("reject");
+      return;
+    }
+
+    setRejectConfirmOpen(true);
+    setBulkError(null);
   }
 
   const handoff = searchParams.get("admin_handoff");
@@ -550,17 +577,17 @@ export default function BulkCandidateControls({
               <button
                 type="button"
                 onClick={allSelected ? clearSelected : selectAll}
-                disabled={busy}
+                aria-disabled={busy}
                 title={busyReason || (allSelected ? "Clear selected candidates." : "Select every visible discovery candidate.")}
                 aria-busy={busy}
-                className="rounded-md border border-neutral-500 bg-white/10 px-3 py-2 text-sm font-black disabled:cursor-not-allowed disabled:opacity-40"
+                className="rounded-md border border-neutral-500 bg-white/10 px-3 py-2 text-sm font-black aria-disabled:cursor-not-allowed aria-disabled:opacity-40"
               >
                 {allSelected ? "Clear All" : "Select All"}
               </button>
               <button
                 type="button"
                 onClick={selectReady}
-                disabled={busy || readyCandidates.length === 0}
+                aria-disabled={busy || readyCandidates.length === 0}
                 title={
                   busyReason ||
                   (readyCandidates.length === 0
@@ -568,7 +595,7 @@ export default function BulkCandidateControls({
                     : "Select only candidates that have all approval fields.")
                 }
                 aria-busy={busy}
-                className="rounded-md border border-cyan-500 bg-cyan-950 px-3 py-2 text-sm font-black text-cyan-100 disabled:cursor-not-allowed disabled:opacity-40"
+                className="rounded-md border border-cyan-500 bg-cyan-950 px-3 py-2 text-sm font-black text-cyan-100 aria-disabled:cursor-not-allowed aria-disabled:opacity-40"
               >
                 Select Ready Only ({readyCandidates.length})
               </button>
@@ -576,10 +603,10 @@ export default function BulkCandidateControls({
                 <button
                   type="button"
                   onClick={() => void recoverMissingCardNumbers()}
-                  disabled={busy}
+                  aria-disabled={busy}
                   title={busyReason || "Recover exact card numbers for candidates missing that field."}
                   aria-busy={enrichmentBusy}
-                  className="rounded-md bg-amber-500 px-4 py-2 text-sm font-black text-black disabled:cursor-not-allowed disabled:opacity-40"
+                  className="rounded-md bg-amber-500 px-4 py-2 text-sm font-black text-black aria-disabled:cursor-not-allowed aria-disabled:opacity-40"
                 >
                   {enrichmentBusy
                     ? "Recovering Card Numbers..."
@@ -588,7 +615,7 @@ export default function BulkCandidateControls({
               ) : null}
               <button
                 type="button"
-                disabled={selectedReady === 0 || busy}
+                aria-disabled={selectedReady === 0 || busy}
                 onClick={() => void processSelected("approve")}
                 title={
                   busyReason ||
@@ -597,17 +624,14 @@ export default function BulkCandidateControls({
                     : "Approve selected ready candidates in committed chunks.")
                 }
                 aria-busy={bulkBusy}
-                className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
+                className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-black text-white aria-disabled:cursor-not-allowed aria-disabled:opacity-40"
               >
                 {bulkBusy ? "Processing selected..." : "Approve Selected"}
               </button>
               <button
                 type="button"
-                disabled={selectedCount === 0 || busy}
-                onClick={() => {
-                  if (rejectConfirmOpen) void processSelected("reject");
-                  else setRejectConfirmOpen(true);
-                }}
+                aria-disabled={selectedCount === 0 || busy}
+                onClick={rejectSelected}
                 title={
                   busyReason ||
                   (selectedCount === 0
@@ -615,18 +639,18 @@ export default function BulkCandidateControls({
                     : "Reject selected candidates after confirmation.")
                 }
                 aria-busy={bulkBusy}
-                className="rounded-md bg-rose-700 px-4 py-2 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
+                className="rounded-md bg-rose-700 px-4 py-2 text-sm font-black text-white aria-disabled:cursor-not-allowed aria-disabled:opacity-40"
               >
                 {rejectConfirmOpen ? "Confirm Reject Selected" : "Reject Selected"}
               </button>
               {rejectConfirmOpen ? (
                 <button
                   type="button"
-                  onClick={() => setRejectConfirmOpen(false)}
-                  disabled={busy}
+                  onClick={cancelRejectConfirmation}
+                  aria-disabled={busy}
                   title={busyReason || "Cancel the pending reject confirmation."}
                   aria-busy={busy}
-                  className="rounded-md border border-neutral-500 bg-white/10 px-3 py-2 text-sm font-black disabled:cursor-not-allowed disabled:opacity-40"
+                  className="rounded-md border border-neutral-500 bg-white/10 px-3 py-2 text-sm font-black aria-disabled:cursor-not-allowed aria-disabled:opacity-40"
                 >
                   Cancel Reject
                 </button>
