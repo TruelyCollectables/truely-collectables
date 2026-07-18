@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 
 type DuplicateRow = {
   productId: number;
@@ -44,6 +45,8 @@ type DuplicateAction =
     }
   | null;
 
+type ActionNoticeTone = "success" | "error" | "info";
+
 function money(value: number | null | undefined) {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -72,6 +75,21 @@ export default function EbayDuplicateFinderClient() {
   const [workingAction, setWorkingAction] = useState<DuplicateAction>(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+
+  const showNotice = useCallback((message: string) => {
+    setNotice(message);
+    setError("");
+  }, []);
+
+  const showError = useCallback((message: string) => {
+    setError(message);
+    setNotice("");
+  }, []);
+
+  const clearMessages = useCallback(() => {
+    setNotice("");
+    setError("");
+  }, []);
 
   const fetchGroups = useCallback(async () => {
     try {
@@ -124,17 +142,19 @@ export default function EbayDuplicateFinderClient() {
         return next;
       });
     } catch (nextError: any) {
-      setError(nextError.message || "Could not load duplicate groups.");
+      showError(nextError.message || "Could not load duplicate groups.");
       setGroups([]);
       setSummary(null);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [showError]);
 
-  async function loadGroups() {
+  async function loadGroups(options?: { preserveMessages?: boolean }) {
     setLoading(true);
-    setError("");
+    if (!options?.preserveMessages) {
+      clearMessages();
+    }
     await fetchGroups();
   }
 
@@ -184,17 +204,16 @@ export default function EbayDuplicateFinderClient() {
       allDuplicateRows.reduce((sum, row) => sum + Number(row.quantity || 0), 0);
 
     if (!keeperProductId || duplicateProductIds.length === 0) {
-      setError("Pick one keeper with at least one different duplicate row first.");
+      showError("Pick one keeper with at least one different duplicate row first.");
       return;
     }
 
     setWorkingAction({ groupKey: group.key, kind: "merge", stage: "previewing" });
-    setNotice(
+    showNotice(
       `Previewing merge for ${duplicateProductIds.length} duplicate row${
         duplicateProductIds.length === 1 ? "" : "s"
       } into keeper #${keeperProductId}...`,
     );
-    setError("");
 
     try {
       const previewResponse = await fetch("/api/admin/ebay-duplicates", {
@@ -218,13 +237,13 @@ export default function EbayDuplicateFinderClient() {
       const serverMergedQuantity = Number(preview.mergedQuantity || 0);
 
       if (serverMergedQuantity !== visibleMergedQuantity) {
-        setNotice(
+        showNotice(
           `Server preview refreshed the merge math: keeper qty ${preview.previousKeeperQuantity} + duplicate qty ${preview.duplicateQuantity} = ${preview.mergedQuantity}.`,
         );
       }
 
       setWorkingAction({ groupKey: group.key, kind: "merge", stage: "applying" });
-      setNotice(
+      showNotice(
         `Merging now: keeper qty ${preview.previousKeeperQuantity} + duplicate qty ${preview.duplicateQuantity} = ${preview.mergedQuantity}.`,
       );
 
@@ -252,14 +271,14 @@ export default function EbayDuplicateFinderClient() {
             .filter(Boolean)
         : [];
 
-      setNotice(
+      showNotice(
         `${data.message || "Duplicate merged."}${
           ebayWarnings.length ? ` eBay warning: ${ebayWarnings.join(" | ")}` : ""
         }`,
       );
-      await loadGroups();
+      await loadGroups({ preserveMessages: true });
     } catch (nextError: any) {
-      setError(nextError.message || "Could not merge duplicate.");
+      showError(nextError.message || "Could not merge duplicate.");
     } finally {
       setWorkingAction(null);
     }
@@ -269,12 +288,12 @@ export default function EbayDuplicateFinderClient() {
     const keeperProductId = keepers[group.key] || group.recommendedKeeperProductId || 0;
 
     if (!duplicateProductId) {
-      setError("Pick a duplicate row to end/archive first.");
+      showError("Pick a duplicate row to end/archive first.");
       return;
     }
 
     if (duplicateProductId === keeperProductId) {
-      setError("That row is marked as the keeper. Pick a different row to end, or choose another keeper first.");
+      showError("That row is marked as the keeper. Pick a different row to end, or choose another keeper first.");
       return;
     }
 
@@ -284,8 +303,7 @@ export default function EbayDuplicateFinderClient() {
       productId: duplicateProductId,
       stage: "previewing",
     });
-    setNotice(`Previewing end/archive for duplicate product #${duplicateProductId}...`);
-    setError("");
+    showNotice(`Previewing end/archive for duplicate product #${duplicateProductId}...`);
 
     try {
       const previewResponse = await fetch("/api/admin/ebay-duplicates", {
@@ -312,7 +330,7 @@ export default function EbayDuplicateFinderClient() {
         productId: duplicateProductId,
         stage: "applying",
       });
-      setNotice(
+      showNotice(
         `Ending now: product #${duplicateProductId} will move from qty ${preview.previousQuantity} to archived qty 0.`,
       );
 
@@ -339,14 +357,14 @@ export default function EbayDuplicateFinderClient() {
             .filter(Boolean)
         : [];
 
-      setNotice(
+      showNotice(
         `${data.message || "Duplicate ended/archived."}${
           ebayWarnings.length ? ` eBay warning: ${ebayWarnings.join(" | ")}` : ""
         }`,
       );
-      await loadGroups();
+      await loadGroups({ preserveMessages: true });
     } catch (nextError: any) {
-      setError(nextError.message || "Could not end/archive duplicate.");
+      showError(nextError.message || "Could not end/archive duplicate.");
     } finally {
       setWorkingAction(null);
     }
@@ -370,6 +388,7 @@ export default function EbayDuplicateFinderClient() {
             type="button"
             onClick={() => void loadGroups()}
             disabled={loading || Boolean(workingAction)}
+            aria-busy={loading}
             className="rounded-md bg-neutral-950 px-5 py-3 text-sm font-black text-white hover:bg-neutral-800 disabled:opacity-50"
           >
             {loading ? "Scanning..." : "Rescan Duplicates"}
@@ -390,15 +409,15 @@ export default function EbayDuplicateFinderClient() {
       ) : null}
 
       {error ? (
-        <section className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-black text-rose-800">
+        <ActionNotice tone="error">
           {error}
-        </section>
+        </ActionNotice>
       ) : null}
 
       {notice ? (
-        <section className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-black text-emerald-800">
+        <ActionNotice tone={workingAction ? "info" : "success"}>
           {notice}
-        </section>
+        </ActionNotice>
       ) : null}
 
       <section className="space-y-4">
@@ -469,6 +488,7 @@ export default function EbayDuplicateFinderClient() {
                         !keeperProductId ||
                         allDuplicateRows.length === 0
                       }
+                      aria-busy={groupMerging}
                       className="rounded-md bg-rose-700 px-5 py-3 text-sm font-black text-white hover:bg-rose-800 disabled:cursor-not-allowed disabled:bg-neutral-400"
                     >
                       {groupMerging
@@ -487,6 +507,7 @@ export default function EbayDuplicateFinderClient() {
                         !duplicateProductId ||
                         keeperProductId === duplicateProductId
                       }
+                      aria-busy={groupWorking && workingAction?.kind === "end"}
                       className="rounded-md border border-rose-300 bg-white px-5 py-3 text-sm font-black text-rose-800 hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-neutral-300 disabled:text-neutral-400"
                     >
                       {groupWorking && workingAction?.kind === "end"
@@ -581,6 +602,7 @@ export default function EbayDuplicateFinderClient() {
                             type="button"
                             onClick={() => void endDuplicate(group, row.productId)}
                             disabled={groupWorking || isKeeper}
+                            aria-busy={rowEnding}
                             className="rounded-md border border-orange-300 bg-white px-3 py-2 text-xs font-black text-orange-900 hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-40"
                           >
                             {rowEnding
@@ -610,6 +632,31 @@ export default function EbayDuplicateFinderClient() {
         )}
       </section>
     </div>
+  );
+}
+
+function ActionNotice({
+  tone,
+  children,
+}: {
+  tone: ActionNoticeTone;
+  children: ReactNode;
+}) {
+  const className =
+    tone === "success"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+      : tone === "error"
+        ? "border-rose-200 bg-rose-50 text-rose-800"
+        : "border-sky-200 bg-sky-50 text-sky-900";
+
+  return (
+    <section
+      aria-live={tone === "info" ? "polite" : "assertive"}
+      className={`rounded-md border px-4 py-3 text-sm font-black ${className}`}
+      role={tone === "error" ? "alert" : "status"}
+    >
+      {children}
+    </section>
   );
 }
 

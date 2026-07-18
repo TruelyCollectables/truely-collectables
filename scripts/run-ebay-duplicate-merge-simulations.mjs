@@ -126,16 +126,44 @@ await scenario("rejects merge with no duplicate row different from keeper", () =
 await scenario("duplicate finder previews destructive end and merge actions", () => {
   for (const fragment of [
     "type DuplicateAction",
+    "type ActionNoticeTone",
+    "showNotice",
+    "showError",
+    "clearMessages",
     "Previewing merge...",
     "Merging now: keeper qty",
     "Previewing end/archive",
     "That row is marked as the keeper",
     "Ending now: product",
     "dryRun: true",
+    'aria-live={tone === "info" ? "polite" : "assertive"}',
+    'role={tone === "error" ? "alert" : "status"}',
+    'aria-busy={loading}',
+    "aria-busy={groupMerging}",
+    'aria-busy={groupWorking && workingAction?.kind === "end"}',
+    "aria-busy={rowEnding}",
   ]) {
     assert(
       duplicateFinderSource.includes(fragment),
       `Expected duplicate finder action-safety fragment ${fragment}.`,
+    );
+  }
+});
+
+await scenario("duplicate finder clears stale notices across action outcomes", () => {
+  for (const fragment of [
+    "setNotice(message);",
+    'setError("");',
+    "setError(message);",
+    'setNotice("");',
+    "<ActionNotice tone=\"error\">",
+    '<ActionNotice tone={workingAction ? "info" : "success"}>',
+    "preserveMessages?: boolean",
+    "loadGroups({ preserveMessages: true })",
+  ]) {
+    assert(
+      duplicateFinderSource.includes(fragment),
+      `Expected duplicate finder single-notice fragment ${fragment}.`,
     );
   }
 });
