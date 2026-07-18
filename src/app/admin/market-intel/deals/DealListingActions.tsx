@@ -29,6 +29,8 @@ function actionTone(message: string): ActionTone {
   if (
     normalized.includes("ending") ||
     normalized.includes("recording") ||
+    normalized.includes("creating") ||
+    normalized.includes("moving") ||
     normalized.includes("saving")
   ) {
     return "info";
@@ -47,7 +49,10 @@ function Notice({ message }: { message: string }) {
         : "border-blue-200 bg-blue-50 text-blue-950";
 
   return (
-    <p className={`rounded-2xl border px-3 py-2 text-xs font-black ${className}`}>
+    <p
+      aria-live={tone === "info" ? "polite" : "assertive"}
+      className={`rounded-2xl border px-3 py-2 text-xs font-black ${className}`}
+    >
       {message}
     </p>
   );
@@ -109,7 +114,9 @@ export default function DealListingActions({
     if (!confirmEnd) {
       setConfirmEnd(true);
       setShowPurchase(false);
-      setMessage("Confirm end listing before TCOS removes it from the active deal desk.");
+      setMessage(
+        "Confirm end listing before TCOS removes it from the active deal desk. This does not record a purchase.",
+      );
       return;
     }
 
@@ -200,6 +207,12 @@ export default function DealListingActions({
             setMessage("");
           }}
           disabled={busy !== null || !hasExactIdentity}
+          title={
+            hasExactIdentity
+              ? "Record a purchase position and move this listing out of the active deal desk."
+              : "Purchase disabled until this listing has an exact collectible identity."
+          }
+          aria-busy={busy === "purchase"}
           className={
             dark
               ? "rounded-2xl bg-lime-300 px-3 py-2 text-xs font-black text-black hover:bg-lime-200 disabled:cursor-not-allowed disabled:opacity-50"
@@ -212,6 +225,12 @@ export default function DealListingActions({
           type="button"
           onClick={() => void endListing()}
           disabled={busy !== null}
+          title={
+            confirmEnd
+              ? "Confirm this listing should be ended without recording a purchase."
+              : "End this listing and remove it from the active deal desk."
+          }
+          aria-busy={busy === "end"}
           className={
             confirmEnd
               ? "rounded-2xl bg-red-700 px-3 py-2 text-xs font-black text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-50"
@@ -221,7 +240,7 @@ export default function DealListingActions({
           }
         >
           {busy === "end"
-            ? "Ending..."
+            ? "Ending listing..."
             : confirmEnd
               ? "Confirm End"
               : "End Listing"}
@@ -302,9 +321,17 @@ export default function DealListingActions({
             type="button"
             onClick={() => void recordPurchase()}
             disabled={busy !== null || purchaseMissing.length > 0}
+            aria-busy={busy === "purchase"}
+            title={
+              purchaseMissing.length > 0
+                ? `Required: ${purchaseMissing.join(", ")}.`
+                : "Create the purchase position and move this listing out of the active deal desk."
+            }
             className="w-full rounded-2xl bg-amber-700 px-3 py-2 text-xs font-black text-white hover:bg-amber-800 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {busy === "purchase" ? "Recording..." : "Create Purchase Position"}
+            {busy === "purchase"
+              ? "Creating purchase position..."
+              : "Create Purchase Position"}
           </button>
         </div>
       ) : null}

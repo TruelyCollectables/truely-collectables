@@ -73,6 +73,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
       return NextResponse.redirect(redirectUrl, 303);
     }
 
+    if (String(listing.listing_status || "") !== "active") {
+      throw new Error(
+        "Listing is no longer active; refresh the deal desk before recording a purchase.",
+      );
+    }
+
     const defaultTotal = Number(listing.delivered_price || 0);
     const totalAcquisitionCost = numberField(
       formData,

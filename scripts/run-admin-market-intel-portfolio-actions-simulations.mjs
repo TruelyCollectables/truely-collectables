@@ -39,6 +39,13 @@ const sources = {
     ),
     "utf8",
   ),
+  listingPurchaseRoute: await readFile(
+    new URL(
+      "../src/app/api/admin/market-intel/listings/[id]/purchase/route.ts",
+      import.meta.url,
+    ),
+    "utf8",
+  ),
 };
 
 const scenarios = [];
@@ -131,15 +138,33 @@ scenario("growth spec forms and value-list refreshes label long-running posts", 
 
 scenario("deal listing client actions retain inline busy and failure feedback", () => {
   for (const fragment of [
-    "Ending...",
-    "Recording...",
+    "Ending listing...",
+    "Creating purchase position...",
+    'aria-live={tone === "info" ? "polite" : "assertive"}',
+    'aria-busy={busy === "end"}',
+    'aria-busy={busy === "purchase"}',
     "Could not end listing.",
     "Could not record purchase.",
     "Purchase disabled until this listing has an exact collectible identity.",
+    "This does not record a purchase.",
   ]) {
     assert(
       sources.dealListingActions.includes(fragment),
       `Expected deal listing action feedback ${fragment}.`,
+    );
+  }
+});
+
+scenario("listing purchase route rejects stale deal-desk purchases", () => {
+  for (const fragment of [
+    'String(listing.listing_status || "") !== "active"',
+    "Listing is no longer active; refresh the deal desk before recording a purchase.",
+    "Purchase #",
+    "was already recorded for this listing.",
+  ]) {
+    assert(
+      sources.listingPurchaseRoute.includes(fragment),
+      `Expected stale purchase guard fragment ${fragment}.`,
     );
   }
 });
