@@ -17,6 +17,7 @@
     "simulate:ebay-duplicates": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-ebay-duplicate-merge-simulations.mjs",
     "simulate:order-review-payout-resolution": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-order-review-payout-resolution-simulations.mjs",
     "simulate:admin-offer-decision": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-admin-offer-decision-simulations.mjs",
+    "simulate:admin-product-bulk": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-admin-product-bulk-simulations.mjs",
     "simulate:admin-product-status": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-admin-product-status-simulations.mjs",
     "simulate:admin-login": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-admin-login-simulations.mjs",
     "simulate:admin-dashboard-actions": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-admin-dashboard-actions-simulations.mjs",
