@@ -1,6 +1,87 @@
 "use client";
 
 import { useState } from "react";
+import type { ReactNode } from "react";
+
+type NoticeTone = "success" | "error" | "info";
+
+function noticeTone(message: string): NoticeTone {
+  const normalized = message.toLowerCase();
+  if (
+    normalized.includes("could not") ||
+    normalized.includes("failed") ||
+    normalized.includes("required") ||
+    normalized.includes("needs")
+  ) {
+    return "error";
+  }
+
+  if (normalized.includes("saving") || normalized.includes("recording")) {
+    return "info";
+  }
+
+  return "success";
+}
+
+function ActionNotice({
+  tone,
+  children,
+}: {
+  tone: NoticeTone;
+  children: ReactNode;
+}) {
+  const className =
+    tone === "success"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-950"
+      : tone === "error"
+        ? "border-red-200 bg-red-50 text-red-950"
+        : "border-blue-200 bg-blue-50 text-blue-950";
+
+  return (
+    <p className={`rounded-2xl border px-3 py-2 text-xs font-black ${className}`}>
+      {children}
+    </p>
+  );
+}
+
+function TextField({
+  label,
+  value,
+  placeholder,
+  onChange,
+  rows,
+}: {
+  label: string;
+  value: string;
+  placeholder: string;
+  onChange: (value: string) => void;
+  rows?: number;
+}) {
+  const className =
+    "mt-1 w-full rounded-2xl border border-neutral-300 bg-white px-3 py-2 text-xs font-semibold outline-none focus:border-neutral-950";
+
+  return (
+    <label className="block text-xs font-black text-neutral-800">
+      {label}
+      {rows ? (
+        <textarea
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={placeholder}
+          rows={rows}
+          className={className}
+        />
+      ) : (
+        <input
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={placeholder}
+          className={className}
+        />
+      )}
+    </label>
+  );
+}
 
 export function SaveCoveragePolicyForm({
   labelId,
@@ -19,10 +100,21 @@ export function SaveCoveragePolicyForm({
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const requiredMissing = [
+    !coverageProvider.trim() ? "coverage provider" : null,
+    !coveragePolicyId.trim() ? "coverage policy ID" : null,
+    !coverageAmount.trim() ? "coverage amount" : null,
+    note.trim().length < 8 ? "audit note" : null,
+  ].filter(Boolean);
 
   async function savePolicy() {
+    if (requiredMissing.length > 0) {
+      setMessage(`Coverage policy needs: ${requiredMissing.join(", ")}.`);
+      return;
+    }
+
     setSaving(true);
-    setMessage("");
+    setMessage("Saving Coverage policy...");
 
     try {
       const response = await fetch(
@@ -59,44 +151,46 @@ export function SaveCoveragePolicyForm({
   }
 
   return (
-    <div className="space-y-2 rounded border bg-neutral-50 p-2">
-      <input
+    <div className="space-y-2 rounded-2xl border border-amber-200 bg-amber-50 p-3">
+      <TextField
+        label="Coverage provider"
         value={coverageProvider}
-        onChange={(event) => setCoverageProvider(event.target.value)}
+        onChange={setCoverageProvider}
         placeholder="Coverage provider"
-        className="w-full rounded border bg-white px-2 py-1 text-xs"
       />
-      <input
+      <TextField
+        label="Coverage policy ID"
         value={coveragePolicyId}
-        onChange={(event) => setCoveragePolicyId(event.target.value)}
+        onChange={setCoveragePolicyId}
         placeholder="Coverage policy ID"
-        className="w-full rounded border bg-white px-2 py-1 text-xs"
       />
-      <input
+      <TextField
+        label="Coverage amount"
         value={coverageAmount}
-        onChange={(event) => setCoverageAmount(event.target.value)}
+        onChange={setCoverageAmount}
         placeholder="Coverage amount"
-        className="w-full rounded border bg-white px-2 py-1 text-xs"
       />
-      <textarea
+      <TextField
+        label="Audit note"
         value={note}
-        onChange={(event) => setNote(event.target.value)}
-        placeholder="Internal note"
+        onChange={setNote}
+        placeholder="External receipt, policy proof, or operator note"
         rows={2}
-        className="w-full rounded border bg-white px-2 py-1 text-xs"
       />
       <button
         type="button"
         onClick={savePolicy}
-        disabled={saving}
-        className="rounded bg-amber-700 px-3 py-2 text-xs font-black text-white disabled:opacity-50"
+        disabled={saving || requiredMissing.length > 0}
+        className="rounded-2xl bg-amber-800 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
       >
         {saving ? "Saving..." : "Save Coverage Policy"}
       </button>
       {message ? (
-        <p className="rounded border bg-white p-2 text-xs font-semibold">
-          {message}
-        </p>
+        <ActionNotice tone={noticeTone(message)}>{message}</ActionNotice>
+      ) : requiredMissing.length > 0 ? (
+        <ActionNotice tone="info">
+          Required: {requiredMissing.join(", ")}.
+        </ActionNotice>
       ) : null}
     </div>
   );
@@ -113,10 +207,19 @@ export function SaveTrackingForm({
   const [trackingNumber, setTrackingNumber] = useState("");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const requiredMissing = [
+    !carrier.trim() ? "carrier" : null,
+    !trackingNumber.trim() ? "tracking number or IMb" : null,
+  ].filter(Boolean);
 
   async function saveTracking() {
+    if (requiredMissing.length > 0) {
+      setMessage(`Tracking needs: ${requiredMissing.join(", ")}.`);
+      return;
+    }
+
     setSaving(true);
-    setMessage("");
+    setMessage("Saving tracking...");
 
     try {
       const response = await fetch("/api/orders/update-tracking", {
@@ -126,8 +229,8 @@ export function SaveTrackingForm({
         },
         body: JSON.stringify({
           orderId,
-          carrier,
-          trackingNumber,
+          carrier: carrier.trim(),
+          trackingNumber: trackingNumber.trim(),
         }),
       });
       const data = await response.json().catch(() => ({}));
@@ -149,33 +252,35 @@ export function SaveTrackingForm({
   }
 
   return (
-    <div className="space-y-2 rounded border bg-neutral-50 p-2">
+    <div className="space-y-2 rounded-2xl border border-blue-200 bg-blue-50 p-3">
       <div className="grid grid-cols-1 gap-2">
-        <input
+        <TextField
+          label="Carrier"
           value={carrier}
-          onChange={(event) => setCarrier(event.target.value)}
+          onChange={setCarrier}
           placeholder="Carrier"
-          className="rounded border bg-white px-2 py-1 text-xs"
         />
-        <input
+        <TextField
+          label="Tracking / IMb"
           value={trackingNumber}
-          onChange={(event) => setTrackingNumber(event.target.value)}
+          onChange={setTrackingNumber}
           placeholder="Tracking number or IMb"
-          className="rounded border bg-white px-2 py-1 text-xs"
         />
       </div>
       <button
         type="button"
         onClick={saveTracking}
-        disabled={saving}
-        className="rounded bg-blue-700 px-3 py-2 text-xs font-black text-white disabled:opacity-50"
+        disabled={saving || requiredMissing.length > 0}
+        className="rounded-2xl bg-blue-800 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
       >
         {saving ? "Saving..." : "Save Tracking"}
       </button>
       {message ? (
-        <p className="rounded border bg-white p-2 text-xs font-semibold">
-          {message}
-        </p>
+        <ActionNotice tone={noticeTone(message)}>{message}</ActionNotice>
+      ) : requiredMissing.length > 0 ? (
+        <ActionNotice tone="info">
+          Required: {requiredMissing.join(", ")}.
+        </ActionNotice>
       ) : null}
     </div>
   );
@@ -192,10 +297,19 @@ export function RecordLetterTrackImbForm({
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const requiredMissing = [
+    !trackingNumber.trim() ? "LetterTrack IMb / tracking reference" : null,
+    note.trim().length < 8 ? "audit note" : null,
+  ].filter(Boolean);
 
   async function recordImb() {
+    if (requiredMissing.length > 0) {
+      setMessage(`LetterTrack IMb needs: ${requiredMissing.join(", ")}.`);
+      return;
+    }
+
     setSaving(true);
-    setMessage("");
+    setMessage("Recording LetterTrack IMb...");
 
     try {
       const response = await fetch(
@@ -207,10 +321,10 @@ export function RecordLetterTrackImbForm({
           },
           body: JSON.stringify({
             action: "record_lettertrack_imb",
-            trackingNumber,
-            letterTrackReference,
-            postageAmount,
-            note,
+            trackingNumber: trackingNumber.trim(),
+            letterTrackReference: letterTrackReference.trim(),
+            postageAmount: postageAmount.trim(),
+            note: note.trim(),
           }),
         },
       );
@@ -233,44 +347,46 @@ export function RecordLetterTrackImbForm({
   }
 
   return (
-    <div className="space-y-2 rounded border bg-blue-50 p-2">
-      <input
+    <div className="space-y-2 rounded-2xl border border-blue-200 bg-blue-50 p-3">
+      <TextField
+        label="LetterTrack IMb / tracking"
         value={trackingNumber}
-        onChange={(event) => setTrackingNumber(event.target.value)}
+        onChange={setTrackingNumber}
         placeholder="LetterTrack IMb / tracking reference"
-        className="w-full rounded border bg-white px-2 py-1 text-xs"
       />
-      <input
+      <TextField
+        label="LetterTrack reference"
         value={letterTrackReference}
-        onChange={(event) => setLetterTrackReference(event.target.value)}
+        onChange={setLetterTrackReference}
         placeholder="LetterTrack order/mailpiece ID (optional)"
-        className="w-full rounded border bg-white px-2 py-1 text-xs"
       />
-      <input
+      <TextField
+        label="Postage amount"
         value={postageAmount}
-        onChange={(event) => setPostageAmount(event.target.value)}
+        onChange={setPostageAmount}
         placeholder="Postage amount (optional)"
-        className="w-full rounded border bg-white px-2 py-1 text-xs"
       />
-      <textarea
+      <TextField
+        label="Audit note"
         value={note}
-        onChange={(event) => setNote(event.target.value)}
+        onChange={setNote}
         placeholder="Internal note"
         rows={2}
-        className="w-full rounded border bg-white px-2 py-1 text-xs"
       />
       <button
         type="button"
         onClick={recordImb}
-        disabled={saving}
-        className="rounded bg-blue-950 px-3 py-2 text-xs font-black text-white disabled:opacity-50"
+        disabled={saving || requiredMissing.length > 0}
+        className="rounded-2xl bg-blue-950 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
       >
         {saving ? "Recording..." : "Record LetterTrack IMb"}
       </button>
       {message ? (
-        <p className="rounded border bg-white p-2 text-xs font-semibold">
-          {message}
-        </p>
+        <ActionNotice tone={noticeTone(message)}>{message}</ActionNotice>
+      ) : requiredMissing.length > 0 ? (
+        <ActionNotice tone="info">
+          Required: {requiredMissing.join(", ")}.
+        </ActionNotice>
       ) : null}
     </div>
   );
@@ -291,10 +407,20 @@ export function RecordLetterTrackDeliveryEventForm({
   const [note, setNote] = useState("");
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const requiredMissing = [
+    !status.trim() ? "status" : null,
+    !trackingNumber.trim() ? "LetterTrack IMb / tracking reference" : null,
+    note.trim().length < 8 ? "evidence note" : null,
+  ].filter(Boolean);
 
   async function recordEvidence() {
+    if (requiredMissing.length > 0) {
+      setMessage(`Delivery evidence needs: ${requiredMissing.join(", ")}.`);
+      return;
+    }
+
     setSaving(true);
-    setMessage("");
+    setMessage("Recording delivery evidence...");
 
     try {
       const response = await fetch(
@@ -306,11 +432,11 @@ export function RecordLetterTrackDeliveryEventForm({
           },
           body: JSON.stringify({
             status,
-            trackingNumber,
-            providerEventId,
-            location,
-            occurredAt,
-            note,
+            trackingNumber: trackingNumber.trim(),
+            providerEventId: providerEventId.trim(),
+            location: location.trim(),
+            occurredAt: occurredAt.trim(),
+            note: note.trim(),
           }),
         },
       );
@@ -333,64 +459,69 @@ export function RecordLetterTrackDeliveryEventForm({
   }
 
   return (
-    <div className="space-y-2 rounded border bg-green-50 p-2">
-      <select
-        value={status}
-        onChange={(event) => setStatus(event.target.value)}
-        className="w-full rounded border bg-white px-2 py-1 text-xs"
-      >
-        <option value="delivered">Delivered</option>
-        <option value="out_for_delivery">Out for Delivery</option>
-        <option value="in_transit">In Transit</option>
-        <option value="accepted">Accepted</option>
-        <option value="delivery_exception">Delivery Exception</option>
-        <option value="returned">Returned</option>
-        <option value="not_delivered">Not Delivered</option>
-        <option value="imb_recorded">IMb Recorded</option>
-      </select>
-      <input
+    <div className="space-y-2 rounded-2xl border border-green-200 bg-green-50 p-3">
+      <label className="block text-xs font-black text-neutral-800">
+        Delivery status
+        <select
+          value={status}
+          onChange={(event) => setStatus(event.target.value)}
+          className="mt-1 w-full rounded-2xl border border-neutral-300 bg-white px-3 py-2 text-xs font-semibold outline-none focus:border-neutral-950"
+        >
+          <option value="delivered">Delivered</option>
+          <option value="out_for_delivery">Out for Delivery</option>
+          <option value="in_transit">In Transit</option>
+          <option value="accepted">Accepted</option>
+          <option value="delivery_exception">Delivery Exception</option>
+          <option value="returned">Returned</option>
+          <option value="not_delivered">Not Delivered</option>
+          <option value="imb_recorded">IMb Recorded</option>
+        </select>
+      </label>
+      <TextField
+        label="LetterTrack IMb / tracking"
         value={trackingNumber}
-        onChange={(event) => setTrackingNumber(event.target.value)}
+        onChange={setTrackingNumber}
         placeholder="LetterTrack IMb / tracking reference"
-        className="w-full rounded border bg-white px-2 py-1 text-xs"
       />
-      <input
+      <TextField
+        label="Provider event ID"
         value={providerEventId}
-        onChange={(event) => setProviderEventId(event.target.value)}
+        onChange={setProviderEventId}
         placeholder="Provider event ID / scan ID (optional)"
-        className="w-full rounded border bg-white px-2 py-1 text-xs"
       />
-      <input
+      <TextField
+        label="Location"
         value={location}
-        onChange={(event) => setLocation(event.target.value)}
+        onChange={setLocation}
         placeholder="Location (optional)"
-        className="w-full rounded border bg-white px-2 py-1 text-xs"
       />
-      <input
+      <TextField
+        label="Occurred at"
         value={occurredAt}
-        onChange={(event) => setOccurredAt(event.target.value)}
+        onChange={setOccurredAt}
         placeholder="Occurred at ISO/date (optional)"
-        className="w-full rounded border bg-white px-2 py-1 text-xs"
       />
-      <textarea
+      <TextField
+        label="Evidence note"
         value={note}
-        onChange={(event) => setNote(event.target.value)}
+        onChange={setNote}
         placeholder="Evidence note / copied LetterTrack status"
         rows={2}
-        className="w-full rounded border bg-white px-2 py-1 text-xs"
       />
       <button
         type="button"
         onClick={recordEvidence}
-        disabled={saving}
-        className="rounded bg-green-800 px-3 py-2 text-xs font-black text-white disabled:opacity-50"
+        disabled={saving || requiredMissing.length > 0}
+        className="rounded-2xl bg-green-800 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
       >
         {saving ? "Recording..." : "Record Delivery Evidence"}
       </button>
       {message ? (
-        <p className="rounded border bg-white p-2 text-xs font-semibold">
-          {message}
-        </p>
+        <ActionNotice tone={noticeTone(message)}>{message}</ActionNotice>
+      ) : requiredMissing.length > 0 ? (
+        <ActionNotice tone="info">
+          Required: {requiredMissing.join(", ")}.
+        </ActionNotice>
       ) : null}
     </div>
   );
@@ -407,10 +538,19 @@ export function MarkOrderShippedButton({
 }) {
   const [shipping, setShipping] = useState(false);
   const [message, setMessage] = useState("");
+  const requiredMissing = [
+    !carrier.trim() ? "carrier" : null,
+    !trackingNumber.trim() ? "tracking number or IMb" : null,
+  ].filter(Boolean);
 
   async function markShipped() {
+    if (requiredMissing.length > 0) {
+      setMessage(`Mark shipped needs: ${requiredMissing.join(", ")}.`);
+      return;
+    }
+
     setShipping(true);
-    setMessage("");
+    setMessage("Marking order shipped...");
 
     try {
       const trackingResponse = await fetch("/api/orders/update-tracking", {
@@ -420,8 +560,8 @@ export function MarkOrderShippedButton({
         },
         body: JSON.stringify({
           orderId,
-          carrier,
-          trackingNumber,
+          carrier: carrier.trim(),
+          trackingNumber: trackingNumber.trim(),
         }),
       });
       const trackingData = await trackingResponse.json().catch(() => ({}));
@@ -462,19 +602,21 @@ export function MarkOrderShippedButton({
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-2 rounded-2xl border border-emerald-200 bg-emerald-50 p-3">
       <button
         type="button"
         onClick={markShipped}
-        disabled={shipping}
-        className="rounded bg-green-700 px-3 py-2 text-xs font-black text-white disabled:opacity-50"
+        disabled={shipping || requiredMissing.length > 0}
+        className="rounded-2xl bg-emerald-800 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
       >
         {shipping ? "Marking..." : "Mark Shipped"}
       </button>
       {message ? (
-        <p className="rounded border bg-white p-2 text-xs font-semibold">
-          {message}
-        </p>
+        <ActionNotice tone={noticeTone(message)}>{message}</ActionNotice>
+      ) : requiredMissing.length > 0 ? (
+        <ActionNotice tone="info">
+          Required: {requiredMissing.join(", ")}.
+        </ActionNotice>
       ) : null}
     </div>
   );

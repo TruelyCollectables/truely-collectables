@@ -56,7 +56,9 @@ export default function PurchaseCandidateControls({
       }
       next.push({ ...candidate, element: target, approvalForm });
     }
-    setTargets(next);
+    queueMicrotask(() => {
+      setTargets(next);
+    });
   }, [candidateKey, candidates]);
 
   const handoff = searchParams.get("admin_handoff");
