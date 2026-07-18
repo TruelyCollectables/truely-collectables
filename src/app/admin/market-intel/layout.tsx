@@ -3,6 +3,7 @@ import DiscoveryLiveBulkController from "./DiscoveryLiveBulkController";
 import DiscoveryReviewEnhancer from "./DiscoveryReviewEnhancer";
 import MarketIntelInteractionAuditEnhancer from "./MarketIntelInteractionAuditEnhancer";
 import MetricDrilldownEnhancer from "./MetricDrilldownEnhancer";
+import UniversalInstaCompEnhancer from "./UniversalInstaCompEnhancer";
 
 export default function MarketIntelLayout({
   children,
@@ -12,6 +13,7 @@ export default function MarketIntelLayout({
       <Suspense fallback={null}>
         <MetricDrilldownEnhancer />
         <MarketIntelInteractionAuditEnhancer />
+        <UniversalInstaCompEnhancer />
         <DiscoveryReviewEnhancer />
         <DiscoveryLiveBulkController />
       </Suspense>
