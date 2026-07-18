@@ -67,6 +67,37 @@ export function adminProductStatusSuccessMessage(status: InventoryStatus) {
   return "Product status updated.";
 }
 
+const SAFE_ADMIN_PRODUCT_ACTION_MESSAGES = new Set([
+  "Invalid product ID.",
+  "Unsupported inventory status.",
+  "Set quantity to at least 1 before marking this product active or reserved.",
+  "Title is required.",
+  "Price must be greater than zero.",
+  "Quantity must be a whole number of zero or more.",
+  "Image URL must begin with http:// or https://.",
+  "Product was not found.",
+  "No suggested price is available from the latest comps.",
+]);
+
+export function adminProductActionFailureMessage(
+  error: unknown,
+  fallbackMessage = "Could not complete the product action.",
+) {
+  const raw =
+    error instanceof Error
+      ? error.message
+      : typeof error === "string"
+        ? error
+        : "";
+  const message = raw.trim().replace(/\s+/g, " ");
+
+  if (SAFE_ADMIN_PRODUCT_ACTION_MESSAGES.has(message)) {
+    return message;
+  }
+
+  return `${fallbackMessage} Refresh products and try again. If it repeats, open Production Smoke and check server logs.`;
+}
+
 export function adminProductStatusChangeError(params: {
   productId: unknown;
   status: unknown;

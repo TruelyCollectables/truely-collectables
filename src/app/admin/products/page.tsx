@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import AdminSubmitButton from "../AdminSubmitButton";
 import BulkDescriptionEditor from "./BulkDescriptionEditor";
 import {
+  adminProductActionFailureMessage,
   adminProductStatusZeroesQuantity,
   adminProductStatusSuccessMessage,
   parseAdminProductId,
@@ -50,14 +51,6 @@ function productActionErrorPath(message: string) {
   return `/admin/products?saveError=${encodeURIComponent(message.slice(0, 240))}`;
 }
 
-function readableProductActionFailure(error: unknown, fallbackMessage: string) {
-  if (error instanceof Error && error.message.trim()) {
-    return error.message.trim().slice(0, 240);
-  }
-
-  return fallbackMessage;
-}
-
 async function endProductEarly(formData: FormData) {
   "use server";
 
@@ -75,7 +68,7 @@ async function endProductEarly(formData: FormData) {
       status: "archived",
     });
   } catch (error) {
-    failure = readableProductActionFailure(
+    failure = adminProductActionFailureMessage(
       error,
       "Could not end/archive this product.",
     );
@@ -158,6 +151,11 @@ export default async function AdminProductsPage({
   }
 
   if (error) {
+    const loadFailure = adminProductActionFailureMessage(
+      error,
+      "Could not load products.",
+    );
+
     return (
       <main className="bg-neutral-50 px-6 py-8 text-neutral-950">
         <section className="mx-auto max-w-4xl rounded-3xl border border-red-200 bg-white p-6 shadow-sm">
@@ -166,7 +164,7 @@ export default async function AdminProductsPage({
           </p>
           <h1 className="mt-2 text-3xl font-black">Error loading products</h1>
           <p className="mt-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-950">
-            {error.message}
+            {loadFailure}
           </p>
           <div className="mt-5 flex flex-wrap gap-3">
             <Link
@@ -263,7 +261,7 @@ export default async function AdminProductsPage({
           aria-live="assertive"
           className="rounded border border-red-300 bg-red-50 p-4 font-bold text-red-800"
         >
-          Product action failed: {query.saveError}
+          Product action needs attention: {query.saveError}
         </div>
       )}
 

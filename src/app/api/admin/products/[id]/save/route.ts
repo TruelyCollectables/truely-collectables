@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sanitizeAuthenticityProfile } from "../../../../../../lib/authenticity";
 import {
+  adminProductActionFailureMessage,
   adminProductStatusChangeError,
   adminProductStatusNormalizedQuantity,
   parseAdminInventoryStatus,
@@ -157,7 +158,10 @@ export async function POST(
     return redirectToProduct(request, id, { saved: "1" });
   } catch (error: any) {
     return redirectToProduct(request, id, {
-      saveError: error?.message || "Could not save product.",
+      saveError: adminProductActionFailureMessage(
+        error,
+        "Could not save product.",
+      ),
     });
   }
 }

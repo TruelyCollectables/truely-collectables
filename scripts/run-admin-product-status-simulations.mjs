@@ -1,5 +1,6 @@
 import {
   ADMIN_INVENTORY_STATUSES,
+  adminProductActionFailureMessage,
   adminProductStatusChangeError,
   adminProductStatusPendingLabel,
   adminProductStatusNormalizedQuantity,
@@ -21,6 +22,10 @@ const productsPageSource = await readFile(
 );
 const productSaveRouteSource = await readFile(
   new URL("../src/app/api/admin/products/[id]/save/route.ts", import.meta.url),
+  "utf8",
+);
+const adminProductStatusSource = await readFile(
+  new URL("../src/lib/admin-product-status.ts", import.meta.url),
   "utf8",
 );
 const inventoryEngineSource = await readFile(
@@ -71,6 +76,21 @@ scenario("returns operator-readable quick status errors", () => {
   assert(
     adminProductStatusChangeError({ productId: 12, status: "archived" }) === null,
     "Valid status changes should pass.",
+  );
+});
+
+scenario("sanitizes unexpected product action failures for operators", () => {
+  assert(
+    adminProductActionFailureMessage(new Error("PGRST116 raw table failure"), "Could not save product.") ===
+      "Could not save product. Refresh products and try again. If it repeats, open Production Smoke and check server logs.",
+    "Unexpected backend errors should be replaced with recovery guidance.",
+  );
+  assert(
+    adminProductActionFailureMessage(
+      new Error("Set quantity to at least 1 before marking this product active or reserved."),
+      "Could not save product.",
+    ) === "Set quantity to at least 1 before marking this product active or reserved.",
+    "Known validation errors should stay specific.",
   );
 });
 
@@ -158,6 +178,38 @@ scenario("product quick-status UI reports status success and stock blockers", ()
     assert(
       productPageSource.includes(fragment),
       `Expected product status UI fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("product pages avoid raw action failure copy", () => {
+  for (const fragment of [
+    "adminProductActionFailureMessage",
+    "Product action needs attention:",
+    "Refresh products and try again. If it repeats, open Production Smoke and check server logs.",
+  ]) {
+    assert(
+      productPageSource.includes(fragment) ||
+        productsPageSource.includes(fragment) ||
+        productSaveRouteSource.includes(fragment) ||
+        adminProductStatusSource.includes(fragment) ||
+        inventoryEngineSource.includes(fragment),
+      `Expected product action safety fragment ${fragment}.`,
+    );
+  }
+
+  for (const fragment of [
+    "readableProductActionFailure",
+    "Product action failed:",
+    "Save failed:",
+    "error.message.trim()",
+    "error?.message || \"Could not save product.\"",
+  ]) {
+    assert(
+      !productPageSource.includes(fragment) &&
+        !productsPageSource.includes(fragment) &&
+        !productSaveRouteSource.includes(fragment),
+      `Expected product admin pages to avoid raw failure fragment ${fragment}.`,
     );
   }
 });

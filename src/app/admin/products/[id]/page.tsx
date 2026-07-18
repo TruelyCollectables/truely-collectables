@@ -10,6 +10,7 @@ import {
 } from "../../../../lib/authenticity";
 import {
   ADMIN_INVENTORY_STATUSES,
+  adminProductActionFailureMessage,
   adminProductStatusChangeError,
   adminProductStatusPendingLabel,
   adminProductStatusRequiresStock,
@@ -40,14 +41,6 @@ function adminHref(href: string, handoff: string) {
   params.set("admin_handoff", handoff);
 
   return `${path}?${params.toString()}`;
-}
-
-function readableProductActionFailure(error: unknown, fallbackMessage: string) {
-  if (error instanceof Error && error.message.trim()) {
-    return error.message.trim().slice(0, 240);
-  }
-
-  return fallbackMessage;
 }
 
 function productSaveErrorPath(id: number, message: string, params: Record<string, string> = {}) {
@@ -91,7 +84,7 @@ async function setProductStatus(formData: FormData) {
       status: status!,
     });
   } catch (error) {
-    failure = readableProductActionFailure(
+    failure = adminProductActionFailureMessage(
       error,
       "Could not update product status.",
     );
@@ -119,7 +112,7 @@ async function regenerateDescription(formData: FormData) {
   try {
     await adminInventoryEngine.regenerateDescription(id);
   } catch (error) {
-    failure = readableProductActionFailure(
+    failure = adminProductActionFailureMessage(
       error,
       "Could not auto-fill the product description.",
     );
@@ -147,7 +140,7 @@ async function generateAiDescription(formData: FormData) {
   try {
     await adminInventoryEngine.generateAiDescription(id);
   } catch (error) {
-    failure = readableProductActionFailure(
+    failure = adminProductActionFailureMessage(
       error,
       "Could not write the AI product description.",
     );
@@ -206,7 +199,7 @@ async function applySuggestedPrice(formData: FormData) {
       });
     }
   } catch (error) {
-    failure = readableProductActionFailure(
+    failure = adminProductActionFailureMessage(
       error,
       "Could not apply the suggested price.",
     );
@@ -340,7 +333,7 @@ export default async function AdminProductEditPage({
           aria-live="assertive"
           className="rounded border border-rose-300 bg-rose-50 p-4 font-bold text-rose-800"
         >
-          Save failed: {query.saveError}
+          Product action needs attention: {query.saveError}
         </div>
       ) : null}
 
