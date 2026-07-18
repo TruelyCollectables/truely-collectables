@@ -125,6 +125,20 @@ export default function ShippingLabelActions({
     return true;
   }
 
+  function shippingLabelActionTitle({
+    action,
+    blocked,
+    ready,
+  }: {
+    action: string;
+    blocked?: string;
+    ready: string;
+  }) {
+    return busy
+      ? `Finish the current shipping label action before ${action}.`
+      : blocked || ready;
+  }
+
   async function prepareLabelRecord() {
     if (showShippingActionBlocked("preparing another label record")) return;
 
@@ -397,6 +411,11 @@ export default function ShippingLabelActions({
           onClick={prepareLabelRecord}
           aria-disabled={busy}
           aria-busy={preparing}
+          title={shippingLabelActionTitle({
+            action: "preparing another label record",
+            ready:
+              "Prepare an internal shipping label and Coverage record for this order.",
+          })}
           className={`rounded-2xl bg-neutral-950 px-4 py-3 text-sm font-black text-white shadow-sm ${
             busy ? "cursor-not-allowed opacity-50" : ""
           }`}
@@ -409,6 +428,14 @@ export default function ShippingLabelActions({
           onClick={attemptProviderPurchase}
           aria-disabled={providerActionsBlocked}
           aria-busy={purchasing}
+          title={shippingLabelActionTitle({
+            action: "attempting provider purchase",
+            blocked: activeDryRunLabel
+              ? "Record a real manual label or void the dry-run label before provider purchase."
+              : "",
+            ready:
+              "Check whether live provider credentials and label purchase setup are ready.",
+          })}
           className={`rounded-2xl border border-neutral-950 bg-white px-4 py-3 text-sm font-black text-neutral-950 shadow-sm ${
             providerActionsBlocked ? "cursor-not-allowed opacity-50" : ""
           }`}
@@ -424,6 +451,11 @@ export default function ShippingLabelActions({
             setShowVoidForm(false);
           }}
           aria-disabled={busy}
+          title={shippingLabelActionTitle({
+            action: "opening the manual purchase form",
+            ready:
+              "Open the manual label and Coverage proof form for externally purchased shipping.",
+          })}
           className={`rounded-2xl border border-blue-700 bg-blue-50 px-4 py-3 text-sm font-black text-blue-950 shadow-sm ${
             busy ? "cursor-not-allowed opacity-50" : ""
           }`}
@@ -439,6 +471,11 @@ export default function ShippingLabelActions({
             setShowManualForm(false);
           }}
           aria-disabled={busy}
+          title={shippingLabelActionTitle({
+            action: "opening the external void form",
+            ready:
+              "Open the external void/cancel proof form for a label handled outside TCOS.",
+          })}
           className={`rounded-2xl border border-red-700 bg-red-50 px-4 py-3 text-sm font-black text-red-950 shadow-sm ${
             busy ? "cursor-not-allowed opacity-50" : ""
           }`}
@@ -451,6 +488,14 @@ export default function ShippingLabelActions({
           onClick={openCoverageClaimDraft}
           aria-disabled={providerActionsBlocked}
           aria-busy={openingClaim}
+          title={shippingLabelActionTitle({
+            action: "opening a Coverage claim draft",
+            blocked: activeDryRunLabel
+              ? "Record a real Coverage policy before opening a claim."
+              : "",
+            ready:
+              "Open or reuse a Coverage claim draft for this order's shipping label.",
+          })}
           className={`rounded-2xl border border-amber-700 bg-amber-50 px-4 py-3 text-sm font-black text-amber-950 shadow-sm ${
             providerActionsBlocked ? "cursor-not-allowed opacity-50" : ""
           }`}
@@ -560,6 +605,14 @@ export default function ShippingLabelActions({
             onClick={recordManualPurchase}
             aria-disabled={busy || manualPurchaseMissing.length > 0}
             aria-busy={recording}
+            title={shippingLabelActionTitle({
+              action: "recording manual label purchase",
+              blocked: manualPurchaseMissing.length
+                ? `Required: ${manualPurchaseMissing.join(", ")}.`
+                : "",
+              ready:
+                "Save the external label, tracking, postage, and Coverage proof for this order.",
+            })}
             className={`mt-4 rounded-2xl bg-blue-800 px-4 py-3 text-sm font-black text-white shadow-sm ${
               busy || manualPurchaseMissing.length > 0
                 ? "cursor-not-allowed opacity-50"
@@ -640,6 +693,14 @@ export default function ShippingLabelActions({
             onClick={recordManualVoid}
             aria-disabled={busy || voidMissing.length > 0}
             aria-busy={voiding}
+            title={shippingLabelActionTitle({
+              action: "recording an external label void",
+              blocked: voidMissing.length
+                ? `Required: ${voidMissing.join(", ")}.`
+                : "",
+              ready:
+                "Save the external label void/cancel proof and close the TCOS label record.",
+            })}
             className={`mt-4 rounded-2xl bg-red-800 px-4 py-3 text-sm font-black text-white shadow-sm ${
               busy || voidMissing.length > 0
                 ? "cursor-not-allowed opacity-50"
