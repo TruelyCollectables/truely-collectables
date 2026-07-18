@@ -3949,6 +3949,12 @@ export default function InstaCompScanner({
     return Math.round(suggestedPrice * 0.9 * 100) / 100;
   }, [result]);
 
+  const singleScanBlockedReason = loading
+    ? "InstaComp™ is already running for this card."
+    : !frontImage
+      ? "Upload the front image before running a single-card scan."
+      : "";
+
   const batchDoneCount = batchCards.filter((card) => card.status === "done").length;
   const batchErrorCount = batchCards.filter(
     (card) => card.status === "error"
@@ -13752,6 +13758,10 @@ export default function InstaCompScanner({
           type="button"
           onClick={scanCard}
           aria-disabled={loading || !frontImage}
+          title={
+            singleScanBlockedReason ||
+            "Run InstaComp™ against the uploaded front image and optional back image."
+          }
           style={{
             marginTop: 20,
             padding: "12px 18px",
@@ -14884,6 +14894,18 @@ function BatchCardRow({
   const tcosSearchQuery = tcosCardSearchQuery(card.result, title);
   const canSelectForDraft = isDraftableBatchCard(card);
   const canSelectRow = canSelectForDraft || (card.status === "done" && Boolean(card.result));
+  const selectRowBlockedReason = canSelectRow
+    ? ""
+    : card.status === "queued"
+      ? "Selection unlocks after this queued row finishes scanning."
+      : card.status === "scanning"
+        ? "Selection unlocks after this row finishes scanning."
+        : card.status === "error"
+          ? "Retry or remove this failed row before selecting it for draft actions."
+          : "Selection unlocks after this row has a completed scan result.";
+  const selectRowTitle = canSelectRow
+    ? "Select this completed row for draft, edit, export, or cleanup actions."
+    : selectRowBlockedReason;
   const canCopyDraftPayload = Boolean(onCopyDraftPayload) && canSelectForDraft;
   const copyDraftPayloadBlockedReason =
     "Draft payload copy is available after the row has a complete, draftable scan result.";
@@ -15063,6 +15085,7 @@ function BatchCardRow({
               Card #{index + 1} - {card.status.toUpperCase()}
             </div>
             <label
+              title={selectRowTitle}
               style={{
                 display: "flex",
                 gap: 8,
@@ -15074,6 +15097,7 @@ function BatchCardRow({
                 type="checkbox"
                 checked={card.selected && canSelectRow}
                 disabled={!canSelectRow}
+                title={selectRowTitle}
                 onChange={(event) =>
                   onSelectedChange(card.id, event.target.checked)
                 }
