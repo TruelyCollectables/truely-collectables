@@ -620,6 +620,7 @@ function ActionNotice({
 
   return (
     <p
+      role={tone === "error" ? "alert" : "status"}
       aria-live={tone === "info" ? "polite" : "assertive"}
       className={`rounded-2xl border px-3 py-2 text-sm font-black ${className}`}
     >

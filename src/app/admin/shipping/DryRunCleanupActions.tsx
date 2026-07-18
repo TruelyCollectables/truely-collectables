@@ -186,6 +186,14 @@ export default function DryRunCleanupActions({
 
       {message ? (
         <p
+          role={
+            message.toLowerCase().includes("could not") ||
+            message.toLowerCase().includes("failed") ||
+            message.toLowerCase().includes("add a cleanup note") ||
+            message.toLowerCase().includes("required")
+              ? "alert"
+              : "status"
+          }
           aria-live={
             message.toLowerCase().includes("retiring") ? "polite" : "assertive"
           }

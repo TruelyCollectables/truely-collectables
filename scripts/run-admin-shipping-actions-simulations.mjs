@@ -38,6 +38,7 @@ function assert(condition, message) {
 
 scenario("shipping queue actions expose live notices and specific busy labels", () => {
   for (const fragment of [
+    'role={tone === "error" ? "alert" : "status"}',
     'aria-live={tone === "info" ? "polite" : "assertive"}',
     "Saving Coverage policy...",
     "Saving tracking...",
@@ -59,6 +60,9 @@ scenario("dry-run cleanup confirmation reports busy and live feedback", () => {
     "Retiring + opening real label form...",
     "Retiring simulated proof...",
     "aria-busy={retiring}",
+    'role={',
+    '? "alert"',
+    ': "status"',
     "aria-live={",
     "Retiring dry-run shipping proof...",
   ]) {
@@ -77,6 +81,7 @@ scenario("order shipping label actions announce async provider work", () => {
     "Preparing label record...",
     "Checking provider readiness...",
     "Opening Coverage claim...",
+    'role={tone === "error" ? "alert" : "status"}',
     'aria-live={tone === "info" ? "polite" : "assertive"}',
     "aria-busy={preparing}",
     "aria-busy={purchasing}",
