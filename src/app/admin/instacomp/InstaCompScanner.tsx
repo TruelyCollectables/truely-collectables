@@ -6,6 +6,10 @@ import { getFreshAccountSession } from "@/src/app/account/account-session";
 import { buildInstaCompDraftTitle } from "@/src/lib/instacomp-draft-title";
 import { gradingLookupUrl } from "@/src/lib/grading-cert";
 import {
+  instaCompBatchRowActionLabel,
+  type InstaCompBatchRowAction,
+} from "@/src/lib/instacomp-row-actions";
+import {
   canRemoveInstaCompBatchRow,
   instaCompBatchRowRemovalBlockedReason,
   instaCompBatchRowRemovalLabel,
@@ -286,6 +290,10 @@ type OperatorCorrectionSnapshot = {
 type BatchCardStatus = "queued" | "scanning" | "done" | "error";
 type DraftListingStatus = "idle" | "drafting" | "created" | "error";
 type TradeHandoffStatus = "idle" | "adding" | "created" | "error";
+type ActiveBatchCardAction = {
+  cardId: string;
+  action: Exclude<InstaCompBatchRowAction, null>;
+};
 type AiCouncilTier =
   | "adaptive"
   | "basic"
@@ -3444,6 +3452,8 @@ export default function InstaCompScanner({
   const [loading, setLoading] = useState(false);
   const [copiedPrice, setCopiedPrice] = useState<string | null>(null);
   const [batchCards, setBatchCards] = useState<BatchCard[]>([]);
+  const [activeBatchCardAction, setActiveBatchCardAction] =
+    useState<ActiveBatchCardAction | null>(null);
   const [batchRunning, setBatchRunning] = useState(false);
   const [batchDrafting, setBatchDrafting] = useState(false);
   const [removingBatchCardIds, setRemovingBatchCardIds] = useState<Set<string>>(
@@ -7434,6 +7444,10 @@ export default function InstaCompScanner({
     databasePressurePauseRef.current = false;
     openAIRateLimitPauseRef.current = false;
     setBatchRunning(true);
+    setActiveBatchCardAction({
+      cardId,
+      action: "saving_corrections",
+    });
     setBatchError(null);
     setBatchDraftMessage("Saving corrections and repricing this row...");
 
@@ -7447,6 +7461,7 @@ export default function InstaCompScanner({
       setBatchDraftMessage(null);
     } finally {
       setBatchRunning(false);
+      setActiveBatchCardAction(null);
     }
   }
 
@@ -7529,6 +7544,10 @@ export default function InstaCompScanner({
     databasePressurePauseRef.current = false;
     openAIRateLimitPauseRef.current = false;
     setBatchRunning(true);
+    setActiveBatchCardAction({
+      cardId,
+      action: "refreshing_comps",
+    });
     setBatchError(null);
     setBatchDraftMessage("Refreshing comps for this row...");
 
@@ -7559,6 +7578,7 @@ export default function InstaCompScanner({
       setBatchDraftMessage(null);
     } finally {
       setBatchRunning(false);
+      setActiveBatchCardAction(null);
     }
   }
 
@@ -12308,6 +12328,11 @@ export default function InstaCompScanner({
                 index={index}
                 batchBusy={batchRunning || batchDrafting || batchKnowledgeSaving}
                 batchDrafting={batchDrafting}
+                activeAction={
+                  activeBatchCardAction?.cardId === card.id
+                    ? activeBatchCardAction.action
+                    : null
+                }
                 isRemoving={removingBatchCardIds.has(card.id)}
                 onApplyPrice={applyBatchPrice}
                 onTitleChange={handleBatchTitleChange}
@@ -13411,6 +13436,7 @@ function TcosCardSearchActions({
 }
 
 function BatchCardRow({
+  activeAction,
   card,
   index,
   batchBusy,
@@ -13434,6 +13460,7 @@ function BatchCardRow({
   onCopySummary,
   onCopyDraftPayload,
 }: {
+  activeAction: InstaCompBatchRowAction;
   card: BatchCard;
   index: number;
   batchBusy: boolean;
@@ -13520,6 +13547,14 @@ function BatchCardRow({
     Boolean(card.backFile?.size);
   const canSaveCorrections = !batchBusy && isCorrectionSavableBatchCard(card);
   const canRefreshComps = canSaveCorrections;
+  const saveCorrectionsLabel = instaCompBatchRowActionLabel({
+    action: activeAction === "saving_corrections" ? activeAction : null,
+    fallback: "Save Corrections",
+  });
+  const refreshCompsLabel = instaCompBatchRowActionLabel({
+    action: activeAction === "refreshing_comps" ? activeAction : null,
+    fallback: "Refresh Comps",
+  });
   const canAddToTrade =
     !batchBusy &&
     card.status === "done" &&
@@ -13965,7 +14000,7 @@ function BatchCardRow({
                   cursor: canSaveCorrections ? "pointer" : "not-allowed",
                 }}
               >
-                Save Corrections
+                {saveCorrectionsLabel}
               </button>
 
               <button
@@ -13986,7 +14021,7 @@ function BatchCardRow({
                   cursor: canRefreshComps ? "pointer" : "not-allowed",
                 }}
               >
-                Refresh Comps
+                {refreshCompsLabel}
               </button>
 
               <button
