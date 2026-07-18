@@ -11,8 +11,13 @@ import {
 
 export const maxDuration = 60;
 
+function wantsJson(request: NextRequest) {
+  return request.headers.get("accept")?.includes("application/json") === true;
+}
+
 export async function POST(request: NextRequest) {
   const handoff = adminHandoffFromUrl(new URL(request.url));
+  const json = wantsJson(request);
 
   try {
     const formData = await request.formData();
@@ -40,10 +45,18 @@ export async function POST(request: NextRequest) {
 
     if (!result) throw new Error("Unsupported bulk action.");
 
+    if (json) {
+      return NextResponse.json(
+        { success: true, result },
+        { headers: { "Cache-Control": "no-store" } },
+      );
+    }
+
     const firstError = result.errors[0]?.message || "";
     const params = new URLSearchParams({
       bulk: "1",
       requested: String(result.requested),
+      processed: String(result.requested),
       approved: String(result.approved),
       rejected: String(result.rejected),
       skipped: String(result.skipped),
@@ -61,6 +74,14 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unable to process selected candidates.";
+
+    if (json) {
+      return NextResponse.json(
+        { success: false, error: message },
+        { status: 500, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+
     return NextResponse.redirect(
       adminRedirectUrl(
         `/admin/market-intel/discovery?error=${encodeURIComponent(message)}`,
