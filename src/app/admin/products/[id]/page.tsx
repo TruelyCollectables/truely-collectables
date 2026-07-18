@@ -1,6 +1,7 @@
 import Link from "next/link";
 import Image from "next/image";
 import { redirect } from "next/navigation";
+import AdminSubmitButton from "../../AdminSubmitButton";
 import {
   AUTHENTICITY_STATUSES,
   AUTOGRAPH_SOURCES,
@@ -38,6 +39,26 @@ function adminHref(href: string, handoff: string) {
   return `${path}?${params.toString()}`;
 }
 
+function readableProductActionFailure(error: unknown, fallbackMessage: string) {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message.trim().slice(0, 240);
+  }
+
+  return fallbackMessage;
+}
+
+function productSaveErrorPath(id: number, message: string, params: Record<string, string> = {}) {
+  const query = new URLSearchParams(params);
+
+  query.set("saveError", message.slice(0, 240));
+
+  return `/admin/products/${id}?${query.toString()}`;
+}
+
+function productsSaveErrorPath(message: string) {
+  return `/admin/products?saveError=${encodeURIComponent(message.slice(0, 240))}`;
+}
+
 async function setProductStatus(formData: FormData) {
   "use server";
 
@@ -59,10 +80,23 @@ async function setProductStatus(formData: FormData) {
     );
   }
 
-  await adminInventoryEngine.setStatus({
-    legacyProductId: id!,
-    status: status!,
-  });
+  let failure: string | null = null;
+
+  try {
+    await adminInventoryEngine.setStatus({
+      legacyProductId: id!,
+      status: status!,
+    });
+  } catch (error) {
+    failure = readableProductActionFailure(
+      error,
+      "Could not update product status.",
+    );
+  }
+
+  if (failure) {
+    redirect(productSaveErrorPath(id!, failure));
+  }
 
   redirect(`/admin/products/${id}`);
 }
@@ -71,9 +105,26 @@ async function regenerateDescription(formData: FormData) {
   "use server";
 
   const adminInventoryEngine = createServerInventoryEngine();
-  const id = Number(formData.get("id"));
+  const id = parseAdminProductId(formData.get("id"));
 
-  await adminInventoryEngine.regenerateDescription(id);
+  if (!id) {
+    redirect(productsSaveErrorPath("Invalid product ID."));
+  }
+
+  let failure: string | null = null;
+
+  try {
+    await adminInventoryEngine.regenerateDescription(id);
+  } catch (error) {
+    failure = readableProductActionFailure(
+      error,
+      "Could not auto-fill the product description.",
+    );
+  }
+
+  if (failure) {
+    redirect(productSaveErrorPath(id, failure));
+  }
 
   redirect(`/admin/products/${id}`);
 }
@@ -82,9 +133,26 @@ async function generateAiDescription(formData: FormData) {
   "use server";
 
   const adminInventoryEngine = createServerInventoryEngine();
-  const id = Number(formData.get("id"));
+  const id = parseAdminProductId(formData.get("id"));
 
-  await adminInventoryEngine.generateAiDescription(id);
+  if (!id) {
+    redirect(productsSaveErrorPath("Invalid product ID."));
+  }
+
+  let failure: string | null = null;
+
+  try {
+    await adminInventoryEngine.generateAiDescription(id);
+  } catch (error) {
+    failure = readableProductActionFailure(
+      error,
+      "Could not write the AI product description.",
+    );
+  }
+
+  if (failure) {
+    redirect(productSaveErrorPath(id, failure));
+  }
 
   redirect(`/admin/products/${id}`);
 }
@@ -93,35 +161,56 @@ async function applySuggestedPrice(formData: FormData) {
   "use server";
 
   const adminInventoryEngine = createServerInventoryEngine();
-  const id = Number(formData.get("id"));
+  const id = parseAdminProductId(formData.get("id"));
+
+  if (!id) {
+    redirect(productsSaveErrorPath("Invalid product ID."));
+  }
+
   const product = await adminInventoryEngine.getByLegacyProductId(id);
 
   if (!product) {
-    redirect("/admin/products");
+    redirect(productsSaveErrorPath("Product was not found."));
   }
 
-  const salesComps = await getSalesComps({
-    title: product.title,
-    player: product.player,
-    sport: product.sport,
-    legacyProductId: product.legacyProductId,
-    limit: 12,
-  });
+  let failure: string | null = null;
+  let suggestedPrice: number | null = null;
 
-  if (!salesComps.suggestedPrice) {
-    redirect(`/admin/products/${id}?comps=true`);
+  try {
+    const salesComps = await getSalesComps({
+      title: product.title,
+      player: product.player,
+      sport: product.sport,
+      legacyProductId: product.legacyProductId,
+      limit: 12,
+    });
+
+    suggestedPrice = salesComps.suggestedPrice ?? null;
+
+    if (!suggestedPrice) {
+      failure = "No suggested price is available from the latest comps.";
+    } else {
+      await adminInventoryEngine.updateProduct(id, {
+        title: product.title,
+        player: product.player,
+        sport: product.sport,
+        price: suggestedPrice,
+        quantity: product.quantity,
+        status: product.status,
+        imageUrl: product.imageUrl,
+        description: product.description,
+      });
+    }
+  } catch (error) {
+    failure = readableProductActionFailure(
+      error,
+      "Could not apply the suggested price.",
+    );
   }
 
-  await adminInventoryEngine.updateProduct(id, {
-    title: product.title,
-    player: product.player,
-    sport: product.sport,
-    price: salesComps.suggestedPrice,
-    quantity: product.quantity,
-    status: product.status,
-    imageUrl: product.imageUrl,
-    description: product.description,
-  });
+  if (failure) {
+    redirect(productSaveErrorPath(id, failure, { comps: "true" }));
+  }
 
   redirect(`/admin/products/${id}?comps=true`);
 }
@@ -454,12 +543,12 @@ export default async function AdminProductEditPage({
             </section>
 
             <div className="flex flex-wrap gap-3">
-              <button
-                type="submit"
+              <AdminSubmitButton
                 className="rounded-md bg-neutral-950 px-6 py-3 text-sm font-black text-white hover:bg-neutral-800"
+                pendingChildren="Saving product..."
               >
                 Save product
-              </button>
+              </AdminSubmitButton>
             </div>
           </form>
         </section>
@@ -545,22 +634,22 @@ export default async function AdminProductEditPage({
             <div className="space-y-3">
               <form action={regenerateDescription}>
                 <input type="hidden" name="id" value={product.legacyProductId} />
-                <button
-                  type="submit"
+                <AdminSubmitButton
                   className="w-full rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50"
+                  pendingChildren="Auto-filling..."
                 >
                   Auto-fill description
-                </button>
+                </AdminSubmitButton>
               </form>
 
               <form action={generateAiDescription}>
                 <input type="hidden" name="id" value={product.legacyProductId} />
-                <button
-                  type="submit"
+                <AdminSubmitButton
                   className="w-full rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white hover:bg-neutral-800"
+                  pendingChildren="Writing..."
                 >
                   AI write description
-                </button>
+                </AdminSubmitButton>
               </form>
             </div>
           </section>
@@ -697,12 +786,12 @@ function SalesCompsPanel({
           {salesComps.suggestedPrice && (
             <form action={applySuggestedPrice}>
               <input type="hidden" name="id" value={productId} />
-              <button
-                type="submit"
+              <AdminSubmitButton
                 className="w-full rounded-md bg-emerald-700 px-4 py-2 text-sm font-black text-white hover:bg-emerald-800"
+                pendingChildren="Applying price..."
               >
                 Apply suggested price
-              </button>
+              </AdminSubmitButton>
             </form>
           )}
 
@@ -816,17 +905,17 @@ function StatusButton({
     <form action={setProductStatus}>
       <input type="hidden" name="id" value={id} />
       <input type="hidden" name="status" value={status} />
-      <button
-        type="submit"
+      <AdminSubmitButton
         disabled={isCurrent}
         className={`w-full rounded-md px-4 py-2 text-sm font-black disabled:cursor-not-allowed ${
           isCurrent
             ? "border border-emerald-200 bg-emerald-50 text-emerald-950"
             : "border border-neutral-300 bg-white hover:bg-neutral-50"
         }`}
+        pendingChildren={`Setting ${label.toLowerCase()}...`}
       >
         {isCurrent ? `Current: ${label}` : label}
-      </button>
+      </AdminSubmitButton>
     </form>
   );
 }
