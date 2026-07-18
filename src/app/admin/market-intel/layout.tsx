@@ -1,4 +1,5 @@
 import { Suspense } from "react";
+import DiscoveryReviewEnhancer from "./DiscoveryReviewEnhancer";
 import MetricDrilldownEnhancer from "./MetricDrilldownEnhancer";
 
 export default function MarketIntelLayout({
@@ -8,6 +9,7 @@ export default function MarketIntelLayout({
     <>
       <Suspense fallback={null}>
         <MetricDrilldownEnhancer />
+        <DiscoveryReviewEnhancer />
       </Suspense>
       {children}
     </>
