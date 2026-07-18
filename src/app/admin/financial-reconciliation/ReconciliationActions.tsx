@@ -7,6 +7,22 @@ import {
   financialReconciliationDecisionError,
 } from "../../../lib/admin-financial-reconciliation";
 
+function reconciliationActionTitle({
+  busy,
+  blockedReason,
+  ready,
+}: {
+  busy: boolean;
+  blockedReason?: string | null;
+  ready: string;
+}) {
+  if (busy) return "Finish the current reconciliation action first.";
+
+  if (blockedReason) return blockedReason;
+
+  return ready;
+}
+
 export default function ReconciliationActions({
   itemId,
 }: {
@@ -42,6 +58,12 @@ export default function ReconciliationActions({
       status: pendingStatus,
       resolutionNote: trimmedResolutionNote,
     }) && Boolean(pendingStatus);
+  const saveDecisionBlockedReason =
+    financialReconciliationDecisionError({
+      itemId,
+      status: pendingStatus,
+      resolutionNote: trimmedResolutionNote,
+    }) || null;
 
   function reconciliationActionBlockedReason(action: string) {
     return reconciliationActionRunningRef.current || busy
@@ -150,6 +172,10 @@ export default function ReconciliationActions({
           onClick={runNow}
           aria-disabled={busy}
           aria-busy={busy}
+          title={reconciliationActionTitle({
+            busy,
+            ready: "Run the previous UTC day financial reconciliation.",
+          })}
           className={`rounded-2xl bg-emerald-400 px-4 py-3 text-sm font-black text-neutral-950 shadow-sm transition ${
             busy ? "cursor-not-allowed opacity-50" : "hover:bg-emerald-300"
           }`}
@@ -169,6 +195,10 @@ export default function ReconciliationActions({
           onClick={() => beginDecision("resolved")}
           aria-disabled={busy}
           aria-pressed={pendingStatus === "resolved"}
+          title={reconciliationActionTitle({
+            busy,
+            ready: "Open the resolution note panel for this money alert.",
+          })}
           className={`rounded-full bg-emerald-700 px-3 py-2 text-xs font-black text-white shadow-sm ${
             busy ? "cursor-not-allowed opacity-50" : ""
           }`}
@@ -180,6 +210,10 @@ export default function ReconciliationActions({
           onClick={() => beginDecision("ignored")}
           aria-disabled={busy}
           aria-pressed={pendingStatus === "ignored"}
+          title={reconciliationActionTitle({
+            busy,
+            ready: "Open the ignore-with-note panel for this money alert.",
+          })}
           className={`rounded-full border border-neutral-300 bg-white px-3 py-2 text-xs font-black text-neutral-900 shadow-sm ${
             busy ? "cursor-not-allowed opacity-50" : ""
           }`}
@@ -209,6 +243,14 @@ export default function ReconciliationActions({
               onClick={() => resolve(pendingStatus)}
               aria-disabled={busy || !canSaveDecision}
               aria-busy={busy}
+              title={reconciliationActionTitle({
+                blockedReason: saveDecisionBlockedReason,
+                busy,
+                ready:
+                  pendingStatus === "resolved"
+                    ? "Save this money alert as resolved with the audit note."
+                    : "Save this money alert as ignored with the audit note.",
+              })}
               className={`rounded-full bg-neutral-950 px-3 py-2 text-xs font-black text-white shadow-sm ${
                 busy || !canSaveDecision ? "cursor-not-allowed opacity-50" : ""
               }`}
@@ -219,6 +261,10 @@ export default function ReconciliationActions({
               type="button"
               onClick={cancelDecision}
               aria-disabled={busy}
+              title={reconciliationActionTitle({
+                busy,
+                ready: "Close this reconciliation decision panel without saving.",
+              })}
               className={`rounded-full border border-neutral-300 bg-white px-3 py-2 text-xs font-black shadow-sm ${
                 busy ? "cursor-not-allowed opacity-50" : ""
               }`}
