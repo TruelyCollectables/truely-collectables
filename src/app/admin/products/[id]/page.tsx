@@ -129,11 +129,22 @@ export default async function AdminProductEditPage({
 
   if (!product) {
     return (
-      <main className="p-8 max-w-5xl mx-auto">
-        <h1 className="text-3xl font-bold mb-4">Product Not Found</h1>
-        <Link href={adminHref("/admin/products", adminHandoff)} className="underline">
-          Back to Products
-        </Link>
+      <main className="bg-neutral-50 px-6 py-8 text-neutral-950">
+        <section className="mx-auto max-w-4xl rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm">
+          <p className="text-xs font-black uppercase tracking-[0.16em] text-red-700">
+            Product editor
+          </p>
+          <h1 className="mt-2 text-3xl font-black">Product not found</h1>
+          <p className="mt-2 text-sm font-semibold text-neutral-600">
+            This product no longer exists or is not available in the active store.
+          </p>
+          <Link
+            href={adminHref("/admin/products", adminHandoff)}
+            className="mt-5 inline-block rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white"
+          >
+            Back to products
+          </Link>
+        </section>
       </main>
     );
   }
@@ -151,61 +162,97 @@ export default async function AdminProductEditPage({
   const salesCompHistory = await getSalesCompHistory(product.legacyProductId);
 
   return (
-    <main className="p-8 max-w-5xl mx-auto">
-      <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
+    <main className="space-y-6 bg-neutral-50 px-6 py-8 text-neutral-950">
+      <section className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm">
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <Link href={adminHref("/admin/products", adminHandoff)} className="underline">
-            Back to Products
+          <Link
+            href={adminHref("/admin/products", adminHandoff)}
+            className="text-sm font-black text-neutral-600 underline"
+          >
+            ← Back to products
           </Link>
 
-          <h1 className="text-4xl font-bold mt-4">Edit Product</h1>
-          <p className="text-gray-600 mt-2">
-            Product #{product.legacyProductId} - {product.source}
+          <p className="mt-5 text-xs font-black uppercase tracking-[0.18em] text-emerald-700">
+            Product editor
+          </p>
+          <h1 className="mt-2 text-4xl font-black tracking-tight">
+            {product.title}
+          </h1>
+          <p className="mt-3 text-sm font-semibold text-neutral-600">
+            Product #{product.legacyProductId} · {product.source} ·{" "}
+            {product.inventoryItemId ? "V2 linked" : "V2 item pending"}
           </p>
         </div>
 
         <div className="flex flex-wrap gap-3">
           <Link
             href={`/product/${product.legacyProductId}`}
-            className="border rounded px-4 py-2"
+            className="rounded-md border border-sky-300 bg-sky-50 px-4 py-2 text-sm font-black text-sky-950 hover:bg-sky-100"
           >
-            View Storefront
+            View storefront
           </Link>
 
-          <Link href="/admin/logout" className="border rounded px-4 py-2">
+          <Link
+            href="/admin/logout"
+            className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50"
+          >
             Logout
           </Link>
         </div>
       </div>
+      </section>
 
       {query?.saved === "1" ? (
-        <div className="mb-6 rounded border border-emerald-300 bg-emerald-50 p-4 font-bold text-emerald-800">
+        <div className="rounded border border-emerald-300 bg-emerald-50 p-4 font-bold text-emerald-800">
           Product saved.
         </div>
       ) : null}
 
       {query?.saveError ? (
-        <div className="mb-6 rounded border border-rose-300 bg-rose-50 p-4 font-bold text-rose-800">
+        <div className="rounded border border-rose-300 bg-rose-50 p-4 font-bold text-rose-800">
           Save failed: {query.saveError}
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <section className="grid gap-3 md:grid-cols-4">
+        <Metric label="Status" value={product.status} tone="emerald" />
+        <Metric label="Price" value={money(product.price)} tone="sky" />
+        <Metric label="Quantity" value={String(product.quantity)} />
+        <Metric
+          label="Value"
+          value={money(Number(product.price || 0) * Number(product.quantity || 0))}
+        />
+      </section>
+
+      <div className="grid grid-cols-1 gap-8 lg:grid-cols-3">
         <section className="lg:col-span-2">
           <form
             action={`/api/admin/products/${product.legacyProductId}/save?admin_handoff=${encodeURIComponent(
               adminHandoff,
             )}`}
             method="post"
-            className="space-y-4"
+            className="space-y-5 rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm"
           >
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.16em] text-neutral-500">
+                Editable listing data
+              </p>
+              <h2 className="mt-2 text-2xl font-black">Product details</h2>
+              <p className="mt-2 text-sm font-semibold text-neutral-600">
+                Required fields are validated before save so the admin cannot
+                create blank titles, invalid prices, malformed image URLs, or
+                broken quantity values.
+              </p>
+            </div>
+
             <label className="block">
               <span className="font-bold">Title</span>
               <input
                 name="title"
                 required
                 defaultValue={product.title}
-                className="border p-2 w-full mt-1"
+                className="mt-1 w-full rounded border border-neutral-300 px-3 py-3 text-sm"
               />
             </label>
 
@@ -215,7 +262,7 @@ export default async function AdminProductEditPage({
                 <input
                   name="player"
                   defaultValue={textValue(product.player)}
-                  className="border p-2 w-full mt-1"
+                  className="mt-1 w-full rounded border border-neutral-300 px-3 py-3 text-sm"
                 />
               </label>
 
@@ -224,7 +271,7 @@ export default async function AdminProductEditPage({
                 <input
                   name="sport"
                   defaultValue={textValue(product.sport)}
-                  className="border p-2 w-full mt-1"
+                  className="mt-1 w-full rounded border border-neutral-300 px-3 py-3 text-sm"
                 />
               </label>
             </div>
@@ -239,7 +286,7 @@ export default async function AdminProductEditPage({
                   step="0.01"
                   required
                   defaultValue={product.price}
-                  className="border p-2 w-full mt-1"
+                  className="mt-1 w-full rounded border border-neutral-300 px-3 py-3 text-sm"
                 />
               </label>
 
@@ -252,7 +299,7 @@ export default async function AdminProductEditPage({
                   step="1"
                   required
                   defaultValue={product.quantity}
-                  className="border p-2 w-full mt-1"
+                  className="mt-1 w-full rounded border border-neutral-300 px-3 py-3 text-sm"
                 />
               </label>
 
@@ -261,7 +308,7 @@ export default async function AdminProductEditPage({
                 <select
                   name="status"
                   defaultValue={product.status}
-                  className="border p-2 w-full mt-1"
+                  className="mt-1 w-full rounded border border-neutral-300 px-3 py-3 text-sm"
                 >
                   {INVENTORY_STATUSES.map((status) => (
                     <option key={status} value={status}>
@@ -276,8 +323,10 @@ export default async function AdminProductEditPage({
               <span className="font-bold">Image URL</span>
               <input
                 name="image_url"
+                type="url"
                 defaultValue={textValue(product.imageUrl)}
-                className="border p-2 w-full mt-1"
+                className="mt-1 w-full rounded border border-neutral-300 px-3 py-3 text-sm"
+                placeholder="https://..."
               />
             </label>
 
@@ -287,16 +336,19 @@ export default async function AdminProductEditPage({
                 name="description"
                 defaultValue={textValue(product.description)}
                 rows={8}
-                className="border p-2 w-full mt-1"
+                className="mt-1 w-full rounded border border-neutral-300 px-3 py-3 text-sm"
               />
-              <span className="text-sm text-gray-500">
+              <span className="text-sm font-semibold text-neutral-500">
                 Leave blank and save to auto-fill from TCOS product data.
               </span>
             </label>
 
-            <section className="rounded border p-4">
-              <h2 className="text-xl font-bold">Authenticity And Provenance</h2>
-              <p className="mt-2 text-sm text-gray-600">
+            <section className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4">
+              <p className="text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
+                Trust layer
+              </p>
+              <h2 className="mt-2 text-xl font-black">Authenticity and provenance</h2>
+              <p className="mt-2 text-sm font-semibold text-neutral-600">
                 Store the exact certification, guarantee, or provenance disclosure
                 that should follow this listing everywhere it appears.
               </p>
@@ -307,7 +359,7 @@ export default async function AdminProductEditPage({
                   <select
                     name="authenticity_status"
                     defaultValue={product.authenticity.status}
-                    className="border p-2 w-full mt-1"
+                    className="mt-1 w-full rounded border border-neutral-300 px-3 py-3 text-sm"
                   >
                     {AUTHENTICITY_STATUSES.map((status) => (
                       <option key={status} value={status}>
@@ -322,7 +374,7 @@ export default async function AdminProductEditPage({
                   <select
                     name="autograph_source"
                     defaultValue={product.authenticity.autographSource}
-                    className="border p-2 w-full mt-1"
+                    className="mt-1 w-full rounded border border-neutral-300 px-3 py-3 text-sm"
                   >
                     {AUTOGRAPH_SOURCES.map((source) => (
                       <option key={source} value={source}>
@@ -337,7 +389,7 @@ export default async function AdminProductEditPage({
                   <input
                     name="cert_provider"
                     defaultValue={textValue(product.authenticity.certProvider)}
-                    className="border p-2 w-full mt-1"
+                    className="mt-1 w-full rounded border border-neutral-300 px-3 py-3 text-sm"
                     placeholder="PSA, JSA, Beckett, SGC, CGC"
                   />
                 </label>
@@ -347,7 +399,7 @@ export default async function AdminProductEditPage({
                   <input
                     name="cert_number"
                     defaultValue={textValue(product.authenticity.certNumber)}
-                    className="border p-2 w-full mt-1"
+                    className="mt-1 w-full rounded border border-neutral-300 px-3 py-3 text-sm"
                     placeholder="Certificate or serial lookup number"
                   />
                 </label>
@@ -358,10 +410,10 @@ export default async function AdminProductEditPage({
                 <input
                   name="guaranteed_authenticators"
                   defaultValue={product.authenticity.guaranteedAuthenticators.join(", ")}
-                  className="border p-2 w-full mt-1"
+                  className="mt-1 w-full rounded border border-neutral-300 px-3 py-3 text-sm"
                   placeholder="JSA, PSA DNA, Beckett"
                 />
-                <span className="text-sm text-gray-500">
+                <span className="text-sm font-semibold text-neutral-500">
                   Separate multiple authenticators with commas.
                 </span>
               </label>
@@ -372,7 +424,7 @@ export default async function AdminProductEditPage({
                   name="provenance_evidence"
                   defaultValue={textValue(product.authenticity.provenanceEvidence)}
                   rows={3}
-                  className="border p-2 w-full mt-1"
+                  className="mt-1 w-full rounded border border-neutral-300 px-3 py-3 text-sm"
                   placeholder="Envelope, fan-club letter, event ticket, signing photo, receipt, or other support"
                 />
               </label>
@@ -383,7 +435,7 @@ export default async function AdminProductEditPage({
                   name="authenticity_notes"
                   defaultValue={textValue(product.authenticity.authenticityNotes)}
                   rows={3}
-                  className="border p-2 w-full mt-1"
+                  className="mt-1 w-full rounded border border-neutral-300 px-3 py-3 text-sm"
                   placeholder="Anything the buyer should read before purchase"
                 />
               </label>
@@ -392,31 +444,43 @@ export default async function AdminProductEditPage({
             <div className="flex flex-wrap gap-3">
               <button
                 type="submit"
-                className="bg-black text-white rounded px-6 py-3 font-bold"
+                className="rounded-md bg-neutral-950 px-6 py-3 text-sm font-black text-white hover:bg-neutral-800"
               >
-                Save Product
+                Save product
               </button>
             </div>
           </form>
         </section>
 
         <aside className="space-y-6">
-          <section className="border rounded p-4">
-            <h2 className="font-bold text-xl mb-3">Inventory State</h2>
-            <p>Status: {product.status}</p>
-            <p>Quantity: {product.quantity}</p>
-            <p>SKU: {product.sku || "Not set"}</p>
-            <p>eBay Listing: {product.ebayItemId || "Not linked"}</p>
-            <p>Seller Owner: {product.sellerAccountId || "Store inventory"}</p>
-            <p>V2 Item: {product.inventoryItemId || "Not created yet"}</p>
-            <p>
-              Authenticity: {authenticityStatusLabel(product.authenticity.status)}
+          <section className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-neutral-500">
+              Inventory state
             </p>
+            <h2 className="mt-2 text-xl font-black">Record health</h2>
+            <dl className="mt-4 space-y-3 text-sm font-semibold">
+              <SideFact label="Status" value={product.status} />
+              <SideFact label="Quantity" value={String(product.quantity)} />
+              <SideFact label="SKU" value={product.sku || "Not set"} />
+              <SideFact label="eBay listing" value={product.ebayItemId || "Not linked"} />
+              <SideFact
+                label="Seller owner"
+                value={product.sellerAccountId || "Store inventory"}
+              />
+              <SideFact
+                label="V2 item"
+                value={product.inventoryItemId || "Not created yet"}
+              />
+              <SideFact
+                label="Authenticity"
+                value={authenticityStatusLabel(product.authenticity.status)}
+              />
+            </dl>
           </section>
 
           {product.imageUrl && (
-            <section className="border rounded p-4">
-              <h2 className="font-bold text-xl mb-3">Image</h2>
+            <section className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
+              <h2 className="mb-3 text-xl font-black">Image</h2>
               <Image
                 src={product.imageUrl}
                 alt={product.title}
@@ -428,39 +492,52 @@ export default async function AdminProductEditPage({
             </section>
           )}
 
-          <section className="border rounded p-4">
-            <h2 className="font-bold text-xl mb-3">Quick Status</h2>
+          <section className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-neutral-500">
+              Quick actions
+            </p>
+            <h2 className="mt-2 text-xl font-black">Quick status</h2>
             <div className="space-y-3">
               <StatusButton
                 id={product.legacyProductId}
+                currentStatus={product.status}
                 status="active"
                 label="Set Active"
               />
               <StatusButton
                 id={product.legacyProductId}
+                currentStatus={product.status}
                 status="reserved"
                 label="Reserve"
               />
               <StatusButton
                 id={product.legacyProductId}
+                currentStatus={product.status}
                 status="sold"
                 label="Mark Sold"
               />
               <StatusButton
                 id={product.legacyProductId}
+                currentStatus={product.status}
                 status="archived"
                 label="Archive"
               />
             </div>
           </section>
 
-          <section className="border rounded p-4">
-            <h2 className="font-bold text-xl mb-3">Description</h2>
+          <section className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-neutral-500">
+              Description tools
+            </p>
+            <h2 className="mt-2 text-xl font-black">Description</h2>
             <div className="space-y-3">
               <form action={regenerateDescription}>
                 <input type="hidden" name="id" value={product.legacyProductId} />
-                <button type="submit" className="border rounded px-4 py-2 w-full">
-                  Auto-Fill Description
+                <button
+                  type="submit"
+                  className="w-full rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50"
+                >
+                  Auto-fill description
                 </button>
               </form>
 
@@ -468,9 +545,9 @@ export default async function AdminProductEditPage({
                 <input type="hidden" name="id" value={product.legacyProductId} />
                 <button
                   type="submit"
-                  className="bg-black text-white rounded px-4 py-2 w-full"
+                  className="w-full rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white hover:bg-neutral-800"
                 >
-                  AI Write Description
+                  AI write description
                 </button>
               </form>
             </div>
@@ -493,9 +570,16 @@ export default async function AdminProductEditPage({
   );
 }
 
-function money(value: number | null) {
-  if (value === null) return "n/a";
-  return `$${value.toFixed(2)}`;
+function money(value: number | string | null | undefined) {
+  if (value === null || value === undefined) return "n/a";
+  const parsed = Number(value);
+
+  if (!Number.isFinite(parsed)) return "n/a";
+
+  return new Intl.NumberFormat("en-US", {
+    currency: "USD",
+    style: "currency",
+  }).format(parsed);
 }
 
 function SalesCompsPanel({
@@ -512,73 +596,79 @@ function SalesCompsPanel({
   salesCompHistory: SalesCompHistoryResult;
 }) {
   return (
-    <section className="border rounded p-4">
-      <h2 className="font-bold text-xl mb-3">Sales Comps</h2>
+    <section className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
+      <p className="text-xs font-black uppercase tracking-[0.16em] text-neutral-500">
+        Pricing intelligence
+      </p>
+      <h2 className="mt-2 text-xl font-black">Sales comps</h2>
 
       <div className="space-y-3">
         <Link
           href={adminHref(`/admin/products/${productId}?comps=true`, adminHandoff)}
-          className="block text-center border rounded px-4 py-2"
+          className="block rounded-md bg-neutral-950 px-4 py-2 text-center text-sm font-black text-white hover:bg-neutral-800"
         >
-          Check eBay Sold Comps
+          Check eBay sold comps
         </Link>
 
         <a
           href={point130Url}
           target="_blank"
           rel="noreferrer"
-          className="block text-center border rounded px-4 py-2"
+          className="block rounded-md border border-neutral-300 bg-white px-4 py-2 text-center text-sm font-black hover:bg-neutral-50"
         >
-          Open 130point Search
+          Open 130point search
         </a>
       </div>
 
       {!salesComps ? (
-        <p className="text-sm text-gray-600 mt-4">
+        <p className="mt-4 text-sm font-semibold text-neutral-600">
           Load comps to compare recent sold pricing before listing or repricing.
         </p>
       ) : (
         <div className="mt-4 space-y-4">
-          <div className="text-sm">
-            <p>Query: {salesComps.query}</p>
-            <p>eBay: {salesComps.sourceStatus}</p>
-            <p>Google: {salesComps.googleStatus}</p>
-            <p>PriceCharting: {salesComps.priceGuideStatus}</p>
+          <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-3 text-sm font-semibold">
+            <p><span className="font-black">Query:</span> {salesComps.query}</p>
+            <p><span className="font-black">eBay:</span> {salesComps.sourceStatus}</p>
+            <p><span className="font-black">Google:</span> {salesComps.googleStatus}</p>
+            <p>
+              <span className="font-black">PriceCharting:</span>{" "}
+              {salesComps.priceGuideStatus}
+            </p>
             {salesComps.sourceMessage && (
-              <p className="text-gray-600">{salesComps.sourceMessage}</p>
+              <p className="text-neutral-600">{salesComps.sourceMessage}</p>
             )}
             {salesComps.googleMessage && (
-              <p className="text-gray-600">{salesComps.googleMessage}</p>
+              <p className="text-neutral-600">{salesComps.googleMessage}</p>
             )}
             {salesComps.priceGuideMessage && (
-              <p className="text-gray-600">{salesComps.priceGuideMessage}</p>
+              <p className="text-neutral-600">{salesComps.priceGuideMessage}</p>
             )}
             {salesComps.snapshotMessage && (
-              <p className="text-gray-600">
+              <p className="text-neutral-600">
                 History save: {salesComps.snapshotMessage}
               </p>
             )}
           </div>
 
           <div className="grid grid-cols-2 gap-3 text-sm">
-            <div className="border rounded p-3">
-              <p className="text-gray-500">Suggested</p>
+            <div className="rounded border border-emerald-200 bg-emerald-50 p-3">
+              <p className="text-emerald-800">Suggested</p>
               <p className="font-bold">{money(salesComps.suggestedPrice)}</p>
             </div>
-            <div className="border rounded p-3">
-              <p className="text-gray-500">Count</p>
+            <div className="rounded border border-neutral-200 p-3">
+              <p className="text-neutral-500">Count</p>
               <p className="font-bold">{salesComps.count}</p>
             </div>
-            <div className="border rounded p-3">
-              <p className="text-gray-500">Median</p>
+            <div className="rounded border border-neutral-200 p-3">
+              <p className="text-neutral-500">Median</p>
               <p className="font-bold">{money(salesComps.medianPrice)}</p>
             </div>
-            <div className="border rounded p-3">
-              <p className="text-gray-500">Average</p>
+            <div className="rounded border border-neutral-200 p-3">
+              <p className="text-neutral-500">Average</p>
               <p className="font-bold">{money(salesComps.averagePrice)}</p>
             </div>
-            <div className="border rounded p-3">
-              <p className="text-gray-500">Range</p>
+            <div className="col-span-2 rounded border border-neutral-200 p-3">
+              <p className="text-neutral-500">Range</p>
               <p className="font-bold">
                 {money(salesComps.lowPrice)} - {money(salesComps.highPrice)}
               </p>
@@ -586,7 +676,7 @@ function SalesCompsPanel({
           </div>
 
           {salesComps.suggestedPriceMethod && (
-            <p className="text-sm text-gray-600">
+            <p className="text-sm font-semibold text-neutral-600">
               {salesComps.suggestedPriceMethod}. Recent comps used:{" "}
               {salesComps.recentCompCount}.
             </p>
@@ -597,15 +687,15 @@ function SalesCompsPanel({
               <input type="hidden" name="id" value={productId} />
               <button
                 type="submit"
-                className="bg-black text-white rounded px-4 py-2 w-full"
+                className="w-full rounded-md bg-emerald-700 px-4 py-2 text-sm font-black text-white hover:bg-emerald-800"
               >
-                Apply Suggested Price
+                Apply suggested price
               </button>
             </form>
           )}
 
           {salesComps.comps.length === 0 ? (
-            <p className="text-sm text-gray-600">No sold comps found.</p>
+            <p className="text-sm font-semibold text-neutral-600">No sold comps found.</p>
           ) : (
             <div className="space-y-3">
               {salesComps.comps.slice(0, 6).map((comp, index) => (
@@ -614,14 +704,14 @@ function SalesCompsPanel({
                   href={comp.itemUrl || "#"}
                   target="_blank"
                   rel="noreferrer"
-                  className="block border rounded p-3 text-sm"
+                  className="block rounded border border-neutral-200 bg-neutral-50 p-3 text-sm hover:bg-neutral-100"
                 >
                   <p className="font-bold">{comp.title}</p>
                   <p>
                     {money(comp.price)} - {comp.source}
                   </p>
                   {comp.soldAt && (
-                    <p className="text-gray-500">
+                    <p className="text-neutral-500">
                       Sold {new Date(comp.soldAt).toLocaleDateString()}
                     </p>
                   )}
@@ -632,18 +722,18 @@ function SalesCompsPanel({
 
           {salesComps.googleResults.length > 0 && (
             <div className="space-y-3">
-              <h3 className="font-bold">Google Results</h3>
+              <h3 className="font-bold">Google results</h3>
               {salesComps.googleResults.slice(0, 5).map((result) => (
                 <a
                   key={result.url}
                   href={result.url}
                   target="_blank"
                   rel="noreferrer"
-                  className="block border rounded p-3 text-sm"
+                  className="block rounded border border-neutral-200 bg-neutral-50 p-3 text-sm hover:bg-neutral-100"
                 >
                   <p className="font-bold">{result.title}</p>
                   {result.snippet && (
-                    <p className="text-gray-600">{result.snippet}</p>
+                    <p className="text-neutral-600">{result.snippet}</p>
                   )}
                 </a>
               ))}
@@ -651,14 +741,14 @@ function SalesCompsPanel({
           )}
 
           <div className="space-y-3">
-            <h3 className="font-bold">Research Links</h3>
+            <h3 className="font-bold">Research links</h3>
             {salesComps.researchLinks.map((link) => (
               <a
                 key={link.url}
                 href={link.url}
                 target="_blank"
                 rel="noreferrer"
-                className="block border rounded px-4 py-2 text-sm"
+                className="block rounded border border-neutral-200 bg-white px-4 py-2 text-sm font-bold hover:bg-neutral-50"
               >
                 {link.label}
               </a>
@@ -668,17 +758,17 @@ function SalesCompsPanel({
       )}
 
       <div className="mt-6 space-y-3">
-        <h3 className="font-bold">Comps History</h3>
+        <h3 className="font-bold">Comps history</h3>
         {salesCompHistory.status === "unavailable" && (
-          <p className="text-sm text-gray-600">{salesCompHistory.message}</p>
+          <p className="text-sm font-semibold text-neutral-600">{salesCompHistory.message}</p>
         )}
 
         {salesCompHistory.entries.length === 0 ? (
-          <p className="text-sm text-gray-600">No saved comp checks yet.</p>
+          <p className="text-sm font-semibold text-neutral-600">No saved comp checks yet.</p>
         ) : (
           <div className="space-y-3">
             {salesCompHistory.entries.map((entry) => (
-              <div key={entry.id} className="border rounded p-3 text-sm">
+              <div key={entry.id} className="rounded border border-neutral-200 p-3 text-sm">
                 <p className="font-bold">{money(entry.suggestedPrice)}</p>
                 <p>{new Date(entry.createdAt).toLocaleString()}</p>
                 <p>Comps: {entry.compCount}</p>
@@ -687,7 +777,7 @@ function SalesCompsPanel({
                   Median: {money(entry.medianPrice)} / Average:{" "}
                   {money(entry.averagePrice)}
                 </p>
-                <p className="text-gray-600">{entry.suggestedPriceMethod}</p>
+                <p className="text-neutral-600">{entry.suggestedPriceMethod}</p>
               </div>
             ))}
           </div>
@@ -698,21 +788,68 @@ function SalesCompsPanel({
 }
 
 function StatusButton({
+  currentStatus,
   id,
   status,
   label,
 }: {
+  currentStatus: InventoryStatus;
   id: number;
   status: InventoryStatus;
   label: string;
 }) {
+  const isCurrent = currentStatus === status;
+
   return (
     <form action={setProductStatus}>
       <input type="hidden" name="id" value={id} />
       <input type="hidden" name="status" value={status} />
-      <button type="submit" className="border rounded px-4 py-2 w-full">
-        {label}
+      <button
+        type="submit"
+        disabled={isCurrent}
+        className={`w-full rounded-md px-4 py-2 text-sm font-black disabled:cursor-not-allowed ${
+          isCurrent
+            ? "border border-emerald-200 bg-emerald-50 text-emerald-950"
+            : "border border-neutral-300 bg-white hover:bg-neutral-50"
+        }`}
+      >
+        {isCurrent ? `Current: ${label}` : label}
       </button>
     </form>
+  );
+}
+
+function Metric({
+  label,
+  tone = "neutral",
+  value,
+}: {
+  label: string;
+  tone?: "neutral" | "emerald" | "sky";
+  value: string;
+}) {
+  const className =
+    tone === "emerald"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-950"
+      : tone === "sky"
+        ? "border-sky-200 bg-sky-50 text-sky-950"
+        : "border-neutral-200 bg-white text-neutral-950";
+
+  return (
+    <div className={`rounded-2xl border p-4 shadow-sm ${className}`}>
+      <p className="text-xs font-black uppercase tracking-[0.14em] opacity-70">
+        {label}
+      </p>
+      <p className="mt-2 text-2xl font-black">{value}</p>
+    </div>
+  );
+}
+
+function SideFact({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="flex justify-between gap-3 border-b border-neutral-100 pb-2 last:border-b-0 last:pb-0">
+      <dt className="text-neutral-500">{label}</dt>
+      <dd className="max-w-[60%] break-words text-right font-black">{value}</dd>
+    </div>
   );
 }
