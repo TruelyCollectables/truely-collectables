@@ -1,3 +1,4 @@
+import { revalidatePath } from "next/cache";
 import { NextRequest, NextResponse } from "next/server";
 import {
   adminHandoffFromUrl,
@@ -54,6 +55,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
       alreadyReceived: formData.get("alreadyReceived") === "on",
     });
 
+    revalidatePath("/admin/market-intel/discovery");
+    revalidatePath("/admin/market-intel/purchases");
+    revalidatePath(`/admin/market-intel/purchases/${purchase.purchaseId}`);
+
     return NextResponse.redirect(
       adminRedirectUrl(
         `/admin/market-intel/purchases/${purchase.purchaseId}?saved=purchased`,
@@ -65,6 +70,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unable to record Discovery purchase.";
+    revalidatePath("/admin/market-intel/discovery");
     return NextResponse.redirect(
       adminRedirectUrl(
         `/admin/market-intel/discovery?error=${encodeURIComponent(message)}#candidate-${encodeURIComponent(id)}`,
