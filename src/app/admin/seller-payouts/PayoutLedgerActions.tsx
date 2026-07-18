@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 type LedgerStatus =
   | "hold_pending_fulfillment"
@@ -23,6 +23,7 @@ export default function PayoutLedgerActions({
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState("");
+  const ledgerActionRunningRef = useRef(false);
   const [adminNote, setAdminNote] = useState("");
   const [message, setMessage] = useState<{
     tone: "success" | "error" | "info";
@@ -58,6 +59,7 @@ export default function PayoutLedgerActions({
       return;
     }
 
+    ledgerActionRunningRef.current = true;
     setLoading(nextStatus);
     setMessage({ tone: "info", text: "Saving payout ledger status..." });
 
@@ -96,6 +98,7 @@ export default function PayoutLedgerActions({
         text: "Could not update seller payout ledger row.",
       });
     } finally {
+      ledgerActionRunningRef.current = false;
       setLoading("");
     }
   }
@@ -120,6 +123,55 @@ export default function PayoutLedgerActions({
     loading === nextStatus
       ? `Moving to ${nextStatus.replaceAll("_", " ")}...`
       : null;
+  function ledgerActionBlockedReason(nextStatus: LedgerStatus) {
+    if (ledgerActionRunningRef.current || loading !== "") {
+      return "Finish the current payout ledger action before starting another one.";
+    }
+
+    if (finalStatus) {
+      return `Payout ledger row is already ${currentStatus}; final rows cannot be changed here.`;
+    }
+
+    if (nextStatus === "eligible" && currentStatus === "eligible") {
+      return "This payout ledger row is already eligible.";
+    }
+
+    if (
+      nextStatus === "hold_dispute_or_review" &&
+      currentStatus === "hold_dispute_or_review"
+    ) {
+      return "This payout ledger row is already on review hold.";
+    }
+
+    if (
+      nextStatus === "hold_pending_fulfillment" &&
+      currentStatus === "hold_pending_fulfillment"
+    ) {
+      return "This payout ledger row is already held for fulfillment.";
+    }
+
+    const missing = actionRequirements(nextStatus);
+
+    if (missing.length > 0) {
+      return `Payout ledger update needs: ${missing.join(", ")}.`;
+    }
+
+    return "";
+  }
+
+  function showLedgerActionBlocked(nextStatus: LedgerStatus) {
+    const blockedReason = ledgerActionBlockedReason(nextStatus);
+
+    if (!blockedReason) return false;
+
+    setMessage({ tone: "error", text: blockedReason });
+    return true;
+  }
+
+  function guardedUpdateStatus(nextStatus: LedgerStatus) {
+    if (showLedgerActionBlocked(nextStatus)) return;
+    void updateStatus(nextStatus);
+  }
 
   return (
     <div className="grid gap-2 rounded-2xl border border-neutral-200 bg-neutral-50 p-3">
@@ -139,45 +191,65 @@ export default function PayoutLedgerActions({
       <div className="grid grid-cols-2 gap-2">
         <button
           type="button"
-          onClick={() => updateStatus("eligible")}
+          onClick={() => guardedUpdateStatus("eligible")}
           aria-busy={loading === "eligible"}
-          disabled={
+          aria-disabled={
             locked ||
             currentStatus === "eligible" ||
             actionRequirements("eligible").length > 0
           }
-          className="rounded-2xl bg-emerald-700 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:bg-neutral-400"
+          className={`rounded-2xl px-3 py-2 text-xs font-black text-white ${
+            locked ||
+            currentStatus === "eligible" ||
+            actionRequirements("eligible").length > 0
+              ? "cursor-not-allowed bg-neutral-400"
+              : "bg-emerald-700"
+          }`}
         >
           {actionLabel("eligible") || "Release"}
         </button>
         <button
           type="button"
-          onClick={() => updateStatus("hold_dispute_or_review")}
+          onClick={() => guardedUpdateStatus("hold_dispute_or_review")}
           aria-busy={loading === "hold_dispute_or_review"}
-          disabled={
+          aria-disabled={
             locked ||
             currentStatus === "hold_dispute_or_review" ||
             actionRequirements("hold_dispute_or_review").length > 0
           }
-          className="rounded-2xl bg-amber-700 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:bg-neutral-400"
+          className={`rounded-2xl px-3 py-2 text-xs font-black text-white ${
+            locked ||
+            currentStatus === "hold_dispute_or_review" ||
+            actionRequirements("hold_dispute_or_review").length > 0
+              ? "cursor-not-allowed bg-neutral-400"
+              : "bg-amber-700"
+          }`}
         >
           {actionLabel("hold_dispute_or_review") || "Review Hold"}
         </button>
         <button
           type="button"
-          disabled={locked || currentStatus === "hold_pending_fulfillment"}
-          onClick={() => updateStatus("hold_pending_fulfillment")}
+          aria-disabled={locked || currentStatus === "hold_pending_fulfillment"}
+          onClick={() => guardedUpdateStatus("hold_pending_fulfillment")}
           aria-busy={loading === "hold_pending_fulfillment"}
-          className="rounded-2xl border border-neutral-300 bg-white px-3 py-2 text-xs font-black disabled:cursor-not-allowed disabled:text-neutral-400"
+          className={`rounded-2xl border border-neutral-300 bg-white px-3 py-2 text-xs font-black ${
+            locked || currentStatus === "hold_pending_fulfillment"
+              ? "cursor-not-allowed text-neutral-400"
+              : ""
+          }`}
         >
           {actionLabel("hold_pending_fulfillment") || "Fulfill Hold"}
         </button>
         <button
           type="button"
-          onClick={() => updateStatus("reversed")}
+          onClick={() => guardedUpdateStatus("reversed")}
           aria-busy={loading === "reversed"}
-          disabled={locked || actionRequirements("reversed").length > 0}
-          className="rounded-2xl border border-rose-300 bg-white px-3 py-2 text-xs font-black text-rose-700 disabled:cursor-not-allowed disabled:text-neutral-400"
+          aria-disabled={locked || actionRequirements("reversed").length > 0}
+          className={`rounded-2xl border border-rose-300 bg-white px-3 py-2 text-xs font-black ${
+            locked || actionRequirements("reversed").length > 0
+              ? "cursor-not-allowed text-neutral-400"
+              : "text-rose-700"
+          }`}
         >
           {actionLabel("reversed") || "Reverse"}
         </button>
@@ -192,10 +264,14 @@ export default function PayoutLedgerActions({
 
       <button
         type="button"
-        onClick={() => updateStatus("cancelled")}
+        onClick={() => guardedUpdateStatus("cancelled")}
         aria-busy={loading === "cancelled"}
-        disabled={locked || actionRequirements("cancelled").length > 0}
-        className="rounded-2xl border border-neutral-300 bg-white px-3 py-2 text-xs font-black disabled:cursor-not-allowed disabled:text-neutral-400"
+        aria-disabled={locked || actionRequirements("cancelled").length > 0}
+        className={`rounded-2xl border border-neutral-300 bg-white px-3 py-2 text-xs font-black ${
+          locked || actionRequirements("cancelled").length > 0
+            ? "cursor-not-allowed text-neutral-400"
+            : ""
+        }`}
       >
         {actionLabel("cancelled") || "Cancel Row"}
       </button>

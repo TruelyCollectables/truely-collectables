@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 type PayoutStatus =
   | "requested"
@@ -33,6 +33,7 @@ export default function PayoutRequestActions({
   const [adminNote, setAdminNote] = useState("");
   const [providerPayoutReference, setProviderPayoutReference] = useState("");
   const [finalProcessorFeeAmount, setFinalProcessorFeeAmount] = useState("");
+  const payoutActionRunningRef = useRef(false);
   const [message, setMessage] = useState<{
     tone: "success" | "error" | "info";
     text: string;
@@ -75,6 +76,7 @@ export default function PayoutRequestActions({
       return;
     }
 
+    payoutActionRunningRef.current = true;
     setLoading(nextStatus);
     setMessage({ tone: "info", text: "Saving payout request status..." });
 
@@ -117,6 +119,7 @@ export default function PayoutRequestActions({
         text: "Could not update payout request.",
       });
     } finally {
+      payoutActionRunningRef.current = false;
       setLoading("");
     }
   }
@@ -145,6 +148,64 @@ export default function PayoutRequestActions({
     loading === nextStatus
       ? `${nextStatus === "paid" ? "Marking paid" : `Moving to ${nextStatus}`}...`
       : null;
+  function payoutActionBlockedReason(nextStatus: PayoutStatus) {
+    if (payoutActionRunningRef.current || loading !== "") {
+      return "Finish the current payout request action before starting another one.";
+    }
+
+    if (terminalStatus) {
+      return `Payout request is already ${currentStatus}; terminal requests cannot be changed here.`;
+    }
+
+    if (nextStatus === "approved" && currentStatus !== "requested") {
+      return "Only requested payout requests can be approved.";
+    }
+
+    if (nextStatus === "processing" && currentStatus !== "approved") {
+      return "Only approved payout requests can move to processing.";
+    }
+
+    if (nextStatus === "paid" && currentStatus !== "processing") {
+      return "Only processing payout requests can be marked paid.";
+    }
+
+    if (
+      (nextStatus === "approved" ||
+        nextStatus === "processing" ||
+        nextStatus === "paid") &&
+      payoutAdvanceBlocked
+    ) {
+      return (
+        payoutAccountBlockReason ||
+        reviewBlockReason ||
+        (reviewGuardUnavailable
+          ? "Review guard unavailable. Case checks must load before this request can advance."
+          : "Resolve payout account verification or review blockers before advancing this request.")
+      );
+    }
+
+    const missing = actionRequirements(nextStatus);
+
+    if (missing.length > 0) {
+      return `Payout request needs: ${missing.join(", ")}.`;
+    }
+
+    return "";
+  }
+
+  function showPayoutActionBlocked(nextStatus: PayoutStatus) {
+    const blockedReason = payoutActionBlockedReason(nextStatus);
+
+    if (!blockedReason) return false;
+
+    setMessage({ tone: "error", text: blockedReason });
+    return true;
+  }
+
+  function guardedUpdateStatus(nextStatus: PayoutStatus) {
+    if (showPayoutActionBlocked(nextStatus)) return;
+    void updateStatus(nextStatus);
+  }
 
   return (
     <div className="grid gap-2 rounded-2xl border border-neutral-200 bg-neutral-50 p-3">
@@ -208,47 +269,66 @@ export default function PayoutRequestActions({
         <button
           type="button"
           aria-busy={loading === "approved"}
-          disabled={
+          aria-disabled={
             locked ||
             currentStatus !== "requested" ||
             payoutAdvanceBlocked
           }
-          onClick={() => updateStatus("approved")}
-          className="rounded-2xl bg-emerald-700 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:bg-neutral-400"
+          onClick={() => guardedUpdateStatus("approved")}
+          className={`rounded-2xl px-3 py-2 text-xs font-black text-white ${
+            locked || currentStatus !== "requested" || payoutAdvanceBlocked
+              ? "cursor-not-allowed bg-neutral-400"
+              : "bg-emerald-700"
+          }`}
         >
           {actionLabel("approved") || "Approve"}
         </button>
         <button
           type="button"
           aria-busy={loading === "processing"}
-          disabled={
+          aria-disabled={
             locked || currentStatus !== "approved" || payoutAdvanceBlocked
           }
-          onClick={() => updateStatus("processing")}
-          className="rounded-2xl bg-neutral-950 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:bg-neutral-400"
+          onClick={() => guardedUpdateStatus("processing")}
+          className={`rounded-2xl px-3 py-2 text-xs font-black text-white ${
+            locked || currentStatus !== "approved" || payoutAdvanceBlocked
+              ? "cursor-not-allowed bg-neutral-400"
+              : "bg-neutral-950"
+          }`}
         >
           {actionLabel("processing") || "Processing"}
         </button>
         <button
           type="button"
-          onClick={() => updateStatus("paid")}
+          onClick={() => guardedUpdateStatus("paid")}
           aria-busy={loading === "paid"}
-          disabled={
+          aria-disabled={
             locked ||
             currentStatus !== "processing" ||
             actionRequirements("paid").length > 0 ||
             payoutAdvanceBlocked
           }
-          className="rounded-2xl bg-emerald-950 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:bg-neutral-400"
+          className={`rounded-2xl px-3 py-2 text-xs font-black text-white ${
+            locked ||
+            currentStatus !== "processing" ||
+            actionRequirements("paid").length > 0 ||
+            payoutAdvanceBlocked
+              ? "cursor-not-allowed bg-neutral-400"
+              : "bg-emerald-950"
+          }`}
         >
           {actionLabel("paid") || "Mark Paid"}
         </button>
         <button
           type="button"
-          onClick={() => updateStatus("rejected")}
+          onClick={() => guardedUpdateStatus("rejected")}
           aria-busy={loading === "rejected"}
-          disabled={locked || actionRequirements("rejected").length > 0}
-          className="rounded-2xl border border-rose-300 bg-white px-3 py-2 text-xs font-black text-rose-700 disabled:cursor-not-allowed disabled:text-neutral-400"
+          aria-disabled={locked || actionRequirements("rejected").length > 0}
+          className={`rounded-2xl border border-rose-300 bg-white px-3 py-2 text-xs font-black ${
+            locked || actionRequirements("rejected").length > 0
+              ? "cursor-not-allowed text-neutral-400"
+              : "text-rose-700"
+          }`}
         >
           {actionLabel("rejected") || "Reject"}
         </button>
@@ -256,10 +336,14 @@ export default function PayoutRequestActions({
 
       <button
         type="button"
-        onClick={() => updateStatus("cancelled")}
+        onClick={() => guardedUpdateStatus("cancelled")}
         aria-busy={loading === "cancelled"}
-        disabled={locked || actionRequirements("cancelled").length > 0}
-        className="rounded-2xl border border-neutral-300 bg-white px-3 py-2 text-xs font-black disabled:cursor-not-allowed disabled:text-neutral-400"
+        aria-disabled={locked || actionRequirements("cancelled").length > 0}
+        className={`rounded-2xl border border-neutral-300 bg-white px-3 py-2 text-xs font-black ${
+          locked || actionRequirements("cancelled").length > 0
+            ? "cursor-not-allowed text-neutral-400"
+            : ""
+        }`}
       >
         {actionLabel("cancelled") || "Cancel Request"}
       </button>
