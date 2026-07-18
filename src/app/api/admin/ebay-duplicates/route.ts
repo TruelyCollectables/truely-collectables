@@ -466,7 +466,7 @@ async function loadInventoryForProduct(productId: number) {
 async function collectMergeEbayActions(params: {
   storeId: string;
   keeper: ProductRow;
-  duplicate: ProductRow;
+  duplicates: ProductRow[];
   mergedQuantity: number;
   keeperPrice: number;
 }) {
@@ -490,14 +490,19 @@ async function collectMergeEbayActions(params: {
     return ebayActions;
   }
 
-  ebayActions.push(
-    await bestEffortEbayAction("withdraw_duplicate_offer", () =>
-      withdrawDuplicateOffer({
-        accessToken,
-        duplicate: params.duplicate,
-      }),
-    ),
-  );
+  for (const duplicate of params.duplicates) {
+    ebayActions.push(
+      await bestEffortEbayAction(
+        `withdraw_duplicate_offer:${duplicate.id}`,
+        () =>
+          withdrawDuplicateOffer({
+            accessToken,
+            duplicate,
+          }),
+      ),
+    );
+  }
+
   ebayActions.push(
     await bestEffortEbayAction("update_keeper_quantity", () =>
       updateKeeperEbayQuantity({
@@ -552,34 +557,69 @@ async function mergeDuplicate(params: {
   keeperProductId: number;
   duplicateProductId: number;
 }) {
-  if (params.keeperProductId === params.duplicateProductId) {
-    throw new Error("Keeper and duplicate must be different rows.");
+  return mergeDuplicateRows({
+    keeperProductId: params.keeperProductId,
+    duplicateProductIds: [params.duplicateProductId],
+  });
+}
+
+function duplicateProductIds(value: unknown) {
+  const values = Array.isArray(value) ? value : [value];
+  const ids = values
+    .map((entry) => positiveInteger(entry))
+    .filter((entry) => entry > 0);
+
+  return Array.from(new Set(ids));
+}
+
+async function mergeDuplicateRows(params: {
+  keeperProductId: number;
+  duplicateProductIds: number[];
+}) {
+  const requestedDuplicateIds = duplicateProductIds(params.duplicateProductIds).filter(
+    (productId) => productId !== params.keeperProductId,
+  );
+
+  if (!requestedDuplicateIds.length) {
+    throw new Error("Pick at least one duplicate row different from the keeper.");
   }
 
   const supabase = getSupabaseClient();
   const storeId = getActiveStoreId();
-  const [keeper, duplicate, keeperInventory, duplicateInventory] = await Promise.all([
+  const [keeper, keeperInventory, duplicates, duplicateInventories] = await Promise.all([
     loadProductForMerge(params.keeperProductId),
-    loadProductForMerge(params.duplicateProductId),
     loadInventoryForProduct(params.keeperProductId),
-    loadInventoryForProduct(params.duplicateProductId),
+    Promise.all(requestedDuplicateIds.map((productId) => loadProductForMerge(productId))),
+    Promise.all(requestedDuplicateIds.map((productId) => loadInventoryForProduct(productId))),
   ]);
   const keeperKey = duplicateIdentityKey(keeper);
-  const duplicateKey = duplicateIdentityKey(duplicate);
 
-  if (!keeperKey || keeperKey !== duplicateKey) {
-    throw new Error("Those rows do not look like exact duplicate listings.");
+  if (!keeperKey) {
+    throw new Error("Keeper row does not look like an active exact-match eBay listing.");
+  }
+
+  for (const duplicate of duplicates) {
+    const duplicateKey = duplicateIdentityKey(duplicate);
+
+    if (keeperKey !== duplicateKey) {
+      throw new Error(
+        `Product ${duplicate.id} does not look like an exact duplicate of keeper ${keeper.id}.`,
+      );
+    }
   }
 
   const keeperQuantity = wholeQuantity(keeper.quantity);
-  const duplicateQuantity = wholeQuantity(duplicate.quantity);
+  const duplicateQuantity = duplicates.reduce(
+    (sum, duplicate) => sum + wholeQuantity(duplicate.quantity),
+    0,
+  );
   const mergedQuantity = keeperQuantity + duplicateQuantity;
   const keeperPrice = moneyNumber(keeper.price);
   const now = new Date().toISOString();
   const ebayActions = await collectMergeEbayActions({
     storeId,
     keeper,
-    duplicate,
+    duplicates,
     mergedQuantity,
     keeperPrice,
   });
@@ -587,10 +627,6 @@ async function mergeDuplicate(params: {
   const keeperMetadata =
     keeperInventory?.metadata && typeof keeperInventory.metadata === "object"
       ? { ...keeperInventory.metadata }
-      : {};
-  const duplicateMetadata =
-    duplicateInventory?.metadata && typeof duplicateInventory.metadata === "object"
-      ? { ...duplicateInventory.metadata }
       : {};
 
   const { error: keeperProductError } = await supabase
@@ -612,7 +648,10 @@ async function mergeDuplicate(params: {
       last_seen_at: now,
     })
     .eq("store_id", storeId)
-    .eq("id", duplicate.id);
+    .in(
+      "id",
+      duplicates.map((duplicate) => duplicate.id),
+    );
 
   if (duplicateProductError) throw duplicateProductError;
 
@@ -628,8 +667,10 @@ async function mergeDuplicate(params: {
           ...keeperMetadata,
           duplicate_merge_keeper: {
             merged_at: now,
-            duplicate_product_id: duplicate.id,
-            duplicate_ebay_item_id: duplicate.ebay_item_id,
+            duplicate_product_ids: duplicates.map((duplicate) => duplicate.id),
+            duplicate_ebay_item_ids: duplicates
+              .map((duplicate) => duplicate.ebay_item_id)
+              .filter(Boolean),
             previous_quantity: keeperQuantity,
             added_quantity: duplicateQuantity,
             merged_quantity: mergedQuantity,
@@ -643,7 +684,16 @@ async function mergeDuplicate(params: {
     if (error) throw error;
   }
 
-  if (duplicateInventory?.id) {
+  for (const [index, duplicate] of duplicates.entries()) {
+    const duplicateInventory = duplicateInventories[index];
+
+    if (!duplicateInventory?.id) continue;
+
+    const duplicateMetadata =
+      duplicateInventory.metadata && typeof duplicateInventory.metadata === "object"
+        ? { ...duplicateInventory.metadata }
+        : {};
+
     const { error } = await supabase
       .from("inventory_items")
       .update({
@@ -656,7 +706,9 @@ async function mergeDuplicate(params: {
             merged_at: now,
             keeper_product_id: keeper.id,
             keeper_ebay_item_id: keeper.ebay_item_id,
-            moved_quantity: duplicateQuantity,
+            duplicate_product_id: duplicate.id,
+            duplicate_ebay_item_id: duplicate.ebay_item_id,
+            moved_quantity: wholeQuantity(duplicate.quantity),
             ebay_actions: ebayActions,
           },
         },
@@ -669,12 +721,14 @@ async function mergeDuplicate(params: {
 
   return {
     keeperProductId: keeper.id,
-    duplicateProductId: duplicate.id,
+    duplicateProductId: duplicates[0]?.id ?? null,
+    duplicateProductIds: duplicates.map((duplicate) => duplicate.id),
     title: keeper.title || "Untitled eBay listing",
     price: keeperPrice,
     previousKeeperQuantity: keeperQuantity,
     duplicateQuantity,
     mergedQuantity,
+    archivedDuplicateCount: duplicates.length,
     ebayActions,
   };
 }
@@ -798,7 +852,11 @@ export async function POST(request: Request) {
     const body = await request.json().catch(() => ({}));
     const action = cleanText(body.action);
 
-    if (action !== "merge-duplicate" && action !== "end-duplicate") {
+    if (
+      action !== "merge-duplicate" &&
+      action !== "merge-duplicates" &&
+      action !== "end-duplicate"
+    ) {
       return Response.json(
         { success: false, error: "Unsupported duplicate action." },
         { status: 400 },
@@ -807,6 +865,7 @@ export async function POST(request: Request) {
 
     if (
       (action === "merge-duplicate" && body.confirm !== "MERGE_DUPLICATE") ||
+      (action === "merge-duplicates" && body.confirm !== "MERGE_DUPLICATES") ||
       (action === "end-duplicate" && body.confirm !== "END_DUPLICATE")
     ) {
       return Response.json(
@@ -838,9 +897,13 @@ export async function POST(request: Request) {
     }
 
     const keeperProductId = positiveInteger(body.keeperProductId);
-    const duplicateProductId = positiveInteger(body.duplicateProductId);
+    const requestedDuplicateIds =
+      action === "merge-duplicates"
+        ? duplicateProductIds(body.duplicateProductIds)
+        : duplicateProductIds(body.duplicateProductId);
+    const duplicateProductId = requestedDuplicateIds[0] || 0;
 
-    if (!keeperProductId || !duplicateProductId) {
+    if (!keeperProductId || !requestedDuplicateIds.length) {
       return Response.json(
         { success: false, error: "Keeper and duplicate product IDs are required." },
         { status: 400 },
@@ -860,15 +923,23 @@ export async function POST(request: Request) {
       });
     }
 
-    const result = await mergeDuplicate({
-      keeperProductId,
-      duplicateProductId,
-    });
+    const result =
+      action === "merge-duplicates"
+        ? await mergeDuplicateRows({
+            keeperProductId,
+            duplicateProductIds: requestedDuplicateIds,
+          })
+        : await mergeDuplicate({
+            keeperProductId,
+            duplicateProductId,
+          });
 
     return Response.json({
       success: true,
       result,
-      message: `Merged duplicate into keeper. Quantity ${result.previousKeeperQuantity} + ${result.duplicateQuantity} = ${result.mergedQuantity}.`,
+      message: `Merged ${result.archivedDuplicateCount || 1} duplicate row${
+        (result.archivedDuplicateCount || 1) === 1 ? "" : "s"
+      } into keeper. Quantity ${result.previousKeeperQuantity} + ${result.duplicateQuantity} = ${result.mergedQuantity}.`,
     });
   } catch (error: any) {
     return Response.json(

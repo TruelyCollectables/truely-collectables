@@ -153,19 +153,20 @@ export default function EbayDuplicateFinderClient() {
 
   async function mergeGroup(group: DuplicateGroup) {
     const keeperProductId = keepers[group.key] || group.recommendedKeeperProductId || 0;
-    const duplicateProductId =
-      duplicates[group.key] ||
-      group.rows.find((row) => row.productId !== keeperProductId)?.productId ||
-      0;
+    const duplicateProductIds = group.rows
+      .map((row) => row.productId)
+      .filter((productId) => productId !== keeperProductId);
 
-    if (!keeperProductId || !duplicateProductId || keeperProductId === duplicateProductId) {
-      setError("Pick one keeper and one different duplicate row first.");
+    if (!keeperProductId || duplicateProductIds.length === 0) {
+      setError("Pick one keeper with at least one different duplicate row first.");
       return;
     }
 
     setWorkingKey(group.key);
     setNotice(
-      `Merging product #${duplicateProductId} into keeper #${keeperProductId}...`,
+      `Merging ${duplicateProductIds.length} duplicate row${
+        duplicateProductIds.length === 1 ? "" : "s"
+      } into keeper #${keeperProductId}...`,
     );
     setError("");
 
@@ -174,10 +175,10 @@ export default function EbayDuplicateFinderClient() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action: "merge-duplicate",
+          action: "merge-duplicates",
           keeperProductId,
-          duplicateProductId,
-          confirm: "MERGE_DUPLICATE",
+          duplicateProductIds,
+          confirm: "MERGE_DUPLICATES",
         }),
       });
       const data = await response.json().catch(() => ({}));
@@ -324,8 +325,15 @@ export default function EbayDuplicateFinderClient() {
               group.rows.find((row) => row.productId === keeperProductId) || null;
             const duplicateRow =
               group.rows.find((row) => row.productId === duplicateProductId) || null;
+            const allDuplicateRows = group.rows.filter(
+              (row) => row.productId !== keeperProductId,
+            );
+            const duplicateQuantity = allDuplicateRows.reduce(
+              (sum, row) => sum + Number(row.quantity || 0),
+              0,
+            );
             const mergedQuantity =
-              Number(keeperRow?.quantity || 0) + Number(duplicateRow?.quantity || 0);
+              Number(keeperRow?.quantity || 0) + duplicateQuantity;
 
             return (
               <article
@@ -344,9 +352,10 @@ export default function EbayDuplicateFinderClient() {
                     </p>
                     {keeperRow && duplicateRow ? (
                       <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-black text-amber-950">
-                        Merge preview: keep product #{keeperRow.productId} qty{" "}
-                        {keeperRow.quantity}, end product #{duplicateRow.productId} qty{" "}
-                        {duplicateRow.quantity}, keeper becomes qty {mergedQuantity}.
+                        Merge-all preview: keep product #{keeperRow.productId} qty{" "}
+                        {keeperRow.quantity}, archive {allDuplicateRows.length} duplicate
+                        row{allDuplicateRows.length === 1 ? "" : "s"} qty{" "}
+                        {duplicateQuantity}, keeper becomes qty {mergedQuantity}.
                       </p>
                     ) : null}
                   </div>
@@ -358,16 +367,15 @@ export default function EbayDuplicateFinderClient() {
                       disabled={
                         workingKey === group.key ||
                         !keeperProductId ||
-                        !duplicateProductId ||
-                        keeperProductId === duplicateProductId
+                        allDuplicateRows.length === 0
                       }
                       className="rounded-md bg-rose-700 px-5 py-3 text-sm font-black text-white hover:bg-rose-800 disabled:cursor-not-allowed disabled:bg-neutral-400"
                     >
                       {workingKey === group.key
                         ? "Merging..."
-                        : duplicateRow && keeperRow
-                          ? `Merge → qty ${mergedQuantity}`
-                          : "Merge Selected Duplicate"}
+                        : keeperRow && allDuplicateRows.length
+                          ? `Merge All → qty ${mergedQuantity}`
+                          : "Merge All Duplicates"}
                     </button>
                     <button
                       type="button"
