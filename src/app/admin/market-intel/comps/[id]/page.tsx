@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import AdminSubmitButton from "../../../AdminSubmitButton";
 import { addAdminHandoff, ADMIN_HANDOFF_PARAM } from "../../../../../lib/admin-handoff";
 import { getMarketIntelCompDetail } from "../../../../../lib/market-intel-comps";
 
@@ -98,11 +99,12 @@ export default async function MarketIntelCompDetailPage({
                     handoff,
                   )}
                 >
-                  <button
-                    type="submit"
-                    className="rounded-md bg-black px-4 py-2.5 text-sm font-black text-white">
+                  <AdminSubmitButton
+                    className="rounded-md bg-black px-4 py-2.5 text-sm font-black text-white"
+                    pendingChildren="Recalculating..."
+                  >
                     Recalculate
-                  </button>
+                  </AdminSubmitButton>
                 </form>
               </div>
 
@@ -177,11 +179,12 @@ export default async function MarketIntelCompDetailPage({
                 <Check name="outlierFlag" label="Flag as outlier" />
                 <Check name="excluded" label="Exclude from value" />
               </div>
-              <button
-                type="submit"
-                className="rounded-md bg-black px-5 py-3 font-black text-white sm:col-span-2">
+              <AdminSubmitButton
+                className="rounded-md bg-black px-5 py-3 font-black text-white sm:col-span-2"
+                pendingChildren="Saving comp..."
+              >
                 Save Verified Comp
-              </button>
+              </AdminSubmitButton>
             </form>
           </section>
         </section>

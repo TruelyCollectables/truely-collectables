@@ -1,4 +1,5 @@
 import Link from "next/link";
+import AdminSubmitButton from "../../AdminSubmitButton";
 import { addAdminHandoff, ADMIN_HANDOFF_PARAM } from "../../../../lib/admin-handoff";
 import { getMarketIntelCompOverview } from "../../../../lib/market-intel-comps";
 
@@ -120,12 +121,12 @@ export default async function MarketIntelCompsPage({ searchParams }: PageProps) 
                   <Check name="autograph" label="Autograph" />
                   <Check name="memorabilia" label="Memorabilia" />
                 </div>
-                <button
-                  type="submit"
+                <AdminSubmitButton
                   className="rounded-md bg-black px-5 py-3 font-black text-white sm:col-span-2"
+                  pendingChildren="Creating identity..."
                 >
                   Create Exact Identity
-                </button>
+                </AdminSubmitButton>
               </form>
             )}
           </section>

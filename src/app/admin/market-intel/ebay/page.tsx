@@ -1,4 +1,5 @@
 import Link from "next/link";
+import AdminSubmitButton from "../../AdminSubmitButton";
 import {
   addAdminHandoff,
   ADMIN_HANDOFF_PARAM,
@@ -185,13 +186,13 @@ export default async function MarketIntelEbayPage({ searchParams }: PageProps) {
                 max="100"
               />
 
-              <button
-                type="submit"
+              <AdminSubmitButton
                 disabled={!credentialsConfigured || compData.identities.length === 0}
                 className="w-full rounded-md bg-black px-4 py-3 font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
+                pendingChildren="Scanning and scoring..."
               >
                 Scan eBay and Score Results
-              </button>
+              </AdminSubmitButton>
             </form>
 
             <div className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm font-semibold leading-6 text-amber-950">
