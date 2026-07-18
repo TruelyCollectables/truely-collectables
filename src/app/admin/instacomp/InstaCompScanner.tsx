@@ -13,6 +13,7 @@ import {
   instaCompBatchRowRemovalBlockedReason,
   instaCompBatchRowRemovalLabel,
 } from "@/src/lib/instacomp-row-removal";
+import { planInstaCompSelectedQuantityMerge } from "@/src/lib/instacomp-row-merge";
 
 type AiResult = {
   player: string | null;
@@ -4052,6 +4053,8 @@ export default function InstaCompScanner({
       .map((card) => card.id)
   );
   const selectedDraftErrorCount = selectedDraftErrorBatchCardIds.size;
+  const selectedQuantityMergeCards = selectedDoneBatchCards;
+  const selectedQuantityMergeCount = selectedQuantityMergeCards.length;
   const selectedDraftSummary =
     selectedDoneBatchCards.length > 0
       ? `Selected ${selectedDoneBatchCards.length} - Ready ${selectedDraftReadyCount} - Ready Review ${selectedReadyReviewCount} - Clean Ready ${selectedCleanReadyCount} - Clean ${selectedCleanCount} - Clean Fix ${selectedCleanDraftFixCount} - Fix ${selectedDraftFixCount} - Review ${selectedReviewCount} - Review Fix ${selectedReviewDraftFixCount} - Marked Problems ${selectedOperatorMarkedProblemCount}`
@@ -7197,6 +7200,133 @@ export default function InstaCompScanner({
           : card
       )
     );
+  }
+
+  async function mergeSelectedBatchQuantityRows() {
+    if (batchRunning || batchDrafting) return;
+
+    const cardsToMerge = batchCards.filter(
+      (card) => card.selected && isDraftableBatchCard(card)
+    );
+    const mergePlan = planInstaCompSelectedQuantityMerge(
+      cardsToMerge.map((card) => ({
+        id: card.id,
+        title: draftTitleForCard(card),
+        quantity: draftQuantityForCard(card),
+      }))
+    );
+
+    if (!mergePlan.ok) {
+      setBatchError(mergePlan.reason);
+      return;
+    }
+
+    const keeper = cardsToMerge.find((card) => card.id === mergePlan.keeperId);
+    const duplicateCards = cardsToMerge.filter((card) =>
+      mergePlan.duplicateIds.includes(card.id)
+    );
+
+    if (!keeper || !duplicateCards.length) {
+      setBatchError("Could not find the selected duplicate rows to merge.");
+      return;
+    }
+
+    const mergedKeeper: BatchCard = {
+      ...keeper,
+      customQuantity: String(mergePlan.mergedQuantity),
+      selected: true,
+      draftStatus: keeper.draftStatus === "error" ? "idle" : keeper.draftStatus,
+      draftError: keeper.draftStatus === "error" ? null : keeper.draftError,
+    };
+    const duplicateIds = new Set(mergePlan.duplicateIds);
+    const persistedDuplicates = duplicateCards.filter(
+      batchCardHasPersistentRemovalTarget
+    );
+
+    setBatchRunning(true);
+    setBatchError(null);
+    setBatchDraftMessage(
+      `Merging selected duplicate rows into ${mergePlan.title} with quantity ${mergePlan.mergedQuantity}...`
+    );
+
+    setBatchCards((current) =>
+      current
+        .map((card) =>
+          card.id === mergePlan.keeperId
+            ? {
+                ...card,
+                customQuantity: String(mergePlan.mergedQuantity),
+                selected: true,
+                draftStatus: card.draftStatus === "error" ? "idle" : card.draftStatus,
+                draftError: card.draftStatus === "error" ? null : card.draftError,
+              }
+            : card
+        )
+        .filter((card) => {
+          if (!duplicateIds.has(card.id)) return true;
+
+          forgetRemovedBatchCard(card);
+          return false;
+        })
+    );
+
+    const cancellationResults = await Promise.allSettled(
+      persistedDuplicates.map((card) => cancelPersistentBatchCard(card))
+    );
+    const latestJob = cancellationResults
+      .filter(
+        (result): result is PromiseFulfilledResult<any> =>
+          result.status === "fulfilled"
+      )
+      .map((result) => result.value)
+      .slice()
+      .reverse()
+      .find((result) => result?.job)?.job;
+    const failedCancellations = cancellationResults.filter(
+      (result) => result.status === "rejected"
+    ).length;
+
+    if (latestJob) {
+      setPersistentJob(latestJob as PersistentJobSummary);
+    }
+
+    let savedKeeperQuantity = false;
+    let saveError: string | null = null;
+
+    try {
+      if (isCorrectionSavableBatchCard(mergedKeeper)) {
+        await persistBatchCardCorrections(mergedKeeper);
+        savedKeeperQuantity = true;
+      }
+    } catch (error: any) {
+      saveError = error?.message || "Merged quantity was not saved to the saved lot.";
+    }
+
+    if (failedCancellations || saveError) {
+      const warnings = [
+        failedCancellations
+          ? `${failedCancellations}/${persistedDuplicates.length} duplicate saved row${
+              failedCancellations === 1 ? "" : "s"
+            } could not be cancelled server-side.`
+          : null,
+        saveError,
+      ].filter(Boolean);
+
+      setBatchError(warnings.join(" "));
+    }
+
+    setBatchDraftMessage(
+      `Merged ${mergePlan.mergedRowCount} selected duplicate row${
+        mergePlan.mergedRowCount === 1 ? "" : "s"
+      } into one ${mergePlan.title} row: qty ${mergePlan.previousKeeperQuantity} + ${mergePlan.duplicateQuantity} = ${mergePlan.mergedQuantity}.${
+        persistedDuplicates.length
+          ? ` Cancelled ${persistedDuplicates.length - failedCancellations}/${persistedDuplicates.length} duplicate saved row${
+              persistedDuplicates.length === 1 ? "" : "s"
+            }.`
+          : ""
+      }${savedKeeperQuantity ? " Saved the merged keeper quantity." : " Review or save the keeper row before drafting if you refresh this lot."}`
+    );
+    setBatchRunning(false);
   }
 
   function handleBatchPriceChange(cardId: string, value: string) {
@@ -11625,6 +11755,40 @@ export default function InstaCompScanner({
               }}
             >
               Apply Qty ({selectedDoneBatchCards.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => void mergeSelectedBatchQuantityRows()}
+              disabled={
+                batchRunning ||
+                batchDrafting ||
+                selectedQuantityMergeCount < 2
+              }
+              title={
+                selectedQuantityMergeCount >= 2
+                  ? "Merge selected duplicate rows with the same edited title into the first selected row and sum their quantities."
+                  : "Select at least two duplicate draftable rows with the same edited title to merge quantities."
+              }
+              style={{
+                ...secondaryButtonStyle,
+                padding: "8px 10px",
+                borderColor: "#7c3aed",
+                color: "#5b21b6",
+                opacity:
+                  batchRunning ||
+                  batchDrafting ||
+                  selectedQuantityMergeCount < 2
+                    ? 0.5
+                    : 1,
+                cursor:
+                  batchRunning ||
+                  batchDrafting ||
+                  selectedQuantityMergeCount < 2
+                    ? "not-allowed"
+                    : "pointer",
+              }}
+            >
+              Merge Selected Qty ({selectedQuantityMergeCount})
             </button>
           </div>
         )}

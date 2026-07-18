@@ -1,4 +1,8 @@
 import { instaCompBatchRowActionLabel } from "../src/lib/instacomp-row-actions.ts";
+import {
+  normalizedInstaCompMergeQuantity,
+  planInstaCompSelectedQuantityMerge,
+} from "../src/lib/instacomp-row-merge.ts";
 import { readFile } from "node:fs/promises";
 
 const scannerSource = await readFile(
@@ -46,6 +50,49 @@ scenario("keeps the normal row action label when idle", () => {
   );
 });
 
+scenario("plans selected duplicate row quantity merges", () => {
+  const plan = planInstaCompSelectedQuantityMerge([
+    {
+      id: "keeper",
+      title: "2024 Pokemon Pikachu #25",
+      quantity: 2,
+    },
+    {
+      id: "duplicate",
+      title: " 2024   Pokemon Pikachu #25 ",
+      quantity: 1,
+    },
+  ]);
+
+  assert(plan.ok, "Expected matching selected rows to merge.");
+  if (!plan.ok) return;
+
+  assert(plan.keeperId === "keeper", "Expected first selected row to be keeper.");
+  assert(plan.duplicateIds.join(",") === "duplicate", "Expected second row to be removed.");
+  assert(plan.previousKeeperQuantity === 2, "Expected keeper quantity to be captured.");
+  assert(plan.duplicateQuantity === 1, "Expected duplicate quantity to be summed.");
+  assert(plan.mergedQuantity === 3, "Expected 2 + 1 to become quantity 3.");
+});
+
+scenario("blocks merging selected rows with different titles", () => {
+  const plan = planInstaCompSelectedQuantityMerge([
+    { id: "one", title: "Pikachu", quantity: 1 },
+    { id: "two", title: "Charizard", quantity: 1 },
+  ]);
+
+  assert(!plan.ok, "Expected different edited titles to block merging.");
+  assert(
+    !plan.ok && plan.reason.includes("same edited title"),
+    `Expected clear mismatch reason, got ${plan.ok ? "ok" : plan.reason}.`,
+  );
+});
+
+scenario("normalizes merge quantities to positive whole counts", () => {
+  assert(normalizedInstaCompMergeQuantity("2.9") === 2, "Expected floor quantity.");
+  assert(normalizedInstaCompMergeQuantity(0) === 1, "Expected zero to become one.");
+  assert(normalizedInstaCompMergeQuantity("abc") === 1, "Expected invalid quantity fallback.");
+});
+
 scenario("scanner row actions expose busy and disabled reasons", () => {
   for (const fragment of [
     "aria-busy={savingCorrections}",
@@ -57,6 +104,23 @@ scenario("scanner row actions expose busy and disabled reasons", () => {
     assert(
       scannerSource.includes(fragment),
       `Expected scanner row action feedback fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("scanner exposes selected duplicate quantity merge action", () => {
+  for (const fragment of [
+    "selectedQuantityMergeCards",
+    "planInstaCompSelectedQuantityMerge",
+    "mergeSelectedBatchQuantityRows",
+    "Merge Selected Qty",
+    "qty ${mergePlan.previousKeeperQuantity} + ${mergePlan.duplicateQuantity} = ${mergePlan.mergedQuantity}",
+    "persistBatchCardCorrections(mergedKeeper)",
+    "persistedDuplicates.map((card) => cancelPersistentBatchCard(card))",
+  ]) {
+    assert(
+      scannerSource.includes(fragment),
+      `Expected scanner selected quantity merge fragment ${fragment}.`,
     );
   }
 });
