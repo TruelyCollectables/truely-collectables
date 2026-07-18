@@ -255,6 +255,31 @@ function ebayHeaders(accessToken: string) {
   };
 }
 
+function ebayProviderFailureMessage(params: {
+  action: "withdraw_duplicate" | "update_keeper_quantity";
+  status: number;
+}) {
+  const statusSuffix = params.status ? ` HTTP ${params.status}.` : ".";
+
+  if (params.action === "withdraw_duplicate") {
+    return `eBay did not withdraw the duplicate offer.${statusSuffix} Local TCOS cleanup completed; refresh eBay sync or withdraw the duplicate listing from eBay.`;
+  }
+
+  return `eBay did not update the keeper listing quantity.${statusSuffix} Local TCOS merge completed; refresh eBay sync or update the keeper listing quantity from eBay.`;
+}
+
+function ebaySkippedMessage(action: string) {
+  if (action.startsWith("withdraw_duplicate_offer")) {
+    return "eBay duplicate-offer cleanup was skipped. Local TCOS cleanup completed; refresh eBay sync or withdraw the duplicate listing from eBay.";
+  }
+
+  if (action === "update_keeper_quantity") {
+    return "eBay keeper quantity update was skipped. Local TCOS merge completed; refresh eBay sync or update the keeper listing quantity from eBay.";
+  }
+
+  return "eBay cleanup was skipped. Local TCOS cleanup completed; refresh eBay sync before retrying.";
+}
+
 async function fetchEbayOffers(params: {
   accessToken: string;
   sku: string;
@@ -334,7 +359,11 @@ async function withdrawDuplicateOffer(params: {
     status: response.status,
     message: response.ok
       ? "Duplicate eBay offer withdrawn."
-      : `Duplicate eBay withdraw failed: ${JSON.stringify(data).slice(0, 500)}`,
+      : ebayProviderFailureMessage({
+          action: "withdraw_duplicate",
+          status: response.status,
+        }),
+    providerResponse: response.ok ? undefined : data,
   };
 }
 
@@ -390,7 +419,11 @@ async function updateKeeperEbayQuantity(params: {
     status: response.status,
     message: response.ok
       ? "Keeper eBay quantity/price updated."
-      : `Keeper eBay quantity update failed: ${JSON.stringify(data).slice(0, 500)}`,
+      : ebayProviderFailureMessage({
+          action: "update_keeper_quantity",
+          status: response.status,
+        }),
+    providerResponse: response.ok ? undefined : data,
   };
 }
 
@@ -405,10 +438,8 @@ async function bestEffortEbayAction(
       action,
       ok: false,
       skipped: true,
-      message:
-        error instanceof Error
-          ? `${action} skipped: ${error.message}`
-          : `${action} skipped due to an unknown eBay error.`,
+      message: ebaySkippedMessage(action),
+      detail: error instanceof Error ? error.message : "Unknown eBay provider error.",
     };
   }
 }
@@ -423,9 +454,11 @@ async function getBestEffortEbayStoreAccessToken(storeId: string) {
       ok: false,
       skipped: true,
       message:
+        "eBay seller connection check was skipped. Local TCOS cleanup can continue; reconnect eBay or refresh sync before retrying provider cleanup.",
+      detail:
         error instanceof Error
-          ? `eBay token lookup skipped: ${error.message}`
-          : "eBay token lookup skipped due to an unknown error.",
+          ? error.message
+          : "Unknown eBay token lookup error.",
     };
   }
 }

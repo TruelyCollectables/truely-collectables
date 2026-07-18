@@ -194,7 +194,7 @@ await scenario("duplicate finder previews destructive end and merge actions", ()
     "showError",
     "clearMessages",
     "Previewing merge...",
-    "Merging now: keeper qty",
+    "Merging now: keeper quantity",
     "Previewing end/archive",
     "That row is marked as the keeper",
     "Ending now: product",
@@ -225,6 +225,71 @@ await scenario("duplicate finder previews destructive end and merge actions", ()
     assert(
       duplicateFinderSource.includes(fragment),
       `Expected duplicate finder action-safety fragment ${fragment}.`,
+    );
+  }
+});
+
+await scenario("duplicate cleanup keeps eBay provider failures operator-readable", () => {
+  for (const fragment of [
+    "function ebayProviderFailureMessage",
+    "eBay did not withdraw the duplicate offer.",
+    "Local TCOS cleanup completed; refresh eBay sync or withdraw the duplicate listing from eBay.",
+    "eBay did not update the keeper listing quantity.",
+    "Local TCOS merge completed; refresh eBay sync or update the keeper listing quantity from eBay.",
+    "providerResponse: response.ok ? undefined : data",
+    "function ebaySkippedMessage(action: string)",
+    "eBay duplicate-offer cleanup was skipped.",
+    "eBay keeper quantity update was skipped.",
+    "detail: error instanceof Error ? error.message",
+  ]) {
+    assert(
+      duplicateRouteSource.includes(fragment),
+      `Expected duplicate route operator-readable provider warning fragment ${fragment}.`,
+    );
+  }
+
+  for (const rawFragment of [
+    "Duplicate eBay withdraw failed:",
+    "Keeper eBay quantity update failed:",
+    "JSON.stringify(data).slice",
+    "${action} skipped: ${error.message}",
+    "eBay token lookup skipped: ${error.message}",
+  ]) {
+    assert(
+      !duplicateRouteSource.includes(rawFragment),
+      `Expected duplicate route to avoid raw provider warning fragment ${rawFragment}.`,
+    );
+  }
+});
+
+await scenario("duplicate finder uses professional quantity labels", () => {
+  for (const fragment of [
+    "total quantity",
+    "keeper quantity",
+    "duplicate quantity",
+    "archived quantity 0",
+    "keeper becomes quantity",
+    "Merge All → quantity",
+    "Quantity {row.quantity}",
+  ]) {
+    assert(
+      duplicateFinderSource.includes(fragment),
+      `Expected duplicate finder professional quantity label ${fragment}.`,
+    );
+  }
+
+  for (const roughFragment of [
+    "total qty",
+    "keeper qty",
+    "duplicate qty",
+    "archived qty",
+    "becomes qty",
+    "→ qty",
+    "· Qty",
+  ]) {
+    assert(
+      !duplicateFinderSource.includes(roughFragment),
+      `Expected duplicate finder to avoid rough quantity shorthand ${roughFragment}.`,
     );
   }
 });

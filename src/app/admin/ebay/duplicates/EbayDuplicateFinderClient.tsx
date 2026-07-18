@@ -277,13 +277,13 @@ export default function EbayDuplicateFinderClient() {
 
       if (serverMergedQuantity !== visibleMergedQuantity) {
         showNotice(
-          `Server preview refreshed the merge math: keeper qty ${preview.previousKeeperQuantity} + duplicate qty ${preview.duplicateQuantity} = ${preview.mergedQuantity}.`,
+          `Server preview refreshed the merge math: keeper quantity ${preview.previousKeeperQuantity} + duplicate quantity ${preview.duplicateQuantity} = ${preview.mergedQuantity}.`,
         );
       }
 
       setActiveDuplicateAction({ groupKey: group.key, kind: "merge", stage: "applying" });
       showNotice(
-        `Merging now: keeper qty ${preview.previousKeeperQuantity} + duplicate qty ${preview.duplicateQuantity} = ${preview.mergedQuantity}.`,
+        `Merging now: keeper quantity ${preview.previousKeeperQuantity} + duplicate quantity ${preview.duplicateQuantity} = ${preview.mergedQuantity}.`,
       );
 
       const response = await fetch("/api/admin/ebay-duplicates", {
@@ -372,7 +372,7 @@ export default function EbayDuplicateFinderClient() {
         stage: "applying",
       });
       showNotice(
-        `Ending now: product #${duplicateProductId} will move from qty ${preview.previousQuantity} to archived qty 0.`,
+        `Ending now: product #${duplicateProductId} will move from quantity ${preview.previousQuantity} to archived quantity 0.`,
       );
 
       const response = await fetch("/api/admin/ebay-duplicates", {
@@ -515,7 +515,7 @@ export default function EbayDuplicateFinderClient() {
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div>
                     <p className="text-xs font-black uppercase tracking-[0.1em] text-amber-700">
-                      {group.count} matching listings · {group.totalQuantity} total qty ·{" "}
+                      {group.count} matching listings · {group.totalQuantity} total quantity ·{" "}
                       {money(group.price)}
                     </p>
                     <h3 className="mt-1 text-2xl font-black">{group.title}</h3>
@@ -524,10 +524,10 @@ export default function EbayDuplicateFinderClient() {
                     </p>
                     {keeperRow && duplicateRow ? (
                       <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-black text-amber-950">
-                        Merge-all preview: keep product #{keeperRow.productId} qty{" "}
+                        Merge-all preview: keep product #{keeperRow.productId} quantity{" "}
                         {keeperRow.quantity}, archive {allDuplicateRows.length} duplicate
-                        row{allDuplicateRows.length === 1 ? "" : "s"} qty{" "}
-                        {duplicateQuantity}, keeper becomes qty {mergedQuantity}.
+                        row{allDuplicateRows.length === 1 ? "" : "s"} quantity{" "}
+                        {duplicateQuantity}, keeper becomes quantity {mergedQuantity}.
                       </p>
                     ) : null}
                   </div>
@@ -557,7 +557,7 @@ export default function EbayDuplicateFinderClient() {
                           ? "Previewing merge..."
                           : "Merging..."
                         : keeperRow && allDuplicateRows.length
-                          ? `Merge All → qty ${mergedQuantity}`
+                          ? `Merge All → quantity ${mergedQuantity}`
                           : "Merge All Duplicates"}
                     </button>
                     <button
@@ -631,7 +631,7 @@ export default function EbayDuplicateFinderClient() {
                               {row.ebayItemId || "missing"}
                             </p>
                             <p className="mt-1 text-xs font-bold text-neutral-600">
-                              {money(row.price)} · Qty {row.quantity} · Inventory{" "}
+                              {money(row.price)} · Quantity {row.quantity} · Inventory{" "}
                               {row.inventoryStatus}
                             </p>
                             <p className="mt-1 text-xs text-neutral-500">
