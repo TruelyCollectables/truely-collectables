@@ -9,31 +9,31 @@
   "crons": [
     {
       "path": "/api/cron/market-intel/ebay/scan?maxTargets=10&resultsPerTarget=10&minimumConfidence=70",
-      "schedule": "5 * * * *"
+      "schedule": "5 */6 * * *"
     },
     {
       "path": "/api/cron/market-intel/ebay/discovery-scan?maxSubjects=5&resultsPerQuery=15",
-      "schedule": "8 * * * *"
+      "schedule": "8 */6 * * *"
     },
     {
       "path": "/api/cron/market-intel/ebay/growth-scan?maxTargets=25&resultsPerTarget=15&minimumConfidence=80",
-      "schedule": "10 * * * *"
+      "schedule": "10 */6 * * *"
     },
     {
       "path": "/api/cron/market-intel/alerts/sync",
-      "schedule": "15 * * * *"
+      "schedule": "15 */6 * * *"
     },
     {
       "path": "/api/cron/market-intel/alerts/growth-deliver?limit=10",
-      "schedule": "17 * * * *"
+      "schedule": "17 */6 * * *"
     },
     {
       "path": "/api/cron/market-intel/alerts/deliver?limit=10",
-      "schedule": "20 * * * *"
+      "schedule": "20 */6 * * *"
     },
     {
       "path": "/api/cron/market-intel/cleanup?staleAfterHours=26",
-      "schedule": "35 * * * *"
+      "schedule": "35 */6 * * *"
     },
     {
       "path": "/api/cron/market-intel/reports/daily",
@@ -41,7 +41,7 @@
     },
     {
       "path": "/api/cron/seller-ebay-reconciliation",
-      "schedule": "30 1-23/3 * * *"
+      "schedule": "30 */6 * * *"
     },
     {
       "path": "/api/cron/stripe-reconciliation",
