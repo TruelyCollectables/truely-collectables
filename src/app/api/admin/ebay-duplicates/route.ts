@@ -881,6 +881,25 @@ async function archiveDuplicate(params: { duplicateProductId: number }) {
   };
 }
 
+async function previewArchiveDuplicate(params: { duplicateProductId: number }) {
+  const duplicate = await loadProductForMerge(params.duplicateProductId);
+  const duplicateInventory = await loadInventoryForProduct(params.duplicateProductId);
+  const duplicateQuantity = wholeQuantity(duplicate.quantity);
+
+  return {
+    duplicateProductId: duplicate.id,
+    title: duplicate.title || "Untitled eBay listing",
+    previousQuantity: duplicateQuantity,
+    previousInventoryQuantity:
+      duplicateInventory?.quantity === null ||
+      duplicateInventory?.quantity === undefined
+        ? null
+        : wholeQuantity(duplicateInventory.quantity),
+    inventoryStatus: duplicateInventory?.status ?? "missing",
+    dryRun: true,
+  };
+}
+
 export async function GET() {
   try {
     const groups = await buildDuplicateGroups();
@@ -940,6 +959,16 @@ export async function POST(request: Request) {
           { success: false, error: "Duplicate product ID is required." },
           { status: 400 },
         );
+      }
+
+      if (body.dryRun === true) {
+        const result = await previewArchiveDuplicate({ duplicateProductId });
+
+        return Response.json({
+          success: true,
+          result,
+          message: `Dry run: product #${result.duplicateProductId} quantity ${result.previousQuantity} will be archived to 0.`,
+        });
       }
 
       const result = await archiveDuplicate({ duplicateProductId });

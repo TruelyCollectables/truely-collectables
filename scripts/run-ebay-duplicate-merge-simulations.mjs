@@ -2,6 +2,16 @@ import {
   normalizeEbayDuplicateProductIds,
   planEbayDuplicateQuantityMerge,
 } from "../src/lib/ebay-duplicate-merge.ts";
+import { readFile } from "node:fs/promises";
+
+const duplicateFinderSource = await readFile(
+  new URL("../src/app/admin/ebay/duplicates/EbayDuplicateFinderClient.tsx", import.meta.url),
+  "utf8",
+);
+const duplicateRouteSource = await readFile(
+  new URL("../src/app/api/admin/ebay-duplicates/route.ts", import.meta.url),
+  "utf8",
+);
 
 const scenarios = [];
 
@@ -111,6 +121,38 @@ await scenario("rejects merge with no duplicate row different from keeper", () =
       }),
     "Pick at least one duplicate",
   );
+});
+
+await scenario("duplicate finder previews destructive end and merge actions", () => {
+  for (const fragment of [
+    "type DuplicateAction",
+    "Previewing merge...",
+    "Merging now: keeper qty",
+    "Previewing end/archive",
+    "That row is marked as the keeper",
+    "Ending now: product",
+    "dryRun: true",
+  ]) {
+    assert(
+      duplicateFinderSource.includes(fragment),
+      `Expected duplicate finder action-safety fragment ${fragment}.`,
+    );
+  }
+});
+
+await scenario("duplicate API supports end/archive dry-run preview", () => {
+  for (const fragment of [
+    "previewArchiveDuplicate",
+    "previousInventoryQuantity",
+    "inventoryStatus",
+    "body.dryRun === true",
+    "will be archived to 0",
+  ]) {
+    assert(
+      duplicateRouteSource.includes(fragment),
+      `Expected duplicate route dry-run fragment ${fragment}.`,
+    );
+  }
 });
 
 const failed = scenarios.filter((item) => item.status === "failed");

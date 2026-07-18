@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type DuplicateRow = {
   productId: number;
@@ -35,6 +35,15 @@ type Summary = {
   totalRowsInGroups: number;
 };
 
+type DuplicateAction =
+  | {
+      groupKey: string;
+      kind: "merge" | "end";
+      productId?: number;
+      stage: "previewing" | "applying";
+    }
+  | null;
+
 function money(value: number | null | undefined) {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -57,13 +66,14 @@ export default function EbayDuplicateFinderClient() {
   const [groups, setGroups] = useState<DuplicateGroup[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
   const [keepers, setKeepers] = useState<Record<string, number>>({});
+  const keepersRef = useRef<Record<string, number>>({});
   const [duplicates, setDuplicates] = useState<Record<string, number>>({});
   const [loading, setLoading] = useState(true);
-  const [workingKey, setWorkingKey] = useState<string | null>(null);
+  const [workingAction, setWorkingAction] = useState<DuplicateAction>(null);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
-  async function fetchGroups() {
+  const fetchGroups = useCallback(async () => {
     try {
       const response = await fetch("/api/admin/ebay-duplicates", {
         cache: "no-store",
@@ -86,6 +96,7 @@ export default function EbayDuplicateFinderClient() {
           }
         }
 
+        keepersRef.current = next;
         return next;
       });
       setDuplicates((current) => {
@@ -93,7 +104,10 @@ export default function EbayDuplicateFinderClient() {
 
         for (const group of nextGroups) {
           const keeperId =
-            group.recommendedKeeperProductId || group.rows[0]?.productId || 0;
+            keepersRef.current[group.key] ||
+            group.recommendedKeeperProductId ||
+            group.rows[0]?.productId ||
+            0;
           const currentDuplicate = next[group.key] || 0;
           const currentDuplicateStillValid = group.rows.some(
             (row) => row.productId === currentDuplicate && row.productId !== keeperId,
@@ -116,7 +130,7 @@ export default function EbayDuplicateFinderClient() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
 
   async function loadGroups() {
     setLoading(true);
@@ -130,7 +144,7 @@ export default function EbayDuplicateFinderClient() {
     }, 0);
 
     return () => window.clearTimeout(initialLoad);
-  }, []);
+  }, [fetchGroups]);
 
   const hasGroups = groups.length > 0;
   const totalDuplicateRows = useMemo(
@@ -139,7 +153,11 @@ export default function EbayDuplicateFinderClient() {
   );
 
   function chooseKeeper(group: DuplicateGroup, productId: number) {
-    setKeepers((current) => ({ ...current, [group.key]: productId }));
+    setKeepers((current) => {
+      const next = { ...current, [group.key]: productId };
+      keepersRef.current = next;
+      return next;
+    });
     setDuplicates((current) => {
       if (current[group.key] !== productId) return current;
 
@@ -170,9 +188,9 @@ export default function EbayDuplicateFinderClient() {
       return;
     }
 
-    setWorkingKey(group.key);
+    setWorkingAction({ groupKey: group.key, kind: "merge", stage: "previewing" });
     setNotice(
-      `Merging ${duplicateProductIds.length} duplicate row${
+      `Previewing merge for ${duplicateProductIds.length} duplicate row${
         duplicateProductIds.length === 1 ? "" : "s"
       } into keeper #${keeperProductId}...`,
     );
@@ -204,6 +222,11 @@ export default function EbayDuplicateFinderClient() {
           `Server preview refreshed the merge math: keeper qty ${preview.previousKeeperQuantity} + duplicate qty ${preview.duplicateQuantity} = ${preview.mergedQuantity}.`,
         );
       }
+
+      setWorkingAction({ groupKey: group.key, kind: "merge", stage: "applying" });
+      setNotice(
+        `Merging now: keeper qty ${preview.previousKeeperQuantity} + duplicate qty ${preview.duplicateQuantity} = ${preview.mergedQuantity}.`,
+      );
 
       const response = await fetch("/api/admin/ebay-duplicates", {
         method: "POST",
@@ -238,21 +261,61 @@ export default function EbayDuplicateFinderClient() {
     } catch (nextError: any) {
       setError(nextError.message || "Could not merge duplicate.");
     } finally {
-      setWorkingKey(null);
+      setWorkingAction(null);
     }
   }
 
   async function endDuplicate(group: DuplicateGroup, duplicateProductId: number) {
+    const keeperProductId = keepers[group.key] || group.recommendedKeeperProductId || 0;
+
     if (!duplicateProductId) {
       setError("Pick a duplicate row to end/archive first.");
       return;
     }
 
-    setWorkingKey(group.key);
-    setNotice(`Ending/archiving duplicate product #${duplicateProductId}...`);
+    if (duplicateProductId === keeperProductId) {
+      setError("That row is marked as the keeper. Pick a different row to end, or choose another keeper first.");
+      return;
+    }
+
+    setWorkingAction({
+      groupKey: group.key,
+      kind: "end",
+      productId: duplicateProductId,
+      stage: "previewing",
+    });
+    setNotice(`Previewing end/archive for duplicate product #${duplicateProductId}...`);
     setError("");
 
     try {
+      const previewResponse = await fetch("/api/admin/ebay-duplicates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "end-duplicate",
+          duplicateProductId,
+          dryRun: true,
+          confirm: "END_DUPLICATE",
+        }),
+      });
+      const previewData = await previewResponse.json().catch(() => ({}));
+
+      if (!previewResponse.ok || !previewData.success) {
+        throw new Error(previewData.error || "Could not preview duplicate end/archive.");
+      }
+
+      const preview = previewData.result || {};
+
+      setWorkingAction({
+        groupKey: group.key,
+        kind: "end",
+        productId: duplicateProductId,
+        stage: "applying",
+      });
+      setNotice(
+        `Ending now: product #${duplicateProductId} will move from qty ${preview.previousQuantity} to archived qty 0.`,
+      );
+
       const response = await fetch("/api/admin/ebay-duplicates", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -285,7 +348,7 @@ export default function EbayDuplicateFinderClient() {
     } catch (nextError: any) {
       setError(nextError.message || "Could not end/archive duplicate.");
     } finally {
-      setWorkingKey(null);
+      setWorkingAction(null);
     }
   }
 
@@ -306,7 +369,7 @@ export default function EbayDuplicateFinderClient() {
           <button
             type="button"
             onClick={() => void loadGroups()}
-            disabled={loading || Boolean(workingKey)}
+            disabled={loading || Boolean(workingAction)}
             className="rounded-md bg-neutral-950 px-5 py-3 text-sm font-black text-white hover:bg-neutral-800 disabled:opacity-50"
           >
             {loading ? "Scanning..." : "Rescan Duplicates"}
@@ -349,6 +412,9 @@ export default function EbayDuplicateFinderClient() {
           </div>
         ) : (
           groups.map((group) => {
+            const groupWorking = workingAction?.groupKey === group.key;
+            const groupMerging =
+              groupWorking && workingAction?.kind === "merge";
             const keeperProductId =
               keepers[group.key] || group.recommendedKeeperProductId || 0;
             const duplicateProductId =
@@ -399,14 +465,16 @@ export default function EbayDuplicateFinderClient() {
                       type="button"
                       onClick={() => void mergeGroup(group)}
                       disabled={
-                        workingKey === group.key ||
+                        groupWorking ||
                         !keeperProductId ||
                         allDuplicateRows.length === 0
                       }
                       className="rounded-md bg-rose-700 px-5 py-3 text-sm font-black text-white hover:bg-rose-800 disabled:cursor-not-allowed disabled:bg-neutral-400"
                     >
-                      {workingKey === group.key
-                        ? "Merging..."
+                      {groupMerging
+                        ? workingAction?.stage === "previewing"
+                          ? "Previewing merge..."
+                          : "Merging..."
                         : keeperRow && allDuplicateRows.length
                           ? `Merge All → qty ${mergedQuantity}`
                           : "Merge All Duplicates"}
@@ -415,13 +483,17 @@ export default function EbayDuplicateFinderClient() {
                       type="button"
                       onClick={() => void endDuplicate(group, duplicateProductId)}
                       disabled={
-                        workingKey === group.key ||
+                        groupWorking ||
                         !duplicateProductId ||
                         keeperProductId === duplicateProductId
                       }
                       className="rounded-md border border-rose-300 bg-white px-5 py-3 text-sm font-black text-rose-800 hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-neutral-300 disabled:text-neutral-400"
                     >
-                      {workingKey === group.key ? "Working..." : "End Selected Only"}
+                      {groupWorking && workingAction?.kind === "end"
+                        ? workingAction.stage === "previewing"
+                          ? "Previewing end..."
+                          : "Ending..."
+                        : "End Selected Only"}
                     </button>
                   </div>
                 </div>
@@ -430,6 +502,10 @@ export default function EbayDuplicateFinderClient() {
                   {group.rows.map((row) => {
                     const isKeeper = keeperProductId === row.productId;
                     const isDuplicate = duplicateProductId === row.productId;
+                    const rowEnding =
+                      groupWorking &&
+                      workingAction?.kind === "end" &&
+                      workingAction.productId === row.productId;
 
                     return (
                       <div
@@ -504,10 +580,14 @@ export default function EbayDuplicateFinderClient() {
                           <button
                             type="button"
                             onClick={() => void endDuplicate(group, row.productId)}
-                            disabled={workingKey === group.key || isKeeper}
+                            disabled={groupWorking || isKeeper}
                             className="rounded-md border border-orange-300 bg-white px-3 py-2 text-xs font-black text-orange-900 hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-40"
                           >
-                            End this row now
+                            {rowEnding
+                              ? workingAction?.stage === "previewing"
+                                ? "Previewing end..."
+                                : "Ending..."
+                              : "End this row now"}
                           </button>
                           {row.ebayItemId ? (
                             <a
