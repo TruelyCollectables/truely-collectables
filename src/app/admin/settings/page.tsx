@@ -107,6 +107,12 @@ async function updateOperationalSettings(formData: FormData) {
   const validationError = adminStoreOperationalSettingsError({
     sellerCommissionPercent: sellerCommissionInput,
     ebayEnvironment,
+    supportEmail,
+    salesEmail,
+    offersEmail,
+    evidenceEmail,
+    evidenceFromEmail,
+    orderFromEmail,
   });
 
   if (validationError) {
@@ -263,24 +269,32 @@ export default async function AdminSettingsPage({
                 name="support_email"
                 defaultValue={settings.supportEmail}
                 placeholder="support@totallycollectibles.com"
+                type="email"
+                inputMode="email"
               />
               <Field
                 label="Sales Email"
                 name="sales_email"
                 defaultValue={settings.salesEmail}
                 placeholder="sales@totallycollectibles.com"
+                type="email"
+                inputMode="email"
               />
               <Field
                 label="Offers Email"
                 name="offers_email"
                 defaultValue={settings.offersEmail}
                 placeholder="offers@totallycollectibles.com"
+                type="email"
+                inputMode="email"
               />
               <Field
                 label="Evidence Email"
                 name="evidence_email"
                 defaultValue={settings.evidenceEmail || ""}
                 placeholder="evidence@totallycollectibles.com"
+                type="email"
+                inputMode="email"
               />
               <Field
                 label="Evidence From"
@@ -420,7 +434,7 @@ function Field({
   defaultValue: string;
   placeholder: string;
   inputMode?: "decimal" | "email" | "text";
-  type?: "number" | "text";
+  type?: "email" | "number" | "text";
   min?: string;
   max?: string;
   step?: string;

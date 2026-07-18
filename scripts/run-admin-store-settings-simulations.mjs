@@ -2,10 +2,18 @@ import {
   ADMIN_EBAY_ENVIRONMENTS,
   adminStoreOperationalSettingsError,
   cleanAdminSettingsText,
+  adminSettingsEmailAddress,
+  isValidAdminSettingsEmail,
   parseAdminEbayEnvironment,
   parseAdminSellerCommissionPercent,
   readableAdminStoreSettingsFailure,
 } from "../src/lib/admin-store-settings.ts";
+import { readFile } from "node:fs/promises";
+
+const settingsPageSource = await readFile(
+  new URL("../src/app/admin/settings/page.tsx", import.meta.url),
+  "utf8",
+);
 
 const scenarios = [];
 
@@ -50,6 +58,29 @@ scenario("accepts only supported eBay environments", () => {
   }
 });
 
+scenario("validates optional admin contact emails before save", () => {
+  assert(
+    adminSettingsEmailAddress("TCOS Evidence <evidence@example.com>") ===
+      "evidence@example.com",
+    "Expected display-name address parsing.",
+  );
+  assert(isValidAdminSettingsEmail("support@example.com"), "Allows bare email.");
+  assert(
+    isValidAdminSettingsEmail("TCOS Orders <orders@example.com>"),
+    "Allows Name <email> values.",
+  );
+  assert(isValidAdminSettingsEmail(""), "Allows optional blank email fields.");
+
+  for (const value of [
+    "support",
+    "support@example",
+    "support @example.com",
+    "TCOS Evidence <not-an-email>",
+  ]) {
+    assert(!isValidAdminSettingsEmail(value), `${value} should be rejected.`);
+  }
+});
+
 scenario("returns operator-readable validation errors", () => {
   assert(
     adminStoreOperationalSettingsError({
@@ -71,8 +102,32 @@ scenario("returns operator-readable validation errors", () => {
     adminStoreOperationalSettingsError({
       sellerCommissionPercent: "8",
       ebayEnvironment: "sandbox",
+      supportEmail: "support@example.com",
+      salesEmail: "sales@example.com",
+      offersEmail: "offers@example.com",
+      evidenceEmail: "evidence@example.com",
+      evidenceFromEmail: "Evidence <evidence@example.com>",
+      orderFromEmail: "Orders <orders@example.com>",
     }) === null,
     "Valid operations settings should pass.",
+  );
+
+  assert(
+    adminStoreOperationalSettingsError({
+      sellerCommissionPercent: "8",
+      ebayEnvironment: "sandbox",
+      supportEmail: "support.example.com",
+    }) === "Support Email must be a valid email address.",
+    "Invalid support email should be rejected with a friendly error.",
+  );
+
+  assert(
+    adminStoreOperationalSettingsError({
+      sellerCommissionPercent: "8",
+      ebayEnvironment: "sandbox",
+      evidenceFromEmail: "Evidence <evidence>",
+    }) === "Evidence From must be a valid email address or Name <email> value.",
+    "Invalid display-name email should be rejected with a friendly error.",
   );
 });
 
@@ -92,6 +147,25 @@ scenario("keeps unexpected save failures readable and bounded", () => {
     readableAdminStoreSettingsFailure(new Error("x".repeat(300)), "fallback").length === 240,
     "Bounds URL-safe admin error length.",
   );
+});
+
+scenario("settings page submits every email field through server validation", () => {
+  for (const fragment of [
+    "supportEmail,",
+    "salesEmail,",
+    "offersEmail,",
+    "evidenceEmail,",
+    "evidenceFromEmail,",
+    "orderFromEmail,",
+    'type="email"',
+    'inputMode="email"',
+    "Settings were not saved:",
+  ]) {
+    assert(
+      settingsPageSource.includes(fragment),
+      `Expected settings page validation fragment ${fragment}.`,
+    );
+  }
 });
 
 const failed = [];
