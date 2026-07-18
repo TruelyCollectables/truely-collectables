@@ -169,6 +169,8 @@ export async function POST(req: Request) {
   const isLocalDevelopmentLogin =
     loginPayload.localDevelopmentLogin &&
     isLocalDevelopmentAdminHost(hostname);
+  const canUseLocalDevelopmentPasswordFile =
+    isLocalDevelopmentAdminHost(hostname);
 
   if (!loginPayload.readable) {
     if (loginPayload.wantsRedirect) {
@@ -227,7 +229,11 @@ export async function POST(req: Request) {
     );
   }
 
-  if (!process.env.ADMIN_PASSWORD && !isLocalDevelopmentLogin) {
+  if (
+    !process.env.ADMIN_PASSWORD &&
+    !isLocalDevelopmentLogin &&
+    !canUseLocalDevelopmentPasswordFile
+  ) {
     if (loginPayload.wantsRedirect) {
       return loginRedirect(req, "missing_password");
     }
