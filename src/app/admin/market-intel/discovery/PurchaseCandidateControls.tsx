@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { createPortal, useFormStatus } from "react-dom";
 import { useSearchParams } from "next/navigation";
+import { markCandidateResolving } from "./ResolvedCandidateCleanup";
 
 type PurchaseCandidate = {
   id: string;
@@ -30,7 +31,7 @@ function PurchaseSubmitButton() {
       aria-busy={pending}
       className="mt-4 w-full rounded-md bg-lime-700 px-4 py-3 font-black text-white disabled:cursor-wait disabled:opacity-60"
     >
-      {pending ? "Recording purchase..." : "RECORD AS PURCHASED"}
+      {pending ? "Recording purchase and moving card..." : "RECORD AS PURCHASED"}
     </button>
   );
 }
@@ -108,9 +109,10 @@ export default function PurchaseCandidateControls({
           <form
             method="post"
             action={action}
-            onSubmit={(event) =>
-              mirrorApprovalFields(event.currentTarget, target.approvalForm)
-            }
+            onSubmit={(event) => {
+              mirrorApprovalFields(event.currentTarget, target.approvalForm);
+              markCandidateResolving(event.currentTarget);
+            }}
             className="mx-5 mt-4 rounded-xl border border-lime-300 bg-lime-50 p-4 text-lime-950"
           >
             <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
@@ -122,8 +124,8 @@ export default function PurchaseCandidateControls({
                   Approve Identity + Record Purchase
                 </h3>
                 <p className="mt-1 text-sm font-semibold">
-                  Uses the identity fields currently shown above and creates the real
-                  purchase position in one step.
+                  Uses the identity fields currently shown above, creates the real
+                  purchase position, and removes this card from the active review queue.
                 </p>
               </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-3 xl:min-w-[620px]">
