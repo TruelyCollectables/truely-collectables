@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { createPortal } from "react-dom";
+import { createPortal, useFormStatus } from "react-dom";
 import { useSearchParams } from "next/navigation";
 
 type BulkCandidate = {
@@ -14,6 +14,42 @@ type BulkCandidate = {
 type PortalTarget = BulkCandidate & {
   element: HTMLDivElement;
 };
+
+function BulkSubmitButton({
+  children,
+  pendingChildren,
+  disabled = false,
+  name,
+  value,
+  className,
+  type = "submit",
+  onClick,
+}: {
+  children: React.ReactNode;
+  pendingChildren: React.ReactNode;
+  disabled?: boolean;
+  name: string;
+  value: string;
+  className: string;
+  type?: "button" | "submit";
+  onClick?: () => void;
+}) {
+  const { pending } = useFormStatus();
+
+  return (
+    <button
+      type={type}
+      name={name}
+      value={value}
+      disabled={disabled || pending}
+      onClick={onClick}
+      aria-busy={pending}
+      className={className}
+    >
+      {pending ? pendingChildren : children}
+    </button>
+  );
+}
 
 export default function BulkCandidateControls({
   candidates,
@@ -217,17 +253,17 @@ export default function BulkCandidateControls({
               >
                 Select Ready Only ({readyCandidates.length})
               </button>
-              <button
-                type="submit"
+              <BulkSubmitButton
                 name="action"
                 value="approve"
                 disabled={selectedCount === 0}
                 onClick={() => setRejectConfirmOpen(false)}
                 className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
+                pendingChildren="Approving selected..."
               >
                 Approve Selected
-              </button>
-              <button
+              </BulkSubmitButton>
+              <BulkSubmitButton
                 type={rejectConfirmOpen ? "submit" : "button"}
                 name="action"
                 value="reject"
@@ -236,9 +272,10 @@ export default function BulkCandidateControls({
                   if (!rejectConfirmOpen) setRejectConfirmOpen(true);
                 }}
                 className="rounded-md bg-rose-700 px-4 py-2 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
+                pendingChildren="Rejecting selected..."
               >
                 {rejectConfirmOpen ? "Confirm Reject Selected" : "Reject Selected"}
-              </button>
+              </BulkSubmitButton>
               {rejectConfirmOpen ? (
                 <button
                   type="button"

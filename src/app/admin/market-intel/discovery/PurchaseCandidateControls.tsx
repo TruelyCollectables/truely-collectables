@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { createPortal } from "react-dom";
+import { createPortal, useFormStatus } from "react-dom";
 import { useSearchParams } from "next/navigation";
 
 type PurchaseCandidate = {
@@ -18,6 +18,21 @@ type PortalTarget = PurchaseCandidate & {
 
 function money(value: number) {
   return Number(value).toFixed(2);
+}
+
+function PurchaseSubmitButton() {
+  const { pending } = useFormStatus();
+
+  return (
+    <button
+      type="submit"
+      disabled={pending}
+      aria-busy={pending}
+      className="mt-4 w-full rounded-md bg-lime-700 px-4 py-3 font-black text-white disabled:cursor-wait disabled:opacity-60"
+    >
+      {pending ? "Recording purchase..." : "RECORD AS PURCHASED"}
+    </button>
+  );
 }
 
 export default function PurchaseCandidateControls({
@@ -140,12 +155,7 @@ export default function PurchaseCandidateControls({
                 </label>
               </div>
             </div>
-            <button
-              type="submit"
-              className="mt-4 w-full rounded-md bg-lime-700 px-4 py-3 font-black text-white"
-            >
-              RECORD AS PURCHASED
-            </button>
+            <PurchaseSubmitButton />
           </form>,
           target.element,
           `purchase-${target.id}`,

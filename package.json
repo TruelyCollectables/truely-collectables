@@ -22,6 +22,7 @@
     "simulate:admin-store-settings": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-admin-store-settings-simulations.mjs",
     "simulate:admin-market-intel-watchlist": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-admin-market-intel-watchlist-simulations.mjs",
     "simulate:admin-market-intel-delivery-report": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-admin-market-intel-delivery-report-simulations.mjs",
+    "simulate:admin-market-intel-discovery": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-admin-market-intel-discovery-simulations.mjs",
     "simulate:instacomp-row-actions": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-instacomp-row-action-simulations.mjs",
     "simulate:instacomp-row-removal": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-instacomp-row-removal-simulations.mjs",
     "simulate:instacomp-jobs": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-instacomp-job-simulations.mjs",
