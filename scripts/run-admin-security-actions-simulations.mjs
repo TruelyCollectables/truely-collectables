@@ -77,10 +77,29 @@ scenario("security IP save validates server-side note length", () => {
     "rawNotes.length > MAX_INVESTIGATION_NOTES_LENGTH",
     "?case=notes-too-long",
     "maxLength={MAX_INVESTIGATION_NOTES_LENGTH}",
+    'aria-describedby="investigation-notes-help"',
+    'id="investigation-notes-help"',
+    "Internal-only audit note. Maximum",
   ]) {
     assert(
       ipDetailSource.includes(fragment),
       `Expected security IP notes length fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("security IP dossier explains save scope and partial load failures", () => {
+  for (const fragment of [
+    "Some Evidence Could Not Load",
+    'role="alert"',
+    'aria-live="assertive"',
+    "Saving marks this IP reviewed now, updates status/severity, and",
+    "records internal-only notes for future admin decisions.",
+    "Save this IP investigation, update last-reviewed time, and preserve internal-only audit notes.",
+  ]) {
+    assert(
+      ipDetailSource.includes(fragment),
+      `Expected security IP save/load feedback fragment ${fragment}.`,
     );
   }
 });

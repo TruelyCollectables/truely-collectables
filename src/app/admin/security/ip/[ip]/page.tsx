@@ -447,7 +447,11 @@ export default async function AdminSecurityIpDetailPage({
         ) : null}
 
         {queryErrors.length > 0 ? (
-          <section className="rounded-md border border-rose-200 bg-rose-50 p-5 text-rose-800">
+          <section
+            role="alert"
+            aria-live="assertive"
+            className="rounded-md border border-rose-200 bg-rose-50 p-5 text-rose-800"
+          >
             <h2 className="text-xl font-black">Some Evidence Could Not Load</h2>
             <div className="mt-2 space-y-1 text-sm font-semibold">
               {queryErrors.map((error, index) => (
@@ -544,6 +548,10 @@ export default async function AdminSecurityIpDetailPage({
 
             <form action={saveIpInvestigation} className="space-y-5 p-5">
               <input type="hidden" name="ip_address" value={ipAddress} />
+              <p className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-900">
+                Saving marks this IP reviewed now, updates status/severity, and
+                records internal-only notes for future admin decisions.
+              </p>
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                 <label className="space-y-2">
                   <span className="text-sm font-bold uppercase text-neutral-500">
@@ -582,6 +590,7 @@ export default async function AdminSecurityIpDetailPage({
                   Internal Notes
                 </span>
                 <textarea
+                  aria-describedby="investigation-notes-help"
                   name="notes"
                   defaultValue={investigation?.notes || ""}
                   rows={7}
@@ -589,11 +598,18 @@ export default async function AdminSecurityIpDetailPage({
                   className="w-full rounded border border-neutral-300 px-3 py-2 text-sm"
                   placeholder="Summarize why this IP is being watched, what evidence matters, and what action was taken."
                 />
+                <span
+                  id="investigation-notes-help"
+                  className="block text-xs font-bold text-neutral-600"
+                >
+                  Internal-only audit note. Maximum {MAX_INVESTIGATION_NOTES_LENGTH.toLocaleString()} characters.
+                </span>
               </label>
 
               <AdminSubmitButton
                 className="rounded-md bg-neutral-950 px-5 py-2 text-sm font-black text-white hover:bg-neutral-800"
                 pendingChildren="Saving investigation..."
+                title="Save this IP investigation, update last-reviewed time, and preserve internal-only audit notes."
               >
                 Save Investigation
               </AdminSubmitButton>
