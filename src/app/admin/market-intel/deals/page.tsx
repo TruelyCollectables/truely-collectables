@@ -7,6 +7,7 @@ import {
   getMarketIntelDealWorkbench,
   type MarketIntelDealListing,
 } from "../../../../lib/market-intel-deals";
+import DealListingActions from "./DealListingActions";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -450,19 +451,15 @@ export default async function MarketIntelDealsPage({ searchParams }: PageProps) 
                         {listing.score?.risk_score.toFixed(0) || "—"}
                       </td>
                       <td className="px-5 py-4">
-                        <form
-                          method="post"
-                          action={addAdminHandoff(
-                            `/api/admin/market-intel/listings/${listing.id}/end`,
-                            handoff,
-                          )}
-                        >
-                          <button
-                            type="submit"
-                            className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-black hover:bg-neutral-100">
-                            End Listing
-                          </button>
-                        </form>
+                        <DealListingActions
+                          listingId={listing.id}
+                          title={listing.original_title}
+                          quantity={listing.quantity}
+                          deliveredPrice={listing.delivered_price}
+                          handoff={handoff}
+                          compact
+                          hasExactIdentity={Boolean(listing.collectible_identity_id)}
+                        />
                       </td>
                     </tr>
                   ))}
@@ -551,19 +548,17 @@ function SharkCard({
         <span className="text-xs font-black uppercase text-neutral-400">
           {percentage(score.discount_pct)} discount · confidence {score.confidence_score.toFixed(0)} · liquidity {score.liquidity_score.toFixed(0)} · risk {score.risk_score.toFixed(0)}
         </span>
-        <form
-          method="post"
-          action={addAdminHandoff(
-            `/api/admin/market-intel/listings/${listing.id}/end`,
-            handoff,
-          )}
-        >
-          <button
-            type="submit"
-            className="rounded-md border border-neutral-600 px-3 py-2 text-xs font-black hover:bg-neutral-800">
-            End Listing
-          </button>
-        </form>
+      </div>
+      <div className="mt-4 pl-0 sm:pl-15">
+        <DealListingActions
+          listingId={listing.id}
+          title={listing.original_title}
+          quantity={listing.quantity}
+          deliveredPrice={score.delivered_cost}
+          handoff={handoff}
+          dark
+          hasExactIdentity={Boolean(listing.collectible_identity_id)}
+        />
       </div>
     </article>
   );

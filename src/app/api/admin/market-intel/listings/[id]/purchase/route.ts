@@ -10,6 +10,10 @@ type RouteContext = {
   params: Promise<{ id: string }>;
 };
 
+function wantsJson(request: NextRequest) {
+  return request.headers.get("accept")?.includes("application/json") === true;
+}
+
 function numberField(formData: FormData, name: string, fallback: number) {
   const raw = String(formData.get(name) ?? "").trim();
   if (!raw) return fallback;
@@ -22,6 +26,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
   const { id } = await context.params;
   const handoff = adminHandoffFromUrl(new URL(request.url));
   const origin = requestOrigin(request);
+  const json = wantsJson(request);
 
   try {
     const formData = await request.formData();
@@ -48,12 +53,24 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     if (existingError) throw new Error(existingError.message);
     if (existing) {
+      const redirectUrl = adminRedirectUrl(
+        `/admin/market-intel/purchases/${existing.id}`,
+        origin,
+        handoff,
+      );
+      if (json) {
+        return NextResponse.json({
+          success: true,
+          alreadyRecorded: true,
+          purchaseId: existing.id,
+          purchaseNumber: existing.purchase_number,
+          redirectUrl: redirectUrl.toString(),
+          message: `Purchase #${existing.purchase_number} was already recorded for this listing.`,
+        });
+      }
+
       return NextResponse.redirect(
-        adminRedirectUrl(
-          `/admin/market-intel/purchases/${existing.id}`,
-          origin,
-          handoff,
-        ),
+        redirectUrl,
         303,
       );
     }
@@ -169,17 +186,34 @@ export async function POST(request: NextRequest, context: RouteContext) {
       .eq("listing_id", id)
       .eq("status", "pending");
 
-    return NextResponse.redirect(
-      adminRedirectUrl(
+    const redirectUrl = adminRedirectUrl(
         `/admin/market-intel/purchases/${purchase.id}?saved=purchased`,
         origin,
         handoff,
-      ),
+      );
+
+    if (json) {
+      return NextResponse.json({
+        success: true,
+        alreadyRecorded: false,
+        purchaseId: purchase.id,
+        purchaseNumber: purchase.purchase_number,
+        redirectUrl: redirectUrl.toString(),
+        message: `Purchase #${purchase.purchase_number} recorded. Quantity ${quantityPurchased}; listing moved out of the active deal desk.`,
+      });
+    }
+
+    return NextResponse.redirect(
+      redirectUrl,
       303,
     );
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unable to record purchase.";
+    if (json) {
+      return NextResponse.json({ success: false, error: message }, { status: 500 });
+    }
+
     return NextResponse.redirect(
       adminRedirectUrl(
         `/admin/market-intel/buy?error=${encodeURIComponent(message)}`,
