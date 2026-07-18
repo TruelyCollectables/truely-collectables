@@ -1,0 +1,226 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
+import { useSearchParams } from "next/navigation";
+
+type BulkCandidate = {
+  id: string;
+  player: string;
+  ready: boolean;
+  missing: string[];
+};
+
+type PortalTarget = BulkCandidate & {
+  element: HTMLDivElement;
+};
+
+export default function BulkCandidateControls({
+  candidates,
+}: {
+  candidates: BulkCandidate[];
+}) {
+  const searchParams = useSearchParams();
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [targets, setTargets] = useState<PortalTarget[]>([]);
+  const candidateKey = useMemo(
+    () => candidates.map((candidate) => candidate.id).join("|"),
+    [candidates],
+  );
+
+  useEffect(() => {
+    const approvedHeading = Array.from(document.querySelectorAll("h2")).find(
+      (heading) => heading.textContent?.trim() === "Recently Approved",
+    );
+    const approvedSection = approvedHeading?.closest("section");
+    if (approvedSection instanceof HTMLElement) {
+      approvedSection.style.display = "none";
+    }
+
+    const nextTargets: PortalTarget[] = [];
+    for (const candidate of candidates) {
+      const article = document.getElementById(`candidate-${candidate.id}`);
+      if (!(article instanceof HTMLElement)) continue;
+
+      let target = article.querySelector<HTMLDivElement>(
+        `[data-bulk-target="${candidate.id}"]`,
+      );
+      if (!target) {
+        target = document.createElement("div");
+        target.dataset.bulkTarget = candidate.id;
+        article.prepend(target);
+      }
+      nextTargets.push({ ...candidate, element: target });
+    }
+    setTargets(nextTargets);
+  }, [candidateKey, candidates]);
+
+  const selectedCount = selected.size;
+  const selectedCandidates = candidates.filter((candidate) =>
+    selected.has(candidate.id),
+  );
+  const selectedReady = selectedCandidates.filter((candidate) => candidate.ready)
+    .length;
+  const selectedIncomplete = selectedCount - selectedReady;
+  const allSelected =
+    candidates.length > 0 && selectedCount === candidates.length;
+  const readyCandidates = candidates.filter((candidate) => candidate.ready);
+
+  function toggleCandidate(id: string) {
+    setSelected((current) => {
+      const next = new Set(current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function selectAll() {
+    setSelected(new Set(candidates.map((candidate) => candidate.id)));
+  }
+
+  function selectReady() {
+    setSelected(new Set(readyCandidates.map((candidate) => candidate.id)));
+  }
+
+  function clearSelected() {
+    setSelected(new Set());
+  }
+
+  const handoff = searchParams.get("admin_handoff");
+  const action = handoff
+    ? `/api/admin/market-intel/discovery/bulk?admin_handoff=${encodeURIComponent(handoff)}`
+    : "/api/admin/market-intel/discovery/bulk";
+
+  const bulkResult = searchParams.get("bulk") === "1";
+  const approved = Number(searchParams.get("approved") || 0);
+  const rejected = Number(searchParams.get("rejected") || 0);
+  const skipped = Number(searchParams.get("skipped") || 0);
+  const firstError = searchParams.get("firstError");
+
+  return (
+    <>
+      {targets.map((target) =>
+        createPortal(
+          <label className="flex cursor-pointer items-start gap-3 border-b border-neutral-200 bg-[#fffbea] px-5 py-3">
+            <input
+              type="checkbox"
+              checked={selected.has(target.id)}
+              onChange={() => toggleCandidate(target.id)}
+              className="mt-0.5 h-5 w-5 accent-black"
+              aria-label={`Select ${target.player}`}
+            />
+            <span className="min-w-0">
+              <span className="block text-sm font-black">
+                Select this candidate
+              </span>
+              <span
+                className={
+                  target.ready
+                    ? "block text-xs font-bold text-emerald-800"
+                    : "block text-xs font-bold text-amber-800"
+                }
+              >
+                {target.ready
+                  ? "Bulk approval ready"
+                  : `Needs review: ${target.missing.join(", ")}`}
+              </span>
+            </span>
+          </label>,
+          target.element,
+          `bulk-select-${target.id}`,
+        ),
+      )}
+
+      {bulkResult ? (
+        <div className="fixed right-5 top-5 z-[70] max-w-md rounded-xl border border-emerald-300 bg-emerald-50 p-4 shadow-2xl">
+          <p className="font-black text-emerald-950">Bulk review complete</p>
+          <p className="mt-1 text-sm font-bold text-emerald-900">
+            Approved {approved} · Rejected {rejected} · Skipped {skipped}
+          </p>
+          {firstError ? (
+            <p className="mt-2 text-xs font-semibold text-amber-900">
+              First skipped reason: {firstError}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
+      {candidates.length > 0 ? (
+        <form
+          method="post"
+          action={action}
+          onSubmit={(event) => {
+            const submitter = (event.nativeEvent as SubmitEvent)
+              .submitter as HTMLButtonElement | null;
+            if (submitter?.value === "reject") {
+              const confirmed = window.confirm(
+                `Reject ${selectedCount} selected candidate${selectedCount === 1 ? "" : "s"}?`,
+              );
+              if (!confirmed) event.preventDefault();
+            }
+          }}
+          className="fixed inset-x-4 bottom-4 z-[60] mx-auto max-w-5xl rounded-xl border border-neutral-700 bg-[#101418] p-4 text-white shadow-2xl"
+        >
+          {Array.from(selected).map((candidateId) => (
+            <input
+              key={candidateId}
+              type="hidden"
+              name="candidateIds"
+              value={candidateId}
+            />
+          ))}
+
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.16em] text-cyan-300">
+                Bulk Discovery Review
+              </p>
+              <p className="mt-1 font-black">
+                {selectedCount} selected · {selectedReady} approval-ready
+                {selectedIncomplete > 0
+                  ? ` · ${selectedIncomplete} incomplete will be skipped`
+                  : ""}
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={allSelected ? clearSelected : selectAll}
+                className="rounded-md border border-neutral-500 bg-white/10 px-3 py-2 text-sm font-black"
+              >
+                {allSelected ? "Clear All" : "Select All"}
+              </button>
+              <button
+                type="button"
+                onClick={selectReady}
+                className="rounded-md border border-cyan-500 bg-cyan-950 px-3 py-2 text-sm font-black text-cyan-100"
+              >
+                Select Ready Only ({readyCandidates.length})
+              </button>
+              <button
+                type="submit"
+                name="action"
+                value="approve"
+                disabled={selectedCount === 0}
+                className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Approve Selected
+              </button>
+              <button
+                type="submit"
+                name="action"
+                value="reject"
+                disabled={selectedCount === 0}
+                className="rounded-md bg-rose-700 px-4 py-2 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Reject Selected
+              </button>
+            </div>
+          </div>
+        </form>
+      ) : null}
+    </>
+  );
+}
