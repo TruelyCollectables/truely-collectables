@@ -16,6 +16,13 @@ function isGrowthProspect(notes: string | null | undefined) {
   return String(notes || "").includes("[GROWTH_PROSPECT]");
 }
 
+function categoryLabel(category: string) {
+  if (category === "NHL") return "Hockey — NHL Only";
+  if (category === "International / Club") return "Soccer";
+  if (category === "PGA TOUR Pathway") return "Golf";
+  return category;
+}
+
 export default async function GrowthProspectUniversePage() {
   const rows = (await getMarketIntelWatchlist()).filter((row) =>
     isGrowthProspect(row.notes),
@@ -23,20 +30,23 @@ export default async function GrowthProspectUniversePage() {
 
   const grouped = new Map<string, typeof rows>();
   for (const row of rows) {
-    const sport = row.subject?.sport_or_category || "Other";
-    grouped.set(sport, [...(grouped.get(sport) || []), row]);
+    const category =
+      row.subject?.league_or_brand || row.subject?.sport_or_category || "Other";
+    grouped.set(category, [...(grouped.get(category) || []), row]);
   }
 
-  const sportOrder = [
-    "Baseball",
-    "Football",
-    "Basketball",
-    "Hockey",
-    "Soccer",
-    "Golf",
+  const categoryOrder = [
+    "MLB",
+    "NFL",
+    "NBA",
+    "WNBA",
+    "NHL",
+    "International / Club",
+    "PGA TOUR Pathway",
   ];
   const groups = Array.from(grouped.entries()).sort(
-    ([left], [right]) => sportOrder.indexOf(left) - sportOrder.indexOf(right),
+    ([left], [right]) =>
+      categoryOrder.indexOf(left) - categoryOrder.indexOf(right),
   );
 
   return (
@@ -76,7 +86,7 @@ export default async function GrowthProspectUniversePage() {
 
         <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
           <Metric label="Total prospects" value={String(rows.length)} />
-          <Metric label="Sports" value={String(groups.length)} />
+          <Metric label="Categories" value={String(groups.length)} />
           <Metric label="Per category" value="5" />
           <Metric label="PWHL" value="Excluded" />
         </section>
@@ -100,9 +110,9 @@ export default async function GrowthProspectUniversePage() {
           </div>
         </form>
 
-        {groups.map(([sport, prospects]) => (
+        {groups.map(([category, prospects]) => (
           <section
-            key={sport}
+            key={category}
             className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm"
           >
             <div className="border-b border-neutral-200 p-5">
@@ -110,7 +120,7 @@ export default async function GrowthProspectUniversePage() {
                 Top 5 watch targets
               </p>
               <h2 className="mt-1 text-3xl font-black">
-                {sport === "Hockey" ? "Hockey — NHL Only" : sport}
+                {categoryLabel(category)}
               </h2>
             </div>
             <div className="divide-y divide-neutral-200">
@@ -133,7 +143,7 @@ export default async function GrowthProspectUniversePage() {
                               {row.subject?.name || "Unmatched prospect"}
                             </h3>
                             <p className="mt-1 text-sm font-semibold text-neutral-600">
-                              {row.subject?.league_or_brand || sport} · {row.subject?.team_or_affiliation || "Affiliation pending"}
+                              {categoryLabel(category)} · {row.subject?.team_or_affiliation || "Affiliation pending"}
                             </p>
                             <p className="mt-3 max-w-4xl text-sm font-semibold leading-6 text-neutral-700">
                               {catalyst || "Catalyst thesis pending."}
