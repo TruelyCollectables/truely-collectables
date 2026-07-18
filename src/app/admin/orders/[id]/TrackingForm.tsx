@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import type { ReactNode } from "react";
 
 export default function TrackingForm({
   orderId,
@@ -23,18 +24,34 @@ export default function TrackingForm({
   );
   const [saving, setSaving] = useState(false);
   const [shipping, setShipping] = useState(false);
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState<{
+    tone: "success" | "error" | "info";
+    text: string;
+  } | null>(null);
+  const cleanCarrier = carrier.trim();
+  const cleanTrackingNumber = trackingNumber.trim();
+  const trackingBlockedReason = dryRunShippingBlocked
+    ? "The active shipping label is a dry-run simulation. Record a real label, tracking, and Coverage policy before using generic tracking actions."
+    : !cleanCarrier
+      ? "Choose or enter a carrier before saving tracking."
+      : !cleanTrackingNumber
+        ? "Enter a tracking number before saving or marking shipped."
+        : null;
+  const canSubmitTracking =
+    !saving && !shipping && !trackingBlockedReason;
+  const canSubmitShipment =
+    canSubmitTracking && canMarkShipped;
 
   async function saveTracking() {
-    if (dryRunShippingBlocked) {
+    if (trackingBlockedReason) {
       setMessage(
-        "The active shipping label is a dry-run simulation. Use Record Manual Purchase to save real label, tracking, and Coverage details.",
+        { tone: "error", text: trackingBlockedReason },
       );
       return;
     }
 
     setSaving(true);
-    setMessage("");
+    setMessage({ tone: "info", text: "Saving tracking..." });
 
     try {
       const res = await fetch("/api/orders/update-tracking", {
@@ -44,44 +61,44 @@ export default function TrackingForm({
         },
         body: JSON.stringify({
           orderId,
-          carrier,
-          trackingNumber,
+          carrier: cleanCarrier,
+          trackingNumber: cleanTrackingNumber,
         }),
       });
 
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        setMessage(data.error || "Failed to save tracking.");
+        setMessage({ tone: "error", text: data.error || "Failed to save tracking." });
         return;
       }
 
-      setMessage("Tracking saved.");
+      setMessage({ tone: "success", text: "Tracking saved." });
     } catch (err: any) {
-      setMessage(err?.message || "Failed to save tracking.");
+      setMessage({ tone: "error", text: err?.message || "Failed to save tracking." });
     } finally {
       setSaving(false);
     }
   }
 
   async function markShipped() {
-    if (dryRunShippingBlocked) {
-      setMessage(
-        "The active shipping label is a dry-run simulation. Record a real label before marking this order shipped.",
-      );
+    if (trackingBlockedReason) {
+      setMessage({ tone: "error", text: trackingBlockedReason });
       return;
     }
 
     if (!canMarkShipped) {
-      setMessage(
-        reviewMessage ||
-          "This order is on a review hold and cannot be marked shipped yet."
-      );
+      setMessage({
+        tone: "error",
+        text:
+          reviewMessage ||
+          "This order is on a review hold and cannot be marked shipped yet.",
+      });
       return;
     }
 
     setShipping(true);
-    setMessage("");
+    setMessage({ tone: "info", text: "Saving tracking and marking shipped..." });
 
     try {
       const save = await fetch("/api/orders/update-tracking", {
@@ -91,15 +108,15 @@ export default function TrackingForm({
         },
         body: JSON.stringify({
           orderId,
-          carrier,
-          trackingNumber,
+          carrier: cleanCarrier,
+          trackingNumber: cleanTrackingNumber,
         }),
       });
 
       const saveData = await save.json().catch(() => ({}));
 
       if (!save.ok) {
-        setMessage(saveData.error || "Unable to save tracking.");
+        setMessage({ tone: "error", text: saveData.error || "Unable to save tracking." });
         return;
       }
 
@@ -116,57 +133,57 @@ export default function TrackingForm({
       const shipData = await ship.json().catch(() => ({}));
 
       if (!ship.ok) {
-        setMessage(shipData.error || "Unable to mark shipped.");
+        setMessage({ tone: "error", text: shipData.error || "Unable to mark shipped." });
         return;
       }
 
-      setMessage("Order marked shipped.");
+      setMessage({ tone: "success", text: "Order marked shipped. Refreshing..." });
 
       setTimeout(() => {
         window.location.reload();
       }, 800);
     } catch (err: any) {
-      setMessage(err?.message || "Unable to mark shipped.");
+      setMessage({ tone: "error", text: err?.message || "Unable to mark shipped." });
     } finally {
       setShipping(false);
     }
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <label className="block font-bold mb-2">Carrier</label>
+    <div className="space-y-4">
+      <div className="grid gap-4 md:grid-cols-2">
+        <label className="block text-sm font-black text-neutral-900">
+          Carrier
+          <select
+            value={carrier}
+            onChange={(e) => setCarrier(e.target.value)}
+            className="mt-2 w-full rounded-2xl border border-neutral-300 bg-white px-3 py-3 text-sm font-semibold outline-none focus:border-neutral-950"
+          >
+            <option>USPS</option>
+            <option>UPS</option>
+            <option>FedEx</option>
+            <option>Canada Post</option>
+            <option>Other</option>
+          </select>
+        </label>
 
-        <select
-          value={carrier}
-          onChange={(e) => setCarrier(e.target.value)}
-          className="border rounded px-3 py-2 w-full"
-        >
-          <option>USPS</option>
-          <option>UPS</option>
-          <option>FedEx</option>
-          <option>Canada Post</option>
-          <option>Other</option>
-        </select>
+        <label className="block text-sm font-black text-neutral-900">
+          Tracking Number
+          <input
+            className="mt-2 w-full rounded-2xl border border-neutral-300 bg-white px-3 py-3 text-sm font-semibold outline-none focus:border-neutral-950"
+            value={trackingNumber}
+            onChange={(e) => setTrackingNumber(e.target.value)}
+            placeholder="9405..."
+          />
+        </label>
       </div>
 
-      <div>
-        <label className="block font-bold mb-2">Tracking Number</label>
-
-        <input
-          className="border rounded px-3 py-2 w-full"
-          value={trackingNumber}
-          onChange={(e) => setTrackingNumber(e.target.value)}
-          placeholder="9405..."
-        />
-      </div>
-
-      <div className="flex gap-4">
+      <div className="flex flex-wrap gap-3">
         <button
           type="button"
           onClick={saveTracking}
-          disabled={saving || dryRunShippingBlocked}
-          className="bg-blue-600 text-white px-5 py-2 rounded disabled:opacity-50"
+          disabled={!canSubmitTracking}
+          className="rounded-2xl bg-blue-700 px-5 py-3 text-sm font-black text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
         >
           {saving ? "Saving..." : "Save Tracking"}
         </button>
@@ -174,27 +191,52 @@ export default function TrackingForm({
         <button
           type="button"
           onClick={markShipped}
-          disabled={shipping || !canMarkShipped || dryRunShippingBlocked}
-          className="bg-green-600 text-white px-5 py-2 rounded disabled:opacity-50"
+          disabled={!canSubmitShipment}
+          className="rounded-2xl bg-emerald-700 px-5 py-3 text-sm font-black text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
         >
           {shipping ? "Shipping..." : "Mark Shipped"}
         </button>
       </div>
 
       {!canMarkShipped && reviewMessage ? (
-        <div className="rounded border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-900">
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-950">
           {reviewMessage}
         </div>
       ) : null}
 
       {dryRunShippingBlocked ? (
-        <div className="rounded border border-red-200 bg-red-50 p-3 text-sm font-black text-red-950">
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-black text-red-950">
           Dry-run shipping is blocking generic tracking and shipped-status
           actions. Record a real manual label + Coverage policy first.
         </div>
       ) : null}
 
-      {message && <div className="border rounded bg-gray-50 p-3">{message}</div>}
+      {message ? (
+        <ActionNotice tone={message.tone}>{message.text}</ActionNotice>
+      ) : trackingBlockedReason ? (
+        <ActionNotice tone="info">{trackingBlockedReason}</ActionNotice>
+      ) : null}
     </div>
+  );
+}
+
+function ActionNotice({
+  tone,
+  children,
+}: {
+  tone: "success" | "error" | "info";
+  children: ReactNode;
+}) {
+  const className =
+    tone === "success"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-950"
+      : tone === "error"
+        ? "border-red-200 bg-red-50 text-red-950"
+        : "border-blue-200 bg-blue-50 text-blue-950";
+
+  return (
+    <p className={`rounded-2xl border px-3 py-2 text-sm font-bold ${className}`}>
+      {children}
+    </p>
   );
 }
