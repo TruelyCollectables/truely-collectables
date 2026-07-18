@@ -8,6 +8,10 @@ const adminErrorSource = await readFile(
   new URL("../src/app/admin/error.tsx", import.meta.url),
   "utf8",
 );
+const instaCompDirectSource = await readFile(
+  new URL("../src/app/admin/instacomp-direct/page.tsx", import.meta.url),
+  "utf8",
+);
 
 const scenarios = [];
 
@@ -49,6 +53,67 @@ scenario("admin error recovery keeps a retry action and safe navigation", () => 
       `Expected admin error recovery fragment ${fragment}.`,
     );
   }
+});
+
+scenario("admin command center exposes no-dead-end operator action map", () => {
+  for (const fragment of [
+    "Operator action map",
+    "No dead-end action paths",
+    "scan cleanup, product control, offer decisions, and paid",
+    "Remove bad scan rows, merge selected quantities, retry OCR",
+    "bulk saves, sold/end-early policy checks, quantity review",
+    "Accept, counter, or decline offers",
+    "Review holds, dry-run tracking references, evidence errors",
+    "Open InstaComp™ Direct",
+    "Open Products",
+    "Open Offers",
+    "Open Orders",
+  ]) {
+    assert(
+      adminPageSource.includes(fragment),
+      `Expected admin action map fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("admin command center keeps critical operator routes one click away", () => {
+  for (const route of [
+    "/admin/instacomp-direct",
+    "/admin/products",
+    "/admin/products/new",
+    "/admin/orders",
+    "/admin/offers",
+    "/admin/ebay/inventory-intake",
+    "/admin/ebay/duplicates",
+    "/admin/financial-reconciliation",
+    "/admin/market-intel",
+    "/admin/production-smoke",
+    "/admin/live-payment-launch",
+    "/admin/live-shipping-launch",
+    "/admin/settings",
+    "/admin/security",
+  ]) {
+    assert(
+      adminPageSource.includes(`"${route}"`) ||
+        adminPageSource.includes(`\`${route}`),
+      `Expected admin command center to expose route ${route}.`,
+    );
+  }
+});
+
+scenario("instacomp direct route owns its segment config", () => {
+  assert(
+    instaCompDirectSource.includes('export const dynamic = "force-dynamic";'),
+    "Expected InstaComp Direct route to own its dynamic segment config.",
+  );
+  assert(
+    !instaCompDirectSource.includes("export { default, dynamic }"),
+    "Expected InstaComp Direct route not to re-export dynamic segment config.",
+  );
+  assert(
+    instaCompDirectSource.includes("Scan, correct, remove, retry, price"),
+    "Expected InstaComp Direct page to advertise the fixed remove/retry workflow.",
+  );
 });
 
 const failed = [];

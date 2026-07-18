@@ -635,6 +635,44 @@ export default async function AdminDashboard() {
       accent: "from-cyan-100 to-white",
     },
   ];
+  const operatorActionCards = [
+    {
+      href: "/admin/instacomp-direct",
+      eyebrow: "Scan desk",
+      title: "Fix scans before they become bad inventory",
+      detail:
+        "Remove bad scan rows, merge selected quantities, retry OCR, and turn clean InstaComp™ results into priced drafts from the focused Direct lane.",
+      cta: "Open InstaComp™ Direct",
+      tone: "border-blue-200 bg-blue-50 text-blue-950",
+    },
+    {
+      href: "/admin/products",
+      eyebrow: "Inventory desk",
+      title: "Edit, end, and audit products without guessing",
+      detail:
+        "Use the hardened product workbench for bulk saves, sold/end-early policy checks, quantity review, and one-card detail fixes.",
+      cta: "Open Products",
+      tone: "border-lime-200 bg-lime-50 text-lime-950",
+    },
+    {
+      href: "/admin/offers",
+      eyebrow: "Offer desk",
+      title: "Decide buyer offers with locked actions",
+      detail:
+        "Accept, counter, or decline offers from the protected offer desk so money and inventory state stay synchronized.",
+      cta: "Open Offers",
+      tone: "border-rose-200 bg-rose-50 text-rose-950",
+    },
+    {
+      href: "/admin/orders",
+      eyebrow: "Fulfillment desk",
+      title: "Ship paid orders from the live queue",
+      detail:
+        "Review holds, dry-run tracking references, evidence errors, and ready-to-ship orders from one fulfillment command path.",
+      cta: "Open Orders",
+      tone: "border-emerald-200 bg-emerald-50 text-emerald-950",
+    },
+  ];
 
   const latestEbaySeen = ebayLinked
     .map((product) => product.last_seen_at)
@@ -715,7 +753,17 @@ export default async function AdminDashboard() {
               label="Add Product"
               primary
             />
+            <BaseCommandButton
+              href={adminHref("/admin/instacomp-direct")}
+              label="InstaComp Direct"
+            />
+            <BaseCommandButton href={adminHref("/admin/orders")} label="Orders" />
+            <BaseCommandButton href={adminHref("/admin/offers")} label="Offers" />
             <BaseCommandButton href={adminHref("/admin/inventory")} label="Inventory V2" />
+            <BaseCommandButton
+              href={adminHref("/admin/ebay/inventory-intake")}
+              label="eBay Intake"
+            />
             <BaseCommandButton href={adminHref("/admin/accounts")} label="Accounts" />
             <BaseCommandButton
               href={adminHref("/admin/order-review-cases")}
@@ -756,6 +804,38 @@ export default async function AdminDashboard() {
       </section>
 
       <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
+        <section className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-neutral-500">
+                Operator action map
+              </p>
+              <h2 className="mt-1 text-3xl font-black">
+                Start here when the admin side feels stuck
+              </h2>
+              <p className="mt-2 max-w-3xl text-sm font-semibold text-neutral-600">
+                These are the four highest-risk admin jobs with direct, tested
+                paths—scan cleanup, product control, offer decisions, and paid
+                order fulfillment.
+              </p>
+            </div>
+            <Pill label="No dead-end action paths" tone="green" />
+          </div>
+          <div className="mt-5 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
+            {operatorActionCards.map((card) => (
+              <OperatorActionCard
+                key={card.href}
+                href={adminHref(card.href)}
+                eyebrow={card.eyebrow}
+                title={card.title}
+                detail={card.detail}
+                cta={card.cta}
+                tone={card.tone}
+              />
+            ))}
+          </div>
+        </section>
+
         <section className="rounded-xl border border-neutral-200 bg-white shadow-sm">
           <div className="flex flex-col gap-4 border-b border-neutral-200 p-5 lg:flex-row lg:items-start lg:justify-between">
             <div>
@@ -1782,6 +1862,42 @@ function BaseAdminCommandTile({
       </h3>
       <p className="mt-1 text-sm font-bold text-neutral-600">{detail}</p>
     </a>
+  );
+}
+
+function OperatorActionCard({
+  href,
+  eyebrow,
+  title,
+  detail,
+  cta,
+  tone,
+}: {
+  href: string;
+  eyebrow: string;
+  title: string;
+  detail: string;
+  cta: string;
+  tone: string;
+}) {
+  return (
+    <Link
+      href={href}
+      className={`group flex min-h-[230px] flex-col justify-between rounded-xl border p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${tone}`}
+    >
+      <div>
+        <p className="text-[11px] font-black uppercase tracking-widest opacity-70">
+          {eyebrow}
+        </p>
+        <h3 className="mt-2 text-xl font-black tracking-tight">{title}</h3>
+        <p className="mt-3 text-sm font-semibold leading-6 opacity-80">
+          {detail}
+        </p>
+      </div>
+      <span className="mt-4 w-fit rounded-md border border-current bg-white/70 px-3 py-2 text-sm font-black group-hover:bg-white">
+        {cta}
+      </span>
+    </Link>
   );
 }
 
