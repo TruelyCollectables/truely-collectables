@@ -3986,6 +3986,11 @@ export default function InstaCompScanner({
   const selectedOperatorMarkedProblemCount = batchCards.filter(
     (card) => card.selected && isOperatorMarkedProblemBatchCard(card)
   ).length;
+  const selectedOperatorMarkedProblemBatchCardIds = new Set(
+    batchCards
+      .filter((card) => card.selected && isOperatorMarkedProblemBatchCard(card))
+      .map((card) => card.id)
+  );
   const selectedPriceableBatchCards = selectedDoneBatchCards.filter(
     (card) => primaryCompPriceForCard(card)
   );
@@ -7135,6 +7140,18 @@ export default function InstaCompScanner({
     );
   }
 
+  function removeSelectedOperatorMarkedProblemBatchCards() {
+    void removeBatchCardsByIds(
+      selectedOperatorMarkedProblemBatchCardIds,
+      selectedOperatorMarkedProblemCount,
+      "removing selected marked problem rows",
+      "Select wrong or needs-more-info rows before removing marked problems.",
+      `Removed ${selectedOperatorMarkedProblemCount} selected marked problem row${
+        selectedOperatorMarkedProblemCount === 1 ? "" : "s"
+      } from this batch.`
+    );
+  }
+
   function clearDraftErrorsByIds(
     ids: Set<string>,
     count: number,
@@ -8405,7 +8422,7 @@ export default function InstaCompScanner({
     setBatchDraftMessage(
       `Selected ${batchOperatorMarkedWrongCount} marked problem row${
         batchOperatorMarkedWrongCount === 1 ? "" : "s"
-      }. Use Process Marked Problems to rerun them.`
+      }. Use Process Marked Problems to rerun them, or Remove Selected Problems to drop bad scans.`
     );
     setBatchCards((current) =>
       current.map((card) => ({
@@ -11465,6 +11482,41 @@ export default function InstaCompScanner({
             }}
           >
             Select Marked Problems ({batchOperatorMarkedWrongCount})
+          </button>
+
+          <button
+            type="button"
+            onClick={removeSelectedOperatorMarkedProblemBatchCards}
+            aria-disabled={
+              batchRunning ||
+              batchDrafting ||
+              selectedOperatorMarkedProblemCount === 0
+            }
+            title={
+              batchBusyBlockedReason("removing selected marked problem rows") ||
+              (selectedOperatorMarkedProblemCount === 0
+                ? "Select rows marked wrong or needs more info before removing them."
+                : "Remove selected wrong or needs-more-info rows from this batch and cancel saved storage when available.")
+            }
+            style={{
+              ...secondaryButtonStyle,
+              borderColor: "#dc2626",
+              color: "#991b1b",
+              cursor:
+                batchRunning ||
+                batchDrafting ||
+                selectedOperatorMarkedProblemCount === 0
+                  ? "not-allowed"
+                  : "pointer",
+              opacity:
+                batchRunning ||
+                batchDrafting ||
+                selectedOperatorMarkedProblemCount === 0
+                  ? 0.55
+                  : 1,
+            }}
+          >
+            Remove Selected Problems ({selectedOperatorMarkedProblemCount})
           </button>
 
           <button
