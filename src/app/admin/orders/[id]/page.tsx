@@ -1093,25 +1093,21 @@ export default async function AdminOrderDetailPage({
         </dl>
       </AdminSection>
 
-      <section className="border rounded-lg p-6 mb-6">
+      <AdminSection
+        eyebrow="Label audit"
+        title="Shipping Label + Coverage"
+        detail="Provider-ready records for label purchase, shipment tracking, and seller protection coverage."
+      >
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-          <div>
-            <h2 className="text-2xl font-bold">Shipping Label + Coverage</h2>
-            <p className="mt-1 text-sm font-semibold text-gray-600">
-              Provider-ready records for label purchase, shipment tracking, and
-              seller protection coverage.
-            </p>
-          </div>
-
-        <ShippingLabelActions
-          orderId={typedOrder.id}
-          activeDryRunLabel={activeDryRunShippingLabel}
-          initialAction={shippingAction}
-        />
+          <ShippingLabelActions
+            orderId={typedOrder.id}
+            activeDryRunLabel={activeDryRunShippingLabel}
+            initialAction={shippingAction}
+          />
         </div>
 
         {shippingAction === "manualPurchase" ? (
-          <div className="mt-4 rounded border border-blue-200 bg-blue-50 p-4 text-sm font-black text-blue-950">
+          <div className="mt-4 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm font-black text-blue-950">
             Dry-run cleanup sent you here. Save real external label details,
             tracking or IMb, postage, and Coverage policy proof before marking
             this order shipped or releasing seller funds.
@@ -1119,7 +1115,7 @@ export default async function AdminOrderDetailPage({
         ) : null}
 
         {shippingLabelsError ? (
-          <div className="mt-4 rounded border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-950">
+          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-950">
             Shipping label tables are not available yet:{" "}
             {shippingLabelsError.message}
           </div>
@@ -1129,7 +1125,7 @@ export default async function AdminOrderDetailPage({
           {shippingProviderReadiness.map((item) => (
             <div
               key={item.key}
-              className={`rounded border p-4 ${
+              className={`rounded-2xl border p-4 shadow-sm ${
                 item.status === "ready"
                   ? "border-green-200 bg-green-50 text-green-950"
                   : item.status === "blocked"
@@ -1139,7 +1135,7 @@ export default async function AdminOrderDetailPage({
             >
               <div className="flex items-start justify-between gap-3">
                 <h3 className="font-black">{item.label}</h3>
-                <span className="rounded border border-current px-2 py-1 text-xs font-black uppercase">
+                <span className="rounded-full border border-current px-3 py-1 text-xs font-black uppercase">
                   {label(item.status)}
                 </span>
               </div>
@@ -1150,7 +1146,7 @@ export default async function AdminOrderDetailPage({
         </div>
 
         {!shippingLabelsError && shippingLabels.length === 0 ? (
-          <div className="mt-4 rounded border border-gray-200 bg-gray-50 p-4 text-sm text-gray-700">
+          <div className="mt-4 rounded-2xl border border-neutral-200 bg-neutral-50 p-4 text-sm font-semibold text-neutral-700">
             No label record has been prepared yet. Preparing one does not buy a
             live label; it creates the TCOS audit record that the provider
             adapter will later purchase against.
@@ -1170,7 +1166,7 @@ export default async function AdminOrderDetailPage({
               );
 
               return (
-              <div key={shippingLabel.id} className="rounded border p-4">
+              <div key={shippingLabel.id} className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4 shadow-sm">
                 <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
@@ -1180,28 +1176,28 @@ export default async function AdminOrderDetailPage({
                           "Shipping Label"}
                       </p>
                       {dryRun ? (
-                        <span className="rounded border border-red-300 bg-red-50 px-2 py-1 text-xs font-black text-red-900">
+                        <span className="rounded-full border border-red-300 bg-red-50 px-3 py-1 text-xs font-black text-red-900">
                           DRY-RUN / DO NOT MAIL
                         </span>
                       ) : null}
                     </div>
-                    <p className="text-sm font-semibold text-gray-600">
+                    <p className="mt-1 text-sm font-semibold text-neutral-600">
                       Status: {label(shippingLabel.label_status)} / Coverage:{" "}
                       {label(shippingLabel.coverage_status)}
                     </p>
                     {dryRun ? (
-                      <p className="mt-2 rounded border border-red-200 bg-red-50 p-2 text-sm font-black text-red-950">
+                      <p className="mt-2 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-black text-red-950">
                         Simulated shipping record only. No real postage, USPS
                         label, or external Coverage policy was purchased.
                       </p>
                     ) : null}
                     {policyNote ? (
-                      <p className="mt-2 rounded border border-blue-200 bg-blue-50 p-2 text-sm font-semibold text-blue-950">
+                      <p className="mt-2 rounded-2xl border border-blue-200 bg-blue-50 p-3 text-sm font-semibold text-blue-950">
                         {policyNote}
                       </p>
                     ) : null}
                     {adapterProfile ? (
-                      <div className="mt-2 rounded border border-purple-200 bg-purple-50 p-2 text-sm text-purple-950">
+                      <div className="mt-2 rounded-2xl border border-purple-200 bg-purple-50 p-3 text-sm text-purple-950">
                         <p className="font-black">
                           Adapter: {label(adapterProfile.adapter)} /{" "}
                           {label(adapterProfile.status)}
@@ -1227,7 +1223,7 @@ export default async function AdminOrderDetailPage({
                     ) : null}
                     {purchaseAttemptAudit.present ? (
                       <div
-                        className={`mt-2 rounded border p-2 text-sm ${
+                        className={`mt-2 rounded-2xl border p-3 text-sm ${
                           purchaseAttemptAudit.standardEnvelopeEvidenceContractReady
                             ? "border-green-200 bg-green-50 text-green-950"
                             : "border-amber-200 bg-amber-50 text-amber-950"
@@ -1253,74 +1249,36 @@ export default async function AdminOrderDetailPage({
                     ) : null}
                   </div>
 
-                  <p className="rounded bg-gray-100 px-3 py-1 text-xs font-black">
+                  <p className="rounded-full border border-neutral-200 bg-white px-3 py-1 text-xs font-black">
                     {shippingLabel.provider || "Provider pending"}
                   </p>
                 </div>
 
                 <dl className="mt-4 grid grid-cols-1 gap-3 text-sm md:grid-cols-4">
-                  <div>
-                    <dt className="font-semibold text-gray-500">Service</dt>
-                    <dd>{label(shippingLabel.resolved_shipping_method)}</dd>
-                  </div>
-                  <div>
-                    <dt className="font-semibold text-gray-500">Requested</dt>
-                    <dd>{label(shippingLabel.requested_shipping_method)}</dd>
-                  </div>
-                  <div>
-                    <dt className="font-semibold text-gray-500">Resolved</dt>
-                    <dd>{label(shippingLabel.resolved_shipping_method)}</dd>
-                  </div>
-                  <div>
-                    <dt className="font-semibold text-gray-500">Carrier</dt>
-                    <dd>{shippingLabel.carrier || "Pending"}</dd>
-                  </div>
-                  <div>
-                    <dt className="font-semibold text-gray-500">Tracking</dt>
-                    <dd className="break-all">
-                      {shippingLabel.tracking_number || "Pending"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="font-semibold text-gray-500">Postage</dt>
-                    <dd>{money(Number(shippingLabel.postage_amount || 0))}</dd>
-                  </div>
-                  <div>
-                    <dt className="font-semibold text-gray-500">
-                      Coverage Provider
-                    </dt>
-                    <dd>{shippingLabel.coverage_provider || "Coverage"}</dd>
-                  </div>
-                  <div>
-                    <dt className="font-semibold text-gray-500">
-                      Coverage Amount
-                    </dt>
-                    <dd>{money(Number(shippingLabel.coverage_amount || 0))}</dd>
-                  </div>
-                  <div>
-                    <dt className="font-semibold text-gray-500">Policy ID</dt>
-                    <dd className="break-all">
-                      {shippingLabel.coverage_policy_id || "Pending purchase"}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="font-semibold text-gray-500">Created</dt>
-                    <dd>{dateLabel(shippingLabel.created_at)}</dd>
-                  </div>
+                  <InfoTile label="Service" value={label(shippingLabel.resolved_shipping_method)} />
+                  <InfoTile label="Requested" value={label(shippingLabel.requested_shipping_method)} />
+                  <InfoTile label="Resolved" value={label(shippingLabel.resolved_shipping_method)} />
+                  <InfoTile label="Carrier" value={shippingLabel.carrier || "Pending"} />
+                  <InfoTile label="Tracking" value={shippingLabel.tracking_number || "Pending"} />
+                  <InfoTile label="Postage" value={money(Number(shippingLabel.postage_amount || 0))} />
+                  <InfoTile label="Coverage Provider" value={shippingLabel.coverage_provider || "Coverage"} />
+                  <InfoTile label="Coverage Amount" value={money(Number(shippingLabel.coverage_amount || 0))} />
+                  <InfoTile label="Policy ID" value={shippingLabel.coverage_policy_id || "Pending purchase"} />
+                  <InfoTile label="Created" value={dateLabel(shippingLabel.created_at)} />
                 </dl>
 
                 {shippingLabel.label_url || shippingLabel.label_pdf_url ? (
                   <div className="mt-4 flex flex-wrap gap-3">
                     <a
                       href={`/api/admin/shipping-labels/${shippingLabel.id}/packet`}
-                      className="rounded border px-4 py-2 font-bold"
+                      className="rounded-2xl border border-neutral-300 bg-white px-4 py-2 text-sm font-black"
                     >
                       Download Label Packet
                     </a>
                     {shippingLabel.label_pdf_url ? (
                       <a
                         href={shippingLabel.label_pdf_url}
-                        className="rounded border px-4 py-2 font-bold"
+                        className="rounded-2xl border border-neutral-300 bg-white px-4 py-2 text-sm font-black"
                       >
                         Open Label PDF
                       </a>
@@ -1328,7 +1286,7 @@ export default async function AdminOrderDetailPage({
                     {shippingLabel.label_url ? (
                       <a
                         href={shippingLabel.label_url}
-                        className="rounded border px-4 py-2 font-bold"
+                        className="rounded-2xl border border-neutral-300 bg-white px-4 py-2 text-sm font-black"
                       >
                         Open Label
                       </a>
@@ -1338,11 +1296,11 @@ export default async function AdminOrderDetailPage({
                   <div className="mt-4 space-y-3">
                     <a
                       href={`/api/admin/shipping-labels/${shippingLabel.id}/packet`}
-                      className="inline-flex rounded border px-4 py-2 font-bold"
+                      className="inline-flex rounded-2xl border border-neutral-300 bg-white px-4 py-2 text-sm font-black"
                     >
                       Download Label Packet
                     </a>
-                    <p className="rounded border border-blue-200 bg-blue-50 p-3 text-sm font-semibold text-blue-950">
+                    <p className="rounded-2xl border border-blue-200 bg-blue-50 p-3 text-sm font-semibold text-blue-950">
                       No printable label URL is stored yet. Use the label packet
                       for the current audit trail, tracking, provider IDs, and
                       Coverage details.
@@ -1356,7 +1314,7 @@ export default async function AdminOrderDetailPage({
         ) : null}
 
         <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
-          <div className="rounded border p-4">
+          <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4">
             <h3 className="font-black">Tracking Events</h3>
             {shippingTrackingEventsError ? (
               <p className="mt-2 text-sm font-semibold text-amber-700">
@@ -1370,14 +1328,14 @@ export default async function AdminOrderDetailPage({
             ) : (
               <div className="mt-3 space-y-3">
                 {shippingTrackingEvents.map((event) => (
-                  <div key={event.id} className="border-b pb-3 last:border-b-0">
+                  <div key={event.id} className="rounded-2xl border border-neutral-200 bg-white p-3">
                     <p className="font-bold">
                       {label(event.event_type)} / {label(event.event_status)}
                     </p>
-                    <p className="text-sm text-gray-600">
+                    <p className="text-sm font-semibold text-neutral-600">
                       {event.message || event.event_code || "Tracking update"}
                     </p>
-                    <p className="text-xs font-semibold text-gray-500">
+                    <p className="text-xs font-semibold text-neutral-500">
                       {dateLabel(event.occurred_at)}
                       {event.location ? ` / ${event.location}` : ""}
                     </p>
@@ -1387,7 +1345,7 @@ export default async function AdminOrderDetailPage({
             )}
           </div>
 
-          <div className="rounded border p-4">
+          <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4">
             <h3 className="font-black">Coverage Claims</h3>
             {shippingCoverageClaimsError ? (
               <p className="mt-2 text-sm font-semibold text-amber-700">
@@ -1422,16 +1380,16 @@ export default async function AdminOrderDetailPage({
                       : null;
 
                   return (
-                    <div key={claim.id} className="border-b pb-3 last:border-b-0">
+                    <div key={claim.id} className="rounded-2xl border border-neutral-200 bg-white p-3">
                       <p className="font-bold">
                         {claim.provider || "Coverage"} /{" "}
                         {label(claim.claim_status)}
                       </p>
-                      <p className="text-sm text-gray-600">
+                      <p className="text-sm font-semibold text-neutral-600">
                         {label(claim.claim_type)} for{" "}
                         {money(Number(claim.claim_amount || 0))}
                       </p>
-                      <p className="text-xs font-semibold text-gray-500">
+                      <p className="text-xs font-semibold text-neutral-500">
                         {claim.provider_claim_id || "Provider claim pending"} /{" "}
                         {dateLabel(claim.created_at)}
                       </p>
@@ -1454,83 +1412,96 @@ export default async function AdminOrderDetailPage({
           </div>
         </div>
 
-        <p className="mt-4 text-xs font-semibold text-gray-500">
+        <p className="mt-4 text-xs font-semibold text-neutral-500">
           Active label records for this order: {shippingLabelIds.length}. This
           cockpit is the source of truth for future provider adapters.
         </p>
-      </section>
+      </AdminSection>
 
-      <section className="border rounded-lg p-6 mb-6">
-        <h2 className="text-2xl font-bold mb-4">Chargeback Evidence</h2>
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <h3 className="font-bold mb-2">Terms And Identity</h3>
-            <p>TOS Accepted: {typedOrder.tos_accepted ? "Yes" : "No"}</p>
-            <p>Version: {typedOrder.tos_version || "Not saved"}</p>
-            <p>
-              Accepted At:{" "}
-              {typedOrder.tos_accepted_at
-                ? new Date(typedOrder.tos_accepted_at).toLocaleString()
-                : "Not saved"}
-            </p>
-            <p>IP Address: {typedOrder.tos_ip_address || "Not saved"}</p>
-            <p>IP Risk: {typedOrder.tos_ip_risk || "Not saved"}</p>
-            <p>
-              Block Reason: {typedOrder.tos_ip_block_reason || "None saved"}
-            </p>
-            <p className="break-all">
-              Acceptance Event:{" "}
-              {typedOrder.tos_acceptance_event_id || "Not saved"}
-            </p>
+      <AdminSection
+        eyebrow="Dispute defense"
+        title="Chargeback Evidence"
+        detail="Terms acceptance, identity/risk trail, and the latest downloadable evidence packet for this order."
+      >
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+          <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4">
+            <h3 className="text-sm font-black uppercase tracking-[0.14em] text-neutral-600">
+              Terms And Identity
+            </h3>
+            <dl className="mt-3 grid gap-3">
+              <InfoTile label="TOS Accepted" value={typedOrder.tos_accepted ? "Yes" : "No"} />
+              <InfoTile label="Version" value={typedOrder.tos_version || "Not saved"} />
+              <InfoTile
+                label="Accepted At"
+                value={
+                  typedOrder.tos_accepted_at
+                    ? new Date(typedOrder.tos_accepted_at).toLocaleString()
+                    : "Not saved"
+                }
+              />
+              <InfoTile label="IP Address" value={typedOrder.tos_ip_address || "Not saved"} />
+              <InfoTile label="IP Risk" value={typedOrder.tos_ip_risk || "Not saved"} />
+              <InfoTile label="Block Reason" value={typedOrder.tos_ip_block_reason || "None saved"} />
+              <InfoTile label="Acceptance Event" value={typedOrder.tos_acceptance_event_id || "Not saved"} />
+            </dl>
           </div>
 
-          <div>
-            <h3 className="font-bold mb-2">Evidence Packet</h3>
+          <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4">
+            <h3 className="text-sm font-black uppercase tracking-[0.14em] text-neutral-600">
+              Evidence Packet
+            </h3>
 
             {evidenceError ? (
-              <p className="text-red-600">
+              <p className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-black text-red-950">
                 Evidence table unavailable: {evidenceError.message}
               </p>
             ) : latestEvidence ? (
-              <>
-                <p>Status: {latestEvidence.status || "ready"}</p>
-                <p>
-                  Created:{" "}
-                  {new Date(latestEvidence.created_at).toLocaleString()}
-                </p>
-                <p>
-                  Last Updated:{" "}
-                  {latestEvidence.updated_at
-                    ? new Date(latestEvidence.updated_at).toLocaleString()
-                    : "Not saved"}
-                </p>
-                <p>
-                  Email:{" "}
-                  {latestEvidence.email_sent_at
-                    ? `Sent to ${latestEvidence.emailed_to}`
-                    : latestEvidence.email_error || "Not sent"}
-                </p>
+              <div className="mt-3">
+                <dl className="grid gap-3">
+                  <InfoTile label="Status" value={latestEvidence.status || "ready"} />
+                  <InfoTile
+                    label="Created"
+                    value={new Date(latestEvidence.created_at).toLocaleString()}
+                  />
+                  <InfoTile
+                    label="Last Updated"
+                    value={
+                      latestEvidence.updated_at
+                        ? new Date(latestEvidence.updated_at).toLocaleString()
+                        : "Not saved"
+                    }
+                  />
+                  <InfoTile
+                    label="Email"
+                    value={
+                      latestEvidence.email_sent_at
+                        ? `Sent to ${latestEvidence.emailed_to}`
+                        : latestEvidence.email_error || "Not sent"
+                    }
+                  />
+                </dl>
 
                 <a
                   href={`/api/admin/files/${latestEvidence.id}/download`}
-                  className="inline-block mt-4 border rounded px-4 py-2"
+                  className="mt-4 inline-flex rounded-2xl bg-neutral-950 px-4 py-3 text-sm font-black text-white"
                 >
                   Download Evidence PDF
                 </a>
-              </>
+              </div>
             ) : (
-              <p className="text-gray-600">
+              <p className="mt-3 rounded-2xl border border-neutral-200 bg-white p-4 text-sm font-semibold text-neutral-600">
                 No evidence packet has been created for this order yet.
               </p>
             )}
           </div>
         </div>
-      </section>
+      </AdminSection>
 
-      <section className="border rounded-lg p-6 mb-6">
-        <h2 className="text-2xl font-bold mb-4">Add Tracking</h2>
-
+      <AdminSection
+        eyebrow="Fulfillment action"
+        title="Add Tracking"
+        detail="Save tracking and mark shipped only after review holds and dry-run label blockers are cleared."
+      >
         <TrackingForm
           orderId={typedOrder.id}
           currentCarrier={typedOrder.carrier || ""}
@@ -1539,27 +1510,29 @@ export default async function AdminOrderDetailPage({
           reviewMessage={needsReview ? reviewMessage : undefined}
           dryRunShippingBlocked={activeDryRunShippingLabel}
         />
-      </section>
+      </AdminSection>
 
-      <section className="border rounded-lg p-6">
-        <h2 className="text-2xl font-bold mb-4">Actions</h2>
-
+      <AdminSection
+        eyebrow="Operator shortcuts"
+        title="Actions"
+        detail="Final order utilities for evidence review and fulfillment paperwork."
+      >
         <div className="flex flex-wrap gap-4">
           <Link
             href="/admin/files"
-            className="border rounded px-4 py-2"
+            className="rounded-2xl border border-neutral-300 bg-white px-4 py-3 text-sm font-black"
           >
             Evidence Files
           </Link>
 
           <Link
             href={`/admin/orders/${typedOrder.id}/packing-slip`}
-            className="border rounded px-4 py-2"
+            className="rounded-2xl bg-neutral-950 px-4 py-3 text-sm font-black text-white"
           >
             Print Packing Slip
           </Link>
         </div>
-      </section>
+      </AdminSection>
     </main>
   );
 }
