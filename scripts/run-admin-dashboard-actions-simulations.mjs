@@ -21,6 +21,10 @@ const adminFilesPageSource = await readFile(
   new URL("../src/app/admin/files/page.tsx", import.meta.url),
   "utf8",
 );
+const adminOrdersPageSource = await readFile(
+  new URL("../src/app/admin/orders/page.tsx", import.meta.url),
+  "utf8",
+);
 const adminNewProductPageSource = await readFile(
   new URL("../src/app/admin/products/new/page.tsx", import.meta.url),
   "utf8",
@@ -550,6 +554,42 @@ scenario("admin files page does not show false-empty evidence queues", () => {
     adminFilesPageSource.indexOf("Case packet list unavailable") <
       adminFilesPageSource.indexOf("No saved case packets yet"),
     "Expected case packet load failures to render before the empty case-packet state.",
+  );
+});
+
+scenario("admin orders page keeps fulfillment failures operator-readable", () => {
+  for (const fragment of [
+    "function safeErrorMessage",
+    "const orderLoadErrorMessage = safeErrorMessage(error)",
+    "Fulfillment queues unavailable",
+    "Order storage did not load, so this page cannot prove whether",
+    "Queue counts",
+    "Unavailable",
+    "do not ship from stale",
+    "let accountProfilesError",
+    "try {",
+    "accountProfiles = await getAccountProfilesByIds",
+    "const accountProfilesUnavailable = Boolean(accountProfilesError)",
+    "Linked account profiles unavailable",
+    'role="status"',
+    "Orders loaded, but buyer account enrichment did not",
+    "Linked account profile lookup unavailable",
+    "accountProfilesUnavailable={accountProfilesUnavailable}",
+  ]) {
+    assert(
+      adminOrdersPageSource.includes(fragment),
+      `Expected admin orders failure-recovery fragment ${fragment}.`,
+    );
+  }
+
+  assert(
+    adminOrdersPageSource.indexOf("Fulfillment queues unavailable") <
+      adminOrdersPageSource.indexOf("Retry orders or open the dashboard"),
+    "Expected orders load failures to explain queue uncertainty before recovery actions.",
+  );
+  assert(
+    !adminOrdersPageSource.includes("{error.message}"),
+    "Expected orders page to avoid rendering raw database error messages.",
   );
 });
 

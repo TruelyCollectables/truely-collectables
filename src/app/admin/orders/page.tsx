@@ -51,6 +51,13 @@ function money(value: number | null | undefined) {
   }).format(Number(value || 0));
 }
 
+function safeErrorMessage(error: { message?: string } | null | undefined) {
+  return String(error?.message || "Unknown database error.")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 220);
+}
+
 function statusLabel(status: string | null | undefined) {
   if (!status) return "Pending";
   return status.replaceAll("_", " ").toUpperCase();
@@ -126,6 +133,8 @@ export default async function AdminOrdersPage({
     .order("created_at", { ascending: false });
 
   if (error) {
+    const orderLoadErrorMessage = safeErrorMessage(error);
+
     return (
       <main className="bg-neutral-50 px-6 py-8 text-neutral-950">
         <section className="mx-auto max-w-4xl rounded-3xl border border-red-200 bg-white p-6 shadow-sm">
@@ -134,8 +143,34 @@ export default async function AdminOrdersPage({
           </p>
           <h1 className="mt-2 text-3xl font-black">Error loading orders</h1>
           <p className="mt-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-950">
-            {error.message}
+            {orderLoadErrorMessage}
           </p>
+          <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-red-950">
+            <h2 className="text-lg font-black">Fulfillment queues unavailable</h2>
+            <p className="mt-2 text-sm font-semibold leading-6">
+              Order storage did not load, so this page cannot prove whether
+              paid orders, review holds, shipped orders, or ready-to-ship work
+              exists. Retry after the database warning is cleared before
+              treating the queue as empty.
+            </p>
+            <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+              <div className="rounded-xl border border-red-200 bg-white p-3">
+                <dt className="font-black uppercase tracking-[0.12em] text-red-700">
+                  Queue counts
+                </dt>
+                <dd className="mt-1 font-black">Unavailable</dd>
+              </div>
+              <div className="rounded-xl border border-red-200 bg-white p-3">
+                <dt className="font-black uppercase tracking-[0.12em] text-red-700">
+                  Operator action
+                </dt>
+                <dd className="mt-1 font-semibold">
+                  Retry orders or open the dashboard; do not ship from stale
+                  memory.
+                </dd>
+              </div>
+            </dl>
+          </div>
           <div className="mt-5 flex flex-wrap gap-3">
             <Link
               href="/admin/orders"
@@ -156,9 +191,21 @@ export default async function AdminOrdersPage({
   }
 
   const typedOrders = (orders || []) as Order[];
-  const accountProfiles = await getAccountProfilesByIds(
-    typedOrders.map((order) => order.account_id),
-  );
+  let accountProfiles = new Map<string, AccountProfileSummary>();
+  let accountProfilesError: { message?: string } | null = null;
+
+  try {
+    accountProfiles = await getAccountProfilesByIds(
+      typedOrders.map((order) => order.account_id),
+    );
+  } catch (error) {
+    accountProfilesError =
+      error && typeof error === "object" && "message" in error
+        ? { message: String(error.message || "Unknown account profile error.") }
+        : { message: "Unknown account profile error." };
+  }
+
+  const accountProfilesUnavailable = Boolean(accountProfilesError);
 
   const readyToShip = typedOrders.filter(isReadyToShip);
   const reviewOrders = typedOrders.filter(isReview);
@@ -224,6 +271,26 @@ export default async function AdminOrdersPage({
         </div>
       </div>
       </section>
+
+      {accountProfilesUnavailable ? (
+        <section
+          aria-live="polite"
+          role="status"
+          className="rounded-3xl border border-amber-200 bg-amber-50 p-5 text-amber-950 shadow-sm"
+        >
+          <h2 className="text-xl font-black">
+            Linked account profiles unavailable
+          </h2>
+          <p className="mt-2 max-w-4xl text-sm font-semibold leading-6">
+            Orders loaded, but buyer account enrichment did not. The fulfillment
+            queue remains usable; rows with linked buyers will show that profile
+            details are unavailable instead of hiding the order.
+          </p>
+          <p className="mt-3 rounded-xl border border-amber-200 bg-white px-4 py-3 text-sm font-bold">
+            {safeErrorMessage(accountProfilesError)}
+          </p>
+        </section>
+      ) : null}
 
       <section className="grid grid-cols-1 gap-4 md:grid-cols-5">
         <DashboardCard label="Total orders" value={String(typedOrders.length)} />
@@ -310,6 +377,7 @@ export default async function AdminOrdersPage({
                     ? accountProfiles.get(order.account_id)
                     : undefined
                 }
+                accountProfilesUnavailable={accountProfilesUnavailable}
               />
             ))}
           </div>
@@ -373,9 +441,11 @@ function TabLink({
 function OrderCard({
   order,
   accountProfile,
+  accountProfilesUnavailable,
 }: {
   order: Order;
   accountProfile?: AccountProfileSummary;
+  accountProfilesUnavailable?: boolean;
 }) {
   const needsReview = isReview(order);
   const dryRunShipping = isDryRunShippingReference(order.tracking_number);
@@ -421,7 +491,9 @@ function OrderCard({
                 accountProfile.display_name ||
                 accountProfile.id
               : order.account_id
-                ? "Linked account profile unavailable"
+                ? accountProfilesUnavailable
+                  ? "Linked account profile lookup unavailable"
+                  : "Linked account profile unavailable"
                 : "Guest checkout"}
           </p>
           <p className="text-sm text-neutral-500">
