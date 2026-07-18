@@ -38,6 +38,28 @@ export default function StripeEvidenceActions({
     normalizedStatus,
   );
   const canSubmit = normalizedStatus === "staged";
+  const stageButtonTitle =
+    busy !== null
+      ? "Finish the current Stripe evidence action before staging evidence."
+      : stageLocked
+        ? `Evidence is already ${label(normalizedStatus).toLowerCase()}; generate/stage is locked.`
+        : "Generate and stage editable Stripe dispute evidence.";
+  const submitButtonTitle =
+    busy !== null
+      ? "Finish the current Stripe evidence action before final submission."
+      : !canSubmit
+        ? "Stage Stripe evidence before final submission."
+        : "Open the final Stripe evidence submission confirmation.";
+  const finalSubmitTitle =
+    busy !== null
+      ? "Finish the current Stripe evidence action before final submission."
+      : confirmation !== "SUBMIT TO STRIPE"
+        ? "Type SUBMIT TO STRIPE exactly before final submission."
+        : "Submit final evidence to Stripe and the issuing bank.";
+  const cancelSubmitTitle =
+    busy !== null
+      ? "Wait for the Stripe evidence action to finish before closing this confirmation."
+      : "Close this Stripe final-submission confirmation.";
 
   async function stage() {
     if (evidenceActionRunningRef.current || busy !== null) {
@@ -168,6 +190,7 @@ export default function StripeEvidenceActions({
           onClick={stage}
           aria-disabled={busy !== null || stageLocked}
           aria-busy={busy === "stage"}
+          title={stageButtonTitle}
           className="rounded-md border border-rose-300 bg-white px-3 py-2 text-xs font-black aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
         >
           {busy === "stage" ? "Staging..." : "Generate And Stage"}
@@ -177,6 +200,7 @@ export default function StripeEvidenceActions({
           onClick={beginSubmitConfirmation}
           aria-disabled={busy !== null || !canSubmit}
           aria-busy={busy === "submit"}
+          title={submitButtonTitle}
           className="rounded-md bg-rose-800 px-3 py-2 text-xs font-black text-white aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
         >
           {busy === "submit" ? "Submitting..." : "Final Submit To Stripe"}
@@ -203,6 +227,7 @@ export default function StripeEvidenceActions({
               onClick={submit}
               aria-disabled={busy !== null}
               aria-busy={busy === "submit"}
+              title={finalSubmitTitle}
               className="rounded bg-rose-800 px-3 py-2 text-xs font-black text-white aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
             >
               {busy === "submit" ? "Submitting..." : "Submit final evidence"}
@@ -221,6 +246,7 @@ export default function StripeEvidenceActions({
                 setConfirmation("");
               }}
               aria-disabled={busy !== null}
+              title={cancelSubmitTitle}
               className="rounded border border-neutral-300 px-3 py-2 text-xs font-black aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
             >
               Cancel
