@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sanitizeAuthenticityProfile } from "../../../../../../lib/authenticity";
 import {
+  adminProductStatusChangeError,
   parseAdminInventoryStatus,
   parseAdminProductId,
 } from "../../../../../../lib/admin-product-status";
@@ -114,6 +115,18 @@ export async function POST(
     if (!status) {
       return redirectToProduct(request, id, {
         saveError: "Unsupported inventory status.",
+      });
+    }
+
+    const statusError = adminProductStatusChangeError({
+      productId: id,
+      status,
+      quantity,
+    });
+
+    if (statusError) {
+      return redirectToProduct(request, id, {
+        saveError: statusError,
       });
     }
 

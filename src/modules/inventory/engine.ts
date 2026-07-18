@@ -1284,6 +1284,23 @@ export class InventoryEngine {
       throw new InventoryEngineError("Product not found", 404);
     }
 
+    const statusError = adminProductStatusChangeError({
+      productId: legacyProductId,
+      status: input.status,
+      quantity: input.quantity,
+    });
+
+    if (statusError) {
+      throw new InventoryEngineError(statusError, 400);
+    }
+
+    const authenticityProfile = input.authenticity ?? current.authenticity;
+    const authenticityError = validateAuthenticityProfile(authenticityProfile);
+
+    if (authenticityError) {
+      throw new InventoryEngineError(authenticityError, 400);
+    }
+
     const description =
       input.description ??
       (await this.createGeneratedDescription({
@@ -1295,7 +1312,7 @@ export class InventoryEngine {
         status: input.status,
         sku: current.sku,
         ebayItemId: current.ebayItemId,
-        authenticity: input.authenticity ?? current.authenticity,
+        authenticity: authenticityProfile,
       }));
 
     const { data: product, error } = await this.database
@@ -1321,12 +1338,6 @@ export class InventoryEngine {
       legacyProduct,
       current.inventoryItemId
     );
-    const authenticityProfile = input.authenticity ?? current.authenticity;
-    const authenticityError = validateAuthenticityProfile(authenticityProfile);
-
-    if (authenticityError) {
-      throw new InventoryEngineError(authenticityError, 400);
-    }
 
     const updatedInventoryItem = await this.repository.update(
       inventoryItem.id,

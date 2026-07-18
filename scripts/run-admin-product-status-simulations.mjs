@@ -13,6 +13,10 @@ const productPageSource = await readFile(
   new URL("../src/app/admin/products/[id]/page.tsx", import.meta.url),
   "utf8",
 );
+const productSaveRouteSource = await readFile(
+  new URL("../src/app/api/admin/products/[id]/save/route.ts", import.meta.url),
+  "utf8",
+);
 const inventoryEngineSource = await readFile(
   new URL("../src/modules/inventory/engine.ts", import.meta.url),
   "utf8",
@@ -144,6 +148,53 @@ scenario("inventory engine enforces admin product status policy", () => {
       `Expected inventory engine status-policy fragment ${fragment}.`,
     );
   }
+});
+
+scenario("full product save blocks active or reserved zero-quantity records", () => {
+  for (const fragment of [
+    "adminProductStatusChangeError",
+    "quantity,",
+    "saveError: statusError",
+  ]) {
+    assert(
+      productSaveRouteSource.includes(fragment),
+      `Expected product save route status-policy fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("inventory engine validates before mutating product records", () => {
+  const updateProductStart = inventoryEngineSource.indexOf("  async updateProduct(");
+  const updateProductEnd = inventoryEngineSource.indexOf(
+    "  async regenerateDescription",
+    updateProductStart,
+  );
+  const updateProductSource = inventoryEngineSource.slice(
+    updateProductStart,
+    updateProductEnd,
+  );
+  const validationIndex = updateProductSource.indexOf(
+    "const statusError = adminProductStatusChangeError",
+  );
+  const productMutationIndex = updateProductSource.indexOf(
+    'const { data: product, error } = await this.database',
+  );
+  const authenticityIndex = updateProductSource.indexOf(
+    "const authenticityError = validateAuthenticityProfile",
+  );
+
+  assert(updateProductStart >= 0 && updateProductEnd > updateProductStart, "Expected updateProduct source.");
+  assert(validationIndex >= 0, "Expected updateProduct status validation.");
+  assert(authenticityIndex >= 0, "Expected updateProduct authenticity validation.");
+  assert(productMutationIndex >= 0, "Expected updateProduct product mutation.");
+  assert(
+    validationIndex < productMutationIndex,
+    "Status validation should happen before product mutation.",
+  );
+  assert(
+    authenticityIndex < productMutationIndex,
+    "Authenticity validation should happen before product mutation.",
+  );
 });
 
 const failed = [];
