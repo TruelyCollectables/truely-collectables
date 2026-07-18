@@ -138,15 +138,25 @@ scenario("growth spec forms and value-list refreshes label long-running posts", 
 
 scenario("deal listing client actions retain inline busy and failure feedback", () => {
   for (const fragment of [
+    "dealListingActionRunningRef",
+    "function dealListingActionBlockedReason(action: string)",
+    "function showDealListingActionBlocked(action: string)",
+    "function togglePurchasePanel()",
+    "function cancelEndConfirmation()",
+    "Finish the current deal listing action before ${action}.",
     "Ending listing...",
     "Creating purchase position...",
     'aria-live={tone === "info" ? "polite" : "assertive"}',
     'aria-busy={busy === "end"}',
     'aria-busy={busy === "purchase"}',
+    "aria-disabled={busy !== null || !hasExactIdentity}",
+    "aria-disabled={busy !== null || purchaseMissing.length > 0}",
     "Could not end listing.",
     "Could not record purchase.",
     "Purchase disabled until this listing has an exact collectible identity.",
     "This does not record a purchase.",
+    'normalized.includes("needs")',
+    'normalized.includes("disabled")',
   ]) {
     assert(
       sources.dealListingActions.includes(fragment),

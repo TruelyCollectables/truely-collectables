@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { addAdminHandoff } from "../../../../lib/admin-handoff";
 
 type ActionTone = "success" | "error" | "info";
@@ -21,6 +21,10 @@ function actionTone(message: string): ActionTone {
     normalized.includes("unable") ||
     normalized.includes("failed") ||
     normalized.includes("required") ||
+    normalized.includes("needs") ||
+    normalized.includes("disabled") ||
+    normalized.includes("unavailable") ||
+    normalized.includes("finish the current") ||
     normalized.includes("must")
   ) {
     return "error";
@@ -89,6 +93,7 @@ export default function DealListingActions({
   );
   const [purchaseDate, setPurchaseDate] = useState(todayDate());
   const [alreadyReceived, setAlreadyReceived] = useState(false);
+  const dealListingActionRunningRef = useRef(false);
 
   const endUrl = addAdminHandoff(
     `/api/admin/market-intel/listings/${listingId}/end`,
@@ -111,7 +116,53 @@ export default function DealListingActions({
     !purchaseDate.trim() ? "purchase date" : null,
   ].filter(Boolean);
 
+  function dealListingActionBlockedReason(action: string) {
+    if (dealListingActionRunningRef.current || busy !== null) {
+      return `Finish the current deal listing action before ${action}.`;
+    }
+
+    return "";
+  }
+
+  function showDealListingActionBlocked(action: string) {
+    const blockedReason = dealListingActionBlockedReason(action);
+    if (!blockedReason) return false;
+
+    setMessage(blockedReason);
+    return true;
+  }
+
+  function togglePurchasePanel() {
+    if (showDealListingActionBlocked("opening the purchase form")) {
+      return;
+    }
+
+    if (!hasExactIdentity) {
+      setMessage(
+        "Purchase disabled until this listing has an exact collectible identity.",
+      );
+      return;
+    }
+
+    setShowPurchase((current) => !current);
+    setConfirmEnd(false);
+    setMessage("");
+  }
+
+  function cancelEndConfirmation() {
+    if (showDealListingActionBlocked("canceling end confirmation")) {
+      return;
+    }
+
+    setConfirmEnd(false);
+    setMessage("");
+  }
+
   async function endListing() {
+    if (showDealListingActionBlocked("ending this listing")) {
+      return;
+    }
+
     if (!confirmEnd) {
       setConfirmEnd(true);
       setShowPurchase(false);
@@ -121,6 +172,7 @@ export default function DealListingActions({
       return;
     }
 
+    dealListingActionRunningRef.current = true;
     setBusy("end");
     setMessage("Ending listing...");
 
@@ -143,16 +195,22 @@ export default function DealListingActions({
     } catch (error: any) {
       setMessage(error.message || "Could not end listing.");
     } finally {
+      dealListingActionRunningRef.current = false;
       setBusy(null);
     }
   }
 
   async function recordPurchase() {
+    if (showDealListingActionBlocked("recording a purchase position")) {
+      return;
+    }
+
     if (purchaseMissing.length > 0) {
       setMessage(`Purchase needs: ${purchaseMissing.join(", ")}.`);
       return;
     }
 
+    dealListingActionRunningRef.current = true;
     setBusy("purchase");
     setMessage("Recording purchase position...");
 
@@ -185,6 +243,7 @@ export default function DealListingActions({
     } catch (error: any) {
       setMessage(error.message || "Could not record purchase.");
     } finally {
+      dealListingActionRunningRef.current = false;
       setBusy(null);
     }
   }
@@ -202,12 +261,8 @@ export default function DealListingActions({
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
-          onClick={() => {
-            setShowPurchase((current) => !current);
-            setConfirmEnd(false);
-            setMessage("");
-          }}
-          disabled={busy !== null || !hasExactIdentity}
+          onClick={togglePurchasePanel}
+          aria-disabled={busy !== null || !hasExactIdentity}
           title={
             hasExactIdentity
               ? "Record a purchase position and move this listing out of the active deal desk."
@@ -216,8 +271,8 @@ export default function DealListingActions({
           aria-busy={busy === "purchase"}
           className={
             dark
-              ? "rounded-2xl bg-lime-300 px-3 py-2 text-xs font-black text-black hover:bg-lime-200 disabled:cursor-not-allowed disabled:opacity-50"
-              : "rounded-2xl bg-neutral-950 px-3 py-2 text-xs font-black text-white hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
+              ? "rounded-2xl bg-lime-300 px-3 py-2 text-xs font-black text-black hover:bg-lime-200 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+              : "rounded-2xl bg-neutral-950 px-3 py-2 text-xs font-black text-white hover:bg-neutral-800 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
           }
         >
           {showPurchase ? "Hide Purchase" : "Record Purchase"}
@@ -225,7 +280,7 @@ export default function DealListingActions({
         <button
           type="button"
           onClick={() => void endListing()}
-          disabled={busy !== null}
+          aria-disabled={busy !== null}
           title={
             confirmEnd
               ? "Confirm this listing should be ended without recording a purchase."
@@ -234,10 +289,10 @@ export default function DealListingActions({
           aria-busy={busy === "end"}
           className={
             confirmEnd
-              ? "rounded-2xl bg-red-700 px-3 py-2 text-xs font-black text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-50"
+              ? "rounded-2xl bg-red-700 px-3 py-2 text-xs font-black text-white hover:bg-red-800 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
               : dark
-                ? "rounded-2xl border border-neutral-600 px-3 py-2 text-xs font-black text-white hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
-                : "rounded-2xl border border-neutral-300 bg-white px-3 py-2 text-xs font-black text-neutral-950 hover:bg-neutral-100 disabled:cursor-not-allowed disabled:opacity-50"
+                ? "rounded-2xl border border-neutral-600 px-3 py-2 text-xs font-black text-white hover:bg-neutral-800 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+                : "rounded-2xl border border-neutral-300 bg-white px-3 py-2 text-xs font-black text-neutral-950 hover:bg-neutral-100 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
           }
         >
           {busy === "end"
@@ -249,12 +304,9 @@ export default function DealListingActions({
         {confirmEnd ? (
           <button
             type="button"
-            onClick={() => {
-              setConfirmEnd(false);
-              setMessage("");
-            }}
-            disabled={busy !== null}
-            className="rounded-2xl border border-neutral-300 bg-white px-3 py-2 text-xs font-black text-neutral-950 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50"
+            onClick={cancelEndConfirmation}
+            aria-disabled={busy !== null}
+            className="rounded-2xl border border-neutral-300 bg-white px-3 py-2 text-xs font-black text-neutral-950 hover:bg-neutral-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
           >
             Cancel
           </button>
@@ -321,14 +373,14 @@ export default function DealListingActions({
           <button
             type="button"
             onClick={() => void recordPurchase()}
-            disabled={busy !== null || purchaseMissing.length > 0}
+            aria-disabled={busy !== null || purchaseMissing.length > 0}
             aria-busy={busy === "purchase"}
             title={
               purchaseMissing.length > 0
                 ? `Required: ${purchaseMissing.join(", ")}.`
                 : "Create the purchase position and move this listing out of the active deal desk."
             }
-            className="w-full rounded-2xl bg-amber-700 px-3 py-2 text-xs font-black text-white hover:bg-amber-800 disabled:cursor-not-allowed disabled:opacity-50"
+            className="w-full rounded-2xl bg-amber-700 px-3 py-2 text-xs font-black text-white hover:bg-amber-800 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
           >
             {busy === "purchase"
               ? "Creating purchase position..."
