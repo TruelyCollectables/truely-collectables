@@ -530,6 +530,8 @@ scenario("admin control checker requires scoped submit titles", () => {
     "adminSubmitButtonPattern",
     "<AdminSubmitButton",
     "AdminSubmitButton must include a title that explains the action scope and side effects.",
+    "Disabled AdminSubmitButton must include disabledReason so blocked clicks explain what to fix.",
+    "disabledReason",
   ]) {
     assert(
       adminControlCheckSource.includes(fragment),

@@ -98,13 +98,23 @@ for (const filePath of walk(adminRoot)) {
 
   while ((match = adminSubmitButtonPattern.exec(source))) {
     const tag = match[0];
+    const line = lineForOffset(source, match.index);
 
     if (!/\btitle\s*=/.test(tag)) {
       violations.push({
         file: relativePath,
-        line: lineForOffset(source, match.index),
+        line,
         message:
           "AdminSubmitButton must include a title that explains the action scope and side effects.",
+      });
+    }
+
+    if (/\bdisabled\s*=/.test(tag) && !/\bdisabledReason\s*=/.test(tag)) {
+      violations.push({
+        file: relativePath,
+        line,
+        message:
+          "Disabled AdminSubmitButton must include disabledReason so blocked clicks explain what to fix.",
       });
     }
   }
