@@ -172,6 +172,7 @@ export default function BulkDescriptionEditor({
 
         {blockedReason ? (
           <p
+            role="status"
             aria-live="polite"
             className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-sm font-bold text-amber-950"
           >
@@ -179,6 +180,7 @@ export default function BulkDescriptionEditor({
           </p>
         ) : (
           <p
+            role="status"
             aria-live="polite"
             className="rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-950"
           >

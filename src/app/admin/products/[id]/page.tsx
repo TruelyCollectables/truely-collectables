@@ -316,6 +316,7 @@ export default async function AdminProductEditPage({
 
       {query?.saved === "1" ? (
         <div
+          role="status"
           aria-live="polite"
           className="rounded border border-emerald-300 bg-emerald-50 p-4 font-bold text-emerald-800"
         >
@@ -325,6 +326,7 @@ export default async function AdminProductEditPage({
 
       {savedStatus ? (
         <div
+          role="status"
           aria-live="polite"
           className="rounded border border-emerald-300 bg-emerald-50 p-4 font-bold text-emerald-800"
         >
@@ -334,6 +336,7 @@ export default async function AdminProductEditPage({
 
       {query?.saveError ? (
         <div
+          role="alert"
           aria-live="assertive"
           className="rounded border border-rose-300 bg-rose-50 p-4 font-bold text-rose-800"
         >

@@ -83,6 +83,7 @@ scenario("bulk description editor exposes searchable safe bulk controls", () => 
     "filteredProducts",
     "adminBulkDescriptionBlockedReason",
     "Bulk update blocked:",
+    'role="status"',
     "aria-busy={pending}",
     "aria-live=\"polite\"",
     "Select every product currently visible",

@@ -248,19 +248,28 @@ export default async function AdminProductsPage({
       )}
 
       {query?.bulkError && (
-        <div className="rounded border border-red-300 bg-red-50 p-4 font-bold text-red-800">
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="rounded border border-red-300 bg-red-50 p-4 font-bold text-red-800"
+        >
           Select at least one product and paste a description/code block first.
         </div>
       )}
 
       {query?.saveError && (
-        <div className="rounded border border-red-300 bg-red-50 p-4 font-bold text-red-800">
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="rounded border border-red-300 bg-red-50 p-4 font-bold text-red-800"
+        >
           Product action failed: {query.saveError}
         </div>
       )}
 
       {query?.statusEnded && (
         <div
+          role="status"
           aria-live="polite"
           className="rounded border border-emerald-300 bg-emerald-50 p-4 font-bold text-emerald-800"
         >

@@ -145,6 +145,8 @@ scenario("product quick-status UI reports status success and stock blockers", ()
   for (const fragment of [
     "statusSaved",
     "adminProductStatusSuccessMessage(savedStatus)",
+    'role="status"',
+    'role="alert"',
     "aria-live=\"polite\"",
     "aria-live=\"assertive\"",
     "Qty required first",
@@ -165,6 +167,9 @@ scenario("product list exposes a direct end-early action", () => {
     "adminProductStatusZeroesQuantity(product.status)",
     "status: \"archived\"",
     "statusEnded",
+    'role="status"',
+    'role="alert"',
+    'aria-live="assertive"',
     "End early",
     "Ended / Sold",
     "Ended / Archived",
