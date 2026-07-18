@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   FINANCIAL_RECONCILIATION_NOTE_MIN_LENGTH,
   financialReconciliationDecisionError,
@@ -14,6 +14,7 @@ export default function ReconciliationActions({
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
+  const reconciliationActionRunningRef = useRef(false);
   const [message, setMessage] = useState<{
     tone: "success" | "error" | "info";
     text: string;
@@ -42,7 +43,25 @@ export default function ReconciliationActions({
       resolutionNote: trimmedResolutionNote,
     }) && Boolean(pendingStatus);
 
+  function reconciliationActionBlockedReason(action: string) {
+    return reconciliationActionRunningRef.current || busy
+      ? `Finish the current reconciliation action before ${action}.`
+      : "";
+  }
+
+  function showReconciliationActionBlocked(action: string) {
+    const blockedReason = reconciliationActionBlockedReason(action);
+
+    if (!blockedReason) return false;
+
+    setMessage({ tone: "error", text: blockedReason });
+    return true;
+  }
+
   async function runNow() {
+    if (showReconciliationActionBlocked("running reconciliation again")) return;
+
+    reconciliationActionRunningRef.current = true;
     setBusy(true);
     setMessage({ tone: "info", text: "Running reconciliation..." });
     try {
@@ -56,11 +75,16 @@ export default function ReconciliationActions({
     } catch (error: any) {
       setMessage({ tone: "error", text: error.message || "Reconciliation failed" });
     } finally {
+      reconciliationActionRunningRef.current = false;
       setBusy(false);
     }
   }
 
   async function resolve(status: "resolved" | "ignored") {
+    if (showReconciliationActionBlocked("saving another reconciliation decision")) {
+      return;
+    }
+
     const decisionError = financialReconciliationDecisionError({
       itemId,
       status,
@@ -75,6 +99,7 @@ export default function ReconciliationActions({
       return;
     }
 
+    reconciliationActionRunningRef.current = true;
     setBusy(true);
     setMessage({ tone: "info", text: "Saving reconciliation alert update..." });
     try {
@@ -95,8 +120,26 @@ export default function ReconciliationActions({
     } catch (error: any) {
       setMessage({ tone: "error", text: error.message || "Could not update alert" });
     } finally {
+      reconciliationActionRunningRef.current = false;
       setBusy(false);
     }
+  }
+
+  function beginDecision(status: "resolved" | "ignored") {
+    if (showReconciliationActionBlocked("starting another alert decision")) return;
+
+    setPendingStatus(status);
+    setResolutionNote("");
+    setMessage(null);
+  }
+
+  function cancelDecision() {
+    if (showReconciliationActionBlocked("cancelling the current alert decision")) {
+      return;
+    }
+
+    setPendingStatus(null);
+    setResolutionNote("");
   }
 
   if (!itemId) {
@@ -105,9 +148,11 @@ export default function ReconciliationActions({
         <button
           type="button"
           onClick={runNow}
-          disabled={busy}
+          aria-disabled={busy}
           aria-busy={busy}
-          className="rounded-2xl bg-emerald-400 px-4 py-3 text-sm font-black text-neutral-950 shadow-sm transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
+          className={`rounded-2xl bg-emerald-400 px-4 py-3 text-sm font-black text-neutral-950 shadow-sm transition ${
+            busy ? "cursor-not-allowed opacity-50" : "hover:bg-emerald-300"
+          }`}
         >
           {busy ? "Reconciling..." : "Run Previous UTC Day"}
         </button>
@@ -121,27 +166,23 @@ export default function ReconciliationActions({
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
-          onClick={() => {
-            setPendingStatus("resolved");
-            setResolutionNote("");
-            setMessage(null);
-          }}
-          disabled={busy}
+          onClick={() => beginDecision("resolved")}
+          aria-disabled={busy}
           aria-pressed={pendingStatus === "resolved"}
-          className="rounded-full bg-emerald-700 px-3 py-2 text-xs font-black text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
+          className={`rounded-full bg-emerald-700 px-3 py-2 text-xs font-black text-white shadow-sm ${
+            busy ? "cursor-not-allowed opacity-50" : ""
+          }`}
         >
           Resolve
         </button>
         <button
           type="button"
-          onClick={() => {
-            setPendingStatus("ignored");
-            setResolutionNote("");
-            setMessage(null);
-          }}
-          disabled={busy}
+          onClick={() => beginDecision("ignored")}
+          aria-disabled={busy}
           aria-pressed={pendingStatus === "ignored"}
-          className="rounded-full border border-neutral-300 bg-white px-3 py-2 text-xs font-black text-neutral-900 shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
+          className={`rounded-full border border-neutral-300 bg-white px-3 py-2 text-xs font-black text-neutral-900 shadow-sm ${
+            busy ? "cursor-not-allowed opacity-50" : ""
+          }`}
         >
           Ignore With Note
         </button>
@@ -166,20 +207,21 @@ export default function ReconciliationActions({
             <button
               type="button"
               onClick={() => resolve(pendingStatus)}
-              disabled={busy || !canSaveDecision}
+              aria-disabled={busy || !canSaveDecision}
               aria-busy={busy}
-              className="rounded-full bg-neutral-950 px-3 py-2 text-xs font-black text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
+              className={`rounded-full bg-neutral-950 px-3 py-2 text-xs font-black text-white shadow-sm ${
+                busy || !canSaveDecision ? "cursor-not-allowed opacity-50" : ""
+              }`}
             >
               {busy ? savingDecisionLabel : saveDecisionLabel}
             </button>
             <button
               type="button"
-              onClick={() => {
-                setPendingStatus(null);
-                setResolutionNote("");
-              }}
-              disabled={busy}
-              className="rounded-full border border-neutral-300 bg-white px-3 py-2 text-xs font-black shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
+              onClick={cancelDecision}
+              aria-disabled={busy}
+              className={`rounded-full border border-neutral-300 bg-white px-3 py-2 text-xs font-black shadow-sm ${
+                busy ? "cursor-not-allowed opacity-50" : ""
+              }`}
             >
               Cancel
             </button>
