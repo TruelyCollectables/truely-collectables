@@ -69,6 +69,18 @@ function shortDate(value: string | null) {
   }).format(new Date(value));
 }
 
+function duplicateRowLabel(row: DuplicateRow | null | undefined) {
+  if (!row) return "selected product";
+
+  return row.title?.trim() || `product #${row.productId}`;
+}
+
+function duplicateRowScope(row: DuplicateRow | null | undefined) {
+  if (!row) return "selected product";
+
+  return `${duplicateRowLabel(row)} (#${row.productId}, quantity ${row.quantity})`;
+}
+
 export default function EbayDuplicateFinderClient() {
   const [groups, setGroups] = useState<DuplicateGroup[]>([]);
   const [summary, setSummary] = useState<Summary | null>(null);
@@ -255,11 +267,17 @@ export default function EbayDuplicateFinderClient() {
       return;
     }
 
+    const duplicateScope = `${allDuplicateRows.length} duplicate row${
+      allDuplicateRows.length === 1 ? "" : "s"
+    } totaling quantity ${allDuplicateRows.reduce(
+      (sum, row) => sum + Number(row.quantity || 0),
+      0,
+    )}`;
+    const keeperScope = duplicateRowScope(keeperRow);
+
     setActiveDuplicateAction({ groupKey: group.key, kind: "merge", stage: "previewing" });
     showNotice(
-      `Previewing merge for ${duplicateProductIds.length} duplicate row${
-        duplicateProductIds.length === 1 ? "" : "s"
-      } into keeper #${keeperProductId}...`,
+      `Previewing merge for ${duplicateScope} into keeper ${keeperScope}...`,
     );
 
     try {
@@ -291,7 +309,7 @@ export default function EbayDuplicateFinderClient() {
 
       setActiveDuplicateAction({ groupKey: group.key, kind: "merge", stage: "applying" });
       showNotice(
-        `Merging now: keeper quantity ${preview.previousKeeperQuantity} + duplicate quantity ${preview.duplicateQuantity} = ${preview.mergedQuantity}.`,
+        `Merging now: keeper ${keeperScope} will change from quantity ${preview.previousKeeperQuantity} to ${preview.mergedQuantity}; duplicate quantity ${preview.duplicateQuantity} will be archived to 0.`,
       );
 
       const response = await fetch("/api/admin/ebay-duplicates", {
@@ -335,6 +353,9 @@ export default function EbayDuplicateFinderClient() {
     if (showDuplicateActionBlocked("starting another merge or end/archive")) return;
 
     const keeperProductId = selectedKeeperProductIdForGroup(group);
+    const duplicateRow =
+      group.rows.find((row) => row.productId === duplicateProductId) || null;
+    const duplicateScope = duplicateRowScope(duplicateRow);
 
     if (!duplicateProductId) {
       showError("Pick a duplicate row to end/archive first.");
@@ -352,7 +373,7 @@ export default function EbayDuplicateFinderClient() {
       productId: duplicateProductId,
       stage: "previewing",
     });
-    showNotice(`Previewing end/archive for duplicate product #${duplicateProductId}...`);
+    showNotice(`Previewing end/archive for duplicate ${duplicateScope}...`);
 
     try {
       const previewResponse = await fetch("/api/admin/ebay-duplicates", {
@@ -380,7 +401,7 @@ export default function EbayDuplicateFinderClient() {
         stage: "applying",
       });
       showNotice(
-        `Ending now: product #${duplicateProductId} will move from quantity ${preview.previousQuantity} to archived quantity 0.`,
+        `Ending now: duplicate ${duplicateScope} will move from quantity ${preview.previousQuantity} to archived quantity 0.`,
       );
 
       const response = await fetch("/api/admin/ebay-duplicates", {
@@ -506,6 +527,17 @@ export default function EbayDuplicateFinderClient() {
             );
             const mergedQuantity =
               Number(keeperRow?.quantity || 0) + duplicateQuantity;
+            const keeperScope = duplicateRowScope(keeperRow);
+            const duplicateScope = duplicateRowScope(duplicateRow);
+            const mergeActionTitle =
+              keeperRow && allDuplicateRows.length
+                ? `Merge ${allDuplicateRows.length} duplicate row${
+                    allDuplicateRows.length === 1 ? "" : "s"
+                  } totaling quantity ${duplicateQuantity} into keeper ${keeperScope}; keeper becomes quantity ${mergedQuantity}.`
+                : "";
+            const endSelectedTitle = duplicateRow
+              ? `End/archive selected duplicate ${duplicateScope}; this leaves keeper ${keeperScope} untouched.`
+              : "";
             const mergeUnavailable =
               duplicateCleanupBusy ||
               !keeperProductId ||
@@ -552,7 +584,7 @@ export default function EbayDuplicateFinderClient() {
                           ? "Choose the listing to keep before merging duplicate quantities."
                           : allDuplicateRows.length === 0
                             ? "This group has no duplicate row different from the keeper."
-                            : `Merge all duplicate rows into keeper #${keeperProductId}.`)
+                            : mergeActionTitle)
                       }
                       className={`rounded-md px-5 py-3 text-sm font-black text-white ${
                         mergeUnavailable
@@ -579,7 +611,7 @@ export default function EbayDuplicateFinderClient() {
                           ? "Choose the duplicate row to end/archive first."
                           : keeperProductId === duplicateProductId
                             ? "The selected row is the keeper. Choose a different duplicate before ending it."
-                            : `End/archive duplicate product #${duplicateProductId}.`)
+                            : endSelectedTitle)
                       }
                       className={`rounded-md border px-5 py-3 text-sm font-black ${
                         endSelectedUnavailable
@@ -600,6 +632,7 @@ export default function EbayDuplicateFinderClient() {
                   {group.rows.map((row) => {
                     const isKeeper = keeperProductId === row.productId;
                     const isDuplicate = duplicateProductId === row.productId;
+                    const rowScope = duplicateRowScope(row);
                     const rowEnding =
                       groupWorking &&
                       workingAction?.kind === "end" &&
@@ -656,7 +689,7 @@ export default function EbayDuplicateFinderClient() {
                             title={
                               duplicateCleanupBusy
                                 ? "Finish the current duplicate cleanup action before changing keepers."
-                                : `Keep product #${row.productId} as the survivor for this duplicate group.`
+                                : `Keep ${rowScope} as the survivor for this duplicate group.`
                             }
                             className={`rounded-md border px-3 py-2 text-xs font-black ${
                               duplicateCleanupBusy
@@ -677,7 +710,7 @@ export default function EbayDuplicateFinderClient() {
                                 ? "Finish the current duplicate cleanup action before changing duplicate rows."
                                 : isKeeper
                                   ? "This row is marked as the keeper, so it cannot be selected as the duplicate."
-                                  : `Select product #${row.productId} as the duplicate to end or merge.`
+                                  : `Select ${rowScope} as the duplicate to end or merge.`
                             }
                             className={`rounded-md border px-3 py-2 text-xs font-black ${
                               isDuplicate
@@ -699,7 +732,7 @@ export default function EbayDuplicateFinderClient() {
                                 ? "Finish the current duplicate cleanup action before ending another row."
                                 : isKeeper
                                   ? "This row is marked as the keeper. Choose another keeper before ending it."
-                                  : `Preview and end/archive duplicate product #${row.productId}.`
+                                  : `Preview and end/archive duplicate ${rowScope}; quantity will become 0 after confirmation.`
                             }
                             className={`rounded-md border px-3 py-2 text-xs font-black text-orange-900 ${
                               endRowUnavailable
