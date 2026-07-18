@@ -6663,38 +6663,59 @@ export default function InstaCompScanner({
   }
 
   async function removeBatchCard(cardId: string) {
-    if (batchRunning || batchDrafting) return;
+    if (batchRunning || batchDrafting) {
+      setBatchError(
+        batchDrafting
+          ? "Finish or stop draft creation before removing an InstaComp™ row."
+          : "Pause or finish the active scan run before removing an InstaComp™ row."
+      );
+      return;
+    }
 
     const card = batchCards.find((row) => row.id === cardId);
 
-    if (!card || card.draftStatus === "drafting") return;
+    if (!card) return;
+
+    if (card.draftStatus === "drafting") {
+      setBatchError("This row is creating a draft right now. Remove it after drafting finishes.");
+      return;
+    }
 
     setBatchError(null);
+    const cardTitle = draftTitleForCard(card);
+    const isPersisted = Boolean(card.persistentJobId && card.persistentItemId);
+
+    setBatchCards((current) =>
+      current.filter((row) => {
+        if (row.id !== cardId) return true;
+
+        forgetRemovedBatchCard(row);
+        return false;
+      })
+    );
+    setBatchDraftMessage(
+      isPersisted
+        ? `Removed ${cardTitle} from this batch. Cancelling its saved InstaComp™ row...`
+        : `Removed ${cardTitle} from this batch.`
+    );
 
     try {
-      if (card.persistentJobId && card.persistentItemId) {
-        setBatchDraftMessage(
-          `Removing ${draftTitleForCard(card)} from the saved InstaComp™ lot...`
-        );
+      if (isPersisted) {
         const data = await cancelPersistentBatchCard(card);
 
         if (data?.job) {
           setPersistentJob(data.job as PersistentJobSummary);
         }
+
+        setBatchDraftMessage(`Removed ${cardTitle} from this batch and cancelled the saved row.`);
       }
-
-      setBatchCards((current) =>
-        current.filter((row) => {
-          if (row.id !== cardId) return true;
-
-          forgetRemovedBatchCard(row);
-          return false;
-        })
-      );
-      setBatchDraftMessage(`Removed ${draftTitleForCard(card)} from this batch.`);
     } catch (error: any) {
-      setBatchError(error?.message || "Could not remove this InstaComp™ row.");
-      setBatchDraftMessage(null);
+      setBatchError(
+        `Removed ${cardTitle} locally, but the saved InstaComp™ job row could not be cancelled: ${
+          error?.message || "Unknown server error."
+        } Refreshing a still-active saved lot may bring that row back until the server accepts cancellation.`
+      );
+      setBatchDraftMessage(`Removed ${cardTitle} from the visible batch.`);
     }
   }
 
