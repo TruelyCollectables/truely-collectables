@@ -1,6 +1,7 @@
 export type InstaCompQuantityMergeRow = {
   id: string;
   title: string;
+  identityKey?: string | null;
   quantity: number | string | null | undefined;
 };
 
@@ -31,6 +32,12 @@ export function normalizedInstaCompMergeTitle(value: string | null | undefined) 
     .toLocaleLowerCase();
 }
 
+export function normalizedInstaCompMergeIdentityKey(
+  value: string | null | undefined,
+) {
+  return normalizedInstaCompMergeTitle(value);
+}
+
 export function normalizedInstaCompMergeQuantity(
   value: number | string | null | undefined,
 ) {
@@ -52,6 +59,45 @@ export function planInstaCompSelectedQuantityMerge(
   }
 
   const [keeper, ...duplicates] = rows;
+  const identityKeys = rows.map((row) =>
+    normalizedInstaCompMergeIdentityKey(row.identityKey),
+  );
+  const everyRowHasIdentityKey = identityKeys.every(Boolean);
+
+  if (everyRowHasIdentityKey) {
+    const keeperIdentityKey = identityKeys[0];
+    const mismatchedByIdentity = identityKeys.find(
+      (identityKey) => identityKey !== keeperIdentityKey,
+    );
+
+    if (mismatchedByIdentity) {
+      return {
+        ok: false,
+        reason:
+          "Selected rows must identify the same scanned card before merging quantities. Different card identities were selected.",
+      };
+    }
+
+    const previousKeeperQuantity = normalizedInstaCompMergeQuantity(
+      keeper.quantity,
+    );
+    const duplicateQuantity = duplicates.reduce(
+      (total, row) => total + normalizedInstaCompMergeQuantity(row.quantity),
+      0,
+    );
+
+    return {
+      ok: true,
+      keeperId: keeper.id,
+      duplicateIds: duplicates.map((row) => row.id),
+      title: keeper.title.trim() || "matched scanned card",
+      previousKeeperQuantity,
+      duplicateQuantity,
+      mergedQuantity: previousKeeperQuantity + duplicateQuantity,
+      mergedRowCount: rows.length,
+    };
+  }
+
   const keeperTitle = normalizedInstaCompMergeTitle(keeper.title);
 
   if (!keeperTitle) {

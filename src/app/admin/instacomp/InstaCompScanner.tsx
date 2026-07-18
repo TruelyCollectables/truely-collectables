@@ -2154,6 +2154,29 @@ function draftTitleForCard(card: BatchCard) {
   return card.customTitle.trim() || cardResultTitle(card.result, card.file.name);
 }
 
+function quantityMergeIdentityKeyForCard(card: BatchCard) {
+  const ai = card.result?.ai;
+  const catalogIdentity =
+    card.result?.catalogEvidence?.selectedMatch?.identity || null;
+  const identityParts = [
+    catalogIdentity?.year || ai?.year,
+    catalogIdentity?.player || ai?.player,
+    ai?.brand,
+    catalogIdentity?.setName || ai?.setName,
+    catalogIdentity?.cardNumber || ai?.cardNumber,
+    catalogIdentity?.parallel || ai?.parallel,
+    catalogIdentity?.variation,
+    ai?.serialNumber,
+    ai?.gradingCompany,
+    ai?.gradeValue,
+    ai?.certificationNumber,
+  ]
+    .map((part) => String(part || "").trim())
+    .filter(Boolean);
+
+  return identityParts.length >= 2 ? identityParts.join(" | ") : null;
+}
+
 function sellerInventoryInstaCompDraftHref(search?: string | null) {
   const params = new URLSearchParams({
     status: "draft",
@@ -7296,6 +7319,7 @@ export default function InstaCompScanner({
       cardsToMerge.map((card) => ({
         id: card.id,
         title: draftTitleForCard(card),
+        identityKey: quantityMergeIdentityKeyForCard(card),
         quantity: draftQuantityForCard(card),
       }))
     );

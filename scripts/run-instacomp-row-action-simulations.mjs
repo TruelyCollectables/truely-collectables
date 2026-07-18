@@ -1,5 +1,6 @@
 import { instaCompBatchRowActionLabel } from "../src/lib/instacomp-row-actions.ts";
 import {
+  normalizedInstaCompMergeIdentityKey,
   normalizedInstaCompMergeTitle,
   normalizedInstaCompMergeQuantity,
   planInstaCompSelectedQuantityMerge,
@@ -101,6 +102,57 @@ scenario("normalizes real-world card title differences before merging", () => {
   assert(plan.mergedQuantity === 3, "Expected normalized Pokemon duplicate quantities to sum.");
 });
 
+scenario("merges scanned duplicate quantities by stable card identity", () => {
+  assert(
+    normalizedInstaCompMergeIdentityKey("2024 | Pokémon | Pikachu | 025") ===
+      normalizedInstaCompMergeIdentityKey("2024 Pokemon Pikachu #025"),
+    "Expected identity keys to normalize consistently.",
+  );
+
+  const plan = planInstaCompSelectedQuantityMerge([
+    {
+      id: "keeper",
+      title: "2024 Pokemon Pikachu #025 - edited keeper title",
+      identityKey: "2024 | Pokemon | Pikachu | 025",
+      quantity: 2,
+    },
+    {
+      id: "duplicate",
+      title: "Pikachu scan row from another upload",
+      identityKey: "2024 Pokemon Pikachu #025",
+      quantity: 1,
+    },
+  ]);
+
+  assert(plan.ok, "Expected matching scanned identities to merge despite title edits.");
+  if (!plan.ok) return;
+
+  assert(plan.mergedQuantity === 3, "Expected identity merge to sum 2 + 1.");
+});
+
+scenario("blocks scanned quantity merge across different identities", () => {
+  const plan = planInstaCompSelectedQuantityMerge([
+    {
+      id: "keeper",
+      title: "Edited title",
+      identityKey: "2024 Pokemon Pikachu #025",
+      quantity: 2,
+    },
+    {
+      id: "duplicate",
+      title: "Edited title",
+      identityKey: "2024 Pokemon Charizard #004",
+      quantity: 1,
+    },
+  ]);
+
+  assert(!plan.ok, "Expected different scanned identities to block merge.");
+  assert(
+    !plan.ok && plan.reason.includes("same scanned card"),
+    `Expected scanned-identity mismatch reason, got ${plan.ok ? "ok" : plan.reason}.`,
+  );
+});
+
 scenario("blocks merging selected rows with different titles", () => {
   const plan = planInstaCompSelectedQuantityMerge([
     { id: "one", title: "Pikachu", quantity: 1 },
@@ -139,6 +191,8 @@ scenario("scanner exposes selected duplicate quantity merge action", () => {
   for (const fragment of [
     "selectedQuantityMergeCards",
     "planInstaCompSelectedQuantityMerge",
+    "quantityMergeIdentityKeyForCard",
+    "identityKey: quantityMergeIdentityKeyForCard(card)",
     "mergeSelectedBatchQuantityRows",
     "Merge Selected Qty",
     "qty ${mergePlan.previousKeeperQuantity} + ${mergePlan.duplicateQuantity} = ${mergePlan.mergedQuantity}",
