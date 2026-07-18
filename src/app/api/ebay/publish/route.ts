@@ -5,6 +5,10 @@ import {
   type EbayPublisherAction,
   type EbayPublisherListing,
 } from "../../../../lib/ebay-publisher";
+import {
+  createMissingEbayOffer,
+  isMissingEbayOfferLookupError,
+} from "../../../../lib/ebay-publisher-missing-offer";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -46,14 +50,27 @@ export async function POST(request: Request) {
     }
 
     if (!body.listing) {
-      return NextResponse.json({ error: "Listing payload is required." }, { status: 400 });
+      return NextResponse.json(
+        { error: "Listing payload is required." },
+        { status: 400 },
+      );
     }
 
-    const result = await saveOrPublishEbayListing({
+    const publishParams = {
       action: body.action,
       listing: body.listing,
       confirmation: body.confirmation,
-    });
+    };
+
+    let result;
+
+    try {
+      result = await saveOrPublishEbayListing(publishParams);
+    } catch (error) {
+      if (!isMissingEbayOfferLookupError(error)) throw error;
+
+      result = await createMissingEbayOffer(publishParams);
+    }
 
     return NextResponse.json(result, {
       headers: { "Cache-Control": "no-store" },
