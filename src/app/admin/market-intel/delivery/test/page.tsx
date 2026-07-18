@@ -1,4 +1,5 @@
 import Link from "next/link";
+import AdminSubmitButton from "../../../AdminSubmitButton";
 import {
   addAdminHandoff,
   ADMIN_HANDOFF_PARAM,
@@ -127,13 +128,13 @@ export default async function MarketIntelTestEmailPage({
             )}
             className="mt-6"
           >
-            <button
-              type="submit"
+            <AdminSubmitButton
               disabled={!ready}
               className="w-full rounded-md bg-black px-5 py-4 text-lg font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
+              pendingChildren="Sending test email..."
             >
               Send Test Email Now
-            </button>
+            </AdminSubmitButton>
           </form>
         </section>
 

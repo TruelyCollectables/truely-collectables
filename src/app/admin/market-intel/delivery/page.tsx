@@ -1,4 +1,5 @@
 import Link from "next/link";
+import AdminSubmitButton from "../../AdminSubmitButton";
 import {
   addAdminHandoff,
   ADMIN_HANDOFF_PARAM,
@@ -179,14 +180,14 @@ export default async function MarketIntelDeliveryPage({
               className="mt-5"
             >
               <input type="hidden" name="limit" value="10" />
-              <button
-                type="submit"
+              <AdminSubmitButton
                 disabled={!config.configured || !config.enabled || pending.length === 0}
                 className="w-full rounded-md bg-cyan-800 px-4 py-3 font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
+                pendingChildren="Sending pending alerts..."
               >
                 Send {Math.min(10, pending.length)} Pending Alert
                 {Math.min(10, pending.length) === 1 ? "" : "s"}
-              </button>
+              </AdminSubmitButton>
             </form>
             <p className="mt-3 text-xs font-bold text-cyan-900">
               Automatic schedule: every hour at minute 20, after the eBay scan and alert sync.
@@ -214,15 +215,15 @@ export default async function MarketIntelDeliveryPage({
               {latestReport ? (
                 <input type="hidden" name="reportId" value={latestReport.id} />
               ) : null}
-              <button
-                type="submit"
+              <AdminSubmitButton
                 disabled={!config.configured || !config.enabled || !latestReport}
                 className="w-full rounded-md bg-black px-4 py-3 font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
+                pendingChildren="Sending latest report..."
               >
                 {latestReport?.status === "delivered"
                   ? "Report Already Delivered"
                   : "Send Latest Daily Report"}
-              </button>
+              </AdminSubmitButton>
             </form>
             <p className="mt-3 text-xs font-bold text-amber-900">
               Latest report: {latestReport ? `${latestReport.report_date} · ${time(latestReport.generated_at)}` : "Not generated"}

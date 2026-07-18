@@ -1,4 +1,5 @@
 import Link from "next/link";
+import AdminSubmitButton from "../../AdminSubmitButton";
 import {
   addAdminHandoff,
   ADMIN_HANDOFF_PARAM,
@@ -168,11 +169,12 @@ export default async function MarketIntelReportsPage({
               Creates new alerts for currently actionable listings, refreshes still-valid
               opportunities, and expires pending alerts whose deal state no longer qualifies.
             </p>
-            <button
-              type="submit"
-              className="mt-4 rounded-md bg-cyan-800 px-4 py-2.5 text-sm font-black text-white">
+            <AdminSubmitButton
+              className="mt-4 rounded-md bg-cyan-800 px-4 py-2.5 text-sm font-black text-white"
+              pendingChildren="Syncing alerts..."
+            >
               Sync Alerts Now
-            </button>
+            </AdminSubmitButton>
           </form>
 
           <form
@@ -191,11 +193,12 @@ export default async function MarketIntelReportsPage({
               Rebuilds today’s Top 10 Shark List, market movers, portfolio summary,
               and alert status from the latest Beta One database state.
             </p>
-            <button
-              type="submit"
-              className="mt-4 rounded-md bg-black px-4 py-2.5 text-sm font-black text-white">
+            <AdminSubmitButton
+              className="mt-4 rounded-md bg-black px-4 py-2.5 text-sm font-black text-white"
+              pendingChildren="Generating report..."
+            >
               Generate Today’s Report
-            </button>
+            </AdminSubmitButton>
           </form>
         </section>
 
@@ -360,11 +363,12 @@ function AlertCard({
           )}
         >
           <input type="hidden" name="status" value="sent" />
-          <button
-            type="submit"
-            className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-black text-white">
+          <AdminSubmitButton
+            className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-black text-white"
+            pendingChildren="Marking sent..."
+          >
             Mark Sent
-          </button>
+          </AdminSubmitButton>
         </form>
         <form
           method="post"
@@ -374,11 +378,12 @@ function AlertCard({
           )}
         >
           <input type="hidden" name="status" value="dismissed" />
-          <button
-            type="submit"
-            className="rounded-md border border-neutral-300 px-4 py-2 text-sm font-black">
+          <AdminSubmitButton
+            className="rounded-md border border-neutral-300 px-4 py-2 text-sm font-black"
+            pendingChildren="Dismissing..."
+          >
             Dismiss
-          </button>
+          </AdminSubmitButton>
         </form>
       </div>
     </article>
