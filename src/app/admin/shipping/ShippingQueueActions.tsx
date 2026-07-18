@@ -16,7 +16,11 @@ function noticeTone(message: string): NoticeTone {
     return "error";
   }
 
-  if (normalized.includes("saving") || normalized.includes("recording")) {
+  if (
+    normalized.includes("saving") ||
+    normalized.includes("recording") ||
+    normalized.includes("marking")
+  ) {
     return "info";
   }
 
@@ -38,7 +42,10 @@ function ActionNotice({
         : "border-blue-200 bg-blue-50 text-blue-950";
 
   return (
-    <p className={`rounded-2xl border px-3 py-2 text-xs font-black ${className}`}>
+    <p
+      aria-live={tone === "info" ? "polite" : "assertive"}
+      className={`rounded-2xl border px-3 py-2 text-xs font-black ${className}`}
+    >
       {children}
     </p>
   );
@@ -181,9 +188,10 @@ export function SaveCoveragePolicyForm({
         type="button"
         onClick={savePolicy}
         disabled={saving || requiredMissing.length > 0}
+        aria-busy={saving}
         className="rounded-2xl bg-amber-800 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {saving ? "Saving..." : "Save Coverage Policy"}
+        {saving ? "Saving Coverage policy..." : "Save Coverage Policy"}
       </button>
       {message ? (
         <ActionNotice tone={noticeTone(message)}>{message}</ActionNotice>
@@ -271,9 +279,10 @@ export function SaveTrackingForm({
         type="button"
         onClick={saveTracking}
         disabled={saving || requiredMissing.length > 0}
+        aria-busy={saving}
         className="rounded-2xl bg-blue-800 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {saving ? "Saving..." : "Save Tracking"}
+        {saving ? "Saving tracking..." : "Save Tracking"}
       </button>
       {message ? (
         <ActionNotice tone={noticeTone(message)}>{message}</ActionNotice>
@@ -377,9 +386,10 @@ export function RecordLetterTrackImbForm({
         type="button"
         onClick={recordImb}
         disabled={saving || requiredMissing.length > 0}
+        aria-busy={saving}
         className="rounded-2xl bg-blue-950 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {saving ? "Recording..." : "Record LetterTrack IMb"}
+        {saving ? "Recording LetterTrack IMb..." : "Record LetterTrack IMb"}
       </button>
       {message ? (
         <ActionNotice tone={noticeTone(message)}>{message}</ActionNotice>
@@ -512,9 +522,10 @@ export function RecordLetterTrackDeliveryEventForm({
         type="button"
         onClick={recordEvidence}
         disabled={saving || requiredMissing.length > 0}
+        aria-busy={saving}
         className="rounded-2xl bg-green-800 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {saving ? "Recording..." : "Record Delivery Evidence"}
+        {saving ? "Recording delivery evidence..." : "Record Delivery Evidence"}
       </button>
       {message ? (
         <ActionNotice tone={noticeTone(message)}>{message}</ActionNotice>
@@ -607,9 +618,10 @@ export function MarkOrderShippedButton({
         type="button"
         onClick={markShipped}
         disabled={shipping || requiredMissing.length > 0}
+        aria-busy={shipping}
         className="rounded-2xl bg-emerald-800 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {shipping ? "Marking..." : "Mark Shipped"}
+        {shipping ? "Marking order shipped..." : "Mark Shipped"}
       </button>
       {message ? (
         <ActionNotice tone={noticeTone(message)}>{message}</ActionNotice>

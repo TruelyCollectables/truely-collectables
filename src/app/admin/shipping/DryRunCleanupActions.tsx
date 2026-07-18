@@ -158,10 +158,13 @@ export default function DryRunCleanupActions({
               type="button"
               disabled={confirmDisabled}
               onClick={() => retireProof({ redirectToManual: pendingRedirect })}
+              aria-busy={retiring}
               className="rounded-2xl bg-red-700 px-3 py-2 text-xs font-black text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {retiring
-                ? "Retiring..."
+                ? pendingRedirect
+                  ? "Retiring + opening real label form..."
+                  : "Retiring simulated proof..."
                 : pendingRedirect
                   ? "Confirm + Record Real Label"
                   : "Confirm Retire Only"}
@@ -182,7 +185,12 @@ export default function DryRunCleanupActions({
       ) : null}
 
       {message ? (
-        <p className={`rounded-2xl border px-3 py-2 text-xs font-black ${noticeTone(message)}`}>
+        <p
+          aria-live={
+            message.toLowerCase().includes("retiring") ? "polite" : "assertive"
+          }
+          className={`rounded-2xl border px-3 py-2 text-xs font-black ${noticeTone(message)}`}
+        >
           {message}
         </p>
       ) : null}

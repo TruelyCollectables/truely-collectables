@@ -83,6 +83,7 @@ export default function ShippingLabelActions({
     if (
       normalized.includes("preparing") ||
       normalized.includes("checking") ||
+      normalized.includes("opening") ||
       normalized.includes("recording")
     ) {
       return "info";
@@ -110,7 +111,7 @@ export default function ShippingLabelActions({
 
   async function prepareLabelRecord() {
     setPreparing(true);
-    setMessage("");
+    setMessage("Preparing label + Coverage record...");
 
     try {
       const response = await fetch(
@@ -154,7 +155,7 @@ export default function ShippingLabelActions({
     }
 
     setPurchasing(true);
-    setMessage("");
+    setMessage("Checking provider purchase readiness...");
 
     try {
       const response = await fetch(
@@ -210,7 +211,7 @@ export default function ShippingLabelActions({
     }
 
     setOpeningClaim(true);
-    setMessage("");
+    setMessage("Opening Coverage claim draft...");
 
     try {
       const response = await fetch(
@@ -359,18 +360,20 @@ export default function ShippingLabelActions({
           type="button"
           onClick={prepareLabelRecord}
           disabled={busy}
+          aria-busy={preparing}
           className="rounded-2xl bg-neutral-950 px-4 py-3 text-sm font-black text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {preparing ? "Preparing..." : "Prepare Label + Coverage Record"}
+          {preparing ? "Preparing label record..." : "Prepare Label + Coverage Record"}
         </button>
 
         <button
           type="button"
           onClick={attemptProviderPurchase}
           disabled={providerActionsBlocked}
+          aria-busy={purchasing}
           className="rounded-2xl border border-neutral-950 bg-white px-4 py-3 text-sm font-black text-neutral-950 shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {purchasing ? "Checking..." : "Attempt Provider Purchase"}
+          {purchasing ? "Checking provider readiness..." : "Attempt Provider Purchase"}
         </button>
 
         <button
@@ -401,9 +404,10 @@ export default function ShippingLabelActions({
           type="button"
           onClick={openCoverageClaimDraft}
           disabled={providerActionsBlocked}
+          aria-busy={openingClaim}
           className="rounded-2xl border border-amber-700 bg-amber-50 px-4 py-3 text-sm font-black text-amber-950 shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {openingClaim ? "Opening..." : "Open Coverage Claim Draft"}
+          {openingClaim ? "Opening Coverage claim..." : "Open Coverage Claim Draft"}
         </button>
       </div>
 
@@ -506,10 +510,13 @@ export default function ShippingLabelActions({
           <button
             type="button"
             onClick={recordManualPurchase}
-            disabled={recording || manualPurchaseMissing.length > 0}
+            disabled={busy || manualPurchaseMissing.length > 0}
+            aria-busy={recording}
             className="mt-4 rounded-2xl bg-blue-800 px-4 py-3 text-sm font-black text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {recording ? "Recording..." : "Save Manual Label + Coverage"}
+            {recording
+              ? "Recording manual label + Coverage..."
+              : "Save Manual Label + Coverage"}
           </button>
         </div>
       ) : null}
@@ -579,10 +586,11 @@ export default function ShippingLabelActions({
           <button
             type="button"
             onClick={recordManualVoid}
-            disabled={voiding || voidMissing.length > 0}
+            disabled={busy || voidMissing.length > 0}
+            aria-busy={voiding}
             className="mt-4 rounded-2xl bg-red-800 px-4 py-3 text-sm font-black text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {voiding ? "Recording..." : "Save External Void"}
+            {voiding ? "Recording external label void..." : "Save External Void"}
           </button>
         </div>
       ) : null}
@@ -611,7 +619,10 @@ function ActionNotice({
         : "border-blue-200 bg-blue-50 text-blue-950";
 
   return (
-    <p className={`rounded-2xl border px-3 py-2 text-sm font-black ${className}`}>
+    <p
+      aria-live={tone === "info" ? "polite" : "assertive"}
+      className={`rounded-2xl border px-3 py-2 text-sm font-black ${className}`}
+    >
       {children}
     </p>
   );
