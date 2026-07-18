@@ -2174,7 +2174,13 @@ function quantityMergeIdentityKeyForCard(card: BatchCard) {
     .map((part) => String(part || "").trim())
     .filter(Boolean);
 
-  return identityParts.length >= 2 ? identityParts.join(" | ") : null;
+  if (identityParts.length >= 2) {
+    return identityParts.join(" | ");
+  }
+
+  const draftTitle = draftTitleForCard(card);
+
+  return draftTitle.trim() ? draftTitle : null;
 }
 
 function sellerInventoryInstaCompDraftHref(search?: string | null) {
@@ -14547,7 +14553,7 @@ function BatchCardRow({
               <button
                 type="button"
                 onClick={() => void onRemove(card.id)}
-                disabled={!canRemove}
+                aria-disabled={!canRemove}
                 aria-busy={isRemoving}
                 title={
                   isRemoving

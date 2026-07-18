@@ -204,6 +204,16 @@ export default function EbayDuplicateFinderClient() {
   function chooseDuplicate(group: DuplicateGroup, productId: number) {
     if (showDuplicateActionBlocked("changing the duplicate row")) return;
 
+    const keeperProductId =
+      keepersRef.current[group.key] || group.recommendedKeeperProductId || 0;
+
+    if (productId === keeperProductId) {
+      showError(
+        "That row is marked as the keeper. Pick a different row to end, or choose another keeper first.",
+      );
+      return;
+    }
+
     setDuplicates((current) => ({
       ...current,
       [group.key]: productId,
@@ -482,6 +492,14 @@ export default function EbayDuplicateFinderClient() {
             );
             const mergedQuantity =
               Number(keeperRow?.quantity || 0) + duplicateQuantity;
+            const mergeUnavailable =
+              duplicateCleanupBusy ||
+              !keeperProductId ||
+              allDuplicateRows.length === 0;
+            const endSelectedUnavailable =
+              duplicateCleanupBusy ||
+              !duplicateProductId ||
+              keeperProductId === duplicateProductId;
 
             return (
               <article
@@ -512,11 +530,7 @@ export default function EbayDuplicateFinderClient() {
                     <button
                       type="button"
                       onClick={() => void mergeGroup(group)}
-                      disabled={
-                        duplicateCleanupBusy ||
-                        !keeperProductId ||
-                        allDuplicateRows.length === 0
-                      }
+                      aria-disabled={mergeUnavailable}
                       aria-busy={groupMerging}
                       title={
                         actionBlockedTitle ||
@@ -526,7 +540,11 @@ export default function EbayDuplicateFinderClient() {
                             ? "This group has no duplicate row different from the keeper."
                             : `Merge all duplicate rows into keeper #${keeperProductId}.`)
                       }
-                      className="rounded-md bg-rose-700 px-5 py-3 text-sm font-black text-white hover:bg-rose-800 disabled:cursor-not-allowed disabled:bg-neutral-400"
+                      className={`rounded-md px-5 py-3 text-sm font-black text-white ${
+                        mergeUnavailable
+                          ? "cursor-not-allowed bg-neutral-400"
+                          : "bg-rose-700 hover:bg-rose-800"
+                      }`}
                     >
                       {groupMerging
                         ? workingAction?.stage === "previewing"
@@ -539,11 +557,7 @@ export default function EbayDuplicateFinderClient() {
                     <button
                       type="button"
                       onClick={() => void endDuplicate(group, duplicateProductId)}
-                      disabled={
-                        duplicateCleanupBusy ||
-                        !duplicateProductId ||
-                        keeperProductId === duplicateProductId
-                      }
+                      aria-disabled={endSelectedUnavailable}
                       aria-busy={groupWorking && workingAction?.kind === "end"}
                       title={
                         actionBlockedTitle ||
@@ -553,7 +567,11 @@ export default function EbayDuplicateFinderClient() {
                             ? "The selected row is the keeper. Choose a different duplicate before ending it."
                             : `End/archive duplicate product #${duplicateProductId}.`)
                       }
-                      className="rounded-md border border-rose-300 bg-white px-5 py-3 text-sm font-black text-rose-800 hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-neutral-300 disabled:text-neutral-400"
+                      className={`rounded-md border px-5 py-3 text-sm font-black ${
+                        endSelectedUnavailable
+                          ? "cursor-not-allowed border-neutral-300 bg-white text-neutral-400"
+                          : "border-rose-300 bg-white text-rose-800 hover:bg-rose-50"
+                      }`}
                     >
                       {groupWorking && workingAction?.kind === "end"
                         ? workingAction.stage === "previewing"
@@ -572,6 +590,8 @@ export default function EbayDuplicateFinderClient() {
                       groupWorking &&
                       workingAction?.kind === "end" &&
                       workingAction.productId === row.productId;
+                    const selectDuplicateUnavailable = duplicateCleanupBusy || isKeeper;
+                    const endRowUnavailable = duplicateCleanupBusy || isKeeper;
 
                     return (
                       <div
@@ -618,16 +638,18 @@ export default function EbayDuplicateFinderClient() {
                           <button
                             type="button"
                             onClick={() => chooseKeeper(group, row.productId)}
-                            disabled={duplicateCleanupBusy}
+                            aria-disabled={duplicateCleanupBusy}
                             title={
                               duplicateCleanupBusy
                                 ? "Finish the current duplicate cleanup action before changing keepers."
                                 : `Keep product #${row.productId} as the survivor for this duplicate group.`
                             }
-                            className={`rounded-md border px-3 py-2 text-xs font-black disabled:cursor-not-allowed disabled:opacity-50 ${
-                              isKeeper
-                                ? "border-emerald-700 bg-emerald-700 text-white"
-                                : "border-emerald-300 bg-white text-emerald-900 hover:bg-emerald-50"
+                            className={`rounded-md border px-3 py-2 text-xs font-black ${
+                              duplicateCleanupBusy
+                                ? "cursor-not-allowed opacity-50"
+                                : isKeeper
+                                  ? "border-emerald-700 bg-emerald-700 text-white"
+                                  : "border-emerald-300 bg-white text-emerald-900 hover:bg-emerald-50"
                             }`}
                           >
                             Keep this listing
@@ -635,7 +657,7 @@ export default function EbayDuplicateFinderClient() {
                           <button
                             type="button"
                             onClick={() => chooseDuplicate(group, row.productId)}
-                            disabled={duplicateCleanupBusy || isKeeper}
+                            aria-disabled={selectDuplicateUnavailable}
                             title={
                               duplicateCleanupBusy
                                 ? "Finish the current duplicate cleanup action before changing duplicate rows."
@@ -646,7 +668,9 @@ export default function EbayDuplicateFinderClient() {
                             className={`rounded-md border px-3 py-2 text-xs font-black ${
                               isDuplicate
                                 ? "border-rose-700 bg-rose-700 text-white"
-                                : "border-rose-300 bg-white text-rose-900 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40"
+                                : selectDuplicateUnavailable
+                                  ? "cursor-not-allowed border-rose-300 bg-white text-rose-900 opacity-40"
+                                  : "border-rose-300 bg-white text-rose-900 hover:bg-rose-50"
                             }`}
                           >
                             {isDuplicate ? "Selected for merge/end" : "Select as duplicate"}
@@ -654,7 +678,7 @@ export default function EbayDuplicateFinderClient() {
                           <button
                             type="button"
                             onClick={() => void endDuplicate(group, row.productId)}
-                            disabled={duplicateCleanupBusy || isKeeper}
+                            aria-disabled={endRowUnavailable}
                             aria-busy={rowEnding}
                             title={
                               duplicateCleanupBusy
@@ -663,7 +687,11 @@ export default function EbayDuplicateFinderClient() {
                                   ? "This row is marked as the keeper. Choose another keeper before ending it."
                                   : `Preview and end/archive duplicate product #${row.productId}.`
                             }
-                            className="rounded-md border border-orange-300 bg-white px-3 py-2 text-xs font-black text-orange-900 hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-40"
+                            className={`rounded-md border px-3 py-2 text-xs font-black text-orange-900 ${
+                              endRowUnavailable
+                                ? "cursor-not-allowed opacity-40"
+                                : "border-orange-300 bg-white hover:bg-orange-50"
+                            }`}
                           >
                             {rowEnding
                               ? workingAction?.stage === "previewing"

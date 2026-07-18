@@ -139,6 +139,7 @@ scenario("uses saved binding targets when cancelling removed rows", () => {
 scenario("row remove button exposes busy and blocked feedback", () => {
   for (const fragment of [
     "const removeBlockedReason = instaCompBatchRowRemovalBlockedReason",
+    "aria-disabled={!canRemove}",
     "aria-busy={isRemoving}",
     'role="status"',
     "Remove blocked:",
