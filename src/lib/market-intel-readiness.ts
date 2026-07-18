@@ -52,6 +52,7 @@ export async function getMarketIntelReadiness() {
     "tcos_mi_inventory_sales",
     "tcos_mi_alerts",
     "tcos_mi_report_runs",
+    "tcos_mi_growth_specs",
   ] as const;
 
   const results = await Promise.all(
@@ -67,6 +68,7 @@ export async function getMarketIntelReadiness() {
   const alertTablesAccessible = alertTableNames.every(
     (table) => !tableResults.get(table)?.error,
   );
+  const growthSpecsAccessible = !tableResults.get("tcos_mi_growth_specs")?.error;
 
   const checks: MarketIntelReadinessCheck[] = [
     envCheck(
@@ -135,6 +137,14 @@ export async function getMarketIntelReadiness() {
         ? "Alert outbox and daily report tables are installed."
         : "Apply the alerts/reports migration to persist duplicate-suppressed alerts and daily reports.",
     },
+    {
+      key: "growth-spec-schema",
+      label: "Growth Spec Lab Persistence",
+      status: growthSpecsAccessible ? "pass" : "fail",
+      detail: growthSpecsAccessible
+        ? "Non-base future-upside scenarios can be saved and managed."
+        : "Apply the Growth Spec migration before modeling future growers and lots.",
+    },
   ];
 
   const dataChecks: Array<{
@@ -180,6 +190,14 @@ export async function getMarketIntelReadiness() {
       populatedDetail: "Deal scores are available for the Shark List.",
     },
     {
+      table: "tcos_mi_growth_specs",
+      label: "Growth Spec Scenarios",
+      emptyDetail:
+        "No non-base future-upside scenarios have been saved yet.",
+      populatedDetail:
+        "Growth Specs are modeled with lot-level and per-card future-exit math.",
+    },
+    {
       table: "tcos_mi_purchase_lots",
       label: "Tracked Purchases",
       emptyDetail: "No purchase positions are recorded.",
@@ -210,6 +228,7 @@ export async function getMarketIntelReadiness() {
     checks,
     coreAccessible,
     alertTablesAccessible,
+    growthSpecsAccessible,
     ready: requiredFailures.length === 0,
     requiredFailures: requiredFailures.length,
     warnings: warnings.length,
