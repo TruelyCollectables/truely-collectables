@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { scanEbayForIdentityCandidates } from "../../../../../../lib/market-intel-identity-discovery";
+import { scanEbayForPremiumIdentityCandidates } from "../../../../../../lib/market-intel-baseball-premium-enforcement";
 import { isAuthorizedMarketIntelIngest } from "../../../../../../lib/market-intel-ingestion";
 
 export const dynamic = "force-dynamic";
@@ -11,7 +11,7 @@ async function run(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
   try {
-    const result = await scanEbayForIdentityCandidates({
+    const result = await scanEbayForPremiumIdentityCandidates({
       maxSubjects: Number(request.nextUrl.searchParams.get("maxSubjects") || 5),
       resultsPerQuery: Number(
         request.nextUrl.searchParams.get("resultsPerQuery") || 15,

@@ -3,6 +3,7 @@ import {
   adminHandoffFromUrl,
   adminRedirectUrl,
 } from "../../../../../../lib/admin-handoff";
+import { enforceBaseballPremiumPolicy } from "../../../../../../lib/market-intel-baseball-premium-enforcement";
 import {
   bulkApproveIdentityCandidates,
   bulkRejectIdentityCandidates,
@@ -23,6 +24,8 @@ export async function POST(request: NextRequest) {
     if (candidateIds.length === 0) {
       throw new Error("Select at least one pending candidate.");
     }
+
+    await enforceBaseballPremiumPolicy();
 
     const result =
       action === "reject"

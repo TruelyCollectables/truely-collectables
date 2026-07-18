@@ -3,7 +3,11 @@ import {
   adminHandoffFromUrl,
   adminRedirectUrl,
 } from "../../../../../../../lib/admin-handoff";
-import { approveIdentityCandidate } from "../../../../../../../lib/market-intel-identity-candidates";
+import { assertCandidateBaseballPremiumPolicy } from "../../../../../../../lib/market-intel-baseball-premium-enforcement";
+import {
+  approveIdentityCandidate,
+  type CandidateApprovalInput,
+} from "../../../../../../../lib/market-intel-identity-candidates";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -26,8 +30,9 @@ export async function POST(request: NextRequest, context: RouteContext) {
   const handoff = adminHandoffFromUrl(new URL(request.url));
   try {
     const formData = await request.formData();
-    const conditionType = text(formData, "conditionType") === "graded" ? "graded" : "raw";
-    const result = await approveIdentityCandidate({
+    const conditionType: CandidateApprovalInput["conditionType"] =
+      text(formData, "conditionType") === "graded" ? "graded" : "raw";
+    const approval: CandidateApprovalInput = {
       candidateId: id,
       seasonYear: text(formData, "seasonYear"),
       manufacturer: text(formData, "manufacturer"),
@@ -46,7 +51,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
       gradingCompany: text(formData, "gradingCompany"),
       grade: text(formData, "grade"),
       quantity: Number(text(formData, "quantity") || 1),
-    });
+    };
+
+    await assertCandidateBaseballPremiumPolicy(approval);
+    const result = await approveIdentityCandidate(approval);
     return NextResponse.redirect(
       adminRedirectUrl(
         `/admin/market-intel/discovery?approved=1&identityId=${encodeURIComponent(result.identityId)}${result.listingId ? `&listingId=${encodeURIComponent(result.listingId)}` : ""}`,
