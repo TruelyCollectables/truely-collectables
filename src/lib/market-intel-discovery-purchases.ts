@@ -8,6 +8,7 @@ import {
 import { normalizeDuplicateIdentityKey } from "./market-intel-identity-duplicate-guard";
 import { normalizeDiscoveryApprovalInput } from "./market-intel-discovery-repair";
 import { endMarketIntelListing } from "./market-intel-listing-state";
+import { approvePurchaseInboxCandidate } from "./market-intel-purchase-inbox-approval";
 import { createSupabaseServerClient } from "./supabase-server";
 
 export type DiscoveryPurchaseInput = CandidateApprovalInput & {
@@ -15,6 +16,9 @@ export type DiscoveryPurchaseInput = CandidateApprovalInput & {
   itemSubtotal?: number;
   inboundShipping?: number;
   salesTax?: number;
+  buyerFees?: number;
+  otherCost?: number;
+  portfolioBucket?: "resale" | "hold";
   purchaseDate?: string | null;
   alreadyReceived?: boolean;
 };
@@ -43,12 +47,22 @@ export async function recordDiscoveryCandidatePurchase(
       : Number(input.itemSubtotal);
   const inboundShipping = Number(input.inboundShipping || 0);
   const salesTax = Number(input.salesTax || 0);
+  const buyerFees = Number(input.buyerFees || 0);
+  const otherCost = Number(input.otherCost || 0);
 
-  if (![itemSubtotal, inboundShipping, salesTax].every(finiteMoney)) {
-    throw new Error("Item price, shipping, and sales tax must be zero or greater.");
+  if (
+    ![itemSubtotal, inboundShipping, salesTax, buyerFees, otherCost].every(
+      finiteMoney,
+    )
+  ) {
+    throw new Error(
+      "Item price, shipping, sales tax, buyer fees, and other cost must be zero or greater.",
+    );
   }
 
-  const calculatedTotal = roundMoney(itemSubtotal + inboundShipping + salesTax);
+  const calculatedTotal = roundMoney(
+    itemSubtotal + inboundShipping + salesTax + buyerFees + otherCost,
+  );
   const enteredTotal = roundMoney(input.totalAcquisitionCost);
   if (Math.abs(calculatedTotal - enteredTotal) > 0.02) {
     throw new Error(
@@ -56,15 +70,35 @@ export async function recordDiscoveryCandidatePurchase(
     );
   }
 
+  const supabase = createSupabaseServerClient({ admin: true });
+  const { data: candidateRow, error: candidateError } = await supabase
+    .from("tcos_mi_identity_candidates")
+    .select("metadata")
+    .eq("id", input.candidateId)
+    .single();
+  if (candidateError) throw new Error(candidateError.message);
+  const candidateMetadata =
+    candidateRow.metadata && typeof candidateRow.metadata === "object"
+      ? (candidateRow.metadata as Record<string, unknown>)
+      : {};
+  const purchaseInbox = candidateMetadata.purchase_inbox === true;
+  const portfolioBucket =
+    input.portfolioBucket ||
+    (candidateMetadata.portfolio_bucket === "hold" ? "hold" : "resale");
+
   const normalized = await normalizeDiscoveryApprovalInput(input);
-  await assertCandidateBaseballPremiumPolicy(normalized);
-  await normalizeDuplicateIdentityKey(normalized);
-  const approval = await approveIdentityCandidate(normalized);
+  let approval;
+  if (purchaseInbox) {
+    approval = await approvePurchaseInboxCandidate(normalized);
+  } else {
+    await assertCandidateBaseballPremiumPolicy(normalized);
+    await normalizeDuplicateIdentityKey(normalized);
+    approval = await approveIdentityCandidate(normalized);
+  }
   if (!approval.listingId) {
     throw new Error("The candidate was approved, but no normalized listing was created.");
   }
 
-  const supabase = createSupabaseServerClient({ admin: true });
   const { data: listingRows, error: listingError } = await supabase
     .from("tcos_mi_listings")
     .select(
@@ -92,6 +126,16 @@ export async function recordDiscoveryCandidatePurchase(
     .limit(2);
   if (existingError) throw new Error(existingError.message);
   if (existingRows && existingRows.length > 0) {
+    if (purchaseInbox) {
+      await supabase
+        .from("tcos_mi_purchase_inbox")
+        .update({
+          status: "recorded",
+          purchase_lot_id: existingRows[0].id,
+          target_bucket: portfolioBucket,
+        })
+        .eq("identity_candidate_id", input.candidateId);
+    }
     return {
       purchaseId: String(existingRows[0].id),
       purchaseNumber: Number(existingRows[0].purchase_number),
@@ -126,16 +170,20 @@ export async function recordDiscoveryCandidatePurchase(
       quantity_purchased: normalized.quantity,
       item_subtotal: roundMoney(itemSubtotal),
       inbound_shipping: roundMoney(inboundShipping),
-      buyer_fees: 0,
+      buyer_fees: roundMoney(buyerFees),
       sales_tax: roundMoney(salesTax),
-      other_acquisition_cost: 0,
+      other_acquisition_cost: roundMoney(otherCost),
       received_at: alreadyReceived ? new Date().toISOString() : null,
       source_url: listing.direct_url,
       deal_label: latestScore?.deal_label || null,
-      notes: `Purchased from the TCOS Discovery Desk: ${listing.original_title}. Item $${itemSubtotal.toFixed(2)} + shipping $${inboundShipping.toFixed(2)} + tax $${salesTax.toFixed(2)} = $${enteredTotal.toFixed(2)} total paid.`,
+      notes: `Purchased from TCOS ${purchaseInbox ? "eBay Purchase Inbox" : "Discovery Desk"}: ${listing.original_title}. Item $${itemSubtotal.toFixed(2)} + shipping $${inboundShipping.toFixed(2)} + tax $${salesTax.toFixed(2)} + fees $${buyerFees.toFixed(2)} + other $${otherCost.toFixed(2)} = $${enteredTotal.toFixed(2)} total paid. Strategy: ${portfolioBucket === "hold" ? "Hold / Investment" : "Resale"}.`,
       metadata: {
-        beta_one_purchase_source: "discovery_desk",
+        beta_one_purchase_source: purchaseInbox
+          ? "ebay_purchase_inbox"
+          : "discovery_desk",
         discovery_candidate_id: normalized.candidateId,
+        purchase_inbox_id: candidateMetadata.purchase_inbox_id || null,
+        portfolio_bucket: portfolioBucket,
         source_listing_title: listing.original_title,
         source_listing_asking_price: Number(listing.asking_price || 0),
         source_listing_shipping_price: Number(listing.shipping_price || 0),
@@ -145,6 +193,8 @@ export async function recordDiscoveryCandidatePurchase(
         actual_item_subtotal: roundMoney(itemSubtotal),
         actual_inbound_shipping: roundMoney(inboundShipping),
         actual_sales_tax: roundMoney(salesTax),
+        actual_buyer_fees: roundMoney(buyerFees),
+        actual_other_cost: roundMoney(otherCost),
         actual_out_the_door_cost: enteredTotal,
         colorado_tax_entry: true,
         deal_score_id: latestScore?.id || null,
@@ -166,9 +216,23 @@ export async function recordDiscoveryCandidatePurchase(
   const purchase = purchaseRows[0];
   const now = new Date().toISOString();
 
-  // The purchase row is the money record. Listing cleanup is deliberately
-  // best-effort so a secondary status-update failure cannot falsely report
-  // that a successfully inserted purchase was not recorded.
+  if (purchaseInbox) {
+    const { error: inboxUpdateError } = await supabase
+      .from("tcos_mi_purchase_inbox")
+      .update({
+        status: "recorded",
+        purchase_lot_id: purchase.id,
+        target_bucket: portfolioBucket,
+        metadata: {
+          ...candidateMetadata,
+          recorded_at: now,
+          purchase_lot_id: purchase.id,
+        },
+      })
+      .eq("identity_candidate_id", input.candidateId);
+    if (inboxUpdateError) throw new Error(inboxUpdateError.message);
+  }
+
   let listingEndWarning: string | null = null;
   try {
     await endMarketIntelListing(String(listing.id), {
@@ -176,12 +240,15 @@ export async function recordDiscoveryCandidatePurchase(
       metadata: {
         purchased_at: now,
         purchase_lot_id: purchase.id,
+        portfolio_bucket: portfolioBucket,
         actual_out_the_door_cost: enteredTotal,
         actual_item_subtotal: roundMoney(itemSubtotal),
         actual_inbound_shipping: roundMoney(inboundShipping),
         actual_sales_tax: roundMoney(salesTax),
+        actual_buyer_fees: roundMoney(buyerFees),
+        actual_other_cost: roundMoney(otherCost),
         end_reason: "purchased",
-        end_source: "discovery_desk",
+        end_source: purchaseInbox ? "ebay_purchase_inbox" : "discovery_desk",
       },
     });
   } catch (error) {
