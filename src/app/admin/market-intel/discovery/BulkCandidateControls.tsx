@@ -23,6 +23,7 @@ export default function BulkCandidateControls({
   const searchParams = useSearchParams();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [targets, setTargets] = useState<PortalTarget[]>([]);
+  const [rejectConfirmOpen, setRejectConfirmOpen] = useState(false);
   const candidateKey = useMemo(
     () => candidates.map((candidate) => candidate.id).join("|"),
     [candidates],
@@ -52,7 +53,14 @@ export default function BulkCandidateControls({
       }
       nextTargets.push({ ...candidate, element: target });
     }
-    setTargets(nextTargets);
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) setTargets(nextTargets);
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, [candidateKey, candidates]);
 
   const selectedCount = selected.size;
@@ -67,6 +75,7 @@ export default function BulkCandidateControls({
   const readyCandidates = candidates.filter((candidate) => candidate.ready);
 
   function toggleCandidate(id: string) {
+    setRejectConfirmOpen(false);
     setSelected((current) => {
       const next = new Set(current);
       if (next.has(id)) next.delete(id);
@@ -77,14 +86,17 @@ export default function BulkCandidateControls({
 
   function selectAll() {
     setSelected(new Set(candidates.map((candidate) => candidate.id)));
+    setRejectConfirmOpen(false);
   }
 
   function selectReady() {
     setSelected(new Set(readyCandidates.map((candidate) => candidate.id)));
+    setRejectConfirmOpen(false);
   }
 
   function clearSelected() {
     setSelected(new Set());
+    setRejectConfirmOpen(false);
   }
 
   const handoff = searchParams.get("admin_handoff");
@@ -150,16 +162,6 @@ export default function BulkCandidateControls({
         <form
           method="post"
           action={action}
-          onSubmit={(event) => {
-            const submitter = (event.nativeEvent as SubmitEvent)
-              .submitter as HTMLButtonElement | null;
-            if (submitter?.value === "reject") {
-              const confirmed = window.confirm(
-                `Reject ${selectedCount} selected candidate${selectedCount === 1 ? "" : "s"}?`,
-              );
-              if (!confirmed) event.preventDefault();
-            }
-          }}
           className="fixed inset-x-4 bottom-4 z-[60] mx-auto max-w-5xl rounded-xl border border-neutral-700 bg-[#101418] p-4 text-white shadow-2xl"
         >
           {Array.from(selected).map((candidateId) => (
@@ -204,21 +206,41 @@ export default function BulkCandidateControls({
                 name="action"
                 value="approve"
                 disabled={selectedCount === 0}
+                onClick={() => setRejectConfirmOpen(false)}
                 className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Approve Selected
               </button>
               <button
-                type="submit"
+                type={rejectConfirmOpen ? "submit" : "button"}
                 name="action"
                 value="reject"
                 disabled={selectedCount === 0}
+                onClick={() => {
+                  if (!rejectConfirmOpen) setRejectConfirmOpen(true);
+                }}
                 className="rounded-md bg-rose-700 px-4 py-2 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
               >
-                Reject Selected
+                {rejectConfirmOpen ? "Confirm Reject Selected" : "Reject Selected"}
               </button>
+              {rejectConfirmOpen ? (
+                <button
+                  type="button"
+                  onClick={() => setRejectConfirmOpen(false)}
+                  className="rounded-md border border-neutral-500 bg-white/10 px-3 py-2 text-sm font-black"
+                >
+                  Cancel Reject
+                </button>
+              ) : null}
             </div>
           </div>
+          {rejectConfirmOpen ? (
+            <p className="mt-3 rounded-lg border border-rose-300 bg-rose-50 px-3 py-2 text-sm font-black text-rose-950">
+              Confirm rejecting {selectedCount} selected candidate
+              {selectedCount === 1 ? "" : "s"}. This will submit the selected
+              rows to the bulk reject action.
+            </p>
+          ) : null}
         </form>
       ) : null}
     </>
