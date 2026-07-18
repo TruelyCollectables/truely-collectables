@@ -1,6 +1,10 @@
 import { readFile } from "node:fs/promises";
 
 const sources = {
+  page: await readFile(
+    new URL("../src/app/admin/payment-simulations/page.tsx", import.meta.url),
+    "utf8",
+  ),
   actions: await readFile(
     new URL("../src/app/admin/payment-simulations/SimulationActions.tsx", import.meta.url),
     "utf8",
@@ -100,6 +104,43 @@ scenario("checkout E2E simulation API enforces confirmation server-side", () => 
     assert(
       sources.checkoutRoute.includes(fragment),
       `Expected checkout E2E route confirmation fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("payment simulation page keeps history failures operator-safe", () => {
+  for (const fragment of [
+    "function safeErrorMessage",
+    "Unknown payment simulation history error.",
+    "replace(/\\s+/g, \" \").trim().slice(0, 220)",
+    "const runsUnavailable = Boolean(runsResult.error)",
+    "const scenariosUnavailable = Boolean(scenariosResult.error)",
+    'value={runsUnavailable ? "Unavailable"',
+    "Payment simulation history unavailable.",
+    "counters are",
+    "labeled unavailable instead of shown as zero",
+    "Payment simulation scenario details unavailable.",
+    "loaded the run headers but could not load the scenario",
+    "Last run diagnostic: {safeErrorMessage(run.last_error)}",
+    "function UnavailableNotice",
+    "role=\"alert\"",
+    "aria-live=\"assertive\"",
+    "Diagnostic: {diagnostic}",
+  ]) {
+    assert(
+      sources.page.includes(fragment),
+      `Expected payment simulation page failure-safe fragment ${fragment}.`,
+    );
+  }
+
+  for (const forbidden of [
+    "if (runsResult.error) throw runsResult.error",
+    "if (scenariosResult.error) throw scenariosResult.error",
+    "{run.last_error}",
+  ]) {
+    assert(
+      !sources.page.includes(forbidden),
+      `Expected payment simulation page not to expose raw failure fragment ${forbidden}.`,
     );
   }
 });

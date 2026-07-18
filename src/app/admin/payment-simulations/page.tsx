@@ -45,6 +45,14 @@ function tone(status: string) {
   return "border-amber-200 bg-amber-50 text-amber-900";
 }
 
+function safeErrorMessage(error: { message?: string } | string | null | undefined) {
+  const message =
+    typeof error === "string"
+      ? error
+      : error?.message || "Unknown payment simulation history error.";
+  return String(message).replace(/\s+/g, " ").trim().slice(0, 220);
+}
+
 export default async function PaymentSimulationsPage() {
   const supabase = createSupabaseServerClient({ admin: true });
   const storeId = getActiveStoreId();
@@ -55,9 +63,9 @@ export default async function PaymentSimulationsPage() {
     .eq("store_id", storeId)
     .order("created_at", { ascending: false })
     .limit(20);
-  if (runsResult.error) throw runsResult.error;
-  const runs = (runsResult.data || []) as SimulationRun[];
-  const scenariosResult = runs.length
+  const runsUnavailable = Boolean(runsResult.error);
+  const runs = runsUnavailable ? [] : ((runsResult.data || []) as SimulationRun[]);
+  const scenariosResult = runs.length && !runsUnavailable
     ? await supabase
         .from("payment_simulation_scenarios")
         .select("*")
@@ -68,8 +76,10 @@ export default async function PaymentSimulationsPage() {
         )
         .order("created_at", { ascending: true })
     : { data: [], error: null };
-  if (scenariosResult.error) throw scenariosResult.error;
-  const scenarios = (scenariosResult.data || []) as SimulationScenario[];
+  const scenariosUnavailable = Boolean(scenariosResult.error);
+  const scenarios = scenariosUnavailable
+    ? []
+    : ((scenariosResult.data || []) as SimulationScenario[]);
   const scenariosByRun = new Map<string, SimulationScenario[]>();
   for (const scenario of scenarios) {
     const rows = scenariosByRun.get(scenario.run_id) || [];
@@ -126,15 +136,35 @@ export default async function PaymentSimulationsPage() {
         </section>
 
         <section className="grid gap-3 md:grid-cols-5">
-          <Metric label="Latest" value={label(latest?.run_status)} />
-          <Metric label="Scenarios" value={String(latest?.scenario_count || 0)} />
-          <Metric label="Passed" value={String(latest?.passed_count || 0)} />
-          <Metric label="Failed" value={String(latest?.failed_count || 0)} />
-          <Metric label="Skipped" value={String(latest?.skipped_count || 0)} />
+          <Metric label="Latest" value={runsUnavailable ? "Unavailable" : label(latest?.run_status)} />
+          <Metric label="Scenarios" value={runsUnavailable ? "Unavailable" : String(latest?.scenario_count || 0)} />
+          <Metric label="Passed" value={runsUnavailable ? "Unavailable" : String(latest?.passed_count || 0)} />
+          <Metric label="Failed" value={runsUnavailable ? "Unavailable" : String(latest?.failed_count || 0)} />
+          <Metric label="Skipped" value={runsUnavailable ? "Unavailable" : String(latest?.skipped_count || 0)} />
         </section>
 
+        {runsUnavailable ? (
+          <UnavailableNotice
+            title="Payment simulation history unavailable."
+            diagnostic={safeErrorMessage(runsResult.error)}
+          >
+            TCOS could not load payment simulation runs, so the counters are
+            labeled unavailable instead of shown as zero. The action buttons
+            remain available under the safety boundary above.
+          </UnavailableNotice>
+        ) : scenariosUnavailable ? (
+          <UnavailableNotice
+            title="Payment simulation scenario details unavailable."
+            diagnostic={safeErrorMessage(scenariosResult.error)}
+          >
+            TCOS loaded the run headers but could not load the scenario
+            breakdown. Review the latest run status before treating the drill as
+            complete.
+          </UnavailableNotice>
+        ) : null}
+
         <section className="space-y-4">
-          {runs.length === 0 ? (
+          {runsUnavailable ? null : runs.length === 0 ? (
             <p className="rounded-md border bg-white p-5 text-sm text-neutral-600">
               No payment reliability runs have been recorded yet.
             </p>
@@ -157,7 +187,7 @@ export default async function PaymentSimulationsPage() {
                 </div>
                 {run.last_error ? (
                   <p className="mt-3 rounded border border-rose-200 bg-rose-50 p-3 text-sm font-bold text-rose-900">
-                    {run.last_error}
+                    Last run diagnostic: {safeErrorMessage(run.last_error)}
                   </p>
                 ) : null}
                 <div className="mt-4 grid gap-3 lg:grid-cols-2">
@@ -198,5 +228,27 @@ function Metric({ label: metricLabel, value }: { label: string; value: string })
       <p className="text-xs font-black uppercase text-neutral-500">{metricLabel}</p>
       <p className="mt-2 text-xl font-black">{value}</p>
     </div>
+  );
+}
+
+function UnavailableNotice({
+  children,
+  diagnostic,
+  title,
+}: {
+  children: React.ReactNode;
+  diagnostic: string;
+  title: string;
+}) {
+  return (
+    <section
+      role="alert"
+      aria-live="assertive"
+      className="rounded-md border border-rose-200 bg-rose-50 p-5 text-rose-950"
+    >
+      <h2 className="text-lg font-black">{title}</h2>
+      <p className="mt-2 text-sm font-semibold leading-6">{children}</p>
+      <p className="mt-2 text-xs font-bold">Diagnostic: {diagnostic}</p>
+    </section>
   );
 }
