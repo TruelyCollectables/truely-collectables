@@ -95,11 +95,14 @@ async function resolveSubject(input: ManualPurchaseInput) {
   return data;
 }
 
-async function resolveIdentity(input: ManualPurchaseInput, subject: {
-  id: string;
-  name: string;
-  sport_or_category: string | null;
-}) {
+async function resolveIdentity(
+  input: ManualPurchaseInput,
+  subject: {
+    id: string;
+    name: string;
+    sport_or_category: string | null;
+  },
+) {
   const supabase = createSupabaseServerClient({ admin: true });
   const parallelName = input.parallelName.trim() || "Base";
   const conditionType = input.conditionType.trim() || "raw";
@@ -107,7 +110,8 @@ async function resolveIdentity(input: ManualPurchaseInput, subject: {
     conditionType === "graded"
       ? `${input.gradingCompany.trim()} ${input.grade.trim()}`.trim()
       : conditionType.replaceAll("_", " ");
-  const productLabel = input.insertName.trim() || input.setName.trim() || input.productLine.trim();
+  const productLabel =
+    input.insertName.trim() || input.setName.trim() || input.productLine.trim();
   const displayName = [
     input.seasonYear.trim(),
     input.manufacturer.trim(),
@@ -172,7 +176,8 @@ async function resolveIdentity(input: ManualPurchaseInput, subject: {
       memorabilia: input.memorabilia,
       rookie_designation: input.rookieDesignation,
       condition_type: conditionType,
-      grading_company: conditionType === "graded" ? input.gradingCompany.trim() : null,
+      grading_company:
+        conditionType === "graded" ? input.gradingCompany.trim() : null,
       grade: conditionType === "graded" ? input.grade.trim() : null,
       identity_key: identityKey,
       display_name: displayName,
@@ -187,8 +192,14 @@ async function resolveIdentity(input: ManualPurchaseInput, subject: {
 
 export async function createManualMarketIntelPurchase(input: ManualPurchaseInput) {
   if (!input.purchaseDate) throw new Error("Purchase date is required.");
-  if (!input.seasonYear.trim() || !input.manufacturer.trim() || !input.cardNumber.trim()) {
-    throw new Error("Year, manufacturer, and card number are required for exact-card tracking.");
+  if (
+    !input.seasonYear.trim() ||
+    !input.manufacturer.trim() ||
+    !input.cardNumber.trim()
+  ) {
+    throw new Error(
+      "Year, manufacturer, and card number are required for exact-card tracking.",
+    );
   }
   if (!Number.isInteger(input.quantity) || input.quantity <= 0) {
     throw new Error("Quantity must be a positive whole number.");
@@ -224,7 +235,9 @@ export async function createManualMarketIntelPurchase(input: ManualPurchaseInput
   const now = new Date().toISOString();
   const supabase = createSupabaseServerClient({ admin: true });
 
-  const sourceTypeLabel = input.acquisitionChannel.replaceAll("_", " ").toUpperCase();
+  const sourceTypeLabel = input.acquisitionChannel
+    .replaceAll("_", " ")
+    .toUpperCase();
   const sourceName = input.sourceName.trim() || sourceTypeLabel;
   const sourceLocation = input.sourceLocation.trim();
   const strategyLabel =
@@ -250,7 +263,7 @@ export async function createManualMarketIntelPurchase(input: ManualPurchaseInput
       other_acquisition_cost: roundMoney(input.otherCost),
       received_at: input.alreadyReceived ? now : null,
       source_url: null,
-      deal_label: "OFFLINE PURCHASE",
+      deal_label: null,
       notes:
         input.notes.trim() ||
         `Purchased from ${sourceName}${sourceLocation ? ` at ${sourceLocation}` : ""}. Total paid $${total.toFixed(2)}. Strategy: ${strategyLabel}.`,
