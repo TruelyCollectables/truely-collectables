@@ -96,8 +96,8 @@ scenario("purchase candidate controls show a recording state", () => {
     "Expected a dedicated purchase submit component.",
   );
   assert(
-    purchaseControlsSource.includes("Recording purchase..."),
-    "Expected purchase recording pending label to be present.",
+    purchaseControlsSource.includes("Recording purchase and moving card..."),
+    "Expected purchase recording and queue-removal pending label to be present.",
   );
 });
 
