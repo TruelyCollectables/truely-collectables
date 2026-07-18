@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import type { ReactNode } from "react";
 
 export default function ShippingLabelActions({
   orderId,
@@ -62,6 +63,20 @@ export default function ShippingLabelActions({
 
   const busy = preparing || purchasing || recording || voiding || openingClaim;
   const providerActionsBlocked = busy || activeDryRunLabel;
+  const manualPurchaseMissing = [
+    !manualForm.provider.trim() ? "label provider" : null,
+    !manualForm.carrier.trim() ? "carrier" : null,
+    !manualForm.trackingNumber.trim() ? "tracking / IMb" : null,
+    !manualForm.postageAmount.trim() ? "postage amount" : null,
+    manualForm.note.trim().length < 8 ? "audit note" : null,
+  ].filter(Boolean);
+  const voidMissing = [
+    !voidForm.provider.trim() ? "provider" : null,
+    !voidForm.carrier.trim() ? "carrier" : null,
+    !voidForm.trackingNumber.trim() ? "tracking / IMb" : null,
+    !voidForm.voidReference.trim() ? "void reference" : null,
+    voidForm.note.trim().length < 8 ? "audit note" : null,
+  ].filter(Boolean);
 
   async function prepareLabelRecord() {
     setPreparing(true);
@@ -201,6 +216,13 @@ export default function ShippingLabelActions({
   }
 
   async function recordManualPurchase() {
+    if (manualPurchaseMissing.length > 0) {
+      setMessage(
+        `Manual purchase needs: ${manualPurchaseMissing.join(", ")}.`,
+      );
+      return;
+    }
+
     setRecording(true);
     setMessage("");
 
@@ -241,6 +263,11 @@ export default function ShippingLabelActions({
   }
 
   async function recordManualVoid() {
+    if (voidMissing.length > 0) {
+      setMessage(`External void needs: ${voidMissing.join(", ")}.`);
+      return;
+    }
+
     setVoiding(true);
     setMessage("");
 
@@ -281,28 +308,28 @@ export default function ShippingLabelActions({
   }
 
   return (
-    <div className="space-y-3">
+    <div className="space-y-4">
       {activeDryRunLabel ? (
-        <div className="rounded border border-red-200 bg-red-50 p-3 text-sm font-black text-red-950">
+        <ActionNotice tone="error">
           Active label is dry-run only. Record a real external label + Coverage
           policy, or void this dry-run record before claim or provider actions.
-        </div>
+        </ActionNotice>
       ) : null}
 
       {initialAction === "manualPurchase" ? (
-        <div className="rounded border border-blue-200 bg-blue-50 p-3 text-sm font-black text-blue-950">
+        <ActionNotice tone="info">
           Dry-run cleanup handoff: save the real external label, tracking/IMb,
           postage, and Coverage policy here before shipping or releasing seller
           funds.
-        </div>
+        </ActionNotice>
       ) : null}
 
-      <div className="flex flex-wrap gap-3">
+      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
         <button
           type="button"
           onClick={prepareLabelRecord}
           disabled={busy}
-          className="rounded bg-neutral-950 px-4 py-2 font-bold text-white disabled:opacity-50"
+          className="rounded-2xl bg-neutral-950 px-4 py-3 text-sm font-black text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
         >
           {preparing ? "Preparing..." : "Prepare Label + Coverage Record"}
         </button>
@@ -311,7 +338,7 @@ export default function ShippingLabelActions({
           type="button"
           onClick={attemptProviderPurchase}
           disabled={providerActionsBlocked}
-          className="rounded border border-neutral-950 bg-white px-4 py-2 font-bold text-neutral-950 disabled:opacity-50"
+          className="rounded-2xl border border-neutral-950 bg-white px-4 py-3 text-sm font-black text-neutral-950 shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
         >
           {purchasing ? "Checking..." : "Attempt Provider Purchase"}
         </button>
@@ -323,7 +350,7 @@ export default function ShippingLabelActions({
             setShowVoidForm(false);
           }}
           disabled={busy}
-          className="rounded border border-blue-700 bg-blue-50 px-4 py-2 font-bold text-blue-950 disabled:opacity-50"
+          className="rounded-2xl border border-blue-700 bg-blue-50 px-4 py-3 text-sm font-black text-blue-950 shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
         >
           {showManualForm ? "Hide Manual Record" : "Record Manual Purchase"}
         </button>
@@ -335,7 +362,7 @@ export default function ShippingLabelActions({
             setShowManualForm(false);
           }}
           disabled={busy}
-          className="rounded border border-red-700 bg-red-50 px-4 py-2 font-bold text-red-950 disabled:opacity-50"
+          className="rounded-2xl border border-red-700 bg-red-50 px-4 py-3 text-sm font-black text-red-950 shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
         >
           {showVoidForm ? "Hide Void Record" : "Record External Void"}
         </button>
@@ -344,17 +371,17 @@ export default function ShippingLabelActions({
           type="button"
           onClick={openCoverageClaimDraft}
           disabled={providerActionsBlocked}
-          className="rounded border border-amber-700 bg-amber-50 px-4 py-2 font-bold text-amber-950 disabled:opacity-50"
+          className="rounded-2xl border border-amber-700 bg-amber-50 px-4 py-3 text-sm font-black text-amber-950 shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
         >
           {openingClaim ? "Opening..." : "Open Coverage Claim Draft"}
         </button>
       </div>
 
       {showManualForm ? (
-        <div className="rounded border bg-gray-50 p-4">
+        <div className="rounded-[2rem] border border-blue-200 bg-blue-50 p-4 text-blue-950 shadow-sm">
           <div className="mb-3">
             <h3 className="font-black">Manual label + Coverage record</h3>
-            <p className="mt-1 text-sm text-gray-600">
+            <p className="mt-1 text-sm font-semibold leading-6 opacity-80">
               Use this after buying the label or coverage outside TCOS. It
               saves the IDs, tracking, policy, costs, and audit event without
               charging or submitting anything.
@@ -429,22 +456,28 @@ export default function ShippingLabelActions({
               onChange={(value) => updateManualForm("coverageAmount", value)}
             />
             <label className="block">
-              <span className="text-sm font-bold text-gray-700">Note</span>
+              <span className="text-sm font-black">Audit note</span>
               <textarea
                 value={manualForm.note}
                 onChange={(event) => updateManualForm("note", event.target.value)}
                 rows={3}
-                className="mt-1 w-full rounded border bg-white px-3 py-2"
+                className="mt-1 w-full rounded-2xl border border-blue-200 bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-blue-800"
                 placeholder="Where it was purchased, receipt reference, or anything support should know."
               />
             </label>
           </div>
 
+          {manualPurchaseMissing.length > 0 ? (
+            <ActionNotice tone="info">
+              Required before saving: {manualPurchaseMissing.join(", ")}.
+            </ActionNotice>
+          ) : null}
+
           <button
             type="button"
             onClick={recordManualPurchase}
-            disabled={recording}
-            className="mt-4 rounded bg-blue-700 px-4 py-2 font-bold text-white disabled:opacity-50"
+            disabled={recording || manualPurchaseMissing.length > 0}
+            className="mt-4 rounded-2xl bg-blue-800 px-4 py-3 text-sm font-black text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
           >
             {recording ? "Recording..." : "Save Manual Label + Coverage"}
           </button>
@@ -452,10 +485,10 @@ export default function ShippingLabelActions({
       ) : null}
 
       {showVoidForm ? (
-        <div className="rounded border border-red-200 bg-red-50 p-4">
+        <div className="rounded-[2rem] border border-red-200 bg-red-50 p-4 text-red-950 shadow-sm">
           <div className="mb-3">
-            <h3 className="font-black text-red-950">Record external void/cancel</h3>
-            <p className="mt-1 text-sm text-red-900">
+            <h3 className="font-black">Record external void/cancel</h3>
+            <p className="mt-1 text-sm font-semibold leading-6 opacity-80">
               Use this only after the label or Coverage policy was voided or
               cancelled outside TCOS. This closes the TCOS label record and logs
               the proof; it does not contact a provider.
@@ -496,22 +529,28 @@ export default function ShippingLabelActions({
               }
             />
             <label className="block">
-              <span className="text-sm font-bold text-red-950">Note</span>
+              <span className="text-sm font-black">Audit note</span>
               <textarea
                 value={voidForm.note}
                 onChange={(event) => updateVoidForm("note", event.target.value)}
                 rows={3}
-                className="mt-1 w-full rounded border bg-white px-3 py-2"
+                className="mt-1 w-full rounded-2xl border border-red-200 bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-red-800"
                 placeholder="Why it was voided, who voided it, and where the external confirmation lives."
               />
             </label>
           </div>
 
+          {voidMissing.length > 0 ? (
+            <ActionNotice tone="info">
+              Required before saving: {voidMissing.join(", ")}.
+            </ActionNotice>
+          ) : null}
+
           <button
             type="button"
             onClick={recordManualVoid}
-            disabled={voiding}
-            className="mt-4 rounded bg-red-700 px-4 py-2 font-bold text-white disabled:opacity-50"
+            disabled={voiding || voidMissing.length > 0}
+            className="mt-4 rounded-2xl bg-red-800 px-4 py-3 text-sm font-black text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
           >
             {voiding ? "Recording..." : "Save External Void"}
           </button>
@@ -519,11 +558,32 @@ export default function ShippingLabelActions({
       ) : null}
 
       {message ? (
-        <div className="rounded border bg-gray-50 p-3 text-sm font-semibold">
+        <ActionNotice tone={message.toLowerCase().includes("could not") || message.toLowerCase().includes("needs:") || message.toLowerCase().includes("blocked") ? "error" : "success"}>
           {message}
-        </div>
+        </ActionNotice>
       ) : null}
     </div>
+  );
+}
+
+function ActionNotice({
+  tone,
+  children,
+}: {
+  tone: "success" | "error" | "info";
+  children: ReactNode;
+}) {
+  const className =
+    tone === "success"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-950"
+      : tone === "error"
+        ? "border-red-200 bg-red-50 text-red-950"
+        : "border-blue-200 bg-blue-50 text-blue-950";
+
+  return (
+    <p className={`rounded-2xl border px-3 py-2 text-sm font-black ${className}`}>
+      {children}
+    </p>
   );
 }
 
@@ -540,12 +600,12 @@ function TextField({
 }) {
   return (
     <label className="block">
-      <span className="text-sm font-bold text-gray-700">{label}</span>
+      <span className="text-sm font-black">{label}</span>
       <input
         value={value}
         onChange={(event) => onChange(event.target.value)}
         placeholder={placeholder}
-        className="mt-1 w-full rounded border bg-white px-3 py-2"
+        className="mt-1 w-full rounded-2xl border border-current/20 bg-white px-3 py-2 text-sm font-semibold text-neutral-950 outline-none focus:border-neutral-950"
       />
     </label>
   );
