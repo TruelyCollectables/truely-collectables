@@ -21,9 +21,9 @@ export default async function GrowthSpecsLayout({
     prospects = rows.filter((row) => isGrowthProspect(row.notes));
   }
 
-  const sports = new Set(
+  const categories = new Set(
     prospects
-      .map((row) => row.subject?.sport_or_category)
+      .map((row) => row.subject?.league_or_brand)
       .filter((value): value is string => Boolean(value)),
   );
 
@@ -36,7 +36,7 @@ export default async function GrowthSpecsLayout({
               Growth Prospect Universe
             </p>
             <p className="mt-1 font-black">
-              {prospects.length} active prospects across {sports.size} sports · non-base cards only
+              {prospects.length} active prospects across {categories.size} categories · non-base cards only
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
