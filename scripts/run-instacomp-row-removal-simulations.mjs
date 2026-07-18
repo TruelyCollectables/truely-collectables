@@ -89,6 +89,8 @@ scenario("tombstones removed persistent rows so active workers skip them", () =>
     "removedBatchCardIdsRef",
     "removedPersistentItemIdsRef",
     "removedPersistentClientIdsRef",
+    "persistentRemovalTargetForBatchCard",
+    "batchCardHasPersistentRemovalTarget",
     "rememberRemovedPersistentBatchCard",
     "claimedPersistentItemWasRemoved",
     "cancelPersistentItem",
@@ -97,6 +99,34 @@ scenario("tombstones removed persistent rows so active workers skip them", () =>
     assert(
       scannerSource.includes(fragment),
       `Expected scanner removal tombstone fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("uses saved binding targets when cancelling removed rows", () => {
+  for (const fragment of [
+    "card.persistentJobId || binding?.jobId || null",
+    "card.persistentItemId || binding?.itemId || null",
+    "const isPersisted = batchCardHasPersistentRemovalTarget(card)",
+    "cardsToRemove.filter(batchCardHasPersistentRemovalTarget)",
+  ]) {
+    assert(
+      scannerSource.includes(fragment),
+      `Expected scanner persistent cancellation fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("row remove button exposes busy and blocked feedback", () => {
+  for (const fragment of [
+    "const removeBlockedReason = instaCompBatchRowRemovalBlockedReason",
+    "aria-busy={isRemoving}",
+    "Remove blocked:",
+    "Removing row and cancelling saved InstaComp™ storage when present...",
+  ]) {
+    assert(
+      scannerSource.includes(fragment),
+      `Expected scanner removal feedback fragment ${fragment}.`,
     );
   }
 });

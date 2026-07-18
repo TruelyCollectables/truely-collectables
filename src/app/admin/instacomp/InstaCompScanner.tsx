@@ -10,7 +10,6 @@ import {
   type InstaCompBatchRowAction,
 } from "@/src/lib/instacomp-row-actions";
 import {
-  canRemoveInstaCompBatchRow,
   instaCompBatchRowRemovalBlockedReason,
   instaCompBatchRowRemovalLabel,
 } from "@/src/lib/instacomp-row-removal";
@@ -6689,12 +6688,27 @@ export default function InstaCompScanner({
     );
   }
 
-  async function cancelPersistentBatchCard(card: BatchCard) {
+  function persistentRemovalTargetForBatchCard(card: BatchCard) {
     const binding = persistentBindingsRef.current.get(card.id);
 
+    return {
+      jobId: card.persistentJobId || binding?.jobId || null,
+      itemId: card.persistentItemId || binding?.itemId || null,
+    };
+  }
+
+  function batchCardHasPersistentRemovalTarget(card: BatchCard) {
+    const target = persistentRemovalTargetForBatchCard(card);
+
+    return Boolean(target.jobId && target.itemId);
+  }
+
+  async function cancelPersistentBatchCard(card: BatchCard) {
+    const target = persistentRemovalTargetForBatchCard(card);
+
     return cancelPersistentItem({
-      jobId: card.persistentJobId || binding?.jobId,
-      itemId: card.persistentItemId || binding?.itemId,
+      jobId: target.jobId,
+      itemId: target.itemId,
     });
   }
 
@@ -6748,7 +6762,7 @@ export default function InstaCompScanner({
 
     setBatchError(null);
     const cardTitle = draftTitleForCard(card);
-    const isPersisted = Boolean(card.persistentJobId && card.persistentItemId);
+    const isPersisted = batchCardHasPersistentRemovalTarget(card);
 
     setRemovingBatchCardIds((current) => new Set(current).add(cardId));
     setBatchCards((current) =>
@@ -6814,9 +6828,7 @@ export default function InstaCompScanner({
     }
 
     setBatchError(null);
-    const persistedCards = cardsToRemove.filter(
-      (card) => card.persistentJobId && card.persistentItemId
-    );
+    const persistedCards = cardsToRemove.filter(batchCardHasPersistentRemovalTarget);
     const removeIds = new Set(cardsToRemove.map((card) => card.id));
 
     setBatchDraftMessage(removedMessage);
@@ -13610,13 +13622,19 @@ function BatchCardRow({
   const canSelectForDraft = isDraftableBatchCard(card);
   const canSelectRow = canSelectForDraft || (card.status === "done" && Boolean(card.result));
   const canCopyDraftPayload = Boolean(onCopyDraftPayload) && canSelectForDraft;
+  const retryBlockedReason = batchBusy
+    ? "Finish the current InstaComp™ batch action before retrying this row."
+    : card.status === "error" || card.status === "done"
+      ? null
+      : "Retry becomes available after this row finishes scanning or errors.";
   const canRetry =
     (card.status === "error" || card.status === "done") && !batchBusy;
-  const canRemove = canRemoveInstaCompBatchRow({
+  const removeBlockedReason = instaCompBatchRowRemovalBlockedReason({
     batchDrafting,
     draftStatus: card.draftStatus,
     isRemoving,
   });
+  const canRemove = !removeBlockedReason;
   const canRotate =
     !batchBusy && card.draftStatus === "idle" && card.tradeStatus === "idle";
   const canRotatePrimary = canRotate && card.file.size > 0;
@@ -13628,12 +13646,14 @@ function BatchCardRow({
     Boolean(card.backFile?.size);
   const canSaveCorrections = !batchBusy && isCorrectionSavableBatchCard(card);
   const canRefreshComps = canSaveCorrections;
+  const savingCorrections = activeAction === "saving_corrections";
+  const refreshingComps = activeAction === "refreshing_comps";
   const saveCorrectionsLabel = instaCompBatchRowActionLabel({
-    action: activeAction === "saving_corrections" ? activeAction : null,
+    action: savingCorrections ? activeAction : null,
     fallback: "Save Corrections",
   });
   const refreshCompsLabel = instaCompBatchRowActionLabel({
-    action: activeAction === "refreshing_comps" ? activeAction : null,
+    action: refreshingComps ? activeAction : null,
     fallback: "Refresh Comps",
   });
   const canAddToTrade =
@@ -14050,6 +14070,11 @@ function BatchCardRow({
                   type="button"
                   onClick={() => void onCopyDraftPayload(card, index)}
                   disabled={!canCopyDraftPayload}
+                  title={
+                    canCopyDraftPayload
+                      ? "Copy the exact draft payload TCOS will send for this row."
+                      : "Draft payload copy is available after the row has a complete, draftable scan result."
+                  }
                   style={{
                     ...secondaryButtonStyle,
                     padding: "8px 10px",
@@ -14067,10 +14092,13 @@ function BatchCardRow({
                 type="button"
                 onClick={() => void onSaveCorrections(card.id)}
                 disabled={!canSaveCorrections}
+                aria-busy={savingCorrections}
                 title={
                   canSaveCorrections
                     ? "Save edited title, quantity, price, and review marks to this saved InstaComp™ lot row."
-                    : "Run Batch InstaComp™ first so this row has a saved lot record, then save corrections."
+                    : batchBusy
+                      ? "Finish the current InstaComp™ batch action before saving corrections."
+                      : "Run Batch InstaComp™ first so this row has a saved lot record, then save corrections."
                 }
                 style={{
                   ...secondaryButtonStyle,
@@ -14088,10 +14116,13 @@ function BatchCardRow({
                 type="button"
                 onClick={() => void onRefreshComps(card.id)}
                 disabled={!canRefreshComps}
+                aria-busy={refreshingComps}
                 title={
                   canRefreshComps
                     ? "Refresh comps and market price for this saved InstaComp™ row."
-                    : "Run Batch InstaComp™ first so this row has a saved lot record, then refresh comps."
+                    : batchBusy
+                      ? "Finish the current InstaComp™ batch action before refreshing comps."
+                      : "Run Batch InstaComp™ first so this row has a saved lot record, then refresh comps."
                 }
                 style={{
                   ...secondaryButtonStyle,
@@ -14109,6 +14140,7 @@ function BatchCardRow({
                 type="button"
                 onClick={() => void onAddToTrade(card.id)}
                 disabled={!canAddToTrade}
+                aria-busy={card.tradeStatus === "adding"}
                 style={{
                   ...secondaryButtonStyle,
                   padding: "8px 10px",
@@ -14131,6 +14163,7 @@ function BatchCardRow({
                 type="button"
                 onClick={() => onRetry(card.id)}
                 disabled={!canRetry}
+                title={retryBlockedReason || "Retry this row with the current image/title/serial corrections."}
                 style={{
                   ...secondaryButtonStyle,
                   padding: "8px 10px",
@@ -14145,9 +14178,12 @@ function BatchCardRow({
                 type="button"
                 onClick={() => void onRemove(card.id)}
                 disabled={!canRemove}
+                aria-busy={isRemoving}
                 title={
                   isRemoving
                     ? "This row is being removed from the visible batch and cancelled in storage when applicable."
+                    : removeBlockedReason
+                      ? removeBlockedReason
                     : card.operatorMarkedWrong
                       ? "Remove this wrong scan result from the visible batch and cancel its saved queue row when available."
                     : card.status === "scanning"
@@ -14172,6 +14208,41 @@ function BatchCardRow({
                 })}
               </button>
             </div>
+            {removeBlockedReason ? (
+              <div
+                aria-live="polite"
+                style={{
+                  marginTop: 8,
+                  border: "1px solid #fed7aa",
+                  borderRadius: 10,
+                  background: "#fff7ed",
+                  color: "#9a3412",
+                  padding: "7px 9px",
+                  fontSize: 11,
+                  fontWeight: 900,
+                  textAlign: "left",
+                }}
+              >
+                Remove blocked: {removeBlockedReason}
+              </div>
+            ) : isRemoving ? (
+              <div
+                aria-live="polite"
+                style={{
+                  marginTop: 8,
+                  border: "1px solid #bfdbfe",
+                  borderRadius: 10,
+                  background: "#eff6ff",
+                  color: "#1d4ed8",
+                  padding: "7px 9px",
+                  fontSize: 11,
+                  fontWeight: 900,
+                  textAlign: "left",
+                }}
+              >
+                Removing row and cancelling saved InstaComp™ storage when present...
+              </div>
+            ) : null}
           </div>
         </div>
 

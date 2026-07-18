@@ -1,4 +1,10 @@
 import { instaCompBatchRowActionLabel } from "../src/lib/instacomp-row-actions.ts";
+import { readFile } from "node:fs/promises";
+
+const scannerSource = await readFile(
+  new URL("../src/app/admin/instacomp/InstaCompScanner.tsx", import.meta.url),
+  "utf8",
+);
 
 const scenarios = [];
 
@@ -38,6 +44,21 @@ scenario("keeps the normal row action label when idle", () => {
     }) === "Save Corrections",
     "Expected idle rows to keep their normal action label."
   );
+});
+
+scenario("scanner row actions expose busy and disabled reasons", () => {
+  for (const fragment of [
+    "aria-busy={savingCorrections}",
+    "aria-busy={refreshingComps}",
+    "aria-busy={card.tradeStatus === \"adding\"}",
+    "Finish the current InstaComp™ batch action before retrying this row.",
+    "Draft payload copy is available after the row has a complete, draftable scan result.",
+  ]) {
+    assert(
+      scannerSource.includes(fragment),
+      `Expected scanner row action feedback fragment ${fragment}.`,
+    );
+  }
 });
 
 const failed = [];
