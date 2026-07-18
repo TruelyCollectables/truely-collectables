@@ -62,6 +62,7 @@ function numberLabel(value: number) {
 
 export default function EbayImportRunner() {
   const stopRequestedRef = useRef(false);
+  const importRunningRef = useRef(false);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState("Ready.");
   const [runId, setRunId] = useState("");
@@ -78,11 +79,22 @@ export default function EbayImportRunner() {
   );
 
   async function runImport(startOffset: number) {
+    if (importRunningRef.current || busy) {
+      setStatus("An eBay import is already running. Wait for the current batch to finish or request a stop.");
+      return;
+    }
+
+    if (startOffset !== 0 && !canContinue) {
+      setStatus("No resumable eBay import cursor is available yet. Start from 0 or finish a batch first.");
+      return;
+    }
+
     const nextRunId = runId || new Date().toISOString();
     let nextOffset: number | null = startOffset;
     let batches = 0;
     let nextTotals = startOffset === 0 ? EMPTY_TOTALS : totals;
 
+    importRunningRef.current = true;
     stopRequestedRef.current = false;
     setBusy(true);
     setError("");
@@ -158,11 +170,17 @@ export default function EbayImportRunner() {
       setError(caught.message || "eBay import failed.");
       setStatus("Import stopped with an error.");
     } finally {
+      importRunningRef.current = false;
       setBusy(false);
     }
   }
 
   function stopImport() {
+    if (!importRunningRef.current && !busy) {
+      setStatus("No eBay import is running right now.");
+      return;
+    }
+
     stopRequestedRef.current = true;
     setStatus("Stop requested. Finishing current batch...");
   }
@@ -187,24 +205,26 @@ export default function EbayImportRunner() {
           <button
             type="button"
             onClick={() => void runImport(0)}
-            disabled={busy}
-            className="rounded-xl bg-neutral-950 px-6 py-4 text-center text-base font-black uppercase tracking-[0.08em] text-white hover:bg-neutral-800 disabled:cursor-not-allowed disabled:bg-neutral-500"
+            aria-disabled={busy}
+            aria-busy={busy}
+            className="rounded-xl bg-neutral-950 px-6 py-4 text-center text-base font-black uppercase tracking-[0.08em] text-white hover:bg-neutral-800 aria-disabled:cursor-wait aria-disabled:bg-neutral-500"
           >
             {busy ? "Import running..." : "Start import from 0"}
           </button>
           <button
             type="button"
             onClick={() => void runImport(offset)}
-            disabled={busy || !canContinue}
-            className="rounded-xl border border-emerald-300 bg-white px-6 py-3 text-center text-sm font-black text-emerald-950 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+            aria-disabled={busy || !canContinue}
+            aria-busy={busy}
+            className="rounded-xl border border-emerald-300 bg-white px-6 py-3 text-center text-sm font-black text-emerald-950 hover:bg-emerald-100 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
           >
             Resume from offset {offset}
           </button>
           <button
             type="button"
             onClick={stopImport}
-            disabled={!busy}
-            className="rounded-xl border border-rose-300 bg-white px-6 py-3 text-center text-sm font-black text-rose-800 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-50"
+            aria-disabled={!busy}
+            className="rounded-xl border border-rose-300 bg-white px-6 py-3 text-center text-sm font-black text-rose-800 hover:bg-rose-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
           >
             Stop after current batch
           </button>

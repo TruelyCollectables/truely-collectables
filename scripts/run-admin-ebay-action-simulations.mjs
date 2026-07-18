@@ -204,6 +204,13 @@ scenario("eBay import runner uses professional diagnostics copy", () => {
     "clear diagnostic",
     "diagnostic sample",
     "Last batch diagnostics receipt",
+    "const importRunningRef = useRef(false)",
+    "An eBay import is already running.",
+    "No resumable eBay import cursor is available yet.",
+    "No eBay import is running right now.",
+    "aria-disabled={busy}",
+    "aria-disabled={busy || !canContinue}",
+    "aria-disabled={!busy}",
   ]) {
     assert(
       importRunnerSource.includes(fragment),
