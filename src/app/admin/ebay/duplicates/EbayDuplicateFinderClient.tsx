@@ -68,7 +68,7 @@ export default function EbayDuplicateFinderClient() {
       const response = await fetch("/api/admin/ebay-duplicates", {
         cache: "no-store",
       });
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
 
       if (!response.ok || !data.success) {
         throw new Error(data.error || "Could not load duplicate groups.");
@@ -171,7 +171,7 @@ export default function EbayDuplicateFinderClient() {
           confirm: "MERGE_DUPLICATE",
         }),
       });
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
 
       if (!response.ok || !data.success) {
         throw new Error(data.error || "Could not merge duplicate.");
@@ -218,7 +218,7 @@ export default function EbayDuplicateFinderClient() {
           confirm: "END_DUPLICATE",
         }),
       });
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
 
       if (!response.ok || !data.success) {
         throw new Error(data.error || "Could not end/archive duplicate.");

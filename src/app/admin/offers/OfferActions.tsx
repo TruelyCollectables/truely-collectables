@@ -36,7 +36,7 @@ export default function OfferActions({
         }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
         setMessage({ tone: "error", text: data.error || "Could not update offer." });
@@ -77,7 +77,7 @@ export default function OfferActions({
         }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
         setMessage({ tone: "error", text: data.error || "Could not send counter offer." });

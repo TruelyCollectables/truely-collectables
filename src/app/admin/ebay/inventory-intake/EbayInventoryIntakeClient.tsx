@@ -126,7 +126,7 @@ export default function EbayInventoryIntakeClient({
       const response = await fetch("/api/admin/ebay-inventory-intake", {
         cache: "no-store",
       });
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
 
       if (!response.ok || !data.success) {
         throw new Error(data.error || "Could not load eBay inventory intake.");
@@ -243,7 +243,7 @@ export default function EbayInventoryIntakeClient({
           productIds: selectedPushableIds,
         }),
       });
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
 
       if (!response.ok || !data.success) {
         throw new Error(data.error || "Could not push selected listings live.");
@@ -272,7 +272,7 @@ export default function EbayInventoryIntakeClient({
           productIds: selectedEbayIds,
         }),
       });
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
 
       if (!response.ok || !data.success) {
         throw new Error(data.error || "Could not refresh selected eBay data.");
@@ -324,7 +324,7 @@ export default function EbayInventoryIntakeClient({
           productIds: uniqueIds,
         }),
       });
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
 
       if (!response.ok || !data.success) {
         throw new Error(data.error || "Could not run InstaComp™ price preview.");
@@ -383,7 +383,7 @@ export default function EbayInventoryIntakeClient({
           productIds,
         }),
       });
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
 
       if (!response.ok || !data.success) {
         throw new Error(data.error || "Could not apply InstaComp™ prices.");
@@ -439,7 +439,7 @@ export default function EbayInventoryIntakeClient({
           freeShipping,
         }),
       });
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
 
       if (!response.ok || !data.success) {
         throw new Error(data.error || "Could not update selected promos.");

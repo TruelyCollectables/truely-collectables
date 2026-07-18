@@ -9184,7 +9184,7 @@ export default function InstaCompScanner({
               },
             );
           }
-          const data = await response.json();
+          const data = await response.json().catch(() => ({}));
 
           if (!response.ok) {
             throw new Error(data?.error || "Could not create draft listing.");

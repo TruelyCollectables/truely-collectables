@@ -49,7 +49,7 @@ export default function TrackingForm({
         }),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
         setMessage(data.error || "Failed to save tracking.");
@@ -58,7 +58,7 @@ export default function TrackingForm({
 
       setMessage("Tracking saved.");
     } catch (err: any) {
-      setMessage(err.message);
+      setMessage(err?.message || "Failed to save tracking.");
     } finally {
       setSaving(false);
     }
@@ -96,7 +96,7 @@ export default function TrackingForm({
         }),
       });
 
-      const saveData = await save.json();
+      const saveData = await save.json().catch(() => ({}));
 
       if (!save.ok) {
         setMessage(saveData.error || "Unable to save tracking.");
@@ -113,7 +113,7 @@ export default function TrackingForm({
         }),
       });
 
-      const shipData = await ship.json();
+      const shipData = await ship.json().catch(() => ({}));
 
       if (!ship.ok) {
         setMessage(shipData.error || "Unable to mark shipped.");
@@ -126,7 +126,7 @@ export default function TrackingForm({
         window.location.reload();
       }, 800);
     } catch (err: any) {
-      setMessage(err.message);
+      setMessage(err?.message || "Unable to mark shipped.");
     } finally {
       setShipping(false);
     }

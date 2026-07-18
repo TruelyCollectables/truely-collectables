@@ -22,7 +22,7 @@ export default function ReconciliationActions({
       const response = await fetch("/api/admin/financial-reconciliation", {
         method: "POST",
       });
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "Reconciliation failed");
       setMessage({ tone: "success", text: "Reconciliation completed." });
       router.refresh();
@@ -49,7 +49,7 @@ export default function ReconciliationActions({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ itemId, status, resolutionNote }),
       });
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "Could not update alert");
       setMessage({
         tone: "success",

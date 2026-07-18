@@ -33,6 +33,7 @@ for (const filePath of walk(adminRoot)) {
   const source = readFileSync(filePath, "utf8");
   const relativePath = path.relative(process.cwd(), filePath);
   const alertPattern = /\b(?:window\.)?alert\s*\(/g;
+  const unsafeJsonPattern = /await\s+[\w$.]+\s*\.json\(\)(?!\.catch)/g;
   const buttonPattern = /<button\b[\s\S]*?>/g;
   let match;
 
@@ -42,6 +43,15 @@ for (const filePath of walk(adminRoot)) {
       line: lineForOffset(source, match.index),
       message:
         "Admin actions must render inline success/error state instead of using alert().",
+    });
+  }
+
+  while ((match = unsafeJsonPattern.exec(source))) {
+    violations.push({
+      file: relativePath,
+      line: lineForOffset(source, match.index),
+      message:
+        "Admin fetch handlers must parse JSON with .catch(() => ({})) so non-JSON failures still show inline feedback.",
     });
   }
 
