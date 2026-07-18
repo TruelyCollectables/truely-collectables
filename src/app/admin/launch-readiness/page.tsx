@@ -403,7 +403,7 @@ async function checkDatabaseReadiness(): Promise<ReadinessItem[]> {
       readyDetail: "store_settings is available for per-store operations.",
     },
     {
-      label: "Inventory V2 Tables",
+      label: "Inventory Tables",
       table: "inventory_items",
       select: "id,store_id,legacy_product_id,sku,title,status,quantity,price",
       migration: "20260628114000_create_inventory_tables.sql",

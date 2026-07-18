@@ -703,7 +703,7 @@ export default async function AdminDashboard() {
     {
       href: "/admin/inventory",
       icon: "🏒",
-      title: "Inventory V2",
+      title: "Inventory Control",
       detail: "Stock and marketplace truth",
       accent: "from-sky-100 to-white",
     },
@@ -1051,7 +1051,7 @@ export default async function AdminDashboard() {
             />
             <BaseCommandButton href={adminHref("/admin/orders")} label="Orders" />
             <BaseCommandButton href={adminHref("/admin/offers")} label="Offers" />
-            <BaseCommandButton href={adminHref("/admin/inventory")} label="Inventory V2" />
+            <BaseCommandButton href={adminHref("/admin/inventory")} label="Inventory Control" />
             <BaseCommandButton
               href={adminHref("/admin/ebay/inventory-intake")}
               label="eBay Intake"
@@ -1889,7 +1889,7 @@ export default async function AdminDashboard() {
               <h2 className="text-xl font-black">Command Links</h2>
               <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
                 <BaseLinkButton href={adminHref("/admin/products")} label="Products" />
-                <BaseLinkButton href={adminHref("/admin/inventory")} label="Inventory V2" />
+                <BaseLinkButton href={adminHref("/admin/inventory")} label="Inventory Control" />
                 <BaseLinkButton href={adminHref("/admin/ebay")} label="eBay" />
                 <BaseLinkButton href={adminHref("/admin/settings")} label="Settings" />
                 <BaseLinkButton href={adminHref("/admin/security")} label="Security" />

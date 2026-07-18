@@ -42,7 +42,7 @@ export default async function EbayImportRunnerPage() {
 
           <div className="flex flex-wrap gap-2">
             <CommandLink href="/admin/ebay" label="eBay Health" />
-            <CommandLink href="/admin/inventory" label="Inventory V2" />
+            <CommandLink href="/admin/inventory" label="Inventory Control" />
             <CommandLink href="/admin/inventory/category-review" label="Category Review" />
           </div>
         </div>

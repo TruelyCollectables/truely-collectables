@@ -105,8 +105,8 @@ export default async function AdminEbayPage({
 
           <div className="flex flex-wrap gap-2">
             <CommandLink href="/admin" label="Command Center" />
-            <CommandLink href="/admin/ebay/inventory-intake" label="Simple Inventory" primary />
-            <CommandLink href="/admin/inventory" label="Inventory V2" />
+            <CommandLink href="/admin/ebay/inventory-intake" label="Inventory Intake" primary />
+            <CommandLink href="/admin/inventory" label="Inventory Control" />
             <CommandLink href="/admin/inventory/category-review" label="Category Review" />
             <CommandLink href="/admin/ebay/sync-control" label="Sync Control" primary />
             <CommandLink href="/admin/settings" label="Settings" />

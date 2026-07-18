@@ -542,7 +542,7 @@ export default function EbayDuplicateFinderClient() {
                               {row.ebayItemId || "missing"}
                             </p>
                             <p className="mt-1 text-xs font-bold text-neutral-600">
-                              {money(row.price)} · Qty {row.quantity} · V2{" "}
+                              {money(row.price)} · Qty {row.quantity} · Inventory{" "}
                               {row.inventoryStatus}
                             </p>
                             <p className="mt-1 text-xs text-neutral-500">

@@ -914,7 +914,7 @@ export default function EbayInventoryIntakeClient({
                         {rowStatus(row)}
                       </span>
                       <p className="mt-2 text-xs text-neutral-500">
-                        V2: {row.inventoryStatus}
+                        Inventory: {row.inventoryStatus}
                       </p>
                     </td>
                     <td className="px-4 py-4">

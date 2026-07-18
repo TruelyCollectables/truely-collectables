@@ -3,6 +3,7 @@ import { spawnSync } from "node:child_process";
 const checks = [
   "check:admin-controls",
   "check:admin-routes",
+  "check:admin-copy",
   "simulate:admin-login",
   "simulate:admin-dashboard-actions",
   "simulate:admin-product-bulk",

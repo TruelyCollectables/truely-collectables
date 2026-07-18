@@ -144,6 +144,7 @@
     "smoke:production": "node scripts/smoke-production.mjs",
     "launch:production": "npm run verify:production && npm run deploy:production && npm run smoke:production",
     "lint": "eslint",
+    "check:admin-copy": "node scripts/check-admin-copy.mjs",
     "check:admin-controls": "node scripts/check-admin-controls.mjs",
     "check:admin-routes": "node scripts/check-admin-routes.mjs"
   },

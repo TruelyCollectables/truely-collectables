@@ -86,11 +86,11 @@ export default async function AdminInventoryPage({
               Universal Inventory Engine
             </p>
             <h1 className="mt-2 text-4xl font-black tracking-tight">
-              Inventory V2 Bridge
+              Inventory Bridge
             </h1>
             <p className="mt-2 max-w-3xl text-sm text-neutral-300">
               Store-scoped reconciliation between legacy storefront products and
-              TCOS V2 inventory records.
+              TCOS inventory records.
             </p>
           </div>
 
@@ -118,7 +118,7 @@ export default async function AdminInventoryPage({
                 className="rounded-md bg-amber-300 px-4 py-2 text-sm font-black text-neutral-950 hover:bg-amber-200"
                 pendingChildren="Backfilling..."
               >
-                Backfill V2 Inventory
+                Backfill Inventory Bridge
               </AdminSubmitButton>
             </form>
           </div>
@@ -139,7 +139,7 @@ export default async function AdminInventoryPage({
 
         <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
           <Metric label="Legacy Products" value={String(status.totalProducts)} />
-          <Metric label="V2 Bridged" value={String(status.bridgedItems)} />
+          <Metric label="Inventory Bridged" value={String(status.bridgedItems)} />
           <Metric label="Needs Backfill" value={String(status.missingInventoryItems)} />
           <Metric label="Needs Review" value={String(attentionRows.length)} />
         </section>
@@ -176,7 +176,7 @@ export default async function AdminInventoryPage({
                   <th className="px-4 py-3">SKU / eBay</th>
                   <th className="px-4 py-3">Quantity</th>
                   <th className="px-4 py-3">Price</th>
-                  <th className="px-4 py-3">V2 Item</th>
+                  <th className="px-4 py-3">Inventory Item</th>
                   <th className="px-4 py-3">Status</th>
                   <th className="px-4 py-3">Action</th>
                 </tr>
@@ -206,13 +206,13 @@ export default async function AdminInventoryPage({
                       <td className="px-4 py-4">
                         <p>Product: {row.productQuantity}</p>
                         <p className="mt-1 text-xs text-neutral-500">
-                          V2: {row.inventoryQuantity ?? "missing"}
+                          Inventory: {row.inventoryQuantity ?? "missing"}
                         </p>
                       </td>
                       <td className="px-4 py-4">
                         <p>Product: {money(row.productPrice)}</p>
                         <p className="mt-1 text-xs text-neutral-500">
-                          V2: {money(row.inventoryPrice)}
+                          Inventory: {money(row.inventoryPrice)}
                         </p>
                       </td>
                       <td className="px-4 py-4">

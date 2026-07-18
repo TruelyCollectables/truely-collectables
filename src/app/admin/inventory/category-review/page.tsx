@@ -199,7 +199,7 @@ export default async function CategoryReviewPage() {
 
           <div className="flex flex-wrap gap-2">
             <CommandLink href="/admin" label="Command Center" />
-            <CommandLink href="/admin/inventory" label="Inventory V2" />
+            <CommandLink href="/admin/inventory" label="Inventory Control" />
             <CommandLink href="/admin/ebay" label="eBay Sync" />
             <CommandLink href="/admin/products" label="Products" />
           </div>
@@ -250,7 +250,7 @@ export default async function CategoryReviewPage() {
                   <tr>
                     <td className="px-4 py-6 text-neutral-600" colSpan={6}>
                       No imported category attributes found yet. Run an eBay
-                      import after the V2 inventory migrations are applied.
+                      import after the inventory migrations are applied.
                     </td>
                   </tr>
                 ) : (
@@ -272,7 +272,7 @@ export default async function CategoryReviewPage() {
                             {row.inventory.quantity} | {money(row.inventory.price)}
                           </p>
                           <p className="mt-1 text-xs text-neutral-500">
-                            V2 {row.inventory.id}
+                            Inventory {row.inventory.id}
                           </p>
                         </td>
                         <td className="px-4 py-4">

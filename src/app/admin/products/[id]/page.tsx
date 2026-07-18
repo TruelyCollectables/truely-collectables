@@ -292,7 +292,7 @@ export default async function AdminProductEditPage({
           </h1>
           <p className="mt-3 text-sm font-semibold text-neutral-600">
             Product #{product.legacyProductId} · {product.source} ·{" "}
-            {product.inventoryItemId ? "V2 linked" : "V2 item pending"}
+            {product.inventoryItemId ? "Inventory linked" : "Inventory item pending"}
           </p>
         </div>
 
@@ -594,7 +594,7 @@ export default async function AdminProductEditPage({
                 value={product.sellerAccountId || "Store inventory"}
               />
               <SideFact
-                label="V2 item"
+                label="Inventory item"
                 value={product.inventoryItemId || "Not created yet"}
               />
               <SideFact
