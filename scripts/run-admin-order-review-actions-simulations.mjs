@@ -16,6 +16,10 @@ const sources = {
     ),
     "utf8",
   ),
+  orderDetailPage: await readFile(
+    new URL("../src/app/admin/orders/[id]/page.tsx", import.meta.url),
+    "utf8",
+  ),
 };
 
 const scenarios = [];
@@ -130,6 +134,98 @@ scenario("order detail case opener exposes typed live feedback", () => {
     assert(
       sources.orderDetailReview.includes(fragment),
       `Expected order detail case opener feedback fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("order detail page keeps linked order records failure-safe", () => {
+  for (const fragment of [
+    "function safeErrorMessage",
+    "function UnavailableNotice",
+    "const evidenceUnavailable = Boolean(evidenceError)",
+    "const payoutLedgerUnavailable = Boolean(payoutLedgerError)",
+    "const platformFeeLedgerUnavailable = Boolean(platformFeeLedgerError)",
+    "const shippingLabelsUnavailable = Boolean(shippingLabelsError)",
+    "const shippingTrackingEventsUnavailable = Boolean(",
+    "const shippingCoverageClaimsUnavailable = Boolean(shippingCoverageClaimsError)",
+    "Platform fee ledger unavailable.",
+    "Seller payout ledger unavailable.",
+    "Shipping label records unavailable.",
+    "Tracking event history unavailable.",
+    "Coverage claim history unavailable.",
+    "Evidence packet history unavailable.",
+    "safeErrorMessage(error)",
+    "safeErrorMessage(orderReviewCasesError)",
+    "safeErrorMessage(orderReviewCaseEventsError)",
+    "error={platformFeeLedgerError}",
+    "error={payoutLedgerError}",
+    "error={shippingLabelsError}",
+    "error={shippingTrackingEventsError}",
+    "error={shippingCoverageClaimsError}",
+    "error={evidenceError}",
+    "cannot prove whether TCOS checkout fee rows exist",
+    "do not release funds or treat this seller queue as clear",
+    "cannot prove whether a label record",
+    "delivery scans, provider events, and LetterTrack evidence cannot be trusted",
+    "claim status cannot be trusted",
+    "chargeback packets and delivery proof cannot be treated as missing",
+  ]) {
+    assert(
+      sources.orderDetailPage.includes(fragment),
+      `Expected order detail unavailable-state fragment ${fragment}.`,
+    );
+  }
+
+  for (const forbidden of [
+    "{payoutLedgerError.message}",
+    "{shippingLabelsError.message}",
+    "{shippingTrackingEventsError.message}",
+    "{shippingCoverageClaimsError.message}",
+    "{evidenceError.message}",
+    "tableError={orderReviewCasesError?.message || null}",
+    "eventsError={orderReviewCaseEventsError?.message || null}",
+  ]) {
+    assert(
+      !sources.orderDetailPage.includes(forbidden),
+      `Order detail page must not render raw error fragment ${forbidden}.`,
+    );
+  }
+
+  for (const [unavailable, empty, label] of [
+    [
+      "Seller payout ledger unavailable.",
+      "No seller payout ledger entries have been created for this order yet.",
+      "seller payout ledger",
+    ],
+    [
+      "Shipping label records unavailable.",
+      "No label record has been prepared yet.",
+      "shipping labels",
+    ],
+    [
+      "Tracking event history unavailable.",
+      "No tracking events have been recorded yet.",
+      "tracking events",
+    ],
+    [
+      "Coverage claim history unavailable.",
+      "No loss/damage coverage claims have been opened.",
+      "coverage claims",
+    ],
+    [
+      "Evidence packet history unavailable.",
+      "No evidence packet has been created for this order yet.",
+      "evidence packets",
+    ],
+  ]) {
+    const unavailableIndex = sources.orderDetailPage.indexOf(unavailable);
+    const emptyIndex = sources.orderDetailPage.indexOf(empty, unavailableIndex);
+
+    assert(unavailableIndex >= 0, `Expected ${label} unavailable state.`);
+    assert(emptyIndex >= 0, `Expected ${label} empty state.`);
+    assert(
+      unavailableIndex < emptyIndex,
+      `Expected ${label} unavailable state to render before its empty state.`,
     );
   }
 });

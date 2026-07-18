@@ -201,6 +201,15 @@ function dateLabel(value: string | null | undefined) {
   return value ? new Date(value).toLocaleString() : "Not saved";
 }
 
+function safeErrorMessage(error: { message?: string } | string | null | undefined) {
+  const message =
+    typeof error === "string"
+      ? error
+      : error?.message || "Unknown database error.";
+
+  return String(message).replace(/\s+/g, " ").trim().slice(0, 220);
+}
+
 function OrderMetric({
   label: metricLabel,
   tone = "border-neutral-200 bg-white text-neutral-950",
@@ -276,6 +285,35 @@ function InfoTile({
       <dd className="mt-1 break-words text-sm font-bold text-neutral-950">
         {value}
       </dd>
+    </div>
+  );
+}
+
+function UnavailableNotice({
+  title,
+  detail,
+  error,
+  tone = "amber",
+}: {
+  title: string;
+  detail: string;
+  error?: { message?: string } | string | null;
+  tone?: "amber" | "red";
+}) {
+  const styles =
+    tone === "red"
+      ? "border-red-200 bg-red-50 text-red-950"
+      : "border-amber-200 bg-amber-50 text-amber-950";
+
+  return (
+    <div className={`rounded-2xl border p-4 text-sm ${styles}`}>
+      <p className="font-black">{title}</p>
+      <p className="mt-1 font-semibold leading-6">{detail}</p>
+      {error ? (
+        <p className="mt-2 rounded-xl border border-current/20 bg-white/60 px-3 py-2 text-xs font-bold">
+          Diagnostic: {safeErrorMessage(error)}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -422,7 +460,9 @@ export default async function AdminOrderDetailPage({
           </p>
           <h1 className="mt-2 text-3xl font-black">Order not found</h1>
           <p className="mt-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-950">
-            {error?.message || "This order no longer exists in the active store."}
+            {error
+              ? safeErrorMessage(error)
+              : "This order no longer exists in the active store."}
           </p>
           <Link
             href="/admin/orders"
@@ -555,7 +595,8 @@ export default async function AdminOrderDetailPage({
     (sum, entry) => sum + Number(entry.platform_fee_amount || 0),
     0,
   );
-  const { data: platformFeeLedgerEntries } = await supabase
+  const { data: platformFeeLedgerEntries, error: platformFeeLedgerError } =
+    await supabase
     .from("platform_fee_ledger_entries")
     .select(
       `
@@ -574,8 +615,9 @@ export default async function AdminOrderDetailPage({
     .eq("order_id", typedOrder.id)
     .eq("store_id", storeId)
     .order("created_at", { ascending: true });
-  const platformFeeLedger =
-    (platformFeeLedgerEntries || []) as PlatformFeeLedgerEntry[];
+  const platformFeeLedger = platformFeeLedgerError
+    ? []
+    : ((platformFeeLedgerEntries || []) as PlatformFeeLedgerEntry[]);
   const allSiteRakeTotal = platformFeeLedger.reduce(
     (sum, entry) => sum + Number(entry.platform_fee_amount || 0),
     0,
@@ -681,6 +723,14 @@ export default async function AdminOrderDetailPage({
   const shippingCoverageClaims = shippingCoverageClaimsError
     ? []
     : ((shippingCoverageClaimsData || []) as ShippingCoverageClaim[]);
+  const evidenceUnavailable = Boolean(evidenceError);
+  const payoutLedgerUnavailable = Boolean(payoutLedgerError);
+  const platformFeeLedgerUnavailable = Boolean(platformFeeLedgerError);
+  const shippingLabelsUnavailable = Boolean(shippingLabelsError);
+  const shippingTrackingEventsUnavailable = Boolean(
+    shippingTrackingEventsError,
+  );
+  const shippingCoverageClaimsUnavailable = Boolean(shippingCoverageClaimsError);
 
   const itemsTotal =
     typedOrder.order_items?.reduce(
@@ -785,7 +835,19 @@ export default async function AdminOrderDetailPage({
         <OrderMetric label="Total paid" value={money(totalPaid)} />
       </section>
 
-      {platformFeeLedger.length > 0 ? (
+      {platformFeeLedgerUnavailable ? (
+        <AdminSection
+          eyebrow="Platform revenue"
+          title="Dag Danky Holdings LLC Rake"
+          detail="Calculated from this TCOS website checkout order only, using each order item plus allocated buyer-paid shipping."
+        >
+          <UnavailableNotice
+            title="Platform fee ledger unavailable."
+            detail="Platform fee storage did not load for this order, so this cockpit cannot prove whether TCOS checkout fee rows exist or whether the rake total is complete."
+            error={platformFeeLedgerError}
+          />
+        </AdminSection>
+      ) : platformFeeLedger.length > 0 ? (
         <AdminSection
           eyebrow="Platform revenue"
           title="Dag Danky Holdings LLC Rake"
@@ -854,10 +916,13 @@ export default async function AdminOrderDetailPage({
           title="Seller Payout Ledger"
           detail="Seller-payable amounts, platform rake, and payout state for every seller-owned row in this order."
         >
-          {payoutLedgerError ? (
-            <p className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-black text-red-950">
-              Payout ledger unavailable: {payoutLedgerError.message}
-            </p>
+          {payoutLedgerUnavailable ? (
+            <UnavailableNotice
+              title="Seller payout ledger unavailable."
+              detail="Seller payout ledger storage did not load for this order, so do not release funds or treat this seller queue as clear until the ledger source is repaired."
+              error={payoutLedgerError}
+              tone="red"
+            />
           ) : sellerPayoutLedger.length === 0 ? (
             <p className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4 text-sm font-semibold text-neutral-600">
               No seller payout ledger entries have been created for this order yet.
@@ -933,9 +998,15 @@ export default async function AdminOrderDetailPage({
         cases={orderReviewCases}
         sellerOptions={sellerOptions}
         payoutRows={sellerPayoutLedger}
-        tableError={orderReviewCasesError?.message || null}
+        tableError={
+          orderReviewCasesError ? safeErrorMessage(orderReviewCasesError) : null
+        }
         caseEvents={orderReviewCaseEvents}
-        eventsError={orderReviewCaseEventsError?.message || null}
+        eventsError={
+          orderReviewCaseEventsError
+            ? safeErrorMessage(orderReviewCaseEventsError)
+            : null
+        }
       />
 
       <AdminSection
@@ -1114,10 +1185,13 @@ export default async function AdminOrderDetailPage({
           </div>
         ) : null}
 
-        {shippingLabelsError ? (
-          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-950">
-            Shipping label tables are not available yet:{" "}
-            {shippingLabelsError.message}
+        {shippingLabelsUnavailable ? (
+          <div className="mt-4">
+            <UnavailableNotice
+              title="Shipping label records unavailable."
+              detail="Shipping label storage did not load for this order, so this cockpit cannot prove whether a label record, provider purchase, tracking number, or coverage policy exists."
+              error={shippingLabelsError}
+            />
           </div>
         ) : null}
 
@@ -1145,13 +1219,13 @@ export default async function AdminOrderDetailPage({
           ))}
         </div>
 
-        {!shippingLabelsError && shippingLabels.length === 0 ? (
+        {!shippingLabelsUnavailable && shippingLabels.length === 0 ? (
           <div className="mt-4 rounded-2xl border border-neutral-200 bg-neutral-50 p-4 text-sm font-semibold text-neutral-700">
             No label record has been prepared yet. Preparing one does not buy a
             live label; it creates the TCOS audit record that the provider
             adapter will later purchase against.
           </div>
-        ) : !shippingLabelsError ? (
+        ) : !shippingLabelsUnavailable ? (
           <div className="mt-4 space-y-4">
             {shippingLabels.map((shippingLabel) => {
               const policyNote = standardEnvelopePolicyNote(shippingLabel);
@@ -1316,11 +1390,14 @@ export default async function AdminOrderDetailPage({
         <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-2">
           <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4">
             <h3 className="font-black">Tracking Events</h3>
-            {shippingTrackingEventsError ? (
-              <p className="mt-2 text-sm font-semibold text-amber-700">
-                Tracking event table unavailable:{" "}
-                {shippingTrackingEventsError.message}
-              </p>
+            {shippingTrackingEventsUnavailable ? (
+              <div className="mt-3">
+                <UnavailableNotice
+                  title="Tracking event history unavailable."
+                  detail="Tracking event storage did not load for this order, so delivery scans, provider events, and LetterTrack evidence cannot be trusted yet."
+                  error={shippingTrackingEventsError}
+                />
+              </div>
             ) : shippingTrackingEvents.length === 0 ? (
               <p className="mt-2 text-sm text-gray-600">
                 No tracking events have been recorded yet.
@@ -1347,11 +1424,14 @@ export default async function AdminOrderDetailPage({
 
           <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4">
             <h3 className="font-black">Coverage Claims</h3>
-            {shippingCoverageClaimsError ? (
-              <p className="mt-2 text-sm font-semibold text-amber-700">
-                Coverage claim table unavailable:{" "}
-                {shippingCoverageClaimsError.message}
-              </p>
+            {shippingCoverageClaimsUnavailable ? (
+              <div className="mt-3">
+                <UnavailableNotice
+                  title="Coverage claim history unavailable."
+                  detail="Coverage claim storage did not load for this order, so loss, damage, or seller-protection claim status cannot be trusted yet."
+                  error={shippingCoverageClaimsError}
+                />
+              </div>
             ) : shippingCoverageClaims.length === 0 ? (
               <p className="mt-2 text-sm text-gray-600">
                 No loss/damage coverage claims have been opened.
@@ -1451,10 +1531,15 @@ export default async function AdminOrderDetailPage({
               Evidence Packet
             </h3>
 
-            {evidenceError ? (
-              <p className="mt-3 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-black text-red-950">
-                Evidence table unavailable: {evidenceError.message}
-              </p>
+            {evidenceUnavailable ? (
+              <div className="mt-3">
+                <UnavailableNotice
+                  title="Evidence packet history unavailable."
+                  detail="Evidence storage did not load for this order, so chargeback packets and delivery proof cannot be treated as missing or complete yet."
+                  error={evidenceError}
+                  tone="red"
+                />
+              </div>
             ) : latestEvidence ? (
               <div className="mt-3">
                 <dl className="grid gap-3">
