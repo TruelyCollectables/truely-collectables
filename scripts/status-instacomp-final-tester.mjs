@@ -1006,8 +1006,10 @@ const checklist = [
       ? trialManifestAudit.readyToScore
         ? "ready_to_score"
         : "needs_groundtruth"
-      : trialImageAudit.readyToScan
+      : trialPreflight.readyToScan
         ? "ready_to_scan"
+        : trialPreflight.available
+          ? "scan_permit_blocked"
         : "needs_local_trial_files",
   },
   {

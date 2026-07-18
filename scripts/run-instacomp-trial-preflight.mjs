@@ -214,13 +214,23 @@ function compactImageProblems(imageAudit) {
   };
 }
 
-function buildScanPermit({ readyToScan, blockers, manifestAudit, imageAudit, imageMap, intakePacket }) {
+function buildScanPermit({
+  readyToScan,
+  blockers,
+  manifestAudit,
+  imageAudit,
+  imageMap,
+  intakePacket,
+  finalImageStatus,
+}) {
   const groundTruthRows = manifestAudit?.observed?.readyRows ?? 0;
-  const expectedCards = manifestAudit?.expected?.cards ?? null;
-  const imagePairs = imageAudit?.observed?.completePairs ?? 0;
-  const expectedImagePairs = imageAudit?.expected?.cards ?? expectedCards;
-  const imageFiles = imageAudit?.observed?.parsedImageFiles ?? 0;
-  const expectedImages = imageAudit?.expected?.images ?? null;
+  const expectedCards = finalImageStatus?.expectedCards ?? manifestAudit?.expected?.cards ?? null;
+  const imagePairs = finalImageStatus?.completePairs ?? imageAudit?.observed?.completePairs ?? 0;
+  const expectedImagePairs =
+    finalImageStatus?.expectedCards ?? imageAudit?.expected?.cards ?? expectedCards;
+  const imageFiles =
+    finalImageStatus?.parsedImageFiles ?? imageAudit?.observed?.parsedImageFiles ?? 0;
+  const expectedImages = finalImageStatus?.expectedImages ?? imageAudit?.expected?.images ?? null;
   const requiredBeforeScan = blockers.map((blocker) => ({
     key: blocker.key,
     action: blocker.next,
@@ -250,10 +260,16 @@ function buildScanPermit({ readyToScan, blockers, manifestAudit, imageAudit, ima
   };
 }
 
-function buildOperatorNextActions({ manifestAudit, imageAudit, imageMap, intakePacket, readyToScan }) {
+function buildOperatorNextActions({
+  manifestAudit,
+  imageMap,
+  intakePacket,
+  readyToScan,
+  finalImageStatus,
+}) {
   const actions = [];
   const groundTruthReady = Boolean(manifestAudit?.readyToScore);
-  const imagesReady = Boolean(imageAudit?.readyToScan);
+  const imagesReady = Boolean(finalImageStatus?.readyForFinalTrialImages);
   const imageMapCurrent = Boolean(imageMap.matchesCurrentAudit);
   const intakePacketCurrent = Boolean(intakePacket.matchesCurrentAudit);
 
@@ -279,11 +295,16 @@ function buildOperatorNextActions({ manifestAudit, imageAudit, imageMap, intakeP
   }
 
   if (!imagesReady) {
+    const missingImageFiles = Math.max(0, Number(finalImageStatus?.missingImageFiles || 0));
+    const missingPairs = Math.max(0, Number(finalImageStatus?.missingPairs || 0));
     actions.push({
       key: "load_or_fix_images",
       type: "manual",
-      command: "copy/fix about 200 front-back scanner images in instacomp-trial-inbox, then run npm run instacomp:trial:intake",
-      why: "The final trial needs complete front/back pairs before scanner time is spent.",
+      command:
+        missingImageFiles > 0 || missingPairs > 0
+          ? `copy the missing ${missingImageFiles} image file(s) / ${missingPairs} card pair(s) into instacomp-trial-inbox, then run npm run instacomp:trial:intake`
+          : "copy/fix about 200 front-back scanner images in instacomp-trial-inbox, then run npm run instacomp:trial:intake",
+      why: "The 100-card final trial needs all 200 front/back images before scanner time is spent.",
     });
   }
 
@@ -351,6 +372,30 @@ function buildPreflight() {
   const imageAudit = imageRun.report;
   const imageMap = readImageMapStatus(imageAudit, imageMapPath);
   const intakePacket = readIntakePacketStatus(imageAudit, imageMap, intakePacketPath);
+  const parsedExpectedCards = Number.parseInt(expectedCards, 10);
+  const manifestExpectedCards = Number(manifestAudit?.expected?.cards);
+  const expectedCardsCount =
+    Number.isFinite(manifestExpectedCards) && manifestExpectedCards > 0
+      ? manifestExpectedCards
+      : Number.isFinite(parsedExpectedCards) && parsedExpectedCards > 0
+        ? parsedExpectedCards
+        : 100;
+  const expectedImagesCount = expectedCardsCount * 2;
+  const parsedImageFiles = imageAudit?.observed?.parsedImageFiles ?? 0;
+  const completePairs = imageAudit?.observed?.completePairs ?? 0;
+  const finalImageStatus = {
+    readyForCurrentAudit: Boolean(imageAudit?.readyToScan),
+    readyForFinalTrialImages:
+      Boolean(imageAudit?.readyToScan) &&
+      parsedImageFiles >= expectedImagesCount &&
+      completePairs >= expectedCardsCount,
+    expectedCards: expectedCardsCount,
+    expectedImages: expectedImagesCount,
+    parsedImageFiles,
+    completePairs,
+    missingImageFiles: Math.max(0, expectedImagesCount - parsedImageFiles),
+    missingPairs: Math.max(0, expectedCardsCount - completePairs),
+  };
 
   const blockers = [];
   if (!manifestRun.ok) {
@@ -374,12 +419,14 @@ function buildPreflight() {
       label: "Image audit did not return parseable JSON.",
       next: imageRun.stderr || "Run npm run instacomp:trial:audit directly.",
     });
-  } else if (!imageAudit.readyToScan) {
+  } else if (!finalImageStatus.readyForFinalTrialImages) {
     blockers.push({
       key: "images_not_ready",
       label: "The 100-card / 200-image folder is not ready.",
       next:
-        "Copy or fix the trial images in instacomp-trial-images/, then rerun npm run instacomp:trial:packet.",
+        finalImageStatus.missingImageFiles > 0 || finalImageStatus.missingPairs > 0
+          ? `Copy the missing ${finalImageStatus.missingImageFiles} image file(s) / ${finalImageStatus.missingPairs} card pair(s) into instacomp-trial-inbox, then run npm run instacomp:trial:intake.`
+          : "Copy or fix the trial images in instacomp-trial-images/, then rerun npm run instacomp:trial:packet.",
     });
   }
 
@@ -407,13 +454,14 @@ function buildPreflight() {
     imageAudit,
     imageMap,
     intakePacket,
+    finalImageStatus,
   });
   const operatorNextActions = buildOperatorNextActions({
     manifestAudit,
-    imageAudit,
     imageMap,
     intakePacket,
     readyToScan,
+    finalImageStatus,
   });
 
   return {
@@ -435,11 +483,14 @@ function buildPreflight() {
     },
     imageAudit: {
       ok: imageRun.ok,
-      readyToScan: Boolean(imageAudit?.readyToScan),
-      expectedCards: imageAudit?.expected?.cards ?? null,
-      expectedImages: imageAudit?.expected?.images ?? null,
-      parsedImageFiles: imageAudit?.observed?.parsedImageFiles ?? null,
-      completePairs: imageAudit?.observed?.completePairs ?? null,
+      readyToScan: Boolean(finalImageStatus.readyForFinalTrialImages),
+      readyForCurrentAudit: Boolean(finalImageStatus.readyForCurrentAudit),
+      expectedCards: finalImageStatus.expectedCards,
+      expectedImages: finalImageStatus.expectedImages,
+      parsedImageFiles: finalImageStatus.parsedImageFiles,
+      completePairs: finalImageStatus.completePairs,
+      missingImageFiles: finalImageStatus.missingImageFiles,
+      missingPairs: finalImageStatus.missingPairs,
       orderedPairCandidateFiles: imageAudit?.observed?.orderedPairCandidateFiles ?? null,
       orderedPairCompletePairs: imageAudit?.observed?.orderedPairCompletePairs ?? null,
       problems: compactImageProblems(imageAudit),
