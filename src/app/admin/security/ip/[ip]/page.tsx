@@ -99,6 +99,7 @@ type SecurityIpInvestigation = {
 
 const INVESTIGATION_STATUSES = ["watch", "review", "resolved"] as const;
 const INVESTIGATION_SEVERITIES = ["low", "medium", "high", "critical"] as const;
+const MAX_INVESTIGATION_NOTES_LENGTH = 5000;
 
 async function saveIpInvestigation(formData: FormData) {
   "use server";
@@ -106,7 +107,8 @@ async function saveIpInvestigation(formData: FormData) {
   const ipAddress = String(formData.get("ip_address") || "").trim();
   const status = String(formData.get("status") || "watch").trim();
   const severity = String(formData.get("severity") || "medium").trim();
-  const notes = String(formData.get("notes") || "").trim();
+  const rawNotes = String(formData.get("notes") || "");
+  const notes = rawNotes.trim();
 
   if (!ipAddress) {
     redirect("/admin/security?case=missing-ip");
@@ -121,23 +123,37 @@ async function saveIpInvestigation(formData: FormData) {
     redirect(`/admin/security/ip/${encodeURIComponent(ipAddress)}?case=invalid`);
   }
 
+  if (rawNotes.length > MAX_INVESTIGATION_NOTES_LENGTH) {
+    redirect(`/admin/security/ip/${encodeURIComponent(ipAddress)}?case=notes-too-long`);
+  }
+
   const now = new Date().toISOString();
 
-  await supabase.from("security_ip_investigations").upsert(
-    {
-      store_id: getActiveStoreId(),
-      ip_address: ipAddress,
-      status,
-      severity,
-      notes: notes || null,
-      updated_at: now,
-      last_reviewed_at: now,
-      resolved_at: status === "resolved" ? now : null,
-    },
-    {
-      onConflict: "store_id,ip_address",
-    },
-  );
+  const { error: investigationSaveError } = await supabase
+    .from("security_ip_investigations")
+    .upsert(
+      {
+        store_id: getActiveStoreId(),
+        ip_address: ipAddress,
+        status,
+        severity,
+        notes: notes || null,
+        updated_at: now,
+        last_reviewed_at: now,
+        resolved_at: status === "resolved" ? now : null,
+      },
+      {
+        onConflict: "store_id,ip_address",
+      },
+    );
+
+  if (investigationSaveError) {
+    console.error(
+      "Security IP investigation save failed:",
+      investigationSaveError.message,
+    );
+    redirect(`/admin/security/ip/${encodeURIComponent(ipAddress)}?case=save-error`);
+  }
 
   redirect(`/admin/security/ip/${encodeURIComponent(ipAddress)}?case=saved`);
 }
@@ -221,6 +237,7 @@ function investigationCaseNotice(caseValue: string | string[] | undefined) {
       title: "Investigation saved",
       body: "Status, severity, notes, and last-reviewed time were updated for this IP.",
       className: "border-emerald-200 bg-emerald-50 text-emerald-800",
+      tone: "success",
     };
   }
 
@@ -229,6 +246,25 @@ function investigationCaseNotice(caseValue: string | string[] | undefined) {
       title: "Investigation was not saved",
       body: "Use a supported status and severity, then save the investigation again.",
       className: "border-rose-200 bg-rose-50 text-rose-800",
+      tone: "error",
+    };
+  }
+
+  if (value === "notes-too-long") {
+    return {
+      title: "Investigation was not saved",
+      body: "Internal notes must stay under 5,000 characters. Shorten the note and save again.",
+      className: "border-rose-200 bg-rose-50 text-rose-800",
+      tone: "error",
+    };
+  }
+
+  if (value === "save-error") {
+    return {
+      title: "Security case was not saved",
+      body: "The database rejected the investigation update. Nothing was changed; review the error logs and try again.",
+      className: "border-rose-200 bg-rose-50 text-rose-800",
+      tone: "error",
     };
   }
 
@@ -400,7 +436,11 @@ export default async function AdminSecurityIpDetailPage({
 
       <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
         {caseNotice ? (
-          <section className={`rounded-md border px-5 py-4 ${caseNotice.className}`}>
+          <section
+            aria-live={caseNotice.tone === "error" ? "assertive" : "polite"}
+            className={`rounded-md border px-5 py-4 ${caseNotice.className}`}
+            role={caseNotice.tone === "error" ? "alert" : "status"}
+          >
             <h2 className="text-lg font-black">{caseNotice.title}</h2>
             <p className="mt-1 text-sm font-semibold">{caseNotice.body}</p>
           </section>
@@ -545,7 +585,7 @@ export default async function AdminSecurityIpDetailPage({
                   name="notes"
                   defaultValue={investigation?.notes || ""}
                   rows={7}
-                  maxLength={5000}
+                  maxLength={MAX_INVESTIGATION_NOTES_LENGTH}
                   className="w-full rounded border border-neutral-300 px-3 py-2 text-sm"
                   placeholder="Summarize why this IP is being watched, what evidence matters, and what action was taken."
                 />

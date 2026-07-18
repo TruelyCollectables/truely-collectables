@@ -4,6 +4,10 @@ const ipDetailSource = await readFile(
   new URL("../src/app/admin/security/ip/[ip]/page.tsx", import.meta.url),
   "utf8",
 );
+const securityIndexSource = await readFile(
+  new URL("../src/app/admin/security/page.tsx", import.meta.url),
+  "utf8",
+);
 
 const scenarios = [];
 
@@ -32,13 +36,67 @@ scenario("security IP save redirects render inline case notices", () => {
     "investigationCaseNotice",
     "Investigation saved",
     "Investigation was not saved",
+    "Security case was not saved",
+    "save-error",
+    "notes-too-long",
     "resolvedSearchParams.case",
     "caseNotice.title",
     "caseNotice.body",
+    'role={caseNotice.tone === "error" ? "alert" : "status"}',
+    'aria-live={caseNotice.tone === "error" ? "assertive" : "polite"}',
   ]) {
     assert(
       ipDetailSource.includes(fragment),
       `Expected security IP case-notice fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("security IP save does not report success after database failure", () => {
+  for (const fragment of [
+    "const { error: investigationSaveError } = await supabase",
+    "investigationSaveError.message",
+    "?case=save-error",
+  ]) {
+    assert(
+      ipDetailSource.includes(fragment),
+      `Expected security IP save failure fragment ${fragment}.`,
+    );
+  }
+
+  assert(
+    ipDetailSource.indexOf("investigationSaveError") <
+      ipDetailSource.indexOf("?case=saved"),
+    "Expected security IP save to inspect the database error before redirecting as saved.",
+  );
+});
+
+scenario("security IP save validates server-side note length", () => {
+  for (const fragment of [
+    "MAX_INVESTIGATION_NOTES_LENGTH = 5000",
+    "rawNotes.length > MAX_INVESTIGATION_NOTES_LENGTH",
+    "?case=notes-too-long",
+    "maxLength={MAX_INVESTIGATION_NOTES_LENGTH}",
+  ]) {
+    assert(
+      ipDetailSource.includes(fragment),
+      `Expected security IP notes length fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("security center renders missing-IP action feedback", () => {
+  for (const fragment of [
+    "securityCaseNotice",
+    "missing-ip",
+    "Security case was not saved",
+    "resolvedSearchParams.case",
+    'aria-live="assertive"',
+    'role="alert"',
+  ]) {
+    assert(
+      securityIndexSource.includes(fragment),
+      `Expected security center missing-IP notice fragment ${fragment}.`,
     );
   }
 });
