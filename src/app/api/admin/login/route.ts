@@ -114,6 +114,12 @@ async function verifySubmittedAdminPassword(password: string, hostname: string) 
     return true;
   }
 
+  const trimmedPassword = password.trim();
+
+  if (trimmedPassword !== password && (await verifyAdminPassword(trimmedPassword))) {
+    return true;
+  }
+
   return verifyLocalDevelopmentAdminPassword(password, hostname);
 }
 
