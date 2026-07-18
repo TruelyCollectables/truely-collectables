@@ -53,6 +53,7 @@ export async function getMarketIntelReadiness() {
     "tcos_mi_alerts",
     "tcos_mi_report_runs",
     "tcos_mi_growth_specs",
+    "tcos_mi_identity_candidates",
   ] as const;
 
   const results = await Promise.all(
@@ -69,6 +70,7 @@ export async function getMarketIntelReadiness() {
     (table) => !tableResults.get(table)?.error,
   );
   const growthSpecsAccessible = !tableResults.get("tcos_mi_growth_specs")?.error;
+  const discoveryAccessible = !tableResults.get("tcos_mi_identity_candidates")?.error;
 
   const checks: MarketIntelReadinessCheck[] = [
     envCheck(
@@ -93,7 +95,7 @@ export async function getMarketIntelReadiness() {
           process.env.EBAY_CLIENT_SECRET?.trim(),
       ),
       true,
-      "Required for the hourly eBay active-listing scanner.",
+      "Required for exact-card and licensed-card discovery scans.",
     ),
     envCheck(
       "cron-secret",
@@ -145,6 +147,14 @@ export async function getMarketIntelReadiness() {
         ? "Non-base future-upside scenarios can be saved and managed."
         : "Apply the Growth Spec migration before modeling future growers and lots.",
     },
+    {
+      key: "identity-discovery-schema",
+      label: "Licensed-Card Discovery Queue",
+      status: discoveryAccessible ? "pass" : "fail",
+      detail: discoveryAccessible
+        ? "Broad eBay discovery candidates can be stored, reviewed, and converted into exact identities."
+        : "Apply the identity-discovery migration before running broad licensed-card discovery.",
+    },
   ];
 
   const dataChecks: Array<{
@@ -158,6 +168,14 @@ export async function getMarketIntelReadiness() {
       label: "Watchlist Targets",
       emptyDetail: "No players or collectible targets are active yet.",
       populatedDetail: "Watchlist targets are stored in Beta One.",
+    },
+    {
+      table: "tcos_mi_identity_candidates",
+      label: "Discovery Candidates",
+      emptyDetail:
+        "No licensed non-base card candidates have been discovered yet.",
+      populatedDetail:
+        "Broad discovery candidates are waiting for review or have been approved.",
     },
     {
       table: "tcos_mi_collectible_identities",
@@ -229,6 +247,7 @@ export async function getMarketIntelReadiness() {
     coreAccessible,
     alertTablesAccessible,
     growthSpecsAccessible,
+    discoveryAccessible,
     ready: requiredFailures.length === 0,
     requiredFailures: requiredFailures.length,
     warnings: warnings.length,

@@ -56,6 +56,12 @@ export default async function GrowthSpecsLayout({
           </div>
           <div className="flex flex-wrap gap-2">
             <Link
+              href="/admin/market-intel/discovery"
+              className="rounded-md bg-cyan-900 px-4 py-2 text-sm font-black text-white"
+            >
+              Discover Exact Cards
+            </Link>
+            <Link
               href="/admin/market-intel/growth-specs/prospects"
               className="rounded-md bg-fuchsia-800 px-4 py-2 text-sm font-black text-white"
             >

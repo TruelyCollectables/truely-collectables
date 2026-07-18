@@ -6,6 +6,10 @@
       "schedule": "5 * * * *"
     },
     {
+      "path": "/api/cron/market-intel/ebay/discovery-scan?maxSubjects=5&resultsPerQuery=15",
+      "schedule": "8 * * * *"
+    },
+    {
       "path": "/api/cron/market-intel/ebay/growth-scan?maxTargets=25&resultsPerTarget=15&minimumConfidence=80",
       "schedule": "10 * * * *"
     },
