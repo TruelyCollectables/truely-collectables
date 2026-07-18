@@ -15,6 +15,10 @@ const publisherSource = await readFile(
   new URL("../src/app/admin/ebay/publish/EbayPublisher.tsx", import.meta.url),
   "utf8",
 );
+const ebayHealthSource = await readFile(
+  new URL("../src/app/admin/ebay/page.tsx", import.meta.url),
+  "utf8",
+);
 
 const scenarios = [];
 
@@ -104,6 +108,17 @@ scenario("eBay publisher locks uploads and labels listing saves", () => {
       `Expected eBay publisher feedback fragment ${fragment}.`,
     );
   }
+});
+
+scenario("eBay health page labels diagnostic actions for operators", () => {
+  assert(
+    ebayHealthSource.includes('label="Connection Test"'),
+    "Expected eBay diagnostic API link to use operator-grade copy.",
+  );
+  assert(
+    !ebayHealthSource.includes('label="Test Route"'),
+    "Expected eBay health page to avoid raw developer route labels.",
+  );
 });
 
 const failed = [];
