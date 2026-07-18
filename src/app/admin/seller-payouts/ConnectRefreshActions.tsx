@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 export default function ConnectRefreshActions({
   disabled,
@@ -14,8 +14,26 @@ export default function ConnectRefreshActions({
     tone: "success" | "error" | "info";
     text: string;
   } | null>(null);
+  const connectRefreshRunningRef = useRef(false);
 
   async function refreshConnectStatuses() {
+    if (connectRefreshRunningRef.current || loading) {
+      setMessage({
+        tone: "error",
+        text: "Finish the current Stripe Connect refresh first.",
+      });
+      return;
+    }
+
+    if (disabled) {
+      setMessage({
+        tone: "error",
+        text: "Stripe Connect refresh is unavailable until payout accounts load.",
+      });
+      return;
+    }
+
+    connectRefreshRunningRef.current = true;
     setLoading(true);
     setMessage({ tone: "info", text: "Refreshing Stripe Connect statuses..." });
 
@@ -50,6 +68,7 @@ export default function ConnectRefreshActions({
         text: "Could not refresh seller Connect statuses.",
       });
     } finally {
+      connectRefreshRunningRef.current = false;
       setLoading(false);
     }
   }
@@ -59,9 +78,9 @@ export default function ConnectRefreshActions({
       <button
         type="button"
         aria-busy={loading}
-        disabled={disabled || loading}
+        aria-disabled={disabled || loading}
         onClick={refreshConnectStatuses}
-        className="rounded-md border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm font-bold text-neutral-900 hover:bg-white disabled:bg-neutral-100 disabled:text-neutral-400"
+        className="rounded-md border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm font-bold text-neutral-900 hover:bg-white aria-disabled:bg-neutral-100 aria-disabled:text-neutral-400"
       >
         {loading ? "Refreshing..." : "Refresh Stripe Status"}
       </button>

@@ -86,8 +86,12 @@ scenario("payout ledger actions expose specific busy labels", () => {
 
 scenario("connect refresh action exposes accessible busy and live feedback", () => {
   for (const fragment of [
+    "connectRefreshRunningRef",
+    "Finish the current Stripe Connect refresh first.",
+    "Stripe Connect refresh is unavailable until payout accounts load.",
     "Refreshing Stripe Connect statuses...",
     'aria-busy={loading}',
+    "aria-disabled={disabled || loading}",
     'role={tone === "error" ? "alert" : "status"}',
     'aria-live={tone === "info" ? "polite" : "assertive"}',
   ]) {
