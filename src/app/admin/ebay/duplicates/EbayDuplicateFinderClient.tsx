@@ -92,10 +92,17 @@ export default function EbayDuplicateFinderClient() {
         const next = { ...current };
 
         for (const group of nextGroups) {
-          const keeperId = next[group.key] || group.recommendedKeeperProductId;
-          const duplicate = group.rows.find((row) => row.productId !== keeperId);
+          const keeperId =
+            group.recommendedKeeperProductId || group.rows[0]?.productId || 0;
+          const currentDuplicate = next[group.key] || 0;
+          const currentDuplicateStillValid = group.rows.some(
+            (row) => row.productId === currentDuplicate && row.productId !== keeperId,
+          );
+          const duplicate = currentDuplicateStillValid
+            ? group.rows.find((row) => row.productId === currentDuplicate)
+            : group.rows.find((row) => row.productId !== keeperId);
 
-          if (!next[group.key] && duplicate) {
+          if (duplicate) {
             next[group.key] = duplicate.productId;
           }
         }
@@ -157,7 +164,9 @@ export default function EbayDuplicateFinderClient() {
     }
 
     setWorkingKey(group.key);
-    setNotice("");
+    setNotice(
+      `Merging product #${duplicateProductId} into keeper #${keeperProductId}...`,
+    );
     setError("");
 
     try {
@@ -205,7 +214,7 @@ export default function EbayDuplicateFinderClient() {
     }
 
     setWorkingKey(group.key);
-    setNotice("");
+    setNotice(`Ending/archiving duplicate product #${duplicateProductId}...`);
     setError("");
 
     try {

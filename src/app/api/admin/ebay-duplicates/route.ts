@@ -638,7 +638,7 @@ async function mergeDuplicate(params: {
         },
       })
       .eq("store_id", storeId)
-      .eq("legacy_product_id", keeper.id);
+      .eq("id", keeperInventory.id);
 
     if (error) throw error;
   }
@@ -662,7 +662,7 @@ async function mergeDuplicate(params: {
         },
       })
       .eq("store_id", storeId)
-      .eq("legacy_product_id", duplicate.id);
+      .eq("id", duplicateInventory.id);
 
     if (error) throw error;
   }
@@ -759,7 +759,7 @@ async function archiveDuplicate(params: { duplicateProductId: number }) {
         },
       })
       .eq("store_id", storeId)
-      .eq("legacy_product_id", duplicate.id);
+      .eq("id", duplicateInventory.id);
 
     if (error) throw error;
   }
