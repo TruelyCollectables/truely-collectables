@@ -1,5 +1,6 @@
 import Link from "next/link";
 import AdminSubmitButton from "../../../AdminSubmitButton";
+import PurchaseCostEditor from "../PurchaseCostEditor";
 import { addAdminHandoff, ADMIN_HANDOFF_PARAM } from "../../../../../lib/admin-handoff";
 import { createAdminSessionValue } from "../../../../../lib/admin-session";
 
@@ -147,24 +148,22 @@ export default async function NewOfflinePurchasePage({ searchParams }: PageProps
             <p className="text-xs font-black uppercase tracking-[0.18em] text-amber-800">
               Cost basis
             </p>
-            <h2 className="mt-1 text-3xl font-black">What you actually paid</h2>
-            <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <Input name="quantity" label="Quantity" type="number" min="1" step="1" defaultValue="1" required />
-              <MoneyInput name="itemSubtotal" label="Item subtotal" required />
-              <MoneyInput name="inboundShipping" label="Shipping" />
-              <MoneyInput name="salesTax" label="Sales tax" />
-              <MoneyInput name="buyerFees" label="Buyer fees" />
-              <MoneyInput name="otherCost" label="Other cost / trade value" />
-              <label className="text-sm font-black md:col-span-2 xl:col-span-4">
-                Notes
-                <textarea
-                  name="notes"
-                  rows={3}
-                  className={inputClass}
-                  placeholder="Seller, table number, deal details, trade notes, or anything needed later."
-                />
-              </label>
-            </div>
+            <h2 className="mt-1 text-3xl font-black">Lot total or price per item</h2>
+            <p className="mt-2 max-w-4xl text-sm font-semibold leading-6 text-amber-950">
+              Enter either the total item price for the complete lot or the amount paid for each
+              card. TCOS adds shipping, tax, fees, and other acquisition costs, then shows the
+              total paid and the all-in cost basis per item before you save.
+            </p>
+            <PurchaseCostEditor className="mt-5" defaultQuantity={1} />
+            <label className="mt-5 block text-sm font-black">
+              Notes
+              <textarea
+                name="notes"
+                rows={3}
+                className={inputClass}
+                placeholder="Seller, table number, deal details, trade notes, or anything needed later."
+              />
+            </label>
           </section>
 
           <AdminSubmitButton
@@ -213,20 +212,6 @@ function Input({
         className={inputClass}
       />
     </label>
-  );
-}
-
-function MoneyInput({ name, label, required = false }: { name: string; label: string; required?: boolean }) {
-  return (
-    <Input
-      name={name}
-      label={label}
-      type="number"
-      min="0"
-      step="0.01"
-      defaultValue="0.00"
-      required={required}
-    />
   );
 }
 
