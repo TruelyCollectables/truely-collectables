@@ -23,6 +23,7 @@ type CandidateRow = {
   serial_numbered_to: number | null;
   autograph: boolean | null;
   memorabilia: boolean | null;
+  metadata: Record<string, unknown> | null;
 };
 
 type IdentityRow = {
@@ -38,6 +39,11 @@ type IdentityRow = {
   serial_numbered_to: number | null;
   autograph: boolean | null;
   memorabilia: boolean | null;
+};
+
+type AlertRow = {
+  id: string;
+  metadata: Record<string, unknown> | null;
 };
 
 function isBaseballSubject(subject: SubjectRow) {
@@ -65,7 +71,7 @@ export async function enforceBaseballPremiumPolicy() {
     supabase
       .from("tcos_mi_identity_candidates")
       .select(
-        "id,subject_id,status,original_title,detected_product_line,detected_set_name,detected_parallel_name,detected_insert_name,detected_variation_name,serial_numbered_to,autograph,memorabilia",
+        "id,subject_id,status,original_title,detected_product_line,detected_set_name,detected_parallel_name,detected_insert_name,detected_variation_name,serial_numbered_to,autograph,memorabilia,metadata",
       )
       .eq("status", "pending")
       .in("subject_id", subjectIds),
@@ -109,6 +115,7 @@ export async function enforceBaseballPremiumPolicy() {
         rejection_reason: policy.rejectionReasons.join(" "),
         reviewed_at: now,
         metadata: {
+          ...(candidate.metadata || {}),
           policy_engine: "baseball_premium_only_v1",
           policy_rejected_at: now,
           rejection_reasons: policy.rejectionReasons,
@@ -159,18 +166,26 @@ export async function enforceBaseballPremiumPolicy() {
     if (listingIds.length > 0) {
       const { data: alertData, error: alertError } = await supabase
         .from("tcos_mi_alerts")
-        .update({
-          status: "expired",
-          metadata: {
-            policy_engine: "baseball_premium_only_v1",
-            policy_expired_at: now,
-          },
-        })
+        .select("id,metadata")
         .eq("status", "pending")
-        .in("listing_id", listingIds)
-        .select("id");
+        .in("listing_id", listingIds);
       if (alertError) throw new Error(alertError.message);
-      alertsExpired = (alertData || []).length;
+      for (const alert of (alertData || []) as AlertRow[]) {
+        const { error } = await supabase
+          .from("tcos_mi_alerts")
+          .update({
+            status: "expired",
+            metadata: {
+              ...(alert.metadata || {}),
+              policy_engine: "baseball_premium_only_v1",
+              policy_expired_at: now,
+            },
+          })
+          .eq("id", alert.id)
+          .eq("status", "pending");
+        if (error) throw new Error(error.message);
+        alertsExpired += 1;
+      }
     }
   }
 
