@@ -221,12 +221,52 @@ await scenario("duplicate finder previews destructive end and merge actions", ()
     "loadGroups({ preserveMessages: true, allowDuringAction: true })",
     "reconcileEbayDuplicateKeeperSelection",
     "reconcileEbayDuplicateRowSelection",
+    "function selectedKeeperProductIdForGroup(group: DuplicateGroup)",
   ]) {
     assert(
       duplicateFinderSource.includes(fragment),
       `Expected duplicate finder action-safety fragment ${fragment}.`,
     );
   }
+});
+
+await scenario("duplicate finder actions use immediate keeper selection", () => {
+  const helperIndex = duplicateFinderSource.indexOf(
+    "function selectedKeeperProductIdForGroup(group: DuplicateGroup)",
+  );
+  const chooseDuplicateIndex = duplicateFinderSource.indexOf(
+    "const keeperProductId = selectedKeeperProductIdForGroup(group);",
+  );
+  const mergeGroupIndex = duplicateFinderSource.indexOf(
+    "async function mergeGroup(group: DuplicateGroup)",
+  );
+  const endDuplicateIndex = duplicateFinderSource.indexOf(
+    "async function endDuplicate(group: DuplicateGroup, duplicateProductId: number)",
+  );
+
+  assert(helperIndex > 0, "Expected duplicate finder to centralize selected keeper lookup.");
+  assert(
+    duplicateFinderSource.includes("keepersRef.current[group.key] ||"),
+    "Expected selected keeper lookup to prefer the immediate keeper ref.",
+  );
+  assert(
+    chooseDuplicateIndex > helperIndex,
+    "Expected duplicate-row selection to use the immediate selected keeper.",
+  );
+  assert(
+    duplicateFinderSource.indexOf(
+      "const keeperProductId = selectedKeeperProductIdForGroup(group);",
+      mergeGroupIndex,
+    ) > mergeGroupIndex,
+    "Expected merge action to use the immediate selected keeper.",
+  );
+  assert(
+    duplicateFinderSource.indexOf(
+      "const keeperProductId = selectedKeeperProductIdForGroup(group);",
+      endDuplicateIndex,
+    ) > endDuplicateIndex,
+    "Expected end/archive action to use the immediate selected keeper.",
+  );
 });
 
 await scenario("duplicate cleanup keeps eBay provider failures operator-readable", () => {

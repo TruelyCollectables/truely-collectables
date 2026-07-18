@@ -122,6 +122,15 @@ export default function EbayDuplicateFinderClient() {
     return true;
   }
 
+  function selectedKeeperProductIdForGroup(group: DuplicateGroup) {
+    return (
+      keepersRef.current[group.key] ||
+      keepers[group.key] ||
+      group.recommendedKeeperProductId ||
+      0
+    );
+  }
+
   const fetchGroups = useCallback(async () => {
     try {
       const response = await fetch("/api/admin/ebay-duplicates", {
@@ -210,8 +219,7 @@ export default function EbayDuplicateFinderClient() {
   function chooseDuplicate(group: DuplicateGroup, productId: number) {
     if (showDuplicateActionBlocked("changing the duplicate row")) return;
 
-    const keeperProductId =
-      keepersRef.current[group.key] || group.recommendedKeeperProductId || 0;
+    const keeperProductId = selectedKeeperProductIdForGroup(group);
 
     if (productId === keeperProductId) {
       showError(
@@ -229,7 +237,7 @@ export default function EbayDuplicateFinderClient() {
   async function mergeGroup(group: DuplicateGroup) {
     if (showDuplicateActionBlocked("starting another merge or end/archive")) return;
 
-    const keeperProductId = keepers[group.key] || group.recommendedKeeperProductId || 0;
+    const keeperProductId = selectedKeeperProductIdForGroup(group);
     const duplicateProductIds = group.rows
       .map((row) => row.productId)
       .filter((productId) => productId !== keeperProductId);
@@ -326,7 +334,7 @@ export default function EbayDuplicateFinderClient() {
   async function endDuplicate(group: DuplicateGroup, duplicateProductId: number) {
     if (showDuplicateActionBlocked("starting another merge or end/archive")) return;
 
-    const keeperProductId = keepers[group.key] || group.recommendedKeeperProductId || 0;
+    const keeperProductId = selectedKeeperProductIdForGroup(group);
 
     if (!duplicateProductId) {
       showError("Pick a duplicate row to end/archive first.");
