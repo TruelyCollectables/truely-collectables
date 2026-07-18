@@ -162,9 +162,12 @@ scenario("product quick-status UI reports status success and stock blockers", ()
 scenario("product list exposes a direct end-early action", () => {
   for (const fragment of [
     "async function endProductEarly",
+    "adminProductStatusZeroesQuantity(product.status)",
     "status: \"archived\"",
     "statusEnded",
     "End early",
+    "Ended / Sold",
+    "Ended / Archived",
     "archive it, and set quantity to 0",
     "adminProductStatusSuccessMessage(\"archived\")",
   ]) {

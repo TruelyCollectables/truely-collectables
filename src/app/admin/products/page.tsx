@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import AdminSubmitButton from "../AdminSubmitButton";
 import BulkDescriptionEditor from "./BulkDescriptionEditor";
 import {
+  adminProductStatusZeroesQuantity,
   adminProductStatusSuccessMessage,
   parseAdminProductId,
 } from "../../../lib/admin-product-status";
@@ -362,12 +363,12 @@ export default async function AdminProductsPage({
                       Edit product
                     </Link>
 
-                    {product.status === "archived" ? (
+                    {adminProductStatusZeroesQuantity(product.status) ? (
                       <span
                         className="rounded-md border border-neutral-200 bg-neutral-100 px-4 py-2 text-center text-sm font-black text-neutral-500"
-                        title="This product is already ended/archived."
+                        title={`This product is already ${product.status}; ended statuses are removed from active inventory and should carry quantity 0.`}
                       >
-                        Ended
+                        {product.status === "sold" ? "Ended / Sold" : "Ended / Archived"}
                       </span>
                     ) : (
                       <form action={endProductEarly}>
