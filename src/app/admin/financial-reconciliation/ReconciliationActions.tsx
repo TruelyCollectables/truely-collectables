@@ -18,6 +18,8 @@ export default function ReconciliationActions({
     null,
   );
   const [resolutionNote, setResolutionNote] = useState("");
+  const trimmedResolutionNote = resolutionNote.trim();
+  const canSaveDecision = trimmedResolutionNote.length >= 8 && Boolean(itemId);
 
   async function runNow() {
     setBusy(true);
@@ -38,13 +40,13 @@ export default function ReconciliationActions({
   }
 
   async function resolve(status: "resolved" | "ignored") {
-    if (!resolutionNote.trim() || !itemId) {
+    if (!canSaveDecision || !itemId) {
       setMessage({
         tone: "error",
         text:
           status === "resolved"
-            ? "Add a note explaining how this money difference was resolved."
-            : "Add a note explaining why this alert is safe to ignore.",
+            ? "Add a useful note explaining how this money difference was resolved."
+            : "Add a useful note explaining why this alert is safe to ignore.",
       });
       return;
     }
@@ -55,7 +57,7 @@ export default function ReconciliationActions({
       const response = await fetch("/api/admin/financial-reconciliation", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ itemId, status, resolutionNote: resolutionNote.trim() }),
+        body: JSON.stringify({ itemId, status, resolutionNote: trimmedResolutionNote }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "Could not update alert");
@@ -80,7 +82,7 @@ export default function ReconciliationActions({
           type="button"
           onClick={runNow}
           disabled={busy}
-          className="rounded bg-neutral-950 px-4 py-2 text-sm font-black text-white disabled:opacity-50"
+          className="rounded-2xl bg-emerald-400 px-4 py-3 text-sm font-black text-neutral-950 shadow-sm transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {busy ? "Reconciling..." : "Run Previous UTC Day"}
         </button>
@@ -90,35 +92,35 @@ export default function ReconciliationActions({
   }
 
   return (
-    <div className="grid gap-2">
+    <div className="grid min-w-[280px] gap-2">
       <div className="flex flex-wrap gap-2">
-      <button
-        type="button"
-        onClick={() => {
-          setPendingStatus("resolved");
-          setResolutionNote("");
-          setMessage(null);
-        }}
-        disabled={busy}
-        className="rounded bg-emerald-700 px-3 py-1.5 text-xs font-black text-white disabled:opacity-50"
-      >
-        Resolve
-      </button>
-      <button
-        type="button"
-        onClick={() => {
-          setPendingStatus("ignored");
-          setResolutionNote("");
-          setMessage(null);
-        }}
-        disabled={busy}
-        className="rounded border border-neutral-300 px-3 py-1.5 text-xs font-black disabled:opacity-50"
-      >
-        Ignore With Note
-      </button>
+        <button
+          type="button"
+          onClick={() => {
+            setPendingStatus("resolved");
+            setResolutionNote("");
+            setMessage(null);
+          }}
+          disabled={busy}
+          className="rounded-full bg-emerald-700 px-3 py-2 text-xs font-black text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Resolve
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setPendingStatus("ignored");
+            setResolutionNote("");
+            setMessage(null);
+          }}
+          disabled={busy}
+          className="rounded-full border border-neutral-300 bg-white px-3 py-2 text-xs font-black text-neutral-900 shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          Ignore With Note
+        </button>
       </div>
       {pendingStatus ? (
-        <div className="rounded border border-neutral-200 bg-neutral-50 p-3">
+        <div className="rounded-2xl border border-neutral-200 bg-white/80 p-3 shadow-sm">
           <label className="block text-xs font-black text-neutral-800">
             {pendingStatus === "resolved"
               ? "How was this money difference resolved?"
@@ -126,16 +128,19 @@ export default function ReconciliationActions({
             <textarea
               value={resolutionNote}
               onChange={(event) => setResolutionNote(event.target.value)}
-              className="mt-1 w-full rounded border border-neutral-300 px-3 py-2 text-sm"
+              className="mt-2 min-h-24 w-full rounded-2xl border border-neutral-300 bg-white px-3 py-2 text-sm font-medium text-neutral-950 shadow-inner outline-none focus:border-neutral-900"
               placeholder="Add the audit note that explains this decision."
             />
           </label>
+          <p className="mt-1 text-xs font-semibold text-neutral-600">
+            Minimum 8 characters. This note becomes the audit trail for the decision.
+          </p>
           <div className="mt-2 flex flex-wrap gap-2">
             <button
               type="button"
               onClick={() => resolve(pendingStatus)}
-              disabled={busy}
-              className="rounded bg-neutral-950 px-3 py-1.5 text-xs font-black text-white disabled:opacity-50"
+              disabled={busy || !canSaveDecision}
+              className="rounded-full bg-neutral-950 px-3 py-2 text-xs font-black text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
             >
               {busy ? "Saving..." : "Save decision"}
             </button>
@@ -146,7 +151,7 @@ export default function ReconciliationActions({
                 setResolutionNote("");
               }}
               disabled={busy}
-              className="rounded border border-neutral-300 bg-white px-3 py-1.5 text-xs font-black disabled:opacity-50"
+              className="rounded-full border border-neutral-300 bg-white px-3 py-2 text-xs font-black shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
             >
               Cancel
             </button>
@@ -173,7 +178,7 @@ function ActionNotice({
         : "border-blue-200 bg-blue-50 text-blue-950";
 
   return (
-    <p className={`w-full rounded border px-2 py-1 text-xs font-bold ${className}`}>
+    <p className={`w-full rounded-2xl border px-3 py-2 text-xs font-bold ${className}`}>
       {children}
     </p>
   );
