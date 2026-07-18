@@ -202,6 +202,7 @@ async function applySuggestedPrice(formData: FormData) {
         status: product.status,
         imageUrl: product.imageUrl,
         description: product.description,
+        authenticity: product.authenticity,
       });
     }
   } catch (error) {

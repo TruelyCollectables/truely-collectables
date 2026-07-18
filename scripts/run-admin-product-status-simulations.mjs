@@ -208,6 +208,25 @@ scenario("full product save blocks active or reserved zero-quantity records", ()
   }
 });
 
+scenario("product suggested-price action preserves authenticity fields", () => {
+  const actionStart = productPageSource.indexOf("async function applySuggestedPrice");
+  const actionEnd = productPageSource.indexOf("  } catch (error)", actionStart);
+  const actionSource = productPageSource.slice(actionStart, actionEnd);
+
+  assert(actionStart >= 0 && actionEnd > actionStart, "Expected applySuggestedPrice source.");
+
+  for (const fragment of [
+    "await adminInventoryEngine.updateProduct(id, {",
+    "price: suggestedPrice",
+    "authenticity: product.authenticity",
+  ]) {
+    assert(
+      actionSource.includes(fragment),
+      `Expected suggested-price action fragment ${fragment}.`,
+    );
+  }
+});
+
 scenario("inventory engine validates before mutating product records", () => {
   const updateProductStart = inventoryEngineSource.indexOf("  async updateProduct(");
   const updateProductEnd = inventoryEngineSource.indexOf(

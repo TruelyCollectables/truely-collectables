@@ -197,7 +197,8 @@ scenario("scanner exposes selected duplicate quantity merge action", () => {
     "Merge Selected Qty",
     "qty ${mergePlan.previousKeeperQuantity} + ${mergePlan.duplicateQuantity} = ${mergePlan.mergedQuantity}",
     "persistBatchCardCorrections(mergedKeeper)",
-    "persistedDuplicates.map((card) => cancelPersistentBatchCard(card))",
+    "persistedDuplicates.map(({ card, target }) =>",
+    "cancelPersistentBatchCard(card, target)",
   ]) {
     assert(
       scannerSource.includes(fragment),

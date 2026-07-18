@@ -6770,14 +6770,10 @@ export default function InstaCompScanner({
     };
   }
 
-  function batchCardHasPersistentRemovalTarget(card: BatchCard) {
-    const target = persistentRemovalTargetForBatchCard(card);
-
-    return Boolean(target.jobId && target.itemId);
-  }
-
-  async function cancelPersistentBatchCard(card: BatchCard) {
-    const target = persistentRemovalTargetForBatchCard(card);
+  async function cancelPersistentBatchCard(
+    card: BatchCard,
+    target = persistentRemovalTargetForBatchCard(card)
+  ) {
 
     return cancelPersistentItem({
       jobId: target.jobId,
@@ -6835,7 +6831,8 @@ export default function InstaCompScanner({
 
     setBatchError(null);
     const cardTitle = draftTitleForCard(card);
-    const isPersisted = batchCardHasPersistentRemovalTarget(card);
+    const persistentTarget = persistentRemovalTargetForBatchCard(card);
+    const isPersisted = Boolean(persistentTarget.jobId && persistentTarget.itemId);
     const abortedActiveScan = abortBatchCardScan(cardId);
 
     setRemovingBatchCardIds((current) => new Set(current).add(cardId));
@@ -6857,7 +6854,7 @@ export default function InstaCompScanner({
 
     try {
       if (isPersisted) {
-        const data = await cancelPersistentBatchCard(card);
+        const data = await cancelPersistentBatchCard(card, persistentTarget);
 
         if (data?.job) {
           setPersistentJob(data.job as PersistentJobSummary);
@@ -6904,7 +6901,12 @@ export default function InstaCompScanner({
     }
 
     setBatchError(null);
-    const persistedCards = cardsToRemove.filter(batchCardHasPersistentRemovalTarget);
+    const persistedCards = cardsToRemove
+      .map((card) => ({
+        card,
+        target: persistentRemovalTargetForBatchCard(card),
+      }))
+      .filter(({ target }) => Boolean(target.jobId && target.itemId));
     const removeIds = new Set(cardsToRemove.map((card) => card.id));
     cardsToRemove.forEach((card) => abortBatchCardScan(card.id));
 
@@ -6921,7 +6923,9 @@ export default function InstaCompScanner({
     if (!persistedCards.length) return;
 
     const results = await Promise.allSettled(
-      persistedCards.map((card) => cancelPersistentBatchCard(card))
+      persistedCards.map(({ card, target }) =>
+        cancelPersistentBatchCard(card, target)
+      )
     );
     const fulfilled = results.filter(
       (result): result is PromiseFulfilledResult<any> =>
@@ -7347,9 +7351,12 @@ export default function InstaCompScanner({
       draftError: keeper.draftStatus === "error" ? null : keeper.draftError,
     };
     const duplicateIds = new Set(mergePlan.duplicateIds);
-    const persistedDuplicates = duplicateCards.filter(
-      batchCardHasPersistentRemovalTarget
-    );
+    const persistedDuplicates = duplicateCards
+      .map((card) => ({
+        card,
+        target: persistentRemovalTargetForBatchCard(card),
+      }))
+      .filter(({ target }) => Boolean(target.jobId && target.itemId));
 
     setBatchRunning(true);
     setBatchError(null);
@@ -7380,7 +7387,9 @@ export default function InstaCompScanner({
 
     try {
       const cancellationResults = await Promise.allSettled(
-        persistedDuplicates.map((card) => cancelPersistentBatchCard(card))
+        persistedDuplicates.map(({ card, target }) =>
+          cancelPersistentBatchCard(card, target)
+        )
       );
       const latestJob = cancellationResults
         .filter(

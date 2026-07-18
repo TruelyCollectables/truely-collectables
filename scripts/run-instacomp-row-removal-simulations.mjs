@@ -91,7 +91,6 @@ scenario("tombstones removed persistent rows so active workers skip them", () =>
     "removedPersistentClientIdsRef",
     "batchCardAbortControllersRef",
     "persistentRemovalTargetForBatchCard",
-    "batchCardHasPersistentRemovalTarget",
     "rememberRemovedPersistentBatchCard",
     "claimedPersistentItemWasRemoved",
     "abortBatchCardScan",
@@ -110,8 +109,10 @@ scenario("uses saved binding targets when cancelling removed rows", () => {
   for (const fragment of [
     "card.persistentJobId || binding?.jobId || null",
     "card.persistentItemId || binding?.itemId || null",
-    "const isPersisted = batchCardHasPersistentRemovalTarget(card)",
-    "cardsToRemove.filter(batchCardHasPersistentRemovalTarget)",
+    "const persistentTarget = persistentRemovalTargetForBatchCard(card)",
+    "const isPersisted = Boolean(persistentTarget.jobId && persistentTarget.itemId)",
+    "cancelPersistentBatchCard(card, persistentTarget)",
+    "target: persistentRemovalTargetForBatchCard(card)",
   ]) {
     assert(
       scannerSource.includes(fragment),
