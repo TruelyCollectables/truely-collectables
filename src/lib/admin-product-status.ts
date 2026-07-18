@@ -22,11 +22,28 @@ export function adminProductStatusRequiresStock(status: InventoryStatus) {
   return status === "active" || status === "reserved";
 }
 
+export function adminProductStatusZeroesQuantity(status: InventoryStatus) {
+  return status === "sold" || status === "archived";
+}
+
+export function adminProductStatusNormalizedQuantity(params: {
+  quantity: unknown;
+  status: InventoryStatus;
+}) {
+  if (adminProductStatusZeroesQuantity(params.status)) {
+    return 0;
+  }
+
+  const parsed = Number(params.quantity || 0);
+
+  return Number.isFinite(parsed) ? Math.max(0, parsed) : 0;
+}
+
 export function adminProductStatusPendingLabel(status: InventoryStatus) {
   if (status === "active") return "Setting active...";
   if (status === "reserved") return "Reserving...";
   if (status === "sold") return "Marking sold out...";
-  if (status === "archived") return "Ending / archiving...";
+  if (status === "archived") return "Ending item...";
   return "Updating status...";
 }
 
@@ -44,7 +61,7 @@ export function adminProductStatusSuccessMessage(status: InventoryStatus) {
   }
 
   if (status === "archived") {
-    return "Product was ended/archived and removed from active inventory.";
+    return "Product was ended/archived, removed from active inventory, and quantity was set to 0.";
   }
 
   return "Product status updated.";

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { sanitizeAuthenticityProfile } from "../../../../../../lib/authenticity";
 import {
   adminProductStatusChangeError,
+  adminProductStatusNormalizedQuantity,
   parseAdminInventoryStatus,
   parseAdminProductId,
 } from "../../../../../../lib/admin-product-status";
@@ -136,12 +137,17 @@ export async function POST(
       });
     }
 
+    const normalizedQuantity = adminProductStatusNormalizedQuantity({
+      status,
+      quantity,
+    });
+
     await createServerInventoryEngine().updateProduct(id, {
       title,
       player: parseString(formData.get("player")),
       sport: parseString(formData.get("sport")),
       price,
-      quantity,
+      quantity: normalizedQuantity,
       status,
       imageUrl,
       description: parseString(formData.get("description")),

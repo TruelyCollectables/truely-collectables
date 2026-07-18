@@ -649,7 +649,7 @@ export default async function AdminProductEditPage({
                 currentStatus={product.status}
                 quantity={product.quantity}
                 status="archived"
-                label="Archive"
+                label="End Early / Archive"
               />
             </div>
           </section>

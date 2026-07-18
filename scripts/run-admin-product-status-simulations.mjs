@@ -2,8 +2,10 @@ import {
   ADMIN_INVENTORY_STATUSES,
   adminProductStatusChangeError,
   adminProductStatusPendingLabel,
+  adminProductStatusNormalizedQuantity,
   adminProductStatusRequiresStock,
   adminProductStatusSuccessMessage,
+  adminProductStatusZeroesQuantity,
   parseAdminInventoryStatus,
   parseAdminProductId,
 } from "../src/lib/admin-product-status.ts";
@@ -11,6 +13,10 @@ import { readFile } from "node:fs/promises";
 
 const productPageSource = await readFile(
   new URL("../src/app/admin/products/[id]/page.tsx", import.meta.url),
+  "utf8",
+);
+const productsPageSource = await readFile(
+  new URL("../src/app/admin/products/page.tsx", import.meta.url),
   "utf8",
 );
 const productSaveRouteSource = await readFile(
@@ -105,7 +111,7 @@ scenario("requires stock before making inventory active or reserved", () => {
 
 scenario("exposes explicit pending and success copy for destructive statuses", () => {
   assert(
-    adminProductStatusPendingLabel("archived") === "Ending / archiving...",
+    adminProductStatusPendingLabel("archived") === "Ending item...",
     "Archive should get an explicit pending label.",
   );
   assert(
@@ -115,8 +121,23 @@ scenario("exposes explicit pending and success copy for destructive statuses", (
   );
   assert(
     adminProductStatusSuccessMessage("archived") ===
-      "Product was ended/archived and removed from active inventory.",
+      "Product was ended/archived, removed from active inventory, and quantity was set to 0.",
     "Archive should explain active inventory removal.",
+  );
+});
+
+scenario("normalizes ended inventory statuses to zero quantity", () => {
+  for (const status of ["sold", "archived"]) {
+    assert(adminProductStatusZeroesQuantity(status), `${status} should zero quantity.`);
+    assert(
+      adminProductStatusNormalizedQuantity({ status, quantity: 3 }) === 0,
+      `${status} should normalize positive quantity to 0.`,
+    );
+  }
+
+  assert(
+    adminProductStatusNormalizedQuantity({ status: "active", quantity: 3 }) === 3,
+    "Active inventory should keep positive quantity.",
   );
 });
 
@@ -129,6 +150,7 @@ scenario("product quick-status UI reports status success and stock blockers", ()
     "Qty required first",
     "Quantity must be at least 1 before",
     "adminProductStatusPendingLabel(status)",
+    "End Early / Archive",
   ]) {
     assert(
       productPageSource.includes(fragment),
@@ -137,11 +159,29 @@ scenario("product quick-status UI reports status success and stock blockers", ()
   }
 });
 
+scenario("product list exposes a direct end-early action", () => {
+  for (const fragment of [
+    "async function endProductEarly",
+    "status: \"archived\"",
+    "statusEnded",
+    "End early",
+    "archive it, and set quantity to 0",
+    "adminProductStatusSuccessMessage(\"archived\")",
+  ]) {
+    assert(
+      productsPageSource.includes(fragment),
+      `Expected products list end-early fragment ${fragment}.`,
+    );
+  }
+});
+
 scenario("inventory engine enforces admin product status policy", () => {
   for (const fragment of [
     "adminProductStatusChangeError",
+    "adminProductStatusNormalizedQuantity",
     "quantity: current.quantity",
     "throw new InventoryEngineError(statusError, 400)",
+    "const nextQuantity = adminProductStatusNormalizedQuantity",
   ]) {
     assert(
       inventoryEngineSource.includes(fragment),
@@ -153,8 +193,10 @@ scenario("inventory engine enforces admin product status policy", () => {
 scenario("full product save blocks active or reserved zero-quantity records", () => {
   for (const fragment of [
     "adminProductStatusChangeError",
+    "adminProductStatusNormalizedQuantity",
     "quantity,",
     "saveError: statusError",
+    "quantity: normalizedQuantity",
   ]) {
     assert(
       productSaveRouteSource.includes(fragment),

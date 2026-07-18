@@ -7,7 +7,10 @@ import {
   validateAuthenticityProfile,
 } from "../../lib/authenticity";
 import { STORE_BRAND_NAME } from "../../lib/legal";
-import { adminProductStatusChangeError } from "../../lib/admin-product-status";
+import {
+  adminProductStatusChangeError,
+  adminProductStatusNormalizedQuantity,
+} from "../../lib/admin-product-status";
 import { getStoreSettings } from "../../lib/store-settings";
 import { getActiveStoreId } from "../../lib/stores";
 import { eventBus } from "../../core/events/event-bus";
@@ -1301,6 +1304,11 @@ export class InventoryEngine {
       throw new InventoryEngineError(authenticityError, 400);
     }
 
+    const normalizedQuantity = adminProductStatusNormalizedQuantity({
+      status: input.status,
+      quantity: input.quantity,
+    });
+
     const description =
       input.description ??
       (await this.createGeneratedDescription({
@@ -1308,7 +1316,7 @@ export class InventoryEngine {
         player: input.player,
         sport: input.sport,
         price: input.price,
-        quantity: input.quantity,
+        quantity: normalizedQuantity,
         status: input.status,
         sku: current.sku,
         ebayItemId: current.ebayItemId,
@@ -1322,7 +1330,7 @@ export class InventoryEngine {
         player: input.player,
         sport: input.sport,
         price: input.price,
-        quantity: Math.max(0, input.quantity),
+        quantity: normalizedQuantity,
         description,
         image_url: input.imageUrl,
       })
@@ -1346,7 +1354,7 @@ export class InventoryEngine {
         description,
         category: input.sport ?? "sports cards",
         status: input.status,
-        quantity: Math.max(0, input.quantity),
+        quantity: normalizedQuantity,
         price: input.price,
         metadata: mergeAuthenticityIntoMetadata(
           inventoryItem.metadata,
@@ -1369,7 +1377,7 @@ export class InventoryEngine {
         inventoryItemId: updatedInventoryItem.id,
         legacyProductId,
         status: input.status,
-        quantity: Math.max(0, input.quantity),
+        quantity: normalizedQuantity,
       },
       "inventory-engine"
     );
@@ -1530,8 +1538,10 @@ export class InventoryEngine {
       throw new InventoryEngineError(statusError, 400);
     }
 
-    const nextQuantity =
-      params.status === "sold" ? 0 : Math.max(0, current.quantity);
+    const nextQuantity = adminProductStatusNormalizedQuantity({
+      status: params.status,
+      quantity: current.quantity,
+    });
 
     return this.updateProduct(params.legacyProductId, {
       title: current.title,

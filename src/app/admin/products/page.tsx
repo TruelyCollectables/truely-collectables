@@ -1,6 +1,11 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import AdminSubmitButton from "../AdminSubmitButton";
 import BulkDescriptionEditor from "./BulkDescriptionEditor";
+import {
+  adminProductStatusSuccessMessage,
+  parseAdminProductId,
+} from "../../../lib/admin-product-status";
 import { createServerInventoryEngine } from "../../../lib/server-inventory-engine";
 import type { UniversalInventoryItem } from "../../../modules/inventory";
 
@@ -38,6 +43,48 @@ function statusTone(status: string | null | undefined) {
   }
 
   return "border-sky-200 bg-sky-50 text-sky-950";
+}
+
+function productActionErrorPath(message: string) {
+  return `/admin/products?saveError=${encodeURIComponent(message.slice(0, 240))}`;
+}
+
+function readableProductActionFailure(error: unknown, fallbackMessage: string) {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message.trim().slice(0, 240);
+  }
+
+  return fallbackMessage;
+}
+
+async function endProductEarly(formData: FormData) {
+  "use server";
+
+  const id = parseAdminProductId(formData.get("id"));
+
+  if (!id) {
+    redirect(productActionErrorPath("Invalid product ID."));
+  }
+
+  let failure: string | null = null;
+
+  try {
+    await createServerInventoryEngine().setStatus({
+      legacyProductId: id,
+      status: "archived",
+    });
+  } catch (error) {
+    failure = readableProductActionFailure(
+      error,
+      "Could not end/archive this product.",
+    );
+  }
+
+  if (failure) {
+    redirect(productActionErrorPath(failure));
+  }
+
+  redirect(`/admin/products?statusEnded=${id}`);
 }
 
 async function bulkUpdateDescriptions(formData: FormData) {
@@ -96,6 +143,7 @@ export default async function AdminProductsPage({
     bulkUpdated?: string;
     bulkError?: string;
     saveError?: string;
+    statusEnded?: string;
   }>;
 }) {
   const query = await searchParams;
@@ -210,6 +258,15 @@ export default async function AdminProductsPage({
         </div>
       )}
 
+      {query?.statusEnded && (
+        <div
+          aria-live="polite"
+          className="rounded border border-emerald-300 bg-emerald-50 p-4 font-bold text-emerald-800"
+        >
+          Product #{query.statusEnded}: {adminProductStatusSuccessMessage("archived")}
+        </div>
+      )}
+
       <section className="grid gap-3 md:grid-cols-3">
         <Metric label="Total products" value={String(products.length)} />
         <Metric label="Active rows" value={String(activeCount)} tone="emerald" />
@@ -297,12 +354,40 @@ export default async function AdminProductsPage({
                     </dl>
                   </div>
 
-                  <Link
-                    href={`/admin/products/${product.legacyProductId}`}
-                    className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-center text-sm font-black hover:bg-neutral-100"
-                  >
-                    Edit product
-                  </Link>
+                  <div className="flex flex-wrap gap-2 md:flex-col md:items-stretch">
+                    <Link
+                      href={`/admin/products/${product.legacyProductId}`}
+                      className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-center text-sm font-black hover:bg-neutral-100"
+                    >
+                      Edit product
+                    </Link>
+
+                    {product.status === "archived" ? (
+                      <button
+                        type="button"
+                        disabled
+                        className="rounded-md border border-neutral-200 bg-neutral-100 px-4 py-2 text-center text-sm font-black text-neutral-500 disabled:cursor-not-allowed"
+                        title="This product is already ended/archived."
+                      >
+                        Ended
+                      </button>
+                    ) : (
+                      <form action={endProductEarly}>
+                        <input
+                          type="hidden"
+                          name="id"
+                          value={product.legacyProductId}
+                        />
+                        <AdminSubmitButton
+                          className="w-full rounded-md border border-rose-300 bg-rose-50 px-4 py-2 text-center text-sm font-black text-rose-950 hover:bg-rose-100"
+                          pendingChildren="Ending item..."
+                          title="End this product early, archive it, and set quantity to 0."
+                        >
+                          End early
+                        </AdminSubmitButton>
+                      </form>
+                    )}
+                  </div>
                 </div>
               </article>
             ))}
