@@ -1,3 +1,5 @@
+import AdminSubmitButton from "../AdminSubmitButton";
+
 function safeNextPath(value: string | string[] | undefined) {
   const nextPath = Array.isArray(value) ? value[0] : value;
 
@@ -121,12 +123,12 @@ export default async function AdminLoginPage({
                 />
               </label>
 
-              <button
-                type="submit"
+              <AdminSubmitButton
                 className="w-full rounded-2xl bg-neutral-950 px-4 py-3 font-black text-white hover:bg-neutral-800"
+                pendingChildren="Signing in..."
               >
                 Login
-              </button>
+              </AdminSubmitButton>
             </form>
 
             {error ? (
@@ -151,12 +153,12 @@ export default async function AdminLoginPage({
               >
                 <input type="hidden" name="next" value={nextPath} />
                 <input type="hidden" name="localDevelopmentLogin" value="1" />
-                <button
-                  type="submit"
+                <AdminSubmitButton
                   className="w-full rounded-2xl border border-amber-300 bg-white px-4 py-3 text-sm font-black text-amber-950 hover:bg-amber-100"
+                  pendingChildren="Opening admin..."
                 >
                   Open Admin Locally
-                </button>
+                </AdminSubmitButton>
                 <p className="mt-2 text-xs font-semibold leading-5 text-amber-950">
                   Localhost-only rescue button. Disabled in production and
                   rejected for non-local hosts.

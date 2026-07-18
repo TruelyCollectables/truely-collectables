@@ -18,6 +18,7 @@
     "simulate:order-review-payout-resolution": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-order-review-payout-resolution-simulations.mjs",
     "simulate:admin-offer-decision": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-admin-offer-decision-simulations.mjs",
     "simulate:admin-product-status": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-admin-product-status-simulations.mjs",
+    "simulate:admin-login": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-admin-login-simulations.mjs",
     "simulate:admin-financial-reconciliation": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-admin-financial-reconciliation-simulations.mjs",
     "simulate:admin-store-settings": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-admin-store-settings-simulations.mjs",
     "simulate:admin-market-intel-watchlist": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-admin-market-intel-watchlist-simulations.mjs",
