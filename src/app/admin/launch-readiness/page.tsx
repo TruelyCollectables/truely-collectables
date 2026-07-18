@@ -1025,96 +1025,125 @@ export default async function LaunchReadinessPage() {
     });
 
   return (
-    <main className="min-h-screen bg-neutral-50 p-8 text-neutral-950">
-      <div className="mb-8 flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-4xl font-bold">Launch Readiness</h1>
-          <p className="mt-2 max-w-3xl text-neutral-600">
-            Production checklist for live buyer payments, order capture,
-            transaction evidence, eBay inventory sync, and admin security.
-          </p>
+    <main className="min-h-screen space-y-6 bg-neutral-50 px-6 py-8 text-neutral-950">
+      <section className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm">
+        <div className="flex flex-wrap items-end justify-between gap-5">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-sky-700">
+              Launch command center
+            </p>
+            <h1 className="mt-2 text-4xl font-black tracking-tight">
+              Launch Readiness
+            </h1>
+            <p className="mt-3 max-w-3xl text-sm font-semibold leading-6 text-neutral-600">
+              Production checklist for live buyer payments, order capture,
+              transaction evidence, eBay inventory sync, shipping provider
+              readiness, and admin security.
+            </p>
+            <p className="mt-2 text-xs font-bold text-neutral-400">
+              Last refreshed: {new Date().toLocaleString()}
+            </p>
+          </div>
+
+          <div className="flex flex-wrap gap-3">
+            <Link
+              href="/admin"
+              className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50"
+            >
+              Dashboard
+            </Link>
+            <Link
+              href="/admin/orders"
+              className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50"
+            >
+              Orders
+            </Link>
+            <Link
+              href="/admin/live-payment-launch"
+              className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-black text-emerald-950 hover:bg-emerald-100"
+            >
+              Payment Gate
+            </Link>
+            <Link
+              href="/admin/live-shipping-launch"
+              className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm font-black text-red-950 hover:bg-red-100"
+            >
+              Shipping Gate
+            </Link>
+            <Link
+              href="/admin/launch-gate-drill"
+              className="rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white hover:bg-neutral-800"
+            >
+              Gate Drill
+            </Link>
+            <a
+              href="/api/admin/launch-readiness?format=handoff-bundle"
+              className="rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-black text-blue-950 hover:bg-blue-100"
+            >
+              Hand-off Bundle
+            </a>
+          </div>
         </div>
 
-        <div className="flex flex-wrap gap-3">
-          <Link href="/admin" className="rounded border bg-white px-4 py-2">
-            Dashboard
-          </Link>
-          <Link href="/admin/orders" className="rounded border bg-white px-4 py-2">
-            Orders
-          </Link>
-          <Link href="/admin/files" className="rounded border bg-white px-4 py-2">
-            Files
-          </Link>
-          <Link href="/admin/security" className="rounded border bg-white px-4 py-2">
-            Security
-          </Link>
-          <Link href="/admin/live-payment-launch" className="rounded border bg-white px-4 py-2">
-            Live Payment Gate
-          </Link>
-          <Link href="/admin/launch-gate-drill" className="rounded border bg-white px-4 py-2">
-            Gate Drill
-          </Link>
+        <div className="mt-5 flex flex-wrap gap-2">
           <a
             href="/api/admin/launch-readiness"
-            className="rounded border bg-white px-4 py-2"
+            className="rounded-md border border-neutral-300 bg-neutral-50 px-3 py-2 text-xs font-black hover:bg-white"
           >
             Brief JSON
           </a>
           <a
             href="/api/admin/launch-readiness?format=markdown"
-            className="rounded border bg-white px-4 py-2"
+            className="rounded-md border border-neutral-300 bg-neutral-50 px-3 py-2 text-xs font-black hover:bg-white"
           >
             Brief Markdown
           </a>
           <a
-            href="/api/admin/launch-readiness?format=handoff-bundle"
-            className="rounded border border-blue-200 bg-blue-50 px-4 py-2 font-bold text-blue-950"
-          >
-            Hand-off Bundle
-          </a>
-          <a
             href="/api/admin/shipping/provider-setup?format=env-template"
-            className="rounded border border-amber-200 bg-amber-50 px-4 py-2 font-bold text-amber-950"
+            className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-black text-amber-950 hover:bg-amber-100"
           >
             Shipping Env Template
           </a>
           <a
             href="/api/admin/shipping/provider-setup?format=vercel-commands"
-            className="rounded border border-amber-200 bg-amber-50 px-4 py-2 font-bold text-amber-950"
+            className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-black text-amber-950 hover:bg-amber-100"
           >
             Shipping Vercel Commands
           </a>
           <a
             href="/api/admin/shipping/provider-setup?format=operator-checklist"
-            className="rounded border border-amber-200 bg-amber-50 px-4 py-2 font-bold text-amber-950"
+            className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-black text-amber-950 hover:bg-amber-100"
           >
             Shipping Checklist
           </a>
           <Link
-            href="/admin/live-shipping-launch"
-            className="rounded border border-red-200 bg-red-50 px-4 py-2 font-bold text-red-950"
-          >
-            Live Shipping Gate
-          </Link>
-          <Link href="/admin/shipping" className="rounded border bg-white px-4 py-2">
-            Shipping Ops
-          </Link>
-          <Link
             href="/admin/shipping#dry-run-cleanup"
-            className="rounded border border-red-200 bg-red-50 px-4 py-2 font-bold text-red-950"
+            className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs font-black text-red-950 hover:bg-red-100"
           >
             Dry-Run Cleanup
           </Link>
-          <Link href="/admin/shipping/simulations" className="rounded border bg-white px-4 py-2">
+          <Link
+            href="/admin/shipping"
+            className="rounded-md border border-neutral-300 bg-neutral-50 px-3 py-2 text-xs font-black hover:bg-white"
+          >
+            Shipping Ops
+          </Link>
+          <Link
+            href="/admin/shipping/simulations"
+            className="rounded-md border border-neutral-300 bg-neutral-50 px-3 py-2 text-xs font-black hover:bg-white"
+          >
             Shipping Simulations
           </Link>
-          <a href="#database-readiness" className="rounded border bg-white px-4 py-2">
+          <a
+            href="#database-readiness"
+            className="rounded-md border border-neutral-300 bg-neutral-50 px-3 py-2 text-xs font-black hover:bg-white"
+          >
             Database
           </a>
         </div>
-      </div>
+      </section>
 
-      <section className="mb-8 rounded border bg-white p-6">
+      <section className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm">
         <div className="grid grid-cols-1 gap-4 md:grid-cols-4">
           <SummaryCard label="Ready" value={summary.ready} tone="green" />
           <SummaryCard label="Needs Review" value={summary.warning} tone="yellow" />
@@ -1176,13 +1205,13 @@ export default async function LaunchReadinessPage() {
       </section>
 
       {livePaymentReport ? (
-        <section className="mb-8 rounded border border-emerald-200 bg-emerald-50 p-6 text-emerald-950">
+        <section className="rounded-3xl border border-emerald-200 bg-emerald-50 p-6 text-emerald-950 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
-              <p className="text-xs font-black uppercase tracking-widest">
+              <p className="text-xs font-black uppercase tracking-[0.16em]">
                 Live money runway
               </p>
-              <h2 className="mt-2 text-2xl font-bold">
+              <h2 className="mt-2 text-2xl font-black">
                 What remains before full live money
               </h2>
               <p className="mt-2 max-w-3xl text-sm font-semibold leading-6">
@@ -1191,7 +1220,7 @@ export default async function LaunchReadinessPage() {
             </div>
             <Link
               href="/admin/live-payment-launch"
-              className="rounded border border-emerald-300 bg-white px-4 py-2 text-sm font-bold"
+              className="rounded-md border border-emerald-300 bg-white px-4 py-2 text-sm font-black hover:bg-emerald-100"
             >
               Open Live Payment Gate
             </Link>
@@ -1227,7 +1256,7 @@ export default async function LaunchReadinessPage() {
                   : "green"
               }
             />
-            <div className="rounded border bg-white px-3 py-2">
+            <div className="rounded-2xl border border-emerald-200 bg-white px-3 py-2">
               <p
                 className={`text-xl font-black ${
                   livePaymentReport.livePaymentsEnabled
@@ -1244,8 +1273,8 @@ export default async function LaunchReadinessPage() {
           </div>
 
           <div className="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-2">
-            <div className="rounded border border-emerald-200 bg-white p-4">
-              <h3 className="font-bold">
+            <div className="rounded-2xl border border-emerald-200 bg-white p-4">
+              <h3 className="font-black">
                 Payment approval blockers before database approval
               </h3>
               {livePaymentReport.summary.approvalBlockers.length ? (
@@ -1266,8 +1295,8 @@ export default async function LaunchReadinessPage() {
               )}
             </div>
 
-            <div className="rounded border border-emerald-200 bg-white p-4">
-              <h3 className="font-bold">Intentional live-money launch locks</h3>
+            <div className="rounded-2xl border border-emerald-200 bg-white p-4">
+              <h3 className="font-black">Intentional live-money launch locks</h3>
               {livePaymentReport.summary.launchLocks.length ? (
                 <ul className="mt-3 list-disc space-y-2 pl-5 text-sm font-semibold">
                   {livePaymentReport.summary.launchLocks.map((item) => (
@@ -1285,8 +1314,8 @@ export default async function LaunchReadinessPage() {
             </div>
           </div>
 
-          <div className="mt-5 rounded border border-emerald-200 bg-white p-4">
-            <h3 className="font-bold">{LIVE_MONEY_JSON_EVIDENCE.title}</h3>
+          <div className="mt-5 rounded-2xl border border-emerald-200 bg-white p-4">
+            <h3 className="font-black">{LIVE_MONEY_JSON_EVIDENCE.title}</h3>
             <p className="mt-2 text-sm font-semibold leading-6">
               Archive this read-only JSON proof with the launch packet. Use the
               status command after production smoke passes, then use the
@@ -1361,7 +1390,7 @@ export default async function LaunchReadinessPage() {
               . {LIVE_MONEY_JSON_EVIDENCE.readOnlyGuarantee}
             </p>
             <div className="mt-4 grid grid-cols-1 gap-3 text-sm md:grid-cols-2">
-              <div className="rounded border border-emerald-200 bg-white p-3">
+              <div className="rounded-2xl border border-emerald-200 bg-white p-3">
                 <h4 className="font-black uppercase text-emerald-700">
                   Supabase bootstrap environment
                 </h4>
@@ -1373,7 +1402,7 @@ export default async function LaunchReadinessPage() {
                   )}
                 </ul>
               </div>
-              <div className="rounded border border-emerald-200 bg-white p-3">
+              <div className="rounded-2xl border border-emerald-200 bg-white p-3">
                 <h4 className="font-black uppercase text-emerald-700">
                   Final live-payment runtime environment
                 </h4>
@@ -1389,8 +1418,8 @@ export default async function LaunchReadinessPage() {
           </div>
         </section>
       ) : (
-        <section className="mb-8 rounded border border-red-200 bg-red-50 p-6 text-red-900">
-          <h2 className="text-2xl font-bold">Live money runway unavailable</h2>
+        <section className="rounded-3xl border border-red-200 bg-red-50 p-6 text-red-900 shadow-sm">
+          <h2 className="text-2xl font-black">Live money runway unavailable</h2>
           <p className="mt-2 text-sm font-semibold">
             Supabase is not configured, so Launch Readiness cannot evaluate the
             live-payment approval blockers or launch locks. Live Checkout remains
@@ -1981,11 +2010,19 @@ function SummaryCard({
       : tone === "yellow"
       ? "text-yellow-700"
       : "text-red-700";
+  const borderClass =
+    tone === "green"
+      ? "border-green-200 bg-green-50"
+      : tone === "yellow"
+      ? "border-yellow-200 bg-yellow-50"
+      : "border-red-200 bg-red-50";
 
   return (
-    <div className="rounded border bg-neutral-50 p-4">
-      <p className="text-sm font-medium text-neutral-500">{label}</p>
-      <p className={`mt-2 text-3xl font-bold ${toneClass}`}>{value}</p>
+    <div className={`rounded-2xl border p-4 ${borderClass}`}>
+      <p className="text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
+        {label}
+      </p>
+      <p className={`mt-2 text-3xl font-black ${toneClass}`}>{value}</p>
     </div>
   );
 }
@@ -2005,11 +2042,19 @@ function MiniCount({
       : tone === "yellow"
       ? "text-yellow-700"
       : "text-red-700";
+  const borderClass =
+    tone === "green"
+      ? "border-green-200 bg-green-50"
+      : tone === "yellow"
+      ? "border-yellow-200 bg-yellow-50"
+      : "border-red-200 bg-red-50";
 
   return (
-    <div className="rounded border bg-white px-3 py-2">
+    <div className={`rounded-2xl border px-3 py-2 ${borderClass}`}>
       <p className={`text-xl font-black ${toneClass}`}>{value}</p>
-      <p className="text-xs font-bold uppercase text-neutral-500">{label}</p>
+      <p className="text-xs font-black uppercase tracking-[0.12em] text-neutral-500">
+        {label}
+      </p>
     </div>
   );
 }
