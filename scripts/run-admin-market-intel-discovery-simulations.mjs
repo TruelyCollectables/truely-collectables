@@ -55,23 +55,26 @@ scenario("discovery page uses shared pending submits for scan and review forms",
   }
 });
 
-scenario("bulk candidate controls lock selected actions during submit", () => {
-  assert(
-    bulkControlsSource.includes("useFormStatus"),
-    "Expected bulk controls to use form status for native POST submissions.",
-  );
-  assert(
-    bulkControlsSource.includes("function BulkSubmitButton"),
-    "Expected a dedicated bulk submit component.",
-  );
-
+scenario("bulk candidate controls expose chunked busy and failure feedback", () => {
   for (const label of [
-    "Approving selected...",
-    "Rejecting selected...",
+    "Processing selected...",
+    "Recovering Card Numbers...",
+    "Bulk discovery review is already running.",
+    "Card-number recovery is already running.",
+    "Select at least one discovery candidate first.",
+    "No selected candidates are approval-ready.",
+    "No discovery candidates are missing exact card numbers.",
+    "showBusyBlocked",
+    "aria-busy={bulkBusy}",
+    "aria-busy={enrichmentBusy}",
+    'role="alert"',
+    'aria-live="assertive"',
+    'role="status"',
+    'aria-live="polite"',
   ]) {
     assert(
       bulkControlsSource.includes(label),
-      `Expected bulk pending label ${label} to be present.`,
+      `Expected bulk discovery feedback ${label} to be present.`,
     );
   }
 });

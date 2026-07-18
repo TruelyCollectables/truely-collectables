@@ -87,6 +87,18 @@ export default function BulkCandidateControls({
     [candidates],
   );
   const busy = bulkBusy || enrichmentBusy;
+  const busyReason = enrichmentBusy
+    ? "Card-number recovery is already running."
+    : bulkBusy
+      ? "Bulk discovery review is already running."
+      : "";
+
+  function showBusyBlocked(action: string) {
+    if (!busyReason) return false;
+
+    setBulkError(`${busyReason} Finish it before ${action}.`);
+    return true;
+  }
 
   useEffect(() => {
     const approvedHeading = Array.from(document.querySelectorAll("h2")).find(
@@ -137,7 +149,7 @@ export default function BulkCandidateControls({
   );
 
   function toggleCandidate(id: string) {
-    if (busy) return;
+    if (showBusyBlocked("changing selected candidates")) return;
     setRejectConfirmOpen(false);
     setSelected((current) => {
       const next = new Set(current);
@@ -148,19 +160,19 @@ export default function BulkCandidateControls({
   }
 
   function selectAll() {
-    if (busy) return;
+    if (showBusyBlocked("selecting all candidates")) return;
     setSelected(new Set(candidates.map((candidate) => candidate.id)));
     setRejectConfirmOpen(false);
   }
 
   function selectReady() {
-    if (busy) return;
+    if (showBusyBlocked("selecting ready candidates")) return;
     setSelected(new Set(readyCandidates.map((candidate) => candidate.id)));
     setRejectConfirmOpen(false);
   }
 
   function clearSelected() {
-    if (busy) return;
+    if (showBusyBlocked("clearing selected candidates")) return;
     setSelected(new Set());
     setRejectConfirmOpen(false);
   }
@@ -174,7 +186,21 @@ export default function BulkCandidateControls({
     : "/api/admin/market-intel/discovery/enrich-card-numbers";
 
   async function processSelected(action: "approve" | "reject") {
-    if (selectedCount === 0 || busy) return;
+    if (showBusyBlocked(`${action === "approve" ? "approving" : "rejecting"} selected candidates`)) {
+      return;
+    }
+
+    if (selectedCount === 0) {
+      setBulkError("Select at least one discovery candidate first.");
+      return;
+    }
+
+    if (action === "approve" && selectedReady === 0) {
+      setBulkError(
+        "No selected candidates are approval-ready. Select ready rows or fix the missing review fields first.",
+      );
+      return;
+    }
 
     const ids = Array.from(selected);
     let approved = 0;
@@ -269,7 +295,12 @@ export default function BulkCandidateControls({
   }
 
   async function recoverMissingCardNumbers() {
-    if (missingCardNumberCandidates.length === 0 || busy) return;
+    if (showBusyBlocked("recovering missing card numbers")) return;
+
+    if (missingCardNumberCandidates.length === 0) {
+      setEnrichmentError("No discovery candidates are missing exact card numbers.");
+      return;
+    }
 
     const ids = missingCardNumberCandidates.map((candidate) => candidate.id);
     let processed = 0;
@@ -404,6 +435,8 @@ export default function BulkCandidateControls({
 
       {bulkResult ? (
         <div
+          role={bulkFailed ? "alert" : "status"}
+          aria-live={bulkFailed ? "assertive" : "polite"}
           className={
             bulkFailed
               ? "fixed right-5 top-5 z-[70] max-w-md rounded-xl border border-rose-400 bg-rose-50 p-4 text-rose-950 shadow-2xl"
@@ -436,7 +469,11 @@ export default function BulkCandidateControls({
       ) : null}
 
       {enrichmentResult ? (
-        <div className="fixed right-5 top-5 z-[71] max-w-md rounded-xl border border-cyan-400 bg-cyan-50 p-4 text-cyan-950 shadow-2xl">
+        <div
+          role={enrichmentErrors > 0 ? "alert" : "status"}
+          aria-live={enrichmentErrors > 0 ? "assertive" : "polite"}
+          className="fixed right-5 top-5 z-[71] max-w-md rounded-xl border border-cyan-400 bg-cyan-50 p-4 text-cyan-950 shadow-2xl"
+        >
           <p className="font-black">Card-number recovery complete</p>
           <p className="mt-1 text-sm font-bold">
             Recovered {enrichmentRecovered} · Still unresolved {enrichmentUnresolved} · Errors {enrichmentErrors}
@@ -472,22 +509,38 @@ export default function BulkCandidateControls({
                 </p>
               ) : null}
               {bulkBusy ? (
-                <p className="mt-2 text-sm font-black text-amber-300">
+                <p
+                  role="status"
+                  aria-live="polite"
+                  className="mt-2 text-sm font-black text-amber-300"
+                >
                   Processing {progress.processed} of {progress.total} · Approved {progress.approved} · Rejected {progress.rejected} · Skipped {progress.skipped}
                 </p>
               ) : null}
               {enrichmentBusy ? (
-                <p className="mt-2 text-sm font-black text-cyan-300">
+                <p
+                  role="status"
+                  aria-live="polite"
+                  className="mt-2 text-sm font-black text-cyan-300"
+                >
                   Recovering card numbers {enrichmentProgress.processed} of {enrichmentProgress.total} · Found {enrichmentProgress.recovered} · Unresolved {enrichmentProgress.unresolved} · Errors {enrichmentProgress.errors}
                 </p>
               ) : null}
               {bulkError ? (
-                <p className="mt-2 rounded-md border border-rose-400 bg-rose-950 px-3 py-2 text-sm font-bold text-rose-100">
+                <p
+                  role="alert"
+                  aria-live="assertive"
+                  className="mt-2 rounded-md border border-rose-400 bg-rose-950 px-3 py-2 text-sm font-bold text-rose-100"
+                >
                   {bulkError}
                 </p>
               ) : null}
               {enrichmentError ? (
-                <p className="mt-2 rounded-md border border-rose-400 bg-rose-950 px-3 py-2 text-sm font-bold text-rose-100">
+                <p
+                  role="alert"
+                  aria-live="assertive"
+                  className="mt-2 rounded-md border border-rose-400 bg-rose-950 px-3 py-2 text-sm font-bold text-rose-100"
+                >
                   {enrichmentError}
                 </p>
               ) : null}
@@ -498,6 +551,8 @@ export default function BulkCandidateControls({
                 type="button"
                 onClick={allSelected ? clearSelected : selectAll}
                 disabled={busy}
+                title={busyReason || (allSelected ? "Clear selected candidates." : "Select every visible discovery candidate.")}
+                aria-busy={busy}
                 className="rounded-md border border-neutral-500 bg-white/10 px-3 py-2 text-sm font-black disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {allSelected ? "Clear All" : "Select All"}
@@ -506,6 +561,13 @@ export default function BulkCandidateControls({
                 type="button"
                 onClick={selectReady}
                 disabled={busy || readyCandidates.length === 0}
+                title={
+                  busyReason ||
+                  (readyCandidates.length === 0
+                    ? "No candidates are approval-ready yet."
+                    : "Select only candidates that have all approval fields.")
+                }
+                aria-busy={busy}
                 className="rounded-md border border-cyan-500 bg-cyan-950 px-3 py-2 text-sm font-black text-cyan-100 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Select Ready Only ({readyCandidates.length})
@@ -515,6 +577,8 @@ export default function BulkCandidateControls({
                   type="button"
                   onClick={() => void recoverMissingCardNumbers()}
                   disabled={busy}
+                  title={busyReason || "Recover exact card numbers for candidates missing that field."}
+                  aria-busy={enrichmentBusy}
                   className="rounded-md bg-amber-500 px-4 py-2 text-sm font-black text-black disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {enrichmentBusy
@@ -526,6 +590,13 @@ export default function BulkCandidateControls({
                 type="button"
                 disabled={selectedReady === 0 || busy}
                 onClick={() => void processSelected("approve")}
+                title={
+                  busyReason ||
+                  (selectedReady === 0
+                    ? "Select at least one approval-ready candidate first."
+                    : "Approve selected ready candidates in committed chunks.")
+                }
+                aria-busy={bulkBusy}
                 className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {bulkBusy ? "Processing selected..." : "Approve Selected"}
@@ -537,6 +608,13 @@ export default function BulkCandidateControls({
                   if (rejectConfirmOpen) void processSelected("reject");
                   else setRejectConfirmOpen(true);
                 }}
+                title={
+                  busyReason ||
+                  (selectedCount === 0
+                    ? "Select at least one candidate before rejecting."
+                    : "Reject selected candidates after confirmation.")
+                }
+                aria-busy={bulkBusy}
                 className="rounded-md bg-rose-700 px-4 py-2 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {rejectConfirmOpen ? "Confirm Reject Selected" : "Reject Selected"}
@@ -546,6 +624,8 @@ export default function BulkCandidateControls({
                   type="button"
                   onClick={() => setRejectConfirmOpen(false)}
                   disabled={busy}
+                  title={busyReason || "Cancel the pending reject confirmation."}
+                  aria-busy={busy}
                   className="rounded-md border border-neutral-500 bg-white/10 px-3 py-2 text-sm font-black disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   Cancel Reject
