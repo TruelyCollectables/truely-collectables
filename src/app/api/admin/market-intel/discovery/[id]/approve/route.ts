@@ -1,3 +1,4 @@
+import { revalidatePath } from "next/cache";
 import { NextRequest, NextResponse } from "next/server";
 import {
   adminHandoffFromUrl,
@@ -59,9 +60,11 @@ export async function POST(request: NextRequest, context: RouteContext) {
     await assertCandidateBaseballPremiumPolicy(approval);
     await normalizeDuplicateIdentityKey(approval);
     const result = await approveIdentityCandidate(approval);
+    revalidatePath("/admin/market-intel/discovery");
+
     return NextResponse.redirect(
       adminRedirectUrl(
-        `/admin/market-intel/discovery?approved=1&identityId=${encodeURIComponent(result.identityId)}${result.listingId ? `&listingId=${encodeURIComponent(result.listingId)}` : ""}`,
+        `/admin/market-intel/discovery?approved=1&resolved=${encodeURIComponent(id)}&t=${Date.now()}&identityId=${encodeURIComponent(result.identityId)}${result.listingId ? `&listingId=${encodeURIComponent(result.listingId)}` : ""}`,
         request.url,
         handoff,
       ),
@@ -70,6 +73,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unable to approve candidate.";
+    revalidatePath("/admin/market-intel/discovery");
     return NextResponse.redirect(
       adminRedirectUrl(
         `/admin/market-intel/discovery?error=${encodeURIComponent(message)}#candidate-${encodeURIComponent(id)}`,
