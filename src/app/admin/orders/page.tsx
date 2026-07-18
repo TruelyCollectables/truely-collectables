@@ -45,12 +45,46 @@ type Order = {
 };
 
 function money(value: number | null | undefined) {
-  return `$${Number(value || 0).toFixed(2)}`;
+  return new Intl.NumberFormat("en-US", {
+    currency: "USD",
+    style: "currency",
+  }).format(Number(value || 0));
 }
 
 function statusLabel(status: string | null | undefined) {
   if (!status) return "Pending";
   return status.replaceAll("_", " ").toUpperCase();
+}
+
+function safeTab(value: string | undefined) {
+  return value === "ready" ||
+    value === "shipped" ||
+    value === "review" ||
+    value === "all"
+    ? value
+    : "ready";
+}
+
+function statusTone(status: string | null | undefined) {
+  const normalized = String(status || "").toLowerCase();
+
+  if (normalized === "paid" || normalized === "succeeded" || normalized === "active") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-950";
+  }
+
+  if (normalized.includes("review") || normalized.includes("hold")) {
+    return "border-amber-200 bg-amber-50 text-amber-950";
+  }
+
+  if (normalized === "shipped" || normalized === "fulfilled") {
+    return "border-sky-200 bg-sky-50 text-sky-950";
+  }
+
+  if (normalized === "cancelled" || normalized === "failed" || normalized === "refunded") {
+    return "border-red-200 bg-red-50 text-red-950";
+  }
+
+  return "border-neutral-200 bg-neutral-100 text-neutral-700";
 }
 
 function isReadyToShip(order: Order) {
@@ -71,7 +105,7 @@ export default async function AdminOrdersPage({
   searchParams?: Promise<{ tab?: string }>;
 }) {
   const params = await searchParams;
-  const activeTab = params?.tab || "ready";
+  const activeTab = safeTab(params?.tab);
   const storeId = getActiveStoreId();
 
   const { data: orders, error } = await supabase
@@ -93,9 +127,30 @@ export default async function AdminOrdersPage({
 
   if (error) {
     return (
-      <main className="p-8">
-        <h1>Error Loading Orders</h1>
-        <pre>{error.message}</pre>
+      <main className="bg-neutral-50 px-6 py-8 text-neutral-950">
+        <section className="mx-auto max-w-4xl rounded-3xl border border-red-200 bg-white p-6 shadow-sm">
+          <p className="text-xs font-black uppercase tracking-[0.16em] text-red-700">
+            Fulfillment center
+          </p>
+          <h1 className="mt-2 text-3xl font-black">Error loading orders</h1>
+          <p className="mt-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-950">
+            {error.message}
+          </p>
+          <div className="mt-5 flex flex-wrap gap-3">
+            <Link
+              href="/admin/orders"
+              className="rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white"
+            >
+              Retry
+            </Link>
+            <Link
+              href="/admin"
+              className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black"
+            >
+              Admin dashboard
+            </Link>
+          </div>
+        </section>
       </main>
     );
   }
@@ -109,6 +164,9 @@ export default async function AdminOrdersPage({
   const reviewOrders = typedOrders.filter(isReview);
   const shipped = typedOrders.filter(isShipped);
   const allOrders = typedOrders;
+  const paidRevenue = typedOrders
+    .filter((order) => isPaidOrderStatus(order.status))
+    .reduce((sum, order) => sum + Number(order.total || 0), 0);
 
   const visibleOrders =
     activeTab === "shipped"
@@ -120,54 +178,77 @@ export default async function AdminOrdersPage({
       : readyToShip;
 
   return (
-    <main className="p-8">
-      <div className="flex flex-wrap items-center justify-between gap-4 mb-8">
+    <main className="space-y-6 bg-neutral-50 px-6 py-8 text-neutral-950">
+      <section className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm">
+      <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-4xl font-bold">Fulfillment Center</h1>
-          <p className="text-gray-600 mt-2">
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-sky-700">
+            Orders and shipping
+          </p>
+          <h1 className="mt-2 text-4xl font-black tracking-tight">
+            Fulfillment center
+          </h1>
+          <p className="mt-3 max-w-3xl text-sm font-semibold leading-6 text-neutral-600">
             Manage paid orders, packing slips, tracking, and shipping.
           </p>
-          <p className="text-xs text-gray-400 mt-2">
+          <p className="mt-2 text-xs font-bold text-neutral-400">
             Last refreshed: {new Date().toLocaleString()}
           </p>
         </div>
 
-        <div className="flex gap-3">
-          <Link href="/admin/products" className="border rounded px-4 py-2">
+        <div className="flex flex-wrap gap-3">
+          <Link
+            href="/admin/products"
+            className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50"
+          >
             Products
           </Link>
-          <Link href="/admin/offers" className="border rounded px-4 py-2">
+          <Link
+            href="/admin/offers"
+            className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50"
+          >
             Offers
           </Link>
-          <Link href="/admin/files" className="border rounded px-4 py-2">
+          <Link
+            href="/admin/files"
+            className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50"
+          >
             Files
           </Link>
-          <Link href="/admin/logout" className="border rounded px-4 py-2">
+          <Link
+            href="/admin/logout"
+            className="rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white hover:bg-neutral-800"
+          >
             Logout
           </Link>
         </div>
       </div>
+      </section>
 
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
-        <DashboardCard label="Total Orders" value={String(typedOrders.length)} />
-        <DashboardCard label="Ready to Ship" value={String(readyToShip.length)} />
-        <DashboardCard label="Needs Review" value={String(reviewOrders.length)} />
-        <DashboardCard label="Shipped" value={String(shipped.length)} />
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-5">
+        <DashboardCard label="Total orders" value={String(typedOrders.length)} />
+        <DashboardCard
+          label="Ready to ship"
+          value={String(readyToShip.length)}
+          tone="emerald"
+        />
+        <DashboardCard
+          label="Needs review"
+          value={String(reviewOrders.length)}
+          tone="amber"
+        />
+        <DashboardCard label="Shipped" value={String(shipped.length)} tone="sky" />
         <DashboardCard
           label="Revenue"
-          value={money(
-            typedOrders
-              .filter((order) => isPaidOrderStatus(order.status))
-              .reduce((sum, order) => sum + Number(order.total || 0), 0)
-          )}
+          value={money(paidRevenue)}
         />
-      </div>
+      </section>
 
-      <div className="flex flex-wrap gap-3 mb-8 border-b pb-4">
+      <nav className="flex flex-wrap gap-3 rounded-3xl border border-neutral-200 bg-white p-4 shadow-sm">
         <TabLink
           href="/admin/orders?tab=ready"
           active={activeTab === "ready"}
-          label={`Ready to Ship (${readyToShip.length})`}
+          label={`Ready to ship (${readyToShip.length})`}
         />
 
         <TabLink
@@ -187,21 +268,37 @@ export default async function AdminOrdersPage({
           active={activeTab === "all"}
           label={`All Orders (${allOrders.length})`}
         />
-      </div>
+      </nav>
 
-      <section>
-        <h2 className="text-2xl font-bold mb-4">
+      <section className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.16em] text-neutral-500">
+            Current queue
+          </p>
+          <h2 className="mt-2 text-2xl font-black">
           {activeTab === "shipped"
             ? `Shipped (${shipped.length})`
             : activeTab === "review"
-            ? `Needs Review (${reviewOrders.length})`
+            ? `Needs review (${reviewOrders.length})`
             : activeTab === "all"
-            ? `All Orders (${allOrders.length})`
-            : `Ready to Ship (${readyToShip.length})`}
-        </h2>
+            ? `All orders (${allOrders.length})`
+            : `Ready to ship (${readyToShip.length})`}
+          </h2>
+        </div>
+        <p className="text-sm font-bold text-neutral-600">
+          Showing {visibleOrders.length} of {typedOrders.length}
+        </p>
+        </div>
 
         {visibleOrders.length === 0 ? (
-          <p className="text-gray-600">No orders in this queue.</p>
+          <div className="rounded-2xl border border-dashed border-neutral-300 bg-neutral-50 p-8 text-center">
+            <h3 className="text-xl font-black">No orders in this queue</h3>
+            <p className="mt-2 text-sm font-semibold text-neutral-600">
+              This queue is clear. Switch tabs to review shipped, held, or all
+              orders.
+            </p>
+          </div>
         ) : (
           <div className="space-y-4">
             {visibleOrders.map((order) => (
@@ -222,11 +319,30 @@ export default async function AdminOrdersPage({
   );
 }
 
-function DashboardCard({ label, value }: { label: string; value: string }) {
+function DashboardCard({
+  label,
+  tone = "neutral",
+  value,
+}: {
+  label: string;
+  tone?: "neutral" | "emerald" | "amber" | "sky";
+  value: string;
+}) {
+  const className =
+    tone === "emerald"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-950"
+      : tone === "amber"
+        ? "border-amber-200 bg-amber-50 text-amber-950"
+        : tone === "sky"
+          ? "border-sky-200 bg-sky-50 text-sky-950"
+          : "border-neutral-200 bg-white text-neutral-950";
+
   return (
-    <div className="border rounded-lg p-4 bg-white">
-      <p className="text-sm text-gray-500">{label}</p>
-      <p className="text-3xl font-bold">{value}</p>
+    <div className={`rounded-2xl border p-4 shadow-sm ${className}`}>
+      <p className="text-xs font-black uppercase tracking-[0.14em] opacity-70">
+        {label}
+      </p>
+      <p className="mt-2 text-3xl font-black">{value}</p>
     </div>
   );
 }
@@ -241,16 +357,16 @@ function TabLink({
   label: string;
 }) {
   return (
-    <a
+    <Link
       href={href}
       className={
         active
-          ? "bg-black text-white border border-black rounded px-4 py-2 font-bold"
-          : "border rounded px-4 py-2"
+          ? "rounded-md border border-neutral-950 bg-neutral-950 px-4 py-2 text-sm font-black text-white"
+          : "rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50"
       }
     >
       {label}
-    </a>
+    </Link>
   );
 }
 
@@ -263,9 +379,13 @@ function OrderCard({
 }) {
   const needsReview = isReview(order);
   const dryRunShipping = isDryRunShippingReference(order.tracking_number);
+  const totalItems =
+    order.item_count ||
+    order.order_items?.reduce((sum, item) => sum + Number(item.quantity || 0), 0) ||
+    0;
 
   return (
-    <div className="border rounded-lg p-5 bg-white">
+    <article className="rounded-2xl border border-neutral-200 bg-neutral-50 p-5">
       {needsReview ? (
         <div className="mb-4 rounded border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-900">
           Review hold: verify the order, inventory, and shipping evidence before
@@ -273,16 +393,28 @@ function OrderCard({
         </div>
       ) : null}
 
-      <div className="flex flex-wrap justify-between gap-4 border-b pb-4 mb-4">
+      <div className="mb-4 flex flex-wrap justify-between gap-4 border-b border-neutral-200 pb-4">
         <div>
-          <h3 className="text-xl font-bold">Order #{order.id}</h3>
-          <p className="text-gray-600">{order.customer_email || "No email"}</p>
+          <div className="flex flex-wrap items-center gap-2">
+            <h3 className="text-xl font-black">Order #{order.id}</h3>
+            <span
+              className={`rounded-full border px-2 py-0.5 text-xs font-black ${statusTone(
+                order.fulfillment_status || order.status,
+              )}`}
+            >
+              {statusLabel(order.fulfillment_status || order.status)}
+            </span>
+          </div>
+          <p className="mt-1 text-sm font-semibold text-neutral-600">
+            {order.customer_email || "No email"}
+          </p>
           {order.contains_seller_items ? (
             <p className="mt-1 text-xs font-semibold text-amber-700">
-              Seller-routed items: {order.seller_item_count || 0} seller / {order.store_item_count || 0} store
+              Seller-routed items: {order.seller_item_count || 0} seller /{" "}
+              {order.store_item_count || 0} store
             </p>
           ) : null}
-          <p className="mt-1 text-sm font-semibold text-gray-700">
+          <p className="mt-1 text-sm font-semibold text-neutral-700">
             Account:{" "}
             {accountProfile
               ? accountProfile.email ||
@@ -292,13 +424,13 @@ function OrderCard({
                 ? "Linked account profile unavailable"
                 : "Guest checkout"}
           </p>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-neutral-500">
             {new Date(order.created_at).toLocaleString()}
           </p>
         </div>
 
         <div className="text-right">
-          <p className="font-bold text-lg">{money(order.total)}</p>
+          <p className="text-lg font-black">{money(order.total)}</p>
           <p className="text-sm">
             Payment: <strong>{statusLabel(order.status)}</strong>
           </p>
@@ -311,10 +443,10 @@ function OrderCard({
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div>
-          <h4 className="font-bold mb-2">Items</h4>
+          <h4 className="mb-2 font-black">Items</h4>
 
           {!order.order_items || order.order_items.length === 0 ? (
-            <p className="text-sm text-gray-500">No order items found.</p>
+            <p className="text-sm font-semibold text-neutral-500">No order items found.</p>
           ) : (
             <ul className="space-y-2">
               {order.order_items.map((item) => (
@@ -322,7 +454,7 @@ function OrderCard({
                   <span className="font-medium">{item.quantity}×</span>{" "}
                   {item.title}
                   <br />
-                  <span className="text-gray-500">
+                  <span className="text-neutral-500">
                     {money(Number(item.price) * Number(item.quantity))}
                   </span>
                 </li>
@@ -332,7 +464,7 @@ function OrderCard({
         </div>
 
         <div>
-          <h4 className="font-bold mb-2">Shipping</h4>
+          <h4 className="mb-2 font-black">Shipping</h4>
           <p className="text-sm">
             Method: {order.shipping_name || order.shipping_method || "Not set"}
           </p>
@@ -340,7 +472,7 @@ function OrderCard({
             Shipping Paid: {money(order.shipping_amount)}
           </p>
           <p className="text-sm">Subtotal: {money(order.subtotal)}</p>
-          <p className="text-sm">Items: {order.item_count || 0}</p>
+          <p className="text-sm">Items: {totalItems}</p>
 
           {dryRunShipping ? (
             <div className="mt-2 rounded border border-amber-200 bg-amber-50 p-2 text-xs font-semibold text-amber-900">
@@ -365,41 +497,41 @@ function OrderCard({
         </div>
 
         <div>
-          <h4 className="font-bold mb-2">Actions</h4>
+          <h4 className="mb-2 font-black">Actions</h4>
 
           <div className="flex flex-col gap-2">
-            <a
+            <Link
               href="/admin/files"
-              className="border rounded px-4 py-2 text-center"
+              className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-center text-sm font-black hover:bg-neutral-50"
             >
-              Evidence Files
-            </a>
+              Evidence files
+            </Link>
 
-            <a
+            <Link
               href={`/admin/orders/${order.id}`}
-              className="border rounded px-4 py-2 text-center"
+              className="rounded-md bg-neutral-950 px-4 py-2 text-center text-sm font-black text-white hover:bg-neutral-800"
             >
-              View Order
-            </a>
+              View order
+            </Link>
 
             {!needsReview ? (
-              <a
+              <Link
                 href={`/admin/orders/${order.id}/packing-slip`}
-                className="border rounded px-4 py-2 text-center"
+                className="rounded-md border border-sky-300 bg-sky-50 px-4 py-2 text-center text-sm font-black text-sky-950 hover:bg-sky-100"
               >
-                Print Packing Slip
-              </a>
+                Print packing slip
+              </Link>
             ) : null}
 
-            <a
+            <Link
               href={`/admin/orders/${order.id}`}
-              className="border rounded px-4 py-2 text-center"
+              className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-center text-sm font-black text-emerald-950 hover:bg-emerald-100"
             >
-              Add Tracking / Mark Shipped
-            </a>
+              Add tracking / mark shipped
+            </Link>
           </div>
         </div>
       </div>
-    </div>
+    </article>
   );
 }
