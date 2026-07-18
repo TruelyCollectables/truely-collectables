@@ -3495,6 +3495,9 @@ export default function InstaCompScanner({
   const persistentBindingsRef = useRef<Map<string, PersistentJobBinding>>(
     new Map()
   );
+  const removedBatchCardIdsRef = useRef<Set<string>>(new Set());
+  const removedPersistentItemIdsRef = useRef<Set<string>>(new Set());
+  const removedPersistentClientIdsRef = useRef<Set<string>>(new Set());
   const serialOverrideByItemIdRef = useRef<Map<string, string | null>>(
     new Map()
   );
@@ -4437,10 +4440,16 @@ export default function InstaCompScanner({
     cards: BatchCard[],
     autoCreateDrafts: boolean
   ) {
-    if (testMode || !cards.length) return null;
+    if (testMode) return null;
+
+    const activeCards = cards.filter(
+      (card) => !removedBatchCardIdsRef.current.has(card.id)
+    );
+
+    if (!activeCards.length) return null;
 
     const existingJobId = persistentJob?.id;
-    const allCardsBound = cards.every((card) =>
+    const allCardsBound = activeCards.every((card) =>
       persistentBindingsRef.current.has(card.id)
     );
 
@@ -4457,7 +4466,7 @@ export default function InstaCompScanner({
 
     try {
       const clientIds = new Map(
-        cards.map((card) => [
+        activeCards.map((card) => [
           card.id,
           card.persistentClientId || crypto.randomUUID(),
         ])
@@ -4467,12 +4476,12 @@ export default function InstaCompScanner({
       persistentClientBatchIdRef.current = clientBatchId;
       const created = await createPersistentJobWithActiveLotRecovery({
         clientBatchId,
-        totalItems: cards.length,
+        totalItems: activeCards.length,
         autoCreateDrafts,
       });
       const job = created.job as PersistentJobSummary;
       let completedUploads = 0;
-      const totalUploads = cards.reduce(
+      const totalUploads = activeCards.reduce(
         (total, card) => total + 1 + (card.backFile ? 1 : 0),
         0
       );
@@ -4483,10 +4492,10 @@ export default function InstaCompScanner({
 
       for (
         let chunkStart = 0;
-        chunkStart < cards.length;
+        chunkStart < activeCards.length;
         chunkStart += INSTACOMP_JOB_ITEM_CHUNK_SIZE
       ) {
-        const chunk = cards.slice(
+        const chunk = activeCards.slice(
           chunkStart,
           chunkStart + INSTACOMP_JOB_ITEM_CHUNK_SIZE
         );
@@ -6658,11 +6667,14 @@ export default function InstaCompScanner({
     });
   }
 
-  async function cancelPersistentBatchCard(card: BatchCard) {
-    if (!card.persistentJobId || !card.persistentItemId) return null;
+  async function cancelPersistentItem(params: {
+    jobId: string | null | undefined;
+    itemId: string | null | undefined;
+  }) {
+    if (!params.jobId || !params.itemId) return null;
 
     return persistentJobJson(
-      `/api/instacomp/jobs/${card.persistentJobId}/items/${card.persistentItemId}`,
+      `/api/instacomp/jobs/${params.jobId}/items/${params.itemId}`,
       {
         method: "PATCH",
         body: {
@@ -6677,7 +6689,39 @@ export default function InstaCompScanner({
     );
   }
 
+  async function cancelPersistentBatchCard(card: BatchCard) {
+    const binding = persistentBindingsRef.current.get(card.id);
+
+    return cancelPersistentItem({
+      jobId: card.persistentJobId || binding?.jobId,
+      itemId: card.persistentItemId || binding?.itemId,
+    });
+  }
+
+  function rememberRemovedPersistentBatchCard(card: BatchCard) {
+    const binding = persistentBindingsRef.current.get(card.id);
+    const itemId = card.persistentItemId || binding?.itemId;
+    const clientItemId = card.persistentClientId || binding?.clientItemId;
+
+    if (itemId) {
+      removedPersistentItemIdsRef.current.add(itemId);
+    }
+
+    if (clientItemId) {
+      removedPersistentClientIdsRef.current.add(clientItemId);
+    }
+  }
+
+  function claimedPersistentItemWasRemoved(item: PersistentClaimedItem) {
+    return (
+      removedPersistentItemIdsRef.current.has(String(item.id || "")) ||
+      removedPersistentClientIdsRef.current.has(String(item.client_item_id || ""))
+    );
+  }
+
   function forgetRemovedBatchCard(card: BatchCard) {
+    removedBatchCardIdsRef.current.add(card.id);
+    rememberRemovedPersistentBatchCard(card);
     revokeBatchCardPreviewUrls(card);
     persistentBindingsRef.current.delete(card.id);
 
@@ -6991,6 +7035,9 @@ export default function InstaCompScanner({
     setPersistentJob(null);
     setPersistentUploadProgress(null);
     setPersistentJobPreparing(false);
+    removedBatchCardIdsRef.current.clear();
+    removedPersistentItemIdsRef.current.clear();
+    removedPersistentClientIdsRef.current.clear();
     persistentBindingsRef.current.clear();
     persistentClientBatchIdRef.current = null;
     openAIRateLimitPauseRef.current = false;
@@ -8132,6 +8179,10 @@ export default function InstaCompScanner({
     card: BatchCard,
     claimedItem?: PersistentClaimedItem
   ) {
+    if (removedBatchCardIdsRef.current.has(card.id)) {
+      return card;
+    }
+
     const persistentBinding = persistentBindingsRef.current.get(card.id);
     const scanStartedAtMs = Date.now();
     const scanStartedAt = new Date(scanStartedAtMs).toISOString();
@@ -8291,6 +8342,17 @@ export default function InstaCompScanner({
         emptyClaimCount = 0;
 
         for (const item of claimedItems) {
+          if (claimedPersistentItemWasRemoved(item)) {
+            await cancelPersistentItem({
+              jobId,
+              itemId: item.id,
+            }).catch((error) => {
+              if (error?.status === 404 || error?.status === 409) return null;
+              throw error;
+            });
+            continue;
+          }
+
           const card = cardsByClientId.get(item.client_item_id);
 
           if (!card) {
@@ -8308,6 +8370,17 @@ export default function InstaCompScanner({
                 },
               }
             );
+            continue;
+          }
+
+          if (removedBatchCardIdsRef.current.has(card.id)) {
+            await cancelPersistentItem({
+              jobId,
+              itemId: item.id,
+            }).catch((error) => {
+              if (error?.status === 404 || error?.status === 409) return null;
+              throw error;
+            });
             continue;
           }
 
@@ -8541,6 +8614,10 @@ export default function InstaCompScanner({
         const card = cardsToScan[cursor];
         cursor += 1;
 
+        if (removedBatchCardIdsRef.current.has(card.id)) {
+          continue;
+        }
+
         const scannedCard = await scanOneBatchCard(card);
         handleBatchOpenAIRateLimit(scannedCard);
         handleBatchDatabasePressure(scannedCard);
@@ -8654,6 +8731,10 @@ export default function InstaCompScanner({
       ) {
         const card = cardsToScan[cursor];
         cursor += 1;
+
+        if (removedBatchCardIdsRef.current.has(card.id)) {
+          continue;
+        }
 
         const scannedCard = await scanOneBatchCard(card);
         completedCards.push(scannedCard);

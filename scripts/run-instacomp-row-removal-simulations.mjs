@@ -3,6 +3,12 @@ import {
   instaCompBatchRowRemovalBlockedReason,
   instaCompBatchRowRemovalLabel,
 } from "../src/lib/instacomp-row-removal.ts";
+import { readFile } from "node:fs/promises";
+
+const scannerSource = await readFile(
+  new URL("../src/app/admin/instacomp/InstaCompScanner.tsx", import.meta.url),
+  "utf8",
+);
 
 const scenarios = [];
 
@@ -76,6 +82,23 @@ scenario("makes wrong scan row removal explicit", () => {
     }) === "Remove Wrong Row",
     "Expected operator-marked wrong scan rows to get an explicit removal label."
   );
+});
+
+scenario("tombstones removed persistent rows so active workers skip them", () => {
+  for (const fragment of [
+    "removedBatchCardIdsRef",
+    "removedPersistentItemIdsRef",
+    "removedPersistentClientIdsRef",
+    "rememberRemovedPersistentBatchCard",
+    "claimedPersistentItemWasRemoved",
+    "cancelPersistentItem",
+    "removedBatchCardIdsRef.current.has(card.id)",
+  ]) {
+    assert(
+      scannerSource.includes(fragment),
+      `Expected scanner removal tombstone fragment ${fragment}.`,
+    );
+  }
 });
 
 const failed = [];
