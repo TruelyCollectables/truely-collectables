@@ -228,6 +228,9 @@ scenario("product list exposes a direct end-early action", () => {
     "Ended / Archived",
     "archive it, and set quantity to 0",
     "adminProductStatusSuccessMessage(\"archived\")",
+    "Review ended product",
+    "Continue inventory review",
+    "href={`/admin/products/${query.statusEnded}`}",
   ]) {
     assert(
       productsPageSource.includes(fragment),

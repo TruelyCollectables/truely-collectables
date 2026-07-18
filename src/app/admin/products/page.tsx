@@ -271,7 +271,24 @@ export default async function AdminProductsPage({
           aria-live="polite"
           className="rounded border border-emerald-300 bg-emerald-50 p-4 font-bold text-emerald-800"
         >
-          Product #{query.statusEnded}: {adminProductStatusSuccessMessage("archived")}
+          <p>
+            Product #{query.statusEnded}:{" "}
+            {adminProductStatusSuccessMessage("archived")}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Link
+              href={`/admin/products/${query.statusEnded}`}
+              className="rounded-md border border-emerald-300 bg-white px-3 py-2 text-sm font-black text-emerald-900 hover:bg-emerald-100"
+            >
+              Review ended product
+            </Link>
+            <Link
+              href="/admin/products"
+              className="rounded-md border border-emerald-300 bg-white px-3 py-2 text-sm font-black text-emerald-900 hover:bg-emerald-100"
+            >
+              Continue inventory review
+            </Link>
+          </div>
         </div>
       )}
 
