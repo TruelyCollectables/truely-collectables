@@ -767,6 +767,61 @@ async function previewMergeDuplicate(params: {
   };
 }
 
+async function previewMergeDuplicateRows(params: {
+  keeperProductId: number;
+  duplicateProductIds: number[];
+}) {
+  const requestedDuplicateIds = normalizeEbayDuplicateProductIds(
+    params.duplicateProductIds,
+  ).filter((productId) => productId !== params.keeperProductId);
+
+  if (!requestedDuplicateIds.length) {
+    throw new Error("Pick at least one duplicate row different from the keeper.");
+  }
+
+  const [keeper, duplicates] = await Promise.all([
+    loadProductForMerge(params.keeperProductId),
+    Promise.all(requestedDuplicateIds.map((productId) => loadProductForMerge(productId))),
+  ]);
+  const keeperKey = duplicateIdentityKey(keeper);
+
+  if (!keeperKey) {
+    throw new Error("Keeper row does not look like an active exact-match eBay listing.");
+  }
+
+  for (const duplicate of duplicates) {
+    const duplicateKey = duplicateIdentityKey(duplicate);
+
+    if (keeperKey !== duplicateKey) {
+      throw new Error(
+        `Product ${duplicate.id} does not look like an exact duplicate of keeper ${keeper.id}.`,
+      );
+    }
+  }
+
+  const mergePlan = planEbayDuplicateQuantityMerge({
+    keeperProductId: keeper.id,
+    keeperQuantity: keeper.quantity,
+    duplicateRows: duplicates.map((duplicate) => ({
+      productId: duplicate.id,
+      quantity: duplicate.quantity,
+    })),
+  });
+
+  return {
+    keeperProductId: keeper.id,
+    duplicateProductId: duplicates[0]?.id ?? null,
+    duplicateProductIds: mergePlan.duplicateProductIds,
+    title: keeper.title || "Untitled eBay listing",
+    price: moneyNumber(keeper.price),
+    previousKeeperQuantity: mergePlan.previousKeeperQuantity,
+    duplicateQuantity: mergePlan.duplicateQuantity,
+    mergedQuantity: mergePlan.mergedQuantity,
+    archivedDuplicateCount: mergePlan.archivedDuplicateCount,
+    dryRun: true,
+  };
+}
+
 async function archiveDuplicate(params: { duplicateProductId: number }) {
   const supabase = getSupabaseClient();
   const storeId = getActiveStoreId();
@@ -911,10 +966,16 @@ export async function POST(request: Request) {
     }
 
     if (body.dryRun === true) {
-      const result = await previewMergeDuplicate({
-        keeperProductId,
-        duplicateProductId,
-      });
+      const result =
+        action === "merge-duplicates"
+          ? await previewMergeDuplicateRows({
+              keeperProductId,
+              duplicateProductIds: requestedDuplicateIds,
+            })
+          : await previewMergeDuplicate({
+              keeperProductId,
+              duplicateProductId,
+            });
 
       return Response.json({
         success: true,

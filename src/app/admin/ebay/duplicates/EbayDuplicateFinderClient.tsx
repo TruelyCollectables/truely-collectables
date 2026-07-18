@@ -156,6 +156,14 @@ export default function EbayDuplicateFinderClient() {
     const duplicateProductIds = group.rows
       .map((row) => row.productId)
       .filter((productId) => productId !== keeperProductId);
+    const keeperRow =
+      group.rows.find((row) => row.productId === keeperProductId) || null;
+    const allDuplicateRows = group.rows.filter(
+      (row) => row.productId !== keeperProductId,
+    );
+    const visibleMergedQuantity =
+      Number(keeperRow?.quantity || 0) +
+      allDuplicateRows.reduce((sum, row) => sum + Number(row.quantity || 0), 0);
 
     if (!keeperProductId || duplicateProductIds.length === 0) {
       setError("Pick one keeper with at least one different duplicate row first.");
@@ -171,6 +179,32 @@ export default function EbayDuplicateFinderClient() {
     setError("");
 
     try {
+      const previewResponse = await fetch("/api/admin/ebay-duplicates", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "merge-duplicates",
+          keeperProductId,
+          duplicateProductIds,
+          dryRun: true,
+          confirm: "MERGE_DUPLICATES",
+        }),
+      });
+      const previewData = await previewResponse.json().catch(() => ({}));
+
+      if (!previewResponse.ok || !previewData.success) {
+        throw new Error(previewData.error || "Could not preview duplicate merge.");
+      }
+
+      const preview = previewData.result || {};
+      const serverMergedQuantity = Number(preview.mergedQuantity || 0);
+
+      if (serverMergedQuantity !== visibleMergedQuantity) {
+        setNotice(
+          `Server preview refreshed the merge math: keeper qty ${preview.previousKeeperQuantity} + duplicate qty ${preview.duplicateQuantity} = ${preview.mergedQuantity}.`,
+        );
+      }
+
       const response = await fetch("/api/admin/ebay-duplicates", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
