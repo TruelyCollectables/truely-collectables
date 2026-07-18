@@ -1,5 +1,6 @@
 import { instaCompBatchRowActionLabel } from "../src/lib/instacomp-row-actions.ts";
 import {
+  normalizedInstaCompMergeTitle,
   normalizedInstaCompMergeQuantity,
   planInstaCompSelectedQuantityMerge,
 } from "../src/lib/instacomp-row-merge.ts";
@@ -72,6 +73,32 @@ scenario("plans selected duplicate row quantity merges", () => {
   assert(plan.previousKeeperQuantity === 2, "Expected keeper quantity to be captured.");
   assert(plan.duplicateQuantity === 1, "Expected duplicate quantity to be summed.");
   assert(plan.mergedQuantity === 3, "Expected 2 + 1 to become quantity 3.");
+});
+
+scenario("normalizes real-world card title differences before merging", () => {
+  assert(
+    normalizedInstaCompMergeTitle("2024 Pokémon Pikachu #025") ===
+      normalizedInstaCompMergeTitle("2024 Pokemon Pikachu 025"),
+    "Expected accent and punctuation differences to normalize to the same merge title.",
+  );
+
+  const plan = planInstaCompSelectedQuantityMerge([
+    {
+      id: "keeper",
+      title: "2024 Pokémon Pikachu #025",
+      quantity: 2,
+    },
+    {
+      id: "duplicate",
+      title: "2024 Pokemon Pikachu 025",
+      quantity: 1,
+    },
+  ]);
+
+  assert(plan.ok, "Expected accent and punctuation differences to merge.");
+  if (!plan.ok) return;
+
+  assert(plan.mergedQuantity === 3, "Expected normalized Pokemon duplicate quantities to sum.");
 });
 
 scenario("blocks merging selected rows with different titles", () => {

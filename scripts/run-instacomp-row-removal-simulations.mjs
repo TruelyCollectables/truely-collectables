@@ -89,10 +89,13 @@ scenario("tombstones removed persistent rows so active workers skip them", () =>
     "removedBatchCardIdsRef",
     "removedPersistentItemIdsRef",
     "removedPersistentClientIdsRef",
+    "batchCardAbortControllersRef",
     "persistentRemovalTargetForBatchCard",
     "batchCardHasPersistentRemovalTarget",
     "rememberRemovedPersistentBatchCard",
     "claimedPersistentItemWasRemoved",
+    "abortBatchCardScan",
+    "abortController.signal.aborted",
     "cancelPersistentItem",
     "removedBatchCardIdsRef.current.has(card.id)",
   ]) {
@@ -122,6 +125,7 @@ scenario("row remove button exposes busy and blocked feedback", () => {
     "const removeBlockedReason = instaCompBatchRowRemovalBlockedReason",
     "aria-busy={isRemoving}",
     "Remove blocked:",
+    "Ended active scan for ${cardTitle} and removed it from this batch.",
     "Removing row and cancelling saved InstaComp™ storage when present...",
   ]) {
     assert(

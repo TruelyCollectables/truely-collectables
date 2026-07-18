@@ -22,7 +22,11 @@ export type InstaCompQuantityMergePlan =
 
 export function normalizedInstaCompMergeTitle(value: string | null | undefined) {
   return String(value || "")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
     .trim()
+    .replace(/['’]/g, "")
+    .replace(/[^a-zA-Z0-9]+/g, " ")
     .replace(/\s+/g, " ")
     .toLocaleLowerCase();
 }

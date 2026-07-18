@@ -628,6 +628,21 @@ async function fetchWithFreshAccountSession(
 
   return attempt.response;
 }
+
+function isAbortError(error: unknown) {
+  return (
+    error instanceof DOMException && error.name === "AbortError"
+  ) || (
+    error instanceof Error && error.name === "AbortError"
+  );
+}
+
+function throwIfAborted(signal: AbortSignal | null | undefined) {
+  if (signal?.aborted) {
+    throw new DOMException("InstaComp™ row scan was ended by the operator.", "AbortError");
+  }
+}
+
 const BATCH_FILTER_LABELS: Record<BatchCardFilter, string> = {
   all: "All",
   selected: "Selected",
@@ -3495,6 +3510,9 @@ export default function InstaCompScanner({
   const persistentBindingsRef = useRef<Map<string, PersistentJobBinding>>(
     new Map()
   );
+  const batchCardAbortControllersRef = useRef<Map<string, AbortController>>(
+    new Map()
+  );
   const removedBatchCardIdsRef = useRef<Set<string>>(new Set());
   const removedPersistentItemIdsRef = useRef<Set<string>>(new Set());
   const removedPersistentClientIdsRef = useRef<Set<string>>(new Set());
@@ -3505,9 +3523,12 @@ export default function InstaCompScanner({
 
   useEffect(() => {
     const previewUrls = batchPreviewUrlsRef.current;
+    const abortControllers = batchCardAbortControllersRef.current;
 
     return () => {
       previewUrls.forEach((url) => URL.revokeObjectURL(url));
+      abortControllers.forEach((controller) => controller.abort());
+      abortControllers.clear();
     };
   }, []);
 
@@ -4669,14 +4690,18 @@ export default function InstaCompScanner({
   async function runInstaCompScan(
     front: File,
     back?: File | null,
-    claimedItem?: PersistentClaimedItem
+    claimedItem?: PersistentClaimedItem,
+    signal?: AbortSignal
   ) {
+    throwIfAborted(signal);
+
     if (testMode) {
       return runTestInstaCompScan(front, back);
     }
 
     if (claimedItem) {
       for (let attempt = 0; attempt < 4; attempt += 1) {
+        throwIfAborted(signal);
         const hasSerialOverride = serialOverrideByItemIdRef.current.has(
           claimedItem.id
         );
@@ -4686,6 +4711,7 @@ export default function InstaCompScanner({
         const response = await fetchWithFreshAccountSession("/api/instacomp/scan", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          signal,
           body: JSON.stringify({
             jobId: claimedItem.job_id,
             itemId: claimedItem.id,
@@ -4724,6 +4750,7 @@ export default function InstaCompScanner({
       optimizeScanImage(front),
       back ? optimizeScanImage(back) : Promise.resolve(null),
     ]);
+    throwIfAborted(signal);
     const formData = new FormData();
     formData.append("frontImage", optimizedFront);
     formData.append("aiCouncilTier", aiCouncilTier);
@@ -4738,6 +4765,7 @@ export default function InstaCompScanner({
         ? createSerialDetailCrops(optimizedBack, "back")
         : Promise.resolve([]),
     ]);
+    throwIfAborted(signal);
     const detailCrops = Array.from({
       length: Math.max(frontDetailCrops.length, backDetailCrops.length),
     })
@@ -4757,8 +4785,10 @@ export default function InstaCompScanner({
     });
 
     for (let attempt = 0; attempt < 4; attempt += 1) {
+      throwIfAborted(signal);
       const response = await fetchWithFreshAccountSession("/api/instacomp/scan", {
         method: "POST",
+        signal,
         body: formData,
       });
 
@@ -6698,6 +6728,16 @@ export default function InstaCompScanner({
     );
   }
 
+  function abortBatchCardScan(cardId: string) {
+    const controller = batchCardAbortControllersRef.current.get(cardId);
+
+    if (!controller) return false;
+
+    controller.abort();
+    batchCardAbortControllersRef.current.delete(cardId);
+    return true;
+  }
+
   function persistentRemovalTargetForBatchCard(card: BatchCard) {
     const binding = persistentBindingsRef.current.get(card.id);
 
@@ -6773,6 +6813,7 @@ export default function InstaCompScanner({
     setBatchError(null);
     const cardTitle = draftTitleForCard(card);
     const isPersisted = batchCardHasPersistentRemovalTarget(card);
+    const abortedActiveScan = abortBatchCardScan(cardId);
 
     setRemovingBatchCardIds((current) => new Set(current).add(cardId));
     setBatchCards((current) =>
@@ -6786,6 +6827,8 @@ export default function InstaCompScanner({
     setBatchDraftMessage(
       isPersisted
         ? `Removed ${cardTitle} from this batch. Cancelling its saved InstaComp™ row...`
+        : abortedActiveScan
+          ? `Ended active scan for ${cardTitle} and removed it from this batch.`
         : `Removed ${cardTitle} from this batch.`
     );
 
@@ -6840,6 +6883,7 @@ export default function InstaCompScanner({
     setBatchError(null);
     const persistedCards = cardsToRemove.filter(batchCardHasPersistentRemovalTarget);
     const removeIds = new Set(cardsToRemove.map((card) => card.id));
+    cardsToRemove.forEach((card) => abortBatchCardScan(card.id));
 
     setBatchDraftMessage(removedMessage);
     setBatchCards((current) =>
@@ -7065,6 +7109,8 @@ export default function InstaCompScanner({
     removedPersistentItemIdsRef.current.clear();
     removedPersistentClientIdsRef.current.clear();
     persistentBindingsRef.current.clear();
+    batchCardAbortControllersRef.current.forEach((controller) => controller.abort());
+    batchCardAbortControllersRef.current.clear();
     persistentClientBatchIdRef.current = null;
     openAIRateLimitPauseRef.current = false;
     try {
@@ -8368,9 +8414,11 @@ export default function InstaCompScanner({
     }
 
     const persistentBinding = persistentBindingsRef.current.get(card.id);
+    const abortController = new AbortController();
     const scanStartedAtMs = Date.now();
     const scanStartedAt = new Date(scanStartedAtMs).toISOString();
 
+    batchCardAbortControllersRef.current.set(card.id, abortController);
     updateBatchCard(card.id, (current) => ({
       ...current,
       status: "scanning",
@@ -8386,8 +8434,27 @@ export default function InstaCompScanner({
       const scanResult = await runInstaCompScan(
         card.file,
         card.backFile,
-        claimedItem
+        claimedItem,
+        abortController.signal
       );
+
+      if (
+        abortController.signal.aborted ||
+        removedBatchCardIdsRef.current.has(card.id)
+      ) {
+        if (claimedItem) {
+          await cancelPersistentItem({
+            jobId: claimedItem.job_id,
+            itemId: claimedItem.id,
+          }).catch((error) => {
+            if (error?.status === 404 || error?.status === 409) return null;
+            throw error;
+          });
+        }
+
+        return card;
+      }
+
       const marketPrice = effectiveMarketStats(scanResult).suggestedPrice;
       const nextCard = (current: BatchCard): BatchCard => ({
         ...current,
@@ -8416,6 +8483,14 @@ export default function InstaCompScanner({
       updateBatchCard(card.id, nextCard);
       return nextCard(card);
     } catch (err: any) {
+      if (isAbortError(err) || abortController.signal.aborted) {
+        return card;
+      }
+
+      if (removedBatchCardIdsRef.current.has(card.id)) {
+        return card;
+      }
+
       const nextCard = (current: BatchCard): BatchCard => ({
         ...current,
         status: "error",
@@ -8436,6 +8511,10 @@ export default function InstaCompScanner({
 
       updateBatchCard(card.id, nextCard);
       return nextCard(card);
+    } finally {
+      if (batchCardAbortControllersRef.current.get(card.id) === abortController) {
+        batchCardAbortControllersRef.current.delete(card.id);
+      }
     }
   }
 
