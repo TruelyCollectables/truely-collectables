@@ -1,3 +1,4 @@
+import { enforceBaseballPremiumPolicy } from "../../../../lib/market-intel-baseball-premium-enforcement";
 import { getIdentityDiscoveryWorkbench } from "../../../../lib/market-intel-identity-candidates";
 import BulkCandidateControls from "./BulkCandidateControls";
 import ShippingBreakdownPortals from "./ShippingBreakdownPortals";
@@ -37,7 +38,7 @@ function approvalReadiness(candidate: {
       candidate.autograph ||
       candidate.memorabilia,
   );
-  if (!hasNonBaseSignal) missing.push("non-base identity");
+  if (!hasNonBaseSignal) missing.push("premium non-base identity");
 
   if (candidate.condition_type === "graded") {
     if (!candidate.grading_company?.trim()) missing.push("grading company");
@@ -60,6 +61,7 @@ export default async function IdentityDiscoveryLayout({
   }> = [];
 
   try {
+    await enforceBaseballPremiumPolicy();
     const workbench = await getIdentityDiscoveryWorkbench();
     candidates = workbench.pending.map((candidate) => {
       const readiness = approvalReadiness(candidate);
