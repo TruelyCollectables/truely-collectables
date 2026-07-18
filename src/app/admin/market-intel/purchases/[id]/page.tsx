@@ -329,6 +329,8 @@ function Row({ label, value, strong = false }: { label: string; value: string; s
 function Notice({ tone, children }: { tone: "success" | "error"; children: React.ReactNode }) {
   return (
     <div
+      role={tone === "error" ? "alert" : "status"}
+      aria-live={tone === "error" ? "assertive" : "polite"}
       className={
         tone === "success"
           ? "rounded-md border border-emerald-300 bg-emerald-50 px-4 py-3 font-bold text-emerald-900"

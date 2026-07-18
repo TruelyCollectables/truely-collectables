@@ -460,6 +460,8 @@ function SmallFact({ label, value }: { label: string; value: string }) {
 function Notice({ children, error = false }: { children: React.ReactNode; error?: boolean }) {
   return (
     <div
+      role={error ? "alert" : "status"}
+      aria-live={error ? "assertive" : "polite"}
       className={
         error
           ? "rounded-xl border border-rose-300 bg-rose-50 p-4 font-bold text-rose-950"

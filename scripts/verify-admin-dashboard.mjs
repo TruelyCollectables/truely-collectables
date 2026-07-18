@@ -20,6 +20,7 @@ const checks = [
   "simulate:admin-financial-reconciliation",
   "simulate:admin-store-settings",
   "simulate:admin-market-intel-watchlist",
+  "simulate:admin-market-intel-notices",
   "simulate:admin-market-intel-delivery-report",
   "simulate:admin-market-intel-discovery",
   "simulate:admin-market-intel-ebay-comps",

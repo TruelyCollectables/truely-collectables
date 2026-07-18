@@ -199,7 +199,11 @@ function Metric({ label, value, detail }: { label: string; value: string; detail
 
 function Notice({ children, error = false }: { children: React.ReactNode; error?: boolean }) {
   return (
-    <div className={error ? "rounded-lg border border-rose-200 bg-rose-50 p-4 font-bold text-rose-900" : "rounded-lg border border-emerald-200 bg-emerald-50 p-4 font-bold text-emerald-900"}>
+    <div
+      role={error ? "alert" : "status"}
+      aria-live={error ? "assertive" : "polite"}
+      className={error ? "rounded-lg border border-rose-200 bg-rose-50 p-4 font-bold text-rose-900" : "rounded-lg border border-emerald-200 bg-emerald-50 p-4 font-bold text-emerald-900"}
+    >
       {children}
     </div>
   );

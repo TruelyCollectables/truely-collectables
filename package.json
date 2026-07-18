@@ -31,6 +31,7 @@
     "simulate:admin-financial-reconciliation": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-admin-financial-reconciliation-simulations.mjs",
     "simulate:admin-store-settings": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-admin-store-settings-simulations.mjs",
     "simulate:admin-market-intel-watchlist": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-admin-market-intel-watchlist-simulations.mjs",
+    "simulate:admin-market-intel-notices": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-admin-market-intel-notice-simulations.mjs",
     "simulate:admin-market-intel-delivery-report": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-admin-market-intel-delivery-report-simulations.mjs",
     "simulate:admin-market-intel-discovery": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-admin-market-intel-discovery-simulations.mjs",
     "simulate:admin-market-intel-ebay-comps": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-admin-market-intel-ebay-comps-simulations.mjs",

@@ -629,6 +629,8 @@ function Notice({
 }) {
   return (
     <div
+      role={error ? "alert" : "status"}
+      aria-live={error ? "assertive" : "polite"}
       className={
         error
           ? "rounded-lg border border-rose-200 bg-rose-50 p-4 font-bold text-rose-900"
