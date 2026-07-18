@@ -156,6 +156,17 @@ scenario("admin command center keeps critical operator routes one click away", (
   }
 });
 
+scenario("admin command center uses professional playbook copy", () => {
+  assert(
+    adminPageSource.includes("Big buttons, clear jobs, no maze-like workflows"),
+    "Expected admin playbook headline to use professional operator copy.",
+  );
+  assert(
+    !adminPageSource.toLowerCase().includes("bullshit"),
+    "Expected admin command center to avoid rough operator copy.",
+  );
+});
+
 scenario("instacomp direct route owns its segment config", () => {
   assert(
     instaCompDirectSource.includes('export const dynamic = "force-dynamic";'),

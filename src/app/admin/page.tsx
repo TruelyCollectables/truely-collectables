@@ -1426,7 +1426,7 @@ export default async function AdminDashboard() {
                 Admin Playbook
               </p>
               <h2 className="mt-1 text-3xl font-black">
-                Big buttons, clear jobs, no maze bullshit
+                Big buttons, clear jobs, no maze-like workflows
               </h2>
             </div>
             <p className="max-w-2xl text-sm font-semibold text-neutral-300">
