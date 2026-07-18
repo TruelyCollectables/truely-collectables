@@ -1,4 +1,5 @@
 import Link from "next/link";
+import AdminSubmitButton from "../../AdminSubmitButton";
 import { addAdminHandoff, ADMIN_HANDOFF_PARAM } from "../../../../lib/admin-handoff";
 import { getMarketIntelWatchlist } from "../../../../lib/market-intel-watchlist";
 
@@ -76,11 +77,12 @@ export default async function MarketIntelWatchlistPage({ searchParams }: PagePro
                   <Check name="includeGraded" label="Graded" />
                   <Check name="includeLots" label="Lots / wholesale" />
                 </div>
-                <button
-                  type="submit"
-                  className="rounded-md bg-black px-5 py-3 font-black text-white sm:col-span-2">
+                <AdminSubmitButton
+                  className="rounded-md bg-black px-5 py-3 font-black text-white sm:col-span-2"
+                  pendingChildren="Adding player..."
+                >
                   Add to Watchlist
-                </button>
+                </AdminSubmitButton>
               </form>
             </section>
 
@@ -95,11 +97,12 @@ export default async function MarketIntelWatchlistPage({ searchParams }: PagePro
                 action={addAdminHandoff("/api/admin/market-intel/watchlist/seed", handoff)}
                 className="mt-4"
               >
-                <button
-                  type="submit"
-                  className="rounded-md bg-cyan-700 px-4 py-2.5 text-sm font-black text-white">
+                <AdminSubmitButton
+                  className="rounded-md bg-cyan-700 px-4 py-2.5 text-sm font-black text-white"
+                  pendingChildren="Loading watchlist..."
+                >
                   Load Current Watchlist
-                </button>
+                </AdminSubmitButton>
               </form>
             </section>
           </div>
@@ -136,11 +139,12 @@ export default async function MarketIntelWatchlistPage({ searchParams }: PagePro
                         method="post"
                         action={addAdminHandoff(`/api/admin/market-intel/watchlist/${row.id}/toggle`, handoff)}
                       >
-                        <button
-                          type="submit"
-                          className={row.active ? "rounded-md border border-neutral-300 px-4 py-2 text-sm font-black" : "rounded-md bg-emerald-600 px-4 py-2 text-sm font-black text-white"}>
+                        <AdminSubmitButton
+                          className={row.active ? "rounded-md border border-neutral-300 px-4 py-2 text-sm font-black" : "rounded-md bg-emerald-600 px-4 py-2 text-sm font-black text-white"}
+                          pendingChildren={row.active ? "Pausing..." : "Reactivating..."}
+                        >
                           {row.active ? "Pause" : "Reactivate"}
-                        </button>
+                        </AdminSubmitButton>
                       </form>
                     </div>
                   </article>
