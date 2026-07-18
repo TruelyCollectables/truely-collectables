@@ -6,6 +6,7 @@ import {
   type CandidateApprovalInput,
 } from "./market-intel-identity-candidates";
 import { normalizeDuplicateIdentityKey } from "./market-intel-identity-duplicate-guard";
+import { normalizeDiscoveryApprovalInput } from "./market-intel-discovery-repair";
 import { createSupabaseServerClient } from "./supabase-server";
 
 type CandidateRow = {
@@ -72,7 +73,7 @@ async function approveFromDetected(candidate: CandidateRow) {
   const conditionType: CandidateApprovalInput["conditionType"] =
     candidate.condition_type === "graded" ? "graded" : "raw";
 
-  const approval: CandidateApprovalInput = {
+  const submitted: CandidateApprovalInput = {
     candidateId: candidate.id,
     seasonYear,
     manufacturer,
@@ -93,6 +94,7 @@ async function approveFromDetected(candidate: CandidateRow) {
     quantity: Math.max(1, Math.round(Number(candidate.quantity || 1))),
   };
 
+  const approval = await normalizeDiscoveryApprovalInput(submitted);
   await normalizeDuplicateIdentityKey(approval);
   await approveIdentityCandidate(approval);
 }
