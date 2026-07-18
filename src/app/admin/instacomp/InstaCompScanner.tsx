@@ -4863,6 +4863,11 @@ export default function InstaCompScanner({
   }
 
   async function scanCard() {
+    if (loading) {
+      setError("InstaComp™ is already running for this card.");
+      return;
+    }
+
     if (!frontImage) {
       setError("Upload the front of the card first.");
       return;
@@ -5002,6 +5007,8 @@ export default function InstaCompScanner({
     scenario = testModelCheckScenario
   ) {
     if (!testMode) return;
+
+    if (showTestModelBusyBlocked("running a smoke check")) return;
 
     if (!targetCards.length) {
       setTestModelChecks([]);
@@ -5154,6 +5161,8 @@ export default function InstaCompScanner({
   function exportTestModelEvidenceReport() {
     if (!testMode) return;
 
+    if (showTestModelBusyBlocked("exporting test evidence")) return;
+
     if (!batchCards.length && !result) {
       setBatchError("Load the test matrix or a single test scan first.");
       return;
@@ -5177,6 +5186,8 @@ export default function InstaCompScanner({
 
   async function copyTestModelEvidenceReport() {
     if (!testMode) return;
+
+    if (showTestModelBusyBlocked("copying test evidence")) return;
 
     if (!batchCards.length && !result) {
       setBatchError("Load the test matrix or a single test scan first.");
@@ -5407,6 +5418,8 @@ export default function InstaCompScanner({
   function exportTestModelSmokeCheckCsv() {
     if (!testMode) return;
 
+    if (showTestModelBusyBlocked("exporting smoke check rows")) return;
+
     if (!testModelChecks.length) {
       setBatchError("Run a smoke check before exporting smoke check rows.");
       return;
@@ -5427,6 +5440,8 @@ export default function InstaCompScanner({
 
   async function copyTestModelSmokeCheckCsv() {
     if (!testMode) return;
+
+    if (showTestModelBusyBlocked("copying smoke check rows")) return;
 
     if (!testModelChecks.length) {
       setBatchError("Run a smoke check before copying smoke check rows.");
@@ -5468,6 +5483,8 @@ export default function InstaCompScanner({
   function exportTestModelSmokeCheckJson() {
     if (!testMode) return;
 
+    if (showTestModelBusyBlocked("exporting smoke check JSON")) return;
+
     if (!testModelChecks.length) {
       setBatchError("Run a smoke check before exporting smoke check JSON.");
       return;
@@ -5490,6 +5507,8 @@ export default function InstaCompScanner({
 
   async function copyTestModelSmokeCheckJson() {
     if (!testMode) return;
+
+    if (showTestModelBusyBlocked("copying smoke check JSON")) return;
 
     if (!testModelChecks.length) {
       setBatchError("Run a smoke check before copying smoke check JSON.");
@@ -5630,6 +5649,8 @@ export default function InstaCompScanner({
   function exportTestModelFailureSummaryCsv() {
     if (!testMode) return;
 
+    if (showTestModelBusyBlocked("exporting failure CSV")) return;
+
     const { failedChecks, problemRows, csv } = testModelFailureSummaryCsvPayload();
 
     if (!failedChecks.length && !problemRows.length) {
@@ -5654,6 +5675,8 @@ export default function InstaCompScanner({
 
   async function copyTestModelFailureSummaryCsv() {
     if (!testMode) return;
+
+    if (showTestModelBusyBlocked("copying failure CSV")) return;
 
     const { failedChecks, problemRows, csv } = testModelFailureSummaryCsvPayload();
 
@@ -5704,6 +5727,8 @@ export default function InstaCompScanner({
   function exportTestModelFailureJson() {
     if (!testMode) return;
 
+    if (showTestModelBusyBlocked("exporting failure JSON")) return;
+
     const payload = testModelFailureJsonPayload();
 
     if (!payload.failedChecks.length && !payload.problemRows.length) {
@@ -5729,6 +5754,8 @@ export default function InstaCompScanner({
   async function copyTestModelFailureJson() {
     if (!testMode) return;
 
+    if (showTestModelBusyBlocked("copying failure JSON")) return;
+
     const payload = testModelFailureJsonPayload();
 
     if (!payload.failedChecks.length && !payload.problemRows.length) {
@@ -5753,6 +5780,8 @@ export default function InstaCompScanner({
 
   async function copyTestModelFailureSummary() {
     if (!testMode) return;
+
+    if (showTestModelBusyBlocked("copying failure summary")) return;
 
     const { failedChecks, problemRows, rowDetails } = testModelFailureSnapshot();
 
@@ -6078,6 +6107,8 @@ export default function InstaCompScanner({
   function exportTestModelFixtureManifest() {
     if (!testMode) return;
 
+    if (showTestModelBusyBlocked("exporting the fixture manifest")) return;
+
     const payload = testModelFixtureManifestPayload();
 
     downloadTextFile(
@@ -6096,6 +6127,8 @@ export default function InstaCompScanner({
   async function copyTestModelFixtureManifest() {
     if (!testMode) return;
 
+    if (showTestModelBusyBlocked("copying the fixture manifest")) return;
+
     try {
       await navigator.clipboard.writeText(
         JSON.stringify(testModelFixtureManifestPayload(), null, 2)
@@ -6113,6 +6146,8 @@ export default function InstaCompScanner({
 
   async function copyTestModelQaSummary() {
     if (!testMode) return;
+
+    if (showTestModelBusyBlocked("copying the QA summary")) return;
 
     if (
       !batchCards.length &&
@@ -6170,7 +6205,15 @@ export default function InstaCompScanner({
   }
 
   function loadTestBatchModel(completed: boolean) {
-    if (!testMode || batchRunning || batchDrafting) return;
+    if (!testMode) return;
+
+    if (
+      showTestModelBusyBlocked(
+        completed ? "loading the completed test matrix" : "loading the queued test batch"
+      )
+    ) {
+      return;
+    }
 
     batchCards.forEach(revokeBatchCardPreviewUrls);
 
@@ -6220,7 +6263,9 @@ export default function InstaCompScanner({
   }
 
   async function runTestModelFullCycle() {
-    if (!testMode || batchRunning || batchDrafting) return;
+    if (!testMode) return;
+
+    if (showTestModelBusyBlocked("running the full test cycle")) return;
 
     batchCards.forEach(revokeBatchCardPreviewUrls);
 
@@ -6278,7 +6323,9 @@ export default function InstaCompScanner({
   }
 
   async function runTestModelDraftCycle() {
-    if (!testMode || batchRunning || batchDrafting) return;
+    if (!testMode) return;
+
+    if (showTestModelBusyBlocked("running the draft test cycle")) return;
 
     batchCards.forEach(revokeBatchCardPreviewUrls);
 
@@ -6359,7 +6406,9 @@ export default function InstaCompScanner({
   }
 
   async function runAllTestModelCycles() {
-    if (!testMode || batchRunning || batchDrafting) return;
+    if (!testMode) return;
+
+    if (showTestModelBusyBlocked("running all test cycles")) return;
 
     batchCards.forEach(revokeBatchCardPreviewUrls);
 
@@ -6462,7 +6511,14 @@ export default function InstaCompScanner({
   }
 
   function loadSingleTestScan() {
-    if (!testMode || loading || batchRunning || batchDrafting) return;
+    if (!testMode) return;
+
+    if (loading) {
+      setBatchError("Finish the current single-card InstaComp™ scan before loading test images.");
+      return;
+    }
+
+    if (showTestModelBusyBlocked("loading single-card test scan images")) return;
 
     const fixture = TEST_SCAN_FIXTURES[0];
     const frontFile = testImageFile(
@@ -7214,7 +7270,14 @@ export default function InstaCompScanner({
   }
 
   function resetTestLab() {
-    if (!testMode || loading || batchRunning || batchDrafting) return;
+    if (!testMode) return;
+
+    if (loading) {
+      setBatchError("Finish the current single-card InstaComp™ scan before resetting the test lab.");
+      return;
+    }
+
+    if (showTestModelBusyBlocked("resetting the test lab")) return;
 
     void clearBatch();
 
@@ -7234,6 +7297,23 @@ export default function InstaCompScanner({
     setCopiedPrice(null);
     setTestModelCheckScenario("completed_matrix");
     setBatchDraftMessage("Reset test lab. Run ledger was kept.");
+  }
+
+  function showTestModelProblemRows(
+    filter: BatchCardFilter,
+    count: number,
+    label = "problem rows"
+  ) {
+    if (showTestModelBusyBlocked(`showing ${label.toLocaleLowerCase()}`)) return;
+
+    if (!count) {
+      setBatchError(`No ${label.toLocaleLowerCase()} are available to show.`);
+      return;
+    }
+
+    setBatchError(null);
+    setBatchFilter(filter);
+    setBatchDraftMessage(`Showing ${count} ${label.toLocaleLowerCase()}.`);
   }
 
   function resetBatchView() {
@@ -7257,6 +7337,27 @@ export default function InstaCompScanner({
 
   function showBatchBusyBlocked(action: string) {
     const blockedReason = batchBusyBlockedReason(action);
+
+    if (!blockedReason) return false;
+
+    setBatchError(blockedReason);
+    return true;
+  }
+
+  function testModelBusyBlockedReason(action: string) {
+    if (batchDrafting) {
+      return `Finish draft creation before ${action}.`;
+    }
+
+    if (batchRunning) {
+      return `Finish the current InstaComp™ test run before ${action}.`;
+    }
+
+    return null;
+  }
+
+  function showTestModelBusyBlocked(action: string) {
+    const blockedReason = testModelBusyBlockedReason(action);
 
     if (!blockedReason) return false;
 
@@ -10222,7 +10323,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={() => void runAllTestModelCycles()}
-              disabled={batchRunning || batchDrafting}
+              aria-disabled={batchRunning || batchDrafting}
               style={{
                 ...buttonStyle,
                 background: batchRunning || batchDrafting ? "#999" : "#111",
@@ -10237,7 +10338,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={() => void runTestModelFullCycle()}
-              disabled={batchRunning || batchDrafting}
+              aria-disabled={batchRunning || batchDrafting}
               style={{
                 ...buttonStyle,
                 background: batchRunning || batchDrafting ? "#999" : "#0f5132",
@@ -10250,7 +10351,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={() => void runTestModelDraftCycle()}
-              disabled={batchRunning || batchDrafting}
+              aria-disabled={batchRunning || batchDrafting}
               style={{
                 ...buttonStyle,
                 background:
@@ -10267,7 +10368,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={() => loadTestBatchModel(true)}
-              disabled={batchRunning || batchDrafting}
+              aria-disabled={batchRunning || batchDrafting}
               style={{
                 ...buttonStyle,
                 background: batchRunning || batchDrafting ? "#999" : "#1d4ed8",
@@ -10280,7 +10381,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={() => loadTestBatchModel(false)}
-              disabled={batchRunning || batchDrafting}
+              aria-disabled={batchRunning || batchDrafting}
               style={{
                 ...secondaryButtonStyle,
                 cursor: batchRunning || batchDrafting ? "not-allowed" : "pointer",
@@ -10292,7 +10393,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={loadSingleTestScan}
-              disabled={loading || batchRunning || batchDrafting}
+              aria-disabled={loading || batchRunning || batchDrafting}
               style={{
                 ...secondaryButtonStyle,
                 cursor:
@@ -10307,7 +10408,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={() => runTestModelSmokeCheck()}
-              disabled={batchRunning || batchDrafting || !batchCards.length}
+              aria-disabled={batchRunning || batchDrafting || !batchCards.length}
               style={{
                 ...secondaryButtonStyle,
                 borderColor: "#1d4ed8",
@@ -10324,7 +10425,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={exportTestModelEvidenceReport}
-              disabled={
+              aria-disabled={
                 batchRunning || batchDrafting || (!batchCards.length && !result)
               }
               style={{
@@ -10350,7 +10451,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={() => void copyTestModelEvidenceReport()}
-              disabled={
+              aria-disabled={
                 batchRunning || batchDrafting || (!batchCards.length && !result)
               }
               style={{
@@ -10376,7 +10477,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={exportTestModelSmokeCheckCsv}
-              disabled={batchRunning || batchDrafting || !testModelChecks.length}
+              aria-disabled={batchRunning || batchDrafting || !testModelChecks.length}
               style={{
                 ...secondaryButtonStyle,
                 borderColor: "#7a4f00",
@@ -10396,7 +10497,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={() => void copyTestModelSmokeCheckCsv()}
-              disabled={batchRunning || batchDrafting || !testModelChecks.length}
+              aria-disabled={batchRunning || batchDrafting || !testModelChecks.length}
               style={{
                 ...secondaryButtonStyle,
                 borderColor: "#7a4f00",
@@ -10416,7 +10517,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={exportTestModelSmokeCheckJson}
-              disabled={batchRunning || batchDrafting || !testModelChecks.length}
+              aria-disabled={batchRunning || batchDrafting || !testModelChecks.length}
               style={{
                 ...secondaryButtonStyle,
                 borderColor: "#7a4f00",
@@ -10436,7 +10537,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={() => void copyTestModelSmokeCheckJson()}
-              disabled={batchRunning || batchDrafting || !testModelChecks.length}
+              aria-disabled={batchRunning || batchDrafting || !testModelChecks.length}
               style={{
                 ...secondaryButtonStyle,
                 borderColor: "#7a4f00",
@@ -10456,7 +10557,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={exportTestModelFailureSummaryCsv}
-              disabled={
+              aria-disabled={
                 batchRunning ||
                 batchDrafting ||
                 (testModelFailedCount === 0 && testModelProblemRowCount === 0)
@@ -10484,7 +10585,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={() => void copyTestModelFailureSummaryCsv()}
-              disabled={
+              aria-disabled={
                 batchRunning ||
                 batchDrafting ||
                 (testModelFailedCount === 0 && testModelProblemRowCount === 0)
@@ -10512,7 +10613,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={exportTestModelFailureJson}
-              disabled={
+              aria-disabled={
                 batchRunning ||
                 batchDrafting ||
                 (testModelFailedCount === 0 && testModelProblemRowCount === 0)
@@ -10540,7 +10641,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={() => void copyTestModelFailureJson()}
-              disabled={
+              aria-disabled={
                 batchRunning ||
                 batchDrafting ||
                 (testModelFailedCount === 0 && testModelProblemRowCount === 0)
@@ -10568,7 +10669,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={() => void copyTestModelFailureSummary()}
-              disabled={
+              aria-disabled={
                 batchRunning ||
                 batchDrafting ||
                 (testModelFailedCount === 0 && testModelProblemRowCount === 0)
@@ -10595,8 +10696,14 @@ export default function InstaCompScanner({
             </button>
             <button
               type="button"
-              onClick={() => setBatchFilter("problems")}
-              disabled={
+              onClick={() =>
+                showTestModelProblemRows(
+                  "problems",
+                  testModelProblemRowCount,
+                  "problem rows"
+                )
+              }
+              aria-disabled={
                 batchRunning || batchDrafting || testModelProblemRowCount === 0
               }
               style={{
@@ -10618,7 +10725,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={exportTestModelFixtureManifest}
-              disabled={batchRunning || batchDrafting}
+              aria-disabled={batchRunning || batchDrafting}
               style={{
                 ...secondaryButtonStyle,
                 borderColor: "#555",
@@ -10633,7 +10740,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={() => void copyTestModelFixtureManifest()}
-              disabled={batchRunning || batchDrafting}
+              aria-disabled={batchRunning || batchDrafting}
               style={{
                 ...secondaryButtonStyle,
                 borderColor: "#555",
@@ -10648,7 +10755,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={() => void copyTestModelQaSummary()}
-              disabled={
+              aria-disabled={
                 batchRunning ||
                 batchDrafting ||
                 (!batchCards.length &&
@@ -10682,7 +10789,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={resetTestLab}
-              disabled={loading || batchRunning || batchDrafting}
+              aria-disabled={loading || batchRunning || batchDrafting}
               style={{
                 ...secondaryButtonStyle,
                 borderColor: "#b42318",
@@ -10722,8 +10829,14 @@ export default function InstaCompScanner({
                 <button
                   key={item.label}
                   type="button"
-                  onClick={() => setBatchFilter(item.filter)}
-                  disabled={item.count === 0}
+                  onClick={() =>
+                    showTestModelProblemRows(
+                      item.filter,
+                      item.count,
+                      item.label
+                    )
+                  }
+                  aria-disabled={item.count === 0}
                   style={{
                     ...secondaryButtonStyle,
                     borderColor: item.count ? "#b42318" : "#ddd",
@@ -13200,7 +13313,7 @@ export default function InstaCompScanner({
         <button
           type="button"
           onClick={scanCard}
-          disabled={loading || !frontImage}
+          aria-disabled={loading || !frontImage}
           style={{
             marginTop: 20,
             padding: "12px 18px",
