@@ -38,7 +38,43 @@ export default function PayoutRequestActions({
     text: string;
   } | null>(null);
 
+  function actionRequirements(nextStatus: PayoutStatus) {
+    const missing = [];
+
+    if (
+      (nextStatus === "rejected" || nextStatus === "cancelled") &&
+      adminNote.trim().length < 8
+    ) {
+      missing.push("audit note");
+    }
+
+    if (
+      nextStatus === "paid" &&
+      providerPayoutReference.trim().length === 0
+    ) {
+      missing.push("provider payout reference");
+    }
+
+    const processorFee = finalProcessorFeeAmount.trim()
+      ? Number(finalProcessorFeeAmount)
+      : 0;
+    if (nextStatus === "paid" && (!Number.isFinite(processorFee) || processorFee < 0)) {
+      missing.push("valid processor fee");
+    }
+
+    return missing;
+  }
+
   async function updateStatus(nextStatus: PayoutStatus) {
+    const missing = actionRequirements(nextStatus);
+    if (missing.length > 0) {
+      setMessage({
+        tone: "error",
+        text: `Payout request needs: ${missing.join(", ")}.`,
+      });
+      return;
+    }
+
     setLoading(nextStatus);
     setMessage({ tone: "info", text: "Saving payout request status..." });
 
@@ -51,9 +87,9 @@ export default function PayoutRequestActions({
         body: JSON.stringify({
           requestId,
           status: nextStatus,
-          adminNote,
-          providerPayoutReference,
-          finalProcessorFeeAmount,
+          adminNote: adminNote.trim(),
+          providerPayoutReference: providerPayoutReference.trim(),
+          finalProcessorFeeAmount: finalProcessorFeeAmount.trim(),
         }),
       });
       const data = await response.json().catch(() => ({}));
@@ -86,18 +122,33 @@ export default function PayoutRequestActions({
   }
 
   const currentStatus = status || "requested";
-  const locked = currentStatus === "paid" || loading !== "";
+  const terminalStatus =
+    currentStatus === "paid" ||
+    currentStatus === "rejected" ||
+    currentStatus === "cancelled";
+  const locked = terminalStatus || loading !== "";
   const payoutAdvanceBlocked = Boolean(
     reviewBlocked || reviewGuardUnavailable || payoutAccountReady === false,
   );
+  const visibleRequirements = Array.from(
+    new Set(
+      ([
+        "approved",
+        "processing",
+        "paid",
+        "rejected",
+        "cancelled",
+      ] as PayoutStatus[]).flatMap((nextStatus) => actionRequirements(nextStatus)),
+    ),
+  );
 
   return (
-    <div className="grid gap-2">
+    <div className="grid gap-2 rounded-2xl border border-neutral-200 bg-neutral-50 p-3">
       <input
         value={adminNote}
         onChange={(event) => setAdminNote(event.target.value)}
-        className="w-full rounded border border-neutral-300 px-2 py-1 text-xs"
-        placeholder="Admin note"
+        className="w-full rounded-2xl border border-neutral-300 bg-white px-3 py-2 text-xs font-semibold outline-none focus:border-neutral-950"
+        placeholder="Admin note / audit reason"
       />
 
       {currentStatus === "processing" ? (
@@ -107,7 +158,7 @@ export default function PayoutRequestActions({
             onChange={(event) =>
               setProviderPayoutReference(event.target.value)
             }
-            className="w-full rounded border border-neutral-300 px-2 py-1 text-xs"
+            className="w-full rounded-2xl border border-neutral-300 bg-white px-3 py-2 text-xs font-semibold outline-none focus:border-neutral-950"
             placeholder="Provider payout reference"
           />
           <input
@@ -118,10 +169,16 @@ export default function PayoutRequestActions({
             onChange={(event) =>
               setFinalProcessorFeeAmount(event.target.value)
             }
-            className="w-full rounded border border-neutral-300 px-2 py-1 text-xs"
+            className="w-full rounded-2xl border border-neutral-300 bg-white px-3 py-2 text-xs font-semibold outline-none focus:border-neutral-950"
             placeholder="Final processor fee"
           />
         </div>
+      ) : null}
+
+      {visibleRequirements.length > 0 ? (
+        <ActionNotice tone="info">
+          Some status actions require: {visibleRequirements.join(", ")}.
+        </ActionNotice>
       ) : null}
 
       {payoutAccountReady === false ? (
@@ -152,7 +209,7 @@ export default function PayoutRequestActions({
             payoutAdvanceBlocked
           }
           onClick={() => updateStatus("approved")}
-          className="rounded bg-emerald-700 px-2 py-1 text-xs font-bold text-white disabled:bg-neutral-400"
+          className="rounded-2xl bg-emerald-700 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:bg-neutral-400"
         >
           {loading === "approved" ? "Saving..." : "Approve"}
         </button>
@@ -162,28 +219,28 @@ export default function PayoutRequestActions({
             locked || currentStatus !== "approved" || payoutAdvanceBlocked
           }
           onClick={() => updateStatus("processing")}
-          className="rounded bg-neutral-950 px-2 py-1 text-xs font-bold text-white disabled:bg-neutral-400"
+          className="rounded-2xl bg-neutral-950 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:bg-neutral-400"
         >
           {loading === "processing" ? "Saving..." : "Processing"}
         </button>
         <button
           type="button"
+          onClick={() => updateStatus("paid")}
           disabled={
             locked ||
             currentStatus !== "processing" ||
-            providerPayoutReference.trim().length === 0 ||
+            actionRequirements("paid").length > 0 ||
             payoutAdvanceBlocked
           }
-          onClick={() => updateStatus("paid")}
-          className="rounded bg-emerald-950 px-2 py-1 text-xs font-bold text-white disabled:bg-neutral-400"
+          className="rounded-2xl bg-emerald-950 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:bg-neutral-400"
         >
           {loading === "paid" ? "Saving..." : "Mark Paid"}
         </button>
         <button
           type="button"
-          disabled={locked || currentStatus === "rejected"}
           onClick={() => updateStatus("rejected")}
-          className="rounded border border-rose-300 px-2 py-1 text-xs font-bold text-rose-700 disabled:text-neutral-400"
+          disabled={locked || actionRequirements("rejected").length > 0}
+          className="rounded-2xl border border-rose-300 bg-white px-3 py-2 text-xs font-black text-rose-700 disabled:cursor-not-allowed disabled:text-neutral-400"
         >
           {loading === "rejected" ? "Saving..." : "Reject"}
         </button>
@@ -191,9 +248,9 @@ export default function PayoutRequestActions({
 
       <button
         type="button"
-        disabled={locked || currentStatus === "cancelled"}
         onClick={() => updateStatus("cancelled")}
-        className="rounded border border-neutral-300 px-2 py-1 text-xs font-bold disabled:text-neutral-400"
+        disabled={locked || actionRequirements("cancelled").length > 0}
+        className="rounded-2xl border border-neutral-300 bg-white px-3 py-2 text-xs font-black disabled:cursor-not-allowed disabled:text-neutral-400"
       >
         {loading === "cancelled" ? "Saving..." : "Cancel Request"}
       </button>
@@ -218,7 +275,7 @@ function ActionNotice({
         : "border-blue-200 bg-blue-50 text-blue-950";
 
   return (
-    <p className={`rounded border px-2 py-1 text-xs font-bold ${className}`}>
+    <p className={`rounded-2xl border px-3 py-2 text-xs font-black ${className}`}>
       {children}
     </p>
   );

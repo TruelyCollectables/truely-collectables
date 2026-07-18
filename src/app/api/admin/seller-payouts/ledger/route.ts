@@ -187,6 +187,21 @@ export async function POST(request: Request) {
       );
     }
 
+    if (
+      (status === "hold_dispute_or_review" ||
+        status === "reversed" ||
+        status === "cancelled") &&
+      (!adminNote || adminNote.length < 8)
+    ) {
+      return Response.json(
+        {
+          error:
+            "Add an audit note with the reason before holding, reversing, or cancelling a seller payout ledger row.",
+        },
+        { status: 400 },
+      );
+    }
+
     const supabase = getSupabaseClient();
     const storeId = getActiveStoreId();
     const { data: ledgerEntry, error: lookupError } = await supabase

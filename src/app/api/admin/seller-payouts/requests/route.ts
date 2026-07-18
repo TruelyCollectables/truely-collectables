@@ -110,6 +110,19 @@ export async function POST(request: Request) {
       );
     }
 
+    if (
+      (status === "rejected" || status === "cancelled") &&
+      (!adminNote || adminNote.length < 8)
+    ) {
+      return Response.json(
+        {
+          error:
+            "Add an audit note with the reason before rejecting or cancelling a payout request.",
+        },
+        { status: 400 },
+      );
+    }
+
     const supabase = getSupabaseClient();
     const storeId = getActiveStoreId();
     const { data: payoutRequest, error: lookupError } = await supabase

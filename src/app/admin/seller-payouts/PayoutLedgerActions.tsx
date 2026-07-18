@@ -29,7 +29,35 @@ export default function PayoutLedgerActions({
     text: string;
   } | null>(null);
 
+  function actionRequirements(nextStatus: LedgerStatus) {
+    const missing = [];
+
+    if (
+      (nextStatus === "hold_dispute_or_review" ||
+        nextStatus === "reversed" ||
+        nextStatus === "cancelled") &&
+      adminNote.trim().length < 8
+    ) {
+      missing.push("audit note");
+    }
+
+    if (nextStatus === "eligible" && releaseBlocked) {
+      missing.push("release blocker resolution");
+    }
+
+    return missing;
+  }
+
   async function updateStatus(nextStatus: LedgerStatus) {
+    const missing = actionRequirements(nextStatus);
+    if (missing.length > 0) {
+      setMessage({
+        tone: "error",
+        text: `Payout ledger update needs: ${missing.join(", ")}.`,
+      });
+      return;
+    }
+
     setLoading(nextStatus);
     setMessage({ tone: "info", text: "Saving payout ledger status..." });
 
@@ -42,7 +70,7 @@ export default function PayoutLedgerActions({
         body: JSON.stringify({
           ledgerEntryId,
           status: nextStatus,
-          adminNote,
+          adminNote: adminNote.trim(),
         }),
       });
       const data = await response.json().catch(() => ({}));
@@ -78,30 +106,54 @@ export default function PayoutLedgerActions({
     currentStatus === "reversed" ||
     currentStatus === "cancelled";
   const locked = loading !== "" || finalStatus;
+  const visibleRequirements = Array.from(
+    new Set(
+      ([
+        "eligible",
+        "hold_dispute_or_review",
+        "reversed",
+        "cancelled",
+      ] as LedgerStatus[]).flatMap((nextStatus) => actionRequirements(nextStatus)),
+    ),
+  );
 
   return (
-    <div className="grid gap-2">
+    <div className="grid gap-2 rounded-2xl border border-neutral-200 bg-neutral-50 p-3">
       <input
         value={adminNote}
         onChange={(event) => setAdminNote(event.target.value)}
-        className="w-full rounded border border-neutral-300 px-2 py-1 text-xs"
-        placeholder="Release/hold note"
+        className="w-full rounded-2xl border border-neutral-300 bg-white px-3 py-2 text-xs font-semibold outline-none focus:border-neutral-950"
+        placeholder="Release/hold/reversal audit note"
       />
+
+      {visibleRequirements.length > 0 ? (
+        <ActionNotice tone="info">
+          Some ledger actions require: {visibleRequirements.join(", ")}.
+        </ActionNotice>
+      ) : null}
 
       <div className="grid grid-cols-2 gap-2">
         <button
           type="button"
-          disabled={locked || currentStatus === "eligible" || releaseBlocked}
           onClick={() => updateStatus("eligible")}
-          className="rounded bg-emerald-700 px-2 py-1 text-xs font-bold text-white disabled:bg-neutral-400"
+          disabled={
+            locked ||
+            currentStatus === "eligible" ||
+            actionRequirements("eligible").length > 0
+          }
+          className="rounded-2xl bg-emerald-700 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:bg-neutral-400"
         >
           {loading === "eligible" ? "Saving..." : "Release"}
         </button>
         <button
           type="button"
-          disabled={locked || currentStatus === "hold_dispute_or_review"}
           onClick={() => updateStatus("hold_dispute_or_review")}
-          className="rounded bg-amber-700 px-2 py-1 text-xs font-bold text-white disabled:bg-neutral-400"
+          disabled={
+            locked ||
+            currentStatus === "hold_dispute_or_review" ||
+            actionRequirements("hold_dispute_or_review").length > 0
+          }
+          className="rounded-2xl bg-amber-700 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:bg-neutral-400"
         >
           {loading === "hold_dispute_or_review" ? "Saving..." : "Review Hold"}
         </button>
@@ -109,15 +161,15 @@ export default function PayoutLedgerActions({
           type="button"
           disabled={locked || currentStatus === "hold_pending_fulfillment"}
           onClick={() => updateStatus("hold_pending_fulfillment")}
-          className="rounded border border-neutral-300 px-2 py-1 text-xs font-bold disabled:text-neutral-400"
+          className="rounded-2xl border border-neutral-300 bg-white px-3 py-2 text-xs font-black disabled:cursor-not-allowed disabled:text-neutral-400"
         >
           {loading === "hold_pending_fulfillment" ? "Saving..." : "Fulfill Hold"}
         </button>
         <button
           type="button"
-          disabled={locked}
           onClick={() => updateStatus("reversed")}
-          className="rounded border border-rose-300 px-2 py-1 text-xs font-bold text-rose-700 disabled:text-neutral-400"
+          disabled={locked || actionRequirements("reversed").length > 0}
+          className="rounded-2xl border border-rose-300 bg-white px-3 py-2 text-xs font-black text-rose-700 disabled:cursor-not-allowed disabled:text-neutral-400"
         >
           {loading === "reversed" ? "Saving..." : "Reverse"}
         </button>
@@ -132,9 +184,9 @@ export default function PayoutLedgerActions({
 
       <button
         type="button"
-        disabled={locked}
         onClick={() => updateStatus("cancelled")}
-        className="rounded border border-neutral-300 px-2 py-1 text-xs font-bold disabled:text-neutral-400"
+        disabled={locked || actionRequirements("cancelled").length > 0}
+        className="rounded-2xl border border-neutral-300 bg-white px-3 py-2 text-xs font-black disabled:cursor-not-allowed disabled:text-neutral-400"
       >
         {loading === "cancelled" ? "Saving..." : "Cancel Row"}
       </button>
@@ -158,7 +210,7 @@ function ActionNotice({
         : "border-blue-200 bg-blue-50 text-blue-950";
 
   return (
-    <p className={`rounded border px-2 py-1 text-xs font-bold ${className}`}>
+    <p className={`rounded-2xl border px-3 py-2 text-xs font-black ${className}`}>
       {children}
     </p>
   );
