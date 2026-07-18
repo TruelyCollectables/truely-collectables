@@ -26,6 +26,7 @@ export type MarketIntelPurchaseLot = {
   source_url: string | null;
   deal_label: string | null;
   notes: string | null;
+  metadata: Record<string, unknown>;
   collectible_identity_id: string | null;
   marketplace_id: string | null;
   collectible: MarketIntelCollectibleIdentity | null;
@@ -79,6 +80,12 @@ function numberValue(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function recordValue(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
 function uniqueIds(values: Array<string | null | undefined>): string[] {
   return Array.from(new Set(values.filter((value): value is string => Boolean(value))));
 }
@@ -89,7 +96,7 @@ export async function getMarketIntelPurchaseLedger() {
   const { data: lotsData, error: lotsError } = await supabase
     .from("tcos_mi_purchase_lots")
     .select(
-      "id,purchase_number,purchased_at,status,quantity_purchased,total_acquisition_cost,unit_cost_basis,received_at,source_url,deal_label,notes,collectible_identity_id,marketplace_id",
+      "id,purchase_number,purchased_at,status,quantity_purchased,total_acquisition_cost,unit_cost_basis,received_at,source_url,deal_label,notes,metadata,collectible_identity_id,marketplace_id",
     )
     .order("purchase_number", { ascending: false });
 
@@ -174,6 +181,7 @@ export async function getMarketIntelPurchaseLedger() {
       quantity_purchased: numberValue(lot.quantity_purchased),
       total_acquisition_cost: numberValue(lot.total_acquisition_cost),
       unit_cost_basis: numberValue(lot.unit_cost_basis),
+      metadata: recordValue(lot.metadata),
       collectible: lot.collectible_identity_id
         ? identitiesById.get(lot.collectible_identity_id) || null
         : null,
@@ -193,7 +201,7 @@ export async function getMarketIntelPurchaseDetail(purchaseLotId: string) {
       supabase
         .from("tcos_mi_purchase_lots")
         .select(
-          "id,purchase_number,purchased_at,status,quantity_purchased,total_acquisition_cost,unit_cost_basis,received_at,source_url,deal_label,notes,collectible_identity_id,marketplace_id",
+          "id,purchase_number,purchased_at,status,quantity_purchased,total_acquisition_cost,unit_cost_basis,received_at,source_url,deal_label,notes,metadata,collectible_identity_id,marketplace_id",
         )
         .eq("id", purchaseLotId)
         .maybeSingle(),
@@ -292,6 +300,7 @@ export async function getMarketIntelPurchaseDetail(purchaseLotId: string) {
     quantity_purchased: numberValue(lotRow.quantity_purchased),
     total_acquisition_cost: numberValue(lotRow.total_acquisition_cost),
     unit_cost_basis: numberValue(lotRow.unit_cost_basis),
+    metadata: recordValue(lotRow.metadata),
     collectible: (identitiesResult.data as MarketIntelCollectibleIdentity | null) || null,
     marketplace: lotRow.marketplace_id
       ? marketplaceById.get(lotRow.marketplace_id) || null
