@@ -4887,7 +4887,10 @@ export default function InstaCompScanner({
   }
 
   async function copyPrice(value: number | null | undefined, label: string) {
-    if (!value) return;
+    if (!value) {
+      setCopiedPrice(`No ${label} is available yet.`);
+      return;
+    }
 
     await navigator.clipboard.writeText(String(value));
     setCopiedPrice(`${label}: ${money(value)}`);
@@ -13256,6 +13259,7 @@ export default function InstaCompScanner({
                 onOperatorNeedsMoreInfoChange={toggleBatchCardOperatorNeedsMoreInfo}
                 onRotateImage={rotateBatchCardImage}
                 onSwapImages={swapBatchCardImages}
+                onBlockedAction={setBatchDraftMessage}
                 onRefreshComps={refreshBatchCardComps}
                 onSaveCorrections={saveBatchCardCorrections}
                 onAddToTrade={addBatchCardToTrade}
@@ -13306,6 +13310,8 @@ export default function InstaCompScanner({
                 url={frontPreview}
                 alt="Primary card image preview"
                 disabled={loading}
+                disabledReason="Wait for the current InstaComp™ scan to finish before rotating images."
+                onUnavailable={(message) => setError(message)}
                 onRotateLeft={() => void rotateSingleImage("front", "left")}
                 onRotateRight={() => void rotateSingleImage("front", "right")}
               />
@@ -13328,6 +13334,8 @@ export default function InstaCompScanner({
                 url={backPreview}
                 alt="Paired card image preview"
                 disabled={loading}
+                disabledReason="Wait for the current InstaComp™ scan to finish before rotating images."
+                onUnavailable={(message) => setError(message)}
                 onRotateLeft={() => void rotateSingleImage("back", "left")}
                 onRotateRight={() => void rotateSingleImage("back", "right")}
               />
@@ -13538,8 +13546,19 @@ export default function InstaCompScanner({
                     "InstaComp™ Suggested price"
                   )
                 }
-                disabled={!primaryCompStats(result).suggestedPrice}
-                style={buttonStyle}
+                aria-disabled={!primaryCompStats(result).suggestedPrice}
+                title={
+                  primaryCompStats(result).suggestedPrice
+                    ? "Copy the current InstaComp™ suggested price."
+                    : "No InstaComp™ suggested price is available yet."
+                }
+                style={{
+                  ...buttonStyle,
+                  opacity: primaryCompStats(result).suggestedPrice ? 1 : 0.5,
+                  cursor: primaryCompStats(result).suggestedPrice
+                    ? "pointer"
+                    : "not-allowed",
+                }}
               >
                 Copy InstaComp™ Suggested
               </button>
@@ -13547,8 +13566,17 @@ export default function InstaCompScanner({
               <button
                 type="button"
                 onClick={() => copyPrice(marketPlus10, "Market +10%")}
-                disabled={!marketPlus10}
-                style={buttonStyle}
+                aria-disabled={!marketPlus10}
+                title={
+                  marketPlus10
+                    ? "Copy market guidance plus 10%."
+                    : "No Market +10% price is available yet."
+                }
+                style={{
+                  ...buttonStyle,
+                  opacity: marketPlus10 ? 1 : 0.5,
+                  cursor: marketPlus10 ? "pointer" : "not-allowed",
+                }}
               >
                 Copy Market +10%
               </button>
@@ -13556,8 +13584,17 @@ export default function InstaCompScanner({
               <button
                 type="button"
                 onClick={() => copyPrice(marketMinus10, "Market -10%")}
-                disabled={!marketMinus10}
-                style={buttonStyle}
+                aria-disabled={!marketMinus10}
+                title={
+                  marketMinus10
+                    ? "Copy market guidance minus 10%."
+                    : "No Market -10% price is available yet."
+                }
+                style={{
+                  ...buttonStyle,
+                  opacity: marketMinus10 ? 1 : 0.5,
+                  cursor: marketMinus10 ? "pointer" : "not-allowed",
+                }}
               >
                 Copy Market -10%
               </button>
@@ -14364,6 +14401,7 @@ function BatchCardRow({
   onOperatorNeedsMoreInfoChange,
   onRotateImage,
   onSwapImages,
+  onBlockedAction,
   onRefreshComps,
   onSaveCorrections,
   onAddToTrade,
@@ -14398,6 +14436,7 @@ function BatchCardRow({
     direction: "left" | "right"
   ) => void | Promise<void>;
   onSwapImages: (cardId: string) => void;
+  onBlockedAction: (message: string) => void;
   onRefreshComps: (cardId: string) => void | Promise<void>;
   onSaveCorrections: (cardId: string) => void | Promise<void>;
   onAddToTrade: (cardId: string) => void | Promise<void>;
@@ -14463,6 +14502,30 @@ function BatchCardRow({
     Boolean(card.backFile) &&
     card.file.size > 0 &&
     Boolean(card.backFile?.size);
+  const rotateBlockedReason = batchBusy
+    ? "Finish the current InstaComp™ batch action before rotating images."
+    : card.draftStatus !== "idle"
+      ? "Image rotation is locked after draft creation starts."
+      : card.tradeStatus !== "idle"
+        ? "Image rotation is locked after trade handoff starts."
+        : "";
+  const primaryRotateBlockedReason = canRotatePrimary
+    ? ""
+    : rotateBlockedReason || "Primary image is not available to rotate.";
+  const pairedRotateBlockedReason = canRotatePaired
+    ? ""
+    : rotateBlockedReason || "Back image is not available to rotate.";
+  const swapBlockedReason = canSwapImages
+    ? ""
+    : rotateBlockedReason ||
+      (!card.backFile
+        ? "Add a back image before swapping front/back."
+        : "Both front and back image files must be available before swapping.");
+  const priceButtonBlockedReason = !compPrice
+    ? "No comp-based price is available yet. Refresh comps or enter a listing price manually."
+    : card.status !== "done"
+      ? "Price shortcuts unlock after this row finishes scanning."
+      : "";
   const canSaveCorrections = !batchBusy && isCorrectionSavableBatchCard(card);
   const canRefreshComps = canSaveCorrections;
   const savingCorrections = activeAction === "saving_corrections";
@@ -14514,6 +14577,8 @@ function BatchCardRow({
         <Thumbnail
           url={card.previewUrl}
           canRotate={canRotatePrimary}
+          rotateBlockedReason={primaryRotateBlockedReason}
+          onUnavailable={onBlockedAction}
           onRotateLeft={() => void onRotateImage(card.id, "primary", "left")}
           onRotateRight={() => void onRotateImage(card.id, "primary", "right")}
         />
@@ -14521,6 +14586,8 @@ function BatchCardRow({
           <Thumbnail
             url={card.backPreviewUrl}
             canRotate={canRotatePaired}
+            rotateBlockedReason={pairedRotateBlockedReason}
+            onUnavailable={onBlockedAction}
             onRotateLeft={() => void onRotateImage(card.id, "paired", "left")}
             onRotateRight={() => void onRotateImage(card.id, "paired", "right")}
           />
@@ -14528,9 +14595,20 @@ function BatchCardRow({
         {card.backPreviewUrl ? (
           <button
             type="button"
-            onClick={() => onSwapImages(card.id)}
-            disabled={!canSwapImages}
-            title="Swap front and back images, then Retry Row to rescan the corrected pair."
+            onClick={() => {
+              if (!canSwapImages) {
+                onBlockedAction(swapBlockedReason);
+                return;
+              }
+
+              onSwapImages(card.id);
+            }}
+            aria-disabled={!canSwapImages}
+            title={
+              canSwapImages
+                ? "Swap front and back images, then Retry Row to rescan the corrected pair."
+                : swapBlockedReason
+            }
             style={{
               ...secondaryButtonStyle,
               alignSelf: "end",
@@ -15385,8 +15463,20 @@ function BatchCardRow({
                 <button
                   key={`${card.id}-${button.label}`}
                   type="button"
-                  onClick={() => onApplyPrice(card.id, button.multiplier)}
-                  disabled={priceButtonsDisabled}
+                  onClick={() => {
+                    if (priceButtonsDisabled) {
+                      onBlockedAction(priceButtonBlockedReason);
+                      return;
+                    }
+
+                    onApplyPrice(card.id, button.multiplier);
+                  }}
+                  aria-disabled={priceButtonsDisabled}
+                  title={
+                    priceButtonsDisabled
+                      ? priceButtonBlockedReason
+                      : `Apply ${button.label} to this row's listing price.`
+                  }
                   style={{
                     ...secondaryButtonStyle,
                     padding: "8px 10px",
@@ -15407,13 +15497,31 @@ function BatchCardRow({
 
 function ImageRotationControls({
   disabled,
+  disabledReason = "Image rotation is unavailable right now.",
+  onUnavailable,
   onRotateLeft,
   onRotateRight,
 }: {
   disabled?: boolean;
+  disabledReason?: string;
+  onUnavailable?: (message: string) => void;
   onRotateLeft: () => void;
   onRotateRight: () => void;
 }) {
+  function rotate(direction: "left" | "right") {
+    if (disabled) {
+      onUnavailable?.(disabledReason);
+      return;
+    }
+
+    if (direction === "left") {
+      onRotateLeft();
+      return;
+    }
+
+    onRotateRight();
+  }
+
   return (
     <div
       style={{
@@ -15425,10 +15533,10 @@ function ImageRotationControls({
     >
       <button
         type="button"
-        onClick={onRotateLeft}
-        disabled={disabled}
+        onClick={() => rotate("left")}
+        aria-disabled={disabled}
         aria-label="Rotate image left"
-        title="Rotate left"
+        title={disabled ? disabledReason : "Rotate left"}
         style={{
           ...secondaryButtonStyle,
           padding: "5px 8px",
@@ -15441,10 +15549,10 @@ function ImageRotationControls({
       </button>
       <button
         type="button"
-        onClick={onRotateRight}
-        disabled={disabled}
+        onClick={() => rotate("right")}
+        aria-disabled={disabled}
         aria-label="Rotate image right"
-        title="Rotate right"
+        title={disabled ? disabledReason : "Rotate right"}
         style={{
           ...secondaryButtonStyle,
           padding: "5px 8px",
@@ -15463,12 +15571,16 @@ function ImagePreviewWithRotation({
   url,
   alt,
   disabled,
+  disabledReason,
+  onUnavailable,
   onRotateLeft,
   onRotateRight,
 }: {
   url: string;
   alt: string;
   disabled?: boolean;
+  disabledReason?: string;
+  onUnavailable?: (message: string) => void;
   onRotateLeft: () => void;
   onRotateRight: () => void;
 }) {
@@ -15489,6 +15601,8 @@ function ImagePreviewWithRotation({
       />
       <ImageRotationControls
         disabled={disabled}
+        disabledReason={disabledReason}
+        onUnavailable={onUnavailable}
         onRotateLeft={onRotateLeft}
         onRotateRight={onRotateRight}
       />
@@ -15499,11 +15613,15 @@ function ImagePreviewWithRotation({
 function Thumbnail({
   url,
   canRotate,
+  rotateBlockedReason,
+  onUnavailable,
   onRotateLeft,
   onRotateRight,
 }: {
   url: string;
   canRotate: boolean;
+  rotateBlockedReason: string;
+  onUnavailable: (message: string) => void;
   onRotateLeft: () => void;
   onRotateRight: () => void;
 }) {
@@ -15542,12 +15660,16 @@ function Thumbnail({
           url={url}
           onClose={() => setIsOpen(false)}
           canRotate={canRotate}
+          rotateBlockedReason={rotateBlockedReason}
+          onUnavailable={onUnavailable}
           onRotateLeft={onRotateLeft}
           onRotateRight={onRotateRight}
         />
       ) : null}
       <ImageRotationControls
         disabled={!canRotate}
+        disabledReason={rotateBlockedReason}
+        onUnavailable={onUnavailable}
         onRotateLeft={onRotateLeft}
         onRotateRight={onRotateRight}
       />
@@ -15558,12 +15680,16 @@ function Thumbnail({
 function ImageLightbox({
   url,
   canRotate,
+  rotateBlockedReason,
+  onUnavailable,
   onClose,
   onRotateLeft,
   onRotateRight,
 }: {
   url: string;
   canRotate: boolean;
+  rotateBlockedReason: string;
+  onUnavailable: (message: string) => void;
   onClose: () => void;
   onRotateLeft: () => void;
   onRotateRight: () => void;
@@ -15631,6 +15757,8 @@ function ImageLightbox({
         />
         <ImageRotationControls
           disabled={!canRotate}
+          disabledReason={rotateBlockedReason}
+          onUnavailable={onUnavailable}
           onRotateLeft={onRotateLeft}
           onRotateRight={onRotateRight}
         />

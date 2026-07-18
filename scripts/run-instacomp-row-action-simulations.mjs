@@ -189,6 +189,17 @@ scenario("scanner row actions expose busy and disabled reasons", () => {
     "aria-disabled={!canRefreshComps}",
     "aria-disabled={!canAddToTrade}",
     "aria-disabled={!canRetry}",
+    "onBlockedAction={setBatchDraftMessage}",
+    "aria-disabled={!canSwapImages}",
+    "aria-disabled={priceButtonsDisabled}",
+    "aria-disabled={disabled}",
+    "onUnavailable={(message) => setError(message)}",
+    "No ${label} is available yet.",
+    "No InstaComp™ suggested price is available yet.",
+    "No comp-based price is available yet. Refresh comps or enter a listing price manually.",
+    "Finish the current InstaComp™ batch action before rotating images.",
+    "Image rotation is locked after draft creation starts.",
+    "Add a back image before swapping front/back.",
   ]) {
     assert(
       scannerSource.includes(fragment),
