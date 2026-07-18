@@ -7270,63 +7270,67 @@ export default function InstaCompScanner({
         })
     );
 
-    const cancellationResults = await Promise.allSettled(
-      persistedDuplicates.map((card) => cancelPersistentBatchCard(card))
-    );
-    const latestJob = cancellationResults
-      .filter(
-        (result): result is PromiseFulfilledResult<any> =>
-          result.status === "fulfilled"
-      )
-      .map((result) => result.value)
-      .slice()
-      .reverse()
-      .find((result) => result?.job)?.job;
-    const failedCancellations = cancellationResults.filter(
-      (result) => result.status === "rejected"
-    ).length;
-
-    if (latestJob) {
-      setPersistentJob(latestJob as PersistentJobSummary);
-    }
-
-    let savedKeeperQuantity = false;
-    let saveError: string | null = null;
-
     try {
-      if (isCorrectionSavableBatchCard(mergedKeeper)) {
-        await persistBatchCardCorrections(mergedKeeper);
-        savedKeeperQuantity = true;
+      const cancellationResults = await Promise.allSettled(
+        persistedDuplicates.map((card) => cancelPersistentBatchCard(card))
+      );
+      const latestJob = cancellationResults
+        .filter(
+          (result): result is PromiseFulfilledResult<any> =>
+            result.status === "fulfilled"
+        )
+        .map((result) => result.value)
+        .slice()
+        .reverse()
+        .find((result) => result?.job)?.job;
+      const failedCancellations = cancellationResults.filter(
+        (result) => result.status === "rejected"
+      ).length;
+
+      if (latestJob) {
+        setPersistentJob(latestJob as PersistentJobSummary);
       }
-    } catch (error: any) {
-      saveError = error?.message || "Merged quantity was not saved to the saved lot.";
+
+      let savedKeeperQuantity = false;
+      let saveError: string | null = null;
+
+      try {
+        if (isCorrectionSavableBatchCard(mergedKeeper)) {
+          await persistBatchCardCorrections(mergedKeeper);
+          savedKeeperQuantity = true;
+        }
+      } catch (error: any) {
+        saveError =
+          error?.message || "Merged quantity was not saved to the saved lot.";
+      }
+
+      if (failedCancellations || saveError) {
+        const warnings = [
+          failedCancellations
+            ? `${failedCancellations}/${persistedDuplicates.length} duplicate saved row${
+                failedCancellations === 1 ? "" : "s"
+              } could not be cancelled server-side.`
+            : null,
+          saveError,
+        ].filter(Boolean);
+
+        setBatchError(warnings.join(" "));
+      }
+
+      setBatchDraftMessage(
+        `Merged ${mergePlan.mergedRowCount} selected duplicate row${
+          mergePlan.mergedRowCount === 1 ? "" : "s"
+        } into one ${mergePlan.title} row: qty ${mergePlan.previousKeeperQuantity} + ${mergePlan.duplicateQuantity} = ${mergePlan.mergedQuantity}.${
+          persistedDuplicates.length
+            ? ` Cancelled ${persistedDuplicates.length - failedCancellations}/${persistedDuplicates.length} duplicate saved row${
+                persistedDuplicates.length === 1 ? "" : "s"
+              }.`
+            : ""
+        }${savedKeeperQuantity ? " Saved the merged keeper quantity." : " Review or save the keeper row before drafting if you refresh this lot."}`
+      );
+    } finally {
+      setBatchRunning(false);
     }
-
-    if (failedCancellations || saveError) {
-      const warnings = [
-        failedCancellations
-          ? `${failedCancellations}/${persistedDuplicates.length} duplicate saved row${
-              failedCancellations === 1 ? "" : "s"
-            } could not be cancelled server-side.`
-          : null,
-        saveError,
-      ].filter(Boolean);
-
-      setBatchError(warnings.join(" "));
-    }
-
-    setBatchDraftMessage(
-      `Merged ${mergePlan.mergedRowCount} selected duplicate row${
-        mergePlan.mergedRowCount === 1 ? "" : "s"
-      } into one ${mergePlan.title} row: qty ${mergePlan.previousKeeperQuantity} + ${mergePlan.duplicateQuantity} = ${mergePlan.mergedQuantity}.${
-        persistedDuplicates.length
-          ? ` Cancelled ${persistedDuplicates.length - failedCancellations}/${persistedDuplicates.length} duplicate saved row${
-              persistedDuplicates.length === 1 ? "" : "s"
-            }.`
-          : ""
-      }${savedKeeperQuantity ? " Saved the merged keeper quantity." : " Review or save the keeper row before drafting if you refresh this lot."}`
-    );
-    setBatchRunning(false);
   }
 
   function handleBatchPriceChange(cardId: string, value: string) {

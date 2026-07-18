@@ -125,6 +125,19 @@ scenario("scanner exposes selected duplicate quantity merge action", () => {
   }
 });
 
+scenario("selected quantity merge cannot leave the batch stuck busy", () => {
+  for (const fragment of [
+    "setBatchRunning(true)",
+    "Merging selected duplicate rows into",
+    "} finally {\n      setBatchRunning(false);\n    }",
+  ]) {
+    assert(
+      scannerSource.includes(fragment),
+      `Expected scanner selected quantity merge cleanup fragment ${fragment}.`,
+    );
+  }
+});
+
 const failed = [];
 
 for (const item of scenarios) {
