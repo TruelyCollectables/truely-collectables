@@ -1,5 +1,9 @@
 import { getActiveStoreId } from "../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
+import {
+  normalizeEbayDuplicateProductIds,
+  planEbayDuplicateQuantityMerge,
+} from "../../../../lib/ebay-duplicate-merge";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -563,22 +567,13 @@ async function mergeDuplicate(params: {
   });
 }
 
-function duplicateProductIds(value: unknown) {
-  const values = Array.isArray(value) ? value : [value];
-  const ids = values
-    .map((entry) => positiveInteger(entry))
-    .filter((entry) => entry > 0);
-
-  return Array.from(new Set(ids));
-}
-
 async function mergeDuplicateRows(params: {
   keeperProductId: number;
   duplicateProductIds: number[];
 }) {
-  const requestedDuplicateIds = duplicateProductIds(params.duplicateProductIds).filter(
-    (productId) => productId !== params.keeperProductId,
-  );
+  const requestedDuplicateIds = normalizeEbayDuplicateProductIds(
+    params.duplicateProductIds,
+  ).filter((productId) => productId !== params.keeperProductId);
 
   if (!requestedDuplicateIds.length) {
     throw new Error("Pick at least one duplicate row different from the keeper.");
@@ -608,12 +603,17 @@ async function mergeDuplicateRows(params: {
     }
   }
 
-  const keeperQuantity = wholeQuantity(keeper.quantity);
-  const duplicateQuantity = duplicates.reduce(
-    (sum, duplicate) => sum + wholeQuantity(duplicate.quantity),
-    0,
-  );
-  const mergedQuantity = keeperQuantity + duplicateQuantity;
+  const mergePlan = planEbayDuplicateQuantityMerge({
+    keeperProductId: keeper.id,
+    keeperQuantity: keeper.quantity,
+    duplicateRows: duplicates.map((duplicate) => ({
+      productId: duplicate.id,
+      quantity: duplicate.quantity,
+    })),
+  });
+  const keeperQuantity = mergePlan.previousKeeperQuantity;
+  const duplicateQuantity = mergePlan.duplicateQuantity;
+  const mergedQuantity = mergePlan.mergedQuantity;
   const keeperPrice = moneyNumber(keeper.price);
   const now = new Date().toISOString();
   const ebayActions = await collectMergeEbayActions({
@@ -722,13 +722,13 @@ async function mergeDuplicateRows(params: {
   return {
     keeperProductId: keeper.id,
     duplicateProductId: duplicates[0]?.id ?? null,
-    duplicateProductIds: duplicates.map((duplicate) => duplicate.id),
+    duplicateProductIds: mergePlan.duplicateProductIds,
     title: keeper.title || "Untitled eBay listing",
     price: keeperPrice,
     previousKeeperQuantity: keeperQuantity,
     duplicateQuantity,
     mergedQuantity,
-    archivedDuplicateCount: duplicates.length,
+    archivedDuplicateCount: mergePlan.archivedDuplicateCount,
     ebayActions,
   };
 }
@@ -899,8 +899,8 @@ export async function POST(request: Request) {
     const keeperProductId = positiveInteger(body.keeperProductId);
     const requestedDuplicateIds =
       action === "merge-duplicates"
-        ? duplicateProductIds(body.duplicateProductIds)
-        : duplicateProductIds(body.duplicateProductId);
+        ? normalizeEbayDuplicateProductIds(body.duplicateProductIds)
+        : normalizeEbayDuplicateProductIds(body.duplicateProductId);
     const duplicateProductId = requestedDuplicateIds[0] || 0;
 
     if (!keeperProductId || !requestedDuplicateIds.length) {

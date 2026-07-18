@@ -14,6 +14,7 @@
     "verify:nightly-backup:json": "node scripts/verify-nightly-emergency-backup.mjs --json",
     "status:nightly-backup": "node scripts/status-nightly-backup.mjs",
     "status:nightly-backup:json": "node scripts/status-nightly-backup.mjs --json",
+    "simulate:ebay-duplicates": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-ebay-duplicate-merge-simulations.mjs",
     "simulate:instacomp-jobs": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-instacomp-job-simulations.mjs",
     "simulate:instacomp-accuracy": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-instacomp-accuracy-simulations.mjs",
     "simulate:instacomp-consensus": "node --import tsx scripts/run-instacomp-consensus-simulations.ts",
