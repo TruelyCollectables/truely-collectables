@@ -29,6 +29,10 @@ const adminOrdersPageSource = await readFile(
   new URL("../src/app/admin/orders/page.tsx", import.meta.url),
   "utf8",
 );
+const launchReadinessPageSource = await readFile(
+  new URL("../src/app/admin/launch-readiness/page.tsx", import.meta.url),
+  "utf8",
+);
 const adminNewProductPageSource = await readFile(
   new URL("../src/app/admin/products/new/page.tsx", import.meta.url),
   "utf8",
@@ -330,6 +334,35 @@ scenario("admin command center surfaces data-source health before counts", () =>
     assert(
       adminPageSource.includes(fragment),
       `Expected admin data-health fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("launch readiness keeps capability failures operator-safe", () => {
+  for (const fragment of [
+    "function safeReadinessErrorMessage",
+    "Unknown launch readiness error.",
+    "replace(/\\s+/g, \" \").trim().slice(0, 220)",
+    "TCOS could not verify this database capability, so this is a launch blocker instead of an all-clear state.",
+    "Launch readiness could not verify dry-run shipping cleanup. Treat shipping launch as blocked until the dry-run rows can be checked.",
+    "Diagnostic: ${safeReadinessErrorMessage(error)}",
+    "Diagnostic: ${safeReadinessErrorMessage(dryRunShippingCleanup.error)}",
+  ]) {
+    assert(
+      launchReadinessPageSource.includes(fragment),
+      `Expected launch readiness failure-safe fragment ${fragment}.`,
+    );
+  }
+
+  for (const forbidden of [
+    "${error.message}",
+    "${dryRunShippingCleanup.error.message}",
+    "is unavailable: ${error.message}",
+    "dry-run shipping cleanup: ${dryRunShippingCleanup.error.message}",
+  ]) {
+    assert(
+      !launchReadinessPageSource.includes(forbidden),
+      `Expected launch readiness page not to expose raw failure fragment ${forbidden}.`,
     );
   }
 });

@@ -349,6 +349,16 @@ function getSupabaseClient() {
   }
 }
 
+function safeReadinessErrorMessage(
+  error: { message?: string } | string | null | undefined,
+) {
+  const message =
+    typeof error === "string"
+      ? error
+      : error?.message || "Unknown launch readiness error.";
+  return String(message).replace(/\s+/g, " ").trim().slice(0, 220);
+}
+
 async function checkDatabaseCapability(
   capability: DatabaseCapability,
 ): Promise<ReadinessItem> {
@@ -380,7 +390,7 @@ async function checkDatabaseCapability(
   return {
     label: capability.label,
     status: "blocked",
-    detail: `${capability.label} is unavailable: ${error.message}`,
+    detail: `${capability.label} is unavailable. TCOS could not verify this database capability, so this is a launch blocker instead of an all-clear state. Diagnostic: ${safeReadinessErrorMessage(error)}`,
     action: `Apply supabase/migrations/${capability.migration} before relying on this feature.`,
   };
 }
@@ -844,7 +854,7 @@ async function checkDryRunShippingReadiness(): Promise<ReadinessItem> {
     return {
       label: "Dry-Run Shipping Cleanup",
       status: "blocked",
-      detail: `Launch readiness could not verify dry-run shipping cleanup: ${dryRunShippingCleanup.error.message}`,
+      detail: `Launch readiness could not verify dry-run shipping cleanup. Treat shipping launch as blocked until the dry-run rows can be checked. Diagnostic: ${safeReadinessErrorMessage(dryRunShippingCleanup.error)}`,
       action:
         "Apply shipping/order migrations and rerun readiness before enabling live buyer payments.",
     };
