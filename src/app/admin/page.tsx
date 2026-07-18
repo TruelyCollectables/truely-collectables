@@ -820,9 +820,14 @@ export default async function AdminDashboard() {
         { href: "/admin/market-intel/readiness", label: "Readiness" },
         { href: "/admin/market-intel/watchlist", label: "Watchlist" },
         { href: "/admin/market-intel/comps", label: "Sold Comps" },
+        { href: "/admin/market-intel/discovery", label: "Discovery Desk" },
         { href: "/admin/market-intel/ebay", label: "Active Scanner" },
         { href: "/admin/market-intel/deals", label: "Deal Engine" },
         { href: "/admin/market-intel/growth-specs", label: "Growth Specs" },
+        {
+          href: "/admin/market-intel/growth-specs/prospects",
+          label: "Value Watchlists",
+        },
         { href: "/admin/market-intel/buy", label: "Buy Desk" },
         { href: "/admin/market-intel/portfolio", label: "Portfolio" },
         { href: "/admin/market-intel/purchases", label: "Purchase Ledger" },
@@ -833,6 +838,7 @@ export default async function AdminDashboard() {
         { href: "/admin/market-intel/ingestion", label: "Ingestion Health" },
         { href: "/admin/market-intel/reports", label: "Reports" },
         { href: "/admin/market-intel/delivery", label: "Delivery Center" },
+        { href: "/admin/market-intel/delivery/test", label: "Test Email" },
       ],
     },
     {

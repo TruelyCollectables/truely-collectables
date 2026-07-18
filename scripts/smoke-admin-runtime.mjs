@@ -159,6 +159,11 @@ const smokeRoutes = [
     expectedText: "Exact-Card Sold Comps",
   },
   {
+    path: "/admin/market-intel/discovery",
+    auth: true,
+    expectedText: "Licensed-Card Discovery Desk",
+  },
+  {
     path: "/admin/market-intel/ebay",
     auth: true,
     expectedText: "eBay Active Listing Scanner",
@@ -172,6 +177,11 @@ const smokeRoutes = [
     path: "/admin/market-intel/growth-specs",
     auth: true,
     expectedText: "Growth Spec Lab™",
+  },
+  {
+    path: "/admin/market-intel/growth-specs/prospects",
+    auth: true,
+    expectedText: "Licensed Pro Value Watchlists",
   },
   {
     path: "/admin/market-intel/buy",
@@ -207,6 +217,11 @@ const smokeRoutes = [
     path: "/admin/market-intel/delivery",
     auth: true,
     expectedText: "Email Delivery Center",
+  },
+  {
+    path: "/admin/market-intel/delivery/test",
+    auth: true,
+    expectedText: "Send a controlled test email",
   },
   {
     path: "/admin/order-review-cases",
