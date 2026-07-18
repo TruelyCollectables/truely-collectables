@@ -9251,7 +9251,50 @@ export default function InstaCompScanner({
     });
   }
 
+  function exportVisibleBatchCsv() {
+    if (!visibleBatchCards.length) {
+      setBatchError("No visible InstaComp™ rows are available to export as CSV.");
+      return;
+    }
+
+    exportBatchCsv(
+      visibleBatchCards,
+      visibleBatchCards.length === batchCards.length ? "all" : "view"
+    );
+    setBatchError(null);
+    setBatchDraftMessage(
+      `Exported ${visibleBatchCards.length} visible row${
+        visibleBatchCards.length === 1 ? "" : "s"
+      } as CSV.`
+    );
+  }
+
+  function exportVisibleBatchJson() {
+    if (!visibleBatchCards.length) {
+      setBatchError("No visible InstaComp™ rows are available to export as JSON.");
+      return;
+    }
+
+    exportBatchJson(
+      visibleBatchCards,
+      visibleBatchCards.length === batchCards.length ? "all" : "view"
+    );
+    setBatchError(null);
+    setBatchDraftMessage(
+      `Exported ${visibleBatchCards.length} visible row${
+        visibleBatchCards.length === 1 ? "" : "s"
+      } as JSON.`
+    );
+  }
+
   function exportVisibleTrialResults() {
+    const busyReason = batchBusyBlockedReason("exporting visible trial results");
+
+    if (busyReason) {
+      setBatchError(busyReason);
+      return;
+    }
+
     const payload = instacompTrialResultsPayload(visibleBatchCards);
 
     if (!payload.cards.length) {
@@ -9273,6 +9316,13 @@ export default function InstaCompScanner({
   }
 
   async function copyVisibleTrialResults() {
+    const busyReason = batchBusyBlockedReason("copying visible trial results");
+
+    if (busyReason) {
+      setBatchError(busyReason);
+      return;
+    }
+
     const payload = instacompTrialResultsPayload(visibleBatchCards);
 
     if (!payload.cards.length) {
@@ -11470,13 +11520,8 @@ export default function InstaCompScanner({
 
           <button
             type="button"
-            onClick={() =>
-              exportBatchCsv(
-                visibleBatchCards,
-                visibleBatchCards.length === batchCards.length ? "all" : "view"
-              )
-            }
-            disabled={!visibleBatchCards.length}
+            onClick={exportVisibleBatchCsv}
+            aria-disabled={!visibleBatchCards.length}
             style={{
               ...secondaryButtonStyle,
               cursor: !visibleBatchCards.length ? "not-allowed" : "pointer",
@@ -11488,13 +11533,8 @@ export default function InstaCompScanner({
 
           <button
             type="button"
-            onClick={() =>
-              exportBatchJson(
-                visibleBatchCards,
-                visibleBatchCards.length === batchCards.length ? "all" : "view"
-              )
-            }
-            disabled={!visibleBatchCards.length}
+            onClick={exportVisibleBatchJson}
+            aria-disabled={!visibleBatchCards.length}
             style={{
               ...secondaryButtonStyle,
               cursor: !visibleBatchCards.length ? "not-allowed" : "pointer",
@@ -11507,7 +11547,7 @@ export default function InstaCompScanner({
           <button
             type="button"
             onClick={exportVisibleTrialResults}
-            disabled={
+            aria-disabled={
               batchRunning || batchDrafting || visibleTrialResultCount === 0
             }
             style={{
@@ -11530,7 +11570,7 @@ export default function InstaCompScanner({
           <button
             type="button"
             onClick={() => void copyVisibleTrialResults()}
-            disabled={
+            aria-disabled={
               batchRunning || batchDrafting || visibleTrialResultCount === 0
             }
             style={{
