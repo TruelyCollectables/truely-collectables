@@ -520,11 +520,19 @@ function readTrialAnswerKeyHtmlStatus(manifestAudit, worksheetStatus) {
   try {
     const text = readFileSync(absolutePath, "utf8");
     const expectedCards = manifestAudit.expectedCards ?? worksheetStatus.rowCount ?? 100;
+    const loadedCards =
+      worksheetStatus.rowCount || manifestAudit.observedCards || expectedCards;
     const readyRows =
       worksheetStatus.coreReadyRows ?? manifestAudit.readyRows ?? "unknown";
+    const shortLot =
+      Number.isFinite(Number(expectedCards)) &&
+      Number.isFinite(Number(loadedCards)) &&
+      Number(loadedCards) < Number(expectedCards);
+    const shortLotCount = shortLot ? Number(expectedCards) - Number(loadedCards) : 0;
     const matchesCurrentWorksheet =
       text.includes("TCOS InstaComp™ Trial Answer-Key Review") &&
-      text.includes(`Answer key ${readyRows}/${expectedCards}`) &&
+      (text.includes(`Answer key ${readyRows}/${loadedCards}`) ||
+        text.includes(`Answer key ${readyRows}/${expectedCards}`)) &&
       text.includes("npm run instacomp:trial:groundtruth:apply") &&
       text.includes("http://localhost:3000/admin/instacomp");
 
@@ -532,8 +540,14 @@ function readTrialAnswerKeyHtmlStatus(manifestAudit, worksheetStatus) {
       path: htmlPath,
       exists: true,
       matchesCurrentWorksheet,
+      expectedCards,
+      loadedCards,
+      shortLot,
+      shortLotCount,
       next: matchesCurrentWorksheet
-        ? worksheetStatus.coreReadyRows >= expectedCards
+        ? shortLot
+          ? `Visual answer-key sheet matches the loaded ${loadedCards}/${expectedCards} card worksheet. Add ${shortLotCount} more card pair(s), rerun intake/prep, then regenerate before the final 100-card scan; current loaded rows can still be filled now.`
+          : worksheetStatus.coreReadyRows >= expectedCards
           ? "Visual answer-key sheet matches the filled worksheet; validate the TSV, apply it, and rerun intake."
           : "Visual answer-key sheet matches the current worksheet; use it beside the TSV while filling missing fields."
         : "Rerun npm run instacomp:trial:answer-key-html so the visual sheet matches the current TSV/manifest.",
@@ -544,6 +558,10 @@ function readTrialAnswerKeyHtmlStatus(manifestAudit, worksheetStatus) {
       path: htmlPath,
       exists: true,
       matchesCurrentWorksheet: false,
+      expectedCards: manifestAudit.expectedCards ?? worksheetStatus.rowCount ?? 100,
+      loadedCards: worksheetStatus.rowCount || manifestAudit.observedCards || 0,
+      shortLot: false,
+      shortLotCount: 0,
       next: `Rerun npm run instacomp:trial:answer-key-html; visual sheet could not be read: ${
         error instanceof Error ? error.message : String(error)
       }`,
@@ -884,7 +902,9 @@ const checklist = [
     label:
       "The local visual answer-key HTML sheet can show trial front/back thumbnails next to editable TSV identity fields, then copy or download the updated TSV so the 100-card answer key can be filled faster and with fewer row mistakes.",
     status: trialAnswerKeyHtml.matchesCurrentWorksheet
-      ? trialManifestAudit.readyToScore
+      ? trialAnswerKeyHtml.shortLot
+        ? "html_current_but_lot_short"
+        : trialManifestAudit.readyToScore
         ? "ready_to_score"
         : "html_current_but_needs_groundtruth"
       : "needs_answer_key_html",

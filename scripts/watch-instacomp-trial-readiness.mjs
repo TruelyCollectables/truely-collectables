@@ -85,11 +85,18 @@ function buildReadinessGates({
     {
       key: "answer_key_html",
       label: "Visual answer-key sheet",
-      status: gateStatus(
-        Boolean(answerKeyHtml.exists) && Boolean(answerKeyHtml.matchesCurrentWorksheet),
-      ),
+      status:
+        answerKeyHtml.exists && answerKeyHtml.matchesCurrentWorksheet
+          ? answerKeyHtml.shortLot
+            ? "partial"
+            : "ready"
+          : "blocked",
       detail: `${answerKeyHtml.path || "instacomp-trial-answer-key.local.html"} ${
-        answerKeyHtml.matchesCurrentWorksheet ? "matches worksheet" : "needs refresh"
+        answerKeyHtml.matchesCurrentWorksheet
+          ? answerKeyHtml.shortLot
+            ? `matches loaded ${answerKeyHtml.loadedCards}/${answerKeyHtml.expectedCards} card worksheet`
+            : "matches worksheet"
+          : "needs refresh"
       }`,
       command: "npm run instacomp:trial:answer-key-html",
     },
@@ -117,9 +124,7 @@ function buildReadinessGates({
       key: "trial_images",
       label: "Trial front/back image files",
       status: gateStatus(imagesReady, imageFiles > 0 || completePairs > 0),
-      detail: `${imageFiles}/${expectedImages} files, ${completePairs}/${
-        imageAudit.expectedCards ?? expectedCards
-      } complete pairs`,
+      detail: `${imageFiles}/${expectedImages} files, ${completePairs}/${expectedCards} complete pairs`,
       command: "manual: copy scanner files into instacomp-trial-inbox",
     },
     {
@@ -239,7 +244,14 @@ function buildMonitorReport(iteration = 1) {
   const answerKeyValidation = localTrial.answerKeyValidation || {};
 
   const groundTruthReady = Boolean(manifestAudit.readyToScore);
-  const imagesReady = Boolean(imageAudit.readyToScan);
+  const expectedCards = manifestAudit.expectedCards ?? 100;
+  const expectedImages = localTrial.expectedImageCount ?? expectedCards * 2;
+  const imageFiles = localTrial.imageFileCount ?? 0;
+  const completePairs = imageAudit.completePairs ?? 0;
+  const imagesReady =
+    Boolean(imageAudit.readyToScan) &&
+    imageFiles >= expectedImages &&
+    completePairs >= expectedCards;
   const receiptsReady =
     Boolean(imageMap.matchesCurrentAudit) && Boolean(intakePacket.matchesCurrentAudit);
   const readyForFinalTrial = status.ok && groundTruthReady && imagesReady && receiptsReady;
@@ -286,12 +298,16 @@ function buildMonitorReport(iteration = 1) {
     });
   }
   if (status.ok && !imagesReady) {
+    const missingImageFiles = Math.max(0, expectedImages - imageFiles);
+    const missingPairs = Math.max(0, expectedCards - completePairs);
     blockers.push({
       key: "images_not_ready",
-      label: `${imageAudit.completePairs ?? 0}/${imageAudit.expectedCards ?? 100} front/back pairs are complete.`,
+      label: `${completePairs}/${expectedCards} final-trial front/back pairs are complete.`,
       next:
-        imageAudit.next ||
-        "Copy 200 front/back images into instacomp-trial-images, then run npm run instacomp:trial:prep.",
+        missingImageFiles > 0 || missingPairs > 0
+          ? `Copy the missing ${missingImageFiles} image file(s) / ${missingPairs} card pair(s) into instacomp-trial-inbox, then run npm run instacomp:trial:intake.`
+          : imageAudit.next ||
+            "Copy 200 front/back images into instacomp-trial-inbox, then run npm run instacomp:trial:intake.",
       firstMissingFronts: imageAudit.firstMissingFronts || [],
       firstMissingBacks: imageAudit.firstMissingBacks || [],
     });
@@ -377,8 +393,8 @@ function buildMonitorReport(iteration = 1) {
       },
       imagePairs: {
         complete: imageAudit.completePairs ?? 0,
-        expected: imageAudit.expectedCards ?? 100,
-        percent: pct(imageAudit.completePairs ?? 0, imageAudit.expectedCards ?? 100),
+        expected: expectedCards,
+        percent: pct(imageAudit.completePairs ?? 0, expectedCards),
       },
     },
     blockers,
