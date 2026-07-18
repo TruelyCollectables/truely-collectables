@@ -14,6 +14,14 @@ function resolvingArticle(form: HTMLFormElement) {
   article.setAttribute("aria-busy", "true");
 }
 
+function removeResolvedHistory() {
+  const approvedHeading = Array.from(document.querySelectorAll("h2")).find(
+    (heading) => heading.textContent?.trim() === "Recently Approved",
+  );
+  const approvedSection = approvedHeading?.closest("section");
+  if (approvedSection instanceof HTMLElement) approvedSection.remove();
+}
+
 export function markDiscoveryQueueDirty() {
   try {
     window.sessionStorage.setItem(QUEUE_DIRTY_KEY, "1");
@@ -29,20 +37,23 @@ export function markCandidateResolving(form: HTMLFormElement) {
 
 export default function ResolvedCandidateCleanup() {
   useEffect(() => {
-    const approvedHeading = Array.from(document.querySelectorAll("h2")).find(
-      (heading) => heading.textContent?.trim() === "Recently Approved",
-    );
-    const approvedSection = approvedHeading?.closest("section");
-    if (approvedSection instanceof HTMLElement) approvedSection.remove();
+    removeResolvedHistory();
+    const observer = new MutationObserver(removeResolvedHistory);
+    observer.observe(document.body, { childList: true, subtree: true });
 
-    const rejectForms = Array.from(
-      document.querySelectorAll<HTMLFormElement>('form[action*="/reject"]'),
-    );
-    const rejectListeners = rejectForms.map((form) => {
-      const listener = () => markCandidateResolving(form);
-      form.addEventListener("submit", listener);
-      return { form, listener };
-    });
+    const submitListener = (event: SubmitEvent) => {
+      const form = event.target;
+      if (!(form instanceof HTMLFormElement)) return;
+      const action = form.action || "";
+      if (
+        action.includes("/approve") ||
+        action.includes("/reject") ||
+        action.includes("/purchase")
+      ) {
+        markCandidateResolving(form);
+      }
+    };
+    document.addEventListener("submit", submitListener, true);
 
     const refreshIfStale = (event?: PageTransitionEvent) => {
       let dirty = false;
@@ -64,9 +75,8 @@ export default function ResolvedCandidateCleanup() {
     window.addEventListener("pageshow", pageShowListener);
 
     return () => {
-      rejectListeners.forEach(({ form, listener }) =>
-        form.removeEventListener("submit", listener),
-      );
+      observer.disconnect();
+      document.removeEventListener("submit", submitListener, true);
       window.removeEventListener("pageshow", pageShowListener);
     };
   }, []);
