@@ -32,6 +32,7 @@ scenario("payout request actions expose specific busy labels", () => {
     "Moving to",
     'aria-busy={loading === "approved"}',
     'aria-busy={loading === "paid"}',
+    'role={tone === "error" ? "alert" : "status"}',
     'aria-live={tone === "info" ? "polite" : "assertive"}',
   ]) {
     assert(
@@ -47,6 +48,7 @@ scenario("payout ledger actions expose specific busy labels", () => {
     'nextStatus.replaceAll("_", " ")',
     'aria-busy={loading === "eligible"}',
     'aria-busy={loading === "reversed"}',
+    'role={tone === "error" ? "alert" : "status"}',
     'aria-live={tone === "info" ? "polite" : "assertive"}',
   ]) {
     assert(
@@ -60,6 +62,7 @@ scenario("connect refresh action exposes accessible busy and live feedback", () 
   for (const fragment of [
     "Refreshing Stripe Connect statuses...",
     'aria-busy={loading}',
+    'role={tone === "error" ? "alert" : "status"}',
     'aria-live={tone === "info" ? "polite" : "assertive"}',
   ]) {
     assert(
