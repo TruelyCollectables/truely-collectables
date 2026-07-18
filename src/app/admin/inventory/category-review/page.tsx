@@ -81,6 +81,15 @@ function money(value: number) {
   return `$${Number(value || 0).toFixed(2)}`;
 }
 
+function safeErrorMessage(error: Error | { message?: string } | string | null) {
+  const message =
+    typeof error === "string"
+      ? error
+      : error?.message || "Unknown category review load error.";
+
+  return String(message).replace(/\s+/g, " ").trim().slice(0, 220);
+}
+
 function isReviewRequired(row: ReviewRow) {
   return (
     row.attributes.tcos_review_required === "true" ||
@@ -179,6 +188,7 @@ export default async function CategoryReviewPage() {
   const reviewRows = rows.filter(isReviewRequired);
   const cleanRows = rows.filter((row) => !isReviewRequired(row));
   const visibleRows = [...reviewRows, ...cleanRows].slice(0, 150);
+  const categoryReviewUnavailable = Boolean(error);
 
   return (
     <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
@@ -209,14 +219,38 @@ export default async function CategoryReviewPage() {
       <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
         {error ? (
           <section className="rounded-md border border-rose-200 bg-rose-50 p-5 text-sm font-bold text-rose-800">
-            Category review could not load: {error.message}
+            <h2 className="text-lg font-black text-rose-950">
+              Category review source unavailable
+            </h2>
+            <p className="mt-2 max-w-3xl leading-6">
+              Imported category attributes did not load, so this page cannot
+              prove whether low-confidence category mappings exist. Do not treat
+              the review queue as clear until the inventory attribute source is
+              repaired.
+            </p>
+            <p className="mt-3 rounded border border-rose-200 bg-white/70 px-3 py-2 text-xs font-black text-rose-950">
+              Diagnostic: {safeErrorMessage(error)}
+            </p>
           </section>
         ) : null}
 
         <section className="grid grid-cols-1 gap-3 md:grid-cols-3">
-          <Metric label="Mapped Imports" value={String(rows.length)} />
-          <Metric label="Needs Review" value={String(reviewRows.length)} />
-          <Metric label="Clean Mappings" value={String(cleanRows.length)} />
+          <Metric
+            label="Mapped Imports"
+            value={categoryReviewUnavailable ? "Unavailable" : String(rows.length)}
+          />
+          <Metric
+            label="Needs Review"
+            value={
+              categoryReviewUnavailable ? "Unavailable" : String(reviewRows.length)
+            }
+          />
+          <Metric
+            label="Clean Mappings"
+            value={
+              categoryReviewUnavailable ? "Unavailable" : String(cleanRows.length)
+            }
+          />
         </section>
 
         <section className="rounded-md border border-neutral-200 bg-white">
@@ -246,7 +280,20 @@ export default async function CategoryReviewPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-200">
-                {visibleRows.length === 0 ? (
+                {categoryReviewUnavailable ? (
+                  <tr>
+                    <td className="px-4 py-6 text-rose-800" colSpan={6}>
+                      <p className="font-black">
+                        Category review queue unavailable.
+                      </p>
+                      <p className="mt-1 max-w-3xl font-semibold">
+                        Inventory category attributes did not load, so this
+                        table cannot prove whether imported category mappings
+                        need review.
+                      </p>
+                    </td>
+                  </tr>
+                ) : visibleRows.length === 0 ? (
                   <tr>
                     <td className="px-4 py-6 text-neutral-600" colSpan={6}>
                       No imported category attributes found yet. Run an eBay

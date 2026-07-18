@@ -13,6 +13,10 @@ const adminInventoryPageSource = await readFile(
   new URL("../src/app/admin/inventory/page.tsx", import.meta.url),
   "utf8",
 );
+const adminCategoryReviewPageSource = await readFile(
+  new URL("../src/app/admin/inventory/category-review/page.tsx", import.meta.url),
+  "utf8",
+);
 const adminAccountsPageSource = await readFile(
   new URL("../src/app/admin/accounts/page.tsx", import.meta.url),
   "utf8",
@@ -194,6 +198,40 @@ scenario("inventory bridge and manual product submits explain scope", () => {
       `Expected manual product action-scope fragment ${fragment}.`,
     );
   }
+});
+
+scenario("category review page does not show false-clear import queues", () => {
+  for (const fragment of [
+    "function safeErrorMessage",
+    "const categoryReviewUnavailable = Boolean(error)",
+    "Category review source unavailable",
+    "Imported category attributes did not load",
+    "whether low-confidence category mappings exist",
+    "review queue as clear",
+    "Diagnostic: {safeErrorMessage(error)}",
+    'value={categoryReviewUnavailable ? "Unavailable" : String(rows.length)}',
+    'categoryReviewUnavailable ? "Unavailable" : String(reviewRows.length)',
+    'categoryReviewUnavailable ? "Unavailable" : String(cleanRows.length)',
+    "Category review queue unavailable.",
+    "table cannot prove whether imported category mappings",
+  ]) {
+    assert(
+      adminCategoryReviewPageSource.includes(fragment),
+      `Expected category review unavailable-state fragment ${fragment}.`,
+    );
+  }
+
+  assert(
+    !adminCategoryReviewPageSource.includes("{error.message}"),
+    "Expected category review page to avoid rendering raw database errors.",
+  );
+  assert(
+    adminCategoryReviewPageSource.indexOf("Category review queue unavailable.") <
+      adminCategoryReviewPageSource.indexOf(
+        "No imported category attributes found yet.",
+      ),
+    "Expected category review load failures to render before the empty import state.",
+  );
 });
 
 scenario("admin error recovery keeps a retry action and safe navigation", () => {
