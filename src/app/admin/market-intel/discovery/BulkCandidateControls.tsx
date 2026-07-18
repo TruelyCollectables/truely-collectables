@@ -31,7 +31,28 @@ type BulkProgress = {
   skipped: number;
 };
 
+type EnrichmentApiResult = {
+  requested: number;
+  attempted: number;
+  recovered: number;
+  titleRecovered: number;
+  aspectRecovered: number;
+  quantityUpdated: number;
+  unresolved: number;
+  skipped: number;
+  errors: Array<{ candidateId: string; message: string }>;
+};
+
+type EnrichmentProgress = {
+  processed: number;
+  total: number;
+  recovered: number;
+  unresolved: number;
+  errors: number;
+};
+
 const BULK_CHUNK_SIZE = 3;
+const ENRICHMENT_CHUNK_SIZE = 5;
 
 export default function BulkCandidateControls({
   candidates,
@@ -44,6 +65,8 @@ export default function BulkCandidateControls({
   const [rejectConfirmOpen, setRejectConfirmOpen] = useState(false);
   const [bulkBusy, setBulkBusy] = useState(false);
   const [bulkError, setBulkError] = useState<string | null>(null);
+  const [enrichmentBusy, setEnrichmentBusy] = useState(false);
+  const [enrichmentError, setEnrichmentError] = useState<string | null>(null);
   const [progress, setProgress] = useState<BulkProgress>({
     processed: 0,
     total: 0,
@@ -51,10 +74,19 @@ export default function BulkCandidateControls({
     rejected: 0,
     skipped: 0,
   });
+  const [enrichmentProgress, setEnrichmentProgress] =
+    useState<EnrichmentProgress>({
+      processed: 0,
+      total: 0,
+      recovered: 0,
+      unresolved: 0,
+      errors: 0,
+    });
   const candidateKey = useMemo(
     () => candidates.map((candidate) => candidate.id).join("|"),
     [candidates],
   );
+  const busy = bulkBusy || enrichmentBusy;
 
   useEffect(() => {
     const approvedHeading = Array.from(document.querySelectorAll("h2")).find(
@@ -100,9 +132,12 @@ export default function BulkCandidateControls({
   const allSelected =
     candidates.length > 0 && selectedCount === candidates.length;
   const readyCandidates = candidates.filter((candidate) => candidate.ready);
+  const missingCardNumberCandidates = candidates.filter((candidate) =>
+    candidate.missing.includes("exact card number"),
+  );
 
   function toggleCandidate(id: string) {
-    if (bulkBusy) return;
+    if (busy) return;
     setRejectConfirmOpen(false);
     setSelected((current) => {
       const next = new Set(current);
@@ -113,19 +148,19 @@ export default function BulkCandidateControls({
   }
 
   function selectAll() {
-    if (bulkBusy) return;
+    if (busy) return;
     setSelected(new Set(candidates.map((candidate) => candidate.id)));
     setRejectConfirmOpen(false);
   }
 
   function selectReady() {
-    if (bulkBusy) return;
+    if (busy) return;
     setSelected(new Set(readyCandidates.map((candidate) => candidate.id)));
     setRejectConfirmOpen(false);
   }
 
   function clearSelected() {
-    if (bulkBusy) return;
+    if (busy) return;
     setSelected(new Set());
     setRejectConfirmOpen(false);
   }
@@ -134,9 +169,12 @@ export default function BulkCandidateControls({
   const actionUrl = handoff
     ? `/api/admin/market-intel/discovery/bulk?admin_handoff=${encodeURIComponent(handoff)}`
     : "/api/admin/market-intel/discovery/bulk";
+  const enrichmentUrl = handoff
+    ? `/api/admin/market-intel/discovery/enrich-card-numbers?admin_handoff=${encodeURIComponent(handoff)}`
+    : "/api/admin/market-intel/discovery/enrich-card-numbers";
 
   async function processSelected(action: "approve" | "reject") {
-    if (selectedCount === 0 || bulkBusy) return;
+    if (selectedCount === 0 || busy) return;
 
     const ids = Array.from(selected);
     let approved = 0;
@@ -147,6 +185,7 @@ export default function BulkCandidateControls({
 
     setBulkBusy(true);
     setBulkError(null);
+    setEnrichmentError(null);
     setRejectConfirmOpen(false);
     setProgress({
       processed: 0,
@@ -229,6 +268,89 @@ export default function BulkCandidateControls({
     }
   }
 
+  async function recoverMissingCardNumbers() {
+    if (missingCardNumberCandidates.length === 0 || busy) return;
+
+    const ids = missingCardNumberCandidates.map((candidate) => candidate.id);
+    let processed = 0;
+    let recovered = 0;
+    let unresolved = 0;
+    let errors = 0;
+    let firstError = "";
+
+    setEnrichmentBusy(true);
+    setEnrichmentError(null);
+    setBulkError(null);
+    setRejectConfirmOpen(false);
+    setEnrichmentProgress({
+      processed: 0,
+      total: ids.length,
+      recovered: 0,
+      unresolved: 0,
+      errors: 0,
+    });
+
+    try {
+      for (let index = 0; index < ids.length; index += ENRICHMENT_CHUNK_SIZE) {
+        const chunk = ids.slice(index, index + ENRICHMENT_CHUNK_SIZE);
+        const response = await fetch(enrichmentUrl, {
+          method: "POST",
+          headers: {
+            Accept: "application/json",
+            "Content-Type": "application/json",
+          },
+          credentials: "same-origin",
+          body: JSON.stringify({ candidateIds: chunk }),
+        });
+        const payload = (await response.json().catch(() => null)) as
+          | { success: true; result: EnrichmentApiResult }
+          | { success: false; error: string }
+          | null;
+
+        if (!response.ok || !payload || payload.success !== true) {
+          const message =
+            payload && "error" in payload
+              ? payload.error
+              : `Card-number recovery failed with HTTP ${response.status}.`;
+          firstError ||= message;
+          errors += chunk.length;
+          setEnrichmentError(message);
+          break;
+        }
+
+        processed += chunk.length;
+        recovered += payload.result.recovered;
+        unresolved += payload.result.unresolved;
+        errors += payload.result.errors.length;
+        firstError ||= payload.result.errors[0]?.message || "";
+        setEnrichmentProgress({
+          processed,
+          total: ids.length,
+          recovered,
+          unresolved,
+          errors,
+        });
+      }
+
+      const params = new URLSearchParams({
+        enriched: "1",
+        requested: String(ids.length),
+        processed: String(processed),
+        recovered: String(recovered),
+        unresolved: String(unresolved),
+        enrichmentErrors: String(errors),
+      });
+      if (firstError) params.set("enrichmentError", firstError.slice(0, 220));
+      if (handoff) params.set("admin_handoff", handoff);
+      window.location.assign(`/admin/market-intel/discovery?${params.toString()}`);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Unable to recover card numbers.";
+      setEnrichmentError(message);
+      setEnrichmentBusy(false);
+    }
+  }
+
   const bulkResult = searchParams.get("bulk") === "1";
   const approved = Number(searchParams.get("approved") || 0);
   const rejected = Number(searchParams.get("rejected") || 0);
@@ -239,6 +361,14 @@ export default function BulkCandidateControls({
   const bulkFailed =
     bulkResult && approved === 0 && rejected === 0 && skipped > 0;
 
+  const enrichmentResult = searchParams.get("enriched") === "1";
+  const enrichmentRecovered = Number(searchParams.get("recovered") || 0);
+  const enrichmentUnresolved = Number(searchParams.get("unresolved") || 0);
+  const enrichmentErrors = Number(searchParams.get("enrichmentErrors") || 0);
+  const enrichmentRequested = Number(searchParams.get("requested") || 0);
+  const enrichmentProcessed = Number(searchParams.get("processed") || 0);
+  const enrichmentFirstError = searchParams.get("enrichmentError");
+
   return (
     <>
       {targets.map((target) =>
@@ -248,7 +378,7 @@ export default function BulkCandidateControls({
               type="checkbox"
               checked={selected.has(target.id)}
               onChange={() => toggleCandidate(target.id)}
-              disabled={bulkBusy}
+              disabled={busy}
               className="mt-0.5 h-5 w-5 accent-black disabled:cursor-not-allowed disabled:opacity-50"
               aria-label={`Select ${target.player}`}
             />
@@ -305,6 +435,23 @@ export default function BulkCandidateControls({
         </div>
       ) : null}
 
+      {enrichmentResult ? (
+        <div className="fixed right-5 top-5 z-[71] max-w-md rounded-xl border border-cyan-400 bg-cyan-50 p-4 text-cyan-950 shadow-2xl">
+          <p className="font-black">Card-number recovery complete</p>
+          <p className="mt-1 text-sm font-bold">
+            Recovered {enrichmentRecovered} · Still unresolved {enrichmentUnresolved} · Errors {enrichmentErrors}
+          </p>
+          <p className="mt-1 text-xs font-semibold">
+            Processed {enrichmentProcessed || enrichmentRequested} of {enrichmentRequested} candidates.
+          </p>
+          {enrichmentFirstError ? (
+            <p className="mt-2 text-xs font-semibold text-amber-900">
+              First error: {enrichmentFirstError}
+            </p>
+          ) : null}
+        </div>
+      ) : null}
+
       {candidates.length > 0 ? (
         <div className="fixed inset-x-4 bottom-4 z-[60] mx-auto max-w-5xl rounded-xl border border-neutral-700 bg-[#101418] p-4 text-white shadow-2xl">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -318,14 +465,30 @@ export default function BulkCandidateControls({
                   ? ` · ${selectedIncomplete} incomplete will be skipped`
                   : ""}
               </p>
+              {missingCardNumberCandidates.length > 0 && !busy ? (
+                <p className="mt-1 text-xs font-bold text-amber-300">
+                  {missingCardNumberCandidates.length} candidate
+                  {missingCardNumberCandidates.length === 1 ? " is" : "s are"} missing an exact card number.
+                </p>
+              ) : null}
               {bulkBusy ? (
                 <p className="mt-2 text-sm font-black text-amber-300">
                   Processing {progress.processed} of {progress.total} · Approved {progress.approved} · Rejected {progress.rejected} · Skipped {progress.skipped}
                 </p>
               ) : null}
+              {enrichmentBusy ? (
+                <p className="mt-2 text-sm font-black text-cyan-300">
+                  Recovering card numbers {enrichmentProgress.processed} of {enrichmentProgress.total} · Found {enrichmentProgress.recovered} · Unresolved {enrichmentProgress.unresolved} · Errors {enrichmentProgress.errors}
+                </p>
+              ) : null}
               {bulkError ? (
                 <p className="mt-2 rounded-md border border-rose-400 bg-rose-950 px-3 py-2 text-sm font-bold text-rose-100">
                   {bulkError}
+                </p>
+              ) : null}
+              {enrichmentError ? (
+                <p className="mt-2 rounded-md border border-rose-400 bg-rose-950 px-3 py-2 text-sm font-bold text-rose-100">
+                  {enrichmentError}
                 </p>
               ) : null}
             </div>
@@ -334,7 +497,7 @@ export default function BulkCandidateControls({
               <button
                 type="button"
                 onClick={allSelected ? clearSelected : selectAll}
-                disabled={bulkBusy}
+                disabled={busy}
                 className="rounded-md border border-neutral-500 bg-white/10 px-3 py-2 text-sm font-black disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {allSelected ? "Clear All" : "Select All"}
@@ -342,14 +505,26 @@ export default function BulkCandidateControls({
               <button
                 type="button"
                 onClick={selectReady}
-                disabled={bulkBusy}
+                disabled={busy || readyCandidates.length === 0}
                 className="rounded-md border border-cyan-500 bg-cyan-950 px-3 py-2 text-sm font-black text-cyan-100 disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Select Ready Only ({readyCandidates.length})
               </button>
+              {missingCardNumberCandidates.length > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => void recoverMissingCardNumbers()}
+                  disabled={busy}
+                  className="rounded-md bg-amber-500 px-4 py-2 text-sm font-black text-black disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {enrichmentBusy
+                    ? "Recovering Card Numbers..."
+                    : `Recover Card Numbers (${missingCardNumberCandidates.length})`}
+                </button>
+              ) : null}
               <button
                 type="button"
-                disabled={selectedCount === 0 || bulkBusy}
+                disabled={selectedReady === 0 || busy}
                 onClick={() => void processSelected("approve")}
                 className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
               >
@@ -357,7 +532,7 @@ export default function BulkCandidateControls({
               </button>
               <button
                 type="button"
-                disabled={selectedCount === 0 || bulkBusy}
+                disabled={selectedCount === 0 || busy}
                 onClick={() => {
                   if (rejectConfirmOpen) void processSelected("reject");
                   else setRejectConfirmOpen(true);
@@ -370,7 +545,7 @@ export default function BulkCandidateControls({
                 <button
                   type="button"
                   onClick={() => setRejectConfirmOpen(false)}
-                  disabled={bulkBusy}
+                  disabled={busy}
                   className="rounded-md border border-neutral-500 bg-white/10 px-3 py-2 text-sm font-black disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   Cancel Reject
