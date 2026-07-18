@@ -16,6 +16,7 @@
     "status:nightly-backup:json": "node scripts/status-nightly-backup.mjs --json",
     "simulate:ebay-duplicates": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-ebay-duplicate-merge-simulations.mjs",
     "simulate:order-review-payout-resolution": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-order-review-payout-resolution-simulations.mjs",
+    "simulate:admin-offer-decision": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-admin-offer-decision-simulations.mjs",
     "simulate:instacomp-row-removal": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-instacomp-row-removal-simulations.mjs",
     "simulate:instacomp-jobs": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-instacomp-job-simulations.mjs",
     "simulate:instacomp-accuracy": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-instacomp-accuracy-simulations.mjs",

@@ -10,6 +10,10 @@ import { trustedRequestOrigin } from "../../../../lib/site-origin";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 import { getStripePaymentRuntime } from "../../../../lib/live-payment-launch";
 import { createServerInventoryEngine } from "../../../../lib/server-inventory-engine";
+import {
+  adminOfferDecisionError,
+  normalizedOfferMoney,
+} from "../../../../lib/admin-offer-decision";
 
 export const dynamic = "force-dynamic";
 
@@ -20,14 +24,6 @@ export async function POST(req: Request) {
     const supabase = createSupabaseServerClient({ admin: true });
     const resend = resendKey ? new Resend(resendKey) : null;
     const storeId = getActiveStoreId();
-    const stripeRuntime = await getStripePaymentRuntime({ storeId, supabase });
-    if (!stripeRuntime.allowed || !stripeRuntime.stripeKey) {
-      return NextResponse.json(
-        { error: stripeRuntime.reason },
-        { status: 503 },
-      );
-    }
-    const stripe = new Stripe(stripeRuntime.stripeKey);
     const storeSettings = await getStoreSettings(supabase, storeId);
 
     const { offerId, counterAmount } = await req.json();
@@ -67,6 +63,19 @@ export async function POST(req: Request) {
       );
     }
 
+    const decisionError = adminOfferDecisionError({
+      action: "countered",
+      offerStatus: offer.status,
+      offerAmount: offer.offer_amount,
+      counterAmount,
+      productPrice: offer.products.price,
+      productQuantity: offer.products.quantity,
+    });
+
+    if (decisionError) {
+      return NextResponse.json({ error: decisionError }, { status: 400 });
+    }
+
     const inventoryEngine = createServerInventoryEngine();
     await inventoryEngine.requireAvailableCartItems([
       { id: Number(offer.products.id), quantity: 1 },
@@ -74,7 +83,23 @@ export async function POST(req: Request) {
 
     const origin = trustedRequestOrigin(req);
 
-    const amount = Number(counterAmount);
+    const amount = normalizedOfferMoney(counterAmount);
+
+    if (!amount || amount <= 0) {
+      return NextResponse.json(
+        { error: "Offer action needs: positive counter amount." },
+        { status: 400 },
+      );
+    }
+
+    const stripeRuntime = await getStripePaymentRuntime({ storeId, supabase });
+    if (!stripeRuntime.allowed || !stripeRuntime.stripeKey) {
+      return NextResponse.json(
+        { error: stripeRuntime.reason },
+        { status: 503 },
+      );
+    }
+    const stripe = new Stripe(stripeRuntime.stripeKey);
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       customer_email: offer.customer_email,

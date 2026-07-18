@@ -10,6 +10,11 @@ import { trustedRequestOrigin } from "../../../../lib/site-origin";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 import { getStripePaymentRuntime } from "../../../../lib/live-payment-launch";
 import { createServerInventoryEngine } from "../../../../lib/server-inventory-engine";
+import {
+  adminOfferDecisionError,
+  normalizedOfferMoney,
+  type AdminOfferDecisionAction,
+} from "../../../../lib/admin-offer-decision";
 
 export const dynamic = "force-dynamic";
 
@@ -59,6 +64,19 @@ export async function POST(req: Request) {
       );
     }
 
+    const action = status as AdminOfferDecisionAction;
+    const decisionError = adminOfferDecisionError({
+      action,
+      offerStatus: offer.status,
+      offerAmount: offer.offer_amount,
+      productPrice: offer.products.price,
+      productQuantity: offer.products.quantity,
+    });
+
+    if (decisionError) {
+      return NextResponse.json({ error: decisionError }, { status: 400 });
+    }
+
     if (status === "declined") {
       const { data: updatedOffer, error: updateError } = await supabase
         .from("offers")
@@ -102,7 +120,15 @@ export async function POST(req: Request) {
 
     const origin = trustedRequestOrigin(req);
 
-    const amount = Number(offer.offer_amount);
+    const amount = normalizedOfferMoney(offer.offer_amount);
+
+    if (!amount || amount <= 0) {
+      return NextResponse.json(
+        { error: "Offer action needs: positive offer amount." },
+        { status: 400 },
+      );
+    }
+
     const stripeRuntime = await getStripePaymentRuntime({ storeId, supabase });
     if (!stripeRuntime.allowed || !stripeRuntime.stripeKey) {
       return NextResponse.json(

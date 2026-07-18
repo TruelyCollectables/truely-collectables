@@ -389,6 +389,9 @@ function OfferCard({
         offerId={String(offer.id)}
         status={offer.status || "pending"}
         checkoutUrl={offer.stripe_checkout_url}
+        offerAmount={Number(offer.offer_amount || 0)}
+        productPrice={product?.price ?? null}
+        productQuantity={product?.quantity ?? null}
       />
     </article>
   );

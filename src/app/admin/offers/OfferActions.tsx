@@ -2,15 +2,25 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import {
+  adminOfferDecisionError,
+  adminOfferDecisionRequirements,
+} from "../../../lib/admin-offer-decision";
 
 export default function OfferActions({
   offerId,
   status,
   checkoutUrl,
+  offerAmount,
+  productPrice,
+  productQuantity,
 }: {
   offerId: string;
   status: string;
   checkoutUrl?: string | null;
+  offerAmount: number;
+  productPrice?: number | null;
+  productQuantity?: number | null;
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState("");
@@ -21,12 +31,49 @@ export default function OfferActions({
   } | null>(null);
   const isPending = status === "pending";
   const isBusy = loading !== "";
+  const acceptRequirements = adminOfferDecisionRequirements({
+    action: "accepted",
+    offerStatus: status,
+    offerAmount,
+    productPrice,
+    productQuantity,
+  });
+  const declineRequirements = adminOfferDecisionRequirements({
+    action: "declined",
+    offerStatus: status,
+    offerAmount,
+    productPrice,
+    productQuantity,
+  });
+  const counterRequirements = adminOfferDecisionRequirements({
+    action: "countered",
+    offerStatus: status,
+    offerAmount,
+    counterAmount,
+    productPrice,
+    productQuantity,
+  });
+  const canAccept = acceptRequirements.length === 0;
+  const canDecline = declineRequirements.length === 0;
+  const canCounter = counterRequirements.length === 0;
+  const visibleRequirements = Array.from(
+    new Set([...acceptRequirements, ...counterRequirements]),
+  );
 
   async function updateStatus(newStatus: string) {
-    if (!isPending) {
+    const action = newStatus === "declined" ? "declined" : "accepted";
+    const blocked = adminOfferDecisionError({
+      action,
+      offerStatus: status,
+      offerAmount,
+      productPrice,
+      productQuantity,
+    });
+
+    if (blocked) {
       setMessage({
         tone: "error",
-        text: "Only pending offers can be accepted or declined.",
+        text: blocked,
       });
       return;
     }
@@ -70,10 +117,19 @@ export default function OfferActions({
   }
 
   async function sendCounterOffer() {
-    if (!isPending) {
+    const blocked = adminOfferDecisionError({
+      action: "countered",
+      offerStatus: status,
+      offerAmount,
+      counterAmount,
+      productPrice,
+      productQuantity,
+    });
+
+    if (blocked) {
       setMessage({
         tone: "error",
-        text: "Only pending offers can receive a counter offer.",
+        text: blocked,
       });
       return;
     }
@@ -138,7 +194,7 @@ export default function OfferActions({
 
       <button
         type="button"
-        disabled={!isPending || isBusy}
+        disabled={!canAccept || isBusy}
         onClick={() => updateStatus("accepted")}
         className="w-full rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
       >
@@ -147,7 +203,7 @@ export default function OfferActions({
 
       <button
         type="button"
-        disabled={!isPending || isBusy}
+        disabled={!canDecline || isBusy}
         onClick={() => updateStatus("declined")}
         className="w-full rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50"
       >
@@ -174,7 +230,9 @@ export default function OfferActions({
           min="0.01"
           step="0.01"
           inputMode="decimal"
-          placeholder="0.00"
+          placeholder={
+            productPrice ? `Above offer, up to ${money(productPrice)}` : "0.00"
+          }
           value={counterAmount}
           disabled={!isPending || isBusy}
           onChange={(e) => setCounterAmount(e.target.value)}
@@ -184,18 +242,31 @@ export default function OfferActions({
 
       <button
         type="button"
-        disabled={!isPending || isBusy}
+        disabled={!canCounter || isBusy}
         onClick={sendCounterOffer}
         className="w-full rounded-md bg-sky-700 px-4 py-2 text-sm font-black text-white hover:bg-sky-800 disabled:cursor-not-allowed disabled:opacity-50"
       >
         {loading === "counter" ? "Sending..." : "Counter Offer"}
       </button>
 
+      {isPending && visibleRequirements.length > 0 ? (
+        <ActionNotice tone="info">
+          Some offer actions require: {visibleRequirements.join(", ")}.
+        </ActionNotice>
+      ) : null}
+
       {message ? (
         <ActionNotice tone={message.tone}>{message.text}</ActionNotice>
       ) : null}
     </div>
   );
+}
+
+function money(value: number | null | undefined) {
+  return new Intl.NumberFormat("en-US", {
+    currency: "USD",
+    style: "currency",
+  }).format(Number(value || 0));
 }
 
 function ActionNotice({
