@@ -8088,6 +8088,21 @@ export default function InstaCompScanner({
   }
 
   function setAllDoneBatchCardsSelected(selected: boolean) {
+    const busyReason = batchBusyBlockedReason(
+      selected ? "selecting draftable rows" : "deselecting draftable rows"
+    );
+
+    if (busyReason) {
+      setBatchError(busyReason);
+      return;
+    }
+
+    if (!batchDraftableCount) {
+      setBatchError("No draftable rows are available to select.");
+      return;
+    }
+
+    setBatchError(null);
     setBatchCards((current) =>
       current.map((card) => {
         if (isDraftableBatchCard(card)) {
@@ -9798,6 +9813,13 @@ export default function InstaCompScanner({
   }
 
   async function createDraftListings() {
+    const busyReason = batchBusyBlockedReason("creating draft listings");
+
+    if (busyReason) {
+      setBatchError(busyReason);
+      return;
+    }
+
     await createDraftListingsForCards(selectedDoneBatchCards, {
       emptyMessage: "Select at least one completed scan that is not already drafted.",
       blockedScopeLabel: "selected",
@@ -11235,7 +11257,7 @@ export default function InstaCompScanner({
           <button
             type="button"
             onClick={createDraftListings}
-            disabled={createDraftButtonDisabled}
+            aria-disabled={createDraftButtonDisabled}
             style={{
               ...buttonStyle,
               background: createDraftButtonDisabled ? "#999" : "#0f5132",
@@ -11257,7 +11279,7 @@ export default function InstaCompScanner({
           <button
             type="button"
             onClick={() => setAllDoneBatchCardsSelected(true)}
-            disabled={batchRunning || batchDrafting || batchDraftableCount === 0}
+            aria-disabled={batchRunning || batchDrafting || batchDraftableCount === 0}
             style={{
               ...secondaryButtonStyle,
               cursor:
@@ -11276,7 +11298,7 @@ export default function InstaCompScanner({
           <button
             type="button"
             onClick={selectReadyDraftableBatchCards}
-            disabled={batchRunning || batchDrafting || readyDraftableCount === 0}
+            aria-disabled={batchRunning || batchDrafting || readyDraftableCount === 0}
             style={{
               ...secondaryButtonStyle,
               cursor:
@@ -11295,7 +11317,7 @@ export default function InstaCompScanner({
           <button
             type="button"
             onClick={selectCleanDraftableBatchCards}
-            disabled={batchRunning || batchDrafting || cleanDraftableCount === 0}
+            aria-disabled={batchRunning || batchDrafting || cleanDraftableCount === 0}
             style={{
               ...secondaryButtonStyle,
               cursor:
@@ -11314,7 +11336,7 @@ export default function InstaCompScanner({
           <button
             type="button"
             onClick={selectCleanReadyDraftableBatchCards}
-            disabled={batchRunning || batchDrafting || cleanReadyCount === 0}
+            aria-disabled={batchRunning || batchDrafting || cleanReadyCount === 0}
             style={{
               ...secondaryButtonStyle,
               cursor:
@@ -11331,7 +11353,7 @@ export default function InstaCompScanner({
           <button
             type="button"
             onClick={() => setAllDoneBatchCardsSelected(false)}
-            disabled={batchRunning || batchDrafting || batchDraftableCount === 0}
+            aria-disabled={batchRunning || batchDrafting || batchDraftableCount === 0}
             style={{
               ...secondaryButtonStyle,
               cursor:
@@ -11350,7 +11372,7 @@ export default function InstaCompScanner({
           <button
             type="button"
             onClick={deselectDraftFixBatchCards}
-            disabled={batchRunning || batchDrafting || selectedDraftFixCount === 0}
+            aria-disabled={batchRunning || batchDrafting || selectedDraftFixCount === 0}
             style={{
               ...secondaryButtonStyle,
               cursor:
@@ -11369,7 +11391,7 @@ export default function InstaCompScanner({
           <button
             type="button"
             onClick={deselectReadyReviewBatchCards}
-            disabled={batchRunning || batchDrafting || selectedReadyReviewCount === 0}
+            aria-disabled={batchRunning || batchDrafting || selectedReadyReviewCount === 0}
             style={{
               ...secondaryButtonStyle,
               cursor:
@@ -11388,7 +11410,7 @@ export default function InstaCompScanner({
           <button
             type="button"
             onClick={deselectReviewDraftFixBatchCards}
-            disabled={
+            aria-disabled={
               batchRunning || batchDrafting || selectedReviewDraftFixCount === 0
             }
             style={{
@@ -11409,7 +11431,7 @@ export default function InstaCompScanner({
           <button
             type="button"
             onClick={deselectCleanDraftFixBatchCards}
-            disabled={
+            aria-disabled={
               batchRunning || batchDrafting || selectedCleanDraftFixCount === 0
             }
             style={{
@@ -11430,7 +11452,7 @@ export default function InstaCompScanner({
           <button
             type="button"
             onClick={deselectReviewBatchCards}
-            disabled={batchRunning || batchDrafting || selectedReviewCount === 0}
+            aria-disabled={batchRunning || batchDrafting || selectedReviewCount === 0}
             style={{
               ...secondaryButtonStyle,
               cursor:
