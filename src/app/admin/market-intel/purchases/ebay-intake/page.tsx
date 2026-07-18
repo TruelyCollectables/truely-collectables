@@ -66,9 +66,7 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
       </header>
 
       <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
-        {query?.added ? (
-          <Notice>Purchase added to the inbox.</Notice>
-        ) : null}
+        {query?.added ? <Notice>Purchase added to the inbox.</Notice> : null}
         {query?.moved ? (
           <Notice>{query.moved} purchase row(s) moved to exact-card review.</Notice>
         ) : null}
@@ -90,7 +88,8 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
           <p className="mt-2 font-semibold leading-6">
             eBay does not expose a list endpoint for ordinary personal Purchase History.
             Paste the item URL or item number and the exact receipt amounts here. TCOS
-            pulls the listing details and stages the card for exact identity review.
+            pulls the listing details, detects the player, and stages the card for exact
+            identity review.
           </p>
         </section>
 
@@ -105,8 +104,16 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
             className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4"
           >
             <input type="hidden" name="action" value="add" />
-            <Field name="ebayItem" label="eBay item URL or item number" required className="md:col-span-2 xl:col-span-2" />
-            <Field name="playerName" label="Player name" required />
+            <Field
+              name="ebayItem"
+              label="eBay item URL or item number"
+              required
+              className="md:col-span-2 xl:col-span-2"
+            />
+            <Field
+              name="playerName"
+              label="Player correction (optional — TCOS auto-detects)"
+            />
             <label className="text-sm font-black">
               Sport/category
               <select name="sportOrCategory" defaultValue="Baseball" className={inputClass}>
@@ -118,7 +125,13 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
               </select>
             </label>
             <Field name="externalOrderId" label="eBay order number (optional)" />
-            <Field name="purchaseDate" label="Purchase date" type="date" required defaultValue={new Date().toISOString().slice(0, 10)} />
+            <Field
+              name="purchaseDate"
+              label="Purchase date"
+              type="date"
+              required
+              defaultValue={new Date().toISOString().slice(0, 10)}
+            />
             <Field name="quantity" label="Quantity" type="number" required defaultValue="1" min="1" />
             <label className="text-sm font-black">
               Initial bucket
@@ -159,7 +172,7 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
           {pending.length === 0 ? (
             <p className="p-6 font-semibold text-neutral-600">No pending eBay purchases.</p>
           ) : (
-            <form method="post" action={adminHref("/api/admin/market-intel/purchases/ebay-intake") }>
+            <form method="post" action={adminHref("/api/admin/market-intel/purchases/ebay-intake")}>
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[1100px] text-left text-sm">
                   <thead className="bg-neutral-100 text-xs font-black uppercase tracking-wider text-neutral-500">
@@ -186,7 +199,12 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
                         </td>
                         <td className="px-4 py-4 font-black">{row.player_name}</td>
                         <td className="max-w-md px-4 py-4">
-                          <a href={row.direct_url} target="_blank" rel="noreferrer" className="font-bold text-blue-700 hover:underline">
+                          <a
+                            href={row.direct_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="font-bold text-blue-700 hover:underline"
+                          >
                             {row.title}
                           </a>
                         </td>
@@ -282,7 +300,13 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 function Notice({ children, error = false }: { children: React.ReactNode; error?: boolean }) {
   return (
-    <div className={error ? "rounded-xl border border-rose-300 bg-rose-50 p-4 font-bold text-rose-950" : "rounded-xl border border-emerald-300 bg-emerald-50 p-4 font-bold text-emerald-950"}>
+    <div
+      className={
+        error
+          ? "rounded-xl border border-rose-300 bg-rose-50 p-4 font-bold text-rose-950"
+          : "rounded-xl border border-emerald-300 bg-emerald-50 p-4 font-bold text-emerald-950"
+      }
+    >
       {children}
     </div>
   );
