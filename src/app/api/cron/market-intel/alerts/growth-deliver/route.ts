@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { syncAllMarketIntelAlerts } from "../../../../../../lib/market-intel-alert-sync";
+import { deliverPendingGrowthSpecAlerts } from "../../../../../../lib/market-intel-growth-alert-delivery";
 import { isAuthorizedMarketIntelIngest } from "../../../../../../lib/market-intel-ingestion";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+export const maxDuration = 60;
 
 async function run(request: NextRequest) {
   if (!isAuthorizedMarketIntelIngest(request)) {
@@ -11,7 +12,8 @@ async function run(request: NextRequest) {
   }
 
   try {
-    const result = await syncAllMarketIntelAlerts();
+    const limit = Number(request.nextUrl.searchParams.get("limit") || 10);
+    const result = await deliverPendingGrowthSpecAlerts(limit);
     return NextResponse.json(result, {
       headers: { "Cache-Control": "no-store" },
     });
@@ -19,7 +21,9 @@ async function run(request: NextRequest) {
     return NextResponse.json(
       {
         error:
-          error instanceof Error ? error.message : "Unable to sync alert outbox.",
+          error instanceof Error
+            ? error.message
+            : "Unable to deliver Growth Spec alerts.",
       },
       { status: 500, headers: { "Cache-Control": "no-store" } },
     );

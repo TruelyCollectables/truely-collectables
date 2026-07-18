@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { syncAllMarketIntelAlerts } from "../../../../../../lib/market-intel-alert-sync";
+import { scanEbayForGrowthSpecIdentities } from "../../../../../../lib/market-intel-growth-scan";
 import { isAuthorizedMarketIntelIngest } from "../../../../../../lib/market-intel-ingestion";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+export const maxDuration = 60;
 
 async function run(request: NextRequest) {
   if (!isAuthorizedMarketIntelIngest(request)) {
@@ -11,7 +12,13 @@ async function run(request: NextRequest) {
   }
 
   try {
-    const result = await syncAllMarketIntelAlerts();
+    const params = request.nextUrl.searchParams;
+    const result = await scanEbayForGrowthSpecIdentities({
+      maxTargets: Number(params.get("maxTargets") || 25),
+      resultsPerTarget: Number(params.get("resultsPerTarget") || 15),
+      minimumConfidence: Number(params.get("minimumConfidence") || 80),
+    });
+
     return NextResponse.json(result, {
       headers: { "Cache-Control": "no-store" },
     });
@@ -19,7 +26,9 @@ async function run(request: NextRequest) {
     return NextResponse.json(
       {
         error:
-          error instanceof Error ? error.message : "Unable to sync alert outbox.",
+          error instanceof Error
+            ? error.message
+            : "Unable to scan eBay Growth Spec identities.",
       },
       { status: 500, headers: { "Cache-Control": "no-store" } },
     );
