@@ -299,6 +299,16 @@ export async function PATCH(request: Request) {
       );
     }
 
+    if (!note || note.length < 8) {
+      return Response.json(
+        {
+          error:
+            "Add a cleanup note with the reason before retiring dry-run shipping proof.",
+        },
+        { status: 400 },
+      );
+    }
+
     const supabase = createSupabaseServerClient({ admin: true });
     const storeId = getActiveStoreId();
     const identity = await getClientIdentity(request);

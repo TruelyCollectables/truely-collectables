@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import type { ReactNode } from "react";
 import {
   evaluateUnder20SellerProtectionBuyerRefundMetadataGate,
   under20SellerProtectionSkippedRowReasonLabel,
@@ -111,6 +112,48 @@ function recordValue(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : {};
+}
+
+type NoticeTone = "success" | "error" | "info";
+
+function noticeTone(message: string): NoticeTone {
+  const normalized = message.toLowerCase();
+  if (
+    normalized.includes("could not") ||
+    normalized.includes("cannot") ||
+    normalized.includes("required") ||
+    normalized.includes("needs") ||
+    normalized.includes("choose")
+  ) {
+    return "error";
+  }
+
+  if (normalized.includes("saving") || normalized.includes("updating")) {
+    return "info";
+  }
+
+  return "success";
+}
+
+function ActionNotice({
+  tone,
+  children,
+}: {
+  tone: NoticeTone;
+  children: ReactNode;
+}) {
+  const className =
+    tone === "success"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-950"
+      : tone === "error"
+        ? "border-red-200 bg-red-50 text-red-950"
+        : "border-blue-200 bg-blue-50 text-blue-950";
+
+  return (
+    <p className={`rounded-2xl border px-3 py-2 text-xs font-black ${className}`}>
+      {children}
+    </p>
+  );
 }
 
 function yesNo(value: unknown) {
@@ -534,15 +577,46 @@ export default function ShippingClaimActions({
   const packetLink = (
     <a
       href={`/api/admin/shipping-claims/${claimId}/packet`}
-      className="inline-flex rounded border border-neutral-300 bg-white px-3 py-2 text-xs font-black text-neutral-950"
+      className="inline-flex rounded-2xl border border-neutral-300 bg-white px-3 py-2 text-xs font-black text-neutral-950 hover:bg-neutral-50"
     >
       Download Evidence Packet
     </a>
   );
 
+  function actionRequirements(status: ClaimStatus) {
+    const missing: string[] = [];
+
+    if (
+      (status === "paid" || status === "denied" || status === "cancelled") &&
+      note.trim().length < 8
+    ) {
+      missing.push("audit note");
+    }
+
+    if (status === "paid" && externalCoveragePaidBlocked) {
+      missing.push("provider claim ID");
+    }
+
+    if (
+      status === "paid" &&
+      isUnder20SellerProtection &&
+      !buyerRefundReadinessGate.allowed
+    ) {
+      missing.push("buyer refund evidence note/reference");
+    }
+
+    return missing;
+  }
+
   async function updateClaimStatus(status: ClaimStatus) {
+    const missing = actionRequirements(status);
+    if (missing.length > 0) {
+      setMessage(`Status update needs: ${missing.join(", ")}.`);
+      return;
+    }
+
     setPendingStatus(status);
-    setMessage("");
+    setMessage("Updating coverage claim...");
 
     try {
       const response = await fetch(`/api/admin/shipping-claims/${claimId}`, {
@@ -574,9 +648,13 @@ export default function ShippingClaimActions({
     }
   }
 
+  const visibleActionRequirements = Array.from(
+    new Set(actions.flatMap((action) => actionRequirements(action.status))),
+  );
+
   if (actions.length === 0) {
     return (
-      <div className="mt-3 space-y-2 rounded border bg-neutral-50 p-3">
+      <div className="mt-3 space-y-3 rounded-2xl border border-neutral-200 bg-neutral-50 p-3">
         {packetLink}
         {externalCoveragePaidReadinessCardNode}
         {buyerRefundEvidenceCardNode}
@@ -592,7 +670,7 @@ export default function ShippingClaimActions({
   }
 
   return (
-    <div className="mt-3 space-y-2 rounded border bg-neutral-50 p-3">
+    <div className="mt-3 space-y-3 rounded-2xl border border-neutral-200 bg-neutral-50 p-3">
       {packetLink}
       {externalCoveragePaidReadinessCardNode}
       {buyerRefundReadinessCardNode}
@@ -610,44 +688,56 @@ export default function ShippingClaimActions({
           evidence or refund reference.
         </p>
       ) : null}
-      <input
-        value={providerId}
-        onChange={(event) => setProviderId(event.target.value)}
-        placeholder="Provider claim ID, if available"
-        className="w-full rounded border bg-white px-3 py-2 text-sm"
-      />
-      <textarea
-        value={note}
-        onChange={(event) => setNote(event.target.value)}
-        placeholder={
-          normalizedStatus === "approved" && isUnder20SellerProtection
-            ? "Internal note / refund evidence. Include buyer/customer refund reference; for delivery exceptions, include “override” plus the reason."
-            : "Internal note / evidence status"
-        }
-        rows={2}
-        className="w-full rounded border bg-white px-3 py-2 text-sm"
-      />
+      <label className="block text-xs font-black text-neutral-800">
+        Provider claim ID
+        <input
+          value={providerId}
+          onChange={(event) => setProviderId(event.target.value)}
+          placeholder="Provider claim ID, payout reference, or Coverage claim number"
+          className="mt-1 w-full rounded-2xl border border-neutral-300 bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-neutral-950"
+        />
+      </label>
+      <label className="block text-xs font-black text-neutral-800">
+        Internal audit note
+        <textarea
+          value={note}
+          onChange={(event) => setNote(event.target.value)}
+          placeholder={
+            normalizedStatus === "approved" && isUnder20SellerProtection
+              ? "Refund evidence/reference. For delivery exceptions, include “override” plus the reason."
+              : "Evidence status, reason for terminal action, or provider notes"
+          }
+          rows={3}
+          className="mt-1 w-full rounded-2xl border border-neutral-300 bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-neutral-950"
+        />
+      </label>
+      {visibleActionRequirements.length > 0 ? (
+        <ActionNotice tone="info">
+          Some status actions require: {visibleActionRequirements.join(", ")}.
+        </ActionNotice>
+      ) : null}
       <div className="flex flex-wrap gap-2">
-        {actions.map((action) => (
-          <button
-            type="button"
-            key={action.status}
-            onClick={() => updateClaimStatus(action.status)}
-            disabled={
-              Boolean(pendingStatus) ||
-              (action.status === "paid" && externalCoveragePaidBlocked)
-            }
-            className={`rounded px-3 py-2 text-xs font-black disabled:opacity-50 ${action.tone}`}
-          >
-            {pendingStatus === action.status ? "Saving..." : action.label}
-          </button>
-        ))}
+        {actions.map((action) => {
+          const missing = actionRequirements(action.status);
+          const disabled = Boolean(pendingStatus) || missing.length > 0;
+
+          return (
+            <button
+              type="button"
+              key={action.status}
+              onClick={() => updateClaimStatus(action.status)}
+              disabled={disabled}
+              title={missing.length > 0 ? `Required: ${missing.join(", ")}` : ""}
+              className={`rounded-2xl px-3 py-2 text-xs font-black disabled:cursor-not-allowed disabled:opacity-50 ${action.tone}`}
+            >
+              {pendingStatus === action.status ? "Saving..." : action.label}
+            </button>
+          );
+        })}
       </div>
 
       {message ? (
-        <p className="rounded border bg-white p-2 text-xs font-semibold">
-          {message}
-        </p>
+        <ActionNotice tone={noticeTone(message)}>{message}</ActionNotice>
       ) : null}
     </div>
   );

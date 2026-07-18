@@ -2,6 +2,24 @@
 
 import { useState } from "react";
 
+function noticeTone(message: string) {
+  const normalized = message.toLowerCase();
+  if (
+    normalized.includes("could not") ||
+    normalized.includes("failed") ||
+    normalized.includes("add a cleanup note") ||
+    normalized.includes("required")
+  ) {
+    return "border-red-200 bg-red-50 text-red-950";
+  }
+
+  if (normalized.includes("retiring")) {
+    return "border-blue-200 bg-blue-50 text-blue-950";
+  }
+
+  return "border-emerald-200 bg-emerald-50 text-emerald-950";
+}
+
 export default function DryRunCleanupActions({
   orderId,
 }: {
@@ -14,10 +32,17 @@ export default function DryRunCleanupActions({
     "record-real-label" | "retire-only" | null
   >(null);
   const [acknowledged, setAcknowledged] = useState(false);
+  const cleanupNoteReady = note.trim().length >= 8;
+  const confirmDisabled = retiring || !acknowledged || !cleanupNoteReady;
 
   async function retireProof({ redirectToManual }: { redirectToManual: boolean }) {
+    if (!cleanupNoteReady) {
+      setMessage("Add a cleanup note before retiring dry-run shipping proof.");
+      return;
+    }
+
     setRetiring(true);
-    setMessage("");
+    setMessage("Retiring dry-run shipping proof...");
 
     try {
       const response = await fetch("/api/admin/shipping/dry-run-cleanup", {
@@ -28,7 +53,7 @@ export default function DryRunCleanupActions({
         body: JSON.stringify({
           action: "retire_order_dry_run_proof",
           orderId,
-          note,
+          note: note.trim(),
         }),
       });
       const data = await response.json().catch(() => ({}));
@@ -81,16 +106,21 @@ export default function DryRunCleanupActions({
       <textarea
         value={note}
         onChange={(event) => setNote(event.target.value)}
-        placeholder="Optional cleanup note: why this simulated proof is being retired."
+        placeholder="Required cleanup note: why this simulated proof is being retired."
         rows={2}
-        className="w-full rounded-md border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-950 placeholder:text-red-300"
+        className="w-full rounded-2xl border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-950 outline-none placeholder:text-red-300 focus:border-red-500"
       />
+      {!cleanupNoteReady ? (
+        <p className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-black text-amber-950">
+          Required: cleanup note with at least 8 characters.
+        </p>
+      ) : null}
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
           onClick={() => requestRetire("record-real-label")}
           disabled={retiring}
-          className="rounded-md bg-red-700 px-3 py-2 text-xs font-black text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-2xl bg-red-700 px-3 py-2 text-xs font-black text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-50"
         >
           Retire + Record Real Label
         </button>
@@ -98,14 +128,14 @@ export default function DryRunCleanupActions({
           type="button"
           onClick={() => requestRetire("retire-only")}
           disabled={retiring}
-          className="rounded-md border border-red-300 bg-white px-3 py-2 text-xs font-black text-red-950 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-2xl border border-red-300 bg-white px-3 py-2 text-xs font-black text-red-950 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
         >
           Retire Only
         </button>
       </div>
 
       {pendingAction ? (
-        <div className="rounded-xl border border-red-300 bg-white p-3">
+        <div className="rounded-2xl border border-red-300 bg-white p-3">
           <p className="text-sm font-black text-red-950">
             Confirm dry-run proof retirement for order #{orderId}
           </p>
@@ -126,9 +156,9 @@ export default function DryRunCleanupActions({
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"
-              disabled={retiring || !acknowledged}
+              disabled={confirmDisabled}
               onClick={() => retireProof({ redirectToManual: pendingRedirect })}
-              className="rounded-md bg-red-700 px-3 py-2 text-xs font-black text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-2xl bg-red-700 px-3 py-2 text-xs font-black text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-50"
             >
               {retiring
                 ? "Retiring..."
@@ -143,7 +173,7 @@ export default function DryRunCleanupActions({
                 setPendingAction(null);
                 setAcknowledged(false);
               }}
-              className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-xs font-black text-neutral-950 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-2xl border border-neutral-300 bg-white px-3 py-2 text-xs font-black text-neutral-950 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50"
             >
               Cancel
             </button>
@@ -152,7 +182,7 @@ export default function DryRunCleanupActions({
       ) : null}
 
       {message ? (
-        <p className="rounded-xl border border-red-200 bg-white p-2 text-xs font-semibold text-red-950">
+        <p className={`rounded-2xl border px-3 py-2 text-xs font-black ${noticeTone(message)}`}>
           {message}
         </p>
       ) : null}

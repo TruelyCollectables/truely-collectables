@@ -357,6 +357,16 @@ export async function PATCH(
       );
     }
 
+    if (terminalStatuses.has(nextStatus) && note.length < 8) {
+      return Response.json(
+        {
+          error:
+            "Add an audit note with the reason before closing a coverage claim.",
+        },
+        { status: 400 },
+      );
+    }
+
     let label: ShippingLabelRow | null = null;
 
     if (claim.shipping_label_id) {
