@@ -124,6 +124,21 @@ scenario("bulk description success points operators back to product records", ()
   }
 });
 
+scenario("bulk description failures use sanitized product action recovery", () => {
+  for (const fragment of [
+    "let failure: string | null = null",
+    "failure = adminProductActionFailureMessage(",
+    "Could not update all selected product descriptions.",
+    "redirect(productActionErrorPath(failure))",
+    "redirect(`/admin/products?bulkUpdated=${updated}`)",
+  ]) {
+    assert(
+      productsPageSource.includes(fragment),
+      `Expected bulk failure recovery fragment ${fragment}.`,
+    );
+  }
+});
+
 const failed = [];
 
 for (const item of scenarios) {

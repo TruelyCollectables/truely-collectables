@@ -97,34 +97,47 @@ async function bulkUpdateDescriptions(formData: FormData) {
     redirect("/admin/products?bulkError=missing_selection_or_description");
   }
 
-  const engine = createServerInventoryEngine();
   let updated = 0;
+  let failure: string | null = null;
 
-  for (const id of ids) {
-    const product = await engine.getByLegacyProductId(id);
+  try {
+    const engine = createServerInventoryEngine();
 
-    if (!product) continue;
+    for (const id of ids) {
+      const product = await engine.getByLegacyProductId(id);
 
-    const currentDescription = product.description?.trim() || "";
-    const nextDescription =
-      mode === "replace"
-        ? descriptionPatch
-        : mode === "prepend"
-          ? [descriptionPatch, currentDescription].filter(Boolean).join("\n\n")
-          : [currentDescription, descriptionPatch].filter(Boolean).join("\n\n");
+      if (!product) continue;
 
-    await engine.updateProduct(id, {
-      title: product.title,
-      player: product.player,
-      sport: product.sport,
-      price: product.price,
-      quantity: product.quantity,
-      status: product.status,
-      imageUrl: product.imageUrl,
-      description: nextDescription,
-      authenticity: product.authenticity,
-    });
-    updated += 1;
+      const currentDescription = product.description?.trim() || "";
+      const nextDescription =
+        mode === "replace"
+          ? descriptionPatch
+          : mode === "prepend"
+            ? [descriptionPatch, currentDescription].filter(Boolean).join("\n\n")
+            : [currentDescription, descriptionPatch].filter(Boolean).join("\n\n");
+
+      await engine.updateProduct(id, {
+        title: product.title,
+        player: product.player,
+        sport: product.sport,
+        price: product.price,
+        quantity: product.quantity,
+        status: product.status,
+        imageUrl: product.imageUrl,
+        description: nextDescription,
+        authenticity: product.authenticity,
+      });
+      updated += 1;
+    }
+  } catch (error) {
+    failure = adminProductActionFailureMessage(
+      error,
+      "Could not update all selected product descriptions.",
+    );
+  }
+
+  if (failure) {
+    redirect(productActionErrorPath(failure));
   }
 
   redirect(`/admin/products?bulkUpdated=${updated}`);
