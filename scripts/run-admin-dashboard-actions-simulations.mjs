@@ -1,4 +1,9 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+const repoRoot = fileURLToPath(new URL("../", import.meta.url));
+const adminRoot = path.join(repoRoot, "src/app/admin");
 
 const adminPageSource = await readFile(
   new URL("../src/app/admin/page.tsx", import.meta.url),
@@ -30,6 +35,41 @@ const adminRuntimeSmokeSource = await readFile(
 );
 
 const scenarios = [];
+const adminDashboardLinkExemptions = new Set(["/admin", "/admin/login"]);
+
+async function walkFiles(dir, matcher) {
+  const entries = await readdir(dir);
+  const files = [];
+
+  for (const entry of entries) {
+    const fullPath = path.join(dir, entry);
+    const stats = await stat(fullPath);
+
+    if (stats.isDirectory()) {
+      files.push(...(await walkFiles(fullPath, matcher)));
+    } else if (stats.isFile() && matcher(fullPath)) {
+      files.push(fullPath);
+    }
+  }
+
+  return files;
+}
+
+function adminRouteFromPageFile(filePath) {
+  const relative = path.relative(adminRoot, filePath);
+  const parts = relative.split(path.sep);
+  parts.pop();
+  const routeWithoutPage = parts.filter(Boolean).join("/");
+
+  return routeWithoutPage ? `/admin/${routeWithoutPage}` : "/admin";
+}
+
+const staticAdminPageRoutes = (
+  await walkFiles(adminRoot, (filePath) => filePath.endsWith(`${path.sep}page.tsx`))
+)
+  .map(adminRouteFromPageFile)
+  .filter((route) => !route.includes("["))
+  .sort();
 
 function scenario(name, run) {
   scenarios.push({ name, run });
@@ -298,6 +338,28 @@ scenario("admin runtime smoke covers critical operator routes", () => {
     assert(
       adminRuntimeSmokeSource.includes(fragment),
       `Expected admin runtime smoke guard fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("admin static page inventory stays linked and runtime-smoked", () => {
+  assert(
+    staticAdminPageRoutes.length >= 40,
+    `Expected a substantial static admin page inventory, found ${staticAdminPageRoutes.length}.`,
+  );
+
+  for (const route of staticAdminPageRoutes) {
+    assert(
+      adminRuntimeSmokeSource.includes(`path: "${route}"`),
+      `Expected admin runtime smoke to cover static page route ${route}.`,
+    );
+
+    if (adminDashboardLinkExemptions.has(route)) continue;
+
+    assert(
+      adminPageSource.includes(`"${route}"`) ||
+        adminPageSource.includes(`\`${route}`),
+      `Expected admin command center to link static page route ${route}.`,
     );
   }
 });
