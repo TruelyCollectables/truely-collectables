@@ -102,9 +102,15 @@ export default function EbayDuplicateFinderClient() {
   }, []);
 
   function duplicateActionBlockedReason(action: string) {
-    return workingActionRef.current
-      ? `Finish the current duplicate cleanup action before ${action}.`
-      : "";
+    if (workingActionRef.current) {
+      return `Finish the current duplicate cleanup action before ${action}.`;
+    }
+
+    if (loading) {
+      return "Duplicate scan is already running.";
+    }
+
+    return "";
   }
 
   function showDuplicateActionBlocked(action: string) {
@@ -422,9 +428,9 @@ export default function EbayDuplicateFinderClient() {
           <button
             type="button"
             onClick={() => void loadGroups()}
-            disabled={loading || Boolean(workingAction)}
+            aria-disabled={loading || Boolean(workingAction)}
             aria-busy={loading}
-            className="rounded-md bg-neutral-950 px-5 py-3 text-sm font-black text-white hover:bg-neutral-800 disabled:opacity-50"
+            className="rounded-md bg-neutral-950 px-5 py-3 text-sm font-black text-white hover:bg-neutral-800 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
           >
             {loading ? "Scanning..." : "Rescan Duplicates"}
           </button>
