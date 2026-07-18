@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { syncAllMarketIntelAlerts } from "../../../../../../lib/market-intel-alert-sync";
 import { isAuthorizedMarketIntelIngest } from "../../../../../../lib/market-intel-ingestion";
-import { syncMarketIntelAlertOutbox } from "../../../../../../lib/market-intel-reporting";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -11,7 +11,7 @@ async function run(request: NextRequest) {
   }
 
   try {
-    const result = await syncMarketIntelAlertOutbox();
+    const result = await syncAllMarketIntelAlerts();
     return NextResponse.json(result, {
       headers: { "Cache-Control": "no-store" },
     });
