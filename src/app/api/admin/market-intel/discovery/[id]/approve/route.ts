@@ -9,6 +9,7 @@ import {
   type CandidateApprovalInput,
 } from "../../../../../../../lib/market-intel-identity-candidates";
 import { normalizeDuplicateIdentityKey } from "../../../../../../../lib/market-intel-identity-duplicate-guard";
+import { normalizeDiscoveryApprovalInput } from "../../../../../../../lib/market-intel-discovery-repair";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -33,7 +34,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const formData = await request.formData();
     const conditionType: CandidateApprovalInput["conditionType"] =
       text(formData, "conditionType") === "graded" ? "graded" : "raw";
-    const approval: CandidateApprovalInput = {
+    const submitted: CandidateApprovalInput = {
       candidateId: id,
       seasonYear: text(formData, "seasonYear"),
       manufacturer: text(formData, "manufacturer"),
@@ -54,6 +55,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       quantity: Number(text(formData, "quantity") || 1),
     };
 
+    const approval = await normalizeDiscoveryApprovalInput(submitted);
     await assertCandidateBaseballPremiumPolicy(approval);
     await normalizeDuplicateIdentityKey(approval);
     const result = await approveIdentityCandidate(approval);
