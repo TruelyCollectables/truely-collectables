@@ -985,7 +985,7 @@ function testFallbackFixtureForFile(file: File): TestScanFixture {
       player: label,
       year: null,
       brand: "Test Upload",
-      setName: "Filename Placeholder",
+      setName: "File-Based Review",
       cardNumber: null,
       parallel: null,
       serialNumber: null,

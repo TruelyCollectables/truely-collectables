@@ -208,6 +208,17 @@ scenario("scanner row actions expose busy and disabled reasons", () => {
   }
 });
 
+scenario("scanner test fallback uses professional review copy", () => {
+  assert(
+    scannerSource.includes('setName: "File-Based Review"'),
+    "Expected arbitrary test uploads to use an operator-facing set label.",
+  );
+  assert(
+    !scannerSource.includes("Filename Placeholder"),
+    "Expected scanner fallback copy to avoid placeholder labels.",
+  );
+});
+
 scenario("scanner exposes selected duplicate quantity merge action", () => {
   for (const fragment of [
     "selectedQuantityMergeCards",
