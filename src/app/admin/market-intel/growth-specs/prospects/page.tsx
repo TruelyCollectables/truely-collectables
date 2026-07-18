@@ -104,7 +104,10 @@ export default async function GrowthProspectUniversePage() {
                 without deleting card, listing, or purchase history.
               </p>
             </div>
-            <button className="rounded-md bg-fuchsia-800 px-4 py-2.5 text-sm font-black text-white">
+            <button
+              type="submit"
+              className="rounded-md bg-fuchsia-800 px-4 py-2.5 text-sm font-black text-white"
+            >
               Refresh Top 5 Lists
             </button>
           </div>

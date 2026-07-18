@@ -960,120 +960,129 @@ export default async function AdminShippingPage() {
   ].filter((issue) => issue.count > 0);
 
   return (
-    <main className="min-h-screen bg-neutral-50 p-8 text-neutral-950">
+    <main className="min-h-screen bg-neutral-50 px-6 py-8 text-neutral-950">
       <div className="mx-auto max-w-7xl space-y-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="text-sm font-black uppercase tracking-widest text-neutral-500">
-              Shipping operations
-            </p>
-            <h1 className="mt-2 text-4xl font-black">
-              Label + Coverage Control
-            </h1>
-            <p className="mt-2 max-w-3xl text-neutral-600">
-              One queue for Standard Envelope, Ground Advantage, Priority labels,
-              Coverage protection, tracking events, and shipping claims.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-3">
-            <div className="max-w-xs">
+        <section className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm">
+          <div className="flex flex-wrap items-end justify-between gap-5">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-sky-700">
+                Shipping operations
+              </p>
+              <h1 className="mt-2 text-4xl font-black tracking-tight">
+                Label + Coverage Control
+              </h1>
+              <p className="mt-3 max-w-3xl text-sm font-semibold leading-6 text-neutral-600">
+                One queue for Standard Envelope, Ground Advantage, Priority
+                labels, Coverage protection, tracking events, and shipping
+                claims.
+              </p>
+              <p className="mt-2 text-xs font-bold text-neutral-400">
+                Last refreshed: {new Date().toLocaleString()}
+              </p>
+            </div>
+
+            <div className="flex flex-wrap gap-3">
               <a
                 href="/api/admin/shipping/exceptions"
-                className="inline-flex rounded bg-neutral-950 px-4 py-2 font-black text-white"
+                className="rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white hover:bg-neutral-800"
               >
-                Export Exceptions CSV
+                Export Exceptions
               </a>
-              <p className="mt-1 text-xs font-semibold text-neutral-500">
-                Ordered by severity and age with stable exception keys for audit
-                follow-up.
-              </p>
-            </div>
-            <div className="max-w-xs">
               <a
                 href="/api/admin/shipping/lettertrack-export"
-                className="inline-flex rounded bg-blue-950 px-4 py-2 font-black text-white"
+                className="rounded-md bg-sky-800 px-4 py-2 text-sm font-black text-white hover:bg-sky-900"
               >
-                Export LetterTrack CSV
+                LetterTrack CSV
               </a>
-              <p className="mt-1 text-xs font-semibold text-neutral-500">
-                Standard Envelope / IMb import file for under-$20 card orders
-                waiting on real LetterTrack labels.
+              <Link
+                href="/admin"
+                className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50"
+              >
+                Command Center
+              </Link>
+              <Link
+                href="/admin/orders"
+                className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50"
+              >
+                Fulfillment
+              </Link>
+              <Link
+                href="/admin/shipping/simulations"
+                className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50"
+              >
+                Simulations
+              </Link>
+              <Link
+                href="/admin/live-shipping-launch"
+                className="rounded-md border border-red-200 bg-red-50 px-4 py-2 text-sm font-black text-red-950 hover:bg-red-100"
+              >
+                Live Shipping Gate
+              </Link>
+              <Link
+                href="/admin/launch-readiness"
+                className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50"
+              >
+                Readiness
+              </Link>
+            </div>
+          </div>
+
+          <div className="mt-5 grid gap-3 lg:grid-cols-[1.2fr_1fr]">
+            <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950">
+              <h2 className="font-black">
+                Under-$20 Seller Protection Guardrails
+              </h2>
+              <p className="mt-1 font-semibold leading-6">
+                Seller Protection Refund Proof Missing and Seller Protection
+                Payout Blocked are always monitored here. Approved under-$20
+                Standard Envelope claims require buyer refund evidence plus
+                LetterTrack/USPS IMb not-delivered evidence or a saved explicit
+                override before TCOS records a seller-protection reimbursement.
               </p>
             </div>
-            <div className="max-w-xs">
-              <div className="flex flex-wrap gap-2">
+
+            <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4">
+              <h2 className="text-sm font-black uppercase tracking-[0.14em] text-neutral-500">
+                Provider setup exports
+              </h2>
+              <div className="mt-3 flex flex-wrap gap-2">
                 <a
                   href="/api/admin/shipping/provider-setup"
-                  className="inline-flex rounded border border-neutral-300 bg-white px-4 py-2 font-black text-neutral-950"
+                  className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-xs font-black text-neutral-950 hover:bg-neutral-50"
                 >
-                  Setup JSON
+                  JSON
                 </a>
                 <a
                   href="/api/admin/shipping/provider-setup?format=csv"
-                  className="inline-flex rounded border border-neutral-300 bg-white px-4 py-2 font-black text-neutral-950"
+                  className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-xs font-black text-neutral-950 hover:bg-neutral-50"
                 >
-                  Setup CSV
+                  CSV
                 </a>
                 <a
                   href="/api/admin/shipping/provider-setup?format=env-template"
-                  className="inline-flex rounded border border-neutral-300 bg-white px-4 py-2 font-black text-neutral-950"
+                  className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-xs font-black text-neutral-950 hover:bg-neutral-50"
                 >
                   Env Template
                 </a>
                 <a
                   href="/api/admin/shipping/provider-setup?format=vercel-commands"
-                  className="inline-flex rounded border border-neutral-300 bg-white px-4 py-2 font-black text-neutral-950"
+                  className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-xs font-black text-neutral-950 hover:bg-neutral-50"
                 >
-                  Vercel Commands
+                  Vercel
                 </a>
                 <a
                   href="/api/admin/shipping/provider-setup?format=operator-checklist"
-                  className="inline-flex rounded border border-neutral-300 bg-white px-4 py-2 font-black text-neutral-950"
+                  className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-xs font-black text-neutral-950 hover:bg-neutral-50"
                 >
-                  Operator Checklist
+                  Checklist
                 </a>
               </div>
-              <p className="mt-1 text-xs font-semibold text-neutral-500">
+              <p className="mt-2 text-xs font-semibold text-neutral-500">
                 No-secret provider checklist for Standard Envelope, parcels,
                 and Coverage.
               </p>
             </div>
-            <Link href="/admin" className="rounded border bg-white px-4 py-2">
-              Command Center
-            </Link>
-            <Link href="/admin/orders" className="rounded border bg-white px-4 py-2">
-              Fulfillment
-            </Link>
-            <Link
-              href="/admin/shipping/simulations"
-              className="rounded border bg-white px-4 py-2"
-            >
-              Simulations
-            </Link>
-            <Link
-              href="/admin/live-shipping-launch"
-              className="rounded border border-red-200 bg-red-50 px-4 py-2 font-bold text-red-950"
-            >
-              Live Shipping Gate
-            </Link>
-            <Link
-              href="/admin/launch-readiness"
-              className="rounded border bg-white px-4 py-2"
-            >
-              Readiness
-            </Link>
           </div>
-        </div>
-
-        <section className="rounded border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950">
-          <h2 className="font-black">Under-$20 Seller Protection Guardrails</h2>
-          <p className="mt-1 leading-6">
-            Seller Protection Refund Proof Missing and Seller Protection Payout
-            Blocked are always monitored here. Approved under-$20 Standard
-            Envelope claims require buyer refund evidence plus LetterTrack/USPS
-            IMb not-delivered evidence or a saved explicit override before
-            TCOS records a seller-protection reimbursement.
-          </p>
         </section>
 
         <section className="grid grid-cols-1 gap-3 md:grid-cols-3 xl:grid-cols-12">
@@ -1094,7 +1103,7 @@ export default async function AdminShippingPage() {
           <Metric label="Open Claims" value={openClaims.length} />
         </section>
 
-        <section className="rounded border bg-white p-6">
+        <section className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <h2 className="text-2xl font-black">Provider Readiness</h2>
@@ -1196,7 +1205,7 @@ export default async function AdminShippingPage() {
 
         <section
           id="dry-run-cleanup"
-          className={`rounded border p-6 ${
+          className={`rounded-3xl border p-6 shadow-sm ${
             dryRunCleanupRows.length > 0
               ? "border-red-200 bg-red-50"
               : "border-green-200 bg-green-50"
@@ -1769,9 +1778,11 @@ export default async function AdminShippingPage() {
 
 function Metric({ label, value }: { label: string; value: string | number }) {
   return (
-    <div className="rounded border bg-white p-4">
-      <p className="text-xs font-black uppercase text-neutral-500">{label}</p>
-      <p className="mt-2 text-3xl font-black">{value}</p>
+    <div className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
+      <p className="text-xs font-black uppercase tracking-[0.14em] text-neutral-400">
+        {label}
+      </p>
+      <p className="mt-2 text-3xl font-black text-neutral-950">{value}</p>
     </div>
   );
 }

@@ -10,16 +10,12 @@ export default function DryRunCleanupActions({
   const [retiring, setRetiring] = useState(false);
   const [note, setNote] = useState("");
   const [message, setMessage] = useState("");
+  const [pendingAction, setPendingAction] = useState<
+    "record-real-label" | "retire-only" | null
+  >(null);
+  const [acknowledged, setAcknowledged] = useState(false);
 
   async function retireProof({ redirectToManual }: { redirectToManual: boolean }) {
-    if (
-      !window.confirm(
-        "Retire TCOS dry-run shipping proof for this order? This clears simulated tracking, voids simulated label records, and marks simulated events retired. It does not buy or void real postage.",
-      )
-    ) {
-      return;
-    }
-
     setRetiring(true);
     setMessage("");
 
@@ -46,6 +42,8 @@ export default function DryRunCleanupActions({
         data.message ||
           "Dry-run proof retired. Record real carrier/Coverage proof next.",
       );
+      setPendingAction(null);
+      setAcknowledged(false);
       setTimeout(() => {
         if (redirectToManual) {
           window.location.href = `/admin/orders/${orderId}?shippingAction=manualPurchase`;
@@ -60,35 +58,101 @@ export default function DryRunCleanupActions({
     }
   }
 
+  function requestRetire(action: "record-real-label" | "retire-only") {
+    setPendingAction(action);
+    setAcknowledged(false);
+    setMessage("");
+  }
+
+  const pendingRedirect = pendingAction === "record-real-label";
+
   return (
-    <div className="space-y-2 rounded border border-red-200 bg-red-50 p-3">
+    <div className="space-y-3 rounded-2xl border border-red-200 bg-red-50 p-4">
+      <div>
+        <p className="text-xs font-black uppercase tracking-[0.14em] text-red-700">
+          Dry-run cleanup
+        </p>
+        <p className="mt-1 text-sm font-semibold leading-6 text-red-950">
+          Retiring proof clears simulated tracking, voids simulated label
+          records, and marks simulated events retired. It does not buy or void
+          real postage.
+        </p>
+      </div>
       <textarea
         value={note}
         onChange={(event) => setNote(event.target.value)}
         placeholder="Optional cleanup note: why this simulated proof is being retired."
         rows={2}
-        className="w-full rounded border bg-white px-2 py-1 text-xs"
+        className="w-full rounded-md border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-950 placeholder:text-red-300"
       />
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
-          onClick={() => retireProof({ redirectToManual: true })}
+          onClick={() => requestRetire("record-real-label")}
           disabled={retiring}
-          className="rounded bg-red-700 px-3 py-2 text-xs font-black text-white disabled:opacity-50"
+          className="rounded-md bg-red-700 px-3 py-2 text-xs font-black text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {retiring ? "Retiring..." : "Retire + Record Real Label"}
+          Retire + Record Real Label
         </button>
         <button
           type="button"
-          onClick={() => retireProof({ redirectToManual: false })}
+          onClick={() => requestRetire("retire-only")}
           disabled={retiring}
-          className="rounded border border-red-300 bg-white px-3 py-2 text-xs font-black text-red-950 disabled:opacity-50"
+          className="rounded-md border border-red-300 bg-white px-3 py-2 text-xs font-black text-red-950 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
         >
           Retire Only
         </button>
       </div>
+
+      {pendingAction ? (
+        <div className="rounded-xl border border-red-300 bg-white p-3">
+          <p className="text-sm font-black text-red-950">
+            Confirm dry-run proof retirement for order #{orderId}
+          </p>
+          <p className="mt-1 text-xs font-semibold leading-5 text-red-800">
+            This cleanup is permanent for the simulated proof. Choose cancel if
+            you still need the dry-run label/tracking records visible.
+          </p>
+          <label className="mt-3 flex items-start gap-2 text-xs font-bold text-red-950">
+            <input
+              type="checkbox"
+              checked={acknowledged}
+              onChange={(event) => setAcknowledged(event.target.checked)}
+              className="mt-0.5"
+            />
+            I understand this retires simulated proof only and does not touch
+            real postage.
+          </label>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={retiring || !acknowledged}
+              onClick={() => retireProof({ redirectToManual: pendingRedirect })}
+              className="rounded-md bg-red-700 px-3 py-2 text-xs font-black text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {retiring
+                ? "Retiring..."
+                : pendingRedirect
+                  ? "Confirm + Record Real Label"
+                  : "Confirm Retire Only"}
+            </button>
+            <button
+              type="button"
+              disabled={retiring}
+              onClick={() => {
+                setPendingAction(null);
+                setAcknowledged(false);
+              }}
+              className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-xs font-black text-neutral-950 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
+
       {message ? (
-        <p className="rounded border bg-white p-2 text-xs font-semibold text-red-950">
+        <p className="rounded-xl border border-red-200 bg-white p-2 text-xs font-semibold text-red-950">
           {message}
         </p>
       ) : null}
