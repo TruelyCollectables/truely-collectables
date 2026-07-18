@@ -419,6 +419,22 @@ export default function EbayPublisher() {
     return "";
   }
 
+  function scanUploadBlockedReason(card: CardState) {
+    if (bulkUploading) {
+      return "Finish the bulk exact-scan upload before replacing individual scans.";
+    }
+
+    if (card.uploadStatus === "uploading") {
+      return "Wait for this scan upload to finish before choosing another file.";
+    }
+
+    if (card.status === "saving") {
+      return "Wait for the eBay listing action to finish before changing scans.";
+    }
+
+    return "";
+  }
+
   function openPublishConfirmation(card: CardState) {
     const blocked = listingBlockedReason(card);
 
@@ -624,6 +640,20 @@ export default function EbayPublisher() {
           Filenames automatically match each front and back to the correct listing.
         </p>
         <label
+          aria-disabled={bulkUploading}
+          aria-busy={bulkUploading}
+          title={
+            bulkUploading
+              ? "Wait for the current exact-scan upload to finish before selecting more files."
+              : undefined
+          }
+          onClick={(event) => {
+            if (!bulkUploading) return;
+            event.preventDefault();
+            setBulkUploadMessage(
+              "Wait for the current exact-scan upload to finish before selecting more files.",
+            );
+          }}
           className={`mt-4 inline-flex rounded-lg px-5 py-3 text-sm font-black text-white ${
             bulkUploading
               ? "cursor-wait bg-blue-800 opacity-70"
@@ -655,12 +685,12 @@ export default function EbayPublisher() {
       <section className="grid gap-5 xl:grid-cols-2">
         {cards.map((card) => {
           const cardReady = Boolean(card.imageUrls.front && card.imageUrls.back);
-          const cardUploadBusy = card.uploadStatus === "uploading";
           const cardSavingDraft =
             card.status === "saving" && card.message === "Creating draft…";
           const cardPublishing =
             card.status === "saving" && card.message === "Publishing…";
           const listingActionBlocked = Boolean(listingBlockedReason(card));
+          const scanBlockedReason = scanUploadBlockedReason(card);
           return (
             <article key={card.id} className="rounded-2xl border bg-white p-5 shadow-sm">
               <div className="flex flex-col gap-4 sm:flex-row">
@@ -668,13 +698,25 @@ export default function EbayPublisher() {
                   <ScanSlot
                     label="Front"
                     url={card.imageUrls.front}
-                    disabled={bulkUploading || cardUploadBusy || card.status === "saving"}
+                    disabled={Boolean(scanBlockedReason)}
+                    disabledReason={scanBlockedReason}
+                    onUnavailable={(message) =>
+                      patch(card.id, {
+                        uploadMessage: message,
+                      })
+                    }
                     onFile={(file) => void uploadFile(card, "front", file)}
                   />
                   <ScanSlot
                     label="Back"
                     url={card.imageUrls.back}
-                    disabled={bulkUploading || cardUploadBusy || card.status === "saving"}
+                    disabled={Boolean(scanBlockedReason)}
+                    disabledReason={scanBlockedReason}
+                    onUnavailable={(message) =>
+                      patch(card.id, {
+                        uploadMessage: message,
+                      })
+                    }
                     onFile={(file) => void uploadFile(card, "back", file)}
                   />
                 </div>
@@ -857,13 +899,20 @@ function ScanSlot({
   label,
   url,
   disabled = false,
+  disabledReason = "",
+  onUnavailable,
   onFile,
 }: {
   label: string;
   url: string | null;
   disabled?: boolean;
+  disabledReason?: string;
+  onUnavailable?: (message: string) => void;
   onFile: (file: File) => void;
 }) {
+  const blockedMessage =
+    disabledReason || "Wait for the current upload action to finish.";
+
   return (
     <div className="relative aspect-[5/7] overflow-hidden rounded-lg border bg-neutral-100">
       {url ? (
@@ -874,6 +923,14 @@ function ScanSlot({
         </div>
       )}
       <label
+        aria-disabled={disabled}
+        aria-busy={disabled}
+        title={disabled ? blockedMessage : undefined}
+        onClick={(event) => {
+          if (!disabled) return;
+          event.preventDefault();
+          onUnavailable?.(blockedMessage);
+        }}
         className={`absolute inset-x-1 bottom-1 rounded px-2 py-1.5 text-center text-[10px] font-black uppercase text-white ${
           disabled
             ? "cursor-wait bg-neutral-700/80"
