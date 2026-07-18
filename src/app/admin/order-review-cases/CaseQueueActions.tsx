@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { FormEvent, useState } from "react";
+import { orderReviewPayoutResolutionRequirements } from "../../../lib/order-review-payout-resolution";
 
 const statusOptions = [
   ["open", "Open"],
@@ -125,6 +126,12 @@ export default function CaseQueueActions({
   const selectedResolutionOption =
     availableResolutionOptions.find(([value]) => value === resolutionAction) ||
     availableResolutionOptions[0];
+  const resolutionRequirements = orderReviewPayoutResolutionRequirements({
+    action: selectedResolutionOption?.[0] || resolutionAction,
+    adminNote: resolutionNote,
+  });
+  const payoutResolutionDisabled =
+    resolutionBusy || payoutRowCount === 0 || resolutionRequirements.length > 0;
 
   async function updateCase(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -162,6 +169,14 @@ export default function CaseQueueActions({
 
   async function resolvePayouts(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (resolutionRequirements.length > 0) {
+      setResolutionMessage(
+        `Payout resolution needs: ${resolutionRequirements.join(", ")}.`,
+      );
+      return;
+    }
+
     setResolutionBusy(true);
     setResolutionMessage("");
 
@@ -274,6 +289,11 @@ export default function CaseQueueActions({
             Scoped rows: {payoutRowCount} / Held: {heldRowCount} / Payable:{" "}
             {money(payableTotal)}
           </p>
+          {resolutionRequirements.length > 0 ? (
+            <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-black text-amber-950">
+              This payout action requires: {resolutionRequirements.join(", ")}.
+            </p>
+          ) : null}
         </div>
 
         <label className="block text-xs font-black uppercase text-neutral-500">
@@ -311,7 +331,7 @@ export default function CaseQueueActions({
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="submit"
-            disabled={resolutionBusy || payoutRowCount === 0}
+            disabled={payoutResolutionDisabled}
             className="rounded-md border border-neutral-900 px-3 py-2 text-sm font-black text-neutral-950 disabled:opacity-50"
           >
             {resolutionBusy ? "Applying..." : "Apply Payout Resolution"}

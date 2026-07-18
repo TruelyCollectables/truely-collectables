@@ -2,6 +2,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { getClientIdentity } from "../../../../../../lib/client-identity";
 import { isOrderReviewStatus } from "../../../../../../lib/order-status";
 import { recordOrderReviewCaseEvent } from "../../../../../../lib/order-review-case-events";
+import {
+  cleanOrderReviewPayoutResolutionNote,
+  orderReviewPayoutResolutionRequirements,
+} from "../../../../../../lib/order-review-payout-resolution";
 import { recordSellerPayoutAdminEvent } from "../../../../../../lib/seller-payout-admin-events";
 import { getDryRunShippingProofForOrder } from "../../../../../../lib/shipping-dry-run-cleanup";
 import { getActiveStoreId } from "../../../../../../lib/stores";
@@ -87,11 +91,6 @@ type PayoutRequestRow = {
 
 function getSupabaseClient() {
   return createSupabaseServerClient({ admin: true });
-}
-
-function cleanAdminNote(value: unknown) {
-  const text = String(value || "").trim();
-  return text.length > 0 ? text.slice(0, 1000) : null;
 }
 
 function isMissingRequestEntryTable(error: { code?: string; message?: string }) {
@@ -215,7 +214,7 @@ export async function POST(
     const caseId = String(id || "").trim();
     const body = await request.json().catch(() => ({}));
     const action = String(body.action || "").trim() as ResolutionAction;
-    const adminNote = cleanAdminNote(body.adminNote);
+    const adminNote = cleanOrderReviewPayoutResolutionNote(body.adminNote);
     const resolution = resolutionActions[action];
 
     if (!caseId || !resolution) {
@@ -223,6 +222,20 @@ export async function POST(
         {
           error:
             "Missing order review case id or valid payout resolution action.",
+        },
+        { status: 400 },
+      );
+    }
+
+    const missingRequirements = orderReviewPayoutResolutionRequirements({
+      action,
+      adminNote,
+    });
+
+    if (missingRequirements.length > 0) {
+      return Response.json(
+        {
+          error: `Payout resolution needs: ${missingRequirements.join(", ")}.`,
         },
         { status: 400 },
       );
