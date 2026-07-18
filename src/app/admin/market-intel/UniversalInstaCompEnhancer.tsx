@@ -40,7 +40,10 @@ function looksLikeMarketplaceSource(anchor: HTMLAnchorElement) {
 }
 
 function controlsRoot(anchor: HTMLAnchorElement, exactIdentity: boolean) {
-  if (exactIdentity) return anchor.parentElement || anchor;
+  if (exactIdentity) {
+    if (anchor.classList.contains("block") || anchor.closest("tr")) return anchor;
+    return anchor.parentElement || anchor;
+  }
   return anchor.closest<HTMLElement>("article,tr") || anchor;
 }
 
