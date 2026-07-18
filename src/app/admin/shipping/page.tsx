@@ -1034,10 +1034,10 @@ export default async function AdminShippingPage() {
               </h2>
               <p className="mt-1 font-semibold leading-6">
                 Seller Protection Refund Proof Missing and Seller Protection
-                Payout Blocked are always monitored here. Approved under-$20
-                Standard Envelope claims require buyer refund evidence plus
-                LetterTrack/USPS IMb not-delivered evidence or a saved explicit
-                override before TCOS records a seller-protection reimbursement.
+                Payout Blocked are always monitored here. Approved under-$20 Standard
+                Envelope claims require buyer refund evidence plus LetterTrack/USPS
+                IMb not-delivered evidence or a saved explicit override before TCOS
+                records a seller-protection reimbursement.
               </p>
             </div>
 

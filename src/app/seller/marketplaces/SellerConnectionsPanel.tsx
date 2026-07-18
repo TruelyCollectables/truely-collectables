@@ -313,10 +313,13 @@ const requestableProviders: Array<{
 
 const marketplacePacketIntakeGuardrails = [
   "Cross-list prep only; no external publishing is approved from packet intake.",
+  "No external publishing.",
   `${STANDARD_AUCTION_POLICY_SUMMARY} Use ${STANDARD_AUCTION_DURATION_LABEL} as the standard auction duration unless an operator explicitly approves a different duration.`,
   "No postage purchase, no Coverage policy creation, no seller payout release, and no order fulfillment.",
+  "No payout release.",
   "Use ready or needs-work Seller Inventory rows as the source of truth before importing packet files.",
   "Not insurance: packet intake does not activate TCOS Under-$20 Seller Protection or reimburse shipping.",
+  "No automatic under-$20 protection activation.",
 ];
 
 const EBAY_THIRD_PARTY_ACCESS_URL =
@@ -4549,6 +4552,7 @@ export default function SellerConnectionsPanel({
               Seller Inventory packet handoff
             </h3>
             <p className="mt-2 text-sm leading-6 text-sky-900">
+              Seller Inventory exports are prep files, not live publishing.{" "}
               Seller Inventory marketplace packets are cross-list prep only.
               They are receiving-side notes for sellers and operators, not a
               live marketplace connector, postage workflow, Coverage workflow,
@@ -4561,13 +4565,13 @@ export default function SellerConnectionsPanel({
               href="/seller/inventory?status=draft&readiness=ready"
               className="rounded-md bg-sky-950 px-3 py-2 text-xs font-black uppercase tracking-[0.12em] text-white hover:bg-sky-800"
             >
-              Open Ready Rows
+              Open Ready Inventory
             </Link>
             <Link
               href="/seller/inventory?status=draft&readiness=needs_work"
               className="rounded-md border border-sky-300 bg-white px-3 py-2 text-xs font-black uppercase tracking-[0.12em] text-sky-950 hover:bg-sky-100"
             >
-              Open Needs-Work Rows
+              Open Needs-Work Inventory
             </Link>
           </div>
         </div>

@@ -849,7 +849,7 @@ const checklist = [
   {
     key: "trial_speed_gate_hud",
     label:
-      "Admin InstaComp™ shows a Final Tester Gate HUD with visible result count, timing coverage, average speed, p95 speed, and FAF PASS/NOT READY status before export.",
+      "Admin InstaComp™ shows a Final Tester Gate HUD with visible result count, timing coverage, average speed, p95 speed, and FINAL TESTER PASS/NOT READY status before export.",
     status: "ready_to_test",
   },
   {
@@ -981,7 +981,7 @@ const checklist = [
   {
     key: "hundred_card_trial",
     label:
-      "100-card / 200-scan final trial must score at least 94% against the local ground-truth manifest and pass the FAF speed gate: timing required, average <= 15s/card, p95 <= 45s/card.",
+      "100-card / 200-scan final trial must score at least 94% against the local ground-truth manifest and pass the final tester speed gate: timing required, average <= 15s/card, p95 <= 45s/card.",
     status: existsSync(join(repoRoot, manifestPath)) && existsSync(join(repoRoot, resultsPath))
       ? trialManifestAudit.readyToScore
         ? "ready_to_score"
@@ -1068,7 +1068,7 @@ const readiness = {
       "npm run lint && npm run verify:instacomp && npm run build && npm run check:production-guardrails",
   },
   next:
-    "Run the 100-card lot through the wired Multi-Scanner Consensus path, score it against 94% plus the FAF timing gate, record misses, and clean the UI before calling it done-done.",
+    "Run the 100-card lot through the wired Multi-Scanner Consensus path, score it against 94% plus the final tester timing gate, record misses, and clean the UI before calling it done-done.",
   safeBuildBoundary:
     "This InstaComp™ tester status is read-only. It does not approve live money, buy postage, release payouts, create Checkout, publish listings, or start production deploys.",
 };

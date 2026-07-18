@@ -373,6 +373,15 @@ function hasSellerMarketplaceReceiptHandoffMarkdown(text) {
   ]);
 }
 
+function hasSellerMarketplaceReceiptHandoffSmokeText(text) {
+  return includesAll(text, [
+    sellerMarketplaceReceiptHandoffSmoke.title,
+    sellerMarketplaceReceiptHandoffSmoke.proofText,
+    ...sellerMarketplaceReceiptHandoffSmoke.controls,
+    sellerMarketplaceReceiptHandoffSmoke.safeUseBoundary,
+  ]);
+}
+
 if (hostFor(baseUrl) && hostFor(baseUrl) === hostFor(unwantedAliasUrl)) {
   console.error(
     `Refusing to smoke test the unwanted production alias: ${baseUrl}. Use the clean production domain instead.`,
@@ -765,6 +774,7 @@ const checks = [
       result.text.includes("print smoke handoff command") &&
       result.text.includes("deployed URL output") &&
       result.text.includes("clean URL output") &&
+      hasSellerMarketplaceReceiptHandoffSmokeText(result.text) &&
       result.text.includes("truelycollectables.com") &&
       result.text.includes("truely-collectables-tt3b.vercel.app"),
   },
@@ -989,6 +999,8 @@ const checks = [
       "Shipping simulation API POST with scenario count, manifest, and drift-field checks",
       "Shipping provider setup JSON and export packets with Standard Envelope evidence readiness",
       "Seller eBay Listings one-button import with checkbox selection and InstaComp™ price comparison",
+      "Seller marketplace packet intake guardrail for cross-list prep only, no postage purchase, no Coverage policy creation, no payout release, no order fulfillment, and no automatic under-$20 protection activation",
+      "Seller marketplace page renders Marketplace Packet Intake guidance, ready-row handoff, needs-work handoff, and prep-only export wording",
       "Seller marketplace advanced exports remain prep files, not live publishing.",
       sellerMarketplaceReceiptHandoffCoverageLine,
       "Seller inventory, order, and payout workspaces render login gates before exposing seller-owned data",
@@ -1070,6 +1082,12 @@ const checks = [
       ) &&
       result.text.includes(
         "Seller eBay Listings one-button import with checkbox selection and InstaComp™ price comparison",
+      ) &&
+      result.text.includes(
+        "Seller marketplace packet intake guardrail for cross-list prep only, no postage purchase, no Coverage policy creation, no payout release, no order fulfillment, and no automatic under-$20 protection activation",
+      ) &&
+      result.text.includes(
+        "Seller marketplace page renders Marketplace Packet Intake guidance, ready-row handoff, needs-work handoff, and prep-only export wording",
       ) &&
       result.text.includes(
         "Seller marketplace advanced exports remain prep files, not live publishing.",
@@ -1160,6 +1178,49 @@ const checks = [
       includesAll(result.text, sellerMarketplaceReceiptHandoffSmoke.controls) &&
       !result.text.includes("sk_live_") &&
       !result.text.includes("whsec_"),
+  },
+  {
+    name: "seller marketplace packet intake",
+    path: "/seller/marketplaces",
+    requiredText: [
+      "Seller Connections",
+      "Marketplace Packet Intake",
+      "Seller Inventory exports are prep files, not live publishing.",
+      "Cross-list prep only",
+      "No external publishing",
+      "No postage purchase",
+      "No Coverage policy creation",
+      "No payout release",
+      "No order fulfillment",
+      "No automatic under-$20 protection activation",
+      "Open Ready Inventory",
+      "Open Needs-Work Inventory",
+      "Seller marketplace packet intake guidance",
+      "Seller marketplace receipt handoff",
+      "Copy Safe Receipt",
+      "Download Safe Receipt",
+      "Copy Trail",
+      "Download Trail",
+      "Clear Trail",
+      "prep-only JSON/CSV handoffs",
+    ],
+    expect: (result) =>
+      result.text.includes("Seller Connections") &&
+      result.text.includes("Marketplace Packet Intake") &&
+      result.text.includes("Seller Inventory exports are prep files, not live publishing.") &&
+      result.text.includes("Cross-list prep only") &&
+      result.text.includes("No external publishing") &&
+      result.text.includes("No postage purchase") &&
+      result.text.includes("No Coverage policy creation") &&
+      result.text.includes("No payout release") &&
+      result.text.includes("No order fulfillment") &&
+      result.text.includes("No automatic under-$20 protection activation") &&
+      result.text.includes("Open Ready Inventory") &&
+      result.text.includes("Open Needs-Work Inventory") &&
+      result.text.includes("Seller marketplace packet intake guidance") &&
+      result.text.includes("prep-only JSON/CSV handoffs") &&
+      result.text.includes("Seller marketplace receipt handoff") &&
+      includesAll(result.text, sellerMarketplaceReceiptHandoffSmoke.controls),
   },
   {
     name: "seller inventory auth gate",

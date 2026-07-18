@@ -11,6 +11,27 @@ Do not point production deploy or smoke overrides at the unwanted alias. The dep
 
 ## Before deploying
 
+## Production deployment cadence
+
+Vercel automatic Git deployments are disabled in `vercel.json` with
+`git.deploymentEnabled: false`. Do not re-enable push-triggered Vercel deploys
+while the team is batching admin/dashboard work; repeated pushes can exhaust the
+rolling deployment quota before a useful production checkpoint is ready.
+
+Do not replace that with another push-triggered deployment path. If the team
+wants an automated three-hour release cadence, add it as an explicit scheduled
+GitHub Actions workflow using a token with GitHub `workflow` scope. That workflow
+should run at `0 */3 * * *`, use a single concurrency group, verify the admin
+dashboard, lint, and isolated production build, then call one production Vercel
+Deploy Hook URL from a GitHub secret. If the hook secret is missing, the workflow
+must exit without calling Vercel.
+
+Until that scheduled workflow exists, production deployments must be intentional
+operator actions through the guarded deploy helper below. The first commit that
+disables automatic Git deployments may still be seen by Vercel depending on when
+the project applies the new config; after that, push traffic should not create
+new Vercel deployments.
+
 Confirm the local branch is pushed to GitHub:
 
 ```bash

@@ -731,7 +731,12 @@ export default function ShippingClaimActions({
       <div className="flex flex-wrap gap-2">
         {actions.map((action) => {
           const missing = actionRequirements(action.status);
-          const disabled = Boolean(pendingStatus) || missing.length > 0;
+          const externalCoveragePaidActionBlocked =
+            action.status === "paid" && externalCoveragePaidBlocked;
+          const disabled =
+            Boolean(pendingStatus) ||
+            missing.length > 0 ||
+            externalCoveragePaidActionBlocked;
 
           return (
             <button

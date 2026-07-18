@@ -30,6 +30,8 @@ const smokeChecks = [
   "Ranked shipping exceptions CSV, including seller-protection refund-proof and payout blocker support",
   "LetterTrack Standard Envelope CSV export",
   "Seller eBay Listings one-button import with checkbox selection and InstaComp™ price comparison",
+  "Seller marketplace packet intake guardrail for cross-list prep only, no postage purchase, no Coverage policy creation, no payout release, no order fulfillment, and no automatic under-$20 protection activation",
+  "Seller marketplace page renders Marketplace Packet Intake guidance, ready-row handoff, needs-work handoff, and prep-only export wording",
   "Seller marketplace advanced exports remain prep files, not live publishing.",
   `Seller marketplace receipt handoff controls for ${sellerMarketplaceReceiptHandoffControlsText}`,
   "Seller inventory, order, and payout workspaces render login gates before exposing seller-owned data",

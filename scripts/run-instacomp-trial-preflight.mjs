@@ -301,13 +301,13 @@ function buildOperatorNextActions({ manifestAudit, imageAudit, imageMap, intakeP
       key: "scan_export_score",
       type: "operator",
       command: "scan at http://localhost:3000/admin/instacomp, export JSON, then run npm run instacomp:trial:score",
-      why: "The local preflight is green; the next proof is measured accuracy and FAF speed.",
+      why: "The local preflight is green; the next proof is measured accuracy and final tester speed.",
     });
     actions.push({
       key: "write_failure_queue",
       type: "command",
       command: "npm run instacomp:trial:failures",
-      why: "If the score is short of 94% or the FAF timing gate, write the miss queue so fixes are targeted.",
+      why: "If the score is short of 94% or the final tester timing gate, write the miss queue so fixes are targeted.",
     });
   } else {
     actions.push({

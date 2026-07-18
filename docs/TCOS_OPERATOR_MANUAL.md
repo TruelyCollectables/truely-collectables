@@ -4582,9 +4582,9 @@ npm run instacomp:trial:ready
 
 That command runs the ground-truth manifest audit, runs the image audit, writes the front/back image-map receipt, and prints `status:instacomp-final-tester`. It must pass before the 100-card lot should be scanned.
 7. Run the lot through `/admin/instacomp` or `/admin/products/new` using the safest durable batch workflow below.
-8. From `/admin/instacomp`, check the `Final Tester Gate` HUD before export. It shows visible result count, timing coverage, average speed, p95 speed, slowest rows, and the `FAF PASS` / `NOT READY` status against the final tester targets.
+8. From `/admin/instacomp`, check the `Final Tester Gate` HUD before export. It shows visible result count, timing coverage, average speed, p95 speed, slowest rows, and the `FINAL TESTER PASS` / `NOT READY` status against the final tester targets.
 9. Use `Export Trial Results` or `Copy Trial Results` after the batch finishes, then save the exported JSON as `instacomp-trial-results.local.json`. The export uses schema `tcos.instacompTrialResults.v1`, preserves row-stable trialCardId values such as `trial-card-001`, includes the detected `actual` fields, carries consensus/review status, preserves compact per-row catalog evidence when a checklist referee is available, includes per-row timing evidence, and only includes completed visible scan rows. If you manually build the file instead, each row must use the same `trialCardId` as the manifest and can put detected fields under `actual`, `result`, `predicted`, or `ai`; to satisfy the speed gate, include timing under `timing.elapsedMs`, `scanTiming.elapsedMs`, or `scanElapsedMs`.
-10. Score the trial with the official accuracy + FAF timing gate:
+10. Score the trial with the official accuracy + final tester timing gate:
 
 ```bash
 npm run instacomp:trial:score

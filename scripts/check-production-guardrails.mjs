@@ -3863,7 +3863,7 @@ assertFileIncludes("instacomp trial results export UI wiring", "src/app/admin/in
   "instacompTrialSpeedGate",
   "tcos.instacompTrialResults.v1",
   "Final Tester Gate",
-  "FAF PASS",
+  "FINAL TESTER PASS",
   "NOT READY",
   "Export Trial Results",
   "Copy Trial Results",
@@ -3916,7 +3916,7 @@ assertFileIncludes("instacomp printed-variant identity guard manual", "docs/TCOS
 ]);
 assertFileIncludes("instacomp trial results export manual", "docs/TCOS_OPERATOR_MANUAL.md", [
   "Final Tester Gate",
-  "FAF PASS",
+  "FINAL TESTER PASS",
   "NOT READY",
   "Export Trial Results",
   "Copy Trial Results",
@@ -4202,7 +4202,7 @@ assertFileIncludes("instacomp final tester status includes speed-gate HUD", "scr
   "Final Tester Gate HUD",
   "average speed",
   "p95 speed",
-  "FAF PASS/NOT READY",
+  "FINAL TESTER PASS/NOT READY",
 ]);
 assertFileIncludes("instacomp final tester status includes trial image audit", "scripts/status-instacomp-final-tester.mjs", [
   "trial_groundtruth_manifest",
@@ -4316,7 +4316,7 @@ assertFileIncludes("instacomp final tester status includes trial image audit", "
   "npm run instacomp:trial:preflight",
   "npm run instacomp:trial:ready",
   "npm run instacomp:trial:score",
-  "FAF speed gate",
+  "final tester speed gate",
   "ordered scanner files pair 1+2, 3+4, 5+6",
   "001-front.jpg + 001-back.jpg",
   "missing fronts/backs",

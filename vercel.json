@@ -1,5 +1,8 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "git": {
+    "deploymentEnabled": false
+  },
   "crons": [
     {
       "path": "/api/cron/market-intel/ebay/scan?maxTargets=10&resultsPerTarget=10&minimumConfidence=70",
