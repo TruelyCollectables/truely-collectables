@@ -56,12 +56,29 @@ scenario("admin login shows operator-readable failure guidance", () => {
   for (const message of [
     "Invalid admin password.",
     "Admin password is not configured.",
+    "Admin password was accepted, but the server could not create an admin session.",
     "Too many failed attempts were recorded.",
     "Admin login request was not readable.",
   ]) {
     assert(
       loginPageSource.includes(message),
       `Expected login failure guidance ${message}.`,
+    );
+  }
+});
+
+scenario("admin login fails cleanly when session creation fails", () => {
+  for (const fragment of [
+    "let sessionValue: string;",
+    "createAdminSessionValue()",
+    "loginRedirect(req, \"session_error\")",
+    "admin_session_not_created",
+    "appendExpiredAdminSessionCookies(sessionErrorResponse.headers, hostname)",
+    "recordAdminLoginAttempt({\n    check: loginCheck,\n    success: true,",
+  ]) {
+    assert(
+      loginRouteSource.includes(fragment),
+      `Expected admin login session-failure fragment ${fragment}.`,
     );
   }
 });

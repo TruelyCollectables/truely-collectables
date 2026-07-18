@@ -25,6 +25,10 @@ function loginErrorMessage(code: string | string[] | undefined) {
     return "Admin password is not configured. Set ADMIN_PASSWORD and restart the server.";
   }
 
+  if (errorCode === "session_error") {
+    return "Admin password was accepted, but the server could not create an admin session. Set ADMIN_SESSION_SECRET or ADMIN_PASSWORD for this running server, restart it, and try again.";
+  }
+
   if (errorCode === "invalid") {
     return "Invalid admin password. Confirm you are using the ADMIN_PASSWORD value for this running server.";
   }

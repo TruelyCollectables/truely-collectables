@@ -290,15 +290,44 @@ export async function POST(req: Request) {
     );
   }
 
-  await recordAdminLoginAttempt({
-    check: loginCheck,
-    success: true,
-  });
+  let sessionValue: string;
+
+  try {
+    sessionValue = await createAdminSessionValue();
+  } catch (error) {
+    console.error("Admin session creation failed after password verification:", error);
+
+    if (loginPayload.wantsRedirect) {
+      const sessionErrorResponse = loginRedirect(req, "session_error");
+
+      appendExpiredAdminSessionCookies(sessionErrorResponse.headers, hostname);
+
+      return sessionErrorResponse;
+    }
+
+    const sessionErrorResponse = NextResponse.json(
+      {
+        success: false,
+        code: "admin_session_not_created",
+        error:
+          "Admin password was accepted, but the server could not create an admin session. Set ADMIN_SESSION_SECRET or ADMIN_PASSWORD and restart the server.",
+      },
+      { status: 500 },
+    );
+
+    appendExpiredAdminSessionCookies(sessionErrorResponse.headers, hostname);
+
+    return sessionErrorResponse;
+  }
 
   const res = loginPayload.wantsRedirect
     ? NextResponse.redirect(new URL(loginPayload.nextPath, requestOrigin(req)), 303)
     : NextResponse.json({ success: true });
-  const sessionValue = await createAdminSessionValue();
+
+  await recordAdminLoginAttempt({
+    check: loginCheck,
+    success: true,
+  });
 
   appendExpiredAdminSessionCookies(res.headers, hostname);
   appendAdminSessionCookies(res.headers, hostname, sessionValue);
