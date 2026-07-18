@@ -215,6 +215,7 @@ export default function EbayPublisher() {
   const [returns, setReturns] = useState("");
   const [location, setLocation] = useState("");
   const [bulkUploadMessage, setBulkUploadMessage] = useState<string | null>(null);
+  const [publishConfirmId, setPublishConfirmId] = useState<string | null>(null);
   const [cards, setCards] = useState<CardState[]>(
     PRESETS.map((card) => ({
       ...card,
@@ -230,7 +231,7 @@ export default function EbayPublisher() {
   useEffect(() => {
     void fetch("/api/ebay/publish", { cache: "no-store" })
       .then(async (response) => {
-        const data = await response.json();
+        const data = await response.json().catch(() => ({}));
         if (!response.ok || !data.connected) throw new Error(data.error);
         return data as Setup;
       })
@@ -253,7 +254,7 @@ export default function EbayPublisher() {
         cache: "no-store",
       })
         .then(async (response) => {
-          const data = await response.json();
+          const data = await response.json().catch(() => ({}));
           if (!response.ok) throw new Error(data.error || "Unable to load scans.");
           return data as { frontUrl: string | null; backUrl: string | null };
         })
@@ -311,7 +312,7 @@ export default function EbayPublisher() {
       method: "POST",
       body: formData,
     });
-    const data = await response.json();
+    const data = await response.json().catch(() => ({}));
 
     if (!response.ok || !data.ok || !data.imageUrl) {
       const message = data.error || `Unable to upload ${side} scan.`;
@@ -393,19 +394,6 @@ export default function EbayPublisher() {
         message: "Upload both exact scans before creating the listing.",
       });
     }
-    if (
-      action === "publish" &&
-      !window.confirm(
-        `Publish ${card.title} live now as a ${
-          card.format === "AUCTION"
-            ? "$0.99 3-day auction"
-            : "$2.49 Buy It Now listing"
-        }?`,
-      )
-    ) {
-      return;
-    }
-
     patch(card.id, {
       status: "saving",
       message: action === "draft" ? "Creating draft…" : "Publishing…",
@@ -440,7 +428,7 @@ export default function EbayPublisher() {
           },
         }),
       });
-      const data = await response.json();
+      const data = await response.json().catch(() => ({}));
       if (!response.ok || !data.ok) {
         throw new Error(data.error || "eBay rejected the listing.");
       }
@@ -454,6 +442,7 @@ export default function EbayPublisher() {
             : "eBay draft created.",
         listingUrl: data.listingUrl || null,
       });
+      setPublishConfirmId(null);
     } catch (reason) {
       patch(card.id, {
         status: "error",
@@ -704,6 +693,7 @@ export default function EbayPublisher() {
 
               <div className="mt-4 flex flex-wrap gap-2">
                 <button
+                  type="button"
                   disabled={
                     !policiesReady || !cardReady || card.status === "saving"
                   }
@@ -713,15 +703,46 @@ export default function EbayPublisher() {
                   Create eBay draft
                 </button>
                 <button
+                  type="button"
                   disabled={
                     !policiesReady || !cardReady || card.status === "saving"
                   }
-                  onClick={() => void submit(card, "publish")}
+                  onClick={() => setPublishConfirmId(card.id)}
                   className="rounded-lg bg-neutral-950 px-4 py-2.5 text-sm font-black text-white hover:bg-neutral-800 disabled:opacity-40"
                 >
                   Publish live on eBay
                 </button>
               </div>
+
+              {publishConfirmId === card.id ? (
+                <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-amber-950">
+                  <p className="text-sm font-black">
+                    Confirm live eBay publish for {card.title} as a{" "}
+                    {card.format === "AUCTION"
+                      ? "$0.99 3-day auction"
+                      : "$2.49 Buy It Now listing"}
+                    .
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={card.status === "saving"}
+                      onClick={() => void submit(card, "publish")}
+                      className="rounded-lg bg-neutral-950 px-4 py-2 text-sm font-black text-white disabled:opacity-40"
+                    >
+                      Confirm live publish
+                    </button>
+                    <button
+                      type="button"
+                      disabled={card.status === "saving"}
+                      onClick={() => setPublishConfirmId(null)}
+                      className="rounded-lg border border-amber-300 bg-white px-4 py-2 text-sm font-black disabled:opacity-40"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              ) : null}
 
               {card.message ? (
                 <div

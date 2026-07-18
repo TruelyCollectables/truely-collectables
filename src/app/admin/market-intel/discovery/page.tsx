@@ -157,7 +157,10 @@ export default async function IdentityDiscoveryPage({ searchParams }: PageProps)
                   <option value="25">25</option>
                 </select>
               </label>
-              <button className="col-span-2 rounded-md bg-cyan-900 px-4 py-3 font-black text-white">
+              <button
+                type="submit"
+                className="col-span-2 rounded-md bg-cyan-900 px-4 py-3 font-black text-white"
+              >
                 Scan eBay Now
               </button>
             </form>
@@ -342,7 +345,10 @@ function CandidateReview({
               <Check name="rookieDesignation" label="Rookie/1st" defaultChecked={candidate.rookie_designation} />
             </div>
 
-            <button className="rounded-md bg-emerald-700 px-4 py-3 font-black text-white md:col-span-2 xl:col-span-4">
+            <button
+              type="submit"
+              className="rounded-md bg-emerald-700 px-4 py-3 font-black text-white md:col-span-2 xl:col-span-4"
+            >
               Approve Exact Identity + Score Listing
             </button>
           </form>
@@ -360,7 +366,10 @@ function CandidateReview({
               className={inputClass.replace("mt-1 ", "")}
               placeholder="Reason: base, wrong player, unlicensed, bad parse…"
             />
-            <button className="shrink-0 rounded-md border border-rose-300 bg-rose-50 px-4 py-2 font-black text-rose-950">
+            <button
+              type="submit"
+              className="shrink-0 rounded-md border border-rose-300 bg-rose-50 px-4 py-2 font-black text-rose-950"
+            >
               Reject Candidate
             </button>
           </form>

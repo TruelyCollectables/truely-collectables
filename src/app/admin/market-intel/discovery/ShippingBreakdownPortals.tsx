@@ -56,7 +56,14 @@ export default function ShippingBreakdownPortals({
       nextTargets.push({ ...candidate, element: facts });
     }
 
-    setTargets(nextTargets);
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) setTargets(nextTargets);
+    });
+
+    return () => {
+      cancelled = true;
+    };
   }, [candidateKey, candidates]);
 
   return (
