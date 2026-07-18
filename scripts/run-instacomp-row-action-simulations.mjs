@@ -178,7 +178,17 @@ scenario("scanner row actions expose busy and disabled reasons", () => {
     "aria-busy={refreshingComps}",
     "aria-busy={card.tradeStatus === \"adding\"}",
     "Finish the current InstaComp™ batch action before retrying this row.",
+    'batchBusyBlockedReason("retrying this row")',
+    'batchBusyBlockedReason("saving row corrections")',
+    'batchBusyBlockedReason("refreshing row comps")',
+    'batchBusyBlockedReason("adding this row to trade")',
+    "This card is already being added to Available for Trade.",
     "Draft payload copy is available after the row has a complete, draftable scan result.",
+    "aria-disabled={!canCopyDraftPayload}",
+    "aria-disabled={!canSaveCorrections}",
+    "aria-disabled={!canRefreshComps}",
+    "aria-disabled={!canAddToTrade}",
+    "aria-disabled={!canRetry}",
   ]) {
     assert(
       scannerSource.includes(fragment),

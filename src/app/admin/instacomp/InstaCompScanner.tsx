@@ -6008,6 +6008,13 @@ export default function InstaCompScanner({
   ) {
     if (!testMode) return;
 
+    if (!isDraftableBatchCard(card)) {
+      setBatchError(
+        "Draft payload copy is available after the row has a complete, draftable scan result."
+      );
+      return;
+    }
+
     const payload = {
       exportedAt: new Date().toISOString(),
       scope: "instacomp_test_row_draft_payload",
@@ -8859,11 +8866,21 @@ export default function InstaCompScanner({
   }
 
   async function retryBatchCard(cardId: string) {
-    if (batchRunning || batchDrafting) return;
+    const busyReason = batchBusyBlockedReason("retrying this row");
+
+    if (busyReason) {
+      setBatchError(busyReason);
+      return;
+    }
 
     const card = batchCards.find((row) => row.id === cardId);
 
-    if (!card || (card.status !== "error" && card.status !== "done")) return;
+    if (!card) return;
+
+    if (card.status !== "error" && card.status !== "done") {
+      setBatchError("Retry becomes available after the row finishes scanning or errors.");
+      return;
+    }
 
     setBatchError(null);
     setBatchDraftMessage(null);
@@ -10095,7 +10112,12 @@ export default function InstaCompScanner({
   }
 
   async function addBatchCardToTrade(cardId: string) {
-    if (batchRunning || batchDrafting) return;
+    const busyReason = batchBusyBlockedReason("adding this row to trade");
+
+    if (busyReason) {
+      setBatchError(busyReason);
+      return;
+    }
 
     const card = batchCards.find((row) => row.id === cardId);
 
@@ -10111,6 +10133,11 @@ export default function InstaCompScanner({
 
     if (card.tradeStatus === "created") {
       setBatchError("This card is already Available for Trade.");
+      return;
+    }
+
+    if (card.tradeStatus === "adding") {
+      setBatchError("This card is already being added to Available for Trade.");
       return;
     }
 
@@ -14723,7 +14750,7 @@ function BatchCardRow({
                 <button
                   type="button"
                   onClick={() => void onCopyDraftPayload(card, index)}
-                  disabled={!canCopyDraftPayload}
+                  aria-disabled={!canCopyDraftPayload}
                   title={
                     canCopyDraftPayload
                       ? "Copy the exact draft payload TCOS will send for this row."
@@ -14745,7 +14772,7 @@ function BatchCardRow({
               <button
                 type="button"
                 onClick={() => void onSaveCorrections(card.id)}
-                disabled={!canSaveCorrections}
+                aria-disabled={!canSaveCorrections}
                 aria-busy={savingCorrections}
                 title={
                   canSaveCorrections
@@ -14769,7 +14796,7 @@ function BatchCardRow({
               <button
                 type="button"
                 onClick={() => void onRefreshComps(card.id)}
-                disabled={!canRefreshComps}
+                aria-disabled={!canRefreshComps}
                 aria-busy={refreshingComps}
                 title={
                   canRefreshComps
@@ -14793,8 +14820,23 @@ function BatchCardRow({
               <button
                 type="button"
                 onClick={() => void onAddToTrade(card.id)}
-                disabled={!canAddToTrade}
+                aria-disabled={!canAddToTrade}
                 aria-busy={card.tradeStatus === "adding"}
+                title={
+                  canAddToTrade
+                    ? "Add this completed scan row to Available for Trade."
+                    : batchBusy
+                      ? "Finish the current InstaComp™ batch action before adding this row to trade."
+                      : card.status !== "done" || !card.result
+                        ? "Finish the scan before adding this card to trade."
+                        : card.draftStatus === "created"
+                          ? "This card already has a sell draft, so it cannot also be trade inventory."
+                          : card.tradeStatus === "created"
+                            ? "This card is already Available for Trade."
+                            : card.tradeStatus === "adding"
+                              ? "This card is already being added to Available for Trade."
+                              : "This row is not ready for trade inventory."
+                }
                 style={{
                   ...secondaryButtonStyle,
                   padding: "8px 10px",
@@ -14816,7 +14858,7 @@ function BatchCardRow({
               <button
                 type="button"
                 onClick={() => onRetry(card.id)}
-                disabled={!canRetry}
+                aria-disabled={!canRetry}
                 title={retryBlockedReason || "Retry this row with the current image/title/serial corrections."}
                 style={{
                   ...secondaryButtonStyle,
