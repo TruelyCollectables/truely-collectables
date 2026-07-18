@@ -619,6 +619,10 @@ export default async function AdminProductEditPage({
               Quick actions
             </p>
             <h2 className="mt-2 text-xl font-black">Quick status</h2>
+            <p className="mt-2 text-sm font-semibold text-neutral-600">
+              Sold and archived actions intentionally remove the item from buyer
+              availability and force quantity to 0.
+            </p>
             <div className="space-y-3">
               <StatusButton
                 id={product.legacyProductId}
@@ -949,11 +953,30 @@ function StatusButton({
   const isCurrent = currentStatus === status;
   const blockedForStock = adminProductStatusRequiresStock(status) && quantity <= 0;
   const isDisabled = isCurrent || blockedForStock;
+  const removesFromInventory = status === "sold" || status === "archived";
   const title = isCurrent
     ? `Already ${status}.`
     : blockedForStock
       ? "Set quantity to at least 1 in the product form before making this active or reserved."
       : adminProductStatusSuccessMessage(status);
+  const statusHelp = removesFromInventory
+    ? status === "sold"
+      ? "Marks this product sold, removes it from buyer availability, and sets quantity to 0."
+      : "Ends this product early, archives it, removes it from active inventory, and sets quantity to 0."
+    : status === "reserved"
+      ? "Reserves this product and removes it from normal buyer availability."
+      : status === "active"
+        ? "Makes this product buyer-available when quantity is at least 1."
+        : "Updates this product status.";
+  const buttonLabel =
+    !isCurrent && status === "sold"
+      ? "Mark Sold / Zero Qty"
+      : !isCurrent && status === "archived"
+        ? "End Early / Archive / Zero Qty"
+        : label;
+  const actionClassName = removesFromInventory
+    ? "border border-rose-300 bg-rose-50 text-rose-950 hover:bg-rose-100"
+    : "border border-neutral-300 bg-white hover:bg-neutral-50";
 
   return (
     <form action={setProductStatus}>
@@ -968,7 +991,7 @@ function StatusButton({
             ? "border border-emerald-200 bg-emerald-50 text-emerald-950"
             : blockedForStock
               ? "border border-amber-200 bg-amber-50 text-amber-950"
-            : "border border-neutral-300 bg-white hover:bg-neutral-50"
+            : actionClassName
         }`}
         pendingChildren={adminProductStatusPendingLabel(status)}
       >
@@ -976,13 +999,21 @@ function StatusButton({
           ? `Current: ${label}`
           : blockedForStock
             ? "Qty required first"
-            : label}
+            : buttonLabel}
       </AdminSubmitButton>
       {blockedForStock ? (
         <p className="mt-1 text-xs font-black text-amber-800">
           Quantity must be at least 1 before {status}.
         </p>
-      ) : null}
+      ) : (
+        <p
+          className={`mt-1 text-xs font-black ${
+            removesFromInventory ? "text-rose-800" : "text-neutral-600"
+          }`}
+        >
+          {statusHelp}
+        </p>
+      )}
     </form>
   );
 }

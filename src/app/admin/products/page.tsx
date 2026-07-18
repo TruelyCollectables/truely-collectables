@@ -438,8 +438,12 @@ export default async function AdminProductsPage({
                           pendingChildren="Ending item..."
                           title="End this product early, archive it, and set quantity to 0."
                         >
-                          End early
+                          End early / qty 0
                         </AdminSubmitButton>
+                        <p className="mt-1 text-xs font-black text-rose-800">
+                          Archives the product, removes it from active inventory,
+                          and sets quantity to 0.
+                        </p>
                       </form>
                     )}
                   </div>
