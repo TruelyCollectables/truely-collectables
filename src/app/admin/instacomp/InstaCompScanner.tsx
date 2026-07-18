@@ -12761,6 +12761,14 @@ export default function InstaCompScanner({
                 aria-disabled={
                   batchRunning || batchDrafting || visibleBatchCards.length === 0
                 }
+                title={batchActionTitle({
+                  action: "copying current view summary",
+                  blocked:
+                    visibleBatchCards.length === 0
+                      ? "No visible InstaComp™ rows are available to summarize."
+                      : "",
+                  ready: "Copy a plain-English summary of the current visible rows.",
+                })}
                 style={{
                   ...secondaryButtonStyle,
                   padding: "8px 10px",
@@ -12790,6 +12798,14 @@ export default function InstaCompScanner({
                 aria-disabled={
                   batchRunning || batchDrafting || visibleBatchCards.length === 0
                 }
+                title={batchActionTitle({
+                  action: "copying current view CSV",
+                  blocked:
+                    visibleBatchCards.length === 0
+                      ? "No visible InstaComp™ rows are available to copy as CSV."
+                      : "",
+                  ready: "Copy the current visible rows as CSV.",
+                })}
                 style={{
                   ...secondaryButtonStyle,
                   padding: "8px 10px",
@@ -12819,6 +12835,14 @@ export default function InstaCompScanner({
                 aria-disabled={
                   batchRunning || batchDrafting || visibleBatchCards.length === 0
                 }
+                title={batchActionTitle({
+                  action: "copying current view JSON",
+                  blocked:
+                    visibleBatchCards.length === 0
+                      ? "No visible InstaComp™ rows are available to copy as JSON."
+                      : "",
+                  ready: "Copy the current visible rows as JSON.",
+                })}
                 style={{
                   ...secondaryButtonStyle,
                   padding: "8px 10px",
@@ -12845,6 +12869,14 @@ export default function InstaCompScanner({
               type="button"
               onClick={() => setVisibleDraftableBatchCardsSelected(true)}
               aria-disabled={batchRunning || batchDrafting || visibleDraftableCount === 0}
+              title={batchActionTitle({
+                action: "selecting visible draftable rows",
+                blocked:
+                  visibleDraftableCount === 0
+                    ? "No visible draftable rows are available to select."
+                    : "",
+                ready: "Select every draftable row in the current visible view.",
+              })}
               style={{
                 ...secondaryButtonStyle,
                 padding: "8px 10px",
@@ -12864,6 +12896,14 @@ export default function InstaCompScanner({
               type="button"
               onClick={selectVisibleReadyBatchCards}
               aria-disabled={batchRunning || batchDrafting || visibleReadyCount === 0}
+              title={batchActionTitle({
+                action: "selecting visible ready rows",
+                blocked:
+                  visibleReadyCount === 0
+                    ? "No visible ready rows are available to select."
+                    : "",
+                ready: "Select visible rows that are ready to draft.",
+              })}
               style={{
                 ...secondaryButtonStyle,
                 padding: "8px 10px",
@@ -12883,6 +12923,14 @@ export default function InstaCompScanner({
               type="button"
               onClick={selectVisibleCleanBatchCards}
               aria-disabled={batchRunning || batchDrafting || visibleCleanCount === 0}
+              title={batchActionTitle({
+                action: "selecting visible clean rows",
+                blocked:
+                  visibleCleanCount === 0
+                    ? "No visible clean rows are available to select."
+                    : "",
+                ready: "Select visible draftable rows without review warnings.",
+              })}
               style={{
                 ...secondaryButtonStyle,
                 padding: "8px 10px",
@@ -12904,6 +12952,14 @@ export default function InstaCompScanner({
               aria-disabled={
                 batchRunning || batchDrafting || visibleCleanReadyCount === 0
               }
+              title={batchActionTitle({
+                action: "selecting visible clean ready rows",
+                blocked:
+                  visibleCleanReadyCount === 0
+                    ? "No visible clean ready rows are available to select."
+                    : "",
+                ready: "Select visible rows that are clean, ready, and safe to draft.",
+              })}
               style={{
                 ...secondaryButtonStyle,
                 padding: "8px 10px",
@@ -12923,6 +12979,14 @@ export default function InstaCompScanner({
               type="button"
               onClick={exportVisibleDraftPayload}
               aria-disabled={batchRunning || batchDrafting || visibleReadyCount === 0}
+              title={batchActionTitle({
+                action: "exporting visible draft payload",
+                blocked:
+                  visibleReadyCount === 0
+                    ? "No visible ready draft rows are available to export."
+                    : "",
+                ready: "Export visible ready rows as a TCOS draft payload.",
+              })}
               style={{
                 ...secondaryButtonStyle,
                 padding: "8px 10px",
@@ -12945,6 +13009,14 @@ export default function InstaCompScanner({
                 aria-disabled={
                   batchRunning || batchDrafting || visibleReadyCount === 0
                 }
+                title={batchActionTitle({
+                  action: "copying visible draft payload",
+                  blocked:
+                    visibleReadyCount === 0
+                      ? "No visible ready draft rows are available to copy."
+                      : "",
+                  ready: "Copy visible ready rows as a TCOS draft payload.",
+                })}
                 style={{
                   ...secondaryButtonStyle,
                   padding: "8px 10px",
@@ -12967,6 +13039,14 @@ export default function InstaCompScanner({
               type="button"
               onClick={createVisibleReadyDraftListings}
               aria-disabled={batchRunning || batchDrafting || visibleReadyCount === 0}
+              title={batchActionTitle({
+                action: "creating visible ready draft listings",
+                blocked:
+                  visibleReadyCount === 0
+                    ? "No visible ready draft rows are available to create."
+                    : "",
+                ready: "Create TCOS draft listings for visible ready rows.",
+              })}
               style={{
                 ...buttonStyle,
                 padding: "8px 10px",
@@ -12994,6 +13074,14 @@ export default function InstaCompScanner({
               aria-disabled={
                 batchRunning || batchDrafting || visibleCleanReadyCount === 0
               }
+              title={batchActionTitle({
+                action: "exporting visible clean draft payload",
+                blocked:
+                  visibleCleanReadyCount === 0
+                    ? "No visible clean ready draft rows are available to export."
+                    : "",
+                ready: "Export visible clean ready rows as a TCOS draft payload.",
+              })}
               style={{
                 ...secondaryButtonStyle,
                 padding: "8px 10px",
@@ -13016,6 +13104,14 @@ export default function InstaCompScanner({
                 aria-disabled={
                   batchRunning || batchDrafting || visibleCleanReadyCount === 0
                 }
+                title={batchActionTitle({
+                  action: "copying visible clean draft payload",
+                  blocked:
+                    visibleCleanReadyCount === 0
+                      ? "No visible clean ready draft rows are available to copy."
+                      : "",
+                  ready: "Copy visible clean ready rows as a TCOS draft payload.",
+                })}
                 style={{
                   ...secondaryButtonStyle,
                   padding: "8px 10px",
@@ -13038,6 +13134,14 @@ export default function InstaCompScanner({
               type="button"
               onClick={exportVisibleFixReport}
               aria-disabled={batchRunning || batchDrafting || visibleDraftFixCount === 0}
+              title={batchActionTitle({
+                action: "exporting visible fix report rows",
+                blocked:
+                  visibleDraftFixCount === 0
+                    ? "No visible fix rows are available to export."
+                    : "",
+                ready: "Export visible rows that still need draft fixes.",
+              })}
               style={{
                 ...secondaryButtonStyle,
                 padding: "8px 10px",
@@ -13057,6 +13161,14 @@ export default function InstaCompScanner({
               type="button"
               onClick={exportVisibleReviewReport}
               aria-disabled={batchRunning || batchDrafting || visibleReviewCount === 0}
+              title={batchActionTitle({
+                action: "exporting visible review report rows",
+                blocked:
+                  visibleReviewCount === 0
+                    ? "No visible review rows are available to export."
+                    : "",
+                ready: "Export visible rows that still need operator review.",
+              })}
               style={{
                 ...secondaryButtonStyle,
                 padding: "8px 10px",
@@ -13076,6 +13188,14 @@ export default function InstaCompScanner({
               type="button"
               onClick={exportVisibleFailedReport}
               aria-disabled={batchRunning || batchDrafting || visibleFailedCount === 0}
+              title={batchActionTitle({
+                action: "exporting visible failed report rows",
+                blocked:
+                  visibleFailedCount === 0
+                    ? "No visible failed rows are available to export."
+                    : "",
+                ready: "Export visible rows that failed scanning.",
+              })}
               style={{
                 ...secondaryButtonStyle,
                 padding: "8px 10px",
@@ -13097,6 +13217,14 @@ export default function InstaCompScanner({
               aria-disabled={
                 batchRunning || batchDrafting || visibleCleanReadyCount === 0
               }
+              title={batchActionTitle({
+                action: "creating visible clean draft listings",
+                blocked:
+                  visibleCleanReadyCount === 0
+                    ? "No visible clean ready draft rows are available to create."
+                    : "",
+                ready: "Create TCOS draft listings only for visible clean ready rows.",
+              })}
               style={{
                 ...buttonStyle,
                 padding: "8px 10px",
@@ -13122,6 +13250,14 @@ export default function InstaCompScanner({
               type="button"
               onClick={resetVisibleDraftEdits}
               aria-disabled={batchRunning || batchDrafting || visibleDraftableCount === 0}
+              title={batchActionTitle({
+                action: "resetting visible draft edits",
+                blocked:
+                  visibleDraftableCount === 0
+                    ? "No visible draftable rows are available to reset."
+                    : "",
+                ready: "Clear custom draft edits from every visible draftable row.",
+              })}
               style={{
                 ...secondaryButtonStyle,
                 padding: "8px 10px",
@@ -13141,6 +13277,14 @@ export default function InstaCompScanner({
               type="button"
               onClick={() => setVisibleDraftableBatchCardsSelected(false)}
               aria-disabled={batchRunning || batchDrafting || visibleDraftableCount === 0}
+              title={batchActionTitle({
+                action: "deselecting visible rows",
+                blocked:
+                  visibleDraftableCount === 0
+                    ? "No visible draftable rows are available to deselect."
+                    : "",
+                ready: "Deselect every visible draftable row.",
+              })}
               style={{
                 ...secondaryButtonStyle,
                 padding: "8px 10px",
@@ -13160,6 +13304,14 @@ export default function InstaCompScanner({
               type="button"
               onClick={deselectVisibleDraftFixBatchCards}
               aria-disabled={batchRunning || batchDrafting || visibleDraftFixCount === 0}
+              title={batchActionTitle({
+                action: "deselecting visible fix rows",
+                blocked:
+                  visibleDraftFixCount === 0
+                    ? "No visible fix rows are available to deselect."
+                    : "",
+                ready: "Deselect visible rows that still need draft fixes.",
+              })}
               style={{
                 ...secondaryButtonStyle,
                 padding: "8px 10px",
@@ -13179,6 +13331,14 @@ export default function InstaCompScanner({
               type="button"
               onClick={deselectVisibleReviewBatchCards}
               aria-disabled={batchRunning || batchDrafting || visibleReviewCount === 0}
+              title={batchActionTitle({
+                action: "deselecting visible review rows",
+                blocked:
+                  visibleReviewCount === 0
+                    ? "No visible review rows are available to deselect."
+                    : "",
+                ready: "Deselect visible rows with review warnings.",
+              })}
               style={{
                 ...secondaryButtonStyle,
                 padding: "8px 10px",
@@ -13200,6 +13360,14 @@ export default function InstaCompScanner({
               aria-disabled={
                 batchRunning || batchDrafting || visibleReadyReviewCount === 0
               }
+              title={batchActionTitle({
+                action: "deselecting visible ready review rows",
+                blocked:
+                  visibleReadyReviewCount === 0
+                    ? "No visible ready review rows are available to deselect."
+                    : "",
+                ready: "Deselect visible ready rows that still need review.",
+              })}
               style={{
                 ...secondaryButtonStyle,
                 padding: "8px 10px",
@@ -13221,6 +13389,14 @@ export default function InstaCompScanner({
               aria-disabled={
                 batchRunning || batchDrafting || visibleReviewDraftFixCount === 0
               }
+              title={batchActionTitle({
+                action: "deselecting visible review fix rows",
+                blocked:
+                  visibleReviewDraftFixCount === 0
+                    ? "No visible review fix rows are available to deselect."
+                    : "",
+                ready: "Deselect visible review rows that also need draft fixes.",
+              })}
               style={{
                 ...secondaryButtonStyle,
                 padding: "8px 10px",
@@ -13242,6 +13418,14 @@ export default function InstaCompScanner({
               aria-disabled={
                 batchRunning || batchDrafting || visibleCleanDraftFixCount === 0
               }
+              title={batchActionTitle({
+                action: "deselecting visible clean fix rows",
+                blocked:
+                  visibleCleanDraftFixCount === 0
+                    ? "No visible clean fix rows are available to deselect."
+                    : "",
+                ready: "Deselect visible clean rows that still need draft fixes.",
+              })}
               style={{
                 ...secondaryButtonStyle,
                 padding: "8px 10px",
@@ -13261,6 +13445,14 @@ export default function InstaCompScanner({
               type="button"
               onClick={clearVisibleDraftErrors}
               aria-disabled={batchRunning || batchDrafting || visibleDraftErrorCount === 0}
+              title={batchActionTitle({
+                action: "clearing visible draft errors",
+                blocked:
+                  visibleDraftErrorCount === 0
+                    ? "No visible draft errors are available to clear."
+                    : "",
+                ready: "Clear draft errors from visible rows so they can be edited again.",
+              })}
               style={{
                 ...secondaryButtonStyle,
                 padding: "8px 10px",
