@@ -13,6 +13,44 @@ type FeedbackMessage = {
   tone: FeedbackTone;
 };
 
+function paymentSimulationActionTitle({
+  busy,
+  ready,
+  stripeTestEnabled = true,
+}: {
+  busy: boolean;
+  ready: string;
+  stripeTestEnabled?: boolean;
+}) {
+  if (busy) return "Finish the current payment simulation before starting another.";
+
+  if (!stripeTestEnabled) {
+    return "Enable Stripe test simulation before running Stripe-touching payment tests.";
+  }
+
+  return ready;
+}
+
+function confirmedPaymentSimulationTitle({
+  busy,
+  confirmation,
+  expected,
+  ready,
+}: {
+  busy: boolean;
+  confirmation: string;
+  expected: string;
+  ready: string;
+}) {
+  if (busy) return "Finish the current payment simulation before starting another.";
+
+  if (confirmation !== expected) {
+    return `Type ${expected} exactly before running this payment simulation.`;
+  }
+
+  return ready;
+}
+
 export default function SimulationActions({
   stripeTestEnabled,
 }: {
@@ -182,6 +220,10 @@ export default function SimulationActions({
           onClick={() => run("deterministic")}
           aria-disabled={busy !== null}
           aria-busy={busy === "deterministic"}
+          title={paymentSimulationActionTitle({
+            busy: busy !== null,
+            ready: "Run the no-money payment simulation suite.",
+          })}
           className="rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white aria-disabled:cursor-wait aria-disabled:opacity-50"
         >
           {busy === "deterministic" ? "Running..." : "Run No-Money Suite"}
@@ -191,6 +233,11 @@ export default function SimulationActions({
           onClick={() => beginConfirmedRun("checkout_e2e")}
           aria-disabled={busy !== null || !stripeTestEnabled}
           aria-busy={busy === "checkout_e2e"}
+          title={paymentSimulationActionTitle({
+            busy: busy !== null,
+            ready: "Open the confirmation panel for the full checkout E2E simulation.",
+            stripeTestEnabled,
+          })}
           className="rounded-md border border-sky-300 bg-sky-50 px-4 py-2 text-sm font-black text-sky-950 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
         >
           {busy === "checkout_e2e" ? "Running Checkout E2E..." : "Run Full Checkout E2E"}
@@ -200,6 +247,11 @@ export default function SimulationActions({
           onClick={() => beginConfirmedRun("stripe_test")}
           aria-disabled={busy !== null || !stripeTestEnabled}
           aria-busy={busy === "stripe_test"}
+          title={paymentSimulationActionTitle({
+            busy: busy !== null,
+            ready: "Open the confirmation panel for the Stripe sandbox suite.",
+            stripeTestEnabled,
+          })}
           className="rounded-md border border-violet-300 bg-violet-50 px-4 py-2 text-sm font-black text-violet-950 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
         >
           {busy === "stripe_test" ? "Running Stripe Test..." : "Run Stripe Sandbox Suite"}
@@ -245,6 +297,18 @@ export default function SimulationActions({
               }
               aria-disabled={busy !== null}
               aria-busy={busy !== null}
+              title={confirmedPaymentSimulationTitle({
+                busy: busy !== null,
+                confirmation,
+                expected:
+                  pendingMode === "checkout_e2e"
+                    ? "RUN CHECKOUT E2E"
+                    : "RUN STRIPE TEST",
+                ready:
+                  pendingMode === "checkout_e2e"
+                    ? "Run the confirmed full checkout E2E simulation."
+                    : "Run the confirmed Stripe sandbox payment suite.",
+              })}
               className="rounded bg-neutral-950 px-4 py-2 text-sm font-black text-white aria-disabled:cursor-wait aria-disabled:opacity-50"
             >
               {busy ? "Running..." : "Run confirmed test"}
@@ -253,6 +317,11 @@ export default function SimulationActions({
               type="button"
               onClick={cancelConfirmedRun}
               aria-disabled={busy !== null}
+              title={
+                busy !== null
+                  ? "Wait for the payment simulation to finish before cancelling."
+                  : "Close this payment simulation confirmation panel."
+              }
               className="rounded border border-neutral-300 bg-white px-4 py-2 text-sm font-black aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
             >
               Cancel
