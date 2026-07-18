@@ -3,6 +3,7 @@ import {
   adminHandoffFromUrl,
   adminRedirectUrl,
 } from "../../../../../../../lib/admin-handoff";
+import { endMarketIntelListing } from "../../../../../../../lib/market-intel-listing-state";
 import { requestOrigin } from "../../../../../../../lib/request-origin";
 import { createSupabaseServerClient } from "../../../../../../../lib/supabase-server";
 
@@ -69,10 +70,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
         });
       }
 
-      return NextResponse.redirect(
-        redirectUrl,
-        303,
-      );
+      return NextResponse.redirect(redirectUrl, 303);
     }
 
     const defaultTotal = Number(listing.delivered_price || 0);
@@ -150,34 +148,22 @@ export async function POST(request: NextRequest, context: RouteContext) {
     if (purchaseError) throw new Error(purchaseError.message);
 
     const now = new Date().toISOString();
-    const { error: listingUpdateError } = await supabase
-      .from("tcos_mi_listings")
-      .update({
-        listing_status: "ended",
-        ended_at: now,
-        last_seen_at: now,
+    let listingEndWarning: string | null = null;
+    try {
+      await endMarketIntelListing(id, {
+        endedAt: now,
         metadata: {
-          ...(listing.metadata || {}),
           purchased_at: now,
           purchase_lot_id: purchase.id,
+          end_reason: "purchased",
+          end_source: "shark_list",
         },
-      })
-      .eq("id", id);
-
-    if (listingUpdateError) {
-      const { error: fallbackError } = await supabase
-        .from("tcos_mi_listings")
-        .update({
-          listing_status: "ended",
-          last_seen_at: now,
-          metadata: {
-            ...(listing.metadata || {}),
-            purchased_at: now,
-            purchase_lot_id: purchase.id,
-          },
-        })
-        .eq("id", id);
-      if (fallbackError) throw new Error(fallbackError.message);
+      });
+    } catch (error) {
+      listingEndWarning =
+        error instanceof Error
+          ? `Purchase recorded, but listing cleanup failed: ${error.message}`
+          : "Purchase recorded, but listing cleanup failed.";
     }
 
     await supabase
@@ -187,10 +173,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
       .eq("status", "pending");
 
     const redirectUrl = adminRedirectUrl(
-        `/admin/market-intel/purchases/${purchase.id}?saved=purchased`,
-        origin,
-        handoff,
-      );
+      `/admin/market-intel/purchases/${purchase.id}?saved=purchased`,
+      origin,
+      handoff,
+    );
 
     if (json) {
       return NextResponse.json({
@@ -199,14 +185,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
         purchaseId: purchase.id,
         purchaseNumber: purchase.purchase_number,
         redirectUrl: redirectUrl.toString(),
-        message: `Purchase #${purchase.purchase_number} recorded. Quantity ${quantityPurchased}; listing moved out of the active deal desk.`,
+        warning: listingEndWarning,
+        message: `Purchase #${purchase.purchase_number} recorded. Quantity ${quantityPurchased}; listing moved out of the active deal desk.${listingEndWarning ? ` ${listingEndWarning}` : ""}`,
       });
     }
 
-    return NextResponse.redirect(
-      redirectUrl,
-      303,
-    );
+    return NextResponse.redirect(redirectUrl, 303);
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unable to record purchase.";
