@@ -58,6 +58,7 @@ export default function ConnectRefreshActions({
     <div className="grid gap-2">
       <button
         type="button"
+        aria-busy={loading}
         disabled={disabled || loading}
         onClick={refreshConnectStatuses}
         className="rounded-md border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm font-bold text-neutral-900 hover:bg-white disabled:bg-neutral-100 disabled:text-neutral-400"
@@ -84,7 +85,10 @@ function ActionNotice({
         : "border-blue-200 bg-blue-50 text-blue-950";
 
   return (
-    <p className={`rounded border px-2 py-1 text-xs font-bold ${className}`}>
+    <p
+      aria-live={tone === "info" ? "polite" : "assertive"}
+      className={`rounded border px-2 py-1 text-xs font-bold ${className}`}
+    >
       {children}
     </p>
   );

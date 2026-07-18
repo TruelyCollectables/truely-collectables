@@ -141,6 +141,10 @@ export default function PayoutRequestActions({
       ] as PayoutStatus[]).flatMap((nextStatus) => actionRequirements(nextStatus)),
     ),
   );
+  const actionLabel = (nextStatus: PayoutStatus) =>
+    loading === nextStatus
+      ? `${nextStatus === "paid" ? "Marking paid" : `Moving to ${nextStatus}`}...`
+      : null;
 
   return (
     <div className="grid gap-2 rounded-2xl border border-neutral-200 bg-neutral-50 p-3">
@@ -203,6 +207,7 @@ export default function PayoutRequestActions({
       <div className="grid grid-cols-2 gap-2">
         <button
           type="button"
+          aria-busy={loading === "approved"}
           disabled={
             locked ||
             currentStatus !== "requested" ||
@@ -211,21 +216,23 @@ export default function PayoutRequestActions({
           onClick={() => updateStatus("approved")}
           className="rounded-2xl bg-emerald-700 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:bg-neutral-400"
         >
-          {loading === "approved" ? "Saving..." : "Approve"}
+          {actionLabel("approved") || "Approve"}
         </button>
         <button
           type="button"
+          aria-busy={loading === "processing"}
           disabled={
             locked || currentStatus !== "approved" || payoutAdvanceBlocked
           }
           onClick={() => updateStatus("processing")}
           className="rounded-2xl bg-neutral-950 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:bg-neutral-400"
         >
-          {loading === "processing" ? "Saving..." : "Processing"}
+          {actionLabel("processing") || "Processing"}
         </button>
         <button
           type="button"
           onClick={() => updateStatus("paid")}
+          aria-busy={loading === "paid"}
           disabled={
             locked ||
             currentStatus !== "processing" ||
@@ -234,25 +241,27 @@ export default function PayoutRequestActions({
           }
           className="rounded-2xl bg-emerald-950 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:bg-neutral-400"
         >
-          {loading === "paid" ? "Saving..." : "Mark Paid"}
+          {actionLabel("paid") || "Mark Paid"}
         </button>
         <button
           type="button"
           onClick={() => updateStatus("rejected")}
+          aria-busy={loading === "rejected"}
           disabled={locked || actionRequirements("rejected").length > 0}
           className="rounded-2xl border border-rose-300 bg-white px-3 py-2 text-xs font-black text-rose-700 disabled:cursor-not-allowed disabled:text-neutral-400"
         >
-          {loading === "rejected" ? "Saving..." : "Reject"}
+          {actionLabel("rejected") || "Reject"}
         </button>
       </div>
 
       <button
         type="button"
         onClick={() => updateStatus("cancelled")}
+        aria-busy={loading === "cancelled"}
         disabled={locked || actionRequirements("cancelled").length > 0}
         className="rounded-2xl border border-neutral-300 bg-white px-3 py-2 text-xs font-black disabled:cursor-not-allowed disabled:text-neutral-400"
       >
-        {loading === "cancelled" ? "Saving..." : "Cancel Request"}
+        {actionLabel("cancelled") || "Cancel Request"}
       </button>
 
       {message ? <ActionNotice tone={message.tone}>{message.text}</ActionNotice> : null}
@@ -275,7 +284,10 @@ function ActionNotice({
         : "border-blue-200 bg-blue-50 text-blue-950";
 
   return (
-    <p className={`rounded-2xl border px-3 py-2 text-xs font-black ${className}`}>
+    <p
+      aria-live={tone === "info" ? "polite" : "assertive"}
+      className={`rounded-2xl border px-3 py-2 text-xs font-black ${className}`}
+    >
       {children}
     </p>
   );

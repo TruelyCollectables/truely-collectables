@@ -116,6 +116,10 @@ export default function PayoutLedgerActions({
       ] as LedgerStatus[]).flatMap((nextStatus) => actionRequirements(nextStatus)),
     ),
   );
+  const actionLabel = (nextStatus: LedgerStatus) =>
+    loading === nextStatus
+      ? `Moving to ${nextStatus.replaceAll("_", " ")}...`
+      : null;
 
   return (
     <div className="grid gap-2 rounded-2xl border border-neutral-200 bg-neutral-50 p-3">
@@ -136,6 +140,7 @@ export default function PayoutLedgerActions({
         <button
           type="button"
           onClick={() => updateStatus("eligible")}
+          aria-busy={loading === "eligible"}
           disabled={
             locked ||
             currentStatus === "eligible" ||
@@ -143,11 +148,12 @@ export default function PayoutLedgerActions({
           }
           className="rounded-2xl bg-emerald-700 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:bg-neutral-400"
         >
-          {loading === "eligible" ? "Saving..." : "Release"}
+          {actionLabel("eligible") || "Release"}
         </button>
         <button
           type="button"
           onClick={() => updateStatus("hold_dispute_or_review")}
+          aria-busy={loading === "hold_dispute_or_review"}
           disabled={
             locked ||
             currentStatus === "hold_dispute_or_review" ||
@@ -155,23 +161,25 @@ export default function PayoutLedgerActions({
           }
           className="rounded-2xl bg-amber-700 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:bg-neutral-400"
         >
-          {loading === "hold_dispute_or_review" ? "Saving..." : "Review Hold"}
+          {actionLabel("hold_dispute_or_review") || "Review Hold"}
         </button>
         <button
           type="button"
           disabled={locked || currentStatus === "hold_pending_fulfillment"}
           onClick={() => updateStatus("hold_pending_fulfillment")}
+          aria-busy={loading === "hold_pending_fulfillment"}
           className="rounded-2xl border border-neutral-300 bg-white px-3 py-2 text-xs font-black disabled:cursor-not-allowed disabled:text-neutral-400"
         >
-          {loading === "hold_pending_fulfillment" ? "Saving..." : "Fulfill Hold"}
+          {actionLabel("hold_pending_fulfillment") || "Fulfill Hold"}
         </button>
         <button
           type="button"
           onClick={() => updateStatus("reversed")}
+          aria-busy={loading === "reversed"}
           disabled={locked || actionRequirements("reversed").length > 0}
           className="rounded-2xl border border-rose-300 bg-white px-3 py-2 text-xs font-black text-rose-700 disabled:cursor-not-allowed disabled:text-neutral-400"
         >
-          {loading === "reversed" ? "Saving..." : "Reverse"}
+          {actionLabel("reversed") || "Reverse"}
         </button>
       </div>
 
@@ -185,10 +193,11 @@ export default function PayoutLedgerActions({
       <button
         type="button"
         onClick={() => updateStatus("cancelled")}
+        aria-busy={loading === "cancelled"}
         disabled={locked || actionRequirements("cancelled").length > 0}
         className="rounded-2xl border border-neutral-300 bg-white px-3 py-2 text-xs font-black disabled:cursor-not-allowed disabled:text-neutral-400"
       >
-        {loading === "cancelled" ? "Saving..." : "Cancel Row"}
+        {actionLabel("cancelled") || "Cancel Row"}
       </button>
       {message ? <ActionNotice tone={message.tone}>{message.text}</ActionNotice> : null}
     </div>
@@ -210,7 +219,10 @@ function ActionNotice({
         : "border-blue-200 bg-blue-50 text-blue-950";
 
   return (
-    <p className={`rounded-2xl border px-3 py-2 text-xs font-black ${className}`}>
+    <p
+      aria-live={tone === "info" ? "polite" : "assertive"}
+      className={`rounded-2xl border px-3 py-2 text-xs font-black ${className}`}
+    >
       {children}
     </p>
   );
