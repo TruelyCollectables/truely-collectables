@@ -18,6 +18,7 @@ const disallowedOperatorCopy = [
   "debug sample",
   "raw result / debug",
   "Filename Placeholder",
+  "FAF",
   "bullshit",
   "fuck",
   "shit",

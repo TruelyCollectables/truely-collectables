@@ -7747,7 +7747,7 @@ export default function InstaCompScanner({
     setBatchPauseRequested(true);
     setBatchConcurrency(1);
     setBatchError(
-      `OpenAI token rate limit hit. InstaComp™ paused before claiming more work and backed FAF Parallel Scans down to 1. Wait about ${INSTACOMP_RATE_LIMIT_RETRY_SECONDS} seconds, then use Continue Rate-Limited.`
+      `OpenAI token rate limit hit. InstaComp™ paused before claiming more work and backed Parallel Scans down to 1. Wait about ${INSTACOMP_RATE_LIMIT_RETRY_SECONDS} seconds, then use Continue Rate-Limited.`
     );
     return true;
   }
@@ -11267,7 +11267,7 @@ export default function InstaCompScanner({
               fontWeight: 900,
             }}
           >
-            FAF Parallel Scans
+            Parallel Scans
             <input
               type="number"
               min="1"
@@ -11988,7 +11988,7 @@ export default function InstaCompScanner({
                 }}
               >
                 {visibleTrialSpeedGate.readyToExport
-                  ? "FAF PASS"
+                  ? "FINAL TESTER PASS"
                   : "NOT READY"}
               </span>
             </div>
@@ -12023,7 +12023,7 @@ export default function InstaCompScanner({
               </small>
             ) : (
               <small style={{ color: "#6b7280", fontWeight: 700 }}>
-                Run/export the completed 100-card lot to prove the FAF speed gate.
+                Run/export the completed 100-card lot to prove the final tester speed gate.
               </small>
             )}
           </div>

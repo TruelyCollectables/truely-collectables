@@ -219,6 +219,24 @@ scenario("scanner test fallback uses professional review copy", () => {
   );
 });
 
+scenario("scanner final tester labels avoid internal speed-gate shorthand", () => {
+  for (const fragment of [
+    "Parallel Scans",
+    "FINAL TESTER PASS",
+    "final tester speed gate",
+  ]) {
+    assert(
+      scannerSource.includes(fragment),
+      `Expected scanner final tester copy fragment ${fragment}.`,
+    );
+  }
+
+  assert(
+    !scannerSource.includes("FAF"),
+    "Expected scanner operator copy to avoid internal FAF shorthand.",
+  );
+});
+
 scenario("scanner exposes selected duplicate quantity merge action", () => {
   for (const fragment of [
     "selectedQuantityMergeCards",
