@@ -15,6 +15,7 @@ import {
   adminProductStatusPendingLabel,
   adminProductStatusRequiresStock,
   adminProductStatusSuccessMessage,
+  adminProductStatusZeroesQuantity,
   parseAdminInventoryStatus,
   parseAdminProductId,
 } from "../../../../lib/admin-product-status";
@@ -628,6 +629,30 @@ export default async function AdminProductEditPage({
               Sold and archived actions intentionally remove the item from buyer
               availability and force quantity to 0.
             </p>
+            <div
+              className={`mt-4 rounded-2xl border p-4 ${
+                adminProductStatusZeroesQuantity(product.status)
+                  ? "border-neutral-200 bg-neutral-50 text-neutral-800"
+                  : "border-rose-200 bg-rose-50 text-rose-950"
+              }`}
+            >
+              <p className="text-[11px] font-black uppercase tracking-widest opacity-70">
+                Inventory removal lane
+              </p>
+              <h3 className="mt-1 text-lg font-black">
+                {adminProductStatusZeroesQuantity(product.status)
+                  ? "This item is already ended"
+                  : "End early without leaving phantom stock"}
+              </h3>
+              <p className="mt-2 text-sm font-semibold leading-6 opacity-85">
+                {adminProductStatusZeroesQuantity(product.status)
+                  ? `Current status is ${product.status}; buyer availability is off and quantity should remain 0.`
+                  : `Use End Early / Archive / Zero Qty to remove this product from buyer availability and change quantity ${Math.max(
+                      0,
+                      Number(product.quantity || 0),
+                    )} → 0 in one guarded action.`}
+              </p>
+            </div>
             <div className="space-y-3">
               <StatusButton
                 id={product.legacyProductId}
