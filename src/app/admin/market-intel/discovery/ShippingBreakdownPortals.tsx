@@ -7,6 +7,8 @@ type CandidatePrice = {
   id: string;
   askingPrice: number;
   shippingPrice: number;
+  quantity: number;
+  taxRate: number;
 };
 
 type PortalTarget = CandidatePrice & {
@@ -15,6 +17,10 @@ type PortalTarget = CandidatePrice & {
 
 function money(value: number) {
   return `$${Number(value).toFixed(2)}`;
+}
+
+function roundMoney(value: number) {
+  return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 }
 
 function PriceFact({ label, value }: { label: string; value: string }) {
@@ -51,7 +57,11 @@ export default function ShippingBreakdownPortals({
       const lotTotalLabel = labels.find(
         (label) => label.textContent?.trim().toLowerCase() === "lot total",
       );
-      if (lotTotalLabel) lotTotalLabel.textContent = "Delivered total";
+      if (lotTotalLabel) lotTotalLabel.textContent = "Before tax";
+      const perCardLabel = labels.find(
+        (label) => label.textContent?.trim().toLowerCase() === "per card",
+      );
+      if (perCardLabel) perCardLabel.textContent = "Per card pre-tax";
 
       nextTargets.push({ ...candidate, element: facts });
     }
@@ -68,16 +78,29 @@ export default function ShippingBreakdownPortals({
 
   return (
     <>
-      {targets.map((target) =>
-        createPortal(
+      {targets.map((target) => {
+        const beforeTax = target.askingPrice + target.shippingPrice;
+        const estimatedTax = roundMoney(beforeTax * target.taxRate);
+        const totalWithTax = roundMoney(beforeTax + estimatedTax);
+        const perCardWithTax = roundMoney(
+          totalWithTax / Math.max(1, target.quantity),
+        );
+
+        return createPortal(
           <>
             <PriceFact label="Item price" value={money(target.askingPrice)} />
             <PriceFact label="Shipping" value={money(target.shippingPrice)} />
+            <PriceFact
+              label={`CO tax est. ${(target.taxRate * 100).toFixed(2)}%`}
+              value={money(estimatedTax)}
+            />
+            <PriceFact label="Total with CO tax" value={money(totalWithTax)} />
+            <PriceFact label="Per card with tax" value={money(perCardWithTax)} />
           </>,
           target.element,
           `shipping-${target.id}`,
-        ),
-      )}
+        );
+      })}
     </>
   );
 }
