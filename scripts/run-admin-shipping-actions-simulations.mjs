@@ -162,6 +162,8 @@ scenario("order tracking form announces save and shipped feedback", () => {
 scenario("shipping claim status actions expose typed live feedback", () => {
   for (const fragment of [
     "type ClaimActionMessage",
+    "claimStatusActionRef",
+    "Finish the current coverage claim status action first.",
     "Updating coverage claim...",
     "Coverage claim updated.",
     'aria-live={tone === "info" ? "polite" : "assertive"}',
@@ -169,6 +171,7 @@ scenario("shipping claim status actions expose typed live feedback", () => {
     "setMessage({",
     'tone: "error"',
     'tone: "success"',
+    "aria-disabled={disabled}",
     "aria-busy={pendingStatus === action.status}",
     "<ActionNotice tone={message.tone}>{message.text}</ActionNotice>",
   ]) {

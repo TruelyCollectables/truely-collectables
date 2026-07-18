@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import {
   evaluateUnder20SellerProtectionBuyerRefundMetadataGate,
@@ -498,6 +498,7 @@ export default function ShippingClaimActions({
   const [message, setMessage] = useState<ClaimActionMessage | null>(null);
   const [note, setNote] = useState("");
   const [providerId, setProviderId] = useState(providerClaimId || "");
+  const claimStatusActionRef = useRef(false);
   const externalCoveragePaidBlocked =
     normalizedStatus === "approved" &&
     !isUnder20SellerProtection &&
@@ -598,6 +599,14 @@ export default function ShippingClaimActions({
   }
 
   async function updateClaimStatus(status: ClaimStatus) {
+    if (claimStatusActionRef.current || pendingStatus) {
+      setMessage({
+        text: "Finish the current coverage claim status action first.",
+        tone: "error",
+      });
+      return;
+    }
+
     const missing = actionRequirements(status);
     if (missing.length > 0) {
       setMessage({
@@ -607,6 +616,7 @@ export default function ShippingClaimActions({
       return;
     }
 
+    claimStatusActionRef.current = true;
     setPendingStatus(status);
     setMessage({ text: "Updating coverage claim...", tone: "info" });
 
@@ -645,6 +655,7 @@ export default function ShippingClaimActions({
         tone: "error",
       });
     } finally {
+      claimStatusActionRef.current = false;
       setPendingStatus("");
     }
   }
@@ -727,10 +738,10 @@ export default function ShippingClaimActions({
               type="button"
               key={action.status}
               onClick={() => updateClaimStatus(action.status)}
-              disabled={disabled}
+              aria-disabled={disabled}
               aria-busy={pendingStatus === action.status}
               title={missing.length > 0 ? `Required: ${missing.join(", ")}` : ""}
-              className={`rounded-2xl px-3 py-2 text-xs font-black disabled:cursor-not-allowed disabled:opacity-50 ${action.tone}`}
+              className={`rounded-2xl px-3 py-2 text-xs font-black aria-disabled:cursor-not-allowed aria-disabled:opacity-50 ${action.tone}`}
             >
               {pendingStatus === action.status ? "Saving..." : action.label}
             </button>
