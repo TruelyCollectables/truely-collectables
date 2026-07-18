@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { markDiscoveryQueueDirty } from "./ResolvedCandidateCleanup";
 
@@ -91,11 +91,6 @@ export default function SelectedPurchaseControls({
   );
   const [alreadyReceived, setAlreadyReceived] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, PurchaseDraft>>({});
-
-  const candidateById = useMemo(
-    () => new Map(candidates.map((candidate) => [candidate.id, candidate])),
-    [candidates],
-  );
 
   useEffect(() => {
     const cleanups: Array<() => void> = [];
