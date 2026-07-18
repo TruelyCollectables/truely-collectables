@@ -44,6 +44,11 @@ type AccountStats = {
   openOffers: number;
 };
 
+type AccountDataIssue = {
+  label: string;
+  detail: string;
+};
+
 function isMissingAccountDataError(error: { code?: string; message?: string }) {
   const message = error.message?.toLowerCase() || "";
 
@@ -53,6 +58,13 @@ function isMissingAccountDataError(error: { code?: string; message?: string }) {
     message.includes("account_profiles") ||
     message.includes("account_id")
   );
+}
+
+function safeErrorMessage(error: { message?: string } | null | undefined) {
+  return String(error?.message || "Unknown database error.")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 220);
 }
 
 function label(value: string | null | undefined) {
@@ -144,7 +156,7 @@ export default async function AdminAccountsPage() {
           <p className="mt-3 text-sm text-neutral-600">
             {isMigrationMissing
               ? "Account tables are not available yet. Apply the TCOS account migrations before using this page."
-              : `Could not load account profiles: ${profilesError.message}`}
+              : `Could not load account profiles: ${safeErrorMessage(profilesError)}`}
           </p>
         </div>
       </main>
@@ -169,19 +181,33 @@ export default async function AdminAccountsPage() {
     ordersResult.error && isMissingAccountDataError(ordersResult.error);
   const offersUnavailable =
     offersResult.error && isMissingAccountDataError(offersResult.error);
+  const orderStatsUnavailable = Boolean(ordersResult.error);
+  const offerStatsUnavailable = Boolean(offersResult.error);
 
-  if (ordersResult.error && !ordersUnavailable) {
-    throw ordersResult.error;
+  const accountDataIssues: AccountDataIssue[] = [];
+
+  if (ordersResult.error) {
+    accountDataIssues.push({
+      label: "Order links unavailable",
+      detail: ordersUnavailable
+        ? "Order/account link columns are not available yet. Apply the account-link migration before trusting order counts or linked revenue."
+        : `Could not load linked order counts: ${safeErrorMessage(ordersResult.error)}`,
+    });
   }
 
-  if (offersResult.error && !offersUnavailable) {
-    throw offersResult.error;
+  if (offersResult.error) {
+    accountDataIssues.push({
+      label: "Offer links unavailable",
+      detail: offersUnavailable
+        ? "Offer/account link columns are not available yet. Apply the account-link migration before trusting offer counts."
+        : `Could not load linked offer counts: ${safeErrorMessage(offersResult.error)}`,
+    });
   }
 
   const statsByAccount = buildStats(
     typedProfiles,
-    ordersUnavailable ? [] : ((ordersResult.data || []) as AccountOrder[]),
-    offersUnavailable ? [] : ((offersResult.data || []) as AccountOffer[]),
+    orderStatsUnavailable ? [] : ((ordersResult.data || []) as AccountOrder[]),
+    offerStatsUnavailable ? [] : ((offersResult.data || []) as AccountOffer[]),
   );
 
   const activeAccounts = typedProfiles.filter(
@@ -221,11 +247,28 @@ export default async function AdminAccountsPage() {
       </section>
 
       <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
-        {ordersUnavailable || offersUnavailable ? (
-          <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-900">
-            Account profiles are available, but order/offer account links need
-            the account-link migration before counts can be shown.
-          </div>
+        {accountDataIssues.length > 0 ? (
+          <section
+            role="status"
+            aria-live="polite"
+            className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950"
+          >
+            <p className="font-black">
+              Account profiles loaded, but linked activity is partially unavailable.
+            </p>
+            <ul className="mt-2 list-disc space-y-1 pl-5 font-semibold">
+              {accountDataIssues.map((issue) => (
+                <li key={issue.label}>
+                  <span className="font-black">{issue.label}:</span>{" "}
+                  {issue.detail}
+                </li>
+              ))}
+            </ul>
+            <p className="mt-2 font-bold">
+              Unavailable linked counts are labeled below instead of shown as a
+              false zero.
+            </p>
+          </section>
         ) : null}
 
         <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
@@ -236,7 +279,10 @@ export default async function AdminAccountsPage() {
         </section>
 
         <section className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <Metric label="Linked Revenue" value={money(linkedRevenue)} />
+          <Metric
+            label="Linked Revenue"
+            value={orderStatsUnavailable ? "Unavailable" : money(linkedRevenue)}
+          />
           <Metric
             label="Verification Pending"
             value={String(typedProfiles.length - cardVerified.length)}
@@ -322,19 +368,47 @@ export default async function AdminAccountsPage() {
                           ) : null}
                         </td>
                         <td className="px-5 py-4">
-                          <p className="font-black">{stats.orders}</p>
-                          <p className="text-xs text-neutral-500">
-                            {stats.paidOrders} paid
-                          </p>
+                          {orderStatsUnavailable ? (
+                            <>
+                              <p className="font-black text-amber-800">
+                                Unavailable
+                              </p>
+                              <p className="text-xs text-neutral-500">
+                                Order links not loaded
+                              </p>
+                            </>
+                          ) : (
+                            <>
+                              <p className="font-black">{stats.orders}</p>
+                              <p className="text-xs text-neutral-500">
+                                {stats.paidOrders} paid
+                              </p>
+                            </>
+                          )}
                         </td>
                         <td className="px-5 py-4">
-                          <p className="font-black">{stats.offers}</p>
-                          <p className="text-xs text-neutral-500">
-                            {stats.openOffers} open
-                          </p>
+                          {offerStatsUnavailable ? (
+                            <>
+                              <p className="font-black text-amber-800">
+                                Unavailable
+                              </p>
+                              <p className="text-xs text-neutral-500">
+                                Offer links not loaded
+                              </p>
+                            </>
+                          ) : (
+                            <>
+                              <p className="font-black">{stats.offers}</p>
+                              <p className="text-xs text-neutral-500">
+                                {stats.openOffers} open
+                              </p>
+                            </>
+                          )}
                         </td>
                         <td className="px-5 py-4 font-black">
-                          {money(stats.revenue)}
+                          {orderStatsUnavailable
+                            ? "Unavailable"
+                            : money(stats.revenue)}
                         </td>
                         <td className="px-5 py-4 text-neutral-600">
                           {shortDate(profile.created_at)}

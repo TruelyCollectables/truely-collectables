@@ -13,6 +13,10 @@ const adminInventoryPageSource = await readFile(
   new URL("../src/app/admin/inventory/page.tsx", import.meta.url),
   "utf8",
 );
+const adminAccountsPageSource = await readFile(
+  new URL("../src/app/admin/accounts/page.tsx", import.meta.url),
+  "utf8",
+);
 const adminNewProductPageSource = await readFile(
   new URL("../src/app/admin/products/new/page.tsx", import.meta.url),
   "utf8",
@@ -486,6 +490,31 @@ scenario("admin command center uses professional playbook copy", () => {
       !adminPageSource.includes("This is the first stop") &&
       !adminPageSource.toLowerCase().includes("bullshit"),
     "Expected admin command center to avoid rough operator copy.",
+  );
+});
+
+scenario("admin accounts page keeps partial linked-data failures operator-readable", () => {
+  for (const fragment of [
+    "type AccountDataIssue",
+    "function safeErrorMessage",
+    "const orderStatsUnavailable = Boolean(ordersResult.error)",
+    "const offerStatsUnavailable = Boolean(offersResult.error)",
+    "Account profiles loaded, but linked activity is partially unavailable.",
+    "Unavailable linked counts are labeled below instead of shown as a",
+    "Order links not loaded",
+    "Offer links not loaded",
+    'value={orderStatsUnavailable ? "Unavailable" : money(linkedRevenue)}',
+  ]) {
+    assert(
+      adminAccountsPageSource.includes(fragment),
+      `Expected account partial-load fragment ${fragment}.`,
+    );
+  }
+
+  assert(
+    !adminAccountsPageSource.includes("throw ordersResult.error") &&
+      !adminAccountsPageSource.includes("throw offersResult.error"),
+    "Expected account linked-data failures to render inline instead of crashing the page.",
   );
 });
 
