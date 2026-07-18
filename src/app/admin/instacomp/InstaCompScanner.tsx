@@ -5256,6 +5256,8 @@ export default function InstaCompScanner({
   function exportTestModelRunLedgerCsv() {
     if (!testMode) return;
 
+    if (showTestModelBusyBlocked("exporting the test run ledger CSV")) return;
+
     if (!testModelRunRecords.length) {
       setBatchError("Run at least one test cycle before exporting the ledger.");
       return;
@@ -5276,6 +5278,8 @@ export default function InstaCompScanner({
 
   async function copyTestModelRunLedgerCsv() {
     if (!testMode) return;
+
+    if (showTestModelBusyBlocked("copying the test run ledger CSV")) return;
 
     if (!testModelRunRecords.length) {
       setBatchError("Run at least one test cycle before copying the ledger.");
@@ -5308,6 +5312,8 @@ export default function InstaCompScanner({
   function exportTestModelRunLedgerJson() {
     if (!testMode) return;
 
+    if (showTestModelBusyBlocked("exporting the test run ledger JSON")) return;
+
     if (!testModelRunRecords.length) {
       setBatchError("Run at least one test cycle before exporting the ledger JSON.");
       return;
@@ -5331,6 +5337,8 @@ export default function InstaCompScanner({
   async function copyTestModelRunLedgerJson() {
     if (!testMode) return;
 
+    if (showTestModelBusyBlocked("copying the test run ledger JSON")) return;
+
     if (!testModelRunRecords.length) {
       setBatchError("Run at least one test cycle before copying the ledger JSON.");
       return;
@@ -5353,6 +5361,8 @@ export default function InstaCompScanner({
 
   async function copyTestModelRunLedgerSummary() {
     if (!testMode) return;
+
+    if (showTestModelBusyBlocked("copying the test run ledger summary")) return;
 
     if (!testModelRunRecords.length) {
       setBatchError("Run at least one test cycle before copying the ledger summary.");
@@ -5386,6 +5396,21 @@ export default function InstaCompScanner({
     } catch {
       setBatchError("Could not copy the test run ledger summary.");
     }
+  }
+
+  function clearTestModelRunLedger() {
+    if (!testMode) return;
+
+    if (showTestModelBusyBlocked("clearing the test run ledger")) return;
+
+    if (!testModelRunRecords.length) {
+      setBatchError("No test run ledger records are available to clear.");
+      return;
+    }
+
+    setTestModelRunRecords([]);
+    setBatchError(null);
+    setBatchDraftMessage("Cleared the test run ledger.");
   }
 
   function testModelSmokeCheckCsvPayload() {
@@ -10919,7 +10944,7 @@ export default function InstaCompScanner({
                 <button
                   type="button"
                   onClick={exportTestModelRunLedgerCsv}
-                  disabled={batchRunning || batchDrafting}
+                  aria-disabled={batchRunning || batchDrafting}
                   style={{
                     ...secondaryButtonStyle,
                     padding: "7px 10px",
@@ -10935,7 +10960,7 @@ export default function InstaCompScanner({
                 <button
                   type="button"
                   onClick={() => void copyTestModelRunLedgerCsv()}
-                  disabled={batchRunning || batchDrafting}
+                  aria-disabled={batchRunning || batchDrafting}
                   style={{
                     ...secondaryButtonStyle,
                     padding: "7px 10px",
@@ -10951,7 +10976,7 @@ export default function InstaCompScanner({
                 <button
                   type="button"
                   onClick={exportTestModelRunLedgerJson}
-                  disabled={batchRunning || batchDrafting}
+                  aria-disabled={batchRunning || batchDrafting}
                   style={{
                     ...secondaryButtonStyle,
                     padding: "7px 10px",
@@ -10967,7 +10992,7 @@ export default function InstaCompScanner({
                 <button
                   type="button"
                   onClick={() => void copyTestModelRunLedgerJson()}
-                  disabled={batchRunning || batchDrafting}
+                  aria-disabled={batchRunning || batchDrafting}
                   style={{
                     ...secondaryButtonStyle,
                     padding: "7px 10px",
@@ -10983,7 +11008,7 @@ export default function InstaCompScanner({
                 <button
                   type="button"
                   onClick={() => void copyTestModelRunLedgerSummary()}
-                  disabled={batchRunning || batchDrafting}
+                  aria-disabled={batchRunning || batchDrafting}
                   style={{
                     ...secondaryButtonStyle,
                     padding: "7px 10px",
@@ -10998,8 +11023,8 @@ export default function InstaCompScanner({
                 </button>
                 <button
                   type="button"
-                  onClick={() => setTestModelRunRecords([])}
-                  disabled={batchRunning || batchDrafting}
+                  onClick={clearTestModelRunLedger}
+                  aria-disabled={batchRunning || batchDrafting}
                   style={{
                     ...secondaryButtonStyle,
                     padding: "7px 10px",
