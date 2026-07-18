@@ -39,6 +39,13 @@ function money(value: number | null | undefined) {
   }).format(Number(value || 0));
 }
 
+function safeErrorMessage(error: { message?: string } | null | undefined) {
+  return String(error?.message || "Unknown database error.")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 220);
+}
+
 function dateLabel(value: string | null | undefined) {
   return value ? new Date(value).toLocaleString() : "Not saved";
 }
@@ -88,6 +95,8 @@ export default async function AdminOffersPage() {
     .order("created_at", { ascending: false });
 
   if (error) {
+    const offerLoadErrorMessage = safeErrorMessage(error);
+
     return (
       <main className="bg-neutral-50 px-6 py-8 text-neutral-950">
         <section className="mx-auto max-w-4xl rounded-3xl border border-red-200 bg-white p-6 shadow-sm">
@@ -96,8 +105,34 @@ export default async function AdminOffersPage() {
           </p>
           <h1 className="mt-2 text-3xl font-black">Error loading offers</h1>
           <p className="mt-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-bold text-red-950">
-            {error.message}
+            {offerLoadErrorMessage}
           </p>
+          <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-4 text-red-950">
+            <h2 className="text-lg font-black">Offer queue unavailable</h2>
+            <p className="mt-2 text-sm font-semibold leading-6">
+              Offer storage did not load, so this page cannot prove whether
+              pending buyer decisions, accepted checkouts, counters, or declined
+              offers exist. Retry after the database warning is cleared before
+              treating the desk as empty.
+            </p>
+            <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
+              <div className="rounded-xl border border-red-200 bg-white p-3">
+                <dt className="font-black uppercase tracking-[0.12em] text-red-700">
+                  Decision counts
+                </dt>
+                <dd className="mt-1 font-black">Unavailable</dd>
+              </div>
+              <div className="rounded-xl border border-red-200 bg-white p-3">
+                <dt className="font-black uppercase tracking-[0.12em] text-red-700">
+                  Operator action
+                </dt>
+                <dd className="mt-1 font-semibold">
+                  Retry offers or open the dashboard; do not accept or decline
+                  from stale memory.
+                </dd>
+              </div>
+            </dl>
+          </div>
           <div className="mt-5 flex flex-wrap gap-3">
             <Link
               href="/admin/offers"
@@ -118,9 +153,21 @@ export default async function AdminOffersPage() {
   }
 
   const typedOffers = (offers || []) as Offer[];
-  const accountProfiles = await getAccountProfilesByIds(
-    typedOffers.map((offer) => offer.account_id),
-  );
+  let accountProfiles = new Map<string, AccountProfileSummary>();
+  let accountProfilesError: { message?: string } | null = null;
+
+  try {
+    accountProfiles = await getAccountProfilesByIds(
+      typedOffers.map((offer) => offer.account_id),
+    );
+  } catch (error) {
+    accountProfilesError =
+      error && typeof error === "object" && "message" in error
+        ? { message: String(error.message || "Unknown account profile error.") }
+        : { message: "Unknown account profile error." };
+  }
+
+  const accountProfilesUnavailable = Boolean(accountProfilesError);
   const pendingOffers = typedOffers.filter(
     (offer) => offer.status === "pending",
   );
@@ -181,6 +228,26 @@ export default async function AdminOffersPage() {
         </div>
       </section>
 
+      {accountProfilesUnavailable ? (
+        <section
+          aria-live="polite"
+          role="status"
+          className="rounded-3xl border border-amber-200 bg-amber-50 p-5 text-amber-950 shadow-sm"
+        >
+          <h2 className="text-xl font-black">
+            Linked account profiles unavailable
+          </h2>
+          <p className="mt-2 max-w-4xl text-sm font-semibold leading-6">
+            Offers loaded, but buyer account enrichment did not. The offer desk
+            remains usable; rows with linked buyers will show that profile
+            details are unavailable instead of hiding the offer decision.
+          </p>
+          <p className="mt-3 rounded-xl border border-amber-200 bg-white px-4 py-3 text-sm font-bold">
+            {safeErrorMessage(accountProfilesError)}
+          </p>
+        </section>
+      ) : null}
+
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <MetricCard
           label="Pending"
@@ -230,6 +297,7 @@ export default async function AdminOffersPage() {
                 ? accountProfiles.get(offer.account_id)
                 : undefined
             }
+            accountProfilesUnavailable={accountProfilesUnavailable}
           />
         ))}
 
@@ -252,6 +320,7 @@ function accountLabel(
   accountId: string | null | undefined,
   accountProfile: AccountProfileSummary | undefined,
   guestLabel: string,
+  accountProfilesUnavailable = false,
 ) {
   if (accountProfile) {
     return (
@@ -259,7 +328,11 @@ function accountLabel(
     );
   }
 
-  return accountId ? "Linked account profile unavailable" : guestLabel;
+  return accountId
+    ? accountProfilesUnavailable
+      ? "Linked account profile lookup unavailable"
+      : "Linked account profile unavailable"
+    : guestLabel;
 }
 
 function MetricCard({
@@ -285,9 +358,11 @@ function MetricCard({
 function OfferCard({
   offer,
   accountProfile,
+  accountProfilesUnavailable,
 }: {
   offer: Offer;
   accountProfile?: AccountProfileSummary;
+  accountProfilesUnavailable?: boolean;
 }) {
   const product = offer.products;
   const productTitle = product?.title || "Untitled product";
@@ -376,7 +451,12 @@ function OfferCard({
           Account
         </p>
         <p className="mt-1 break-all text-sm font-semibold text-neutral-600">
-          {accountLabel(offer.account_id, accountProfile, "Guest offer")}
+          {accountLabel(
+            offer.account_id,
+            accountProfile,
+            "Guest offer",
+            accountProfilesUnavailable,
+          )}
         </p>
         {!isPending ? (
           <p className="mt-3 rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs font-bold text-neutral-600">

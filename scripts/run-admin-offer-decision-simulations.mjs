@@ -138,6 +138,41 @@ scenario("offer action UI exposes busy and live checkout feedback", async () => 
   }
 });
 
+scenario("offer desk keeps load and enrichment failures operator-readable", async () => {
+  const source = await readFile("src/app/admin/offers/page.tsx", "utf8");
+
+  for (const snippet of [
+    "function safeErrorMessage",
+    "const offerLoadErrorMessage = safeErrorMessage(error)",
+    "Offer queue unavailable",
+    "Offer storage did not load, so this page cannot prove whether",
+    "Decision counts",
+    "Unavailable",
+    "do not accept or decline",
+    "let accountProfilesError",
+    "try {",
+    "accountProfiles = await getAccountProfilesByIds",
+    "const accountProfilesUnavailable = Boolean(accountProfilesError)",
+    "Linked account profiles unavailable",
+    'role="status"',
+    "Offers loaded, but buyer account enrichment did not",
+    "Linked account profile lookup unavailable",
+    "accountProfilesUnavailable={accountProfilesUnavailable}",
+  ]) {
+    assert(source.includes(snippet), `Expected offer desk source to include ${snippet}`);
+  }
+
+  assert(
+    source.indexOf("Offer queue unavailable") <
+      source.indexOf("Retry offers or open the dashboard"),
+    "Expected offer load failures to explain queue uncertainty before recovery actions.",
+  );
+  assert(
+    !source.includes("{error.message}"),
+    "Expected offer desk to avoid rendering raw database error messages.",
+  );
+});
+
 scenario("offer status routes use pending compare-and-set updates", async () => {
   const updateStatusSource = await readFile(
     "src/app/api/offers/update-status/route.ts",
