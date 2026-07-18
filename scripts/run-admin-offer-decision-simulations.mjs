@@ -110,6 +110,12 @@ scenario("offer action UI exposes busy and live checkout feedback", async () => 
   const source = await readFile("src/app/admin/offers/OfferActions.tsx", "utf8");
 
   for (const snippet of [
+    "const offerActionRunningRef = useRef(false)",
+    "offerActionRunningRef.current",
+    "Finish the current offer decision before starting another action.",
+    "offerActionRunningRef.current = true",
+    "offerActionRunningRef.current = false",
+    "const offerActionBusyReason = isBusy",
     'aria-busy={loading === "accepted"}',
     'aria-busy={loading === "declined"}',
     'aria-busy={loading === "counter"}',

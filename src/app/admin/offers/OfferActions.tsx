@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import {
   adminOfferDecisionError,
   adminOfferDecisionRequirements,
@@ -24,6 +24,7 @@ export default function OfferActions({
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState("");
+  const offerActionRunningRef = useRef(false);
   const [counterAmount, setCounterAmount] = useState("");
   const [message, setMessage] = useState<{
     tone: "success" | "error" | "info";
@@ -56,20 +57,31 @@ export default function OfferActions({
   const canAccept = acceptRequirements.length === 0;
   const canDecline = declineRequirements.length === 0;
   const canCounter = counterRequirements.length === 0;
+  const offerActionBusyReason = isBusy
+    ? "Finish the current offer decision before starting another action."
+    : "";
   const acceptDisabledReason = canAccept
-    ? "Accept this offer and create a checkout link."
+    ? offerActionBusyReason || "Accept this offer and create a checkout link."
     : `Accept needs: ${acceptRequirements.join(", ")}.`;
   const declineDisabledReason = canDecline
-    ? "Decline this pending offer."
+    ? offerActionBusyReason || "Decline this pending offer."
     : `Decline needs: ${declineRequirements.join(", ")}.`;
   const counterDisabledReason = canCounter
-    ? "Send a counter offer checkout link."
+    ? offerActionBusyReason || "Send a counter offer checkout link."
     : `Counter needs: ${counterRequirements.join(", ")}.`;
   const visibleRequirements = Array.from(
     new Set([...acceptRequirements, ...counterRequirements]),
   );
 
   async function updateStatus(newStatus: string) {
+    if (offerActionRunningRef.current) {
+      setMessage({
+        tone: "error",
+        text: "Finish the current offer decision before starting another action.",
+      });
+      return;
+    }
+
     const action = newStatus === "declined" ? "declined" : "accepted";
     const blocked = adminOfferDecisionError({
       action,
@@ -87,6 +99,7 @@ export default function OfferActions({
       return;
     }
 
+    offerActionRunningRef.current = true;
     setLoading(newStatus);
     setMessage({
       tone: "info",
@@ -130,11 +143,20 @@ export default function OfferActions({
       console.error(error);
       setMessage({ tone: "error", text: "Could not update offer." });
     } finally {
+      offerActionRunningRef.current = false;
       setLoading("");
     }
   }
 
   async function sendCounterOffer() {
+    if (offerActionRunningRef.current) {
+      setMessage({
+        tone: "error",
+        text: "Finish the current offer decision before starting another action.",
+      });
+      return;
+    }
+
     const blocked = adminOfferDecisionError({
       action: "countered",
       offerStatus: status,
@@ -162,6 +184,7 @@ export default function OfferActions({
       return;
     }
 
+    offerActionRunningRef.current = true;
     setLoading("counter");
     setMessage({
       tone: "info",
@@ -196,6 +219,7 @@ export default function OfferActions({
       console.error(error);
       setMessage({ tone: "error", text: "Could not send counter offer." });
     } finally {
+      offerActionRunningRef.current = false;
       setLoading("");
     }
   }
