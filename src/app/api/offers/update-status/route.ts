@@ -86,11 +86,19 @@ export async function POST(req: Request) {
         })
         .eq("id", offerId)
         .eq("store_id", storeId)
+        .eq("status", "pending")
         .select()
-        .single();
+        .maybeSingle();
 
       if (updateError) {
         return NextResponse.json({ error: updateError.message }, { status: 500 });
+      }
+
+      if (!updatedOffer) {
+        return NextResponse.json(
+          { error: "Offer is no longer pending. Refresh offers before deciding again." },
+          { status: 409 },
+        );
       }
 
       if (resend) {
@@ -194,11 +202,19 @@ export async function POST(req: Request) {
       })
       .eq("id", offerId)
       .eq("store_id", storeId)
+      .eq("status", "pending")
       .select()
-      .single();
+      .maybeSingle();
 
     if (updateError) {
       return NextResponse.json({ error: updateError.message }, { status: 500 });
+    }
+
+    if (!updatedOffer) {
+      return NextResponse.json(
+        { error: "Offer is no longer pending. Refresh offers before deciding again." },
+        { status: 409 },
+      );
     }
 
     if (resend && session.url) {

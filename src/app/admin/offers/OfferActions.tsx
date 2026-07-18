@@ -56,6 +56,15 @@ export default function OfferActions({
   const canAccept = acceptRequirements.length === 0;
   const canDecline = declineRequirements.length === 0;
   const canCounter = counterRequirements.length === 0;
+  const acceptDisabledReason = canAccept
+    ? "Accept this offer and create a checkout link."
+    : `Accept needs: ${acceptRequirements.join(", ")}.`;
+  const declineDisabledReason = canDecline
+    ? "Decline this pending offer."
+    : `Decline needs: ${declineRequirements.join(", ")}.`;
+  const counterDisabledReason = canCounter
+    ? "Send a counter offer checkout link."
+    : `Counter needs: ${counterRequirements.join(", ")}.`;
   const visibleRequirements = Array.from(
     new Set([...acceptRequirements, ...counterRequirements]),
   );
@@ -79,7 +88,13 @@ export default function OfferActions({
     }
 
     setLoading(newStatus);
-    setMessage({ tone: "info", text: `Saving offer as ${newStatus}...` });
+    setMessage({
+      tone: "info",
+      text:
+        newStatus === "accepted"
+          ? "Creating accepted-offer checkout link..."
+          : "Declining offer...",
+    });
 
     try {
       const res = await fetch("/api/offers/update-status", {
@@ -105,7 +120,10 @@ export default function OfferActions({
 
       setMessage({
         tone: "success",
-        text: `Offer ${newStatus}.`,
+        text:
+          newStatus === "accepted"
+            ? "Offer accepted and checkout link saved."
+            : "Offer declined.",
       });
       router.refresh();
     } catch (error) {
@@ -145,7 +163,10 @@ export default function OfferActions({
     }
 
     setLoading("counter");
-    setMessage({ tone: "info", text: "Sending counter offer..." });
+    setMessage({
+      tone: "info",
+      text: "Creating counter-offer checkout link...",
+    });
 
     try {
       const res = await fetch("/api/offers/counter", {
@@ -195,19 +216,25 @@ export default function OfferActions({
       <button
         type="button"
         disabled={!canAccept || isBusy}
+        aria-busy={loading === "accepted"}
+        aria-label="Accept offer and create checkout link"
+        title={acceptDisabledReason}
         onClick={() => updateStatus("accepted")}
         className="w-full rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {loading === "accepted" ? "Accepting..." : "Accept"}
+        {loading === "accepted" ? "Creating checkout link..." : "Accept"}
       </button>
 
       <button
         type="button"
         disabled={!canDecline || isBusy}
+        aria-busy={loading === "declined"}
+        aria-label="Decline offer"
+        title={declineDisabledReason}
         onClick={() => updateStatus("declined")}
         className="w-full rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {loading === "declined" ? "Declining..." : "Decline"}
+        {loading === "declined" ? "Declining offer..." : "Decline"}
       </button>
 
       {checkoutUrl && (
@@ -243,10 +270,13 @@ export default function OfferActions({
       <button
         type="button"
         disabled={!canCounter || isBusy}
+        aria-busy={loading === "counter"}
+        aria-label="Send counter offer checkout link"
+        title={counterDisabledReason}
         onClick={sendCounterOffer}
         className="w-full rounded-md bg-sky-700 px-4 py-2 text-sm font-black text-white hover:bg-sky-800 disabled:cursor-not-allowed disabled:opacity-50"
       >
-        {loading === "counter" ? "Sending..." : "Counter Offer"}
+        {loading === "counter" ? "Sending counter link..." : "Counter Offer"}
       </button>
 
       {isPending && visibleRequirements.length > 0 ? (
@@ -255,9 +285,7 @@ export default function OfferActions({
         </ActionNotice>
       ) : null}
 
-      {message ? (
-        <ActionNotice tone={message.tone}>{message.text}</ActionNotice>
-      ) : null}
+      {message ? <ActionNotice tone={message.tone}>{message.text}</ActionNotice> : null}
     </div>
   );
 }
@@ -284,7 +312,11 @@ function ActionNotice({
         : "border-blue-200 bg-blue-50 text-blue-950";
 
   return (
-    <p className={`rounded-xl border px-3 py-2 text-xs font-bold ${className}`}>
+    <p
+      aria-live={tone === "info" ? "polite" : "assertive"}
+      className={`rounded-xl border px-3 py-2 text-xs font-bold ${className}`}
+      role={tone === "error" ? "alert" : "status"}
+    >
       {children}
     </p>
   );

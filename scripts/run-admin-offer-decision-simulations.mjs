@@ -1,3 +1,4 @@
+import { readFile } from "node:fs/promises";
 import {
   adminOfferDecisionError,
   adminOfferDecisionRequirements,
@@ -105,11 +106,61 @@ scenario("normalizes offer money to checkout-safe cents", () => {
   assert(normalizedOfferMoney("abc") === null, "Expected invalid money to return null");
 });
 
+scenario("offer action UI exposes busy and live checkout feedback", async () => {
+  const source = await readFile("src/app/admin/offers/OfferActions.tsx", "utf8");
+
+  for (const snippet of [
+    'aria-busy={loading === "accepted"}',
+    'aria-busy={loading === "declined"}',
+    'aria-busy={loading === "counter"}',
+    'aria-live={tone === "info" ? "polite" : "assertive"}',
+    'role={tone === "error" ? "alert" : "status"}',
+    "Creating accepted-offer checkout link...",
+    "Creating counter-offer checkout link...",
+    "Creating checkout link...",
+    "Sending counter link...",
+  ]) {
+    assert(source.includes(snippet), `Expected OfferActions to include ${snippet}`);
+  }
+});
+
+scenario("offer status routes use pending compare-and-set updates", async () => {
+  const updateStatusSource = await readFile(
+    "src/app/api/offers/update-status/route.ts",
+    "utf8",
+  );
+  const counterSource = await readFile("src/app/api/offers/counter/route.ts", "utf8");
+  const staleMessage =
+    "Offer is no longer pending. Refresh offers before deciding again.";
+
+  assert(
+    countOccurrences(updateStatusSource, '.eq("status", "pending")') >= 2,
+    "Accept/decline route should guard both update paths by pending status.",
+  );
+  assert(
+    counterSource.includes('.eq("status", "pending")'),
+    "Counter route should guard the update by pending status.",
+  );
+
+  for (const [name, source] of [
+    ["accept/decline route", updateStatusSource],
+    ["counter route", counterSource],
+  ]) {
+    assert(source.includes(".maybeSingle()"), `${name} should tolerate stale no-row updates.`);
+    assert(source.includes(staleMessage), `${name} should return a stale-offer message.`);
+    assert(source.includes("{ status: 409 }"), `${name} should report stale offers as conflicts.`);
+  }
+});
+
+function countOccurrences(source, needle) {
+  return source.split(needle).length - 1;
+}
+
 const failed = [];
 
 for (const item of scenarios) {
   try {
-    item.run();
+    await item.run();
     console.log(`✓ ${item.name}`);
   } catch (error) {
     failed.push(item.name);
