@@ -135,7 +135,7 @@ export function baseballPremiumCardEligibility(input: BaseballPremiumCardInput) 
   const premiumInsertTerm = includesAny(titleText, PREMIUM_INSERT_TERMS);
   const ordinaryInsertTerm = includesAny(titleText, ORDINARY_INSERT_TERMS);
   const hasVariation = Boolean(variation || premiumInsertTerm);
-  const hasNamedParallel = Boolean(parallel && !BASE_PARALLEL_NAMES.has(parallel));
+  const hasNamedParallel = Boolean(parallel && !BASE_PARALLELS.has(parallel));
   const hasStrongParallel = Boolean(
     hasNamedParallel && !WEAK_INSERT_PARALLELS.has(parallel),
   );
@@ -146,7 +146,9 @@ export function baseballPremiumCardEligibility(input: BaseballPremiumCardInput) 
       hasVariation ||
       hasStrongParallel,
   );
-  const looksLikeInsert = Boolean(insert || ordinaryInsertTerm || titleText.includes(" insert "));
+  const looksLikeInsert = Boolean(
+    insert || ordinaryInsertTerm || titleText.split(" ").includes("insert"),
+  );
 
   if (ordinaryInsertTerm && !strongPremiumOverride) {
     return {
