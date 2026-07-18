@@ -5812,6 +5812,13 @@ export default function InstaCompScanner({
   async function copyTestModelCurrentViewSummary() {
     if (!testMode) return;
 
+    const busyReason = batchBusyBlockedReason("copying the current view summary");
+
+    if (busyReason) {
+      setBatchError(busyReason);
+      return;
+    }
+
     if (!visibleBatchCards.length) {
       setBatchError("No visible rows are available to copy.");
       return;
@@ -5880,6 +5887,13 @@ export default function InstaCompScanner({
   async function copyTestModelCurrentViewCsv() {
     if (!testMode) return;
 
+    const busyReason = batchBusyBlockedReason("copying the current view CSV");
+
+    if (busyReason) {
+      setBatchError(busyReason);
+      return;
+    }
+
     if (!visibleBatchCards.length) {
       setBatchError("No visible rows are available to copy.");
       return;
@@ -5909,6 +5923,13 @@ export default function InstaCompScanner({
 
   async function copyTestModelCurrentViewJson() {
     if (!testMode) return;
+
+    const busyReason = batchBusyBlockedReason("copying the current view JSON");
+
+    if (busyReason) {
+      setBatchError(busyReason);
+      return;
+    }
 
     if (!visibleBatchCards.length) {
       setBatchError("No visible rows are available to copy.");
@@ -7022,6 +7043,8 @@ export default function InstaCompScanner({
     emptyMessage: string,
     clearedMessage: string
   ) {
+    if (showBatchBusyBlocked("clearing draft errors")) return;
+
     if (!count) {
       setBatchError(emptyMessage);
       return;
@@ -8307,8 +8330,20 @@ export default function InstaCompScanner({
   }
 
   function setVisibleDraftableBatchCardsSelected(selected: boolean) {
+    if (
+      showBatchBusyBlocked(
+        selected ? "selecting visible draftable rows" : "deselecting visible rows"
+      )
+    ) {
+      return;
+    }
+
     if (!visibleDraftableCount) {
-      setBatchError("No visible draftable rows are available to select.");
+      setBatchError(
+        selected
+          ? "No visible draftable rows are available to select."
+          : "No visible draftable rows are available to deselect."
+      );
       return;
     }
 
@@ -8326,6 +8361,8 @@ export default function InstaCompScanner({
   }
 
   function selectVisibleReadyBatchCards() {
+    if (showBatchBusyBlocked("selecting visible ready rows")) return;
+
     if (!visibleReadyCount) {
       setBatchError("No visible ready rows are available to select.");
       return;
@@ -8354,6 +8391,8 @@ export default function InstaCompScanner({
   }
 
   function selectVisibleCleanBatchCards() {
+    if (showBatchBusyBlocked("selecting visible clean rows")) return;
+
     if (!visibleCleanCount) {
       setBatchError("No visible clean rows are available to select.");
       return;
@@ -8382,6 +8421,8 @@ export default function InstaCompScanner({
   }
 
   function selectVisibleCleanReadyBatchCards() {
+    if (showBatchBusyBlocked("selecting visible clean ready rows")) return;
+
     if (!visibleCleanReadyCount) {
       setBatchError("No visible clean ready rows are available to select.");
       return;
@@ -8410,6 +8451,8 @@ export default function InstaCompScanner({
   }
 
   function deselectVisibleReviewBatchCards() {
+    if (showBatchBusyBlocked("deselecting visible review rows")) return;
+
     if (!visibleReviewCount) {
       setBatchError("No visible review rows are available to deselect.");
       return;
@@ -8429,6 +8472,8 @@ export default function InstaCompScanner({
   }
 
   function deselectVisibleReadyReviewBatchCards() {
+    if (showBatchBusyBlocked("deselecting visible ready review rows")) return;
+
     if (!visibleReadyReviewCount) {
       setBatchError("No visible ready review rows are available to deselect.");
       return;
@@ -8448,6 +8493,8 @@ export default function InstaCompScanner({
   }
 
   function deselectVisibleReviewDraftFixBatchCards() {
+    if (showBatchBusyBlocked("deselecting visible review fix rows")) return;
+
     if (!visibleReviewDraftFixCount) {
       setBatchError("No visible review fix rows are available to deselect.");
       return;
@@ -8467,6 +8514,8 @@ export default function InstaCompScanner({
   }
 
   function deselectVisibleCleanDraftFixBatchCards() {
+    if (showBatchBusyBlocked("deselecting visible clean fix rows")) return;
+
     if (!visibleCleanDraftFixCount) {
       setBatchError("No visible clean fix rows are available to deselect.");
       return;
@@ -8486,6 +8535,8 @@ export default function InstaCompScanner({
   }
 
   function deselectVisibleDraftFixBatchCards() {
+    if (showBatchBusyBlocked("deselecting visible fix rows")) return;
+
     if (!visibleDraftFixCount) {
       setBatchError("No visible rows needing fixes are available to deselect.");
       return;
@@ -9171,6 +9222,13 @@ export default function InstaCompScanner({
   }
 
   async function retryVisibleFailedBatchCards() {
+    const busyReason = batchBusyBlockedReason("retrying visible failed rows");
+
+    if (busyReason) {
+      setBatchError(busyReason);
+      return;
+    }
+
     if (!visibleFailedCount) {
       setBatchError("No visible failed cards are waiting for retry.");
       return;
@@ -12275,7 +12333,7 @@ export default function InstaCompScanner({
               <button
                 type="button"
                 onClick={() => void copyTestModelCurrentViewSummary()}
-                disabled={
+                aria-disabled={
                   batchRunning || batchDrafting || visibleBatchCards.length === 0
                 }
                 style={{
@@ -12304,7 +12362,7 @@ export default function InstaCompScanner({
               <button
                 type="button"
                 onClick={() => void copyTestModelCurrentViewCsv()}
-                disabled={
+                aria-disabled={
                   batchRunning || batchDrafting || visibleBatchCards.length === 0
                 }
                 style={{
@@ -12333,7 +12391,7 @@ export default function InstaCompScanner({
               <button
                 type="button"
                 onClick={() => void copyTestModelCurrentViewJson()}
-                disabled={
+                aria-disabled={
                   batchRunning || batchDrafting || visibleBatchCards.length === 0
                 }
                 style={{
@@ -12361,7 +12419,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={() => setVisibleDraftableBatchCardsSelected(true)}
-              disabled={batchRunning || batchDrafting || visibleDraftableCount === 0}
+              aria-disabled={batchRunning || batchDrafting || visibleDraftableCount === 0}
               style={{
                 ...secondaryButtonStyle,
                 padding: "8px 10px",
@@ -12380,7 +12438,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={selectVisibleReadyBatchCards}
-              disabled={batchRunning || batchDrafting || visibleReadyCount === 0}
+              aria-disabled={batchRunning || batchDrafting || visibleReadyCount === 0}
               style={{
                 ...secondaryButtonStyle,
                 padding: "8px 10px",
@@ -12399,7 +12457,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={selectVisibleCleanBatchCards}
-              disabled={batchRunning || batchDrafting || visibleCleanCount === 0}
+              aria-disabled={batchRunning || batchDrafting || visibleCleanCount === 0}
               style={{
                 ...secondaryButtonStyle,
                 padding: "8px 10px",
@@ -12418,7 +12476,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={selectVisibleCleanReadyBatchCards}
-              disabled={
+              aria-disabled={
                 batchRunning || batchDrafting || visibleCleanReadyCount === 0
               }
               style={{
@@ -12638,7 +12696,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={resetVisibleDraftEdits}
-              disabled={batchRunning || batchDrafting || visibleDraftableCount === 0}
+              aria-disabled={batchRunning || batchDrafting || visibleDraftableCount === 0}
               style={{
                 ...secondaryButtonStyle,
                 padding: "8px 10px",
@@ -12657,7 +12715,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={() => setVisibleDraftableBatchCardsSelected(false)}
-              disabled={batchRunning || batchDrafting || visibleDraftableCount === 0}
+              aria-disabled={batchRunning || batchDrafting || visibleDraftableCount === 0}
               style={{
                 ...secondaryButtonStyle,
                 padding: "8px 10px",
@@ -12676,7 +12734,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={deselectVisibleDraftFixBatchCards}
-              disabled={batchRunning || batchDrafting || visibleDraftFixCount === 0}
+              aria-disabled={batchRunning || batchDrafting || visibleDraftFixCount === 0}
               style={{
                 ...secondaryButtonStyle,
                 padding: "8px 10px",
@@ -12695,7 +12753,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={deselectVisibleReviewBatchCards}
-              disabled={batchRunning || batchDrafting || visibleReviewCount === 0}
+              aria-disabled={batchRunning || batchDrafting || visibleReviewCount === 0}
               style={{
                 ...secondaryButtonStyle,
                 padding: "8px 10px",
@@ -12714,7 +12772,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={deselectVisibleReadyReviewBatchCards}
-              disabled={
+              aria-disabled={
                 batchRunning || batchDrafting || visibleReadyReviewCount === 0
               }
               style={{
@@ -12735,7 +12793,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={deselectVisibleReviewDraftFixBatchCards}
-              disabled={
+              aria-disabled={
                 batchRunning || batchDrafting || visibleReviewDraftFixCount === 0
               }
               style={{
@@ -12756,7 +12814,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={deselectVisibleCleanDraftFixBatchCards}
-              disabled={
+              aria-disabled={
                 batchRunning || batchDrafting || visibleCleanDraftFixCount === 0
               }
               style={{
@@ -12777,7 +12835,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={clearVisibleDraftErrors}
-              disabled={batchRunning || batchDrafting || visibleDraftErrorCount === 0}
+              aria-disabled={batchRunning || batchDrafting || visibleDraftErrorCount === 0}
               style={{
                 ...secondaryButtonStyle,
                 padding: "8px 10px",
@@ -12796,7 +12854,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={() => void retryVisibleFailedBatchCards()}
-              disabled={batchRunning || batchDrafting || visibleFailedCount === 0}
+              aria-disabled={batchRunning || batchDrafting || visibleFailedCount === 0}
               title={
                 batchBusyBlockedReason("retrying visible failed rows") ||
                 (visibleFailedCount === 0
@@ -12821,7 +12879,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={removeVisibleFailedBatchCards}
-              disabled={batchRunning || batchDrafting || visibleFailedCount === 0}
+              aria-disabled={batchRunning || batchDrafting || visibleFailedCount === 0}
               title={
                 batchBusyBlockedReason("removing visible failed rows") ||
                 (visibleFailedCount === 0
@@ -12848,7 +12906,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={removeVisibleDraftedBatchCards}
-              disabled={batchRunning || batchDrafting || visibleDraftedCount === 0}
+              aria-disabled={batchRunning || batchDrafting || visibleDraftedCount === 0}
               title={
                 batchBusyBlockedReason("removing visible drafted rows") ||
                 (visibleDraftedCount === 0
