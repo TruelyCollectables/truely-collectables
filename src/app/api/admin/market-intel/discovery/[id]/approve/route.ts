@@ -4,7 +4,10 @@ import {
   adminRedirectUrl,
 } from "../../../../../../../lib/admin-handoff";
 import { assertCandidateBaseballPremiumPolicy } from "../../../../../../../lib/market-intel-baseball-premium-enforcement";
-import { approveIdentityCandidate } from "../../../../../../../lib/market-intel-identity-candidates";
+import {
+  approveIdentityCandidate,
+  type CandidateApprovalInput,
+} from "../../../../../../../lib/market-intel-identity-candidates";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -27,8 +30,9 @@ export async function POST(request: NextRequest, context: RouteContext) {
   const handoff = adminHandoffFromUrl(new URL(request.url));
   try {
     const formData = await request.formData();
-    const conditionType = text(formData, "conditionType") === "graded" ? "graded" : "raw";
-    const approval = {
+    const conditionType: CandidateApprovalInput["conditionType"] =
+      text(formData, "conditionType") === "graded" ? "graded" : "raw";
+    const approval: CandidateApprovalInput = {
       candidateId: id,
       seasonYear: text(formData, "seasonYear"),
       manufacturer: text(formData, "manufacturer"),
