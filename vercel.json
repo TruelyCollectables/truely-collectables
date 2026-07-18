@@ -10,6 +10,10 @@
       "schedule": "15 * * * *"
     },
     {
+      "path": "/api/cron/market-intel/alerts/growth-deliver?limit=10",
+      "schedule": "17 * * * *"
+    },
+    {
       "path": "/api/cron/market-intel/alerts/deliver?limit=10",
       "schedule": "20 * * * *"
     },
