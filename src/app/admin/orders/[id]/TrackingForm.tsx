@@ -3,6 +3,8 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
 
+type FeedbackTone = "success" | "error" | "info";
+
 export default function TrackingForm({
   orderId,
   currentCarrier,
@@ -25,11 +27,12 @@ export default function TrackingForm({
   const [saving, setSaving] = useState(false);
   const [shipping, setShipping] = useState(false);
   const [message, setMessage] = useState<{
-    tone: "success" | "error" | "info";
+    tone: FeedbackTone;
     text: string;
   } | null>(null);
   const cleanCarrier = carrier.trim();
   const cleanTrackingNumber = trackingNumber.trim();
+  const actionsBusy = saving || shipping;
   const trackingBlockedReason = dryRunShippingBlocked
     ? "The active shipping label is a dry-run simulation. Record a real label, tracking, and Coverage policy before using generic tracking actions."
     : !cleanCarrier
@@ -37,10 +40,16 @@ export default function TrackingForm({
       : !cleanTrackingNumber
         ? "Enter a tracking number before saving or marking shipped."
         : null;
-  const canSubmitTracking =
-    !saving && !shipping && !trackingBlockedReason;
-  const canSubmitShipment =
-    canSubmitTracking && canMarkShipped;
+  const trackingDisabledReason = actionsBusy
+    ? "Finish the current tracking action first."
+    : trackingBlockedReason || "";
+  const shipmentDisabledReason = trackingDisabledReason ||
+    (!canMarkShipped
+      ? reviewMessage ||
+        "This order is on a review hold and cannot be marked shipped yet."
+      : "");
+  const canSubmitTracking = !actionsBusy && !trackingBlockedReason;
+  const canSubmitShipment = canSubmitTracking && canMarkShipped;
 
   async function saveTracking() {
     if (trackingBlockedReason) {
@@ -183,6 +192,11 @@ export default function TrackingForm({
           type="button"
           onClick={saveTracking}
           disabled={!canSubmitTracking}
+          aria-busy={saving}
+          title={
+            trackingDisabledReason ||
+            "Save this tracking carrier and tracking number."
+          }
           className="rounded-2xl bg-blue-700 px-5 py-3 text-sm font-black text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
         >
           {saving ? "Saving..." : "Save Tracking"}
@@ -192,20 +206,34 @@ export default function TrackingForm({
           type="button"
           onClick={markShipped}
           disabled={!canSubmitShipment}
+          aria-busy={shipping}
+          title={
+            shipping
+              ? "Saving tracking and marking shipped..."
+              : shipmentDisabledReason || "Save tracking and mark this order shipped."
+          }
           className="rounded-2xl bg-emerald-700 px-5 py-3 text-sm font-black text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {shipping ? "Shipping..." : "Mark Shipped"}
+          {shipping ? "Marking shipped..." : "Mark Shipped"}
         </button>
       </div>
 
       {!canMarkShipped && reviewMessage ? (
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-950">
+        <div
+          role="status"
+          aria-live="polite"
+          className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-950"
+        >
           {reviewMessage}
         </div>
       ) : null}
 
       {dryRunShippingBlocked ? (
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-black text-red-950">
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="rounded-2xl border border-red-200 bg-red-50 p-3 text-sm font-black text-red-950"
+        >
           Dry-run shipping is blocking generic tracking and shipped-status
           actions. Record a real manual label + Coverage policy first.
         </div>
@@ -224,7 +252,7 @@ function ActionNotice({
   tone,
   children,
 }: {
-  tone: "success" | "error" | "info";
+  tone: FeedbackTone;
   children: ReactNode;
 }) {
   const className =
@@ -235,7 +263,11 @@ function ActionNotice({
         : "border-blue-200 bg-blue-50 text-blue-950";
 
   return (
-    <p className={`rounded-2xl border px-3 py-2 text-sm font-bold ${className}`}>
+    <p
+      role={tone === "error" ? "alert" : "status"}
+      aria-live={tone === "info" ? "polite" : "assertive"}
+      className={`rounded-2xl border px-3 py-2 text-sm font-bold ${className}`}
+    >
       {children}
     </p>
   );

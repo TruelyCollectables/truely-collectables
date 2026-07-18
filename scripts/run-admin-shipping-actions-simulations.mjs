@@ -16,6 +16,10 @@ const sources = {
     ),
     "utf8",
   ),
+  trackingForm: await readFile(
+    new URL("../src/app/admin/orders/[id]/TrackingForm.tsx", import.meta.url),
+    "utf8",
+  ),
   claimActions: await readFile(
     new URL("../src/app/admin/shipping/ShippingClaimActions.tsx", import.meta.url),
     "utf8",
@@ -97,6 +101,30 @@ scenario("manual shipping proof forms lock while any order shipping action is bu
     assert(
       sources.orderLabelActions.includes(fragment),
       `Expected manual proof locking fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("order tracking form announces save and shipped feedback", () => {
+  for (const fragment of [
+    "type FeedbackTone",
+    "Saving tracking...",
+    "Saving tracking and marking shipped...",
+    "Order marked shipped. Refreshing...",
+    "Finish the current tracking action first.",
+    "Save this tracking carrier and tracking number.",
+    "Save tracking and mark this order shipped.",
+    "aria-busy={saving}",
+    "aria-busy={shipping}",
+    'role={tone === "error" ? "alert" : "status"}',
+    'aria-live={tone === "info" ? "polite" : "assertive"}',
+    'role="status"',
+    'role="alert"',
+    'aria-live="assertive"',
+  ]) {
+    assert(
+      sources.trackingForm.includes(fragment),
+      `Expected order tracking-form feedback fragment ${fragment}.`,
     );
   }
 });
