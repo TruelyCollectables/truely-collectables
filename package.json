@@ -5,6 +5,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "next build --webpack",
+    "build:isolated": "NEXT_DIST_DIR=.next-build-check NEXT_TSCONFIG_PATH=tsconfig.build.json next build --webpack",
     "start": "next start",
     "manual:pdf": "node scripts/build-manual-pdf.mjs",
     "backup:nightly": "node scripts/nightly-emergency-backup.mjs",
