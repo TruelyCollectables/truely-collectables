@@ -160,10 +160,31 @@ scenario("settings page submits every email field through server validation", ()
     'type="email"',
     'inputMode="email"',
     "Settings were not saved:",
+    'role="alert"',
+    'aria-live="assertive"',
   ]) {
     assert(
       settingsPageSource.includes(fragment),
       `Expected settings page validation fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("settings page announces scoped save feedback and eBay sync impact", () => {
+  for (const fragment of [
+    'role="status"',
+    'aria-live="polite"',
+    "Store operations saved. Domain, email, eBay environment, account label, and seller commission settings were updated.",
+    "Marketplace integration settings saved. eBay sync availability was updated for this store.",
+    "Save domain, contact email, eBay environment, account label, and seller commission settings.",
+    "Save the eBay sync toggle for this store. Disabling it blocks imports, reconnects, and post-sale eBay quantity updates.",
+    "Current eBay Sync",
+    "Enabled: imports, reconnects, and post-sale quantity pushes are allowed.",
+    "Disabled: imports, reconnects, and eBay quantity pushes are blocked.",
+  ]) {
+    assert(
+      settingsPageSource.includes(fragment),
+      `Expected settings page save/eBay sync feedback fragment ${fragment}.`,
     );
   }
 });

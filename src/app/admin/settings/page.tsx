@@ -212,14 +212,22 @@ export default async function AdminSettingsPage({
 
       <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
         {params?.saved ? (
-          <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800">
+          <div
+            role="status"
+            aria-live="polite"
+            className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800"
+          >
             {params.saved === "operations"
-              ? "Store operations saved."
-              : "Store settings saved."}
+              ? "Store operations saved. Domain, email, eBay environment, account label, and seller commission settings were updated."
+              : "Marketplace integration settings saved. eBay sync availability was updated for this store."}
           </div>
         ) : null}
         {params?.settingsError ? (
-          <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-800">
+          <div
+            role="alert"
+            aria-live="assertive"
+            className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-800"
+          >
             Settings were not saved: {params.settingsError}
           </div>
         ) : null}
@@ -330,6 +338,7 @@ export default async function AdminSettingsPage({
             <AdminSubmitButton
               className="rounded-md bg-neutral-950 px-5 py-3 text-sm font-black text-white hover:bg-neutral-800"
               pendingChildren="Saving operations..."
+              title="Save domain, contact email, eBay environment, account label, and seller commission settings."
             >
               Save Store Operations
             </AdminSubmitButton>
@@ -368,11 +377,20 @@ export default async function AdminSettingsPage({
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
               <Info label="Account Label" value={settings.ebayAccountLabel || "Not set"} />
               <Info label="Environment" value={settings.ebayEnvironment} />
+              <Info
+                label="Current eBay Sync"
+                value={
+                  settings.ebaySyncEnabled
+                    ? "Enabled: imports, reconnects, and post-sale quantity pushes are allowed."
+                    : "Disabled: imports, reconnects, and eBay quantity pushes are blocked."
+                }
+              />
             </div>
 
             <AdminSubmitButton
               className="rounded-md bg-neutral-950 px-5 py-3 text-sm font-black text-white hover:bg-neutral-800"
               pendingChildren="Saving integration..."
+              title="Save the eBay sync toggle for this store. Disabling it blocks imports, reconnects, and post-sale eBay quantity updates."
             >
               Save Integration Settings
             </AdminSubmitButton>
