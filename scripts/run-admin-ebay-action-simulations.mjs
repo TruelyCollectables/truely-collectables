@@ -11,6 +11,10 @@ const inventoryIntakeSource = await readFile(
   ),
   "utf8",
 );
+const publisherSource = await readFile(
+  new URL("../src/app/admin/ebay/publish/EbayPublisher.tsx", import.meta.url),
+  "utf8",
+);
 
 const scenarios = [];
 
@@ -59,6 +63,23 @@ scenario("eBay intake bulk actions expose busy labels and disabled states", () =
     assert(
       inventoryIntakeSource.includes(fragment),
       `Expected eBay intake busy-state fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("eBay publisher locks uploads and labels listing saves", () => {
+  for (const fragment of [
+    "bulkUploading",
+    "Uploading exact scans...",
+    "disabled={bulkUploading}",
+    "disabled?: boolean;",
+    "Working...",
+    "Creating draft...",
+    "Publishing...",
+  ]) {
+    assert(
+      publisherSource.includes(fragment),
+      `Expected eBay publisher feedback fragment ${fragment}.`,
     );
   }
 });

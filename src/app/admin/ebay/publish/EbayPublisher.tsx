@@ -215,6 +215,7 @@ export default function EbayPublisher() {
   const [returns, setReturns] = useState("");
   const [location, setLocation] = useState("");
   const [bulkUploadMessage, setBulkUploadMessage] = useState<string | null>(null);
+  const [bulkUploading, setBulkUploading] = useState(false);
   const [publishConfirmId, setPublishConfirmId] = useState<string | null>(null);
   const [cards, setCards] = useState<CardState[]>(
     PRESETS.map((card) => ({
@@ -338,7 +339,7 @@ export default function EbayPublisher() {
   }
 
   async function uploadExactScanKit(files: FileList | null) {
-    if (!files || files.length === 0) return;
+    if (bulkUploading || !files || files.length === 0) return;
     const byName = new Map(
       Array.from(files).map((file) => [normalizedFilename(file.name), file]),
     );
@@ -364,20 +365,25 @@ export default function EbayPublisher() {
       return;
     }
 
+    setBulkUploading(true);
     setBulkUploadMessage(`Uploading ${jobs.length} exact scans…`);
-    const results = await Promise.allSettled(jobs);
-    const failed = results.filter((result) => result.status === "rejected").length;
+    try {
+      const results = await Promise.allSettled(jobs);
+      const failed = results.filter((result) => result.status === "rejected").length;
 
-    if (failed > 0) {
-      setBulkUploadMessage(
-        `${jobs.length - failed} scans uploaded; ${failed} failed. Review the red card messages below.`,
-      );
-    } else if (missing.length > 0) {
-      setBulkUploadMessage(
-        `${jobs.length} scans uploaded. Missing: ${missing.join(", ")}`,
-      );
-    } else {
-      setBulkUploadMessage("All 10 exact front-and-back scans are uploaded and ready.");
+      if (failed > 0) {
+        setBulkUploadMessage(
+          `${jobs.length - failed} scans uploaded; ${failed} failed. Review the red card messages below.`,
+        );
+      } else if (missing.length > 0) {
+        setBulkUploadMessage(
+          `${jobs.length} scans uploaded. Missing: ${missing.join(", ")}`,
+        );
+      } else {
+        setBulkUploadMessage("All 10 exact front-and-back scans are uploaded and ready.");
+      }
+    } finally {
+      setBulkUploading(false);
     }
   }
 
@@ -559,12 +565,19 @@ export default function EbayPublisher() {
           Download and unzip the exact scan kit, then select all 10 JPG files here.
           Filenames automatically match each front and back to the correct listing.
         </p>
-        <label className="mt-4 inline-flex cursor-pointer rounded-lg bg-blue-950 px-5 py-3 text-sm font-black text-white hover:bg-blue-800">
-          Select all 10 exact scans
+        <label
+          className={`mt-4 inline-flex rounded-lg px-5 py-3 text-sm font-black text-white ${
+            bulkUploading
+              ? "cursor-wait bg-blue-800 opacity-70"
+              : "cursor-pointer bg-blue-950 hover:bg-blue-800"
+          }`}
+        >
+          {bulkUploading ? "Uploading exact scans..." : "Select all 10 exact scans"}
           <input
             type="file"
             accept="image/jpeg,image/png,image/webp"
             multiple
+            disabled={bulkUploading}
             className="sr-only"
             onChange={(event) => void uploadExactScanKit(event.target.files)}
           />
@@ -584,6 +597,11 @@ export default function EbayPublisher() {
       <section className="grid gap-5 xl:grid-cols-2">
         {cards.map((card) => {
           const cardReady = Boolean(card.imageUrls.front && card.imageUrls.back);
+          const cardUploadBusy = card.uploadStatus === "uploading";
+          const cardSavingDraft =
+            card.status === "saving" && card.message === "Creating draft…";
+          const cardPublishing =
+            card.status === "saving" && card.message === "Publishing…";
           return (
             <article key={card.id} className="rounded-2xl border bg-white p-5 shadow-sm">
               <div className="flex flex-col gap-4 sm:flex-row">
@@ -591,11 +609,13 @@ export default function EbayPublisher() {
                   <ScanSlot
                     label="Front"
                     url={card.imageUrls.front}
+                    disabled={bulkUploading || cardUploadBusy || card.status === "saving"}
                     onFile={(file) => void uploadFile(card, "front", file)}
                   />
                   <ScanSlot
                     label="Back"
                     url={card.imageUrls.back}
+                    disabled={bulkUploading || cardUploadBusy || card.status === "saving"}
                     onFile={(file) => void uploadFile(card, "back", file)}
                   />
                 </div>
@@ -695,22 +715,30 @@ export default function EbayPublisher() {
                 <button
                   type="button"
                   disabled={
-                    !policiesReady || !cardReady || card.status === "saving"
+                    !policiesReady ||
+                    !cardReady ||
+                    bulkUploading ||
+                    cardUploadBusy ||
+                    card.status === "saving"
                   }
                   onClick={() => void submit(card, "draft")}
                   className="rounded-lg border bg-white px-4 py-2.5 text-sm font-black hover:bg-neutral-100 disabled:opacity-40"
                 >
-                  Create eBay draft
+                  {cardSavingDraft ? "Creating draft..." : "Create eBay draft"}
                 </button>
                 <button
                   type="button"
                   disabled={
-                    !policiesReady || !cardReady || card.status === "saving"
+                    !policiesReady ||
+                    !cardReady ||
+                    bulkUploading ||
+                    cardUploadBusy ||
+                    card.status === "saving"
                   }
                   onClick={() => setPublishConfirmId(card.id)}
                   className="rounded-lg bg-neutral-950 px-4 py-2.5 text-sm font-black text-white hover:bg-neutral-800 disabled:opacity-40"
                 >
-                  Publish live on eBay
+                  {cardPublishing ? "Publishing..." : "Publish live on eBay"}
                 </button>
               </div>
 
@@ -730,7 +758,7 @@ export default function EbayPublisher() {
                       onClick={() => void submit(card, "publish")}
                       className="rounded-lg bg-neutral-950 px-4 py-2 text-sm font-black text-white disabled:opacity-40"
                     >
-                      Confirm live publish
+                      {cardPublishing ? "Publishing..." : "Confirm live publish"}
                     </button>
                     <button
                       type="button"
@@ -778,10 +806,12 @@ export default function EbayPublisher() {
 function ScanSlot({
   label,
   url,
+  disabled = false,
   onFile,
 }: {
   label: string;
   url: string | null;
+  disabled?: boolean;
   onFile: (file: File) => void;
 }) {
   return (
@@ -793,13 +823,21 @@ function ScanSlot({
           Add {label.toLowerCase()} scan
         </div>
       )}
-      <label className="absolute inset-x-1 bottom-1 cursor-pointer rounded bg-neutral-950/90 px-2 py-1.5 text-center text-[10px] font-black uppercase text-white">
-        {url ? `Replace ${label}` : `Upload ${label}`}
+      <label
+        className={`absolute inset-x-1 bottom-1 rounded px-2 py-1.5 text-center text-[10px] font-black uppercase text-white ${
+          disabled
+            ? "cursor-wait bg-neutral-700/80"
+            : "cursor-pointer bg-neutral-950/90"
+        }`}
+      >
+        {disabled ? "Working..." : url ? `Replace ${label}` : `Upload ${label}`}
         <input
           type="file"
           accept="image/jpeg,image/png,image/webp"
+          disabled={disabled}
           className="sr-only"
           onChange={(event) => {
+            if (disabled) return;
             const file = event.target.files?.[0];
             if (file) onFile(file);
           }}
