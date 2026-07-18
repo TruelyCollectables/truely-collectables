@@ -8,11 +8,19 @@ const sources = {
     ),
     "utf8",
   ),
+  paymentPage: await readFile(
+    new URL("../src/app/admin/live-payment-launch/page.tsx", import.meta.url),
+    "utf8",
+  ),
   shipping: await readFile(
     new URL(
       "../src/app/admin/live-shipping-launch/LiveShippingGateActions.tsx",
       import.meta.url,
     ),
+    "utf8",
+  ),
+  shippingPage: await readFile(
+    new URL("../src/app/admin/live-shipping-launch/page.tsx", import.meta.url),
     "utf8",
   ),
 };
@@ -73,6 +81,44 @@ scenario("live payment gate actions announce and explain approval controls", () 
 
 scenario("live shipping gate actions announce and explain approval controls", () => {
   assertGateFeedback(sources.shipping, "shipping");
+});
+
+scenario("live launch pages keep approval history failures operator-safe", () => {
+  for (const [label, source, unavailableCopy, defaultError] of [
+    [
+      "payment",
+      sources.paymentPage,
+      "Approval history unavailable.",
+      "Unknown live-payment launch history error.",
+    ],
+    [
+      "shipping",
+      sources.shippingPage,
+      "Shipping approval history unavailable.",
+      "Unknown live-shipping launch history error.",
+    ],
+  ]) {
+    for (const fragment of [
+      "function safeErrorMessage",
+      "replace(/\\s+/g, \" \").trim().slice(0, 220)",
+      unavailableCopy,
+      "This panel is paused instead of showing an empty approval trail.",
+      "Diagnostic: {diagnostic}",
+      "role=\"alert\"",
+      "aria-live=\"assertive\"",
+      defaultError,
+    ]) {
+      assert(
+        source.includes(fragment),
+        `Expected live ${label} launch page history failure fragment ${fragment}.`,
+      );
+    }
+
+    assert(
+      !source.includes("{eventsResult.error.message}"),
+      `Expected live ${label} launch page to avoid rendering raw history provider errors.`,
+    );
+  }
 });
 
 const failed = [];

@@ -23,6 +23,14 @@ function label(status: LivePaymentCheckStatus) {
   return "Blocked";
 }
 
+function safeErrorMessage(error: { message?: string } | string | null | undefined) {
+  const message =
+    typeof error === "string"
+      ? error
+      : error?.message || "Unknown live-payment launch history error.";
+  return String(message).replace(/\s+/g, " ").trim().slice(0, 220);
+}
+
 export default async function LivePaymentLaunchPage() {
   const supabase = createSupabaseServerClient({ admin: true });
   const storeId = getActiveStoreId();
@@ -314,7 +322,9 @@ export default async function LivePaymentLaunchPage() {
         <section className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm">
           <h2 className="text-xl font-black">Immutable Approval History</h2>
           {eventsResult.error ? (
-            <p className="mt-3 text-sm text-red-700">{eventsResult.error.message}</p>
+            <HistoryUnavailableNotice
+              diagnostic={safeErrorMessage(eventsResult.error)}
+            />
           ) : eventsResult.data?.length ? (
             <div className="mt-4 overflow-x-auto">
               <table className="w-full text-left text-sm">
@@ -348,6 +358,23 @@ export default async function LivePaymentLaunchPage() {
         </section>
       </div>
     </main>
+  );
+}
+
+function HistoryUnavailableNotice({ diagnostic }: { diagnostic: string }) {
+  return (
+    <div
+      role="alert"
+      aria-live="assertive"
+      className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-950"
+    >
+      <p className="font-black">Approval history unavailable.</p>
+      <p className="mt-2 font-semibold leading-6">
+        This panel is paused instead of showing an empty approval trail. The
+        live-payment gate remains governed by the current launch checks above.
+      </p>
+      <p className="mt-2 text-xs font-bold">Diagnostic: {diagnostic}</p>
+    </div>
   );
 }
 
