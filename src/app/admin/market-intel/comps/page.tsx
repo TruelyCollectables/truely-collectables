@@ -124,9 +124,13 @@ export default async function MarketIntelCompsPage({ searchParams }: PageProps) 
                 <AdminSubmitButton
                   className="rounded-md bg-black px-5 py-3 font-black text-white sm:col-span-2"
                   pendingChildren="Creating identity..."
+                  title="Create a reusable exact-card identity for comps, scanner matching, deal scoring, and purchase review."
                 >
                   Create Exact Identity
                 </AdminSubmitButton>
+                <p className="text-xs font-bold text-neutral-600 sm:col-span-2">
+                  Saves identity metadata only; sold comps and listing scores are added in later steps.
+                </p>
               </form>
             )}
           </section>

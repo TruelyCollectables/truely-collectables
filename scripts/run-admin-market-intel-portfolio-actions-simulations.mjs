@@ -5,6 +5,18 @@ const sources = {
     new URL("../src/app/admin/market-intel/buy/page.tsx", import.meta.url),
     "utf8",
   ),
+  comps: await readFile(
+    new URL("../src/app/admin/market-intel/comps/page.tsx", import.meta.url),
+    "utf8",
+  ),
+  compDetail: await readFile(
+    new URL("../src/app/admin/market-intel/comps/[id]/page.tsx", import.meta.url),
+    "utf8",
+  ),
+  discovery: await readFile(
+    new URL("../src/app/admin/market-intel/discovery/page.tsx", import.meta.url),
+    "utf8",
+  ),
   purchaseDetail: await readFile(
     new URL("../src/app/admin/market-intel/purchases/[id]/page.tsx", import.meta.url),
     "utf8",
@@ -89,6 +101,15 @@ scenario("purchase desk and purchase detail forms label native submits", () => {
     sources.buy.includes("Creating purchase position..."),
     "Expected purchase desk pending label.",
   );
+  for (const fragment of [
+    "Create a Market Intel purchase position from this deal candidate using the final delivered cost basis.",
+    "This records the purchase position only; it does not buy the listing for you.",
+  ]) {
+    assert(
+      sources.buy.includes(fragment),
+      `Expected purchase desk action-scope fragment ${fragment}.`,
+    );
+  }
 
   assert(
     sources.purchaseDetail.includes('import AdminSubmitButton from "../../../AdminSubmitButton";'),
@@ -111,6 +132,8 @@ scenario("purchase desk and purchase detail forms label native submits", () => {
     "All purchased units have already been recorded as sold.",
     "disabledReason={saleSaveDisabledReason}",
     "Save this sale and recalculate realized gross profit.",
+    "Mark this purchase lot as received so it can move from inbound tracking into inventory review.",
+    "Updates receipt status only; sale recording and realized profit stay separate.",
   ]) {
     assert(
       sources.purchaseDetail.includes(fragment),
@@ -202,10 +225,69 @@ scenario("deal and ingestion operations expose pending state", () => {
     assert(sources.deals.includes(label), `Expected deals pending label ${label}.`);
   }
 
+  for (const fragment of [
+    "Save this listing, attach its exact identity, and calculate its deal score from current comps and delivered cost.",
+    "Records and scores the listing for review; buying and ending listings remain separate actions.",
+    "Recalculate deal scores for saved listings from the latest comps, fees, risk, and delivered-cost data.",
+    "Refreshes ranking math only; it does not create purchases or end listings.",
+  ]) {
+    assert(
+      sources.deals.includes(fragment),
+      `Expected deals action-scope fragment ${fragment}.`,
+    );
+  }
+
   assert(
     sources.ingestion.includes("Running cleanup..."),
     "Expected ingestion cleanup pending label.",
   );
+  for (const fragment of [
+    "Run the Market Intel cleanup pass to expire stale records and remove old rejected/expired staging rows.",
+    "Cleanup affects stale Market Intel staging data only; purchases, sales, and exact identities remain intact.",
+  ]) {
+    assert(
+      sources.ingestion.includes(fragment),
+      `Expected ingestion cleanup action-scope fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("comp and discovery admin actions explain scope", () => {
+  for (const fragment of [
+    "Create a reusable exact-card identity for comps, scanner matching, deal scoring, and purchase review.",
+    "Saves identity metadata only; sold comps and listing scores are added in later steps.",
+  ]) {
+    assert(
+      sources.comps.includes(fragment),
+      `Expected comps identity action-scope fragment ${fragment}.`,
+    );
+  }
+
+  for (const fragment of [
+    "Recalculate the market-value snapshot from verified, included, non-outlier sold comps for this exact identity.",
+    "Updates market-value math only; sold comp rows stay unchanged.",
+    "Save this verified sold comp and include or exclude it from the exact-card market-value calculation based on the form flags.",
+    "Adds one sold-comp row; market value uses only verified, included, non-outlier comps.",
+  ]) {
+    assert(
+      sources.compDetail.includes(fragment),
+      `Expected comp detail action-scope fragment ${fragment}.`,
+    );
+  }
+
+  for (const fragment of [
+    "Run the Market Intel eBay scanner for the selected watchlist scope and save review candidates.",
+    "Finds and stages candidates for review; it does not approve identities, buy listings, or publish anything.",
+    "Approve this candidate as an exact-card identity, attach it to the listing, and calculate the listing score.",
+    "Moves the candidate into exact review data and scoring; it does not buy the listing.",
+    "Reject this discovery candidate with the entered reason and remove it from the approval queue.",
+    "Rejecting documents the reason and keeps the source listing unchanged.",
+  ]) {
+    assert(
+      sources.discovery.includes(fragment),
+      `Expected discovery action-scope fragment ${fragment}.`,
+    );
+  }
 });
 
 scenario("growth spec forms and value-list refreshes label long-running posts", () => {

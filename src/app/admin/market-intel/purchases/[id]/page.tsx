@@ -115,9 +115,13 @@ export default async function MarketIntelPurchaseDetailPage({
                   <AdminSubmitButton
                     className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-black text-white hover:bg-emerald-700"
                     pendingChildren="Marking received..."
+                    title="Mark this purchase lot as received so it can move from inbound tracking into inventory review."
                   >
                     Mark Received
                   </AdminSubmitButton>
+                  <p className="mt-2 text-xs font-bold text-neutral-600">
+                    Updates receipt status only; sale recording and realized profit stay separate.
+                  </p>
                 </form>
               ) : null}
             </div>

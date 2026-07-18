@@ -102,9 +102,13 @@ export default async function MarketIntelCompDetailPage({
                   <AdminSubmitButton
                     className="rounded-md bg-black px-4 py-2.5 text-sm font-black text-white"
                     pendingChildren="Recalculating..."
+                    title="Recalculate the market-value snapshot from verified, included, non-outlier sold comps for this exact identity."
                   >
                     Recalculate
                   </AdminSubmitButton>
+                  <p className="mt-2 text-xs font-bold text-neutral-600">
+                    Updates market-value math only; sold comp rows stay unchanged.
+                  </p>
                 </form>
               </div>
 
@@ -182,9 +186,13 @@ export default async function MarketIntelCompDetailPage({
               <AdminSubmitButton
                 className="rounded-md bg-black px-5 py-3 font-black text-white sm:col-span-2"
                 pendingChildren="Saving comp..."
+                title="Save this verified sold comp and include or exclude it from the exact-card market-value calculation based on the form flags."
               >
                 Save Verified Comp
               </AdminSubmitButton>
+              <p className="text-xs font-bold text-neutral-600 sm:col-span-2">
+                Adds one sold-comp row; market value uses only verified, included, non-outlier comps.
+              </p>
             </form>
           </section>
         </section>

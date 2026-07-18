@@ -201,9 +201,13 @@ export default async function MarketIntelIngestionPage({
                 <AdminSubmitButton
                   className="mt-4 w-full rounded-md bg-black px-4 py-3 font-black text-white"
                   pendingChildren="Running cleanup..."
+                  title="Run the Market Intel cleanup pass to expire stale records and remove old rejected/expired staging rows."
                 >
                   Run Cleanup Now
                 </AdminSubmitButton>
+                <p className="mt-2 text-xs font-bold text-neutral-600">
+                  Cleanup affects stale Market Intel staging data only; purchases, sales, and exact identities remain intact.
+                </p>
               </form>
             </div>
 

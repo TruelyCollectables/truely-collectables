@@ -293,12 +293,14 @@ function CandidateCard({
               <AdminSubmitButton
                 className="w-full rounded-md bg-black px-4 py-3 font-black text-white"
                 pendingChildren="Creating purchase position..."
+                title="Create a Market Intel purchase position from this deal candidate using the final delivered cost basis."
               >
                 CREATE PURCHASE POSITION
               </AdminSubmitButton>
               <p className="text-xs font-semibold leading-5 text-amber-950">
                 Use the final amount you actually paid after accepted offers, shipping,
                 buyer fees, and tax. Beta One uses this as the real cost basis.
+                This records the purchase position only; it does not buy the listing for you.
               </p>
             </form>
           )}

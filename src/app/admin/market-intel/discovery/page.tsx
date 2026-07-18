@@ -161,9 +161,13 @@ export default async function IdentityDiscoveryPage({ searchParams }: PageProps)
               <AdminSubmitButton
                 className="col-span-2 rounded-md bg-cyan-900 px-4 py-3 font-black text-white"
                 pendingChildren="Scanning eBay..."
+                title="Run the Market Intel eBay scanner for the selected watchlist scope and save review candidates."
               >
                 Scan eBay Now
               </AdminSubmitButton>
+              <p className="col-span-2 text-xs font-bold text-cyan-950">
+                Finds and stages candidates for review; it does not approve identities, buy listings, or publish anything.
+              </p>
             </form>
           </div>
         </section>
@@ -349,9 +353,13 @@ function CandidateReview({
             <AdminSubmitButton
               className="rounded-md bg-emerald-700 px-4 py-3 font-black text-white md:col-span-2 xl:col-span-4"
               pendingChildren="Approving and scoring..."
+              title="Approve this candidate as an exact-card identity, attach it to the listing, and calculate the listing score."
             >
               Approve Exact Identity + Score Listing
             </AdminSubmitButton>
+            <p className="text-xs font-bold text-neutral-600 md:col-span-2 xl:col-span-4">
+              Moves the candidate into exact review data and scoring; it does not buy the listing.
+            </p>
           </form>
 
           <form
@@ -370,9 +378,13 @@ function CandidateReview({
             <AdminSubmitButton
               className="shrink-0 rounded-md border border-rose-300 bg-rose-50 px-4 py-2 font-black text-rose-950"
               pendingChildren="Rejecting..."
+              title="Reject this discovery candidate with the entered reason and remove it from the approval queue."
             >
               Reject Candidate
             </AdminSubmitButton>
+            <p className="text-xs font-bold text-rose-950 sm:basis-full">
+              Rejecting documents the reason and keeps the source listing unchanged.
+            </p>
           </form>
         </div>
       </div>

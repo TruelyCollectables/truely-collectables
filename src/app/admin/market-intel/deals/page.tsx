@@ -323,9 +323,13 @@ export default async function MarketIntelDealsPage({ searchParams }: PageProps) 
                 <AdminSubmitButton
                   className="rounded-md bg-black px-5 py-3 font-black text-white sm:col-span-2"
                   pendingChildren="Saving and scoring..."
+                  title="Save this listing, attach its exact identity, and calculate its deal score from current comps and delivered cost."
                 >
                   Save Listing and Score Deal
                 </AdminSubmitButton>
+                <p className="text-xs font-bold text-neutral-600 sm:col-span-2">
+                  Records and scores the listing for review; buying and ending listings remain separate actions.
+                </p>
               </form>
             )}
           </section>
@@ -348,9 +352,13 @@ export default async function MarketIntelDealsPage({ searchParams }: PageProps) 
                 <AdminSubmitButton
                   className="rounded-md border border-neutral-500 px-4 py-2 text-sm font-black hover:bg-white hover:text-black"
                   pendingChildren="Rescoring..."
+                  title="Recalculate deal scores for saved listings from the latest comps, fees, risk, and delivered-cost data."
                 >
                   Rescore All
                 </AdminSubmitButton>
+                <p className="mt-2 text-xs font-bold text-neutral-300">
+                  Refreshes ranking math only; it does not create purchases or end listings.
+                </p>
               </form>
             </div>
 
