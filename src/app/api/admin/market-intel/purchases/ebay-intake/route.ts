@@ -5,6 +5,11 @@ import {
   adminRedirectUrl,
 } from "../../../../../../lib/admin-handoff";
 import {
+  EbayBuyerOrderError,
+  fetchEbayBuyerOrder,
+  parseEbayOrderId,
+} from "../../../../../../lib/ebay-buyer-orders";
+import {
   movePurchaseInboxToReview,
   skipPurchaseInboxRows,
   stageEbayPurchase,
@@ -106,7 +111,9 @@ async function fetchEbayItemForPlayer(ebayItem: string) {
   } else {
     const legacy = legacyItemId(value);
     if (!legacy) {
-      throw new Error("Enter a valid eBay item URL, legacy item number, or Browse item ID.");
+      throw new Error(
+        "Enter an eBay order-details link, listing URL, order number, item number, or Browse item ID.",
+      );
     }
     url = new URL("https://api.ebay.com/buy/browse/v1/item/get_item_by_legacy_id");
     url.searchParams.set("legacy_item_id", legacy);
@@ -168,10 +175,21 @@ async function playerFromWatchlistTitle(title: string | undefined) {
   );
 }
 
-async function resolvePlayerName(ebayItem: string, manualPlayerName: string) {
+async function resolvePlayerName(
+  ebayItem: string,
+  manualPlayerName: string,
+  fallbackTitle?: string,
+) {
   if (manualPlayerName.trim()) return manualPlayerName.trim();
 
-  const detail = await fetchEbayItemForPlayer(ebayItem);
+  let detail: EbayItemDetail;
+  try {
+    detail = await fetchEbayItemForPlayer(ebayItem);
+  } catch (error) {
+    if (!fallbackTitle) throw error;
+    detail = { title: fallbackTitle, localizedAspects: [] };
+  }
+
   const aspectPlayer = aspectValue(detail.localizedAspects, [
     "Player/Athlete",
     "Player",
@@ -180,11 +198,25 @@ async function resolvePlayerName(ebayItem: string, manualPlayerName: string) {
   ]);
   if (aspectPlayer) return aspectPlayer;
 
-  const watchlistPlayer = await playerFromWatchlistTitle(detail.title);
+  const watchlistPlayer = await playerFromWatchlistTitle(detail.title || fallbackTitle);
   if (watchlistPlayer) return watchlistPlayer;
 
-  throw new Error(
-    "TCOS could not identify the player from this eBay listing. Enter the player correction once and submit again.",
+  return "Needs Player Review";
+}
+
+function intakeRedirect(
+  request: NextRequest,
+  handoff: string | null,
+  params: Record<string, string>,
+) {
+  const query = new URLSearchParams(params);
+  return NextResponse.redirect(
+    adminRedirectUrl(
+      `/admin/market-intel/purchases/ebay-intake?${query.toString()}`,
+      request.url,
+      handoff,
+    ),
+    303,
   );
 }
 
@@ -197,12 +229,53 @@ export async function POST(request: NextRequest) {
     if (action === "add") {
       const targetBucket = text(formData, "targetBucket") as PurchaseInboxBucket;
       const ebayItem = text(formData, "ebayItem");
-      const playerName = await resolvePlayerName(ebayItem, text(formData, "playerName"));
+      const manualPlayerName = text(formData, "playerName");
+      const sportOrCategory = text(formData, "sportOrCategory") || "Baseball";
+      const bucket: PurchaseInboxBucket = ["resale", "hold", "skip"].includes(targetBucket)
+        ? targetBucket
+        : "resale";
+      const orderId = parseEbayOrderId(ebayItem);
 
+      if (orderId) {
+        const order = await fetchEbayBuyerOrder(ebayItem);
+        const purchaseDate = order.purchaseDate.slice(0, 10);
+        let added = 0;
+
+        for (const line of order.lines) {
+          const playerName = await resolvePlayerName(
+            line.itemId,
+            order.lines.length === 1 ? manualPlayerName : "",
+            line.title,
+          );
+          await stageEbayPurchase({
+            ebayItem: line.itemId,
+            playerName,
+            sportOrCategory,
+            purchaseDate,
+            quantity: line.quantity,
+            itemSubtotal: line.itemSubtotal,
+            inboundShipping: line.inboundShipping,
+            salesTax: line.salesTax,
+            buyerFees: line.buyerFees,
+            otherCost: line.otherCost,
+            targetBucket: bucket,
+            externalOrderId: order.orderId,
+          });
+          added += 1;
+        }
+
+        revalidatePath("/admin/market-intel/purchases/ebay-intake");
+        return intakeRedirect(request, handoff, {
+          added: String(added),
+          order: order.orderId,
+        });
+      }
+
+      const playerName = await resolvePlayerName(ebayItem, manualPlayerName);
       await stageEbayPurchase({
         ebayItem,
         playerName,
-        sportOrCategory: text(formData, "sportOrCategory") || "Baseball",
+        sportOrCategory,
         purchaseDate: text(formData, "purchaseDate"),
         quantity: Math.max(1, Math.round(numberField(formData, "quantity", 1))),
         itemSubtotal: numberField(formData, "itemSubtotal", 0),
@@ -210,20 +283,11 @@ export async function POST(request: NextRequest) {
         salesTax: numberField(formData, "salesTax", 0),
         buyerFees: numberField(formData, "buyerFees", 0),
         otherCost: numberField(formData, "otherCost", 0),
-        targetBucket: ["resale", "hold", "skip"].includes(targetBucket)
-          ? targetBucket
-          : "resale",
+        targetBucket: bucket,
         externalOrderId: text(formData, "externalOrderId") || null,
       });
       revalidatePath("/admin/market-intel/purchases/ebay-intake");
-      return NextResponse.redirect(
-        adminRedirectUrl(
-          "/admin/market-intel/purchases/ebay-intake?added=1",
-          request.url,
-          handoff,
-        ),
-        303,
-      );
+      return intakeRedirect(request, handoff, { added: "1" });
     }
 
     const inboxIds = formData.getAll("inboxIds").map((value) => String(value));
@@ -234,14 +298,7 @@ export async function POST(request: NextRequest) {
     if (action === "skip") {
       const result = await skipPurchaseInboxRows(inboxIds);
       revalidatePath("/admin/market-intel/purchases/ebay-intake");
-      return NextResponse.redirect(
-        adminRedirectUrl(
-          `/admin/market-intel/purchases/ebay-intake?skipped=${result.skipped}`,
-          request.url,
-          handoff,
-        ),
-        303,
-      );
+      return intakeRedirect(request, handoff, { skipped: String(result.skipped) });
     }
 
     const bucket = action === "move_hold" ? "hold" : action === "move_resale" ? "resale" : null;
@@ -249,27 +306,18 @@ export async function POST(request: NextRequest) {
     const result = await movePurchaseInboxToReview(inboxIds, bucket);
     revalidatePath("/admin/market-intel/purchases/ebay-intake");
     revalidatePath("/admin/market-intel/discovery");
-    const error = result.errors[0] || "";
-    const params = new URLSearchParams({ moved: String(result.moved) });
-    if (error) params.set("error", error.slice(0, 240));
-    return NextResponse.redirect(
-      adminRedirectUrl(
-        `/admin/market-intel/purchases/ebay-intake?${params.toString()}`,
-        request.url,
-        handoff,
-      ),
-      303,
-    );
+    const params: Record<string, string> = { moved: String(result.moved) };
+    if (result.errors[0]) params.error = result.errors[0].slice(0, 240);
+    return intakeRedirect(request, handoff, params);
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unable to process eBay purchase intake.";
+    const message =
+      error instanceof Error ? error.message : "Unable to process eBay purchase intake.";
     revalidatePath("/admin/market-intel/purchases/ebay-intake");
-    return NextResponse.redirect(
-      adminRedirectUrl(
-        `/admin/market-intel/purchases/ebay-intake?error=${encodeURIComponent(message)}`,
-        request.url,
-        handoff,
-      ),
-      303,
-    );
+    return intakeRedirect(request, handoff, {
+      error: message,
+      ...(error instanceof EbayBuyerOrderError && error.code === "RECONNECT_REQUIRED"
+        ? { reconnect: "1" }
+        : {}),
+    });
   }
 }
