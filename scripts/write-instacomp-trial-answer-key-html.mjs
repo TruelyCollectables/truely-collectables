@@ -218,17 +218,24 @@ function buildHtml(report) {
     .commands { background: #111827; color: #f9fafb; border-radius: 12px; padding: 14px 16px; margin: 16px 0; font-weight: 800; }
     code { background: rgba(255,255,255,0.12); padding: 2px 5px; border-radius: 5px; }
     .toolbar { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; background: #fff; border: 1px solid #ddd0c4; border-radius: 12px; padding: 12px; margin: 0 0 16px; }
+    .filter-control { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; color: #374151; font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: 0.04em; }
+    .filter-control input { min-width: 250px; border: 1px solid #d6ccc2; border-radius: 10px; padding: 9px 10px; font-size: 14px; font-weight: 800; text-transform: none; letter-spacing: normal; }
+    .filter-tabs { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
     button { border: 2px solid #174c2a; background: #166534; color: #fff; border-radius: 10px; padding: 10px 14px; font-size: 14px; font-weight: 900; cursor: pointer; }
     button.secondary { border-color: #1d4ed8; background: #2563eb; }
+    button.filter { border-color: #d6ccc2; background: #fff; color: #374151; padding: 8px 10px; font-size: 12px; }
+    button.filter.active { border-color: #7c2d12; background: #fed7aa; color: #7c2d12; }
     button:focus, input:focus { outline: 3px solid #f59e0b; outline-offset: 2px; }
     #tsvOutput { position: absolute; left: -9999px; width: 1px; height: 1px; }
     #copyStatus { font-size: 13px; font-weight: 900; color: #166534; }
+    #filterStatus { font-size: 13px; font-weight: 900; color: #374151; }
     table { width: 100%; border-collapse: collapse; background: white; border: 1px solid #ddd0c4; }
     th, td { border-bottom: 1px solid #eadfd5; padding: 9px; vertical-align: top; text-align: left; }
     th { position: sticky; top: 98px; background: #fff7ed; z-index: 4; font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
     tr.ready { background: #f0fff4; }
     tr.answer-ready { background: #fffdf0; }
     tr.missing { background: #fff5f5; }
+    tr[hidden] { display: none; }
     .thumbs { display: flex; gap: 8px; min-width: 180px; }
     figure { margin: 0; width: 82px; }
     img { width: 82px; height: 112px; object-fit: contain; border: 1px solid #cfc7bf; border-radius: 8px; background: #fff; }
@@ -272,6 +279,19 @@ function buildHtml(report) {
       <button type="button" id="downloadTsv" class="secondary">Download updated TSV</button>
       <span id="copyStatus">Edit fields below, then copy/download and save as ${escapeHtml(report.worksheet.relativePath || "instacomp-trial-groundtruth.local.tsv")}.</span>
       <textarea id="tsvOutput" aria-hidden="true"></textarea>
+    </div>
+    <div class="toolbar" aria-label="Answer-key row filters">
+      <label class="filter-control" for="answerKeySearch">
+        Search rows
+        <input id="answerKeySearch" type="search" placeholder="Card ID, player, set, number, note…" autocomplete="off" />
+      </label>
+      <div class="filter-tabs" role="group" aria-label="Answer-key status filter">
+        <button type="button" class="filter active" data-filter="all">Show all</button>
+        <button type="button" class="filter" data-filter="missing">Missing required</button>
+        <button type="button" class="filter" data-filter="ready">Answer ready</button>
+        <button type="button" class="filter" data-filter="image-issues">Image issues</button>
+      </div>
+      <span id="filterStatus">Showing all rows.</span>
     </div>
     <table>
       <thead>
@@ -322,6 +342,7 @@ function buildHtml(report) {
     const tcosColumns = ${JSON.stringify(defaultColumns)};
     const tcosRequiredColumns = ${JSON.stringify(requiredCoreFields)};
     const outputFilename = ${JSON.stringify(path.basename(report.worksheet.relativePath || "instacomp-trial-groundtruth.local.tsv"))};
+    let currentFilter = "all";
 
     function cleanTsvCell(value) {
       return String(value || "").replace(/\\t/g, " ").replace(/\\r?\\n/g, " ").trim();
@@ -330,6 +351,18 @@ function buildHtml(report) {
     function rowValue(row, column) {
       const input = row.querySelector('[data-column="' + column + '"]');
       return cleanTsvCell(input ? input.value : "");
+    }
+
+    function rowMissingRequired(row) {
+      return tcosRequiredColumns.filter((column) => !rowValue(row, column));
+    }
+
+    function rowSearchText(row) {
+      return tcosColumns
+        .map((column) => rowValue(row, column))
+        .concat(row.textContent || "")
+        .join(" ")
+        .toLowerCase();
     }
 
     function buildUpdatedTsv() {
@@ -341,7 +374,7 @@ function buildHtml(report) {
     }
 
     function updateRowStatus(row) {
-      const missing = tcosRequiredColumns.filter((column) => !rowValue(row, column));
+      const missing = rowMissingRequired(row);
       for (const column of tcosRequiredColumns) {
         const input = row.querySelector('[data-column="' + column + '"]');
         if (input) input.classList.toggle("required-missing", !rowValue(row, column));
@@ -362,6 +395,32 @@ function buildHtml(report) {
       }
     }
 
+    function rowPassesFilter(row) {
+      const missing = rowMissingRequired(row);
+      const hasImageIssue = row.dataset.frontExists !== "true" || row.dataset.backExists !== "true";
+      const searchTerm = cleanTsvCell(document.getElementById("answerKeySearch")?.value || "").toLowerCase();
+      const matchesSearch = !searchTerm || rowSearchText(row).includes(searchTerm);
+      const matchesStatus =
+        currentFilter === "all" ||
+        (currentFilter === "missing" && missing.length > 0) ||
+        (currentFilter === "ready" && missing.length === 0) ||
+        (currentFilter === "image-issues" && hasImageIssue);
+
+      return matchesSearch && matchesStatus;
+    }
+
+    function updateVisibleRows() {
+      const rows = [...document.querySelectorAll("tbody tr")];
+      let visible = 0;
+      for (const row of rows) {
+        const show = rowPassesFilter(row);
+        row.hidden = !show;
+        if (show) visible += 1;
+      }
+      const filterStatus = document.getElementById("filterStatus");
+      if (filterStatus) filterStatus.textContent = "Showing " + visible + "/" + rows.length + " rows.";
+    }
+
     function updateSummary() {
       const rows = [...document.querySelectorAll("tbody tr")];
       const readyRows = rows.filter((row) =>
@@ -373,6 +432,7 @@ function buildHtml(report) {
         pill.classList.toggle("ok", readyRows === rows.length);
         pill.classList.toggle("bad", readyRows !== rows.length);
       }
+      updateVisibleRows();
     }
 
     async function copyUpdatedTsv() {
@@ -419,6 +479,16 @@ function buildHtml(report) {
         const row = input.closest("tr");
         if (row) updateRowStatus(row);
         updateSummary();
+      });
+    }
+    document.getElementById("answerKeySearch")?.addEventListener("input", updateVisibleRows);
+    for (const button of document.querySelectorAll("[data-filter]")) {
+      button.addEventListener("click", () => {
+        currentFilter = button.dataset.filter || "all";
+        for (const peer of document.querySelectorAll("[data-filter]")) {
+          peer.classList.toggle("active", peer === button);
+        }
+        updateVisibleRows();
       });
     }
     for (const row of document.querySelectorAll("tbody tr")) updateRowStatus(row);
