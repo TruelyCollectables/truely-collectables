@@ -29,9 +29,15 @@ function optionalInteger(formData: FormData, name: string) {
   return parsed;
 }
 
+function wantsJson(request: NextRequest) {
+  return request.headers.get("accept")?.includes("application/json") === true;
+}
+
 export async function POST(request: NextRequest, context: RouteContext) {
   const { id } = await context.params;
   const handoff = adminHandoffFromUrl(new URL(request.url));
+  const json = wantsJson(request);
+
   try {
     const supabase = createSupabaseServerClient({ admin: true });
     const { data: candidate, error: candidateError } = await supabase
@@ -76,6 +82,18 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const result = await approveIdentityCandidate(approval);
     revalidatePath("/admin/market-intel/discovery");
 
+    if (json) {
+      return NextResponse.json(
+        {
+          success: true,
+          identityId: result.identityId,
+          listingId: result.listingId,
+          alreadyApproved: result.alreadyApproved || false,
+        },
+        { headers: { "Cache-Control": "no-store" } },
+      );
+    }
+
     return NextResponse.redirect(
       adminRedirectUrl(
         `/admin/market-intel/discovery?approved=1&resolved=${encodeURIComponent(id)}&t=${Date.now()}&identityId=${encodeURIComponent(result.identityId)}${result.listingId ? `&listingId=${encodeURIComponent(result.listingId)}` : ""}`,
@@ -88,6 +106,14 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const message =
       error instanceof Error ? error.message : "Unable to approve candidate.";
     revalidatePath("/admin/market-intel/discovery");
+
+    if (json) {
+      return NextResponse.json(
+        { success: false, error: message },
+        { status: 400, headers: { "Cache-Control": "no-store" } },
+      );
+    }
+
     return NextResponse.redirect(
       adminRedirectUrl(
         `/admin/market-intel/discovery?error=${encodeURIComponent(message)}#candidate-${encodeURIComponent(id)}`,
