@@ -309,18 +309,10 @@ export async function PATCH(
 
     if (body.action === "record_manual_purchase") {
       const now = new Date().toISOString();
-      const provider =
-        cleanText(body.provider) ||
-        getShippingProviderAdapterProfile(label.resolved_shipping_method).provider;
-      const carrier =
-        cleanText(body.carrier) ||
-        typedOrder.carrier ||
-        getShippingProviderAdapterProfile(label.resolved_shipping_method).carrier;
-      const trackingNumber =
-        cleanText(body.trackingNumber) || typedOrder.tracking_number || null;
-      const postageAmount =
-        cleanMoney(body.postageAmount) ??
-        Number(typedOrder.shipping_amount || 0);
+      const provider = cleanText(body.provider);
+      const carrier = cleanText(body.carrier);
+      const trackingNumber = cleanText(body.trackingNumber);
+      const postageAmount = cleanMoney(body.postageAmount);
       const coverageProvider = cleanText(body.coverageProvider) || "Coverage";
       const coveragePolicyId = cleanText(body.coveragePolicyId);
       const coverageAmount = cleanMoney(body.coverageAmount);
@@ -329,6 +321,24 @@ export async function PATCH(
       const providerLabelId = cleanText(body.providerLabelId);
       const providerShipmentId = cleanText(body.providerShipmentId);
       const note = cleanText(body.note);
+      const requiredMissing = [
+        !provider ? "label provider" : null,
+        !carrier ? "carrier" : null,
+        !trackingNumber ? "tracking / IMb" : null,
+        postageAmount === null ? "valid postage amount" : null,
+        !note || note.length < 8 ? "audit note" : null,
+      ].filter(Boolean);
+
+      if (requiredMissing.length > 0) {
+        return Response.json(
+          {
+            error: `Manual purchase needs: ${requiredMissing.join(", ")}.`,
+            requiredMissing,
+          },
+          { status: 400 },
+        );
+      }
+
       const labelStatus = labelPdfUrl || labelUrl ? "printed" : "purchased";
       const coverageStatus = coveragePolicyId ? "covered" : "purchase_pending";
       const dryRunFields = [
@@ -597,18 +607,31 @@ export async function PATCH(
 
     if (body.action === "record_manual_void") {
       const now = new Date().toISOString();
-      const provider = cleanText(body.provider) || "manual";
-      const carrier =
-        cleanText(body.carrier) ||
-        typedOrder.carrier ||
-        carrierForMethod(safeShippingMethod(label.resolved_shipping_method));
-      const trackingNumber =
-        cleanText(body.trackingNumber) || typedOrder.tracking_number || null;
+      const provider = cleanText(body.provider);
+      const carrier = cleanText(body.carrier);
+      const trackingNumber = cleanText(body.trackingNumber);
       const voidReference = cleanText(body.voidReference);
       const coverageCancellationReference = cleanText(
         body.coverageCancellationReference,
       );
       const note = cleanText(body.note);
+      const requiredMissing = [
+        !provider ? "provider" : null,
+        !carrier ? "carrier" : null,
+        !trackingNumber ? "tracking / IMb" : null,
+        !voidReference ? "void reference" : null,
+        !note || note.length < 8 ? "audit note" : null,
+      ].filter(Boolean);
+
+      if (requiredMissing.length > 0) {
+        return Response.json(
+          {
+            error: `External void needs: ${requiredMissing.join(", ")}.`,
+            requiredMissing,
+          },
+          { status: 400 },
+        );
+      }
 
       const { error: voidError } = await supabase
         .from("order_shipping_labels")

@@ -61,6 +61,36 @@ export default function ShippingLabelActions({
     }));
   }
 
+  function trimRecord<T extends Record<string, string>>(record: T): T {
+    return Object.fromEntries(
+      Object.entries(record).map(([key, value]) => [key, value.trim()]),
+    ) as T;
+  }
+
+  function noticeTone(messageText: string): "success" | "error" | "info" {
+    const normalized = messageText.toLowerCase();
+
+    if (
+      normalized.includes("could not") ||
+      normalized.includes("failed") ||
+      normalized.includes("blocked") ||
+      normalized.includes("needs:") ||
+      normalized.includes("required")
+    ) {
+      return "error";
+    }
+
+    if (
+      normalized.includes("preparing") ||
+      normalized.includes("checking") ||
+      normalized.includes("recording")
+    ) {
+      return "info";
+    }
+
+    return "success";
+  }
+
   const busy = preparing || purchasing || recording || voiding || openingClaim;
   const providerActionsBlocked = busy || activeDryRunLabel;
   const manualPurchaseMissing = [
@@ -224,7 +254,7 @@ export default function ShippingLabelActions({
     }
 
     setRecording(true);
-    setMessage("");
+    setMessage("Recording manual label purchase...");
 
     try {
       const response = await fetch(
@@ -236,7 +266,7 @@ export default function ShippingLabelActions({
           },
           body: JSON.stringify({
             action: "record_manual_purchase",
-            ...manualForm,
+            ...trimRecord(manualForm),
           }),
         },
       );
@@ -269,7 +299,7 @@ export default function ShippingLabelActions({
     }
 
     setVoiding(true);
-    setMessage("");
+    setMessage("Recording external label void...");
 
     try {
       const response = await fetch(
@@ -281,7 +311,7 @@ export default function ShippingLabelActions({
           },
           body: JSON.stringify({
             action: "record_manual_void",
-            ...voidForm,
+            ...trimRecord(voidForm),
           }),
         },
       );
@@ -558,7 +588,7 @@ export default function ShippingLabelActions({
       ) : null}
 
       {message ? (
-        <ActionNotice tone={message.toLowerCase().includes("could not") || message.toLowerCase().includes("needs:") || message.toLowerCase().includes("blocked") ? "error" : "success"}>
+        <ActionNotice tone={noticeTone(message)}>
           {message}
         </ActionNotice>
       ) : null}
