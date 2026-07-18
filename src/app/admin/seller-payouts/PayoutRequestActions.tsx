@@ -193,6 +193,68 @@ export default function PayoutRequestActions({
     return "";
   }
 
+  function payoutActionReadyTitle(nextStatus: PayoutStatus) {
+    switch (nextStatus) {
+      case "approved":
+        return "Approve this seller payout request after account and review checks pass.";
+      case "processing":
+        return "Move this approved payout request into processing.";
+      case "paid":
+        return "Mark this processing payout request paid with provider payout proof.";
+      case "rejected":
+        return "Reject this payout request with an audit note.";
+      case "cancelled":
+        return "Cancel this payout request with an audit note.";
+      default:
+        return "Update this payout request status.";
+    }
+  }
+
+  function payoutActionTitle(nextStatus: PayoutStatus) {
+    if (loading !== "") {
+      return "Finish the current payout request action before starting another one.";
+    }
+
+    if (terminalStatus) {
+      return `Payout request is already ${currentStatus}; terminal requests cannot be changed here.`;
+    }
+
+    if (nextStatus === "approved" && currentStatus !== "requested") {
+      return "Only requested payout requests can be approved.";
+    }
+
+    if (nextStatus === "processing" && currentStatus !== "approved") {
+      return "Only approved payout requests can move to processing.";
+    }
+
+    if (nextStatus === "paid" && currentStatus !== "processing") {
+      return "Only processing payout requests can be marked paid.";
+    }
+
+    if (
+      (nextStatus === "approved" ||
+        nextStatus === "processing" ||
+        nextStatus === "paid") &&
+      payoutAdvanceBlocked
+    ) {
+      return (
+        payoutAccountBlockReason ||
+        reviewBlockReason ||
+        (reviewGuardUnavailable
+          ? "Review guard unavailable. Case checks must load before this request can advance."
+          : "Resolve payout account verification or review blockers before advancing this request.")
+      );
+    }
+
+    const missing = actionRequirements(nextStatus);
+
+    if (missing.length > 0) {
+      return `Payout request needs: ${missing.join(", ")}.`;
+    }
+
+    return payoutActionReadyTitle(nextStatus);
+  }
+
   function showPayoutActionBlocked(nextStatus: PayoutStatus) {
     const blockedReason = payoutActionBlockedReason(nextStatus);
 
@@ -274,6 +336,7 @@ export default function PayoutRequestActions({
             currentStatus !== "requested" ||
             payoutAdvanceBlocked
           }
+          title={payoutActionTitle("approved")}
           onClick={() => guardedUpdateStatus("approved")}
           className={`rounded-2xl px-3 py-2 text-xs font-black text-white ${
             locked || currentStatus !== "requested" || payoutAdvanceBlocked
@@ -289,6 +352,7 @@ export default function PayoutRequestActions({
           aria-disabled={
             locked || currentStatus !== "approved" || payoutAdvanceBlocked
           }
+          title={payoutActionTitle("processing")}
           onClick={() => guardedUpdateStatus("processing")}
           className={`rounded-2xl px-3 py-2 text-xs font-black text-white ${
             locked || currentStatus !== "approved" || payoutAdvanceBlocked
@@ -308,6 +372,7 @@ export default function PayoutRequestActions({
             actionRequirements("paid").length > 0 ||
             payoutAdvanceBlocked
           }
+          title={payoutActionTitle("paid")}
           className={`rounded-2xl px-3 py-2 text-xs font-black text-white ${
             locked ||
             currentStatus !== "processing" ||
@@ -324,6 +389,7 @@ export default function PayoutRequestActions({
           onClick={() => guardedUpdateStatus("rejected")}
           aria-busy={loading === "rejected"}
           aria-disabled={locked || actionRequirements("rejected").length > 0}
+          title={payoutActionTitle("rejected")}
           className={`rounded-2xl border border-rose-300 bg-white px-3 py-2 text-xs font-black ${
             locked || actionRequirements("rejected").length > 0
               ? "cursor-not-allowed text-neutral-400"
@@ -339,6 +405,7 @@ export default function PayoutRequestActions({
         onClick={() => guardedUpdateStatus("cancelled")}
         aria-busy={loading === "cancelled"}
         aria-disabled={locked || actionRequirements("cancelled").length > 0}
+        title={payoutActionTitle("cancelled")}
         className={`rounded-2xl border border-neutral-300 bg-white px-3 py-2 text-xs font-black ${
           locked || actionRequirements("cancelled").length > 0
             ? "cursor-not-allowed text-neutral-400"

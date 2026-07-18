@@ -159,6 +159,59 @@ export default function PayoutLedgerActions({
     return "";
   }
 
+  function ledgerActionReadyTitle(nextStatus: LedgerStatus) {
+    switch (nextStatus) {
+      case "eligible":
+        return "Release this payout ledger row after fulfillment and review checks pass.";
+      case "hold_dispute_or_review":
+        return "Move this payout ledger row onto review hold with an audit note.";
+      case "hold_pending_fulfillment":
+        return "Hold this payout ledger row until fulfillment clears.";
+      case "reversed":
+        return "Reverse this payout ledger row with an audit note.";
+      case "cancelled":
+        return "Cancel this payout ledger row with an audit note.";
+      default:
+        return "Update this payout ledger row status.";
+    }
+  }
+
+  function ledgerActionTitle(nextStatus: LedgerStatus) {
+    if (loading !== "") {
+      return "Finish the current payout ledger action before starting another one.";
+    }
+
+    if (finalStatus) {
+      return `Payout ledger row is already ${currentStatus}; final rows cannot be changed here.`;
+    }
+
+    if (nextStatus === "eligible" && currentStatus === "eligible") {
+      return "This payout ledger row is already eligible.";
+    }
+
+    if (
+      nextStatus === "hold_dispute_or_review" &&
+      currentStatus === "hold_dispute_or_review"
+    ) {
+      return "This payout ledger row is already on review hold.";
+    }
+
+    if (
+      nextStatus === "hold_pending_fulfillment" &&
+      currentStatus === "hold_pending_fulfillment"
+    ) {
+      return "This payout ledger row is already held for fulfillment.";
+    }
+
+    const missing = actionRequirements(nextStatus);
+
+    if (missing.length > 0) {
+      return `Payout ledger update needs: ${missing.join(", ")}.`;
+    }
+
+    return ledgerActionReadyTitle(nextStatus);
+  }
+
   function showLedgerActionBlocked(nextStatus: LedgerStatus) {
     const blockedReason = ledgerActionBlockedReason(nextStatus);
 
@@ -198,6 +251,7 @@ export default function PayoutLedgerActions({
             currentStatus === "eligible" ||
             actionRequirements("eligible").length > 0
           }
+          title={ledgerActionTitle("eligible")}
           className={`rounded-2xl px-3 py-2 text-xs font-black text-white ${
             locked ||
             currentStatus === "eligible" ||
@@ -217,6 +271,7 @@ export default function PayoutLedgerActions({
             currentStatus === "hold_dispute_or_review" ||
             actionRequirements("hold_dispute_or_review").length > 0
           }
+          title={ledgerActionTitle("hold_dispute_or_review")}
           className={`rounded-2xl px-3 py-2 text-xs font-black text-white ${
             locked ||
             currentStatus === "hold_dispute_or_review" ||
@@ -232,6 +287,7 @@ export default function PayoutLedgerActions({
           aria-disabled={locked || currentStatus === "hold_pending_fulfillment"}
           onClick={() => guardedUpdateStatus("hold_pending_fulfillment")}
           aria-busy={loading === "hold_pending_fulfillment"}
+          title={ledgerActionTitle("hold_pending_fulfillment")}
           className={`rounded-2xl border border-neutral-300 bg-white px-3 py-2 text-xs font-black ${
             locked || currentStatus === "hold_pending_fulfillment"
               ? "cursor-not-allowed text-neutral-400"
@@ -245,6 +301,7 @@ export default function PayoutLedgerActions({
           onClick={() => guardedUpdateStatus("reversed")}
           aria-busy={loading === "reversed"}
           aria-disabled={locked || actionRequirements("reversed").length > 0}
+          title={ledgerActionTitle("reversed")}
           className={`rounded-2xl border border-rose-300 bg-white px-3 py-2 text-xs font-black ${
             locked || actionRequirements("reversed").length > 0
               ? "cursor-not-allowed text-neutral-400"
@@ -267,6 +324,7 @@ export default function PayoutLedgerActions({
         onClick={() => guardedUpdateStatus("cancelled")}
         aria-busy={loading === "cancelled"}
         aria-disabled={locked || actionRequirements("cancelled").length > 0}
+        title={ledgerActionTitle("cancelled")}
         className={`rounded-2xl border border-neutral-300 bg-white px-3 py-2 text-xs font-black ${
           locked || actionRequirements("cancelled").length > 0
             ? "cursor-not-allowed text-neutral-400"
