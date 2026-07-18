@@ -832,6 +832,10 @@ export default async function AdminDashboard() {
         { href: "/admin/market-intel/portfolio", label: "Portfolio" },
         { href: "/admin/market-intel/purchases", label: "Purchase Ledger" },
         {
+          href: "/admin/market-intel/purchases/new",
+          label: "Offline Purchase",
+        },
+        {
           href: "/admin/market-intel/purchases/ebay-intake",
           label: "eBay Purchase Inbox",
         },

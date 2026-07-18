@@ -227,6 +227,59 @@ scenario("eBay sync control page labels import controls professionally", () => {
   }
 });
 
+scenario("eBay sync pages keep token and summary failures operator-safe", () => {
+  for (const fragment of [
+    "function safeErrorMessage",
+    "eBay sync batch failed: ${safeErrorMessage(error)}",
+    "const ebayTokenStatusUnavailable = Boolean(ebayTokenResult.error)",
+    "const syncPolicySummariesUnavailable = Boolean(",
+    "const inventoryStatsUnavailable = Boolean(inventoryStatsResult.error)",
+    "eBay sync policy summaries unavailable",
+    "whether the current run allowed",
+    "Public inventory sync stats unavailable",
+    "counts below are labeled unavailable instead of shown as zero",
+    "eBay token status unavailable",
+    "import actions are paused instead of assuming eBay is disconnected",
+    "Token Status Unavailable",
+    'inventoryStatsUnavailable',
+    '? "Unavailable"',
+    "Current-run policy decisions did not load",
+    "Blocked policy summaries did not load",
+    "function UnavailableTableNotice",
+    "Decision summary unavailable.",
+  ]) {
+    assert(
+      syncControlSource.includes(fragment),
+      `Expected eBay sync-control failure-safe fragment ${fragment}.`,
+    );
+  }
+
+  for (const fragment of [
+    "function safeErrorMessage",
+    "const ebayTokenStatusUnavailable = Boolean(tokenError)",
+    "eBay token status unavailable",
+    "browser import runner is paused instead of assuming eBay is",
+    "Diagnostic: {safeErrorMessage(tokenError)}",
+  ]) {
+    assert(
+      importRunnerPageSource.includes(fragment),
+      `Expected eBay import runner token failure fragment ${fragment}.`,
+    );
+  }
+
+  for (const forbidden of [
+    "{ebayTokenResult.error.message}",
+    "{tokenError.message}",
+    'error: error.message || "eBay sync batch failed"',
+  ]) {
+    assert(
+      !syncControlSource.includes(forbidden) &&
+        !importRunnerPageSource.includes(forbidden),
+      `Expected eBay sync pages not to render raw failure fragment ${forbidden}.`,
+    );
+  }
+});
+
 scenario("eBay import runner uses professional diagnostics copy", () => {
   assert(
     importRunnerPageSource.includes(

@@ -11,6 +11,15 @@ function getSupabaseClient() {
   return createSupabaseServerClient({ admin: true });
 }
 
+function safeErrorMessage(error: { message?: string } | string | null | undefined) {
+  const message =
+    typeof error === "string"
+      ? error
+      : error?.message || "Unknown eBay token status error.";
+
+  return String(message).replace(/\s+/g, " ").trim().slice(0, 220);
+}
+
 export default async function EbayImportRunnerPage() {
   const supabase = getSupabaseClient();
   const storeId = getActiveStoreId();
@@ -23,6 +32,7 @@ export default async function EbayImportRunnerPage() {
     .limit(1)
     .maybeSingle();
   const hasEbayRefreshToken = Boolean(ebayToken);
+  const ebayTokenStatusUnavailable = Boolean(tokenError);
 
   return (
     <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
@@ -53,9 +63,19 @@ export default async function EbayImportRunnerPage() {
           <section className="rounded-md border border-rose-200 bg-rose-50 p-4 text-sm font-black text-rose-800">
             eBay sync is disabled for this store. Enable it before importing.
           </section>
-        ) : tokenError ? (
-          <section className="rounded-md border border-rose-200 bg-rose-50 p-4 text-sm font-black text-rose-800">
-            eBay token status could not be checked: {tokenError.message}
+        ) : ebayTokenStatusUnavailable ? (
+          <section className="rounded-md border border-rose-200 bg-rose-50 p-4 text-sm font-bold text-rose-800">
+            <h2 className="text-xl font-black text-rose-950">
+              eBay token status unavailable
+            </h2>
+            <p className="mt-2 max-w-3xl leading-6">
+              TCOS could not confirm whether a saved eBay refresh token exists,
+              so the browser import runner is paused instead of assuming eBay is
+              disconnected or safe to import.
+            </p>
+            <p className="mt-3 rounded border border-rose-200 bg-white/70 px-3 py-2 text-xs font-black text-rose-950">
+              Diagnostic: {safeErrorMessage(tokenError)}
+            </p>
           </section>
         ) : !hasEbayRefreshToken ? (
           <section className="rounded-xl border-4 border-amber-300 bg-amber-50 p-6 text-amber-950">

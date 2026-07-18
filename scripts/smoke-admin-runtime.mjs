@@ -199,6 +199,11 @@ const smokeRoutes = [
     expectedText: "Purchase Ledger",
   },
   {
+    path: "/admin/market-intel/purchases/new",
+    auth: true,
+    expectedText: "Card Show + Card Shop Purchase",
+  },
+  {
     path: "/admin/market-intel/purchases/ebay-intake",
     auth: true,
     expectedText: "eBay Purchase Inbox",

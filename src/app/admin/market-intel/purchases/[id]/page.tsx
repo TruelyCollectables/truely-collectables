@@ -415,6 +415,7 @@ export default async function MarketIntelPurchaseDetailPage({
                   <AdminSubmitButton
                     className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-black text-white hover:bg-emerald-700"
                     pendingChildren="Marking received..."
+                    disabledReason="Updates receipt status only; sale recording and realized profit stay separate."
                     title="Mark this purchase lot as received so it can move from inbound tracking into inventory review."
                   >
                     Mark Received
@@ -640,6 +641,8 @@ function Notice({
 }) {
   return (
     <div
+      role={tone === "error" ? "alert" : "status"}
+      aria-live={tone === "error" ? "assertive" : "polite"}
       className={
         tone === "success"
           ? "rounded-xl border border-emerald-300 bg-emerald-50 p-4 font-bold text-emerald-950"

@@ -72,6 +72,15 @@ function resultUrl(params: Record<string, string | number | null>) {
   return `/admin/ebay/sync-control?${search.toString()}`;
 }
 
+function safeErrorMessage(error: { message?: string } | string | null | undefined) {
+  const message =
+    typeof error === "string"
+      ? error
+      : error?.message || "Unknown eBay sync error.";
+
+  return String(message).replace(/\s+/g, " ").trim().slice(0, 220);
+}
+
 async function runBatch(formData: FormData) {
   "use server";
 
@@ -108,7 +117,7 @@ async function runBatch(formData: FormData) {
         offset,
         limit,
         runId,
-        error: error.message || "eBay sync batch failed",
+        error: `eBay sync batch failed: ${safeErrorMessage(error)}`,
       }),
     );
   }
@@ -204,6 +213,11 @@ export default async function EbaySyncControlPage({
     (blockedSummaryResult.data ?? []) as MissingDecisionSummaryRow[];
   const inventoryStats =
     (inventoryStatsResult.data as PublicInventoryStatsRow | null) ?? null;
+  const ebayTokenStatusUnavailable = Boolean(ebayTokenResult.error);
+  const syncPolicySummariesUnavailable = Boolean(
+    snapshotSummaryResult.error || blockedSummaryResult.error,
+  );
+  const inventoryStatsUnavailable = Boolean(inventoryStatsResult.error);
   const hasResult =
     params.imported !== undefined ||
     params.markedSold !== undefined ||
@@ -239,19 +253,53 @@ export default async function EbaySyncControlPage({
       </section>
 
       <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
-        {snapshotSummaryResult.error ||
-        blockedSummaryResult.error ||
-        inventoryStatsResult.error ? (
+        {syncPolicySummariesUnavailable ? (
           <section className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-900">
-            eBay sync policy summaries are not available yet. Apply
-            `20260630123000_create_ebay_sync_decision_events.sql` to enable
-            the TCOS sync decision views.
+            <h2 className="text-lg font-black text-amber-950">
+              eBay sync policy summaries unavailable
+            </h2>
+            <p className="mt-2 max-w-3xl leading-6">
+              Policy decision views did not load, so this page cannot prove
+              whether the current run allowed, blocked, or held rows for review.
+              Apply `20260630123000_create_ebay_sync_decision_events.sql` if the
+              views are missing.
+            </p>
+            <p className="mt-3 rounded border border-amber-200 bg-white/70 px-3 py-2 text-xs font-black text-amber-950">
+              Diagnostic:{" "}
+              {safeErrorMessage(
+                snapshotSummaryResult.error || blockedSummaryResult.error,
+              )}
+            </p>
           </section>
         ) : null}
 
-        {ebayTokenResult.error ? (
+        {inventoryStatsUnavailable ? (
           <section className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-900">
-            eBay token status could not be checked: {ebayTokenResult.error.message}
+            <h2 className="text-lg font-black text-amber-950">
+              Public inventory sync stats unavailable
+            </h2>
+            <p className="mt-2 max-w-3xl leading-6">
+              The public inventory stats view did not load, so linked product
+              counts below are labeled unavailable instead of shown as zero.
+            </p>
+            <p className="mt-3 rounded border border-amber-200 bg-white/70 px-3 py-2 text-xs font-black text-amber-950">
+              Diagnostic: {safeErrorMessage(inventoryStatsResult.error)}
+            </p>
+          </section>
+        ) : null}
+
+        {ebayTokenStatusUnavailable ? (
+          <section className="rounded-md border border-amber-200 bg-amber-50 p-4 text-sm font-bold text-amber-900">
+            <h2 className="text-lg font-black text-amber-950">
+              eBay token status unavailable
+            </h2>
+            <p className="mt-2 max-w-3xl leading-6">
+              TCOS could not check whether a saved eBay refresh token exists, so
+              import actions are paused instead of assuming eBay is disconnected.
+            </p>
+            <p className="mt-3 rounded border border-amber-200 bg-white/70 px-3 py-2 text-xs font-black text-amber-950">
+              Diagnostic: {safeErrorMessage(ebayTokenResult.error)}
+            </p>
           </section>
         ) : null}
 
@@ -272,7 +320,15 @@ export default async function EbaySyncControlPage({
             </div>
 
             <div className="flex min-w-[280px] flex-col gap-2">
-              {hasEbayRefreshToken ? (
+              {ebayTokenStatusUnavailable ? (
+                <span
+                  aria-disabled="true"
+                  className="rounded-xl border border-amber-300 bg-amber-100 px-6 py-4 text-center text-base font-black uppercase tracking-[0.08em] text-amber-950"
+                  title="Fix the eBay token status check before starting an import batch."
+                >
+                  Token Status Unavailable
+                </span>
+              ) : hasEbayRefreshToken ? (
                 <Link
                   href="/admin/ebay/import-runner"
                   className="rounded-xl bg-neutral-950 px-6 py-4 text-center text-base font-black uppercase tracking-[0.08em] text-white hover:bg-neutral-800"
@@ -300,23 +356,43 @@ export default async function EbaySyncControlPage({
         <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-5">
           <Metric
             label="Public Products"
-            value={String(inventoryStats?.total_products ?? 0)}
+            value={
+              inventoryStatsUnavailable
+                ? "Unavailable"
+                : String(inventoryStats?.total_products ?? 0)
+            }
           />
           <Metric
             label="In Stock"
-            value={String(inventoryStats?.in_stock_products ?? 0)}
+            value={
+              inventoryStatsUnavailable
+                ? "Unavailable"
+                : String(inventoryStats?.in_stock_products ?? 0)
+            }
           />
           <Metric
             label="Sold Out"
-            value={String(inventoryStats?.sold_out_products ?? 0)}
+            value={
+              inventoryStatsUnavailable
+                ? "Unavailable"
+                : String(inventoryStats?.sold_out_products ?? 0)
+            }
           />
           <Metric
             label="eBay Linked"
-            value={String(inventoryStats?.ebay_linked_products ?? 0)}
+            value={
+              inventoryStatsUnavailable
+                ? "Unavailable"
+                : String(inventoryStats?.ebay_linked_products ?? 0)
+            }
           />
           <Metric
             label="Missing SKU"
-            value={String(inventoryStats?.missing_sku_products ?? 0)}
+            value={
+              inventoryStatsUnavailable
+                ? "Unavailable"
+                : String(inventoryStats?.missing_sku_products ?? 0)
+            }
           />
         </section>
 
@@ -467,19 +543,53 @@ export default async function EbaySyncControlPage({
         </section>
 
         <section className="grid grid-cols-1 gap-6 xl:grid-cols-2">
-          <DecisionTable
-            title="Current Run Policy Decisions"
-            rows={decisionSummary}
-            emptyText="No policy decisions recorded for this run ID yet."
-          />
-          <BlockedDecisionTable
-            title="Blocked Policy Summary"
-            rows={blockedSummary}
-            emptyText="No blocked TCOS policy decisions recorded yet."
-          />
+          {snapshotSummaryResult.error ? (
+            <UnavailableTableNotice
+              title="Current Run Policy Decisions"
+              message="Current-run policy decisions did not load, so this page cannot prove whether the run has allowed, blocked, or review-required rows."
+            />
+          ) : (
+            <DecisionTable
+              title="Current Run Policy Decisions"
+              rows={decisionSummary}
+              emptyText="No policy decisions recorded for this run ID yet."
+            />
+          )}
+          {blockedSummaryResult.error ? (
+            <UnavailableTableNotice
+              title="Blocked Policy Summary"
+              message="Blocked policy summaries did not load, so this page cannot prove whether TCOS has unresolved blocked marketplace sync rows."
+            />
+          ) : (
+            <BlockedDecisionTable
+              title="Blocked Policy Summary"
+              rows={blockedSummary}
+              emptyText="No blocked TCOS policy decisions recorded yet."
+            />
+          )}
         </section>
       </div>
     </main>
+  );
+}
+
+function UnavailableTableNotice({
+  title,
+  message,
+}: {
+  title: string;
+  message: string;
+}) {
+  return (
+    <section className="rounded-md border border-amber-200 bg-amber-50">
+      <div className="border-b border-amber-200 p-5">
+        <h2 className="text-2xl font-black">{title}</h2>
+      </div>
+      <div className="p-5 text-sm font-bold text-amber-950">
+        <p className="font-black">Decision summary unavailable.</p>
+        <p className="mt-1 max-w-3xl">{message}</p>
+      </div>
+    </section>
   );
 }
 
