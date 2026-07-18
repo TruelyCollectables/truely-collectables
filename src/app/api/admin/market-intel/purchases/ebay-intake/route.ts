@@ -220,6 +220,19 @@ function intakeRedirect(
   );
 }
 
+async function movedCandidateId(inboxId: string) {
+  const supabase = createSupabaseServerClient({ admin: true });
+  const { data, error } = await supabase
+    .from("tcos_mi_purchase_inbox")
+    .select("identity_candidate_id")
+    .eq("id", inboxId)
+    .eq("status", "moved_to_review")
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  return data?.identity_candidate_id ? String(data.identity_candidate_id) : null;
+}
+
 export async function POST(request: NextRequest) {
   const handoff = adminHandoffFromUrl(new URL(request.url));
   try {
@@ -306,6 +319,21 @@ export async function POST(request: NextRequest) {
     const result = await movePurchaseInboxToReview(inboxIds, bucket);
     revalidatePath("/admin/market-intel/purchases/ebay-intake");
     revalidatePath("/admin/market-intel/discovery");
+
+    if (result.moved === 1 && inboxIds.length === 1 && result.errors.length === 0) {
+      const candidateId = await movedCandidateId(inboxIds[0]);
+      if (candidateId) {
+        return NextResponse.redirect(
+          adminRedirectUrl(
+            `/admin/market-intel/discovery?from=purchase-inbox#candidate-${candidateId}`,
+            request.url,
+            handoff,
+          ),
+          303,
+        );
+      }
+    }
+
     const params: Record<string, string> = { moved: String(result.moved) };
     if (result.errors[0]) params.error = result.errors[0].slice(0, 240);
     return intakeRedirect(request, handoff, params);

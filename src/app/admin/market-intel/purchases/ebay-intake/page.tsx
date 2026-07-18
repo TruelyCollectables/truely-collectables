@@ -76,7 +76,13 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
           </Notice>
         ) : null}
         {query?.moved ? (
-          <Notice>{query.moved} purchase row(s) moved to exact-card review.</Notice>
+          <Notice>
+            {query.moved} purchase row(s) moved to exact-card review. {" "}
+            <Link href="#moved-to-review" className="underline">
+              Open moved purchases
+            </Link>
+            .
+          </Notice>
         ) : null}
         {query?.skipped ? <Notice>{query.skipped} row(s) skipped.</Notice> : null}
         {query?.error ? <Notice error>{query.error}</Notice> : null}
@@ -203,7 +209,7 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
 
         <section className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <Metric label="Pending Review" value={String(pending.length)} />
-          <Metric label="Moved to Exact Review" value={String(moved.length)} />
+          <Metric label="Moved to Exact Review" value={String(moved.length)} href="#moved-to-review" />
           <Metric label="Recorded Purchases" value={String(recorded.length)} />
         </section>
 
@@ -295,6 +301,81 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
             </form>
           )}
         </section>
+
+        <section
+          id="moved-to-review"
+          className="overflow-hidden rounded-xl border border-fuchsia-300 bg-white shadow-sm scroll-mt-6"
+        >
+          <div className="flex flex-col gap-3 border-b border-fuchsia-200 bg-fuchsia-50 p-5 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-fuchsia-800">
+                Exact-card queue
+              </p>
+              <h2 className="mt-1 text-2xl font-black">Ready for Exact Review</h2>
+              <p className="mt-1 text-sm font-semibold text-neutral-700">
+                These purchases have not reached the Purchase Ledger yet. Open each card,
+                confirm its exact identity, then use Record as Purchased.
+              </p>
+            </div>
+            <Link
+              href={adminHref("/admin/market-intel/discovery?from=purchase-inbox")}
+              className="inline-flex rounded-md border border-fuchsia-800 bg-white px-4 py-3 text-center font-black text-fuchsia-900"
+            >
+              Open Full Exact Review Queue
+            </Link>
+          </div>
+
+          {moved.length === 0 ? (
+            <p className="p-6 font-semibold text-neutral-600">No purchases are waiting in exact review.</p>
+          ) : (
+            <div className="divide-y divide-neutral-200">
+              {moved.map((row) => (
+                <article
+                  key={row.id}
+                  className="grid gap-4 p-5 md:grid-cols-[1fr_auto] md:items-center"
+                >
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="rounded-full border border-fuchsia-300 bg-fuchsia-100 px-3 py-1 text-xs font-black text-fuchsia-950">
+                        {bucketLabel(row.target_bucket)}
+                      </span>
+                      <span className="rounded-full border border-neutral-300 bg-neutral-50 px-3 py-1 text-xs font-black">
+                        {money(row.total_paid)} total
+                      </span>
+                      {row.external_order_id ? (
+                        <span className="text-xs font-bold text-neutral-600">Order {row.external_order_id}</span>
+                      ) : null}
+                    </div>
+                    <h3 className="mt-3 text-xl font-black">{row.player_name}</h3>
+                    <a
+                      href={row.direct_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-1 block truncate font-bold text-blue-700 hover:underline"
+                    >
+                      {row.title}
+                    </a>
+                  </div>
+
+                  {row.identity_candidate_id ? (
+                    <Link
+                      href={adminHref(
+                        `/admin/market-intel/discovery?from=purchase-inbox#candidate-${row.identity_candidate_id}`,
+                      )}
+                      className="inline-flex min-w-[190px] justify-center rounded-md bg-fuchsia-900 px-4 py-3 font-black text-white"
+                    >
+                      Open Exact Review
+                    </Link>
+                  ) : (
+                    <span className="rounded-md border border-rose-300 bg-rose-50 px-4 py-3 text-center text-sm font-black text-rose-950">
+                      Review link missing — move again or report this row
+                    </span>
+                  )}
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
       </div>
     </main>
   );
@@ -341,12 +422,31 @@ function Field({
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
+function Metric({
+  label,
+  value,
+  href,
+}: {
+  label: string;
+  value: string;
+  href?: string;
+}) {
+  const content = (
+    <>
       <p className="text-xs font-black uppercase tracking-wider text-neutral-500">{label}</p>
       <p className="mt-2 text-3xl font-black">{value}</p>
-    </div>
+    </>
+  );
+
+  return href ? (
+    <Link
+      href={href}
+      className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm transition hover:border-fuchsia-400 hover:bg-fuchsia-50"
+    >
+      {content}
+    </Link>
+  ) : (
+    <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">{content}</div>
   );
 }
 
