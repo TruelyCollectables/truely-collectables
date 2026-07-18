@@ -806,6 +806,28 @@ function getTrialReceiptNext({ matchesCurrentAudit, refreshCommand, preflight, s
   return "Receipt is current, but preflight proof could not be read; rerun npm run instacomp:trial:preflight before scanning.";
 }
 
+function getFinalTesterNext(preflight) {
+  if (preflight.readyToScan) {
+    return "Scan the prepared 100-card lot at /admin/instacomp, export trial results, then run npm run instacomp:trial:score before calling it done-done.";
+  }
+
+  if (!preflight.available) {
+    return "Repair the final tester preflight status first: run npm run instacomp:trial:preflight and fix the reported error before scanning.";
+  }
+
+  const blockerActions = preflight.blockers
+    .map((blocker) => blocker.next)
+    .filter(Boolean);
+
+  if (blockerActions.length > 0) {
+    return `Do not scan yet. Clear the final tester preflight blockers first. ${blockerActions
+      .map((action, index) => `${index + 1}) ${action}`)
+      .join(" ")}`;
+  }
+
+  return preflight.next || "Do not scan yet. Rerun npm run instacomp:trial:preflight and clear every blocker before scanner time is spent.";
+}
+
 const manifestPath = "instacomp-trial-manifest.local.json";
 const resultsPath = "instacomp-trial-results.local.json";
 const trialInboxDir = "instacomp-trial-inbox";
@@ -1173,8 +1195,7 @@ const readiness = {
     fullLocalSafety:
       "npm run lint && npm run verify:instacomp && npm run build && npm run check:production-guardrails",
   },
-  next:
-    "Run the 100-card lot through the wired Multi-Scanner Consensus path, score it against 94% plus the final tester timing gate, record misses, and clean the UI before calling it done-done.",
+  next: getFinalTesterNext(trialPreflight),
   safeBuildBoundary:
     "This InstaComp™ tester status is read-only. It does not approve live money, buy postage, release payouts, create Checkout, publish listings, or start production deploys.",
 };
