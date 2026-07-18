@@ -4,6 +4,8 @@ import { useRouter } from "next/navigation";
 import { FormEvent, useMemo, useState } from "react";
 import CaseQueueActions from "../../order-review-cases/CaseQueueActions";
 
+type FeedbackTone = "success" | "error" | "info";
+
 export type AdminOrderReviewCase = {
   id: string;
   seller_account_id: string | null;
@@ -158,7 +160,10 @@ export default function OrderReviewCasesPanel({
   const [holdSellerPayouts, setHoldSellerPayouts] = useState(true);
   const [holdOrderFulfillment, setHoldOrderFulfillment] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState<{
+    tone: FeedbackTone;
+    text: string;
+  } | null>(null);
   const sellerLabels = useMemo(
     () => new Map(sellerOptions.map((seller) => [seller.id, seller.label])),
     [sellerOptions],
@@ -184,12 +189,15 @@ export default function OrderReviewCasesPanel({
     event.preventDefault();
 
     if (!canCreateCase) {
-      setMessage("Add a clear case title before opening review.");
+      setMessage({
+        tone: "error",
+        text: "Add a clear case title before opening review.",
+      });
       return;
     }
 
     setBusy(true);
-    setMessage("");
+    setMessage({ tone: "info", text: "Opening order review case..." });
 
     try {
       const response = await fetch("/api/admin/order-review-cases", {
@@ -214,13 +222,19 @@ export default function OrderReviewCasesPanel({
         throw new Error(data.error || "Could not create order review case.");
       }
 
-      setMessage(
-        `Case opened. Seller payout rows held: ${data.sellerPayoutRowsHeld || 0}.`,
-      );
+      setMessage({
+        tone: "success",
+        text: `Case opened. Seller payout rows held: ${
+          data.sellerPayoutRowsHeld || 0
+        }.`,
+      });
       setDescription("");
       router.refresh();
     } catch (error: any) {
-      setMessage(error.message || "Could not create order review case.");
+      setMessage({
+        tone: "error",
+        text: error.message || "Could not create order review case.",
+      });
     } finally {
       setBusy(false);
     }
@@ -532,19 +546,50 @@ export default function OrderReviewCasesPanel({
               <button
                 type="submit"
                 disabled={busy || !canCreateCase}
+                aria-busy={busy}
+                title={
+                  busy
+                    ? "Order review case is opening."
+                    : canCreateCase
+                      ? "Open a review case and apply the selected holds."
+                      : "Add a clear case title before opening review."
+                }
                 className="rounded-2xl bg-neutral-950 px-4 py-3 text-sm font-black text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {busy ? "Opening..." : "Open Case"}
               </button>
               {message ? (
-                <p className="rounded-2xl border border-neutral-200 bg-white px-3 py-2 text-sm font-black">
-                  {message}
-                </p>
+                <ActionNotice tone={message.tone}>{message.text}</ActionNotice>
               ) : null}
             </div>
           </form>
         </>
       )}
     </section>
+  );
+}
+
+function ActionNotice({
+  tone,
+  children,
+}: {
+  tone: FeedbackTone;
+  children: React.ReactNode;
+}) {
+  const className =
+    tone === "success"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-950"
+      : tone === "error"
+        ? "border-red-200 bg-red-50 text-red-950"
+        : "border-blue-200 bg-blue-50 text-blue-950";
+
+  return (
+    <p
+      role={tone === "error" ? "alert" : "status"}
+      aria-live={tone === "info" ? "polite" : "assertive"}
+      className={`rounded-2xl border px-3 py-2 text-sm font-black ${className}`}
+    >
+      {children}
+    </p>
   );
 }
