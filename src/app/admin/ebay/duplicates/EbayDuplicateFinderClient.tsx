@@ -3,6 +3,10 @@
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ReactNode } from "react";
+import {
+  reconcileEbayDuplicateKeeperSelection,
+  reconcileEbayDuplicateRowSelection,
+} from "../../../../lib/ebay-duplicate-selection";
 
 type DuplicateRow = {
   productId: number;
@@ -103,43 +107,21 @@ export default function EbayDuplicateFinderClient() {
       }
 
       const nextGroups = (data.groups || []) as DuplicateGroup[];
+      const nextKeepers = reconcileEbayDuplicateKeeperSelection(
+        nextGroups,
+        keepersRef.current,
+      );
+
+      keepersRef.current = nextKeepers;
       setGroups(nextGroups);
       setSummary((data.summary || null) as Summary | null);
-      setKeepers((current) => {
-        const next = { ...current };
-
-        for (const group of nextGroups) {
-          if (!next[group.key] && group.recommendedKeeperProductId) {
-            next[group.key] = group.recommendedKeeperProductId;
-          }
-        }
-
-        keepersRef.current = next;
-        return next;
-      });
+      setKeepers(nextKeepers);
       setDuplicates((current) => {
-        const next = { ...current };
-
-        for (const group of nextGroups) {
-          const keeperId =
-            keepersRef.current[group.key] ||
-            group.recommendedKeeperProductId ||
-            group.rows[0]?.productId ||
-            0;
-          const currentDuplicate = next[group.key] || 0;
-          const currentDuplicateStillValid = group.rows.some(
-            (row) => row.productId === currentDuplicate && row.productId !== keeperId,
-          );
-          const duplicate = currentDuplicateStillValid
-            ? group.rows.find((row) => row.productId === currentDuplicate)
-            : group.rows.find((row) => row.productId !== keeperId);
-
-          if (duplicate) {
-            next[group.key] = duplicate.productId;
-          }
-        }
-
-        return next;
+        return reconcileEbayDuplicateRowSelection(
+          nextGroups,
+          current,
+          nextKeepers,
+        );
       });
     } catch (nextError: any) {
       showError(nextError.message || "Could not load duplicate groups.");

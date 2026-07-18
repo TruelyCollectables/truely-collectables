@@ -2,6 +2,10 @@ import {
   normalizeEbayDuplicateProductIds,
   planEbayDuplicateQuantityMerge,
 } from "../src/lib/ebay-duplicate-merge.ts";
+import {
+  reconcileEbayDuplicateKeeperSelection,
+  reconcileEbayDuplicateRowSelection,
+} from "../src/lib/ebay-duplicate-selection.ts";
 import { readFile } from "node:fs/promises";
 
 const duplicateFinderSource = await readFile(
@@ -123,6 +127,59 @@ await scenario("rejects merge with no duplicate row different from keeper", () =
   );
 });
 
+await scenario("reconciles stale duplicate finder selections after refresh", () => {
+  const groups = [
+    {
+      key: "pikachu::1000",
+      recommendedKeeperProductId: 202,
+      rows: [{ productId: 202 }, { productId: 203 }],
+    },
+    {
+      key: "charizard::2500",
+      recommendedKeeperProductId: 301,
+      rows: [{ productId: 301 }, { productId: 302 }],
+    },
+  ];
+  const keepers = reconcileEbayDuplicateKeeperSelection(groups, {
+    "pikachu::1000": 201,
+    "stale::999": 999,
+  });
+  const duplicates = reconcileEbayDuplicateRowSelection(
+    groups,
+    {
+      "pikachu::1000": 201,
+      "charizard::2500": 301,
+      "stale::999": 999,
+    },
+    keepers,
+  );
+
+  assert(
+    keepers["pikachu::1000"] === 202,
+    "Expected missing keeper to reset to the refreshed recommended keeper.",
+  );
+  assert(
+    keepers["charizard::2500"] === 301,
+    "Expected new group keeper to use recommended keeper.",
+  );
+  assert(
+    !("stale::999" in keepers),
+    "Expected stale keeper groups to be dropped after refresh.",
+  );
+  assert(
+    duplicates["pikachu::1000"] === 203,
+    "Expected duplicate selection to pick a valid non-keeper row.",
+  );
+  assert(
+    duplicates["charizard::2500"] === 302,
+    "Expected duplicate selection not to target the keeper.",
+  );
+  assert(
+    !("stale::999" in duplicates),
+    "Expected stale duplicate groups to be dropped after refresh.",
+  );
+});
+
 await scenario("duplicate finder previews destructive end and merge actions", () => {
   for (const fragment of [
     "type DuplicateAction",
@@ -142,6 +199,8 @@ await scenario("duplicate finder previews destructive end and merge actions", ()
     "aria-busy={groupMerging}",
     'aria-busy={groupWorking && workingAction?.kind === "end"}',
     "aria-busy={rowEnding}",
+    "reconcileEbayDuplicateKeeperSelection",
+    "reconcileEbayDuplicateRowSelection",
   ]) {
     assert(
       duplicateFinderSource.includes(fragment),
