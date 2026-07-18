@@ -1108,6 +1108,54 @@ export default async function AdminDashboard() {
           : "green",
     },
   ];
+  const urgentAttentionCount = adminAttentionRows.filter(
+    (row) => row.tone === "rose",
+  ).length;
+  const watchlistAttentionCount = adminAttentionRows.filter(
+    (row) => row.tone === "amber",
+  ).length;
+  const adminOperatingRhythm = [
+    {
+      label: "1",
+      title: "Clear red blockers",
+      detail:
+        urgentAttentionCount > 0
+          ? `${urgentAttentionCount} critical admin signal${
+              urgentAttentionCount === 1 ? "" : "s"
+            } need action before routine work.`
+          : "No red blockers are visible; keep the attention strip green before release work.",
+      href: adminAttentionRows.find((row) => row.tone === "rose")?.href ||
+        "/admin/production-smoke",
+      tone: urgentAttentionCount > 0 ? "rose" : "green",
+    },
+    {
+      label: "2",
+      title: "Work amber queues",
+      detail:
+        watchlistAttentionCount > 0
+          ? `${watchlistAttentionCount} watchlist queue${
+              watchlistAttentionCount === 1 ? "" : "s"
+            } should be cleaned before adding more inventory.`
+          : "Offer, pricing, receiving, payout, and launch watchlists are calm.",
+      href: adminAttentionRows.find((row) => row.tone === "amber")?.href ||
+        "/admin",
+      tone: watchlistAttentionCount > 0 ? "amber" : "green",
+    },
+    {
+      label: "3",
+      title: "Scan, price, then publish",
+      detail:
+        "Use InstaComp™ Direct for bad scans, quantity merges, price refreshes, and draft creation before marketplace publishing.",
+      href: "/admin/instacomp-direct",
+      tone: "green",
+    },
+  ] satisfies Array<{
+    label: string;
+    title: string;
+    detail: string;
+    href: string;
+    tone: AdminTone;
+  }>;
 
   return (
     <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
@@ -1287,6 +1335,35 @@ export default async function AdminDashboard() {
                 tone={row.tone}
               />
             ))}
+          </div>
+        </section>
+
+        <section className="overflow-hidden rounded-2xl border border-neutral-200 bg-[#15110b] shadow-sm">
+          <div className="grid grid-cols-1 lg:grid-cols-[0.72fr_1.28fr]">
+            <div className="border-b border-white/10 bg-[radial-gradient(circle_at_top_left,_rgba(251,191,36,0.28),_transparent_42%),linear-gradient(135deg,_#231805,_#0f172a)] p-6 text-white lg:border-b-0 lg:border-r">
+              <p className="text-xs font-black uppercase tracking-[0.2em] text-amber-200">
+                Operator priority playbook
+              </p>
+              <h2 className="mt-2 text-3xl font-black tracking-tight">
+                Run the admin desk in the right order
+              </h2>
+              <p className="mt-3 text-sm font-semibold leading-6 text-neutral-200">
+                The dashboard now separates urgent blockers, watchlist queues,
+                and normal scan-to-publish work so the next action is obvious.
+              </p>
+            </div>
+            <div className="grid grid-cols-1 divide-y divide-neutral-200 bg-white md:grid-cols-3 md:divide-x md:divide-y-0">
+              {adminOperatingRhythm.map((step) => (
+                <PriorityPlaybookStep
+                  key={step.label}
+                  label={step.label}
+                  title={step.title}
+                  detail={step.detail}
+                  href={adminHref(step.href)}
+                  tone={step.tone}
+                />
+              ))}
+            </div>
           </div>
         </section>
 
@@ -2335,6 +2412,51 @@ export default async function AdminDashboard() {
   );
 }
 
+function PriorityPlaybookStep({
+  label,
+  title,
+  detail,
+  href,
+  tone,
+}: {
+  label: string;
+  title: string;
+  detail: string;
+  href: string;
+  tone: AdminTone;
+}) {
+  const toneClass =
+    tone === "rose"
+      ? "bg-rose-700 text-white"
+      : tone === "amber"
+        ? "bg-amber-400 text-neutral-950"
+        : "bg-emerald-700 text-white";
+
+  return (
+    <Link
+      href={href}
+      className="group flex min-h-[220px] flex-col justify-between p-5 transition hover:bg-neutral-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-4px] focus-visible:outline-amber-500"
+    >
+      <div>
+        <span
+          className={`grid size-11 place-items-center rounded-full text-sm font-black shadow-sm ${toneClass}`}
+        >
+          {label}
+        </span>
+        <h3 className="mt-4 text-xl font-black tracking-tight text-neutral-950">
+          {title}
+        </h3>
+        <p className="mt-2 text-sm font-semibold leading-6 text-neutral-600">
+          {detail}
+        </p>
+      </div>
+      <span className="mt-4 text-sm font-black text-neutral-950 underline-offset-4 group-hover:underline">
+        Open next workbench →
+      </span>
+    </Link>
+  );
+}
+
 function MetricTile({
   label,
   value,
@@ -2345,7 +2467,7 @@ function MetricTile({
   detail: string;
 }) {
   return (
-    <div className="rounded-md border border-neutral-200 bg-white p-5">
+    <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm ring-1 ring-black/[0.02]">
       <p className="text-sm font-bold uppercase text-neutral-500">{label}</p>
       <p className="mt-3 text-3xl font-black tracking-tight">{value}</p>
       <p className="mt-2 text-sm text-neutral-600">{detail}</p>
@@ -2369,7 +2491,7 @@ function BaseAdminCommandTile({
   return (
     <a
       href={href}
-      className={`group rounded-xl border border-white/15 bg-gradient-to-br ${accent} p-4 text-neutral-950 shadow-sm transition hover:-translate-y-0.5 hover:shadow-lg`}
+      className={`group rounded-2xl border border-white/15 bg-gradient-to-br ${accent} p-4 text-neutral-950 shadow-sm ring-1 ring-white/20 transition hover:-translate-y-0.5 hover:shadow-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-amber-300`}
     >
       <div className="flex items-start justify-between gap-3">
         <span className="grid size-16 place-items-center rounded-full border border-neutral-900/10 bg-white text-4xl shadow-sm">
@@ -2405,7 +2527,7 @@ function OperatorActionCard({
   return (
     <Link
       href={href}
-      className={`group flex min-h-[230px] flex-col justify-between rounded-xl border p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${tone}`}
+      className={`group flex min-h-[230px] flex-col justify-between rounded-2xl border p-4 shadow-sm ring-1 ring-black/[0.02] transition hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-amber-500 ${tone}`}
     >
       <div>
         <p className="text-[11px] font-black uppercase tracking-widest opacity-70">
@@ -2433,7 +2555,7 @@ function AdminToolGroupCard({
   links: Array<{ href: string; label: string }>;
 }) {
   return (
-    <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-4">
+    <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4 shadow-sm ring-1 ring-black/[0.02]">
       <h3 className="text-lg font-black tracking-tight">{title}</h3>
       <p className="mt-1 text-sm font-semibold leading-6 text-neutral-600">
         {detail}
@@ -2443,7 +2565,7 @@ function AdminToolGroupCard({
           <Link
             key={link.href}
             href={link.href}
-            className="rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm font-black text-neutral-800 shadow-sm transition hover:-translate-y-0.5 hover:border-neutral-300 hover:shadow-md"
+            className="rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm font-black text-neutral-800 shadow-sm transition hover:-translate-y-0.5 hover:border-neutral-300 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500"
           >
             {link.label}
           </Link>
@@ -2484,7 +2606,7 @@ function AttentionPanelCard({
   return (
     <Link
       href={href}
-      className={`group flex min-h-[190px] flex-col justify-between rounded-xl border p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${toneClass}`}
+      className={`group flex min-h-[190px] flex-col justify-between rounded-2xl border p-4 shadow-sm ring-1 ring-black/[0.02] transition hover:-translate-y-0.5 hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-amber-500 ${toneClass}`}
     >
       <div>
         <div className="flex items-start justify-between gap-3">
@@ -2581,7 +2703,10 @@ function BaseCommandButton({
     : "border border-white/20 text-white hover:bg-white/10";
 
   return (
-    <Link href={href} className={`rounded-md px-4 py-2 text-sm font-bold ${className}`}>
+    <Link
+      href={href}
+      className={`rounded-lg px-4 py-2 text-sm font-bold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300 ${className}`}
+    >
       {label}
     </Link>
   );
@@ -2602,7 +2727,7 @@ function Pill({
       : "border-rose-200 bg-rose-50 text-rose-800";
 
   return (
-    <span className={`rounded border px-2.5 py-1 text-xs font-black ${className}`}>
+    <span className={`rounded-full border px-2.5 py-1 text-xs font-black ${className}`}>
       {label}
     </span>
   );
@@ -2655,7 +2780,10 @@ function BaseQueuePanel({
     <div className="min-h-[320px] p-5">
       <div className="mb-4 flex items-center justify-between gap-3">
         <h3 className="font-black">{title}</h3>
-        <Link href={href} className="text-sm font-bold underline">
+        <Link
+          href={href}
+          className="text-sm font-bold underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500"
+        >
           Open
         </Link>
       </div>
@@ -2679,7 +2807,7 @@ function BaseQueuePanel({
               <Link
                 key={row.key}
                 href={row.href}
-                className="flex items-center justify-between gap-3 rounded-md border border-neutral-200 p-3 hover:bg-neutral-50"
+                className="flex items-center justify-between gap-3 rounded-xl border border-neutral-200 p-3 transition hover:bg-neutral-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500"
               >
                 {content}
               </Link>
@@ -2711,7 +2839,7 @@ function BaseLinkButton({ href, label }: { href: string; label: string }) {
   return (
     <a
       href={href}
-      className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-center font-bold hover:bg-white"
+      className="rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-center font-bold transition hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500"
     >
       {label}
     </a>

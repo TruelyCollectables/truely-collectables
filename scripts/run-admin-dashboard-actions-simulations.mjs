@@ -315,6 +315,28 @@ scenario("admin command center exposes first-screen operator attention strip", (
   }
 });
 
+scenario("admin command center exposes a professional priority playbook", () => {
+  for (const fragment of [
+    "adminOperatingRhythm",
+    "Operator priority playbook",
+    "Run the admin desk in the right order",
+    "urgent blockers, watchlist queues",
+    "Clear red blockers",
+    "Work amber queues",
+    "Scan, price, then publish",
+    "Open next workbench →",
+    "PriorityPlaybookStep",
+    "focus-visible:outline-amber-500",
+    "rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm ring-1",
+    "operators can move quickly without confusing scan, inventory",
+  ]) {
+    assert(
+      adminPageSource.includes(fragment),
+      `Expected admin priority playbook/polish fragment ${fragment}.`,
+    );
+  }
+});
+
 scenario("admin command center surfaces data-source health before counts", () => {
   for (const fragment of [
     "type AdminDataHealthIssue",
