@@ -4107,6 +4107,19 @@ export default function InstaCompScanner({
   const selectedDraftErrorCount = selectedDraftErrorBatchCardIds.size;
   const selectedQuantityMergeCards = selectedDoneBatchCards;
   const selectedQuantityMergeCount = selectedQuantityMergeCards.length;
+  const selectedQuantityMergePlan = planInstaCompSelectedQuantityMerge(
+    selectedQuantityMergeCards.map((card) => ({
+      id: card.id,
+      title: draftTitleForCard(card),
+      identityKey: quantityMergeIdentityKeyForCard(card),
+      quantity: draftQuantityForCard(card),
+    }))
+  );
+  const selectedQuantityMergeDisabled =
+    batchRunning || batchDrafting || selectedQuantityMergeCount < 2;
+  const selectedQuantityMergeHelp = selectedQuantityMergePlan.ok
+    ? `Ready to merge ${selectedQuantityMergePlan.mergedRowCount} selected duplicate rows: qty ${selectedQuantityMergePlan.previousKeeperQuantity} + ${selectedQuantityMergePlan.duplicateQuantity} = ${selectedQuantityMergePlan.mergedQuantity}.`
+    : selectedQuantityMergePlan.reason;
   const selectedDraftSummary =
     selectedDoneBatchCards.length > 0
       ? `Selected ${selectedDoneBatchCards.length} - Ready ${selectedDraftReadyCount} - Ready Review ${selectedReadyReviewCount} - Clean Ready ${selectedCleanReadyCount} - Clean ${selectedCleanCount} - Clean Fix ${selectedCleanDraftFixCount} - Fix ${selectedDraftFixCount} - Review ${selectedReviewCount} - Review Fix ${selectedReviewDraftFixCount} - Marked Problems ${selectedOperatorMarkedProblemCount}`
@@ -6847,6 +6860,7 @@ export default function InstaCompScanner({
     const persistentTarget = persistentRemovalTargetForBatchCard(card);
     const isPersisted = Boolean(persistentTarget.jobId && persistentTarget.itemId);
     const abortedActiveScan = abortBatchCardScan(cardId);
+    const endedPendingScan = card.status === "queued" || card.status === "scanning";
 
     removingBatchCardIdsRef.current.add(cardId);
     setRemovingBatchCardIds((current) => new Set(current).add(cardId));
@@ -6863,6 +6877,8 @@ export default function InstaCompScanner({
         ? `Removed ${cardTitle} from this batch. Cancelling its saved InstaComp™ row...`
         : abortedActiveScan
           ? `Ended active scan for ${cardTitle} and removed it from this batch.`
+        : endedPendingScan
+          ? `Ended pending scan for ${cardTitle} and removed it from this batch.`
         : `Removed ${cardTitle} from this batch.`
     );
 
@@ -11996,7 +12012,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={applySelectedBatchQuantity}
-              disabled={
+              aria-disabled={
                 batchRunning ||
                 batchDrafting ||
                 selectedDoneBatchCards.length === 0
@@ -12029,16 +12045,10 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={() => void mergeSelectedBatchQuantityRows()}
-              disabled={
-                batchRunning ||
-                batchDrafting ||
-                selectedQuantityMergeCount < 2
-              }
+              aria-disabled={selectedQuantityMergeDisabled}
               title={
                 batchBusyBlockedReason("merging selected duplicate quantities") ||
-                (selectedQuantityMergeCount >= 2
-                  ? "Merge selected duplicate rows with the same edited title into the first selected row and sum their quantities."
-                  : "Select at least two duplicate draftable rows with the same edited title to merge quantities.")
+                selectedQuantityMergeHelp
               }
               style={{
                 ...secondaryButtonStyle,
@@ -12046,21 +12056,30 @@ export default function InstaCompScanner({
                 borderColor: "#7c3aed",
                 color: "#5b21b6",
                 opacity:
-                  batchRunning ||
-                  batchDrafting ||
-                  selectedQuantityMergeCount < 2
+                  selectedQuantityMergeDisabled
                     ? 0.5
                     : 1,
                 cursor:
-                  batchRunning ||
-                  batchDrafting ||
-                  selectedQuantityMergeCount < 2
+                  selectedQuantityMergeDisabled
                     ? "not-allowed"
                     : "pointer",
               }}
             >
               Merge Selected Qty ({selectedQuantityMergeCount})
             </button>
+            {selectedQuantityMergeCount > 0 && (
+              <small
+                role="status"
+                aria-live="polite"
+                style={{
+                  color: selectedQuantityMergePlan.ok ? "#5b21b6" : "#7c2d12",
+                  fontWeight: 900,
+                  maxWidth: 340,
+                }}
+              >
+                {selectedQuantityMergeHelp}
+              </small>
+            )}
           </div>
         )}
 
@@ -14647,8 +14666,8 @@ function BatchCardRow({
                       ? removeBlockedReason
                     : card.operatorMarkedWrong
                       ? "Remove this wrong scan result from the visible batch and cancel its saved queue row when available."
-                    : card.status === "scanning"
-                      ? "End this active scan row, remove it from the visible batch, and cancel its saved queue row when available."
+                    : card.status === "queued" || card.status === "scanning"
+                      ? "End this queued or active scan row, remove it from the visible batch, and cancel its saved queue row when available."
                       : card.persistentJobId && card.persistentItemId
                     ? "Cancel this saved InstaComp™ row and remove it from the visible batch."
                     : "Remove this local upload row from the visible batch."

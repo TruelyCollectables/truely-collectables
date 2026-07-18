@@ -34,6 +34,11 @@ scenario("allows row removal while a batch scan is running", () => {
     instaCompBatchRowRemovalLabel({ status: "scanning" }) === "End / Remove",
     "Expected active scan rows to make the end/remove action explicit."
   );
+
+  assert(
+    instaCompBatchRowRemovalLabel({ status: "queued" }) === "End / Remove",
+    "Expected queued scan rows to make the end/remove action explicit."
+  );
 });
 
 scenario("blocks only dangerous draft handoff removal states", () => {
@@ -144,6 +149,8 @@ scenario("row remove button exposes busy and blocked feedback", () => {
     'role="status"',
     "Remove blocked:",
     "Ended active scan for ${cardTitle} and removed it from this batch.",
+    "Ended pending scan for ${cardTitle} and removed it from this batch.",
+    "End this queued or active scan row",
     "Removing row and cancelling saved InstaComp™ storage when present...",
   ]) {
     assert(

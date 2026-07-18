@@ -39,6 +39,6 @@ export function instaCompBatchRowRemovalLabel({
 }) {
   if (isRemoving) return "Removing...";
   if (operatorMarkedWrong) return "Remove Wrong Row";
-  if (status === "scanning") return "End / Remove";
+  if (status === "queued" || status === "scanning") return "End / Remove";
   return "Remove";
 }

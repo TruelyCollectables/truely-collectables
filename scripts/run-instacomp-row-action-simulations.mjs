@@ -190,11 +190,15 @@ scenario("scanner row actions expose busy and disabled reasons", () => {
 scenario("scanner exposes selected duplicate quantity merge action", () => {
   for (const fragment of [
     "selectedQuantityMergeCards",
+    "selectedQuantityMergePlan",
+    "selectedQuantityMergeHelp",
+    "selectedQuantityMergeDisabled",
     "planInstaCompSelectedQuantityMerge",
     "quantityMergeIdentityKeyForCard",
     "identityKey: quantityMergeIdentityKeyForCard(card)",
     "mergeSelectedBatchQuantityRows",
     "Merge Selected Qty",
+    "Ready to merge ${selectedQuantityMergePlan.mergedRowCount} selected duplicate rows: qty ${selectedQuantityMergePlan.previousKeeperQuantity} + ${selectedQuantityMergePlan.duplicateQuantity} = ${selectedQuantityMergePlan.mergedQuantity}.",
     "qty ${mergePlan.previousKeeperQuantity} + ${mergePlan.duplicateQuantity} = ${mergePlan.mergedQuantity}",
     "persistBatchCardCorrections(mergedKeeper)",
     "persistedDuplicates.map(({ card, target }) =>",
@@ -254,6 +258,7 @@ scenario("scanner blocked batch controls explain why nothing ran", () => {
     "aria-disabled={batchRunning || batchDrafting || selectedDraftFixCount === 0}",
     "aria-disabled={!visibleBatchCards.length}",
     "aria-disabled={\n              batchRunning || batchDrafting || visibleTrialResultCount === 0\n            }",
+    "aria-disabled={selectedQuantityMergeDisabled}",
     'if (showBatchBusyBlocked("merging selected duplicate quantities")) return;',
     'if (showBatchBusyBlocked("removing visible rows")) return;',
     'if (showBatchBusyBlocked("rotating this row image")) return;',
