@@ -567,9 +567,14 @@ export default async function AdminProductEditPage({
               <AdminSubmitButton
                 className="rounded-md bg-neutral-950 px-6 py-3 text-sm font-black text-white hover:bg-neutral-800"
                 pendingChildren="Saving product..."
+                title="Save the edited product fields, including pricing, quantity, status, images, and authenticity notes."
               >
                 Save product
               </AdminSubmitButton>
+              <p className="w-full text-xs font-bold text-neutral-600">
+                Saves the form values on this page. Status rules still apply: active/reserved
+                products need quantity, while sold/archived inventory is forced to quantity 0.
+              </p>
             </div>
           </form>
         </section>
@@ -666,9 +671,13 @@ export default async function AdminProductEditPage({
                 <AdminSubmitButton
                   className="w-full rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50"
                   pendingChildren="Auto-filling..."
+                  title="Replace the product description with the standard TCOS template using this product's current saved facts."
                 >
                   Auto-fill description
                 </AdminSubmitButton>
+                <p className="mt-1 text-xs font-bold text-neutral-600">
+                  Rewrites only the description from saved product facts; review the text before publishing.
+                </p>
               </form>
 
               <form action={generateAiDescription}>
@@ -676,9 +685,13 @@ export default async function AdminProductEditPage({
                 <AdminSubmitButton
                   className="w-full rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white hover:bg-neutral-800"
                   pendingChildren="Writing..."
+                  title="Draft a concise description from saved product facts, falling back to the standard template if AI is unavailable."
                 >
                   AI write description
                 </AdminSubmitButton>
+                <p className="mt-1 text-xs font-bold text-neutral-600">
+                  Uses only saved product facts and falls back to the standard template if AI cannot run.
+                </p>
               </form>
             </div>
           </section>
@@ -818,9 +831,14 @@ function SalesCompsPanel({
               <AdminSubmitButton
                 className="w-full rounded-md bg-emerald-700 px-4 py-2 text-sm font-black text-white hover:bg-emerald-800"
                 pendingChildren="Applying price..."
+                title="Update this product's price to the latest suggested comp price while preserving the rest of the product record."
               >
                 Apply suggested price
               </AdminSubmitButton>
+              <p className="mt-1 text-xs font-bold text-neutral-600">
+                Updates price from the latest comps only; title, quantity, status, image, description,
+                and authenticity fields stay on the product record.
+              </p>
             </form>
           )}
 

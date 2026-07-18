@@ -189,6 +189,26 @@ scenario("product quick-status UI reports status success and stock blockers", ()
   }
 });
 
+scenario("product editor submits explain action scope", () => {
+  for (const fragment of [
+    "Save the edited product fields, including pricing, quantity, status, images, and authenticity notes.",
+    "Saves the form values on this page. Status rules still apply: active/reserved",
+    "products need quantity, while sold/archived inventory is forced to quantity 0.",
+    "Replace the product description with the standard TCOS template using this product's current saved facts.",
+    "Rewrites only the description from saved product facts; review the text before publishing.",
+    "Draft a concise description from saved product facts, falling back to the standard template if AI is unavailable.",
+    "Uses only saved product facts and falls back to the standard template if AI cannot run.",
+    "Update this product's price to the latest suggested comp price while preserving the rest of the product record.",
+    "Updates price from the latest comps only; title, quantity, status, image, description,",
+    "and authenticity fields stay on the product record.",
+  ]) {
+    assert(
+      productPageSource.includes(fragment),
+      `Expected product editor action-scope fragment ${fragment}.`,
+    );
+  }
+});
+
 scenario("product pages avoid raw action failure copy", () => {
   for (const fragment of [
     "adminProductActionFailureMessage",
