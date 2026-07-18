@@ -87,35 +87,45 @@ export default function LivePaymentGateActions({
   }
 
   return (
-    <div className="grid gap-3">
+    <div className="grid gap-3 rounded-2xl border border-current/20 bg-white/70 p-4">
+      <div>
+        <p className="text-xs font-black uppercase tracking-[0.14em]">
+          Gate action
+        </p>
+        <p className="mt-1 text-sm font-semibold leading-6">
+          Approval writes to the immutable audit log. Runtime checkout still
+          requires the environment kill switch; revocation closes the database
+          approval immediately.
+        </p>
+      </div>
       <div className="flex flex-wrap gap-3">
-      <button
-        type="button"
-        disabled={!approvalReady || !approvalDatabaseReady || busy !== null}
-        onClick={() => {
-          setPendingAction("approve");
-          setConfirmation("");
-          setMessage(null);
-        }}
-        className="rounded bg-green-700 px-4 py-2 font-bold text-white disabled:cursor-not-allowed disabled:opacity-40"
-      >
-        {busy === "approve" ? "Approving..." : "Approve Live Payments"}
-      </button>
-      <button
-        type="button"
-        disabled={busy !== null}
-        onClick={() => {
-          setPendingAction("revoke");
-          setConfirmation("");
-          setMessage(null);
-        }}
-        className="rounded bg-red-700 px-4 py-2 font-bold text-white disabled:cursor-not-allowed disabled:opacity-40"
-      >
-        {busy === "revoke" ? "Revoking..." : "Emergency Revoke"}
-      </button>
+        <button
+          type="button"
+          disabled={!approvalReady || !approvalDatabaseReady || busy !== null}
+          onClick={() => {
+            setPendingAction("approve");
+            setConfirmation("");
+            setMessage(null);
+          }}
+          className="rounded-md bg-green-700 px-4 py-2 text-sm font-black text-white hover:bg-green-800 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {busy === "approve" ? "Approving..." : "Approve Live Payments"}
+        </button>
+        <button
+          type="button"
+          disabled={busy !== null}
+          onClick={() => {
+            setPendingAction("revoke");
+            setConfirmation("");
+            setMessage(null);
+          }}
+          className="rounded-md bg-red-700 px-4 py-2 text-sm font-black text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {busy === "revoke" ? "Revoking..." : "Emergency Revoke"}
+        </button>
       </div>
       {!approvalDatabaseReady ? (
-        <p className="w-full text-sm font-bold text-red-800">
+        <p className="w-full rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-950">
           Approval is disabled until the live-payment launch gate migration is
           applied.
         </p>
@@ -144,7 +154,9 @@ export default function LivePaymentGateActions({
           onSubmit={() => submit(pendingAction)}
         />
       ) : null}
-      {message ? <ActionNotice tone={message.tone}>{message.text}</ActionNotice> : null}
+      {message ? (
+        <ActionNotice tone={message.tone}>{message.text}</ActionNotice>
+      ) : null}
     </div>
   );
 }
@@ -178,7 +190,7 @@ function LaunchConfirmationPanel({
 
   return (
     <div
-      className={`rounded-md border p-4 ${
+      className={`rounded-2xl border p-4 ${
         isRevoke
           ? "border-red-200 bg-red-50 text-red-950"
           : "border-emerald-200 bg-emerald-50 text-emerald-950"
@@ -187,7 +199,7 @@ function LaunchConfirmationPanel({
       <p className="text-sm font-black">
         {isRevoke ? "Confirm emergency revocation" : "Confirm live payment approval"}
       </p>
-      <p className="mt-1 text-xs font-bold">
+      <p className="mt-1 text-xs font-bold leading-5">
         Type <code>{expected}</code>, add the operator name, then submit.
       </p>
       <div className="mt-3 grid gap-2 md:grid-cols-2">
@@ -196,7 +208,7 @@ function LaunchConfirmationPanel({
           <input
             value={confirmation}
             onChange={(event) => onConfirmationChange(event.target.value)}
-            className="mt-1 w-full rounded border border-neutral-300 px-3 py-2 text-sm text-neutral-950"
+            className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm text-neutral-950"
             placeholder={expected}
           />
         </label>
@@ -205,7 +217,7 @@ function LaunchConfirmationPanel({
           <input
             value={operator}
             onChange={(event) => onOperatorChange(event.target.value)}
-            className="mt-1 w-full rounded border border-neutral-300 px-3 py-2 text-sm text-neutral-950"
+            className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm text-neutral-950"
             placeholder="Name for audit log"
           />
         </label>
@@ -214,7 +226,7 @@ function LaunchConfirmationPanel({
           <textarea
             value={note}
             onChange={(event) => onNoteChange(event.target.value)}
-            className="mt-1 w-full rounded border border-neutral-300 px-3 py-2 text-sm text-neutral-950"
+            className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm text-neutral-950"
             placeholder="Optional launch/revocation note"
           />
         </label>
@@ -224,8 +236,10 @@ function LaunchConfirmationPanel({
           type="button"
           onClick={onSubmit}
           disabled={busy}
-          className={`rounded px-4 py-2 text-sm font-black text-white disabled:opacity-50 ${
-            isRevoke ? "bg-red-700" : "bg-emerald-700"
+          className={`rounded-md px-4 py-2 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-50 ${
+            isRevoke
+              ? "bg-red-700 hover:bg-red-800"
+              : "bg-emerald-700 hover:bg-emerald-800"
           }`}
         >
           {busy ? "Submitting..." : isRevoke ? "Revoke approval" : "Record approval"}
@@ -234,7 +248,7 @@ function LaunchConfirmationPanel({
           type="button"
           onClick={onCancel}
           disabled={busy}
-          className="rounded border border-neutral-300 bg-white px-4 py-2 text-sm font-black text-neutral-900 disabled:opacity-50"
+          className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black text-neutral-900 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50"
         >
           Cancel
         </button>
@@ -258,7 +272,7 @@ function ActionNotice({
         : "border-blue-200 bg-blue-50 text-blue-950";
 
   return (
-    <p className={`w-full rounded border px-3 py-2 text-sm font-bold ${className}`}>
+    <p className={`w-full rounded-xl border px-3 py-2 text-sm font-bold ${className}`}>
       {children}
     </p>
   );
