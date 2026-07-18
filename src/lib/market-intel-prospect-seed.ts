@@ -282,6 +282,9 @@ export async function seedMarketIntelGrowthProspects() {
       createdSubjects += 1;
     }
 
+    if (!subjectId) {
+      throw new Error(`Unable to resolve subject ID for ${prospect.name}.`);
+    }
     currentSubjectIds.add(subjectId);
 
     const { data: existingWatch, error: watchLookupError } = await supabase
