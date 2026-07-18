@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import InstaCompAdminFrame from "./InstaCompAdminFrame";
 import InstaCompScanner from "./InstaCompScanner";
 
 export const dynamic = "force-dynamic";
@@ -75,78 +76,77 @@ export default async function InstaCompAdminPage({
   const importedQuery = typeof params.q === "string" ? params.q : "";
 
   return (
-    <main
-      style={{
-        padding: 24,
-        maxWidth: 1200,
-        margin: "0 auto",
-        background: "#f7f7f7",
-        minHeight: "100vh",
-      }}
+    <InstaCompAdminFrame
+      eyebrow="Admin scan workbench"
+      title="InstaComp™ Scan Lab"
+      description="Identify cards with AI, verify the exact card identity, remove bad rows, merge duplicate quantities, refresh comps, and turn clean scan results into priced TCOS drafts."
+      notice={
+        openedFromSellerEbayStaging ? (
+          <section className="rounded-3xl border border-blue-200 bg-blue-50 p-5 shadow-sm">
+            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+              <div>
+                <p className="text-xs font-black uppercase tracking-[0.18em] text-blue-700">
+                  Seller eBay staging handoff
+                </p>
+                <h2 className="mt-1 text-2xl font-black text-blue-950">
+                  Seller eBay listings ready for InstaComp™ cleanup
+                </h2>
+                <p className="mt-2 max-w-4xl text-sm font-semibold leading-6 text-blue-950">
+                  {stagedRowCount > 0
+                    ? `${stagedRowCount} staged eBay row${
+                        stagedRowCount === 1 ? "" : "s"
+                      } selected. `
+                    : ""}
+                  Upload or scan the matching card fronts/backs here, review the
+                  detected identity and comps, then create TCOS seller drafts from
+                  the cleaned InstaComp™ result.
+                </p>
+              </div>
+              {importedQuery ? (
+                <div className="rounded-2xl border border-blue-200 bg-white px-4 py-3 text-sm font-black text-blue-800">
+                  Import context: {importedQuery}
+                </div>
+              ) : null}
+            </div>
+          </section>
+        ) : null
+      }
     >
-      <div style={{ marginBottom: 24 }}>
-        <h1 style={{ marginBottom: 4 }}>InstaComp™ Scan Lab</h1>
-        <p style={{ marginTop: 0, color: "#555" }}>
-          Scan a card, identify it with AI, build comp searches, and estimate a
-          market price.
-        </p>
-      </div>
-
-      {openedFromSellerEbayStaging ? (
-        <section
-          style={{
-            marginBottom: 18,
-            border: "1px solid #bfdbfe",
-            borderRadius: 12,
-            padding: 16,
-            background: "#eff6ff",
-          }}
-        >
-          <h2 style={{ margin: "0 0 6px" }}>
-            Seller eBay listings ready for InstaComp™ cleanup
-          </h2>
-          <p style={{ margin: 0, color: "#1f2937", lineHeight: 1.5 }}>
-            {stagedRowCount > 0
-              ? `${stagedRowCount} staged eBay row${stagedRowCount === 1 ? "" : "s"} selected. `
-              : ""}
-            Upload or scan the matching card fronts/backs here, review the
-            detected identity/comps, then create TCOS seller drafts from the
-            cleaned InstaComp™ result.
-          </p>
-          {importedQuery ? (
-            <p style={{ margin: "8px 0 0", color: "#1d4ed8", fontWeight: 800 }}>
-              Import context: {importedQuery}
-            </p>
-          ) : null}
-        </section>
-      ) : null}
-
       <InstaCompScanner />
 
-      <section
-        style={{
-          marginTop: 28,
-          border: "1px solid #ddd",
-          borderRadius: 12,
-          padding: 20,
-          background: "white",
-        }}
-      >
-        <h2 style={{ marginTop: 0 }}>Recent InstaComp™ Scans</h2>
+      <section className="mt-7 overflow-hidden rounded-3xl border border-neutral-200 bg-white shadow-sm">
+        <div className="border-b border-neutral-200 p-5">
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-neutral-500">
+            Audit trail
+          </p>
+          <h2 className="mt-1 text-2xl font-black">Recent InstaComp™ Scans</h2>
+        </div>
 
         {!recentScans.length ? (
-          <p>No scans saved yet.</p>
+          <p className="p-5 font-semibold text-neutral-600">No scans saved yet.</p>
         ) : (
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse" }}>
+          <div className="overflow-x-auto">
+            <table className="w-full border-collapse text-left text-sm">
               <thead>
-                <tr style={{ textAlign: "left", borderBottom: "1px solid #ddd" }}>
-                  <th style={th}>Date</th>
-                  <th style={th}>Card</th>
-                  <th style={th}>Query</th>
-                  <th style={th}>Confidence</th>
-                  <th style={th}>Suggested</th>
-                  <th style={th}>Sold Search</th>
+                <tr className="border-b border-neutral-200 bg-neutral-50">
+                  <th className="px-5 py-3 text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
+                    Date
+                  </th>
+                  <th className="px-5 py-3 text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
+                    Card
+                  </th>
+                  <th className="px-5 py-3 text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
+                    Query
+                  </th>
+                  <th className="px-5 py-3 text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
+                    Confidence
+                  </th>
+                  <th className="px-5 py-3 text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
+                    Suggested
+                  </th>
+                  <th className="px-5 py-3 text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
+                    Sold Search
+                  </th>
                 </tr>
               </thead>
 
@@ -164,17 +164,30 @@ export default async function InstaCompAdminPage({
                     .join(" ");
 
                   return (
-                    <tr key={scan.id} style={{ borderBottom: "1px solid #eee" }}>
-                      <td style={td}>
+                    <tr key={scan.id} className="border-b border-neutral-100">
+                      <td className="px-5 py-4 align-top font-semibold text-neutral-600">
                         {new Date(scan.created_at).toLocaleString()}
                       </td>
-                      <td style={td}>{title || "—"}</td>
-                      <td style={td}>{scan.search_query || "—"}</td>
-                      <td style={td}>{confidence(scan.confidence)}</td>
-                      <td style={td}>{money(scan.suggested_price)}</td>
-                      <td style={td}>
+                      <td className="px-5 py-4 align-top font-black text-neutral-900">
+                        {title || "—"}
+                      </td>
+                      <td className="px-5 py-4 align-top font-semibold text-neutral-600">
+                        {scan.search_query || "—"}
+                      </td>
+                      <td className="px-5 py-4 align-top font-black text-neutral-900">
+                        {confidence(scan.confidence)}
+                      </td>
+                      <td className="px-5 py-4 align-top font-black text-neutral-900">
+                        {money(scan.suggested_price)}
+                      </td>
+                      <td className="px-5 py-4 align-top">
                         {scan.ebay_sold_url ? (
-                          <a href={scan.ebay_sold_url} target="_blank">
+                          <a
+                            href={scan.ebay_sold_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="font-black text-blue-700 underline"
+                          >
                             Open
                           </a>
                         ) : (
@@ -189,17 +202,6 @@ export default async function InstaCompAdminPage({
           </div>
         )}
       </section>
-    </main>
+    </InstaCompAdminFrame>
   );
 }
-
-const th: React.CSSProperties = {
-  padding: "10px 8px",
-  fontSize: 13,
-  color: "#555",
-};
-
-const td: React.CSSProperties = {
-  padding: "12px 8px",
-  verticalAlign: "top",
-};

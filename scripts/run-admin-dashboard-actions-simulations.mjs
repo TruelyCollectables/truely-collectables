@@ -12,6 +12,10 @@ const instaCompDirectSource = await readFile(
   new URL("../src/app/admin/instacomp-direct/page.tsx", import.meta.url),
   "utf8",
 );
+const instaCompFrameSource = await readFile(
+  new URL("../src/app/admin/instacomp/InstaCompAdminFrame.tsx", import.meta.url),
+  "utf8",
+);
 
 const scenarios = [];
 
@@ -162,9 +166,33 @@ scenario("instacomp direct route owns its segment config", () => {
     "Expected InstaComp Direct route not to re-export dynamic segment config.",
   );
   assert(
-    instaCompDirectSource.includes("Scan, correct, remove, retry, price"),
+    instaCompDirectSource.includes(
+      "Scan, correct, remove, retry, merge quantities, price",
+    ),
     "Expected InstaComp Direct page to advertise the fixed remove/retry workflow.",
   );
+});
+
+scenario("instacomp operator shell explains no-dead-end row actions", () => {
+  for (const fragment of [
+    "No-dead-end controls",
+    "Wrong scan cleanup",
+    "Mark → remove",
+    "Remove Wrong Row",
+    "Duplicate quantity merge",
+    "2 + 1 = 3",
+    "Merge Selected Qty",
+    "Active scan control",
+    "End / remove",
+    "Command Center",
+    "Duplicate Finder",
+    "Smoke Checks",
+  ]) {
+    assert(
+      instaCompFrameSource.includes(fragment),
+      `Expected InstaComp operator shell fragment ${fragment}.`,
+    );
+  }
 });
 
 const failed = [];
