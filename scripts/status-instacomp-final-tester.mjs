@@ -871,6 +871,18 @@ const trialAnswerKeyHtml = readTrialAnswerKeyHtmlStatus(
 const trialAnswerKeyValidation = readTrialAnswerKeyValidationStatus(trialGroundTruthWorksheet);
 const trialPreflight = runTrialPreflightStatus();
 const finalTrialImageShortfall = getFinalTrialImageShortfall(trialPreflight);
+const trialImageMapNext = getTrialReceiptNext({
+  matchesCurrentAudit: trialImageMap.matchesCurrentAudit,
+  refreshCommand: "npm run instacomp:trial:map",
+  preflight: trialPreflight,
+  shortfall: finalTrialImageShortfall,
+});
+const trialIntakePacketNext = getTrialReceiptNext({
+  matchesCurrentAudit: trialIntakePacket.matchesCurrentAudit,
+  refreshCommand: "npm run instacomp:trial:packet",
+  preflight: trialPreflight,
+  shortfall: finalTrialImageShortfall,
+});
 
 const checklist = [
   {
@@ -1046,12 +1058,7 @@ const checklist = [
       preflight: trialPreflight,
       shortfall: finalTrialImageShortfall,
     }),
-    next: getTrialReceiptNext({
-      matchesCurrentAudit: trialImageMap.matchesCurrentAudit,
-      refreshCommand: "npm run instacomp:trial:map",
-      preflight: trialPreflight,
-      shortfall: finalTrialImageShortfall,
-    }),
+    next: trialImageMapNext,
   },
   {
     key: "trial_preflight_gate",
@@ -1073,12 +1080,7 @@ const checklist = [
       preflight: trialPreflight,
       shortfall: finalTrialImageShortfall,
     }),
-    next: getTrialReceiptNext({
-      matchesCurrentAudit: trialIntakePacket.matchesCurrentAudit,
-      refreshCommand: "npm run instacomp:trial:packet",
-      preflight: trialPreflight,
-      shortfall: finalTrialImageShortfall,
-    }),
+    next: trialIntakePacketNext,
   },
   {
     key: "hundred_card_trial",
@@ -1136,8 +1138,8 @@ const readiness = {
     answerKeyHtml: trialAnswerKeyHtml,
     answerKeyValidation: trialAnswerKeyValidation,
     imageAudit: trialImageAudit,
-    imageMap: trialImageMap,
-    intakePacket: trialIntakePacket,
+    imageMap: { ...trialImageMap, next: trialImageMapNext },
+    intakePacket: { ...trialIntakePacket, next: trialIntakePacketNext },
     preflight: trialPreflight,
   },
   checklist,
