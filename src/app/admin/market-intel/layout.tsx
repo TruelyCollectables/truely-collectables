@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import MetricDrilldownEnhancer from "./MetricDrilldownEnhancer";
 
 export default function MarketIntelLayout({
@@ -5,7 +6,9 @@ export default function MarketIntelLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <>
-      <MetricDrilldownEnhancer />
+      <Suspense fallback={null}>
+        <MetricDrilldownEnhancer />
+      </Suspense>
       {children}
     </>
   );
