@@ -3,6 +3,7 @@ import {
   adminHandoffFromUrl,
   adminRedirectUrl,
 } from "../../../../../lib/admin-handoff";
+import { growthProfessionalCardEligibility } from "../../../../../lib/market-intel-card-scope";
 import { growthIdentityEligibility } from "../../../../../lib/market-intel-growth";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
 
@@ -32,11 +33,14 @@ export async function POST(request: NextRequest) {
     let identityId = text(formData, "collectibleIdentityId");
     let listingQuantity: number | null = null;
     let listingDeliveredCost: number | null = null;
+    let listingTitle: string | null = null;
 
     if (sourceListingId) {
       const { data: listing, error: listingError } = await supabase
         .from("tcos_mi_listings")
-        .select("id,collectible_identity_id,delivered_price,quantity,listing_status")
+        .select(
+          "id,collectible_identity_id,delivered_price,quantity,listing_status,original_title",
+        )
         .eq("id", sourceListingId)
         .single();
       if (listingError) throw new Error(listingError.message);
@@ -49,6 +53,7 @@ export async function POST(request: NextRequest) {
       identityId = listing.collectible_identity_id;
       listingQuantity = Number(listing.quantity || 1);
       listingDeliveredCost = Number(listing.delivered_price || 0);
+      listingTitle = String(listing.original_title || "");
     }
 
     if (!identityId) throw new Error("An exact card identity is required.");
@@ -56,17 +61,43 @@ export async function POST(request: NextRequest) {
     const { data: identity, error: identityError } = await supabase
       .from("tcos_mi_collectible_identities")
       .select(
-        "id,parallel_name,insert_name,variation_name,serial_numbered_to,autograph,memorabilia,active",
+        "id,subject_id,sport_or_category,manufacturer,brand,product_line,set_name,display_name,parallel_name,insert_name,variation_name,serial_numbered_to,autograph,memorabilia,active",
       )
       .eq("id", identityId)
       .single();
     if (identityError) throw new Error(identityError.message);
     if (!identity.active) throw new Error("The selected exact card identity is inactive.");
 
-    const eligibility = growthIdentityEligibility(identity);
-    if (!eligibility.eligible) {
+    const subjectResult = identity.subject_id
+      ? await supabase
+          .from("tcos_mi_subjects")
+          .select("league_or_brand")
+          .eq("id", identity.subject_id)
+          .maybeSingle()
+      : { data: null, error: null };
+    if (subjectResult.error) throw new Error(subjectResult.error.message);
+
+    const nonBaseEligibility = growthIdentityEligibility(identity);
+    if (!nonBaseEligibility.eligible) {
       throw new Error(
         "Base cards are blocked from Growth Specs. Choose a Silver, Holo, named parallel, insert, variation, numbered card, autograph, or memorabilia card.",
+      );
+    }
+
+    const professionalEligibility = growthProfessionalCardEligibility({
+      sportOrCategory: identity.sport_or_category,
+      leagueOrBrand: subjectResult.data?.league_or_brand || null,
+      manufacturer: identity.manufacturer,
+      brand: identity.brand,
+      productLine: identity.product_line,
+      setName: identity.set_name,
+      displayName: identity.display_name,
+      listingTitle,
+    });
+    if (!professionalEligibility.eligible) {
+      throw new Error(
+        professionalEligibility.rejectionReasons.join(" ") ||
+          "Only licensed professional baseball and WNBA cards are allowed.",
       );
     }
 
@@ -135,7 +166,13 @@ export async function POST(request: NextRequest) {
       catalyst: text(formData, "catalyst") || null,
       thesis: text(formData, "thesis") || null,
       thesis_expires_at: thesisExpiresAt,
-      notes: text(formData, "notes") || null,
+      notes:
+        [
+          text(formData, "notes") || null,
+          `Card scope verified: ${professionalEligibility.scope}`,
+        ]
+          .filter(Boolean)
+          .join("\n") || null,
     });
 
     if (error) {
