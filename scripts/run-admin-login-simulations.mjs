@@ -57,6 +57,36 @@ scenario("admin login route keeps password paste and local rescue guards", () =>
   }
 });
 
+scenario("admin local rescue login stays localhost-only and non-production", () => {
+  for (const fragment of [
+    "process.env.NODE_ENV !== \"production\"",
+    "hostname === \"localhost\"",
+    "hostname === \"127.0.0.1\"",
+    "hostname === \"::1\"",
+    "loginPayload.localDevelopmentLogin &&\n    isLocalDevelopmentAdminHost(hostname)",
+    "!isLocalDevelopmentLogin &&\n    !canUseLocalDevelopmentPasswordFile",
+    "isLocalDevelopmentLogin ||\n    (await verifySubmittedAdminPassword(loginPayload.password, hostname))",
+  ]) {
+    assert(
+      loginRouteSource.includes(fragment),
+      `Expected admin local rescue boundary fragment ${fragment}.`,
+    );
+  }
+
+  for (const fragment of [
+    "const localDevelopmentLoginAvailable = process.env.NODE_ENV !== \"production\";",
+    "{localDevelopmentLoginAvailable ? (",
+    "Localhost-only rescue button.",
+    "Disabled in production and",
+    "rejected for non-local hosts.",
+  ]) {
+    assert(
+      loginPageSource.includes(fragment),
+      `Expected admin login page local rescue guidance fragment ${fragment}.`,
+    );
+  }
+});
+
 scenario("admin login destination guard prevents login and logout loops", () => {
   assert(
     safeAdminLoginNextPath("/admin/products") === "/admin/products",
