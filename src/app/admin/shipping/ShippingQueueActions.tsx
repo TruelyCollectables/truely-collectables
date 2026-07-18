@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { ReactNode } from "react";
 
 type NoticeTone = "success" | "error" | "info";
@@ -19,7 +19,8 @@ function noticeTone(message: string): NoticeTone {
   if (
     normalized.includes("saving") ||
     normalized.includes("recording") ||
-    normalized.includes("marking")
+    normalized.includes("marking") ||
+    normalized.includes("finish")
   ) {
     return "info";
   }
@@ -100,6 +101,7 @@ export function SaveCoveragePolicyForm({
   defaultProvider?: string;
   defaultAmount?: string;
 }) {
+  const shippingQueueActionRef = useRef(false);
   const [coverageProvider, setCoverageProvider] = useState(
     defaultProvider || "Coverage",
   );
@@ -116,11 +118,17 @@ export function SaveCoveragePolicyForm({
   ].filter(Boolean);
 
   async function savePolicy() {
+    if (shippingQueueActionRef.current || saving) {
+      setMessage("Finish the current shipping queue action first.");
+      return;
+    }
+
     if (requiredMissing.length > 0) {
       setMessage(`Coverage policy needs: ${requiredMissing.join(", ")}.`);
       return;
     }
 
+    shippingQueueActionRef.current = true;
     setSaving(true);
     setMessage("Saving Coverage policy...");
 
@@ -154,6 +162,7 @@ export function SaveCoveragePolicyForm({
     } catch (error: any) {
       setMessage(error.message || "Could not save Coverage policy.");
     } finally {
+      shippingQueueActionRef.current = false;
       setSaving(false);
     }
   }
@@ -188,9 +197,9 @@ export function SaveCoveragePolicyForm({
       <button
         type="button"
         onClick={savePolicy}
-        disabled={saving || requiredMissing.length > 0}
+        aria-disabled={saving || requiredMissing.length > 0}
         aria-busy={saving}
-        className="rounded-2xl bg-amber-800 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
+        className="rounded-2xl bg-amber-800 px-3 py-2 text-xs font-black text-white aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
       >
         {saving ? "Saving Coverage policy..." : "Save Coverage Policy"}
       </button>
@@ -212,6 +221,7 @@ export function SaveTrackingForm({
   orderId: number;
   defaultCarrier?: string;
 }) {
+  const shippingQueueActionRef = useRef(false);
   const [carrier, setCarrier] = useState(defaultCarrier || "USPS");
   const [trackingNumber, setTrackingNumber] = useState("");
   const [saving, setSaving] = useState(false);
@@ -222,11 +232,17 @@ export function SaveTrackingForm({
   ].filter(Boolean);
 
   async function saveTracking() {
+    if (shippingQueueActionRef.current || saving) {
+      setMessage("Finish the current shipping queue action first.");
+      return;
+    }
+
     if (requiredMissing.length > 0) {
       setMessage(`Tracking needs: ${requiredMissing.join(", ")}.`);
       return;
     }
 
+    shippingQueueActionRef.current = true;
     setSaving(true);
     setMessage("Saving tracking...");
 
@@ -256,6 +272,7 @@ export function SaveTrackingForm({
     } catch (error: any) {
       setMessage(error.message || "Could not save tracking.");
     } finally {
+      shippingQueueActionRef.current = false;
       setSaving(false);
     }
   }
@@ -279,9 +296,9 @@ export function SaveTrackingForm({
       <button
         type="button"
         onClick={saveTracking}
-        disabled={saving || requiredMissing.length > 0}
+        aria-disabled={saving || requiredMissing.length > 0}
         aria-busy={saving}
-        className="rounded-2xl bg-blue-800 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
+        className="rounded-2xl bg-blue-800 px-3 py-2 text-xs font-black text-white aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
       >
         {saving ? "Saving tracking..." : "Save Tracking"}
       </button>
@@ -301,6 +318,7 @@ export function RecordLetterTrackImbForm({
 }: {
   orderId: number;
 }) {
+  const shippingQueueActionRef = useRef(false);
   const [trackingNumber, setTrackingNumber] = useState("");
   const [letterTrackReference, setLetterTrackReference] = useState("");
   const [postageAmount, setPostageAmount] = useState("");
@@ -313,11 +331,17 @@ export function RecordLetterTrackImbForm({
   ].filter(Boolean);
 
   async function recordImb() {
+    if (shippingQueueActionRef.current || saving) {
+      setMessage("Finish the current shipping queue action first.");
+      return;
+    }
+
     if (requiredMissing.length > 0) {
       setMessage(`LetterTrack IMb needs: ${requiredMissing.join(", ")}.`);
       return;
     }
 
+    shippingQueueActionRef.current = true;
     setSaving(true);
     setMessage("Recording LetterTrack IMb...");
 
@@ -352,6 +376,7 @@ export function RecordLetterTrackImbForm({
     } catch (error: any) {
       setMessage(error.message || "Could not record LetterTrack IMb.");
     } finally {
+      shippingQueueActionRef.current = false;
       setSaving(false);
     }
   }
@@ -386,9 +411,9 @@ export function RecordLetterTrackImbForm({
       <button
         type="button"
         onClick={recordImb}
-        disabled={saving || requiredMissing.length > 0}
+        aria-disabled={saving || requiredMissing.length > 0}
         aria-busy={saving}
-        className="rounded-2xl bg-blue-950 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
+        className="rounded-2xl bg-blue-950 px-3 py-2 text-xs font-black text-white aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
       >
         {saving ? "Recording LetterTrack IMb..." : "Record LetterTrack IMb"}
       </button>
@@ -410,6 +435,7 @@ export function RecordLetterTrackDeliveryEventForm({
   labelId: string;
   defaultTrackingNumber?: string;
 }) {
+  const shippingQueueActionRef = useRef(false);
   const [status, setStatus] = useState("delivered");
   const [trackingNumber, setTrackingNumber] = useState(defaultTrackingNumber);
   const [providerEventId, setProviderEventId] = useState("");
@@ -425,11 +451,17 @@ export function RecordLetterTrackDeliveryEventForm({
   ].filter(Boolean);
 
   async function recordEvidence() {
+    if (shippingQueueActionRef.current || saving) {
+      setMessage("Finish the current shipping queue action first.");
+      return;
+    }
+
     if (requiredMissing.length > 0) {
       setMessage(`Delivery evidence needs: ${requiredMissing.join(", ")}.`);
       return;
     }
 
+    shippingQueueActionRef.current = true;
     setSaving(true);
     setMessage("Recording delivery evidence...");
 
@@ -465,6 +497,7 @@ export function RecordLetterTrackDeliveryEventForm({
     } catch (error: any) {
       setMessage(error.message || "Could not record delivery evidence.");
     } finally {
+      shippingQueueActionRef.current = false;
       setSaving(false);
     }
   }
@@ -522,9 +555,9 @@ export function RecordLetterTrackDeliveryEventForm({
       <button
         type="button"
         onClick={recordEvidence}
-        disabled={saving || requiredMissing.length > 0}
+        aria-disabled={saving || requiredMissing.length > 0}
         aria-busy={saving}
-        className="rounded-2xl bg-green-800 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
+        className="rounded-2xl bg-green-800 px-3 py-2 text-xs font-black text-white aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
       >
         {saving ? "Recording delivery evidence..." : "Record Delivery Evidence"}
       </button>
@@ -548,6 +581,7 @@ export function MarkOrderShippedButton({
   carrier: string;
   trackingNumber: string;
 }) {
+  const shippingQueueActionRef = useRef(false);
   const [shipping, setShipping] = useState(false);
   const [message, setMessage] = useState("");
   const requiredMissing = [
@@ -556,11 +590,17 @@ export function MarkOrderShippedButton({
   ].filter(Boolean);
 
   async function markShipped() {
+    if (shippingQueueActionRef.current || shipping) {
+      setMessage("Finish the current shipping queue action first.");
+      return;
+    }
+
     if (requiredMissing.length > 0) {
       setMessage(`Mark shipped needs: ${requiredMissing.join(", ")}.`);
       return;
     }
 
+    shippingQueueActionRef.current = true;
     setShipping(true);
     setMessage("Marking order shipped...");
 
@@ -609,6 +649,7 @@ export function MarkOrderShippedButton({
     } catch (error: any) {
       setMessage(error.message || "Could not mark shipped.");
     } finally {
+      shippingQueueActionRef.current = false;
       setShipping(false);
     }
   }
@@ -618,9 +659,9 @@ export function MarkOrderShippedButton({
       <button
         type="button"
         onClick={markShipped}
-        disabled={shipping || requiredMissing.length > 0}
+        aria-disabled={shipping || requiredMissing.length > 0}
         aria-busy={shipping}
-        className="rounded-2xl bg-emerald-800 px-3 py-2 text-xs font-black text-white disabled:cursor-not-allowed disabled:opacity-50"
+        className="rounded-2xl bg-emerald-800 px-3 py-2 text-xs font-black text-white aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
       >
         {shipping ? "Marking order shipped..." : "Mark Shipped"}
       </button>

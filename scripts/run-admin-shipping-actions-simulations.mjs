@@ -45,8 +45,12 @@ scenario("shipping queue actions expose live notices and specific busy labels", 
     "Recording LetterTrack IMb...",
     "Recording delivery evidence...",
     "Marking order shipped...",
+    "shippingQueueActionRef",
+    "Finish the current shipping queue action first.",
     "aria-busy={saving}",
     "aria-busy={shipping}",
+    "aria-disabled={saving || requiredMissing.length > 0}",
+    "aria-disabled={shipping || requiredMissing.length > 0}",
   ]) {
     assert(
       sources.queue.includes(fragment),
