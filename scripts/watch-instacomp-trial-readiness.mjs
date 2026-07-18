@@ -80,6 +80,15 @@ function buildReadinessGates({
   const imageFiles = localTrial.imageFileCount ?? 0;
   const expectedImages = localTrial.expectedImageCount ?? 200;
   const completePairs = imageAudit.completePairs ?? 0;
+  const receiptsExist = Boolean(imageMap.exists) || Boolean(intakePacket.exists);
+  const receiptDetail = `image map ${imageMap.matchesCurrentAudit ? "current" : "not current"}, intake packet ${
+    intakePacket.matchesCurrentAudit ? "current" : "not current"
+  }`;
+  const receiptStatus = receiptsReady
+    ? imagesReady
+      ? "ready"
+      : "partial"
+    : gateStatus(false, receiptsExist);
 
   return [
     {
@@ -130,10 +139,12 @@ function buildReadinessGates({
     {
       key: "image_receipts",
       label: "Image map + intake packet receipts",
-      status: gateStatus(receiptsReady, Boolean(imageMap.exists) || Boolean(intakePacket.exists)),
-      detail: `image map ${imageMap.matchesCurrentAudit ? "current" : "not current"}, intake packet ${
-        intakePacket.matchesCurrentAudit ? "current" : "not current"
-      }`,
+      status: receiptStatus,
+      detail: receiptsReady
+        ? imagesReady
+          ? `${receiptDetail}; final image lot is complete`
+          : `${receiptDetail}; current for loaded images, but final lot is still ${imageFiles}/${expectedImages} files and ${completePairs}/${expectedCards} pairs`
+        : receiptDetail,
       command: "npm run instacomp:trial:prep",
     },
   ];
