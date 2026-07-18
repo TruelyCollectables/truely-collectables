@@ -172,9 +172,13 @@ export default async function MarketIntelReportsPage({
             <AdminSubmitButton
               className="mt-4 rounded-md bg-cyan-800 px-4 py-2.5 text-sm font-black text-white"
               pendingChildren="Syncing alerts..."
+              title="Create, refresh, or expire alert outbox rows from the latest scored Market Intel listings."
             >
               Sync Alerts Now
             </AdminSubmitButton>
+            <p className="mt-2 text-xs font-bold text-cyan-950">
+              Updates alert rows only; it does not buy listings, send messages, or change purchase records.
+            </p>
           </form>
 
           <form
@@ -196,9 +200,13 @@ export default async function MarketIntelReportsPage({
             <AdminSubmitButton
               className="mt-4 rounded-md bg-black px-4 py-2.5 text-sm font-black text-white"
               pendingChildren="Generating report..."
+              title="Build today's Market Intel report snapshot from current watchlists, comps, scores, and purchase ledger data."
             >
               Generate Today’s Report
             </AdminSubmitButton>
+            <p className="mt-2 text-xs font-bold text-amber-950">
+              Creates a report snapshot for review; alerts remain separate until the outbox is synced.
+            </p>
           </form>
         </section>
 
@@ -366,9 +374,13 @@ function AlertCard({
           <AdminSubmitButton
             className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-black text-white"
             pendingChildren="Marking sent..."
+            title={`Mark alert ${alert.id} as sent after you have delivered or handled it outside this queue.`}
           >
             Mark Sent
           </AdminSubmitButton>
+          <p className="mt-1 text-xs font-bold text-neutral-600">
+            Use after the alert has been handled; this removes it from the pending queue.
+          </p>
         </form>
         <form
           method="post"
@@ -381,9 +393,13 @@ function AlertCard({
           <AdminSubmitButton
             className="rounded-md border border-neutral-300 px-4 py-2 text-sm font-black"
             pendingChildren="Dismissing..."
+            title={`Dismiss alert ${alert.id} without marking it sent or changing the source listing.`}
           >
             Dismiss
           </AdminSubmitButton>
+          <p className="mt-1 text-xs font-bold text-neutral-600">
+            Removes this alert from pending review without touching the listing or purchase ledger.
+          </p>
         </form>
       </div>
     </article>
