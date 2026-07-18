@@ -1,4 +1,5 @@
 import Link from "next/link";
+import AdminSubmitButton from "../../../AdminSubmitButton";
 import { addAdminHandoff, ADMIN_HANDOFF_PARAM } from "../../../../../lib/admin-handoff";
 import { createAdminSessionValue } from "../../../../../lib/admin-session";
 import { getEbayPurchaseInbox } from "../../../../../lib/market-intel-ebay-purchase-inbox";
@@ -132,9 +133,12 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
             <Field name="salesTax" label="Sales tax" type="number" required defaultValue="0.00" step="0.01" min="0" />
             <Field name="buyerFees" label="Buyer fees" type="number" required defaultValue="0.00" step="0.01" min="0" />
             <Field name="otherCost" label="Other cost" type="number" required defaultValue="0.00" step="0.01" min="0" />
-            <button className="rounded-md bg-lime-700 px-4 py-3 font-black text-white md:col-span-2 xl:col-span-3">
+            <AdminSubmitButton
+              className="rounded-md bg-lime-700 px-4 py-3 font-black text-white md:col-span-2 xl:col-span-3"
+              pendingChildren="Adding purchase..."
+            >
               Add to Purchase Inbox
-            </button>
+            </AdminSubmitButton>
           </form>
         </section>
 
@@ -196,15 +200,30 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
                 </table>
               </div>
               <div className="flex flex-wrap gap-3 border-t border-neutral-200 bg-neutral-50 p-4">
-                <button name="action" value="move_resale" className="rounded-md bg-blue-700 px-4 py-3 font-black text-white">
+                <AdminSubmitButton
+                  name="action"
+                  value="move_resale"
+                  className="rounded-md bg-blue-700 px-4 py-3 font-black text-white"
+                  pendingChildren="Moving to resale..."
+                >
                   Move Selected to Resale Review
-                </button>
-                <button name="action" value="move_hold" className="rounded-md bg-fuchsia-800 px-4 py-3 font-black text-white">
+                </AdminSubmitButton>
+                <AdminSubmitButton
+                  name="action"
+                  value="move_hold"
+                  className="rounded-md bg-fuchsia-800 px-4 py-3 font-black text-white"
+                  pendingChildren="Moving to hold review..."
+                >
                   Move Selected to Hold / Investment Review
-                </button>
-                <button name="action" value="skip" className="rounded-md border border-neutral-400 bg-white px-4 py-3 font-black">
+                </AdminSubmitButton>
+                <AdminSubmitButton
+                  name="action"
+                  value="skip"
+                  className="rounded-md border border-neutral-400 bg-white px-4 py-3 font-black"
+                  pendingChildren="Skipping selected..."
+                >
                   Skip Selected
-                </button>
+                </AdminSubmitButton>
               </div>
             </form>
           )}

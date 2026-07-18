@@ -9,6 +9,13 @@ const sources = {
     new URL("../src/app/admin/market-intel/purchases/[id]/page.tsx", import.meta.url),
     "utf8",
   ),
+  ebayPurchaseIntake: await readFile(
+    new URL(
+      "../src/app/admin/market-intel/purchases/ebay-intake/page.tsx",
+      import.meta.url,
+    ),
+    "utf8",
+  ),
   deals: await readFile(
     new URL("../src/app/admin/market-intel/deals/page.tsx", import.meta.url),
     "utf8",
@@ -97,6 +104,35 @@ scenario("purchase desk and purchase detail forms label native submits", () => {
     assert(
       sources.purchaseDetail.includes(fragment),
       `Expected purchase detail disabled reason ${fragment}.`,
+    );
+  }
+});
+
+scenario("eBay Purchase Inbox actions expose pending state", () => {
+  assert(
+    sources.ebayPurchaseIntake.includes(
+      'import AdminSubmitButton from "../../../AdminSubmitButton";',
+    ),
+    "Expected eBay Purchase Inbox to import the shared admin submit button.",
+  );
+  assert(
+    countAdminSubmitButtons(sources.ebayPurchaseIntake) >= 4,
+    "Expected eBay Purchase Inbox add, move, and skip actions to use pending-aware submits.",
+  );
+
+  for (const fragment of [
+    'name="action"',
+    'value="move_resale"',
+    'value="move_hold"',
+    'value="skip"',
+    "Adding purchase...",
+    "Moving to resale...",
+    "Moving to hold review...",
+    "Skipping selected...",
+  ]) {
+    assert(
+      sources.ebayPurchaseIntake.includes(fragment),
+      `Expected eBay Purchase Inbox pending/action fragment ${fragment}.`,
     );
   }
 });
