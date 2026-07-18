@@ -240,8 +240,24 @@ export default async function AdminProductsPage({
 
       {query?.bulkUpdated && (
         <div className="rounded border border-green-300 bg-green-50 p-4 font-bold text-green-800">
-          Updated descriptions on {query.bulkUpdated} product
-          {query.bulkUpdated === "1" ? "" : "s"}.
+          <p>
+            Updated descriptions on {query.bulkUpdated} product
+            {query.bulkUpdated === "1" ? "" : "s"}.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Link
+              href="/admin/products#product-records"
+              className="rounded-md border border-green-300 bg-white px-3 py-2 text-sm font-black text-green-900 hover:bg-green-100"
+            >
+              Review product records
+            </Link>
+            <Link
+              href="/admin/products"
+              className="rounded-md border border-green-300 bg-white px-3 py-2 text-sm font-black text-green-900 hover:bg-green-100"
+            >
+              Continue bulk editing
+            </Link>
+          </div>
         </div>
       )}
 
@@ -298,7 +314,10 @@ export default async function AdminProductsPage({
         <Metric label="On-hand value" value={money(totalValue)} tone="sky" />
       </section>
 
-      <section className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
+      <section
+        id="product-records"
+        className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm"
+      >
         <div className="mb-4">
           <p className="text-xs font-black uppercase tracking-[0.16em] text-neutral-500">
             Bulk tools
