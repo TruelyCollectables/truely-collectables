@@ -54,6 +54,13 @@ function shortDate(value: string | null) {
   }).format(new Date(value));
 }
 
+function safeErrorMessage(error: { message?: string } | null | undefined) {
+  return String(error?.message || "Unknown database error.")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 220);
+}
+
 function isActiveLockout(value: string | null) {
   if (!value) return false;
   return new Date(value).getTime() > Date.now();
@@ -205,6 +212,9 @@ export default async function AdminSecurityPage({
   const rateLimitEvents = (rateLimitResult.data ?? []) as PublicRateLimitEvent[];
   const investigations =
     (investigationResult.data ?? []) as SecurityIpInvestigation[];
+  const loginAuditUnavailable = Boolean(loginResult.error);
+  const rateLimitAuditUnavailable = Boolean(rateLimitResult.error);
+  const investigationsUnavailable = Boolean(investigationResult.error);
   const failedAttempts = attempts.filter((attempt) => !attempt.success);
   const successfulAttempts = attempts.filter((attempt) => attempt.success);
   const activeLockouts = attempts.filter((attempt) =>
@@ -270,7 +280,7 @@ export default async function AdminSecurityPage({
           <section className="rounded-md border border-rose-200 bg-rose-50 p-5 text-rose-800">
             <h2 className="text-xl font-black">Login Audit Unavailable</h2>
             <p className="mt-2 text-sm font-semibold">
-              {loginResult.error.message}
+              {safeErrorMessage(loginResult.error)}
             </p>
             <p className="mt-2 text-sm">
               Apply the `20260628180000_create_admin_login_attempts.sql`
@@ -283,7 +293,7 @@ export default async function AdminSecurityPage({
           <section className="rounded-md border border-rose-200 bg-rose-50 p-5 text-rose-800">
             <h2 className="text-xl font-black">Public Endpoint Audit Unavailable</h2>
             <p className="mt-2 text-sm font-semibold">
-              {rateLimitResult.error.message}
+              {safeErrorMessage(rateLimitResult.error)}
             </p>
             <p className="mt-2 text-sm">
               Apply the
@@ -298,7 +308,7 @@ export default async function AdminSecurityPage({
           <section className="rounded-md border border-rose-200 bg-rose-50 p-5 text-rose-800">
             <h2 className="text-xl font-black">Investigation Cases Unavailable</h2>
             <p className="mt-2 text-sm font-semibold">
-              {investigationResult.error.message}
+              {safeErrorMessage(investigationResult.error)}
             </p>
             <p className="mt-2 text-sm">
               Apply the
@@ -331,7 +341,21 @@ export default async function AdminSecurityPage({
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-200">
-                {investigations.length === 0 ? (
+                {investigationsUnavailable ? (
+                  <tr>
+                    <td className="px-4 py-6 text-rose-700" colSpan={7}>
+                      <p className="font-black">
+                        IP investigation list unavailable.
+                      </p>
+                      <p className="mt-1 max-w-2xl text-sm font-semibold">
+                        The investigation table did not load, so this page
+                        cannot prove whether active IP cases exist. Use the
+                        migration warning above before treating this queue as
+                        clear.
+                      </p>
+                    </td>
+                  </tr>
+                ) : investigations.length === 0 ? (
                   <tr>
                     <td className="px-4 py-6 text-neutral-600" colSpan={7}>
                       No IP investigations saved yet.
@@ -384,18 +408,40 @@ export default async function AdminSecurityPage({
         </section>
 
         <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <Metric label="Money Events" value={String(rateLimitEvents.length)} />
+          <Metric
+            label="Money Events"
+            value={
+              rateLimitAuditUnavailable
+                ? "Unavailable"
+                : String(rateLimitEvents.length)
+            }
+          />
           <Metric
             label="Blocked Money Events"
-            value={String(blockedRateLimitEvents.length)}
+            value={
+              rateLimitAuditUnavailable
+                ? "Unavailable"
+                : String(blockedRateLimitEvents.length)
+            }
             tone="rose"
           />
           <Metric
             label="Watch Events"
-            value={String(watchRateLimitEvents.length)}
+            value={
+              rateLimitAuditUnavailable
+                ? "Unavailable"
+                : String(watchRateLimitEvents.length)
+            }
             tone="amber"
           />
-          <Metric label="Money IPs" value={String(uniqueRateLimitIps.size)} />
+          <Metric
+            label="Money IPs"
+            value={
+              rateLimitAuditUnavailable
+                ? "Unavailable"
+                : String(uniqueRateLimitIps.size)
+            }
+          />
         </section>
 
         <section className="rounded-md border border-neutral-200 bg-white p-5">
@@ -408,17 +454,29 @@ export default async function AdminSecurityPage({
               </p>
             </div>
             <div className="grid grid-cols-2 gap-2 text-sm md:grid-cols-4">
-              {Object.entries(endpointCounts).map(([endpoint, count]) => (
-                <div
-                  key={endpoint}
-                  className="rounded border border-neutral-200 bg-neutral-50 px-3 py-2"
-                >
-                  <p className="text-lg font-black">{count}</p>
-                  <p className="text-xs font-bold uppercase text-neutral-500">
-                    {endpointLabel(endpoint)}
+              {rateLimitAuditUnavailable ? (
+                <div className="col-span-full rounded border border-rose-200 bg-rose-50 px-3 py-2 text-rose-800">
+                  <p className="text-sm font-black">
+                    Endpoint counts unavailable
+                  </p>
+                  <p className="mt-1 text-xs font-semibold">
+                    Public money-path audit storage did not load.
                   </p>
                 </div>
-              ))}
+              ) : null}
+              {!rateLimitAuditUnavailable
+                ? Object.entries(endpointCounts).map(([endpoint, count]) => (
+                    <div
+                      key={endpoint}
+                      className="rounded border border-neutral-200 bg-neutral-50 px-3 py-2"
+                    >
+                      <p className="text-lg font-black">{count}</p>
+                      <p className="text-xs font-bold uppercase text-neutral-500">
+                        {endpointLabel(endpoint)}
+                      </p>
+                    </div>
+                  ))
+                : null}
             </div>
           </div>
 
@@ -438,7 +496,20 @@ export default async function AdminSecurityPage({
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-200">
-                {rateLimitEvents.length === 0 ? (
+                {rateLimitAuditUnavailable ? (
+                  <tr>
+                    <td className="px-4 py-6 text-rose-700" colSpan={9}>
+                      <p className="font-black">
+                        Public money-path audit unavailable.
+                      </p>
+                      <p className="mt-1 max-w-2xl text-sm font-semibold">
+                        Rate-limit audit storage did not load, so this page
+                        cannot prove whether blocked checkout, offer, binding
+                        offer, or seller-onboarding events exist.
+                      </p>
+                    </td>
+                  </tr>
+                ) : rateLimitEvents.length === 0 ? (
                   <tr>
                     <td className="px-4 py-6 text-neutral-600" colSpan={9}>
                       No public money-path rate-limit events recorded yet.
@@ -493,14 +564,46 @@ export default async function AdminSecurityPage({
         </section>
 
         <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <Metric label="Recent Attempts" value={String(attempts.length)} />
-          <Metric label="Successful" value={String(successfulAttempts.length)} tone="green" />
-          <Metric label="Failed" value={String(failedAttempts.length)} tone="amber" />
-          <Metric label="Active Lockouts" value={String(activeLockouts.length)} tone="rose" />
+          <Metric
+            label="Recent Attempts"
+            value={
+              loginAuditUnavailable ? "Unavailable" : String(attempts.length)
+            }
+          />
+          <Metric
+            label="Successful"
+            value={
+              loginAuditUnavailable
+                ? "Unavailable"
+                : String(successfulAttempts.length)
+            }
+            tone="green"
+          />
+          <Metric
+            label="Failed"
+            value={
+              loginAuditUnavailable ? "Unavailable" : String(failedAttempts.length)
+            }
+            tone="amber"
+          />
+          <Metric
+            label="Active Lockouts"
+            value={
+              loginAuditUnavailable
+                ? "Unavailable"
+                : String(activeLockouts.length)
+            }
+            tone="rose"
+          />
         </section>
 
         <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-          <Metric label="Unique IPs" value={String(uniqueIps.size)} />
+          <Metric
+            label="Unique IPs"
+            value={
+              loginAuditUnavailable ? "Unavailable" : String(uniqueIps.size)
+            }
+          />
           <Metric
             label="Failed Limit"
             value={String(adminLoginSecurityPolicy.maxFailedAttempts)}
@@ -538,7 +641,17 @@ export default async function AdminSecurityPage({
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-200">
-                {attempts.length === 0 ? (
+                {loginAuditUnavailable ? (
+                  <tr>
+                    <td className="px-4 py-6 text-rose-700" colSpan={7}>
+                      <p className="font-black">Login audit unavailable.</p>
+                      <p className="mt-1 max-w-2xl text-sm font-semibold">
+                        Admin login attempt storage did not load, so this page
+                        cannot prove whether failed attempts or lockouts exist.
+                      </p>
+                    </td>
+                  </tr>
+                ) : attempts.length === 0 ? (
                   <tr>
                     <td className="px-4 py-6 text-neutral-600" colSpan={7}>
                       No admin login attempts recorded yet.
@@ -609,7 +722,9 @@ function Metric({
   return (
     <div className="rounded-md border border-neutral-200 bg-white p-5">
       <p className="text-sm font-bold uppercase text-neutral-500">{label}</p>
-      <p className={`mt-3 text-3xl font-black ${toneClass}`}>{value}</p>
+      <p className={`mt-3 break-words text-3xl font-black ${toneClass}`}>
+        {value}
+      </p>
     </div>
   );
 }

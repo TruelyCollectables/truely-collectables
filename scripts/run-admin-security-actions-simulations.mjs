@@ -120,6 +120,47 @@ scenario("security center renders missing-IP action feedback", () => {
   }
 });
 
+scenario("security center does not show false-empty audit queues", () => {
+  for (const fragment of [
+    "const loginAuditUnavailable = Boolean(loginResult.error)",
+    "const rateLimitAuditUnavailable = Boolean(rateLimitResult.error)",
+    "const investigationsUnavailable = Boolean(investigationResult.error)",
+    "safeErrorMessage(loginResult.error)",
+    "safeErrorMessage(rateLimitResult.error)",
+    "safeErrorMessage(investigationResult.error)",
+    "IP investigation list unavailable",
+    "Public money-path audit unavailable",
+    "Login audit unavailable",
+    "cannot prove whether active IP cases exist",
+    "cannot prove whether blocked checkout, offer, binding",
+    "cannot prove whether failed attempts or lockouts exist",
+    "Endpoint counts unavailable",
+  ]) {
+    assert(
+      securityIndexSource.includes(fragment),
+      `Expected security center unavailable-state fragment ${fragment}.`,
+    );
+  }
+
+  assert(
+    securityIndexSource.indexOf("IP investigation list unavailable") <
+      securityIndexSource.indexOf("No IP investigations saved yet"),
+    "Expected investigation load failures to render before the empty investigation state.",
+  );
+  assert(
+    securityIndexSource.indexOf("Public money-path audit unavailable") <
+      securityIndexSource.indexOf(
+        "No public money-path rate-limit events recorded yet",
+      ),
+    "Expected public money-path load failures to render before the empty rate-limit state.",
+  );
+  assert(
+    securityIndexSource.indexOf("Login audit unavailable") <
+      securityIndexSource.indexOf("No admin login attempts recorded yet"),
+    "Expected login audit load failures to render before the empty login state.",
+  );
+});
+
 const failed = [];
 
 for (const item of scenarios) {
