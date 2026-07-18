@@ -6,8 +6,10 @@ import { createSupabaseServerClient } from "./supabase-server";
 
 type SubjectRow = {
   id: string;
+  name: string;
   sport_or_category: string | null;
   league_or_brand: string | null;
+  notes: string | null;
 };
 
 type CandidateRow = {
@@ -46,17 +48,99 @@ type AlertRow = {
   metadata: Record<string, unknown> | null;
 };
 
+function normalize(value: string | null | undefined) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function isBaseballSubject(subject: SubjectRow) {
-  const sport = String(subject.sport_or_category || "").toLowerCase();
-  const league = String(subject.league_or_brand || "").toLowerCase();
+  const sport = normalize(subject.sport_or_category);
+  const league = normalize(subject.league_or_brand);
   return sport.includes("baseball") || league.includes("mlb") || league.includes("miami marlins");
+}
+
+function isDillonHeadFirstBowmanOnly(subject: SubjectRow) {
+  return (
+    normalize(subject.name) === "dillon head" &&
+    String(subject.notes || "").includes("[FIRST_BOWMAN_CHROME_ONLY]")
+  );
+}
+
+function dillonHeadFirstBowmanEligibility(input: {
+  subject: SubjectRow;
+  title: string;
+  productLine: string | null;
+  setName: string | null;
+  parallelName: string | null;
+  insertName: string | null;
+  variationName: string | null;
+  serialNumberedTo: number | null;
+  autograph: boolean | null;
+  memorabilia: boolean | null;
+}) {
+  const premium = baseballPremiumCardEligibility({
+    sportOrCategory: input.subject.sport_or_category,
+    leagueOrBrand: input.subject.league_or_brand,
+    title: input.title,
+    productLine: input.productLine,
+    setName: input.setName,
+    parallelName: input.parallelName,
+    insertName: input.insertName,
+    variationName: input.variationName,
+    serialNumberedTo: input.serialNumberedTo,
+    autograph: input.autograph,
+    memorabilia: input.memorabilia,
+  });
+  if (!premium.eligible) return premium;
+  if (!isDillonHeadFirstBowmanOnly(input.subject)) return premium;
+
+  const text = normalize(
+    [
+      input.title,
+      input.productLine,
+      input.setName,
+      input.parallelName,
+      input.insertName,
+      input.variationName,
+    ]
+      .filter(Boolean)
+      .join(" "),
+  );
+  const hasFirst = text.includes("1st bowman") || text.includes("first bowman");
+  const hasBowman = text.includes("bowman");
+  const hasChrome = text.includes("chrome");
+  const blocked = [
+    text.includes("mojo") ? "Dillon Head Mojo/Mega Box Mojo cards are blocked." : null,
+    text.includes("paper") ? "Dillon Head paper cards are blocked." : null,
+    !hasFirst ? "Dillon Head tracking requires an explicit 1st Bowman signal." : null,
+    !hasBowman || !hasChrome
+      ? "Dillon Head tracking is limited to 1st Bowman Chrome cards."
+      : null,
+  ].filter((value): value is string => Boolean(value));
+
+  return blocked.length > 0
+    ? {
+        eligible: false,
+        reasons: [],
+        rejectionReasons: blocked,
+      }
+    : {
+        ...premium,
+        reasons: [
+          ...premium.reasons,
+          "Dillon Head 1st Bowman Chrome hoard scope confirmed",
+        ],
+      };
 }
 
 export async function enforceBaseballPremiumPolicy() {
   const supabase = createSupabaseServerClient({ admin: true });
   const { data: subjectData, error: subjectError } = await supabase
     .from("tcos_mi_subjects")
-    .select("id,sport_or_category,league_or_brand")
+    .select("id,name,sport_or_category,league_or_brand,notes")
     .eq("active", true);
   if (subjectError) throw new Error(subjectError.message);
 
@@ -94,9 +178,8 @@ export async function enforceBaseballPremiumPolicy() {
   for (const candidate of (candidateResult.data || []) as CandidateRow[]) {
     const subject = subjectById.get(candidate.subject_id);
     if (!subject) continue;
-    const policy = baseballPremiumCardEligibility({
-      sportOrCategory: subject.sport_or_category,
-      leagueOrBrand: subject.league_or_brand,
+    const policy = dillonHeadFirstBowmanEligibility({
+      subject,
       title: candidate.original_title,
       productLine: candidate.detected_product_line,
       setName: candidate.detected_set_name,
@@ -116,7 +199,7 @@ export async function enforceBaseballPremiumPolicy() {
         reviewed_at: now,
         metadata: {
           ...(candidate.metadata || {}),
-          policy_engine: "baseball_premium_only_v1",
+          policy_engine: "baseball_premium_only_v2",
           policy_rejected_at: now,
           rejection_reasons: policy.rejectionReasons,
         },
@@ -131,9 +214,8 @@ export async function enforceBaseballPremiumPolicy() {
     if (!identity.subject_id) continue;
     const subject = subjectById.get(identity.subject_id);
     if (!subject) continue;
-    const policy = baseballPremiumCardEligibility({
-      sportOrCategory: subject.sport_or_category,
-      leagueOrBrand: subject.league_or_brand,
+    const policy = dillonHeadFirstBowmanEligibility({
+      subject,
       title: identity.display_name,
       productLine: identity.product_line,
       setName: identity.set_name,
@@ -177,7 +259,7 @@ export async function enforceBaseballPremiumPolicy() {
             status: "expired",
             metadata: {
               ...(alert.metadata || {}),
-              policy_engine: "baseball_premium_only_v1",
+              policy_engine: "baseball_premium_only_v2",
               policy_expired_at: now,
             },
           })
@@ -222,14 +304,13 @@ export async function assertCandidateBaseballPremiumPolicy(input: {
   if (candidateError) throw new Error(candidateError.message);
   const { data: subject, error: subjectError } = await supabase
     .from("tcos_mi_subjects")
-    .select("sport_or_category,league_or_brand")
+    .select("id,name,sport_or_category,league_or_brand,notes")
     .eq("id", candidate.subject_id)
     .single();
   if (subjectError) throw new Error(subjectError.message);
 
-  const policy = baseballPremiumCardEligibility({
-    sportOrCategory: subject.sport_or_category,
-    leagueOrBrand: subject.league_or_brand,
+  const policy = dillonHeadFirstBowmanEligibility({
+    subject: subject as SubjectRow,
     title: candidate.original_title,
     productLine: input.productLine,
     setName: input.setName,
