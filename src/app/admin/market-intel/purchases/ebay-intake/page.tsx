@@ -201,9 +201,14 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
               pendingChildren="Importing eBay purchase..."
               disabled={Boolean(loadError)}
               disabledReason={loadError ? "Install the Purchase Inbox database migration first." : undefined}
+              title="Import the eBay order into Purchase Inbox only; exact-card review and ledger recording happen after this step."
             >
               Import eBay Purchase
             </AdminSubmitButton>
+            <p className="text-xs font-bold text-neutral-600 md:col-span-2 xl:col-span-3">
+              Import creates pending inbox rows from the receipt. Nothing reaches the Purchase Ledger
+              until exact identity is confirmed and Record as Purchased is used.
+            </p>
           </form>
         </section>
 
@@ -278,6 +283,7 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
                   value="move_resale"
                   className="rounded-md bg-blue-700 px-4 py-3 font-black text-white"
                   pendingChildren="Moving to resale..."
+                  title="Move selected pending purchase rows into Resale exact-card review without recording them in the ledger yet."
                 >
                   Move Selected to Resale Review
                 </AdminSubmitButton>
@@ -286,6 +292,7 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
                   value="move_hold"
                   className="rounded-md bg-fuchsia-800 px-4 py-3 font-black text-white"
                   pendingChildren="Moving to hold review..."
+                  title="Move selected pending purchase rows into Hold / Investment exact-card review without recording them in the ledger yet."
                 >
                   Move Selected to Hold / Investment Review
                 </AdminSubmitButton>
@@ -294,9 +301,14 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
                   value="skip"
                   className="rounded-md border border-neutral-400 bg-white px-4 py-3 font-black"
                   pendingChildren="Skipping selected..."
+                  title="Skip selected pending purchase rows so they leave the active review queue without creating ledger records."
                 >
                   Skip Selected
                 </AdminSubmitButton>
+                <p className="w-full text-xs font-bold text-neutral-600">
+                  Select at least one row. Moving sends rows to exact-card review; skipping removes
+                  them from pending review without creating Purchase Ledger entries.
+                </p>
               </div>
             </form>
           )}

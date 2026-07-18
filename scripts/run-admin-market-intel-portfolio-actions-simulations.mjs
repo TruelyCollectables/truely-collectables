@@ -143,6 +143,14 @@ scenario("eBay Purchase Inbox actions expose pending state", () => {
     "order.ebay.com/ord/show?orderId=...",
     "Connect / Reconnect eBay",
     "disabled={Boolean(loadError)}",
+    "Import the eBay order into Purchase Inbox only; exact-card review and ledger recording happen after this step.",
+    "Import creates pending inbox rows from the receipt. Nothing reaches the Purchase Ledger",
+    "until exact identity is confirmed and Record as Purchased is used.",
+    "Move selected pending purchase rows into Resale exact-card review without recording them in the ledger yet.",
+    "Move selected pending purchase rows into Hold / Investment exact-card review without recording them in the ledger yet.",
+    "Skip selected pending purchase rows so they leave the active review queue without creating ledger records.",
+    "Select at least one row. Moving sends rows to exact-card review; skipping removes",
+    "them from pending review without creating Purchase Ledger entries.",
   ]) {
     assert(
       sources.ebayPurchaseIntake.includes(fragment),
