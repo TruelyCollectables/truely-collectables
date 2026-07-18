@@ -3,6 +3,14 @@
 import Link from "next/link";
 import { useEffect } from "react";
 
+function adminErrorReference(error: Error & { digest?: string }) {
+  const digest = String(error.digest || "").trim();
+
+  if (digest) return `Server digest: ${digest}`;
+
+  return "No server digest was returned. Retry once, then open Production Smoke and match the browser time with server logs.";
+}
+
 export default function AdminError({
   error,
   unstable_retry,
@@ -26,17 +34,23 @@ export default function AdminError({
           </h1>
           <p className="mt-3 max-w-2xl font-semibold leading-7 text-rose-950">
             The rest of the site is still available. Retry this panel, go back to
-            the command center, or use the digest below to match the server logs.
+            the command center, or use the safe reference below to match the
+            server logs without exposing raw exception text in the operator UI.
           </p>
         </div>
 
         <div className="grid gap-5 p-6">
           <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-4">
             <p className="text-xs font-black uppercase tracking-wide text-neutral-500">
-              Error reference
+              Safe recovery reference
             </p>
             <p className="mt-2 break-all font-mono text-sm font-bold text-neutral-800">
-              {error.digest || error.message || "No digest returned"}
+              {adminErrorReference(error)}
+            </p>
+            <p className="mt-2 text-xs font-bold leading-5 text-neutral-600">
+              Raw exception details stay in the server/browser logs. The admin
+              screen stays readable so a broken panel does not look like a
+              broken dashboard.
             </p>
           </div>
 

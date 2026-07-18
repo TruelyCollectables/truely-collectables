@@ -51,10 +51,24 @@ scenario("admin error recovery keeps a retry action and safe navigation", () => 
     "Retry This Panel",
     "Admin Command Center",
     "Production Smoke",
+    "function adminErrorReference",
+    "Safe recovery reference",
+    "Raw exception details stay in the server/browser logs.",
+    "without exposing raw exception text in the operator UI",
   ]) {
     assert(
       adminErrorSource.includes(fragment),
       `Expected admin error recovery fragment ${fragment}.`,
+    );
+  }
+
+  for (const fragment of [
+    "{error.digest || error.message",
+    "No digest returned",
+  ]) {
+    assert(
+      !adminErrorSource.includes(fragment),
+      `Expected admin error recovery to avoid raw error fallback ${fragment}.`,
     );
   }
 });
