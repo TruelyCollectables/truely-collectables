@@ -12,6 +12,12 @@ export default function LiveShippingGateActions({
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<"approve" | "revoke" | null>(null);
+  const [pendingAction, setPendingAction] = useState<"approve" | "revoke" | null>(
+    null,
+  );
+  const [confirmation, setConfirmation] = useState("");
+  const [operator, setOperator] = useState("");
+  const [note, setNote] = useState("");
   const [message, setMessage] = useState<{
     tone: "success" | "error" | "info";
     text: string;
@@ -20,11 +26,22 @@ export default function LiveShippingGateActions({
   async function submit(action: "approve" | "revoke") {
     const expected =
       action === "approve" ? "APPROVE LIVE SHIPPING" : "REVOKE LIVE SHIPPING";
-    const confirmation = window.prompt(`Type ${expected} exactly.`);
-    if (confirmation !== expected) return;
-    const operator = window.prompt("Operator name for the immutable audit log:");
-    if (!operator?.trim()) return;
-    const note = window.prompt("Optional launch/revocation note:") || "";
+
+    if (confirmation !== expected) {
+      setMessage({
+        tone: "error",
+        text: `Type ${expected} exactly before submitting.`,
+      });
+      return;
+    }
+
+    if (!operator.trim()) {
+      setMessage({
+        tone: "error",
+        text: "Operator name is required for the immutable audit log.",
+      });
+      return;
+    }
 
     setBusy(action);
     setMessage({
@@ -38,7 +55,12 @@ export default function LiveShippingGateActions({
       const response = await fetch("/api/admin/live-shipping-launch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, confirmation, operator, note }),
+        body: JSON.stringify({
+          action,
+          confirmation,
+          operator: operator.trim(),
+          note,
+        }),
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || "Gate update failed.");
@@ -49,6 +71,10 @@ export default function LiveShippingGateActions({
             ? "Database approval recorded. Live shipping still requires the environment kill switch and live purchase mode."
             : "Live shipping approval revoked.",
       });
+      setPendingAction(null);
+      setConfirmation("");
+      setOperator("");
+      setNote("");
       router.refresh();
     } catch (error: any) {
       setMessage({
@@ -61,11 +87,16 @@ export default function LiveShippingGateActions({
   }
 
   return (
-    <div className="flex flex-wrap gap-3">
+    <div className="grid gap-3">
+      <div className="flex flex-wrap gap-3">
       <button
         type="button"
         disabled={!approvalReady || !approvalDatabaseReady || busy !== null}
-        onClick={() => submit("approve")}
+        onClick={() => {
+          setPendingAction("approve");
+          setConfirmation("");
+          setMessage(null);
+        }}
         className="rounded bg-green-700 px-4 py-2 font-bold text-white disabled:cursor-not-allowed disabled:opacity-40"
       >
         {busy === "approve" ? "Approving..." : "Approve Live Shipping"}
@@ -73,18 +104,141 @@ export default function LiveShippingGateActions({
       <button
         type="button"
         disabled={busy !== null}
-        onClick={() => submit("revoke")}
+        onClick={() => {
+          setPendingAction("revoke");
+          setConfirmation("");
+          setMessage(null);
+        }}
         className="rounded bg-red-700 px-4 py-2 font-bold text-white disabled:cursor-not-allowed disabled:opacity-40"
       >
         {busy === "revoke" ? "Revoking..." : "Emergency Revoke"}
       </button>
+      </div>
       {!approvalDatabaseReady ? (
         <p className="w-full text-sm font-bold text-red-800">
           Approval is disabled until the live-shipping launch gate migration is
           applied.
         </p>
       ) : null}
+      {pendingAction ? (
+        <LaunchConfirmationPanel
+          action={pendingAction}
+          confirmation={confirmation}
+          expected={
+            pendingAction === "approve"
+              ? "APPROVE LIVE SHIPPING"
+              : "REVOKE LIVE SHIPPING"
+          }
+          note={note}
+          operator={operator}
+          busy={busy !== null}
+          onCancel={() => {
+            setPendingAction(null);
+            setConfirmation("");
+            setOperator("");
+            setNote("");
+          }}
+          onConfirmationChange={setConfirmation}
+          onNoteChange={setNote}
+          onOperatorChange={setOperator}
+          onSubmit={() => submit(pendingAction)}
+        />
+      ) : null}
       {message ? <ActionNotice tone={message.tone}>{message.text}</ActionNotice> : null}
+    </div>
+  );
+}
+
+function LaunchConfirmationPanel({
+  action,
+  busy,
+  confirmation,
+  expected,
+  note,
+  operator,
+  onCancel,
+  onConfirmationChange,
+  onNoteChange,
+  onOperatorChange,
+  onSubmit,
+}: {
+  action: "approve" | "revoke";
+  busy: boolean;
+  confirmation: string;
+  expected: string;
+  note: string;
+  operator: string;
+  onCancel: () => void;
+  onConfirmationChange: (value: string) => void;
+  onNoteChange: (value: string) => void;
+  onOperatorChange: (value: string) => void;
+  onSubmit: () => void;
+}) {
+  const isRevoke = action === "revoke";
+
+  return (
+    <div
+      className={`rounded-md border p-4 ${
+        isRevoke
+          ? "border-red-200 bg-red-50 text-red-950"
+          : "border-emerald-200 bg-emerald-50 text-emerald-950"
+      }`}
+    >
+      <p className="text-sm font-black">
+        {isRevoke ? "Confirm emergency revocation" : "Confirm live shipping approval"}
+      </p>
+      <p className="mt-1 text-xs font-bold">
+        Type <code>{expected}</code>, add the operator name, then submit.
+      </p>
+      <div className="mt-3 grid gap-2 md:grid-cols-2">
+        <label className="text-xs font-black">
+          Confirmation phrase
+          <input
+            value={confirmation}
+            onChange={(event) => onConfirmationChange(event.target.value)}
+            className="mt-1 w-full rounded border border-neutral-300 px-3 py-2 text-sm text-neutral-950"
+            placeholder={expected}
+          />
+        </label>
+        <label className="text-xs font-black">
+          Operator
+          <input
+            value={operator}
+            onChange={(event) => onOperatorChange(event.target.value)}
+            className="mt-1 w-full rounded border border-neutral-300 px-3 py-2 text-sm text-neutral-950"
+            placeholder="Name for audit log"
+          />
+        </label>
+        <label className="text-xs font-black md:col-span-2">
+          Note
+          <textarea
+            value={note}
+            onChange={(event) => onNoteChange(event.target.value)}
+            className="mt-1 w-full rounded border border-neutral-300 px-3 py-2 text-sm text-neutral-950"
+            placeholder="Optional launch/revocation note"
+          />
+        </label>
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={onSubmit}
+          disabled={busy}
+          className={`rounded px-4 py-2 text-sm font-black text-white disabled:opacity-50 ${
+            isRevoke ? "bg-red-700" : "bg-emerald-700"
+          }`}
+        >
+          {busy ? "Submitting..." : isRevoke ? "Revoke approval" : "Record approval"}
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={busy}
+          className="rounded border border-neutral-300 bg-white px-4 py-2 text-sm font-black text-neutral-900 disabled:opacity-50"
+        >
+          Cancel
+        </button>
+      </div>
     </div>
   );
 }

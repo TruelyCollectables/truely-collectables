@@ -22,6 +22,8 @@ export default function StripeEvidenceActions({
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<"stage" | "submit" | null>(null);
+  const [showSubmitConfirmation, setShowSubmitConfirmation] = useState(false);
+  const [confirmation, setConfirmation] = useState("");
   const [message, setMessage] = useState("");
   const normalizedStatus = status || "not_staged";
   const stageLocked = ["staged", "submitted", "won", "lost"].includes(
@@ -49,10 +51,10 @@ export default function StripeEvidenceActions({
   }
 
   async function submit() {
-    const confirmation = window.prompt(
-      "Final submission cannot be edited. Type SUBMIT TO STRIPE to send the staged evidence to the issuing bank.",
-    );
-    if (confirmation !== "SUBMIT TO STRIPE") return;
+    if (confirmation !== "SUBMIT TO STRIPE") {
+      setMessage("Type SUBMIT TO STRIPE exactly before final submission.");
+      return;
+    }
 
     setBusy("submit");
     setMessage("");
@@ -68,6 +70,8 @@ export default function StripeEvidenceActions({
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "Could not submit evidence.");
       setMessage("Evidence submitted to Stripe.");
+      setShowSubmitConfirmation(false);
+      setConfirmation("");
       router.refresh();
     } catch (submitError: any) {
       setMessage(submitError.message || "Could not submit evidence.");
@@ -97,13 +101,55 @@ export default function StripeEvidenceActions({
         </button>
         <button
           type="button"
-          onClick={submit}
+          onClick={() => {
+            setShowSubmitConfirmation(true);
+            setConfirmation("");
+            setMessage("");
+          }}
           disabled={busy !== null || !canSubmit}
           className="rounded-md bg-rose-800 px-3 py-2 text-xs font-black text-white disabled:opacity-50"
         >
           {busy === "submit" ? "Submitting..." : "Final Submit To Stripe"}
         </button>
       </div>
+
+      {showSubmitConfirmation ? (
+        <div className="mt-3 rounded-md border border-rose-300 bg-white p-3">
+          <p className="text-xs font-black">
+            Final submission cannot be edited after it is sent to the issuing bank.
+          </p>
+          <label className="mt-2 block text-xs font-bold">
+            Type <code>SUBMIT TO STRIPE</code>
+            <input
+              value={confirmation}
+              onChange={(event) => setConfirmation(event.target.value)}
+              className="mt-1 w-full rounded border border-neutral-300 px-3 py-2 text-sm text-neutral-950"
+              placeholder="SUBMIT TO STRIPE"
+            />
+          </label>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={submit}
+              disabled={busy !== null}
+              className="rounded bg-rose-800 px-3 py-2 text-xs font-black text-white disabled:opacity-50"
+            >
+              {busy === "submit" ? "Submitting..." : "Submit final evidence"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setShowSubmitConfirmation(false);
+                setConfirmation("");
+              }}
+              disabled={busy !== null}
+              className="rounded border border-neutral-300 px-3 py-2 text-xs font-black disabled:opacity-50"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       <p className="mt-2 text-xs">
         Staging is editable. Final submission is sent to the bank and cannot be amended.
