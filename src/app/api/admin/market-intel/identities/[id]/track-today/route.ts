@@ -1,11 +1,9 @@
-import { revalidatePath } from "next/cache";
 import { NextRequest, NextResponse } from "next/server";
 import {
   adminHandoffFromUrl,
   adminRedirectUrl,
 } from "../../../../../../../lib/admin-handoff";
-import { recalculateMarketIntelValue } from "../../../../../../../lib/market-intel-comps";
-import { scanEbayForMarketIntel } from "../../../../../../../lib/market-intel-ebay";
+import { trackMarketIntelIdentityToday } from "../../../../../../../lib/market-intel-track-today";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -25,47 +23,11 @@ export async function POST(request: NextRequest, context: RouteContext) {
   const json = wantsJson(request);
 
   try {
-    const scan = await scanEbayForMarketIntel({
-      identityIds: [id],
-      maxTargets: 1,
-      resultsPerTarget: 25,
-      minimumConfidence: 80,
-    });
-    const market = await recalculateMarketIntelValue(id);
-
-    for (const path of [
-      "/admin/market-intel/watch-center",
-      "/admin/market-intel/deals",
-      "/admin/market-intel/buy",
-      "/admin/market-intel/growth-specs",
-      "/admin/market-intel/purchases",
-      "/admin/market-intel/portfolio",
-      `/admin/market-intel/comps/${id}`,
-    ]) {
-      revalidatePath(path);
-    }
-
-    const accepted = Number(scan.candidatesAccepted || 0);
-    const created = Number(scan.ingest.created || 0);
-    const updated = Number(scan.ingest.updated || 0);
-    const scored = Number(scan.ingest.scored || 0);
-    const message = `Tracked today: ${accepted} exact live match${accepted === 1 ? "" : "es"}; ${created} new, ${updated} refreshed, ${scored} scored. Market snapshot now uses ${market.sample_size} verified comp${market.sample_size === 1 ? "" : "s"}.`;
+    const result = await trackMarketIntelIdentityToday(id);
 
     if (json) {
       return NextResponse.json(
-        {
-          success: true,
-          identityId: id,
-          message,
-          scan: {
-            accepted,
-            created,
-            updated,
-            scored,
-            errors: scan.ingest.errors,
-          },
-          market,
-        },
+        { success: true, ...result },
         { headers: { "Cache-Control": "no-store" } },
       );
     }
