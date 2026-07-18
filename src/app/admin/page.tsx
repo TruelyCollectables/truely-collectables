@@ -787,6 +787,84 @@ export default async function AdminDashboard() {
       tone: "border-emerald-200 bg-emerald-50 text-emerald-950",
     },
   ];
+  const adminToolGroups = [
+    {
+      title: "eBay operations",
+      detail: "Import, reconcile, publish, and control marketplace syncs.",
+      links: [
+        { href: "/admin/ebay", label: "Reconciliation" },
+        { href: "/admin/ebay/inventory-intake", label: "Inventory Intake" },
+        { href: "/admin/ebay/import-runner", label: "Import Runner" },
+        { href: "/admin/ebay/publish", label: "Listing Launcher" },
+        { href: "/admin/ebay/sync-control", label: "Sync Control" },
+        { href: "/admin/ebay/duplicates", label: "Duplicate Cleanup" },
+      ],
+    },
+    {
+      title: "Inventory and scan control",
+      detail: "Clean scans, review stock truth, and keep product data sane.",
+      links: [
+        { href: "/admin/instacomp-direct", label: "Direct Scan Lab" },
+        { href: "/admin/instacomp", label: "Scan Lab" },
+        { href: "/admin/products", label: "Products" },
+        { href: "/admin/products/new", label: "New Product" },
+        { href: "/admin/inventory", label: "Inventory Bridge" },
+        { href: "/admin/inventory/category-review", label: "Category Review" },
+      ],
+    },
+    {
+      title: "Market intelligence",
+      detail: "Research comps, buying targets, portfolio health, and alerts.",
+      links: [
+        { href: "/admin/market-intel", label: "Command Desk" },
+        { href: "/admin/market-intel/readiness", label: "Readiness" },
+        { href: "/admin/market-intel/watchlist", label: "Watchlist" },
+        { href: "/admin/market-intel/comps", label: "Sold Comps" },
+        { href: "/admin/market-intel/ebay", label: "Active Scanner" },
+        { href: "/admin/market-intel/deals", label: "Deal Engine" },
+        { href: "/admin/market-intel/growth-specs", label: "Growth Specs" },
+        { href: "/admin/market-intel/buy", label: "Buy Desk" },
+        { href: "/admin/market-intel/portfolio", label: "Portfolio" },
+        { href: "/admin/market-intel/purchases", label: "Purchase Ledger" },
+        {
+          href: "/admin/market-intel/purchases/ebay-intake",
+          label: "eBay Purchase Inbox",
+        },
+        { href: "/admin/market-intel/ingestion", label: "Ingestion Health" },
+        { href: "/admin/market-intel/reports", label: "Reports" },
+        { href: "/admin/market-intel/delivery", label: "Delivery Center" },
+      ],
+    },
+    {
+      title: "Launch, money, and shipping",
+      detail: "Gate live-money readiness, simulations, payouts, and labels.",
+      links: [
+        { href: "/admin/financial-reconciliation", label: "Money Audit" },
+        { href: "/admin/launch-readiness", label: "Launch Readiness" },
+        { href: "/admin/launch-gate-drill", label: "Gate Drill" },
+        { href: "/admin/live-payment-launch", label: "Payment Gate" },
+        { href: "/admin/live-shipping-launch", label: "Shipping Gate" },
+        { href: "/admin/payment-simulations", label: "Payment Simulations" },
+        { href: "/admin/shipping", label: "Shipping Control" },
+        { href: "/admin/shipping/simulations", label: "Shipping Simulations" },
+        { href: "/admin/seller-payouts", label: "Seller Payouts" },
+      ],
+    },
+    {
+      title: "Orders, accounts, and admin support",
+      detail: "Resolve buyer work, account status, files, settings, and security.",
+      links: [
+        { href: "/admin/orders", label: "Orders" },
+        { href: "/admin/order-review-cases", label: "Review Cases" },
+        { href: "/admin/offers", label: "Offers" },
+        { href: "/admin/accounts", label: "Accounts" },
+        { href: "/admin/files", label: "Files" },
+        { href: "/admin/settings", label: "Settings" },
+        { href: "/admin/security", label: "Security" },
+        { href: "/admin/production-smoke", label: "Production Smoke" },
+      ],
+    },
+  ];
 
   const latestEbaySeen = ebayLinked
     .map((product) => product.last_seen_at)
@@ -1229,6 +1307,37 @@ export default async function AdminDashboard() {
                 detail={card.detail}
                 cta={card.cta}
                 tone={card.tone}
+              />
+            ))}
+          </div>
+        </section>
+
+        <section className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-neutral-500">
+                Admin tools index
+              </p>
+              <h2 className="mt-1 text-3xl font-black">
+                Every operator page, grouped by job
+              </h2>
+              <p className="mt-2 max-w-3xl text-sm font-semibold text-neutral-600">
+                Secondary workbenches stay one click away without burying the
+                high-risk scan, product, offer, and fulfillment paths.
+              </p>
+            </div>
+            <Pill label="Runtime-smoked routes" tone="green" />
+          </div>
+          <div className="mt-5 grid grid-cols-1 gap-3 lg:grid-cols-2 xl:grid-cols-3">
+            {adminToolGroups.map((group) => (
+              <AdminToolGroupCard
+                key={group.title}
+                title={group.title}
+                detail={group.detail}
+                links={group.links.map((link) => ({
+                  ...link,
+                  href: adminHref(link.href),
+                }))}
               />
             ))}
           </div>
@@ -2296,6 +2405,36 @@ function OperatorActionCard({
         {cta}
       </span>
     </Link>
+  );
+}
+
+function AdminToolGroupCard({
+  title,
+  detail,
+  links,
+}: {
+  title: string;
+  detail: string;
+  links: Array<{ href: string; label: string }>;
+}) {
+  return (
+    <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-4">
+      <h3 className="text-lg font-black tracking-tight">{title}</h3>
+      <p className="mt-1 text-sm font-semibold leading-6 text-neutral-600">
+        {detail}
+      </p>
+      <div className="mt-4 flex flex-wrap gap-2">
+        {links.map((link) => (
+          <Link
+            key={link.href}
+            href={link.href}
+            className="rounded-md border border-neutral-200 bg-white px-3 py-2 text-sm font-black text-neutral-800 shadow-sm transition hover:-translate-y-0.5 hover:border-neutral-300 hover:shadow-md"
+          >
+            {link.label}
+          </Link>
+        ))}
+      </div>
+    </div>
   );
 }
 

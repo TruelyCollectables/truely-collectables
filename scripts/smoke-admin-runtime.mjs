@@ -88,6 +88,151 @@ const smokeRoutes = [
     auth: true,
     expectedText: "Security",
   },
+  {
+    path: "/admin/accounts",
+    auth: true,
+    expectedTexts: ["Customer Account Lookup", "Customer Accounts"],
+  },
+  {
+    path: "/admin/ebay",
+    auth: true,
+    expectedText: "eBay Reconciliation",
+  },
+  {
+    path: "/admin/ebay/import-runner",
+    auth: true,
+    expectedText: "eBay Import Runner",
+  },
+  {
+    path: "/admin/ebay/publish",
+    auth: true,
+    expectedText: "Pitch Black listing launcher",
+  },
+  {
+    path: "/admin/ebay/sync-control",
+    auth: true,
+    expectedText: "eBay Sync Control",
+  },
+  {
+    path: "/admin/files",
+    auth: true,
+    expectedText: "Admin Files",
+  },
+  {
+    path: "/admin/instacomp",
+    auth: true,
+    expectedText: "InstaComp™ Scan Lab",
+  },
+  {
+    path: "/admin/inventory",
+    auth: true,
+    expectedText: "Inventory Bridge",
+  },
+  {
+    path: "/admin/inventory/category-review",
+    auth: true,
+    expectedText: "Import Category Review",
+  },
+  {
+    path: "/admin/launch-gate-drill",
+    auth: true,
+    expectedText: "Launch Gate Drill",
+  },
+  {
+    path: "/admin/launch-readiness",
+    auth: true,
+    expectedText: "Launch Readiness",
+  },
+  {
+    path: "/admin/market-intel/readiness",
+    auth: true,
+    expectedText: "System Readiness",
+  },
+  {
+    path: "/admin/market-intel/watchlist",
+    auth: true,
+    expectedText: "Player Watchlist",
+  },
+  {
+    path: "/admin/market-intel/comps",
+    auth: true,
+    expectedText: "Exact-Card Sold Comps",
+  },
+  {
+    path: "/admin/market-intel/ebay",
+    auth: true,
+    expectedText: "eBay Active Listing Scanner",
+  },
+  {
+    path: "/admin/market-intel/deals",
+    auth: true,
+    expectedText: "Shark List™ Deal Engine",
+  },
+  {
+    path: "/admin/market-intel/growth-specs",
+    auth: true,
+    expectedText: "Growth Spec Lab™",
+  },
+  {
+    path: "/admin/market-intel/buy",
+    auth: true,
+    expectedText: "Buy + Track Desk",
+  },
+  {
+    path: "/admin/market-intel/portfolio",
+    auth: true,
+    expectedText: "Portfolio Intelligence",
+  },
+  {
+    path: "/admin/market-intel/purchases",
+    auth: true,
+    expectedText: "Purchase Ledger",
+  },
+  {
+    path: "/admin/market-intel/purchases/ebay-intake",
+    auth: true,
+    expectedText: "eBay Purchase Inbox",
+  },
+  {
+    path: "/admin/market-intel/ingestion",
+    auth: true,
+    expectedText: "Ingestion Health",
+  },
+  {
+    path: "/admin/market-intel/reports",
+    auth: true,
+    expectedText: "Daily Intelligence + Alert Outbox",
+  },
+  {
+    path: "/admin/market-intel/delivery",
+    auth: true,
+    expectedText: "Email Delivery Center",
+  },
+  {
+    path: "/admin/order-review-cases",
+    auth: true,
+    expectedText: "Order Review Case Queue",
+  },
+  {
+    path: "/admin/payment-simulations",
+    auth: true,
+    expectedText: "Payment Simulation Lab",
+  },
+  {
+    path: "/admin/seller-payouts",
+    auth: true,
+    expectedText: "Seller Payout Review",
+  },
+  {
+    path: "/admin/shipping",
+    auth: true,
+    expectedText: "Label + Coverage Control",
+  },
+  {
+    path: "/admin/shipping/simulations",
+    auth: true,
+    expectedText: "Shipping Simulation Lab",
+  },
 ];
 const redBoxFragments = [
   "Build Error",
@@ -304,8 +449,12 @@ async function smokeRoute(route, cookieHeader) {
     failures.push(`unexpected redirect to ${location || "unknown location"}`);
   }
 
-  if (route.expectedText && !body.includes(route.expectedText)) {
-    failures.push(`missing expected text ${JSON.stringify(route.expectedText)}`);
+  const expectedTexts = route.expectedTexts || [route.expectedText].filter(Boolean);
+  if (
+    expectedTexts.length > 0 &&
+    !expectedTexts.some((expectedText) => body.includes(expectedText))
+  ) {
+    failures.push(`missing expected text ${expectedTexts.map((text) => JSON.stringify(text)).join(" or ")}`);
   }
 
   const redBoxFragment = redBoxFragments.find((fragment) => body.includes(fragment));
