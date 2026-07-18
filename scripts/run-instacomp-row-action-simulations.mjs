@@ -242,6 +242,18 @@ scenario("scanner row actions expose busy and disabled reasons", () => {
     "Finish the current InstaComp™ batch action before rotating images.",
     "Image rotation is locked after draft creation starts.",
     "Add a back image before swapping front/back.",
+    "singleScanNotice",
+    "function removeSingleScanResult()",
+    "function clearSingleScanImages()",
+    "Remove This Scan Result",
+    "Clear Uploaded Images",
+    "No single-card scan result is available to remove.",
+    "No single-card scan images or result are available to clear.",
+    "Wait for the current InstaComp™ scan to finish before removing its result.",
+    "Wait for the current InstaComp™ scan to finish before clearing uploaded images.",
+    "Removed this single-card scan result. The uploaded images are still loaded so you can rotate, replace, or run InstaComp™ again.",
+    "Cleared the single-card scan images and result.",
+    "Remove this wrong single-card scan result while keeping the uploaded images ready to retry.",
   ]) {
     assert(
       scannerSource.includes(fragment),

@@ -3499,6 +3499,7 @@ export default function InstaCompScanner({
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [copiedPrice, setCopiedPrice] = useState<string | null>(null);
+  const [singleScanNotice, setSingleScanNotice] = useState<string | null>(null);
   const [batchCards, setBatchCards] = useState<BatchCard[]>([]);
   const [activeBatchCardAction, setActiveBatchCardAction] =
     useState<ActiveBatchCardAction | null>(null);
@@ -4313,6 +4314,8 @@ export default function InstaCompScanner({
     setFrontRotationDegrees(0);
     setResult(null);
     setError(null);
+    setCopiedPrice(null);
+    setSingleScanNotice(null);
 
     if (frontPreview) URL.revokeObjectURL(frontPreview);
     setFrontPreview(file ? URL.createObjectURL(file) : null);
@@ -4324,6 +4327,8 @@ export default function InstaCompScanner({
     setBackRotationDegrees(0);
     setResult(null);
     setError(null);
+    setCopiedPrice(null);
+    setSingleScanNotice(null);
 
     if (backPreview) URL.revokeObjectURL(backPreview);
     setBackPreview(file ? URL.createObjectURL(file) : null);
@@ -4340,6 +4345,7 @@ export default function InstaCompScanner({
     if (!file) return;
 
     setError(null);
+    setSingleScanNotice(null);
     setResult(null);
 
     try {
@@ -4891,6 +4897,7 @@ export default function InstaCompScanner({
     setLoading(true);
     setError(null);
     setCopiedPrice(null);
+    setSingleScanNotice(null);
 
     try {
       setResult(await runInstaCompScan(frontImage, backImage));
@@ -4899,6 +4906,53 @@ export default function InstaCompScanner({
     } finally {
       setLoading(false);
     }
+  }
+
+  function removeSingleScanResult() {
+    if (loading) {
+      setError("Wait for the current InstaComp™ scan to finish before removing its result.");
+      return;
+    }
+
+    if (!result) {
+      setError("No single-card scan result is available to remove.");
+      return;
+    }
+
+    setResult(null);
+    setCopiedPrice(null);
+    setError(null);
+    setSingleScanNotice(
+      "Removed this single-card scan result. The uploaded images are still loaded so you can rotate, replace, or run InstaComp™ again."
+    );
+  }
+
+  function clearSingleScanImages() {
+    if (loading) {
+      setError("Wait for the current InstaComp™ scan to finish before clearing uploaded images.");
+      return;
+    }
+
+    if (!frontImage && !backImage && !result) {
+      setError("No single-card scan images or result are available to clear.");
+      return;
+    }
+
+    if (frontPreview) URL.revokeObjectURL(frontPreview);
+    if (backPreview) URL.revokeObjectURL(backPreview);
+
+    setFrontImage(null);
+    setBackImage(null);
+    setFrontOriginalImage(null);
+    setBackOriginalImage(null);
+    setFrontRotationDegrees(0);
+    setBackRotationDegrees(0);
+    setFrontPreview(null);
+    setBackPreview(null);
+    setResult(null);
+    setCopiedPrice(null);
+    setError(null);
+    setSingleScanNotice("Cleared the single-card scan images and result.");
   }
 
   async function copyPrice(value: number | null | undefined, label: string) {
@@ -13781,6 +13835,16 @@ export default function InstaCompScanner({
             {error}
           </p>
         )}
+
+        {singleScanNotice && (
+          <p
+            role="status"
+            aria-live="polite"
+            style={{ color: "#0f5132", fontWeight: 800, marginTop: 14 }}
+          >
+            {singleScanNotice}
+          </p>
+        )}
       </section>
 
       {result && (
@@ -13793,10 +13857,68 @@ export default function InstaCompScanner({
               background: "white",
             }}
           >
-            <h2 style={{ marginTop: 0 }}>InstaComp™ Result</h2>
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                gap: 12,
+                alignItems: "flex-start",
+                flexWrap: "wrap",
+              }}
+            >
+              <div>
+                <h2 style={{ margin: 0 }}>InstaComp™ Result</h2>
+                <p style={{ margin: "6px 0 0", color: "#555", fontWeight: 700 }}>
+                  If the scanner identified the wrong card, remove this result
+                  here. Your uploaded images stay loaded for a quick retry.
+                </p>
+              </div>
+
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={removeSingleScanResult}
+                  aria-disabled={loading}
+                  title={
+                    loading
+                      ? "Wait for the current InstaComp™ scan to finish before removing this result."
+                      : "Remove this wrong single-card scan result while keeping the uploaded images ready to retry."
+                  }
+                  style={{
+                    ...secondaryButtonStyle,
+                    borderColor: "#d7b3b3",
+                    color: "#8a1f1f",
+                    opacity: loading ? 0.5 : 1,
+                    cursor: loading ? "not-allowed" : "pointer",
+                  }}
+                >
+                  Remove This Scan Result
+                </button>
+                <button
+                  type="button"
+                  onClick={clearSingleScanImages}
+                  aria-disabled={loading}
+                  title={
+                    loading
+                      ? "Wait for the current InstaComp™ scan to finish before clearing uploaded images."
+                      : "Clear the uploaded front/back images and remove this single-card scan result."
+                  }
+                  style={{
+                    ...secondaryButtonStyle,
+                    borderColor: "#9ca3af",
+                    color: "#374151",
+                    opacity: loading ? 0.5 : 1,
+                    cursor: loading ? "not-allowed" : "pointer",
+                  }}
+                >
+                  Clear Uploaded Images
+                </button>
+              </div>
+            </div>
 
             <div
               style={{
+                marginTop: 16,
                 display: "grid",
                 gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
                 gap: 12,
