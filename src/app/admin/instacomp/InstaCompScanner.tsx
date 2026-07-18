@@ -5,6 +5,11 @@ import { createClient, type SupabaseClient } from "@supabase/supabase-js";
 import { getFreshAccountSession } from "@/src/app/account/account-session";
 import { buildInstaCompDraftTitle } from "@/src/lib/instacomp-draft-title";
 import { gradingLookupUrl } from "@/src/lib/grading-cert";
+import {
+  canRemoveInstaCompBatchRow,
+  instaCompBatchRowRemovalBlockedReason,
+  instaCompBatchRowRemovalLabel,
+} from "@/src/lib/instacomp-row-removal";
 
 type AiResult = {
   player: string | null;
@@ -3441,6 +3446,9 @@ export default function InstaCompScanner({
   const [batchCards, setBatchCards] = useState<BatchCard[]>([]);
   const [batchRunning, setBatchRunning] = useState(false);
   const [batchDrafting, setBatchDrafting] = useState(false);
+  const [removingBatchCardIds, setRemovingBatchCardIds] = useState<Set<string>>(
+    () => new Set()
+  );
   const [batchKnowledgeSaving, setBatchKnowledgeSaving] = useState(false);
   const [batchConcurrency, setBatchConcurrency] = useState(
     INSTACOMP_BATCH_DEFAULT_CONCURRENCY
@@ -6669,21 +6677,18 @@ export default function InstaCompScanner({
   }
 
   async function removeBatchCard(cardId: string) {
-    if (batchRunning || batchDrafting) {
-      setBatchError(
-        batchDrafting
-          ? "Finish or stop draft creation before removing an InstaComp™ row."
-          : "Pause or finish the active scan run before removing an InstaComp™ row."
-      );
-      return;
-    }
-
     const card = batchCards.find((row) => row.id === cardId);
 
     if (!card) return;
 
-    if (card.draftStatus === "drafting") {
-      setBatchError("This row is creating a draft right now. Remove it after drafting finishes.");
+    const blockedReason = instaCompBatchRowRemovalBlockedReason({
+      batchDrafting,
+      draftStatus: card.draftStatus,
+      isRemoving: removingBatchCardIds.has(cardId),
+    });
+
+    if (blockedReason) {
+      setBatchError(blockedReason);
       return;
     }
 
@@ -6691,6 +6696,7 @@ export default function InstaCompScanner({
     const cardTitle = draftTitleForCard(card);
     const isPersisted = Boolean(card.persistentJobId && card.persistentItemId);
 
+    setRemovingBatchCardIds((current) => new Set(current).add(cardId));
     setBatchCards((current) =>
       current.filter((row) => {
         if (row.id !== cardId) return true;
@@ -6722,6 +6728,12 @@ export default function InstaCompScanner({
         } Refreshing a still-active saved lot may bring that row back until the server accepts cancellation.`
       );
       setBatchDraftMessage(`Removed ${cardTitle} from the visible batch.`);
+    } finally {
+      setRemovingBatchCardIds((current) => {
+        const next = new Set(current);
+        next.delete(cardId);
+        return next;
+      });
     }
   }
 
@@ -12295,6 +12307,8 @@ export default function InstaCompScanner({
                 card={card}
                 index={index}
                 batchBusy={batchRunning || batchDrafting || batchKnowledgeSaving}
+                batchDrafting={batchDrafting}
+                isRemoving={removingBatchCardIds.has(card.id)}
                 onApplyPrice={applyBatchPrice}
                 onTitleChange={handleBatchTitleChange}
                 onSerialChange={handleBatchSerialChange}
@@ -13400,6 +13414,8 @@ function BatchCardRow({
   card,
   index,
   batchBusy,
+  batchDrafting,
+  isRemoving,
   onApplyPrice,
   onTitleChange,
   onSerialChange,
@@ -13421,6 +13437,8 @@ function BatchCardRow({
   card: BatchCard;
   index: number;
   batchBusy: boolean;
+  batchDrafting: boolean;
+  isRemoving: boolean;
   onApplyPrice: (cardId: string, multiplier: number) => void;
   onTitleChange: (cardId: string, value: string) => void;
   onSerialChange: (cardId: string, value: string) => void;
@@ -13486,7 +13504,11 @@ function BatchCardRow({
   const canCopyDraftPayload = Boolean(onCopyDraftPayload) && canSelectForDraft;
   const canRetry =
     (card.status === "error" || card.status === "done") && !batchBusy;
-  const canRemove = !batchBusy && card.draftStatus !== "drafting";
+  const canRemove = canRemoveInstaCompBatchRow({
+    batchDrafting,
+    draftStatus: card.draftStatus,
+    isRemoving,
+  });
   const canRotate =
     !batchBusy && card.draftStatus === "idle" && card.tradeStatus === "idle";
   const canRotatePrimary = canRotate && card.file.size > 0;
@@ -13991,7 +14013,11 @@ function BatchCardRow({
                 onClick={() => void onRemove(card.id)}
                 disabled={!canRemove}
                 title={
-                  card.persistentJobId && card.persistentItemId
+                  isRemoving
+                    ? "This row is being removed from the visible batch and cancelled in storage when applicable."
+                    : card.status === "scanning"
+                      ? "End this active scan row, remove it from the visible batch, and cancel its saved queue row when available."
+                      : card.persistentJobId && card.persistentItemId
                     ? "Cancel this saved InstaComp™ row and remove it from the visible batch."
                     : "Remove this local upload row from the visible batch."
                 }
@@ -14004,7 +14030,10 @@ function BatchCardRow({
                   cursor: canRemove ? "pointer" : "not-allowed",
                 }}
               >
-                Remove
+                {instaCompBatchRowRemovalLabel({
+                  status: card.status,
+                  isRemoving,
+                })}
               </button>
             </div>
           </div>
