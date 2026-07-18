@@ -138,6 +138,28 @@ scenario("selected quantity merge cannot leave the batch stuck busy", () => {
   }
 });
 
+scenario("scanner blocked batch controls explain why nothing ran", () => {
+  for (const fragment of [
+    "function batchBusyBlockedReason(action: string)",
+    "function showBatchBusyBlocked(action: string)",
+    'Finish draft creation before ${action}.',
+    'Finish the current InstaComp™ scan/action before ${action}.',
+    'if (showBatchBusyBlocked("merging selected duplicate quantities")) return;',
+    'if (showBatchBusyBlocked("removing visible rows")) return;',
+    'if (showBatchBusyBlocked("rotating this row image")) return;',
+    'role="alert"',
+    'aria-live="assertive"',
+    'role="status"',
+    'aria-live="polite"',
+    'batchBusyBlockedReason("removing visible failed rows")',
+  ]) {
+    assert(
+      scannerSource.includes(fragment),
+      `Expected scanner blocked-control feedback fragment ${fragment}.`,
+    );
+  }
+});
+
 const failed = [];
 
 for (const item of scenarios) {

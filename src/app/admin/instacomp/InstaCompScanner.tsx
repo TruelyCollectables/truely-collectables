@@ -6552,7 +6552,7 @@ export default function InstaCompScanner({
     side: "primary" | "paired",
     direction: "left" | "right"
   ) {
-    if (batchRunning || batchDrafting) return;
+    if (showBatchBusyBlocked("rotating this row image")) return;
 
     const card = batchCards.find((row) => row.id === cardId);
     const file =
@@ -6624,7 +6624,14 @@ export default function InstaCompScanner({
   }
 
   function swapBatchCardImages(cardId: string) {
-    if (batchRunning || batchDrafting || batchKnowledgeSaving) return;
+    if (batchKnowledgeSaving) {
+      setBatchError(
+        "Finish TCOS Card DB processing before swapping row images."
+      );
+      return;
+    }
+
+    if (showBatchBusyBlocked("swapping this row's front/back images")) return;
 
     const card = batchCards.find((row) => row.id === cardId);
 
@@ -6814,7 +6821,7 @@ export default function InstaCompScanner({
     emptyMessage: string,
     removedMessage: string
   ) {
-    if (batchRunning || batchDrafting) return;
+    if (showBatchBusyBlocked("removing visible rows")) return;
 
     if (!count) {
       setBatchError(emptyMessage);
@@ -6956,6 +6963,8 @@ export default function InstaCompScanner({
   }
 
   function resetSelectedDraftEdits() {
+    if (showBatchBusyBlocked("resetting selected draft edits")) return;
+
     if (!selectedDoneBatchCards.length) {
       setBatchError("Select at least one draftable row to reset.");
       return;
@@ -6979,6 +6988,8 @@ export default function InstaCompScanner({
   }
 
   function resetVisibleDraftEdits() {
+    if (showBatchBusyBlocked("resetting visible draft edits")) return;
+
     if (!visibleDraftableCount) {
       setBatchError("No visible draftable rows are available to reset.");
       return;
@@ -7095,6 +7106,27 @@ export default function InstaCompScanner({
     setBatchError(null);
   }
 
+  function batchBusyBlockedReason(action: string) {
+    if (batchDrafting) {
+      return `Finish draft creation before ${action}.`;
+    }
+
+    if (batchRunning) {
+      return `Finish the current InstaComp™ scan/action before ${action}.`;
+    }
+
+    return null;
+  }
+
+  function showBatchBusyBlocked(action: string) {
+    const blockedReason = batchBusyBlockedReason(action);
+
+    if (!blockedReason) return false;
+
+    setBatchError(blockedReason);
+    return true;
+  }
+
   function applyBatchPrice(cardId: string, multiplier: number) {
     updateBatchCard(cardId, (card) => {
       const compPrice = primaryCompPriceForCard(card);
@@ -7111,6 +7143,8 @@ export default function InstaCompScanner({
   }
 
   function applySelectedBatchPrice(multiplier: number) {
+    if (showBatchBusyBlocked("applying selected prices")) return;
+
     if (!selectedPriceableBatchCards.length) {
       setBatchError("Select at least one draftable row with a comp price.");
       return;
@@ -7138,6 +7172,8 @@ export default function InstaCompScanner({
   }
 
   function applySelectedBatchFixedPrice() {
+    if (showBatchBusyBlocked("applying a fixed selected price")) return;
+
     if (!selectedDoneBatchCards.length) {
       setBatchError("Select at least one draftable row.");
       return;
@@ -7173,6 +7209,8 @@ export default function InstaCompScanner({
   }
 
   function applySelectedBatchQuantity() {
+    if (showBatchBusyBlocked("applying selected quantities")) return;
+
     if (!selectedDoneBatchCards.length) {
       setBatchError("Select at least one draftable row.");
       return;
@@ -7203,7 +7241,7 @@ export default function InstaCompScanner({
   }
 
   async function mergeSelectedBatchQuantityRows() {
-    if (batchRunning || batchDrafting) return;
+    if (showBatchBusyBlocked("merging selected duplicate quantities")) return;
 
     const cardsToMerge = batchCards.filter(
       (card) => card.selected && isDraftableBatchCard(card)
@@ -11741,6 +11779,12 @@ export default function InstaCompScanner({
                 batchDrafting ||
                 selectedDoneBatchCards.length === 0
               }
+              title={
+                batchBusyBlockedReason("applying selected quantities") ||
+                (selectedDoneBatchCards.length === 0
+                  ? "Select at least one draftable row before applying quantity."
+                  : "Apply this quantity to the selected draftable rows.")
+              }
               style={{
                 ...secondaryButtonStyle,
                 padding: "8px 10px",
@@ -11769,9 +11813,10 @@ export default function InstaCompScanner({
                 selectedQuantityMergeCount < 2
               }
               title={
-                selectedQuantityMergeCount >= 2
+                batchBusyBlockedReason("merging selected duplicate quantities") ||
+                (selectedQuantityMergeCount >= 2
                   ? "Merge selected duplicate rows with the same edited title into the first selected row and sum their quantities."
-                  : "Select at least two duplicate draftable rows with the same edited title to merge quantities."
+                  : "Select at least two duplicate draftable rows with the same edited title to merge quantities.")
               }
               style={{
                 ...secondaryButtonStyle,
@@ -11829,11 +11874,19 @@ export default function InstaCompScanner({
         )}
 
         {batchError && (
-          <p style={{ color: "crimson", fontWeight: 700 }}>{batchError}</p>
+          <p
+            role="alert"
+            aria-live="assertive"
+            style={{ color: "crimson", fontWeight: 700 }}
+          >
+            {batchError}
+          </p>
         )}
 
         {batchDraftMessage && (
           <div
+            role="status"
+            aria-live="polite"
             style={{
               display: "flex",
               flexWrap: "wrap",
@@ -12431,6 +12484,12 @@ export default function InstaCompScanner({
               type="button"
               onClick={() => void retryVisibleFailedBatchCards()}
               disabled={batchRunning || batchDrafting || visibleFailedCount === 0}
+              title={
+                batchBusyBlockedReason("retrying visible failed rows") ||
+                (visibleFailedCount === 0
+                  ? "No visible failed rows are available to retry."
+                  : "Retry every failed row visible in the current filter.")
+              }
               style={{
                 ...secondaryButtonStyle,
                 padding: "8px 10px",
@@ -12450,6 +12509,12 @@ export default function InstaCompScanner({
               type="button"
               onClick={removeVisibleFailedBatchCards}
               disabled={batchRunning || batchDrafting || visibleFailedCount === 0}
+              title={
+                batchBusyBlockedReason("removing visible failed rows") ||
+                (visibleFailedCount === 0
+                  ? "No visible failed rows are available to remove."
+                  : "Remove every failed row visible in the current filter and cancel saved rows when present.")
+              }
               style={{
                 ...secondaryButtonStyle,
                 padding: "8px 10px",
@@ -12471,6 +12536,12 @@ export default function InstaCompScanner({
               type="button"
               onClick={removeVisibleDraftedBatchCards}
               disabled={batchRunning || batchDrafting || visibleDraftedCount === 0}
+              title={
+                batchBusyBlockedReason("removing visible drafted rows") ||
+                (visibleDraftedCount === 0
+                  ? "No visible drafted rows are available to remove."
+                  : "Remove every drafted row visible in the current filter and cancel saved rows when present.")
+              }
               style={{
                 ...secondaryButtonStyle,
                 padding: "8px 10px",
