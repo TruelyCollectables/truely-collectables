@@ -87,6 +87,18 @@ scenario("purchase desk and purchase detail forms label native submits", () => {
       `Expected purchase detail pending label ${label}.`,
     );
   }
+
+  for (const fragment of [
+    "const saleSaveDisabledReason =",
+    "All purchased units have already been recorded as sold.",
+    "disabledReason={saleSaveDisabledReason}",
+    "Save this sale and recalculate realized gross profit.",
+  ]) {
+    assert(
+      sources.purchaseDetail.includes(fragment),
+      `Expected purchase detail disabled reason ${fragment}.`,
+    );
+  }
 });
 
 scenario("deal and ingestion operations expose pending state", () => {

@@ -151,6 +151,7 @@ scenario("product quick-status UI reports status success and stock blockers", ()
     "aria-live=\"assertive\"",
     "Qty required first",
     "Quantity must be at least 1 before",
+    "disabledReason={isDisabled ? title : undefined}",
     "adminProductStatusPendingLabel(status)",
     "End Early / Archive",
   ]) {

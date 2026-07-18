@@ -948,6 +948,7 @@ function StatusButton({
       <input type="hidden" name="status" value={status} />
       <AdminSubmitButton
         disabled={isDisabled}
+        disabledReason={isDisabled ? title : undefined}
         title={title}
         className={`w-full rounded-md px-4 py-2 text-sm font-black disabled:cursor-not-allowed ${
           isCurrent

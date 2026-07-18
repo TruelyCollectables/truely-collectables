@@ -35,6 +35,10 @@ export default async function MarketIntelPurchaseDetailPage({
   const remaining = performance?.quantity_remaining ?? lot.quantity_purchased;
   const unitCost = Number(lot.unit_cost_basis || 0);
   const progress = Number(performance?.cash_break_even_progress_pct || 0);
+  const saleSaveDisabledReason =
+    remaining <= 0
+      ? "All purchased units have already been recorded as sold."
+      : "";
 
   return (
     <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
@@ -178,8 +182,13 @@ export default async function MarketIntelPurchaseDetailPage({
                 <input name="notes" className={inputClass} />
               </Field>
               <AdminSubmitButton
-                disabled={remaining <= 0}
-                className="rounded-md bg-black px-5 py-3 font-black text-white hover:bg-neutral-800 disabled:opacity-40 sm:col-span-2"
+                disabled={Boolean(saleSaveDisabledReason)}
+                disabledReason={saleSaveDisabledReason}
+                title={
+                  saleSaveDisabledReason ||
+                  "Save this sale and recalculate realized gross profit."
+                }
+                className="rounded-md bg-black px-5 py-3 font-black text-white hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-40 sm:col-span-2"
                 pendingChildren="Saving sale..."
               >
                 Save Sale and Recalculate GP
