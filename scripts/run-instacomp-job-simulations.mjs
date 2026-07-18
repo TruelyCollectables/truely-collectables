@@ -87,6 +87,10 @@ await scenario("helper states match the persistent SQL queue", () => {
       "review_required",
     "Uncertain scans must enter review_required",
   );
+  assert(
+    transitionInstaCompJobItem("completed", "cancelled") === "cancelled",
+    "Operator removal must be able to cancel a completed saved scan row",
+  );
 
   const counts = summarizeInstaCompJobItems([
     { status: "awaiting_upload", attemptCount: 0, leaseExpiresAt: null },

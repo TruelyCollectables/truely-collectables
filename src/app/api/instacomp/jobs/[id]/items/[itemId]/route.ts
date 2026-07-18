@@ -13,6 +13,10 @@ import {
   requireUuid,
   throwInstaCompDatabaseError,
 } from "../../../../../../../lib/instacomp-job-server";
+import {
+  canTransitionInstaCompJobItem,
+  type InstaCompJobItemStatus,
+} from "../../../../../../../lib/instacomp-job-state";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,17 +26,6 @@ type RouteContext = {
 };
 
 const CLIENT_ITEM_STATUSES = new Set(["cancelled"]);
-
-const CLIENT_ITEM_TRANSITIONS: Record<string, Set<string>> = {
-  awaiting_upload: new Set(["cancelled"]),
-  queued: new Set(["cancelled"]),
-  processing: new Set(),
-  retry_wait: new Set(["cancelled"]),
-  completed: new Set(["cancelled"]),
-  review_required: new Set(["cancelled"]),
-  failed: new Set(["cancelled"]),
-  cancelled: new Set(["cancelled"]),
-};
 
 function optionalResultObject(value: unknown) {
   if (value === null || value === undefined) return null;
@@ -181,6 +174,20 @@ function publicItem(item: Record<string, any>) {
   return safeItem;
 }
 
+function itemStatus(value: unknown): InstaCompJobItemStatus {
+  const status = String(value || "");
+
+  if (!INSTACOMP_JOB_ITEM_STATUSES.has(status)) {
+    throw new InstaCompJobServerError(
+      `InstaComp™ item has unsupported status ${status || "unknown"}.`,
+      409,
+      "INSTACOMP_INVALID_ITEM_STATUS",
+    );
+  }
+
+  return status as InstaCompJobItemStatus;
+}
+
 export async function GET(request: Request, context: RouteContext) {
   try {
     const actor = await requireInstaCompJobActor(request);
@@ -227,9 +234,12 @@ export async function PATCH(request: Request, context: RouteContext) {
         );
       }
 
+      const currentStatus = itemStatus(item.status);
+      const nextStatus = itemStatus(requestedStatus);
+
       if (
         requestedStatus !== item.status &&
-        !CLIENT_ITEM_TRANSITIONS[String(item.status)]?.has(requestedStatus)
+        !canTransitionInstaCompJobItem(currentStatus, nextStatus)
       ) {
         throw new InstaCompJobServerError(
           `InstaComp™ item cannot transition from ${item.status} to ${requestedStatus}.`,

@@ -107,7 +107,7 @@ const ITEM_TRANSITIONS: Record<
     "cancelled",
   ]),
   retry_wait: new Set(["processing", "failed", "cancelled"]),
-  completed: new Set(),
+  completed: new Set(["cancelled"]),
   review_required: new Set(["queued", "cancelled"]),
   failed: new Set(["queued", "processing", "cancelled"]),
   cancelled: new Set(),

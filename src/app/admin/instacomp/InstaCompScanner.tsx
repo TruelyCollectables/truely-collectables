@@ -3603,19 +3603,23 @@ export default function InstaCompScanner({
         }
 
         window.localStorage.setItem(INSTACOMP_LAST_JOB_STORAGE_KEY, job.id);
-        const recoveredItems = Array.isArray(data.items) ? data.items : [];
+        const returnedItems = Array.isArray(data.items) ? data.items : [];
+        const recoveredItems = returnedItems.filter(
+          (item: any) => String(item.status) !== "cancelled"
+        );
+        const hiddenCancelledCount = returnedItems.length - recoveredItems.length;
 
         if (
           job.status === "uploading" &&
-          recoveredItems.length === Number(job.total_items)
+          returnedItems.length === Number(job.total_items)
         ) {
           try {
             for (
               let start = 0;
-              start < recoveredItems.length;
+              start < returnedItems.length;
               start += INSTACOMP_JOB_ITEM_CHUNK_SIZE
             ) {
-              const chunk = recoveredItems.slice(
+              const chunk = returnedItems.slice(
                 start,
                 start + INSTACOMP_JOB_ITEM_CHUNK_SIZE
               );
@@ -3665,10 +3669,10 @@ export default function InstaCompScanner({
           }
         } else if (
           job.status === "uploading" &&
-          recoveredItems.length < Number(job.total_items)
+          returnedItems.length < Number(job.total_items)
         ) {
           setBatchError(
-            `Recovered ${recoveredItems.length}/${job.total_items} registered rows. The interruption happened before every row was registered; clear this saved lot and reselect the original images.`
+            `Recovered ${returnedItems.length}/${job.total_items} registered rows. The interruption happened before every row was registered; clear this saved lot and reselect the original images.`
           );
         }
 
@@ -3797,7 +3801,9 @@ export default function InstaCompScanner({
         setBatchDraftMessage(
           `Recovered InstaComp™ job ${job.id.slice(0, 8)} with ${recoveredCards.length} card row${
             recoveredCards.length === 1 ? "" : "s"
-          }.`
+          }${hiddenCancelledCount ? `; kept ${hiddenCancelledCount} removed row${
+            hiddenCancelledCount === 1 ? "" : "s"
+          } hidden.` : ""}.`
         );
       } catch (error: any) {
         if (!cancelled) {
@@ -6745,40 +6751,56 @@ export default function InstaCompScanner({
     const persistedCards = cardsToRemove.filter(
       (card) => card.persistentJobId && card.persistentItemId
     );
+    const removeIds = new Set(cardsToRemove.map((card) => card.id));
 
-    try {
-      if (persistedCards.length) {
-        setBatchDraftMessage(
-          `Removing ${cardsToRemove.length} row${
-            cardsToRemove.length === 1 ? "" : "s"
-          } from the saved InstaComp™ lot...`
-        );
-        const results = await Promise.all(
-          persistedCards.map((card) => cancelPersistentBatchCard(card))
-        );
-        const latestJob = results
-          .slice()
-          .reverse()
-          .find((result) => result?.job)?.job;
+    setBatchDraftMessage(removedMessage);
+    setBatchCards((current) =>
+      current.filter((card) => {
+        if (!removeIds.has(card.id)) return true;
 
-        if (latestJob) {
-          setPersistentJob(latestJob as PersistentJobSummary);
-        }
-      }
+        forgetRemovedBatchCard(card);
+        return false;
+      })
+    );
 
-      const removeIds = new Set(cardsToRemove.map((card) => card.id));
-      setBatchDraftMessage(removedMessage);
-      setBatchCards((current) =>
-        current.filter((card) => {
-          if (!removeIds.has(card.id)) return true;
+    if (!persistedCards.length) return;
 
-          forgetRemovedBatchCard(card);
-          return false;
-        })
+    const results = await Promise.allSettled(
+      persistedCards.map((card) => cancelPersistentBatchCard(card))
+    );
+    const fulfilled = results.filter(
+      (result): result is PromiseFulfilledResult<any> =>
+        result.status === "fulfilled"
+    );
+    const failed = results.filter(
+      (result): result is PromiseRejectedResult => result.status === "rejected"
+    );
+    const latestJob = fulfilled
+      .map((result) => result.value)
+      .slice()
+      .reverse()
+      .find((result) => result?.job)?.job;
+
+    if (latestJob) {
+      setPersistentJob(latestJob as PersistentJobSummary);
+    }
+
+    if (failed.length > 0) {
+      setBatchError(
+        `${failed.length}/${persistedCards.length} saved InstaComp™ row${
+          failed.length === 1 ? "" : "s"
+        } could not be cancelled server-side. The row${
+          failed.length === 1 ? " is" : "s are"
+        } gone from this view, but a refresh may recover ${
+          failed.length === 1 ? "it" : "them"
+        } until storage accepts cancellation.`
       );
-    } catch (error: any) {
-      setBatchError(error?.message || "Could not remove these InstaComp™ rows.");
-      setBatchDraftMessage(null);
+    } else {
+      setBatchDraftMessage(
+        `${removedMessage} Cancelled ${persistedCards.length} saved row${
+          persistedCards.length === 1 ? "" : "s"
+        } in storage.`
+      );
     }
   }
 
