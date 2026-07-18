@@ -19,6 +19,7 @@ import OrderReviewCasesPanel, {
 import ShippingLabelActions from "./ShippingLabelActions";
 import ShippingClaimActions from "../../shipping/ShippingClaimActions";
 import TrackingForm from "./TrackingForm";
+import type { ReactNode } from "react";
 
 type OrderItem = {
   id: number;
@@ -215,6 +216,66 @@ function OrderMetric({
         {metricLabel}
       </p>
       <p className="mt-2 text-2xl font-black">{value}</p>
+    </div>
+  );
+}
+
+function AdminSection({
+  eyebrow,
+  title,
+  detail,
+  children,
+  tone = "border-neutral-200 bg-white",
+}: {
+  eyebrow?: string;
+  title: string;
+  detail?: string;
+  children: ReactNode;
+  tone?: string;
+}) {
+  return (
+    <section className={`rounded-[2rem] border p-6 shadow-sm ${tone}`}>
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          {eyebrow ? (
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-neutral-500">
+              {eyebrow}
+            </p>
+          ) : null}
+          <h2 className="mt-1 text-2xl font-black">{title}</h2>
+          {detail ? (
+            <p className="mt-2 max-w-3xl text-sm font-semibold leading-6 text-neutral-600">
+              {detail}
+            </p>
+          ) : null}
+        </div>
+      </div>
+      {children}
+    </section>
+  );
+}
+
+function InfoTile({
+  label: tileLabel,
+  value,
+  wide = false,
+}: {
+  label: string;
+  value: ReactNode;
+  wide?: boolean;
+}) {
+  return (
+    <div
+      className={`rounded-2xl border border-neutral-200 bg-neutral-50 p-4 ${
+        wide ? "md:col-span-2" : ""
+      }`}
+    >
+      <dt className="text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
+        {tileLabel}
+      </dt>
+      <dd className="mt-1 break-words text-sm font-bold text-neutral-950">
+        {value}
+      </dd>
     </div>
   );
 }
@@ -725,113 +786,99 @@ export default async function AdminOrderDetailPage({
       </section>
 
       {platformFeeLedger.length > 0 ? (
-        <section className="border rounded-lg p-6 mb-6">
-          <h2 className="text-2xl font-bold mb-4">
-            Dag Danky Holdings LLC Rake
-          </h2>
-
-          <div className="rounded border border-gray-200 bg-gray-50 p-4">
-            <p className="text-sm font-semibold text-gray-500">
+        <AdminSection
+          eyebrow="Platform revenue"
+          title="Dag Danky Holdings LLC Rake"
+          detail="Calculated from this TCOS website checkout order only, using each order item plus allocated buyer-paid shipping."
+        >
+          <div className="rounded-2xl border border-neutral-200 bg-neutral-950 p-4 text-white">
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-neutral-300">
               8% Platform Rake Total
             </p>
-            <p className="text-2xl font-bold">{money(allSiteRakeTotal)}</p>
-            <p className="mt-1 text-sm text-gray-600">
-              Calculated from this TCOS website checkout order only, using each
-              order item plus allocated buyer-paid shipping.
-            </p>
+            <p className="mt-2 text-3xl font-black">{money(allSiteRakeTotal)}</p>
           </div>
 
           <div className="mt-4 space-y-3">
             {platformFeeLedger.map((entry) => (
-              <div key={entry.id} className="rounded border p-4">
+              <div
+                key={entry.id}
+                className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4"
+              >
                 <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                   <div>
                     <p className="font-bold">
                       Order Item #{entry.order_item_id}
                     </p>
-                    <p className="text-sm text-gray-600">
+                    <p className="text-sm font-semibold text-neutral-600">
                       {entry.seller_account_id
                         ? `Outside seller ${entry.seller_account_id}`
                         : "Store inventory"}
                     </p>
                   </div>
 
-                  <p className="text-sm font-bold">
+                  <p className="rounded-full border border-neutral-200 bg-white px-3 py-1 text-xs font-black">
                     Rate{" "}
                     {(Number(entry.platform_fee_rate || 0) * 100).toFixed(2)}%
                   </p>
                 </div>
 
                 <dl className="mt-3 grid grid-cols-1 gap-3 text-sm md:grid-cols-4">
-                  <div>
-                    <dt className="font-semibold text-gray-500">Gross</dt>
-                    <dd>{money(Number(entry.gross_item_amount || 0))}</dd>
-                  </div>
-                  <div>
-                    <dt className="font-semibold text-gray-500">
-                      Shipping Basis
-                    </dt>
-                    <dd>
-                      {money(Number(entry.shipping_allocated_amount || 0))}
-                    </dd>
-                  </div>
-                  <div>
-                    <dt className="font-semibold text-gray-500">
-                      Total Basis
-                    </dt>
-                    <dd>{money(Number(entry.total_basis_amount || 0))}</dd>
-                  </div>
-                  <div>
-                    <dt className="font-semibold text-gray-500">
-                      Dag Danky Holdings LLC Fee
-                    </dt>
-                    <dd>{money(Number(entry.platform_fee_amount || 0))}</dd>
-                  </div>
+                  <InfoTile label="Gross" value={money(Number(entry.gross_item_amount || 0))} />
+                  <InfoTile label="Shipping Basis" value={money(Number(entry.shipping_allocated_amount || 0))} />
+                  <InfoTile label="Total Basis" value={money(Number(entry.total_basis_amount || 0))} />
+                  <InfoTile label="Dag Danky Holdings LLC Fee" value={money(Number(entry.platform_fee_amount || 0))} />
                 </dl>
               </div>
             ))}
           </div>
-        </section>
+        </AdminSection>
       ) : null}
 
       {typedOrder.contains_seller_items ? (
-        <section className="border rounded-lg p-4 mb-6 bg-amber-50 border-amber-200">
-          <h2 className="text-lg font-bold">Seller Routing</h2>
-          <p className="mt-2 text-sm font-semibold text-amber-900">
-            This order contains {typedOrder.seller_item_count || 0} seller-routed item(s) and {typedOrder.store_item_count || 0} store-owned item(s).
+        <section className="rounded-[2rem] border border-amber-200 bg-amber-50 p-5 text-amber-950 shadow-sm">
+          <p className="text-xs font-black uppercase tracking-[0.16em] opacity-70">
+            Seller routing
+          </p>
+          <h2 className="mt-1 text-xl font-black">Mixed fulfillment order</h2>
+          <p className="mt-2 text-sm font-semibold leading-6">
+            This order contains {typedOrder.seller_item_count || 0} seller-routed
+            item(s) and {typedOrder.store_item_count || 0} store-owned item(s).
+            Keep payout and shipping evidence aligned before release.
           </p>
         </section>
       ) : null}
 
       {typedOrder.contains_seller_items ? (
-        <section className="border rounded-lg p-6 mb-6">
-          <h2 className="text-2xl font-bold mb-4">Seller Payout Ledger</h2>
-
+        <AdminSection
+          eyebrow="Seller money"
+          title="Seller Payout Ledger"
+          detail="Seller-payable amounts, platform rake, and payout state for every seller-owned row in this order."
+        >
           {payoutLedgerError ? (
-            <p className="text-red-600">
+            <p className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm font-black text-red-950">
               Payout ledger unavailable: {payoutLedgerError.message}
             </p>
           ) : sellerPayoutLedger.length === 0 ? (
-            <p className="text-gray-600">
+            <p className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4 text-sm font-semibold text-neutral-600">
               No seller payout ledger entries have been created for this order yet.
             </p>
           ) : (
             <>
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                <div className="rounded border border-gray-200 bg-gray-50 p-4">
-                  <p className="text-sm font-semibold text-gray-500">
+                <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4">
+                  <p className="text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
                     Dag Danky Holdings LLC Fee Total
                   </p>
-                  <p className="text-2xl font-bold">
+                  <p className="mt-2 text-2xl font-black">
                     {money(platformFeeTotal)}
                   </p>
                 </div>
 
-                <div className="rounded border border-gray-200 bg-gray-50 p-4">
-                  <p className="text-sm font-semibold text-gray-500">
+                <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-950">
+                  <p className="text-xs font-black uppercase tracking-[0.14em] opacity-70">
                     Seller Payable Total
                   </p>
-                  <p className="text-2xl font-bold">
+                  <p className="mt-2 text-2xl font-black">
                     {money(sellerPayoutTotal)}
                   </p>
                 </div>
@@ -839,19 +886,22 @@ export default async function AdminOrderDetailPage({
 
               <div className="mt-4 space-y-3">
                 {sellerPayoutLedger.map((entry) => (
-                  <div key={entry.id} className="rounded border p-4">
+                  <div
+                    key={entry.id}
+                    className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4"
+                  >
                     <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
                       <div>
                         <p className="font-bold">
                           Seller {entry.seller_account_id}
                         </p>
-                        <p className="text-sm text-gray-600">
+                        <p className="text-sm font-semibold text-neutral-600">
                           Order Item #{entry.order_item_id} -{" "}
                           {label(entry.payout_status)}
                         </p>
                       </div>
 
-                      <p className="text-sm font-bold">
+                      <p className="rounded-full border border-neutral-200 bg-white px-3 py-1 text-xs font-black">
                         Rate{" "}
                         {(Number(entry.platform_fee_rate || 0) * 100).toFixed(2)}
                         %
@@ -859,34 +909,12 @@ export default async function AdminOrderDetailPage({
                     </div>
 
                     <dl className="mt-3 grid grid-cols-1 gap-3 text-sm md:grid-cols-4">
-                      <div>
-                        <dt className="font-semibold text-gray-500">Gross</dt>
-                        <dd>{money(Number(entry.gross_item_amount || 0))}</dd>
-                      </div>
-                      <div>
-                        <dt className="font-semibold text-gray-500">
-                          Shipping Basis
-                        </dt>
-                        <dd>
-                          {money(Number(entry.shipping_allocated_amount || 0))}
-                        </dd>
-                      </div>
-                      <div>
-                        <dt className="font-semibold text-gray-500">
-                          Dag Danky Holdings LLC Fee
-                        </dt>
-                        <dd>{money(Number(entry.platform_fee_amount || 0))}</dd>
-                      </div>
-                      <div>
-                        <dt className="font-semibold text-gray-500">
-                          Seller Payable
-                        </dt>
-                        <dd>
-                          {money(Number(entry.seller_payable_amount || 0))}
-                        </dd>
-                      </div>
+                      <InfoTile label="Gross" value={money(Number(entry.gross_item_amount || 0))} />
+                      <InfoTile label="Shipping Basis" value={money(Number(entry.shipping_allocated_amount || 0))} />
+                      <InfoTile label="Dag Danky Holdings LLC Fee" value={money(Number(entry.platform_fee_amount || 0))} />
+                      <InfoTile label="Seller Payable" value={money(Number(entry.seller_payable_amount || 0))} />
                     </dl>
-                    <div className="mt-4 max-w-xs">
+                    <div className="mt-4 max-w-sm rounded-2xl border border-neutral-200 bg-white p-3">
                       <PayoutLedgerActions
                         ledgerEntryId={entry.id}
                         status={entry.payout_status}
@@ -897,7 +925,7 @@ export default async function AdminOrderDetailPage({
               </div>
             </>
           )}
-        </section>
+        </AdminSection>
       ) : null}
 
       <OrderReviewCasesPanel
@@ -910,39 +938,30 @@ export default async function AdminOrderDetailPage({
         eventsError={orderReviewCaseEventsError?.message || null}
       />
 
-      <section className="border rounded-lg p-6 mb-6">
-        <h2 className="text-2xl font-bold mb-4">Customer</h2>
-        <p>Name: {typedOrder.customer_name || "Not saved"}</p>
-        <p>Email: {typedOrder.customer_email || "No email"}</p>
-        <div className="mt-4 rounded border border-gray-200 bg-gray-50 p-4">
-          <h3 className="font-bold">Linked TCOS Account</h3>
+      <AdminSection
+        eyebrow="Buyer profile"
+        title="Customer"
+        detail="Buyer identity, linked TCOS account, and customer notes saved with this checkout."
+      >
+        <dl className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <InfoTile label="Name" value={typedOrder.customer_name || "Not saved"} />
+          <InfoTile label="Email" value={typedOrder.customer_email || "No email"} />
+        </dl>
+
+        <div className="mt-4 rounded-2xl border border-neutral-200 bg-neutral-50 p-4">
+          <h3 className="text-sm font-black uppercase tracking-[0.14em] text-neutral-600">
+            Linked TCOS Account
+          </h3>
           {accountProfile ? (
-            <dl className="mt-2 grid grid-cols-1 gap-2 text-sm md:grid-cols-2">
-              <div>
-                <dt className="font-semibold text-gray-500">Account Email</dt>
-                <dd className="break-words">
-                  {accountProfile.email || "Not saved"}
-                </dd>
-              </div>
-              <div>
-                <dt className="font-semibold text-gray-500">Display Name</dt>
-                <dd>{accountProfile.display_name || "Not saved"}</dd>
-              </div>
-              <div>
-                <dt className="font-semibold text-gray-500">Status</dt>
-                <dd>{label(accountProfile.account_status)}</dd>
-              </div>
-              <div>
-                <dt className="font-semibold text-gray-500">Account Type</dt>
-                <dd>{label(accountProfile.default_account_type)}</dd>
-              </div>
-              <div className="md:col-span-2">
-                <dt className="font-semibold text-gray-500">Account ID</dt>
-                <dd className="break-all">{accountProfile.id}</dd>
-              </div>
+            <dl className="mt-3 grid grid-cols-1 gap-3 text-sm md:grid-cols-2">
+              <InfoTile label="Account Email" value={accountProfile.email || "Not saved"} />
+              <InfoTile label="Display Name" value={accountProfile.display_name || "Not saved"} />
+              <InfoTile label="Status" value={label(accountProfile.account_status)} />
+              <InfoTile label="Account Type" value={label(accountProfile.default_account_type)} />
+              <InfoTile label="Account ID" value={accountProfile.id} wide />
             </dl>
           ) : (
-            <p className="mt-2 text-sm text-gray-600">
+            <p className="mt-3 rounded-2xl border border-neutral-200 bg-white p-4 text-sm font-semibold text-neutral-600">
               {typedOrder.account_id
                 ? "This order has an account ID, but the account profile could not be loaded."
                 : "Guest checkout. No TCOS account was linked to this order."}
@@ -951,19 +970,23 @@ export default async function AdminOrderDetailPage({
         </div>
 
         <div className="mt-4">
-          <h3 className="font-bold">Customer Notes</h3>
-          <p className="mt-1 whitespace-pre-wrap">
+          <h3 className="text-sm font-black uppercase tracking-[0.14em] text-neutral-600">
+            Customer Notes
+          </h3>
+          <p className="mt-2 whitespace-pre-wrap rounded-2xl border border-neutral-200 bg-neutral-50 p-4 text-sm font-semibold leading-6">
             {typedOrder.customer_notes?.trim() || "No customer notes."}
           </p>
         </div>
-      </section>
+      </AdminSection>
 
-      <section className="border rounded-lg p-6 mb-6">
-        <h2 className="text-2xl font-bold mb-4">Ship To</h2>
-
+      <AdminSection
+        eyebrow="Fulfillment address"
+        title="Ship To"
+        detail="Destination currently saved for label purchase, packing slip, and evidence packets."
+      >
         {typedOrder.shipping_address_line1 ? (
-          <div>
-            <p>{typedOrder.customer_name || typedOrder.customer_email}</p>
+          <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4 text-sm font-bold leading-7">
+            <p>{typedOrder.customer_name || typedOrder.customer_email || "Recipient not saved"}</p>
             <p>{typedOrder.shipping_address_line1}</p>
             {typedOrder.shipping_address_line2 && (
               <p>{typedOrder.shipping_address_line2}</p>
@@ -976,48 +999,59 @@ export default async function AdminOrderDetailPage({
             <p>{typedOrder.shipping_country}</p>
           </div>
         ) : (
-          <p className="text-gray-600">Shipping address not saved.</p>
+          <p className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-black text-amber-950">
+            Shipping address not saved. Do not purchase postage until the destination is verified.
+          </p>
         )}
-      </section>
+      </AdminSection>
 
-      <section className="border rounded-lg p-6 mb-6">
-        <h2 className="text-2xl font-bold mb-4">Items</h2>
-
+      <AdminSection
+        eyebrow="Order contents"
+        title="Items"
+        detail="Every purchased row with owner, quantity, unit price, and extended total."
+      >
         {!typedOrder.order_items || typedOrder.order_items.length === 0 ? (
-          <p>No order items found.</p>
+          <p className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4 text-sm font-semibold text-neutral-600">
+            No order items found.
+          </p>
         ) : (
           <div className="space-y-3">
             {typedOrder.order_items.map((item) => (
-              <div key={item.id} className="flex justify-between border-b pb-3">
-                <div>
+              <div
+                key={item.id}
+                className="flex flex-col gap-3 rounded-2xl border border-neutral-200 bg-neutral-50 p-4 md:flex-row md:items-start md:justify-between"
+              >
+                <div className="min-w-0">
                   <p className="font-bold">{item.title}</p>
-                  <p className="text-xs font-semibold text-gray-500">
+                  <p className="mt-1 text-xs font-black uppercase tracking-[0.12em] text-neutral-500">
                     Owner: {item.seller_account_id || "Store inventory"}
                   </p>
-                  <p className="text-sm text-gray-600">
+                  <p className="mt-2 text-sm font-semibold text-neutral-600">
                     Quantity: {item.quantity} × {money(item.price)}
                   </p>
                 </div>
 
-                <p className="font-bold">
+                <p className="rounded-full border border-neutral-200 bg-white px-3 py-1 text-sm font-black">
                   {money(Number(item.price) * Number(item.quantity))}
                 </p>
               </div>
             ))}
           </div>
         )}
-      </section>
+      </AdminSection>
 
-      <section className="border rounded-lg p-6 mb-6">
-        <h2 className="text-2xl font-bold mb-4">Order Totals</h2>
-
-        <div className="max-w-md space-y-2">
-          <div className="flex justify-between">
+      <AdminSection
+        eyebrow="Checkout math"
+        title="Order Totals"
+        detail="Customer-paid subtotal, discount, shipping, and final total."
+      >
+        <div className="max-w-xl space-y-2 rounded-2xl border border-neutral-200 bg-neutral-50 p-4">
+          <div className="flex justify-between gap-4">
             <span>Items Total</span>
             <strong>{money(itemsTotal)}</strong>
           </div>
 
-          <div className="flex justify-between">
+          <div className="flex justify-between gap-4">
             <span>
               Discount
               {typedOrder.discount_code ? ` (${typedOrder.discount_code})` : ""}
@@ -1025,36 +1059,39 @@ export default async function AdminOrderDetailPage({
             <strong>-{money(discountAmount)}</strong>
           </div>
 
-          <div className="flex justify-between">
+          <div className="flex justify-between gap-4">
             <span>Shipping Paid</span>
             <strong>{money(shippingPaid)}</strong>
           </div>
 
-          <div className="flex justify-between border-t pt-3 text-xl">
+          <div className="flex justify-between gap-4 border-t border-neutral-200 pt-3 text-xl">
             <span>Total Paid</span>
             <strong>{money(totalPaid)}</strong>
           </div>
         </div>
-      </section>
+      </AdminSection>
 
-      <section className="border rounded-lg p-6 mb-6">
-        <h2 className="text-2xl font-bold mb-4">Shipping</h2>
-
-        <p>Method: {typedOrder.shipping_name || typedOrder.shipping_method}</p>
-        <p>Shipping Paid: {money(typedOrder.shipping_amount)}</p>
-        <p>Items: {typedOrder.item_count || 0}</p>
-
-        <div className="mt-4">
-          <p>Carrier: {typedOrder.carrier || "Not added"}</p>
-          <p>Tracking: {typedOrder.tracking_number || "Not added"}</p>
-          <p>
-            Shipped At:{" "}
-            {typedOrder.shipped_at
-              ? new Date(typedOrder.shipped_at).toLocaleString()
-              : "Not shipped"}
-          </p>
-        </div>
-      </section>
+      <AdminSection
+        eyebrow="Shipment summary"
+        title="Shipping"
+        detail="Current fulfillment fields on the order record before label-specific audit details below."
+      >
+        <dl className="grid grid-cols-1 gap-3 md:grid-cols-3">
+          <InfoTile label="Method" value={typedOrder.shipping_name || typedOrder.shipping_method || "Not selected"} />
+          <InfoTile label="Shipping Paid" value={money(typedOrder.shipping_amount)} />
+          <InfoTile label="Items" value={typedOrder.item_count || 0} />
+          <InfoTile label="Carrier" value={typedOrder.carrier || "Not added"} />
+          <InfoTile label="Tracking" value={typedOrder.tracking_number || "Not added"} />
+          <InfoTile
+            label="Shipped At"
+            value={
+              typedOrder.shipped_at
+                ? new Date(typedOrder.shipped_at).toLocaleString()
+                : "Not shipped"
+            }
+          />
+        </dl>
+      </AdminSection>
 
       <section className="border rounded-lg p-6 mb-6">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
