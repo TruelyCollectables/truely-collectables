@@ -1,14 +1,5 @@
 import AdminSubmitButton from "../AdminSubmitButton";
-
-function safeNextPath(value: string | string[] | undefined) {
-  const nextPath = Array.isArray(value) ? value[0] : value;
-
-  if (nextPath && nextPath.startsWith("/") && !nextPath.startsWith("//")) {
-    return nextPath;
-  }
-
-  return "/admin";
-}
+import { safeAdminLoginNextPath } from "../../../lib/admin-login-destination";
 
 function loginErrorMessage(code: string | string[] | undefined) {
   const errorCode = Array.isArray(code) ? code[0] : code;
@@ -46,7 +37,7 @@ export default async function AdminLoginPage({
   searchParams: Promise<{ [key: string]: string | string[] | undefined }>;
 }) {
   const params = await searchParams;
-  const nextPath = safeNextPath(params.next);
+  const nextPath = safeAdminLoginNextPath(params.next);
   const error = loginErrorMessage(params.error);
   const localDevelopmentLoginAvailable = process.env.NODE_ENV !== "production";
   const adminPasswordConfigured = Boolean(process.env.ADMIN_PASSWORD);

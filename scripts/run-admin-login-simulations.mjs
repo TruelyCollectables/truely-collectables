@@ -1,4 +1,5 @@
 import { readFile } from "node:fs/promises";
+import { safeAdminLoginNextPath } from "../src/lib/admin-login-destination.ts";
 
 const loginPageSource = await readFile(
   new URL("../src/app/admin/login/page.tsx", import.meta.url),
@@ -40,6 +41,7 @@ scenario("admin login page labels native submits while posting", () => {
 scenario("admin login route keeps password paste and local rescue guards", () => {
   for (const fragment of [
     "password.trim()",
+    "safeAdminLoginNextPath",
     "verifyLocalDevelopmentAdminPassword",
     "localDevelopmentLogin",
     "jsonBodyNextPath",
@@ -53,6 +55,29 @@ scenario("admin login route keeps password paste and local rescue guards", () =>
       `Expected admin login route guard fragment ${fragment}.`,
     );
   }
+});
+
+scenario("admin login destination guard prevents login and logout loops", () => {
+  assert(
+    safeAdminLoginNextPath("/admin/products") === "/admin/products",
+    "Expected normal admin workbench destinations to be preserved.",
+  );
+  assert(
+    safeAdminLoginNextPath("/admin/login?next=%2Fadmin") === "/admin",
+    "Expected login destinations to collapse to the command center.",
+  );
+  assert(
+    safeAdminLoginNextPath("/admin/logout") === "/admin",
+    "Expected logout destinations to collapse to the command center.",
+  );
+  assert(
+    safeAdminLoginNextPath("/api/admin/login") === "/admin",
+    "Expected API login destinations to collapse to the command center.",
+  );
+  assert(
+    safeAdminLoginNextPath("//evil.example/admin") === "/admin",
+    "Expected protocol-relative destinations to be rejected.",
+  );
 });
 
 scenario("admin login shows operator-readable failure guidance", () => {

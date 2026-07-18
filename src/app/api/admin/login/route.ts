@@ -10,6 +10,7 @@ import {
   checkAdminLoginAllowed,
   recordAdminLoginAttempt,
 } from "../../../../lib/admin-login-security";
+import { safeAdminLoginNextPath } from "../../../../lib/admin-login-destination";
 import { requestHostname, requestOrigin } from "../../../../lib/request-origin";
 
 const LOCAL_ADMIN_PASSWORD_FILES = [".env.development.local", ".env.local"];
@@ -21,16 +22,6 @@ type LoginPayload = {
   readable: boolean;
   localDevelopmentLogin: boolean;
 };
-
-function safeNextPath(value: FormDataEntryValue | string | null | undefined) {
-  const nextPath = String(value || "");
-
-  if (nextPath.startsWith("/") && !nextPath.startsWith("//")) {
-    return nextPath;
-  }
-
-  return "/admin";
-}
 
 function isLocalDevelopmentAdminHost(hostname: string) {
   return (
@@ -126,7 +117,7 @@ async function verifySubmittedAdminPassword(password: string, hostname: string) 
 function loginRedirect(req: Request, code: string, nextPath?: string) {
   const url = new URL("/admin/login", requestOrigin(req));
   const redirectNextPath =
-    nextPath || safeNextPath(new URL(req.url).searchParams.get("next"));
+    nextPath || safeAdminLoginNextPath(new URL(req.url).searchParams.get("next"));
 
   url.searchParams.set("next", redirectNextPath);
   url.searchParams.set("error", code);
@@ -139,7 +130,7 @@ function jsonBodyNextPath(body: unknown, fallback: string) {
 
   const record = body as Record<string, unknown>;
 
-  return safeNextPath(
+  return safeAdminLoginNextPath(
     typeof record.next === "string"
       ? record.next
       : typeof record.nextPath === "string"
@@ -154,7 +145,7 @@ async function readLoginPayload(req: Request): Promise<LoginPayload> {
 
   if (contentType.includes("application/json")) {
     const body = await req.json().catch(() => null);
-    const queryNextPath = safeNextPath(requestUrl.searchParams.get("next"));
+    const queryNextPath = safeAdminLoginNextPath(requestUrl.searchParams.get("next"));
 
     return {
       password:
@@ -172,7 +163,7 @@ async function readLoginPayload(req: Request): Promise<LoginPayload> {
 
   return {
     password: formData ? String(formData.get("password") || "") : "",
-    nextPath: safeNextPath(
+    nextPath: safeAdminLoginNextPath(
       formData?.get("next") || requestUrl.searchParams.get("next"),
     ),
     wantsRedirect: true,
