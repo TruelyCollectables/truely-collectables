@@ -102,9 +102,7 @@ export function growthProfessionalCardEligibility(
     sport.includes("baseball") ||
     league.includes("mlb") ||
     league.includes("miami marlins");
-  const wnbaScope =
-    league.includes("wnba") ||
-    productText.includes("wnba");
+  const wnbaScope = league.includes("wnba") || productText.includes("wnba");
 
   if (baseballScope) {
     const licensedBaseball = ["topps", "bowman", "fanatics"].some((term) =>
@@ -131,9 +129,8 @@ export function growthProfessionalCardEligibility(
     const licensedWnbaManufacturer = ["panini", "topps", "fanatics"].some(
       (term) => productText.includes(term),
     );
-    const professionalWnbaSignal =
-      league.includes("wnba") || productText.includes("wnba");
-    return licensedWnbaManufacturer && professionalWnbaSignal
+    const explicitProfessionalWnbaSignal = productText.includes("wnba");
+    return licensedWnbaManufacturer && explicitProfessionalWnbaSignal
       ? {
           eligible: true,
           scope: "licensed_professional_wnba",
@@ -145,7 +142,7 @@ export function growthProfessionalCardEligibility(
           scope: "wnba",
           reasons: [],
           rejectionReasons: [
-            "WNBA Growth Specs require an officially licensed professional WNBA product.",
+            "WNBA Growth Specs require the product identity or listing title to explicitly identify an officially licensed WNBA product.",
           ],
         };
   }
