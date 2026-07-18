@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "dev:isolated": "NEXT_DIST_DIR=.next-dev-check next dev",
     "build": "next build --webpack",
     "build:isolated": "NEXT_DIST_DIR=.next-build-check NEXT_TSCONFIG_PATH=tsconfig.build.json next build --webpack",
     "start": "next start",
