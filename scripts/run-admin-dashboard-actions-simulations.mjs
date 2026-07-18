@@ -76,6 +76,34 @@ scenario("admin command center exposes no-dead-end operator action map", () => {
   }
 });
 
+scenario("admin command center exposes first-screen operator attention strip", () => {
+  for (const fragment of [
+    "type AttentionPanelRow",
+    "adminAttentionRows",
+    "Operator attention strip",
+    "What needs eyes before anything else",
+    "Live admin counts turned into direct routes",
+    "ACTION REQUIRED",
+    "WATCHLIST",
+    "ALL CLEAR",
+    "Critical order cases need eyes",
+    "Paid orders are ready to ship",
+    "Buyer offers need decisions",
+    "InstaComp™ found price gaps",
+    "Money or evidence needs cleanup",
+    "Seller payouts need onboarding",
+    "Purchased lots need receiving",
+    "Launch gate has blockers",
+    "<AttentionPanelCard",
+    "Open workbench →",
+  ]) {
+    assert(
+      adminPageSource.includes(fragment),
+      `Expected admin attention strip fragment ${fragment}.`,
+    );
+  }
+});
+
 scenario("admin command center keeps critical operator routes one click away", () => {
   for (const route of [
     "/admin/instacomp-direct",

@@ -247,6 +247,18 @@ type QueuePanelRow = {
   href?: string;
 };
 
+type AdminTone = "green" | "amber" | "rose";
+
+type AttentionPanelRow = {
+  key: string;
+  eyebrow: string;
+  title: string;
+  detail: string;
+  value: string;
+  href: string;
+  tone: AdminTone;
+};
+
 function addAdminHandoffToRows(
   rows: QueuePanelRow[],
   adminHref: (href: string) => string,
@@ -728,6 +740,161 @@ export default async function AdminDashboard() {
       : "Market Intel receipt queue is clear",
     `Shipping setup verdict: ${label(shippingDecision.status)} - ${shippingDecision.summary}`,
   ];
+  const adminAttentionRows: AttentionPanelRow[] = [
+    {
+      key: "critical-cases",
+      eyebrow: "Disputes",
+      title:
+        criticalOrderReviewCases.length > 0
+          ? "Critical order cases need eyes"
+          : "Critical cases clear",
+      detail:
+        activeOrderReviewCases.length > 0
+          ? `${activeOrderReviewCases.length} total open case${
+              activeOrderReviewCases.length === 1 ? "" : "s"
+            } in the review queue.`
+          : "No open order-review cases blocking fulfillment.",
+      value: String(criticalOrderReviewCases.length),
+      href: "/admin/order-review-cases",
+      tone: criticalOrderReviewCases.length > 0 ? "rose" : "green",
+    },
+    {
+      key: "ready-fulfillment",
+      eyebrow: "Fulfillment",
+      title:
+        readyOrders.length > 0
+          ? "Paid orders are ready to ship"
+          : "No paid orders waiting",
+      detail:
+        dryRunShippingOrders.length > 0
+          ? `${dryRunShippingOrders.length} order${
+              dryRunShippingOrders.length === 1 ? "" : "s"
+            } still show dry-run tracking references.`
+          : "Ready queue and dry-run tracking references are visible from Orders.",
+      value: String(readyOrders.length),
+      href: "/admin/orders",
+      tone: dryRunShippingOrders.length > 0 ? "rose" : readyOrders.length > 0 ? "amber" : "green",
+    },
+    {
+      key: "offers",
+      eyebrow: "Offers",
+      title:
+        pendingOffers.length > 0
+          ? "Buyer offers need decisions"
+          : "Offer desk clear",
+      detail:
+        counteredOffers.length > 0
+          ? `${counteredOffers.length} countered offer${
+              counteredOffers.length === 1 ? "" : "s"
+            } still in play.`
+          : "Accept, counter, or decline from the protected offer desk.",
+      value: String(pendingOffers.length),
+      href: "/admin/offers",
+      tone: pendingOffers.length > 0 ? "amber" : "green",
+    },
+    {
+      key: "instacomp-price-radar",
+      eyebrow: "Pricing",
+      title:
+        priceRadarRows.length > 0
+          ? "InstaComp™ found price gaps"
+          : "Price radar calm",
+      detail:
+        priceRadarRows.length > 0
+          ? "Open the dashboard radar or Direct Scan Lab to reprice and repair card rows."
+          : "No active card has a large InstaComp™ market-price gap right now.",
+      value: String(priceRadarRows.length),
+      href: "/admin/instacomp-direct",
+      tone: priceRadarRows.length > 0 ? "amber" : "green",
+    },
+    {
+      key: "money-evidence",
+      eyebrow: "Money",
+      title:
+        reconciliationAlerts.length > 0 || evidenceErrors.length > 0
+          ? "Money or evidence needs cleanup"
+          : "Money evidence clean",
+      detail:
+        evidenceErrors.length > 0
+          ? `${evidenceErrors.length} recent evidence email issue${
+              evidenceErrors.length === 1 ? "" : "s"
+            } plus ${reconciliationAlerts.length} reconciliation alert${
+              reconciliationAlerts.length === 1 ? "" : "s"
+            }.`
+          : "Stripe reconciliation and recent evidence email status are summarized here.",
+      value: String(reconciliationAlerts.length + evidenceErrors.length),
+      href: "/admin/financial-reconciliation",
+      tone:
+        reconciliationAlerts.length > 0 || evidenceErrors.length > 0
+          ? "rose"
+          : "green",
+    },
+    {
+      key: "seller-connect",
+      eyebrow: "Payouts",
+      title:
+        sellerConnectUnavailable
+          ? "Seller Connect status unavailable"
+          : sellerConnectNeedsAction.length > 0
+          ? "Seller payouts need onboarding"
+          : "Seller payouts clear",
+      detail:
+        sellerConnectUnavailable
+          ? "Open Payouts to inspect the Stripe Connect readiness table."
+          : sellerConnectNeedsAction.length > 0
+          ? "Stripe requirements, disabled reasons, and payout readiness are one click away."
+          : "No seller Connect account currently needs onboarding action.",
+      value: sellerConnectUnavailable ? "!" : String(sellerConnectNeedsAction.length),
+      href: "/admin/seller-payouts",
+      tone:
+        sellerConnectUnavailable || sellerConnectNeedsAction.length > 0
+          ? "amber"
+          : "green",
+    },
+    {
+      key: "market-intel-receiving",
+      eyebrow: "Buying",
+      title:
+        !marketIntelAvailable
+          ? "Market Intel ledger unavailable"
+          : marketIntelTotals.awaitingReceipt > 0
+          ? "Purchased lots need receiving"
+          : "Market Intel receiving clear",
+      detail:
+        marketIntelAvailable
+          ? `${marketIntelTotals.remainingUnits} unit${
+              marketIntelTotals.remainingUnits === 1 ? "" : "s"
+            } remain across purchase lots.`
+          : "Open Market Intel to inspect purchase-ledger availability.",
+      value: marketIntelAvailable
+        ? String(marketIntelTotals.awaitingReceipt)
+        : "!",
+      href: "/admin/market-intel/purchases",
+      tone:
+        !marketIntelAvailable || marketIntelTotals.awaitingReceipt > 0
+          ? "amber"
+          : "green",
+    },
+    {
+      key: "launch-locks",
+      eyebrow: "Launch",
+      title:
+        launchGateDrill.summary.failed > 0
+          ? "Launch gate has blockers"
+          : "Launch drill passing",
+      detail:
+        shippingDecision.status === "live_blocked"
+          ? shippingDecision.summary
+          : "Payment, shipping, provider setup, and smoke-report links are grouped below.",
+      value: String(launchGateDrill.summary.failed),
+      href: "/admin/launch-readiness",
+      tone:
+        launchGateDrill.summary.failed > 0 ||
+        shippingDecision.status === "live_blocked"
+          ? "rose"
+          : "green",
+    },
+  ];
 
   return (
     <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
@@ -804,6 +971,52 @@ export default async function AdminDashboard() {
       </section>
 
       <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
+        <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-rose-700">
+                Operator attention strip
+              </p>
+              <h2 className="mt-1 text-3xl font-black">
+                What needs eyes before anything else
+              </h2>
+              <p className="mt-2 max-w-3xl text-sm font-semibold text-neutral-600">
+                Live admin counts turned into direct routes: cases, shipping,
+                offers, pricing, evidence, payouts, buying, and launch locks.
+              </p>
+            </div>
+            <Pill
+              label={
+                adminAttentionRows.some((row) => row.tone === "rose")
+                  ? "ACTION REQUIRED"
+                  : adminAttentionRows.some((row) => row.tone === "amber")
+                  ? "WATCHLIST"
+                  : "ALL CLEAR"
+              }
+              tone={
+                adminAttentionRows.some((row) => row.tone === "rose")
+                  ? "rose"
+                  : adminAttentionRows.some((row) => row.tone === "amber")
+                  ? "amber"
+                  : "green"
+              }
+            />
+          </div>
+          <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {adminAttentionRows.map((row) => (
+              <AttentionPanelCard
+                key={row.key}
+                href={adminHref(row.href)}
+                eyebrow={row.eyebrow}
+                title={row.title}
+                detail={row.detail}
+                value={row.value}
+                tone={row.tone}
+              />
+            ))}
+          </div>
+        </section>
+
         <section className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div>
@@ -1896,6 +2109,63 @@ function OperatorActionCard({
       </div>
       <span className="mt-4 w-fit rounded-md border border-current bg-white/70 px-3 py-2 text-sm font-black group-hover:bg-white">
         {cta}
+      </span>
+    </Link>
+  );
+}
+
+function AttentionPanelCard({
+  href,
+  eyebrow,
+  title,
+  detail,
+  value,
+  tone,
+}: {
+  href: string;
+  eyebrow: string;
+  title: string;
+  detail: string;
+  value: string;
+  tone: AdminTone;
+}) {
+  const toneClass =
+    tone === "rose"
+      ? "border-rose-200 bg-rose-50 text-rose-950"
+      : tone === "amber"
+      ? "border-amber-200 bg-amber-50 text-amber-950"
+      : "border-emerald-200 bg-emerald-50 text-emerald-950";
+  const valueClass =
+    tone === "rose"
+      ? "bg-rose-700 text-white"
+      : tone === "amber"
+      ? "bg-amber-400 text-neutral-950"
+      : "bg-emerald-700 text-white";
+
+  return (
+    <Link
+      href={href}
+      className={`group flex min-h-[190px] flex-col justify-between rounded-xl border p-4 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md ${toneClass}`}
+    >
+      <div>
+        <div className="flex items-start justify-between gap-3">
+          <p className="text-[11px] font-black uppercase tracking-widest opacity-70">
+            {eyebrow}
+          </p>
+          <span
+            className={`grid min-w-10 place-items-center rounded-full px-2 py-1 text-sm font-black ${valueClass}`}
+            aria-label={`${eyebrow} count ${value}`}
+          >
+            {value}
+          </span>
+        </div>
+        <h3 className="mt-3 text-lg font-black tracking-tight">{title}</h3>
+        <p className="mt-2 text-sm font-semibold leading-6 opacity-85">
+          {detail}
+        </p>
+      </div>
+      <span className="mt-4 text-sm font-black underline-offset-4 group-hover:underline">
+        Open workbench →
       </span>
     </Link>
   );
