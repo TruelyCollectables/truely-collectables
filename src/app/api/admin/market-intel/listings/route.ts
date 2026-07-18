@@ -3,7 +3,7 @@ import {
   adminHandoffFromUrl,
   adminRedirectUrl,
 } from "../../../../../lib/admin-handoff";
-import { scoreMarketIntelListing } from "../../../../../lib/market-intel-deals";
+import { ingestMarketIntelListings } from "../../../../../lib/market-intel-ingestion";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
 
 function text(formData: FormData, name: string) {
@@ -49,7 +49,11 @@ export async function POST(request: NextRequest) {
     if (!/^https?:\/\//i.test(directUrl)) {
       throw new Error("Direct listing URL must begin with http:// or https://.");
     }
-    if (!["fixed_price", "auction", "best_offer", "lot", "unknown"].includes(listingFormat)) {
+    if (
+      !["fixed_price", "auction", "best_offer", "lot", "unknown"].includes(
+        listingFormat,
+      )
+    ) {
       throw new Error("Unsupported listing format.");
     }
     if (askingPrice < 0 || shippingPrice < 0 || buyerFee < 0) {
@@ -69,32 +73,40 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = createSupabaseServerClient({ admin: true });
-    const { data: listing, error } = await supabase
-      .from("tcos_mi_listings")
-      .insert({
-        marketplace_id: marketplaceId,
-        collectible_identity_id: collectibleIdentityId,
-        external_listing_id: text(formData, "externalListingId") || null,
-        direct_url: directUrl,
-        original_title: originalTitle,
-        listing_status: "active",
-        listing_format: listingFormat,
-        asking_price: askingPrice,
-        shipping_price: shippingPrice,
-        buyer_fee: buyerFee,
+    const { data: marketplaceRows, error: marketplaceError } = await supabase
+      .from("tcos_mi_marketplaces")
+      .select("slug")
+      .eq("id", marketplaceId)
+      .eq("active", true)
+      .limit(1);
+    if (marketplaceError) throw new Error(marketplaceError.message);
+    const marketplace = marketplaceRows?.[0] || null;
+    if (!marketplace?.slug) {
+      throw new Error("The selected marketplace is not configured or active.");
+    }
+
+    const now = new Date().toISOString();
+    const ingest = await ingestMarketIntelListings([
+      {
+        marketplaceSlug: String(marketplace.slug),
+        collectibleIdentityId,
+        externalListingId: text(formData, "externalListingId") || null,
+        directUrl,
+        originalTitle,
+        listingFormat,
+        askingPrice,
+        shippingPrice,
+        buyerFee,
         quantity,
-        seller_name: text(formData, "sellerName") || null,
-        seller_rating: sellerRating,
-        auction_end_at: auctionEndAt
-          ? new Date(auctionEndAt).toISOString()
-          : null,
-        listed_at: new Date().toISOString(),
-        first_seen_at: new Date().toISOString(),
-        last_seen_at: new Date().toISOString(),
-        identity_match_confidence: identityMatchConfidence,
-        identity_match_method: "manual_exact_identity",
-        suspected_mislisting: formData.get("suspectedMislisting") === "on",
-        mislisting_reason: text(formData, "mislistingReason") || null,
+        sellerName: text(formData, "sellerName") || null,
+        sellerRating,
+        auctionEndAt: auctionEndAt || null,
+        listedAt: now,
+        lastSeenAt: now,
+        identityMatchConfidence,
+        identityMatchMethod: "manual_exact_identity",
+        suspectedMislisting: formData.get("suspectedMislisting") === "on",
+        mislistingReason: text(formData, "mislistingReason") || null,
         metadata: {
           resale_fee_pct: numberField(formData, "resaleFeePct", 13.5),
           sell_through_pct: numberField(formData, "sellThroughPct", 100),
@@ -107,13 +119,12 @@ export async function POST(request: NextRequest) {
           manual_intake: true,
           intake_source: "market-intel-beta-one",
         },
-      })
-      .select("id")
-      .single();
-
-    if (error) throw new Error(error.message);
-
-    await scoreMarketIntelListing(listing.id);
+      },
+    ]);
+    const result = ingest.results[0];
+    if (!result || result.status === "rejected" || result.status === "error") {
+      throw new Error(result?.message || "Unable to save the manual listing.");
+    }
 
     return NextResponse.redirect(
       adminRedirectUrl(
