@@ -149,7 +149,7 @@ export default async function NewOfflinePurchasePage({ searchParams }: PageProps
             </p>
             <h2 className="mt-1 text-3xl font-black">What you actually paid</h2>
             <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-              <Input name="quantity" label="Quantity" type="number" min="1" defaultValue="1" required />
+              <Input name="quantity" label="Quantity" type="number" min="1" step="1" defaultValue="1" required />
               <MoneyInput name="itemSubtotal" label="Item subtotal" required />
               <MoneyInput name="inboundShipping" label="Shipping" />
               <MoneyInput name="salesTax" label="Sales tax" />
@@ -187,6 +187,7 @@ function Input({
   defaultValue,
   placeholder,
   min,
+  step,
   required = false,
 }: {
   name: string;
@@ -195,6 +196,7 @@ function Input({
   defaultValue?: string;
   placeholder?: string;
   min?: string;
+  step?: string;
   required?: boolean;
 }) {
   return (
@@ -206,6 +208,7 @@ function Input({
         defaultValue={defaultValue}
         placeholder={placeholder}
         min={min}
+        step={step}
         required={required}
         className={inputClass}
       />
@@ -220,6 +223,7 @@ function MoneyInput({ name, label, required = false }: { name: string; label: st
       label={label}
       type="number"
       min="0"
+      step="0.01"
       defaultValue="0.00"
       required={required}
     />
