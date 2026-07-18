@@ -13,6 +13,10 @@ const sources = {
     new URL("../src/app/admin/seller-payouts/ConnectRefreshActions.tsx", import.meta.url),
     "utf8",
   ),
+  page: await readFile(
+    new URL("../src/app/admin/seller-payouts/page.tsx", import.meta.url),
+    "utf8",
+  ),
 };
 
 const scenarios = [];
@@ -87,8 +91,10 @@ scenario("payout ledger actions expose specific busy labels", () => {
 scenario("connect refresh action exposes accessible busy and live feedback", () => {
   for (const fragment of [
     "connectRefreshRunningRef",
+    "disabledReason?: string;",
     "Finish the current Stripe Connect refresh first.",
     "Stripe Connect refresh is unavailable until payout accounts load.",
+    "Refresh seller Stripe Connect onboarding and payout statuses.",
     "Refreshing Stripe Connect statuses...",
     'aria-busy={loading}',
     "aria-disabled={disabled || loading}",
@@ -98,6 +104,17 @@ scenario("connect refresh action exposes accessible busy and live feedback", () 
     assert(
       sources.connect.includes(fragment),
       `Expected connect refresh feedback fragment ${fragment}.`,
+    );
+  }
+
+  for (const fragment of [
+    "disabledReason={",
+    "Fix the seller payout account load error before refreshing Stripe Connect statuses.",
+    "No seller Connect accounts have started payout onboarding yet.",
+  ]) {
+    assert(
+      sources.page.includes(fragment),
+      `Expected seller payout page to wire connect refresh reason ${fragment}.`,
     );
   }
 });

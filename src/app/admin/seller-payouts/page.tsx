@@ -731,6 +731,13 @@ export default async function AdminSellerPayoutsPage() {
             </div>
             <ConnectRefreshActions
               disabled={Boolean(payoutAccountError) || payoutAccounts.length === 0}
+              disabledReason={
+                payoutAccountError
+                  ? "Fix the seller payout account load error before refreshing Stripe Connect statuses."
+                  : payoutAccounts.length === 0
+                    ? "No seller Connect accounts have started payout onboarding yet."
+                    : undefined
+              }
             />
           </div>
 

@@ -5,8 +5,10 @@ import { useRef, useState } from "react";
 
 export default function ConnectRefreshActions({
   disabled,
+  disabledReason,
 }: {
   disabled?: boolean;
+  disabledReason?: string;
 }) {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
@@ -28,7 +30,9 @@ export default function ConnectRefreshActions({
     if (disabled) {
       setMessage({
         tone: "error",
-        text: "Stripe Connect refresh is unavailable until payout accounts load.",
+        text:
+          disabledReason ||
+          "Stripe Connect refresh is unavailable until payout accounts load.",
       });
       return;
     }
@@ -79,6 +83,14 @@ export default function ConnectRefreshActions({
         type="button"
         aria-busy={loading}
         aria-disabled={disabled || loading}
+        title={
+          loading
+            ? "Finish the current Stripe Connect refresh first."
+            : disabled
+              ? disabledReason ||
+                "Stripe Connect refresh is unavailable until payout accounts load."
+              : "Refresh seller Stripe Connect onboarding and payout statuses."
+        }
         onClick={refreshConnectStatuses}
         className="rounded-md border border-neutral-300 bg-neutral-50 px-3 py-2 text-sm font-bold text-neutral-900 hover:bg-white aria-disabled:bg-neutral-100 aria-disabled:text-neutral-400"
       >
