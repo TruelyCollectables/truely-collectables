@@ -10328,6 +10328,10 @@ export default function InstaCompScanner({
     }
   }
 
+  const resultCertificationLookupHref = result
+    ? certificationLookupHref(result.ai)
+    : null;
+
   return (
     <div style={{ display: "grid", gap: 24 }}>
       {testMode && (
@@ -13420,11 +13424,11 @@ export default function InstaCompScanner({
             {gradingSummary(result.ai) ? (
               <p style={{ marginTop: 10, color: "#555" }}>
                 <strong>Grading:</strong> {gradingSummary(result.ai)}
-                {certificationLookupHref(result.ai) ? (
+                {resultCertificationLookupHref ? (
                   <>
                     {" "}
                     <a
-                      href={certificationLookupHref(result.ai) || "#"}
+                      href={resultCertificationLookupHref}
                       target="_blank"
                       rel="noreferrer"
                     >

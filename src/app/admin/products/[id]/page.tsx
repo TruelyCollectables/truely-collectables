@@ -824,25 +824,45 @@ function SalesCompsPanel({
             <p className="text-sm font-semibold text-neutral-600">No sold comps found.</p>
           ) : (
             <div className="space-y-3">
-              {salesComps.comps.slice(0, 6).map((comp, index) => (
-                <a
-                  key={`${comp.title}-${index}`}
-                  href={comp.itemUrl || "#"}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="block rounded border border-neutral-200 bg-neutral-50 p-3 text-sm hover:bg-neutral-100"
-                >
-                  <p className="font-bold">{comp.title}</p>
-                  <p>
-                    {money(comp.price)} - {comp.source}
-                  </p>
-                  {comp.soldAt && (
-                    <p className="text-neutral-500">
-                      Sold {new Date(comp.soldAt).toLocaleDateString()}
+              {salesComps.comps.slice(0, 6).map((comp, index) => {
+                const compCard = (
+                  <>
+                    <p className="font-bold">{comp.title}</p>
+                    <p>
+                      {money(comp.price)} - {comp.source}
                     </p>
-                  )}
-                </a>
-              ))}
+                    {comp.soldAt && (
+                      <p className="text-neutral-500">
+                        Sold {new Date(comp.soldAt).toLocaleDateString()}
+                      </p>
+                    )}
+                    {!comp.itemUrl && (
+                      <p className="mt-2 text-xs font-bold uppercase tracking-wide text-amber-700">
+                        Source link unavailable
+                      </p>
+                    )}
+                  </>
+                );
+
+                return comp.itemUrl ? (
+                  <a
+                    key={`${comp.title}-${index}`}
+                    href={comp.itemUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="block rounded border border-neutral-200 bg-neutral-50 p-3 text-sm hover:bg-neutral-100"
+                  >
+                    {compCard}
+                  </a>
+                ) : (
+                  <div
+                    key={`${comp.title}-${index}`}
+                    className="block rounded border border-amber-200 bg-amber-50 p-3 text-sm"
+                  >
+                    {compCard}
+                  </div>
+                );
+              })}
             </div>
           )}
 

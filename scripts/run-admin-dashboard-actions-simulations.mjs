@@ -20,6 +20,10 @@ const adminRouteCheckSource = await readFile(
   new URL("../scripts/check-admin-routes.mjs", import.meta.url),
   "utf8",
 );
+const adminControlCheckSource = await readFile(
+  new URL("../scripts/check-admin-controls.mjs", import.meta.url),
+  "utf8",
+);
 
 const scenarios = [];
 
@@ -213,6 +217,21 @@ scenario("admin route checker blocks re-exported segment config", () => {
     assert(
       adminRouteCheckSource.includes(fragment),
       `Expected admin route checker segment-config guard fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("admin control checker blocks dead href placeholders", () => {
+  for (const fragment of [
+    "deadHrefLiteralPattern",
+    "deadHrefExpressionPattern",
+    "Admin links must not use href=\\\"#\\\" placeholders",
+    "Admin links must not fall back to href=\\\"#\\\"",
+    "render disabled/unavailable state instead",
+  ]) {
+    assert(
+      adminControlCheckSource.includes(fragment),
+      `Expected admin control checker to guard dead href placeholder fragment ${fragment}.`,
     );
   }
 });
