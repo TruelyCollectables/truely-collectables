@@ -36,6 +36,19 @@ const adminRuntimeSmokeSource = await readFile(
 
 const scenarios = [];
 const adminDashboardLinkExemptions = new Set(["/admin", "/admin/login"]);
+const adminNoDeadEndExemptions = new Set(["/admin", "/admin/login"]);
+const sharedShellNavigationGuards = [
+  {
+    component: "InstaCompAdminFrame",
+    source: instaCompFrameSource,
+    requiredFragments: [
+      'href: "/admin"',
+      'href: "/admin/products"',
+      'href: "/admin/ebay/duplicates"',
+      'href: "/admin/production-smoke"',
+    ],
+  },
+];
 
 async function walkFiles(dir, matcher) {
   const entries = await readdir(dir);
@@ -64,12 +77,44 @@ function adminRouteFromPageFile(filePath) {
   return routeWithoutPage ? `/admin/${routeWithoutPage}` : "/admin";
 }
 
-const staticAdminPageRoutes = (
-  await walkFiles(adminRoot, (filePath) => filePath.endsWith(`${path.sep}page.tsx`))
-)
-  .map(adminRouteFromPageFile)
+const adminPageFiles = await walkFiles(adminRoot, (filePath) =>
+  filePath.endsWith(`${path.sep}page.tsx`),
+);
+const adminPageEntries = await Promise.all(
+  adminPageFiles.map(async (filePath) => ({
+    filePath,
+    route: adminRouteFromPageFile(filePath),
+    source: await readFile(filePath, "utf8"),
+  })),
+);
+const staticAdminPageRoutes = adminPageEntries
+  .map((entry) => entry.route)
   .filter((route) => !route.includes("["))
   .sort();
+
+function internalAdminReferences(source) {
+  const references = [];
+  const literalPattern = /(["'`])(\/admin[^"'`?#]*)\1/g;
+  let match;
+
+  while ((match = literalPattern.exec(source))) {
+    if (!match[2].includes("${")) {
+      references.push(match[2]);
+    }
+  }
+
+  return [...new Set(references)];
+}
+
+function usesGuardedSharedShell(source) {
+  return sharedShellNavigationGuards.some((guard) => {
+    if (!source.includes(`<${guard.component}`)) return false;
+
+    return guard.requiredFragments.every((fragment) =>
+      guard.source.includes(fragment),
+    );
+  });
+}
 
 function scenario(name, run) {
   scenarios.push({ name, run });
@@ -360,6 +405,22 @@ scenario("admin static page inventory stays linked and runtime-smoked", () => {
       adminPageSource.includes(`"${route}"`) ||
         adminPageSource.includes(`\`${route}`),
       `Expected admin command center to link static page route ${route}.`,
+    );
+  }
+});
+
+scenario("admin page shells do not strand operators", () => {
+  for (const entry of adminPageEntries) {
+    if (adminNoDeadEndExemptions.has(entry.route)) continue;
+
+    const references = internalAdminReferences(entry.source);
+    const hasDirectAdminNavigation = references.some(
+      (reference) => reference !== entry.route,
+    );
+
+    assert(
+      hasDirectAdminNavigation || usesGuardedSharedShell(entry.source),
+      `Expected ${entry.route} to expose admin navigation directly or use a guarded shared admin shell.`,
     );
   }
 });
