@@ -1,0 +1,116 @@
+name: TCOS Scheduled Production Release
+
+on:
+  schedule:
+    - cron: "0 0,10,14,18 * * *"
+      timezone: "America/Denver"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tcos-scheduled-production-release
+  cancel-in-progress: false
+
+env:
+  WORK_BRANCH: market-intel-work
+  NODE_VERSION: "24"
+
+jobs:
+  release:
+    name: Test and release Market Intel batch
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out production branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      - name: Check for unreleased work
+        id: changes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if ! git ls-remote --exit-code --heads origin "$WORK_BRANCH" >/dev/null 2>&1; then
+            echo "Work branch $WORK_BRANCH does not exist. Nothing to release."
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git fetch origin "$WORK_BRANCH:refs/remotes/origin/$WORK_BRANCH"
+          ahead_count="$(git rev-list --count "origin/main..origin/$WORK_BRANCH")"
+
+          if [ "$ahead_count" -eq 0 ]; then
+            echo "No unreleased commits are waiting on $WORK_BRANCH."
+            echo "has_changes=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          echo "$ahead_count unreleased commit(s) found on $WORK_BRANCH."
+          echo "has_changes=true" >> "$GITHUB_OUTPUT"
+          echo "ahead_count=$ahead_count" >> "$GITHUB_OUTPUT"
+
+      - name: Prepare tested release candidate
+        if: steps.changes.outputs.has_changes == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "TCOS Release Bot"
+          git config user.email "actions@users.noreply.github.com"
+          git checkout -B tcos-scheduled-release origin/main
+
+          if ! git merge --no-commit --no-ff "origin/$WORK_BRANCH"; then
+            git merge --abort || true
+            echo "The work branch conflicts with main. Production was not changed."
+            exit 1
+          fi
+
+      - name: Set up Node.js
+        if: steps.changes.outputs.has_changes == 'true'
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install dependencies
+        if: steps.changes.outputs.has_changes == 'true'
+        run: npm ci --no-audit --no-fund
+
+      - name: Verify admin dashboard
+        if: steps.changes.outputs.has_changes == 'true'
+        run: npm run verify:admin-dashboard
+
+      - name: Verify Market Intel purchase actions
+        if: steps.changes.outputs.has_changes == 'true'
+        run: npm run simulate:admin-market-intel-portfolio-actions
+
+      - name: Lint release candidate
+        if: steps.changes.outputs.has_changes == 'true'
+        run: npm run lint
+
+      - name: Build isolated production candidate
+        if: steps.changes.outputs.has_changes == 'true'
+        run: npm run build:isolated
+
+      - name: Merge tested batch into main
+        if: steps.changes.outputs.has_changes == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          git commit -m "Release Market Intel batch (${{ steps.changes.outputs.ahead_count }} commits)"
+          git push origin HEAD:main
+
+      - name: Release summary
+        if: always()
+        shell: bash
+        run: |
+          if [ "${{ steps.changes.outputs.has_changes }}" = "true" ]; then
+            echo "A tested Market Intel batch was pushed to main. The main-only Vercel integration will create one production deployment."
+          else
+            echo "No unreleased Market Intel changes were found, so main and Vercel were untouched."
+          fi
