@@ -3500,6 +3500,7 @@ export default function InstaCompScanner({
   const [loading, setLoading] = useState(false);
   const [copiedPrice, setCopiedPrice] = useState<string | null>(null);
   const [singleScanNotice, setSingleScanNotice] = useState<string | null>(null);
+  const singleScanAbortControllerRef = useRef<AbortController | null>(null);
   const [batchCards, setBatchCards] = useState<BatchCard[]>([]);
   const [activeBatchCardAction, setActiveBatchCardAction] =
     useState<ActiveBatchCardAction | null>(null);
@@ -3562,6 +3563,8 @@ export default function InstaCompScanner({
     const abortControllers = batchCardAbortControllersRef.current;
 
     return () => {
+      singleScanAbortControllerRef.current?.abort();
+      singleScanAbortControllerRef.current = null;
       previewUrls.forEach((url) => URL.revokeObjectURL(url));
       abortControllers.forEach((controller) => controller.abort());
       abortControllers.clear();
@@ -4898,19 +4901,65 @@ export default function InstaCompScanner({
     setError(null);
     setCopiedPrice(null);
     setSingleScanNotice(null);
+    singleScanAbortControllerRef.current?.abort();
+    const abortController = new AbortController();
+    singleScanAbortControllerRef.current = abortController;
 
     try {
-      setResult(await runInstaCompScan(frontImage, backImage));
+      const scanResult = await runInstaCompScan(
+        frontImage,
+        backImage,
+        undefined,
+        abortController.signal
+      );
+
+      if (
+        abortController.signal.aborted ||
+        singleScanAbortControllerRef.current !== abortController
+      ) {
+        return;
+      }
+
+      setResult(scanResult);
     } catch (err: any) {
+      if (isAbortError(err) || abortController.signal.aborted) {
+        setSingleScanNotice(
+          "Ended the current InstaComp™ scan. The uploaded images are still loaded so you can retry when ready."
+        );
+        return;
+      }
+
       setError(err?.message || "Something went wrong.");
     } finally {
-      setLoading(false);
+      if (singleScanAbortControllerRef.current === abortController) {
+        singleScanAbortControllerRef.current = null;
+        setLoading(false);
+      }
     }
+  }
+
+  function abortSingleScan() {
+    const controller = singleScanAbortControllerRef.current;
+
+    if (!controller) return false;
+
+    controller.abort();
+    singleScanAbortControllerRef.current = null;
+    setLoading(false);
+    return true;
   }
 
   function removeSingleScanResult() {
     if (loading) {
-      setError("Wait for the current InstaComp™ scan to finish before removing its result.");
+      const aborted = abortSingleScan();
+      setResult(null);
+      setCopiedPrice(null);
+      setError(null);
+      setSingleScanNotice(
+        aborted
+          ? "Ended the current InstaComp™ scan and removed the visible result. The uploaded images are still loaded for a clean retry."
+          : "Stopped waiting on the current InstaComp™ scan. The uploaded images are still loaded for a clean retry."
+      );
       return;
     }
 
@@ -4929,8 +4978,7 @@ export default function InstaCompScanner({
 
   function clearSingleScanImages() {
     if (loading) {
-      setError("Wait for the current InstaComp™ scan to finish before clearing uploaded images.");
-      return;
+      abortSingleScan();
     }
 
     if (!frontImage && !backImage && !result) {
@@ -4952,7 +5000,11 @@ export default function InstaCompScanner({
     setResult(null);
     setCopiedPrice(null);
     setError(null);
-    setSingleScanNotice("Cleared the single-card scan images and result.");
+    setSingleScanNotice(
+      loading
+        ? "Ended the current InstaComp™ scan and cleared the uploaded images/result."
+        : "Cleared the single-card scan images and result."
+    );
   }
 
   async function copyPrice(value: number | null | undefined, label: string) {
@@ -13808,27 +13860,60 @@ export default function InstaCompScanner({
           </div>
         </div>
 
-        <button
-          type="button"
-          onClick={scanCard}
-          aria-disabled={loading || !frontImage}
-          title={
-            singleScanBlockedReason ||
-            "Run InstaComp™ against the uploaded front image and optional back image."
-          }
+        <div
           style={{
+            display: "flex",
+            flexWrap: "wrap",
+            gap: 10,
+            alignItems: "center",
             marginTop: 20,
-            padding: "12px 18px",
-            borderRadius: 8,
-            border: "none",
-            background: loading || !frontImage ? "#999" : "#111",
-            color: "white",
-            fontWeight: 800,
-            cursor: loading || !frontImage ? "not-allowed" : "pointer",
           }}
         >
-          {loading ? "InstaComp™ is running..." : "Run InstaComp™ Scan"}
-        </button>
+          <button
+            type="button"
+            onClick={scanCard}
+            aria-disabled={loading || !frontImage}
+            title={
+              singleScanBlockedReason ||
+              "Run InstaComp™ against the uploaded front image and optional back image."
+            }
+            style={{
+              padding: "12px 18px",
+              borderRadius: 8,
+              border: "none",
+              background: loading || !frontImage ? "#999" : "#111",
+              color: "white",
+              fontWeight: 800,
+              cursor: loading || !frontImage ? "not-allowed" : "pointer",
+            }}
+          >
+            {loading ? "InstaComp™ is running..." : "Run InstaComp™ Scan"}
+          </button>
+
+          {loading && (
+            <button
+              type="button"
+              onClick={() => {
+                const aborted = abortSingleScan();
+                setError(null);
+                setSingleScanNotice(
+                  aborted
+                    ? "Ended the current InstaComp™ scan. The uploaded images are still loaded for a clean retry."
+                    : "No active InstaComp™ scan was available to end."
+                );
+              }}
+              aria-busy={loading}
+              title="End the current single-card scan immediately and keep the uploaded images ready to retry."
+              style={{
+                ...secondaryButtonStyle,
+                borderColor: "#d7b3b3",
+                color: "#8a1f1f",
+              }}
+            >
+              End Current Scan
+            </button>
+          )}
+        </div>
 
         {error && (
           <p style={{ color: "crimson", fontWeight: 700, marginTop: 14 }}>
