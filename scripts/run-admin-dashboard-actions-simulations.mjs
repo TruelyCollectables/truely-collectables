@@ -24,6 +24,10 @@ const adminControlCheckSource = await readFile(
   new URL("../scripts/check-admin-controls.mjs", import.meta.url),
   "utf8",
 );
+const adminRuntimeSmokeSource = await readFile(
+  new URL("../scripts/smoke-admin-runtime.mjs", import.meta.url),
+  "utf8",
+);
 
 const scenarios = [];
 
@@ -174,6 +178,46 @@ scenario("admin command center keeps critical operator routes one click away", (
       adminPageSource.includes(`"${route}"`) ||
         adminPageSource.includes(`\`${route}`),
       `Expected admin command center to expose route ${route}.`,
+    );
+  }
+});
+
+scenario("admin runtime smoke covers critical operator routes", () => {
+  for (const route of [
+    "/admin/login",
+    "/admin",
+    "/admin/instacomp-direct",
+    "/admin/products",
+    "/admin/products/new",
+    "/admin/orders",
+    "/admin/offers",
+    "/admin/ebay/inventory-intake",
+    "/admin/ebay/duplicates",
+    "/admin/financial-reconciliation",
+    "/admin/market-intel",
+    "/admin/production-smoke",
+    "/admin/live-payment-launch",
+    "/admin/live-shipping-launch",
+    "/admin/settings",
+    "/admin/security",
+  ]) {
+    assert(
+      adminRuntimeSmokeSource.includes(`path: "${route}"`),
+      `Expected admin runtime smoke to cover route ${route}.`,
+    );
+  }
+
+  for (const fragment of [
+    "Local admin smoke login expected HTTP 303",
+    "Local admin smoke login did not return an admin session cookie.",
+    "unexpected redirect to",
+    "rendered error fragment",
+    "response.status !== 200",
+    "Admin runtime smoke",
+  ]) {
+    assert(
+      adminRuntimeSmokeSource.includes(fragment),
+      `Expected admin runtime smoke guard fragment ${fragment}.`,
     );
   }
 });

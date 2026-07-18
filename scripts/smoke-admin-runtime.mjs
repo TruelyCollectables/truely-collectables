@@ -24,14 +24,69 @@ const smokeRoutes = [
     expectedText: "InstaComp™ Direct Scan Lab",
   },
   {
+    path: "/admin/products",
+    auth: true,
+    expectedText: "Admin products",
+  },
+  {
+    path: "/admin/products/new",
+    auth: true,
+    expectedText: "Add products",
+  },
+  {
+    path: "/admin/orders",
+    auth: true,
+    expectedText: "Orders",
+  },
+  {
+    path: "/admin/offers",
+    auth: true,
+    expectedText: "Offers",
+  },
+  {
+    path: "/admin/ebay/inventory-intake",
+    auth: true,
+    expectedText: "eBay Inventory Intake",
+  },
+  {
     path: "/admin/ebay/duplicates",
     auth: true,
     expectedText: "Duplicate cleanup queue",
   },
   {
+    path: "/admin/financial-reconciliation",
+    auth: true,
+    expectedText: "Stripe Reconciliation",
+  },
+  {
+    path: "/admin/market-intel",
+    auth: true,
+    expectedText: "Market Intel",
+  },
+  {
     path: "/admin/production-smoke",
     auth: true,
     expectedText: "Production smoke",
+  },
+  {
+    path: "/admin/live-payment-launch",
+    auth: true,
+    expectedText: "Live Payment",
+  },
+  {
+    path: "/admin/live-shipping-launch",
+    auth: true,
+    expectedText: "Live Shipping",
+  },
+  {
+    path: "/admin/settings",
+    auth: true,
+    expectedText: "Settings",
+  },
+  {
+    path: "/admin/security",
+    auth: true,
+    expectedText: "Security",
   },
 ];
 const redBoxFragments = [
@@ -197,7 +252,7 @@ async function smokeRoute(route, cookieHeader) {
   const body = await response.text().catch(() => "");
   const failures = [];
 
-  if (response.status >= 500) {
+  if (response.status !== 200) {
     failures.push(`HTTP ${response.status}`);
   }
 
