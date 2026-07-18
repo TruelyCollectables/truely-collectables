@@ -1520,9 +1520,13 @@ export default async function AdminDashboard() {
                             <AdminSubmitButton
                               className="w-full rounded-md border border-neutral-300 bg-neutral-50 px-2 py-2 text-sm font-black hover:bg-white"
                               pendingChildren="Ignoring..."
+                              title={`Hide this price radar alert for ${labelText} without changing the product price or inventory status.`}
                             >
                               Ignore {labelText}
                             </AdminSubmitButton>
+                            <p className="mt-1 text-xs font-bold text-neutral-600">
+                              Hides the alert only; the product record stays unchanged.
+                            </p>
                           </form>
                         ))}
                       </div>

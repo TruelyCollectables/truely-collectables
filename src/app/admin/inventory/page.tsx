@@ -117,9 +117,13 @@ export default async function AdminInventoryPage({
               <AdminSubmitButton
                 className="rounded-md bg-amber-300 px-4 py-2 text-sm font-black text-neutral-950 hover:bg-amber-200"
                 pendingChildren="Backfilling..."
+                title="Backfill missing inventory bridge records from existing product data without publishing or changing live listings."
               >
                 Backfill Inventory Bridge
               </AdminSubmitButton>
+              <p className="mt-2 text-xs font-bold text-amber-100">
+                Repairs local inventory bridge records only; buyer-facing products and eBay listings are not published.
+              </p>
             </form>
           </div>
         </div>

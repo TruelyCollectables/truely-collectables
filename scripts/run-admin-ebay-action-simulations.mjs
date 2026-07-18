@@ -47,6 +47,15 @@ scenario("eBay sync batch form uses a pending-aware submit", () => {
     syncControlSource.includes("Running eBay batch..."),
     "Expected eBay sync-control pending label.",
   );
+  for (const fragment of [
+    "Run one controlled eBay inventory sync batch using the selected limit, offset, and run ID.",
+    "Syncs the selected batch into review data only; check Category Review before continuing with more offsets.",
+  ]) {
+    assert(
+      syncControlSource.includes(fragment),
+      `Expected eBay sync-control action-scope fragment ${fragment}.`,
+    );
+  }
 });
 
 scenario("eBay intake copy action reports clipboard failures inline", () => {

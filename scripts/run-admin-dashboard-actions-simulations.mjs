@@ -9,6 +9,14 @@ const adminPageSource = await readFile(
   new URL("../src/app/admin/page.tsx", import.meta.url),
   "utf8",
 );
+const adminInventoryPageSource = await readFile(
+  new URL("../src/app/admin/inventory/page.tsx", import.meta.url),
+  "utf8",
+);
+const adminNewProductPageSource = await readFile(
+  new URL("../src/app/admin/products/new/page.tsx", import.meta.url),
+  "utf8",
+);
 const adminErrorSource = await readFile(
   new URL("../src/app/admin/error.tsx", import.meta.url),
   "utf8",
@@ -138,6 +146,40 @@ scenario("admin command center price radar forms use pending-aware submits", () 
     assert(
       adminPageSource.includes(label),
       `Expected admin command center pending label ${label}.`,
+    );
+  }
+
+  for (const fragment of [
+    "Hide this price radar alert for ${labelText} without changing the product price or inventory status.",
+    "Hides the alert only; the product record stays unchanged.",
+  ]) {
+    assert(
+      adminPageSource.includes(fragment),
+      `Expected admin command center price-radar action-scope fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("inventory bridge and manual product submits explain scope", () => {
+  for (const fragment of [
+    "Backfill Inventory Bridge",
+    "Backfill missing inventory bridge records from existing product data without publishing or changing live listings.",
+    "Repairs local inventory bridge records only; buyer-facing products and eBay listings are not published.",
+  ]) {
+    assert(
+      adminInventoryPageSource.includes(fragment),
+      `Expected inventory bridge action-scope fragment ${fragment}.`,
+    );
+  }
+
+  for (const fragment of [
+    "Add manual product",
+    "Create one manual store product from the form fields without publishing it to eBay.",
+    "Adds the product to TCOS inventory only; marketplace publishing remains a separate admin step.",
+  ]) {
+    assert(
+      adminNewProductPageSource.includes(fragment),
+      `Expected manual product action-scope fragment ${fragment}.`,
     );
   }
 });

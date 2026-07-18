@@ -372,9 +372,13 @@ export default async function EbaySyncControlPage({
             <AdminSubmitButton
               className="w-full rounded-md bg-neutral-950 px-4 py-3 text-sm font-black text-white hover:bg-neutral-800"
               pendingChildren="Running eBay batch..."
+              title="Run one controlled eBay inventory sync batch using the selected limit, offset, and run ID."
             >
               Run eBay Batch
             </AdminSubmitButton>
+            <p className="mt-2 text-xs font-bold text-neutral-600">
+              Syncs the selected batch into review data only; check Category Review before continuing with more offsets.
+            </p>
           </form>
         </section>
 

@@ -257,9 +257,13 @@ export default async function NewProductPage({
             <AdminSubmitButton
               className="rounded-md bg-neutral-950 px-6 py-3 text-sm font-black text-white hover:bg-neutral-800"
               pendingChildren="Adding product..."
+              title="Create one manual store product from the form fields without publishing it to eBay."
             >
               Add manual product
             </AdminSubmitButton>
+            <p className="mt-2 text-xs font-bold text-neutral-600">
+              Adds the product to TCOS inventory only; marketplace publishing remains a separate admin step.
+            </p>
           </div>
         </form>
       </section>
