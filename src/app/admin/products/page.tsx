@@ -363,14 +363,12 @@ export default async function AdminProductsPage({
                     </Link>
 
                     {product.status === "archived" ? (
-                      <button
-                        type="button"
-                        disabled
-                        className="rounded-md border border-neutral-200 bg-neutral-100 px-4 py-2 text-center text-sm font-black text-neutral-500 disabled:cursor-not-allowed"
+                      <span
+                        className="rounded-md border border-neutral-200 bg-neutral-100 px-4 py-2 text-center text-sm font-black text-neutral-500"
                         title="This product is already ended/archived."
                       >
                         Ended
-                      </button>
+                      </span>
                     ) : (
                       <form action={endProductEarly}>
                         <input

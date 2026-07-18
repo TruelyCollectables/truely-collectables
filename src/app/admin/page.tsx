@@ -249,6 +249,13 @@ type QueuePanelRow = {
 
 type AdminTone = "green" | "amber" | "rose";
 
+type AdminDataHealthIssue = {
+  key: string;
+  label: string;
+  message: string;
+  href: string;
+};
+
 type AttentionPanelRow = {
   key: string;
   eyebrow: string;
@@ -267,6 +274,34 @@ function addAdminHandoffToRows(
     ...row,
     href: row.href ? adminHref(row.href) : row.href,
   }));
+}
+
+function adminDataIssue(
+  key: string,
+  label: string,
+  error: unknown,
+  href = "/admin/production-smoke",
+): AdminDataHealthIssue | null {
+  if (!error) return null;
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === "object" &&
+          error !== null &&
+          "message" in error &&
+          typeof error.message === "string"
+        ? error.message
+        : "";
+  const cleanMessage = message.trim();
+
+  return {
+    key,
+    label,
+    href,
+    message: cleanMessage
+      ? cleanMessage.slice(0, 180)
+      : "This admin data source did not return a healthy response.",
+  };
 }
 
 export default async function AdminDashboard() {
@@ -531,6 +566,73 @@ export default async function AdminDashboard() {
   const compHistoryAvailable = !salesCompSnapshotsResult.error;
   const priceRadarIgnoreAvailable = !priceRadarIgnoresResult.error;
   const marketIntelAvailable = !marketIntelResult.error;
+  const adminDataHealthIssues = [
+    adminDataIssue("products", "Products", productsResult.error, "/admin/products"),
+    adminDataIssue("offers", "Offers", offersResult.error, "/admin/offers"),
+    adminDataIssue("orders", "Orders", ordersResult.error, "/admin/orders"),
+    adminDataIssue(
+      "order-review-cases",
+      "Order review cases",
+      orderReviewCasesResult.error,
+      "/admin/order-review-cases",
+    ),
+    adminDataIssue(
+      "evidence-reports",
+      "Evidence reports",
+      evidenceResult.error,
+      "/admin/financial-reconciliation",
+    ),
+    adminDataIssue(
+      "ebay-sync-decisions",
+      "eBay sync decisions",
+      syncDecisionsResult.error,
+      "/admin/ebay/sync-control",
+    ),
+    adminDataIssue(
+      "ebay-sync-summary",
+      "eBay sync policy summary",
+      blockedSyncResult.error,
+      "/admin/ebay/sync-control",
+    ),
+    adminDataIssue(
+      "inventory-stats",
+      "Public inventory stats",
+      inventoryStatsResult.error,
+      "/admin/inventory",
+    ),
+    adminDataIssue(
+      "reconciliation-alerts",
+      "Financial reconciliation",
+      reconciliationAlertsResult.error,
+      "/admin/financial-reconciliation",
+    ),
+    adminDataIssue(
+      "seller-connect",
+      "Seller Connect readiness",
+      sellerConnectResult.error,
+      "/admin/seller-payouts",
+    ),
+    adminDataIssue(
+      "sales-comp-snapshots",
+      "InstaComp™ comp history",
+      salesCompSnapshotsResult.error,
+      "/admin/instacomp-direct",
+    ),
+    adminDataIssue(
+      "price-radar-ignores",
+      "Price-radar ignores",
+      priceRadarIgnoresResult.error,
+      "/admin/instacomp-direct",
+    ),
+    adminDataIssue(
+      "market-intel-ledger",
+      "Market Intel purchase ledger",
+      marketIntelResult.error,
+      "/admin/market-intel",
+    ),
+  ].filter((issue): issue is AdminDataHealthIssue => Boolean(issue));
+  const adminDataHealthStatus =
+    adminDataHealthIssues.length > 0 ? "DEGRADED" : "HEALTHY";
   const marketIntelTotals = marketIntelRows.reduce(
     (sum, row) => {
       const remaining =
@@ -719,6 +821,11 @@ export default async function AdminDashboard() {
     evidenceErrors.length > 0
       ? `${evidenceErrors.length} evidence email issue${evidenceErrors.length === 1 ? "" : "s"}`
       : "Evidence packet emails show no recent errors",
+    adminDataHealthIssues.length > 0
+      ? `${adminDataHealthIssues.length} admin data source${
+          adminDataHealthIssues.length === 1 ? "" : "s"
+        } failed to load`
+      : "Admin dashboard data sources loaded cleanly",
     !syncPolicyAvailable
       ? "eBay sync policy summary is not available"
       : blockedSyncTotal > 0
@@ -741,6 +848,24 @@ export default async function AdminDashboard() {
     `Shipping setup verdict: ${label(shippingDecision.status)} - ${shippingDecision.summary}`,
   ];
   const adminAttentionRows: AttentionPanelRow[] = [
+    {
+      key: "data-health",
+      eyebrow: "Data health",
+      title:
+        adminDataHealthIssues.length > 0
+          ? "Dashboard data source failed"
+          : "Dashboard data sources healthy",
+      detail:
+        adminDataHealthIssues.length > 0
+          ? "Open the affected workbench or Production Smoke before trusting empty counts."
+          : "All command-center data sources returned healthy responses.",
+      value:
+        adminDataHealthIssues.length > 0
+          ? String(adminDataHealthIssues.length)
+          : "OK",
+      href: adminDataHealthIssues[0]?.href || "/admin/production-smoke",
+      tone: adminDataHealthIssues.length > 0 ? "rose" : "green",
+    },
     {
       key: "critical-cases",
       eyebrow: "Disputes",
@@ -971,6 +1096,66 @@ export default async function AdminDashboard() {
       </section>
 
       <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
+        <section
+          className={`rounded-2xl border p-5 shadow-sm ${
+            adminDataHealthIssues.length > 0
+              ? "border-rose-200 bg-rose-50 text-rose-950"
+              : "border-emerald-200 bg-emerald-50 text-emerald-950"
+          }`}
+        >
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.18em] opacity-70">
+                Admin data health
+              </p>
+              <h2 className="mt-1 text-2xl font-black">
+                {adminDataHealthStatus === "DEGRADED"
+                  ? "Do not trust empty counts yet"
+                  : "Dashboard data sources loaded cleanly"}
+              </h2>
+              <p className="mt-2 max-w-3xl text-sm font-semibold leading-6 opacity-80">
+                {adminDataHealthStatus === "DEGRADED"
+                  ? "One or more dashboard feeds failed. The affected panels are listed below so a broken query does not look like an all-clear queue."
+                  : "Products, orders, offers, evidence, payouts, pricing, sync policy, and buying feeds returned usable responses."}
+              </p>
+            </div>
+            <Pill
+              label={adminDataHealthStatus}
+              tone={adminDataHealthIssues.length > 0 ? "rose" : "green"}
+            />
+          </div>
+
+          {adminDataHealthIssues.length > 0 ? (
+            <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {adminDataHealthIssues.map((issue) => (
+                <Link
+                  key={issue.key}
+                  href={adminHref(issue.href)}
+                  className="rounded-xl border border-rose-200 bg-white/70 p-4 text-sm font-semibold shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                >
+                  <p className="text-[11px] font-black uppercase tracking-widest text-rose-700">
+                    {issue.label}
+                  </p>
+                  <p className="mt-2 font-black">Open affected workbench →</p>
+                  <p className="mt-2 text-rose-900">{issue.message}</p>
+                </Link>
+              ))}
+              <Link
+                href={adminHref("/admin/production-smoke")}
+                className="rounded-xl border border-rose-200 bg-white/70 p-4 text-sm font-semibold shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+              >
+                <p className="text-[11px] font-black uppercase tracking-widest text-rose-700">
+                  Verification
+                </p>
+                <p className="mt-2 font-black">Open Production Smoke →</p>
+                <p className="mt-2 text-rose-900">
+                  Run the smoke report before deciding an empty queue is truly clear.
+                </p>
+              </Link>
+            </div>
+          ) : null}
+        </section>
+
         <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div>

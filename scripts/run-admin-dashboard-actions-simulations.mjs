@@ -104,6 +104,29 @@ scenario("admin command center exposes first-screen operator attention strip", (
   }
 });
 
+scenario("admin command center surfaces data-source health before counts", () => {
+  for (const fragment of [
+    "type AdminDataHealthIssue",
+    "function adminDataIssue",
+    "adminDataHealthIssues",
+    "adminDataHealthStatus",
+    "Admin data health",
+    "Do not trust empty counts yet",
+    "Dashboard data sources loaded cleanly",
+    "a broken query does not look like an all-clear queue",
+    "Open affected workbench →",
+    "Open Production Smoke →",
+    "Dashboard data source failed",
+    "Dashboard data sources healthy",
+    "Admin dashboard data sources loaded cleanly",
+  ]) {
+    assert(
+      adminPageSource.includes(fragment),
+      `Expected admin data-health fragment ${fragment}.`,
+    );
+  }
+});
+
 scenario("admin command center keeps critical operator routes one click away", () => {
   for (const route of [
     "/admin/instacomp-direct",
