@@ -47,6 +47,24 @@ function statusTone(status: string | null | undefined) {
   return "border-sky-200 bg-sky-50 text-sky-950";
 }
 
+function productActionLabel(product: Pick<UniversalInventoryItem, "legacyProductId" | "title">) {
+  return product.title?.trim() || `product #${product.legacyProductId}`;
+}
+
+function productEndEarlyTitle(product: UniversalInventoryItem) {
+  const label = productActionLabel(product);
+  const quantity = Math.max(0, Number(product.quantity || 0));
+
+  return `End ${label} early: archive product #${product.legacyProductId}, remove it from buyer availability, and set quantity ${quantity} to 0.`;
+}
+
+function productEndEarlyHelp(product: UniversalInventoryItem) {
+  const label = productActionLabel(product);
+  const quantity = Math.max(0, Number(product.quantity || 0));
+
+  return `Archives ${label}, removes it from active inventory, and changes quantity ${quantity} → 0.`;
+}
+
 function productActionErrorPath(message: string) {
   return `/admin/products?saveError=${encodeURIComponent(message.slice(0, 240))}`;
 }
@@ -435,14 +453,13 @@ export default async function AdminProductsPage({
                         />
                         <AdminSubmitButton
                           className="w-full rounded-md border border-rose-300 bg-rose-50 px-4 py-2 text-center text-sm font-black text-rose-950 hover:bg-rose-100"
-                          pendingChildren="Ending item..."
-                          title="End this product early, archive it, and set quantity to 0."
+                          pendingChildren={`Ending #${product.legacyProductId}...`}
+                          title={productEndEarlyTitle(product)}
                         >
                           End early / qty 0
                         </AdminSubmitButton>
                         <p className="mt-1 text-xs font-black text-rose-800">
-                          Archives the product, removes it from active inventory,
-                          and sets quantity to 0.
+                          {productEndEarlyHelp(product)}
                         </p>
                       </form>
                     )}
