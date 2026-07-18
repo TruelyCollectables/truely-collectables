@@ -7,6 +7,7 @@ import {
 } from "./market-intel-identity-candidates";
 import { normalizeDuplicateIdentityKey } from "./market-intel-identity-duplicate-guard";
 import { normalizeDiscoveryApprovalInput } from "./market-intel-discovery-repair";
+import { endMarketIntelListing } from "./market-intel-listing-state";
 import { createSupabaseServerClient } from "./supabase-server";
 
 export type DiscoveryPurchaseInput = CandidateApprovalInput & {
@@ -69,6 +70,7 @@ export async function recordDiscoveryCandidatePurchase(
       purchaseId: String(existingRows[0].id),
       purchaseNumber: Number(existingRows[0].purchase_number),
       alreadyRecorded: true,
+      listingEndWarning: null,
     };
   }
 
@@ -134,21 +136,27 @@ export async function recordDiscoveryCandidatePurchase(
   const purchase = purchaseRows[0];
   const now = new Date().toISOString();
 
-  const { error: listingUpdateError } = await supabase
-    .from("tcos_mi_listings")
-    .update({
-      listing_status: "ended",
-      ended_at: now,
-      last_seen_at: now,
+  // The purchase row is the money record. Listing cleanup is deliberately
+  // best-effort so a secondary status-update failure cannot falsely report
+  // that a successfully inserted purchase was not recorded.
+  let listingEndWarning: string | null = null;
+  try {
+    await endMarketIntelListing(String(listing.id), {
+      endedAt: now,
       metadata: {
-        ...(listing.metadata || {}),
         purchased_at: now,
         purchase_lot_id: purchase.id,
         actual_out_the_door_cost: input.totalAcquisitionCost,
+        end_reason: "purchased",
+        end_source: "discovery_desk",
       },
-    })
-    .eq("id", listing.id);
-  if (listingUpdateError) throw new Error(listingUpdateError.message);
+    });
+  } catch (error) {
+    listingEndWarning =
+      error instanceof Error
+        ? `Purchase recorded, but listing cleanup failed: ${error.message}`
+        : "Purchase recorded, but listing cleanup failed.";
+  }
 
   await supabase
     .from("tcos_mi_alerts")
@@ -160,5 +168,6 @@ export async function recordDiscoveryCandidatePurchase(
     purchaseId: String(purchase.id),
     purchaseNumber: Number(purchase.purchase_number),
     alreadyRecorded: false,
+    listingEndWarning,
   };
 }
