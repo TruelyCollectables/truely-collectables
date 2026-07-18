@@ -65,12 +65,31 @@ scenario("eBay intake copy action reports clipboard failures inline", () => {
 
 scenario("eBay intake bulk actions expose busy labels and disabled states", () => {
   for (const fragment of [
+    "const intakeActionRunningRef = useRef(false)",
+    "function intakeActionBlockedReason(action: string)",
+    "function showIntakeActionBlocked(action: string)",
+    "Finish the current eBay inventory intake action before ${action}.",
+    "intakeActionRunningRef.current = true",
+    "intakeActionRunningRef.current = false",
+    "const intakeActionBusy =",
+    "const intakeActionBusyTitle = intakeActionBusy",
     "Pushing...",
     "Refreshing...",
     "InstaComp™ repricing...",
     "Updating...",
     "Clearing...",
-    "disabled={working || selectedIds.length === 0}",
+    "disabled={intakeActionBusy || selectedIds.length === 0}",
+    "disabled={intakeActionBusy || selectedPushableIds.length === 0}",
+    "disabled={intakeActionBusy || selectedEbayIds.length === 0}",
+    "disabled={intakeActionBusy}",
+    'showIntakeActionBlocked("pushing selected listings live")',
+    'showIntakeActionBlocked("refreshing selected eBay data")',
+    'showIntakeActionBlocked("previewing InstaComp™ prices")',
+    'showIntakeActionBlocked("accepting InstaComp™ price proposals")',
+    'showIntakeActionBlocked("updating selected promos")',
+    'showIntakeActionBlocked("changing selected rows")',
+    "selectAllPriceProposals",
+    "unselectAllPriceProposals",
   ]) {
     assert(
       inventoryIntakeSource.includes(fragment),

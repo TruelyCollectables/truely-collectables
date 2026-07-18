@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 type IntakeRow = {
   productId: number;
@@ -112,6 +112,7 @@ export default function EbayInventoryIntakeClient({
   const [working, setWorking] = useState(false);
   const [promoWorking, setPromoWorking] = useState(false);
   const [repriceWorkingIds, setRepriceWorkingIds] = useState<number[]>([]);
+  const intakeActionRunningRef = useRef(false);
   const [priceProposals, setPriceProposals] = useState<PriceProposal[]>([]);
   const [acceptedProposalIds, setAcceptedProposalIds] = useState<number[]>([]);
   const [discountPercent, setDiscountPercent] = useState("10");
@@ -133,6 +134,21 @@ export default function EbayInventoryIntakeClient({
     setNotice("");
     setError("");
   }, []);
+
+  function intakeActionBlockedReason(action: string) {
+    return intakeActionRunningRef.current
+      ? `Finish the current eBay inventory intake action before ${action}.`
+      : "";
+  }
+
+  function showIntakeActionBlocked(action: string) {
+    const blockedReason = intakeActionBlockedReason(action);
+
+    if (!blockedReason) return false;
+
+    showError(blockedReason);
+    return true;
+  }
 
   const loadRows = useCallback(async (options?: { preserveMessages?: boolean }) => {
     setLoading(true);
@@ -222,8 +238,15 @@ export default function EbayInventoryIntakeClient({
     .filter((row) => Boolean(row.ebayItemId))
     .map((row) => row.productId);
   const selectedNeedsHelpRows = selectedRows.filter((row) => !row.isReady);
+  const intakeActionBusy =
+    working || promoWorking || repriceWorkingIds.length > 0;
+  const intakeActionBusyTitle = intakeActionBusy
+    ? "Finish the current eBay inventory intake action before changing this selection."
+    : "";
 
   function toggleRow(productId: number) {
+    if (showIntakeActionBlocked("changing selected rows")) return;
+
     setSelectedIds((current) =>
       current.includes(productId)
         ? current.filter((id) => id !== productId)
@@ -232,22 +255,37 @@ export default function EbayInventoryIntakeClient({
   }
 
   function selectVisible() {
+    if (showIntakeActionBlocked("selecting visible rows")) return;
+
     setSelectedIds(visibleIds);
   }
 
   function selectVisibleReady() {
+    if (showIntakeActionBlocked("selecting ready rows")) return;
+
     setSelectedIds(
       filteredRows.filter((row) => row.isReady).map((row) => row.productId),
     );
   }
 
   function selectVisibleNeedsHelp() {
+    if (showIntakeActionBlocked("selecting rows that need help")) return;
+
     setSelectedIds(
       filteredRows.filter((row) => !row.isReady).map((row) => row.productId),
     );
   }
 
+  function clearSelectedRows() {
+    if (showIntakeActionBlocked("clearing selected rows")) return;
+
+    setSelectedIds([]);
+  }
+
   async function pushSelectedLive() {
+    if (showIntakeActionBlocked("pushing selected listings live")) return;
+
+    intakeActionRunningRef.current = true;
     setWorking(true);
     clearMessages();
 
@@ -271,11 +309,15 @@ export default function EbayInventoryIntakeClient({
     } catch (nextError: any) {
       showError(nextError.message || "Could not push selected listings live.");
     } finally {
+      intakeActionRunningRef.current = false;
       setWorking(false);
     }
   }
 
   async function refreshSelectedFromEbay() {
+    if (showIntakeActionBlocked("refreshing selected eBay data")) return;
+
+    intakeActionRunningRef.current = true;
     setWorking(true);
     clearMessages();
 
@@ -299,6 +341,7 @@ export default function EbayInventoryIntakeClient({
     } catch (nextError: any) {
       showError(nextError.message || "Could not refresh selected eBay data.");
     } finally {
+      intakeActionRunningRef.current = false;
       setWorking(false);
     }
   }
@@ -324,6 +367,8 @@ export default function EbayInventoryIntakeClient({
   }
 
   async function instacompPreview(productIds: number[]) {
+    if (showIntakeActionBlocked("previewing InstaComp™ prices")) return;
+
     const uniqueIds = Array.from(new Set(productIds)).filter((id) => id > 0);
 
     if (uniqueIds.length === 0) {
@@ -331,6 +376,7 @@ export default function EbayInventoryIntakeClient({
       return;
     }
 
+    intakeActionRunningRef.current = true;
     setRepriceWorkingIds((current) =>
       Array.from(new Set([...current, ...uniqueIds])),
     );
@@ -375,6 +421,7 @@ export default function EbayInventoryIntakeClient({
     } catch (nextError: any) {
       showError(nextError.message || "Could not run InstaComp™ price preview.");
     } finally {
+      intakeActionRunningRef.current = false;
       setRepriceWorkingIds((current) =>
         current.filter((id) => !uniqueIds.includes(id)),
       );
@@ -382,6 +429,8 @@ export default function EbayInventoryIntakeClient({
   }
 
   async function acceptSelectedInstaCompPrices() {
+    if (showIntakeActionBlocked("accepting InstaComp™ price proposals")) return;
+
     const productIds = acceptedProposalIds.filter((id) =>
       priceProposals.some((proposal) => proposal.productId === id),
     );
@@ -391,6 +440,7 @@ export default function EbayInventoryIntakeClient({
       return;
     }
 
+    intakeActionRunningRef.current = true;
     setRepriceWorkingIds(productIds);
     clearMessages();
 
@@ -425,11 +475,14 @@ export default function EbayInventoryIntakeClient({
     } catch (nextError: any) {
       showError(nextError.message || "Could not apply InstaComp™ prices.");
     } finally {
+      intakeActionRunningRef.current = false;
       setRepriceWorkingIds([]);
     }
   }
 
   function toggleProposal(productId: number) {
+    if (showIntakeActionBlocked("changing selected price proposals")) return;
+
     setAcceptedProposalIds((current) =>
       current.includes(productId)
         ? current.filter((id) => id !== productId)
@@ -437,13 +490,32 @@ export default function EbayInventoryIntakeClient({
     );
   }
 
+  function selectAllPriceProposals() {
+    if (showIntakeActionBlocked("selecting price proposals")) return;
+
+    setAcceptedProposalIds(
+      priceProposals.map((proposal) => proposal.productId),
+    );
+  }
+
+  function unselectAllPriceProposals() {
+    if (showIntakeActionBlocked("unselecting price proposals")) return;
+
+    setAcceptedProposalIds([]);
+  }
+
   function declineAllInstaCompPrices() {
+    if (showIntakeActionBlocked("declining price proposals")) return;
+
     setPriceProposals([]);
     setAcceptedProposalIds([]);
     showNotice("Declined current InstaComp™ price proposals. No prices were changed.");
   }
 
   async function applyPromo(action: "apply-promo" | "clear-promo") {
+    if (showIntakeActionBlocked("updating selected promos")) return;
+
+    intakeActionRunningRef.current = true;
     setPromoWorking(true);
     clearMessages();
 
@@ -469,6 +541,7 @@ export default function EbayInventoryIntakeClient({
     } catch (nextError: any) {
       showError(nextError.message || "Could not update selected promos.");
     } finally {
+      intakeActionRunningRef.current = false;
       setPromoWorking(false);
     }
   }
@@ -550,32 +623,60 @@ export default function EbayInventoryIntakeClient({
               <button
                 type="button"
                 onClick={selectVisible}
-                disabled={filteredRows.length === 0}
-                className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-black hover:bg-neutral-50 disabled:opacity-50"
+                disabled={intakeActionBusy || filteredRows.length === 0}
+                title={
+                  intakeActionBusyTitle ||
+                  (filteredRows.length === 0
+                    ? "No rows are visible in the current filter."
+                    : "Select every row visible in the current filter.")
+                }
+                className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-black hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Select All Showing
               </button>
               <button
                 type="button"
                 onClick={selectVisibleReady}
-                disabled={filteredRows.every((row) => !row.isReady)}
-                className="rounded-md border border-sky-300 bg-sky-50 px-3 py-2 text-xs font-black text-sky-900 hover:bg-sky-100 disabled:opacity-50"
+                disabled={
+                  intakeActionBusy || filteredRows.every((row) => !row.isReady)
+                }
+                title={
+                  intakeActionBusyTitle ||
+                  (filteredRows.every((row) => !row.isReady)
+                    ? "No visible rows are ready to push."
+                    : "Select visible rows that are ready to push.")
+                }
+                className="rounded-md border border-sky-300 bg-sky-50 px-3 py-2 text-xs font-black text-sky-900 hover:bg-sky-100 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Select Ready
               </button>
               <button
                 type="button"
                 onClick={selectVisibleNeedsHelp}
-                disabled={filteredRows.every((row) => row.isReady)}
-                className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-black text-amber-900 hover:bg-amber-100 disabled:opacity-50"
+                disabled={
+                  intakeActionBusy || filteredRows.every((row) => row.isReady)
+                }
+                title={
+                  intakeActionBusyTitle ||
+                  (filteredRows.every((row) => row.isReady)
+                    ? "No visible rows need manual or InstaComp™ help."
+                    : "Select visible rows that need manual or InstaComp™ help.")
+                }
+                className="rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-black text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Select Needs Help
               </button>
               <button
                 type="button"
-                onClick={() => setSelectedIds([])}
-                disabled={selectedIds.length === 0}
-                className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-black hover:bg-neutral-50 disabled:opacity-50"
+                onClick={clearSelectedRows}
+                disabled={intakeActionBusy || selectedIds.length === 0}
+                title={
+                  intakeActionBusyTitle ||
+                  (selectedIds.length === 0
+                    ? "No rows are selected."
+                    : "Clear the current row selection.")
+                }
+                className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-black hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Clear
               </button>
@@ -621,8 +722,14 @@ export default function EbayInventoryIntakeClient({
                 <button
                   type="button"
                   onClick={() => void pushSelectedLive()}
-                  disabled={working || selectedPushableIds.length === 0}
+                  disabled={intakeActionBusy || selectedPushableIds.length === 0}
                   aria-busy={working}
+                  title={
+                    intakeActionBusyTitle ||
+                    (selectedPushableIds.length === 0
+                      ? "Select at least one ready or repairable row before pushing live."
+                      : "Repair missing source data where possible, then push selected rows live.")
+                  }
                   className="rounded-md bg-emerald-700 px-4 py-3 text-sm font-black text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:bg-neutral-500"
                 >
                   {working
@@ -632,9 +739,15 @@ export default function EbayInventoryIntakeClient({
                 <button
                   type="button"
                   onClick={() => void refreshSelectedFromEbay()}
-                  disabled={working || selectedEbayIds.length === 0}
+                  disabled={intakeActionBusy || selectedEbayIds.length === 0}
                   aria-busy={working}
-                  className="rounded-md border border-emerald-300 bg-white px-4 py-3 text-sm font-black text-emerald-900 hover:bg-emerald-50 disabled:opacity-50"
+                  title={
+                    intakeActionBusyTitle ||
+                    (selectedEbayIds.length === 0
+                      ? "Select at least one row with an eBay item ID before refreshing."
+                      : "Refresh selected rows from their current eBay listing data.")
+                  }
+                  className="rounded-md border border-emerald-300 bg-white px-4 py-3 text-sm font-black text-emerald-900 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {working
                     ? "Refreshing..."
@@ -643,17 +756,29 @@ export default function EbayInventoryIntakeClient({
                 <button
                   type="button"
                   onClick={() => void copySelectedForInstaComp()}
-                  disabled={working || selectedIds.length === 0}
-                  className="rounded-md border border-neutral-300 bg-white px-4 py-3 text-sm font-black hover:bg-neutral-50 disabled:opacity-50"
+                  disabled={intakeActionBusy || selectedIds.length === 0}
+                  title={
+                    intakeActionBusyTitle ||
+                    (selectedIds.length === 0
+                      ? "Select at least one row before copying for InstaComp™ cleanup."
+                      : "Copy selected row titles and IDs for InstaComp™ cleanup.")
+                  }
+                  className="rounded-md border border-neutral-300 bg-white px-4 py-3 text-sm font-black hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   Copy Selected For InstaComp™
                 </button>
                 <button
                   type="button"
                   onClick={() => void instacompPreview(selectedIds)}
-                  disabled={selectedIds.length === 0 || repriceWorkingIds.length > 0}
+                  disabled={intakeActionBusy || selectedIds.length === 0}
                   aria-busy={repriceWorkingIds.length > 0}
-                  className="rounded-md border border-blue-300 bg-blue-50 px-4 py-3 text-sm font-black text-blue-900 hover:bg-blue-100 disabled:opacity-50"
+                  title={
+                    intakeActionBusyTitle ||
+                    (selectedIds.length === 0
+                      ? "Select at least one row before previewing InstaComp™ prices."
+                      : "Preview InstaComp™ comp-based price proposals for selected rows.")
+                  }
+                  className="rounded-md border border-blue-300 bg-blue-50 px-4 py-3 text-sm font-black text-blue-900 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {repriceWorkingIds.length > 0
                     ? "InstaComp™ repricing..."
@@ -684,19 +809,25 @@ export default function EbayInventoryIntakeClient({
                 <div className="flex flex-wrap gap-2">
                   <button
                     type="button"
-                    onClick={() =>
-                      setAcceptedProposalIds(
-                        priceProposals.map((proposal) => proposal.productId),
-                      )
+                    onClick={selectAllPriceProposals}
+                    disabled={intakeActionBusy}
+                    title={
+                      intakeActionBusyTitle ||
+                      "Select every current InstaComp™ price proposal."
                     }
-                    className="rounded-md border border-blue-300 bg-white px-3 py-2 text-xs font-black text-blue-900"
+                    className="rounded-md border border-blue-300 bg-white px-3 py-2 text-xs font-black text-blue-900 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Select All Proposals
                   </button>
                   <button
                     type="button"
-                    onClick={() => setAcceptedProposalIds([])}
-                    className="rounded-md border border-blue-300 bg-white px-3 py-2 text-xs font-black text-blue-900"
+                    onClick={unselectAllPriceProposals}
+                    disabled={intakeActionBusy}
+                    title={
+                      intakeActionBusyTitle ||
+                      "Unselect every current InstaComp™ price proposal."
+                    }
+                    className="rounded-md border border-blue-300 bg-white px-3 py-2 text-xs font-black text-blue-900 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Unselect All
                   </button>
@@ -705,9 +836,15 @@ export default function EbayInventoryIntakeClient({
                     onClick={() => void acceptSelectedInstaCompPrices()}
                     disabled={
                       acceptedProposalIds.length === 0 ||
-                      repriceWorkingIds.length > 0
+                      intakeActionBusy
                     }
                     aria-busy={repriceWorkingIds.length > 0}
+                    title={
+                      intakeActionBusyTitle ||
+                      (acceptedProposalIds.length === 0
+                        ? "Select at least one InstaComp™ proposal before accepting prices."
+                        : "Apply the selected InstaComp™ price proposals.")
+                    }
                     className="rounded-md bg-blue-700 px-4 py-2 text-xs font-black text-white disabled:bg-neutral-500"
                   >
                     {repriceWorkingIds.length > 0
@@ -717,8 +854,12 @@ export default function EbayInventoryIntakeClient({
                   <button
                     type="button"
                     onClick={declineAllInstaCompPrices}
-                    disabled={repriceWorkingIds.length > 0}
-                    className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-xs font-black text-neutral-800 disabled:opacity-50"
+                    disabled={intakeActionBusy}
+                    title={
+                      intakeActionBusyTitle ||
+                      "Decline the current InstaComp™ price proposals without changing prices."
+                    }
+                    className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-xs font-black text-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     Decline All
                   </button>
@@ -735,7 +876,8 @@ export default function EbayInventoryIntakeClient({
                         type="checkbox"
                         checked={acceptedProposalIds.includes(proposal.productId)}
                         onChange={() => toggleProposal(proposal.productId)}
-                        className="mt-1 h-5 w-5 accent-blue-700"
+                        disabled={intakeActionBusy}
+                        className="mt-1 h-5 w-5 accent-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
                       />
                       <span>
                         <span className="block font-black">
@@ -780,6 +922,7 @@ export default function EbayInventoryIntakeClient({
                     step="1"
                     value={discountPercent}
                     onChange={(event) => setDiscountPercent(event.target.value)}
+                    disabled={intakeActionBusy}
                     className="w-16 rounded border border-amber-200 px-2 py-1"
                   />
                 </label>
@@ -788,6 +931,7 @@ export default function EbayInventoryIntakeClient({
                     type="checkbox"
                     checked={freeShipping}
                     onChange={(event) => setFreeShipping(event.target.checked)}
+                    disabled={intakeActionBusy}
                     className="h-4 w-4 accent-amber-600"
                   />
                   Free shipping
@@ -795,8 +939,14 @@ export default function EbayInventoryIntakeClient({
                 <button
                   type="button"
                   onClick={() => void applyPromo("apply-promo")}
-                  disabled={promoWorking || selectedIds.length === 0}
+                  disabled={intakeActionBusy || selectedIds.length === 0}
                   aria-busy={promoWorking}
+                  title={
+                    intakeActionBusyTitle ||
+                    (selectedIds.length === 0
+                      ? "Select at least one row before applying a promo."
+                      : "Apply the selected promo settings to selected rows.")
+                  }
                   className="rounded-md bg-amber-500 px-4 py-3 text-sm font-black text-neutral-950 hover:bg-amber-400 disabled:cursor-not-allowed disabled:bg-neutral-400"
                 >
                   {promoWorking ? "Updating..." : `Apply Promo (${selectedIds.length})`}
@@ -804,9 +954,15 @@ export default function EbayInventoryIntakeClient({
                 <button
                   type="button"
                   onClick={() => void applyPromo("clear-promo")}
-                  disabled={promoWorking || selectedIds.length === 0}
+                  disabled={intakeActionBusy || selectedIds.length === 0}
                   aria-busy={promoWorking}
-                  className="rounded-md border border-neutral-300 bg-white px-4 py-3 text-sm font-black hover:bg-neutral-50 disabled:opacity-50"
+                  title={
+                    intakeActionBusyTitle ||
+                    (selectedIds.length === 0
+                      ? "Select at least one row before clearing promos."
+                      : "Clear promo settings on selected rows.")
+                  }
+                  className="rounded-md border border-neutral-300 bg-white px-4 py-3 text-sm font-black hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {promoWorking ? "Clearing..." : "Clear Promo"}
                 </button>
@@ -850,7 +1006,8 @@ export default function EbayInventoryIntakeClient({
                         type="checkbox"
                         checked={selectedSet.has(row.productId)}
                         onChange={() => toggleRow(row.productId)}
-                        className="h-5 w-5 accent-neutral-950"
+                        disabled={intakeActionBusy}
+                        className="h-5 w-5 accent-neutral-950 disabled:cursor-not-allowed disabled:opacity-50"
                         aria-label={`Select ${row.title}`}
                       />
                     </td>
@@ -959,9 +1116,13 @@ export default function EbayInventoryIntakeClient({
                         <button
                           type="button"
                           onClick={() => void instacompPreview([row.productId])}
-                          disabled={repriceWorkingIds.includes(row.productId)}
+                          disabled={intakeActionBusy}
                           aria-busy={repriceWorkingIds.includes(row.productId)}
-                          className="rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-xs font-black text-blue-800 hover:bg-blue-100 disabled:opacity-50"
+                          title={
+                            intakeActionBusyTitle ||
+                            `Preview InstaComp™ price proposals for product #${row.productId}.`
+                          }
+                          className="rounded-md border border-blue-300 bg-blue-50 px-3 py-2 text-xs font-black text-blue-800 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
                         >
                           {repriceWorkingIds.includes(row.productId)
                             ? "Checking..."
