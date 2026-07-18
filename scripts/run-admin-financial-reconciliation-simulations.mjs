@@ -5,6 +5,15 @@ import {
   financialReconciliationDecisionRequirements,
   parseFinancialReconciliationDecisionStatus,
 } from "../src/lib/admin-financial-reconciliation.ts";
+import { readFile } from "node:fs/promises";
+
+const reconciliationActionsSource = await readFile(
+  new URL(
+    "../src/app/admin/financial-reconciliation/ReconciliationActions.tsx",
+    import.meta.url,
+  ),
+  "utf8",
+);
 
 const scenarios = [];
 
@@ -74,6 +83,27 @@ scenario("trims and caps audit notes for storage", () => {
     cleanFinancialReconciliationNote("x".repeat(1200))?.length === 1000,
     "Expected note cap",
   );
+});
+
+scenario("money-audit action UI announces busy and decision feedback", () => {
+  for (const fragment of [
+    "Run Previous UTC Day",
+    "Reconciling...",
+    "Resolving alert...",
+    "Ignoring alert...",
+    "Resolve Alert",
+    "Ignore Alert",
+    "aria-busy={busy}",
+    'aria-pressed={pendingStatus === "resolved"}',
+    'aria-pressed={pendingStatus === "ignored"}',
+    'role={tone === "error" ? "alert" : "status"}',
+    'aria-live={tone === "info" ? "polite" : "assertive"}',
+  ]) {
+    assert(
+      reconciliationActionsSource.includes(fragment),
+      `Expected reconciliation action feedback fragment ${fragment}.`,
+    );
+  }
 });
 
 const failed = [];

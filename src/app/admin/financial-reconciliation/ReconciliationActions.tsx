@@ -23,6 +23,18 @@ export default function ReconciliationActions({
   );
   const [resolutionNote, setResolutionNote] = useState("");
   const trimmedResolutionNote = resolutionNote.trim();
+  const saveDecisionLabel =
+    pendingStatus === "resolved"
+      ? "Resolve Alert"
+      : pendingStatus === "ignored"
+        ? "Ignore Alert"
+        : "Save decision";
+  const savingDecisionLabel =
+    pendingStatus === "resolved"
+      ? "Resolving alert..."
+      : pendingStatus === "ignored"
+        ? "Ignoring alert..."
+        : "Saving decision...";
   const canSaveDecision =
     !financialReconciliationDecisionError({
       itemId,
@@ -94,6 +106,7 @@ export default function ReconciliationActions({
           type="button"
           onClick={runNow}
           disabled={busy}
+          aria-busy={busy}
           className="rounded-2xl bg-emerald-400 px-4 py-3 text-sm font-black text-neutral-950 shadow-sm transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {busy ? "Reconciling..." : "Run Previous UTC Day"}
@@ -114,6 +127,7 @@ export default function ReconciliationActions({
             setMessage(null);
           }}
           disabled={busy}
+          aria-pressed={pendingStatus === "resolved"}
           className="rounded-full bg-emerald-700 px-3 py-2 text-xs font-black text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
         >
           Resolve
@@ -126,6 +140,7 @@ export default function ReconciliationActions({
             setMessage(null);
           }}
           disabled={busy}
+          aria-pressed={pendingStatus === "ignored"}
           className="rounded-full border border-neutral-300 bg-white px-3 py-2 text-xs font-black text-neutral-900 shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
         >
           Ignore With Note
@@ -152,9 +167,10 @@ export default function ReconciliationActions({
               type="button"
               onClick={() => resolve(pendingStatus)}
               disabled={busy || !canSaveDecision}
+              aria-busy={busy}
               className="rounded-full bg-neutral-950 px-3 py-2 text-xs font-black text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {busy ? "Saving..." : "Save decision"}
+              {busy ? savingDecisionLabel : saveDecisionLabel}
             </button>
             <button
               type="button"
@@ -190,7 +206,11 @@ function ActionNotice({
         : "border-blue-200 bg-blue-50 text-blue-950";
 
   return (
-    <p className={`w-full rounded-2xl border px-3 py-2 text-xs font-bold ${className}`}>
+    <p
+      role={tone === "error" ? "alert" : "status"}
+      aria-live={tone === "info" ? "polite" : "assertive"}
+      className={`w-full rounded-2xl border px-3 py-2 text-xs font-bold ${className}`}
+    >
       {children}
     </p>
   );
