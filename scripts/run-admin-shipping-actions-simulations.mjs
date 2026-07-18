@@ -61,12 +61,18 @@ scenario("shipping queue actions expose live notices and specific busy labels", 
 
 scenario("dry-run cleanup confirmation reports busy and live feedback", () => {
   for (const fragment of [
+    "function explainDryRunCleanupBlock(action: string)",
+    "Finish the current dry-run cleanup action first.",
+    "Confirm the dry-run cleanup acknowledgement before retiring proof.",
+    "Add a cleanup note before ${action}.",
+    "aria-disabled={retiring || !cleanupNoteReady}",
+    "aria-disabled={confirmDisabled}",
+    "aria-disabled={retiring}",
+    "function isBlockingNotice(message: string)",
+    "role={isBlockingNotice(message) ? \"alert\" : \"status\"}",
     "Retiring + opening real label form...",
     "Retiring simulated proof...",
     "aria-busy={retiring}",
-    'role={',
-    '? "alert"',
-    ': "status"',
     "aria-live={",
     "Retiring dry-run shipping proof...",
   ]) {

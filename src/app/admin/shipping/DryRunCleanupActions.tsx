@@ -4,12 +4,7 @@ import { useState } from "react";
 
 function noticeTone(message: string) {
   const normalized = message.toLowerCase();
-  if (
-    normalized.includes("could not") ||
-    normalized.includes("failed") ||
-    normalized.includes("add a cleanup note") ||
-    normalized.includes("required")
-  ) {
+  if (isBlockingNotice(message)) {
     return "border-red-200 bg-red-50 text-red-950";
   }
 
@@ -18,6 +13,18 @@ function noticeTone(message: string) {
   }
 
   return "border-emerald-200 bg-emerald-50 text-emerald-950";
+}
+
+function isBlockingNotice(message: string) {
+  const normalized = message.toLowerCase();
+  return (
+    normalized.includes("could not") ||
+    normalized.includes("failed") ||
+    normalized.includes("finish the current") ||
+    normalized.includes("add a cleanup note") ||
+    normalized.includes("confirm the dry-run cleanup acknowledgement") ||
+    normalized.includes("required")
+  );
 }
 
 export default function DryRunCleanupActions({
@@ -35,9 +42,29 @@ export default function DryRunCleanupActions({
   const cleanupNoteReady = note.trim().length >= 8;
   const confirmDisabled = retiring || !acknowledged || !cleanupNoteReady;
 
-  async function retireProof({ redirectToManual }: { redirectToManual: boolean }) {
+  function explainDryRunCleanupBlock(action: string) {
+    if (retiring) {
+      setMessage("Finish the current dry-run cleanup action first.");
+      return true;
+    }
+
     if (!cleanupNoteReady) {
-      setMessage("Add a cleanup note before retiring dry-run shipping proof.");
+      setMessage(`Add a cleanup note before ${action}.`);
+      return true;
+    }
+
+    return false;
+  }
+
+  async function retireProof({ redirectToManual }: { redirectToManual: boolean }) {
+    if (explainDryRunCleanupBlock("retiring dry-run shipping proof")) {
+      return;
+    }
+
+    if (!acknowledged) {
+      setMessage(
+        "Confirm the dry-run cleanup acknowledgement before retiring proof.",
+      );
       return;
     }
 
@@ -84,7 +111,28 @@ export default function DryRunCleanupActions({
   }
 
   function requestRetire(action: "record-real-label" | "retire-only") {
+    if (
+      explainDryRunCleanupBlock(
+        action === "record-real-label"
+          ? "opening the real label handoff"
+          : "opening dry-run retire confirmation",
+      )
+    ) {
+      return;
+    }
+
     setPendingAction(action);
+    setAcknowledged(false);
+    setMessage("");
+  }
+
+  function cancelRetire() {
+    if (retiring) {
+      setMessage("Finish the current dry-run cleanup action before canceling.");
+      return;
+    }
+
+    setPendingAction(null);
     setAcknowledged(false);
     setMessage("");
   }
@@ -119,16 +167,16 @@ export default function DryRunCleanupActions({
         <button
           type="button"
           onClick={() => requestRetire("record-real-label")}
-          disabled={retiring}
-          className="rounded-2xl bg-red-700 px-3 py-2 text-xs font-black text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-50"
+          aria-disabled={retiring || !cleanupNoteReady}
+          className="rounded-2xl bg-red-700 px-3 py-2 text-xs font-black text-white hover:bg-red-800 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
         >
           Retire + Record Real Label
         </button>
         <button
           type="button"
           onClick={() => requestRetire("retire-only")}
-          disabled={retiring}
-          className="rounded-2xl border border-red-300 bg-white px-3 py-2 text-xs font-black text-red-950 hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50"
+          aria-disabled={retiring || !cleanupNoteReady}
+          className="rounded-2xl border border-red-300 bg-white px-3 py-2 text-xs font-black text-red-950 hover:bg-red-100 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
         >
           Retire Only
         </button>
@@ -156,10 +204,10 @@ export default function DryRunCleanupActions({
           <div className="mt-3 flex flex-wrap gap-2">
             <button
               type="button"
-              disabled={confirmDisabled}
               onClick={() => retireProof({ redirectToManual: pendingRedirect })}
+              aria-disabled={confirmDisabled}
               aria-busy={retiring}
-              className="rounded-2xl bg-red-700 px-3 py-2 text-xs font-black text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-2xl bg-red-700 px-3 py-2 text-xs font-black text-white hover:bg-red-800 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
             >
               {retiring
                 ? pendingRedirect
@@ -171,12 +219,9 @@ export default function DryRunCleanupActions({
             </button>
             <button
               type="button"
-              disabled={retiring}
-              onClick={() => {
-                setPendingAction(null);
-                setAcknowledged(false);
-              }}
-              className="rounded-2xl border border-neutral-300 bg-white px-3 py-2 text-xs font-black text-neutral-950 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50"
+              aria-disabled={retiring}
+              onClick={cancelRetire}
+              className="rounded-2xl border border-neutral-300 bg-white px-3 py-2 text-xs font-black text-neutral-950 hover:bg-neutral-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
             >
               Cancel
             </button>
@@ -186,14 +231,7 @@ export default function DryRunCleanupActions({
 
       {message ? (
         <p
-          role={
-            message.toLowerCase().includes("could not") ||
-            message.toLowerCase().includes("failed") ||
-            message.toLowerCase().includes("add a cleanup note") ||
-            message.toLowerCase().includes("required")
-              ? "alert"
-              : "status"
-          }
+          role={isBlockingNotice(message) ? "alert" : "status"}
           aria-live={
             message.toLowerCase().includes("retiring") ? "polite" : "assertive"
           }
