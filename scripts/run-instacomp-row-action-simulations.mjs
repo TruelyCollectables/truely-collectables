@@ -130,6 +130,31 @@ scenario("merges scanned duplicate quantities by stable card identity", () => {
   assert(plan.mergedQuantity === 3, "Expected identity merge to sum 2 + 1.");
 });
 
+scenario("lets corrected scan titles override stale merge identities", () => {
+  const plan = planInstaCompSelectedQuantityMerge([
+    {
+      id: "keeper",
+      title: "2026 Pokemon Pikachu #025",
+      identityKey: null,
+      quantity: 2,
+    },
+    {
+      id: "duplicate",
+      title: "2026 Pokémon Pikachu 025",
+      identityKey: "wrong scanner identity | charizard | 004",
+      quantity: 1,
+    },
+  ]);
+
+  assert(plan.ok, "Expected operator-corrected matching titles to merge.");
+  if (!plan.ok) return;
+
+  assert(
+    plan.mergedQuantity === 3,
+    "Expected corrected Pokemon duplicate quantities to sum 2 + 1.",
+  );
+});
+
 scenario("blocks scanned quantity merge across different identities", () => {
   const plan = planInstaCompSelectedQuantityMerge([
     {
@@ -264,7 +289,9 @@ scenario("scanner exposes selected duplicate quantity merge action", () => {
     "selectedQuantityMergeDisabled",
     "planInstaCompSelectedQuantityMerge",
     "quantityMergeIdentityKeyForCard",
-    "identityKey: quantityMergeIdentityKeyForCard(card)",
+    "selectedQuantityMergeIdentityKeyForCard",
+    "return card.customTitle.trim() ? null : quantityMergeIdentityKeyForCard(card);",
+    "identityKey: selectedQuantityMergeIdentityKeyForCard(card)",
     "mergeSelectedBatchQuantityRows",
     "Merge Selected Qty",
     "Ready to merge ${selectedQuantityMergePlan.mergedRowCount} selected duplicate rows: qty ${selectedQuantityMergePlan.previousKeeperQuantity} + ${selectedQuantityMergePlan.duplicateQuantity} = ${selectedQuantityMergePlan.mergedQuantity}.",

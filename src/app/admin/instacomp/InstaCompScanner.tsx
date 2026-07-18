@@ -2183,6 +2183,10 @@ function quantityMergeIdentityKeyForCard(card: BatchCard) {
   return draftTitle.trim() ? draftTitle : null;
 }
 
+function selectedQuantityMergeIdentityKeyForCard(card: BatchCard) {
+  return card.customTitle.trim() ? null : quantityMergeIdentityKeyForCard(card);
+}
+
 function sellerInventoryInstaCompDraftHref(search?: string | null) {
   const params = new URLSearchParams({
     status: "draft",
@@ -4111,7 +4115,7 @@ export default function InstaCompScanner({
     selectedQuantityMergeCards.map((card) => ({
       id: card.id,
       title: draftTitleForCard(card),
-      identityKey: quantityMergeIdentityKeyForCard(card),
+      identityKey: selectedQuantityMergeIdentityKeyForCard(card),
       quantity: draftQuantityForCard(card),
     }))
   );
@@ -7524,7 +7528,7 @@ export default function InstaCompScanner({
       cardsToMerge.map((card) => ({
         id: card.id,
         title: draftTitleForCard(card),
-        identityKey: quantityMergeIdentityKeyForCard(card),
+        identityKey: selectedQuantityMergeIdentityKeyForCard(card),
         quantity: draftQuantityForCard(card),
       }))
     );
