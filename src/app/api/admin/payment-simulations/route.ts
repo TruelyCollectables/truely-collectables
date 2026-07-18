@@ -18,6 +18,19 @@ export async function POST(request: Request) {
       return Response.json({ error: "Invalid simulation mode." }, { status: 400 });
     }
 
+    if (
+      mode === "stripe_test" &&
+      String(body.confirmation || "").trim() !== "RUN STRIPE TEST"
+    ) {
+      return Response.json(
+        {
+          error:
+            "Type RUN STRIPE TEST to confirm the Stripe sandbox simulation suite.",
+        },
+        { status: 400 },
+      );
+    }
+
     const stripeKey = getStripeTestSecretKey() || "";
     if (mode === "stripe_test" && !stripeKey.startsWith("sk_test_")) {
       return Response.json(

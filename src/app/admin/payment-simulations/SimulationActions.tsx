@@ -3,45 +3,61 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+type SimulationMode = "deterministic" | "stripe_test";
+type PendingMode = "stripe_test" | "checkout_e2e";
+type BusyMode = SimulationMode | "checkout_e2e";
+type FeedbackTone = "info" | "success" | "error";
+
+type FeedbackMessage = {
+  text: string;
+  tone: FeedbackTone;
+};
+
 export default function SimulationActions({
   stripeTestEnabled,
 }: {
   stripeTestEnabled: boolean;
 }) {
   const router = useRouter();
-  const [busy, setBusy] = useState<
-    "deterministic" | "stripe_test" | "checkout_e2e" | null
-  >(null);
-  const [pendingMode, setPendingMode] = useState<"stripe_test" | "checkout_e2e" | null>(
-    null,
-  );
+  const [busy, setBusy] = useState<BusyMode | null>(null);
+  const [pendingMode, setPendingMode] = useState<PendingMode | null>(null);
   const [confirmation, setConfirmation] = useState("");
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState<FeedbackMessage | null>(null);
 
-  async function run(mode: "deterministic" | "stripe_test") {
+  async function run(mode: SimulationMode) {
     if (mode === "stripe_test" && confirmation !== "RUN STRIPE TEST") {
-      setMessage("Type RUN STRIPE TEST exactly before running the Stripe sandbox suite.");
+      setMessage({
+        text: "Type RUN STRIPE TEST exactly before running the Stripe sandbox suite.",
+        tone: "error",
+      });
       return;
     }
 
     setBusy(mode);
-    setMessage("");
+    setMessage({
+      text:
+        mode === "stripe_test"
+          ? "Running Stripe sandbox payment suite..."
+          : "Running no-money payment suite...",
+      tone: "info",
+    });
     try {
       const response = await fetch("/api/admin/payment-simulations", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode }),
+        body: JSON.stringify({ mode, confirmation }),
       });
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "Simulation failed.");
-      setMessage(
-        `${data.status}: ${data.passed} passed, ${data.failed} failed, ${data.skipped} skipped.`,
-      );
+      setMessage({
+        text: `${data.status}: ${data.passed} passed, ${data.failed} failed, ${data.skipped} skipped.`,
+        tone: data.failed > 0 ? "error" : "success",
+      });
       setPendingMode(null);
       setConfirmation("");
       router.refresh();
     } catch (error: any) {
-      setMessage(error.message || "Simulation failed.");
+      setMessage({ text: error.message || "Simulation failed.", tone: "error" });
     } finally {
       setBusy(null);
     }
@@ -49,27 +65,38 @@ export default function SimulationActions({
 
   async function runCheckoutE2E() {
     if (confirmation !== "RUN CHECKOUT E2E") {
-      setMessage("Type RUN CHECKOUT E2E exactly before running the full checkout test.");
+      setMessage({
+        text: "Type RUN CHECKOUT E2E exactly before running the full checkout test.",
+        tone: "error",
+      });
       return;
     }
 
     setBusy("checkout_e2e");
-    setMessage("");
+    setMessage({ text: "Running full checkout E2E simulation...", tone: "info" });
     try {
       const response = await fetch(
         "/api/admin/payment-simulations/checkout-e2e",
-        { method: "POST" },
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ confirmation }),
+        },
       );
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "Checkout E2E failed.");
-      setMessage(
-        `${data.status}: ${data.passed} passed, ${data.failed} failed, ${data.skipped} skipped.`,
-      );
+      setMessage({
+        text: `${data.status}: ${data.passed} passed, ${data.failed} failed, ${data.skipped} skipped.`,
+        tone: data.failed > 0 ? "error" : "success",
+      });
       setPendingMode(null);
       setConfirmation("");
       router.refresh();
     } catch (error: any) {
-      setMessage(error.message || "Checkout E2E failed.");
+      setMessage({
+        text: error.message || "Checkout E2E failed.",
+        tone: "error",
+      });
     } finally {
       setBusy(null);
     }
@@ -78,38 +105,41 @@ export default function SimulationActions({
   return (
     <div className="grid gap-3">
       <div className="flex flex-wrap items-center gap-2">
-      <button
-        type="button"
-        onClick={() => run("deterministic")}
-        disabled={busy !== null}
-        className="rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white disabled:opacity-50"
-      >
-        {busy === "deterministic" ? "Running..." : "Run No-Money Suite"}
-      </button>
-      <button
-        type="button"
-        onClick={() => {
-          setPendingMode("checkout_e2e");
-          setConfirmation("");
-          setMessage("");
-        }}
-        disabled={busy !== null || !stripeTestEnabled}
-        className="rounded-md border border-sky-300 bg-sky-50 px-4 py-2 text-sm font-black text-sky-950 disabled:opacity-50"
-      >
-        {busy === "checkout_e2e" ? "Running Checkout E2E..." : "Run Full Checkout E2E"}
-      </button>
-      <button
-        type="button"
-        onClick={() => {
-          setPendingMode("stripe_test");
-          setConfirmation("");
-          setMessage("");
-        }}
-        disabled={busy !== null || !stripeTestEnabled}
-        className="rounded-md border border-violet-300 bg-violet-50 px-4 py-2 text-sm font-black text-violet-950 disabled:opacity-50"
-      >
-        {busy === "stripe_test" ? "Running Stripe Test..." : "Run Stripe Sandbox Suite"}
-      </button>
+        <button
+          type="button"
+          onClick={() => run("deterministic")}
+          disabled={busy !== null}
+          aria-busy={busy === "deterministic"}
+          className="rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white disabled:opacity-50"
+        >
+          {busy === "deterministic" ? "Running..." : "Run No-Money Suite"}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setPendingMode("checkout_e2e");
+            setConfirmation("");
+            setMessage(null);
+          }}
+          disabled={busy !== null || !stripeTestEnabled}
+          aria-busy={busy === "checkout_e2e"}
+          className="rounded-md border border-sky-300 bg-sky-50 px-4 py-2 text-sm font-black text-sky-950 disabled:opacity-50"
+        >
+          {busy === "checkout_e2e" ? "Running Checkout E2E..." : "Run Full Checkout E2E"}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setPendingMode("stripe_test");
+            setConfirmation("");
+            setMessage(null);
+          }}
+          disabled={busy !== null || !stripeTestEnabled}
+          aria-busy={busy === "stripe_test"}
+          className="rounded-md border border-violet-300 bg-violet-50 px-4 py-2 text-sm font-black text-violet-950 disabled:opacity-50"
+        >
+          {busy === "stripe_test" ? "Running Stripe Test..." : "Run Stripe Sandbox Suite"}
+        </button>
       </div>
       {pendingMode ? (
         <div className="rounded-md border border-sky-200 bg-sky-50 p-4 text-sky-950">
@@ -150,6 +180,7 @@ export default function SimulationActions({
                   : run("stripe_test")
               }
               disabled={busy !== null}
+              aria-busy={busy !== null}
               className="rounded bg-neutral-950 px-4 py-2 text-sm font-black text-white disabled:opacity-50"
             >
               {busy ? "Running..." : "Run confirmed test"}
@@ -168,7 +199,28 @@ export default function SimulationActions({
           </div>
         </div>
       ) : null}
-      {message ? <p className="text-sm font-bold text-neutral-700">{message}</p> : null}
+      <ActionNotice message={message} />
     </div>
+  );
+}
+
+function ActionNotice({ message }: { message: FeedbackMessage | null }) {
+  if (!message) return null;
+
+  const className =
+    message.tone === "success"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+      : message.tone === "error"
+        ? "border-rose-200 bg-rose-50 text-rose-900"
+        : "border-sky-200 bg-sky-50 text-sky-900";
+
+  return (
+    <p
+      aria-live={message.tone === "info" ? "polite" : "assertive"}
+      className={`rounded-md border px-3 py-2 text-sm font-bold ${className}`}
+      role={message.tone === "error" ? "alert" : "status"}
+    >
+      {message.text}
+    </p>
   );
 }

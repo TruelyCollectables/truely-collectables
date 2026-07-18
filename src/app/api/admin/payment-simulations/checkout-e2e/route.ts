@@ -12,6 +12,17 @@ export const maxDuration = 60;
 
 export async function POST(request: Request) {
   try {
+    const body = await request.json().catch(() => ({}));
+    if (String(body.confirmation || "").trim() !== "RUN CHECKOUT E2E") {
+      return Response.json(
+        {
+          error:
+            "Type RUN CHECKOUT E2E to confirm the full checkout E2E simulation.",
+        },
+        { status: 400 },
+      );
+    }
+
     const stripeKey = getStripeTestSecretKey() || "";
     const webhookSecret = getStripeTestWebhookSecret() || "";
     if (!stripeKey.startsWith("sk_test_")) {
