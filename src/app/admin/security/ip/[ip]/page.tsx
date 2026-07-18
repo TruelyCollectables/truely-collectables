@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { supabase } from "../../../../../lib/supabase";
 import { getActiveStoreId } from "../../../../../lib/stores";
+import AdminSubmitButton from "../../../AdminSubmitButton";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -212,6 +213,28 @@ function investigationTone(value: string | null | undefined) {
   return "border-emerald-200 bg-emerald-50 text-emerald-800";
 }
 
+function investigationCaseNotice(caseValue: string | string[] | undefined) {
+  const value = Array.isArray(caseValue) ? caseValue[0] : caseValue;
+
+  if (value === "saved") {
+    return {
+      title: "Investigation saved",
+      body: "Status, severity, notes, and last-reviewed time were updated for this IP.",
+      className: "border-emerald-200 bg-emerald-50 text-emerald-800",
+    };
+  }
+
+  if (value === "invalid") {
+    return {
+      title: "Investigation was not saved",
+      body: "Use a supported status and severity, then save the investigation again.",
+      className: "border-rose-200 bg-rose-50 text-rose-800",
+    };
+  }
+
+  return null;
+}
+
 function evidenceSummary(
   evidence: Record<string, string | null> | null | undefined,
 ) {
@@ -236,10 +259,13 @@ function uniqueCount(values: Array<string | null | undefined>) {
 
 export default async function AdminSecurityIpDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ ip: string }>;
+  searchParams?: Promise<{ case?: string | string[] }>;
 }) {
   const { ip } = await params;
+  const resolvedSearchParams = searchParams ? await searchParams : {};
   const ipAddress = decodeURIComponent(ip);
   const storeId = getActiveStoreId();
 
@@ -345,6 +371,7 @@ export default async function AdminSecurityIpDetailPage({
     investigationResult.error,
     evidenceResult.error,
   ].filter(Boolean);
+  const caseNotice = investigationCaseNotice(resolvedSearchParams.case);
 
   return (
     <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
@@ -372,6 +399,13 @@ export default async function AdminSecurityIpDetailPage({
       </section>
 
       <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
+        {caseNotice ? (
+          <section className={`rounded-md border px-5 py-4 ${caseNotice.className}`}>
+            <h2 className="text-lg font-black">{caseNotice.title}</h2>
+            <p className="mt-1 text-sm font-semibold">{caseNotice.body}</p>
+          </section>
+        ) : null}
+
         {queryErrors.length > 0 ? (
           <section className="rounded-md border border-rose-200 bg-rose-50 p-5 text-rose-800">
             <h2 className="text-xl font-black">Some Evidence Could Not Load</h2>
@@ -517,12 +551,12 @@ export default async function AdminSecurityIpDetailPage({
                 />
               </label>
 
-              <button
-                type="submit"
+              <AdminSubmitButton
                 className="rounded-md bg-neutral-950 px-5 py-2 text-sm font-black text-white hover:bg-neutral-800"
+                pendingChildren="Saving investigation..."
               >
                 Save Investigation
-              </button>
+              </AdminSubmitButton>
             </form>
           </div>
         </section>
