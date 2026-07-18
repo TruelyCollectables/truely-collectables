@@ -14963,6 +14963,24 @@ function BatchCardRow({
   const refreshCompsBlockedReason = batchBusy
     ? "Finish the current InstaComp™ batch action before refreshing comps."
     : "Run Batch InstaComp™ first so this row has a saved lot record, then refresh comps.";
+  const editFieldPersistenceNoteId = `${card.id}-instacomp-edit-persistence-note`;
+  const editFieldPersistenceNote = canSaveCorrections
+    ? "Saved-lot edits are local until you press Save Corrections for this row."
+    : card.status === "done" && Boolean(card.result)
+      ? "These edits stay in this browser batch and will be used for draft creation; saved-lot persistence unlocks after the row is attached to a saved lot."
+      : "Finish the scan before row edits can be saved or used for draft creation.";
+  const draftTitleFieldTitle =
+    "Edit the listing title TCOS will use for draft creation. " +
+    editFieldPersistenceNote;
+  const serialFieldTitle =
+    "Correct the detected serial number. Changing Serial # clears row price until comps are refreshed or a listing price is entered. " +
+    editFieldPersistenceNote;
+  const quantityFieldTitle =
+    "Set the listing quantity as a positive whole number. " +
+    editFieldPersistenceNote;
+  const listingPriceFieldTitle =
+    "Set the listing price, or leave blank to use the current comp-based draft price when available. " +
+    editFieldPersistenceNote;
   const savingCorrections = activeAction === "saving_corrections";
   const refreshingComps = activeAction === "refreshing_comps";
   const saveCorrectionsLabel = instaCompBatchRowActionLabel({
@@ -15856,13 +15874,34 @@ function BatchCardRow({
             marginTop: 12,
           }}
         >
-          <label style={{ display: "grid", gap: 6, fontWeight: 800 }}>
+          <div
+            id={editFieldPersistenceNoteId}
+            role="note"
+            style={{
+              border: canSaveCorrections ? "1px solid #bfdbfe" : "1px solid #e5e7eb",
+              borderRadius: 10,
+              background: canSaveCorrections ? "#eff6ff" : "#f9fafb",
+              color: canSaveCorrections ? "#1d4ed8" : "#4b5563",
+              padding: "8px 10px",
+              fontSize: 12,
+              fontWeight: 900,
+            }}
+          >
+            {editFieldPersistenceNote}
+          </div>
+
+          <label
+            title={draftTitleFieldTitle}
+            style={{ display: "grid", gap: 6, fontWeight: 800 }}
+          >
             Draft Title
             <input
               type="text"
               value={card.customTitle}
               onChange={(event) => onTitleChange(card.id, event.target.value)}
               placeholder={aiTitle}
+              title={draftTitleFieldTitle}
+              aria-describedby={editFieldPersistenceNoteId}
               style={{
                 border: "1px solid #ccc",
                 borderRadius: 8,
@@ -15882,7 +15921,10 @@ function BatchCardRow({
               alignItems: "end",
             }}
           >
-            <label style={{ display: "grid", gap: 6, fontWeight: 800 }}>
+            <label
+              title={serialFieldTitle}
+              style={{ display: "grid", gap: 6, fontWeight: 800 }}
+            >
               Serial #
               <input
                 type="text"
@@ -15891,6 +15933,8 @@ function BatchCardRow({
                   onSerialChange(card.id, event.target.value)
                 }
                 placeholder="Blank = no serial, e.g. 12/150"
+                title={serialFieldTitle}
+                aria-describedby={editFieldPersistenceNoteId}
                 style={{
                   border: "1px solid #ccc",
                   borderRadius: 8,
@@ -15900,7 +15944,10 @@ function BatchCardRow({
               />
             </label>
 
-            <label style={{ display: "grid", gap: 6, fontWeight: 800 }}>
+            <label
+              title={quantityFieldTitle}
+              style={{ display: "grid", gap: 6, fontWeight: 800 }}
+            >
               Quantity
               <input
                 type="number"
@@ -15910,6 +15957,8 @@ function BatchCardRow({
                 onChange={(event) =>
                   onQuantityChange(card.id, event.target.value)
                 }
+                title={quantityFieldTitle}
+                aria-describedby={editFieldPersistenceNoteId}
                 style={{
                   border: "1px solid #ccc",
                   borderRadius: 8,
@@ -15919,7 +15968,10 @@ function BatchCardRow({
               />
             </label>
 
-            <label style={{ display: "grid", gap: 6, fontWeight: 800 }}>
+            <label
+              title={listingPriceFieldTitle}
+              style={{ display: "grid", gap: 6, fontWeight: 800 }}
+            >
               Listing Price
               <input
                 type="number"
@@ -15928,6 +15980,8 @@ function BatchCardRow({
                 value={card.customPrice}
                 onChange={(event) => onPriceChange(card.id, event.target.value)}
                 placeholder={marketPrice ? marketPrice.toFixed(2) : "0.00"}
+                title={listingPriceFieldTitle}
+                aria-describedby={editFieldPersistenceNoteId}
                 style={{
                   border: "1px solid #ccc",
                   borderRadius: 8,
