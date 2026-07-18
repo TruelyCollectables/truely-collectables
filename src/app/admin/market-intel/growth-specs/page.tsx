@@ -303,7 +303,10 @@ export default async function MarketIntelGrowthSpecsPage({
                 placeholder="Maximum copies, sell-on-spike plan, grading plan, or reasons to abandon."
               />
 
-              <button className="rounded-md bg-black px-5 py-3 font-black text-white sm:col-span-2">
+              <button
+                type="submit"
+                className="rounded-md bg-black px-5 py-3 font-black text-white sm:col-span-2"
+              >
                 Save Growth Spec Scenario
               </button>
             </form>
@@ -397,7 +400,10 @@ export default async function MarketIntelGrowthSpecsPage({
                       <input type="hidden" name="suppliesPerCard" value="0.15" />
                       <input type="hidden" name="holdMonths" value="24" />
                       <input type="hidden" name="convictionScore" value="50" />
-                      <button className="rounded-md bg-fuchsia-300 px-4 py-2 text-sm font-black text-black hover:bg-fuchsia-200">
+                      <button
+                        type="submit"
+                        className="rounded-md bg-fuchsia-300 px-4 py-2 text-sm font-black text-black hover:bg-fuchsia-200"
+                      >
                         Save Default $25 Model
                       </button>
                     </form>
@@ -542,7 +548,10 @@ function StatusButton({
       )}
     >
       <input type="hidden" name="status" value={status} />
-      <button className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-black hover:bg-neutral-100">
+      <button
+        type="submit"
+        className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-black hover:bg-neutral-100"
+      >
         {label}
       </button>
     </form>
