@@ -9221,6 +9221,13 @@ export default function InstaCompScanner({
     emptyMessage: string;
     label: string;
   }) {
+    const busyReason = batchBusyBlockedReason(`exporting ${label} report rows`);
+
+    if (busyReason) {
+      setBatchError(busyReason);
+      return;
+    }
+
     if (!count) {
       setBatchError(emptyMessage);
       return;
@@ -9360,6 +9367,13 @@ export default function InstaCompScanner({
   }
 
   function exportSelectedDraftPayload() {
+    const busyReason = batchBusyBlockedReason("exporting selected draft payload");
+
+    if (busyReason) {
+      setBatchError(busyReason);
+      return;
+    }
+
     if (!selectedDraftReadyCount) {
       setBatchError("Select at least one ready draft row to export.");
       return;
@@ -9401,6 +9415,13 @@ export default function InstaCompScanner({
   async function copySelectedDraftPayload() {
     if (!testMode) return;
 
+    const busyReason = batchBusyBlockedReason("copying selected draft payload");
+
+    if (busyReason) {
+      setBatchError(busyReason);
+      return;
+    }
+
     if (!selectedDraftReadyCount) {
       setBatchError("Select at least one ready draft row to copy.");
       return;
@@ -9422,6 +9443,13 @@ export default function InstaCompScanner({
   }
 
   function exportSelectedCleanDraftPayload() {
+    const busyReason = batchBusyBlockedReason("exporting selected clean draft payload");
+
+    if (busyReason) {
+      setBatchError(busyReason);
+      return;
+    }
+
     if (!selectedCleanReadyCount) {
       setBatchError("Select at least one clean ready draft row to export.");
       return;
@@ -9463,6 +9491,13 @@ export default function InstaCompScanner({
   async function copySelectedCleanDraftPayload() {
     if (!testMode) return;
 
+    const busyReason = batchBusyBlockedReason("copying selected clean draft payload");
+
+    if (busyReason) {
+      setBatchError(busyReason);
+      return;
+    }
+
     if (!selectedCleanReadyCount) {
       setBatchError("Select at least one clean ready draft row to copy.");
       return;
@@ -9484,6 +9519,13 @@ export default function InstaCompScanner({
   }
 
   function exportVisibleDraftPayload() {
+    const busyReason = batchBusyBlockedReason("exporting visible draft payload");
+
+    if (busyReason) {
+      setBatchError(busyReason);
+      return;
+    }
+
     if (!visibleReadyCount) {
       setBatchError("No visible ready draft rows are available to export.");
       return;
@@ -9526,6 +9568,13 @@ export default function InstaCompScanner({
   async function copyVisibleDraftPayload() {
     if (!testMode) return;
 
+    const busyReason = batchBusyBlockedReason("copying visible draft payload");
+
+    if (busyReason) {
+      setBatchError(busyReason);
+      return;
+    }
+
     if (!visibleReadyCount) {
       setBatchError("No visible ready draft rows are available to copy.");
       return;
@@ -9547,6 +9596,13 @@ export default function InstaCompScanner({
   }
 
   function exportVisibleCleanDraftPayload() {
+    const busyReason = batchBusyBlockedReason("exporting visible clean draft payload");
+
+    if (busyReason) {
+      setBatchError(busyReason);
+      return;
+    }
+
     if (!visibleCleanReadyCount) {
       setBatchError("No visible clean ready draft rows are available to export.");
       return;
@@ -9589,6 +9645,13 @@ export default function InstaCompScanner({
   async function copyVisibleCleanDraftPayload() {
     if (!testMode) return;
 
+    const busyReason = batchBusyBlockedReason("copying visible clean draft payload");
+
+    if (busyReason) {
+      setBatchError(busyReason);
+      return;
+    }
+
     if (!visibleCleanReadyCount) {
       setBatchError("No visible clean ready draft rows are available to copy.");
       return;
@@ -9616,6 +9679,15 @@ export default function InstaCompScanner({
       blockedScopeLabel: string;
     }
   ) {
+    const busyReason = batchBusyBlockedReason(
+      `creating ${options.blockedScopeLabel} draft listings`
+    );
+
+    if (busyReason) {
+      setBatchError(busyReason);
+      return;
+    }
+
     if (!targetCards.length) {
       setBatchError(options.emptyMessage);
       return;
@@ -11753,7 +11825,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={exportSelectedDraftPayload}
-              disabled={exportDraftPayloadDisabled}
+              aria-disabled={exportDraftPayloadDisabled}
               style={{
                 ...secondaryButtonStyle,
                 padding: "8px 10px",
@@ -11767,7 +11839,7 @@ export default function InstaCompScanner({
               <button
                 type="button"
                 onClick={() => void copySelectedDraftPayload()}
-                disabled={exportDraftPayloadDisabled}
+                aria-disabled={exportDraftPayloadDisabled}
                 style={{
                   ...secondaryButtonStyle,
                   padding: "8px 10px",
@@ -11783,7 +11855,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={createSelectedReadyDraftListings}
-              disabled={createSelectedReadyDraftButtonDisabled}
+              aria-disabled={createSelectedReadyDraftButtonDisabled}
               style={{
                 ...buttonStyle,
                 padding: "8px 10px",
@@ -11805,7 +11877,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={exportSelectedCleanDraftPayload}
-              disabled={exportCleanDraftPayloadDisabled}
+              aria-disabled={exportCleanDraftPayloadDisabled}
               style={{
                 ...secondaryButtonStyle,
                 padding: "8px 10px",
@@ -11821,7 +11893,7 @@ export default function InstaCompScanner({
               <button
                 type="button"
                 onClick={() => void copySelectedCleanDraftPayload()}
-                disabled={exportCleanDraftPayloadDisabled}
+                aria-disabled={exportCleanDraftPayloadDisabled}
                 style={{
                   ...secondaryButtonStyle,
                   padding: "8px 10px",
@@ -11839,7 +11911,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={createSelectedCleanDraftListings}
-              disabled={exportCleanDraftPayloadDisabled}
+              aria-disabled={exportCleanDraftPayloadDisabled}
               style={{
                 ...buttonStyle,
                 padding: "8px 10px",
@@ -12367,7 +12439,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={exportVisibleDraftPayload}
-              disabled={batchRunning || batchDrafting || visibleReadyCount === 0}
+              aria-disabled={batchRunning || batchDrafting || visibleReadyCount === 0}
               style={{
                 ...secondaryButtonStyle,
                 padding: "8px 10px",
@@ -12387,7 +12459,7 @@ export default function InstaCompScanner({
               <button
                 type="button"
                 onClick={() => void copyVisibleDraftPayload()}
-                disabled={
+                aria-disabled={
                   batchRunning || batchDrafting || visibleReadyCount === 0
                 }
                 style={{
@@ -12411,7 +12483,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={createVisibleReadyDraftListings}
-              disabled={batchRunning || batchDrafting || visibleReadyCount === 0}
+              aria-disabled={batchRunning || batchDrafting || visibleReadyCount === 0}
               style={{
                 ...buttonStyle,
                 padding: "8px 10px",
@@ -12436,7 +12508,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={exportVisibleCleanDraftPayload}
-              disabled={
+              aria-disabled={
                 batchRunning || batchDrafting || visibleCleanReadyCount === 0
               }
               style={{
@@ -12458,7 +12530,7 @@ export default function InstaCompScanner({
               <button
                 type="button"
                 onClick={() => void copyVisibleCleanDraftPayload()}
-                disabled={
+                aria-disabled={
                   batchRunning || batchDrafting || visibleCleanReadyCount === 0
                 }
                 style={{
@@ -12482,7 +12554,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={exportVisibleFixReport}
-              disabled={batchRunning || batchDrafting || visibleDraftFixCount === 0}
+              aria-disabled={batchRunning || batchDrafting || visibleDraftFixCount === 0}
               style={{
                 ...secondaryButtonStyle,
                 padding: "8px 10px",
@@ -12501,7 +12573,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={exportVisibleReviewReport}
-              disabled={batchRunning || batchDrafting || visibleReviewCount === 0}
+              aria-disabled={batchRunning || batchDrafting || visibleReviewCount === 0}
               style={{
                 ...secondaryButtonStyle,
                 padding: "8px 10px",
@@ -12520,7 +12592,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={exportVisibleFailedReport}
-              disabled={batchRunning || batchDrafting || visibleFailedCount === 0}
+              aria-disabled={batchRunning || batchDrafting || visibleFailedCount === 0}
               style={{
                 ...secondaryButtonStyle,
                 padding: "8px 10px",
@@ -12539,7 +12611,7 @@ export default function InstaCompScanner({
             <button
               type="button"
               onClick={createVisibleCleanDraftListings}
-              disabled={
+              aria-disabled={
                 batchRunning || batchDrafting || visibleCleanReadyCount === 0
               }
               style={{
