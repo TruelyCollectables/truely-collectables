@@ -1,8 +1,8 @@
 import { Suspense } from "react";
 import DiscoveryLiveBulkController from "./DiscoveryLiveBulkController";
 import DiscoveryReviewEnhancer from "./DiscoveryReviewEnhancer";
+import MarketIntelDrilldownController from "./MarketIntelDrilldownController";
 import MarketIntelInteractionAuditEnhancer from "./MarketIntelInteractionAuditEnhancer";
-import MetricDrilldownEnhancer from "./MetricDrilldownEnhancer";
 import UniversalInstaCompEnhancer from "./UniversalInstaCompEnhancer";
 
 export default function MarketIntelLayout({
@@ -11,7 +11,7 @@ export default function MarketIntelLayout({
   return (
     <>
       <Suspense fallback={null}>
-        <MetricDrilldownEnhancer />
+        <MarketIntelDrilldownController />
         <MarketIntelInteractionAuditEnhancer />
         <UniversalInstaCompEnhancer />
         <DiscoveryReviewEnhancer />
