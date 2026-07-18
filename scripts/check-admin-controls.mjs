@@ -38,6 +38,7 @@ for (const filePath of walk(adminRoot)) {
   const unsafeJsonPattern = /await\s+[\w$.]+\s*\.json\(\)(?!\.catch)/g;
   const deadHrefLiteralPattern = /\bhref\s*=\s*["']#["']/g;
   const deadHrefExpressionPattern = /\bhref\s*=\s*\{[^}]*\|\|\s*["']#["'][^}]*\}/g;
+  const adminSubmitButtonPattern = /<AdminSubmitButton\b[\s\S]*?>/g;
   const buttonPattern = /<button\b[\s\S]*?>/g;
   let match;
 
@@ -93,6 +94,19 @@ for (const filePath of walk(adminRoot)) {
       message:
         "Admin links must not fall back to href=\"#\"; render disabled/unavailable state instead.",
     });
+  }
+
+  while ((match = adminSubmitButtonPattern.exec(source))) {
+    const tag = match[0];
+
+    if (!/\btitle\s*=/.test(tag)) {
+      violations.push({
+        file: relativePath,
+        line: lineForOffset(source, match.index),
+        message:
+          "AdminSubmitButton must include a title that explains the action scope and side effects.",
+      });
+    }
   }
 
   while ((match = buttonPattern.exec(source))) {

@@ -525,6 +525,19 @@ scenario("admin control checker blocks dead href placeholders", () => {
   }
 });
 
+scenario("admin control checker requires scoped submit titles", () => {
+  for (const fragment of [
+    "adminSubmitButtonPattern",
+    "<AdminSubmitButton",
+    "AdminSubmitButton must include a title that explains the action scope and side effects.",
+  ]) {
+    assert(
+      adminControlCheckSource.includes(fragment),
+      `Expected admin control checker to guard submit-title fragment ${fragment}.`,
+    );
+  }
+});
+
 scenario("instacomp operator shell explains no-dead-end row actions", () => {
   for (const fragment of [
     "No-dead-end controls",
