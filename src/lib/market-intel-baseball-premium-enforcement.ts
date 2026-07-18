@@ -62,6 +62,10 @@ function isBaseballSubject(subject: SubjectRow) {
   return sport.includes("baseball") || league.includes("mlb") || league.includes("miami marlins");
 }
 
+function isPurchaseInboxMetadata(metadata: Record<string, unknown> | null | undefined) {
+  return metadata?.purchase_inbox === true;
+}
+
 function isDillonHeadFirstBowmanOnly(subject: SubjectRow) {
   return (
     normalize(subject.name) === "dillon head" &&
@@ -176,6 +180,7 @@ export async function enforceBaseballPremiumPolicy() {
   const now = new Date().toISOString();
 
   for (const candidate of (candidateResult.data || []) as CandidateRow[]) {
+    if (isPurchaseInboxMetadata(candidate.metadata)) continue;
     const subject = subjectById.get(candidate.subject_id);
     if (!subject) continue;
     const policy = dillonHeadFirstBowmanEligibility({
@@ -298,10 +303,17 @@ export async function assertCandidateBaseballPremiumPolicy(input: {
   const supabase = createSupabaseServerClient({ admin: true });
   const { data: candidate, error: candidateError } = await supabase
     .from("tcos_mi_identity_candidates")
-    .select("subject_id,original_title")
+    .select("subject_id,original_title,metadata")
     .eq("id", input.candidateId)
     .single();
   if (candidateError) throw new Error(candidateError.message);
+  if (isPurchaseInboxMetadata(candidate.metadata as Record<string, unknown> | null)) {
+    return {
+      eligible: true,
+      reasons: ["User-entered Purchase Inbox identity"],
+      rejectionReasons: [],
+    };
+  }
   const { data: subject, error: subjectError } = await supabase
     .from("tcos_mi_subjects")
     .select("id,name,sport_or_category,league_or_brand,notes")
