@@ -121,9 +121,14 @@ export default async function AdminLoginPage({
               <AdminSubmitButton
                 className="w-full rounded-2xl bg-neutral-950 px-4 py-3 font-black text-white hover:bg-neutral-800"
                 pendingChildren="Signing in..."
+                title="Submit the typed ADMIN_PASSWORD and create the admin session cookie for this browser."
               >
                 Login
               </AdminSubmitButton>
+              <p className="text-xs font-bold leading-5 text-neutral-500">
+                Uses the password box above. If accepted, TCOS refreshes the admin cookie and
+                sends this browser to the destination shown on the left.
+              </p>
             </form>
 
             {error ? (
@@ -151,12 +156,13 @@ export default async function AdminLoginPage({
                 <AdminSubmitButton
                   className="w-full rounded-2xl border border-amber-300 bg-white px-4 py-3 text-sm font-black text-amber-950 hover:bg-amber-100"
                   pendingChildren="Opening admin..."
+                  title="Open the admin locally without the password box; this route is accepted only on localhost in non-production."
                 >
                   Open Admin Locally
                 </AdminSubmitButton>
                 <p className="mt-2 text-xs font-semibold leading-5 text-amber-950">
-                  Localhost-only rescue button. Disabled in production and
-                  rejected for non-local hosts.
+                  Localhost-only rescue button. It does not use the typed password field.
+                  Disabled in production and rejected for non-local hosts.
                 </p>
               </form>
             ) : null}

@@ -36,6 +36,19 @@ scenario("admin login page labels native submits while posting", () => {
       `Expected admin login pending label ${label}.`,
     );
   }
+
+  for (const fragment of [
+    "Submit the typed ADMIN_PASSWORD and create the admin session cookie for this browser.",
+    "Uses the password box above. If accepted, TCOS refreshes the admin cookie",
+    "sends this browser to the destination shown on the left.",
+    "Open the admin locally without the password box; this route is accepted only on localhost in non-production.",
+    "It does not use the typed password field.",
+  ]) {
+    assert(
+      loginPageSource.includes(fragment),
+      `Expected admin login action-scope guidance ${fragment}.`,
+    );
+  }
 });
 
 scenario("admin login route keeps password paste and local rescue guards", () => {
@@ -77,6 +90,7 @@ scenario("admin local rescue login stays localhost-only and non-production", () 
     "const localDevelopmentLoginAvailable = process.env.NODE_ENV !== \"production\";",
     "{localDevelopmentLoginAvailable ? (",
     "Localhost-only rescue button.",
+    "It does not use the typed password field.",
     "Disabled in production and",
     "rejected for non-local hosts.",
   ]) {
