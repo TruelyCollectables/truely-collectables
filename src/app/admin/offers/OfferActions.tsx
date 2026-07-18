@@ -19,8 +19,18 @@ export default function OfferActions({
     tone: "success" | "error" | "info";
     text: string;
   } | null>(null);
+  const isPending = status === "pending";
+  const isBusy = loading !== "";
 
   async function updateStatus(newStatus: string) {
+    if (!isPending) {
+      setMessage({
+        tone: "error",
+        text: "Only pending offers can be accepted or declined.",
+      });
+      return;
+    }
+
     setLoading(newStatus);
     setMessage({ tone: "info", text: `Saving offer as ${newStatus}...` });
 
@@ -39,7 +49,10 @@ export default function OfferActions({
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        setMessage({ tone: "error", text: data.error || "Could not update offer." });
+        setMessage({
+          tone: "error",
+          text: data.error || "Could not update offer.",
+        });
         return;
       }
 
@@ -57,8 +70,21 @@ export default function OfferActions({
   }
 
   async function sendCounterOffer() {
-    if (!counterAmount) {
-      setMessage({ tone: "error", text: "Enter a counter amount." });
+    if (!isPending) {
+      setMessage({
+        tone: "error",
+        text: "Only pending offers can receive a counter offer.",
+      });
+      return;
+    }
+
+    const parsedCounterAmount = Number(counterAmount);
+
+    if (!Number.isFinite(parsedCounterAmount) || parsedCounterAmount <= 0) {
+      setMessage({
+        tone: "error",
+        text: "Enter a counter amount greater than $0.00.",
+      });
       return;
     }
 
@@ -73,14 +99,17 @@ export default function OfferActions({
         },
         body: JSON.stringify({
           offerId,
-          counterAmount: Number(counterAmount),
+          counterAmount: parsedCounterAmount,
         }),
       });
 
       const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        setMessage({ tone: "error", text: data.error || "Could not send counter offer." });
+        setMessage({
+          tone: "error",
+          text: data.error || "Could not send counter offer.",
+        });
         return;
       }
 
@@ -95,21 +124,32 @@ export default function OfferActions({
   }
 
   return (
-    <div className="space-y-2">
+    <div className="space-y-3 rounded-2xl border border-neutral-200 bg-white p-4">
+      <div>
+        <p className="text-xs font-black uppercase tracking-[0.14em] text-neutral-400">
+          Decision
+        </p>
+        <p className="mt-1 text-sm font-semibold text-neutral-600">
+          {isPending
+            ? "Choose an offer outcome. Accepted and countered offers create Stripe payment links."
+            : "This offer is no longer pending, so decision controls are locked."}
+        </p>
+      </div>
+
       <button
         type="button"
-        disabled={status !== "pending" || loading !== ""}
+        disabled={!isPending || isBusy}
         onClick={() => updateStatus("accepted")}
-        className="w-full bg-black text-white rounded py-2 disabled:opacity-50"
+        className="w-full rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
       >
         {loading === "accepted" ? "Accepting..." : "Accept"}
       </button>
 
       <button
         type="button"
-        disabled={status !== "pending" || loading !== ""}
+        disabled={!isPending || isBusy}
         onClick={() => updateStatus("declined")}
-        className="w-full border rounded py-2 disabled:opacity-50"
+        className="w-full rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50"
       >
         {loading === "declined" ? "Declining..." : "Decline"}
       </button>
@@ -119,31 +159,41 @@ export default function OfferActions({
           href={checkoutUrl}
           target="_blank"
           rel="noopener noreferrer"
-          className="block w-full text-center border rounded py-2 hover:bg-gray-100"
+          className="block w-full rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-center text-sm font-black text-emerald-950 hover:bg-emerald-100"
         >
           View Payment Link
         </a>
       )}
 
-      <input
-        type="number"
-        step="0.01"
-        placeholder="Counter amount"
-        value={counterAmount}
-        onChange={(e) => setCounterAmount(e.target.value)}
-        className="w-full border rounded px-3 py-2"
-      />
+      <label className="block">
+        <span className="text-xs font-black uppercase tracking-[0.14em] text-neutral-400">
+          Counter amount
+        </span>
+        <input
+          type="number"
+          min="0.01"
+          step="0.01"
+          inputMode="decimal"
+          placeholder="0.00"
+          value={counterAmount}
+          disabled={!isPending || isBusy}
+          onChange={(e) => setCounterAmount(e.target.value)}
+          className="mt-1 w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:bg-neutral-100 disabled:text-neutral-400"
+        />
+      </label>
 
       <button
         type="button"
-        disabled={status !== "pending" || loading !== ""}
+        disabled={!isPending || isBusy}
         onClick={sendCounterOffer}
-        className="w-full bg-blue-600 text-white rounded py-2 disabled:opacity-50"
+        className="w-full rounded-md bg-sky-700 px-4 py-2 text-sm font-black text-white hover:bg-sky-800 disabled:cursor-not-allowed disabled:opacity-50"
       >
         {loading === "counter" ? "Sending..." : "Counter Offer"}
       </button>
 
-      {message ? <ActionNotice tone={message.tone}>{message.text}</ActionNotice> : null}
+      {message ? (
+        <ActionNotice tone={message.tone}>{message.text}</ActionNotice>
+      ) : null}
     </div>
   );
 }
@@ -163,7 +213,7 @@ function ActionNotice({
         : "border-blue-200 bg-blue-50 text-blue-950";
 
   return (
-    <p className={`rounded border px-3 py-2 text-xs font-bold ${className}`}>
+    <p className={`rounded-xl border px-3 py-2 text-xs font-bold ${className}`}>
       {children}
     </p>
   );
