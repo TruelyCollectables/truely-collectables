@@ -12,12 +12,19 @@ import { createSupabaseServerClient } from "./supabase-server";
 
 export type DiscoveryPurchaseInput = CandidateApprovalInput & {
   totalAcquisitionCost: number;
+  itemSubtotal?: number;
+  inboundShipping?: number;
+  salesTax?: number;
   purchaseDate?: string | null;
   alreadyReceived?: boolean;
 };
 
 function finiteMoney(value: number) {
   return Number.isFinite(value) && value >= 0;
+}
+
+function roundMoney(value: number) {
+  return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
 }
 
 export async function recordDiscoveryCandidatePurchase(
@@ -28,6 +35,25 @@ export async function recordDiscoveryCandidatePurchase(
   }
   if (!Number.isInteger(input.quantity) || input.quantity <= 0) {
     throw new Error("Purchase quantity must be a positive whole number.");
+  }
+
+  const itemSubtotal =
+    input.itemSubtotal === undefined
+      ? input.totalAcquisitionCost
+      : Number(input.itemSubtotal);
+  const inboundShipping = Number(input.inboundShipping || 0);
+  const salesTax = Number(input.salesTax || 0);
+
+  if (![itemSubtotal, inboundShipping, salesTax].every(finiteMoney)) {
+    throw new Error("Item price, shipping, and sales tax must be zero or greater.");
+  }
+
+  const calculatedTotal = roundMoney(itemSubtotal + inboundShipping + salesTax);
+  const enteredTotal = roundMoney(input.totalAcquisitionCost);
+  if (Math.abs(calculatedTotal - enteredTotal) > 0.02) {
+    throw new Error(
+      `Purchase breakdown does not match total paid. Breakdown is $${calculatedTotal.toFixed(2)} but total is $${enteredTotal.toFixed(2)}.`,
+    );
   }
 
   const normalized = await normalizeDiscoveryApprovalInput(input);
@@ -98,15 +124,15 @@ export async function recordDiscoveryCandidatePurchase(
       purchased_at: purchasedAt,
       status: alreadyReceived ? "in_inventory" : "awaiting_receipt",
       quantity_purchased: normalized.quantity,
-      item_subtotal: input.totalAcquisitionCost,
-      inbound_shipping: 0,
+      item_subtotal: roundMoney(itemSubtotal),
+      inbound_shipping: roundMoney(inboundShipping),
       buyer_fees: 0,
-      sales_tax: 0,
+      sales_tax: roundMoney(salesTax),
       other_acquisition_cost: 0,
       received_at: alreadyReceived ? new Date().toISOString() : null,
       source_url: listing.direct_url,
       deal_label: latestScore?.deal_label || null,
-      notes: `Purchased from the TCOS Discovery Desk: ${listing.original_title}. Actual out-the-door cost: $${input.totalAcquisitionCost.toFixed(2)}.`,
+      notes: `Purchased from the TCOS Discovery Desk: ${listing.original_title}. Item $${itemSubtotal.toFixed(2)} + shipping $${inboundShipping.toFixed(2)} + tax $${salesTax.toFixed(2)} = $${enteredTotal.toFixed(2)} total paid.`,
       metadata: {
         beta_one_purchase_source: "discovery_desk",
         discovery_candidate_id: normalized.candidateId,
@@ -116,7 +142,11 @@ export async function recordDiscoveryCandidatePurchase(
         source_listing_buyer_fee: Number(listing.buyer_fee || 0),
         source_listing_delivered_price: Number(listing.delivered_price || 0),
         source_listing_metadata: listing.metadata || {},
-        actual_out_the_door_cost: input.totalAcquisitionCost,
+        actual_item_subtotal: roundMoney(itemSubtotal),
+        actual_inbound_shipping: roundMoney(inboundShipping),
+        actual_sales_tax: roundMoney(salesTax),
+        actual_out_the_door_cost: enteredTotal,
+        colorado_tax_entry: true,
         deal_score_id: latestScore?.id || null,
         expected_net_profit_at_purchase:
           latestScore?.expected_net_profit ?? null,
@@ -146,7 +176,10 @@ export async function recordDiscoveryCandidatePurchase(
       metadata: {
         purchased_at: now,
         purchase_lot_id: purchase.id,
-        actual_out_the_door_cost: input.totalAcquisitionCost,
+        actual_out_the_door_cost: enteredTotal,
+        actual_item_subtotal: roundMoney(itemSubtotal),
+        actual_inbound_shipping: roundMoney(inboundShipping),
+        actual_sales_tax: roundMoney(salesTax),
         end_reason: "purchased",
         end_source: "discovery_desk",
       },

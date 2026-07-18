@@ -1,3 +1,4 @@
+import { revalidatePath } from "next/cache";
 import { NextRequest, NextResponse } from "next/server";
 import {
   adminHandoffFromUrl,
@@ -44,6 +45,7 @@ export async function POST(request: NextRequest) {
           : null;
 
     if (!result) throw new Error("Unsupported bulk action.");
+    revalidatePath("/admin/market-intel/discovery");
 
     if (json) {
       return NextResponse.json(
@@ -60,6 +62,7 @@ export async function POST(request: NextRequest) {
       approved: String(result.approved),
       rejected: String(result.rejected),
       skipped: String(result.skipped),
+      t: String(Date.now()),
     });
     if (firstError) params.set("firstError", firstError.slice(0, 220));
 
@@ -74,6 +77,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     const message =
       error instanceof Error ? error.message : "Unable to process selected candidates.";
+    revalidatePath("/admin/market-intel/discovery");
 
     if (json) {
       return NextResponse.json(
@@ -84,7 +88,7 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.redirect(
       adminRedirectUrl(
-        `/admin/market-intel/discovery?error=${encodeURIComponent(message)}`,
+        `/admin/market-intel/discovery?error=${encodeURIComponent(message)}&t=${Date.now()}`,
         request.url,
         handoff,
       ),

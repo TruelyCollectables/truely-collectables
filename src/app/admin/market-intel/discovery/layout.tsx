@@ -4,10 +4,17 @@ import { repairPendingDiscoveryParsing } from "../../../../lib/market-intel-disc
 import BulkCandidateControls from "./BulkCandidateControls";
 import PurchaseCandidateControls from "./PurchaseCandidateControls";
 import ResolvedCandidateCleanup from "./ResolvedCandidateCleanup";
+import SelectedPurchaseControls from "./SelectedPurchaseControls";
 import ShippingBreakdownPortals from "./ShippingBreakdownPortals";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+const DEFAULT_COLORADO_TAX_RATE = 0.08;
+
+function roundMoney(value: number) {
+  return Math.round((Number(value) + Number.EPSILON) * 100) / 100;
+}
 
 function approvalReadiness(candidate: {
   detected_year: string | null;
@@ -67,11 +74,30 @@ export default async function IdentityDiscoveryLayout({
     title: string;
     askingPrice: number;
     shippingPrice: number;
-    deliveredPrice: number;
+    quantity: number;
     ready: boolean;
     missing: string[];
-    purchaseCost: number;
+    defaultTax: number;
     purchaseDate: string;
+    approval: {
+      seasonYear: string;
+      manufacturer: string;
+      brand: string;
+      productLine: string;
+      setName: string;
+      insertName: string;
+      cardNumber: string;
+      parallelName: string;
+      variationName: string;
+      serialNumberedTo: number | null;
+      autograph: boolean;
+      memorabilia: boolean;
+      rookieDesignation: boolean;
+      conditionType: "raw" | "graded";
+      gradingCompany: string;
+      grade: string;
+      quantity: number;
+    };
   }> = [];
 
   try {
@@ -82,17 +108,52 @@ export default async function IdentityDiscoveryLayout({
     candidates = workbench.pending.map((candidate) => {
       const readiness = approvalReadiness(candidate);
       const draft = kempPurchaseDraft(candidate.original_title);
+      const estimatedTax = roundMoney(
+        (candidate.asking_price + candidate.shipping_price) * DEFAULT_COLORADO_TAX_RATE,
+      );
+      const defaultTax = draft
+        ? roundMoney(
+            Math.max(
+              0,
+              draft.cost - candidate.asking_price - candidate.shipping_price,
+            ),
+          )
+        : estimatedTax;
+      const conditionType: "raw" | "graded" =
+        candidate.condition_type === "graded" ? "graded" : "raw";
+
       return {
         id: candidate.id,
         player: candidate.subject.name,
         title: candidate.original_title,
         askingPrice: candidate.asking_price,
         shippingPrice: candidate.shipping_price,
-        deliveredPrice: candidate.delivered_price,
+        quantity: candidate.quantity,
         ready: readiness.ready,
         missing: readiness.missing,
-        purchaseCost: draft?.cost ?? candidate.delivered_price,
+        defaultTax,
         purchaseDate: draft?.date ?? today,
+        approval: {
+          seasonYear: candidate.detected_year || "",
+          manufacturer: candidate.detected_manufacturer || "",
+          brand:
+            candidate.detected_brand || candidate.detected_manufacturer || "",
+          productLine: candidate.detected_product_line || "",
+          setName:
+            candidate.detected_set_name || candidate.detected_product_line || "",
+          insertName: candidate.detected_insert_name || "",
+          cardNumber: candidate.detected_card_number || "",
+          parallelName: candidate.detected_parallel_name || "Base",
+          variationName: candidate.detected_variation_name || "",
+          serialNumberedTo: candidate.serial_numbered_to,
+          autograph: candidate.autograph,
+          memorabilia: candidate.memorabilia,
+          rookieDesignation: candidate.rookie_designation,
+          conditionType,
+          gradingCompany: candidate.grading_company || "",
+          grade: candidate.grade || "",
+          quantity: candidate.quantity,
+        },
       };
     });
   } catch {
@@ -107,13 +168,17 @@ export default async function IdentityDiscoveryLayout({
           id: candidate.id,
           askingPrice: candidate.askingPrice,
           shippingPrice: candidate.shippingPrice,
+          quantity: candidate.quantity,
+          taxRate: DEFAULT_COLORADO_TAX_RATE,
         }))}
       />
       <PurchaseCandidateControls
         candidates={candidates.map((candidate) => ({
           id: candidate.id,
           title: candidate.title,
-          defaultCost: candidate.purchaseCost,
+          defaultItemPrice: candidate.askingPrice,
+          defaultShipping: candidate.shippingPrice,
+          defaultTax: candidate.defaultTax,
           defaultPurchaseDate: candidate.purchaseDate,
         }))}
       />
@@ -123,6 +188,20 @@ export default async function IdentityDiscoveryLayout({
           player: candidate.player,
           ready: candidate.ready,
           missing: candidate.missing,
+        }))}
+      />
+      <SelectedPurchaseControls
+        candidates={candidates.map((candidate) => ({
+          id: candidate.id,
+          player: candidate.player,
+          title: candidate.title,
+          ready: candidate.ready,
+          missing: candidate.missing,
+          itemPrice: candidate.askingPrice,
+          shippingPrice: candidate.shippingPrice,
+          defaultTax: candidate.defaultTax,
+          purchaseDate: candidate.purchaseDate,
+          approval: candidate.approval,
         }))}
       />
       {children}
