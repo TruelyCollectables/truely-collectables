@@ -123,14 +123,29 @@ async function verifySubmittedAdminPassword(password: string, hostname: string) 
   return verifyLocalDevelopmentAdminPassword(password, hostname);
 }
 
-function loginRedirect(req: Request, code: string) {
+function loginRedirect(req: Request, code: string, nextPath?: string) {
   const url = new URL("/admin/login", requestOrigin(req));
-  const nextPath = safeNextPath(new URL(req.url).searchParams.get("next"));
+  const redirectNextPath =
+    nextPath || safeNextPath(new URL(req.url).searchParams.get("next"));
 
-  url.searchParams.set("next", nextPath);
+  url.searchParams.set("next", redirectNextPath);
   url.searchParams.set("error", code);
 
   return NextResponse.redirect(url, 303);
+}
+
+function jsonBodyNextPath(body: unknown, fallback: string) {
+  if (!body || typeof body !== "object") return fallback;
+
+  const record = body as Record<string, unknown>;
+
+  return safeNextPath(
+    typeof record.next === "string"
+      ? record.next
+      : typeof record.nextPath === "string"
+      ? record.nextPath
+      : fallback,
+  );
 }
 
 async function readLoginPayload(req: Request): Promise<LoginPayload> {
@@ -139,13 +154,14 @@ async function readLoginPayload(req: Request): Promise<LoginPayload> {
 
   if (contentType.includes("application/json")) {
     const body = await req.json().catch(() => null);
+    const queryNextPath = safeNextPath(requestUrl.searchParams.get("next"));
 
     return {
       password:
         body && typeof body === "object" && "password" in body
           ? String((body as { password?: unknown }).password || "")
           : "",
-      nextPath: safeNextPath(requestUrl.searchParams.get("next")),
+      nextPath: jsonBodyNextPath(body, queryNextPath),
       wantsRedirect: false,
       readable: Boolean(body),
       localDevelopmentLogin: false,
@@ -180,7 +196,7 @@ export async function POST(req: Request) {
 
   if (!loginPayload.readable) {
     if (loginPayload.wantsRedirect) {
-      return loginRedirect(req, "bad_request");
+      return loginRedirect(req, "bad_request", loginPayload.nextPath);
     }
 
     return NextResponse.json(
@@ -207,6 +223,7 @@ export async function POST(req: Request) {
           loginCheck.reason === "too_many_failed_attempts"
           ? "locked"
           : "blocked",
+        loginPayload.nextPath,
       );
     }
 
@@ -241,7 +258,7 @@ export async function POST(req: Request) {
     !canUseLocalDevelopmentPasswordFile
   ) {
     if (loginPayload.wantsRedirect) {
-      return loginRedirect(req, "missing_password");
+      return loginRedirect(req, "missing_password", loginPayload.nextPath);
     }
 
     return NextResponse.json(
@@ -266,7 +283,11 @@ export async function POST(req: Request) {
     });
 
     if (loginPayload.wantsRedirect) {
-      return loginRedirect(req, isSoftLockout ? "locked" : "invalid");
+      return loginRedirect(
+        req,
+        isSoftLockout ? "locked" : "invalid",
+        loginPayload.nextPath,
+      );
     }
 
     return NextResponse.json(
@@ -298,7 +319,11 @@ export async function POST(req: Request) {
     console.error("Admin session creation failed after password verification:", error);
 
     if (loginPayload.wantsRedirect) {
-      const sessionErrorResponse = loginRedirect(req, "session_error");
+      const sessionErrorResponse = loginRedirect(
+        req,
+        "session_error",
+        loginPayload.nextPath,
+      );
 
       appendExpiredAdminSessionCookies(sessionErrorResponse.headers, hostname);
 
@@ -322,7 +347,7 @@ export async function POST(req: Request) {
 
   const res = loginPayload.wantsRedirect
     ? NextResponse.redirect(new URL(loginPayload.nextPath, requestOrigin(req)), 303)
-    : NextResponse.json({ success: true });
+    : NextResponse.json({ success: true, nextPath: loginPayload.nextPath });
 
   await recordAdminLoginAttempt({
     check: loginCheck,

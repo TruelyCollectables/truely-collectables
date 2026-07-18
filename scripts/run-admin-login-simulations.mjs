@@ -42,6 +42,9 @@ scenario("admin login route keeps password paste and local rescue guards", () =>
     "password.trim()",
     "verifyLocalDevelopmentAdminPassword",
     "localDevelopmentLogin",
+    "jsonBodyNextPath",
+    "typeof record.next === \"string\"",
+    "typeof record.nextPath === \"string\"",
     "appendExpiredAdminSessionCookies",
     "appendAdminSessionCookies",
   ]) {
@@ -71,7 +74,8 @@ scenario("admin login fails cleanly when session creation fails", () => {
   for (const fragment of [
     "let sessionValue: string;",
     "createAdminSessionValue()",
-    "loginRedirect(req, \"session_error\")",
+    "loginPayload.nextPath",
+    "loginRedirect(\n        req,\n        \"session_error\",\n        loginPayload.nextPath,\n      )",
     "admin_session_not_created",
     "appendExpiredAdminSessionCookies(sessionErrorResponse.headers, hostname)",
     "recordAdminLoginAttempt({\n    check: loginCheck,\n    success: true,",
@@ -79,6 +83,23 @@ scenario("admin login fails cleanly when session creation fails", () => {
     assert(
       loginRouteSource.includes(fragment),
       `Expected admin login session-failure fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("admin login preserves intended destination for browser and API clients", () => {
+  for (const fragment of [
+    "function loginRedirect(req: Request, code: string, nextPath?: string)",
+    "url.searchParams.set(\"next\", redirectNextPath)",
+    "nextPath: jsonBodyNextPath(body, queryNextPath)",
+    "NextResponse.redirect(new URL(loginPayload.nextPath, requestOrigin(req)), 303)",
+    "NextResponse.json({ success: true, nextPath: loginPayload.nextPath })",
+    "loginRedirect(req, \"bad_request\", loginPayload.nextPath)",
+    "loginRedirect(req, \"missing_password\", loginPayload.nextPath)",
+  ]) {
+    assert(
+      loginRouteSource.includes(fragment),
+      `Expected admin login destination-preservation fragment ${fragment}.`,
     );
   }
 });
