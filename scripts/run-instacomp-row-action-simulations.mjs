@@ -427,13 +427,17 @@ scenario("scanner blocked batch controls explain why nothing ran", () => {
     "aria-disabled={loading || !frontImage}",
     "aria-disabled={item.count === 0}",
     'if (showBatchBusyBlocked("merging selected duplicate quantities")) return;',
-    'if (showBatchBusyBlocked("removing visible rows")) return;',
+    "busyAction: string",
+    "if (showBatchBusyBlocked(busyAction)) return;",
+    '"removing visible failed rows"',
+    '"removing visible drafted rows"',
     'if (showBatchBusyBlocked("rotating this row image")) return;',
     'role="alert"',
     'aria-live="assertive"',
     'role="status"',
     'aria-live="polite"',
     'batchBusyBlockedReason("removing visible failed rows")',
+    'batchBusyBlockedReason("removing visible drafted rows")',
   ]) {
     assert(
       scannerSource.includes(fragment),

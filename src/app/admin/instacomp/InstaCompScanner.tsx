@@ -7024,10 +7024,11 @@ export default function InstaCompScanner({
   async function removeBatchCardsByIds(
     ids: Set<string>,
     count: number,
+    busyAction: string,
     emptyMessage: string,
     removedMessage: string
   ) {
-    if (showBatchBusyBlocked("removing visible rows")) return;
+    if (showBatchBusyBlocked(busyAction)) return;
 
     if (!count) {
       setBatchError(emptyMessage);
@@ -7110,6 +7111,7 @@ export default function InstaCompScanner({
     void removeBatchCardsByIds(
       visibleFailedBatchCardIds,
       visibleFailedCount,
+      "removing visible failed rows",
       "No visible failed rows are available to remove.",
       `Removed ${visibleFailedCount} visible failed row${
         visibleFailedCount === 1 ? "" : "s"
@@ -7121,6 +7123,7 @@ export default function InstaCompScanner({
     void removeBatchCardsByIds(
       visibleDraftedBatchCardIds,
       visibleDraftedCount,
+      "removing visible drafted rows",
       "No visible drafted rows are available to remove.",
       `Removed ${visibleDraftedCount} visible drafted row${
         visibleDraftedCount === 1 ? "" : "s"
