@@ -49,9 +49,12 @@ const globalDestinations: Record<string, string> = {
   "PENDING ALERTS": "/admin/market-intel/reports#pending-alerts",
   "PENDING": "/admin/market-intel/reports#pending-alerts",
   "SENT": "/admin/market-intel/reports#report-history",
+  "SENT ALERTS": "/admin/market-intel/reports#report-history",
   "DISMISSED": "/admin/market-intel/reports#report-history",
   "EXPIRED": "/admin/market-intel/reports#report-history",
   "REPORT RUNS": "/admin/market-intel/reports#report-history",
+  "GENERATED REPORTS": "/admin/market-intel/reports#report-history",
+  "DELIVERED REPORTS": "/admin/market-intel/reports#report-history",
   "PENDING REVIEW": "/admin/market-intel/discovery#pending-exact-identities",
   "UNDER $5/CARD": "/admin/market-intel/discovery#pending-exact-identities",
   "APPROVED": "/admin/market-intel/discovery#recently-approved",
@@ -82,13 +85,25 @@ const readinessDestinations: Record<string, string> = {
   "TRACKED PURCHASES": "/admin/market-intel/purchases",
 };
 
+const statusDestinations: Record<string, Record<string, string>> = {
+  "/admin/market-intel/ebay": {
+    "EBAY APPLICATION CREDENTIALS ARE CONFIGURED": "/admin/market-intel/readiness",
+    "EBAY CREDENTIALS ARE MISSING": "/admin/settings",
+  },
+  "/admin/market-intel/ingestion": {
+    "INGESTION AUTHENTICATION IS CONFIGURED": "/admin/market-intel/readiness",
+    "INGESTION SECRET IS MISSING": "/admin/settings",
+  },
+  "/admin/market-intel/delivery": {
+    "EMAIL DELIVERY IS READY": "/admin/market-intel/reports",
+    "EMAIL DELIVERY NEEDS CONFIGURATION": "/admin/settings",
+    "EMAIL DELIVERY IS DISABLED": "/admin/settings",
+  },
+};
+
 const sectionAnchors: Record<string, Array<{ heading: string; id: string }>> = {
-  "/admin/market-intel/watchlist": [
-    { heading: "TRACKED PLAYERS", id: "tracked-players" },
-  ],
-  "/admin/market-intel/comps": [
-    { heading: "CARD MARKETS", id: "card-markets" },
-  ],
+  "/admin/market-intel/watchlist": [{ heading: "TRACKED PLAYERS", id: "tracked-players" }],
+  "/admin/market-intel/comps": [{ heading: "CARD MARKETS", id: "card-markets" }],
   "/admin/market-intel/ebay": [
     { heading: "RECENT EBAY CANDIDATES", id: "recent-ebay-candidates" },
   ],
@@ -100,16 +115,23 @@ const sectionAnchors: Record<string, Array<{ heading: string; id: string }>> = {
     { heading: "PENDING ALERTS", id: "pending-alerts" },
     { heading: "REPORT HISTORY", id: "report-history" },
   ],
+  "/admin/market-intel/delivery": [
+    { heading: "PENDING DELIVERY QUEUE", id: "pending-delivery" },
+  ],
+  "/admin/market-intel/ingestion": [
+    { heading: "FEED STATUS BY SOURCE", id: "feed-status" },
+  ],
   "/admin/market-intel/portfolio": [
     { heading: "TRACKED POSITIONS", id: "tracked-positions" },
+  ],
+  "/admin/market-intel/purchases": [
+    { heading: "TRACKED PURCHASE POSITIONS", id: "tracked-purchase-positions" },
   ],
   "/admin/market-intel/discovery": [
     { heading: "PENDING EXACT IDENTITIES", id: "pending-exact-identities" },
     { heading: "RECENTLY APPROVED", id: "recently-approved" },
   ],
-  "/admin/market-intel/readiness": [
-    { heading: "BETA ONE CORE STATUS", id: "core-status" },
-  ],
+  "/admin/market-intel/readiness": [{ heading: "BETA ONE CORE STATUS", id: "core-status" }],
 };
 
 function normalized(value: string | null | undefined) {
@@ -118,6 +140,41 @@ function normalized(value: string | null | undefined) {
     .replace(/\s+/g, " ")
     .trim()
     .toUpperCase();
+}
+
+function destinationForLabel(label: string, pathname: string) {
+  if (globalDestinations[label]) return globalDestinations[label];
+
+  if (pathname === "/admin/market-intel/ingestion") {
+    if (["ALL LISTINGS", "ACTIVE", "FRESH <2H", "STALE", "ENDED", "UNMATCHED", "UNSCORED", "PRICE CHANGED"].includes(label)) {
+      return label === "UNSCORED"
+        ? "/admin/market-intel/deals#active-listings"
+        : "/admin/market-intel/ingestion#feed-status";
+    }
+  }
+
+  if (pathname === "/admin/market-intel/delivery") {
+    if (["PENDING ALERTS", "SENT ALERTS", "GENERATED REPORTS", "DELIVERED REPORTS"].includes(label)) {
+      return label === "PENDING ALERTS"
+        ? "/admin/market-intel/delivery#pending-delivery"
+        : "/admin/market-intel/reports#report-history";
+    }
+  }
+
+  if (pathname === "/admin/market-intel/purchases") {
+    if (label.includes("INVESTED") || label.includes("COST BASIS")) {
+      return "/admin/market-intel/purchases#tracked-purchase-positions";
+    }
+    if (label.includes("ESTIMATED MARKET") || label.includes("REALIZED") || label.includes("UNITS REMAINING")) {
+      return "/admin/market-intel/portfolio#tracked-positions";
+    }
+  }
+
+  if (pathname === "/admin/market-intel/portfolio") {
+    return "/admin/market-intel/portfolio#tracked-positions";
+  }
+
+  return null;
 }
 
 function withHandoff(destination: string, handoff: string | null) {
@@ -164,7 +221,10 @@ function makeDrillable(input: {
   card.appendChild(drillLabel);
 
   const open = (event?: Event) => {
-    if (event?.target instanceof HTMLElement && event.target.closest("button,input,select,textarea,a,form")) {
+    if (
+      event?.target instanceof HTMLElement &&
+      event.target.closest("button,input,select,textarea,a,form")
+    ) {
       return;
     }
     router.push(href);
@@ -225,12 +285,27 @@ export default function MetricDrilldownEnhancer() {
 
     for (const labelNode of Array.from(document.querySelectorAll<HTMLElement>("p"))) {
       const label = normalized(labelNode.textContent);
-      const destination = globalDestinations[label];
+      const destination = destinationForLabel(label, pathname);
       const card = labelNode.parentElement;
       if (!destination || !card) continue;
       makeDrillable({
         card,
         label: labelNode.textContent || label,
+        href: withHandoff(destination, handoff),
+        router,
+        cleanups,
+      });
+    }
+
+    const statusMap = statusDestinations[pathname] || {};
+    for (const heading of Array.from(document.querySelectorAll<HTMLElement>("section h2"))) {
+      const label = normalized(heading.textContent);
+      const destination = statusMap[label];
+      const card = heading.closest<HTMLElement>("section");
+      if (!destination || !card) continue;
+      makeDrillable({
+        card,
+        label: heading.textContent || label,
         href: withHandoff(destination, handoff),
         router,
         cleanups,
