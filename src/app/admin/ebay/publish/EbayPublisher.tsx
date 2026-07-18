@@ -1,7 +1,7 @@
 "use client";
 /* eslint-disable @next/next/no-img-element */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type Policy = { id: string; name: string; description: string | null };
 type Location = {
@@ -207,6 +207,7 @@ function normalizedFilename(value: string) {
 }
 
 export default function EbayPublisher() {
+  const publisherActionRunningRef = useRef(false);
   const [setup, setSetup] = useState<Setup | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [fulfillment, setFulfillment] = useState("");
@@ -339,7 +340,18 @@ export default function EbayPublisher() {
   }
 
   async function uploadExactScanKit(files: FileList | null) {
-    if (bulkUploading || !files || files.length === 0) return;
+    if (publisherActionRunningRef.current || bulkUploading) {
+      setBulkUploadMessage(
+        "Finish the current eBay publisher action before uploading more scans.",
+      );
+      return;
+    }
+
+    if (!files || files.length === 0) {
+      setBulkUploadMessage("Select the exact scan files before uploading.");
+      return;
+    }
+
     const byName = new Map(
       Array.from(files).map((file) => [normalizedFilename(file.name), file]),
     );
@@ -387,19 +399,63 @@ export default function EbayPublisher() {
     }
   }
 
-  async function submit(card: CardState, action: "draft" | "publish") {
+  function listingBlockedReason(card: CardState) {
+    if (publisherActionRunningRef.current || card.status === "saving") {
+      return "Finish the current eBay publisher action before starting another.";
+    }
+
+    if (bulkUploading || card.uploadStatus === "uploading") {
+      return "Wait for exact scan uploads to finish before saving this listing.";
+    }
+
     if (!policiesReady) {
-      return patch(card.id, {
-        status: "error",
-        message: "Select all policies and a location first.",
-      });
+      return "Select all policies and a location first.";
     }
+
     if (!card.imageUrls.front || !card.imageUrls.back) {
+      return "Upload both exact scans before creating the listing.";
+    }
+
+    return "";
+  }
+
+  function openPublishConfirmation(card: CardState) {
+    const blocked = listingBlockedReason(card);
+
+    if (blocked) {
+      patch(card.id, {
+        status: "error",
+        message: blocked,
+      });
+      return;
+    }
+
+    setPublishConfirmId(card.id);
+  }
+
+  function cancelPublishConfirmation(card: CardState) {
+    if (publisherActionRunningRef.current || card.status === "saving") {
+      patch(card.id, {
+        status: "idle",
+        message: "Wait for the eBay publish action to finish before cancelling.",
+      });
+      return;
+    }
+
+    setPublishConfirmId(null);
+  }
+
+  async function submit(card: CardState, action: "draft" | "publish") {
+    const blocked = listingBlockedReason(card);
+
+    if (blocked) {
       return patch(card.id, {
         status: "error",
-        message: "Upload both exact scans before creating the listing.",
+        message: blocked,
       });
     }
+
+    publisherActionRunningRef.current = true;
     patch(card.id, {
       status: "saving",
       message: action === "draft" ? "Creating draft…" : "Publishing…",
@@ -455,6 +511,8 @@ export default function EbayPublisher() {
         message:
           reason instanceof Error ? reason.message : "Unable to save listing.",
       });
+    } finally {
+      publisherActionRunningRef.current = false;
     }
   }
 
@@ -602,6 +660,7 @@ export default function EbayPublisher() {
             card.status === "saving" && card.message === "Creating draft…";
           const cardPublishing =
             card.status === "saving" && card.message === "Publishing…";
+          const listingActionBlocked = Boolean(listingBlockedReason(card));
           return (
             <article key={card.id} className="rounded-2xl border bg-white p-5 shadow-sm">
               <div className="flex flex-col gap-4 sm:flex-row">
@@ -714,29 +773,19 @@ export default function EbayPublisher() {
               <div className="mt-4 flex flex-wrap gap-2">
                 <button
                   type="button"
-                  disabled={
-                    !policiesReady ||
-                    !cardReady ||
-                    bulkUploading ||
-                    cardUploadBusy ||
-                    card.status === "saving"
-                  }
+                  aria-disabled={listingActionBlocked}
+                  aria-busy={cardSavingDraft}
                   onClick={() => void submit(card, "draft")}
-                  className="rounded-lg border bg-white px-4 py-2.5 text-sm font-black hover:bg-neutral-100 disabled:opacity-40"
+                  className="rounded-lg border bg-white px-4 py-2.5 text-sm font-black hover:bg-neutral-100 aria-disabled:cursor-not-allowed aria-disabled:opacity-40"
                 >
                   {cardSavingDraft ? "Creating draft..." : "Create eBay draft"}
                 </button>
                 <button
                   type="button"
-                  disabled={
-                    !policiesReady ||
-                    !cardReady ||
-                    bulkUploading ||
-                    cardUploadBusy ||
-                    card.status === "saving"
-                  }
-                  onClick={() => setPublishConfirmId(card.id)}
-                  className="rounded-lg bg-neutral-950 px-4 py-2.5 text-sm font-black text-white hover:bg-neutral-800 disabled:opacity-40"
+                  aria-disabled={listingActionBlocked}
+                  aria-busy={cardPublishing}
+                  onClick={() => openPublishConfirmation(card)}
+                  className="rounded-lg bg-neutral-950 px-4 py-2.5 text-sm font-black text-white hover:bg-neutral-800 aria-disabled:cursor-not-allowed aria-disabled:opacity-40"
                 >
                   {cardPublishing ? "Publishing..." : "Publish live on eBay"}
                 </button>
@@ -754,17 +803,18 @@ export default function EbayPublisher() {
                   <div className="mt-3 flex flex-wrap gap-2">
                     <button
                       type="button"
-                      disabled={card.status === "saving"}
+                      aria-disabled={card.status === "saving"}
+                      aria-busy={card.status === "saving"}
                       onClick={() => void submit(card, "publish")}
-                      className="rounded-lg bg-neutral-950 px-4 py-2 text-sm font-black text-white disabled:opacity-40"
+                      className="rounded-lg bg-neutral-950 px-4 py-2 text-sm font-black text-white aria-disabled:cursor-not-allowed aria-disabled:opacity-40"
                     >
                       {cardPublishing ? "Publishing..." : "Confirm live publish"}
                     </button>
                     <button
                       type="button"
-                      disabled={card.status === "saving"}
-                      onClick={() => setPublishConfirmId(null)}
-                      className="rounded-lg border border-amber-300 bg-white px-4 py-2 text-sm font-black disabled:opacity-40"
+                      aria-disabled={card.status === "saving"}
+                      onClick={() => cancelPublishConfirmation(card)}
+                      className="rounded-lg border border-amber-300 bg-white px-4 py-2 text-sm font-black aria-disabled:cursor-not-allowed aria-disabled:opacity-40"
                     >
                       Cancel
                     </button>
