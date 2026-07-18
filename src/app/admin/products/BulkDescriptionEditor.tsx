@@ -49,6 +49,7 @@ export default function BulkDescriptionEditor({
   const [description, setDescription] = useState("");
   const [search, setSearch] = useState("");
   const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const [selectionMessage, setSelectionMessage] = useState("");
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const filteredProducts = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -86,6 +87,7 @@ export default function BulkDescriptionEditor({
   });
 
   function toggleProduct(productId: number) {
+    setSelectionMessage("");
     setSelectedIds((current) =>
       current.includes(productId)
         ? current.filter((id) => id !== productId)
@@ -94,11 +96,18 @@ export default function BulkDescriptionEditor({
   }
 
   function toggleAllShowing() {
+    if (filteredProducts.length === 0) {
+      setSelectionMessage("No visible products match the current bulk editor search.");
+      return;
+    }
+
     setSelectedIds((current) => {
       if (allShowingSelected) {
+        setSelectionMessage("Cleared the products currently visible in this bulk editor list.");
         return current.filter((id) => !allShowingIds.includes(id));
       }
 
+      setSelectionMessage("Selected every product currently visible in this bulk editor list.");
       return Array.from(new Set([...current, ...allShowingIds]));
     });
   }
@@ -117,7 +126,7 @@ export default function BulkDescriptionEditor({
         <button
           type="button"
           onClick={toggleAllShowing}
-          disabled={filteredProducts.length === 0}
+          aria-disabled={filteredProducts.length === 0}
           title={
             filteredProducts.length === 0
               ? "No products match the current bulk editor search."
@@ -125,11 +134,21 @@ export default function BulkDescriptionEditor({
                 ? "Clear the products currently visible in this bulk editor list."
                 : "Select every product currently visible in this bulk editor list."
           }
-          className="rounded border px-4 py-2 font-bold disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded border px-4 py-2 font-bold aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
         >
           {allShowingSelected ? "Clear Showing" : "Select All Showing"}
         </button>
       </div>
+
+      {selectionMessage ? (
+        <p
+          role="status"
+          aria-live="polite"
+          className="mt-3 rounded border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-bold text-blue-950"
+        >
+          {selectionMessage}
+        </p>
+      ) : null}
 
       <form action={action} className="mt-4 space-y-4">
         {selectedIds.map((id) => (
