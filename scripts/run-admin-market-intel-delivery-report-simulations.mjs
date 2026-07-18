@@ -12,6 +12,10 @@ const reportsPageSource = await readFile(
   new URL("../src/app/admin/market-intel/reports/page.tsx", import.meta.url),
   "utf8",
 );
+const adminSubmitButtonSource = await readFile(
+  new URL("../src/app/admin/AdminSubmitButton.tsx", import.meta.url),
+  "utf8",
+);
 
 const scenarios = [];
 
@@ -40,10 +44,29 @@ scenario("delivery center uses pending-aware submits for alert and report sends"
   for (const label of [
     "Sending pending alerts...",
     "Sending latest report...",
+    "No pending alerts are queued for delivery.",
+    "No generated daily report is available to deliver.",
+    "Latest daily report was already delivered.",
+    "disabledReason={pendingAlertBlocker}",
+    "disabledReason={latestReportBlocker}",
   ]) {
     assert(
       deliveryPageSource.includes(label),
       `Expected delivery pending label ${label} to be present.`,
+    );
+  }
+});
+
+scenario("shared admin submit buttons can explain disabled form actions", () => {
+  for (const fragment of [
+    "disabledReason?: React.ReactNode",
+    "disabled && !pending && disabledReason",
+    'role="status"',
+    'aria-live="polite"',
+  ]) {
+    assert(
+      adminSubmitButtonSource.includes(fragment),
+      `Expected AdminSubmitButton disabled reason fragment ${fragment}.`,
     );
   }
 });
@@ -61,6 +84,16 @@ scenario("test email page shows an in-flight state while sending", () => {
     testEmailPageSource.includes("Sending test email..."),
     "Expected test email pending label to be present.",
   );
+  for (const fragment of [
+    "disabledReason={disabledReason}",
+    "Email delivery is missing:",
+    "Email delivery is disabled in configuration.",
+  ]) {
+    assert(
+      testEmailPageSource.includes(fragment),
+      `Expected test email disabled reason ${fragment}.`,
+    );
+  }
 });
 
 scenario("reports page labels long-running outbox and report actions", () => {

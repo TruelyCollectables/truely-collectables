@@ -59,6 +59,11 @@ export default async function MarketIntelEbayPage({ searchParams }: PageProps) {
     process.env.EBAY_CLIENT_ID?.trim() &&
       process.env.EBAY_CLIENT_SECRET?.trim(),
   );
+  const scanDisabledReason = !credentialsConfigured
+    ? "eBay scanner credentials are not configured."
+    : compData.identities.length === 0
+      ? "Create at least one exact Market Intel identity before scanning eBay."
+      : "";
   const latestSeenAt = ebayListings
     .map((listing) => listing.first_seen_at)
     .sort()
@@ -187,7 +192,12 @@ export default async function MarketIntelEbayPage({ searchParams }: PageProps) {
               />
 
               <AdminSubmitButton
-                disabled={!credentialsConfigured || compData.identities.length === 0}
+                disabled={Boolean(scanDisabledReason)}
+                disabledReason={scanDisabledReason}
+                title={
+                  scanDisabledReason ||
+                  "Scan eBay and score results against exact Market Intel identities."
+                }
                 className="w-full rounded-md bg-black px-4 py-3 font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
                 pendingChildren="Scanning and scoring..."
               >

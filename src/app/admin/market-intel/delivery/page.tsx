@@ -37,6 +37,46 @@ function time(value: string | null | undefined) {
   }).format(new Date(value));
 }
 
+function deliveryConfigDisabledReason(config: {
+  configured: boolean;
+  enabled: boolean;
+  missing: string[];
+}) {
+  if (!config.configured) {
+    return `Email delivery is missing: ${config.missing.join(", ") || "required configuration"}.`;
+  }
+
+  if (!config.enabled) {
+    return "Email delivery is disabled in configuration.";
+  }
+
+  return "";
+}
+
+function pendingAlertsDisabledReason(
+  config: { configured: boolean; enabled: boolean; missing: string[] },
+  pendingCount: number,
+) {
+  return (
+    deliveryConfigDisabledReason(config) ||
+    (pendingCount === 0 ? "No pending alerts are queued for delivery." : "")
+  );
+}
+
+function latestReportDisabledReason(
+  config: { configured: boolean; enabled: boolean; missing: string[] },
+  latestReport: { status: string | null } | null,
+) {
+  return (
+    deliveryConfigDisabledReason(config) ||
+    (!latestReport
+      ? "No generated daily report is available to deliver."
+      : latestReport.status === "delivered"
+        ? "Latest daily report was already delivered."
+        : "")
+  );
+}
+
 export default async function MarketIntelDeliveryPage({
   searchParams,
 }: PageProps) {
@@ -65,6 +105,11 @@ export default async function MarketIntelDeliveryPage({
   const deliveredReports = reports.filter(
     (report) => report.status === "delivered",
   );
+  const pendingAlertBlocker = pendingAlertsDisabledReason(
+    config,
+    pending.length,
+  );
+  const latestReportBlocker = latestReportDisabledReason(config, latestReport);
 
   return (
     <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
@@ -181,7 +226,9 @@ export default async function MarketIntelDeliveryPage({
             >
               <input type="hidden" name="limit" value="10" />
               <AdminSubmitButton
-                disabled={!config.configured || !config.enabled || pending.length === 0}
+                disabled={Boolean(pendingAlertBlocker)}
+                disabledReason={pendingAlertBlocker}
+                title={pendingAlertBlocker || "Send up to 10 pending Market Intel alerts."}
                 className="w-full rounded-md bg-cyan-800 px-4 py-3 font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
                 pendingChildren="Sending pending alerts..."
               >
@@ -216,7 +263,9 @@ export default async function MarketIntelDeliveryPage({
                 <input type="hidden" name="reportId" value={latestReport.id} />
               ) : null}
               <AdminSubmitButton
-                disabled={!config.configured || !config.enabled || !latestReport}
+                disabled={Boolean(latestReportBlocker)}
+                disabledReason={latestReportBlocker}
+                title={latestReportBlocker || "Send the latest generated Market Intel daily report."}
                 className="w-full rounded-md bg-black px-4 py-3 font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
                 pendingChildren="Sending latest report..."
               >

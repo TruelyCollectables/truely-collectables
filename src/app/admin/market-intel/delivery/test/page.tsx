@@ -31,6 +31,11 @@ export default async function MarketIntelTestEmailPage({
   const handoff = query?.[ADMIN_HANDOFF_PARAM];
   const config = getMarketIntelDeliveryConfig();
   const ready = config.configured && config.enabled;
+  const disabledReason = !config.configured
+    ? `Email delivery is missing: ${config.missing.join(", ") || "required configuration"}.`
+    : !config.enabled
+      ? "Email delivery is disabled in configuration."
+      : "";
 
   return (
     <main className="min-h-screen bg-[#f4f1ea] px-6 py-8 text-neutral-950">
@@ -130,6 +135,8 @@ export default async function MarketIntelTestEmailPage({
           >
             <AdminSubmitButton
               disabled={!ready}
+              disabledReason={disabledReason}
+              title={disabledReason || "Send a controlled Market Intel test email."}
               className="w-full rounded-md bg-black px-5 py-4 text-lg font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
               pendingChildren="Sending test email..."
             >

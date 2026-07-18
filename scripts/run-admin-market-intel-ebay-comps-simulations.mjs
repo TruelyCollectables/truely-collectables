@@ -40,6 +40,17 @@ scenario("eBay scanner labels the active scan submit", () => {
     ebayPageSource.includes("Scanning and scoring..."),
     "Expected eBay scan pending label to be present.",
   );
+  for (const fragment of [
+    "const scanDisabledReason =",
+    "eBay scanner credentials are not configured.",
+    "Create at least one exact Market Intel identity before scanning eBay.",
+    "disabledReason={scanDisabledReason}",
+  ]) {
+    assert(
+      ebayPageSource.includes(fragment),
+      `Expected eBay scanner disabled reason ${fragment}.`,
+    );
+  }
 });
 
 scenario("comps overview labels exact identity creation", () => {
