@@ -131,7 +131,7 @@ export default function EbayImportRunner() {
           );
           if (failedSample) {
             setError(
-              `Batch completed but reported ${String(failedSample.reason)}. See debug sample below.`,
+              `Batch completed but reported ${String(failedSample.reason)}. See diagnostic sample below.`,
             );
           }
         }
@@ -175,11 +175,11 @@ export default function EbayImportRunner() {
             eBay import runner
           </p>
           <h2 className="mt-2 text-4xl font-black tracking-tight">
-            Import eBay without the 504 timeout crap
+            Import eBay safely in resumable batches
           </h2>
           <p className="mt-2 max-w-4xl text-sm font-bold leading-6 text-emerald-900">
             This runs eBay in browser-driven batches, shows real progress, and
-            stops with the actual error if the database blocks a row.
+            stops with a clear diagnostic if the database blocks a row.
           </p>
         </div>
 
@@ -284,7 +284,7 @@ export default function EbayImportRunner() {
       {lastResult ? (
         <details className="mt-5 rounded-xl border border-neutral-200 bg-neutral-950 p-4 text-white">
           <summary className="cursor-pointer text-sm font-black">
-            Last batch raw result / debug
+            Last batch diagnostics receipt
           </summary>
           <pre className="mt-3 max-h-[420px] overflow-auto whitespace-pre-wrap text-xs leading-5">
             {JSON.stringify(lastResult, null, 2)}

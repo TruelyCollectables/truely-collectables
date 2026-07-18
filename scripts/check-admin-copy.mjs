@@ -15,6 +15,9 @@ const disallowedOperatorCopy = [
   "V2 inventory",
   "· V2",
   "V2:",
+  "debug sample",
+  "raw result / debug",
+  "timeout crap",
 ];
 
 const violations = [];

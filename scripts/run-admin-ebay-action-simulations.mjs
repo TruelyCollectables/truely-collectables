@@ -19,6 +19,10 @@ const ebayHealthSource = await readFile(
   new URL("../src/app/admin/ebay/page.tsx", import.meta.url),
   "utf8",
 );
+const importRunnerSource = await readFile(
+  new URL("../src/app/admin/ebay/import-runner/EbayImportRunner.tsx", import.meta.url),
+  "utf8",
+);
 
 const scenarios = [];
 
@@ -119,6 +123,27 @@ scenario("eBay health page labels diagnostic actions for operators", () => {
     !ebayHealthSource.includes('label="Test Route"'),
     "Expected eBay health page to avoid raw developer route labels.",
   );
+});
+
+scenario("eBay import runner uses professional diagnostics copy", () => {
+  for (const fragment of [
+    "Import eBay safely in resumable batches",
+    "clear diagnostic",
+    "diagnostic sample",
+    "Last batch diagnostics receipt",
+  ]) {
+    assert(
+      importRunnerSource.includes(fragment),
+      `Expected eBay import runner professional copy fragment ${fragment}.`,
+    );
+  }
+
+  for (const fragment of ["debug sample", "raw result / debug", "timeout crap"]) {
+    assert(
+      !importRunnerSource.includes(fragment),
+      `Expected eBay import runner to avoid rough operator copy ${fragment}.`,
+    );
+  }
 });
 
 const failed = [];
