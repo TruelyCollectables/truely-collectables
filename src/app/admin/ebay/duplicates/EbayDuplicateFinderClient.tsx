@@ -311,6 +311,12 @@ export default function EbayDuplicateFinderClient() {
               duplicates[group.key] ||
               group.rows.find((row) => row.productId !== keeperProductId)?.productId ||
               0;
+            const keeperRow =
+              group.rows.find((row) => row.productId === keeperProductId) || null;
+            const duplicateRow =
+              group.rows.find((row) => row.productId === duplicateProductId) || null;
+            const mergedQuantity =
+              Number(keeperRow?.quantity || 0) + Number(duplicateRow?.quantity || 0);
 
             return (
               <article
@@ -327,37 +333,46 @@ export default function EbayDuplicateFinderClient() {
                     <p className="mt-1 text-xs font-bold text-neutral-500">
                       Exact match rule: normalized title + same price.
                     </p>
+                    {keeperRow && duplicateRow ? (
+                      <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-black text-amber-950">
+                        Merge preview: keep product #{keeperRow.productId} qty{" "}
+                        {keeperRow.quantity}, end product #{duplicateRow.productId} qty{" "}
+                        {duplicateRow.quantity}, keeper becomes qty {mergedQuantity}.
+                      </p>
+                    ) : null}
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => void mergeGroup(group)}
-                    disabled={
-                      workingKey === group.key ||
-                      !keeperProductId ||
-                      !duplicateProductId ||
-                      keeperProductId === duplicateProductId
-                    }
-                    className="rounded-md bg-rose-700 px-5 py-3 text-sm font-black text-white hover:bg-rose-800 disabled:cursor-not-allowed disabled:bg-neutral-400"
-                  >
-                    {workingKey === group.key
-                      ? "Merging..."
-                      : "Merge Selected Duplicate"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => void endDuplicate(group, duplicateProductId)}
-                    disabled={
-                      workingKey === group.key ||
-                      !duplicateProductId ||
-                      keeperProductId === duplicateProductId
-                    }
-                    className="rounded-md border border-rose-300 bg-white px-5 py-3 text-sm font-black text-rose-800 hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-neutral-300 disabled:text-neutral-400"
-                  >
-                    {workingKey === group.key
-                      ? "Working..."
-                      : "End/Archive Without Merge"}
-                  </button>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      onClick={() => void mergeGroup(group)}
+                      disabled={
+                        workingKey === group.key ||
+                        !keeperProductId ||
+                        !duplicateProductId ||
+                        keeperProductId === duplicateProductId
+                      }
+                      className="rounded-md bg-rose-700 px-5 py-3 text-sm font-black text-white hover:bg-rose-800 disabled:cursor-not-allowed disabled:bg-neutral-400"
+                    >
+                      {workingKey === group.key
+                        ? "Merging..."
+                        : duplicateRow && keeperRow
+                          ? `Merge → qty ${mergedQuantity}`
+                          : "Merge Selected Duplicate"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => void endDuplicate(group, duplicateProductId)}
+                      disabled={
+                        workingKey === group.key ||
+                        !duplicateProductId ||
+                        keeperProductId === duplicateProductId
+                      }
+                      className="rounded-md border border-rose-300 bg-white px-5 py-3 text-sm font-black text-rose-800 hover:bg-rose-50 disabled:cursor-not-allowed disabled:border-neutral-300 disabled:text-neutral-400"
+                    >
+                      {workingKey === group.key ? "Working..." : "End Selected Only"}
+                    </button>
+                  </div>
                 </div>
 
                 <div className="mt-4 grid gap-3 lg:grid-cols-2">
@@ -433,7 +448,15 @@ export default function EbayDuplicateFinderClient() {
                                 : "border-rose-300 bg-white text-rose-900 hover:bg-rose-50 disabled:cursor-not-allowed disabled:opacity-40"
                             }`}
                           >
-                            End/archive this duplicate
+                            {isDuplicate ? "Selected for merge/end" : "Select as duplicate"}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => void endDuplicate(group, row.productId)}
+                            disabled={workingKey === group.key || isKeeper}
+                            className="rounded-md border border-orange-300 bg-white px-3 py-2 text-xs font-black text-orange-900 hover:bg-orange-50 disabled:cursor-not-allowed disabled:opacity-40"
+                          >
+                            End this row now
                           </button>
                           {row.ebayItemId ? (
                             <a
