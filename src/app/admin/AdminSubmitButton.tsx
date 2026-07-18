@@ -23,6 +23,10 @@ export default function AdminSubmitButton({
 }) {
   const { pending } = useFormStatus();
   const isDisabled = disabled || pending;
+  const fallbackDisabledTitle =
+    disabled && !pending && typeof disabledReason === "string"
+      ? disabledReason
+      : undefined;
 
   return (
     <>
@@ -31,7 +35,7 @@ export default function AdminSubmitButton({
         aria-busy={pending}
         disabled={isDisabled}
         name={name}
-        title={title}
+        title={title || fallbackDisabledTitle}
         value={value}
         className={`${className} disabled:opacity-60 ${
           pending ? "disabled:cursor-wait" : "disabled:cursor-not-allowed"

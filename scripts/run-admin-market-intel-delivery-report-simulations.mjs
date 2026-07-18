@@ -60,6 +60,9 @@ scenario("delivery center uses pending-aware submits for alert and report sends"
 scenario("shared admin submit buttons can explain disabled form actions", () => {
   for (const fragment of [
     "disabledReason?: React.ReactNode",
+    "const fallbackDisabledTitle",
+    "typeof disabledReason === \"string\"",
+    "title={title || fallbackDisabledTitle}",
     "disabled && !pending && disabledReason",
     'role="status"',
     'aria-live="polite"',
