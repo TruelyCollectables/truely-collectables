@@ -174,6 +174,10 @@ scenario("normalizes merge quantities to positive whole counts", () => {
 
 scenario("scanner row actions expose busy and disabled reasons", () => {
   for (const fragment of [
+    "copyDraftPayloadBlockedReason",
+    "saveCorrectionsBlockedReason",
+    "refreshCompsBlockedReason",
+    "addToTradeBlockedReason",
     "aria-busy={savingCorrections}",
     "aria-busy={refreshingComps}",
     "aria-busy={card.tradeStatus === \"adding\"}",
@@ -204,6 +208,21 @@ scenario("scanner row actions expose busy and disabled reasons", () => {
     assert(
       scannerSource.includes(fragment),
       `Expected scanner row action feedback fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("scanner row actions explain unavailable clicks before running handlers", () => {
+  for (const fragment of [
+    "if (!canCopyDraftPayload) {\n                      onBlockedAction(copyDraftPayloadBlockedReason);",
+    "if (!canSaveCorrections) {\n                    onBlockedAction(saveCorrectionsBlockedReason);",
+    "if (!canRefreshComps) {\n                    onBlockedAction(refreshCompsBlockedReason);",
+    "if (!canAddToTrade) {\n                    onBlockedAction(addToTradeBlockedReason);",
+    "if (!canRetry) {\n                    onBlockedAction(",
+  ]) {
+    assert(
+      scannerSource.includes(fragment),
+      `Expected scanner unavailable row action guard fragment ${fragment}.`,
     );
   }
 });

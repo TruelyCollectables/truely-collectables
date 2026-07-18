@@ -14484,6 +14484,8 @@ function BatchCardRow({
   const canSelectForDraft = isDraftableBatchCard(card);
   const canSelectRow = canSelectForDraft || (card.status === "done" && Boolean(card.result));
   const canCopyDraftPayload = Boolean(onCopyDraftPayload) && canSelectForDraft;
+  const copyDraftPayloadBlockedReason =
+    "Draft payload copy is available after the row has a complete, draftable scan result.";
   const retryBlockedReason = batchBusy
     ? "Finish the current InstaComp™ batch action before retrying this row."
     : card.status === "error" || card.status === "done"
@@ -14532,6 +14534,12 @@ function BatchCardRow({
       : "";
   const canSaveCorrections = !batchBusy && isCorrectionSavableBatchCard(card);
   const canRefreshComps = canSaveCorrections;
+  const saveCorrectionsBlockedReason = batchBusy
+    ? "Finish the current InstaComp™ batch action before saving corrections."
+    : "Run Batch InstaComp™ first so this row has a saved lot record, then save corrections.";
+  const refreshCompsBlockedReason = batchBusy
+    ? "Finish the current InstaComp™ batch action before refreshing comps."
+    : "Run Batch InstaComp™ first so this row has a saved lot record, then refresh comps.";
   const savingCorrections = activeAction === "saving_corrections";
   const refreshingComps = activeAction === "refreshing_comps";
   const saveCorrectionsLabel = instaCompBatchRowActionLabel({
@@ -14550,6 +14558,17 @@ function BatchCardRow({
     card.draftStatus !== "drafting" &&
     card.tradeStatus !== "created" &&
     card.tradeStatus !== "adding";
+  const addToTradeBlockedReason = batchBusy
+    ? "Finish the current InstaComp™ batch action before adding this row to trade."
+    : card.status !== "done" || !card.result
+      ? "Finish the scan before adding this card to trade."
+      : card.draftStatus === "created"
+        ? "This card already has a sell draft, so it cannot also be trade inventory."
+        : card.tradeStatus === "created"
+          ? "This card is already Available for Trade."
+          : card.tradeStatus === "adding"
+            ? "This card is already being added to Available for Trade."
+            : "This row is not ready for trade inventory.";
   const rowBorder = draftErrors.length
     ? "1px solid #e3a2a2"
     : reviewWarnings.length
@@ -14969,12 +14988,19 @@ function BatchCardRow({
               {onCopyDraftPayload && (
                 <button
                   type="button"
-                  onClick={() => void onCopyDraftPayload(card, index)}
+                  onClick={() => {
+                    if (!canCopyDraftPayload) {
+                      onBlockedAction(copyDraftPayloadBlockedReason);
+                      return;
+                    }
+
+                    void onCopyDraftPayload(card, index);
+                  }}
                   aria-disabled={!canCopyDraftPayload}
                   title={
                     canCopyDraftPayload
                       ? "Copy the exact draft payload TCOS will send for this row."
-                      : "Draft payload copy is available after the row has a complete, draftable scan result."
+                      : copyDraftPayloadBlockedReason
                   }
                   style={{
                     ...secondaryButtonStyle,
@@ -14991,15 +15017,20 @@ function BatchCardRow({
 
               <button
                 type="button"
-                onClick={() => void onSaveCorrections(card.id)}
+                onClick={() => {
+                  if (!canSaveCorrections) {
+                    onBlockedAction(saveCorrectionsBlockedReason);
+                    return;
+                  }
+
+                  void onSaveCorrections(card.id);
+                }}
                 aria-disabled={!canSaveCorrections}
                 aria-busy={savingCorrections}
                 title={
                   canSaveCorrections
                     ? "Save edited title, quantity, price, and review marks to this saved InstaComp™ lot row."
-                    : batchBusy
-                      ? "Finish the current InstaComp™ batch action before saving corrections."
-                      : "Run Batch InstaComp™ first so this row has a saved lot record, then save corrections."
+                    : saveCorrectionsBlockedReason
                 }
                 style={{
                   ...secondaryButtonStyle,
@@ -15015,15 +15046,20 @@ function BatchCardRow({
 
               <button
                 type="button"
-                onClick={() => void onRefreshComps(card.id)}
+                onClick={() => {
+                  if (!canRefreshComps) {
+                    onBlockedAction(refreshCompsBlockedReason);
+                    return;
+                  }
+
+                  void onRefreshComps(card.id);
+                }}
                 aria-disabled={!canRefreshComps}
                 aria-busy={refreshingComps}
                 title={
                   canRefreshComps
                     ? "Refresh comps and market price for this saved InstaComp™ row."
-                    : batchBusy
-                      ? "Finish the current InstaComp™ batch action before refreshing comps."
-                      : "Run Batch InstaComp™ first so this row has a saved lot record, then refresh comps."
+                    : refreshCompsBlockedReason
                 }
                 style={{
                   ...secondaryButtonStyle,
@@ -15039,23 +15075,20 @@ function BatchCardRow({
 
               <button
                 type="button"
-                onClick={() => void onAddToTrade(card.id)}
+                onClick={() => {
+                  if (!canAddToTrade) {
+                    onBlockedAction(addToTradeBlockedReason);
+                    return;
+                  }
+
+                  void onAddToTrade(card.id);
+                }}
                 aria-disabled={!canAddToTrade}
                 aria-busy={card.tradeStatus === "adding"}
                 title={
                   canAddToTrade
                     ? "Add this completed scan row to Available for Trade."
-                    : batchBusy
-                      ? "Finish the current InstaComp™ batch action before adding this row to trade."
-                      : card.status !== "done" || !card.result
-                        ? "Finish the scan before adding this card to trade."
-                        : card.draftStatus === "created"
-                          ? "This card already has a sell draft, so it cannot also be trade inventory."
-                          : card.tradeStatus === "created"
-                            ? "This card is already Available for Trade."
-                            : card.tradeStatus === "adding"
-                              ? "This card is already being added to Available for Trade."
-                              : "This row is not ready for trade inventory."
+                    : addToTradeBlockedReason
                 }
                 style={{
                   ...secondaryButtonStyle,
@@ -15077,7 +15110,17 @@ function BatchCardRow({
 
               <button
                 type="button"
-                onClick={() => onRetry(card.id)}
+                onClick={() => {
+                  if (!canRetry) {
+                    onBlockedAction(
+                      retryBlockedReason ||
+                        "Retry becomes available after this row finishes scanning or errors.",
+                    );
+                    return;
+                  }
+
+                  onRetry(card.id);
+                }}
                 aria-disabled={!canRetry}
                 title={retryBlockedReason || "Retry this row with the current image/title/serial corrections."}
                 style={{
@@ -15092,7 +15135,14 @@ function BatchCardRow({
 
               <button
                 type="button"
-                onClick={() => void onRemove(card.id)}
+                onClick={() => {
+                  if (!canRemove) {
+                    onBlockedAction(removeBlockedReason || "This row cannot be removed right now.");
+                    return;
+                  }
+
+                  void onRemove(card.id);
+                }}
                 aria-disabled={!canRemove}
                 aria-busy={isRemoving}
                 title={
