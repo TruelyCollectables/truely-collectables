@@ -16,6 +16,10 @@ const sources = {
     ),
     "utf8",
   ),
+  claimActions: await readFile(
+    new URL("../src/app/admin/shipping/ShippingClaimActions.tsx", import.meta.url),
+    "utf8",
+  ),
 };
 
 const scenarios = [];
@@ -93,6 +97,26 @@ scenario("manual shipping proof forms lock while any order shipping action is bu
     assert(
       sources.orderLabelActions.includes(fragment),
       `Expected manual proof locking fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("shipping claim status actions expose typed live feedback", () => {
+  for (const fragment of [
+    "type ClaimActionMessage",
+    "Updating coverage claim...",
+    "Coverage claim updated.",
+    'aria-live={tone === "info" ? "polite" : "assertive"}',
+    'role={tone === "error" ? "alert" : "status"}',
+    "setMessage({",
+    'tone: "error"',
+    'tone: "success"',
+    "aria-busy={pendingStatus === action.status}",
+    "<ActionNotice tone={message.tone}>{message.text}</ActionNotice>",
+  ]) {
+    assert(
+      sources.claimActions.includes(fragment),
+      `Expected shipping claim feedback fragment ${fragment}.`,
     );
   }
 });

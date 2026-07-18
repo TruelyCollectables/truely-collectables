@@ -115,25 +115,10 @@ function recordValue(value: unknown): Record<string, unknown> {
 }
 
 type NoticeTone = "success" | "error" | "info";
-
-function noticeTone(message: string): NoticeTone {
-  const normalized = message.toLowerCase();
-  if (
-    normalized.includes("could not") ||
-    normalized.includes("cannot") ||
-    normalized.includes("required") ||
-    normalized.includes("needs") ||
-    normalized.includes("choose")
-  ) {
-    return "error";
-  }
-
-  if (normalized.includes("saving") || normalized.includes("updating")) {
-    return "info";
-  }
-
-  return "success";
-}
+type ClaimActionMessage = {
+  text: string;
+  tone: NoticeTone;
+};
 
 function ActionNotice({
   tone,
@@ -150,7 +135,11 @@ function ActionNotice({
         : "border-blue-200 bg-blue-50 text-blue-950";
 
   return (
-    <p className={`rounded-2xl border px-3 py-2 text-xs font-black ${className}`}>
+    <p
+      aria-live={tone === "info" ? "polite" : "assertive"}
+      className={`rounded-2xl border px-3 py-2 text-xs font-black ${className}`}
+      role={tone === "error" ? "alert" : "status"}
+    >
       {children}
     </p>
   );
@@ -506,7 +495,7 @@ export default function ShippingClaimActions({
   const hasLatestBuyerRefundEvidence =
     Object.keys(latestBuyerRefundEvidence).length > 0;
   const [pendingStatus, setPendingStatus] = useState("");
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState<ClaimActionMessage | null>(null);
   const [note, setNote] = useState("");
   const [providerId, setProviderId] = useState(providerClaimId || "");
   const externalCoveragePaidBlocked =
@@ -611,12 +600,15 @@ export default function ShippingClaimActions({
   async function updateClaimStatus(status: ClaimStatus) {
     const missing = actionRequirements(status);
     if (missing.length > 0) {
-      setMessage(`Status update needs: ${missing.join(", ")}.`);
+      setMessage({
+        text: `Status update needs: ${missing.join(", ")}.`,
+        tone: "error",
+      });
       return;
     }
 
     setPendingStatus(status);
-    setMessage("Updating coverage claim...");
+    setMessage({ text: "Updating coverage claim...", tone: "info" });
 
     try {
       const response = await fetch(`/api/admin/shipping-claims/${claimId}`, {
@@ -633,16 +625,25 @@ export default function ShippingClaimActions({
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        setMessage(data.error || "Could not update coverage claim.");
+        setMessage({
+          text: data.error || "Could not update coverage claim.",
+          tone: "error",
+        });
         return;
       }
 
-      setMessage(data.message || "Coverage claim updated.");
+      setMessage({
+        text: data.message || "Coverage claim updated.",
+        tone: "success",
+      });
       setTimeout(() => {
         window.location.reload();
       }, 700);
     } catch (error: any) {
-      setMessage(error.message || "Could not update coverage claim.");
+      setMessage({
+        text: error.message || "Could not update coverage claim.",
+        tone: "error",
+      });
     } finally {
       setPendingStatus("");
     }
@@ -727,6 +728,7 @@ export default function ShippingClaimActions({
               key={action.status}
               onClick={() => updateClaimStatus(action.status)}
               disabled={disabled}
+              aria-busy={pendingStatus === action.status}
               title={missing.length > 0 ? `Required: ${missing.join(", ")}` : ""}
               className={`rounded-2xl px-3 py-2 text-xs font-black disabled:cursor-not-allowed disabled:opacity-50 ${action.tone}`}
             >
@@ -737,7 +739,7 @@ export default function ShippingClaimActions({
       </div>
 
       {message ? (
-        <ActionNotice tone={noticeTone(message)}>{message}</ActionNotice>
+        <ActionNotice tone={message.tone}>{message.text}</ActionNotice>
       ) : null}
     </div>
   );
