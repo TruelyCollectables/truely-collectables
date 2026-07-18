@@ -16,6 +16,17 @@ const sources = {
     ),
     "utf8",
   ),
+  ebayPurchaseRoute: await readFile(
+    new URL(
+      "../src/app/api/admin/market-intel/purchases/ebay-intake/route.ts",
+      import.meta.url,
+    ),
+    "utf8",
+  ),
+  ebayBuyerOrders: await readFile(
+    new URL("../src/lib/ebay-buyer-orders.ts", import.meta.url),
+    "utf8",
+  ),
   deals: await readFile(
     new URL("../src/app/admin/market-intel/deals/page.tsx", import.meta.url),
     "utf8",
@@ -125,14 +136,46 @@ scenario("eBay Purchase Inbox actions expose pending state", () => {
     'value="move_resale"',
     'value="move_hold"',
     'value="skip"',
-    "Adding purchase...",
+    "Importing eBay purchase...",
     "Moving to resale...",
     "Moving to hold review...",
     "Skipping selected...",
+    "order.ebay.com/ord/show?orderId=...",
+    "Connect / Reconnect eBay",
+    "disabled={Boolean(loadError)}",
   ]) {
     assert(
       sources.ebayPurchaseIntake.includes(fragment),
       `Expected eBay Purchase Inbox pending/action fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("eBay Purchase Inbox resolves authenticated buyer order links", () => {
+  for (const fragment of [
+    "parseEbayOrderId",
+    "fetchEbayBuyerOrder",
+    "for (const line of order.lines)",
+    "externalOrderId: order.orderId",
+    'reconnect: "1"',
+  ]) {
+    assert(
+      sources.ebayPurchaseRoute.includes(fragment),
+      `Expected eBay buyer-order route fragment ${fragment}.`,
+    );
+  }
+
+  for (const fragment of [
+    '"X-EBAY-API-CALL-NAME": "GetOrders"',
+    '"X-EBAY-API-IAF-TOKEN": accessToken',
+    "<OrderRole>Buyer</OrderRole>",
+    "OrderIDArray",
+    '"RECONNECT_REQUIRED"',
+    "allocateMoney",
+  ]) {
+    assert(
+      sources.ebayBuyerOrders.includes(fragment),
+      `Expected authenticated eBay buyer-order helper fragment ${fragment}.`,
     );
   }
 });

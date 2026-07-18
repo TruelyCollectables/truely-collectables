@@ -10,8 +10,10 @@ export const revalidate = 0;
 type PageProps = {
   searchParams?: Promise<{
     added?: string;
+    order?: string;
     moved?: string;
     skipped?: string;
+    reconnect?: string;
     error?: string;
     [ADMIN_HANDOFF_PARAM]?: string;
   }>;
@@ -43,6 +45,7 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
   const pending = rows.filter((row) => row.status === "pending");
   const moved = rows.filter((row) => row.status === "moved_to_review");
   const recorded = rows.filter((row) => row.status === "recorded");
+  const addedCount = Math.max(0, Number(query?.added || 0));
 
   return (
     <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
@@ -59,15 +62,18 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
           </p>
           <h1 className="mt-2 text-4xl font-black md:text-5xl">eBay Purchase Inbox</h1>
           <p className="mt-3 max-w-4xl font-semibold text-neutral-300">
-            Paste purchases you already made on eBay, preserve item price, shipping, tax,
-            and total paid, then route each card to Resale or Hold/Investment review.
+            Paste an eBay order-details link and TCOS imports the purchased line items and
+            receipt totals from the connected buyer account before exact-card review.
           </p>
         </div>
       </header>
 
       <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
-        {query?.added ? (
-          <Notice>Purchase added to the inbox.</Notice>
+        {addedCount > 0 ? (
+          <Notice>
+            Added {addedCount} eBay purchase {addedCount === 1 ? "item" : "items"}
+            {query?.order ? ` from order ${query.order}` : ""} to the inbox.
+          </Notice>
         ) : null}
         {query?.moved ? (
           <Notice>{query.moved} purchase row(s) moved to exact-card review.</Notice>
@@ -75,38 +81,76 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
         {query?.skipped ? <Notice>{query.skipped} row(s) skipped.</Notice> : null}
         {query?.error ? <Notice error>{query.error}</Notice> : null}
 
+        {query?.reconnect ? (
+          <section className="rounded-xl border border-amber-300 bg-amber-50 p-5 text-amber-950">
+            <h2 className="text-2xl font-black">Reconnect the eBay buying account</h2>
+            <p className="mt-2 font-semibold leading-6">
+              The saved eBay authorization does not include buyer-order access yet. Reconnect
+              once, approve the updated permission, then return here and paste the same order
+              link again.
+            </p>
+            <Link
+              href={adminHref("/api/ebay/auth")}
+              className="mt-4 inline-flex rounded-md bg-black px-4 py-3 font-black text-white"
+            >
+              Connect / Reconnect eBay
+            </Link>
+          </section>
+        ) : null}
+
         {loadError ? (
           <section className="rounded-xl border border-rose-300 bg-rose-50 p-6 text-rose-950">
-            <h2 className="text-2xl font-black">Purchase Inbox migration required</h2>
+            <h2 className="text-2xl font-black">Purchase Inbox database setup required</h2>
             <p className="mt-2 font-semibold">{loadError}</p>
             <p className="mt-3 text-sm font-bold">
-              Apply <code>supabase/migrations/20260718_tcos_market_intel_ebay_purchase_inbox.sql</code> in Supabase SQL Editor, then reload.
+              Run <code>supabase/migrations/20260718_tcos_market_intel_ebay_purchase_inbox.sql</code>
+              once in the Supabase SQL Editor, then reload this page. The import button stays
+              disabled until the table exists.
             </p>
           </section>
         ) : null}
 
         <section className="rounded-xl border border-cyan-200 bg-cyan-50 p-5 text-cyan-950">
-          <h2 className="text-2xl font-black">Why this is manual</h2>
+          <h2 className="text-2xl font-black">One link for a private eBay order</h2>
           <p className="mt-2 font-semibold leading-6">
-            eBay does not expose a list endpoint for ordinary personal Purchase History.
-            Paste the item URL or item number and the exact receipt amounts here. TCOS
-            pulls the listing details and stages the card for exact identity review.
+            Paste an <code>order.ebay.com/ord/show?orderId=...</code> link or the order number.
+            TCOS uses the connected eBay buyer authorization to retrieve the item ID, title,
+            quantity, purchase date, subtotal, shipping, tax, and amount paid. Public listing
+            URLs still work as a manual receipt fallback.
           </p>
+          <div className="mt-3">
+            <Link href={adminHref("/api/ebay/auth")} className="font-black underline">
+              Connect or refresh eBay buyer access
+            </Link>
+          </div>
         </section>
 
         <section className="rounded-xl border border-neutral-200 bg-white p-6 shadow-sm">
           <p className="text-xs font-black uppercase tracking-[0.18em] text-lime-800">
             Add purchase
           </p>
-          <h2 className="mt-1 text-3xl font-black">Paste an eBay purchase</h2>
+          <h2 className="mt-1 text-3xl font-black">Paste the eBay order link</h2>
+          <p className="mt-2 text-sm font-semibold text-neutral-600">
+            For an order-details link, the receipt fields below are filled from eBay and their
+            typed defaults are ignored. Use them only when entering a public listing URL.
+          </p>
           <form
             method="post"
             action={adminHref("/api/admin/market-intel/purchases/ebay-intake")}
             className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4"
           >
             <input type="hidden" name="action" value="add" />
-            <Field name="ebayItem" label="eBay item URL or item number" required className="md:col-span-2 xl:col-span-2" />
-            <Field name="playerName" label="Player name" required />
+            <Field
+              name="ebayItem"
+              label="eBay order link, order number, listing URL, or item number"
+              required
+              placeholder="https://order.ebay.com/ord/show?orderId=14-14906-11959..."
+              className="md:col-span-2 xl:col-span-2"
+            />
+            <Field
+              name="playerName"
+              label="Player correction (optional — TCOS auto-detects)"
+            />
             <label className="text-sm font-black">
               Sport/category
               <select name="sportOrCategory" defaultValue="Baseball" className={inputClass}>
@@ -117,9 +161,22 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
                 <option>Other Sports Card</option>
               </select>
             </label>
-            <Field name="externalOrderId" label="eBay order number (optional)" />
-            <Field name="purchaseDate" label="Purchase date" type="date" required defaultValue={new Date().toISOString().slice(0, 10)} />
-            <Field name="quantity" label="Quantity" type="number" required defaultValue="1" min="1" />
+            <Field name="externalOrderId" label="Order number override (optional)" />
+            <Field
+              name="purchaseDate"
+              label="Purchase date — listing fallback"
+              type="date"
+              required
+              defaultValue={new Date().toISOString().slice(0, 10)}
+            />
+            <Field
+              name="quantity"
+              label="Quantity — listing fallback"
+              type="number"
+              required
+              defaultValue="1"
+              min="1"
+            />
             <label className="text-sm font-black">
               Initial bucket
               <select name="targetBucket" defaultValue="resale" className={inputClass}>
@@ -128,16 +185,18 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
                 <option value="skip">Skip</option>
               </select>
             </label>
-            <Field name="itemSubtotal" label="Item subtotal" type="number" required defaultValue="0.00" step="0.01" min="0" />
-            <Field name="inboundShipping" label="Shipping" type="number" required defaultValue="0.00" step="0.01" min="0" />
-            <Field name="salesTax" label="Sales tax" type="number" required defaultValue="0.00" step="0.01" min="0" />
-            <Field name="buyerFees" label="Buyer fees" type="number" required defaultValue="0.00" step="0.01" min="0" />
-            <Field name="otherCost" label="Other cost" type="number" required defaultValue="0.00" step="0.01" min="0" />
+            <Field name="itemSubtotal" label="Item subtotal — fallback" type="number" required defaultValue="0.00" step="0.01" min="0" />
+            <Field name="inboundShipping" label="Shipping — fallback" type="number" required defaultValue="0.00" step="0.01" min="0" />
+            <Field name="salesTax" label="Sales tax — fallback" type="number" required defaultValue="0.00" step="0.01" min="0" />
+            <Field name="buyerFees" label="Buyer fees — fallback" type="number" required defaultValue="0.00" step="0.01" min="0" />
+            <Field name="otherCost" label="Other cost — fallback" type="number" required defaultValue="0.00" step="0.01" min="0" />
             <AdminSubmitButton
               className="rounded-md bg-lime-700 px-4 py-3 font-black text-white md:col-span-2 xl:col-span-3"
-              pendingChildren="Adding purchase..."
+              pendingChildren="Importing eBay purchase..."
+              disabled={Boolean(loadError)}
+              disabledReason={loadError ? "Install the Purchase Inbox database migration first." : undefined}
             >
-              Add to Purchase Inbox
+              Import eBay Purchase
             </AdminSubmitButton>
           </form>
         </section>
@@ -159,7 +218,7 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
           {pending.length === 0 ? (
             <p className="p-6 font-semibold text-neutral-600">No pending eBay purchases.</p>
           ) : (
-            <form method="post" action={adminHref("/api/admin/market-intel/purchases/ebay-intake") }>
+            <form method="post" action={adminHref("/api/admin/market-intel/purchases/ebay-intake")}>
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[1100px] text-left text-sm">
                   <thead className="bg-neutral-100 text-xs font-black uppercase tracking-wider text-neutral-500">
@@ -183,10 +242,18 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
                         <td className="px-4 py-4">
                           <p className="font-black">{new Date(row.purchased_at).toLocaleDateString()}</p>
                           <p className="mt-1 text-xs text-neutral-500">Qty {row.quantity}</p>
+                          {row.external_order_id ? (
+                            <p className="mt-1 text-xs font-bold text-neutral-600">Order {row.external_order_id}</p>
+                          ) : null}
                         </td>
                         <td className="px-4 py-4 font-black">{row.player_name}</td>
                         <td className="max-w-md px-4 py-4">
-                          <a href={row.direct_url} target="_blank" rel="noreferrer" className="font-bold text-blue-700 hover:underline">
+                          <a
+                            href={row.direct_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="font-bold text-blue-700 hover:underline"
+                          >
                             {row.title}
                           </a>
                         </td>
@@ -242,6 +309,7 @@ function Field({
   required = false,
   type = "text",
   defaultValue,
+  placeholder,
   step,
   min,
   className = "",
@@ -251,6 +319,7 @@ function Field({
   required?: boolean;
   type?: string;
   defaultValue?: string;
+  placeholder?: string;
   step?: string;
   min?: string;
   className?: string;
@@ -263,6 +332,7 @@ function Field({
         type={type}
         required={required}
         defaultValue={defaultValue}
+        placeholder={placeholder}
         step={step}
         min={min}
         className={inputClass}
@@ -282,7 +352,13 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 function Notice({ children, error = false }: { children: React.ReactNode; error?: boolean }) {
   return (
-    <div className={error ? "rounded-xl border border-rose-300 bg-rose-50 p-4 font-bold text-rose-950" : "rounded-xl border border-emerald-300 bg-emerald-50 p-4 font-bold text-emerald-950"}>
+    <div
+      className={
+        error
+          ? "rounded-xl border border-rose-300 bg-rose-50 p-4 font-bold text-rose-950"
+          : "rounded-xl border border-emerald-300 bg-emerald-50 p-4 font-bold text-emerald-950"
+      }
+    >
       {children}
     </div>
   );
