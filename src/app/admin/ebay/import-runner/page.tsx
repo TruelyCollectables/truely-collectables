@@ -36,7 +36,7 @@ export default async function EbayImportRunnerPage() {
               eBay Import Runner
             </h1>
             <p className="mt-2 max-w-3xl text-sm text-neutral-300">
-              Browser-driven batch import with real progress and real errors.
+              Browser-driven batch import with live progress and auditable diagnostics.
             </p>
           </div>
 

@@ -161,10 +161,10 @@ export default async function AdminEbayPage({
                 Import ALL active eBay listings into TCOS
               </h2>
               <p className="mt-2 max-w-4xl text-sm font-bold leading-6 text-emerald-900">
-                This is the big button. It pulls your active eBay inventory,
-                keeps the eBay price as the TCOS starting price, updates sold
-                or inactive eBay listings, and sends anything questionable to
-                review instead of silently making a mess.
+                Start the guided import workflow for active eBay inventory,
+                keep the eBay price as the TCOS starting price, update sold or
+                inactive listings, and route anything questionable into review
+                before it reaches the storefront.
               </p>
             </div>
 

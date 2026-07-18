@@ -18,6 +18,9 @@ const disallowedOperatorCopy = [
   "debug sample",
   "raw result / debug",
   "timeout crap",
+  "This is the big button",
+  "silently making a mess",
+  "real errors",
 ];
 
 const violations = [];

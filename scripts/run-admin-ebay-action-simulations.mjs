@@ -23,6 +23,10 @@ const importRunnerSource = await readFile(
   new URL("../src/app/admin/ebay/import-runner/EbayImportRunner.tsx", import.meta.url),
   "utf8",
 );
+const importRunnerPageSource = await readFile(
+  new URL("../src/app/admin/ebay/import-runner/page.tsx", import.meta.url),
+  "utf8",
+);
 
 const scenarios = [];
 
@@ -123,9 +127,24 @@ scenario("eBay health page labels diagnostic actions for operators", () => {
     !ebayHealthSource.includes('label="Test Route"'),
     "Expected eBay health page to avoid raw developer route labels.",
   );
+  assert(
+    ebayHealthSource.includes("Start the guided import workflow"),
+    "Expected eBay health page to describe import controls professionally.",
+  );
+  assert(
+    !ebayHealthSource.includes("This is the big button"),
+    "Expected eBay health page to avoid casual button copy.",
+  );
 });
 
 scenario("eBay import runner uses professional diagnostics copy", () => {
+  assert(
+    importRunnerPageSource.includes(
+      "Browser-driven batch import with live progress and auditable diagnostics.",
+    ),
+    "Expected eBay import runner page to describe batch diagnostics professionally.",
+  );
+
   for (const fragment of [
     "Import eBay safely in resumable batches",
     "clear diagnostic",
@@ -138,7 +157,7 @@ scenario("eBay import runner uses professional diagnostics copy", () => {
     );
   }
 
-  for (const fragment of ["debug sample", "raw result / debug", "timeout crap"]) {
+  for (const fragment of ["debug sample", "raw result / debug", "timeout crap", "real errors"]) {
     assert(
       !importRunnerSource.includes(fragment),
       `Expected eBay import runner to avoid rough operator copy ${fragment}.`,
