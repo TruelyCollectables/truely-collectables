@@ -14,6 +14,13 @@ const reconciliationActionsSource = await readFile(
   ),
   "utf8",
 );
+const reconciliationPageSource = await readFile(
+  new URL(
+    "../src/app/admin/financial-reconciliation/page.tsx",
+    import.meta.url,
+  ),
+  "utf8",
+);
 
 const scenarios = [];
 
@@ -123,6 +130,45 @@ scenario("money-audit action UI announces busy and decision feedback", () => {
       `Expected reconciliation action feedback fragment ${fragment}.`,
     );
   }
+});
+
+scenario("money-audit page keeps seller-protection ledger failures readable", () => {
+  for (const fragment of [
+    "function safeErrorMessage",
+    "const sellerProtectionAdjustmentsUnavailable = Boolean(",
+    "sellerProtectionAdjustmentsResult.error",
+    "Seller-protection adjustment ledger unavailable",
+    "Core Stripe reconciliation loaded, but TCOS internal",
+    "Do not treat the",
+    "counts below as zero",
+    "safeErrorMessage(sellerProtectionAdjustmentsResult.error)",
+    'role="status"',
+    'aria-live="polite"',
+    "Seller-protection reimbursement rows are unavailable",
+    "money ops view",
+    '? "Unavailable"',
+  ]) {
+    assert(
+      reconciliationPageSource.includes(fragment),
+      `Expected financial reconciliation partial-ledger fragment ${fragment}.`,
+    );
+  }
+
+  assert(
+    !reconciliationPageSource.includes(
+      "throw sellerProtectionAdjustmentsResult.error",
+    ),
+    "Expected seller-protection ledger failures to render inline instead of crashing the money ops page.",
+  );
+  assert(
+    reconciliationPageSource.indexOf(
+      "Seller-protection adjustment ledger unavailable",
+    ) <
+      reconciliationPageSource.indexOf(
+        "No seller-protection reimbursement adjustments have been recorded",
+      ),
+    "Expected seller-protection ledger failures to render before the empty reimbursement state.",
+  );
 });
 
 const failed = [];
