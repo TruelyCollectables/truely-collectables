@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { FormEvent, useState } from "react";
+import { FormEvent, useRef, useState } from "react";
 import { orderReviewPayoutResolutionRequirements } from "../../../lib/order-review-payout-resolution";
 
 const statusOptions = [
@@ -116,6 +116,8 @@ export default function CaseQueueActions({
   payableTotal: number;
 }) {
   const router = useRouter();
+  const caseActionRunningRef = useRef(false);
+  const payoutResolutionRunningRef = useRef(false);
   const [nextStatus, setNextStatus] = useState(status || "open");
   const [adminNote, setAdminNote] = useState("");
   const [nextOutcomeSummary, setNextOutcomeSummary] = useState(
@@ -145,6 +147,13 @@ export default function CaseQueueActions({
 
   async function updateCase(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (caseActionRunningRef.current || busy) {
+      setMessage({ text: "Case save is already running.", tone: "info" });
+      return;
+    }
+
+    caseActionRunningRef.current = true;
     setBusy(true);
     setMessage({ text: "Saving case...", tone: "info" });
 
@@ -176,12 +185,29 @@ export default function CaseQueueActions({
         tone: "error",
       });
     } finally {
+      caseActionRunningRef.current = false;
       setBusy(false);
     }
   }
 
   async function resolvePayouts(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (payoutResolutionRunningRef.current || resolutionBusy) {
+      setResolutionMessage({
+        text: "Payout resolution is already running.",
+        tone: "info",
+      });
+      return;
+    }
+
+    if (payoutRowCount === 0) {
+      setResolutionMessage({
+        text: "No seller payout rows are tied to this case scope.",
+        tone: "error",
+      });
+      return;
+    }
 
     if (resolutionRequirements.length > 0) {
       setResolutionMessage({
@@ -191,6 +217,7 @@ export default function CaseQueueActions({
       return;
     }
 
+    payoutResolutionRunningRef.current = true;
     setResolutionBusy(true);
     setResolutionMessage({ text: "Applying payout resolution...", tone: "info" });
 
@@ -240,6 +267,7 @@ export default function CaseQueueActions({
         tone: "error",
       });
     } finally {
+      payoutResolutionRunningRef.current = false;
       setResolutionBusy(false);
     }
   }
@@ -286,9 +314,9 @@ export default function CaseQueueActions({
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="submit"
-            disabled={busy}
+            aria-disabled={busy}
             aria-busy={busy}
-            className="rounded-md bg-neutral-950 px-3 py-2 text-sm font-black text-white disabled:opacity-50"
+            className="rounded-md bg-neutral-950 px-3 py-2 text-sm font-black text-white aria-disabled:cursor-wait aria-disabled:opacity-50"
           >
             {busy ? "Saving..." : "Save Case"}
           </button>
@@ -348,9 +376,9 @@ export default function CaseQueueActions({
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="submit"
-            disabled={payoutResolutionDisabled}
+            aria-disabled={payoutResolutionDisabled}
             aria-busy={resolutionBusy}
-            className="rounded-md border border-neutral-900 px-3 py-2 text-sm font-black text-neutral-950 disabled:opacity-50"
+            className="rounded-md border border-neutral-900 px-3 py-2 text-sm font-black text-neutral-950 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
           >
             {resolutionBusy ? "Applying..." : "Apply Payout Resolution"}
           </button>

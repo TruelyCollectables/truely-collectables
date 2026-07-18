@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 function label(value: string | null | undefined) {
   return String(value || "not_staged").replaceAll("_", " ").toUpperCase();
@@ -28,6 +28,7 @@ export default function StripeEvidenceActions({
   error: string | null;
 }) {
   const router = useRouter();
+  const evidenceActionRunningRef = useRef(false);
   const [busy, setBusy] = useState<"stage" | "submit" | null>(null);
   const [showSubmitConfirmation, setShowSubmitConfirmation] = useState(false);
   const [confirmation, setConfirmation] = useState("");
@@ -39,6 +40,20 @@ export default function StripeEvidenceActions({
   const canSubmit = normalizedStatus === "staged";
 
   async function stage() {
+    if (evidenceActionRunningRef.current || busy !== null) {
+      setMessage({ text: "Stripe evidence action is already running.", tone: "info" });
+      return;
+    }
+
+    if (stageLocked) {
+      setMessage({
+        text: `Evidence is already ${label(normalizedStatus).toLowerCase()}; generate/stage is locked.`,
+        tone: "error",
+      });
+      return;
+    }
+
+    evidenceActionRunningRef.current = true;
     setBusy("stage");
     setMessage({ text: "Generating and staging Stripe evidence...", tone: "info" });
     try {
@@ -59,11 +74,44 @@ export default function StripeEvidenceActions({
         tone: "error",
       });
     } finally {
+      evidenceActionRunningRef.current = false;
       setBusy(null);
     }
   }
 
+  function beginSubmitConfirmation() {
+    if (evidenceActionRunningRef.current || busy !== null) {
+      setMessage({ text: "Stripe evidence action is already running.", tone: "info" });
+      return;
+    }
+
+    if (!canSubmit) {
+      setMessage({
+        text: "Stage Stripe evidence before final submission.",
+        tone: "error",
+      });
+      return;
+    }
+
+    setShowSubmitConfirmation(true);
+    setConfirmation("");
+    setMessage(null);
+  }
+
   async function submit() {
+    if (evidenceActionRunningRef.current || busy !== null) {
+      setMessage({ text: "Stripe evidence action is already running.", tone: "info" });
+      return;
+    }
+
+    if (!canSubmit) {
+      setMessage({
+        text: "Stripe evidence must be staged before final submission.",
+        tone: "error",
+      });
+      return;
+    }
+
     if (confirmation !== "SUBMIT TO STRIPE") {
       setMessage({
         text: "Type SUBMIT TO STRIPE exactly before final submission.",
@@ -72,6 +120,7 @@ export default function StripeEvidenceActions({
       return;
     }
 
+    evidenceActionRunningRef.current = true;
     setBusy("submit");
     setMessage({ text: "Submitting final evidence to Stripe...", tone: "info" });
     try {
@@ -98,6 +147,7 @@ export default function StripeEvidenceActions({
         tone: "error",
       });
     } finally {
+      evidenceActionRunningRef.current = false;
       setBusy(null);
     }
   }
@@ -116,22 +166,18 @@ export default function StripeEvidenceActions({
         <button
           type="button"
           onClick={stage}
-          disabled={busy !== null || stageLocked}
+          aria-disabled={busy !== null || stageLocked}
           aria-busy={busy === "stage"}
-          className="rounded-md border border-rose-300 bg-white px-3 py-2 text-xs font-black disabled:opacity-50"
+          className="rounded-md border border-rose-300 bg-white px-3 py-2 text-xs font-black aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
         >
           {busy === "stage" ? "Staging..." : "Generate And Stage"}
         </button>
         <button
           type="button"
-          onClick={() => {
-            setShowSubmitConfirmation(true);
-            setConfirmation("");
-            setMessage(null);
-          }}
-          disabled={busy !== null || !canSubmit}
+          onClick={beginSubmitConfirmation}
+          aria-disabled={busy !== null || !canSubmit}
           aria-busy={busy === "submit"}
-          className="rounded-md bg-rose-800 px-3 py-2 text-xs font-black text-white disabled:opacity-50"
+          className="rounded-md bg-rose-800 px-3 py-2 text-xs font-black text-white aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
         >
           {busy === "submit" ? "Submitting..." : "Final Submit To Stripe"}
         </button>
@@ -155,20 +201,27 @@ export default function StripeEvidenceActions({
             <button
               type="button"
               onClick={submit}
-              disabled={busy !== null}
+              aria-disabled={busy !== null}
               aria-busy={busy === "submit"}
-              className="rounded bg-rose-800 px-3 py-2 text-xs font-black text-white disabled:opacity-50"
+              className="rounded bg-rose-800 px-3 py-2 text-xs font-black text-white aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
             >
               {busy === "submit" ? "Submitting..." : "Submit final evidence"}
             </button>
             <button
               type="button"
               onClick={() => {
+                if (busy !== null) {
+                  setMessage({
+                    text: "Wait for the Stripe evidence action to finish before closing this confirmation.",
+                    tone: "info",
+                  });
+                  return;
+                }
                 setShowSubmitConfirmation(false);
                 setConfirmation("");
               }}
-              disabled={busy !== null}
-              className="rounded border border-neutral-300 px-3 py-2 text-xs font-black disabled:opacity-50"
+              aria-disabled={busy !== null}
+              className="rounded border border-neutral-300 px-3 py-2 text-xs font-black aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
             >
               Cancel
             </button>

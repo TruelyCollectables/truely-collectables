@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { FormEvent, useMemo, useState } from "react";
+import { FormEvent, useMemo, useRef, useState } from "react";
 import CaseQueueActions from "../../order-review-cases/CaseQueueActions";
 
 type FeedbackTone = "success" | "error" | "info";
@@ -152,6 +152,7 @@ export default function OrderReviewCasesPanel({
   eventsError?: string | null;
 }) {
   const router = useRouter();
+  const createCaseRunningRef = useRef(false);
   const [caseType, setCaseType] = useState("chargeback");
   const [severity, setSeverity] = useState("medium");
   const [sellerAccountId, setSellerAccountId] = useState("all");
@@ -188,6 +189,14 @@ export default function OrderReviewCasesPanel({
   async function createCase(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
+    if (createCaseRunningRef.current || busy) {
+      setMessage({
+        tone: "info",
+        text: "Order review case is already opening.",
+      });
+      return;
+    }
+
     if (!canCreateCase) {
       setMessage({
         tone: "error",
@@ -196,6 +205,7 @@ export default function OrderReviewCasesPanel({
       return;
     }
 
+    createCaseRunningRef.current = true;
     setBusy(true);
     setMessage({ tone: "info", text: "Opening order review case..." });
 
@@ -236,6 +246,7 @@ export default function OrderReviewCasesPanel({
         text: error.message || "Could not create order review case.",
       });
     } finally {
+      createCaseRunningRef.current = false;
       setBusy(false);
     }
   }
@@ -545,7 +556,7 @@ export default function OrderReviewCasesPanel({
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <button
                 type="submit"
-                disabled={busy || !canCreateCase}
+                aria-disabled={busy || !canCreateCase}
                 aria-busy={busy}
                 title={
                   busy
@@ -554,7 +565,7 @@ export default function OrderReviewCasesPanel({
                       ? "Open a review case and apply the selected holds."
                       : "Add a clear case title before opening review."
                 }
-                className="rounded-2xl bg-neutral-950 px-4 py-3 text-sm font-black text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-2xl bg-neutral-950 px-4 py-3 text-sm font-black text-white shadow-sm aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
               >
                 {busy ? "Opening..." : "Open Case"}
               </button>
