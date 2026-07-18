@@ -1,6 +1,8 @@
 import { enforceBaseballPremiumPolicy } from "../../../../lib/market-intel-baseball-premium-enforcement";
 import { getIdentityDiscoveryWorkbench } from "../../../../lib/market-intel-identity-candidates";
+import { repairPendingDiscoveryParsing } from "../../../../lib/market-intel-discovery-repair";
 import BulkCandidateControls from "./BulkCandidateControls";
+import PurchaseCandidateControls from "./PurchaseCandidateControls";
 import ShippingBreakdownPortals from "./ShippingBreakdownPortals";
 
 export const dynamic = "force-dynamic";
@@ -48,30 +50,48 @@ function approvalReadiness(candidate: {
   return { ready: missing.length === 0, missing };
 }
 
+function kempPurchaseDraft(title: string) {
+  const normalized = title.toLowerCase();
+  return normalized.includes("kemp alderman") && normalized.includes("b24-ka")
+    ? { cost: 7.31, date: "2026-07-17" }
+    : null;
+}
+
 export default async function IdentityDiscoveryLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   let candidates: Array<{
     id: string;
     player: string;
+    title: string;
     askingPrice: number;
     shippingPrice: number;
+    deliveredPrice: number;
     ready: boolean;
     missing: string[];
+    purchaseCost: number;
+    purchaseDate: string;
   }> = [];
 
   try {
+    await repairPendingDiscoveryParsing();
     await enforceBaseballPremiumPolicy();
     const workbench = await getIdentityDiscoveryWorkbench();
+    const today = new Date().toISOString().slice(0, 10);
     candidates = workbench.pending.map((candidate) => {
       const readiness = approvalReadiness(candidate);
+      const draft = kempPurchaseDraft(candidate.original_title);
       return {
         id: candidate.id,
         player: candidate.subject.name,
+        title: candidate.original_title,
         askingPrice: candidate.asking_price,
         shippingPrice: candidate.shipping_price,
+        deliveredPrice: candidate.delivered_price,
         ready: readiness.ready,
         missing: readiness.missing,
+        purchaseCost: draft?.cost ?? candidate.delivered_price,
+        purchaseDate: draft?.date ?? today,
       };
     });
   } catch {
@@ -85,6 +105,14 @@ export default async function IdentityDiscoveryLayout({
           id: candidate.id,
           askingPrice: candidate.askingPrice,
           shippingPrice: candidate.shippingPrice,
+        }))}
+      />
+      <PurchaseCandidateControls
+        candidates={candidates.map((candidate) => ({
+          id: candidate.id,
+          title: candidate.title,
+          defaultCost: candidate.purchaseCost,
+          defaultPurchaseDate: candidate.purchaseDate,
         }))}
       />
       <BulkCandidateControls

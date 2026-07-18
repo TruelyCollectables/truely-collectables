@@ -3,13 +3,8 @@ import {
   adminHandoffFromUrl,
   adminRedirectUrl,
 } from "../../../../../../../lib/admin-handoff";
-import { assertCandidateBaseballPremiumPolicy } from "../../../../../../../lib/market-intel-baseball-premium-enforcement";
-import {
-  approveIdentityCandidate,
-  type CandidateApprovalInput,
-} from "../../../../../../../lib/market-intel-identity-candidates";
-import { normalizeDuplicateIdentityKey } from "../../../../../../../lib/market-intel-identity-duplicate-guard";
-import { normalizeDiscoveryApprovalInput } from "../../../../../../../lib/market-intel-discovery-repair";
+import type { CandidateApprovalInput } from "../../../../../../../lib/market-intel-identity-candidates";
+import { recordDiscoveryCandidatePurchase } from "../../../../../../../lib/market-intel-discovery-purchases";
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -34,7 +29,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
     const formData = await request.formData();
     const conditionType: CandidateApprovalInput["conditionType"] =
       text(formData, "conditionType") === "graded" ? "graded" : "raw";
-    const submitted: CandidateApprovalInput = {
+    const totalAcquisitionCost = Number(text(formData, "totalAcquisitionCost"));
+    const purchase = await recordDiscoveryCandidatePurchase({
       candidateId: id,
       seasonYear: text(formData, "seasonYear"),
       manufacturer: text(formData, "manufacturer"),
@@ -53,15 +49,14 @@ export async function POST(request: NextRequest, context: RouteContext) {
       gradingCompany: text(formData, "gradingCompany"),
       grade: text(formData, "grade"),
       quantity: Number(text(formData, "quantity") || 1),
-    };
+      totalAcquisitionCost,
+      purchaseDate: text(formData, "purchaseDate") || null,
+      alreadyReceived: formData.get("alreadyReceived") === "on",
+    });
 
-    const approval = await normalizeDiscoveryApprovalInput(submitted);
-    await assertCandidateBaseballPremiumPolicy(approval);
-    await normalizeDuplicateIdentityKey(approval);
-    const result = await approveIdentityCandidate(approval);
     return NextResponse.redirect(
       adminRedirectUrl(
-        `/admin/market-intel/discovery?approved=1&identityId=${encodeURIComponent(result.identityId)}${result.listingId ? `&listingId=${encodeURIComponent(result.listingId)}` : ""}`,
+        `/admin/market-intel/purchases/${purchase.purchaseId}?saved=purchased`,
         request.url,
         handoff,
       ),
@@ -69,7 +64,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     );
   } catch (error) {
     const message =
-      error instanceof Error ? error.message : "Unable to approve candidate.";
+      error instanceof Error ? error.message : "Unable to record Discovery purchase.";
     return NextResponse.redirect(
       adminRedirectUrl(
         `/admin/market-intel/discovery?error=${encodeURIComponent(message)}#candidate-${encodeURIComponent(id)}`,
