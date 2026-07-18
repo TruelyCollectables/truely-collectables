@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import AdminSubmitButton from "../AdminSubmitButton";
 import {
   inventoryEngine,
   type InventoryBridgeIssue,
@@ -100,12 +101,12 @@ export default async function AdminInventoryPage({
               Category Review
             </Link>
             <form action={backfillInventory}>
-              <button
-                type="submit"
+              <AdminSubmitButton
                 className="rounded-md bg-amber-300 px-4 py-2 text-sm font-black text-neutral-950 hover:bg-amber-200"
+                pendingChildren="Backfilling..."
               >
                 Backfill V2 Inventory
-              </button>
+              </AdminSubmitButton>
             </form>
           </div>
         </div>

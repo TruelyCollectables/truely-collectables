@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
+import AdminSubmitButton from "../../AdminSubmitButton";
 import { inventoryEngine } from "../../../../modules/inventory";
 import InstaCompScanner from "../../instacomp/InstaCompScanner";
 
@@ -227,12 +228,12 @@ export default async function NewProductPage({
           </Field>
 
           <div className="md:col-span-2">
-            <button
-              type="submit"
+            <AdminSubmitButton
               className="rounded-md bg-neutral-950 px-6 py-3 text-sm font-black text-white hover:bg-neutral-800"
+              pendingChildren="Adding product..."
             >
               Add manual product
-            </button>
+            </AdminSubmitButton>
           </div>
         </form>
       </section>

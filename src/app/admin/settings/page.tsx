@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import AdminSubmitButton from "../AdminSubmitButton";
 import {
   PLATFORM_DOMAIN,
   STORE_BRAND_NAME,
@@ -312,12 +313,12 @@ export default async function AdminSettingsPage({
               />
             </div>
 
-            <button
-              type="submit"
+            <AdminSubmitButton
               className="rounded-md bg-neutral-950 px-5 py-3 text-sm font-black text-white hover:bg-neutral-800"
+              pendingChildren="Saving operations..."
             >
               Save Store Operations
-            </button>
+            </AdminSubmitButton>
           </form>
         </section>
 
@@ -355,12 +356,12 @@ export default async function AdminSettingsPage({
               <Info label="Environment" value={settings.ebayEnvironment} />
             </div>
 
-            <button
-              type="submit"
+            <AdminSubmitButton
               className="rounded-md bg-neutral-950 px-5 py-3 text-sm font-black text-white hover:bg-neutral-800"
+              pendingChildren="Saving integration..."
             >
               Save Integration Settings
-            </button>
+            </AdminSubmitButton>
           </form>
         </section>
       </div>
