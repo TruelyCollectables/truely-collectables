@@ -1,6 +1,10 @@
 import Link from "next/link";
 import { getMarketIntelWatchlist } from "../../../../lib/market-intel-watchlist";
-import { seedMarketIntelGrowthProspects } from "../../../../lib/market-intel-prospect-seed";
+import {
+  GROWTH_PROSPECT_COUNT,
+  GROWTH_PROSPECT_SEED_VERSION,
+  seedMarketIntelGrowthProspects,
+} from "../../../../lib/market-intel-prospect-seed";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
@@ -9,16 +13,26 @@ function isGrowthProspect(notes: string | null | undefined) {
   return String(notes || "").includes("[GROWTH_PROSPECT]");
 }
 
+function isCurrentSeed(notes: string | null | undefined) {
+  return String(notes || "").includes(
+    `Seed version: ${GROWTH_PROSPECT_SEED_VERSION}`,
+  );
+}
+
 export default async function GrowthSpecsLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   let rows = await getMarketIntelWatchlist();
-  let prospects = rows.filter((row) => isGrowthProspect(row.notes));
+  let prospects = rows.filter(
+    (row) => row.active && isGrowthProspect(row.notes) && isCurrentSeed(row.notes),
+  );
 
-  if (prospects.length === 0) {
+  if (prospects.length !== GROWTH_PROSPECT_COUNT) {
     await seedMarketIntelGrowthProspects();
     rows = await getMarketIntelWatchlist();
-    prospects = rows.filter((row) => isGrowthProspect(row.notes));
+    prospects = rows.filter(
+      (row) => row.active && isGrowthProspect(row.notes) && isCurrentSeed(row.notes),
+    );
   }
 
   const categories = new Set(
@@ -33,10 +47,11 @@ export default async function GrowthSpecsLayout({
         <div className="mx-auto flex max-w-7xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.16em]">
-              Growth Prospect Universe
+              Licensed Pro Value Universe
             </p>
             <p className="mt-1 font-black">
-              {prospects.length} active prospects across {categories.size} categories · non-base cards only
+              {prospects.length} active targets across {categories.size} categories ·
+              baseball-first · WNBA value · non-base only
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
@@ -44,14 +59,14 @@ export default async function GrowthSpecsLayout({
               href="/admin/market-intel/growth-specs/prospects"
               className="rounded-md bg-fuchsia-800 px-4 py-2 text-sm font-black text-white"
             >
-              View Top 5 Lists
+              View Value Watchlists
             </Link>
             <form method="post" action="/api/admin/market-intel/growth-specs/seed-prospects">
               <button
                 type="submit"
                 className="rounded-md border border-fuchsia-300 bg-white px-4 py-2 text-sm font-black"
               >
-                Refresh Prospect Lists
+                Refresh Value Lists
               </button>
             </form>
           </div>
