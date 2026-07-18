@@ -3,6 +3,7 @@ import { getIdentityDiscoveryWorkbench } from "../../../../lib/market-intel-iden
 import { repairPendingDiscoveryParsing } from "../../../../lib/market-intel-discovery-repair";
 import BulkCandidateControls from "./BulkCandidateControls";
 import PurchaseCandidateControls from "./PurchaseCandidateControls";
+import ResolvedCandidateCleanup from "./ResolvedCandidateCleanup";
 import ShippingBreakdownPortals from "./ShippingBreakdownPortals";
 
 export const dynamic = "force-dynamic";
@@ -100,6 +101,7 @@ export default async function IdentityDiscoveryLayout({
 
   return (
     <>
+      <ResolvedCandidateCleanup />
       <ShippingBreakdownPortals
         candidates={candidates.map((candidate) => ({
           id: candidate.id,
