@@ -147,6 +147,7 @@
     "lint": "eslint",
     "check:admin-copy": "node scripts/check-admin-copy.mjs",
     "check:admin-controls": "node scripts/check-admin-controls.mjs",
+    "check:admin-live-regions": "node scripts/check-admin-live-regions.mjs",
     "check:admin-routes": "node scripts/check-admin-routes.mjs"
   },
   "dependencies": {

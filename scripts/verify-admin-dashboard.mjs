@@ -4,6 +4,7 @@ const checks = [
   "check:admin-controls",
   "check:admin-routes",
   "check:admin-copy",
+  "check:admin-live-regions",
   "simulate:admin-login",
   "simulate:admin-dashboard-actions",
   "simulate:admin-product-bulk",
