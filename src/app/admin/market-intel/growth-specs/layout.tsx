@@ -1,6 +1,6 @@
 import Link from "next/link";
 import AdminSubmitButton from "../../AdminSubmitButton";
-import { seedDillonHeadHoardTarget } from "../../../../lib/market-intel-hoard-target-seed";
+import { seedDillonLewisHoardTarget } from "../../../../lib/market-intel-hoard-target-seed";
 import { getMarketIntelWatchlist } from "../../../../lib/market-intel-watchlist";
 import {
   GROWTH_PROSPECT_COUNT,
@@ -33,7 +33,7 @@ export default async function GrowthSpecsLayout({
     await seedMarketIntelGrowthProspects();
   }
 
-  await seedDillonHeadHoardTarget();
+  await seedDillonLewisHoardTarget();
   rows = await getMarketIntelWatchlist();
   const prospects = rows.filter(
     (row) => row.active && isGrowthProspect(row.notes),
@@ -58,7 +58,7 @@ export default async function GrowthSpecsLayout({
               baseball-first · WNBA value · non-base only
             </p>
             <p className="mt-1 text-xs font-bold text-fuchsia-800">
-              Dillon Head: 1st Bowman Chrome non-base hoard lane only.
+              Dillon Lewis: 1st Bowman Chrome non-base hoard lane only.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
