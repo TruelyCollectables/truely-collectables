@@ -29,13 +29,16 @@ export function canRemoveInstaCompBatchRow(input: InstaCompBatchRowRemovalInput)
 }
 
 export function instaCompBatchRowRemovalLabel({
+  operatorMarkedWrong = false,
   status,
   isRemoving = false,
 }: {
+  operatorMarkedWrong?: boolean;
   status?: string | null;
   isRemoving?: boolean;
 }) {
   if (isRemoving) return "Removing...";
+  if (operatorMarkedWrong) return "Remove Wrong Row";
   if (status === "scanning") return "End / Remove";
   return "Remove";
 }

@@ -13779,6 +13779,23 @@ function BatchCardRow({
                 </label>
               </div>
             ) : null}
+            {card.operatorMarkedWrong ? (
+              <div
+                style={{
+                  marginTop: 8,
+                  border: "1px solid #fecaca",
+                  borderRadius: 10,
+                  background: "#fff1f2",
+                  color: "#991b1b",
+                  padding: "8px 10px",
+                  fontSize: 12,
+                  fontWeight: 900,
+                }}
+              >
+                Wrong scan marked. Use “Remove Wrong Row” below to drop it from this
+                batch, or edit the row and retry if the images are still useful.
+              </div>
+            ) : null}
             {(draftErrors.length > 0 || displayReviewWarnings.length > 0) && (
               <div
                 style={{
@@ -14015,6 +14032,8 @@ function BatchCardRow({
                 title={
                   isRemoving
                     ? "This row is being removed from the visible batch and cancelled in storage when applicable."
+                    : card.operatorMarkedWrong
+                      ? "Remove this wrong scan result from the visible batch and cancel its saved queue row when available."
                     : card.status === "scanning"
                       ? "End this active scan row, remove it from the visible batch, and cancel its saved queue row when available."
                       : card.persistentJobId && card.persistentItemId
@@ -14031,6 +14050,7 @@ function BatchCardRow({
                 }}
               >
                 {instaCompBatchRowRemovalLabel({
+                  operatorMarkedWrong: card.operatorMarkedWrong,
                   status: card.status,
                   isRemoving,
                 })}

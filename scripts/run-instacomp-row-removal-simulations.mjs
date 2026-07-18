@@ -68,6 +68,16 @@ scenario("prevents duplicate row removal clicks", () => {
   );
 });
 
+scenario("makes wrong scan row removal explicit", () => {
+  assert(
+    instaCompBatchRowRemovalLabel({
+      status: "done",
+      operatorMarkedWrong: true,
+    }) === "Remove Wrong Row",
+    "Expected operator-marked wrong scan rows to get an explicit removal label."
+  );
+});
+
 const failed = [];
 
 for (const item of scenarios) {
