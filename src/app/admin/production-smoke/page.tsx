@@ -143,36 +143,104 @@ const manualVerificationChecks = [
 ];
 
 export default function ProductionSmokePage() {
-  return (
-    <main className="min-h-screen bg-neutral-50 p-8 text-neutral-950">
-      <div className="mx-auto max-w-6xl">
-        <div className="mb-8 flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="text-sm font-black uppercase tracking-widest text-neutral-500">
-              Production verification
-            </p>
-            <h1 className="mt-2 text-4xl font-black">Production Smoke Report</h1>
-            <p className="mt-2 max-w-3xl text-neutral-600">
-              Operator-facing map for the production smoke suite. This page does
-              not run Vercel, charge cards, buy postage, or contact providers;
-              it shows exactly what the launch smoke is expected to prove after
-              a successful production deployment.
-            </p>
-          </div>
-          <div className="flex flex-wrap gap-3">
-            <Link href="/admin/launch-readiness" className="rounded border bg-white px-4 py-2">
-              Launch Readiness
-            </Link>
-            <Link href="/admin/launch-gate-drill" className="rounded border bg-white px-4 py-2">
-              Gate Drill
-            </Link>
-            <Link href="/api/admin/launch-readiness?format=handoff-bundle" className="rounded border bg-white px-4 py-2">
-              Hand-off Bundle
-            </Link>
-          </div>
-        </div>
+  const launchCommand = "npm run launch:production";
 
-        <section className="mb-8 rounded border border-blue-200 bg-blue-50 p-6 text-blue-950">
+  return (
+    <main className="min-h-screen bg-neutral-100 px-6 py-8 text-neutral-950">
+      <div className="mx-auto max-w-6xl">
+        <section className="mb-8 overflow-hidden rounded-[2rem] border border-neutral-900 bg-neutral-950 shadow-2xl">
+          <div className="grid gap-6 p-6 text-white lg:grid-cols-[1.35fr_0.65fr] lg:p-8">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.22em] text-emerald-300">
+                Production verification
+              </p>
+              <h1 className="mt-3 text-4xl font-black tracking-tight md:text-5xl">
+                Production Smoke Report
+              </h1>
+              <p className="mt-3 max-w-4xl text-sm leading-6 text-neutral-300 md:text-base">
+                Operator-facing map for the production smoke suite. This page does
+                not run Vercel, charge cards, buy postage, or contact providers;
+                it shows exactly what launch smoke must prove after a successful
+                production deployment.
+              </p>
+              <div className="mt-5 flex flex-wrap gap-2 text-xs font-black uppercase tracking-[0.12em]">
+                <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-neutral-100">
+                  {smokeChecks.length} smoke checks
+                </span>
+                <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-neutral-100">
+                  {manualVerificationChecks.length} manual proofs
+                </span>
+                <span className="rounded-full border border-emerald-400/40 bg-emerald-400/15 px-3 py-1.5 text-emerald-100">
+                  No side effects
+                </span>
+              </div>
+            </div>
+
+            <div className="rounded-3xl border border-white/10 bg-white/10 p-4">
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-neutral-300">
+                Fast operator links
+              </p>
+              <div className="mt-4 grid gap-2">
+                <Link
+                  href="/admin/launch-readiness"
+                  className="rounded-2xl border border-white/15 bg-white px-4 py-3 text-center text-sm font-black text-neutral-950"
+                >
+                  Launch Readiness
+                </Link>
+                <Link
+                  href="/admin/launch-gate-drill"
+                  className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-center text-sm font-black text-white"
+                >
+                  Gate Drill
+                </Link>
+                <Link
+                  href="/api/admin/launch-readiness?format=handoff-bundle"
+                  className="rounded-2xl border border-white/15 bg-white/10 px-4 py-3 text-center text-sm font-black text-white"
+                >
+                  Hand-off Bundle
+                </Link>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section className="mb-8 grid gap-4 md:grid-cols-3">
+          <div className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-neutral-500">
+              Clean target
+            </p>
+            <p className="mt-2 break-words text-lg font-black">
+              {DEPLOY_SAFETY.cleanProductionDomain}
+            </p>
+            <p className="mt-1 text-sm font-semibold text-neutral-600">
+              Smoke must prove the clean production domain.
+            </p>
+          </div>
+          <div className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-neutral-500">
+              Alias refusal
+            </p>
+            <p className="mt-2 break-words text-lg font-black">
+              {DEPLOY_SAFETY.unwantedAlias}
+            </p>
+            <p className="mt-1 text-sm font-semibold text-neutral-600">
+              This alias must not be treated as production-clean.
+            </p>
+          </div>
+          <div className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-neutral-500">
+              Launch command
+            </p>
+            <code className="mt-2 block rounded-2xl bg-neutral-950 px-3 py-2 text-sm font-black text-white">
+              {launchCommand}
+            </code>
+            <p className="mt-1 text-sm font-semibold text-neutral-600">
+              Deploy, then smoke; stop on quota or alias drift.
+            </p>
+          </div>
+        </section>
+
+        <section className="mb-8 rounded-[2rem] border border-blue-200 bg-blue-50 p-6 text-blue-950 shadow-sm">
           <h2 className="text-2xl font-black">Launch command</h2>
           <p className="mt-2 max-w-3xl text-sm leading-6">
             Use the one-shot launch command when Vercel accepts production
@@ -180,7 +248,7 @@ export default function ProductionSmokePage() {
             production, then runs the smoke.
           </p>
           <pre className="mt-4 overflow-x-auto rounded bg-neutral-950 p-4 text-sm text-neutral-50">
-            {`npm run launch:production`}
+            {launchCommand}
           </pre>
           <p className="mt-3 text-sm font-bold">
             Clean target: <code>{DEPLOY_SAFETY.cleanProductionDomain}</code>.
@@ -189,7 +257,7 @@ export default function ProductionSmokePage() {
           </p>
         </section>
 
-        <section className="mb-8 rounded border border-amber-200 bg-amber-50 p-6 text-amber-950">
+        <section className="mb-8 rounded-[2rem] border border-amber-200 bg-amber-50 p-6 text-amber-950 shadow-sm">
           <h2 className="text-xl font-black">Deploy live safety contract</h2>
           <p className="mt-2 max-w-4xl text-sm leading-6">
             The production deploy helper must keep Vercel quota messaging,
@@ -225,8 +293,8 @@ export default function ProductionSmokePage() {
           <h3 className="mt-5 font-black">Protected deploy sequence</h3>
           <ol className="mt-3 grid gap-2 text-sm font-semibold md:grid-cols-3 xl:grid-cols-6">
             {DEPLOY_SAFETY.sequence.map((step, index) => (
-              <li key={step} className="rounded border border-amber-200 bg-white p-3">
-                <span className="mr-2 rounded bg-amber-100 px-2 py-1 text-xs font-black">
+              <li key={step} className="rounded-2xl border border-amber-200 bg-white p-3 shadow-sm">
+                <span className="mr-2 rounded-full bg-amber-100 px-2 py-1 text-xs font-black">
                   {index + 1}
                 </span>
                 {step}
@@ -235,7 +303,7 @@ export default function ProductionSmokePage() {
           </ol>
         </section>
 
-        <section className="mb-8 rounded border border-emerald-200 bg-emerald-50 p-6 text-emerald-950">
+        <section className="mb-8 rounded-[2rem] border border-emerald-200 bg-emerald-50 p-6 text-emerald-950 shadow-sm">
           <h2 className="text-xl font-black">Production go/no-go ladder</h2>
           <p className="mt-2 max-w-4xl text-sm leading-6">
             Use this ladder when deciding whether to keep going, split the run,
@@ -245,9 +313,9 @@ export default function ProductionSmokePage() {
           </p>
           <ol className="mt-4 grid gap-3 lg:grid-cols-5">
             {DEPLOY_SAFETY.decisionLadder.map((step) => (
-              <li key={step.label} className="rounded border border-emerald-200 bg-white p-4">
+              <li key={step.label} className="rounded-2xl border border-emerald-200 bg-white p-4 shadow-sm">
                 <h3 className="font-black">{step.label}</h3>
-                <code className="mt-2 block break-words rounded bg-emerald-100 px-2 py-1 text-xs font-bold">
+                <code className="mt-2 block break-words rounded-xl bg-emerald-100 px-2 py-1 text-xs font-bold">
                   {step.command}
                 </code>
                 <p className="mt-2 text-sm leading-6 text-emerald-900">{step.outcome}.</p>
@@ -257,7 +325,7 @@ export default function ProductionSmokePage() {
         </section>
 
         <section className="mb-8 grid gap-4 lg:grid-cols-2">
-          <article className="rounded border bg-white p-6">
+          <article className="rounded-[2rem] border border-neutral-200 bg-white p-6 shadow-sm">
             <h2 className="text-xl font-black">Smoke coverage</h2>
             <ul className="mt-4 list-disc space-y-2 pl-5 text-sm leading-6">
               {smokeChecks.map((check) => (
@@ -266,11 +334,11 @@ export default function ProductionSmokePage() {
             </ul>
           </article>
 
-          <article className="rounded border bg-white p-6">
+          <article className="rounded-[2rem] border border-neutral-200 bg-white p-6 shadow-sm">
             <h2 className="text-xl font-black">Failure meanings</h2>
             <div className="mt-4 space-y-3">
               {failureMeanings.map((item) => (
-                <div key={item.label} className="rounded border border-neutral-200 bg-neutral-50 p-3">
+                <div key={item.label} className="rounded-2xl border border-neutral-200 bg-neutral-50 p-3">
                   <h3 className="font-black">{item.label}</h3>
                   <p className="mt-1 text-sm leading-6 text-neutral-700">{item.detail}</p>
                 </div>
@@ -279,7 +347,7 @@ export default function ProductionSmokePage() {
           </article>
         </section>
 
-        <section className="mb-8 rounded border border-emerald-200 bg-emerald-50 p-6 text-emerald-950">
+        <section className="mb-8 rounded-[2rem] border border-emerald-200 bg-emerald-50 p-6 text-emerald-950 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <h2 className="text-xl font-black">
@@ -296,25 +364,25 @@ export default function ProductionSmokePage() {
             </div>
             <Link
               href={sellerMarketplaceReceiptHandoff.route}
-              className="rounded border border-emerald-300 bg-white px-4 py-2 text-sm font-bold"
+              className="rounded-2xl border border-emerald-300 bg-white px-4 py-3 text-sm font-black shadow-sm"
             >
               Open Seller Marketplaces
             </Link>
           </div>
           <div className="mt-4 grid gap-3 lg:grid-cols-3">
-            <div className="rounded border border-emerald-200 bg-white p-4">
+            <div className="rounded-2xl border border-emerald-200 bg-white p-4 shadow-sm">
               <h3 className="font-black">Required controls</h3>
               <p className="mt-2 text-sm font-semibold">
                 {sellerMarketplaceReceiptHandoffControlsText}
               </p>
             </div>
-            <div className="rounded border border-emerald-200 bg-white p-4">
+            <div className="rounded-2xl border border-emerald-200 bg-white p-4 shadow-sm">
               <h3 className="font-black">Covered operations</h3>
               <p className="mt-2 text-sm font-semibold">
                 {sellerMarketplaceReceiptHandoff.operations.join(", ")}
               </p>
             </div>
-            <div className="rounded border border-emerald-200 bg-white p-4">
+            <div className="rounded-2xl border border-emerald-200 bg-white p-4 shadow-sm">
               <h3 className="font-black">Safe-use boundary</h3>
               <p className="mt-2 text-sm font-semibold">
                 {sellerMarketplaceReceiptHandoff.safeUseBoundary}
@@ -323,7 +391,7 @@ export default function ProductionSmokePage() {
           </div>
         </section>
 
-        <section className="rounded border bg-white p-6">
+        <section className="rounded-[2rem] border border-neutral-200 bg-white p-6 shadow-sm">
           <h2 className="text-xl font-black">Manual follow-up after smoke passes</h2>
           <p className="mt-2 max-w-4xl text-sm leading-6 text-neutral-700">
             Post-smoke manual verification checklist: follow these in order,
@@ -335,7 +403,7 @@ export default function ProductionSmokePage() {
             {manualVerificationChecks.map((check, index) => (
               <article
                 key={check.label}
-                className="rounded border border-neutral-200 bg-neutral-50 p-4"
+                className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4 shadow-sm"
               >
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <h3 className="font-black">
@@ -343,7 +411,7 @@ export default function ProductionSmokePage() {
                   </h3>
                   <Link
                     href={check.href}
-                    className="rounded border border-neutral-300 bg-white px-3 py-2 text-sm font-bold"
+                    className="rounded-2xl border border-neutral-300 bg-white px-3 py-2 text-sm font-black shadow-sm"
                   >
                     Open proof target
                   </Link>
@@ -385,7 +453,7 @@ export default function ProductionSmokePage() {
 
 function SmokeLink({ href, label }: { href: string; label: string }) {
   return (
-    <Link href={href} className="rounded border border-neutral-200 bg-neutral-50 px-4 py-3 font-bold">
+    <Link href={href} className="rounded-2xl border border-neutral-200 bg-neutral-50 px-4 py-3 font-bold shadow-sm transition hover:border-neutral-400 hover:bg-white">
       {label}
     </Link>
   );
