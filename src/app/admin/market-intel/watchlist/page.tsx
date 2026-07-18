@@ -80,9 +80,13 @@ export default async function MarketIntelWatchlistPage({ searchParams }: PagePro
                 <AdminSubmitButton
                   className="rounded-md bg-black px-5 py-3 font-black text-white sm:col-span-2"
                   pendingChildren="Adding player..."
+                  title="Add this player to the shared Market Intel watchlist used by scanner, comps, and alert jobs."
                 >
                   Add to Watchlist
                 </AdminSubmitButton>
+                <p className="text-xs font-bold text-neutral-600 sm:col-span-2">
+                  Saves one shared target for scanner, comp engine, deal discovery, and alert rules.
+                </p>
               </form>
             </section>
 
@@ -100,9 +104,13 @@ export default async function MarketIntelWatchlistPage({ searchParams }: PagePro
                 <AdminSubmitButton
                   className="rounded-md bg-cyan-700 px-4 py-2.5 text-sm font-black text-white"
                   pendingChildren="Loading watchlist..."
+                  title="Load the curated current research watchlist without deleting existing player history."
                 >
                   Load Current Watchlist
                 </AdminSubmitButton>
+                <p className="mt-2 text-xs font-bold text-cyan-950">
+                  Adds or refreshes curated targets; existing watchlist history is preserved.
+                </p>
               </form>
             </section>
           </div>
@@ -142,9 +150,19 @@ export default async function MarketIntelWatchlistPage({ searchParams }: PagePro
                         <AdminSubmitButton
                           className={row.active ? "rounded-md border border-neutral-300 px-4 py-2 text-sm font-black" : "rounded-md bg-emerald-600 px-4 py-2 text-sm font-black text-white"}
                           pendingChildren={row.active ? "Pausing..." : "Reactivating..."}
+                          title={
+                            row.active
+                              ? `Pause ${row.subject?.name || "this target"} in future Market Intel scans and alerts without deleting history.`
+                              : `Reactivate ${row.subject?.name || "this target"} for future Market Intel scans and alerts.`
+                          }
                         >
                           {row.active ? "Pause" : "Reactivate"}
                         </AdminSubmitButton>
+                        <p className="mt-2 text-xs font-bold text-neutral-600">
+                          {row.active
+                            ? "Pausing keeps research history but removes this target from future scans and alerts."
+                            : "Reactivating returns this target to future scans, comps, and alerts."}
+                        </p>
                       </form>
                     </div>
                   </article>
