@@ -297,8 +297,15 @@ export default function EbayInventoryIntakeClient({
       return;
     }
 
-    await navigator.clipboard.writeText(text);
-    setNotice(`Copied ${selectedRows.length} selected row${selectedRows.length === 1 ? "" : "s"} for InstaComp™ cleanup.`);
+    try {
+      await navigator.clipboard.writeText(text);
+      setNotice(`Copied ${selectedRows.length} selected row${selectedRows.length === 1 ? "" : "s"} for InstaComp™ cleanup.`);
+      setError("");
+    } catch {
+      setError(
+        "Chrome blocked clipboard access. Select the rows again and use your browser copy shortcut, or open InstaComp™ and paste the titles manually.",
+      );
+    }
   }
 
   async function instacompPreview(productIds: number[]) {
@@ -616,7 +623,7 @@ export default function EbayInventoryIntakeClient({
                 <button
                   type="button"
                   onClick={() => void copySelectedForInstaComp()}
-                  disabled={selectedIds.length === 0}
+                  disabled={working || selectedIds.length === 0}
                   className="rounded-md border border-neutral-300 bg-white px-4 py-3 text-sm font-black hover:bg-neutral-50 disabled:opacity-50"
                 >
                   Copy Selected For InstaComp™
@@ -777,7 +784,7 @@ export default function EbayInventoryIntakeClient({
                   disabled={promoWorking || selectedIds.length === 0}
                   className="rounded-md border border-neutral-300 bg-white px-4 py-3 text-sm font-black hover:bg-neutral-50 disabled:opacity-50"
                 >
-                  Clear Promo
+                  {promoWorking ? "Clearing..." : "Clear Promo"}
                 </button>
               </div>
             </div>

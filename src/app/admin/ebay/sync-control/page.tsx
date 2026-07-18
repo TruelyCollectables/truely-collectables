@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
+import AdminSubmitButton from "../../AdminSubmitButton";
 import { importEbayListingsPage } from "../../../../lib/ebay-sync";
 import { getActiveStoreId } from "../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
@@ -368,12 +369,12 @@ export default async function EbaySyncControlPage({
               continue with the next offset if the mapping looks good.
             </div>
 
-            <button
-              type="submit"
+            <AdminSubmitButton
               className="w-full rounded-md bg-neutral-950 px-4 py-3 text-sm font-black text-white hover:bg-neutral-800"
+              pendingChildren="Running eBay batch..."
             >
               Run eBay Batch
-            </button>
+            </AdminSubmitButton>
           </form>
         </section>
 
