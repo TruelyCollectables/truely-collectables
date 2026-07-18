@@ -68,9 +68,7 @@ function integerValue(value: unknown, fallback = 0) {
 function parseDate(value: string | null | undefined, fallback?: string) {
   if (!value) return fallback || null;
   const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    throw new Error(`Invalid date: ${value}`);
-  }
+  if (Number.isNaN(parsed.getTime())) throw new Error(`Invalid date: ${value}`);
   return parsed.toISOString();
 }
 
@@ -127,6 +125,7 @@ function validateItem(item: MarketIntelIngestItem) {
   const buyerFee = numberValue(item.buyerFee, 0);
   const quantity = integerValue(item.quantity, 1);
   const matchConfidence = numberValue(item.identityMatchConfidence, 100);
+  const currency = String(item.currency || "USD").trim().toUpperCase() || "USD";
 
   if (!marketplaceSlug) throw new Error("marketplaceSlug is required.");
   if (!directUrl || !isHttpUrl(directUrl)) {
@@ -159,6 +158,7 @@ function validateItem(item: MarketIntelIngestItem) {
     buyerFee,
     quantity,
     matchConfidence,
+    currency,
   };
 }
 
@@ -179,16 +179,18 @@ export async function ingestMarketIntelListings(
 
     try {
       const validated = validateItem(item);
-      const externalListingId = String(item.externalListingId || "").trim() || null;
+      const externalListingId =
+        String(item.externalListingId || "").trim() || null;
 
-      const { data: marketplace, error: marketplaceError } = await supabase
+      const { data: marketplaceRows, error: marketplaceError } = await supabase
         .from("tcos_mi_marketplaces")
         .select("id,slug")
         .eq("slug", validated.marketplaceSlug)
         .eq("active", true)
-        .maybeSingle();
-
+        .limit(1);
       if (marketplaceError) throw new Error(marketplaceError.message);
+      const marketplace = marketplaceRows?.[0] || null;
+
       if (!marketplace) {
         results.push({
           inputIndex,
@@ -224,11 +226,12 @@ export async function ingestMarketIntelListings(
         continue;
       }
 
-      const { data: identity, error: identityError } = await identityQuery
-        .limit(1)
-        .maybeSingle();
-
+      const { data: identityRows, error: identityError } = await identityQuery
+        .order("created_at", { ascending: true })
+        .limit(1);
       if (identityError) throw new Error(identityError.message);
+      const identity = identityRows?.[0] || null;
+
       if (!identity) {
         results.push({
           inputIndex,
@@ -251,14 +254,15 @@ export async function ingestMarketIntelListings(
         ? existingQuery.eq("external_listing_id", externalListingId)
         : existingQuery.eq("direct_url", validated.directUrl);
 
-      const { data: existing, error: existingError } = await existingQuery
-        .limit(1)
-        .maybeSingle();
-
+      const { data: existingRows, error: existingError } = await existingQuery
+        .order("created_at", { ascending: true })
+        .limit(1);
       if (existingError) throw new Error(existingError.message);
+      const existing = existingRows?.[0] || null;
 
       const seenAt = parseDate(item.lastSeenAt, new Date().toISOString())!;
-      const listedAt = parseDate(item.listedAt) || existing?.first_seen_at || seenAt;
+      const listedAt =
+        parseDate(item.listedAt) || existing?.first_seen_at || seenAt;
       const auctionEndAt = parseDate(item.auctionEndAt);
       const oldMetadata = (existing?.metadata || {}) as JsonRecord;
       const priceChanged = Boolean(
@@ -283,6 +287,9 @@ export async function ingestMarketIntelListings(
           ].slice(-50)
         : priorHistory;
 
+      // `tcos_mi_listings` intentionally has no top-level `currency` column in
+      // the live Beta One schema. Keep the ISO currency code in metadata so
+      // ingestion stays schema-compatible while retaining the source value.
       const payload = {
         marketplace_id: marketplace.id,
         collectible_identity_id: identity.id,
@@ -293,7 +300,6 @@ export async function ingestMarketIntelListings(
         image_urls: Array.isArray(item.imageUrls) ? item.imageUrls : [],
         listing_status: "active",
         listing_format: validated.listingFormat,
-        currency: String(item.currency || "USD").trim().toUpperCase(),
         asking_price: validated.askingPrice,
         shipping_price: validated.shippingPrice,
         buyer_fee: validated.buyerFee,
@@ -327,6 +333,7 @@ export async function ingestMarketIntelListings(
         metadata: {
           ...oldMetadata,
           ...(item.metadata || {}),
+          currency: validated.currency,
           ingestion_source: "market-intel-gateway",
           last_ingested_at: seenAt,
           price_history: priceHistory,
@@ -345,16 +352,19 @@ export async function ingestMarketIntelListings(
         listingId = existing.id;
         status = "updated";
       } else {
-        const { data: created, error: createError } = await supabase
+        const { data: createdRows, error: createError } = await supabase
           .from("tcos_mi_listings")
           .insert({
             ...payload,
             first_seen_at: seenAt,
           })
           .select("id")
-          .single();
+          .limit(1);
         if (createError) throw new Error(createError.message);
-        listingId = created.id;
+        if (!createdRows?.[0]?.id) {
+          throw new Error("Listing insert completed without returning an ID.");
+        }
+        listingId = String(createdRows[0].id);
         status = "created";
       }
 
@@ -425,7 +435,6 @@ export async function cleanupStaleMarketIntelListings(staleAfterHours = 26) {
     .eq("listing_format", "auction")
     .lt("auction_end_at", now.toISOString())
     .select("id");
-
   if (expiredError) throw new Error(expiredError.message);
 
   const { data: staleListings, error: staleError } = await supabase
@@ -434,7 +443,6 @@ export async function cleanupStaleMarketIntelListings(staleAfterHours = 26) {
     .eq("listing_status", "active")
     .lt("last_seen_at", cutoff)
     .select("id");
-
   if (staleError) throw new Error(staleError.message);
 
   return {

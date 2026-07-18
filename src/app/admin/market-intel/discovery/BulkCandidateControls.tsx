@@ -109,6 +109,8 @@ export default function BulkCandidateControls({
   const rejected = Number(searchParams.get("rejected") || 0);
   const skipped = Number(searchParams.get("skipped") || 0);
   const firstError = searchParams.get("firstError");
+  const bulkFailed =
+    bulkResult && approved === 0 && rejected === 0 && skipped > 0;
 
   return (
     <>
@@ -145,14 +147,28 @@ export default function BulkCandidateControls({
       )}
 
       {bulkResult ? (
-        <div className="fixed right-5 top-5 z-[70] max-w-md rounded-xl border border-emerald-300 bg-emerald-50 p-4 shadow-2xl">
-          <p className="font-black text-emerald-950">Bulk review complete</p>
-          <p className="mt-1 text-sm font-bold text-emerald-900">
+        <div
+          className={
+            bulkFailed
+              ? "fixed right-5 top-5 z-[70] max-w-md rounded-xl border border-rose-400 bg-rose-50 p-4 text-rose-950 shadow-2xl"
+              : "fixed right-5 top-5 z-[70] max-w-md rounded-xl border border-emerald-300 bg-emerald-50 p-4 text-emerald-950 shadow-2xl"
+          }
+        >
+          <p className="font-black">
+            {bulkFailed ? "Bulk review failed" : "Bulk review complete"}
+          </p>
+          <p className="mt-1 text-sm font-bold">
             Approved {approved} · Rejected {rejected} · Skipped {skipped}
           </p>
           {firstError ? (
-            <p className="mt-2 text-xs font-semibold text-amber-900">
-              First skipped reason: {firstError}
+            <p
+              className={
+                bulkFailed
+                  ? "mt-2 text-xs font-semibold text-rose-900"
+                  : "mt-2 text-xs font-semibold text-amber-900"
+              }
+            >
+              {bulkFailed ? "Failure reason" : "First skipped reason"}: {firstError}
             </p>
           ) : null}
         </div>
