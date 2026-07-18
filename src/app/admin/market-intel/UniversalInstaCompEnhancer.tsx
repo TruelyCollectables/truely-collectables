@@ -71,7 +71,7 @@ function createControls(input: {
     ? "rounded-md bg-fuchsia-300 px-3 py-2 text-xs font-black text-black hover:bg-fuchsia-200 disabled:cursor-wait disabled:opacity-50"
     : "rounded-md bg-fuchsia-800 px-3 py-2 text-xs font-black text-white hover:bg-fuchsia-700 disabled:cursor-wait disabled:opacity-50";
   track.title =
-    "Run a focused exact-card scan, rescore live matches, recalculate the verified-comp market, and record today’s market observation without buying the card.";
+    "Record today's verified-comp market snapshot now. Heavy marketplace mining runs automatically every six hours.";
 
   const status = document.createElement("p");
   status.className = input.dark
@@ -84,7 +84,8 @@ function createControls(input: {
     track.disabled = true;
     track.textContent = "Tracking Today...";
     status.removeAttribute("role");
-    status.textContent = "Scanning this exact card and recording today’s snapshot...";
+    status.textContent =
+      "Recording today's verified-comp snapshot. The heavy marketplace miner remains on its six-hour schedule...";
     try {
       const response = await fetch(input.trackUrl, {
         method: "POST",

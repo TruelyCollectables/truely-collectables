@@ -2,7 +2,6 @@ import "server-only";
 
 import { revalidatePath } from "next/cache";
 import { recalculateMarketIntelValue } from "./market-intel-comps";
-import { scanEbayForMarketIntel } from "./market-intel-ebay";
 import { createSupabaseServerClient } from "./supabase-server";
 
 export async function resolveMarketIntelIdentity(input: {
@@ -91,12 +90,10 @@ export async function trackMarketIntelIdentityToday(identityId: string) {
   const id = String(identityId || "").trim();
   if (!id) throw new Error("Exact collectible identity is required.");
 
-  const scan = await scanEbayForMarketIntel({
-    identityIds: [id],
-    maxTargets: 1,
-    resultsPerTarget: 25,
-    minimumConfidence: 80,
-  });
+  // Keep the manual button intentionally lightweight. Heavy eBay, Discovery, Growth,
+  // alert, and cleanup work runs on the shared six-hour Vercel cron cycle.
+  // Recalculation inserts a dated exact-card market snapshot from already verified comps;
+  // the market-observation trigger preserves today's history point.
   const market = await recalculateMarketIntelValue(id);
 
   for (const path of [
@@ -111,19 +108,14 @@ export async function trackMarketIntelIdentityToday(identityId: string) {
     revalidatePath(path);
   }
 
-  const accepted = Number(scan.candidatesAccepted || 0);
-  const created = Number(scan.ingest.created || 0);
-  const updated = Number(scan.ingest.updated || 0);
-  const scored = Number(scan.ingest.scored || 0);
-
   return {
     identityId: id,
-    accepted,
-    created,
-    updated,
-    scored,
-    scanErrors: Number(scan.ingest.errors || 0),
+    accepted: 0,
+    created: 0,
+    updated: 0,
+    scored: 0,
+    scanErrors: 0,
     market,
-    message: `Tracked today: ${accepted} exact live match${accepted === 1 ? "" : "es"}; ${created} new, ${updated} refreshed, ${scored} scored. Market snapshot now uses ${market.sample_size} verified comp${market.sample_size === 1 ? "" : "s"}.`,
+    message: `Today's verified-comp snapshot was recorded using ${market.sample_size} comp${market.sample_size === 1 ? "" : "s"}. The heavy marketplace miner runs automatically every six hours.`,
   };
 }
