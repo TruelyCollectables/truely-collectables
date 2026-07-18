@@ -7,6 +7,13 @@ function label(value: string | null | undefined) {
   return String(value || "not_staged").replaceAll("_", " ").toUpperCase();
 }
 
+type FeedbackTone = "info" | "success" | "error";
+
+type FeedbackMessage = {
+  text: string;
+  tone: FeedbackTone;
+};
+
 export default function StripeEvidenceActions({
   caseId,
   disputeId,
@@ -24,7 +31,7 @@ export default function StripeEvidenceActions({
   const [busy, setBusy] = useState<"stage" | "submit" | null>(null);
   const [showSubmitConfirmation, setShowSubmitConfirmation] = useState(false);
   const [confirmation, setConfirmation] = useState("");
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState<FeedbackMessage | null>(null);
   const normalizedStatus = status || "not_staged";
   const stageLocked = ["staged", "submitted", "won", "lost"].includes(
     normalizedStatus,
@@ -33,7 +40,7 @@ export default function StripeEvidenceActions({
 
   async function stage() {
     setBusy("stage");
-    setMessage("");
+    setMessage({ text: "Generating and staging Stripe evidence...", tone: "info" });
     try {
       const response = await fetch(
         `/api/admin/order-review-cases/${caseId}/stripe-evidence`,
@@ -41,10 +48,16 @@ export default function StripeEvidenceActions({
       );
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "Could not stage evidence.");
-      setMessage("Evidence staged in Stripe for review.");
+      setMessage({
+        text: "Evidence staged in Stripe for review.",
+        tone: "success",
+      });
       router.refresh();
     } catch (stageError: any) {
-      setMessage(stageError.message || "Could not stage evidence.");
+      setMessage({
+        text: stageError.message || "Could not stage evidence.",
+        tone: "error",
+      });
     } finally {
       setBusy(null);
     }
@@ -52,12 +65,15 @@ export default function StripeEvidenceActions({
 
   async function submit() {
     if (confirmation !== "SUBMIT TO STRIPE") {
-      setMessage("Type SUBMIT TO STRIPE exactly before final submission.");
+      setMessage({
+        text: "Type SUBMIT TO STRIPE exactly before final submission.",
+        tone: "error",
+      });
       return;
     }
 
     setBusy("submit");
-    setMessage("");
+    setMessage({ text: "Submitting final evidence to Stripe...", tone: "info" });
     try {
       const response = await fetch(
         `/api/admin/order-review-cases/${caseId}/stripe-evidence`,
@@ -69,12 +85,18 @@ export default function StripeEvidenceActions({
       );
       const data = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(data.error || "Could not submit evidence.");
-      setMessage("Evidence submitted to Stripe.");
+      setMessage({
+        text: "Evidence submitted to Stripe.",
+        tone: "success",
+      });
       setShowSubmitConfirmation(false);
       setConfirmation("");
       router.refresh();
     } catch (submitError: any) {
-      setMessage(submitError.message || "Could not submit evidence.");
+      setMessage({
+        text: submitError.message || "Could not submit evidence.",
+        tone: "error",
+      });
     } finally {
       setBusy(null);
     }
@@ -95,6 +117,7 @@ export default function StripeEvidenceActions({
           type="button"
           onClick={stage}
           disabled={busy !== null || stageLocked}
+          aria-busy={busy === "stage"}
           className="rounded-md border border-rose-300 bg-white px-3 py-2 text-xs font-black disabled:opacity-50"
         >
           {busy === "stage" ? "Staging..." : "Generate And Stage"}
@@ -104,9 +127,10 @@ export default function StripeEvidenceActions({
           onClick={() => {
             setShowSubmitConfirmation(true);
             setConfirmation("");
-            setMessage("");
+            setMessage(null);
           }}
           disabled={busy !== null || !canSubmit}
+          aria-busy={busy === "submit"}
           className="rounded-md bg-rose-800 px-3 py-2 text-xs font-black text-white disabled:opacity-50"
         >
           {busy === "submit" ? "Submitting..." : "Final Submit To Stripe"}
@@ -132,6 +156,7 @@ export default function StripeEvidenceActions({
               type="button"
               onClick={submit}
               disabled={busy !== null}
+              aria-busy={busy === "submit"}
               className="rounded bg-rose-800 px-3 py-2 text-xs font-black text-white disabled:opacity-50"
             >
               {busy === "submit" ? "Submitting..." : "Submit final evidence"}
@@ -154,7 +179,28 @@ export default function StripeEvidenceActions({
       <p className="mt-2 text-xs">
         Staging is editable. Final submission is sent to the bank and cannot be amended.
       </p>
-      {message ? <p className="mt-2 text-xs font-bold">{message}</p> : null}
+      <ActionMessage message={message} />
     </div>
+  );
+}
+
+function ActionMessage({ message }: { message: FeedbackMessage | null }) {
+  if (!message) return null;
+
+  const className =
+    message.tone === "success"
+      ? "text-emerald-700"
+      : message.tone === "error"
+        ? "text-rose-700"
+        : "text-rose-950";
+
+  return (
+    <p
+      aria-live={message.tone === "info" ? "polite" : "assertive"}
+      className={`mt-2 text-xs font-bold ${className}`}
+      role={message.tone === "error" ? "alert" : "status"}
+    >
+      {message.text}
+    </p>
   );
 }

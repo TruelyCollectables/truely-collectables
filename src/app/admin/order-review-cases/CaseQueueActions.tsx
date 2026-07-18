@@ -39,6 +39,13 @@ const resolutionActionOptions = [
   ],
 ] as const;
 
+type FeedbackTone = "info" | "success" | "error";
+
+type FeedbackMessage = {
+  text: string;
+  tone: FeedbackTone;
+};
+
 function money(value: number | string | null | undefined) {
   return `$${Number(value || 0).toFixed(2)}`;
 }
@@ -120,14 +127,17 @@ export default function CaseQueueActions({
   const [resolutionNote, setResolutionNote] = useState("");
   const [busy, setBusy] = useState(false);
   const [resolutionBusy, setResolutionBusy] = useState(false);
-  const [message, setMessage] = useState("");
-  const [resolutionMessage, setResolutionMessage] = useState("");
+  const [message, setMessage] = useState<FeedbackMessage | null>(null);
+  const [resolutionMessage, setResolutionMessage] =
+    useState<FeedbackMessage | null>(null);
   const availableResolutionOptions = resolutionOptionsForStatus(status);
   const selectedResolutionOption =
     availableResolutionOptions.find(([value]) => value === resolutionAction) ||
     availableResolutionOptions[0];
+  const effectiveResolutionAction =
+    selectedResolutionOption?.[0] || resolutionAction;
   const resolutionRequirements = orderReviewPayoutResolutionRequirements({
-    action: selectedResolutionOption?.[0] || resolutionAction,
+    action: effectiveResolutionAction,
     adminNote: resolutionNote,
   });
   const payoutResolutionDisabled =
@@ -136,7 +146,7 @@ export default function CaseQueueActions({
   async function updateCase(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setBusy(true);
-    setMessage("");
+    setMessage({ text: "Saving case...", tone: "info" });
 
     try {
       const response = await fetch("/api/admin/order-review-cases", {
@@ -157,11 +167,14 @@ export default function CaseQueueActions({
         throw new Error(data.error || "Could not update order review case.");
       }
 
-      setMessage("Saved.");
+      setMessage({ text: "Case saved.", tone: "success" });
       setAdminNote("");
       router.refresh();
     } catch (error: any) {
-      setMessage(error.message || "Could not update order review case.");
+      setMessage({
+        text: error.message || "Could not update order review case.",
+        tone: "error",
+      });
     } finally {
       setBusy(false);
     }
@@ -171,14 +184,15 @@ export default function CaseQueueActions({
     event.preventDefault();
 
     if (resolutionRequirements.length > 0) {
-      setResolutionMessage(
-        `Payout resolution needs: ${resolutionRequirements.join(", ")}.`,
-      );
+      setResolutionMessage({
+        text: `Payout resolution needs: ${resolutionRequirements.join(", ")}.`,
+        tone: "error",
+      });
       return;
     }
 
     setResolutionBusy(true);
-    setResolutionMessage("");
+    setResolutionMessage({ text: "Applying payout resolution...", tone: "info" });
 
     try {
       const response = await fetch(
@@ -189,7 +203,7 @@ export default function CaseQueueActions({
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            action: resolutionAction,
+            action: effectiveResolutionAction,
             adminNote: resolutionNote,
           }),
         },
@@ -210,17 +224,21 @@ export default function CaseQueueActions({
           )
         : [];
 
-      setResolutionMessage(
-        `${data.changedCount || 0} row(s) updated, ${
+      setResolutionMessage({
+        text: `${data.changedCount || 0} row(s) updated, ${
           data.skippedCount || 0
         } skipped${
           skippedReasons.length > 0 ? `: ${skippedReasons.join(", ")}` : ""
         }.`,
-      );
+        tone: "success",
+      });
       setResolutionNote("");
       router.refresh();
     } catch (error: any) {
-      setResolutionMessage(error.message || "Could not resolve case payout rows.");
+      setResolutionMessage({
+        text: error.message || "Could not resolve case payout rows.",
+        tone: "error",
+      });
     } finally {
       setResolutionBusy(false);
     }
@@ -269,13 +287,12 @@ export default function CaseQueueActions({
           <button
             type="submit"
             disabled={busy}
+            aria-busy={busy}
             className="rounded-md bg-neutral-950 px-3 py-2 text-sm font-black text-white disabled:opacity-50"
           >
             {busy ? "Saving..." : "Save Case"}
           </button>
-          {message ? (
-            <span className="text-xs font-bold text-neutral-600">{message}</span>
-          ) : null}
+          <ActionMessage message={message} />
         </div>
       </form>
 
@@ -332,15 +349,12 @@ export default function CaseQueueActions({
           <button
             type="submit"
             disabled={payoutResolutionDisabled}
+            aria-busy={resolutionBusy}
             className="rounded-md border border-neutral-900 px-3 py-2 text-sm font-black text-neutral-950 disabled:opacity-50"
           >
             {resolutionBusy ? "Applying..." : "Apply Payout Resolution"}
           </button>
-          {resolutionMessage ? (
-            <span className="text-xs font-bold text-neutral-600">
-              {resolutionMessage}
-            </span>
-          ) : null}
+          <ActionMessage message={resolutionMessage} />
         </div>
 
         {payoutRowCount === 0 ? (
@@ -350,5 +364,26 @@ export default function CaseQueueActions({
         ) : null}
       </form>
     </div>
+  );
+}
+
+function ActionMessage({ message }: { message: FeedbackMessage | null }) {
+  if (!message) return null;
+
+  const className =
+    message.tone === "success"
+      ? "text-emerald-700"
+      : message.tone === "error"
+        ? "text-rose-700"
+        : "text-neutral-600";
+
+  return (
+    <span
+      aria-live={message.tone === "info" ? "polite" : "assertive"}
+      className={`text-xs font-bold ${className}`}
+      role={message.tone === "error" ? "alert" : "status"}
+    >
+      {message.text}
+    </span>
   );
 }
