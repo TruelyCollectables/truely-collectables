@@ -14,62 +14,211 @@ export type MarketIntelGrowthProspectSeed = {
   sourceAsOf: string;
 };
 
-const MLB_SOURCE = "https://www.mlb.com/milb/news/updated-top-100-prospects-list-june-2026";
-const NFL_SOURCE = "https://www.nfl.com/news/2026-nfl-draft-first-round-pick-signing-tracker";
-const NBA_SOURCE = "https://www.nba.com/news/2026-nba-draft-order";
-const WNBA_SOURCE = "https://www.wnba.com/draft/2026/board";
-const NHL_SOURCE = "https://www.nhl.com/news/topic/nhl-draft/2026-nhl-draft-first-round-tracker-analysis";
-const SOCCER_SOURCE = "https://www.fifa.com/en/tournaments/mens/worldcup/canadamexicousa2026/articles/best-young-player-candidates";
-const GOLF_SOURCE = "https://www.pgatour.com/university/total-points";
+export const GROWTH_PROSPECT_SEED_VERSION = "licensed-pro-value-v1";
+
+const MLB_RISERS_SOURCE =
+  "https://www.mlb.com/milb/news/top-100-prospects-list-mlb-pipeline-preseason-2026";
+const MLB_FUTURES_SOURCE =
+  "https://www.mlb.com/news/nathan-flewelling-wins-2026-mlb-futures-game-mvp";
+const MARLINS_SOURCE = "https://www.mlb.com/milb/prospects/marlins/";
+const MARLINS_STATS_SOURCE =
+  "https://www.mlb.com/marlins/prospects/stats/top-prospects";
 
 export const CORE_GROWTH_PROSPECTS: readonly MarketIntelGrowthProspectSeed[] = [
-  { name: "Jesús Made", sport: "Baseball", league: "MLB", teamOrAffiliation: "Milwaukee Brewers", priority: 100, catalyst: "MLB Pipeline No. 1 prospect; monitor promotions, premium prospect inserts, numbered parallels, refractors, and first flagship MLB cards.", sourceLabel: "MLB Pipeline updated Top 100", sourceUrl: MLB_SOURCE, sourceAsOf: "2026-07-17" },
-  { name: "Leo De Vries", sport: "Baseball", league: "MLB", teamOrAffiliation: "Athletics", priority: 96, catalyst: "MLB Pipeline No. 2 prospect; monitor Double-A progression, call-up timing, and low-population color or refractor cards.", sourceLabel: "MLB Pipeline updated Top 100", sourceUrl: MLB_SOURCE, sourceAsOf: "2026-07-17" },
-  { name: "Eli Willits", sport: "Baseball", league: "MLB", teamOrAffiliation: "Washington Nationals", priority: 92, catalyst: "Top-three prospect with a long development runway; monitor Bowman color, autos, and promotion milestones.", sourceLabel: "MLB Pipeline updated Top 100", sourceUrl: MLB_SOURCE, sourceAsOf: "2026-07-17" },
-  { name: "Josue De Paula", sport: "Baseball", league: "MLB", teamOrAffiliation: "Los Angeles Dodgers", priority: 88, catalyst: "Top-four prospect in a high-visibility organization; monitor power growth, promotion, and premium prospect-card demand.", sourceLabel: "MLB Pipeline updated Top 100", sourceUrl: MLB_SOURCE, sourceAsOf: "2026-07-17" },
-  { name: "Kade Anderson", sport: "Baseball", league: "MLB", teamOrAffiliation: "Seattle Mariners", priority: 84, catalyst: "Top pitching prospect; prioritize scarce autos and numbered cards because pitcher-card demand is more volatile.", sourceLabel: "MLB Pipeline updated Top 100", sourceUrl: MLB_SOURCE, sourceAsOf: "2026-07-17" },
+  {
+    name: "Luis Peña",
+    sport: "Baseball",
+    league: "MLB Value Risers",
+    teamOrAffiliation: "Milwaukee Brewers",
+    priority: 100,
+    catalyst:
+      "A major 2026 MLB Pipeline riser and Top 100 newcomer. Hunt only signed-pro Topps/Bowman refractors, color, numbered cards, inserts, and licensed autos at low delivered cost.",
+    sourceLabel: "MLB Pipeline 2026 biggest risers",
+    sourceUrl: MLB_RISERS_SOURCE,
+    sourceAsOf: "2026-07-17",
+  },
+  {
+    name: "Eduardo Quintero",
+    sport: "Baseball",
+    league: "MLB Value Risers",
+    teamOrAffiliation: "Los Angeles Dodgers",
+    priority: 96,
+    catalyst:
+      "Top 100 newcomer in a premium organization, but below the hobby's most expensive prospect tier. Track licensed Bowman/Topps color, refractors, numbered issues, and lots.",
+    sourceLabel: "MLB Pipeline 2026 biggest risers",
+    sourceUrl: MLB_RISERS_SOURCE,
+    sourceAsOf: "2026-07-17",
+  },
+  {
+    name: "Josue Briceño",
+    sport: "Baseball",
+    league: "MLB Value Risers",
+    teamOrAffiliation: "Detroit Tigers",
+    priority: 92,
+    catalyst:
+      "Jumped more than 50 spots in MLB Pipeline's rankings. Catcher/first-base power gives a real breakout thesis without paying top-five-prospect prices.",
+    sourceLabel: "MLB Pipeline 2026 biggest risers",
+    sourceUrl: MLB_RISERS_SOURCE,
+    sourceAsOf: "2026-07-17",
+  },
+  {
+    name: "Michael Arroyo",
+    sport: "Baseball",
+    league: "MLB Value Risers",
+    teamOrAffiliation: "Seattle Mariners",
+    priority: 88,
+    catalyst:
+      "Middle-infield power with 40 homers across the prior two pro seasons. Prefer licensed Bowman Chrome/Topps refractors, numbered parallels, autos, and cheap multi-card lots.",
+    sourceLabel: "MLB Pipeline 2026 second-base prospects",
+    sourceUrl:
+      "https://www.mlb.com/milb/news/top-10-second-base-prospects-for-2026",
+    sourceAsOf: "2026-07-17",
+  },
+  {
+    name: "Nathan Flewelling",
+    sport: "Baseball",
+    league: "MLB Value Risers",
+    teamOrAffiliation: "Tampa Bay Rays",
+    priority: 84,
+    catalyst:
+      "The 19-year-old catcher won 2026 Futures Game MVP and ranked No. 72 overall, creating a fresh performance catalyst before broad hobby recognition catches up.",
+    sourceLabel: "MLB 2026 Futures Game MVP",
+    sourceUrl: MLB_FUTURES_SOURCE,
+    sourceAsOf: "2026-07-17",
+  },
 
-  { name: "Fernando Mendoza", sport: "Football", league: "NFL", teamOrAffiliation: "Las Vegas Raiders", priority: 100, catalyst: "No. 1 overall quarterback; monitor starting-job confirmation, preseason performance, rookie parallels, and numbered autos.", sourceLabel: "NFL 2026 first-round tracker", sourceUrl: NFL_SOURCE, sourceAsOf: "2026-07-17" },
-  { name: "Jeremiyah Love", sport: "Football", league: "NFL", teamOrAffiliation: "Arizona Cardinals", priority: 96, catalyst: "Top-three pick and explosive skill-position player; monitor role share, preseason usage, and non-base rookie parallels.", sourceLabel: "NFL 2026 first-round tracker", sourceUrl: NFL_SOURCE, sourceAsOf: "2026-07-17" },
-  { name: "Carnell Tate", sport: "Football", league: "NFL", teamOrAffiliation: "Tennessee Titans", priority: 92, catalyst: "Top-five receiver selection; monitor target share and scarce rookie color, case hits, and autos.", sourceLabel: "NFL 2026 first-round tracker", sourceUrl: NFL_SOURCE, sourceAsOf: "2026-07-17" },
-  { name: "Makai Lemon", sport: "Football", league: "NFL", teamOrAffiliation: "Philadelphia Eagles", priority: 88, catalyst: "First-round receiver in a large collector market; monitor depth-chart role and cheap numbered or parallel rookie lots.", sourceLabel: "NFL 2026 first-round tracker", sourceUrl: NFL_SOURCE, sourceAsOf: "2026-07-17" },
-  { name: "KC Concepcion", sport: "Football", league: "NFL", teamOrAffiliation: "Cleveland Browns", priority: 84, catalyst: "Later first-round receiver with potential pricing inefficiency; monitor camp role, return usage, and low-cost non-base lots.", sourceLabel: "NFL 2026 first-round tracker", sourceUrl: NFL_SOURCE, sourceAsOf: "2026-07-17" },
+  {
+    name: "Starlyn Caba",
+    sport: "Baseball",
+    league: "Miami Marlins",
+    teamOrAffiliation: "Miami Marlins / Beloit",
+    priority: 100,
+    catalyst:
+      "Marlins Top 10 switch-hitting infielder with on-base skill and speed. His 2026 line included a .395 OBP and 19 steals, making licensed pro refractors and color a strong value-watch lane.",
+    sourceLabel: "Marlins Top 30 and prospect stats",
+    sourceUrl: MARLINS_STATS_SOURCE,
+    sourceAsOf: "2026-07-17",
+  },
+  {
+    name: "Aiva Arquette",
+    sport: "Baseball",
+    league: "Miami Marlins",
+    teamOrAffiliation: "Miami Marlins / Pensacola",
+    priority: 96,
+    catalyst:
+      "Large shortstop with power and speed in Double-A. Monitor recovery and promotion milestones, but buy only licensed professional Bowman/Topps non-base cards after signing.",
+    sourceLabel: "Marlins Top 30",
+    sourceUrl: MARLINS_SOURCE,
+    sourceAsOf: "2026-07-17",
+  },
+  {
+    name: "Kemp Alderman",
+    sport: "Baseball",
+    league: "Miami Marlins",
+    teamOrAffiliation: "Miami Marlins / Jacksonville",
+    priority: 92,
+    catalyst:
+      "Triple-A outfielder with a near-term MLB path. Older-prospect discount can create cheap licensed refractor, color, auto, and lot opportunities before a call-up.",
+    sourceLabel: "Marlins Top 30",
+    sourceUrl: MARLINS_SOURCE,
+    sourceAsOf: "2026-07-17",
+  },
+  {
+    name: "Dillon Lewis",
+    sport: "Baseball",
+    league: "Miami Marlins",
+    teamOrAffiliation: "Miami Marlins / Pensacola",
+    priority: 88,
+    catalyst:
+      "Athletic Double-A outfielder ranked inside Miami's current Top 10. Track performance jumps and promotions while licensed pro card supply remains inexpensive.",
+    sourceLabel: "Marlins Top 30",
+    sourceUrl: MARLINS_SOURCE,
+    sourceAsOf: "2026-07-17",
+  },
+  {
+    name: "Cam Cannarella",
+    sport: "Baseball",
+    league: "Miami Marlins",
+    teamOrAffiliation: "Miami Marlins / Beloit",
+    priority: 84,
+    catalyst:
+      "Young center-field prospect ranked near the top of Miami's system. Do not buy college issues; wait for and track only licensed professional Topps/Bowman non-base cards.",
+    sourceLabel: "Marlins Top 30",
+    sourceUrl: MARLINS_SOURCE,
+    sourceAsOf: "2026-07-17",
+  },
 
-  { name: "AJ Dybantsa", sport: "Basketball", league: "NBA", teamOrAffiliation: "Washington Wizards", priority: 100, catalyst: "No. 1 overall pick; monitor Summer League, early role, premium rookie parallels, and market overreaction windows.", sourceLabel: "NBA 2026 Draft results", sourceUrl: NBA_SOURCE, sourceAsOf: "2026-07-17" },
-  { name: "Darryn Peterson", sport: "Basketball", league: "NBA", teamOrAffiliation: "Utah Jazz", priority: 96, catalyst: "No. 2 pick with lead-creator upside; monitor usage, starting role, and Silver or numbered rookie pricing.", sourceLabel: "NBA 2026 Draft results", sourceUrl: NBA_SOURCE, sourceAsOf: "2026-07-17" },
-  { name: "Cameron Boozer", sport: "Basketball", league: "NBA", teamOrAffiliation: "Memphis Grizzlies", priority: 92, catalyst: "No. 3 pick with recognizable name and production profile; monitor role, rebounding impact, and premium parallels.", sourceLabel: "NBA 2026 Draft results", sourceUrl: NBA_SOURCE, sourceAsOf: "2026-07-17" },
-  { name: "Caleb Wilson", sport: "Basketball", league: "NBA", teamOrAffiliation: "Chicago Bulls", priority: 88, catalyst: "No. 4 pick in a major market; monitor two-way role, highlight moments, and underpriced rookie color.", sourceLabel: "NBA 2026 Draft results", sourceUrl: NBA_SOURCE, sourceAsOf: "2026-07-17" },
-  { name: "Keaton Wagler", sport: "Basketball", league: "NBA", teamOrAffiliation: "LA Clippers", priority: 84, catalyst: "No. 5 pick with possible early pricing inefficiency; monitor rotation access and scarce rookie parallels.", sourceLabel: "NBA 2026 Draft results", sourceUrl: NBA_SOURCE, sourceAsOf: "2026-07-17" },
-
-  { name: "Azzi Fudd", sport: "Basketball", league: "WNBA", teamOrAffiliation: "Dallas Wings", priority: 100, catalyst: "No. 1 overall pick and elite shooter; monitor early scoring, Paige Bueckers pairing, and non-base rookie demand.", sourceLabel: "WNBA 2026 Draft board", sourceUrl: WNBA_SOURCE, sourceAsOf: "2026-07-17" },
-  { name: "Olivia Miles", sport: "Basketball", league: "WNBA", teamOrAffiliation: "Minnesota Lynx", priority: 96, catalyst: "No. 2 pick and elite playmaker; monitor starting opportunity, assist production, and scarce rookie parallels.", sourceLabel: "WNBA 2026 Draft board", sourceUrl: WNBA_SOURCE, sourceAsOf: "2026-07-17" },
-  { name: "Awa Fam Thiam", sport: "Basketball", league: "WNBA", teamOrAffiliation: "Seattle Storm", priority: 92, catalyst: "No. 3 international center; monitor minutes, defensive impact, and low-supply international or rookie parallels.", sourceLabel: "WNBA 2026 Draft board", sourceUrl: WNBA_SOURCE, sourceAsOf: "2026-07-17" },
-  { name: "Lauren Betts", sport: "Basketball", league: "WNBA", teamOrAffiliation: "Washington Mystics", priority: 88, catalyst: "No. 4 pick with size and collegiate visibility; monitor role, double-doubles, and premium rookie inserts.", sourceLabel: "WNBA 2026 Draft board", sourceUrl: WNBA_SOURCE, sourceAsOf: "2026-07-17" },
-  { name: "Gabriela Jaquez", sport: "Basketball", league: "WNBA", teamOrAffiliation: "Chicago Sky", priority: 84, catalyst: "No. 5 pick in a large market; monitor rotation growth, shooting, and underpriced non-base rookie lots.", sourceLabel: "WNBA 2026 Draft board", sourceUrl: WNBA_SOURCE, sourceAsOf: "2026-07-17" },
-
-  { name: "Gavin McKenna", sport: "Hockey", league: "NHL", teamOrAffiliation: "Toronto Maple Leafs", priority: 100, catalyst: "No. 1 NHL Draft pick with elite playmaking; monitor NHL debut, Young Guns, numbered parallels, and premium inserts.", sourceLabel: "NHL 2026 first-round tracker", sourceUrl: NHL_SOURCE, sourceAsOf: "2026-07-17" },
-  { name: "Ivar Stenberg", sport: "Hockey", league: "NHL", teamOrAffiliation: "San Jose Sharks", priority: 96, catalyst: "No. 2 pick with pro experience and possible immediate NHL role; monitor Young Guns and scarce rookie color.", sourceLabel: "NHL 2026 first-round tracker", sourceUrl: NHL_SOURCE, sourceAsOf: "2026-07-17" },
-  { name: "Caleb Malhotra", sport: "Hockey", league: "NHL", teamOrAffiliation: "Vancouver Canucks", priority: 92, catalyst: "No. 3 pick and future top-line center profile; monitor college progression and low-cost prospect parallels.", sourceLabel: "NHL 2026 first-round tracker", sourceUrl: NHL_SOURCE, sourceAsOf: "2026-07-17" },
-  { name: "Daxon Rudolph", sport: "Hockey", league: "NHL", teamOrAffiliation: "Buffalo Sabres", priority: 88, catalyst: "No. 4 offensive defenseman; monitor power-play development, college performance, and numbered prospect cards.", sourceLabel: "NHL 2026 first-round tracker", sourceUrl: NHL_SOURCE, sourceAsOf: "2026-07-17" },
-  { name: "Alberts Smits", sport: "Hockey", league: "NHL", teamOrAffiliation: "New York Rangers", priority: 84, catalyst: "No. 5 pick viewed as NHL-ready; monitor roster arrival and underpriced non-base rookie or prospect issues.", sourceLabel: "NHL 2026 first-round tracker", sourceUrl: NHL_SOURCE, sourceAsOf: "2026-07-17" },
-
-  { name: "Lamine Yamal", sport: "Soccer", league: "International / Club", teamOrAffiliation: "Barcelona / Spain", priority: 100, catalyst: "Leading FIFA Young Player candidate; monitor World Cup outcome, awards, and scarce licensed parallels rather than mass base cards.", sourceLabel: "FIFA Young Player candidates", sourceUrl: SOCCER_SOURCE, sourceAsOf: "2026-07-17" },
-  { name: "Pau Cubarsi", sport: "Soccer", league: "International / Club", teamOrAffiliation: "Barcelona / Spain", priority: 96, catalyst: "Teenage defender central to Spain and Barcelona; monitor awards, clean-sheet visibility, and low-population rookie parallels.", sourceLabel: "FIFA Young Player candidates", sourceUrl: SOCCER_SOURCE, sourceAsOf: "2026-07-17" },
-  { name: "Desire Doue", sport: "Soccer", league: "International / Club", teamOrAffiliation: "Paris Saint-Germain / France", priority: 92, catalyst: "FIFA Young Player contender with major-club exposure; monitor knockout performances and licensed color or numbered cards.", sourceLabel: "FIFA Young Player candidates", sourceUrl: SOCCER_SOURCE, sourceAsOf: "2026-07-17" },
-  { name: "Yan Diomande", sport: "Soccer", league: "International / Club", teamOrAffiliation: "RB Leipzig / Côte d’Ivoire", priority: 88, catalyst: "Breakout World Cup attacker with dribbling and chance-creation metrics; monitor transfer interest and low-cost rookie parallels.", sourceLabel: "FIFA Young Player candidates", sourceUrl: SOCCER_SOURCE, sourceAsOf: "2026-07-17" },
-  { name: "Kerim Alajbegovic", sport: "Soccer", league: "International / Club", teamOrAffiliation: "Bayer Leverkusen / Bosnia and Herzegovina", priority: 84, catalyst: "Teenage World Cup scorer with breakout momentum; monitor club role, transfers, and underpriced licensed non-base cards.", sourceLabel: "FIFA Young Player candidates", sourceUrl: SOCCER_SOURCE, sourceAsOf: "2026-07-17" },
-
-  { name: "Tommy Morrison", sport: "Golf", league: "PGA TOUR Pathway", teamOrAffiliation: "Texas", priority: 100, catalyst: "Current PGA TOUR University total-points leader; monitor Korn Ferry results, PGA starts, first licensed cards, autos, and numbered issues.", sourceLabel: "PGA TOUR University total points", sourceUrl: GOLF_SOURCE, sourceAsOf: "2026-07-17" },
-  { name: "Jase Summy", sport: "Golf", league: "PGA TOUR Pathway", teamOrAffiliation: "Oklahoma", priority: 96, catalyst: "Second in current PGA TOUR University total points; monitor Korn Ferry performance and first meaningful licensed-card supply.", sourceLabel: "PGA TOUR University total points", sourceUrl: GOLF_SOURCE, sourceAsOf: "2026-07-17" },
-  { name: "Christiaan Maas", sport: "Golf", league: "PGA TOUR Pathway", teamOrAffiliation: "Texas", priority: 92, catalyst: "Top-three current PGA TOUR University points performer; monitor professional starts, wins, and scarce rookie autos.", sourceLabel: "PGA TOUR University total points", sourceUrl: GOLF_SOURCE, sourceAsOf: "2026-07-17" },
-  { name: "William Sides", sport: "Golf", league: "PGA TOUR Pathway", teamOrAffiliation: "SMU", priority: 88, catalyst: "Top-four current PGA TOUR University points performer; monitor tour progression and low-supply first cards.", sourceLabel: "PGA TOUR University total points", sourceUrl: GOLF_SOURCE, sourceAsOf: "2026-07-17" },
-  { name: "Frankie Harris", sport: "Golf", league: "PGA TOUR Pathway", teamOrAffiliation: "South Carolina", priority: 84, catalyst: "Top-five current PGA TOUR University points performer; monitor professional results and speculative scarce-card opportunities.", sourceLabel: "PGA TOUR University total points", sourceUrl: GOLF_SOURCE, sourceAsOf: "2026-07-17" },
+  {
+    name: "Rickea Jackson",
+    sport: "Basketball",
+    league: "WNBA Value",
+    teamOrAffiliation: "Chicago Sky",
+    priority: 100,
+    catalyst:
+      "A 2026 WNBA GM Survey underrated acquisition who is averaging roughly 18 points per game. Track only licensed WNBA Panini/Topps/Fanatics non-base issues, never Tennessee or NCAA cards.",
+    sourceLabel: "WNBA player profile and 2026 GM Survey",
+    sourceUrl: "https://www.wnba.com/player/1642288/rickea-jackson/profile",
+    sourceAsOf: "2026-07-17",
+  },
+  {
+    name: "Dominique Malonga",
+    sport: "Basketball",
+    league: "WNBA Value",
+    teamOrAffiliation: "Seattle Storm",
+    priority: 96,
+    catalyst:
+      "Still only 20 and producing about 15.5 points and 8.2 rebounds in her second pro season. Favor licensed WNBA parallels and numbered cards over international or pre-pro issues.",
+    sourceLabel: "WNBA player profile",
+    sourceUrl: "https://www.wnba.com/webview/player/1642798",
+    sourceAsOf: "2026-07-17",
+  },
+  {
+    name: "Sonia Citron",
+    sport: "Basketball",
+    league: "WNBA Value",
+    teamOrAffiliation: "Washington Mystics",
+    priority: 92,
+    catalyst:
+      "A high-efficiency second-year guard producing around 18 points per game. Track licensed WNBA Silvers, color, numbered cards, and lots only—not Notre Dame products.",
+    sourceLabel: "WNBA player profile",
+    sourceUrl: "https://www.wnba.com/player/1642785/sonia-citron/profile",
+    sourceAsOf: "2026-07-17",
+  },
+  {
+    name: "Kiki Iriafen",
+    sport: "Basketball",
+    league: "WNBA Value",
+    teamOrAffiliation: "Washington Mystics",
+    priority: 88,
+    catalyst:
+      "Second-year forward averaging roughly 15.6 points and 9.6 rebounds. Her production supports licensed WNBA non-base value hunting without buying USC or college cards.",
+    sourceLabel: "WNBA player profile",
+    sourceUrl: "https://www.wnba.com/player/1642792/kiki-iriafen",
+    sourceAsOf: "2026-07-17",
+  },
+  {
+    name: "Kamilla Cardoso",
+    sport: "Basketball",
+    league: "WNBA Value",
+    teamOrAffiliation: "Chicago Sky",
+    priority: 84,
+    catalyst:
+      "Third-year center producing about 14.3 points and 8.6 rebounds with a 30-point perfect-shooting game as a visibility catalyst. Licensed WNBA cards only.",
+    sourceLabel: "WNBA player profile",
+    sourceUrl: "https://www.wnba.com/player/1642289/kamilla-cardoso/profile",
+    sourceAsOf: "2026-07-17",
+  },
 ] as const;
+
+export const GROWTH_PROSPECT_COUNT = CORE_GROWTH_PROSPECTS.length;
 
 function notesFor(prospect: MarketIntelGrowthProspectSeed) {
   return [
     "[GROWTH_PROSPECT]",
-    "Strategy: NON_BASE_ONLY",
+    `Seed version: ${GROWTH_PROSPECT_SEED_VERSION}`,
+    "Strategy: LICENSED_PRO_NON_BASE_ONLY",
+    "Card scope: Officially licensed professional league/team cards only.",
+    "Excluded: Base, college, NCAA, NIL, high school, amateur, pre-pro, Team USA pre-pro, unlicensed, and logo-less cards.",
     `Catalyst: ${prospect.catalyst}`,
     `Source: ${prospect.sourceLabel}`,
     `Source URL: ${prospect.sourceUrl}`,
@@ -83,6 +232,14 @@ export async function seedMarketIntelGrowthProspects() {
   let updatedSubjects = 0;
   let createdWatchlist = 0;
   let updatedWatchlist = 0;
+  let deactivatedWatchlist = 0;
+  const currentSubjectIds = new Set<string>();
+
+  const { data: priorGrowthRows, error: priorGrowthError } = await supabase
+    .from("tcos_mi_watchlist")
+    .select("id,subject_id,notes")
+    .like("notes", "%[GROWTH_PROSPECT]%");
+  if (priorGrowthError) throw new Error(priorGrowthError.message);
 
   for (const prospect of CORE_GROWTH_PROSPECTS) {
     const notes = notesFor(prospect);
@@ -125,6 +282,11 @@ export async function seedMarketIntelGrowthProspects() {
       createdSubjects += 1;
     }
 
+    if (!subjectId) {
+      throw new Error(`Unable to resolve subject ID for ${prospect.name}.`);
+    }
+    currentSubjectIds.add(subjectId);
+
     const { data: existingWatch, error: watchLookupError } = await supabase
       .from("tcos_mi_watchlist")
       .select("id")
@@ -139,7 +301,7 @@ export async function seedMarketIntelGrowthProspects() {
       collectible_identity_id: null,
       priority: prospect.priority,
       minimum_discount_pct: 20,
-      minimum_estimated_net_profit: 15,
+      minimum_estimated_net_profit: 0,
       include_raw: true,
       include_graded: true,
       include_lots: true,
@@ -161,11 +323,27 @@ export async function seedMarketIntelGrowthProspects() {
     }
   }
 
+  const staleGrowthRows = (priorGrowthRows || []).filter(
+    (row) => row.subject_id && !currentSubjectIds.has(String(row.subject_id)),
+  );
+  if (staleGrowthRows.length > 0) {
+    const { error } = await supabase
+      .from("tcos_mi_watchlist")
+      .update({ active: false })
+      .in(
+        "id",
+        staleGrowthRows.map((row) => String(row.id)),
+      );
+    if (error) throw new Error(error.message);
+    deactivatedWatchlist = staleGrowthRows.length;
+  }
+
   return {
     total: CORE_GROWTH_PROSPECTS.length,
     createdSubjects,
     updatedSubjects,
     createdWatchlist,
     updatedWatchlist,
+    deactivatedWatchlist,
   };
 }
