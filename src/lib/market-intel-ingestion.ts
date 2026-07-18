@@ -15,6 +15,28 @@ const LISTING_FORMATS = new Set([
 
 type JsonRecord = Record<string, unknown>;
 
+type MarketIntelListingWrite = {
+  marketplace_id: string;
+  collectible_identity_id: string;
+  external_listing_id: string | null;
+  direct_url: string;
+  original_title: string;
+  listing_status: "active";
+  listing_format: string;
+  asking_price: number;
+  shipping_price: number;
+  buyer_fee: number;
+  quantity: number;
+  seller_name: string | null;
+  seller_rating: number | null;
+  auction_end_at: string | null;
+  last_seen_at: string;
+  identity_match_confidence: number;
+  suspected_mislisting: boolean;
+  mislisting_reason: string | null;
+  metadata: JsonRecord;
+};
+
 export type MarketIntelIngestItem = {
   marketplaceSlug: string;
   collectibleIdentityId?: string | null;
@@ -81,6 +103,16 @@ function secureEqual(left: string, right: string) {
   const rightBuffer = Buffer.from(right);
   if (leftBuffer.length !== rightBuffer.length) return false;
   return timingSafeEqual(leftBuffer, rightBuffer);
+}
+
+function recordValue(value: unknown): JsonRecord {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as JsonRecord)
+    : {};
+}
+
+function stringArray(value: unknown) {
+  return Array.isArray(value) ? value.map((item) => String(item)) : [];
 }
 
 export function isAuthorizedMarketIntelIngest(request: Request) {
@@ -261,10 +293,17 @@ export async function ingestMarketIntelListings(
       const existing = existingRows?.[0] || null;
 
       const seenAt = parseDate(item.lastSeenAt, new Date().toISOString())!;
+      const oldMetadata = recordValue(existing?.metadata);
+      const priorListedAt =
+        typeof oldMetadata.listed_at === "string"
+          ? oldMetadata.listed_at
+          : null;
       const listedAt =
-        parseDate(item.listedAt) || existing?.first_seen_at || seenAt;
+        parseDate(item.listedAt) ||
+        priorListedAt ||
+        existing?.first_seen_at ||
+        seenAt;
       const auctionEndAt = parseDate(item.auctionEndAt);
-      const oldMetadata = (existing?.metadata || {}) as JsonRecord;
       const priceChanged = Boolean(
         existing &&
           (numberValue(existing.asking_price) !== validated.askingPrice ||
@@ -287,17 +326,50 @@ export async function ingestMarketIntelListings(
           ].slice(-50)
         : priorHistory;
 
-      // `tcos_mi_listings` intentionally has no top-level `currency` column in
-      // the live Beta One schema. Keep the ISO currency code in metadata so
-      // ingestion stays schema-compatible while retaining the source value.
-      const payload = {
-        marketplace_id: marketplace.id,
-        collectible_identity_id: identity.id,
+      const description =
+        item.description === undefined
+          ? typeof oldMetadata.description === "string"
+            ? oldMetadata.description
+            : null
+          : item.description;
+      const imageUrls =
+        item.imageUrls === undefined
+          ? stringArray(oldMetadata.image_urls)
+          : stringArray(item.imageUrls);
+      const sellerFeedbackCount =
+        item.sellerFeedbackCount === undefined ||
+        item.sellerFeedbackCount === null
+          ? oldMetadata.seller_feedback_count === undefined ||
+            oldMetadata.seller_feedback_count === null
+            ? null
+            : integerValue(oldMetadata.seller_feedback_count)
+          : integerValue(item.sellerFeedbackCount);
+      const locationText =
+        item.locationText === undefined
+          ? typeof oldMetadata.location_text === "string"
+            ? oldMetadata.location_text
+            : null
+          : item.locationText;
+      const identityMatchMethod =
+        item.identityMatchMethod ||
+        (typeof oldMetadata.identity_match_method === "string"
+          ? oldMetadata.identity_match_method
+          : "external_exact_identity");
+      const staleFingerprint = listingFingerprint(
+        validated.marketplaceSlug,
+        externalListingId,
+        validated.directUrl,
+        String(identity.id),
+      );
+
+      // Keep this object aligned to the installed Beta One table. Source fields
+      // that do not exist as physical columns are retained in metadata below.
+      const payload: MarketIntelListingWrite = {
+        marketplace_id: String(marketplace.id),
+        collectible_identity_id: String(identity.id),
         external_listing_id: externalListingId,
         direct_url: validated.directUrl,
         original_title: validated.originalTitle,
-        description: item.description || null,
-        image_urls: Array.isArray(item.imageUrls) ? item.imageUrls : [],
         listing_status: "active",
         listing_format: validated.listingFormat,
         asking_price: validated.askingPrice,
@@ -309,31 +381,23 @@ export async function ingestMarketIntelListings(
           item.sellerRating === null || item.sellerRating === undefined
             ? null
             : numberValue(item.sellerRating),
-        seller_feedback_count:
-          item.sellerFeedbackCount === null ||
-          item.sellerFeedbackCount === undefined
-            ? null
-            : integerValue(item.sellerFeedbackCount),
-        location_text: item.locationText || null,
         auction_end_at: auctionEndAt,
-        listed_at: listedAt,
         last_seen_at: seenAt,
-        ended_at: null,
         identity_match_confidence: validated.matchConfidence,
-        identity_match_method:
-          item.identityMatchMethod || "external_exact_identity",
         suspected_mislisting: Boolean(item.suspectedMislisting),
         mislisting_reason: item.mislistingReason || null,
-        stale_fingerprint: listingFingerprint(
-          validated.marketplaceSlug,
-          externalListingId,
-          validated.directUrl,
-          identity.id,
-        ),
         metadata: {
           ...oldMetadata,
           ...(item.metadata || {}),
           currency: validated.currency,
+          description,
+          image_urls: imageUrls,
+          seller_feedback_count: sellerFeedbackCount,
+          location_text: locationText,
+          listed_at: listedAt,
+          ended_at: null,
+          identity_match_method: identityMatchMethod,
+          stale_fingerprint: staleFingerprint,
           ingestion_source: "market-intel-gateway",
           last_ingested_at: seenAt,
           price_history: priceHistory,
@@ -349,7 +413,7 @@ export async function ingestMarketIntelListings(
           .update(payload)
           .eq("id", existing.id);
         if (updateError) throw new Error(updateError.message);
-        listingId = existing.id;
+        listingId = String(existing.id);
         status = "updated";
       } else {
         const { data: createdRows, error: createError } = await supabase
@@ -420,6 +484,7 @@ export async function cleanupStaleMarketIntelListings(staleAfterHours = 26) {
 
   const supabase = createSupabaseServerClient({ admin: true });
   const now = new Date();
+  const nowIso = now.toISOString();
   const cutoff = new Date(
     now.getTime() - staleAfterHours * 60 * 60 * 1000,
   ).toISOString();
@@ -428,12 +493,11 @@ export async function cleanupStaleMarketIntelListings(staleAfterHours = 26) {
     .from("tcos_mi_listings")
     .update({
       listing_status: "ended",
-      ended_at: now.toISOString(),
-      last_seen_at: now.toISOString(),
+      last_seen_at: nowIso,
     })
     .eq("listing_status", "active")
     .eq("listing_format", "auction")
-    .lt("auction_end_at", now.toISOString())
+    .lt("auction_end_at", nowIso)
     .select("id");
   if (expiredError) throw new Error(expiredError.message);
 
