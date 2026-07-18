@@ -739,6 +739,73 @@ function runTrialPreflightStatus() {
   }
 }
 
+function getFinalTrialImageShortfall(preflight) {
+  const progress = preflight.scanPermit?.progress || {};
+  const imagePairs = Number(progress.imagePairs);
+  const expectedImagePairs = Number(progress.expectedImagePairs);
+  const imageFiles = Number(progress.imageFiles);
+  const expectedImages = Number(progress.expectedImages);
+  const missingPairs =
+    Number.isFinite(imagePairs) && Number.isFinite(expectedImagePairs)
+      ? Math.max(0, expectedImagePairs - imagePairs)
+      : null;
+  const missingFiles =
+    Number.isFinite(imageFiles) && Number.isFinite(expectedImages)
+      ? Math.max(0, expectedImages - imageFiles)
+      : null;
+
+  return {
+    missingPairs,
+    missingFiles,
+    isShort:
+      (missingPairs !== null && missingPairs > 0) ||
+      (missingFiles !== null && missingFiles > 0),
+  };
+}
+
+function describeFinalTrialImageShortfall(shortfall) {
+  if (!shortfall.isShort) return "The final tester image lot is not short.";
+
+  const fileText =
+    shortfall.missingFiles === null
+      ? "missing image files"
+      : `${shortfall.missingFiles} missing image file(s)`;
+  const pairText =
+    shortfall.missingPairs === null
+      ? "missing card pair(s)"
+      : `${shortfall.missingPairs} missing card pair(s)`;
+
+  return `Current receipts match the loaded image audit, but the final 100-card lot is still short: ${fileText} / ${pairText}.`;
+}
+
+function getTrialReceiptStatus({ matchesCurrentAudit, needsCurrentReceiptStatus, preflight, shortfall }) {
+  if (!matchesCurrentAudit) return needsCurrentReceiptStatus;
+  if (preflight.readyToScan) return "ready_to_scan";
+  if (shortfall.isShort) return "receipt_current_but_final_lot_short";
+  if (preflight.available) return "receipt_current_but_scan_permit_blocked";
+  return "receipt_current_but_preflight_unknown";
+}
+
+function getTrialReceiptNext({ matchesCurrentAudit, refreshCommand, preflight, shortfall }) {
+  if (!matchesCurrentAudit) {
+    return `Rerun ${refreshCommand} so the local receipt matches the current image folder before any scan.`;
+  }
+
+  if (preflight.readyToScan) {
+    return "Final preflight granted the scan permit; use this receipt as the pre-scan proof.";
+  }
+
+  if (shortfall.isShort) {
+    return `${describeFinalTrialImageShortfall(shortfall)} Copy the missing images into instacomp-trial-inbox, then rerun npm run instacomp:trial:intake and npm run instacomp:trial:preflight.`;
+  }
+
+  if (preflight.available) {
+    return `Receipt is current, but the scan permit is still blocked: ${preflight.next}`;
+  }
+
+  return "Receipt is current, but preflight proof could not be read; rerun npm run instacomp:trial:preflight before scanning.";
+}
+
 const manifestPath = "instacomp-trial-manifest.local.json";
 const resultsPath = "instacomp-trial-results.local.json";
 const trialInboxDir = "instacomp-trial-inbox";
@@ -803,6 +870,7 @@ const trialAnswerKeyHtml = readTrialAnswerKeyHtmlStatus(
 );
 const trialAnswerKeyValidation = readTrialAnswerKeyValidationStatus(trialGroundTruthWorksheet);
 const trialPreflight = runTrialPreflightStatus();
+const finalTrialImageShortfall = getFinalTrialImageShortfall(trialPreflight);
 
 const checklist = [
   {
@@ -970,13 +1038,20 @@ const checklist = [
     key: "trial_image_map",
     label:
       "The pre-scan image-map receipt can prove which uploaded scanner file became each trial card front/back pair before the lot is scanned.",
-    status: trialImageMap.matchesCurrentAudit
-      ? trialImageAudit.readyToScan
-        ? "ready_to_scan"
-        : "packet_current_but_needs_files"
-      : trialImageAudit.readyToScan
+    status: getTrialReceiptStatus({
+      matchesCurrentAudit: trialImageMap.matchesCurrentAudit,
+      needsCurrentReceiptStatus: trialImageAudit.readyToScan
         ? "needs_image_map"
         : "needs_local_trial_files",
+      preflight: trialPreflight,
+      shortfall: finalTrialImageShortfall,
+    }),
+    next: getTrialReceiptNext({
+      matchesCurrentAudit: trialImageMap.matchesCurrentAudit,
+      refreshCommand: "npm run instacomp:trial:map",
+      preflight: trialPreflight,
+      shortfall: finalTrialImageShortfall,
+    }),
   },
   {
     key: "trial_preflight_gate",
@@ -992,11 +1067,18 @@ const checklist = [
     key: "trial_intake_packet",
     label:
       "The pre-scan intake packet can give the operator a readable image-count, pairing-preview, problem-list, and next-command receipt before scanner time is spent.",
-    status: trialIntakePacket.matchesCurrentAudit
-      ? trialImageAudit.readyToScan
-        ? "ready_to_scan"
-        : "packet_current_but_needs_files"
-      : "needs_trial_packet",
+    status: getTrialReceiptStatus({
+      matchesCurrentAudit: trialIntakePacket.matchesCurrentAudit,
+      needsCurrentReceiptStatus: "needs_trial_packet",
+      preflight: trialPreflight,
+      shortfall: finalTrialImageShortfall,
+    }),
+    next: getTrialReceiptNext({
+      matchesCurrentAudit: trialIntakePacket.matchesCurrentAudit,
+      refreshCommand: "npm run instacomp:trial:packet",
+      preflight: trialPreflight,
+      shortfall: finalTrialImageShortfall,
+    }),
   },
   {
     key: "hundred_card_trial",
@@ -1268,6 +1350,7 @@ if (jsonOutput) {
   console.log("Done-done tester checklist:");
   for (const item of checklist) {
     console.log(`- ${item.status}: ${item.label}`);
+    if (item.next) console.log(`  next: ${item.next}`);
   }
   console.log("");
   console.log("Commands:");
