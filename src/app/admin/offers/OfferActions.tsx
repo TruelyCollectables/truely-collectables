@@ -239,24 +239,24 @@ export default function OfferActions({
 
       <button
         type="button"
-        disabled={!canAccept || isBusy}
+        aria-disabled={!canAccept || isBusy}
         aria-busy={loading === "accepted"}
         aria-label="Accept offer and create checkout link"
         title={acceptDisabledReason}
         onClick={() => updateStatus("accepted")}
-        className="w-full rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-50"
+        className="w-full rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white hover:bg-neutral-800 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
       >
         {loading === "accepted" ? "Creating checkout link..." : "Accept"}
       </button>
 
       <button
         type="button"
-        disabled={!canDecline || isBusy}
+        aria-disabled={!canDecline || isBusy}
         aria-busy={loading === "declined"}
         aria-label="Decline offer"
         title={declineDisabledReason}
         onClick={() => updateStatus("declined")}
-        className="w-full rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50"
+        className="w-full rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
       >
         {loading === "declined" ? "Declining offer..." : "Decline"}
       </button>
@@ -293,12 +293,12 @@ export default function OfferActions({
 
       <button
         type="button"
-        disabled={!canCounter || isBusy}
+        aria-disabled={!canCounter || isBusy}
         aria-busy={loading === "counter"}
         aria-label="Send counter offer checkout link"
         title={counterDisabledReason}
         onClick={sendCounterOffer}
-        className="w-full rounded-md bg-sky-700 px-4 py-2 text-sm font-black text-white hover:bg-sky-800 disabled:cursor-not-allowed disabled:opacity-50"
+        className="w-full rounded-md bg-sky-700 px-4 py-2 text-sm font-black text-white hover:bg-sky-800 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
       >
         {loading === "counter" ? "Sending counter link..." : "Counter Offer"}
       </button>
