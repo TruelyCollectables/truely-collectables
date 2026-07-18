@@ -178,9 +178,16 @@ export default function OrderReviewCasesPanel({
     () => cases.filter((reviewCase) => !finalStatuses.has(reviewCase.status)).length,
     [cases],
   );
+  const canCreateCase = title.trim().length >= 6;
 
   async function createCase(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    if (!canCreateCase) {
+      setMessage("Add a clear case title before opening review.");
+      return;
+    }
+
     setBusy(true);
     setMessage("");
 
@@ -220,29 +227,32 @@ export default function OrderReviewCasesPanel({
   }
 
   return (
-    <section className="border rounded-lg p-6 mb-6">
+    <section className="rounded-[2rem] border border-neutral-200 bg-white p-6 shadow-sm">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-bold">Order Review Cases</h2>
-          <p className="mt-1 text-sm text-gray-600">
+          <p className="text-xs font-black uppercase tracking-[0.16em] text-neutral-500">
+            Risk desk
+          </p>
+          <h2 className="mt-1 text-2xl font-black">Order Review Cases</h2>
+          <p className="mt-2 max-w-3xl text-sm font-semibold leading-6 text-neutral-600">
             Chargebacks, returns, authenticity issues, shipping disputes, and
             seller payout holds for this order.
           </p>
         </div>
-        <div className="rounded border border-gray-200 bg-gray-50 px-4 py-2 text-sm">
-          <span className="font-bold">{activeCaseCount}</span> active /{" "}
-          <span className="font-bold">{cases.length}</span> total
+        <div className="rounded-2xl border border-neutral-200 bg-neutral-50 px-4 py-3 text-sm font-semibold">
+          <span className="font-black">{activeCaseCount}</span> active /{" "}
+          <span className="font-black">{cases.length}</span> total
         </div>
       </div>
 
       {tableError ? (
-        <div className="rounded border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-900">
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold text-amber-950">
           Review case tables unavailable: {tableError}
         </div>
       ) : (
         <>
           {cases.length === 0 ? (
-            <p className="rounded border border-gray-200 bg-gray-50 p-4 text-sm text-gray-600">
+            <p className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4 text-sm font-semibold text-neutral-600">
               No order review cases have been opened for this order.
             </p>
           ) : (
@@ -258,66 +268,66 @@ export default function OrderReviewCasesPanel({
                 return (
                   <article
                     key={`${reviewCase.id}-${reviewCase.status}-${reviewCase.updated_at || ""}`}
-                    className="rounded border border-gray-200 bg-white p-5"
+                    className="rounded-2xl border border-neutral-200 bg-neutral-50 p-5"
                   >
                     <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_320px]">
                       <div>
                         <div className="flex flex-wrap gap-2">
                           <span
-                            className={`rounded border px-2 py-1 text-xs font-bold ${statusTone(reviewCase.status)}`}
+                            className={`rounded-full border px-3 py-1 text-xs font-black ${statusTone(reviewCase.status)}`}
                           >
                             {label(reviewCase.status)}
                           </span>
                           <span
-                            className={`rounded border px-2 py-1 text-xs font-bold ${severityTone(reviewCase.severity)}`}
+                            className={`rounded-full border px-3 py-1 text-xs font-black ${severityTone(reviewCase.severity)}`}
                           >
                             {label(reviewCase.severity)}
                           </span>
-                          <span className="rounded border border-gray-200 bg-gray-50 px-2 py-1 text-xs font-bold text-gray-700">
+                          <span className="rounded-full border border-neutral-200 bg-white px-3 py-1 text-xs font-black text-neutral-700">
                             {label(reviewCase.case_type)}
                           </span>
                         </div>
 
-                        <h3 className="mt-3 text-lg font-bold">
+                        <h3 className="mt-3 text-lg font-black">
                           {reviewCase.title}
                         </h3>
-                        <p className="mt-2 text-sm text-gray-600">
+                        <p className="mt-2 text-sm font-semibold leading-6 text-neutral-600">
                           {reviewCase.description || "No description saved."}
                         </p>
 
                         <dl className="mt-4 grid grid-cols-1 gap-3 text-sm md:grid-cols-4">
-                          <div>
-                            <dt className="font-semibold text-gray-500">
+                          <div className="rounded-2xl border border-neutral-200 bg-white p-3">
+                            <dt className="text-xs font-black uppercase tracking-[0.12em] text-neutral-500">
                               Seller Scope
                             </dt>
-                            <dd className="break-words font-semibold text-gray-900">
+                            <dd className="mt-1 break-words font-semibold text-neutral-950">
                               {sellerLabel}
                             </dd>
                           </div>
-                          <div>
-                            <dt className="font-semibold text-gray-500">Opened</dt>
-                            <dd>{dateLabel(reviewCase.opened_at)}</dd>
+                          <div className="rounded-2xl border border-neutral-200 bg-white p-3">
+                            <dt className="text-xs font-black uppercase tracking-[0.12em] text-neutral-500">Opened</dt>
+                            <dd className="mt-1 font-semibold">{dateLabel(reviewCase.opened_at)}</dd>
                           </div>
-                          <div>
-                            <dt className="font-semibold text-gray-500">Updated</dt>
-                            <dd>{dateLabel(reviewCase.updated_at)}</dd>
+                          <div className="rounded-2xl border border-neutral-200 bg-white p-3">
+                            <dt className="text-xs font-black uppercase tracking-[0.12em] text-neutral-500">Updated</dt>
+                            <dd className="mt-1 font-semibold">{dateLabel(reviewCase.updated_at)}</dd>
                           </div>
-                          <div>
-                            <dt className="font-semibold text-gray-500">Closed</dt>
-                            <dd>{dateLabel(reviewCase.closed_at)}</dd>
+                          <div className="rounded-2xl border border-neutral-200 bg-white p-3">
+                            <dt className="text-xs font-black uppercase tracking-[0.12em] text-neutral-500">Closed</dt>
+                            <dd className="mt-1 font-semibold">{dateLabel(reviewCase.closed_at)}</dd>
                           </div>
                         </dl>
 
                         <div className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
-                          <div className="rounded border border-gray-200 bg-gray-50 p-3 text-sm">
-                            <p className="font-bold text-gray-900">Hold Flags</p>
-                            <p className="mt-2 text-gray-700">
+                          <div className="rounded-2xl border border-neutral-200 bg-white p-3 text-sm">
+                            <p className="font-black text-neutral-950">Hold Flags</p>
+                            <p className="mt-2 font-semibold text-neutral-700">
                               Seller payout hold:{" "}
                               <strong>
                                 {reviewCase.hold_seller_payouts ? "Yes" : "No"}
                               </strong>
                             </p>
-                            <p className="mt-1 text-gray-700">
+                            <p className="mt-1 font-semibold text-neutral-700">
                               Fulfillment hold:{" "}
                               <strong>
                                 {reviewCase.hold_order_fulfillment ? "Yes" : "No"}
@@ -325,17 +335,17 @@ export default function OrderReviewCasesPanel({
                             </p>
                           </div>
 
-                          <div className="rounded border border-gray-200 bg-gray-50 p-3 text-sm">
-                            <p className="font-bold text-gray-900">
+                          <div className="rounded-2xl border border-neutral-200 bg-white p-3 text-sm">
+                            <p className="font-black text-neutral-950">
                               Payout Scope
                             </p>
-                            <p className="mt-2 text-gray-700">
+                            <p className="mt-2 font-semibold text-neutral-700">
                               Scoped rows: <strong>{payout.scopedRows.length}</strong>
                             </p>
-                            <p className="mt-1 text-gray-700">
+                            <p className="mt-1 font-semibold text-neutral-700">
                               Held rows: <strong>{payout.heldRows.length}</strong>
                             </p>
-                            <p className="mt-1 text-gray-700">
+                            <p className="mt-1 font-semibold text-neutral-700">
                               Payable total:{" "}
                               <strong>{money(payout.payableTotal)}</strong>
                             </p>
@@ -343,41 +353,41 @@ export default function OrderReviewCasesPanel({
                         </div>
 
                         {reviewCase.outcome_summary ? (
-                          <p className="mt-4 rounded border border-gray-200 bg-gray-50 p-3 text-sm">
+                          <p className="mt-4 rounded-2xl border border-neutral-200 bg-white p-3 text-sm font-semibold">
                             <strong>Outcome:</strong> {reviewCase.outcome_summary}
                           </p>
                         ) : null}
 
                         {eventsError ? (
-                          <div className="mt-4 rounded border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-900">
+                          <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-950">
                             Case activity unavailable: {eventsError}
                           </div>
                         ) : recentEvents.length > 0 ? (
-                          <div className="mt-4 rounded border border-gray-200 bg-gray-50 p-3 text-sm">
-                            <p className="font-bold text-gray-900">
+                          <div className="mt-4 rounded-2xl border border-neutral-200 bg-white p-3 text-sm">
+                            <p className="font-black text-neutral-950">
                               Recent Activity
                             </p>
                             <div className="mt-3 space-y-3">
                               {recentEvents.slice(0, 3).map((event) => (
                                 <div
                                   key={event.id}
-                                  className="rounded border border-gray-200 bg-white p-3"
+                                  className="rounded-2xl border border-neutral-200 bg-neutral-50 p-3"
                                 >
                                   <div className="flex flex-wrap items-start justify-between gap-2">
-                                    <p className="font-bold text-gray-900">
+                                    <p className="font-black text-neutral-950">
                                       {label(event.event_type)}
                                     </p>
-                                    <p className="text-xs font-semibold text-gray-500">
+                                    <p className="text-xs font-semibold text-neutral-500">
                                       {dateLabel(event.created_at)}
                                     </p>
                                   </div>
-                                  <p className="mt-1 text-xs font-semibold text-gray-500">
+                                  <p className="mt-1 text-xs font-semibold text-neutral-500">
                                     {label(event.previous_status)} {" -> "}{" "}
                                     {label(event.new_status)} / IP{" "}
                                     {event.ip_address || "not recorded"} /{" "}
                                     {label(event.identity_risk)}
                                   </p>
-                                  <p className="mt-2 text-gray-700">
+                                  <p className="mt-2 font-semibold text-neutral-700">
                                     {event.note || "No event note."}
                                   </p>
                                 </div>
@@ -388,14 +398,14 @@ export default function OrderReviewCasesPanel({
 
                         <a
                           href={`/api/admin/order-review-cases/${reviewCase.id}/packet`}
-                          className="mt-4 inline-block rounded bg-black px-4 py-2 text-sm font-bold text-white"
+                          className="mt-4 inline-flex rounded-2xl bg-neutral-950 px-4 py-3 text-sm font-black text-white"
                         >
                           Download Case Packet PDF
                         </a>
                       </div>
 
-                      <aside className="rounded border border-gray-200 bg-gray-50 p-4">
-                        <h4 className="mb-3 text-sm font-bold uppercase text-gray-500">
+                      <aside className="rounded-2xl border border-neutral-200 bg-white p-4">
+                        <h4 className="mb-3 text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
                           Case Controls
                         </h4>
                         <CaseQueueActions
@@ -415,16 +425,23 @@ export default function OrderReviewCasesPanel({
             </div>
           )}
 
-          <form onSubmit={createCase} className="mt-6 rounded border p-4">
-            <h3 className="text-lg font-bold">Open New Case</h3>
+          <form
+            onSubmit={createCase}
+            className="mt-6 rounded-[2rem] border border-neutral-200 bg-neutral-50 p-5"
+          >
+            <h3 className="text-lg font-black">Open New Case</h3>
+            <p className="mt-1 text-sm font-semibold text-neutral-600">
+              Opening a case can hold seller payouts and optionally move the
+              order into shipping review. Keep the title and notes audit-ready.
+            </p>
 
             <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
-              <label className="text-sm font-semibold">
+              <label className="text-sm font-black">
                 Case Type
                 <select
                   value={caseType}
                   onChange={(event) => setCaseType(event.target.value)}
-                  className="mt-1 w-full rounded border px-3 py-2"
+                  className="mt-2 w-full rounded-2xl border border-neutral-300 bg-white px-3 py-3 text-sm font-semibold outline-none focus:border-neutral-950"
                 >
                   {caseTypeOptions.map(([value, optionLabel]) => (
                     <option key={value} value={value}>
@@ -434,12 +451,12 @@ export default function OrderReviewCasesPanel({
                 </select>
               </label>
 
-              <label className="text-sm font-semibold">
+              <label className="text-sm font-black">
                 Severity
                 <select
                   value={severity}
                   onChange={(event) => setSeverity(event.target.value)}
-                  className="mt-1 w-full rounded border px-3 py-2"
+                  className="mt-2 w-full rounded-2xl border border-neutral-300 bg-white px-3 py-3 text-sm font-semibold outline-none focus:border-neutral-950"
                 >
                   {severityOptions.map(([value, optionLabel]) => (
                     <option key={value} value={value}>
@@ -449,12 +466,12 @@ export default function OrderReviewCasesPanel({
                 </select>
               </label>
 
-              <label className="text-sm font-semibold">
+              <label className="text-sm font-black">
                 Seller Scope
                 <select
                   value={sellerAccountId}
                   onChange={(event) => setSellerAccountId(event.target.value)}
-                  className="mt-1 w-full rounded border px-3 py-2"
+                  className="mt-2 w-full rounded-2xl border border-neutral-300 bg-white px-3 py-3 text-sm font-semibold outline-none focus:border-neutral-950"
                 >
                   <option value="all">All seller-owned rows</option>
                   {sellerOptions.map((seller) => (
@@ -466,29 +483,29 @@ export default function OrderReviewCasesPanel({
               </label>
             </div>
 
-            <label className="mt-4 block text-sm font-semibold">
+            <label className="mt-4 block text-sm font-black">
               Title
               <input
                 value={title}
                 onChange={(event) => setTitle(event.target.value)}
                 required
-                className="mt-1 w-full rounded border px-3 py-2"
+                className="mt-2 w-full rounded-2xl border border-neutral-300 bg-white px-3 py-3 text-sm font-semibold outline-none focus:border-neutral-950"
               />
             </label>
 
-            <label className="mt-4 block text-sm font-semibold">
+            <label className="mt-4 block text-sm font-black">
               Notes
               <textarea
                 value={description}
                 onChange={(event) => setDescription(event.target.value)}
                 rows={4}
-                className="mt-1 w-full rounded border px-3 py-2"
+                className="mt-2 w-full rounded-2xl border border-neutral-300 bg-white px-3 py-3 text-sm font-semibold outline-none focus:border-neutral-950"
                 placeholder="What happened, what evidence is needed, and what should be held."
               />
             </label>
 
             <div className="mt-4 grid grid-cols-1 gap-3 text-sm md:grid-cols-2">
-              <label className="flex items-start gap-2 font-semibold">
+              <label className="flex items-start gap-3 rounded-2xl border border-neutral-200 bg-white p-3 font-semibold">
                 <input
                   type="checkbox"
                   checked={holdSellerPayouts}
@@ -498,7 +515,7 @@ export default function OrderReviewCasesPanel({
                 Hold related seller payout ledger rows
               </label>
 
-              <label className="flex items-start gap-2 font-semibold">
+              <label className="flex items-start gap-3 rounded-2xl border border-neutral-200 bg-white p-3 font-semibold">
                 <input
                   type="checkbox"
                   checked={holdOrderFulfillment}
@@ -514,12 +531,16 @@ export default function OrderReviewCasesPanel({
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <button
                 type="submit"
-                disabled={busy}
-                className="rounded bg-black px-4 py-2 font-bold text-white disabled:opacity-50"
+                disabled={busy || !canCreateCase}
+                className="rounded-2xl bg-neutral-950 px-4 py-3 text-sm font-black text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {busy ? "Opening..." : "Open Case"}
               </button>
-              {message ? <p className="text-sm font-semibold">{message}</p> : null}
+              {message ? (
+                <p className="rounded-2xl border border-neutral-200 bg-white px-3 py-2 text-sm font-black">
+                  {message}
+                </p>
+              ) : null}
             </div>
           </form>
         </>
