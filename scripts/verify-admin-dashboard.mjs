@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 
 const checks = [
   "check:admin-controls",
@@ -30,6 +31,32 @@ const checks = [
   "simulate:instacomp-row-removal",
   "simulate:instacomp-jobs",
 ];
+
+const packageJson = JSON.parse(readFileSync("package.json", "utf8"));
+const packageScripts = packageJson.scripts || {};
+const missingAdminSimulations = Object.keys(packageScripts)
+  .filter((scriptName) => scriptName.startsWith("simulate:admin-"))
+  .filter((scriptName) => !checks.includes(scriptName))
+  .sort();
+const missingPackageScripts = checks
+  .filter((scriptName) => !packageScripts[scriptName])
+  .sort();
+
+if (missingAdminSimulations.length > 0 || missingPackageScripts.length > 0) {
+  if (missingAdminSimulations.length > 0) {
+    console.error(
+      `verify:admin-dashboard is missing admin simulation script(s): ${missingAdminSimulations.join(", ")}`,
+    );
+  }
+
+  if (missingPackageScripts.length > 0) {
+    console.error(
+      `verify:admin-dashboard references missing package script(s): ${missingPackageScripts.join(", ")}`,
+    );
+  }
+
+  process.exit(1);
+}
 
 const npmCommand = process.platform === "win32" ? "npm.cmd" : "npm";
 const results = [];
