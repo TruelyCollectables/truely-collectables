@@ -229,8 +229,10 @@ export default async function IdentityDiscoveryLayout({
         candidates={candidates.map((candidate) => ({
           id: candidate.id,
           player: candidate.player,
-          ready: candidate.ready,
-          missing: candidate.missing,
+          ready: candidate.ready && !candidate.purchaseInbox,
+          missing: candidate.purchaseInbox
+            ? ["use Mark Selected Purchased"]
+            : candidate.missing,
         }))}
       />
       <SelectedPurchaseControls
