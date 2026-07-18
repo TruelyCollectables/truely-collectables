@@ -14561,6 +14561,7 @@ function BatchCardRow({
             </div>
             {removeBlockedReason ? (
               <div
+                role="status"
                 aria-live="polite"
                 style={{
                   marginTop: 8,
@@ -14578,6 +14579,7 @@ function BatchCardRow({
               </div>
             ) : isRemoving ? (
               <div
+                role="status"
                 aria-live="polite"
                 style={{
                   marginTop: 8,

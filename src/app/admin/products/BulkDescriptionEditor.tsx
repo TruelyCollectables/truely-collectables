@@ -165,7 +165,7 @@ export default function BulkDescriptionEditor({
             blockedReason={blockedReason}
             selectedCount={selectedIds.length}
           />
-          <span aria-live="polite" className="text-sm font-bold text-gray-700">
+          <span role="status" aria-live="polite" className="text-sm font-bold text-gray-700">
             {selectionSummary}
           </span>
         </div>

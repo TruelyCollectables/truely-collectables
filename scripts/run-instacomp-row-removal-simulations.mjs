@@ -125,6 +125,7 @@ scenario("row remove button exposes busy and blocked feedback", () => {
   for (const fragment of [
     "const removeBlockedReason = instaCompBatchRowRemovalBlockedReason",
     "aria-busy={isRemoving}",
+    'role="status"',
     "Remove blocked:",
     "Ended active scan for ${cardTitle} and removed it from this batch.",
     "Removing row and cancelling saved InstaComp™ storage when present...",

@@ -86,6 +86,7 @@ scenario("bulk description editor exposes searchable safe bulk controls", () => 
     'role="status"',
     "aria-busy={pending}",
     "aria-live=\"polite\"",
+    "<span role=\"status\" aria-live=\"polite\"",
     "Select every product currently visible",
     "Clear the products currently visible",
     "adminBulkDescriptionSubmitLabel",
