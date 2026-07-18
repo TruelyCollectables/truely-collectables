@@ -92,7 +92,11 @@ async function bulkUpdateDescriptions(formData: FormData) {
 export default async function AdminProductsPage({
   searchParams,
 }: {
-  searchParams?: Promise<{ bulkUpdated?: string; bulkError?: string }>;
+  searchParams?: Promise<{
+    bulkUpdated?: string;
+    bulkError?: string;
+    saveError?: string;
+  }>;
 }) {
   const query = await searchParams;
   let products: UniversalInventoryItem[] = [];
@@ -197,6 +201,12 @@ export default async function AdminProductsPage({
       {query?.bulkError && (
         <div className="rounded border border-red-300 bg-red-50 p-4 font-bold text-red-800">
           Select at least one product and paste a description/code block first.
+        </div>
+      )}
+
+      {query?.saveError && (
+        <div className="rounded border border-red-300 bg-red-50 p-4 font-bold text-red-800">
+          Product action failed: {query.saveError}
         </div>
       )}
 

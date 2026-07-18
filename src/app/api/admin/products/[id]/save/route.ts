@@ -1,17 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { sanitizeAuthenticityProfile } from "../../../../../../lib/authenticity";
+import {
+  parseAdminInventoryStatus,
+  parseAdminProductId,
+} from "../../../../../../lib/admin-product-status";
 import { createServerInventoryEngine } from "../../../../../../lib/server-inventory-engine";
-import type { InventoryStatus } from "../../../../../../modules/inventory";
 
 export const dynamic = "force-dynamic";
-
-const INVENTORY_STATUSES: InventoryStatus[] = [
-  "draft",
-  "active",
-  "reserved",
-  "sold",
-  "archived",
-];
 
 function parseString(value: FormDataEntryValue | null) {
   const text = String(value ?? "").trim();
@@ -30,12 +25,6 @@ function parseWholeQuantity(value: FormDataEntryValue | null) {
   const parsed = Number(value ?? "");
 
   return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
-}
-
-function parseStatus(value: FormDataEntryValue | null) {
-  const status = String(value || "active") as InventoryStatus;
-
-  return INVENTORY_STATUSES.includes(status) ? status : null;
 }
 
 function parseImageUrl(value: FormDataEntryValue | null) {
@@ -81,9 +70,9 @@ export async function POST(
   context: { params: Promise<{ id: string }> },
 ) {
   const { id: rawId } = await context.params;
-  const id = Number(rawId);
+  const id = parseAdminProductId(rawId);
 
-  if (!Number.isInteger(id) || id <= 0) {
+  if (!id) {
     return redirectToProducts(request, {
       saveError: "Invalid product ID.",
     });
@@ -92,7 +81,7 @@ export async function POST(
   try {
     const formData = await request.formData();
     const title = parseString(formData.get("title"));
-    const status = parseStatus(formData.get("status"));
+    const status = parseAdminInventoryStatus(formData.get("status"));
     const price = parsePositiveMoney(formData.get("price"));
     const quantity = parseWholeQuantity(formData.get("quantity"));
     const imageUrl = parseImageUrl(formData.get("image_url"));

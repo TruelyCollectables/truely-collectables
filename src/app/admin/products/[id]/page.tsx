@@ -7,6 +7,12 @@ import {
   authenticityStatusLabel,
   autographSourceLabel,
 } from "../../../../lib/authenticity";
+import {
+  ADMIN_INVENTORY_STATUSES,
+  adminProductStatusChangeError,
+  parseAdminInventoryStatus,
+  parseAdminProductId,
+} from "../../../../lib/admin-product-status";
 import { createAdminSessionValue } from "../../../../lib/admin-session";
 import { createServerInventoryEngine } from "../../../../lib/server-inventory-engine";
 import type { InventoryStatus } from "../../../../modules/inventory";
@@ -18,14 +24,6 @@ import type {
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
-
-const INVENTORY_STATUSES: InventoryStatus[] = [
-  "draft",
-  "active",
-  "reserved",
-  "sold",
-  "archived",
-];
 
 function textValue(value: string | null) {
   return value ?? "";
@@ -44,12 +42,26 @@ async function setProductStatus(formData: FormData) {
   "use server";
 
   const adminInventoryEngine = createServerInventoryEngine();
-  const id = Number(formData.get("id"));
-  const status = String(formData.get("status") || "active") as InventoryStatus;
+  const rawId = formData.get("id");
+  const rawStatus = formData.get("status");
+  const id = parseAdminProductId(rawId);
+  const status = parseAdminInventoryStatus(rawStatus);
+  const error = adminProductStatusChangeError({
+    productId: rawId,
+    status: rawStatus,
+  });
+
+  if (error) {
+    redirect(
+      id
+        ? `/admin/products/${id}?saveError=${encodeURIComponent(error)}`
+        : `/admin/products?saveError=${encodeURIComponent(error)}`,
+    );
+  }
 
   await adminInventoryEngine.setStatus({
-    legacyProductId: id,
-    status,
+    legacyProductId: id!,
+    status: status!,
   });
 
   redirect(`/admin/products/${id}`);
@@ -282,7 +294,7 @@ export default async function AdminProductEditPage({
                 <input
                   name="price"
                   type="number"
-                  min="0"
+                  min="0.01"
                   step="0.01"
                   required
                   defaultValue={product.price}
@@ -310,7 +322,7 @@ export default async function AdminProductEditPage({
                   defaultValue={product.status}
                   className="mt-1 w-full rounded border border-neutral-300 px-3 py-3 text-sm"
                 >
-                  {INVENTORY_STATUSES.map((status) => (
+                  {ADMIN_INVENTORY_STATUSES.map((status) => (
                     <option key={status} value={status}>
                       {status}
                     </option>
