@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 export default function LiveShippingGateActions({
   approvalReady,
@@ -12,6 +12,7 @@ export default function LiveShippingGateActions({
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState<"approve" | "revoke" | null>(null);
+  const gateActionRunningRef = useRef(false);
   const [pendingAction, setPendingAction] = useState<"approve" | "revoke" | null>(
     null,
   );
@@ -33,6 +34,14 @@ export default function LiveShippingGateActions({
     busy !== null ? "Finish the current live-shipping gate action first." : "";
 
   async function submit(action: "approve" | "revoke") {
+    if (gateActionRunningRef.current) {
+      setMessage({
+        tone: "error",
+        text: "Finish the current live-shipping gate action first.",
+      });
+      return;
+    }
+
     const expected =
       action === "approve" ? "APPROVE LIVE SHIPPING" : "REVOKE LIVE SHIPPING";
 
@@ -52,6 +61,7 @@ export default function LiveShippingGateActions({
       return;
     }
 
+    gateActionRunningRef.current = true;
     setBusy(action);
     setMessage({
       tone: "info",
@@ -91,6 +101,7 @@ export default function LiveShippingGateActions({
         text: error.message || "Gate update failed.",
       });
     } finally {
+      gateActionRunningRef.current = false;
       setBusy(null);
     }
   }
