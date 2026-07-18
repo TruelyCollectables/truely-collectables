@@ -7530,6 +7530,16 @@ export default function InstaCompScanner({
   }
 
   function requestBatchPause() {
+    if (!batchRunning) {
+      setBatchError("No InstaComp™ batch is running right now.");
+      return;
+    }
+
+    if (batchPauseRequested) {
+      setBatchError("Pause is already requested. Current mini-pack will finish first.");
+      return;
+    }
+
     batchPauseRequestedRef.current = true;
     setBatchPauseRequested(true);
     setBatchError(
@@ -8840,7 +8850,20 @@ export default function InstaCompScanner({
       onlyCardIds?: Set<string>;
     } = {}
   ) {
-    if (batchRunning || batchDrafting || persistentJobPreparing) return;
+    if (persistentJobPreparing) {
+      setBatchError("Finish preparing the saved InstaComp™ lot before scanning.");
+      return;
+    }
+
+    if (batchDrafting) {
+      setBatchError("Finish draft creation before scanning the batch.");
+      return;
+    }
+
+    if (batchRunning) {
+      setBatchError("Finish the current InstaComp™ scan/action before scanning again.");
+      return;
+    }
 
     if (!batchCards.length) {
       setBatchError("Add up to 500 card images first.");
@@ -10875,7 +10898,7 @@ export default function InstaCompScanner({
           <button
             type="button"
             onClick={() => void scanBatch()}
-            disabled={
+            aria-disabled={
               batchRunning ||
               batchDrafting ||
               persistentJobPreparing ||
@@ -10916,7 +10939,7 @@ export default function InstaCompScanner({
           <button
             type="button"
             onClick={requestBatchPause}
-            disabled={!batchRunning || batchPauseRequested}
+            aria-disabled={!batchRunning || batchPauseRequested}
             style={{
               ...secondaryButtonStyle,
               cursor:
@@ -10930,7 +10953,7 @@ export default function InstaCompScanner({
           <button
             type="button"
             onClick={() => void retryRateLimitedBatchCards()}
-            disabled={
+            aria-disabled={
               batchRunning ||
               batchDrafting ||
               batchRateLimitErrorCount === 0
@@ -10956,7 +10979,7 @@ export default function InstaCompScanner({
           <button
             type="button"
             onClick={() => void retryOperatorMarkedWrongBatchCards()}
-            disabled={
+            aria-disabled={
               batchRunning ||
               batchDrafting ||
               batchOperatorMarkedWrongCount === 0
@@ -10981,7 +11004,7 @@ export default function InstaCompScanner({
           <button
             type="button"
             onClick={selectOperatorMarkedProblemBatchCards}
-            disabled={
+            aria-disabled={
               batchRunning ||
               batchDrafting ||
               batchOperatorMarkedWrongCount === 0
@@ -11006,7 +11029,7 @@ export default function InstaCompScanner({
           <button
             type="button"
             onClick={() => void scanBatch({ retryOnly: true })}
-            disabled={batchRunning || batchDrafting || batchErrorCount === 0}
+            aria-disabled={batchRunning || batchDrafting || batchErrorCount === 0}
             style={{
               ...secondaryButtonStyle,
               cursor:
