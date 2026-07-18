@@ -112,6 +112,36 @@ const authBoundaryChecks = [
     expectedText: "Unauthorized",
   },
 ];
+const authenticatedApiChecks = [
+  {
+    path: "/api/admin/ebay-duplicates",
+    expectedText: "\"success\":true",
+  },
+  {
+    path: "/api/admin/ebay-inventory-intake",
+    expectedText: "\"success\":true",
+  },
+  {
+    path: "/api/admin/launch-readiness",
+    expectedText: "\"success\":true",
+  },
+  {
+    path: "/api/admin/launch-gate-drill",
+    expectedText: "\"success\":true",
+  },
+  {
+    path: "/api/admin/live-payment-launch",
+    expectedText: "\"success\":true",
+  },
+  {
+    path: "/api/admin/live-shipping-launch",
+    expectedText: "\"success\":true",
+  },
+  {
+    path: "/api/admin/shipping/provider-setup",
+    expectedText: "\"exports\":",
+  },
+];
 
 let serverProcess = null;
 let serverOutput = "";
@@ -342,6 +372,51 @@ async function smokeAuthBoundary(check) {
   };
 }
 
+async function smokeAuthenticatedApi(check, cookieHeader) {
+  const response = await fetchWithTimeout(`${origin}${check.path}`, {
+    redirect: "manual",
+    headers: { cookie: cookieHeader },
+  });
+  const location = response.headers.get("location") || "";
+  const contentType = response.headers.get("content-type") || "";
+  const cacheControl = response.headers.get("cache-control") || "";
+  const body = await response.text().catch(() => "");
+  const failures = [];
+
+  if (response.status !== 200) {
+    failures.push(`HTTP ${response.status}`);
+  }
+
+  if (response.status >= 300 && response.status < 400) {
+    failures.push(`unexpected redirect to ${location || "unknown location"}`);
+  }
+
+  if (!contentType.includes("application/json")) {
+    failures.push(`expected JSON response, received ${contentType || "missing content-type"}`);
+  }
+
+  if (!cacheControl.includes("no-store")) {
+    failures.push("missing no-store cache header");
+  }
+
+  if (check.expectedText && !body.includes(check.expectedText)) {
+    failures.push(`missing expected text ${JSON.stringify(check.expectedText)}`);
+  }
+
+  const redBoxFragment = redBoxFragments.find((fragment) => body.includes(fragment));
+
+  if (redBoxFragment) {
+    failures.push(`rendered error fragment ${JSON.stringify(redBoxFragment)}`);
+  }
+
+  return {
+    ...check,
+    status: response.status,
+    ok: failures.length === 0,
+    failures,
+  };
+}
+
 try {
   const serverMode = await ensureServer();
   const authBoundaryResults = [];
@@ -351,7 +426,12 @@ try {
   }
 
   const cookieHeader = await adminCookieHeader();
+  const apiResults = [];
   const results = [];
+
+  for (const check of authenticatedApiChecks) {
+    apiResults.push(await smokeAuthenticatedApi(check, cookieHeader));
+  }
 
   for (const route of smokeRoutes) {
     results.push(await smokeRoute(route, cookieHeader));
@@ -367,6 +447,15 @@ try {
     console.log(`${prefix} ${result.label} HTTP ${result.status}${locationDetail}${detail}`);
   }
 
+  for (const result of apiResults) {
+    const prefix = result.ok ? "PASS" : "FAIL";
+    const detail = result.failures.length
+      ? ` - ${result.failures.join("; ")}`
+      : "";
+
+    console.log(`${prefix} ${result.path} API HTTP ${result.status}${detail}`);
+  }
+
   for (const result of results) {
     const prefix = result.ok ? "PASS" : "FAIL";
     const detail = result.failures.length
@@ -376,7 +465,7 @@ try {
     console.log(`${prefix} ${result.path} HTTP ${result.status}${detail}`);
   }
 
-  const allResults = [...authBoundaryResults, ...results];
+  const allResults = [...authBoundaryResults, ...apiResults, ...results];
   const failed = allResults.filter((result) => !result.ok);
 
   console.log(
