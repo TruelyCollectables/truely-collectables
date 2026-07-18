@@ -22,6 +22,15 @@ export default function LiveShippingGateActions({
     tone: "success" | "error" | "info";
     text: string;
   } | null>(null);
+  const approveDisabledReason = !approvalDatabaseReady
+    ? "Apply the live-shipping launch gate migration before recording approval."
+    : !approvalReady
+      ? "Clear the live-shipping approval blockers before recording approval."
+      : busy !== null
+        ? "Finish the current live-shipping gate action first."
+        : "";
+  const revokeDisabledReason =
+    busy !== null ? "Finish the current live-shipping gate action first." : "";
 
   async function submit(action: "approve" | "revoke") {
     const expected =
@@ -102,6 +111,8 @@ export default function LiveShippingGateActions({
         <button
           type="button"
           disabled={!approvalReady || !approvalDatabaseReady || busy !== null}
+          aria-busy={busy === "approve"}
+          title={approveDisabledReason || "Open the confirmation panel for live shipping approval."}
           onClick={() => {
             setPendingAction("approve");
             setConfirmation("");
@@ -114,6 +125,8 @@ export default function LiveShippingGateActions({
         <button
           type="button"
           disabled={busy !== null}
+          aria-busy={busy === "revoke"}
+          title={revokeDisabledReason || "Open the confirmation panel for emergency live shipping revocation."}
           onClick={() => {
             setPendingAction("revoke");
             setConfirmation("");
@@ -125,7 +138,11 @@ export default function LiveShippingGateActions({
         </button>
       </div>
       {!approvalDatabaseReady ? (
-        <p className="w-full rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-950">
+        <p
+          role="alert"
+          aria-live="assertive"
+          className="w-full rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-950"
+        >
           Approval is disabled until the live-shipping launch gate migration is
           applied.
         </p>
@@ -151,7 +168,7 @@ export default function LiveShippingGateActions({
           onConfirmationChange={setConfirmation}
           onNoteChange={setNote}
           onOperatorChange={setOperator}
-          onSubmit={() => submit(pendingAction)}
+          onSubmit={() => void submit(pendingAction)}
         />
       ) : null}
       {message ? (
@@ -236,6 +253,14 @@ function LaunchConfirmationPanel({
           type="button"
           onClick={onSubmit}
           disabled={busy}
+          aria-busy={busy}
+          title={
+            busy
+              ? "Live shipping gate submission is already running."
+              : isRevoke
+                ? "Record the emergency live shipping revocation in the immutable audit log."
+                : "Record the live shipping approval in the immutable audit log."
+          }
           className={`rounded-md px-4 py-2 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-50 ${
             isRevoke
               ? "bg-red-700 hover:bg-red-800"
@@ -248,6 +273,11 @@ function LaunchConfirmationPanel({
           type="button"
           onClick={onCancel}
           disabled={busy}
+          title={
+            busy
+              ? "Wait for the live shipping gate submission to finish before cancelling."
+              : "Close this confirmation panel without recording a gate change."
+          }
           className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black text-neutral-900 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50"
         >
           Cancel
@@ -272,7 +302,11 @@ function ActionNotice({
         : "border-blue-200 bg-blue-50 text-blue-950";
 
   return (
-    <p className={`w-full rounded-xl border px-3 py-2 text-sm font-bold ${className}`}>
+    <p
+      role={tone === "error" ? "alert" : "status"}
+      aria-live={tone === "info" ? "polite" : "assertive"}
+      className={`w-full rounded-xl border px-3 py-2 text-sm font-bold ${className}`}
+    >
       {children}
     </p>
   );

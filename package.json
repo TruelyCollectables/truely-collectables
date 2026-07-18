@@ -25,6 +25,7 @@
     "simulate:admin-security-actions": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-admin-security-actions-simulations.mjs",
     "simulate:admin-order-review-actions": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-admin-order-review-actions-simulations.mjs",
     "simulate:admin-payment-simulation-actions": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-admin-payment-simulation-actions-simulations.mjs",
+    "simulate:admin-live-launch-gates": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-admin-live-launch-gate-simulations.mjs",
     "simulate:admin-seller-payout-actions": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-admin-seller-payout-actions-simulations.mjs",
     "simulate:admin-shipping-actions": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-admin-shipping-actions-simulations.mjs",
     "simulate:admin-financial-reconciliation": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-admin-financial-reconciliation-simulations.mjs",
