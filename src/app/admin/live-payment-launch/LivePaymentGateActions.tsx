@@ -33,6 +33,43 @@ export default function LivePaymentGateActions({
   const revokeDisabledReason =
     busy !== null ? "Finish the current live-payment gate action first." : "";
 
+  function beginAction(action: "approve" | "revoke") {
+    if (gateActionRunningRef.current || busy !== null) {
+      setMessage({
+        tone: "info",
+        text: "Finish the current live-payment gate action first.",
+      });
+      return;
+    }
+
+    if (action === "approve" && approveDisabledReason) {
+      setMessage({
+        tone: "error",
+        text: approveDisabledReason,
+      });
+      return;
+    }
+
+    setPendingAction(action);
+    setConfirmation("");
+    setMessage(null);
+  }
+
+  function cancelAction() {
+    if (gateActionRunningRef.current || busy !== null) {
+      setMessage({
+        tone: "info",
+        text: "Wait for the live payment gate submission to finish before cancelling.",
+      });
+      return;
+    }
+
+    setPendingAction(null);
+    setConfirmation("");
+    setOperator("");
+    setNote("");
+  }
+
   async function submit(action: "approve" | "revoke") {
     if (gateActionRunningRef.current) {
       setMessage({
@@ -121,29 +158,21 @@ export default function LivePaymentGateActions({
       <div className="flex flex-wrap gap-3">
         <button
           type="button"
-          disabled={!approvalReady || !approvalDatabaseReady || busy !== null}
+          aria-disabled={!approvalReady || !approvalDatabaseReady || busy !== null}
           aria-busy={busy === "approve"}
           title={approveDisabledReason || "Open the confirmation panel for live payment approval."}
-          onClick={() => {
-            setPendingAction("approve");
-            setConfirmation("");
-            setMessage(null);
-          }}
-          className="rounded-md bg-green-700 px-4 py-2 text-sm font-black text-white hover:bg-green-800 disabled:cursor-not-allowed disabled:opacity-40"
+          onClick={() => beginAction("approve")}
+          className="rounded-md bg-green-700 px-4 py-2 text-sm font-black text-white hover:bg-green-800 aria-disabled:cursor-not-allowed aria-disabled:opacity-40"
         >
           {busy === "approve" ? "Approving..." : "Approve Live Payments"}
         </button>
         <button
           type="button"
-          disabled={busy !== null}
+          aria-disabled={busy !== null}
           aria-busy={busy === "revoke"}
           title={revokeDisabledReason || "Open the confirmation panel for emergency live payment revocation."}
-          onClick={() => {
-            setPendingAction("revoke");
-            setConfirmation("");
-            setMessage(null);
-          }}
-          className="rounded-md bg-red-700 px-4 py-2 text-sm font-black text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-40"
+          onClick={() => beginAction("revoke")}
+          className="rounded-md bg-red-700 px-4 py-2 text-sm font-black text-white hover:bg-red-800 aria-disabled:cursor-not-allowed aria-disabled:opacity-40"
         >
           {busy === "revoke" ? "Revoking..." : "Emergency Revoke"}
         </button>
@@ -170,12 +199,7 @@ export default function LivePaymentGateActions({
           note={note}
           operator={operator}
           busy={busy !== null}
-          onCancel={() => {
-            setPendingAction(null);
-            setConfirmation("");
-            setOperator("");
-            setNote("");
-          }}
+          onCancel={cancelAction}
           onConfirmationChange={setConfirmation}
           onNoteChange={setNote}
           onOperatorChange={setOperator}
@@ -263,7 +287,7 @@ function LaunchConfirmationPanel({
         <button
           type="button"
           onClick={onSubmit}
-          disabled={busy}
+          aria-disabled={busy}
           aria-busy={busy}
           title={
             busy
@@ -272,7 +296,7 @@ function LaunchConfirmationPanel({
                 ? "Record the emergency live payment revocation in the immutable audit log."
                 : "Record the live payment approval in the immutable audit log."
           }
-          className={`rounded-md px-4 py-2 text-sm font-black text-white disabled:cursor-not-allowed disabled:opacity-50 ${
+          className={`rounded-md px-4 py-2 text-sm font-black text-white aria-disabled:cursor-not-allowed aria-disabled:opacity-50 ${
             isRevoke
               ? "bg-red-700 hover:bg-red-800"
               : "bg-emerald-700 hover:bg-emerald-800"
@@ -283,13 +307,13 @@ function LaunchConfirmationPanel({
         <button
           type="button"
           onClick={onCancel}
-          disabled={busy}
+          aria-disabled={busy}
           title={
             busy
               ? "Wait for the live payment gate submission to finish before cancelling."
               : "Close this confirmation panel without recording a gate change."
           }
-          className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black text-neutral-900 hover:bg-neutral-50 disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black text-neutral-900 hover:bg-neutral-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
         >
           Cancel
         </button>

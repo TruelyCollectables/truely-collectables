@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 type SimulationMode = "deterministic" | "stripe_test";
 type PendingMode = "stripe_test" | "checkout_e2e";
@@ -19,12 +19,64 @@ export default function SimulationActions({
   stripeTestEnabled: boolean;
 }) {
   const router = useRouter();
+  const simulationActionRunningRef = useRef(false);
   const [busy, setBusy] = useState<BusyMode | null>(null);
   const [pendingMode, setPendingMode] = useState<PendingMode | null>(null);
   const [confirmation, setConfirmation] = useState("");
   const [message, setMessage] = useState<FeedbackMessage | null>(null);
 
+  function beginConfirmedRun(mode: PendingMode) {
+    if (simulationActionRunningRef.current || busy !== null) {
+      setMessage({
+        text: "Finish the current payment simulation before starting another.",
+        tone: "info",
+      });
+      return;
+    }
+
+    if (!stripeTestEnabled) {
+      setMessage({
+        text: "Enable Stripe test simulation before running Stripe-touching payment tests.",
+        tone: "error",
+      });
+      return;
+    }
+
+    setPendingMode(mode);
+    setConfirmation("");
+    setMessage(null);
+  }
+
+  function cancelConfirmedRun() {
+    if (simulationActionRunningRef.current || busy !== null) {
+      setMessage({
+        text: "Wait for the payment simulation to finish before cancelling.",
+        tone: "info",
+      });
+      return;
+    }
+
+    setPendingMode(null);
+    setConfirmation("");
+  }
+
   async function run(mode: SimulationMode) {
+    if (simulationActionRunningRef.current || busy !== null) {
+      setMessage({
+        text: "Finish the current payment simulation before starting another.",
+        tone: "info",
+      });
+      return;
+    }
+
+    if (mode === "stripe_test" && !stripeTestEnabled) {
+      setMessage({
+        text: "Enable Stripe test simulation before running the Stripe sandbox suite.",
+        tone: "error",
+      });
+      return;
+    }
+
     if (mode === "stripe_test" && confirmation !== "RUN STRIPE TEST") {
       setMessage({
         text: "Type RUN STRIPE TEST exactly before running the Stripe sandbox suite.",
@@ -33,6 +85,7 @@ export default function SimulationActions({
       return;
     }
 
+    simulationActionRunningRef.current = true;
     setBusy(mode);
     setMessage({
       text:
@@ -59,11 +112,28 @@ export default function SimulationActions({
     } catch (error: any) {
       setMessage({ text: error.message || "Simulation failed.", tone: "error" });
     } finally {
+      simulationActionRunningRef.current = false;
       setBusy(null);
     }
   }
 
   async function runCheckoutE2E() {
+    if (simulationActionRunningRef.current || busy !== null) {
+      setMessage({
+        text: "Finish the current payment simulation before starting another.",
+        tone: "info",
+      });
+      return;
+    }
+
+    if (!stripeTestEnabled) {
+      setMessage({
+        text: "Enable Stripe test simulation before running the full checkout E2E test.",
+        tone: "error",
+      });
+      return;
+    }
+
     if (confirmation !== "RUN CHECKOUT E2E") {
       setMessage({
         text: "Type RUN CHECKOUT E2E exactly before running the full checkout test.",
@@ -72,6 +142,7 @@ export default function SimulationActions({
       return;
     }
 
+    simulationActionRunningRef.current = true;
     setBusy("checkout_e2e");
     setMessage({ text: "Running full checkout E2E simulation...", tone: "info" });
     try {
@@ -98,6 +169,7 @@ export default function SimulationActions({
         tone: "error",
       });
     } finally {
+      simulationActionRunningRef.current = false;
       setBusy(null);
     }
   }
@@ -108,35 +180,27 @@ export default function SimulationActions({
         <button
           type="button"
           onClick={() => run("deterministic")}
-          disabled={busy !== null}
+          aria-disabled={busy !== null}
           aria-busy={busy === "deterministic"}
-          className="rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white disabled:opacity-50"
+          className="rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white aria-disabled:cursor-wait aria-disabled:opacity-50"
         >
           {busy === "deterministic" ? "Running..." : "Run No-Money Suite"}
         </button>
         <button
           type="button"
-          onClick={() => {
-            setPendingMode("checkout_e2e");
-            setConfirmation("");
-            setMessage(null);
-          }}
-          disabled={busy !== null || !stripeTestEnabled}
+          onClick={() => beginConfirmedRun("checkout_e2e")}
+          aria-disabled={busy !== null || !stripeTestEnabled}
           aria-busy={busy === "checkout_e2e"}
-          className="rounded-md border border-sky-300 bg-sky-50 px-4 py-2 text-sm font-black text-sky-950 disabled:opacity-50"
+          className="rounded-md border border-sky-300 bg-sky-50 px-4 py-2 text-sm font-black text-sky-950 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
         >
           {busy === "checkout_e2e" ? "Running Checkout E2E..." : "Run Full Checkout E2E"}
         </button>
         <button
           type="button"
-          onClick={() => {
-            setPendingMode("stripe_test");
-            setConfirmation("");
-            setMessage(null);
-          }}
-          disabled={busy !== null || !stripeTestEnabled}
+          onClick={() => beginConfirmedRun("stripe_test")}
+          aria-disabled={busy !== null || !stripeTestEnabled}
           aria-busy={busy === "stripe_test"}
-          className="rounded-md border border-violet-300 bg-violet-50 px-4 py-2 text-sm font-black text-violet-950 disabled:opacity-50"
+          className="rounded-md border border-violet-300 bg-violet-50 px-4 py-2 text-sm font-black text-violet-950 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
         >
           {busy === "stripe_test" ? "Running Stripe Test..." : "Run Stripe Sandbox Suite"}
         </button>
@@ -179,20 +243,17 @@ export default function SimulationActions({
                   ? runCheckoutE2E()
                   : run("stripe_test")
               }
-              disabled={busy !== null}
+              aria-disabled={busy !== null}
               aria-busy={busy !== null}
-              className="rounded bg-neutral-950 px-4 py-2 text-sm font-black text-white disabled:opacity-50"
+              className="rounded bg-neutral-950 px-4 py-2 text-sm font-black text-white aria-disabled:cursor-wait aria-disabled:opacity-50"
             >
               {busy ? "Running..." : "Run confirmed test"}
             </button>
             <button
               type="button"
-              onClick={() => {
-                setPendingMode(null);
-                setConfirmation("");
-              }}
-              disabled={busy !== null}
-              className="rounded border border-neutral-300 bg-white px-4 py-2 text-sm font-black disabled:opacity-50"
+              onClick={cancelConfirmedRun}
+              aria-disabled={busy !== null}
+              className="rounded border border-neutral-300 bg-white px-4 py-2 text-sm font-black aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
             >
               Cancel
             </button>
