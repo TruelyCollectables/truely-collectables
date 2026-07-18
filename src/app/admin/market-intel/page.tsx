@@ -5,6 +5,7 @@ import {
 } from "../../../lib/admin-handoff";
 import { getMarketIntelCompOverview } from "../../../lib/market-intel-comps";
 import { getMarketIntelDealWorkbench } from "../../../lib/market-intel-deals";
+import { getMarketIntelGrowthWorkbench } from "../../../lib/market-intel-growth";
 import { getMarketIntelPortfolio } from "../../../lib/market-intel-portfolio";
 import { getMarketIntelReadiness } from "../../../lib/market-intel-readiness";
 import { getMarketIntelWatchlist } from "../../../lib/market-intel-watchlist";
@@ -28,20 +29,29 @@ export default async function MarketIntelAdminPage({
   const query = await searchParams;
   const handoff = query?.[ADMIN_HANDOFF_PARAM];
 
-  const [watchResult, compResult, dealResult, portfolioResult, readinessResult] =
-    await Promise.allSettled([
-      getMarketIntelWatchlist(),
-      getMarketIntelCompOverview(),
-      getMarketIntelDealWorkbench(),
-      getMarketIntelPortfolio(),
-      getMarketIntelReadiness(),
-    ]);
+  const [
+    watchResult,
+    compResult,
+    dealResult,
+    growthResult,
+    portfolioResult,
+    readinessResult,
+  ] = await Promise.allSettled([
+    getMarketIntelWatchlist(),
+    getMarketIntelCompOverview(),
+    getMarketIntelDealWorkbench(),
+    getMarketIntelGrowthWorkbench(),
+    getMarketIntelPortfolio(),
+    getMarketIntelReadiness(),
+  ]);
 
   const watchlist = watchResult.status === "fulfilled" ? watchResult.value : [];
   const comps =
     compResult.status === "fulfilled" ? compResult.value.identities : [];
   const listings =
     dealResult.status === "fulfilled" ? dealResult.value.listings : [];
+  const growth =
+    growthResult.status === "fulfilled" ? growthResult.value : null;
   const portfolio =
     portfolioResult.status === "fulfilled" ? portfolioResult.value : null;
   const readiness =
@@ -49,10 +59,15 @@ export default async function MarketIntelAdminPage({
 
   const activeTargets = watchlist.filter((row) => row.active);
   const actionable = listings.filter((listing) => listing.score?.actionable);
+  const activeGrowthSpecs =
+    growth?.specs.filter((spec) =>
+      ["active", "watch", "bought"].includes(spec.status),
+    ) || [];
   const errors = [
     watchResult.status === "rejected" ? watchResult.reason : null,
     compResult.status === "rejected" ? compResult.reason : null,
     dealResult.status === "rejected" ? dealResult.reason : null,
+    growthResult.status === "rejected" ? growthResult.reason : null,
     portfolioResult.status === "rejected" ? portfolioResult.reason : null,
     readinessResult.status === "rejected" ? readinessResult.reason : null,
   ].filter(Boolean);
@@ -75,7 +90,8 @@ export default async function MarketIntelAdminPage({
           </h1>
           <p className="mt-3 max-w-4xl font-semibold text-neutral-300">
             Watch → Identify → Comp → Scan → Score → Alert → Deliver → Buy → Measure.
-            Every recommendation and every dollar flows through the same private data engine.
+            Immediate flips and controlled future-growth specs stay separate but use the
+            same exact-card data engine.
           </p>
         </div>
       </header>
@@ -118,11 +134,12 @@ export default async function MarketIntelAdminPage({
           </div>
         </section>
 
-        <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-6">
+        <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-7">
           <Metric label="Active Targets" value={String(activeTargets.length)} />
           <Metric label="Exact Markets" value={String(comps.length)} />
           <Metric label="Active Listings" value={String(listings.length)} />
           <Metric label="Actionable Buys" value={String(actionable.length)} />
+          <Metric label="Growth Specs" value={String(activeGrowthSpecs.length)} />
           <Metric
             label="Capital Invested"
             value={money(portfolio?.totals.invested)}
@@ -161,13 +178,23 @@ export default async function MarketIntelAdminPage({
             tone="cyan"
           />
           <Workbench
-            eyebrow="Deal Engine"
+            eyebrow="Immediate Deal Engine"
             title="Shark List™"
             detail={`${actionable.length} actionable ${
               actionable.length === 1 ? "opportunity" : "opportunities"
-            } ranked by discount, expected GP, confidence, liquidity, and risk.`}
+            } ranked by present-day discount, expected GP, confidence, liquidity, and risk.`}
             href={addAdminHandoff("/admin/market-intel/deals", handoff)}
             action="Open Shark List"
+            tone="amber"
+          />
+          <Workbench
+            eyebrow="Controlled Future Upside"
+            title="Growth Spec Lab™"
+            detail={`${activeGrowthSpecs.length} non-base growth scenario${
+              activeGrowthSpecs.length === 1 ? "" : "s"
+            }; lots are broken down per card with target exit, break-even units, projected net profit, ROI, and risk.`}
+            href={addAdminHandoff("/admin/market-intel/growth-specs", handoff)}
+            action="Model Future Growers"
             tone="amber"
           />
           <Workbench
