@@ -2,8 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   adminHandoffFromUrl,
   adminRedirectUrl,
-} from "../../../../../../../lib/admin-handoff";
-import { sendMarketIntelTestEmail } from "../../../../../../../lib/market-intel-test-email";
+} from "../../../../../../lib/admin-handoff";
+import { sendMarketIntelTestEmail } from "../../../../../../lib/market-intel-test-email";
 
 export async function POST(request: NextRequest) {
   const handoff = adminHandoffFromUrl(new URL(request.url));
