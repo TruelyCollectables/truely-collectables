@@ -17,6 +17,10 @@ const adminAccountsPageSource = await readFile(
   new URL("../src/app/admin/accounts/page.tsx", import.meta.url),
   "utf8",
 );
+const adminFilesPageSource = await readFile(
+  new URL("../src/app/admin/files/page.tsx", import.meta.url),
+  "utf8",
+);
 const adminNewProductPageSource = await readFile(
   new URL("../src/app/admin/products/new/page.tsx", import.meta.url),
   "utf8",
@@ -515,6 +519,37 @@ scenario("admin accounts page keeps partial linked-data failures operator-readab
     !adminAccountsPageSource.includes("throw ordersResult.error") &&
       !adminAccountsPageSource.includes("throw offersResult.error"),
     "Expected account linked-data failures to render inline instead of crashing the page.",
+  );
+});
+
+scenario("admin files page does not show false-empty evidence queues", () => {
+  for (const fragment of [
+    "const evidenceUnavailable = Boolean(evidenceResult.error)",
+    "const casePacketsUnavailable = Boolean(casePacketResult.error)",
+    "const fileDataUnavailable = evidenceUnavailable || casePacketsUnavailable",
+    "Evidence packet list unavailable",
+    "Case packet list unavailable",
+    "prove whether evidence packets exist",
+    "prove whether case packets exist",
+    "One or more evidence sources did not load",
+    "safeErrorMessage(evidenceResult.error)",
+    "safeErrorMessage(casePacketResult.error)",
+  ]) {
+    assert(
+      adminFilesPageSource.includes(fragment),
+      `Expected admin files unavailable-state fragment ${fragment}.`,
+    );
+  }
+
+  assert(
+    adminFilesPageSource.indexOf("Evidence packet list unavailable") <
+      adminFilesPageSource.indexOf("No evidence packets yet"),
+    "Expected evidence load failures to render before the empty evidence state.",
+  );
+  assert(
+    adminFilesPageSource.indexOf("Case packet list unavailable") <
+      adminFilesPageSource.indexOf("No saved case packets yet"),
+    "Expected case packet load failures to render before the empty case-packet state.",
   );
 });
 

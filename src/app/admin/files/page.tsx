@@ -54,6 +54,13 @@ function dateLabel(value: string | null | undefined) {
   return value ? new Date(value).toLocaleString() : "Not saved";
 }
 
+function safeErrorMessage(error: { message?: string } | null | undefined) {
+  return String(error?.message || "Unknown database error.")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 220);
+}
+
 function statusTone(value: string | null | undefined) {
   const normalized = String(value || "").toLowerCase();
 
@@ -134,6 +141,9 @@ export default async function AdminFilesPage() {
       .order("updated_at", { ascending: false }),
   ]);
 
+  const evidenceUnavailable = Boolean(evidenceResult.error);
+  const casePacketsUnavailable = Boolean(casePacketResult.error);
+  const fileDataUnavailable = evidenceUnavailable || casePacketsUnavailable;
   const reports = (evidenceResult.data || []) as EvidenceReport[];
   const casePackets =
     (casePacketResult.data || []) as OrderReviewCasePacket[];
@@ -203,9 +213,13 @@ export default async function AdminFilesPage() {
           <p className="text-xs font-black uppercase tracking-[0.16em] text-neutral-400">
             Evidence PDFs
           </p>
-          <p className="mt-3 text-3xl font-black">{reports.length}</p>
+          <p className="mt-3 break-words text-3xl font-black">
+            {evidenceUnavailable ? "Unavailable" : reports.length}
+          </p>
           <p className="mt-1 text-sm font-semibold text-neutral-500">
-            {emailedReports} emailed to support or operators
+            {evidenceUnavailable
+              ? "Evidence packet storage did not load"
+              : `${emailedReports} emailed to support or operators`}
           </p>
         </div>
 
@@ -213,9 +227,13 @@ export default async function AdminFilesPage() {
           <p className="text-xs font-black uppercase tracking-[0.16em] text-neutral-400">
             Case packets
           </p>
-          <p className="mt-3 text-3xl font-black">{casePackets.length}</p>
+          <p className="mt-3 break-words text-3xl font-black">
+            {casePacketsUnavailable ? "Unavailable" : casePackets.length}
+          </p>
           <p className="mt-1 text-sm font-semibold text-neutral-500">
-            {emailedCasePackets} emailed from the review queue
+            {casePacketsUnavailable
+              ? "Case packet history did not load"
+              : `${emailedCasePackets} emailed from the review queue`}
           </p>
         </div>
 
@@ -223,33 +241,53 @@ export default async function AdminFilesPage() {
           <p className="text-xs font-black uppercase tracking-[0.16em] text-neutral-400">
             Stripe disputes
           </p>
-          <p className="mt-3 text-3xl font-black">{stripeLinkedPackets}</p>
+          <p className="mt-3 break-words text-3xl font-black">
+            {casePacketsUnavailable ? "Unavailable" : stripeLinkedPackets}
+          </p>
           <p className="mt-1 text-sm font-semibold text-neutral-500">
-            {unresolvedStripePackets} still need final evidence submission
+            {casePacketsUnavailable
+              ? "Stripe dispute packet data did not load"
+              : `${unresolvedStripePackets} still need final evidence submission`}
           </p>
         </div>
 
         <div
           className={`rounded-3xl border p-5 shadow-sm ${
-            attentionCount > 0
+            fileDataUnavailable
+              ? "border-amber-200 bg-amber-50"
+              : attentionCount > 0
               ? "border-red-200 bg-red-50"
               : "border-emerald-200 bg-emerald-50"
           }`}
         >
           <p
             className={`text-xs font-black uppercase tracking-[0.16em] ${
-              attentionCount > 0 ? "text-red-700" : "text-emerald-700"
+              fileDataUnavailable
+                ? "text-amber-700"
+                : attentionCount > 0
+                  ? "text-red-700"
+                  : "text-emerald-700"
             }`}
           >
             Needs attention
           </p>
-          <p className="mt-3 text-3xl font-black">{attentionCount}</p>
+          <p className="mt-3 break-words text-3xl font-black">
+            {evidenceUnavailable || casePacketsUnavailable
+              ? "Unavailable"
+              : attentionCount}
+          </p>
           <p
             className={`mt-1 text-sm font-semibold ${
-              attentionCount > 0 ? "text-red-950" : "text-emerald-950"
+              fileDataUnavailable
+                ? "text-amber-950"
+                : attentionCount > 0
+                  ? "text-red-950"
+                  : "text-emerald-950"
             }`}
           >
-            Email or provider evidence errors
+            {fileDataUnavailable
+              ? "One or more evidence sources did not load"
+              : "Email or provider evidence errors"}
           </p>
         </div>
       </section>
@@ -263,7 +301,7 @@ export default async function AdminFilesPage() {
             Transaction evidence storage is not ready
           </h2>
           <p className="mt-3 rounded-xl border border-red-200 bg-white px-4 py-3 text-sm font-bold text-red-950">
-            {evidenceResult.error.message}
+            {safeErrorMessage(evidenceResult.error)}
           </p>
           <p className="mt-3 text-sm font-semibold text-red-900">
             Apply the transaction evidence migration before using this page.
@@ -280,7 +318,7 @@ export default async function AdminFilesPage() {
             Order review packet history is not ready
           </h2>
           <p className="mt-3 rounded-xl border border-amber-200 bg-white px-4 py-3 text-sm font-bold text-amber-950">
-            {casePacketResult.error.message}
+            {safeErrorMessage(casePacketResult.error)}
           </p>
           <p className="mt-3 text-sm font-semibold text-amber-900">
             Apply the order review case packet migration before saved case
@@ -307,7 +345,18 @@ export default async function AdminFilesPage() {
           </Link>
         </div>
 
-        {reports.length === 0 ? (
+        {evidenceUnavailable ? (
+          <div className="mt-5 rounded-2xl border border-red-200 bg-red-50 p-6">
+            <h3 className="text-lg font-black text-red-950">
+              Evidence packet list unavailable
+            </h3>
+            <p className="mt-2 max-w-2xl text-sm font-semibold leading-6 text-red-900">
+              Transaction evidence storage did not load, so this page cannot
+              prove whether evidence packets exist. Use the readiness warning
+              above before treating this queue as clear.
+            </p>
+          </div>
+        ) : reports.length === 0 ? (
           <div className="mt-5 rounded-2xl border border-dashed border-neutral-300 bg-neutral-50 p-6">
             <h3 className="text-lg font-black">No evidence packets yet</h3>
             <p className="mt-2 max-w-2xl text-sm font-semibold leading-6 text-neutral-600">
@@ -421,7 +470,18 @@ export default async function AdminFilesPage() {
           </Link>
         </div>
 
-        {casePackets.length === 0 ? (
+        {casePacketsUnavailable ? (
+          <div className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-6">
+            <h3 className="text-lg font-black text-amber-950">
+              Case packet list unavailable
+            </h3>
+            <p className="mt-2 max-w-2xl text-sm font-semibold leading-6 text-amber-900">
+              Order review packet storage did not load, so this page cannot
+              prove whether case packets exist. Use the migration warning above
+              before treating this queue as clear.
+            </p>
+          </div>
+        ) : casePackets.length === 0 ? (
           <div className="mt-5 rounded-2xl border border-dashed border-neutral-300 bg-neutral-50 p-6">
             <h3 className="text-lg font-black">No saved case packets yet</h3>
             <p className="mt-2 max-w-2xl text-sm font-semibold leading-6 text-neutral-600">
