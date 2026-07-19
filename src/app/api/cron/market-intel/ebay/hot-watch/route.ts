@@ -11,6 +11,26 @@ async function run(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  const executionMode = String(
+    process.env.MARKET_INTEL_SEARCH_EXECUTION || "vercel",
+  )
+    .trim()
+    .toLowerCase();
+
+  if (executionMode === "external") {
+    return NextResponse.json(
+      {
+        skipped: true,
+        executionMode,
+        reason:
+          "Profit Hunter marketplace searching is assigned to the external private worker. Vercel did not call eBay.",
+        workerCommand:
+          "node --import tsx scripts/run-market-intel-external-worker.ts",
+      },
+      { headers: { "Cache-Control": "no-store" } },
+    );
+  }
+
   try {
     const params = request.nextUrl.searchParams;
     const result = await runMarketIntelProfitHunterHotWatch({
