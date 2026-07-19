@@ -1,4 +1,4 @@
-import { handleActiveMarketAttackWithFindingGuard } from "../../../../../../../lib/active-market-finding-guard";
+import { handleActiveMarketAttackWithProofGuard } from "../../../../../../../lib/active-market-proof-guard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,5 +8,5 @@ export async function POST(
   request: Request,
   context: { params: Promise<{ inventoryItemId: string }> },
 ) {
-  return handleActiveMarketAttackWithFindingGuard(request, context);
+  return handleActiveMarketAttackWithProofGuard(request, context);
 }
