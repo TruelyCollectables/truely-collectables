@@ -67,6 +67,8 @@ if (( node_major < 20 )); then
 fi
 
 for required_file in \
+  scripts/audit-supabase-migrations.mjs \
+  scripts/preflight-market-intel-migration-data.ts \
   scripts/run-market-intel-external-worker.ts \
   scripts/preflight-market-intel-worker.ts \
   scripts/prepare-market-intel-worker-env.mjs \
@@ -123,6 +125,9 @@ if [[ ! -d node_modules || ! -e node_modules/.bin/tsx ]]; then
   npm ci
 fi
 
+echo "Auditing local Supabase migration versions, ordering, and destructive SQL..."
+node scripts/audit-supabase-migrations.mjs
+
 echo "Running Identity Proof Gate simulations..."
 node --import tsx scripts/run-market-intel-identity-proof-simulations.ts
 
@@ -148,12 +153,19 @@ if (( SKIP_MIGRATION == 0 )); then
   echo "Current local/remote migration status:"
   npx --yes supabase migration list
 
+  echo "Running read-only remote schema and data-conflict preflight..."
+  MARKET_INTEL_WORKER_ENV_FILE="$ENV_FILE" node --import tsx \
+    scripts/run-with-market-intel-env.mjs \
+    scripts/preflight-market-intel-migration-data.ts \
+    runMarketIntelMigrationPreflight
+
   mkdir -p .codex-run
   DRY_RUN_LOG="$REPO_ROOT/.codex-run/market-intel-supabase-dry-run.log"
   echo "Previewing every pending migration. Nothing is applied during this step."
   npx --yes supabase db push --dry-run | tee "$DRY_RUN_LOG"
   echo
   echo "IMPORTANT: db push applies ALL pending migrations shown above, not only Identity Proof Gate."
+  echo "Identity Proof Gate will suppress existing actionable deal scores until private-owner verification."
   read -r -p "Type APPLY to deploy the displayed pending migrations, or anything else to stop: " MIGRATION_CONFIRM
   if [[ "$MIGRATION_CONFIRM" != "APPLY" ]]; then
     echo "Stopped before database changes. Dry-run saved at: $DRY_RUN_LOG"
