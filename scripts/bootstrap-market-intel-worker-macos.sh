@@ -24,8 +24,8 @@ Options:
   --skip-install       Run validation and one live cycle, but do not install launchd
   --help               Show this help
 
-This script never asks for or prints production credentials. It reuses a protected
-worker env file or existing ignored .env files. It never deploys the app or changes Vercel.
+This script never asks for or prints production credentials. Existing ignored env files
+are parsed as data, never sourced as shell code. It never deploys the app or changes Vercel.
 EOF
 }
 
@@ -65,10 +65,15 @@ if (( node_major < 20 )); then
   echo "Node.js 20 or newer is required. Current: $(node --version)" >&2
   exit 69
 fi
+if [[ "$(node -p "process.allowedNodeEnvironmentFlags.has('--env-file')")" != "true" ]]; then
+  echo "This Node.js installation does not support --env-file. Upgrade Node.js before activation." >&2
+  exit 69
+fi
 
 for required_file in \
   scripts/run-market-intel-external-worker.ts \
   scripts/preflight-market-intel-worker.ts \
+  scripts/prepare-market-intel-worker-env.mjs \
   scripts/run-market-intel-worker-cycle.sh \
   scripts/install-market-intel-worker-launchd.mjs \
   scripts/status-market-intel-worker-launchd.mjs \
@@ -79,60 +84,38 @@ for required_file in \
   }
 done
 
-load_env_file() {
-  local file_path="$1"
-  [[ -f "$file_path" ]] || return 0
-  set -a
-  # shellcheck disable=SC1090
-  source "$file_path"
-  set +a
-}
-
+source_args=()
 if [[ -f "$ENV_FILE" ]]; then
-  chmod 600 "$ENV_FILE"
-  load_env_file "$ENV_FILE"
+  source_args+=(--source "$ENV_FILE")
 else
-  load_env_file "$REPO_ROOT/.env"
-  load_env_file "$REPO_ROOT/.env.local"
-  load_env_file "$REPO_ROOT/.env.production.local"
-
-  missing=()
-  for variable_name in NEXT_PUBLIC_SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY EBAY_CLIENT_ID EBAY_CLIENT_SECRET; do
-    if [[ -z "${!variable_name:-}" ]]; then
-      missing+=("$variable_name")
-    fi
+  for candidate in \
+    "$REPO_ROOT/.env" \
+    "$REPO_ROOT/.env.local" \
+    "$REPO_ROOT/.env.production.local"; do
+    [[ -f "$candidate" ]] && source_args+=(--source "$candidate")
   done
-  if (( ${#missing[@]} > 0 )); then
-    echo "Worker activation stopped. Add these values to an ignored local env file:" >&2
-    printf '  %s\n' "${missing[@]}" >&2
-    echo "Then rerun this command. Credentials were not requested or displayed." >&2
-    exit 78
-  fi
-
-  umask 077
-  {
-    printf 'NEXT_PUBLIC_SUPABASE_URL=%q\n' "$NEXT_PUBLIC_SUPABASE_URL"
-    printf 'SUPABASE_SERVICE_ROLE_KEY=%q\n' "$SUPABASE_SERVICE_ROLE_KEY"
-    printf 'EBAY_CLIENT_ID=%q\n' "$EBAY_CLIENT_ID"
-    printf 'EBAY_CLIENT_SECRET=%q\n' "$EBAY_CLIENT_SECRET"
-    printf 'MARKET_INTEL_WORKER_NAME=%q\n' 'mac-private-worker'
-    printf 'MARKET_INTEL_WORKER_MAX_SUBJECTS=%q\n' '3'
-    printf 'MARKET_INTEL_WORKER_MAX_IDENTITIES=%q\n' '4'
-    printf 'MARKET_INTEL_WORKER_MAX_QUERIES=%q\n' '8'
-    printf 'MARKET_INTEL_WORKER_RESULTS_PER_QUERY=%q\n' '5'
-    printf 'MARKET_INTEL_WORKER_MINIMUM_CONFIDENCE=%q\n' '55'
-    printf 'MARKET_INTEL_WORKER_INTERVAL_MINUTES=%q\n' "$MINUTES"
-  } > "$ENV_FILE"
-  chmod 600 "$ENV_FILE"
 fi
 
-load_env_file "$ENV_FILE"
-for variable_name in NEXT_PUBLIC_SUPABASE_URL SUPABASE_SERVICE_ROLE_KEY EBAY_CLIENT_ID EBAY_CLIENT_SECRET; do
-  if [[ -z "${!variable_name:-}" ]]; then
-    echo "Required worker setting is missing from $ENV_FILE: $variable_name" >&2
-    exit 78
-  fi
-done
+node scripts/prepare-market-intel-worker-env.mjs \
+  --target "$ENV_FILE" \
+  --minutes "$MINUTES" \
+  "${source_args[@]}"
+chmod 600 "$ENV_FILE"
+
+if [[ -z "$PROJECT_REF" ]]; then
+  PROJECT_REF="$(
+    node --env-file="$ENV_FILE" -e '
+      const explicit = String(process.env.SUPABASE_PROJECT_REF || "").trim();
+      if (explicit) {
+        process.stdout.write(explicit);
+      } else {
+        const host = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).hostname;
+        process.stdout.write(host.split(".")[0] || "");
+      }
+    '
+  )"
+fi
+
 export MARKET_INTEL_WORKER_INTERVAL_MINUTES="$MINUTES"
 
 if [[ ! -d node_modules || ! -e node_modules/.bin/tsx ]]; then
@@ -182,7 +165,7 @@ else
 fi
 
 echo "Validating Supabase queue access and eBay OAuth without running a marketplace search..."
-node --import tsx scripts/preflight-market-intel-worker.ts
+node --env-file="$ENV_FILE" --import tsx scripts/preflight-market-intel-worker.ts
 
 echo "Running one live Profit Hunter worker cycle..."
 MARKET_INTEL_WORKER_ENV_FILE="$ENV_FILE" MARKET_INTEL_NODE_BIN="$(command -v node)" \
