@@ -6,7 +6,7 @@ import {
   isMarketIntelIdentityProofVerified,
   marketIntelIdentityProofMissingEvidence,
   type MarketIntelIdentityProofEvidence,
-} from "../src/lib/market-intel-identity-proof.ts";
+} from "../src/lib/market-intel-identity-proof";
 
 const completeEvidence: MarketIntelIdentityProofEvidence = {
   frontImageConfirmed: true,
