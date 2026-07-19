@@ -39,6 +39,8 @@ jobs:
           node scripts/audit-supabase-migrations.mjs | tee supabase-migration-audit.json
           node --import tsx --input-type=module -e "await import('./scripts/preflight-market-intel-worker.ts')"
           node --import tsx --input-type=module -e "await import('./scripts/preflight-market-intel-migration-data.ts')"
+          node --import tsx scripts/run-market-intel-identity-proof-simulations.ts
+          node --import tsx scripts/run-market-intel-candidate-match-simulations.ts
 
       - name: Build
         env:
