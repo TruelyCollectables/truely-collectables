@@ -1,2 +1,0 @@
--- TCOS Market Intel™ Beta One
--- Next application slice uses existing tcos_mi_listings and tcos_mi_deal_scores tables.
