@@ -29,8 +29,11 @@ jobs:
           node --check scripts/install-market-intel-worker-launchd.mjs
           node --check scripts/status-market-intel-worker-launchd.mjs
           node --check scripts/uninstall-market-intel-worker-launchd.mjs
+          node --check scripts/prepare-market-intel-worker-env.mjs
+          node --check scripts/simulate-market-intel-worker-env.mjs
           bash -n scripts/run-market-intel-worker-cycle.sh
           bash -n scripts/bootstrap-market-intel-worker-macos.sh
+          node scripts/simulate-market-intel-worker-env.mjs
           node --import tsx --input-type=module -e "await import('./scripts/preflight-market-intel-worker.ts')"
 
       - name: Build
