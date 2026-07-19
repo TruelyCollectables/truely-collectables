@@ -16,6 +16,8 @@ const workerName =
 
 let stopping = false;
 let activeChild = null;
+let sleepTimer = null;
+let wakeSleepingService = null;
 
 function clampNumber(raw, fallback, minimum, maximum) {
   const parsed = Number(raw ?? fallback);
@@ -37,8 +39,12 @@ function log(event, details = {}) {
 
 function wait(milliseconds) {
   return new Promise((resolve) => {
-    const timer = setTimeout(resolve, milliseconds);
-    timer.unref?.();
+    wakeSleepingService = resolve;
+    sleepTimer = setTimeout(() => {
+      sleepTimer = null;
+      wakeSleepingService = null;
+      resolve();
+    }, milliseconds);
   });
 }
 
@@ -80,6 +86,12 @@ function requestStop(signal) {
   if (stopping) return;
   stopping = true;
   log("shutdown_requested", { signal });
+  if (sleepTimer) {
+    clearTimeout(sleepTimer);
+    sleepTimer = null;
+    wakeSleepingService?.();
+    wakeSleepingService = null;
+  }
   if (activeChild && !activeChild.killed) {
     activeChild.kill("SIGTERM");
   }
