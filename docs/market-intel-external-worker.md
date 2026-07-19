@@ -142,6 +142,10 @@ Serial-number and autograph/relic confirmations are also stored when applicable.
 
 The proof decision and evidence are recorded in `tcos_mi_identity_proof_reviews`.
 
+## Validation
+
+The Market Intel pull-request workflow checks all worker JavaScript launchers with `node --check`, validates the shell runner with `bash -n`, and then performs the full Next.js build. The Mac and online wrappers cannot silently drift into syntax-broken deployment files.
+
 ## Deployment order
 
 1. Apply `20260719153000_market_intel_identity_proof_gate.sql` to Supabase.
