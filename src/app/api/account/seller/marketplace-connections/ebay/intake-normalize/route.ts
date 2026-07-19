@@ -2,11 +2,12 @@ import {
   ensureAccountStoreMembership,
   getAuthenticatedAccountFromRequest,
 } from "../../../../../../../lib/account-auth";
+import { stageLegacySellerAutographIntake } from "../../../../../../../lib/seller-legacy-autograph-intake";
 import { getActiveStoreId } from "../../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../../lib/supabase-server";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 function recordValue(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -110,6 +111,13 @@ export async function POST(request: Request) {
       );
     }
 
+    const legacyTrading = await stageLegacySellerAutographIntake({
+      supabase,
+      accountId: account.id,
+      storeId,
+      connectionId: connection.id,
+    });
+
     const providerMetadata = recordValue(connection.provider_metadata);
     const denied = new Set(
       stringList(providerMetadata.seller_intake_denied_ids),
@@ -202,6 +210,7 @@ export async function POST(request: Request) {
       blockedCount,
       approvedCount,
       normalCount,
+      legacyTrading,
     });
   } catch (error: any) {
     return Response.json(
