@@ -30,6 +30,7 @@ jobs:
           node --check scripts/status-market-intel-worker-launchd.mjs
           node --check scripts/uninstall-market-intel-worker-launchd.mjs
           node --check scripts/prepare-market-intel-worker-env.mjs
+          node --check scripts/run-with-market-intel-env.mjs
           node --check scripts/simulate-market-intel-worker-env.mjs
           bash -n scripts/run-market-intel-worker-cycle.sh
           bash -n scripts/bootstrap-market-intel-worker-macos.sh
