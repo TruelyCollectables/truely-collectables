@@ -1,11 +1,13 @@
 "use client";
 
 import type { ReactNode } from "react";
+import SellerInventoryExactCardEnhancer from "./SellerInventoryExactCardEnhancer";
 import SellerInventoryVisualTracker from "./SellerInventoryVisualTracker";
 
 export default function SellerInventoryTemplate({ children }: { children: ReactNode }) {
   return (
     <>
+      <SellerInventoryExactCardEnhancer />
       <div className="border-b-2 border-neutral-950 bg-violet-100 px-4 py-3 text-neutral-950 sm:px-6">
         <p className="mx-auto max-w-7xl text-sm font-black leading-6">
           Trading-card rule: autograph cards, patch cards, relic cards, jersey-swatch
