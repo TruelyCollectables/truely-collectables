@@ -126,7 +126,7 @@ export function buildBlowoutResearchLinks(
 }
 
 export const BLOWOUT_RESEARCH_POLICY = {
-  mode: "public_index_links_plus_manual_thread_review" as const,
+  mode: "profit_hunter_integrated_public_index_links" as const,
   bargainDiscoveryOnly: true,
   automatedForumRequests: false,
   prohibitedActions: [
@@ -142,6 +142,6 @@ export const BLOWOUT_RESEARCH_POLICY = {
     "Confirm the seller's feedback and references",
     "Confirm whether shipping is included",
     "Use protected payment and tracking",
-    "Record the candidate in Profit Hunter only after manual review",
+    "Record the candidate through Profit Hunter only after manual review",
   ],
 };
