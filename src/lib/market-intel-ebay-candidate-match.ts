@@ -112,27 +112,27 @@ function includesCardNumber(text: string, cardNumber: string | null | undefined)
   return pattern.test(text);
 }
 
-function explicitCardNumbers(rawText: string) {
+function explicitCardNumbers(rawTitle: string) {
   const values: string[] = [];
-  for (const match of rawText.matchAll(/#\s*([a-z0-9]+(?:-[a-z0-9]+)*)/gi)) {
+  for (const match of rawTitle.matchAll(/#\s*([a-z0-9]+(?:-[a-z0-9]+)*)/gi)) {
     const value = normalizeMarketIntelCandidateText(match[1]);
     if (value) values.push(value);
   }
   return Array.from(new Set(values));
 }
 
-function serialDenominators(rawText: string) {
+function serialDenominators(rawTitle: string) {
   const values: number[] = [];
-  for (const match of rawText.matchAll(/(?:^|[\s#])(?:\d{1,4}\s*)?\/\s*(\d{1,4})(?=$|[\s,.)-])/g)) {
+  for (const match of rawTitle.matchAll(/(?:^|[\s#])(?:\d{1,4}\s*)?\/\s*(\d{1,4})(?=$|[\s,.)-])/g)) {
     const value = Number(match[1]);
     if (Number.isFinite(value) && value > 0) values.push(value);
   }
   return Array.from(new Set(values));
 }
 
-function detectedParallelMarkers(text: string) {
+function detectedParallelMarkers(titleText: string) {
   return PARALLEL_MARKERS.filter((marker) =>
-    text.includes(normalizeMarketIntelCandidateText(marker)),
+    titleText.includes(normalizeMarketIntelCandidateText(marker)),
   );
 }
 
@@ -147,35 +147,37 @@ function targetAllowsParallelMarker(targetParallel: string, marker: string) {
 
 function productConflicts(
   identity: MarketIntelEbayCandidateIdentity,
-  text: string,
+  titleText: string,
 ) {
   const expected = normalizeMarketIntelCandidateText(
     [identity.product_line, identity.set_name].filter(Boolean).join(" "),
   );
   return PRODUCT_MARKERS.filter((marker) => {
     const normalizedMarker = normalizeMarketIntelCandidateText(marker);
-    return text.includes(normalizedMarker) && !expected.includes(normalizedMarker);
+    return titleText.includes(normalizedMarker) && !expected.includes(normalizedMarker);
   });
 }
 
-function looksGraded(item: MarketIntelEbayCandidateItem, rawText: string) {
+function looksGraded(item: MarketIntelEbayCandidateItem, rawTitle: string) {
   if (normalizeMarketIntelCandidateText(item.condition) === "graded") return true;
   return /\b(psa|bgs|beckett|sgc|cgc|hga)\s*(?:authentic|gem\s*mint|mint|[1-9](?:\.5)?|10)\b/i.test(
-    rawText,
+    rawTitle,
   );
 }
 
-function looksAutographed(rawText: string) {
-  return /\b(auto|autograph|autographed|signed)\b/i.test(rawText);
+function looksAutographed(rawTitle: string) {
+  return /\b(auto|autograph|autographed|signed)\b/i.test(rawTitle);
 }
 
-function looksMemorabilia(rawText: string) {
-  return /\b(relic|patch|jersey|memorabilia|game[- ]used)\b/i.test(rawText);
+function looksMemorabilia(rawTitle: string) {
+  return /\b(relic|patch|jersey|game[- ]used|game[- ]worn|player[- ]worn|swatch)\b/i.test(
+    rawTitle,
+  );
 }
 
-function looksLikeLot(rawText: string) {
-  return /\b(lot|set of|pair|two cards|three cards|four cards|\d+\s*(?:x|cards?))\b/i.test(
-    rawText,
+function looksLikeLot(rawTitle: string) {
+  return /(?:^|[\s(])(?:lot(?:\s+of)?|pair|[2-9]x|two\s+cards?|three\s+cards?|four\s+cards?|[2-9]\s+cards?)(?:$|[\s):,/-])/i.test(
+    rawTitle,
   );
 }
 
@@ -183,7 +185,9 @@ export function evaluateMarketIntelEbayIdentityMatch(
   identity: MarketIntelEbayCandidateIdentity,
   item: MarketIntelEbayCandidateItem,
 ): MarketIntelEbayIdentityMatch {
-  const rawText = `${item.title || ""} ${item.shortDescription || ""}`.trim();
+  const rawTitle = String(item.title || "").trim();
+  const rawText = `${rawTitle} ${item.shortDescription || ""}`.trim();
+  const titleText = normalizeMarketIntelCandidateText(rawTitle);
   const text = normalizeMarketIntelCandidateText(rawText);
   const reasons: string[] = [];
   const conflicts: string[] = [];
@@ -219,17 +223,17 @@ export function evaluateMarketIntelEbayIdentityMatch(
     score += 10;
     reasons.push("parallel matches");
   }
-  if (identity.autograph && looksAutographed(rawText)) {
+  if (identity.autograph && looksAutographed(rawTitle)) {
     score += 6;
     reasons.push("autograph marker matches");
   }
-  if (identity.memorabilia && looksMemorabilia(rawText)) {
+  if (identity.memorabilia && looksMemorabilia(rawTitle)) {
     score += 6;
     reasons.push("memorabilia marker matches");
   }
 
   const targetCardNumber = normalizeMarketIntelCandidateText(identity.card_number);
-  const listedCardNumbers = explicitCardNumbers(rawText);
+  const listedCardNumbers = explicitCardNumbers(rawTitle);
   if (
     targetCardNumber &&
     listedCardNumbers.length > 0 &&
@@ -241,17 +245,15 @@ export function evaluateMarketIntelEbayIdentityMatch(
   }
 
   const targetParallel = normalizeMarketIntelCandidateText(identity.parallel_name);
-  const foundParallelMarkers = detectedParallelMarkers(text);
+  const foundParallelMarkers = detectedParallelMarkers(titleText);
   const conflictingParallelMarkers = foundParallelMarkers.filter(
     (marker) => !targetAllowsParallelMarker(targetParallel, marker),
   );
   if (conflictingParallelMarkers.length) {
-    conflicts.push(
-      `parallel conflicts (${conflictingParallelMarkers.join(", ")})`,
-    );
+    conflicts.push(`parallel conflicts (${conflictingParallelMarkers.join(", ")})`);
   }
 
-  const denominators = serialDenominators(rawText);
+  const denominators = serialDenominators(rawTitle);
   const expectedSerial = Number(identity.serial_numbered_to || 0);
   if (denominators.length) {
     if (!expectedSerial) {
@@ -263,21 +265,21 @@ export function evaluateMarketIntelEbayIdentityMatch(
     }
   }
 
-  if (identity.condition_type === "raw" && looksGraded(item, rawText)) {
+  if (identity.condition_type === "raw" && looksGraded(item, rawTitle)) {
     conflicts.push("graded listing conflicts with raw identity");
   }
-  if (!identity.autograph && looksAutographed(rawText)) {
+  if (!identity.autograph && looksAutographed(rawTitle)) {
     conflicts.push("autograph/signed listing conflicts with non-autograph identity");
   }
-  if (!identity.memorabilia && looksMemorabilia(rawText)) {
+  if (!identity.memorabilia && looksMemorabilia(rawTitle)) {
     conflicts.push("relic/memorabilia listing conflicts with non-memorabilia identity");
   }
 
-  for (const marker of productConflicts(identity, text)) {
+  for (const marker of productConflicts(identity, titleText)) {
     conflicts.push(`product line conflicts (${marker})`);
   }
 
-  const lotListing = looksLikeLot(rawText);
+  const lotListing = looksLikeLot(rawTitle);
   if (lotListing) {
     conflicts.push("multi-card lot requires the lot-composition workflow");
   }
