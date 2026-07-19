@@ -1,7 +1,12 @@
 export type CollectibleCategoryDecision = {
   isTradingCard: boolean;
   isPhysicalMemorabilia: boolean;
-  category: "sports_cards" | "trading_cards" | "memorabilia" | "autographs" | "other_collectable";
+  category:
+    | "sports_cards"
+    | "trading_cards"
+    | "memorabilia"
+    | "autographs"
+    | "other_collectable";
   confidence: "high" | "medium" | "low";
   reasons: string[];
 };
@@ -65,31 +70,38 @@ function explicitMemorabiliaCategory(value: string) {
 function cardAspectEvidence(aspects: Record<string, unknown>) {
   const text = normalized(flattenAspectText(aspects));
   const keys = normalized(Object.keys(aspects).join(" "));
-  const keyEvidence = /\b(card number|set|parallel variety|parallel|insert set|season|manufacturer|player athlete|rookie|print run|features|card name|card thickness)\b/.test(
-    keys,
-  );
-  const valueEvidence = /\b(rookie|rc|parallel|insert|short print|ssp|sp|numbered|refractor|prizm|holo|young guns|patch card|relic card|autograph card)\b/.test(
-    text,
-  );
+  const keyEvidence =
+    /\b(card number|set|parallel variety|parallel|insert set|season|manufacturer|player athlete|rookie|print run|features|card name|card thickness)\b/.test(
+      keys,
+    );
+  const valueEvidence =
+    /\b(rookie|rc|parallel|insert|short print|ssp|sp|numbered|refractor|prizm|holo|young guns|patch card|relic card|autograph card)\b/.test(
+      text,
+    );
   return keyEvidence || valueEvidence;
 }
 
 function strongCardTitleEvidence(title: string) {
-  const explicit = /\b(trading card|sports card|rookie card|autograph card|auto card|patch card|relic card|memorabilia card)\b/.test(
-    title,
-  );
-  const cardLanguage = /\b(rc|rookie|young guns|future watch|rookie ticket|rpa|insert|parallel|refractor|prizm|holo|short print|ssp|sp card|card #|no\.?\s*\d+)\b/.test(
-    title,
-  );
-  const cardBrands = /\b(topps|bowman|panini|upper deck|sp game used|the cup|artifacts|allure|o pee chee|opc|prizm|select|optic|mosaic|donruss|contenders|chronicles|immaculate|national treasures|flawless|finest|heritage|stadium club|leaf|fleer|score|skybox|metal universe|ud canvas|young guns)\b/.test(
-    title,
-  );
-  const serialEvidence = /(?:^|\s)(?:#?[a-z]{0,4}\d{1,4}|\d{1,3}\/\d{1,4}|\/\d{1,4})(?:\s|$)/.test(
-    title,
-  );
-  const seasonEvidence = /\b(?:19|20)\d{2}(?:[-/]\d{2,4})?\b/.test(title);
+  const explicit =
+    /\b(trading card|sports card|rookie card|autograph card|auto card|patch card|relic card|memorabilia card)\b/.test(
+      title,
+    );
+  const cardLanguage =
+    /\b(rc|rookie|young guns|future watch|rookie ticket|rpa|insert|parallel|refractor|prizm|holo|short print|ssp|sp card|card #|no\.?\s*\d+)\b/.test(
+      title,
+    );
+  const cardBrands =
+    /\b(topps|bowman|panini|upper deck|sp game used|the cup|artifacts|allure|o pee chee|opc|prizm|select|optic|mosaic|donruss|contenders|chronicles|immaculate|national treasures|flawless|finest|heritage|stadium club|leaf|fleer|score|skybox|metal universe|ud canvas|young guns)\b/.test(
+      title,
+    );
+  const serialEvidence =
+    /(?:^|\s)(?:#?[a-z]{0,4}\d{1,4}|\d{1,3}\/\d{1,4}|\/\d{1,4})(?:\s|$)/.test(
+      title,
+    );
 
-  return explicit || (cardBrands && (cardLanguage || serialEvidence || seasonEvidence));
+  // A brand and year alone are not enough. Example: an Upper Deck
+  // Authenticated 2024 signed jersey is still a physical jersey.
+  return explicit || (cardBrands && (cardLanguage || serialEvidence));
 }
 
 function physicalObjectEvidence(title: string) {
@@ -122,7 +134,8 @@ export function classifyCollectibleCategory(
   );
 
   const reasons: string[] = [];
-  const categorySaysCard = explicitCardCategory(category) || explicitCardCategory(combined);
+  const categorySaysCard =
+    explicitCardCategory(category) || explicitCardCategory(combined);
   const aspectsSayCard = cardAspectEvidence(aspects);
   const titleSaysCard = strongCardTitleEvidence(title);
   const isTradingCard = categorySaysCard || aspectsSayCard || titleSaysCard;
@@ -146,17 +159,23 @@ export function classifyCollectibleCategory(
   }
 
   const physicalObject = physicalObjectEvidence(title);
-  const memorabiliaCategory = explicitMemorabiliaCategory(category) ||
+  const memorabiliaCategory =
+    explicitMemorabiliaCategory(category) ||
     explicitMemorabiliaCategory(combined);
-  const autographOnly = /\b(autograph|autographed|signed|inscribed|coa|psa dna|beckett|jsa)\b/.test(
-    combined,
-  );
+  const autographOnly =
+    /\b(autograph|autographed|signed|inscribed|coa|psa dna|beckett|jsa)\b/.test(
+      combined,
+    );
 
   if (physicalObject || memorabiliaCategory) {
     return {
       isTradingCard: false,
       isPhysicalMemorabilia: true,
-      category: physicalObject ? "memorabilia" : autographOnly ? "autographs" : "memorabilia",
+      category: physicalObject
+        ? "memorabilia"
+        : autographOnly
+          ? "autographs"
+          : "memorabilia",
       confidence: physicalObject && memorabiliaCategory ? "high" : "medium",
       reasons: [
         ...(physicalObject ? ["physical collectible object evidence"] : []),
