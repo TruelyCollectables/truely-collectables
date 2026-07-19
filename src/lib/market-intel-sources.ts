@@ -190,11 +190,11 @@ const sourceRegistry = [
     checklistSupport: "none",
     directLinkSupport: true,
     authorizationStatus:
-      "Use public search-engine index links and operator-opened forum threads only. TCOS does not make automated requests to the forum.",
+      "Public search-index links are integrated directly into the existing Profit Hunter buying desk. TCOS does not make automated requests to the forum.",
     rateLimitNotes:
       "No crawler, login automation, verification bypass, auto-posting, seller messaging, or background thread polling is enabled.",
     warnings: [
-      "Use Blowout only for bargain discovery, priced lots, collection liquidations, and mislist research.",
+      "Use Blowout only for bargain discovery, priced lots, collection liquidations, and mislist research inside Profit Hunter.",
       "Never automate forum login, search verification, CAPTCHA handling, posting, bumping, or private messages.",
       "Do not copy entire threads or repeatedly poll forum pages.",
       "Forum asking prices, claimed sales, and deal comments must never enter InstaComp™ sold-comp valuation.",
