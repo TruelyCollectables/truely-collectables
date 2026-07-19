@@ -1,6 +1,10 @@
 import { createHash } from "node:crypto";
 import { createClient } from "@supabase/supabase-js";
 import {
+  evaluateMarketIntelEbayIdentityMatch,
+  normalizeMarketIntelCandidateText,
+} from "../src/lib/market-intel-ebay-candidate-match.ts";
+import {
   buildEbayProfitHunterQueries,
   minimumConfidenceForEbayQuery,
   type EbayProfitHunterIdentity,
@@ -40,6 +44,15 @@ type Subject = {
   priority: number | null;
 };
 
+type ExistingCandidateRow = {
+  candidate_fingerprint: string;
+  status: string;
+  evidence: JsonRecord | null;
+  collectible_identity_id: string | null;
+  reviewed_at: string | null;
+  promoted_listing_id: string | null;
+};
+
 type IdentityRow = EbayProfitHunterIdentity & {
   id: string;
   identity_key: string;
@@ -59,28 +72,15 @@ function envNumber(name: string, fallback: number, minimum: number, maximum: num
   return Math.max(minimum, Math.min(maximum, Math.round(parsed)));
 }
 
-function normalized(value: string | null | undefined) {
-  return String(value || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function tokens(value: string | null | undefined) {
-  return normalized(value)
-    .split(" ")
-    .filter((token) => token.length >= 2);
-}
-
-function hasAllTokens(title: string, value: string | null | undefined) {
-  const expected = tokens(value);
-  return expected.length > 0 && expected.every((token) => title.includes(token));
-}
-
 function num(value: unknown, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function recordValue(value: unknown): JsonRecord {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as JsonRecord)
+    : {};
 }
 
 function itemPrice(item: EbayItem) {
@@ -122,7 +122,9 @@ function exactQuery(identity: IdentityRow) {
     identity.set_name,
     identity.insert_name,
     identity.card_number ? `#${identity.card_number}` : null,
-    normalized(identity.parallel_name) !== "base" ? identity.parallel_name : null,
+    normalizeMarketIntelCandidateText(identity.parallel_name) !== "base"
+      ? identity.parallel_name
+      : null,
     identity.variation_name,
     identity.autograph ? "auto" : null,
     identity.memorabilia ? "relic" : null,
@@ -136,53 +138,6 @@ function exactQuery(identity: IdentityRow) {
     .slice(0, 350);
 }
 
-function identityMatch(identity: IdentityRow, item: EbayItem) {
-  const title = normalized(item.title);
-  const reasons: string[] = [];
-  let score = 0;
-
-  if (hasAllTokens(title, identity.subject_name)) {
-    score += 34;
-    reasons.push("player/subject tokens match");
-  }
-  if (identity.season_year && title.includes(normalized(identity.season_year))) {
-    score += 12;
-    reasons.push("year matches");
-  }
-  if (identity.card_number && title.includes(normalized(identity.card_number))) {
-    score += 22;
-    reasons.push("card number matches");
-  }
-  if (identity.product_line && hasAllTokens(title, identity.product_line)) {
-    score += 8;
-    reasons.push("product line matches");
-  }
-  if (identity.set_name && hasAllTokens(title, identity.set_name)) {
-    score += 8;
-    reasons.push("set matches");
-  }
-  if (
-    normalized(identity.parallel_name) !== "base" &&
-    hasAllTokens(title, identity.parallel_name)
-  ) {
-    score += 10;
-    reasons.push("parallel matches");
-  }
-  if (identity.autograph && /\b(auto|autograph|signed)\b/i.test(item.title || "")) {
-    score += 6;
-    reasons.push("autograph marker matches");
-  }
-  if (
-    identity.memorabilia &&
-    /\b(relic|patch|jersey|memorabilia|game used)\b/i.test(item.title || "")
-  ) {
-    score += 6;
-    reasons.push("memorabilia marker matches");
-  }
-
-  return { score: Math.min(100, score), reasons };
-}
-
 function candidateFingerprint(
   sourceSlug: string,
   externalListingId: string,
@@ -191,6 +146,30 @@ function candidateFingerprint(
   return createHash("sha256")
     .update(`${sourceSlug}|${externalListingId}|${identityId}`)
     .digest("hex");
+}
+
+function sourceListingKey(row: JsonRecord) {
+  const source = String(row.source_slug || "");
+  const externalListingId = String(row.external_listing_id || "");
+  const directUrl = String(row.direct_url || "");
+  return externalListingId
+    ? `${source}|${externalListingId}`
+    : `${source}|url:${directUrl}`;
+}
+
+function proofFields(evidence: JsonRecord) {
+  return Object.fromEntries(
+    Object.entries(evidence).filter(([key]) => key.startsWith("identity_proof_")),
+  );
+}
+
+function preservedStatus(existingStatus: string, incomingStatus: string) {
+  if (["promoted", "rejected"].includes(existingStatus)) return existingStatus;
+  if (["probable_exact", "conflict_detected"].includes(existingStatus)) {
+    return existingStatus;
+  }
+  if (incomingStatus === "conflict_detected") return incomingStatus;
+  return existingStatus || incomingStatus;
 }
 
 async function ebayToken() {
@@ -320,7 +299,7 @@ async function main() {
       rank:
         num(subjectById.get(String(identity.subject_id))?.priority) +
         (identity.card_number ? 15 : 0) +
-        (normalized(identity.parallel_name) !== "base" ? 10 : 0) +
+        (normalizeMarketIntelCandidateText(identity.parallel_name) !== "base" ? 10 : 0) +
         (identity.autograph ? 8 : 0) +
         (identity.memorabilia ? 5 : 0),
     }))
@@ -330,6 +309,8 @@ async function main() {
   const token = await ebayToken();
   const staged = new Map<string, JsonRecord>();
   let calls = 0;
+  let conflictsSuppressed = 0;
+  let lotCandidatesQuarantined = 0;
 
   for (const identity of ranked) {
     const specs = buildEbayProfitHunterQueries(identity, exactQuery(identity), maxQueries);
@@ -343,18 +324,28 @@ async function main() {
         if (!externalListingId || !directUrl || !item.title || !Number.isFinite(price)) {
           continue;
         }
-        const match = identityMatch(identity, item);
+
+        const match = evaluateMarketIntelEbayIdentityMatch(identity, item);
+        const requiresLotWorkflow = spec.mode === "lot" || match.lotListing;
+        if (match.hardConflict && !requiresLotWorkflow) {
+          conflictsSuppressed += 1;
+          continue;
+        }
+
+        const effectiveScore = requiresLotWorkflow ? match.baseScore : match.score;
         const threshold = minimumConfidenceForEbayQuery(
           spec.mode as EbayProfitHunterQueryMode,
           minimumConfidence,
         );
-        if (match.score < threshold) continue;
+        if (effectiveScore < threshold) continue;
 
         const fingerprint = candidateFingerprint("ebay", externalListingId, identity.id);
-        const priority = match.score + spec.priority / 10;
+        const priority = effectiveScore + spec.priority / 10;
         const current = staged.get(fingerprint);
         if (current && num(current.candidate_priority_score) >= priority) continue;
 
+        if (requiresLotWorkflow) lotCandidatesQuarantined += 1;
+        const now = new Date().toISOString();
         staged.set(fingerprint, {
           candidate_fingerprint: fingerprint,
           source_slug: "ebay",
@@ -364,7 +355,7 @@ async function main() {
           original_title: item.title,
           description: item.shortDescription || null,
           image_urls: imageUrls(item),
-          listing_format: spec.mode === "lot" ? "lot" : listingFormat(item),
+          listing_format: requiresLotWorkflow ? "lot" : listingFormat(item),
           asking_price: price,
           shipping_price: shippingPrice(item),
           buyer_fee: 0,
@@ -377,25 +368,49 @@ async function main() {
           auction_end_at: item.itemEndDate || null,
           query_mode: spec.mode,
           query_text: spec.query,
-          candidate_confidence: match.score,
+          candidate_confidence: effectiveScore,
           candidate_priority_score: priority,
-          status: "pending_review",
+          status: requiresLotWorkflow ? "conflict_detected" : "pending_review",
           evidence: {
-            worker_schema: "tcos.marketIntel.externalWorker.v1",
+            worker_schema: "tcos.marketIntel.externalWorker.v2",
             identity_key: identity.identity_key,
             identity_display_name: identity.display_name,
             query_intent: spec.intent,
             query_requires_image_review: spec.requiresImageReview,
             identity_match_reasons: match.reasons,
+            identity_match_conflicts: match.conflicts,
+            requires_lot_workflow: requiresLotWorkflow,
             ebay_condition: item.condition || null,
             ebay_condition_id: item.conditionId || null,
             ebay_categories: item.categories || [],
             seller_feedback_count: item.seller?.feedbackScore || null,
           },
-          last_seen_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
+          last_seen_at: now,
+          updated_at: now,
         });
       }
+    }
+  }
+
+  const stagedBySourceListing = new Map<string, JsonRecord[]>();
+  for (const row of staged.values()) {
+    const key = sourceListingKey(row);
+    const rows = stagedBySourceListing.get(key) || [];
+    rows.push(row);
+    stagedBySourceListing.set(key, rows);
+  }
+  let crossIdentityGroupsQuarantined = 0;
+  for (const rows of stagedBySourceListing.values()) {
+    const identityIds = new Set(rows.map((row) => String(row.collectible_identity_id || "")));
+    if (identityIds.size <= 1) continue;
+    crossIdentityGroupsQuarantined += 1;
+    for (const row of rows) {
+      row.status = "conflict_detected";
+      row.evidence = {
+        ...recordValue(row.evidence),
+        cross_identity_listing_conflict: true,
+        sibling_identity_ids: Array.from(identityIds),
+      };
     }
   }
 
@@ -404,7 +419,9 @@ async function main() {
     const fingerprints = rows.map((row) => String(row.candidate_fingerprint));
     const { data: existing, error: existingError } = await supabase
       .from("tcos_mi_search_candidates")
-      .select("candidate_fingerprint,status")
+      .select(
+        "candidate_fingerprint,status,evidence,collectible_identity_id,reviewed_at,promoted_listing_id",
+      )
       .in("candidate_fingerprint", fingerprints);
     if (existingError && existingError.code !== "42P01") {
       throw new Error(existingError.message);
@@ -414,13 +431,29 @@ async function main() {
         "Search candidate queue is not installed. Apply migration 20260719153000_market_intel_identity_proof_gate.sql first.",
       );
     }
-    const statusByFingerprint = new Map(
-      (existing || []).map((row) => [String(row.candidate_fingerprint), String(row.status)]),
+
+    const existingByFingerprint = new Map<string, ExistingCandidateRow>(
+      ((existing || []) as ExistingCandidateRow[]).map((row) => [
+        String(row.candidate_fingerprint),
+        row,
+      ]),
     );
     for (const row of rows) {
-      const status = statusByFingerprint.get(String(row.candidate_fingerprint));
-      if (status) row.status = status;
+      const prior = existingByFingerprint.get(String(row.candidate_fingerprint));
+      if (!prior) continue;
+
+      row.status = preservedStatus(String(prior.status || ""), String(row.status || ""));
+      if (prior.reviewed_at || String(prior.status || "") !== "pending_review") {
+        row.collectible_identity_id = prior.collectible_identity_id || row.collectible_identity_id;
+      }
+      const oldEvidence = recordValue(prior.evidence);
+      row.evidence = {
+        ...oldEvidence,
+        ...recordValue(row.evidence),
+        ...proofFields(oldEvidence),
+      };
     }
+
     const { error: upsertError } = await supabase
       .from("tcos_mi_search_candidates")
       .upsert(rows, { onConflict: "candidate_fingerprint" });
@@ -430,11 +463,14 @@ async function main() {
   console.log(
     JSON.stringify(
       {
-        worker: "tcos.marketIntel.externalWorker.v1",
+        worker: "tcos.marketIntel.externalWorker.v2",
         completedAt: new Date().toISOString(),
         identities: ranked.length,
         marketplaceCalls: calls,
         candidatesStaged: rows.length,
+        conflictsSuppressed,
+        lotCandidatesQuarantined,
+        crossIdentityGroupsQuarantined,
         estimatedMaximumCallsPerDay: estimatedCallsPerDay,
         vercelSearchInvocations: 0,
       },
