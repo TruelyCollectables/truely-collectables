@@ -2,6 +2,10 @@ import "server-only";
 
 import { assertCandidateBaseballPremiumPolicy } from "./market-intel-baseball-premium-enforcement";
 import {
+  syncEbayPurchaseReceiptComp,
+  type EbayPurchaseCompInput,
+} from "./market-intel-ebay-purchase-comps";
+import {
   approveIdentityCandidate,
   type CandidateApprovalInput,
 } from "./market-intel-identity-candidates";
@@ -85,6 +89,11 @@ export async function recordDiscoveryCandidatePurchase(
   const portfolioBucket =
     input.portfolioBucket ||
     (candidateMetadata.portfolio_bucket === "hold" ? "hold" : "resale");
+  const purchasedAt = input.purchaseDate
+    ? new Date(`${input.purchaseDate}T12:00:00`).toISOString()
+    : candidateMetadata.actual_purchase_date
+      ? new Date(String(candidateMetadata.actual_purchase_date)).toISOString()
+      : new Date().toISOString();
 
   const normalized = await normalizeDiscoveryApprovalInput(input);
   let approval;
@@ -102,7 +111,7 @@ export async function recordDiscoveryCandidatePurchase(
   const { data: listingRows, error: listingError } = await supabase
     .from("tcos_mi_listings")
     .select(
-      "id,marketplace_id,collectible_identity_id,direct_url,original_title,asking_price,shipping_price,buyer_fee,delivered_price,quantity,metadata",
+      "id,marketplace_id,collectible_identity_id,external_listing_id,direct_url,original_title,asking_price,shipping_price,buyer_fee,delivered_price,quantity,metadata",
     )
     .eq("id", approval.listingId)
     .limit(2);
@@ -117,6 +126,52 @@ export async function recordDiscoveryCandidatePurchase(
   const listing = listingRows[0];
   if (!listing.collectible_identity_id) {
     throw new Error("The approved listing does not have an exact collectible identity.");
+  }
+
+  const compInput = (purchaseId: string): EbayPurchaseCompInput => ({
+    purchaseId,
+    purchaseInboxId: candidateMetadata.purchase_inbox_id
+      ? String(candidateMetadata.purchase_inbox_id)
+      : null,
+    collectibleIdentityId: String(listing.collectible_identity_id),
+    marketplaceId: String(listing.marketplace_id),
+    externalOrderId: candidateMetadata.external_order_id
+      ? String(candidateMetadata.external_order_id)
+      : null,
+    externalListingId: listing.external_listing_id
+      ? String(listing.external_listing_id)
+      : null,
+    sourceUrl: String(listing.direct_url || ""),
+    originalTitle: String(listing.original_title || ""),
+    purchasedAt,
+    quantity: normalized.quantity,
+    itemSubtotal,
+    inboundShipping,
+    buyerFees,
+    salesTax,
+    otherCost,
+    totalPaid: enteredTotal,
+  });
+
+  async function syncReceiptComp(purchaseId: string) {
+    if (!purchaseInbox) {
+      return {
+        status: null as null | "created" | "updated",
+        warning: null as string | null,
+      };
+    }
+    try {
+      const synced = await syncEbayPurchaseReceiptComp(compInput(purchaseId));
+      return { status: synced.status, warning: null as string | null };
+    } catch (error) {
+      return {
+        status: null as null | "created" | "updated",
+        warning:
+          error instanceof Error
+            ? `Purchase recorded, but the eBay receipt comp did not sync: ${error.message}`
+            : "Purchase recorded, but the eBay receipt comp did not sync.",
+      };
+    }
   }
 
   const { data: existingRows, error: existingError } = await supabase
@@ -136,17 +191,17 @@ export async function recordDiscoveryCandidatePurchase(
         })
         .eq("identity_candidate_id", input.candidateId);
     }
+    const compSync = await syncReceiptComp(String(existingRows[0].id));
     return {
       purchaseId: String(existingRows[0].id),
       purchaseNumber: Number(existingRows[0].purchase_number),
       alreadyRecorded: true,
       listingEndWarning: null,
+      compSyncStatus: compSync.status,
+      compSyncWarning: compSync.warning,
     };
   }
 
-  const purchasedAt = input.purchaseDate
-    ? new Date(`${input.purchaseDate}T12:00:00`).toISOString()
-    : new Date().toISOString();
   const alreadyReceived = Boolean(input.alreadyReceived);
 
   const { data: scoreRows } = await supabase
@@ -233,6 +288,8 @@ export async function recordDiscoveryCandidatePurchase(
     if (inboxUpdateError) throw new Error(inboxUpdateError.message);
   }
 
+  const compSync = await syncReceiptComp(String(purchase.id));
+
   let listingEndWarning: string | null = null;
   try {
     await endMarketIntelListing(String(listing.id), {
@@ -269,5 +326,7 @@ export async function recordDiscoveryCandidatePurchase(
     purchaseNumber: Number(purchase.purchase_number),
     alreadyRecorded: false,
     listingEndWarning,
+    compSyncStatus: compSync.status,
+    compSyncWarning: compSync.warning,
   };
 }
