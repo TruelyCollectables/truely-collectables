@@ -18,7 +18,19 @@ const files = fs
 const versions = new Map();
 const malformedNames = [];
 const destructiveMatches = [];
+const allowlistedDestructiveMatches = [];
 const dataMutationFiles = [];
+
+const destructiveAllowlist = new Map([
+  [
+    "20260710180000_create_checkout_e2e_isolation.sql",
+    "DELETE statements are inside a service-role-only checkout test cleanup function and are not executed by the migration.",
+  ],
+  [
+    "20260710182000_fix_checkout_e2e_cleanup_uuid.sql",
+    "DELETE statements are inside the corrected service-role-only checkout test cleanup function and are not executed by the migration.",
+  ],
+]);
 
 for (const file of files) {
   const match = file.match(/^(\d+)_/);
@@ -41,7 +53,15 @@ for (const file of files) {
   ];
 
   for (const pattern of destructivePatterns) {
-    if (pattern.test(sql)) {
+    if (!pattern.test(sql)) continue;
+    const allowlistReason = destructiveAllowlist.get(file);
+    if (allowlistReason) {
+      allowlistedDestructiveMatches.push({
+        file,
+        pattern: String(pattern),
+        reason: allowlistReason,
+      });
+    } else {
       destructiveMatches.push({ file, pattern: String(pattern) });
     }
   }
@@ -98,6 +118,7 @@ const result = {
   duplicateVersions,
   malformedNames,
   destructiveMatches,
+  allowlistedDestructiveMatches,
   dataMutationFiles,
   dependencyChecks,
   dependencyErrors,
