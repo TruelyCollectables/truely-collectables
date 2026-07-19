@@ -62,8 +62,15 @@ export async function runMarketIntelMigrationPreflight() {
     "tcos_mi_purchase_performance",
   ];
 
+  // This relation is intentionally granted to service_role by the pending
+  // 20260716213000 migration. A pre-migration permission denial is expected,
+  // but a true missing-relation response must still block deployment.
+  const relationsWithPendingServiceRoleGrant = new Set(["inventory_attributes"]);
+
   const missingRequiredRelations: string[] = [];
   const inaccessibleRelations: Array<{ relation: string; code: string; message: string }> = [];
+  const conflicts: Array<{ check: string; count: number; scannedRows?: number }> = [];
+  const optionalChecks: Array<{ check: string; status: string }> = [];
 
   for (const relation of requiredRelations) {
     const { error } = await supabase
@@ -72,6 +79,11 @@ export async function runMarketIntelMigrationPreflight() {
     if (!error) continue;
     if (missingRelation(error)) {
       missingRequiredRelations.push(relation);
+    } else if (relationsWithPendingServiceRoleGrant.has(relation)) {
+      optionalChecks.push({
+        check: `${relation}_service_role_access`,
+        status: "pending_service_role_grant",
+      });
     } else {
       inaccessibleRelations.push({
         relation,
@@ -80,9 +92,6 @@ export async function runMarketIntelMigrationPreflight() {
       });
     }
   }
-
-  const conflicts: Array<{ check: string; count: number; scannedRows?: number }> = [];
-  const optionalChecks: Array<{ check: string; status: string }> = [];
 
   const financial = await supabase
     .from("financial_adjustment_ledger_entries")
@@ -246,7 +255,7 @@ export async function runMarketIntelMigrationPreflight() {
     conflicts.length === 0;
 
   const result = {
-    preflight: "tcos.marketIntel.migrationDataPreflight.v1",
+    preflight: "tcos.marketIntel.migrationDataPreflight.v2",
     passed,
     requiredRelationCount: requiredRelations.length,
     missingRequiredRelations,
