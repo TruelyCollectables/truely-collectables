@@ -3,6 +3,7 @@ import {
   adminHandoffFromUrl,
   adminRedirectUrl,
 } from "../../../../../../../lib/admin-handoff";
+import { assertMarketIntelIdentityProofVerified } from "../../../../../../../lib/market-intel-identity-proof";
 import { endMarketIntelListing } from "../../../../../../../lib/market-intel-listing-state";
 import { requestOrigin } from "../../../../../../../lib/request-origin";
 import { createSupabaseServerClient } from "../../../../../../../lib/supabase-server";
@@ -45,6 +46,11 @@ export async function POST(request: NextRequest, context: RouteContext) {
     if (!listing.collectible_identity_id) {
       throw new Error("This listing does not have an exact collectible identity.");
     }
+    assertMarketIntelIdentityProofVerified(
+      listing.metadata && typeof listing.metadata === "object" && !Array.isArray(listing.metadata)
+        ? (listing.metadata as Record<string, unknown>)
+        : {},
+    );
 
     const { data: existing, error: existingError } = await supabase
       .from("tcos_mi_purchase_lots")
@@ -138,6 +144,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
           source_listing_buyer_fee: Number(listing.buyer_fee || 0),
           source_listing_delivered_price: Number(listing.delivered_price || 0),
           source_listing_metadata: listing.metadata || {},
+          identity_proof_status: "verified_exact",
+          identity_proof_enforced_at_purchase: true,
           deal_score_id: latestScore?.id || null,
           expected_net_profit_at_purchase:
             latestScore?.expected_net_profit ?? null,
