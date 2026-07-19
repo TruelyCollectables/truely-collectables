@@ -20,7 +20,7 @@ This removes repeated marketplace searching from Vercel. Vercel is the control p
 
 ## Required environment variables on the worker machine
 
-Create `.env.market-intel-worker.local` in the repository root. It is already excluded by `.gitignore`.
+The activation bootstrap reads existing ignored `.env`, `.env.local`, or `.env.production.local` files as dotenv data and creates `.env.market-intel-worker.local` in the repository root. Environment files are never sourced or executed as shell code.
 
 ```bash
 NEXT_PUBLIC_SUPABASE_URL=...
@@ -37,13 +37,9 @@ MARKET_INTEL_WORKER_MINIMUM_CONFIDENCE=55
 MARKET_INTEL_WORKER_INTERVAL_MINUTES=15
 ```
 
-Protect it:
+The generated worker file is normalized, ignored by Git, and protected with mode `600`.
 
-```bash
-chmod 600 .env.market-intel-worker.local
-```
-
-Never put the Supabase service-role key or eBay secret in browser code, a plist, a container image, or Git.
+Never put the Supabase service-role key or eBay secret in browser code, a plist, a container image, Git, terminal output, or chat.
 
 ## Run one search cycle manually
 
@@ -53,7 +49,7 @@ From the repository root:
 /bin/zsh scripts/run-market-intel-worker-cycle.sh
 ```
 
-The script loads the private env file, runs one cycle, writes candidates to Supabase, and exits.
+The runner passes the protected worker file to Node through native `--env-file` support, runs one cycle, writes candidates to Supabase, and exits. It does not invoke `source`, `eval`, or another shell interpreter on environment-file contents.
 
 ## Install on the always-on Mac
 
@@ -144,17 +140,24 @@ The proof decision and evidence are recorded in `tcos_mi_identity_proof_reviews`
 
 ## Validation
 
-The Market Intel pull-request workflow checks all worker JavaScript launchers with `node --check`, validates the shell runner with `bash -n`, and then performs the full Next.js build. The Mac and online wrappers cannot silently drift into syntax-broken deployment files.
+The Market Intel pull-request workflow:
+
+- checks all worker launchers for syntax errors,
+- validates the shell bootstrap and runner,
+- runs a dotenv fixture covering BOM, CRLF, quotes, spaces, and comments,
+- confirms the normalized file loads through Node without shell sourcing, and
+- performs the full Next.js build.
 
 ## Deployment order
 
-1. Apply `20260719153000_market_intel_identity_proof_gate.sql` to Supabase.
-2. Create and protect `.env.market-intel-worker.local`.
-3. Run the worker manually once.
-4. Review staged candidates inside Profit Hunter.
-5. Confirm candidate promotion and purchase blocking.
-6. Install the Mac schedule, or deploy the online container—not both.
-7. Set `MARKET_INTEL_SEARCH_EXECUTION=external` on Vercel.
-8. Disable any duplicate cron-job.org call that still targets the Vercel Hot Watch route.
+1. Run `bash scripts/bootstrap-market-intel-worker-macos.sh` from the clean worker worktree.
+2. Review the Supabase dry run and type `APPLY` only when the displayed pending migrations are correct.
+3. Let the bootstrap validate Supabase and eBay OAuth.
+4. Let one live worker cycle stage candidates.
+5. Review staged candidates inside Profit Hunter.
+6. Confirm candidate promotion and purchase blocking.
+7. Keep the installed Mac schedule, or deploy the online container—not both.
+8. Set `MARKET_INTEL_SEARCH_EXECUTION=external` on Vercel.
+9. Disable any duplicate cron-job.org call that still targets the Vercel Hot Watch route.
 
 Do not enable an aggressive schedule until eBay call counts, duplicate suppression, candidate quality, and worker logs have been reviewed.
