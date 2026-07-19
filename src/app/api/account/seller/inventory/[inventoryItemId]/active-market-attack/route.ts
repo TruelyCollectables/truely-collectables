@@ -298,7 +298,7 @@ function recordedCost(metadata: Json) {
     metadata.total_cost, metadata.totalCost, metadata.landed_cost, metadata.landedCost,
     metadata.cost_basis, metadata.costBasis, metadata.acquisition_cost, metadata.acquisitionCost,
     metadata.purchase_price, metadata.purchasePrice,
-  ].map(money).find((value) => value !== null) || null;
+  ].map((entry) => money(entry)).find((value) => value !== null) || null;
 }
 function charm(maximum: number) {
   if (!Number.isFinite(maximum) || maximum <= 0.99) return 0.99;
