@@ -76,7 +76,8 @@ for required_file in \
   scripts/run-market-intel-worker-cycle.sh \
   scripts/install-market-intel-worker-launchd.mjs \
   scripts/status-market-intel-worker-launchd.mjs \
-  supabase/migrations/20260719153000_market_intel_identity_proof_gate.sql; do
+  supabase/migrations/20260719153000_market_intel_identity_proof_gate.sql \
+  supabase/migrations/20260719154000_market_intel_identity_proof_permissions.sql; do
   [[ -f "$required_file" ]] || {
     echo "Required worker file is missing: $required_file" >&2
     exit 66
