@@ -21,7 +21,19 @@ export type MarketIntelIdentityProofEvidence = {
   noConflictingEvidence: boolean;
 };
 
+export type MarketIntelIdentityProofRequirements = {
+  serialNumbered: boolean;
+  autograph: boolean;
+  memorabilia: boolean;
+};
+
 type JsonRecord = Record<string, unknown>;
+
+const NO_EXTRA_REQUIREMENTS: MarketIntelIdentityProofRequirements = {
+  serialNumbered: false,
+  autograph: false,
+  memorabilia: false,
+};
 
 function recordValue(value: unknown): JsonRecord {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -61,22 +73,39 @@ export function marketIntelIdentityProofEvidence(
   };
 }
 
+export function marketIntelIdentityProofRequirements(
+  metadata: JsonRecord | null | undefined,
+): MarketIntelIdentityProofRequirements {
+  const requirements = recordValue(metadata?.identity_proof_requirements);
+  return {
+    serialNumbered: booleanValue(requirements.serial_numbered),
+    autograph: booleanValue(requirements.autograph),
+    memorabilia: booleanValue(requirements.memorabilia),
+  };
+}
+
 export function canVerifyMarketIntelExactIdentity(
   evidence: MarketIntelIdentityProofEvidence,
+  requirements: MarketIntelIdentityProofRequirements = NO_EXTRA_REQUIREMENTS,
 ) {
+  const requiresAutographRelic = requirements.autograph || requirements.memorabilia;
   return Boolean(
     evidence.frontImageConfirmed &&
       evidence.checklistConfirmed &&
       (evidence.backImageConfirmed || evidence.slabLabelConfirmed) &&
       evidence.cardNumberConfirmed &&
       evidence.parallelConfirmed &&
+      (!requirements.serialNumbered || evidence.serialNumberConfirmed) &&
+      (!requiresAutographRelic || evidence.autographRelicConfirmed) &&
       evidence.noConflictingEvidence,
   );
 }
 
 export function marketIntelIdentityProofMissingEvidence(
   evidence: MarketIntelIdentityProofEvidence,
+  requirements: MarketIntelIdentityProofRequirements = NO_EXTRA_REQUIREMENTS,
 ) {
+  const requiresAutographRelic = requirements.autograph || requirements.memorabilia;
   return [
     !evidence.frontImageConfirmed ? "front image" : null,
     !evidence.backImageConfirmed && !evidence.slabLabelConfirmed
@@ -85,6 +114,12 @@ export function marketIntelIdentityProofMissingEvidence(
     !evidence.checklistConfirmed ? "checklist/catalog match" : null,
     !evidence.cardNumberConfirmed ? "card number" : null,
     !evidence.parallelConfirmed ? "parallel/variation" : null,
+    requirements.serialNumbered && !evidence.serialNumberConfirmed
+      ? "serial-number tier"
+      : null,
+    requiresAutographRelic && !evidence.autographRelicConfirmed
+      ? "autograph/relic status"
+      : null,
     !evidence.noConflictingEvidence ? "no conflicting evidence" : null,
   ].filter((value): value is string => Boolean(value));
 }
@@ -95,10 +130,11 @@ export function isMarketIntelIdentityProofVerified(
   const status = marketIntelIdentityProofStatus(metadata);
   const operatorConfirmed = booleanValue(metadata?.identity_proof_operator_confirmed);
   const evidence = marketIntelIdentityProofEvidence(metadata);
+  const requirements = marketIntelIdentityProofRequirements(metadata);
   return (
     status === "verified_exact" &&
     operatorConfirmed &&
-    canVerifyMarketIntelExactIdentity(evidence)
+    canVerifyMarketIntelExactIdentity(evidence, requirements)
   );
 }
 
@@ -109,6 +145,7 @@ export function assertMarketIntelIdentityProofVerified(
   const status = marketIntelIdentityProofStatus(metadata);
   const missing = marketIntelIdentityProofMissingEvidence(
     marketIntelIdentityProofEvidence(metadata),
+    marketIntelIdentityProofRequirements(metadata),
   );
   throw new Error(
     `Identity Proof Gate blocked this purchase. Status: ${status.replaceAll("_", " ")}${
@@ -121,22 +158,30 @@ export function buildMarketIntelIdentityProofMetadata(input: {
   existingMetadata?: JsonRecord | null;
   status: MarketIntelIdentityProofStatus;
   evidence: MarketIntelIdentityProofEvidence;
+  requirements?: MarketIntelIdentityProofRequirements;
   notes?: string | null;
   reviewer?: string | null;
   reviewedAt?: string | null;
 }) {
   const reviewedAt = input.reviewedAt || new Date().toISOString();
+  const requirements = input.requirements || NO_EXTRA_REQUIREMENTS;
   const verified =
     input.status === "verified_exact" &&
-    canVerifyMarketIntelExactIdentity(input.evidence);
+    canVerifyMarketIntelExactIdentity(input.evidence, requirements);
   return {
     ...(input.existingMetadata || {}),
-    identity_proof_version: "tcos.identityProofGate.v1",
-    identity_proof_status: verified ? "verified_exact" : input.status,
+    identity_proof_version: "tcos.identityProofGate.v2",
+    identity_proof_status:
+      input.status === "verified_exact" && !verified ? "review_required" : input.status,
     identity_proof_operator_confirmed: verified,
     identity_proof_reviewer: input.reviewer || "private_owner",
     identity_proof_reviewed_at: reviewedAt,
     identity_proof_notes: String(input.notes || "").trim() || null,
+    identity_proof_requirements: {
+      serial_numbered: requirements.serialNumbered,
+      autograph: requirements.autograph,
+      memorabilia: requirements.memorabilia,
+    },
     identity_proof_evidence: {
       front_image_confirmed: input.evidence.frontImageConfirmed,
       back_image_confirmed: input.evidence.backImageConfirmed,
