@@ -1,16 +1,11 @@
 import { timingSafeEqual } from "node:crypto";
-import {
-  importSellerEbayFixedPricePage,
-  syncRecentLegacyEbayQuantities,
-} from "../../../../lib/ebay-fixed-price-backfill";
+import { runEbayAuthoritativeStoreSync } from "../../../../lib/ebay-authoritative-store-sync";
+import { syncRecentLegacyEbayQuantities } from "../../../../lib/ebay-fixed-price-backfill";
 import { getActiveStoreId } from "../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
-
-const MAX_BACKFILL_PAGES_PER_RUN = 10;
-const STOP_BACKFILL_AFTER_MS = 225_000;
 
 function validCronAuthorization(request: Request, secret: string) {
   const supplied = Buffer.from(request.headers.get("authorization") || "");
@@ -38,62 +33,61 @@ export async function GET(request: Request) {
   const startedAt = Date.now();
   const storeId = getActiveStoreId();
   const supabase = createSupabaseServerClient({ admin: true });
-  const backfillPages: Array<
-    Awaited<ReturnType<typeof importSellerEbayFixedPricePage>>
-  > = [];
+  let authoritativeSync: Awaited<
+    ReturnType<typeof runEbayAuthoritativeStoreSync>
+  > | null = null;
   let quantitySync: Awaited<
     ReturnType<typeof syncRecentLegacyEbayQuantities>
   > | null = null;
   const errors: Array<{ step: string; error: string }> = [];
 
   try {
-    for (let page = 0; page < MAX_BACKFILL_PAGES_PER_RUN; page += 1) {
-      const result = await importSellerEbayFixedPricePage({ supabase, storeId });
-      backfillPages.push(result);
+    authoritativeSync = await runEbayAuthoritativeStoreSync({
+      supabase,
+      storeId,
+      mode: "apply",
+      // Launch safety: import/update every active fixed-price sports card, but do
+      // not automatically deactivate historical rows until the first audit is reviewed.
+      deactivateEnded: false,
+    });
 
-      const completedFullCycle = result.nextPage === 1;
-      const approachingTimeout = Date.now() - startedAt >= STOP_BACKFILL_AFTER_MS;
-
-      if (completedFullCycle || approachingTimeout) break;
+    if (authoritativeSync.failed > 0) {
+      errors.push({
+        step: "authoritative_full_store_sync",
+        error: `${authoritativeSync.failed} listing${
+          authoritativeSync.failed === 1 ? "" : "s"
+        } failed during the full-store sync.`,
+      });
     }
   } catch (error: any) {
     errors.push({
-      step: "fixed_price_backfill",
-      error: String(error.message || "Backfill failed").slice(0, 500),
+      step: "authoritative_full_store_sync",
+      error: String(
+        error?.message || "Full eBay store sync failed",
+      ).slice(0, 500),
     });
   }
 
   try {
-    quantitySync = await syncRecentLegacyEbayQuantities({ supabase, storeId });
+    quantitySync = await syncRecentLegacyEbayQuantities({
+      supabase,
+      storeId,
+    });
   } catch (error: any) {
     errors.push({
-      step: "legacy_quantity_sync",
-      error: String(error.message || "Quantity sync failed").slice(0, 500),
+      step: "legacy_quantity_reconciliation",
+      error: String(
+        error?.message || "Quantity reconciliation failed",
+      ).slice(0, 500),
     });
   }
-
-  const backfill = {
-    pagesProcessed: backfillPages.length,
-    inserted: backfillPages.reduce((total, page) => total + page.inserted, 0),
-    existing: backfillPages.reduce((total, page) => total + page.existing, 0),
-    failed: backfillPages.reduce((total, page) => total + page.failed, 0),
-    eligibleCardsSeen: backfillPages.reduce(
-      (total, page) => total + page.eligibleCardsSeen,
-      0,
-    ),
-    totalEntries: backfillPages.at(-1)?.totalEntries || 0,
-    totalPages: backfillPages.at(-1)?.totalPages || 0,
-    nextPage: backfillPages.at(-1)?.nextPage || 1,
-    completedFullCycle: backfillPages.at(-1)?.nextPage === 1,
-    pageResults: backfillPages,
-  };
 
   return Response.json(
     {
       success: errors.length === 0,
       storeId,
       durationMs: Date.now() - startedAt,
-      backfill,
+      authoritativeSync,
       quantitySync,
       errors,
     },
