@@ -92,6 +92,10 @@ const dependencyChecks = [
     prerequisite: "tcos_market_intel_market_observations.sql",
     dependent: "tcos_market_intel_market_observations_permissions",
   },
+  {
+    prerequisite: "market_intel_identity_proof_gate",
+    dependent: "market_intel_identity_proof_permissions",
+  },
 ];
 
 const dependencyErrors = [];
