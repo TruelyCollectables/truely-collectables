@@ -3,8 +3,8 @@ import { NextRequest, NextResponse } from "next/server";
 import {
   adminHandoffFromUrl,
   adminRedirectUrl,
-} from "../../../../../../lib/admin-handoff";
-import { resetMarketIntelSearchesAndPurchases } from "../../../../../../lib/market-intel-fresh-start";
+} from "../../../../../lib/admin-handoff";
+import { resetMarketIntelSearchesAndPurchases } from "../../../../../lib/market-intel-fresh-start";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
