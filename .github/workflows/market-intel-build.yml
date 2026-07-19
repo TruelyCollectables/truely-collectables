@@ -21,6 +21,16 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Validate portable worker launchers
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check scripts/run-market-intel-worker-service.mjs
+          node --check scripts/install-market-intel-worker-launchd.mjs
+          node --check scripts/status-market-intel-worker-launchd.mjs
+          node --check scripts/uninstall-market-intel-worker-launchd.mjs
+          bash -n scripts/run-market-intel-worker-cycle.sh
+
       - name: Build
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
