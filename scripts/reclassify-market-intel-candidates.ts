@@ -2,7 +2,7 @@ import { createClient } from "@supabase/supabase-js";
 import {
   evaluateMarketIntelEbayIdentityMatch,
   type MarketIntelEbayCandidateIdentity,
-} from "../src/lib/market-intel-ebay-candidate-match";
+} from "../src/lib/market-intel-ebay-candidate-match.ts";
 
 type JsonRecord = Record<string, unknown>;
 
