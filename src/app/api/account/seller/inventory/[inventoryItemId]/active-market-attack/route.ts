@@ -1,4 +1,4 @@
-import { handleActiveMarketAttack } from "../../../../../../../lib/active-market-attack-server";
+import { handleActiveMarketAttackWithPackagingGuard } from "../../../../../../../lib/active-market-packaging-guard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,5 +8,5 @@ export async function POST(
   request: Request,
   context: { params: Promise<{ inventoryItemId: string }> },
 ) {
-  return handleActiveMarketAttack(request, context);
+  return handleActiveMarketAttackWithPackagingGuard(request, context);
 }
