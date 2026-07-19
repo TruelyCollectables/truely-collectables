@@ -24,14 +24,12 @@ function capabilityLabel(value: MarketIntelSourceCapability) {
   return "NONE";
 }
 
-function researchDeskHref(
+function profitHunterHref(
   source: MarketIntelSourceDefinition,
   handoff: string | null | undefined,
 ) {
-  if (source.slug === "blowout_forums") {
-    return addAdminHandoff("/admin/market-intel/blowout", handoff);
-  }
-  return null;
+  if (source.slug !== "blowout_forums") return null;
+  return `${addAdminHandoff("/admin/market-intel/deals", handoff)}#blowout-research`;
 }
 
 export default async function MarketIntelSourcesPage({ searchParams }: PageProps) {
@@ -67,7 +65,7 @@ export default async function MarketIntelSourcesPage({ searchParams }: PageProps
       <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
         <section className="grid gap-5 lg:grid-cols-2">
           {sources.map((source) => {
-            const deskHref = researchDeskHref(source, handoff);
+            const integratedHref = profitHunterHref(source, handoff);
             return (
               <article
                 key={source.slug}
@@ -127,12 +125,12 @@ export default async function MarketIntelSourcesPage({ searchParams }: PageProps
                   </div>
                 </dl>
 
-                {deskHref ? (
+                {integratedHref ? (
                   <Link
-                    href={deskHref}
+                    href={integratedHref}
                     className="mt-5 inline-flex rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white hover:bg-black"
                   >
-                    OPEN SAFE RESEARCH DESK →
+                    OPEN INSIDE PROFIT HUNTER →
                   </Link>
                 ) : null}
 
