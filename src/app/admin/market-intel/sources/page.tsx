@@ -130,7 +130,7 @@ export default async function MarketIntelSourcesPage({ searchParams }: PageProps
                     href={integratedHref}
                     className="mt-5 inline-flex rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white hover:bg-black"
                   >
-                    OPEN INSIDE PROFIT HUNTER →
+                    OPEN BLOWOUT INSIDE PROFIT HUNTER →
                   </Link>
                 ) : null}
 
