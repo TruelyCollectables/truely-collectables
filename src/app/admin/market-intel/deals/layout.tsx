@@ -18,7 +18,7 @@ export default function ProfitHunterLayout({ children }: { children: ReactNode }
               Marketplace access
             </p>
             <p className="mt-1 text-sm font-semibold text-neutral-700">
-              Statuses describe what is genuinely connected—not what TCOS merely plans to support.
+              Search hits stay unverified until the private owner clears the Identity Proof Gate™.
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
@@ -45,6 +45,12 @@ export default function ProfitHunterLayout({ children }: { children: ReactNode }
                 </span>
               );
             })}
+            <Link
+              href="/admin/market-intel/deals/identity-review"
+              className="rounded-full bg-fuchsia-800 px-3 py-1.5 text-xs font-black text-white hover:bg-fuchsia-900"
+            >
+              IDENTITY PROOF QUEUE →
+            </Link>
             <Link
               href="/admin/market-intel/sources"
               className="rounded-full bg-neutral-950 px-3 py-1.5 text-xs font-black text-white hover:bg-black"
