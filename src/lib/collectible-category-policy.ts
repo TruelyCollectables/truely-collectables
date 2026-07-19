@@ -87,7 +87,7 @@ function strongCardTitleEvidence(title: string) {
       title,
     );
   const cardLanguage =
-    /\b(rc|rookie|young guns|future watch|rookie ticket|rpa|insert|parallel|refractor|prizm|holo|short print|ssp|sp card|card #|no\.?\s*\d+)\b/.test(
+    /\b(rc|rookie|young guns|future watch|rookie ticket|rpa|insert|parallel|refractor|prizm|holo|short print|ssp|sp card|card #|no\.?\s*[a-z0-9-]+)\b/.test(
       title,
     );
   const cardBrands =
@@ -95,7 +95,7 @@ function strongCardTitleEvidence(title: string) {
       title,
     );
   const serialEvidence =
-    /(?:^|\s)(?:#?[a-z]{0,4}\d{1,4}|\d{1,3}\/\d{1,4}|\/\d{1,4})(?:\s|$)/.test(
+    /(?:^|\s)(?:#[a-z0-9-]{1,12}|no\.?\s*[a-z0-9-]{1,12}|\d{1,3}\/\d{1,4}|\/\d{1,4})(?:\s|$)/.test(
       title,
     );
 
