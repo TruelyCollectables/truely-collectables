@@ -7,54 +7,65 @@ This is the controlled first deployment path for the portable Profit Hunter sear
 - Run this from the `truely-collectables` repository root.
 - Use the branch or release containing the Identity Proof Gate and external worker.
 - Keep the Mac awake and online.
-- Have the Supabase project reference, service-role key, and production eBay API credentials available.
+- Required credentials must already exist in an ignored `.env`, `.env.local`, `.env.production.local`, or `.env.market-intel-worker.local` file.
+- The activation script never asks for or displays production credentials.
 - Do not run another Mac or online worker at the same time.
+
+Required local values:
+
+```text
+NEXT_PUBLIC_SUPABASE_URL
+SUPABASE_SERVICE_ROLE_KEY
+EBAY_CLIENT_ID
+EBAY_CLIENT_SECRET
+```
 
 ## One-command activation
 
 ```bash
-zsh scripts/bootstrap-market-intel-worker-macos.sh
+bash scripts/bootstrap-market-intel-worker-macos.sh
 ```
 
 The command performs these gates in order:
 
 1. Checks macOS, Node.js, npm, git, worker files, and dependencies.
-2. Creates `.env.market-intel-worker.local` with mode `600` if it does not exist.
-3. Runs Identity Proof Gate simulations.
-4. Initializes and links the Supabase CLI when needed.
-5. Shows `supabase db push --dry-run` and requires typing `APPLY` before any database migration is deployed.
-6. Applies all pending migrations displayed in that dry run.
-7. Validates the Supabase candidate queue and eBay OAuth without making a marketplace-search call.
-8. Runs one live Profit Hunter worker cycle.
-9. Installs a macOS `launchd` job every 15 minutes.
-10. Shows worker state and recent logs.
+2. Reuses the protected worker env or copies the four required values from existing ignored local env files into `.env.market-intel-worker.local` with mode `600`.
+3. Stops without requesting credentials when a value is missing.
+4. Runs Identity Proof Gate simulations.
+5. Initializes and links the Supabase CLI when needed.
+6. Shows `supabase db push --dry-run` and requires typing `APPLY` before any database migration is deployed.
+7. Applies all pending migrations displayed in that dry run.
+8. Validates the Supabase candidate queue and eBay OAuth without making a marketplace-search call.
+9. Runs one live Profit Hunter worker cycle.
+10. Installs a macOS `launchd` job every 15 minutes.
+11. Shows worker state and recent logs.
 
 Supabase documents `db push --dry-run` as the preview step and `db push` as the command that applies pending migrations to the linked remote project. The bootstrap intentionally stops unless the operator explicitly confirms the displayed migration set.
 
 ## Common options
 
-Run a validation and one live cycle without installing the recurring service:
+Run validation and one live cycle without installing the recurring service:
 
 ```bash
-zsh scripts/bootstrap-market-intel-worker-macos.sh --skip-install
+bash scripts/bootstrap-market-intel-worker-macos.sh --skip-install
 ```
 
 Use a slower interval:
 
 ```bash
-zsh scripts/bootstrap-market-intel-worker-macos.sh --minutes 30
+bash scripts/bootstrap-market-intel-worker-macos.sh --minutes 30
 ```
 
 Skip the migration only when the Identity Proof Gate migration has already been applied:
 
 ```bash
-zsh scripts/bootstrap-market-intel-worker-macos.sh --skip-migration
+bash scripts/bootstrap-market-intel-worker-macos.sh --skip-migration
 ```
 
 Supply the Supabase project reference up front:
 
 ```bash
-zsh scripts/bootstrap-market-intel-worker-macos.sh --project-ref YOUR_PROJECT_REF
+bash scripts/bootstrap-market-intel-worker-macos.sh --project-ref YOUR_PROJECT_REF
 ```
 
 ## Status and logs

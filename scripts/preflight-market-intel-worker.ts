@@ -1,3 +1,4 @@
+import { pathToFileURL } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 
 type JsonRecord = Record<string, unknown>;
@@ -22,11 +23,8 @@ async function verifySupabase() {
   const supabase = createClient(url, serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
-
   const [candidateResult, watchResult, identityResult] = await Promise.all([
-    supabase
-      .from("tcos_mi_search_candidates")
-      .select("id", { count: "exact", head: true }),
+    supabase.from("tcos_mi_search_candidates").select("id", { count: "exact", head: true }),
     supabase
       .from("tcos_mi_watchlist")
       .select("id", { count: "exact", head: true })
@@ -38,9 +36,8 @@ async function verifySupabase() {
   ]);
 
   if (candidateResult.error) {
-    const missingTable = candidateResult.error.code === "42P01";
     throw new Error(
-      missingTable
+      candidateResult.error.code === "42P01"
         ? "Identity Proof candidate queue is not installed. Apply migration 20260719153000_market_intel_identity_proof_gate.sql."
         : `Supabase candidate queue check failed: ${candidateResult.error.message}`,
     );
@@ -65,7 +62,6 @@ async function verifyEbayOAuth() {
   const clientId = requiredEnv("EBAY_CLIENT_ID");
   const clientSecret = requiredEnv("EBAY_CLIENT_SECRET");
   const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString("base64");
-
   const response = await fetch("https://api.ebay.com/identity/v1/oauth2/token", {
     method: "POST",
     headers: {
@@ -78,14 +74,12 @@ async function verifyEbayOAuth() {
     }),
   });
   const payload = (await response.json()) as JsonRecord;
-  if (!response.ok || typeof payload.access_token !== "string") {
-    throw new Error(
-      String(
-        payload.error_description ||
-          payload.error ||
-          `eBay OAuth validation failed (${response.status}).`,
-      ),
-    );
+  const accessToken = typeof payload.access_token === "string" ? payload.access_token : "";
+  const errorDescription =
+    typeof payload.error_description === "string" ? payload.error_description : "";
+  const errorCode = typeof payload.error === "string" ? payload.error : "";
+  if (!response.ok || !accessToken) {
+    throw new Error(errorDescription || errorCode || `eBay OAuth validation failed (${response.status}).`);
   }
 
   return {
@@ -95,7 +89,7 @@ async function verifyEbayOAuth() {
   };
 }
 
-async function main() {
+export async function runMarketIntelWorkerPreflight() {
   const maxIdentities = envInteger("MARKET_INTEL_WORKER_MAX_IDENTITIES", 4, 1, 20);
   const maxQueries = envInteger("MARKET_INTEL_WORKER_MAX_QUERIES", 8, 2, 10);
   const intervalMinutes = envInteger("MARKET_INTEL_WORKER_INTERVAL_MINUTES", 15, 5, 1440);
@@ -110,28 +104,28 @@ async function main() {
   }
 
   const [supabase, ebay] = await Promise.all([verifySupabase(), verifyEbayOAuth()]);
-
-  console.log(
-    JSON.stringify(
-      {
-        preflight: "tcos.marketIntel.workerPreflight.v1",
-        passed: true,
-        completedAt: new Date().toISOString(),
-        workerName: process.env.MARKET_INTEL_WORKER_NAME || "tcos-market-intel-worker",
-        intervalMinutes,
-        maximumCallsPerCycle,
-        estimatedMaximumCallsPerDay,
-        vercelSearchInvocations: 0,
-        supabase,
-        ebay,
-      },
-      null,
-      2,
-    ),
-  );
+  return {
+    preflight: "tcos.marketIntel.workerPreflight.v1",
+    passed: true,
+    completedAt: new Date().toISOString(),
+    workerName: process.env.MARKET_INTEL_WORKER_NAME || "tcos-market-intel-worker",
+    intervalMinutes,
+    maximumCallsPerCycle,
+    estimatedMaximumCallsPerDay,
+    vercelSearchInvocations: 0,
+    supabase,
+    ebay,
+  };
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.stack || error.message : error);
-  process.exitCode = 1;
-});
+async function main() {
+  console.log(JSON.stringify(await runMarketIntelWorkerPreflight(), null, 2));
+}
+
+const invokedPath = process.argv[1] ? pathToFileURL(process.argv[1]).href : "";
+if (import.meta.url === invokedPath) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.stack || error.message : error);
+    process.exitCode = 1;
+  });
+}

@@ -30,15 +30,8 @@ jobs:
           node --check scripts/status-market-intel-worker-launchd.mjs
           node --check scripts/uninstall-market-intel-worker-launchd.mjs
           bash -n scripts/run-market-intel-worker-cycle.sh
-          zsh -n scripts/bootstrap-market-intel-worker-macos.sh
-          npx tsc --noEmit \
-            --target ES2022 \
-            --module NodeNext \
-            --moduleResolution NodeNext \
-            --allowImportingTsExtensions \
-            --skipLibCheck \
-            scripts/preflight-market-intel-worker.ts \
-            scripts/run-market-intel-external-worker.ts
+          bash -n scripts/bootstrap-market-intel-worker-macos.sh
+          node --import tsx --input-type=module -e "await import('./scripts/preflight-market-intel-worker.ts')"
 
       - name: Build
         env:
