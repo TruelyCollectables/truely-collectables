@@ -7,6 +7,8 @@ import {
   ADMIN_SESSION_COOKIE_NAMES,
   isValidAdminSessionValue,
 } from "../../../../lib/admin-session";
+import { SELLER_TERMS_OF_SERVICE_VERSION } from "../../../../lib/legal";
+import { getActiveStoreId } from "../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 
 export const dynamic = "force-dynamic";
@@ -71,6 +73,7 @@ export async function POST(request: Request) {
     }
 
     const supabase = createSupabaseServerClient({ admin: true });
+    const storeId = getActiveStoreId();
     let accountId: string | null = null;
     let mode: "created" | "repaired" = "created";
 
@@ -164,10 +167,43 @@ export async function POST(request: Request) {
       }),
     ]);
 
+    const { error: payoutError } = await supabase
+      .from("seller_payout_accounts")
+      .upsert(
+        {
+          account_id: accountId,
+          store_id: storeId,
+          provider: "stripe_connect",
+          provider_account_id: null,
+          onboarding_status: "active",
+          charges_enabled: true,
+          payouts_enabled: true,
+          details_submitted: true,
+          seller_tos_accepted: true,
+          seller_tos_version: SELLER_TERMS_OF_SERVICE_VERSION,
+          seller_tos_accepted_at: verifiedAt,
+          disabled_reason: null,
+          requirements_currently_due: [],
+          requirements_past_due: [],
+          metadata: {
+            settlement_mode: "platform_store_owner",
+            connect_required: false,
+            platform_stripe_account: true,
+            owner_email: OWNER_EMAIL,
+          },
+          updated_at: verifiedAt,
+        },
+        { onConflict: "store_id,account_id,provider" },
+      );
+
+    if (payoutError) throw payoutError;
+
     return NextResponse.json({
       success: true,
       email: OWNER_EMAIL,
       mode,
+      payoutMode: "platform_store_owner",
+      connectRequired: false,
       loginUrl: "/account/login",
       sellerUrl: "/seller",
     });
