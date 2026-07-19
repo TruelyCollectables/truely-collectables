@@ -28,7 +28,8 @@ export type MarketIntelSourceDefinition = {
     | "etsy"
     | "sportlots"
     | "mercari"
-    | "facebook_marketplace";
+    | "facebook_marketplace"
+    | "blowout_forums";
   displayName: string;
   accessMode: MarketIntelSourceAccessMode;
   status: MarketIntelSourceStatus;
@@ -174,6 +175,34 @@ const sourceRegistry = [
     lastSuccessfulScan: null,
     lastError: null,
   },
+  {
+    slug: "blowout_forums",
+    displayName: "Blowout Cards Forums",
+    accessMode: "manual_research",
+    status: "manual_research",
+    statusLabel: "INDEXED RESEARCH",
+    usagePolicy: "bargain_discovery_only",
+    soldCompValuationAllowed: false,
+    automatedSearchEnabled: false,
+    activeListingSupport: "manual",
+    soldHistorySupport: "none",
+    imageSupport: "manual",
+    checklistSupport: "none",
+    directLinkSupport: true,
+    authorizationStatus:
+      "Use public search-engine index links and operator-opened forum threads only. TCOS does not make automated requests to the forum.",
+    rateLimitNotes:
+      "No crawler, login automation, verification bypass, auto-posting, seller messaging, or background thread polling is enabled.",
+    warnings: [
+      "Use Blowout only for bargain discovery, priced lots, collection liquidations, and mislist research.",
+      "Never automate forum login, search verification, CAPTCHA handling, posting, bumping, or private messages.",
+      "Do not copy entire threads or repeatedly poll forum pages.",
+      "Forum asking prices, claimed sales, and deal comments must never enter InstaComp™ sold-comp valuation.",
+      "Confirm seller feedback, availability, exact cards, delivered price, and protected payment terms manually.",
+    ],
+    lastSuccessfulScan: null,
+    lastError: null,
+  },
 ] as const satisfies readonly MarketIntelSourceDefinition[];
 
 function normalizedSourceSlug(value: string) {
@@ -191,6 +220,11 @@ const bargainDiscoveryOnlyAliases = new Set([
   "facebook",
   "facebook_marketplace",
   "facebookmarketplace",
+  "blowout",
+  "blowout_forums",
+  "blowoutcards",
+  "blowout_cards",
+  "blowout_cards_forums",
 ]);
 
 export function getMarketIntelSourceRegistry(): MarketIntelSourceDefinition[] {
