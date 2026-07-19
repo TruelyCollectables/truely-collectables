@@ -79,6 +79,8 @@ The same eBay call-budget guard used on the Mac remains active online.
 
 Candidate fingerprints prevent duplicate rows, but running Mac and online workers together still doubles marketplace API calls. The cutover must leave only one active search executor.
 
+**Operating rule:** use exactly one of the Mac LaunchAgent, online service container, or scheduled online job.
+
 ## Provider independence
 
 No provider SDK is used. The worker talks only to approved marketplace APIs and Supabase over HTTPS. It can later move among a Linux server, container platform, scheduled container job, or private infrastructure without changing Profit Hunter's data model.
