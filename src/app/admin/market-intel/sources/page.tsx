@@ -42,17 +42,31 @@ export default async function MarketIntelSourcesPage({ searchParams }: PageProps
             Profit Hunter source registry
           </p>
           <h1 className="mt-2 text-4xl font-black md:text-5xl">
-            Honest marketplace access. No fake automation.
+            Bargain sources stay separate from sold comps.
           </h1>
           <p className="mt-3 max-w-4xl font-semibold leading-7 text-neutral-300">
-            Every marketplace declares exactly how TCOS may use it. LIVE API means approved
-            automation is working. MANUAL RESEARCH means an operator must open links or provide
-            listing evidence. ACCESS NEEDED means nothing runs until approved access is verified.
+            Every marketplace declares exactly how TCOS may use it. Etsy, Mercari,
+            Facebook Marketplace, and Sportlots are bargain-discovery sources only and
+            are permanently blocked from InstaComp™ sold-comp valuation.
           </p>
         </div>
       </header>
 
       <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
+        <section className="rounded-xl border border-violet-300 bg-violet-50 p-5 text-violet-950">
+          <p className="text-xs font-black uppercase tracking-[0.18em]">
+            Hard valuation rule
+          </p>
+          <h2 className="mt-1 text-2xl font-black">
+            Active bargains are not market-value evidence.
+          </h2>
+          <p className="mt-2 font-semibold leading-7">
+            Profit Hunter may use these sources to locate underpriced cards, weak titles,
+            lots, and local opportunities. Their asking prices, claimed sales, and history
+            cannot create, confirm, or alter an InstaComp™ market value.
+          </p>
+        </section>
+
         <section className="grid gap-5 lg:grid-cols-2">
           {sources.map((source) => (
             <article
@@ -75,6 +89,18 @@ export default async function MarketIntelSourcesPage({ searchParams }: PageProps
                 </span>
               </div>
 
+              <div
+                className={`mt-4 rounded-lg border p-3 text-sm font-black ${
+                  source.soldCompValuationAllowed
+                    ? "border-emerald-300 bg-emerald-50 text-emerald-950"
+                    : "border-violet-300 bg-violet-50 text-violet-950"
+                }`}
+              >
+                {source.soldCompValuationAllowed
+                  ? "VERIFIED SOLD-COMP VALUATION ALLOWED"
+                  : "BARGAIN DISCOVERY ONLY — SOLD COMPS BLOCKED"}
+              </div>
+
               <p className="mt-4 font-semibold leading-7 text-neutral-700">
                 {source.authorizationStatus}
               </p>
@@ -91,6 +117,14 @@ export default async function MarketIntelSourcesPage({ searchParams }: PageProps
                   <dt className="font-black text-neutral-500">Automated search</dt>
                   <dd className="font-semibold">
                     {source.automatedSearchEnabled ? "Enabled" : "Disabled"}
+                  </dd>
+                </div>
+                <div>
+                  <dt className="font-black text-neutral-500">Allowed TCOS use</dt>
+                  <dd className="font-semibold">
+                    {source.usagePolicy === "bargain_discovery_only"
+                      ? "Profit Hunter bargain discovery only"
+                      : "Verified valuation evidence and bargain discovery"}
                   </dd>
                 </div>
                 <div>
@@ -122,9 +156,9 @@ export default async function MarketIntelSourcesPage({ searchParams }: PageProps
         <section className="rounded-xl border border-neutral-300 bg-neutral-100 p-5">
           <h2 className="text-xl font-black">Runtime scan history comes next</h2>
           <p className="mt-2 font-semibold leading-7 text-neutral-700">
-            This first registry locks the allowed access mode and capabilities. A later database-backed
-            status layer will attach last successful scan, last error, request counts, and authorization
-            health without changing these safety rules.
+            This registry locks the allowed access mode and valuation policy. A later
+            database-backed status layer may attach last successful scan, last error,
+            request counts, and authorization health without weakening the sold-comp block.
           </p>
         </section>
       </div>

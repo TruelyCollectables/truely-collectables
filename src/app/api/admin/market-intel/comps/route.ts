@@ -4,6 +4,7 @@ import {
   adminRedirectUrl,
 } from "../../../../../lib/admin-handoff";
 import { recalculateMarketIntelValue } from "../../../../../lib/market-intel-comps";
+import { assertMarketIntelSourceAllowsSoldCompValuation } from "../../../../../lib/market-intel-sources";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
 
 function numberField(formData: FormData, name: string, fallback = 0) {
@@ -47,6 +48,18 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = createSupabaseServerClient({ admin: true });
+    const { data: marketplace, error: marketplaceError } = await supabase
+      .from("tcos_mi_marketplaces")
+      .select("id,name,slug")
+      .eq("id", marketplaceId)
+      .maybeSingle();
+    if (marketplaceError) throw new Error(marketplaceError.message);
+    if (!marketplace) throw new Error("Marketplace was not found.");
+
+    assertMarketIntelSourceAllowsSoldCompValuation(
+      String(marketplace.slug || marketplace.name || ""),
+    );
+
     const { error } = await supabase.from("tcos_mi_sold_comps").insert({
       marketplace_id: marketplaceId,
       collectible_identity_id: identityId,
@@ -69,6 +82,7 @@ export async function POST(request: NextRequest) {
       metadata: {
         entered_manually: true,
         entered_from: "market-intel-beta-one",
+        valuation_source_policy_checked: true,
       },
     });
 

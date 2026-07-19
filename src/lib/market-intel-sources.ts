@@ -18,12 +18,23 @@ export type MarketIntelSourceCapability =
   | "planned"
   | "none";
 
+export type MarketIntelSourceUsagePolicy =
+  | "valuation_and_bargain_discovery"
+  | "bargain_discovery_only";
+
 export type MarketIntelSourceDefinition = {
-  slug: "ebay" | "etsy" | "sportlots" | "mercari";
+  slug:
+    | "ebay"
+    | "etsy"
+    | "sportlots"
+    | "mercari"
+    | "facebook_marketplace";
   displayName: string;
   accessMode: MarketIntelSourceAccessMode;
   status: MarketIntelSourceStatus;
   statusLabel: string;
+  usagePolicy: MarketIntelSourceUsagePolicy;
+  soldCompValuationAllowed: boolean;
   automatedSearchEnabled: boolean;
   activeListingSupport: MarketIntelSourceCapability;
   soldHistorySupport: MarketIntelSourceCapability;
@@ -44,6 +55,8 @@ const sourceRegistry = [
     accessMode: "approved_api",
     status: "live_api",
     statusLabel: "LIVE API",
+    usagePolicy: "valuation_and_bargain_discovery",
+    soldCompValuationAllowed: true,
     automatedSearchEnabled: true,
     activeListingSupport: "live",
     soldHistorySupport: "manual",
@@ -68,6 +81,8 @@ const sourceRegistry = [
     accessMode: "approved_api",
     status: "access_needed",
     statusLabel: "ACCESS NEEDED",
+    usagePolicy: "bargain_discovery_only",
+    soldCompValuationAllowed: false,
     automatedSearchEnabled: false,
     activeListingSupport: "planned",
     soldHistorySupport: "none",
@@ -78,8 +93,8 @@ const sourceRegistry = [
       "Official API capabilities, authentication, rate limits, and commercial-use terms still require verification before connection.",
     rateLimitNotes: "No automated Etsy requests are enabled.",
     warnings: [
-      "Do not call Etsy automated until approved access is verified and tested.",
-      "Etsy active prices must never be treated as sold comps.",
+      "Use Etsy only to discover active bargains after approved access is verified and tested.",
+      "Etsy prices and transaction evidence must never enter InstaComp™ sold-comp valuation.",
     ],
     lastSuccessfulScan: null,
     lastError: null,
@@ -90,9 +105,11 @@ const sourceRegistry = [
     accessMode: "manual_research",
     status: "manual_research",
     statusLabel: "MANUAL RESEARCH",
+    usagePolicy: "bargain_discovery_only",
+    soldCompValuationAllowed: false,
     automatedSearchEnabled: false,
     activeListingSupport: "manual",
-    soldHistorySupport: "manual",
+    soldHistorySupport: "none",
     imageSupport: "none",
     checklistSupport: "manual",
     directLinkSupport: true,
@@ -100,8 +117,9 @@ const sourceRegistry = [
       "Research-link helpers are available. No approved automated Sportlots scanner is configured.",
     rateLimitNotes: "Operator opens generated research links manually.",
     warnings: [
-      "Do not claim live Sportlots mining.",
-      "Sportlots is secondary checklist and availability evidence, not the sole checklist authority.",
+      "Use Sportlots for bargain discovery, availability, and secondary checklist research only.",
+      "Sportlots history and prices must never enter InstaComp™ sold-comp valuation.",
+      "Sportlots is not the sole checklist authority.",
     ],
     lastSuccessfulScan: null,
     lastError: null,
@@ -112,6 +130,8 @@ const sourceRegistry = [
     accessMode: "manual_research",
     status: "manual_research",
     statusLabel: "MANUAL RESEARCH",
+    usagePolicy: "bargain_discovery_only",
+    soldCompValuationAllowed: false,
     automatedSearchEnabled: false,
     activeListingSupport: "manual",
     soldHistorySupport: "none",
@@ -123,12 +143,55 @@ const sourceRegistry = [
     rateLimitNotes: "No automated Mercari requests are enabled.",
     warnings: [
       "Do not build or describe an unauthorized Mercari crawler.",
-      "Image findings from user-provided screenshots require exact-card review before scoring.",
+      "Use Mercari listing evidence only to discover bargains and review candidate cards.",
+      "Mercari prices and sold claims must never enter InstaComp™ sold-comp valuation.",
+    ],
+    lastSuccessfulScan: null,
+    lastError: null,
+  },
+  {
+    slug: "facebook_marketplace",
+    displayName: "Facebook Marketplace",
+    accessMode: "manual_research",
+    status: "manual_research",
+    statusLabel: "MANUAL RESEARCH",
+    usagePolicy: "bargain_discovery_only",
+    soldCompValuationAllowed: false,
+    automatedSearchEnabled: false,
+    activeListingSupport: "manual",
+    soldHistorySupport: "none",
+    imageSupport: "manual",
+    checklistSupport: "none",
+    directLinkSupport: true,
+    authorizationStatus:
+      "Use operator research, user-provided listing links, screenshots, and approved workflows only.",
+    rateLimitNotes: "No automated Facebook Marketplace requests are enabled.",
+    warnings: [
+      "Do not build or describe an unauthorized Facebook Marketplace crawler.",
+      "Use Facebook Marketplace only to locate bargains and local buying opportunities.",
+      "Facebook Marketplace prices and sold claims must never enter InstaComp™ sold-comp valuation.",
     ],
     lastSuccessfulScan: null,
     lastError: null,
   },
 ] as const satisfies readonly MarketIntelSourceDefinition[];
+
+function normalizedSourceSlug(value: string) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+const bargainDiscoveryOnlyAliases = new Set([
+  "etsy",
+  "mercari",
+  "sportlots",
+  "facebook",
+  "facebook_marketplace",
+  "facebookmarketplace",
+]);
 
 export function getMarketIntelSourceRegistry(): MarketIntelSourceDefinition[] {
   return sourceRegistry.map((source) => ({
@@ -143,6 +206,23 @@ export function getMarketIntelSource(
   const source = sourceRegistry.find((entry) => entry.slug === slug);
   if (!source) throw new Error(`Unknown Market Intel source: ${slug}`);
   return { ...source, warnings: [...source.warnings] };
+}
+
+export function marketIntelSourceAllowsSoldCompValuation(slug: string) {
+  const normalized = normalizedSourceSlug(slug);
+  const source = sourceRegistry.find((entry) => entry.slug === normalized);
+  if (source) return source.soldCompValuationAllowed;
+  return !bargainDiscoveryOnlyAliases.has(normalized);
+}
+
+export function assertMarketIntelSourceAllowsSoldCompValuation(slug: string) {
+  if (marketIntelSourceAllowsSoldCompValuation(slug)) return;
+  const normalized = normalizedSourceSlug(slug);
+  const source = sourceRegistry.find((entry) => entry.slug === normalized);
+  const label = source?.displayName || slug || "This marketplace";
+  throw new Error(
+    `${label} is bargain-discovery-only and cannot be saved as an InstaComp™ sold comp.`,
+  );
 }
 
 export function marketIntelSourceStatusTone(status: MarketIntelSourceStatus) {
