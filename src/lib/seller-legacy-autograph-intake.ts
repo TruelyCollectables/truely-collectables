@@ -2,6 +2,7 @@ import "server-only";
 
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { inferAuthenticityProfileFromEbayListing } from "./authenticity";
+import { classifyCollectibleCategory } from "./collectible-category-policy";
 import { getStoreSettings } from "./store-settings";
 
 const PAGE_SIZE = 200;
@@ -152,6 +153,8 @@ type LegacyCandidate = {
   condition: string | null;
   categoryName: string | null;
   categoryHint: "autographs" | "memorabilia";
+  categoryConfidence: "high" | "medium" | "low";
+  categoryReasons: string[];
   aspects: Record<string, string[]>;
 };
 
@@ -193,27 +196,22 @@ function candidateFromItem(itemXml: string): LegacyCandidate | null {
     );
   if (blocked) return null;
 
-  const signedObject =
-    /\b(jersey|puck|cd cover|album cover|record cover|signed photo|signed poster|signed ball|signed bat|signed helmet|signed stick|game used|game worn)\b/.test(
-      text,
-    );
+  const categoryDecision = classifyCollectibleCategory({
+    title,
+    category: categoryName,
+    aspects,
+  });
+
+  // Trading cards are handled by the card importer. Autograph, patch, relic,
+  // jersey-swatch, game-used, and memorabilia words describe card features and
+  // must never move a card into the physical-memorabilia review lane.
+  if (categoryDecision.isTradingCard) return null;
+
   const autographSignal =
     /\b(signed|autograph|autographed|inscribed|coa|psa dna|beckett|jsa)\b/.test(
       text,
     );
-  const memorabiliaCategory = /\b(memorabilia|autograph)\b/.test(
-    normalized(categoryName),
-  );
-  const cardCategory = /\b(trading card|sports card)\b/.test(
-    normalized(categoryName),
-  );
-  if (
-    !signedObject &&
-    !memorabiliaCategory &&
-    (!autographSignal || cardCategory)
-  ) {
-    return null;
-  }
+  if (!categoryDecision.isPhysicalMemorabilia && !autographSignal) return null;
 
   const pictureDetails = xmlBlock(itemXml, "PictureDetails") || "";
   const imageUrls = Array.from(
@@ -241,7 +239,10 @@ function candidateFromItem(itemXml: string): LegacyCandidate | null {
       aspects.Condition?.[0] ||
       null,
     categoryName,
-    categoryHint: signedObject ? "memorabilia" : "autographs",
+    categoryHint:
+      categoryDecision.category === "autographs" ? "autographs" : "memorabilia",
+    categoryConfidence: categoryDecision.confidence,
+    categoryReasons: categoryDecision.reasons,
     aspects,
   };
 }
@@ -379,7 +380,15 @@ export async function stageLegacySellerAutographIntake(params: {
         source_listing_id: candidate.itemId,
         source_sku: candidate.sku,
         category_hint: candidate.categoryHint,
-        category_confidence: "high",
+        category_confidence: candidate.categoryConfidence,
+        category_policy: {
+          schema: "truely.collectibleCategoryPolicy.v1",
+          category: candidate.categoryHint,
+          is_trading_card: false,
+          is_physical_memorabilia: candidate.categoryHint === "memorabilia",
+          reasons: candidate.categoryReasons,
+          evaluated_at: now,
+        },
         review_required: true,
         authenticity: inferAuthenticityProfileFromEbayListing({
           title: candidate.title,
@@ -390,7 +399,7 @@ export async function stageLegacySellerAutographIntake(params: {
         ebay_image_urls: candidate.imageUrls,
         intake_lane: "autograph_review",
         intake_reason:
-          "legacy Trading API autograph or memorabilia requires seller approval",
+          "legacy Trading API physical autograph or memorabilia requires seller approval",
         trading_api_legacy_intake: true,
         trading_api_category_name: candidate.categoryName,
         staged_at: now,
