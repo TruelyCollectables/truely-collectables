@@ -6,6 +6,7 @@ export default function StorefrontTemplate({ children }: { children: ReactNode }
   return (
     <>
       {children}
+      {/* Keep independent storefront layers stacked so each release remains reversible. */}
       <StorefrontFixEnhancer />
       <HotPlayersHomepageEnhancer />
     </>
