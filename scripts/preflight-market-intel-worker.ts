@@ -1,5 +1,5 @@
 import { pathToFileURL } from "node:url";
-import { createClient } from "@supabase/supabase-js";
+import { createClient, type PostgrestError } from "@supabase/supabase-js";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -15,6 +15,28 @@ function envInteger(name: string, fallback: number, minimum: number, maximum: nu
   return Math.max(minimum, Math.min(maximum, Math.round(parsed)));
 }
 
+function missingRelation(error: PostgrestError | null) {
+  return Boolean(error && ["42P01", "PGRST205"].includes(String(error.code || "")));
+}
+
+function describePostgrestError(error: PostgrestError | null) {
+  if (!error) return "unknown PostgREST error";
+  const fields = [
+    error.code ? `code=${error.code}` : "",
+    error.message ? `message=${error.message}` : "",
+    error.details ? `details=${error.details}` : "",
+    error.hint ? `hint=${error.hint}` : "",
+  ].filter(Boolean);
+  if (fields.length) return fields.join("; ");
+  try {
+    const serialized = JSON.stringify(error);
+    if (serialized && serialized !== "{}") return serialized;
+  } catch {
+    // Fall through to a stable non-secret diagnostic.
+  }
+  return "empty PostgREST error response";
+}
+
 async function verifySupabase() {
   const url = requiredEnv("NEXT_PUBLIC_SUPABASE_URL");
   const serviceRoleKey = requiredEnv("SUPABASE_SERVICE_ROLE_KEY");
@@ -23,8 +45,9 @@ async function verifySupabase() {
   const supabase = createClient(url, serviceRoleKey, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
-  const [candidateResult, watchResult, identityResult] = await Promise.all([
+  const [candidateResult, reviewResult, watchResult, identityResult] = await Promise.all([
     supabase.from("tcos_mi_search_candidates").select("id", { count: "exact", head: true }),
+    supabase.from("tcos_mi_identity_proof_reviews").select("id", { count: "exact", head: true }),
     supabase
       .from("tcos_mi_watchlist")
       .select("id", { count: "exact", head: true })
@@ -37,22 +60,31 @@ async function verifySupabase() {
 
   if (candidateResult.error) {
     throw new Error(
-      candidateResult.error.code === "42P01"
-        ? "Identity Proof candidate queue is not installed. Apply migration 20260719153000_market_intel_identity_proof_gate.sql."
-        : `Supabase candidate queue check failed: ${candidateResult.error.message}`,
+      missingRelation(candidateResult.error)
+        ? "Identity Proof candidate queue is not installed. Apply migration 20260719153000_market_intel_identity_proof_gate.sql and its permission follow-up."
+        : `Supabase candidate queue check failed: ${describePostgrestError(candidateResult.error)}`,
+    );
+  }
+  if (reviewResult.error) {
+    throw new Error(
+      missingRelation(reviewResult.error)
+        ? "Identity Proof review ledger is not installed. Apply migration 20260719153000_market_intel_identity_proof_gate.sql and its permission follow-up."
+        : `Supabase identity review check failed: ${describePostgrestError(reviewResult.error)}`,
     );
   }
   if (watchResult.error) {
-    throw new Error(`Supabase watchlist check failed: ${watchResult.error.message}`);
+    throw new Error(`Supabase watchlist check failed: ${describePostgrestError(watchResult.error)}`);
   }
   if (identityResult.error) {
-    throw new Error(`Supabase identity check failed: ${identityResult.error.message}`);
+    throw new Error(`Supabase identity check failed: ${describePostgrestError(identityResult.error)}`);
   }
 
   return {
     projectHost: new URL(url).host,
     candidateQueueInstalled: true,
+    identityReviewLedgerInstalled: true,
     currentCandidateCount: candidateResult.count || 0,
+    currentIdentityReviewCount: reviewResult.count || 0,
     activeWatchTargets: watchResult.count || 0,
     activeExactIdentities: identityResult.count || 0,
   };
@@ -105,7 +137,7 @@ export async function runMarketIntelWorkerPreflight() {
 
   const [supabase, ebay] = await Promise.all([verifySupabase(), verifyEbayOAuth()]);
   return {
-    preflight: "tcos.marketIntel.workerPreflight.v1",
+    preflight: "tcos.marketIntel.workerPreflight.v2",
     passed: true,
     completedAt: new Date().toISOString(),
     workerName: process.env.MARKET_INTEL_WORKER_NAME || "tcos-market-intel-worker",
