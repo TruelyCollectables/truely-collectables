@@ -9,6 +9,9 @@ import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
+const MAX_BACKFILL_PAGES_PER_RUN = 10;
+const STOP_BACKFILL_AFTER_MS = 225_000;
+
 function validCronAuthorization(request: Request, secret: string) {
   const supplied = Buffer.from(request.headers.get("authorization") || "");
   const expected = Buffer.from(`Bearer ${secret}`);
@@ -35,14 +38,24 @@ export async function GET(request: Request) {
   const startedAt = Date.now();
   const storeId = getActiveStoreId();
   const supabase = createSupabaseServerClient({ admin: true });
-  let backfill: Awaited<ReturnType<typeof importSellerEbayFixedPricePage>> | null =
-    null;
-  let quantitySync: Awaited<ReturnType<typeof syncRecentLegacyEbayQuantities>> | null =
-    null;
+  const backfillPages: Array<
+    Awaited<ReturnType<typeof importSellerEbayFixedPricePage>>
+  > = [];
+  let quantitySync: Awaited<
+    ReturnType<typeof syncRecentLegacyEbayQuantities>
+  > | null = null;
   const errors: Array<{ step: string; error: string }> = [];
 
   try {
-    backfill = await importSellerEbayFixedPricePage({ supabase, storeId });
+    for (let page = 0; page < MAX_BACKFILL_PAGES_PER_RUN; page += 1) {
+      const result = await importSellerEbayFixedPricePage({ supabase, storeId });
+      backfillPages.push(result);
+
+      const completedFullCycle = result.nextPage === 1;
+      const approachingTimeout = Date.now() - startedAt >= STOP_BACKFILL_AFTER_MS;
+
+      if (completedFullCycle || approachingTimeout) break;
+    }
   } catch (error: any) {
     errors.push({
       step: "fixed_price_backfill",
@@ -58,6 +71,22 @@ export async function GET(request: Request) {
       error: String(error.message || "Quantity sync failed").slice(0, 500),
     });
   }
+
+  const backfill = {
+    pagesProcessed: backfillPages.length,
+    inserted: backfillPages.reduce((total, page) => total + page.inserted, 0),
+    existing: backfillPages.reduce((total, page) => total + page.existing, 0),
+    failed: backfillPages.reduce((total, page) => total + page.failed, 0),
+    eligibleCardsSeen: backfillPages.reduce(
+      (total, page) => total + page.eligibleCardsSeen,
+      0,
+    ),
+    totalEntries: backfillPages.at(-1)?.totalEntries || 0,
+    totalPages: backfillPages.at(-1)?.totalPages || 0,
+    nextPage: backfillPages.at(-1)?.nextPage || 1,
+    completedFullCycle: backfillPages.at(-1)?.nextPage === 1,
+    pageResults: backfillPages,
+  };
 
   return Response.json(
     {
