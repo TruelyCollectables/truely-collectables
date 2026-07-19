@@ -1,5 +1,8 @@
 import Stripe from "stripe";
-import { getAuthenticatedAccountFromRequest } from "../../../../../lib/account-auth";
+import {
+  ensureAccountStoreMembership,
+  getAuthenticatedAccountFromRequest,
+} from "../../../../../lib/account-auth";
 import {
   SELLER_TERMS_OF_SERVICE_VERSION,
   hasAcceptedTerms,
@@ -18,8 +21,14 @@ import { getOperationalStripeSecretKey } from "../../../../../lib/stripe-credent
 
 export const dynamic = "force-dynamic";
 
+const OWNER_EMAIL = "sales@truelycollectables.com";
+
 function getSupabaseClient() {
   return createSupabaseServerClient({ admin: true });
+}
+
+function isOwnerAccount(account: { email: string | null }) {
+  return String(account.email || "").trim().toLowerCase() === OWNER_EMAIL;
 }
 
 function isMissingSellerPayoutTables(error: { code?: string; message?: string }) {
@@ -65,7 +74,69 @@ function publicSellerStatus(row: any | null) {
     requirementsCurrentlyDue: row.requirements_currently_due || [],
     requirementsPastDue: row.requirements_past_due || [],
     updatedAt: row.updated_at || null,
+    settlementMode: row.metadata?.settlement_mode || null,
+    connectRequired: row.metadata?.connect_required !== false,
   };
+}
+
+async function activateOwnerPlatformPayout(params: {
+  supabase: ReturnType<typeof getSupabaseClient>;
+  accountId: string;
+  storeId: string;
+  sellerTosVersion?: string;
+  tosAcceptanceEventId?: string | null;
+}) {
+  const now = new Date().toISOString();
+  const row = {
+    account_id: params.accountId,
+    store_id: params.storeId,
+    provider: "stripe_connect",
+    provider_account_id: null,
+    onboarding_status: "active",
+    charges_enabled: true,
+    payouts_enabled: true,
+    details_submitted: true,
+    seller_tos_accepted: true,
+    seller_tos_version:
+      params.sellerTosVersion || SELLER_TERMS_OF_SERVICE_VERSION,
+    seller_tos_accepted_at: now,
+    tos_acceptance_event_id: params.tosAcceptanceEventId || null,
+    disabled_reason: null,
+    requirements_currently_due: [],
+    requirements_past_due: [],
+    metadata: {
+      settlement_mode: "platform_store_owner",
+      connect_required: false,
+      platform_stripe_account: true,
+      owner_email: OWNER_EMAIL,
+    },
+    updated_at: now,
+  };
+
+  const { data, error } = await params.supabase
+    .from("seller_payout_accounts")
+    .upsert(row, { onConflict: "store_id,account_id,provider" })
+    .select(
+      "provider,provider_account_id,onboarding_status,payouts_enabled,details_submitted,seller_tos_accepted,disabled_reason,requirements_currently_due,requirements_past_due,metadata,updated_at",
+    )
+    .single();
+
+  if (error) throw error;
+
+  await Promise.all([
+    ensureAccountStoreMembership({
+      accountId: params.accountId,
+      role: "seller",
+      status: "active",
+    }),
+    ensureAccountStoreMembership({
+      accountId: params.accountId,
+      role: "store_operator",
+      status: "active",
+    }),
+  ]);
+
+  return data;
 }
 
 export async function GET(request: Request) {
@@ -78,10 +149,27 @@ export async function GET(request: Request) {
 
     const supabase = getSupabaseClient();
     const storeId = getActiveStoreId();
+
+    if (isOwnerAccount(account)) {
+      const ownerPayout = await activateOwnerPlatformPayout({
+        supabase,
+        accountId: account.id,
+        storeId,
+      });
+
+      return Response.json({
+        success: true,
+        sellerPayout: publicSellerStatus(ownerPayout),
+        providerRefreshed: false,
+        connectRequired: false,
+        settlementMode: "platform_store_owner",
+      });
+    }
+
     const { data, error } = await supabase
       .from("seller_payout_accounts")
       .select(
-        "provider,provider_account_id,onboarding_status,payouts_enabled,details_submitted,seller_tos_accepted,disabled_reason,requirements_currently_due,requirements_past_due,updated_at",
+        "provider,provider_account_id,onboarding_status,payouts_enabled,details_submitted,seller_tos_accepted,disabled_reason,requirements_currently_due,requirements_past_due,metadata,updated_at",
       )
       .eq("account_id", account.id)
       .eq("store_id", storeId)
@@ -117,12 +205,14 @@ export async function GET(request: Request) {
               seller_tos_accepted: data.seller_tos_accepted,
             }),
             providerRefreshed: true,
+            connectRequired: true,
           });
         } catch (refreshError: any) {
           return Response.json({
             success: true,
             sellerPayout: publicSellerStatus(data),
             providerRefreshed: false,
+            connectRequired: true,
             providerRefreshError:
               refreshError.message ||
               "Could not refresh seller payout status from Stripe.",
@@ -134,6 +224,7 @@ export async function GET(request: Request) {
     return Response.json({
       success: true,
       sellerPayout: publicSellerStatus(data),
+      connectRequired: true,
     });
   } catch (error: any) {
     return Response.json(
@@ -145,15 +236,6 @@ export async function GET(request: Request) {
 
 export async function POST(request: Request) {
   try {
-    const stripeKey = getOperationalStripeSecretKey();
-
-    if (!stripeKey) {
-      return Response.json(
-        { error: "Missing Stripe secret key" },
-        { status: 500 },
-      );
-    }
-
     const account = await getAuthenticatedAccountFromRequest(request);
 
     if (!account) {
@@ -184,16 +266,11 @@ export async function POST(request: Request) {
 
     if (!rateLimit.allowed) {
       const blocked = publicEndpointRateLimitResponse(rateLimit);
-      return Response.json(
-        blocked.body,
-        { status: blocked.status },
-      );
+      return Response.json(blocked.body, { status: blocked.status });
     }
 
     const identity = rateLimit.identity;
-
     const supabase = getSupabaseClient();
-    const stripe = new Stripe(stripeKey);
     const storeId = getActiveStoreId();
     const tosAcceptanceEventId = await recordTermsAcceptance(supabase, {
       contextType: "seller_payout_onboarding",
@@ -203,6 +280,35 @@ export async function POST(request: Request) {
       storeId,
     });
 
+    if (isOwnerAccount(account)) {
+      await activateOwnerPlatformPayout({
+        supabase,
+        accountId: account.id,
+        storeId,
+        sellerTosVersion,
+        tosAcceptanceEventId,
+      });
+
+      const origin = trustedRequestOrigin(request);
+      return Response.json({
+        success: true,
+        onboardingUrl: `${origin}/seller`,
+        provider: "platform_store_owner",
+        connectRequired: false,
+        settlementMode: "platform_store_owner",
+      });
+    }
+
+    const stripeKey = getOperationalStripeSecretKey();
+
+    if (!stripeKey) {
+      return Response.json(
+        { error: "Missing Stripe secret key" },
+        { status: 500 },
+      );
+    }
+
+    const stripe = new Stripe(stripeKey);
     const { data: existing, error: existingError } = await supabase
       .from("seller_payout_accounts")
       .select("provider_account_id")
@@ -267,6 +373,7 @@ export async function POST(request: Request) {
       success: true,
       onboardingUrl: accountLink.url,
       provider: "stripe_connect",
+      connectRequired: true,
     });
   } catch (error: any) {
     return Response.json(
