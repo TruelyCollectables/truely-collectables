@@ -65,16 +65,17 @@ The same eBay call-budget guard used on the Mac remains active online.
 
 ## Mac-to-online cutover
 
-1. Deploy the online worker with the same Supabase project and worker settings.
-2. Run one online cycle and confirm new candidates appear in the private Identity Proof Queue.
-3. Stop the Mac worker with:
+1. Confirm the Identity Proof Gate migration is already applied to the shared Supabase project.
+2. Deploy the online worker with the same Supabase project and worker settings.
+3. Run one online cycle and confirm new candidates appear in the private Identity Proof Queue.
+4. Stop the Mac worker with:
 
    ```bash
    node scripts/uninstall-market-intel-worker-launchd.mjs
    ```
 
-4. Confirm only one worker is making eBay calls.
-5. Keep `MARKET_INTEL_SEARCH_EXECUTION=external` enabled on Vercel.
+5. Confirm only one worker is making eBay calls.
+6. Keep `MARKET_INTEL_SEARCH_EXECUTION=external` enabled on Vercel.
 
 Candidate fingerprints prevent duplicate rows, but running Mac and online workers together still doubles marketplace API calls. The cutover must leave only one active search executor.
 
