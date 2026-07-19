@@ -71,7 +71,7 @@ function cardAspectEvidence(aspects: Record<string, unknown>) {
   const text = normalized(flattenAspectText(aspects));
   const keys = normalized(Object.keys(aspects).join(" "));
   const keyEvidence =
-    /\b(card number|set|parallel variety|parallel|insert set|season|manufacturer|player athlete|rookie|print run|features|card name|card thickness)\b/.test(
+    /\b(card number|set|parallel variety|parallel|insert set|print run|card name|card thickness)\b/.test(
       keys,
     );
   const valueEvidence =
