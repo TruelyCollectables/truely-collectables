@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import HotPlayersHomepageEnhancer from "./components/HotPlayersHomepageEnhancer";
 import StorefrontFixEnhancer from "./components/StorefrontFixEnhancer";
 
 export default function StorefrontTemplate({ children }: { children: ReactNode }) {
@@ -6,6 +7,7 @@ export default function StorefrontTemplate({ children }: { children: ReactNode }
     <>
       {children}
       <StorefrontFixEnhancer />
+      <HotPlayersHomepageEnhancer />
     </>
   );
 }
