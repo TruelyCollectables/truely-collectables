@@ -2,6 +2,7 @@ import {
   ensureAccountStoreMembership,
   getAuthenticatedAccountFromRequest,
 } from "../../../../../../../lib/account-auth";
+import { classifyCollectibleCategory } from "../../../../../../../lib/collectible-category-policy";
 import { stageLegacySellerAutographIntake } from "../../../../../../../lib/seller-legacy-autograph-intake";
 import { getActiveStoreId } from "../../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../../lib/supabase-server";
@@ -51,33 +52,21 @@ function isBlockedJunk(
   );
 }
 
-function isAutographReviewCandidate(
+function hasAutographSignal(
   title: string,
-  category: string,
   metadata: Record<string, unknown>,
 ) {
   const authenticity = recordValue(metadata.authenticity);
   const authenticityStatus = normalized(authenticity.status);
-  const text = normalized(`${title} ${category}`);
-  const cardCategory = ["sports_cards", "trading_cards", "sealed_wax"].includes(
-    category,
-  );
-  const signedObject =
-    /\b(jersey|puck|cd cover|album cover|record cover|signed photo|signed poster|signed ball|signed bat|signed helmet|signed stick|game used|game worn)\b/.test(
-      text,
-    );
-  const autographSignal =
+  const text = normalized(title);
+
+  return (
     /\b(signed|autograph|autographed|inscribed|coa|psa dna|beckett|jsa)\b/.test(
       text,
     ) ||
     (authenticityStatus &&
       authenticityStatus !== "none" &&
-      authenticityStatus !== "not disclosed");
-
-  return (
-    signedObject ||
-    ["autographs", "memorabilia"].includes(category) ||
-    (!cardCategory && autographSignal)
+      authenticityStatus !== "not disclosed")
   );
 }
 
@@ -140,6 +129,7 @@ export async function POST(request: Request) {
     let reviewCount = 0;
     let blockedCount = 0;
     let approvedCount = 0;
+    let tradingCardCount = 0;
     let normalCount = 0;
     const now = new Date().toISOString();
 
@@ -149,11 +139,18 @@ export async function POST(request: Request) {
         textValue(row.source_item_id) || textValue(metadata.source_listing_id);
       if (!sourceId) continue;
 
-      const category =
+      const originalCategory =
         normalized(metadata.category_hint).replaceAll(" ", "_") ||
         "other_collectable";
       const aspects = recordValue(metadata.source_aspects);
       const title = String(row.title || "Untitled");
+      const categoryDecision = classifyCollectibleCategory({
+        title,
+        category: originalCategory,
+        aspects,
+        metadata,
+      });
+      const category = categoryDecision.category;
       let nextStatus = String(row.stage_status || "staged");
       let intakeLane = "normal_collectable";
       let intakeReason = "normal collectible staging";
@@ -173,10 +170,20 @@ export async function POST(request: Request) {
         intakeLane = "seller_approved";
         intakeReason = "seller approved for private draft promotion";
         approvedCount += 1;
-      } else if (isAutographReviewCandidate(title, category, metadata)) {
+      } else if (categoryDecision.isTradingCard) {
+        nextStatus = "staged";
+        intakeLane = "trading_card";
+        intakeReason =
+          "trading card retained in card flow; autograph, patch, relic, jersey-swatch, and memorabilia words are card features";
+        tradingCardCount += 1;
+      } else if (
+        categoryDecision.isPhysicalMemorabilia ||
+        hasAutographSignal(title, metadata)
+      ) {
         nextStatus = "needs_review";
         intakeLane = "autograph_review";
-        intakeReason = "autograph or memorabilia requires seller approval";
+        intakeReason =
+          "physical autograph or memorabilia collectible requires seller approval";
         reviewCount += 1;
       } else {
         normalCount += 1;
@@ -184,6 +191,17 @@ export async function POST(request: Request) {
 
       const nextMetadata = {
         ...metadata,
+        category_hint: category,
+        category_confidence: categoryDecision.confidence,
+        category_policy: {
+          schema: "truely.collectibleCategoryPolicy.v1",
+          category,
+          is_trading_card: categoryDecision.isTradingCard,
+          is_physical_memorabilia: categoryDecision.isPhysicalMemorabilia,
+          reasons: categoryDecision.reasons,
+          previous_category: originalCategory,
+          evaluated_at: now,
+        },
         intake_lane: intakeLane,
         intake_reason: intakeReason,
         intake_normalized_at: now,
@@ -209,6 +227,7 @@ export async function POST(request: Request) {
       reviewCount,
       blockedCount,
       approvedCount,
+      tradingCardCount,
       normalCount,
       legacyTrading,
     });

@@ -2,6 +2,10 @@ import {
   ensureAccountStoreMembership,
   getAuthenticatedAccountFromRequest,
 } from "../../../../../../../lib/account-auth";
+import {
+  classifyCollectibleCategory,
+  tradingCardCategoryMetadata,
+} from "../../../../../../../lib/collectible-category-policy";
 import { trustedRequestOrigin } from "../../../../../../../lib/site-origin";
 import { getActiveStoreId } from "../../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../../lib/supabase-server";
@@ -32,6 +36,7 @@ type ProductRow = {
   title: string | null;
   image_url: string | null;
   ebay_item_id: string | null;
+  sport: string | null;
 };
 
 type ImageRow = {
@@ -206,29 +211,34 @@ export async function POST(
       return Response.json({ error: "Inventory item was not found." }, { status: 404 });
     }
 
-    const categoryText = String(item.category || "").toLowerCase();
-    const titleText = String(item.title || "").toLowerCase();
-    if (
-      !categoryText.includes("card") &&
-      !titleText.includes(" card") &&
-      !titleText.startsWith("card")
-    ) {
-      return Response.json(
-        { error: "InstaComp™ inventory tracking is currently limited to cards." },
-        { status: 409 },
-      );
-    }
-
     const productResult = item.legacy_product_id
       ? await supabase
           .from("products")
-          .select("id,title,image_url,ebay_item_id")
+          .select("id,title,image_url,ebay_item_id,sport")
           .eq("id", item.legacy_product_id)
           .eq("store_id", storeId)
           .maybeSingle()
       : { data: null, error: null };
     if (productResult.error) throw productResult.error;
     const product = productResult.data as ProductRow | null;
+    const metadata = recordValue(item.metadata);
+    const categoryDecision = classifyCollectibleCategory({
+      title: item.title || product?.title,
+      category: item.category,
+      sport: product?.sport,
+      metadata,
+    });
+
+    if (!categoryDecision.isTradingCard) {
+      return Response.json(
+        {
+          error:
+            "InstaComp™ for physical memorabilia and other collectibles is coming soon.",
+          availability: "coming_soon",
+        },
+        { status: 409 },
+      );
+    }
 
     const { data: imageData, error: imageError } = await supabase
       .from("inventory_images")
@@ -237,7 +247,6 @@ export async function POST(
       .order("sort_order", { ascending: true });
     if (imageError) throw imageError;
 
-    const metadata = recordValue(item.metadata);
     const orderedImages = ((imageData || []) as ImageRow[]).sort(
       (left, right) =>
         Number(right.is_primary || false) - Number(left.is_primary || false) ||
@@ -308,11 +317,12 @@ export async function POST(
       marketPrice && marketPrice > 0
         ? roundValue(((listingPrice - marketPrice) / marketPrice) * 100)
         : null;
-    const latestSoldAt = soldComps
-      .map((comp) => textValue(comp.soldAt))
-      .filter((value): value is string => Boolean(value))
-      .sort()
-      .at(-1) || null;
+    const latestSoldAt =
+      soldComps
+        .map((comp) => textValue(comp.soldAt))
+        .filter((value): value is string => Boolean(value))
+        .sort()
+        .at(-1) || null;
     const updatedAt = new Date().toISOString();
     const current = {
       schema: "truely.instacompInventoryTracking.v1",
@@ -394,7 +404,11 @@ export async function POST(
       ...existingHistory,
     ].slice(0, 30);
     const nextMetadata = {
-      ...metadata,
+      ...tradingCardCategoryMetadata({
+        metadata,
+        previousCategory: item.category,
+        decision: categoryDecision,
+      }),
       instacomp_tracking: {
         schema: "truely.instacompInventoryTrackingHistory.v1",
         current,
@@ -404,7 +418,11 @@ export async function POST(
 
     const { error: updateError } = await supabase
       .from("inventory_items")
-      .update({ metadata: nextMetadata, updated_at: updatedAt })
+      .update({
+        category: categoryDecision.category,
+        metadata: nextMetadata,
+        updated_at: updatedAt,
+      })
       .eq("id", inventoryItemId)
       .eq("store_id", storeId);
     if (updateError) throw updateError;
@@ -412,6 +430,7 @@ export async function POST(
     return Response.json({
       success: true,
       inventoryItemId,
+      category: categoryDecision.category,
       tracking: current,
       historyCount: history.length,
     });
