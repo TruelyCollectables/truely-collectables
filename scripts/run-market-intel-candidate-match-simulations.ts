@@ -148,6 +148,17 @@ const wrongInsert = evaluateMarketIntelEbayIdentityMatch(demidovUpperDeck743, {
 assert.equal(wrongInsert.hardConflict, true);
 assert.match(wrongInsert.conflicts.join(" "), /card number|allure/i);
 
+const unprefixedWrongInsert = evaluateMarketIntelEbayIdentityMatch(
+  demidovUpperDeck743,
+  {
+    title:
+      "2025-26 Upper Deck Extended Series Ivan Demidov AuSome HoloGrFX Canadiens HG-20",
+    condition: "Ungraded",
+  },
+);
+assert.equal(unprefixedWrongInsert.hardConflict, true);
+assert.match(unprefixedWrongInsert.conflicts.join(" "), /hg 20/i);
+
 const descriptionSetPhrase = evaluateMarketIntelEbayIdentityMatch(
   demidovUpperDeck743,
   {
@@ -175,11 +186,12 @@ console.log(
   JSON.stringify(
     {
       passed: true,
-      matcher: "tcos.marketIntel.ebayCandidateMatch.v2.1",
+      matcher: "tcos.marketIntel.ebayCandidateMatch.v2.2",
       wrongParallelBlocked: true,
       gradedRawConflictBlocked: true,
       autographConflictBlocked: true,
       wrongCardNumberBlocked: true,
+      unprefixedCardNumberBlocked: true,
       lotsQuarantined: true,
       genericMemorabiliaDescriptionIgnored: true,
       genericSetDescriptionIgnored: true,
