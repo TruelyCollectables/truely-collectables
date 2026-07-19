@@ -24,8 +24,8 @@ Options:
   --skip-install       Run validation and one live cycle, but do not install launchd
   --help               Show this help
 
-This script never asks for or prints production credentials. Existing ignored env files
-are parsed as data, never sourced as shell code. It never deploys the app or changes Vercel.
+This script never asks for or prints production credentials. It reuses a protected
+worker env file or existing ignored .env files. It never deploys the app or changes Vercel.
 EOF
 }
 
@@ -65,15 +65,12 @@ if (( node_major < 20 )); then
   echo "Node.js 20 or newer is required. Current: $(node --version)" >&2
   exit 69
 fi
-if [[ "$(node -p "process.allowedNodeEnvironmentFlags.has('--env-file')")" != "true" ]]; then
-  echo "This Node.js installation does not support --env-file. Upgrade Node.js before activation." >&2
-  exit 69
-fi
 
 for required_file in \
   scripts/run-market-intel-external-worker.ts \
   scripts/preflight-market-intel-worker.ts \
   scripts/prepare-market-intel-worker-env.mjs \
+  scripts/run-with-market-intel-env.mjs \
   scripts/run-market-intel-worker-cycle.sh \
   scripts/install-market-intel-worker-launchd.mjs \
   scripts/status-market-intel-worker-launchd.mjs \
@@ -104,12 +101,15 @@ chmod 600 "$ENV_FILE"
 
 if [[ -z "$PROJECT_REF" ]]; then
   PROJECT_REF="$(
-    node --env-file="$ENV_FILE" -e '
-      const explicit = String(process.env.SUPABASE_PROJECT_REF || "").trim();
+    MARKET_INTEL_WORKER_ENV_FILE="$ENV_FILE" node --input-type=module -e '
+      import { readDotEnvFile } from "./scripts/prepare-market-intel-worker-env.mjs";
+      const values = readDotEnvFile(process.env.MARKET_INTEL_WORKER_ENV_FILE);
+      const explicit = String(values.get("SUPABASE_PROJECT_REF") || "").trim();
       if (explicit) {
         process.stdout.write(explicit);
       } else {
-        const host = new URL(process.env.NEXT_PUBLIC_SUPABASE_URL).hostname;
+        const url = String(values.get("NEXT_PUBLIC_SUPABASE_URL") || "").trim();
+        const host = new URL(url).hostname;
         process.stdout.write(host.split(".")[0] || "");
       }
     '
@@ -165,7 +165,10 @@ else
 fi
 
 echo "Validating Supabase queue access and eBay OAuth without running a marketplace search..."
-node --env-file="$ENV_FILE" --import tsx scripts/preflight-market-intel-worker.ts
+MARKET_INTEL_WORKER_ENV_FILE="$ENV_FILE" node --import tsx \
+  scripts/run-with-market-intel-env.mjs \
+  scripts/preflight-market-intel-worker.ts \
+  runMarketIntelWorkerPreflight
 
 echo "Running one live Profit Hunter worker cycle..."
 MARKET_INTEL_WORKER_ENV_FILE="$ENV_FILE" MARKET_INTEL_NODE_BIN="$(command -v node)" \
