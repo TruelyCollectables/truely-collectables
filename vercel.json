@@ -44,8 +44,12 @@
       "schedule": "0 14 * * *"
     },
     {
+      "path": "/api/cron/ebay-store-fixed-price-sync",
+      "schedule": "2,17,32,47 * * * *"
+    },
+    {
       "path": "/api/cron/seller-ebay-reconciliation",
-      "schedule": "30 */6 * * *"
+      "schedule": "7,22,37,52 * * * *"
     },
     {
       "path": "/api/cron/stripe-reconciliation",
