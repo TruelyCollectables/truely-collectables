@@ -19,6 +19,17 @@ if (process.platform !== "darwin") {
   throw new Error("This installer is only for macOS. Use the container deployment for Linux/cloud hosts.");
 }
 
+const protectedRoot = macosProtectedUserRoot(repoRoot);
+if (protectedRoot) {
+  throw new Error(
+    [
+      `The worker repository is inside a macOS privacy-protected folder: ${protectedRoot}`,
+      "LaunchAgents can be denied background access to Desktop, Documents, or Downloads even when Terminal can read the same files.",
+      `Move the worker clone to ${path.join(os.homedir(), "Library", "Application Support", "TCOS-Market-Intel", "worker")} and reinstall.`,
+    ].join("\n"),
+  );
+}
+
 const minutes = integerArg("--minutes", 15, 5, 1440);
 const envFile = path.resolve(
   stringArg("--env-file") || path.join(repoRoot, ".env.market-intel-worker.local"),
@@ -102,6 +113,7 @@ console.log(
       scheduleMinutes: minutes,
       estimatedMaximumCallsPerDay: estimatedCallsPerDay,
       repoRoot,
+      launchdSafeRepoLocation: true,
       envFile,
       plistPath,
       stdoutPath,
@@ -133,6 +145,17 @@ function clampNumber(raw, fallback, minimum, maximum) {
   const parsed = Number(raw ?? fallback);
   if (!Number.isFinite(parsed)) return fallback;
   return Math.max(minimum, Math.min(maximum, Math.round(parsed)));
+}
+
+function macosProtectedUserRoot(candidatePath) {
+  const home = path.resolve(os.homedir());
+  for (const folderName of ["Desktop", "Documents", "Downloads"]) {
+    const protectedPath = path.join(home, folderName);
+    if (candidatePath === protectedPath || candidatePath.startsWith(`${protectedPath}${path.sep}`)) {
+      return protectedPath;
+    }
+  }
+  return "";
 }
 
 function parseEnvFile(filePath) {
