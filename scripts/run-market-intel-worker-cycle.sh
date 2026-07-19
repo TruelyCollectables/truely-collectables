@@ -19,10 +19,9 @@ if [[ -z "$NODE_BIN" || ! -x "$NODE_BIN" ]]; then
   echo "Node.js executable was not found. Set MARKET_INTEL_NODE_BIN to the full Node path." >&2
   exit 78
 fi
-if [[ "$($NODE_BIN -p "process.allowedNodeEnvironmentFlags.has('--env-file')")" != "true" ]]; then
-  echo "This Node.js installation does not support --env-file." >&2
-  exit 78
-fi
 
 cd "$REPO_ROOT"
-exec "$NODE_BIN" --env-file="$ENV_FILE" --import tsx "$REPO_ROOT/scripts/run-market-intel-external-worker.ts"
+export MARKET_INTEL_WORKER_ENV_FILE="$ENV_FILE"
+exec "$NODE_BIN" --import tsx \
+  "$REPO_ROOT/scripts/run-with-market-intel-env.mjs" \
+  "$REPO_ROOT/scripts/run-market-intel-external-worker.ts"
