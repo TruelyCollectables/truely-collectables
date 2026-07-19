@@ -116,6 +116,17 @@ const cleanNhcd = evaluateMarketIntelEbayIdentityMatch(demidovNhcd, {
 assert.equal(cleanNhcd.hardConflict, false);
 assert.ok(cleanNhcd.score >= 75);
 
+const genericMemorabiliaDescription = evaluateMarketIntelEbayIdentityMatch(
+  demidovNhcd,
+  {
+    title: "2026 Upper Deck National Hockey Card Day Ivan Demidov #NHCD-31",
+    shortDescription:
+      "A must-have for collectors of ice hockey memorabilia and sports trading cards.",
+    condition: "Ungraded",
+  },
+);
+assert.equal(genericMemorabiliaDescription.hardConflict, false);
+
 const redRainbow = evaluateMarketIntelEbayIdentityMatch(demidovAllureBase, {
   title: "2025-26 Upper Deck Allure Rookies Ivan Demidov #110 Red Rainbow",
   condition: "Ungraded",
@@ -137,6 +148,21 @@ const wrongInsert = evaluateMarketIntelEbayIdentityMatch(demidovUpperDeck743, {
 assert.equal(wrongInsert.hardConflict, true);
 assert.match(wrongInsert.conflicts.join(" "), /card number|allure/i);
 
+const descriptionSetPhrase = evaluateMarketIntelEbayIdentityMatch(
+  demidovUpperDeck743,
+  {
+    title: "2025-26 Upper Deck Extended Ivan Demidov Power Play #PY-18",
+    shortDescription:
+      "A valuable addition for collectors looking to complete their set of NHL trading cards.",
+    condition: "Ungraded",
+  },
+);
+assert.equal(descriptionSetPhrase.lotListing, false);
+assert.equal(
+  descriptionSetPhrase.conflicts.some((conflict) => conflict.includes("lot-composition")),
+  false,
+);
+
 const lot = evaluateMarketIntelEbayIdentityMatch(demidovUpperDeck743, {
   title: "2025-26 Upper Deck Ivan Demidov Rookie Lot of 4 Cards",
   condition: "Ungraded",
@@ -149,12 +175,14 @@ console.log(
   JSON.stringify(
     {
       passed: true,
-      matcher: "tcos.marketIntel.ebayCandidateMatch.v2",
+      matcher: "tcos.marketIntel.ebayCandidateMatch.v2.1",
       wrongParallelBlocked: true,
       gradedRawConflictBlocked: true,
       autographConflictBlocked: true,
       wrongCardNumberBlocked: true,
       lotsQuarantined: true,
+      genericMemorabiliaDescriptionIgnored: true,
+      genericSetDescriptionIgnored: true,
       cleanExactCandidatesPreserved: true,
     },
     null,
