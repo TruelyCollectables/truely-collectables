@@ -2,6 +2,10 @@ import {
   ensureAccountStoreMembership,
   getAuthenticatedAccountFromRequest,
 } from "../../../../../../lib/account-auth";
+import {
+  classifyCollectibleCategory,
+  tradingCardCategoryMetadata,
+} from "../../../../../../lib/collectible-category-policy";
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
 
@@ -114,16 +118,6 @@ function quickListSummary(metadata: Record<string, unknown> | null) {
   };
 }
 
-function isCardItem(category: string, title: string) {
-  const value = `${category} ${title}`.toLowerCase();
-  return (
-    value.includes("sports_card") ||
-    value.includes("trading_card") ||
-    value.includes(" card") ||
-    value.startsWith("card")
-  );
-}
-
 function uniqueImages(values: Array<string | null | undefined>) {
   return Array.from(
     new Set(values.map((value) => String(value || "").trim()).filter(Boolean)),
@@ -231,6 +225,53 @@ export async function GET(request: Request) {
     const orders = orderResult.error ? [] : ((orderResult.data || []) as OrderRow[]);
 
     const productById = new Map(products.map((row) => [row.id, row]));
+    const categoryDecisionByInventoryId = new Map(
+      inventoryRows.map((row) => {
+        const product = row.legacy_product_id
+          ? productById.get(row.legacy_product_id)
+          : null;
+        return [
+          row.id,
+          classifyCollectibleCategory({
+            title: row.title || product?.title,
+            category: row.category,
+            sport: product?.sport,
+            metadata: row.metadata,
+          }),
+        ] as const;
+      }),
+    );
+
+    const categoryRepairResults = await Promise.all(
+      inventoryRows.map(async (row) => {
+        const decision = categoryDecisionByInventoryId.get(row.id)!;
+        if (!decision.isTradingCard || row.category === decision.category) return false;
+
+        const nextMetadata = tradingCardCategoryMetadata({
+          metadata: row.metadata,
+          previousCategory: row.category,
+          decision,
+        });
+        const repairedAt = new Date().toISOString();
+        const { error } = await supabase
+          .from("inventory_items")
+          .update({
+            category: decision.category,
+            metadata: nextMetadata,
+            updated_at: repairedAt,
+          })
+          .eq("id", row.id)
+          .eq("store_id", storeId);
+        if (error) throw error;
+
+        row.category = decision.category;
+        row.metadata = nextMetadata;
+        row.updated_at = repairedAt;
+        return true;
+      }),
+    );
+    const repairedCardCategories = categoryRepairResults.filter(Boolean).length;
+
     const imagesByInventoryId = new Map<string, InventoryImageRow[]>();
     for (const image of images) {
       imagesByInventoryId.set(image.inventory_item_id, [
@@ -290,7 +331,10 @@ export async function GET(request: Request) {
         .sort()
         .at(-1) || null;
       const title = row.title || product?.title || "Untitled inventory item";
-      const category = row.category || "other_collectable";
+      const decision = categoryDecisionByInventoryId.get(row.id)!;
+      const category = decision.isTradingCard
+        ? decision.category
+        : row.category || decision.category;
 
       return {
         inventoryItemId: row.id,
@@ -310,7 +354,9 @@ export async function GET(request: Request) {
         sport: product?.sport || null,
         imageUrl: imageUrls[0] || null,
         imageUrls,
-        isCard: isCardItem(category, title),
+        isCard: decision.isTradingCard,
+        instacompAvailability: decision.isTradingCard ? "available" : "coming_soon",
+        categoryReasons: decision.reasons,
         tracking: currentTracking(row.metadata),
         quickList: quickListSummary(row.metadata),
         ownSales: {
@@ -327,6 +373,7 @@ export async function GET(request: Request) {
       offset,
       limit,
       hasMore: offset + items.length < (count ?? items.length),
+      repairedCardCategories,
       items,
     });
   } catch (error: any) {
