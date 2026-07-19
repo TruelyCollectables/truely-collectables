@@ -58,15 +58,25 @@ function isAutographReviewCandidate(
   const authenticity = recordValue(metadata.authenticity);
   const authenticityStatus = normalized(authenticity.status);
   const text = normalized(`${title} ${category}`);
-
-  return (
-    ["autographs", "memorabilia"].includes(category) ||
+  const cardCategory = ["sports_cards", "trading_cards", "sealed_wax"].includes(
+    category,
+  );
+  const signedObject =
+    /\b(jersey|puck|cd cover|album cover|record cover|signed photo|signed poster|signed ball|signed bat|signed helmet|signed stick|game used|game worn)\b/.test(
+      text,
+    );
+  const autographSignal =
+    /\b(signed|autograph|autographed|inscribed|coa|psa dna|beckett|jsa)\b/.test(
+      text,
+    ) ||
     (authenticityStatus &&
       authenticityStatus !== "none" &&
-      authenticityStatus !== "not disclosed") ||
-    /\b(signed|autograph|autographed|inscribed|coa|psa dna|beckett|jsa|jersey|puck|cd cover|album cover|record cover|signed photo|signed poster|signed ball|signed bat|signed helmet|signed stick|game used|game worn)\b/.test(
-      text,
-    )
+      authenticityStatus !== "not disclosed");
+
+  return (
+    signedObject ||
+    ["autographs", "memorabilia"].includes(category) ||
+    (!cardCategory && autographSignal)
   );
 }
 
