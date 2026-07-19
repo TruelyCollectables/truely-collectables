@@ -36,7 +36,7 @@ jobs:
           bash -n scripts/run-market-intel-worker-cycle.sh
           bash -n scripts/bootstrap-market-intel-worker-macos.sh
           node scripts/simulate-market-intel-worker-env.mjs
-          node scripts/audit-supabase-migrations.mjs
+          node scripts/audit-supabase-migrations.mjs | tee supabase-migration-audit.json
           node --import tsx --input-type=module -e "await import('./scripts/preflight-market-intel-worker.ts')"
           node --import tsx --input-type=module -e "await import('./scripts/preflight-market-intel-migration-data.ts')"
 
@@ -50,6 +50,14 @@ jobs:
         run: |
           set -o pipefail
           npm run build 2>&1 | tee market-intel-build.log
+
+      - name: Upload migration audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: supabase-migration-audit
+          path: supabase-migration-audit.json
+          if-no-files-found: warn
 
       - name: Upload build log
         if: always()
