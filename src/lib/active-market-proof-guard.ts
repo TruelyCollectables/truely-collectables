@@ -16,49 +16,49 @@ const OWNER_EMAILS = new Set([
 type Json = Record<string, any>;
 type PackagingState = "sealed" | "opened" | "unknown";
 
-type SelfProof = {
-  confirmed: boolean;
-  source: "shopping_api" | "browse_api" | "none";
-  listing: Json | null;
-  message: string;
-};
-
-const record = (value: unknown): Json =>
-  value && typeof value === "object" && !Array.isArray(value)
+function rec(value: unknown): Json {
+  return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Json)
     : {};
-const list = (value: unknown): unknown[] => (Array.isArray(value) ? value : []);
-const first = (value: unknown): unknown => (Array.isArray(value) ? value[0] : value);
-const text = (value: unknown): string | null => {
+}
+
+function arr(value: unknown): Json[] {
+  return Array.isArray(value) ? value.map(rec) : [];
+}
+
+function txt(value: unknown): string | null {
   const result = String(value || "").trim();
   return result || null;
-};
-const money = (value: unknown, allowZero = false): number | null => {
+}
+
+function cash(value: unknown, allowZero = false): number | null {
   const result = Number(value);
   if (!Number.isFinite(result) || result < 0 || (!allowZero && result === 0)) {
     return null;
   }
   return Math.round(result * 100) / 100;
-};
-const round = (value: number) =>
-  Math.round((value + Number.EPSILON) * 100) / 100;
-const normalize = (value: unknown) =>
-  String(value || "")
+}
+
+function round(value: number): number {
+  return Math.round((value + Number.EPSILON) * 100) / 100;
+}
+
+function normalize(value: unknown): string {
+  return String(value || "")
     .toLowerCase()
     .replace(/&amp;/g, "and")
     .replace(/[^a-z0-9]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-const unique = (values: unknown[]) =>
-  Array.from(
+}
+
+function uniqueStrings(values: unknown[]): string[] {
+  return Array.from(
     new Set(values.map((value) => String(value || "").trim()).filter(Boolean)),
   );
+}
 
-/**
- * Frozen in Ice uses RIPPED / UNRIPPED as the product-state language.
- * Those words are first-class packaging evidence, not generic title noise.
- */
-export function precisePackagingState(value: unknown): PackagingState {
+function packagingState(value: unknown): PackagingState {
   const input = normalize(value);
   if (!input) return "unknown";
 
@@ -81,7 +81,7 @@ export function precisePackagingState(value: unknown): PackagingState {
   return "unknown";
 }
 
-function candidateKey(candidate: Json) {
+function key(candidate: Json): string {
   return String(
     candidate.legacyItemId ||
       candidate.itemId ||
@@ -91,140 +91,127 @@ function candidateKey(candidate: Json) {
   );
 }
 
-function dedupe(values: Json[]) {
+function dedupe(values: Json[]): Json[] {
   const map = new Map<string, Json>();
   for (const value of values) {
-    const key = candidateKey(value);
-    const current = map.get(key);
+    const candidateKey = key(value);
+    const current = map.get(candidateKey);
     if (!current || Number(value.matchScore || 0) > Number(current.matchScore || 0)) {
-      map.set(key, value);
+      map.set(candidateKey, value);
     }
   }
   return Array.from(map.values());
 }
 
-function charm(maximum: number) {
+function charm(maximum: number): number {
   if (!Number.isFinite(maximum) || maximum <= 0.99) return 0.99;
   return Math.max(0.99, round(Math.floor(maximum - 0.99) + 0.99));
 }
 
-function suggestion(
-  key: string,
+function strategy(
+  keyName: string,
   label: string,
-  target: number,
+  targetLanded: number,
   shipping: number,
-  floor: number | null,
-) {
-  const itemPrice = charm(Math.max(0.99, target - shipping));
+  profitFloor: number | null,
+): Json {
+  const itemPrice = charm(Math.max(0.99, targetLanded - shipping));
   return {
-    key,
+    key: keyName,
     label,
     itemPrice,
     shipping,
     landedPrice: round(itemPrice + shipping),
-    profitFloor: floor,
-    meetsProfitFloor: floor === null ? null : itemPrice >= floor,
+    profitFloor,
+    meetsProfitFloor: profitFloor === null ? null : itemPrice >= profitFloor,
   };
 }
 
-function reclassifyPackaging(attack: Json, targetTitle: string) {
-  const targetState =
-    precisePackagingState(targetTitle) === "unknown"
-      ? (String(attack.packagingState || "unknown") as PackagingState)
-      : precisePackagingState(targetTitle);
-  const previousRejected = list(attack.packagingRejectedCandidates).map(record);
-  const allCandidates = dedupe([
-    ...list(attack.competitors).map(record),
-    ...list(attack.scoutingCandidates).map(record),
-  ]);
+function correctPackaging(attack: Json, targetTitle: string): Json {
+  const titleState = packagingState(targetTitle);
+  const targetState: PackagingState =
+    titleState !== "unknown"
+      ? titleState
+      : attack.packagingState === "sealed" || attack.packagingState === "opened"
+        ? attack.packagingState
+        : "unknown";
   const verified: Json[] = [];
   const scouting: Json[] = [];
-  const rejected: Json[] = [...previousRejected];
+  const rejected: Json[] = [...arr(attack.packagingRejectedCandidates)];
   let rippedRejectedCount = 0;
 
-  for (const candidate of allCandidates) {
-    const packagingState = precisePackagingState(candidate.title);
-    if (
-      targetState !== "unknown" &&
-      packagingState !== "unknown" &&
-      packagingState !== targetState
-    ) {
+  for (const candidate of dedupe([
+    ...arr(attack.competitors),
+    ...arr(attack.scoutingCandidates),
+  ])) {
+    const state = packagingState(candidate.title);
+    if (targetState !== "unknown" && state !== "unknown" && state !== targetState) {
       rejected.push({
         ...candidate,
-        packagingState,
-        rejectionReason: `${packagingState.toUpperCase()} product state conflicts with ${targetState.toUpperCase()} target`,
+        packagingState: state,
+        rejectionReason: `${state.toUpperCase()} product state conflicts with ${targetState.toUpperCase()} target`,
       });
       if (/\bripped\b/i.test(String(candidate.title || ""))) rippedRejectedCount += 1;
       continue;
     }
 
-    if (targetState !== "unknown" && packagingState === "unknown") {
-      scouting.push({
-        ...candidate,
-        matchLevel: "scouting",
-        packagingState,
-        flags: unique([
-          ...list(candidate.flags),
-          `packaging state not stated; ${targetState} required`,
-        ]),
-      });
-      continue;
-    }
-
     const fixedPrice = candidate.fixedPrice !== false;
     const matchLevel = String(candidate.matchLevel || "scouting");
-    if (!fixedPrice || matchLevel === "scouting") {
-      scouting.push({
+    if (
+      targetState !== "unknown" &&
+      state === targetState &&
+      fixedPrice &&
+      (matchLevel === "exact" || matchLevel === "strong")
+    ) {
+      verified.push({
         ...candidate,
-        matchLevel: "scouting",
-        packagingState,
-        flags: unique([
-          ...list(candidate.flags),
-          ...(fixedPrice ? [] : ["auction — review only"]),
+        packagingState: state,
+        flags: uniqueStrings([
+          ...arr(candidate.flags),
+          `${targetState} packaging confirmed`,
         ]),
       });
       continue;
     }
 
-    verified.push({
+    scouting.push({
       ...candidate,
-      packagingState,
-      flags: unique([
-        ...list(candidate.flags),
-        targetState === "unknown"
-          ? "packaging not required"
-          : `${targetState} packaging confirmed`,
+      matchLevel: "scouting",
+      packagingState: state,
+      flags: uniqueStrings([
+        ...arr(candidate.flags),
+        ...(state === "unknown" && targetState !== "unknown"
+          ? [`packaging state not stated; ${targetState} required`]
+          : []),
+        ...(!fixedPrice ? ["auction — review only"] : []),
       ]),
     });
   }
 
-  const exact = dedupe(verified).sort((left, right) => {
-    const leftLanded = money(left.landedPrice, true);
-    const rightLanded = money(right.landedPrice, true);
+  const competitors = dedupe(verified).sort((left, right) => {
+    const leftLanded = cash(left.landedPrice, true);
+    const rightLanded = cash(right.landedPrice, true);
     if (leftLanded !== null && rightLanded !== null) return leftLanded - rightLanded;
     if (leftLanded !== null) return -1;
     if (rightLanded !== null) return 1;
     return Number(right.matchScore || 0) - Number(left.matchScore || 0);
   });
-  const review = dedupe(scouting)
+  const scouts = dedupe(scouting)
     .sort((left, right) => Number(right.matchScore || 0) - Number(left.matchScore || 0))
     .slice(0, 12);
   const conflicts = dedupe(rejected).slice(0, 30);
-  const known = exact.filter((candidate) => money(candidate.landedPrice, true) !== null);
+  const known = competitors.filter((candidate) => cash(candidate.landedPrice, true) !== null);
   const lowest = known[0] || null;
-  const lowestLanded = lowest ? money(lowest.landedPrice, true) : null;
+  const lowestLanded = lowest ? cash(lowest.landedPrice, true) : null;
   const ourItemPrice = Number(attack.ourItemPrice || 0);
   const ourShipping = Number(attack.ourShipping || 0);
   const ourLanded = round(ourItemPrice + ourShipping);
-  const rawFloor = attack.profitFloor;
-  const floor =
-    rawFloor === null || rawFloor === undefined || !Number.isFinite(Number(rawFloor))
-      ? null
-      : Number(rawFloor);
+  const floorValue = Number(attack.profitFloor);
+  const profitFloor = Number.isFinite(floorValue) ? floorValue : null;
   const gap = lowestLanded === null ? null : round(ourLanded - lowestLanded);
   const position =
     lowestLanded === null
-      ? exact.length
+      ? competitors.length
         ? "shipping_unknown"
         : "no_verified_matches"
       : ourLanded < lowestLanded
@@ -236,13 +223,13 @@ function reclassifyPackaging(attack: Json, targetTitle: string) {
     lowestLanded === null
       ? []
       : [
-          suggestion("beat_by_cent", "Beat by $0.01", lowestLanded - 0.01, ourShipping, floor),
-          suggestion("beat_by_dollar", "Beat by $1", lowestLanded - 1, ourShipping, floor),
-          suggestion("undercut_5", "5% lower landed", lowestLanded * 0.95, ourShipping, floor),
-          suggestion("undercut_10", "10% lower landed — King Price", lowestLanded * 0.9, ourShipping, floor),
-          suggestion("undercut_15", "15% lower landed — Aggressive", lowestLanded * 0.85, ourShipping, floor),
+          strategy("beat_by_cent", "Beat by $0.01", lowestLanded - 0.01, ourShipping, profitFloor),
+          strategy("beat_by_dollar", "Beat by $1", lowestLanded - 1, ourShipping, profitFloor),
+          strategy("undercut_5", "5% lower landed", lowestLanded * 0.95, ourShipping, profitFloor),
+          strategy("undercut_10", "10% lower landed — King Price", lowestLanded * 0.9, ourShipping, profitFloor),
+          strategy("undercut_15", "15% lower landed — Aggressive", lowestLanded * 0.85, ourShipping, profitFloor),
         ];
-  const unknownCount = review.filter(
+  const unknownCount = scouts.filter(
     (candidate) => candidate.packagingState === "unknown",
   ).length;
 
@@ -251,35 +238,32 @@ function reclassifyPackaging(attack: Json, targetTitle: string) {
     schema: "truely.activeMarketAttack.v10",
     packagingRuleVersion: "ripped-unripped-v1",
     packagingState: targetState,
-    packagingExactCount: exact.length,
+    packagingExactCount: competitors.length,
     packagingUnknownCount: unknownCount,
     packagingRejectedCount: conflicts.length,
     packagingRejectedCandidates: conflicts,
     rippedRejectedCount,
-    status: exact.length ? "ready" : review.length ? "scouting_only" : "no_candidates",
-    exactActiveCount: exact.length,
-    strictExactCount: exact.filter((candidate) => candidate.matchLevel === "exact").length,
-    strongMatchCount: exact.filter((candidate) => candidate.matchLevel === "strong").length,
-    scoutingCount: review.length,
+    status: competitors.length ? "ready" : scouts.length ? "scouting_only" : "no_candidates",
+    exactActiveCount: competitors.length,
+    strictExactCount: competitors.filter((candidate) => candidate.matchLevel === "exact").length,
+    strongMatchCount: competitors.filter((candidate) => candidate.matchLevel === "strong").length,
+    scoutingCount: scouts.length,
     landedKnownCount: known.length,
-    shippingUnknownCount: exact.length - known.length,
+    shippingUnknownCount: competitors.length - known.length,
     lowestCompetitor: lowest,
     lowestCompetitorLanded: lowestLanded,
     ourLanded,
     position,
     gapToLowest: gap,
     suggestions,
-    competitors: exact.slice(0, 10),
-    scoutingCandidates: review,
+    competitors: competitors.slice(0, 10),
+    scoutingCandidates: scouts,
   };
 }
 
-async function verifyOwnListing(
-  ebayItemId: string | null,
-  existingAttack: Json,
-): Promise<SelfProof> {
-  const existing = record(existingAttack.selfListing);
-  const existingResolved = existingAttack.selfResolved === true && text(existing.title);
+async function verifySelf(ebayItemId: string | null, attack: Json): Promise<Json> {
+  const existing = rec(attack.selfListing);
+  const existingConfirmed = attack.selfResolved === true && Boolean(txt(existing.title));
   const clientId = process.env.EBAY_CLIENT_ID;
 
   if (ebayItemId && clientId) {
@@ -297,92 +281,64 @@ async function verifyOwnListing(
         headers: { Accept: "application/json" },
         signal: AbortSignal.timeout(25_000),
       });
-      const payload = await response.json().catch(() => null);
+      const payload: any = await response.json().catch(() => null);
+      const item = rec(payload?.Item);
       const ack = String(payload?.Ack || "").toLowerCase();
-      const item = record(payload?.Item);
-      const listingStatus = String(item.ListingStatus || "").toLowerCase();
-      const title = text(item.Title);
+      const status = String(item.ListingStatus || "").toLowerCase();
+      const title = txt(item.Title);
       const price =
-        money(record(item.ConvertedCurrentPrice).Value) ||
-        money(record(item.CurrentPrice).Value);
-      const shippingCost = money(
-        record(record(item.ShippingCostSummary).ShippingServiceCost).Value,
+        cash(rec(item.ConvertedCurrentPrice).Value) ||
+        cash(rec(item.CurrentPrice).Value);
+      const shippingCost = cash(
+        rec(rec(item.ShippingCostSummary).ShippingServiceCost).Value,
         true,
       );
-      const listingUrl =
-        text(item.ViewItemURLForNaturalSearch) ||
-        text(item.ViewItemURL) ||
+      const itemUrl =
+        txt(item.ViewItemURLForNaturalSearch) ||
+        txt(item.ViewItemURL) ||
         `https://www.ebay.com/itm/${ebayItemId}`;
-      const active = !listingStatus || listingStatus === "active";
 
       if (
         response.ok &&
         (ack === "success" || ack === "warning") &&
+        (!status || status === "active") &&
         title &&
-        price !== null &&
-        active
+        price !== null
       ) {
-        const listing = {
-          legacyItemId: ebayItemId,
-          itemId: ebayItemId,
-          title,
-          price,
-          shippingCost,
-          shippingKnown: shippingCost !== null,
-          shippingCostType: "Shopping API",
-          landedPrice: shippingCost === null ? null : round(price + shippingCost),
-          url: listingUrl,
-          listingStatus: item.ListingStatus || "Active",
-          packagingState: precisePackagingState(title),
-          source: "ebay_shopping_api",
-          sourceLabel: "Your eBay listing",
-        };
         return {
           confirmed: true,
           source: "shopping_api",
-          listing,
+          listing: {
+            legacyItemId: ebayItemId,
+            itemId: ebayItemId,
+            title,
+            price,
+            shippingCost,
+            shippingKnown: shippingCost !== null,
+            shippingCostType: "Shopping API",
+            landedPrice: shippingCost === null ? null : round(price + shippingCost),
+            url: itemUrl,
+            listingStatus: item.ListingStatus || "Active",
+            packagingState: packagingState(title),
+            source: "ebay_shopping_api",
+            sourceLabel: "Your eBay listing",
+          },
           message: `YOUR EBAY LISTING CONFIRMED: item ${ebayItemId}, “${title}” at $${price.toFixed(2)}. It is excluded from competitor counts and pricing.`,
         };
       }
-
-      const errors = list(payload?.Errors)
-        .map(record)
-        .map((error) => text(error.LongMessage) || text(error.ShortMessage))
-        .filter(Boolean)
-        .join(" | ");
-      if (!existingResolved) {
-        return {
-          confirmed: false,
-          source: "none",
-          listing: null,
-          message: `YOUR EBAY LISTING NOT CONFIRMED: item ${ebayItemId}. Shopping API response was ${response.status}${
-            errors ? ` — ${errors}` : ""
-          }. Treat this scan as incomplete.`,
-        };
-      }
-    } catch (error: any) {
-      if (!existingResolved) {
-        return {
-          confirmed: false,
-          source: "none",
-          listing: null,
-          message: `YOUR EBAY LISTING NOT CONFIRMED: item ${ebayItemId}. ${
-            error?.message || "The independent listing check failed."
-          } Treat this scan as incomplete.`,
-        };
-      }
+    } catch {
+      // Fall back to the existing Browse self lookup below.
     }
   }
 
-  if (existingResolved) {
-    const legacyItemId =
-      text(existing.legacyItemId) || text(existing.itemId) || ebayItemId || "unknown";
+  if (existingConfirmed) {
+    const id = txt(existing.legacyItemId) || txt(existing.itemId) || ebayItemId || "unknown";
     return {
       confirmed: true,
       source: "browse_api",
       listing: existing,
-      message: `YOUR EBAY LISTING CONFIRMED: item ${legacyItemId}, “${
-        text(existing.title) || "title unavailable"
+      message: `YOUR EBAY LISTING CONFIRMED: item ${id}, “${
+        txt(existing.title) || "title unavailable"
       }”. It is excluded from competitor counts and pricing.`,
     };
   }
@@ -397,7 +353,7 @@ async function verifyOwnListing(
   };
 }
 
-function cleanSelfProofNote(value: unknown) {
+function stripOldSelfNote(value: unknown): string {
   return String(value || "")
     .replace(/\s*YOUR EBAY LISTING (?:CONFIRMED|NOT CONFIRMED):[\s\S]*$/i, "")
     .trim();
@@ -408,14 +364,14 @@ export async function handleActiveMarketAttackWithProofGuard(
   context: { params: Promise<{ inventoryItemId: string }> },
 ) {
   const baseResponse = await handleActiveMarketAttackWithFindingGuard(request, context);
-  const payload = await baseResponse.json().catch(() => null);
+  const payload: any = await baseResponse.json().catch(() => null);
   if (!payload || !baseResponse.ok || payload.success !== true) {
     return Response.json(payload || { error: "Active Market Attack Mode failed." }, {
       status: baseResponse.status,
     });
   }
 
-  const tracking = record(payload.tracking);
+  const tracking = rec(payload.tracking);
   if (Number(tracking.soldCompCount || 0) > 0) {
     return Response.json(payload, { status: baseResponse.status });
   }
@@ -453,51 +409,51 @@ export async function handleActiveMarketAttackWithProofGuard(
       .eq("store_id", storeId)
       .maybeSingle();
     targetTitle = targetTitle || String(product?.title || "");
-    ebayItemId = text(product?.ebay_item_id);
+    ebayItemId = txt(product?.ebay_item_id);
   }
 
-  const originalAttack = record(tracking.activeMarketAttack || payload.attack);
-  const correctedAttack = reclassifyPackaging(originalAttack, targetTitle);
-  const selfProof = await verifyOwnListing(ebayItemId, correctedAttack);
-  const baseTaxNote =
-    cleanSelfProofNote(correctedAttack.taxNote) ||
-    "Sales tax is excluded because it varies by buyer location and is not controlled by the seller.";
-  const externalCount = Number(
-    correctedAttack.externalRawCandidateCount ?? correctedAttack.rawCandidateCount ?? 0,
+  const corrected = correctPackaging(
+    rec(tracking.activeMarketAttack || payload.attack),
+    targetTitle,
   );
-  const ownStatus = selfProof.confirmed
+  const self = await verifySelf(ebayItemId, corrected);
+  const externalCount = Number(
+    corrected.externalRawCandidateCount ?? corrected.rawCandidateCount ?? 0,
+  );
+  const selfStatus = self.confirmed
     ? `YOUR EBAY LISTING CONFIRMED #${ebayItemId || "unknown"}`
     : `YOUR EBAY LISTING NOT CONFIRMED #${ebayItemId || "missing"}`;
-  const nextAttack = {
-    ...correctedAttack,
-    selfResolved: selfProof.confirmed,
-    selfListing: selfProof.listing,
-    selfListingProofSource: selfProof.source,
-    selfListingProofMessage: selfProof.message,
-    marketIntegrityStatus: selfProof.confirmed ? "complete" : "incomplete",
-    taxNote: `${baseTaxNote} ${selfProof.message}`,
+  const baseTax =
+    stripOldSelfNote(corrected.taxNote) ||
+    "Sales tax is excluded because it varies by buyer location and is not controlled by the seller.";
+  const nextAttack: Json = {
+    ...corrected,
+    selfResolved: self.confirmed === true,
+    selfListing: self.listing,
+    selfListingProofSource: self.source,
+    selfListingProofMessage: self.message,
+    marketIntegrityStatus: self.confirmed ? "complete" : "incomplete",
+    taxNote: `${baseTax} ${self.message}`,
     marketLocation: {
-      ...record(correctedAttack.marketLocation),
+      ...rec(corrected.marketLocation),
       label: `Denver shipping estimate · external ${externalCount} · packaging rejected ${Number(
-        correctedAttack.packagingRejectedCount || 0,
-      )} · unknown ${Number(correctedAttack.packagingUnknownCount || 0)} · ${ownStatus}`,
+        corrected.packagingRejectedCount || 0,
+      )} · unknown ${Number(corrected.packagingUnknownCount || 0)} · ${selfStatus}`,
     },
     updatedAt: new Date().toISOString(),
   };
-
-  const existingReasons = list(tracking.reviewReasons)
-    .map(String)
-    .filter(
-      (reason) =>
-        reason !== "active_market_self_listing_confirmed" &&
-        reason !== "active_market_self_listing_not_confirmed",
-    );
+  const existingReasons = Array.isArray(tracking.reviewReasons)
+    ? tracking.reviewReasons.map(String).filter(
+        (reason: string) =>
+          reason !== "active_market_self_listing_confirmed" &&
+          reason !== "active_market_self_listing_not_confirmed",
+      )
+    : [];
   const nextTracking = {
     ...tracking,
     activeMarketAttack: nextAttack,
     marketCompCount: nextAttack.exactActiveCount,
-    trustedForPricing:
-      selfProof.confirmed && Number(nextAttack.exactActiveCount || 0) > 0,
+    trustedForPricing: self.confirmed && Number(nextAttack.exactActiveCount || 0) > 0,
     marketPrice: null,
     deltaAmount: null,
     deltaPercent: null,
@@ -507,9 +463,9 @@ export async function handleActiveMarketAttackWithProofGuard(
         : Number(nextAttack.scoutingCount || 0) > 0
           ? "active_market_scouting"
           : "active_market_no_results",
-    reviewReasons: unique([
+    reviewReasons: uniqueStrings([
       ...existingReasons,
-      selfProof.confirmed
+      self.confirmed
         ? "active_market_self_listing_confirmed"
         : "active_market_self_listing_not_confirmed",
       ...(Number(nextAttack.packagingRejectedCount || 0) > 0
@@ -520,8 +476,8 @@ export async function handleActiveMarketAttackWithProofGuard(
     updatedAt: nextAttack.updatedAt,
   };
 
-  const metadata = record(item.metadata);
-  const root = record(metadata.instacomp_tracking);
+  const metadata = rec(item.metadata);
+  const root = rec(metadata.instacomp_tracking);
   const { error: updateError } = await supabase
     .from("inventory_items")
     .update({
@@ -550,14 +506,14 @@ export async function handleActiveMarketAttackWithProofGuard(
           ? "active_market_scouting"
           : "no_exact_active_market",
     diagnostics: {
-      ...record(payload.diagnostics),
+      ...rec(payload.diagnostics),
       packagingRuleVersion: nextAttack.packagingRuleVersion,
       packagingRejectedCount: nextAttack.packagingRejectedCount,
       packagingUnknownCount: nextAttack.packagingUnknownCount,
       packagingExactCount: nextAttack.packagingExactCount,
       rippedRejectedCount: nextAttack.rippedRejectedCount,
-      selfListingConfirmed: selfProof.confirmed,
-      selfListingProofSource: selfProof.source,
+      selfListingConfirmed: self.confirmed === true,
+      selfListingProofSource: self.source,
       selfListingId: ebayItemId,
       marketIntegrityStatus: nextAttack.marketIntegrityStatus,
     },
