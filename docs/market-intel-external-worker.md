@@ -101,6 +101,8 @@ The online host receives the same runtime secrets and writes to the same Supabas
 
 During cutover, confirm the online worker stages candidates successfully and then uninstall the Mac LaunchAgent. Candidate deduplication prevents duplicate rows, but two simultaneous workers still waste marketplace API quota.
 
+**Operating rule:** only one marketplace-search executor may be active at a time: Mac LaunchAgent, online always-on container, or cloud-scheduled container job.
+
 See `deploy/market-intel-worker/README.md` for the container commands and cutover checklist.
 
 ## Disable Vercel marketplace execution
