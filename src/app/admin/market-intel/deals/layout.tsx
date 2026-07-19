@@ -3,7 +3,7 @@ import type { ReactNode } from "react";
 import {
   getMarketIntelSourceRegistry,
   marketIntelSourceStatusTone,
-} from "../../../../../lib/market-intel-sources";
+} from "../../../../lib/market-intel-sources";
 
 export default function ProfitHunterLayout({ children }: { children: ReactNode }) {
   const sources = getMarketIntelSourceRegistry();
