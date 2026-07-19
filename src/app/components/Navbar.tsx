@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { PLATFORM_SHORT_NAME, STORE_BRAND_NAME } from "../../lib/legal";
+import { STORE_BRAND_NAME } from "../../lib/legal";
 
 function storeMark(value: string) {
   const initials = value
@@ -14,43 +14,52 @@ function storeMark(value: string) {
 
 export default function Navbar() {
   return (
-    <nav className="sticky top-0 z-50 w-full border-b border-neutral-200 bg-[#f6f4ef]/90 px-6 py-4 backdrop-blur-md">
-      <div className="mx-auto flex max-w-7xl items-center justify-between gap-6">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded bg-neutral-950 text-sm font-black uppercase text-yellow-300">
+    <nav className="sticky top-0 z-50 w-full border-b border-neutral-200 bg-[#f6f4ef]/95 px-4 py-3 backdrop-blur-md sm:px-6">
+      <div className="mx-auto flex max-w-7xl items-center justify-between gap-4">
+        <Link href="/" className="flex min-w-0 items-center gap-3" aria-label={`${STORE_BRAND_NAME} home`}>
+          <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-neutral-950 text-sm font-black uppercase text-yellow-300">
             {storeMark(STORE_BRAND_NAME)}
           </div>
-          <div>
-            <span className="block text-base font-black leading-none">
+          <div className="min-w-0">
+            <span className="block truncate text-base font-black leading-none sm:text-lg">
               {STORE_BRAND_NAME}
             </span>
-            <span className="block text-xs font-medium text-neutral-500">
-              Powered by {PLATFORM_SHORT_NAME}
+            <span className="mt-1 block text-[11px] font-bold uppercase tracking-[0.14em] text-neutral-500">
+              Sports Card Store
             </span>
           </div>
-        </div>
+        </Link>
 
-        <div className="hidden items-center gap-6 md:flex">
-          <Link href="/" className="text-sm font-medium text-neutral-700 hover:text-black">
-            Home
-          </Link>
-          <Link href="/shop" className="text-sm font-medium text-neutral-700 hover:text-black">
-            Shop
-          </Link>
-          <Link href="/cart" className="text-sm font-medium text-neutral-700 hover:text-black">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <div className="hidden items-center gap-5 lg:flex">
+            <Link href="/" className="text-sm font-bold text-neutral-700 hover:text-black">
+              Home
+            </Link>
+            <Link href="/shop?q=rookie" className="text-sm font-bold text-neutral-700 hover:text-black">
+              Rookies
+            </Link>
+            <Link href="/shop?q=autograph" className="text-sm font-bold text-neutral-700 hover:text-black">
+              Autographs
+            </Link>
+            <Link href="/account" className="text-sm font-bold text-neutral-700 hover:text-black">
+              Account
+            </Link>
+            <Link href="/terms" className="text-sm font-bold text-neutral-700 hover:text-black">
+              Terms
+            </Link>
+          </div>
+
+          <Link
+            href="/cart"
+            className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm font-black text-neutral-950 hover:border-neutral-950 sm:px-4"
+          >
             Cart
           </Link>
-          <Link href="/account" className="text-sm font-medium text-neutral-700 hover:text-black">
-            Account
-          </Link>
-          <Link href="/terms" className="text-sm font-medium text-neutral-700 hover:text-black">
-            Terms
-          </Link>
-          <Link href="/seller-terms" className="text-sm font-medium text-neutral-700 hover:text-black">
-            Seller Terms
-          </Link>
-          <Link href="/admin" className="rounded bg-neutral-950 px-4 py-2 text-sm font-bold text-white hover:bg-neutral-800">
-            Admin
+          <Link
+            href="/shop"
+            className="rounded-md bg-neutral-950 px-3 py-2 text-sm font-black text-white hover:bg-neutral-800 sm:px-5"
+          >
+            Shop Cards
           </Link>
         </div>
       </div>
