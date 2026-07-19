@@ -118,6 +118,10 @@ function explicitCardNumbers(rawTitle: string) {
     const value = normalizeMarketIntelCandidateText(match[1]);
     if (value) values.push(value);
   }
+  for (const match of rawTitle.matchAll(/\b([a-z]{1,8}-\d{1,4})\b/gi)) {
+    const value = normalizeMarketIntelCandidateText(match[1]);
+    if (value) values.push(value);
+  }
   return Array.from(new Set(values));
 }
 
@@ -234,13 +238,12 @@ export function evaluateMarketIntelEbayIdentityMatch(
 
   const targetCardNumber = normalizeMarketIntelCandidateText(identity.card_number);
   const listedCardNumbers = explicitCardNumbers(rawTitle);
-  if (
-    targetCardNumber &&
-    listedCardNumbers.length > 0 &&
-    !listedCardNumbers.includes(targetCardNumber)
-  ) {
+  const conflictingCardNumbers = targetCardNumber
+    ? listedCardNumbers.filter((value) => value !== targetCardNumber)
+    : [];
+  if (conflictingCardNumbers.length > 0) {
     conflicts.push(
-      `explicit card number conflicts (${listedCardNumbers.map((value) => `#${value}`).join(", ")})`,
+      `explicit card number conflicts (${conflictingCardNumbers.map((value) => `#${value}`).join(", ")})`,
     );
   }
 
