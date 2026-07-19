@@ -31,6 +31,10 @@ function isOwnerAccount(account: { email: string | null }) {
   return String(account.email || "").trim().toLowerCase() === OWNER_EMAIL;
 }
 
+function ownerPlatformPayoutAccountId(storeId: string) {
+  return `platform_store_owner:${storeId}`;
+}
+
 function isMissingSellerPayoutTables(error: { code?: string; message?: string }) {
   const message = error.message?.toLowerCase() || "";
 
@@ -91,7 +95,7 @@ async function activateOwnerPlatformPayout(params: {
     account_id: params.accountId,
     store_id: params.storeId,
     provider: "stripe_connect",
-    provider_account_id: null,
+    provider_account_id: ownerPlatformPayoutAccountId(params.storeId),
     onboarding_status: "active",
     charges_enabled: true,
     payouts_enabled: true,
@@ -109,6 +113,7 @@ async function activateOwnerPlatformPayout(params: {
       connect_required: false,
       platform_stripe_account: true,
       owner_email: OWNER_EMAIL,
+      provider_account_id_kind: "internal_platform_owner",
     },
     updated_at: now,
   };
