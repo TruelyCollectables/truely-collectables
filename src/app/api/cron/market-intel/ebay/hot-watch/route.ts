@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { runMarketIntelHotWatch } from "../../../../../../lib/market-intel-hot-watch";
+import { runMarketIntelProfitHunterHotWatch } from "../../../../../../lib/market-intel-ebay-profit-hunter";
 import { isAuthorizedMarketIntelIngest } from "../../../../../../lib/market-intel-ingestion";
 
 export const dynamic = "force-dynamic";
@@ -13,11 +13,12 @@ async function run(request: NextRequest) {
 
   try {
     const params = request.nextUrl.searchParams;
-    const result = await runMarketIntelHotWatch({
+    const result = await runMarketIntelProfitHunterHotWatch({
       maxSubjects: Number(params.get("maxSubjects") || 3),
       maxIdentities: Number(params.get("maxIdentities") || 4),
-      resultsPerQuery: Number(params.get("resultsPerQuery") || 6),
+      resultsPerQuery: Number(params.get("resultsPerQuery") || 5),
       minimumConfidence: Number(params.get("minimumConfidence") || 55),
+      maxQueriesPerIdentity: Number(params.get("maxQueriesPerIdentity") || 8),
     });
     return NextResponse.json(result, {
       headers: { "Cache-Control": "no-store" },
@@ -28,7 +29,7 @@ async function run(request: NextRequest) {
         error:
           error instanceof Error
             ? error.message
-            : "Unable to run the Hot Watch mislist hunter.",
+            : "Unable to run the Profit Hunter Hot Watch scanner.",
       },
       { status: 500, headers: { "Cache-Control": "no-store" } },
     );
