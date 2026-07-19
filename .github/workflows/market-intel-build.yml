@@ -32,10 +32,13 @@ jobs:
           node --check scripts/prepare-market-intel-worker-env.mjs
           node --check scripts/run-with-market-intel-env.mjs
           node --check scripts/simulate-market-intel-worker-env.mjs
+          node --check scripts/audit-supabase-migrations.mjs
           bash -n scripts/run-market-intel-worker-cycle.sh
           bash -n scripts/bootstrap-market-intel-worker-macos.sh
           node scripts/simulate-market-intel-worker-env.mjs
+          node scripts/audit-supabase-migrations.mjs
           node --import tsx --input-type=module -e "await import('./scripts/preflight-market-intel-worker.ts')"
+          node --import tsx --input-type=module -e "await import('./scripts/preflight-market-intel-migration-data.ts')"
 
       - name: Build
         env:
