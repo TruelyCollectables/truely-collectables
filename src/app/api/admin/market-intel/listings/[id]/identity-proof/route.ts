@@ -10,6 +10,7 @@ import {
   marketIntelIdentityProofMissingEvidence,
   marketIntelIdentityProofStatus,
   type MarketIntelIdentityProofEvidence,
+  type MarketIntelIdentityProofRequirements,
   type MarketIntelIdentityProofStatus,
 } from "../../../../../../../lib/market-intel-identity-proof";
 import { requestOrigin } from "../../../../../../../lib/request-origin";
@@ -45,6 +46,18 @@ function proofEvidence(formData: FormData): MarketIntelIdentityProofEvidence {
   };
 }
 
+function proofRequirements(identity: {
+  serial_numbered_to?: number | null;
+  autograph?: boolean | null;
+  memorabilia?: boolean | null;
+}): MarketIntelIdentityProofRequirements {
+  return {
+    serialNumbered: Number(identity.serial_numbered_to || 0) > 0,
+    autograph: Boolean(identity.autograph),
+    memorabilia: Boolean(identity.memorabilia),
+  };
+}
+
 function wantsJson(request: NextRequest) {
   return request.headers.get("accept")?.includes("application/json") === true;
 }
@@ -65,18 +78,12 @@ export async function POST(request: NextRequest, context: RouteContext) {
     if (!allowedDecisions.has(decision)) {
       throw new Error("A valid identity proof decision is required.");
     }
-    if (decision === "verified_exact" && !canVerifyMarketIntelExactIdentity(evidence)) {
-      const missing = marketIntelIdentityProofMissingEvidence(evidence);
-      throw new Error(
-        `VERIFIED EXACT still needs: ${missing.join(", ") || "required evidence"}.`,
-      );
-    }
 
     const supabase = createSupabaseServerClient({ admin: true });
     const { data: listing, error: listingError } = await supabase
       .from("tcos_mi_listings")
       .select(
-        "id,collectible_identity_id,listing_status,metadata,identity_match_confidence",
+        "id,collectible_identity_id,listing_status,metadata,identity_match_confidence,listing_format",
       )
       .eq("id", id)
       .single();
@@ -86,6 +93,30 @@ export async function POST(request: NextRequest, context: RouteContext) {
     }
     if (String(listing.listing_status) !== "active") {
       throw new Error("Only active Profit Hunter listings may be identity-reviewed.");
+    }
+    if (decision === "verified_exact" && String(listing.listing_format) === "lot") {
+      throw new Error(
+        "Lot listings cannot be verified through the single-card Identity Proof Gate.",
+      );
+    }
+
+    const { data: identity, error: identityError } = await supabase
+      .from("tcos_mi_collectible_identities")
+      .select("id,serial_numbered_to,autograph,memorabilia,active")
+      .eq("id", listing.collectible_identity_id)
+      .eq("active", true)
+      .single();
+    if (identityError) throw new Error(identityError.message);
+
+    const requirements = proofRequirements(identity);
+    if (
+      decision === "verified_exact" &&
+      !canVerifyMarketIntelExactIdentity(evidence, requirements)
+    ) {
+      const missing = marketIntelIdentityProofMissingEvidence(evidence, requirements);
+      throw new Error(
+        `VERIFIED EXACT still needs: ${missing.join(", ") || "required evidence"}.`,
+      );
     }
 
     const existingMetadata =
@@ -98,6 +129,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       existingMetadata,
       status: decision,
       evidence,
+      requirements,
       notes,
       reviewer: "private_owner",
       reviewedAt,
@@ -124,7 +156,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
         decision,
         reviewer: "private_owner",
         notes: notes || null,
-        evidence: metadata.identity_proof_evidence,
+        evidence: {
+          ...(metadata.identity_proof_evidence as Record<string, unknown>),
+          requirements: metadata.identity_proof_requirements,
+        },
         reviewed_at: reviewedAt,
       });
     if (auditError && auditError.code !== "42P01") {
