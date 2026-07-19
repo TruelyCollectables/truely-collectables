@@ -8,6 +8,7 @@ import {
   canVerifyMarketIntelExactIdentity,
   marketIntelIdentityProofMissingEvidence,
   type MarketIntelIdentityProofEvidence,
+  type MarketIntelIdentityProofRequirements,
   type MarketIntelIdentityProofStatus,
 } from "../../../../../../../lib/market-intel-identity-proof";
 import { ingestMarketIntelListings } from "../../../../../../../lib/market-intel-ingestion";
@@ -45,6 +46,18 @@ function proofEvidence(formData: FormData): MarketIntelIdentityProofEvidence {
   };
 }
 
+function proofRequirements(identity: {
+  serial_numbered_to?: number | null;
+  autograph?: boolean | null;
+  memorabilia?: boolean | null;
+}): MarketIntelIdentityProofRequirements {
+  return {
+    serialNumbered: Number(identity.serial_numbered_to || 0) > 0,
+    autograph: Boolean(identity.autograph),
+    memorabilia: Boolean(identity.memorabilia),
+  };
+}
+
 function recordValue(value: unknown): JsonRecord {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as JsonRecord)
@@ -74,14 +87,6 @@ export async function POST(request: NextRequest, context: RouteContext) {
 
     if (!allowedDecisions.has(decision)) {
       throw new Error("A valid candidate decision is required.");
-    }
-    if (decision === "verified_exact") {
-      if (!identityId) throw new Error("Select the exact collectible identity first.");
-      if (!canVerifyMarketIntelExactIdentity(evidence)) {
-        throw new Error(
-          `VERIFIED EXACT still needs: ${marketIntelIdentityProofMissingEvidence(evidence).join(", ") || "required evidence"}.`,
-        );
-      }
     }
 
     const supabase = createSupabaseServerClient({ admin: true });
@@ -145,13 +150,83 @@ export async function POST(request: NextRequest, context: RouteContext) {
       return NextResponse.redirect(redirectUrl, 303);
     }
 
+    if (!identityId) throw new Error("Select the exact collectible identity first.");
+    if (
+      String(candidate.listing_format || "") === "lot" ||
+      String(candidate.query_mode || "") === "lot" ||
+      candidateEvidence.requires_lot_workflow === true
+    ) {
+      throw new Error(
+        "Lot candidates cannot be promoted as one exact card. Reject this single-card candidate or send it through the lot-composition workflow.",
+      );
+    }
+
     const { data: identity, error: identityError } = await supabase
       .from("tcos_mi_collectible_identities")
-      .select("id,identity_key,display_name,active")
+      .select(
+        "id,identity_key,display_name,active,serial_numbered_to,autograph,memorabilia",
+      )
       .eq("id", identityId)
       .eq("active", true)
       .single();
     if (identityError) throw new Error(identityError.message);
+
+    const requirements = proofRequirements(identity);
+    if (!canVerifyMarketIntelExactIdentity(evidence, requirements)) {
+      throw new Error(
+        `VERIFIED EXACT still needs: ${marketIntelIdentityProofMissingEvidence(evidence, requirements).join(", ") || "required evidence"}.`,
+      );
+    }
+
+    let siblingQuery = supabase
+      .from("tcos_mi_search_candidates")
+      .select("id,collectible_identity_id,status,original_title")
+      .eq("source_slug", String(candidate.source_slug))
+      .neq("id", id)
+      .neq("status", "rejected");
+    siblingQuery = candidate.external_listing_id
+      ? siblingQuery.eq("external_listing_id", String(candidate.external_listing_id))
+      : siblingQuery.eq("direct_url", String(candidate.direct_url));
+    const { data: siblingRows, error: siblingError } = await siblingQuery;
+    if (siblingError) throw new Error(siblingError.message);
+    const conflictingSiblings = (siblingRows || []).filter(
+      (row) =>
+        row.collectible_identity_id &&
+        String(row.collectible_identity_id) !== String(identity.id),
+    );
+    if (conflictingSiblings.length) {
+      throw new Error(
+        `Promotion blocked: this marketplace listing is still attached to ${conflictingSiblings.length} different identity candidate${conflictingSiblings.length === 1 ? "" : "s"}. Reject the wrong sibling candidate first.`,
+      );
+    }
+
+    const { data: marketplace, error: marketplaceError } = await supabase
+      .from("tcos_mi_marketplaces")
+      .select("id,slug")
+      .eq("slug", String(candidate.source_slug))
+      .eq("active", true)
+      .single();
+    if (marketplaceError) throw new Error(marketplaceError.message);
+
+    let existingListingQuery = supabase
+      .from("tcos_mi_listings")
+      .select("id,collectible_identity_id,listing_status,metadata,identity_match_confidence")
+      .eq("marketplace_id", marketplace.id);
+    existingListingQuery = candidate.external_listing_id
+      ? existingListingQuery.eq("external_listing_id", String(candidate.external_listing_id))
+      : existingListingQuery.eq("direct_url", String(candidate.direct_url));
+    const { data: existingListingRows, error: existingListingError } =
+      await existingListingQuery.limit(1);
+    if (existingListingError) throw new Error(existingListingError.message);
+    const existingListing = existingListingRows?.[0] || null;
+    if (
+      existingListing?.collectible_identity_id &&
+      String(existingListing.collectible_identity_id) !== String(identity.id)
+    ) {
+      throw new Error(
+        "Promotion blocked: this marketplace listing already exists under a different collectible identity. Resolve that listing before continuing.",
+      );
+    }
 
     const proofMetadata = buildMarketIntelIdentityProofMetadata({
       existingMetadata: {
@@ -160,6 +235,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
       },
       status: "verified_exact",
       evidence,
+      requirements,
       notes,
       reviewer: "private_owner",
       reviewedAt,
@@ -191,7 +267,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
         lastSeenAt: candidate.last_seen_at ? String(candidate.last_seen_at) : reviewedAt,
         auctionEndAt: candidate.auction_end_at ? String(candidate.auction_end_at) : null,
         identityMatchConfidence: 100,
-        identityMatchMethod: "private_owner_identity_proof_gate",
+        identityMatchMethod: "private_owner_identity_proof_gate_v2",
         suspectedMislisting: String(candidate.query_mode || "") !== "exact",
         mislistingReason:
           String(candidate.query_mode || "") !== "exact"
@@ -227,13 +303,19 @@ export async function POST(request: NextRequest, context: RouteContext) {
           identity_proof_decision: "verified_exact",
           identity_proof_notes: notes || null,
           identity_proof_evidence: proofMetadata.identity_proof_evidence,
+          identity_proof_requirements: proofMetadata.identity_proof_requirements,
           identity_proof_reviewer: "private_owner",
           identity_proof_reviewed_at: reviewedAt,
           promoted_listing_id: result.listingId,
         },
       })
       .eq("id", id);
-    if (candidateUpdateError) throw new Error(candidateUpdateError.message);
+    if (candidateUpdateError) {
+      if (result.status === "created") {
+        await supabase.from("tcos_mi_listings").delete().eq("id", result.listingId);
+      }
+      throw new Error(candidateUpdateError.message);
+    }
 
     const { error: auditError } = await supabase
       .from("tcos_mi_identity_proof_reviews")
@@ -245,10 +327,37 @@ export async function POST(request: NextRequest, context: RouteContext) {
         decision: "promoted",
         reviewer: "private_owner",
         notes: notes || null,
-        evidence: proofMetadata.identity_proof_evidence,
+        evidence: {
+          ...recordValue(proofMetadata.identity_proof_evidence),
+          requirements: proofMetadata.identity_proof_requirements,
+        },
         reviewed_at: reviewedAt,
       });
     if (auditError && auditError.code !== "42P01") {
+      await supabase
+        .from("tcos_mi_search_candidates")
+        .update({
+          status: String(candidate.status || "pending_review"),
+          collectible_identity_id: candidate.collectible_identity_id || null,
+          promoted_listing_id: null,
+          reviewed_at: candidate.reviewed_at || null,
+          updated_at: new Date().toISOString(),
+          evidence: candidateEvidence,
+        })
+        .eq("id", id);
+      if (result.status === "created") {
+        await supabase.from("tcos_mi_listings").delete().eq("id", result.listingId);
+      } else if (existingListing) {
+        await supabase
+          .from("tcos_mi_listings")
+          .update({
+            metadata: existingListing.metadata || {},
+            identity_match_confidence: Number(
+              existingListing.identity_match_confidence || 0,
+            ),
+          })
+          .eq("id", existingListing.id);
+      }
       throw new Error(auditError.message);
     }
 
