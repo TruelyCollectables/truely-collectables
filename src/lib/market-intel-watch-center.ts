@@ -2,13 +2,25 @@ import "server-only";
 
 import { getMarketIntelCompOverview } from "./market-intel-comps";
 import { getMarketIntelDealWorkbench } from "./market-intel-deals";
-import { getMarketIntelObservations } from "./market-intel-observations";
+import {
+  getMarketIntelObservations,
+  type MarketIntelMarketObservation,
+} from "./market-intel-observations";
 import { getMarketIntelPortfolio } from "./market-intel-portfolio";
 import { getMarketIntelReportsAndAlerts } from "./market-intel-reporting";
 import { getMarketIntelWatchlist } from "./market-intel-watchlist";
 
 function errorMessage(value: unknown) {
   return value instanceof Error ? value.message : String(value || "Unknown error");
+}
+
+function isResearchOnlyObservation(row: MarketIntelMarketObservation) {
+  const metadata = row.metadata || {};
+  return (
+    metadata.research_evidence_class === "external_item_price_guide" ||
+    (metadata.price_basis === "item_only" &&
+      metadata.sold_comp_valuation_allowed === false)
+  );
 }
 
 export async function getMarketIntelWatchCenter() {
@@ -38,6 +50,12 @@ export async function getMarketIntelWatchCenter() {
     rows: [],
     error: errorMessage(error),
   }));
+  const researchObservations = observationResult.rows.filter(
+    isResearchOnlyObservation,
+  );
+  const valuationObservations = observationResult.rows.filter(
+    (row) => !isResearchOnlyObservation(row),
+  );
 
   const errors = [
     watchResult.status === "rejected"
@@ -70,7 +88,8 @@ export async function getMarketIntelWatchCenter() {
       portfolioResult.status === "fulfilled" ? portfolioResult.value.positions : [],
     alerts:
       reportResult.status === "fulfilled" ? reportResult.value.alerts : [],
-    observations: observationResult.rows,
+    observations: valuationObservations,
+    researchObservations,
     observationsAvailable: observationResult.available,
     observationMigrationRequired: observationResult.migrationRequired,
     alertsAvailable: reportResult.status === "fulfilled",
