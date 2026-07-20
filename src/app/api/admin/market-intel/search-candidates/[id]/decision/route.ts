@@ -307,6 +307,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
           identity_proof_reviewer: "private_owner",
           identity_proof_reviewed_at: reviewedAt,
           promoted_listing_id: result.listingId,
+          promoted_listing_scored: result.scored === true,
+          promoted_listing_score_message: result.message || null,
         },
       })
       .eq("id", id);
@@ -330,6 +332,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
         evidence: {
           ...recordValue(proofMetadata.identity_proof_evidence),
           requirements: proofMetadata.identity_proof_requirements,
+          listing_scored: result.scored === true,
+          score_message: result.message || null,
         },
         reviewed_at: reviewedAt,
       });
@@ -361,17 +365,23 @@ export async function POST(request: NextRequest, context: RouteContext) {
       throw new Error(auditError.message);
     }
 
-    const redirectUrl = adminRedirectUrl(
-      "/admin/market-intel/deals/identity-review?saved=promoted",
-      origin,
-      handoff,
-    );
+    const scoreWarning =
+      result.scored === true
+        ? null
+        : result.message || "Listing was promoted, but deal scoring did not complete.";
+    const redirectPath = scoreWarning
+      ? `/admin/market-intel/deals/identity-review?saved=promoted&error=${encodeURIComponent(`Promotion saved, but scoring needs attention: ${scoreWarning}`)}`
+      : "/admin/market-intel/deals/identity-review?saved=promoted";
+    const redirectUrl = adminRedirectUrl(redirectPath, origin, handoff);
+
     if (json) {
       return NextResponse.json({
         success: true,
         candidateId: id,
         listingId: result.listingId,
         decision: "promoted",
+        scored: result.scored === true,
+        scoreWarning,
         redirectUrl: redirectUrl.toString(),
       });
     }
