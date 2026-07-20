@@ -6,6 +6,7 @@ import {
 import {
   getMarketIntelSourceRegistry,
   marketIntelSourceStatusTone,
+  marketIntelSourceValuationPolicyLabel,
   type MarketIntelSourceCapability,
   type MarketIntelSourceDefinition,
 } from "../../../../lib/market-intel-sources";
@@ -55,9 +56,9 @@ export default async function MarketIntelSourcesPage({ searchParams }: PageProps
           </h1>
           <p className="mt-3 max-w-4xl font-semibold leading-7 text-neutral-300">
             Every marketplace declares exactly how TCOS may use it. LIVE API means approved
-            automation is working. MANUAL or INDEXED RESEARCH means an operator must open
-            links or provide listing evidence. ACCESS NEEDED means nothing runs until approved
-            access is verified.
+            automation is working. MANUAL, INDEXED, or PRICE GUIDE RESEARCH means an operator
+            must open links or provide attributed evidence. ACCESS NEEDED means nothing runs
+            until approved access is verified.
           </p>
         </div>
       </header>
@@ -108,9 +109,7 @@ export default async function MarketIntelSourcesPage({ searchParams }: PageProps
                   <div>
                     <dt className="font-black text-neutral-500">Valuation policy</dt>
                     <dd className="font-semibold">
-                      {source.soldCompValuationAllowed
-                        ? "Verified sold-comp evidence may be used"
-                        : "Bargain discovery only — blocked from sold comps"}
+                      {marketIntelSourceValuationPolicyLabel(source)}
                     </dd>
                   </div>
                   <div>
