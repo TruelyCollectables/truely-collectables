@@ -20,11 +20,13 @@ export type MarketIntelSourceCapability =
 
 export type MarketIntelSourceUsagePolicy =
   | "valuation_and_bargain_discovery"
+  | "price_guide_research_only"
   | "bargain_discovery_only";
 
 export type MarketIntelSourceDefinition = {
   slug:
     | "ebay"
+    | "sportscardspro"
     | "etsy"
     | "sportlots"
     | "mercari"
@@ -72,6 +74,33 @@ const sourceRegistry = [
       "Active asking prices are not sold comps.",
       "Completed buyer receipts may be promoted to verified purchase comps only after exact-card review.",
       "Low-confidence title matches and lot candidates must remain review-only.",
+    ],
+    lastSuccessfulScan: null,
+    lastError: null,
+  },
+  {
+    slug: "sportscardspro",
+    displayName: "SportsCardsPro",
+    accessMode: "manual_research",
+    status: "manual_research",
+    statusLabel: "PRICE GUIDE RESEARCH",
+    usagePolicy: "price_guide_research_only",
+    soldCompValuationAllowed: false,
+    automatedSearchEnabled: false,
+    activeListingSupport: "none",
+    soldHistorySupport: "manual",
+    imageSupport: "manual",
+    checklistSupport: "none",
+    directLinkSupport: true,
+    authorizationStatus:
+      "Public card pages may be referenced manually with visible attribution. Automated price-data use requires approved access and terms appropriate to the intended product surface.",
+    rateLimitNotes:
+      "No crawler or automated historic-sale importer is enabled. Operators may save attributed item-only guide observations through the research-only lane.",
+    warnings: [
+      "SportsCardsPro states that its historic prices exclude shipping and transaction costs.",
+      "Item-only guide values and historic-sale summaries are research evidence, not delivered-price sold comps.",
+      "SportsCardsPro research cannot make a TCOS deal actionable or alter InstaComp™ verified sold-comp valuation.",
+      "Preserve SportsCardsPro attribution and a direct source link with every saved observation.",
     ],
     lastSuccessfulScan: null,
     lastError: null,
@@ -213,7 +242,11 @@ function normalizedSourceSlug(value: string) {
     .replace(/^_+|_+$/g, "");
 }
 
-const bargainDiscoveryOnlyAliases = new Set([
+const nonValuationAliases = new Set([
+  "sportscardspro",
+  "sports_cards_pro",
+  "pricecharting",
+  "price_charting",
   "etsy",
   "mercari",
   "sportlots",
@@ -246,16 +279,35 @@ export function marketIntelSourceAllowsSoldCompValuation(slug: string) {
   const normalized = normalizedSourceSlug(slug);
   const source = sourceRegistry.find((entry) => entry.slug === normalized);
   if (source) return source.soldCompValuationAllowed;
-  return !bargainDiscoveryOnlyAliases.has(normalized);
+  return !nonValuationAliases.has(normalized);
+}
+
+export function marketIntelSourceValuationPolicyLabel(
+  source: Pick<
+    MarketIntelSourceDefinition,
+    "usagePolicy" | "soldCompValuationAllowed"
+  >,
+) {
+  if (source.soldCompValuationAllowed) {
+    return "Verified sold-comp evidence may be used";
+  }
+  if (source.usagePolicy === "price_guide_research_only") {
+    return "Item-price guide research only — blocked from sold comps";
+  }
+  return "Bargain discovery only — blocked from sold comps";
 }
 
 export function assertMarketIntelSourceAllowsSoldCompValuation(slug: string) {
   if (marketIntelSourceAllowsSoldCompValuation(slug)) return;
   const normalized = normalizedSourceSlug(slug);
   const source = sourceRegistry.find((entry) => entry.slug === normalized);
-  const label = source?.displayName || slug || "This marketplace";
+  const label = source?.displayName || slug || "This source";
+  const policy =
+    source?.usagePolicy === "price_guide_research_only"
+      ? "price-guide research-only"
+      : "bargain-discovery-only";
   throw new Error(
-    `${label} is bargain-discovery-only and cannot be saved as an InstaComp™ sold comp.`,
+    `${label} is ${policy} and cannot be saved as an InstaComp™ sold comp.`,
   );
 }
 
