@@ -1,7 +1,12 @@
 #!/usr/bin/env node
 
-import { createHmac } from "node:crypto";
-import { existsSync, readFileSync } from "node:fs";
+import { createHmac, randomBytes } from "node:crypto";
+import {
+  chmodSync,
+  existsSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { spawnSync } from "node:child_process";
 import path from "node:path";
 
@@ -11,6 +16,7 @@ const VERCEL_PROJECT = "truely-collectables";
 const DEFAULT_PREVIEW_URL =
   "https://truely-collectables-git-agen-65e523-truelycollectables-projects.vercel.app";
 const DEFAULT_DESTINATION = "/admin/market-intel/deals/identity-review";
+const LOCAL_PREVIEW_AUTH_FILE = ".env.admin-preview.local";
 
 function parseEnvFile(filePath) {
   const values = {};
@@ -33,11 +39,30 @@ function parseEnvFile(filePath) {
   return values;
 }
 
-function loadLocalAdminSecrets() {
+function secureRandomSecret(bytes = 36) {
+  return randomBytes(bytes).toString("base64url");
+}
+
+function writePreviewAuthVault(adminPassword, sessionSecret) {
+  const filePath = path.join(REPO_ROOT, LOCAL_PREVIEW_AUTH_FILE);
+  const contents = [
+    "# TCOS Vercel Preview admin credentials.",
+    "# Generated locally; ignored by git; never display or commit this file.",
+    `ADMIN_PASSWORD=${adminPassword}`,
+    `ADMIN_SESSION_SECRET=${sessionSecret}`,
+    "",
+  ].join("\n");
+  writeFileSync(filePath, contents, { encoding: "utf8", mode: 0o600 });
+  chmodSync(filePath, 0o600);
+  return filePath;
+}
+
+function loadOrCreateLocalAdminSecrets() {
   const candidates = [
     ".env.local",
     ".env.development.local",
     ".env.market-intel-worker.local",
+    LOCAL_PREVIEW_AUTH_FILE,
   ];
   const merged = {};
   const filesRead = [];
@@ -47,19 +72,32 @@ function loadLocalAdminSecrets() {
     Object.assign(merged, parseEnvFile(filePath));
     filesRead.push(name);
   }
-  const adminPassword = String(merged.ADMIN_PASSWORD || "").trim();
-  const sessionSecret = String(
-    merged.ADMIN_SESSION_SECRET || merged.ADMIN_PASSWORD || "",
-  ).trim();
+
+  let adminPassword = String(merged.ADMIN_PASSWORD || "").trim();
+  let sessionSecret = String(merged.ADMIN_SESSION_SECRET || "").trim();
+  let generated = false;
+
   if (!adminPassword) {
-    throw new Error(
-      "ADMIN_PASSWORD was not found in .env.local, .env.development.local, or .env.market-intel-worker.local.",
-    );
+    adminPassword = secureRandomSecret(36);
+    generated = true;
   }
   if (!sessionSecret) {
-    throw new Error("ADMIN_SESSION_SECRET or ADMIN_PASSWORD is required.");
+    sessionSecret = secureRandomSecret(48);
+    generated = true;
   }
-  return { adminPassword, sessionSecret, filesRead };
+
+  const vaultPath = writePreviewAuthVault(adminPassword, sessionSecret);
+  if (!filesRead.includes(LOCAL_PREVIEW_AUTH_FILE)) {
+    filesRead.push(LOCAL_PREVIEW_AUTH_FILE);
+  }
+
+  return {
+    adminPassword,
+    sessionSecret,
+    filesRead,
+    generated,
+    vaultPath,
+  };
 }
 
 function run(command, args, options = {}) {
@@ -128,7 +166,10 @@ function openUrl(url) {
 }
 
 function cleanPreviewUrl(value) {
-  const url = new URL(value || DEFAULT_PREVIEW_URL);
+  const text = String(value || "").trim();
+  const urls = text.match(/https:\/\/[^\s]+/g) || [];
+  const candidate = urls.at(-1) || text || DEFAULT_PREVIEW_URL;
+  const url = new URL(candidate.replace(/[),.;]+$/, ""));
   return `${url.protocol}//${url.host}`;
 }
 
@@ -138,20 +179,31 @@ const destination = String(process.argv[3] || DEFAULT_DESTINATION).startsWith("/
   : `/${String(process.argv[3] || DEFAULT_DESTINATION)}`;
 
 try {
-  const { adminPassword, sessionSecret, filesRead } = loadLocalAdminSecrets();
+  const {
+    adminPassword,
+    sessionSecret,
+    filesRead,
+    generated,
+    vaultPath,
+  } = loadOrCreateLocalAdminSecrets();
   ensureVercelCli();
 
-  console.log("Syncing the local admin credentials to Vercel Preview without displaying them...");
+  console.log(
+    generated
+      ? "Created a locked local preview-auth vault. Credentials will not be displayed."
+      : "Reusing the locked local preview-auth vault. Credentials will not be displayed.",
+  );
+  console.log("Syncing admin credentials to Vercel Preview only...");
   setPreviewSecret("ADMIN_PASSWORD", adminPassword);
   setPreviewSecret("ADMIN_SESSION_SECRET", sessionSecret);
 
-  console.log("Redeploying the current preview so the corrected credentials take effect...");
+  console.log("Redeploying the preview so the synchronized credentials take effect...");
   const redeploy = run(
     "vercel",
     ["redeploy", previewUrl, "--target=preview", "--scope", VERCEL_SCOPE],
     { stdio: ["ignore", "pipe", "inherit"] },
   );
-  const redeployedUrl = cleanPreviewUrl(String(redeploy.stdout || previewUrl).trim());
+  const redeployedUrl = cleanPreviewUrl(String(redeploy.stdout || previewUrl));
 
   const handoff = createAdminHandoff(sessionSecret);
   const target = new URL(destination, redeployedUrl);
@@ -165,11 +217,14 @@ try {
         environment: "preview",
         project: `${VERCEL_SCOPE}/${VERCEL_PROJECT}`,
         localFilesRead: filesRead,
+        previewAuthVault: vaultPath,
+        previewAuthVaultMode: "0600",
+        credentialsGenerated: generated,
         credentialsDisplayed: false,
         previewRedeployed: true,
         openedAdminDestination: destination,
         previewUrl: redeployedUrl,
-        note: "The signed handoff is stripped from the URL immediately after the preview creates the admin cookie.",
+        note: "The signed handoff is stripped from the URL immediately after the preview creates the 30-day admin cookie.",
       },
       null,
       2,
