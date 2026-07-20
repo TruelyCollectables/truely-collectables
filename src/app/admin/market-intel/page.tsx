@@ -5,7 +5,6 @@ import {
 } from "../../../lib/admin-handoff";
 import { getMarketIntelCompOverview } from "../../../lib/market-intel-comps";
 import { getMarketIntelDealWorkbench } from "../../../lib/market-intel-deals";
-import { getMarketIntelGrowthWorkbench } from "../../../lib/market-intel-growth";
 import { getMarketIntelPortfolio } from "../../../lib/market-intel-portfolio";
 import { getMarketIntelReadiness } from "../../../lib/market-intel-readiness";
 import { getMarketIntelWatchlist } from "../../../lib/market-intel-watchlist";
@@ -23,326 +22,361 @@ function money(value: number | null | undefined) {
     : `$${Number(value).toFixed(2)}`;
 }
 
-export default async function MarketIntelAdminPage({
-  searchParams,
-}: PageProps) {
+export default async function MarketIntelAdminPage({ searchParams }: PageProps) {
   const query = await searchParams;
   const handoff = query?.[ADMIN_HANDOFF_PARAM];
+  const adminHref = (href: string) => addAdminHandoff(href, handoff);
 
-  const [
-    watchResult,
-    compResult,
-    dealResult,
-    growthResult,
-    portfolioResult,
-    readinessResult,
-  ] = await Promise.allSettled([
-    getMarketIntelWatchlist(),
-    getMarketIntelCompOverview(),
-    getMarketIntelDealWorkbench(),
-    getMarketIntelGrowthWorkbench(),
-    getMarketIntelPortfolio(),
-    getMarketIntelReadiness(),
-  ]);
+  const [watchResult, compResult, dealResult, portfolioResult, readinessResult] =
+    await Promise.allSettled([
+      getMarketIntelWatchlist(),
+      getMarketIntelCompOverview(),
+      getMarketIntelDealWorkbench(),
+      getMarketIntelPortfolio(),
+      getMarketIntelReadiness(),
+    ]);
 
   const watchlist = watchResult.status === "fulfilled" ? watchResult.value : [];
   const comps =
     compResult.status === "fulfilled" ? compResult.value.identities : [];
   const listings =
     dealResult.status === "fulfilled" ? dealResult.value.listings : [];
-  const growth =
-    growthResult.status === "fulfilled" ? growthResult.value : null;
   const portfolio =
     portfolioResult.status === "fulfilled" ? portfolioResult.value : null;
   const readiness =
     readinessResult.status === "fulfilled" ? readinessResult.value : null;
 
   const activeTargets = watchlist.filter((row) => row.active);
+  const exactMarkets = comps.filter((identity) => identity.latestValue).length;
+  const verifiedComps = comps.reduce(
+    (sum, identity) => sum + Number(identity.verifiedCompCount || 0),
+    0,
+  );
   const actionable = listings.filter((listing) => listing.score?.actionable);
-  const activeGrowthSpecs =
-    growth?.specs.filter((spec) =>
-      ["active", "watch", "bought"].includes(spec.status),
-    ) || [];
+  const mislisted = listings.filter((listing) => listing.suspected_mislisting);
+  const undervalued = listings.filter((listing) =>
+    ["steal", "great_buy", "good_buy", "wholesale_opportunity"].includes(
+      String(listing.score?.deal_label || ""),
+    ),
+  );
   const errors = [
     watchResult.status === "rejected" ? watchResult.reason : null,
     compResult.status === "rejected" ? compResult.reason : null,
     dealResult.status === "rejected" ? dealResult.reason : null,
-    growthResult.status === "rejected" ? growthResult.reason : null,
     portfolioResult.status === "rejected" ? portfolioResult.reason : null,
     readinessResult.status === "rejected" ? readinessResult.reason : null,
   ].filter(Boolean);
 
   return (
-    <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
-      <header className="border-b border-neutral-800 bg-[#101418] text-white">
-        <div className="mx-auto max-w-7xl px-6 py-8">
+    <main className="min-h-screen bg-[#f2efe7] text-neutral-950">
+      <header className="overflow-hidden border-b border-neutral-800 bg-[#0b1015] text-white">
+        <div className="mx-auto max-w-[1500px] px-6 py-8 md:py-12">
           <Link
-            href={addAdminHandoff("/admin", handoff)}
+            href={adminHref("/admin")}
             className="text-sm font-black text-amber-300 hover:underline"
           >
             ← Main Admin
           </Link>
-          <p className="mt-5 text-xs font-black uppercase tracking-[0.2em] text-cyan-300">
-            TCOS Market Intel™ Beta One
-          </p>
-          <h1 className="mt-2 text-4xl font-black md:text-5xl">
-            Private Market Intelligence
-          </h1>
-          <p className="mt-3 max-w-4xl font-semibold text-neutral-300">
-            Watch → Identify → Comp → Scan → Score → Alert → Deliver → Buy → Measure.
-            Immediate flips and controlled future-growth specs stay separate but use the
-            same exact-card data engine.
-          </p>
+          <div className="mt-6 grid gap-8 xl:grid-cols-[1.25fr_0.75fr] xl:items-end">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.22em] text-cyan-300">
+                TCOS Market Intel™
+              </p>
+              <h1 className="mt-3 max-w-5xl text-5xl font-black leading-[0.95] md:text-7xl">
+                Value every card.
+                <span className="block text-amber-300">Hunt every mistake.</span>
+              </h1>
+              <p className="mt-5 max-w-4xl text-lg font-semibold leading-8 text-neutral-300">
+                One data engine powers InstaComp™ and one profit engine searches for underpriced,
+                mislabeled, misspelled, and badly categorized cards. Everything else supports those
+                two jobs.
+              </p>
+              <div className="mt-7 flex flex-wrap gap-3">
+                <Link
+                  href={adminHref("/admin/market-intel/comps")}
+                  className="rounded-md bg-cyan-300 px-5 py-3 font-black text-black hover:bg-cyan-200"
+                >
+                  Open InstaComp™ Data Engine
+                </Link>
+                <Link
+                  href={adminHref("/admin/market-intel/deals")}
+                  className="rounded-md bg-amber-300 px-5 py-3 font-black text-black hover:bg-amber-200"
+                >
+                  Open Profit Hunter
+                </Link>
+              </div>
+            </div>
+
+            <section
+              className={`rounded-2xl border p-6 ${
+                readiness?.ready
+                  ? "border-emerald-400 bg-emerald-950/50"
+                  : "border-amber-400 bg-amber-950/40"
+              }`}
+            >
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-neutral-300">
+                System status
+              </p>
+              <h2 className="mt-2 text-3xl font-black">
+                {readiness?.ready
+                  ? "Data engine running"
+                  : `${readiness?.requiredFailures ?? "?"} blocker(s) need attention`}
+              </h2>
+              <p className="mt-3 font-semibold text-neutral-300">
+                Full market mining runs every six hours. The small Hot Watch hunter checks the
+                highest-upside targets during the hourly gaps.
+              </p>
+              <Link
+                href={adminHref("/admin/market-intel/readiness")}
+                className="mt-5 inline-flex font-black text-cyan-200 hover:underline"
+              >
+                Open system details →
+              </Link>
+            </section>
+          </div>
         </div>
       </header>
 
-      <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
+      <div className="mx-auto max-w-[1500px] space-y-6 px-6 py-7">
         {errors.length > 0 ? (
-          <section className="rounded-xl border border-rose-200 bg-rose-50 p-5 text-rose-950">
-            <h2 className="font-black">Some Market Intel data could not load</h2>
-            <p className="mt-1 text-sm font-semibold">
-              Open System Readiness for the exact missing table, permission, environment
-              variable, or data source.
+          <section className="rounded-xl border border-rose-300 bg-rose-50 p-5 text-rose-950">
+            <h2 className="text-xl font-black">Some Market Intel data is unavailable</h2>
+            <p className="mt-1 font-semibold">
+              Open System + Setup below for the exact missing table, permission, authorization, or
+              data source.
             </p>
           </section>
         ) : null}
 
-        <section
-          className={
-            readiness?.ready
-              ? "rounded-xl border border-emerald-200 bg-emerald-50 p-5 text-emerald-950"
-              : "rounded-xl border border-amber-200 bg-amber-50 p-5 text-amber-950"
-          }
-        >
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        {activeTargets.length > 0 ? (
+          <section className="flex flex-col gap-4 rounded-xl border border-fuchsia-300 bg-fuchsia-50 p-5 text-fuchsia-950 lg:flex-row lg:items-center lg:justify-between">
             <div>
-              <p className="text-xs font-black uppercase tracking-[0.16em]">
-                Beta One Readiness
-              </p>
+              <p className="text-xs font-black uppercase tracking-[0.18em]">Fresh-search reset pending</p>
               <h2 className="mt-1 text-2xl font-black">
-                {readiness?.ready
-                  ? "Core engine operational"
-                  : `${readiness?.requiredFailures ?? "?"} required blocker(s)`}
+                {activeTargets.length} current player search target
+                {activeTargets.length === 1 ? "" : "s"} still loaded
               </h2>
-            </div>
-            <Link
-              href={addAdminHandoff("/admin/market-intel/readiness", handoff)}
-              className="w-fit rounded-md bg-black px-4 py-2.5 text-sm font-black text-white"
-            >
-              Open Readiness Audit
-            </Link>
-          </div>
-        </section>
-
-        <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-7">
-          <Metric label="Active Targets" value={String(activeTargets.length)} />
-          <Metric label="Exact Markets" value={String(comps.length)} />
-          <Metric label="Active Listings" value={String(listings.length)} />
-          <Metric label="Actionable Buys" value={String(actionable.length)} />
-          <Metric label="Growth Specs" value={String(activeGrowthSpecs.length)} />
-          <Metric
-            label="Capital Invested"
-            value={money(portfolio?.totals.invested)}
-          />
-          <Metric
-            label="Combined Gross Return"
-            value={money(portfolio?.totals.combinedGrossReturn)}
-          />
-        </section>
-
-        <section className="grid grid-cols-1 gap-5 lg:grid-cols-2 xl:grid-cols-3">
-          <Workbench
-            eyebrow="Research Targets"
-            title="Player Watchlist"
-            detail={`${activeTargets.length} active target${
-              activeTargets.length === 1 ? "" : "s"
-            } with shared deal thresholds.`}
-            href={addAdminHandoff("/admin/market-intel/watchlist", handoff)}
-            action="Manage Watchlist"
-            tone="cyan"
-          />
-          <Workbench
-            eyebrow="Market Truth"
-            title="Sold Comp Engine"
-            detail="Exact raw, graded, parallel, variation, numbered, autograph, and memorabilia markets."
-            href={addAdminHandoff("/admin/market-intel/comps", handoff)}
-            action="Open Sold Comps"
-            tone="cyan"
-          />
-          <Workbench
-            eyebrow="Live Marketplace Adapter"
-            title="eBay Scanner"
-            detail="Hourly Browse API scans, deterministic identity matching, dedupe, price changes, and scoring."
-            href={addAdminHandoff("/admin/market-intel/ebay", handoff)}
-            action="Scan eBay"
-            tone="cyan"
-          />
-          <Workbench
-            eyebrow="Immediate Deal Engine"
-            title="Shark List™"
-            detail={`${actionable.length} actionable ${
-              actionable.length === 1 ? "opportunity" : "opportunities"
-            } ranked by present-day discount, expected GP, confidence, liquidity, and risk.`}
-            href={addAdminHandoff("/admin/market-intel/deals", handoff)}
-            action="Open Shark List"
-            tone="amber"
-          />
-          <Workbench
-            eyebrow="Controlled Future Upside"
-            title="Growth Spec Lab™"
-            detail={`${activeGrowthSpecs.length} non-base growth scenario${
-              activeGrowthSpecs.length === 1 ? "" : "s"
-            }; lots are broken down per card with target exit, break-even units, projected net profit, ROI, and risk.`}
-            href={addAdminHandoff("/admin/market-intel/growth-specs", handoff)}
-            action="Model Future Growers"
-            tone="amber"
-          />
-          <Workbench
-            eyebrow="Close the Money Loop"
-            title="Buy + Track Desk"
-            detail="Verify a live deal, enter the real out-the-door cost, and create the purchase position in one step."
-            href={addAdminHandoff("/admin/market-intel/buy", handoff)}
-            action="Buy and Track"
-            tone="amber"
-          />
-          <Workbench
-            eyebrow="Portfolio"
-            title="Portfolio Intelligence"
-            detail="Actual realized GP, remaining cost basis, current market value, unrealized spread, and combined return."
-            href={addAdminHandoff("/admin/market-intel/portfolio", handoff)}
-            action="Open Portfolio"
-            tone="amber"
-          />
-          <Workbench
-            eyebrow="Purchase Operations"
-            title="Purchase Ledger"
-            detail={`${portfolio?.positions.length || 0} tracked purchase position${
-              portfolio?.positions.length === 1 ? "" : "s"
-            } with unit cost and sale history.`}
-            href={addAdminHandoff("/admin/market-intel/purchases", handoff)}
-            action="Open Ledger"
-            tone="neutral"
-          />
-          <Workbench
-            eyebrow="Data Pipeline"
-            title="Ingestion Health"
-            detail="Marketplace feed freshness, stale listings, expired auctions, unmatched rows, and price changes."
-            href={addAdminHandoff("/admin/market-intel/ingestion", handoff)}
-            action="Open Ingestion Health"
-            tone="neutral"
-          />
-          <Workbench
-            eyebrow="Operating Reports"
-            title="Daily Intelligence + Alerts"
-            detail="Duplicate-suppressed alert outbox, direct links, daily Shark List, movers, and portfolio results."
-            href={addAdminHandoff("/admin/market-intel/reports", handoff)}
-            action="Open Reports + Alerts"
-            tone="neutral"
-          />
-          <Workbench
-            eyebrow="Delivery"
-            title="Email Delivery Center"
-            detail="Send pending qualifying deals and daily intelligence through Resend, with delivery history and duplicate suppression."
-            href={addAdminHandoff("/admin/market-intel/delivery", handoff)}
-            action="Open Delivery Center"
-            tone="cyan"
-          />
-        </section>
-
-        <section className="rounded-xl border border-neutral-200 bg-white p-6 shadow-sm">
-          <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-            <div>
-              <p className="text-xs font-black uppercase tracking-[0.18em] text-cyan-700">
-                Active Research Desk
+              <p className="mt-1 font-semibold">
+                Clear the old list before rebuilding a smaller, higher-quality profit search list.
               </p>
-              <h2 className="mt-1 text-3xl font-black">Who we are watching</h2>
             </div>
             <Link
-              href={addAdminHandoff("/admin/market-intel/watchlist", handoff)}
-              className="w-fit rounded-md bg-black px-4 py-2.5 text-sm font-black text-white"
+              href={adminHref("/admin/market-intel/fresh-start")}
+              className="w-fit rounded-md bg-fuchsia-900 px-5 py-3 font-black text-white"
             >
-              Add or Pause Players
+              Open Fresh Start
             </Link>
-          </div>
+          </section>
+        ) : null}
 
-          {activeTargets.length === 0 ? (
-            <p className="mt-5 font-semibold text-neutral-600">
-              No active database watchlist yet.
-            </p>
-          ) : (
-            <div className="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {activeTargets.slice(0, 15).map((row) => (
-                <div
-                  key={row.id}
-                  className="rounded-lg border border-neutral-200 bg-neutral-50 p-4"
-                >
-                  <p className="text-lg font-black">
-                    {row.subject?.name || "Unmatched target"}
-                  </p>
-                  <p className="mt-1 text-sm font-semibold text-neutral-600">
-                    {row.subject?.sport_or_category || "Category not set"} · Priority{" "}
-                    {row.priority}
-                  </p>
-                  <p className="mt-2 text-xs font-black uppercase tracking-wide text-neutral-500">
-                    {row.minimum_discount_pct}% below market · $
-                    {row.minimum_estimated_net_profit.toFixed(2)} minimum net
-                  </p>
-                </div>
-              ))}
-            </div>
-          )}
+        <section className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          <Metric label="Exact Card Markets" value={String(exactMarkets)} href={adminHref("/admin/market-intel/comps")} />
+          <Metric label="Verified Sold Comps" value={String(verifiedComps)} href={adminHref("/admin/market-intel/comps")} />
+          <Metric label="Money Opportunities" value={String(actionable.length)} href={adminHref("/admin/market-intel/deals")} />
+          <Metric label="Suspected Mislistings" value={String(mislisted.length)} href={adminHref("/admin/market-intel/deals#active-listings")} />
+        </section>
+
+        <section className="grid gap-6 xl:grid-cols-2">
+          <Category
+            number="01"
+            eyebrow="Primary engine"
+            title="Value Engine + InstaComp™"
+            description="Build exact-card market truth from verified sold comps, purchase receipts, card identities, and dated value snapshots. This is the data whore that powers pricing everywhere in TCOS."
+            tone="cyan"
+            primaryLabel="Open Value Engine"
+            primaryHref={adminHref("/admin/market-intel/comps")}
+            stats={[
+              ["Exact identities", String(comps.length)],
+              ["Markets valued", String(exactMarkets)],
+              ["Verified comps", String(verifiedComps)],
+            ]}
+            links={[
+              ["Watch Center", adminHref("/admin/market-intel/watch-center")],
+              ["Exact-card Discovery", adminHref("/admin/market-intel/discovery")],
+              ["Track purchased values", adminHref("/admin/market-intel/purchases")],
+            ]}
+          />
+
+          <Category
+            number="02"
+            eyebrow="Primary profit engine"
+            title="Profit Hunter + Mislist Search"
+            description="Search live marketplaces for cards listed too cheap, spelled wrong, labeled badly, missing card details, or buried in lots. Score the opportunity before somebody else finds it."
+            tone="amber"
+            primaryLabel="Open Profit Hunter"
+            primaryHref={adminHref("/admin/market-intel/deals")}
+            stats={[
+              ["Actionable", String(actionable.length)],
+              ["Undervalued", String(undervalued.length)],
+              ["Mislisted", String(mislisted.length)],
+            ]}
+            links={[
+              ["Manage tight search targets", adminHref("/admin/market-intel/watchlist")],
+              ["eBay scan controls", adminHref("/admin/market-intel/ebay")],
+              ["Growth Spec Lab™", adminHref("/admin/market-intel/growth-specs")],
+            ]}
+          />
+        </section>
+
+        <section className="grid gap-6 lg:grid-cols-2">
+          <Category
+            number="03"
+            eyebrow="Money trail"
+            title="Buys + Performance"
+            description="Import real eBay purchases, manually enter card-show or shop buys, choose Hold or Resale, and measure actual profit against current InstaComp™ value."
+            tone="lime"
+            primaryLabel="Open Purchase Ledger"
+            primaryHref={adminHref("/admin/market-intel/purchases")}
+            stats={[
+              ["Positions", String(portfolio?.positions.length || 0)],
+              ["Capital invested", money(portfolio?.totals.invested)],
+              ["Gross return", money(portfolio?.totals.combinedGrossReturn)],
+            ]}
+            links={[
+              ["eBay Purchase Inbox", adminHref("/admin/market-intel/purchases/ebay-intake")],
+              ["Manual Card Show / Shop Buy", adminHref("/admin/market-intel/purchases/new")],
+              ["Portfolio Intelligence", adminHref("/admin/market-intel/portfolio")],
+            ]}
+          />
+
+          <Category
+            number="04"
+            eyebrow="Controls and maintenance"
+            title="System + Setup"
+            description="Keep the data pipeline healthy, review alerts and delivery, reconnect sources, and use the controlled Fresh Start cleanup when the research list or test data needs to be rebuilt."
+            tone="neutral"
+            primaryLabel="Open System Readiness"
+            primaryHref={adminHref("/admin/market-intel/readiness")}
+            stats={[
+              ["Search targets", String(activeTargets.length)],
+              ["Live listings", String(listings.length)],
+              ["Status", readiness?.ready ? "READY" : "CHECK"],
+            ]}
+            links={[
+              ["Fresh Start Cleanup", adminHref("/admin/market-intel/fresh-start")],
+              ["Ingestion Health", adminHref("/admin/market-intel/ingestion")],
+              ["Alerts + Reports", adminHref("/admin/market-intel/reports")],
+              ["Email Delivery", adminHref("/admin/market-intel/delivery")],
+            ]}
+          />
         </section>
       </div>
     </main>
   );
 }
 
-function Metric({ label, value }: { label: string; value: string }) {
+function Metric({
+  label,
+  value,
+  href,
+}: {
+  label: string;
+  value: string;
+  href: string;
+}) {
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
-      <p className="text-xs font-black uppercase tracking-wider text-neutral-500">
-        {label}
-      </p>
-      <p className="mt-2 text-2xl font-black">{value}</p>
-    </div>
+    <Link
+      href={href}
+      className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-cyan-400 hover:shadow-md"
+    >
+      <p className="text-xs font-black uppercase tracking-wider text-neutral-500">{label}</p>
+      <p className="mt-2 text-3xl font-black">{value}</p>
+      <p className="mt-2 text-xs font-black text-cyan-700">OPEN →</p>
+    </Link>
   );
 }
 
-function Workbench({
+function Category({
+  number,
   eyebrow,
   title,
-  detail,
-  href,
-  action,
+  description,
   tone,
+  primaryLabel,
+  primaryHref,
+  stats,
+  links,
 }: {
+  number: string;
   eyebrow: string;
   title: string;
-  detail: string;
-  href: string;
-  action: string;
-  tone: "amber" | "cyan" | "neutral";
+  description: string;
+  tone: "cyan" | "amber" | "lime" | "neutral";
+  primaryLabel: string;
+  primaryHref: string;
+  stats: Array<[string, string]>;
+  links: Array<[string, string]>;
 }) {
-  const toneClass =
-    tone === "amber"
-      ? "border-amber-200 bg-amber-50"
-      : tone === "cyan"
-        ? "border-cyan-200 bg-cyan-50"
-        : "border-neutral-200 bg-white";
+  const classes = {
+    cyan: {
+      shell: "border-cyan-300 bg-gradient-to-br from-cyan-50 to-white",
+      number: "text-cyan-700",
+      button: "bg-cyan-900 text-white hover:bg-cyan-800",
+      link: "text-cyan-900",
+    },
+    amber: {
+      shell: "border-amber-300 bg-gradient-to-br from-amber-50 to-white",
+      number: "text-amber-700",
+      button: "bg-amber-400 text-black hover:bg-amber-300",
+      link: "text-amber-950",
+    },
+    lime: {
+      shell: "border-lime-300 bg-gradient-to-br from-lime-50 to-white",
+      number: "text-lime-700",
+      button: "bg-lime-800 text-white hover:bg-lime-700",
+      link: "text-lime-950",
+    },
+    neutral: {
+      shell: "border-neutral-300 bg-gradient-to-br from-neutral-100 to-white",
+      number: "text-neutral-500",
+      button: "bg-neutral-900 text-white hover:bg-black",
+      link: "text-neutral-900",
+    },
+  }[tone];
 
   return (
-    <article className={`rounded-xl border p-6 shadow-sm ${toneClass}`}>
-      <p className="text-xs font-black uppercase tracking-[0.18em] text-neutral-600">
-        {eyebrow}
-      </p>
-      <h2 className="mt-1 text-3xl font-black">{title}</h2>
-      <p className="mt-3 font-semibold leading-6 text-neutral-700">{detail}</p>
+    <article className={`rounded-2xl border p-6 shadow-sm ${classes.shell}`}>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-xs font-black uppercase tracking-[0.18em] text-neutral-600">
+            {eyebrow}
+          </p>
+          <h2 className="mt-2 text-3xl font-black leading-tight md:text-4xl">{title}</h2>
+        </div>
+        <span className={`text-5xl font-black ${classes.number}`}>{number}</span>
+      </div>
+      <p className="mt-4 max-w-3xl font-semibold leading-7 text-neutral-700">{description}</p>
+
+      <div className="mt-5 grid grid-cols-3 gap-2">
+        {stats.map(([label, value]) => (
+          <div key={label} className="rounded-lg border border-white/80 bg-white/75 p-3">
+            <p className="text-[10px] font-black uppercase tracking-wider text-neutral-500">
+              {label}
+            </p>
+            <p className="mt-1 text-xl font-black">{value}</p>
+          </div>
+        ))}
+      </div>
+
       <Link
-        href={href}
-        className="mt-5 inline-block rounded-md bg-black px-4 py-2.5 text-sm font-black text-white"
+        href={primaryHref}
+        className={`mt-5 inline-flex rounded-md px-5 py-3 font-black ${classes.button}`}
       >
-        {action}
+        {primaryLabel}
       </Link>
+
+      <div className="mt-5 border-t border-neutral-300/70 pt-4">
+        <p className="text-xs font-black uppercase tracking-[0.16em] text-neutral-500">
+          More inside
+        </p>
+        <div className="mt-3 flex flex-wrap gap-x-5 gap-y-3">
+          {links.map(([label, href]) => (
+            <Link key={label} href={href} className={`font-black hover:underline ${classes.link}`}>
+              {label} →
+            </Link>
+          ))}
+        </div>
+      </div>
     </article>
   );
 }

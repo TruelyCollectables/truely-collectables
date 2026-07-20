@@ -1,4 +1,6 @@
-const ADMIN_SESSION_MAX_AGE_SECONDS = 60 * 60 * 24;
+const ONE_DAY_SECONDS = 60 * 60 * 24;
+const ADMIN_SESSION_MAX_AGE_SECONDS =
+  process.env.VERCEL_ENV === "preview" ? ONE_DAY_SECONDS * 30 : ONE_DAY_SECONDS;
 
 export const ADMIN_SESSION_COOKIE_NAME = "tcos_admin_auth_v3";
 export const LEGACY_ADMIN_SESSION_COOKIE_NAME = "admin_auth";

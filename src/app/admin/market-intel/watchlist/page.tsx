@@ -9,14 +9,13 @@ export const revalidate = 0;
 type PageProps = {
   searchParams?: Promise<{
     saved?: string;
-    seeded?: string;
     error?: string;
     [ADMIN_HANDOFF_PARAM]?: string;
   }>;
 };
 
 const fieldClass =
-  "w-full rounded-md border border-neutral-300 bg-white px-3 py-2 outline-none focus:border-black";
+  "w-full rounded-md border border-neutral-300 bg-white px-3 py-2.5 outline-none focus:border-black";
 
 export default async function MarketIntelWatchlistPage({ searchParams }: PageProps) {
   const query = await searchParams;
@@ -32,33 +31,65 @@ export default async function MarketIntelWatchlistPage({ searchParams }: PagePro
             href={addAdminHandoff("/admin/market-intel", handoff)}
             className="text-sm font-black text-amber-300 hover:underline"
           >
-            ← Market Intel Command Center
+            ← Market Intel
           </Link>
-          <p className="mt-5 text-xs font-black uppercase tracking-[0.2em] text-cyan-300">
-            TCOS Market Intel™ Beta One
+          <p className="mt-5 text-xs font-black uppercase tracking-[0.2em] text-amber-300">
+            Profit Hunter setup
           </p>
-          <h1 className="mt-2 text-4xl font-black">Player Watchlist</h1>
-          <p className="mt-2 max-w-3xl font-semibold text-neutral-300">
-            Add a player once and every future scanner, comp engine, and alert uses the same rules.
+          <h1 className="mt-2 text-4xl font-black md:text-5xl">Profit Search Targets</h1>
+          <p className="mt-3 max-w-4xl font-semibold text-neutral-300">
+            Keep this list small and intentional. Every active target consumes search attention, so
+            only add players with a real chance of mislistings, misspellings, undervalued cards, or
+            strong resale demand.
           </p>
         </div>
       </header>
 
       <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
-        {query?.saved === "1" ? <Notice>Player saved.</Notice> : null}
-        {query?.seeded === "1" ? <Notice>Current Demidov and WNBA list loaded.</Notice> : null}
+        {query?.saved === "1" ? <Notice>Search target saved.</Notice> : null}
         {query?.error ? <Notice error>{query.error}</Notice> : null}
 
         <section className="grid grid-cols-1 gap-3 md:grid-cols-3">
-          <Metric label="Active Targets" value={String(activeCount)} />
+          <Metric label="Active Search Targets" value={String(activeCount)} />
           <Metric label="Paused Targets" value={String(rows.length - activeCount)} />
-          <Metric label="Default Rule" value="20% Below" detail="$15 net-profit target" />
+          <Metric label="Recommended Starting Size" value="3–5" detail="High-upside players only" />
+        </section>
+
+        <section className="flex flex-col gap-4 rounded-xl border border-fuchsia-300 bg-fuchsia-50 p-5 text-fuchsia-950 lg:flex-row lg:items-center lg:justify-between">
+          <div>
+            <p className="text-xs font-black uppercase tracking-[0.18em]">Clean-slate control</p>
+            <h2 className="mt-1 text-2xl font-black">Start the search list over</h2>
+            <p className="mt-1 font-semibold">
+              Fresh Start clears every active and paused search target while preserving exact-card
+              identities, comps, and market history.
+            </p>
+          </div>
+          <Link
+            href={addAdminHandoff("/admin/market-intel/fresh-start", handoff)}
+            className="w-fit rounded-md bg-fuchsia-900 px-5 py-3 font-black text-white"
+          >
+            Open Fresh Start
+          </Link>
         </section>
 
         <section className="grid grid-cols-1 gap-6 xl:grid-cols-[0.8fr_1.2fr]">
           <div className="space-y-6">
+            <section className="rounded-xl border border-amber-300 bg-amber-50 p-6 text-amber-950 shadow-sm">
+              <p className="text-xs font-black uppercase tracking-[0.18em]">Before adding anyone</p>
+              <h2 className="mt-1 text-2xl font-black">A target needs a money reason</h2>
+              <div className="mt-4 space-y-3 text-sm font-semibold leading-6">
+                <p>✓ Sellers frequently misspell or shorten the player’s name.</p>
+                <p>✓ The player has multiple confusing parallels, inserts, or rookie products.</p>
+                <p>✓ Demand is strong enough to resell the card after fees and shipping.</p>
+                <p>✓ You know the exact card types worth hunting—not every base card.</p>
+              </div>
+            </section>
+
             <section className="rounded-xl border border-neutral-200 bg-white p-6 shadow-sm">
-              <h2 className="text-2xl font-black">Add Player</h2>
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-cyan-700">
+                Add one deliberate target
+              </p>
+              <h2 className="mt-1 text-2xl font-black">New Profit Search Target</h2>
               <form
                 method="post"
                 action={addAdminHandoff("/api/admin/market-intel/watchlist", handoff)}
@@ -68,62 +99,51 @@ export default async function MarketIntelWatchlistPage({ searchParams }: PagePro
                 <Input name="sportOrCategory" label="Sport / category" placeholder="Hockey" />
                 <Input name="leagueOrBrand" label="League / brand" placeholder="NHL" />
                 <Input name="teamOrAffiliation" label="Team / affiliation" />
-                <Input name="priority" label="Priority" type="number" defaultValue="50" min="0" max="100" />
+                <Input name="priority" label="Search priority (0–100)" type="number" defaultValue="75" min="0" max="100" />
                 <Input name="minimumDiscountPct" label="Minimum discount %" type="number" defaultValue="20" min="0" step="0.1" />
-                <Input name="minimumNetProfit" label="Minimum net profit" type="number" defaultValue="15" min="0" step="0.01" />
-                <Input name="notes" label="Notes" wide />
+                <Input name="minimumNetProfit" label="Minimum expected net profit" type="number" defaultValue="15" min="0" step="0.01" />
+                <Input
+                  name="notes"
+                  label="Why this player is worth hunting"
+                  placeholder="Frequent misspellings, confusing parallels, strong resale demand..."
+                  required
+                  wide
+                />
                 <div className="flex flex-wrap gap-5 text-sm font-black sm:col-span-2">
-                  <Check name="includeRaw" label="Raw" />
-                  <Check name="includeGraded" label="Graded" />
+                  <Check name="includeRaw" label="Raw cards" />
+                  <Check name="includeGraded" label="Graded cards" />
                   <Check name="includeLots" label="Lots / wholesale" />
                 </div>
                 <AdminSubmitButton
                   className="rounded-md bg-black px-5 py-3 font-black text-white sm:col-span-2"
-                  pendingChildren="Adding player..."
-                  title="Add this player to the shared Market Intel watchlist used by scanner, comps, and alert jobs."
+                  pendingChildren="Adding target..."
+                  title="Add this player to the focused Profit Hunter search list used by the marketplace scanners and alerts."
                 >
-                  Add to Watchlist
+                  Add Profit Search Target
                 </AdminSubmitButton>
                 <p className="text-xs font-bold text-neutral-600 sm:col-span-2">
-                  Saves one shared target for scanner, comp engine, deal discovery, and alert rules.
-                </p>
-              </form>
-            </section>
-
-            <section className="rounded-xl border border-cyan-200 bg-cyan-50 p-6">
-              <h2 className="text-xl font-black">Load Current Research List</h2>
-              <p className="mt-2 text-sm font-semibold text-cyan-950">
-                Ivan Demidov plus the current Caitlin Clark, Paige Bueckers, Angel Reese,
-                and WNBA future-stars list.
-              </p>
-              <form
-                method="post"
-                action={addAdminHandoff("/api/admin/market-intel/watchlist/seed", handoff)}
-                className="mt-4"
-              >
-                <AdminSubmitButton
-                  className="rounded-md bg-cyan-700 px-4 py-2.5 text-sm font-black text-white"
-                  pendingChildren="Loading watchlist..."
-                  title="Load the curated current research watchlist without deleting existing player history."
-                >
-                  Load Current Watchlist
-                </AdminSubmitButton>
-                <p className="mt-2 text-xs font-bold text-cyan-950">
-                  Adds or refreshes curated targets; existing watchlist history is preserved.
+                  The target becomes eligible for the six-hour full miner and the smaller hourly Hot
+                  Watch shortlist when its priority and exact-card data justify it.
                 </p>
               </form>
             </section>
           </div>
 
-          <section className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
+          <section id="tracked-players" className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm scroll-mt-6">
             <div className="border-b border-neutral-200 p-5">
-              <h2 className="text-2xl font-black">Tracked Players</h2>
+              <h2 className="text-2xl font-black">Current Search Targets</h2>
               <p className="mt-1 text-sm font-semibold text-neutral-600">
-                Pause a player without deleting its history.
+                Pause a target without deleting card history. Use Fresh Start when the entire list
+                needs to be rebuilt.
               </p>
             </div>
             {rows.length === 0 ? (
-              <p className="p-6 font-semibold text-neutral-600">No watchlist entries yet.</p>
+              <div className="p-8 text-center">
+                <p className="text-2xl font-black">The search list is clean.</p>
+                <p className="mt-2 font-semibold text-neutral-600">
+                  Add only the first player that has a strong mislist and resale case.
+                </p>
+              </div>
             ) : (
               <div className="divide-y divide-neutral-200">
                 {rows.map((row) => (
@@ -137,11 +157,18 @@ export default async function MarketIntelWatchlistPage({ searchParams }: PagePro
                           </span>
                         </div>
                         <p className="mt-1 text-sm font-semibold text-neutral-600">
-                          {[row.subject?.sport_or_category, row.subject?.league_or_brand].filter(Boolean).join(" · ") || "Category not set"}
+                          {[row.subject?.sport_or_category, row.subject?.league_or_brand]
+                            .filter(Boolean)
+                            .join(" · ") || "Category not set"}
                         </p>
                         <p className="mt-2 text-xs font-black uppercase tracking-wide text-neutral-500">
-                          Priority {row.priority} · {row.minimum_discount_pct}% discount · ${row.minimum_estimated_net_profit.toFixed(2)} net
+                          Priority {row.priority} · {row.minimum_discount_pct}% below market · ${row.minimum_estimated_net_profit.toFixed(2)} minimum net
                         </p>
+                        {row.notes ? (
+                          <p className="mt-3 max-w-2xl text-sm font-semibold text-neutral-700">
+                            {row.notes}
+                          </p>
+                        ) : null}
                       </div>
                       <form
                         method="post"
@@ -152,17 +179,12 @@ export default async function MarketIntelWatchlistPage({ searchParams }: PagePro
                           pendingChildren={row.active ? "Pausing..." : "Reactivating..."}
                           title={
                             row.active
-                              ? `Pause ${row.subject?.name || "this target"} in future Market Intel scans and alerts without deleting history.`
-                              : `Reactivate ${row.subject?.name || "this target"} for future Market Intel scans and alerts.`
+                              ? `Pause ${row.subject?.name || "this target"} in future scans without deleting card history.`
+                              : `Return ${row.subject?.name || "this target"} to Profit Hunter scans.`
                           }
                         >
-                          {row.active ? "Pause" : "Reactivate"}
+                          {row.active ? "Pause Search" : "Reactivate Search"}
                         </AdminSubmitButton>
-                        <p className="mt-2 text-xs font-bold text-neutral-600">
-                          {row.active
-                            ? "Pausing keeps research history but removes this target from future scans and alerts."
-                            : "Reactivating returns this target to future scans, comps, and alerts."}
-                        </p>
                       </form>
                     </div>
                   </article>

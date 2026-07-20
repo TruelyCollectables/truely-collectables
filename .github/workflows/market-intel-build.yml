@@ -21,6 +21,28 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Validate portable worker launchers
+        shell: bash
+        run: |
+          set -euo pipefail
+          node --check scripts/run-market-intel-worker-service.mjs
+          node --check scripts/install-market-intel-worker-launchd.mjs
+          node --check scripts/status-market-intel-worker-launchd.mjs
+          node --check scripts/uninstall-market-intel-worker-launchd.mjs
+          node --check scripts/prepare-market-intel-worker-env.mjs
+          node --check scripts/run-with-market-intel-env.mjs
+          node --check scripts/simulate-market-intel-worker-env.mjs
+          node --check scripts/audit-supabase-migrations.mjs
+          node --check scripts/fix-admin-preview-auth.mjs
+          bash -n scripts/run-market-intel-worker-cycle.sh
+          bash -n scripts/bootstrap-market-intel-worker-macos.sh
+          node scripts/simulate-market-intel-worker-env.mjs
+          node scripts/audit-supabase-migrations.mjs | tee supabase-migration-audit.json
+          node --import tsx --input-type=module -e "await import('./scripts/preflight-market-intel-worker.ts')"
+          node --import tsx --input-type=module -e "await import('./scripts/preflight-market-intel-migration-data.ts')"
+          node --import tsx scripts/run-market-intel-identity-proof-simulations.ts
+          node --import tsx scripts/run-market-intel-candidate-match-simulations.ts
+
       - name: Build
         env:
           NEXT_PUBLIC_SUPABASE_URL: https://example.supabase.co
@@ -31,6 +53,14 @@ jobs:
         run: |
           set -o pipefail
           npm run build 2>&1 | tee market-intel-build.log
+
+      - name: Upload migration audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: supabase-migration-audit
+          path: supabase-migration-audit.json
+          if-no-files-found: warn
 
       - name: Upload build log
         if: always()
