@@ -33,6 +33,7 @@ jobs:
           node --check scripts/run-with-market-intel-env.mjs
           node --check scripts/simulate-market-intel-worker-env.mjs
           node --check scripts/audit-supabase-migrations.mjs
+          node --check scripts/fix-admin-preview-auth.mjs
           bash -n scripts/run-market-intel-worker-cycle.sh
           bash -n scripts/bootstrap-market-intel-worker-macos.sh
           node scripts/simulate-market-intel-worker-env.mjs
