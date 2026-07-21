@@ -92,6 +92,128 @@ function statusTone(value: string | null | undefined) {
   return "border-neutral-200 bg-neutral-100 text-neutral-700";
 }
 
+type FileCardTone = "amber" | "emerald" | "neutral" | "red" | "sky";
+
+const primaryActionClass =
+  "rounded-full bg-neutral-950 px-4 py-2 text-center text-sm font-black text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-neutral-800 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400";
+const secondaryActionClass =
+  "rounded-full border border-neutral-300 bg-white px-4 py-2 text-center text-sm font-black text-neutral-800 shadow-sm transition hover:-translate-y-0.5 hover:bg-neutral-50 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400";
+
+const fileCardToneClasses: Record<
+  FileCardTone,
+  { card: string; label: string; detail: string; pill: string }
+> = {
+  amber: {
+    card: "border-amber-200 bg-amber-50 ring-amber-900/10",
+    detail: "text-amber-950",
+    label: "text-amber-700",
+    pill: "border-amber-200 bg-white text-amber-950",
+  },
+  emerald: {
+    card: "border-emerald-200 bg-emerald-50 ring-emerald-900/10",
+    detail: "text-emerald-950",
+    label: "text-emerald-700",
+    pill: "border-emerald-200 bg-white text-emerald-950",
+  },
+  neutral: {
+    card: "border-neutral-200 bg-white ring-black/[0.02]",
+    detail: "text-neutral-500",
+    label: "text-neutral-400",
+    pill: "border-neutral-200 bg-neutral-100 text-neutral-700",
+  },
+  red: {
+    card: "border-red-200 bg-red-50 ring-red-900/10",
+    detail: "text-red-950",
+    label: "text-red-700",
+    pill: "border-red-200 bg-white text-red-950",
+  },
+  sky: {
+    card: "border-sky-200 bg-sky-50 ring-sky-900/10",
+    detail: "text-sky-950",
+    label: "text-sky-700",
+    pill: "border-sky-200 bg-white text-sky-950",
+  },
+};
+
+function FileMetricCard({
+  detail,
+  label: labelText,
+  tone = "neutral",
+  value,
+}: {
+  detail: string;
+  label: string;
+  tone?: FileCardTone;
+  value: number | string;
+}) {
+  const classes = fileCardToneClasses[tone];
+
+  return (
+    <div
+      className={`rounded-3xl border p-5 shadow-sm ring-1 ${classes.card}`}
+    >
+      <p
+        className={`text-xs font-black uppercase tracking-[0.16em] ${classes.label}`}
+      >
+        {labelText}
+      </p>
+      <p className="mt-3 break-words text-3xl font-black">{value}</p>
+      <p className={`mt-1 text-sm font-semibold ${classes.detail}`}>
+        {detail}
+      </p>
+    </div>
+  );
+}
+
+function FilePostureCard({
+  cta,
+  detail,
+  href,
+  label: labelText,
+  status,
+  tone,
+}: {
+  cta: string;
+  detail: string;
+  href: string;
+  label: string;
+  status: string;
+  tone: FileCardTone;
+}) {
+  const classes = fileCardToneClasses[tone];
+
+  return (
+    <article
+      className={`flex h-full flex-col justify-between rounded-3xl border p-5 shadow-sm ring-1 ${classes.card}`}
+    >
+      <div>
+        <p
+          className={`text-xs font-black uppercase tracking-[0.16em] ${classes.label}`}
+        >
+          {labelText}
+        </p>
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span
+            className={`rounded-full border px-3 py-1 text-xs font-black ${classes.pill}`}
+          >
+            {status}
+          </span>
+        </div>
+        <p className={`mt-4 text-sm font-semibold leading-6 ${classes.detail}`}>
+          {detail}
+        </p>
+      </div>
+
+      <Link
+        href={href}
+        className={`mt-5 inline-flex w-fit ${secondaryActionClass}`}
+      >
+        {cta} →
+      </Link>
+    </article>
+  );
+}
+
 export default async function AdminFilesPage() {
   const storeId = getActiveStoreId();
   const supabase = createSupabaseServerClient({ admin: true });
@@ -163,10 +285,40 @@ export default async function AdminFilesPage() {
     casePackets.filter(
       (packet) => packet.email_error || packet.provider_evidence_error,
     ).length;
+  const evidenceErrorCount = reports.filter((report) => report.email_error)
+    .length;
+  const casePacketErrorCount = casePackets.filter(
+    (packet) => packet.email_error || packet.provider_evidence_error,
+  ).length;
+  const fileDataPosture = fileDataUnavailable
+    ? "SOURCE WARNING"
+    : attentionCount > 0
+      ? "ACTION REQUIRED"
+      : "EVIDENCE READY";
+  const primaryFileAction = fileDataUnavailable
+    ? {
+        cta: "Open Production Smoke",
+        detail:
+          "One or more evidence sources failed to load. Verify the backing tables before treating an empty queue as clean.",
+        href: "/admin/production-smoke",
+      }
+    : attentionCount > 0
+      ? {
+          cta: "Open Case Queue",
+          detail:
+            "Evidence delivery or provider submission errors need review before the dispute file can be considered complete.",
+          href: "/admin/order-review-cases?status=all",
+        }
+      : {
+          cta: "Build Next Packet",
+          detail:
+            "Evidence sources loaded cleanly and no delivery/provider errors are currently flagged.",
+          href: "/admin/orders",
+        };
 
   return (
-    <main className="space-y-6 bg-neutral-50 px-6 py-8 text-neutral-950">
-      <section className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm">
+    <main className="min-h-screen space-y-6 bg-neutral-50 px-6 py-8 text-neutral-950">
+      <section className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm ring-1 ring-black/[0.02]">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.18em] text-sky-700">
@@ -188,19 +340,19 @@ export default async function AdminFilesPage() {
           <div className="flex flex-wrap gap-3">
             <Link
               href="/admin/order-review-cases"
-              className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50"
+              className={secondaryActionClass}
             >
               Cases
             </Link>
             <Link
               href="/admin/orders"
-              className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50"
+              className={secondaryActionClass}
             >
               Orders
             </Link>
             <Link
               href="/admin"
-              className="rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white hover:bg-neutral-800"
+              className={primaryActionClass}
             >
               Dashboard
             </Link>
@@ -209,91 +361,89 @@ export default async function AdminFilesPage() {
       </section>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <div className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
-          <p className="text-xs font-black uppercase tracking-[0.16em] text-neutral-400">
-            Evidence PDFs
-          </p>
-          <p className="mt-3 break-words text-3xl font-black">
-            {evidenceUnavailable ? "Unavailable" : reports.length}
-          </p>
-          <p className="mt-1 text-sm font-semibold text-neutral-500">
-            {evidenceUnavailable
+        <FileMetricCard
+          detail={
+            evidenceUnavailable
               ? "Evidence packet storage did not load"
-              : `${emailedReports} emailed to support or operators`}
-          </p>
-        </div>
+              : `${emailedReports} emailed to support or operators`
+          }
+          label="Evidence PDFs"
+          value={evidenceUnavailable ? "Unavailable" : reports.length}
+        />
 
-        <div className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
-          <p className="text-xs font-black uppercase tracking-[0.16em] text-neutral-400">
-            Case packets
-          </p>
-          <p className="mt-3 break-words text-3xl font-black">
-            {casePacketsUnavailable ? "Unavailable" : casePackets.length}
-          </p>
-          <p className="mt-1 text-sm font-semibold text-neutral-500">
-            {casePacketsUnavailable
+        <FileMetricCard
+          detail={
+            casePacketsUnavailable
               ? "Case packet history did not load"
-              : `${emailedCasePackets} emailed from the review queue`}
-          </p>
-        </div>
+              : `${emailedCasePackets} emailed from the review queue`
+          }
+          label="Case packets"
+          value={casePacketsUnavailable ? "Unavailable" : casePackets.length}
+        />
 
-        <div className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
-          <p className="text-xs font-black uppercase tracking-[0.16em] text-neutral-400">
-            Stripe disputes
-          </p>
-          <p className="mt-3 break-words text-3xl font-black">
-            {casePacketsUnavailable ? "Unavailable" : stripeLinkedPackets}
-          </p>
-          <p className="mt-1 text-sm font-semibold text-neutral-500">
-            {casePacketsUnavailable
+        <FileMetricCard
+          detail={
+            casePacketsUnavailable
               ? "Stripe dispute packet data did not load"
-              : `${unresolvedStripePackets} still need final evidence submission`}
-          </p>
-        </div>
+              : `${unresolvedStripePackets} still need final evidence submission`
+          }
+          label="Stripe disputes"
+          value={casePacketsUnavailable ? "Unavailable" : stripeLinkedPackets}
+        />
 
-        <div
-          className={`rounded-3xl border p-5 shadow-sm ${
+        <FileMetricCard
+          detail={
             fileDataUnavailable
-              ? "border-amber-200 bg-amber-50"
-              : attentionCount > 0
-              ? "border-red-200 bg-red-50"
-              : "border-emerald-200 bg-emerald-50"
-          }`}
-        >
-          <p
-            className={`text-xs font-black uppercase tracking-[0.16em] ${
-              fileDataUnavailable
-                ? "text-amber-700"
-                : attentionCount > 0
-                  ? "text-red-700"
-                  : "text-emerald-700"
-            }`}
-          >
-            Needs attention
-          </p>
-          <p className="mt-3 break-words text-3xl font-black">
-            {evidenceUnavailable || casePacketsUnavailable
-              ? "Unavailable"
-              : attentionCount}
-          </p>
-          <p
-            className={`mt-1 text-sm font-semibold ${
-              fileDataUnavailable
-                ? "text-amber-950"
-                : attentionCount > 0
-                  ? "text-red-950"
-                  : "text-emerald-950"
-            }`}
-          >
-            {fileDataUnavailable
               ? "One or more evidence sources did not load"
-              : "Email or provider evidence errors"}
-          </p>
-        </div>
+              : "Email or provider evidence errors"
+          }
+          label="Needs attention"
+          tone={
+            fileDataUnavailable
+              ? "amber"
+              : attentionCount > 0
+                ? "red"
+                : "emerald"
+          }
+          value={
+            evidenceUnavailable || casePacketsUnavailable
+              ? "Unavailable"
+              : attentionCount
+          }
+        />
+      </section>
+
+      <section className="grid gap-4 lg:grid-cols-3">
+        <FilePostureCard
+          cta={primaryFileAction.cta}
+          detail={primaryFileAction.detail}
+          href={primaryFileAction.href}
+          label="Evidence posture"
+          status={fileDataPosture}
+          tone={
+            fileDataUnavailable ? "amber" : attentionCount > 0 ? "red" : "emerald"
+          }
+        />
+        <FilePostureCard
+          cta="Open Dispute Queue"
+          detail={`${evidenceErrorCount} transaction packet delivery issue(s); ${casePacketErrorCount} case packet or provider issue(s).`}
+          href="/admin/order-review-cases?status=all"
+          label="Error lane"
+          status={`${attentionCount} alert${attentionCount === 1 ? "" : "s"}`}
+          tone={attentionCount > 0 ? "red" : "emerald"}
+        />
+        <FilePostureCard
+          cta="Review Latest Orders"
+          detail="Downloads, order links, and case queue routes stay visible so evidence work does not dead-end after a packet is found."
+          href="/admin/orders"
+          label="Operator handoff"
+          status={fileDataUnavailable ? "VERIFY SOURCES" : "AUDIT-READY"}
+          tone={fileDataUnavailable ? "amber" : "sky"}
+        />
       </section>
 
       {evidenceResult.error ? (
-        <section className="rounded-3xl border border-red-200 bg-red-50 p-5 shadow-sm">
+        <section className="rounded-3xl border border-red-200 bg-red-50 p-5 shadow-sm ring-1 ring-red-900/10">
           <p className="text-xs font-black uppercase tracking-[0.16em] text-red-700">
             Evidence reports unavailable
           </p>
@@ -310,7 +460,7 @@ export default async function AdminFilesPage() {
       ) : null}
 
       {casePacketResult.error ? (
-        <section className="rounded-3xl border border-amber-200 bg-amber-50 p-5 shadow-sm">
+        <section className="rounded-3xl border border-amber-200 bg-amber-50 p-5 shadow-sm ring-1 ring-amber-900/10">
           <p className="text-xs font-black uppercase tracking-[0.16em] text-amber-700">
             Case packets unavailable
           </p>
@@ -327,7 +477,7 @@ export default async function AdminFilesPage() {
         </section>
       ) : null}
 
-      <section className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
+      <section className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm ring-1 ring-black/[0.02]">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.16em] text-neutral-400">
@@ -339,7 +489,7 @@ export default async function AdminFilesPage() {
           </div>
           <Link
             href="/admin/orders"
-            className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50"
+            className={secondaryActionClass}
           >
             Create from order
           </Link>
@@ -369,7 +519,7 @@ export default async function AdminFilesPage() {
             {reports.map((report) => (
               <section
                 key={report.id}
-                className="rounded-2xl border border-neutral-200 bg-neutral-50 p-5"
+                className="rounded-2xl border border-neutral-200 bg-neutral-50 p-5 shadow-sm ring-1 ring-black/[0.02] transition hover:bg-white"
               >
                 <div className="flex flex-wrap justify-between gap-4">
                   <div>
@@ -434,13 +584,13 @@ export default async function AdminFilesPage() {
                   <div className="flex min-w-44 flex-col gap-2">
                     <a
                       href={`/api/admin/files/${report.id}/download`}
-                      className="rounded-md bg-neutral-950 px-4 py-2 text-center text-sm font-black text-white hover:bg-neutral-800"
+                      className={primaryActionClass}
                     >
                       Download PDF
                     </a>
                     <Link
                       href={`/admin/orders/${report.order_id}`}
-                      className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-center text-sm font-black hover:bg-neutral-50"
+                      className={secondaryActionClass}
                     >
                       View Order
                     </Link>
@@ -452,7 +602,7 @@ export default async function AdminFilesPage() {
         )}
       </section>
 
-      <section className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
+      <section className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm ring-1 ring-black/[0.02]">
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.16em] text-neutral-400">
@@ -464,7 +614,7 @@ export default async function AdminFilesPage() {
           </div>
           <Link
             href="/admin/order-review-cases?status=all"
-            className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50"
+            className={secondaryActionClass}
           >
             Open case queue
           </Link>
@@ -494,7 +644,7 @@ export default async function AdminFilesPage() {
             {casePackets.map((packet) => (
               <section
                 key={packet.id}
-                className="rounded-2xl border border-neutral-200 bg-neutral-50 p-5"
+                className="rounded-2xl border border-neutral-200 bg-neutral-50 p-5 shadow-sm ring-1 ring-black/[0.02] transition hover:bg-white"
               >
                 <div className="flex flex-wrap justify-between gap-4">
                   <div>
@@ -596,19 +746,19 @@ export default async function AdminFilesPage() {
                   <div className="flex min-w-44 flex-col gap-2">
                     <a
                       href={`/api/admin/order-review-cases/${packet.case_id}/packet`}
-                      className="rounded-md bg-neutral-950 px-4 py-2 text-center text-sm font-black text-white hover:bg-neutral-800"
+                      className={primaryActionClass}
                     >
                       Download PDF
                     </a>
                     <Link
                       href={`/admin/orders/${packet.order_id}`}
-                      className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-center text-sm font-black hover:bg-neutral-50"
+                      className={secondaryActionClass}
                     >
                       View Order
                     </Link>
                     <Link
                       href="/admin/order-review-cases?status=all"
-                      className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-center text-sm font-black hover:bg-neutral-50"
+                      className={secondaryActionClass}
                     >
                       Case Queue
                     </Link>
