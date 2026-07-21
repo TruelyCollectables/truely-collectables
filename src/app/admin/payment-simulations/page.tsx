@@ -53,6 +53,11 @@ function safeErrorMessage(error: { message?: string } | string | null | undefine
   return String(message).replace(/\s+/g, " ").trim().slice(0, 220);
 }
 
+const paymentPrimaryActionClass =
+  "rounded-full bg-violet-300 px-4 py-2 text-sm font-black text-neutral-950 shadow-sm transition hover:-translate-y-0.5 hover:bg-violet-200 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-300";
+const paymentSecondaryActionClass =
+  "rounded-full border border-white/20 bg-white/5 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-white/10 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-300";
+
 export default async function PaymentSimulationsPage() {
   const supabase = createSupabaseServerClient({ admin: true });
   const storeId = getActiveStoreId();
@@ -87,6 +92,48 @@ export default async function PaymentSimulationsPage() {
     scenariosByRun.set(scenario.run_id, rows);
   }
   const latest = runs[0] || null;
+  const failedRuns = runs.filter(
+    (run) => run.run_status === "failed" || Number(run.failed_count || 0) > 0,
+  ).length;
+  const latestFailed = Boolean(
+    latest &&
+      (latest.run_status === "failed" || Number(latest.failed_count || 0) > 0),
+  );
+  const paymentLabPosture = runsUnavailable
+    ? "HISTORY WARNING"
+    : latestFailed
+      ? "FAILURES NEED REVIEW"
+      : latest
+        ? "LATEST RUN CLEAN"
+        : "NO RUNS YET";
+  const paymentLabTone = runsUnavailable || !latest
+    ? "amber"
+    : latestFailed
+      ? "rose"
+      : "emerald";
+  const paymentNextAction = runsUnavailable
+    ? {
+        cta: "Run No-Money Suite",
+        detail:
+          "History did not load, but the no-money suite can still prove the deterministic payment checks without contacting Stripe.",
+      }
+    : latestFailed
+      ? {
+          cta: "Open Money Audit",
+          detail:
+            "The latest run has failed assertions. Review money reconciliation and case evidence before accepting payment reliability.",
+        }
+      : latest
+        ? {
+            cta: "Keep Evidence Fresh",
+            detail:
+              "Latest payment simulation history is clean. Re-run the lab before release windows or payment code changes.",
+          }
+        : {
+            cta: "Run First Lab",
+            detail:
+              "No payment reliability evidence has been recorded yet. Start with the no-money suite, then use sandbox tests only when needed.",
+          };
 
   return (
     <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
@@ -104,13 +151,19 @@ export default async function PaymentSimulationsPage() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Link href="/admin/financial-reconciliation" className="rounded-md border border-white/20 px-4 py-2 text-sm font-bold">
+            <Link
+              href="/admin/financial-reconciliation"
+              className={paymentSecondaryActionClass}
+            >
               Money Audit
             </Link>
-            <Link href="/admin/order-review-cases" className="rounded-md border border-white/20 px-4 py-2 text-sm font-bold">
+            <Link
+              href="/admin/order-review-cases"
+              className={paymentSecondaryActionClass}
+            >
               Cases
             </Link>
-            <Link href="/admin" className="rounded-md bg-violet-300 px-4 py-2 text-sm font-bold text-neutral-950">
+            <Link href="/admin" className={paymentPrimaryActionClass}>
               Command Center
             </Link>
           </div>
@@ -118,7 +171,7 @@ export default async function PaymentSimulationsPage() {
       </section>
 
       <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
-        <section className="rounded-md border border-violet-200 bg-violet-50 p-5">
+        <section className="rounded-3xl border border-violet-200 bg-violet-50 p-5 shadow-sm ring-1 ring-violet-900/10">
           <h2 className="text-xl font-black">Safety Boundary</h2>
           <p className="mt-2 text-sm">
             The no-money suite never contacts Stripe. The sandbox suite is
@@ -133,6 +186,31 @@ export default async function PaymentSimulationsPage() {
           <div className="mt-4">
             <SimulationActions stripeTestEnabled={stripeTestEnabled} />
           </div>
+        </section>
+
+        <section className="grid gap-4 lg:grid-cols-3">
+          <PaymentLabPostureCard
+            detail={paymentNextAction.detail}
+            label="Lab posture"
+            status={paymentLabPosture}
+            tone={paymentLabTone}
+          />
+          <PaymentLabPostureCard
+            detail={
+              stripeTestEnabled
+                ? "Stripe-touching tests are available, but they still require exact typed confirmations before any sandbox object is created."
+                : "Stripe-touching tests are locked because no test secret key is loaded. The deterministic no-money suite remains available."
+            }
+            label="Stripe boundary"
+            status={stripeTestEnabled ? "SANDBOX ENABLED" : "SANDBOX LOCKED"}
+            tone={stripeTestEnabled ? "sky" : "amber"}
+          />
+          <PaymentLabPostureCard
+            detail={`${failedRuns} recorded run(s) need review before the payment lab can be treated as release-clean.`}
+            label="Operator next step"
+            status={paymentNextAction.cta.toUpperCase()}
+            tone={failedRuns > 0 ? "rose" : "emerald"}
+          />
         </section>
 
         <section className="grid gap-3 md:grid-cols-5">
@@ -165,12 +243,15 @@ export default async function PaymentSimulationsPage() {
 
         <section className="space-y-4">
           {runsUnavailable ? null : runs.length === 0 ? (
-            <p className="rounded-md border bg-white p-5 text-sm text-neutral-600">
+            <p className="rounded-2xl border border-dashed border-neutral-300 bg-white p-5 text-sm font-semibold text-neutral-600 shadow-sm ring-1 ring-black/[0.02]">
               No payment reliability runs have been recorded yet.
             </p>
           ) : (
             runs.map((run) => (
-              <article key={run.id} className="rounded-md border bg-white p-5">
+              <article
+                key={run.id}
+                className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm ring-1 ring-black/[0.02]"
+              >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <p className="text-xs font-black uppercase text-neutral-500">
@@ -181,18 +262,21 @@ export default async function PaymentSimulationsPage() {
                       {date(run.started_at)} to {date(run.completed_at)}
                     </p>
                   </div>
-                  <p className={`rounded border px-3 py-2 text-sm font-black ${tone(run.run_status)}`}>
+                  <p className={`rounded-full border px-3 py-2 text-sm font-black ${tone(run.run_status)}`}>
                     {run.passed_count} passed / {run.failed_count} failed / {run.skipped_count} skipped
                   </p>
                 </div>
                 {run.last_error ? (
-                  <p className="mt-3 rounded border border-rose-200 bg-rose-50 p-3 text-sm font-bold text-rose-900">
+                  <p className="mt-3 rounded-2xl border border-rose-200 bg-rose-50 p-3 text-sm font-bold text-rose-900">
                     Last run diagnostic: {safeErrorMessage(run.last_error)}
                   </p>
                 ) : null}
                 <div className="mt-4 grid gap-3 lg:grid-cols-2">
                   {(scenariosByRun.get(run.id) || []).map((scenario) => (
-                    <section key={scenario.id} className={`rounded border p-4 ${tone(scenario.scenario_status)}`}>
+                    <section
+                      key={scenario.id}
+                      className={`rounded-2xl border p-4 shadow-sm ${tone(scenario.scenario_status)}`}
+                    >
                       <p className="text-xs font-black uppercase">
                         {label(scenario.scenario_status)} / {label(scenario.scenario_key)}
                       </p>
@@ -224,10 +308,43 @@ export default async function PaymentSimulationsPage() {
 
 function Metric({ label: metricLabel, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border bg-white p-4">
+    <div className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm ring-1 ring-black/[0.02]">
       <p className="text-xs font-black uppercase text-neutral-500">{metricLabel}</p>
       <p className="mt-2 text-xl font-black">{value}</p>
     </div>
+  );
+}
+
+function PaymentLabPostureCard({
+  detail,
+  label: labelText,
+  status,
+  tone: cardTone,
+}: {
+  detail: string;
+  label: string;
+  status: string;
+  tone: "amber" | "emerald" | "rose" | "sky";
+}) {
+  const className =
+    cardTone === "emerald"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-950 ring-emerald-900/10"
+      : cardTone === "rose"
+        ? "border-rose-200 bg-rose-50 text-rose-950 ring-rose-900/10"
+        : cardTone === "sky"
+          ? "border-sky-200 bg-sky-50 text-sky-950 ring-sky-900/10"
+          : "border-amber-200 bg-amber-50 text-amber-950 ring-amber-900/10";
+
+  return (
+    <article className={`rounded-3xl border p-5 shadow-sm ring-1 ${className}`}>
+      <p className="text-xs font-black uppercase tracking-[0.16em] opacity-70">
+        {labelText}
+      </p>
+      <p className="mt-3 w-fit rounded-full border border-current bg-white/70 px-3 py-1 text-xs font-black">
+        {status}
+      </p>
+      <p className="mt-4 text-sm font-semibold leading-6">{detail}</p>
+    </article>
   );
 }
 
@@ -244,7 +361,7 @@ function UnavailableNotice({
     <section
       role="alert"
       aria-live="assertive"
-      className="rounded-md border border-rose-200 bg-rose-50 p-5 text-rose-950"
+      className="rounded-3xl border border-rose-200 bg-rose-50 p-5 text-rose-950 shadow-sm ring-1 ring-rose-900/10"
     >
       <h2 className="text-lg font-black">{title}</h2>
       <p className="mt-2 text-sm font-semibold leading-6">{children}</p>

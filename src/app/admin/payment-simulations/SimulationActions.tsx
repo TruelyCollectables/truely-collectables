@@ -13,6 +13,15 @@ type FeedbackMessage = {
   tone: FeedbackTone;
 };
 
+const actionPrimaryClass =
+  "rounded-full bg-neutral-950 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-neutral-800 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 aria-disabled:cursor-wait aria-disabled:opacity-50";
+const actionSkyClass =
+  "rounded-full border border-sky-300 bg-sky-50 px-4 py-2 text-sm font-black text-sky-950 shadow-sm transition hover:-translate-y-0.5 hover:bg-sky-100 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 aria-disabled:cursor-not-allowed aria-disabled:opacity-50";
+const actionVioletClass =
+  "rounded-full border border-violet-300 bg-violet-50 px-4 py-2 text-sm font-black text-violet-950 shadow-sm transition hover:-translate-y-0.5 hover:bg-violet-100 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-400 aria-disabled:cursor-not-allowed aria-disabled:opacity-50";
+const actionNeutralClass =
+  "rounded-full border border-neutral-300 bg-white px-4 py-2 text-sm font-black text-neutral-950 shadow-sm transition hover:-translate-y-0.5 hover:bg-neutral-50 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 aria-disabled:cursor-not-allowed aria-disabled:opacity-50";
+
 function paymentSimulationActionTitle({
   busy,
   ready,
@@ -224,7 +233,7 @@ export default function SimulationActions({
             busy: busy !== null,
             ready: "Run the no-money payment simulation suite.",
           })}
-          className="rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white aria-disabled:cursor-wait aria-disabled:opacity-50"
+          className={actionPrimaryClass}
         >
           {busy === "deterministic" ? "Running..." : "Run No-Money Suite"}
         </button>
@@ -238,7 +247,7 @@ export default function SimulationActions({
             ready: "Open the confirmation panel for the full checkout E2E simulation.",
             stripeTestEnabled,
           })}
-          className="rounded-md border border-sky-300 bg-sky-50 px-4 py-2 text-sm font-black text-sky-950 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+          className={actionSkyClass}
         >
           {busy === "checkout_e2e" ? "Running Checkout E2E..." : "Run Full Checkout E2E"}
         </button>
@@ -252,13 +261,13 @@ export default function SimulationActions({
             ready: "Open the confirmation panel for the Stripe sandbox suite.",
             stripeTestEnabled,
           })}
-          className="rounded-md border border-violet-300 bg-violet-50 px-4 py-2 text-sm font-black text-violet-950 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+          className={actionVioletClass}
         >
           {busy === "stripe_test" ? "Running Stripe Test..." : "Run Stripe Sandbox Suite"}
         </button>
       </div>
       {pendingMode ? (
-        <div className="rounded-md border border-sky-200 bg-sky-50 p-4 text-sky-950">
+        <div className="rounded-3xl border border-sky-200 bg-sky-50 p-4 text-sky-950 shadow-sm ring-1 ring-sky-900/10">
           <p className="text-sm font-black">
             {pendingMode === "checkout_e2e"
               ? "Confirm full checkout E2E"
@@ -279,7 +288,7 @@ export default function SimulationActions({
             <input
               value={confirmation}
               onChange={(event) => setConfirmation(event.target.value)}
-              className="mt-1 w-full rounded border border-neutral-300 px-3 py-2 text-sm text-neutral-950"
+              className="mt-1 w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm font-semibold text-neutral-950 shadow-sm outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-200"
               placeholder={
                 pendingMode === "checkout_e2e"
                   ? "RUN CHECKOUT E2E"
@@ -309,7 +318,7 @@ export default function SimulationActions({
                     ? "Run the confirmed full checkout E2E simulation."
                     : "Run the confirmed Stripe sandbox payment suite.",
               })}
-              className="rounded bg-neutral-950 px-4 py-2 text-sm font-black text-white aria-disabled:cursor-wait aria-disabled:opacity-50"
+              className={actionPrimaryClass}
             >
               {busy ? "Running..." : "Run confirmed test"}
             </button>
@@ -322,7 +331,7 @@ export default function SimulationActions({
                   ? "Wait for the payment simulation to finish before cancelling."
                   : "Close this payment simulation confirmation panel."
               }
-              className="rounded border border-neutral-300 bg-white px-4 py-2 text-sm font-black aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+              className={actionNeutralClass}
             >
               Cancel
             </button>
@@ -347,7 +356,7 @@ function ActionNotice({ message }: { message: FeedbackMessage | null }) {
   return (
     <p
       aria-live={message.tone === "info" ? "polite" : "assertive"}
-      className={`rounded-md border px-3 py-2 text-sm font-bold ${className}`}
+      className={`rounded-2xl border px-3 py-2 text-sm font-bold shadow-sm ${className}`}
       role={message.tone === "error" ? "alert" : "status"}
     >
       {message.text}
