@@ -722,6 +722,26 @@ scenario("admin orders page keeps fulfillment failures operator-readable", () =>
     "Orders loaded, but buyer account enrichment did not",
     "Linked account profile lookup unavailable",
     "accountProfilesUnavailable={accountProfilesUnavailable}",
+    "const dryRunShippingReferences =",
+    "const fulfillmentPosture =",
+    "primaryOrderAction",
+    "PARTIAL DATA",
+    "REVIEW HOLDS",
+    "READY TO SHIP",
+    "QUEUE CLEAR",
+    "Open Review Holds",
+    "Pack Ready Orders",
+    "Fulfillment posture",
+    "Buyer enrichment",
+    "Operator next action",
+    "OrderPostureCard",
+    "LINKED DATA LIVE",
+    "dry-run shipping reference(s) are visible as warnings",
+    "adminPrimaryActionClass",
+    "adminSecondaryActionClass",
+    "rounded-full bg-neutral-950",
+    "transition hover:-translate-y-0.5",
+    "shadow-sm ring-1 ring-black/[0.02] transition hover:bg-white",
   ]) {
     assert(
       adminOrdersPageSource.includes(fragment),
@@ -737,6 +757,12 @@ scenario("admin orders page keeps fulfillment failures operator-readable", () =>
   assert(
     !adminOrdersPageSource.includes("{error.message}"),
     "Expected orders page to avoid rendering raw database error messages.",
+  );
+  assert(
+    !adminOrdersPageSource.includes(
+      'href="/admin/files"\\n            href="/admin/files"',
+    ),
+    "Expected orders page header links to avoid duplicate href props.",
   );
 });
 
