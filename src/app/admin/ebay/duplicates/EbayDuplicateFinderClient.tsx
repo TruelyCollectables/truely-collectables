@@ -563,12 +563,38 @@ export default function EbayDuplicateFinderClient() {
                       Exact match rule: normalized title + same price.
                     </p>
                     {keeperRow && duplicateRow ? (
-                      <p className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-black text-amber-950">
-                        Merge-all preview: keep product #{keeperRow.productId} quantity{" "}
-                        {keeperRow.quantity}, archive {allDuplicateRows.length} duplicate
-                        row{allDuplicateRows.length === 1 ? "" : "s"} quantity{" "}
-                        {duplicateQuantity}, keeper becomes quantity {mergedQuantity}.
-                      </p>
+                      <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-950 shadow-sm">
+                        <p className="text-[11px] font-black uppercase tracking-[0.14em]">
+                          Duplicate merge plan
+                        </p>
+                        <p className="mt-2 text-sm font-black leading-6">
+                          Merge All archives every non-keeper row, not only the
+                          selected duplicate. The selected duplicate controls
+                          End Selected Only.
+                        </p>
+                        <div className="mt-3 grid gap-2 text-xs font-black sm:grid-cols-3">
+                          <div className="rounded-xl border border-amber-200 bg-white p-3">
+                            <p className="uppercase text-amber-700">Keeper</p>
+                            <p className="mt-1 text-neutral-950">
+                              #{keeperRow.productId} quantity {keeperRow.quantity}
+                            </p>
+                          </div>
+                          <div className="rounded-xl border border-amber-200 bg-white p-3">
+                            <p className="uppercase text-amber-700">Archive</p>
+                            <p className="mt-1 text-neutral-950">
+                              {allDuplicateRows.length} row
+                              {allDuplicateRows.length === 1 ? "" : "s"} quantity{" "}
+                              {duplicateQuantity}
+                            </p>
+                          </div>
+                          <div className="rounded-xl border border-amber-200 bg-white p-3">
+                            <p className="uppercase text-amber-700">Result</p>
+                            <p className="mt-1 text-neutral-950">
+                              keeper quantity {mergedQuantity}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
                     ) : null}
                   </div>
 
