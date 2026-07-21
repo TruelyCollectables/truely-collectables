@@ -219,6 +219,13 @@ export default async function AdminAccountsPage() {
     (sum, stats) => sum + stats.revenue,
     0,
   );
+  const verificationPending = Math.max(
+    0,
+    typedProfiles.length - cardVerified.length,
+  );
+  const tosMissing = Math.max(0, typedProfiles.length - tosAccepted.length);
+  const accountDataPosture =
+    accountDataIssues.length > 0 ? "PARTIAL DATA" : "LINKED DATA LIVE";
 
   return (
     <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
@@ -251,7 +258,7 @@ export default async function AdminAccountsPage() {
           <section
             role="status"
             aria-live="polite"
-            className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950"
+            className="rounded-2xl border border-amber-200 bg-amber-50 px-5 py-4 text-sm text-amber-950 shadow-sm ring-1 ring-amber-900/5"
           >
             <p className="font-black">
               Account profiles loaded, but linked activity is partially unavailable.
@@ -289,8 +296,37 @@ export default async function AdminAccountsPage() {
           />
         </section>
 
-        <section className="rounded-md border border-neutral-200 bg-white">
-          <div className="border-b border-neutral-200 p-5">
+        <section className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+          <AccountPostureCard
+            eyebrow="Data posture"
+            title={accountDataPosture}
+            detail={
+              accountDataIssues.length > 0
+                ? "Linked order/offer counts are labeled unavailable instead of shown as false zeroes."
+                : "Account profiles, order links, and offer links loaded cleanly for this view."
+            }
+            tone={accountDataIssues.length > 0 ? "amber" : "emerald"}
+          />
+          <AccountPostureCard
+            eyebrow="Trust gates"
+            title={`${verificationPending} card review${verificationPending === 1 ? "" : "s"}`}
+            detail={`${tosMissing} account${tosMissing === 1 ? "" : "s"} still missing TOS acceptance; use this page to separate buyer readiness from admin access.`}
+            tone={verificationPending > 0 || tosMissing > 0 ? "amber" : "emerald"}
+          />
+          <AccountPostureCard
+            eyebrow="Linked activity"
+            title={orderStatsUnavailable ? "Orders unavailable" : money(linkedRevenue)}
+            detail={
+              orderStatsUnavailable || offerStatsUnavailable
+                ? "Apply account-link migrations before trusting activity totals."
+                : "Linked revenue and offer activity are safe to review from the account table below."
+            }
+            tone={orderStatsUnavailable || offerStatsUnavailable ? "amber" : "sky"}
+          />
+        </section>
+
+        <section className="overflow-hidden rounded-3xl border border-neutral-200 bg-white shadow-sm ring-1 ring-black/[0.02]">
+          <div className="border-b border-neutral-200 bg-white p-5">
             <h2 className="text-2xl font-black">Recent Accounts</h2>
             <p className="mt-1 text-sm text-neutral-600">
               Limited to the latest 100 profiles while the account system is
@@ -299,13 +335,13 @@ export default async function AdminAccountsPage() {
           </div>
 
           {typedProfiles.length === 0 ? (
-            <p className="p-5 text-sm text-neutral-600">
+            <p className="rounded-2xl border border-dashed border-neutral-300 bg-neutral-50 p-8 m-5 text-center text-sm font-semibold text-neutral-600">
               No customer accounts have been created yet.
             </p>
           ) : (
             <div className="overflow-x-auto">
               <table className="min-w-full text-left text-sm">
-                <thead className="border-b border-neutral-200 text-xs uppercase text-neutral-500">
+                <thead className="border-b border-neutral-200 bg-neutral-50 text-xs uppercase text-neutral-500">
                   <tr>
                     <th className="px-5 py-3">Account</th>
                     <th className="px-5 py-3">Status</th>
@@ -322,7 +358,7 @@ export default async function AdminAccountsPage() {
                     const stats = statsByAccount.get(profile.id) || emptyStats();
 
                     return (
-                      <tr key={profile.id}>
+                      <tr key={profile.id} className="transition hover:bg-neutral-50">
                         <td className="px-5 py-4">
                           <p className="font-black">
                             {profile.email ||
@@ -428,10 +464,41 @@ export default async function AdminAccountsPage() {
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border border-neutral-200 bg-white p-5">
+    <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm ring-1 ring-black/[0.02]">
       <p className="text-sm font-bold uppercase text-neutral-500">{label}</p>
       <p className="mt-3 break-words text-3xl font-black">{value}</p>
     </div>
+  );
+}
+
+function AccountPostureCard({
+  eyebrow,
+  title,
+  detail,
+  tone,
+}: {
+  eyebrow: string;
+  title: string;
+  detail: string;
+  tone: "amber" | "emerald" | "sky";
+}) {
+  const toneClass =
+    tone === "emerald"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-950"
+      : tone === "sky"
+        ? "border-sky-200 bg-sky-50 text-sky-950"
+        : "border-amber-200 bg-amber-50 text-amber-950";
+
+  return (
+    <section className={`rounded-2xl border p-5 shadow-sm ${toneClass}`}>
+      <p className="text-xs font-black uppercase tracking-[0.14em] opacity-75">
+        {eyebrow}
+      </p>
+      <h2 className="mt-2 text-2xl font-black tracking-tight">{title}</h2>
+      <p className="mt-2 text-sm font-semibold leading-6 opacity-85">
+        {detail}
+      </p>
+    </section>
   );
 }
 
@@ -439,7 +506,7 @@ function CommandLink({ href, label }: { href: string; label: string }) {
   return (
     <Link
       href={href}
-      className="rounded-md border border-white/20 px-4 py-2 text-sm font-bold text-white hover:bg-white/10"
+      className="rounded-full border border-white/20 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-white/10 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
     >
       {label}
     </Link>
