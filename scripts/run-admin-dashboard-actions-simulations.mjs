@@ -337,6 +337,30 @@ scenario("admin command center exposes a professional priority playbook", () => 
   }
 });
 
+scenario("admin command center keeps lower operating panels visually finished", () => {
+  for (const fragment of [
+    "Store Stack",
+    "Launch Locks",
+    "Command Links",
+    "Shipping Setup",
+    "Operator Alerts",
+    "Latest Orders",
+    "Recent eBay Policy Decisions",
+    "Blocked Sync Reasons",
+    "rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm ring-1 ring-black/[0.02]",
+    "overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm ring-1 ring-black/[0.02]",
+    "rounded-xl border border-dashed border-neutral-300 bg-neutral-50 p-4 text-sm font-semibold",
+    "rounded-xl border border-neutral-200 bg-neutral-50 p-3 shadow-sm",
+    "hover:-translate-y-0.5 hover:bg-white hover:shadow-md",
+    "focus-visible:outline-amber-500",
+  ]) {
+    assert(
+      adminPageSource.includes(fragment),
+      `Expected lower admin dashboard polish fragment ${fragment}.`,
+    );
+  }
+});
+
 scenario("admin command center surfaces data-source health before counts", () => {
   for (const fragment of [
     "type AdminDataHealthIssue",

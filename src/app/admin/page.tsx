@@ -1794,7 +1794,7 @@ export default async function AdminDashboard() {
           </div>
 
           <aside className="space-y-6">
-            <section className="rounded-md border border-neutral-200 bg-white p-5">
+            <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm ring-1 ring-black/[0.02]">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h2 className="text-xl font-black">Store Stack</h2>
@@ -1820,7 +1820,7 @@ export default async function AdminDashboard() {
               </dl>
             </section>
 
-            <section className="rounded-md border border-neutral-200 bg-white p-5">
+            <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm ring-1 ring-black/[0.02]">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h2 className="text-xl font-black">Launch Locks</h2>
@@ -1839,7 +1839,7 @@ export default async function AdminDashboard() {
               </div>
 
               <div className="mt-4 grid grid-cols-1 gap-3">
-                <div className="rounded border border-neutral-200 bg-neutral-50 p-3">
+                <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4 shadow-sm">
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="text-xs font-black uppercase text-neutral-500">
@@ -1901,7 +1901,7 @@ export default async function AdminDashboard() {
                     {launchGateDrill.payment.nextActions[0] ||
                       "Monitor Stripe webhooks, reconciliation, refunds, disputes, seller payout holds, and emergency revocation readiness."}
                   </p>
-                  <div className="mt-3 rounded border border-emerald-200 bg-white p-3 text-xs text-neutral-700">
+                  <div className="mt-3 rounded-2xl border border-emerald-200 bg-white p-3 text-xs text-neutral-700 shadow-sm">
                     <p className="font-black text-emerald-800">
                       {LIVE_MONEY_JSON_EVIDENCE.title}
                     </p>
@@ -1956,7 +1956,7 @@ export default async function AdminDashboard() {
                       .
                     </p>
                   </div>
-                  <div className="mt-3 rounded border border-cyan-200 bg-white p-3 text-xs text-neutral-700">
+                  <div className="mt-3 rounded-2xl border border-cyan-200 bg-white p-3 text-xs text-neutral-700 shadow-sm">
                     <p className="font-black text-cyan-800">
                       {EMERGENCY_BACKUP_EVIDENCE.title}
                     </p>
@@ -2002,7 +2002,7 @@ export default async function AdminDashboard() {
                   </div>
                 </div>
 
-                <div className="rounded border border-neutral-200 bg-neutral-50 p-3">
+                <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4 shadow-sm">
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <p className="text-xs font-black uppercase text-neutral-500">
@@ -2086,7 +2086,7 @@ export default async function AdminDashboard() {
               </div>
             </section>
 
-            <section className="rounded-md border border-neutral-200 bg-white p-5">
+            <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm ring-1 ring-black/[0.02]">
               <h2 className="text-xl font-black">Command Links</h2>
               <div className="mt-4 grid grid-cols-2 gap-2 text-sm">
                 <BaseLinkButton href={adminHref("/admin/products")} label="Products" />
@@ -2135,7 +2135,7 @@ export default async function AdminDashboard() {
               </div>
             </section>
 
-            <section className="rounded-md border border-neutral-200 bg-white p-5">
+            <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm ring-1 ring-black/[0.02]">
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <h2 className="text-xl font-black">Shipping Setup</h2>
@@ -2166,7 +2166,7 @@ export default async function AdminDashboard() {
                   {shippingDecision.blockers.slice(0, 4).map((blocker) => (
                     <span
                       key={blocker}
-                      className="rounded border border-neutral-200 bg-neutral-50 px-2 py-1 text-[11px] font-black text-neutral-700"
+                      className="rounded-full border border-neutral-200 bg-neutral-50 px-3 py-1 text-[11px] font-black text-neutral-700"
                     >
                       {blocker}
                     </span>
@@ -2280,13 +2280,13 @@ export default async function AdminDashboard() {
         </section>
 
         <section className="grid grid-cols-1 gap-6 xl:grid-cols-[0.9fr_1.1fr]">
-          <div className="rounded-md border border-neutral-200 bg-white p-5">
+          <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm ring-1 ring-black/[0.02]">
             <h2 className="text-xl font-black">Operator Alerts</h2>
             <div className="mt-4 space-y-3">
               {opsAlerts.map((alert) => (
                 <div
                   key={alert}
-                  className="border-l-4 border-neutral-900 bg-neutral-50 px-4 py-3 text-sm font-semibold"
+                  className="rounded-xl border border-neutral-200 border-l-4 border-l-neutral-900 bg-neutral-50 px-4 py-3 text-sm font-semibold shadow-sm"
                 >
                   {alert}
                 </div>
@@ -2294,7 +2294,7 @@ export default async function AdminDashboard() {
             </div>
           </div>
 
-          <div className="rounded-md border border-neutral-200 bg-white">
+          <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm ring-1 ring-black/[0.02]">
             <div className="border-b border-neutral-200 p-5">
               <h2 className="text-xl font-black">Latest Orders</h2>
             </div>
@@ -2306,7 +2306,7 @@ export default async function AdminDashboard() {
                   <Link
                     key={order.id}
                     href={adminHref(`/admin/orders/${order.id}`)}
-                    className="grid gap-2 p-4 text-sm hover:bg-neutral-50 md:grid-cols-[1fr_auto_auto]"
+                    className="grid gap-2 p-4 text-sm transition hover:bg-neutral-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[-4px] focus-visible:outline-amber-500 md:grid-cols-[1fr_auto_auto]"
                   >
                     <div>
                       <p className="font-bold">Order #{order.id}</p>
@@ -2326,7 +2326,7 @@ export default async function AdminDashboard() {
         </section>
 
         <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1.05fr_0.95fr]">
-          <div className="rounded-md border border-neutral-200 bg-white">
+          <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-sm ring-1 ring-black/[0.02]">
             <div className="flex flex-wrap items-start justify-between gap-3 border-b border-neutral-200 p-5">
               <div>
                 <h2 className="text-xl font-black">Recent eBay Policy Decisions</h2>
@@ -2336,7 +2336,7 @@ export default async function AdminDashboard() {
               </div>
               <Link
                 href={adminHref("/admin/ebay/sync-control")}
-                className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm font-bold hover:bg-white"
+                className="rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm font-bold transition hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500"
               >
                 Open Sync Control
               </Link>
@@ -2375,7 +2375,7 @@ export default async function AdminDashboard() {
             </div>
           </div>
 
-          <div className="rounded-md border border-neutral-200 bg-white p-5">
+          <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm ring-1 ring-black/[0.02]">
             <h2 className="text-xl font-black">Blocked Sync Reasons</h2>
             <div className="mt-4 space-y-3">
               {!syncPolicyAvailable ? (
@@ -2390,7 +2390,7 @@ export default async function AdminDashboard() {
                 blockedSyncRows.map((row) => (
                   <div
                     key={row.reason || "blocked_reason"}
-                    className="rounded-md border border-neutral-200 bg-neutral-50 p-3"
+                    className="rounded-xl border border-neutral-200 bg-neutral-50 p-3 shadow-sm"
                   >
                     <div className="flex items-center justify-between gap-3">
                       <p className="font-bold">{label(row.reason)}</p>
@@ -2750,7 +2750,7 @@ function MiniLaunchCount({
       : "text-rose-700";
 
   return (
-    <div className="rounded border border-neutral-200 bg-white px-2 py-1.5">
+    <div className="rounded-xl border border-neutral-200 bg-white px-2 py-1.5 shadow-sm">
       <p className={`text-lg font-black ${className}`}>{value}</p>
       <p className="text-[10px] font-black uppercase leading-tight text-neutral-500">
         {label}
@@ -2782,14 +2782,16 @@ function BaseQueuePanel({
         <h3 className="font-black">{title}</h3>
         <Link
           href={href}
-          className="text-sm font-bold underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500"
+          className="rounded-full border border-neutral-200 bg-white px-3 py-1 text-sm font-black text-neutral-800 shadow-sm transition hover:bg-neutral-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500"
         >
           Open
         </Link>
       </div>
 
       {rows.length === 0 ? (
-        <p className="text-sm text-neutral-600">{empty}</p>
+        <p className="rounded-xl border border-dashed border-neutral-300 bg-neutral-50 p-4 text-sm font-semibold text-neutral-600">
+          {empty}
+        </p>
       ) : (
         <div className="space-y-3">
           {rows.map((row) => {
@@ -2814,7 +2816,7 @@ function BaseQueuePanel({
             ) : (
               <div
                 key={row.key}
-                className="flex items-center justify-between gap-3 rounded-md border border-neutral-200 p-3"
+                className="flex items-center justify-between gap-3 rounded-xl border border-neutral-200 bg-white p-3 shadow-sm"
               >
                 {content}
               </div>
@@ -2828,7 +2830,7 @@ function BaseQueuePanel({
 
 function InfoLine({ label, value }: { label: string; value: string }) {
   return (
-    <div className="grid grid-cols-[110px_1fr] gap-3">
+    <div className="grid grid-cols-[110px_1fr] gap-3 rounded-xl bg-neutral-50 px-3 py-2">
       <dt className="font-bold text-neutral-500">{label}</dt>
       <dd className="break-words font-semibold">{value}</dd>
     </div>
@@ -2839,7 +2841,7 @@ function BaseLinkButton({ href, label }: { href: string; label: string }) {
   return (
     <a
       href={href}
-      className="rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-center font-bold transition hover:bg-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500"
+      className="rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2 text-center font-bold shadow-sm transition hover:-translate-y-0.5 hover:bg-white hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-500"
     >
       {label}
     </a>
@@ -2854,7 +2856,7 @@ function StatusPanel({
   rows: Array<[string, string]>;
 }) {
   return (
-    <section className="rounded-md border border-neutral-200 bg-white p-5">
+    <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm ring-1 ring-black/[0.02]">
       <h2 className="text-xl font-black">{title}</h2>
       <dl className="mt-4 divide-y divide-neutral-200 text-sm">
         {rows.map(([labelText, value]) => (
