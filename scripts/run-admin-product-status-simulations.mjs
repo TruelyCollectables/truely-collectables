@@ -20,6 +20,10 @@ const productsPageSource = await readFile(
   new URL("../src/app/admin/products/page.tsx", import.meta.url),
   "utf8",
 );
+const newProductPageSource = await readFile(
+  new URL("../src/app/admin/products/new/page.tsx", import.meta.url),
+  "utf8",
+);
 const productSaveRouteSource = await readFile(
   new URL("../src/app/api/admin/products/[id]/save/route.ts", import.meta.url),
   "utf8",
@@ -296,6 +300,35 @@ scenario("product list uses professional inventory command presentation", () => 
       `Expected products list presentation fragment ${fragment}.`,
     );
   }
+});
+
+scenario("new product intake keeps manual creation safe and professional", () => {
+  for (const fragment of [
+    "adminProductActionFailureMessage",
+    "Manual product could not be created.",
+    "Inventory intake",
+    "HeaderStat label=\"Scanner\"",
+    "HeaderStat label=\"Manual\"",
+    "HeaderStat label=\"Publish\"",
+    "CommandLink href=\"/admin/products\" label=\"Products\" primary",
+    "CommandLink href=\"/admin/instacomp-direct\" label=\"InstaComp direct\"",
+    "role=\"alert\"",
+    "aria-live=\"assertive\"",
+    "rounded-3xl border border-neutral-200 bg-white/95",
+    "rounded-xl border border-neutral-300 bg-white",
+    "Create one manual store product from the form fields without publishing it to eBay.",
+    "marketplace publishing remains a separate admin step",
+  ]) {
+    assert(
+      newProductPageSource.includes(fragment),
+      `Expected new product intake fragment ${fragment}.`,
+    );
+  }
+
+  assert(
+    !newProductPageSource.includes("error.message.trim()"),
+    "Expected new product intake to avoid raw create error messages.",
+  );
 });
 
 scenario("inventory engine enforces admin product status policy", () => {

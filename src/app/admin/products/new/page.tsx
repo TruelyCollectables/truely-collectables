@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import Link from "next/link";
 import AdminSubmitButton from "../../AdminSubmitButton";
+import { adminProductActionFailureMessage } from "../../../../lib/admin-product-status";
 import { inventoryEngine } from "../../../../modules/inventory";
 import InstaCompScanner from "../../instacomp/InstaCompScanner";
 
@@ -39,10 +40,10 @@ function addProductErrorPath(error: string) {
 }
 
 function addProductFailurePath(error: unknown) {
-  const detail =
-    error instanceof Error && error.message.trim()
-      ? error.message.trim().slice(0, 240)
-      : "Manual product could not be created.";
+  const detail = adminProductActionFailureMessage(
+    error,
+    "Manual product could not be created.",
+  );
 
   return `/admin/products/new?error=create_failed&detail=${encodeURIComponent(detail)}`;
 }
@@ -129,144 +130,161 @@ export default async function NewProductPage({
   const error = errorMessage(query?.error, query?.detail);
 
   return (
-    <main className="space-y-8 bg-neutral-50 px-6 py-8 text-neutral-950">
-      <section className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm">
-        <Link href="/admin/products" className="text-sm font-black text-neutral-600 underline">
-          ← Back to products
-        </Link>
-        <div className="mt-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">
-              Inventory intake
-            </p>
-            <h1 className="mt-2 text-4xl font-black tracking-tight">
-              Add products
-            </h1>
-            <p className="mt-3 max-w-3xl text-sm font-semibold leading-6 text-neutral-600">
-              Use InstaComp™ for lots and card scans. Use manual entry only for a
-              known single product where title, price, quantity, and image are
-              already ready for review.
-            </p>
+    <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
+      <section className="border-b border-neutral-800 bg-[#101418] text-white shadow-2xl shadow-black/20">
+        <div className="mx-auto max-w-7xl px-6 py-8">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <Link
+                href="/admin/products"
+                className="inline-flex rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-sm font-black text-emerald-300 transition hover:border-emerald-300/50 hover:bg-emerald-300/10"
+              >
+                ← Back to products
+              </Link>
+              <p className="mt-5 text-xs font-black uppercase tracking-[0.22em] text-emerald-300">
+                Inventory intake
+              </p>
+              <h1 className="mt-2 text-4xl font-black tracking-tight md:text-5xl">
+                Add products
+              </h1>
+              <p className="mt-3 max-w-4xl text-sm font-semibold leading-7 text-neutral-300">
+                Use InstaComp™ for lots and card scans. Use manual entry only for a
+                known single product where title, price, quantity, and image are
+                already ready for review.
+              </p>
+            </div>
+
+            <div className="grid min-w-[320px] grid-cols-3 gap-3 rounded-3xl border border-white/10 bg-white/[0.06] p-4 shadow-xl shadow-black/20">
+              <HeaderStat label="Scanner" value="Primary" />
+              <HeaderStat label="Manual" value="Fallback" />
+              <HeaderStat label="Publish" value="Separate" />
+            </div>
           </div>
-          <Link
-            href="/admin/ebay/inventory-intake"
-            className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-black text-emerald-950 hover:bg-emerald-100"
-          >
-            Review eBay intake
-          </Link>
+
+          <div className="mt-6 flex flex-wrap gap-3">
+            <CommandLink href="/admin/products" label="Products" primary />
+            <CommandLink href="/admin/ebay/inventory-intake" label="eBay intake" />
+            <CommandLink href="/admin/instacomp-direct" label="InstaComp direct" />
+          </div>
         </div>
       </section>
 
-      <section className="rounded-3xl border border-emerald-200 bg-white p-5 shadow-sm">
-        <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
-          <p className="text-xs font-black uppercase tracking-[0.16em] text-emerald-700">
-            Recommended path
-          </p>
-          <h2 className="mt-2 text-2xl font-black">AI lot scanner</h2>
-          <p className="mt-2 max-w-3xl text-sm font-bold leading-6 text-emerald-950">
-            This is the fast path: upload the whole lot, run InstaComp™, review
-            the AI results, then create draft listings before anything goes live.
-          </p>
-        </div>
-        <InstaCompScanner />
-      </section>
-
-      <section className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm">
-        <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-          <div>
-            <p className="text-xs font-black uppercase tracking-[0.16em] text-neutral-500">
-              Manual fallback
+      <div className="mx-auto max-w-7xl space-y-8 px-6 py-8">
+        <section className="rounded-3xl border border-emerald-200 bg-white/95 p-5 shadow-sm ring-1 ring-black/[0.02]">
+          <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-5 shadow-sm ring-1 ring-emerald-950/5">
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-emerald-700">
+              Recommended path
             </p>
-            <h2 className="mt-2 text-2xl font-black">Manual product entry</h2>
-            <p className="mt-2 max-w-2xl text-sm font-semibold leading-6 text-neutral-600">
-              Create a single reviewed product. Required fields are enforced so
-              manual intake does not create blank, NaN-priced, or malformed rows.
+            <h2 className="mt-2 text-2xl font-black">AI lot scanner</h2>
+            <p className="mt-2 max-w-3xl text-sm font-bold leading-6 text-emerald-950">
+              This is the fast path: upload the whole lot, run InstaComp™, review
+              the AI results, then create draft listings before anything goes live.
             </p>
           </div>
-          {error ? (
-            <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm font-black text-red-950">
-              {error}
-            </p>
-          ) : null}
-        </div>
+          <InstaCompScanner />
+        </section>
 
-        <form action={addProduct} className="mt-6 grid max-w-4xl gap-4 md:grid-cols-2">
-          <Field label="Title" required>
-            <input
-              name="title"
-              required
-              placeholder="2024 Topps Chrome Connor Bedard PSA 10"
-              className="mt-1 w-full rounded border border-neutral-300 px-3 py-3 text-sm"
-            />
-          </Field>
-          <Field label="Player / subject">
-            <input
-              name="player"
-              placeholder="Connor Bedard"
-              className="mt-1 w-full rounded border border-neutral-300 px-3 py-3 text-sm"
-            />
-          </Field>
-          <Field label="Sport / category">
-            <input
-              name="sport"
-              placeholder="Hockey"
-              className="mt-1 w-full rounded border border-neutral-300 px-3 py-3 text-sm"
-            />
-          </Field>
-          <Field label="Image URL">
-            <input
-              name="image_url"
-              type="url"
-              placeholder="https://..."
-              className="mt-1 w-full rounded border border-neutral-300 px-3 py-3 text-sm"
-            />
-          </Field>
-          <Field label="Price" required>
-            <input
-              name="price"
-              type="number"
-              min="0.01"
-              step="0.01"
-              required
-              placeholder="49.99"
-              className="mt-1 w-full rounded border border-neutral-300 px-3 py-3 text-sm"
-            />
-          </Field>
-          <Field label="Quantity" required>
-            <input
-              name="quantity"
-              type="number"
-              min="0"
-              step="1"
-              required
-              placeholder="1"
-              className="mt-1 w-full rounded border border-neutral-300 px-3 py-3 text-sm"
-            />
-          </Field>
-
-          <Field label="Description" className="md:col-span-2">
-            <textarea
-              name="description"
-              rows={5}
-              placeholder="Leave blank to auto-fill later, or paste the reviewed listing description."
-              className="mt-1 w-full rounded border border-neutral-300 px-3 py-3 text-sm"
-            />
-          </Field>
-
-          <div className="md:col-span-2">
-            <AdminSubmitButton
-              className="rounded-md bg-neutral-950 px-6 py-3 text-sm font-black text-white hover:bg-neutral-800"
-              pendingChildren="Adding product..."
-              title="Create one manual store product from the form fields without publishing it to eBay."
-            >
-              Add manual product
-            </AdminSubmitButton>
-            <p className="mt-2 text-xs font-bold text-neutral-600">
-              Adds the product to TCOS inventory only; marketplace publishing remains a separate admin step.
-            </p>
+        <section className="rounded-3xl border border-neutral-200 bg-white/95 p-6 shadow-sm ring-1 ring-black/[0.02]">
+          <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.16em] text-neutral-500">
+                Manual fallback
+              </p>
+              <h2 className="mt-2 text-2xl font-black">Manual product entry</h2>
+              <p className="mt-2 max-w-2xl text-sm font-semibold leading-6 text-neutral-600">
+                Create a single reviewed product. Required fields are enforced so
+                manual intake does not create blank, NaN-priced, or malformed rows.
+              </p>
+            </div>
+            {error ? (
+              <p
+                role="alert"
+                aria-live="assertive"
+                className="rounded-2xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-black text-red-950 shadow-sm ring-1 ring-red-950/5"
+              >
+                {error}
+              </p>
+            ) : null}
           </div>
-        </form>
-      </section>
+
+          <form action={addProduct} className="mt-6 grid max-w-4xl gap-4 md:grid-cols-2">
+            <Field label="Title" required>
+              <input
+                name="title"
+                required
+                placeholder="2024 Topps Chrome Connor Bedard PSA 10"
+                className="mt-1 w-full rounded-xl border border-neutral-300 bg-white px-3 py-3 text-sm shadow-sm"
+              />
+            </Field>
+            <Field label="Player / subject">
+              <input
+                name="player"
+                placeholder="Connor Bedard"
+                className="mt-1 w-full rounded-xl border border-neutral-300 bg-white px-3 py-3 text-sm shadow-sm"
+              />
+            </Field>
+            <Field label="Sport / category">
+              <input
+                name="sport"
+                placeholder="Hockey"
+                className="mt-1 w-full rounded-xl border border-neutral-300 bg-white px-3 py-3 text-sm shadow-sm"
+              />
+            </Field>
+            <Field label="Image URL">
+              <input
+                name="image_url"
+                type="url"
+                placeholder="https://..."
+                className="mt-1 w-full rounded-xl border border-neutral-300 bg-white px-3 py-3 text-sm shadow-sm"
+              />
+            </Field>
+            <Field label="Price" required>
+              <input
+                name="price"
+                type="number"
+                min="0.01"
+                step="0.01"
+                required
+                placeholder="49.99"
+                className="mt-1 w-full rounded-xl border border-neutral-300 bg-white px-3 py-3 text-sm shadow-sm"
+              />
+            </Field>
+            <Field label="Quantity" required>
+              <input
+                name="quantity"
+                type="number"
+                min="0"
+                step="1"
+                required
+                placeholder="1"
+                className="mt-1 w-full rounded-xl border border-neutral-300 bg-white px-3 py-3 text-sm shadow-sm"
+              />
+            </Field>
+
+            <Field label="Description" className="md:col-span-2">
+              <textarea
+                name="description"
+                rows={5}
+                placeholder="Leave blank to auto-fill later, or paste the reviewed listing description."
+                className="mt-1 w-full rounded-xl border border-neutral-300 bg-white px-3 py-3 text-sm shadow-sm"
+              />
+            </Field>
+
+            <div className="md:col-span-2">
+              <AdminSubmitButton
+                className="rounded-full bg-neutral-950 px-6 py-3 text-sm font-black text-white shadow-sm transition hover:bg-neutral-800"
+                pendingChildren="Adding product..."
+                title="Create one manual store product from the form fields without publishing it to eBay."
+              >
+                Add manual product
+              </AdminSubmitButton>
+              <p className="mt-2 text-xs font-bold text-neutral-600">
+                Adds the product to TCOS inventory only; marketplace publishing remains a separate admin step.
+              </p>
+            </div>
+          </form>
+        </section>
+      </div>
     </main>
   );
 }
@@ -287,5 +305,39 @@ function Field({
       {label} {required ? <span className="text-red-700">*</span> : null}
       {children}
     </label>
+  );
+}
+
+function HeaderStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-black/20 p-3 text-center">
+      <p className="text-[10px] font-black uppercase tracking-[0.16em] text-neutral-400">
+        {label}
+      </p>
+      <p className="mt-1 truncate text-lg font-black text-white">{value}</p>
+    </div>
+  );
+}
+
+function CommandLink({
+  href,
+  label,
+  primary = false,
+}: {
+  href: string;
+  label: string;
+  primary?: boolean;
+}) {
+  return (
+    <Link
+      href={href}
+      className={
+        primary
+          ? "rounded-full bg-white px-4 py-2 text-sm font-black text-neutral-950 shadow-sm transition hover:bg-neutral-200"
+          : "rounded-full border border-white/20 bg-white/5 px-4 py-2 text-sm font-black text-white transition hover:border-white hover:bg-white/10"
+      }
+    >
+      {label}
+    </Link>
   );
 }
