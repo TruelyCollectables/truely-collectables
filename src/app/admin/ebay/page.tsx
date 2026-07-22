@@ -87,9 +87,9 @@ export default async function AdminEbayPage({
   const visibleRows = [...attentionRows, ...otherRows].slice(0, 150);
 
   return (
-    <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
-      <section className="border-b border-neutral-200 bg-[#101418] text-white">
-        <div className="mx-auto flex max-w-7xl flex-col gap-5 px-6 py-6 lg:flex-row lg:items-end lg:justify-between">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(245,158,11,0.15),_transparent_34%),linear-gradient(180deg,_#faf7ef_0%,_#f4f1ea_42%,_#eee7da_100%)] px-4 py-6 text-neutral-950 sm:px-6 lg:px-8">
+      <section className="mx-auto max-w-[1500px] overflow-hidden rounded-[2rem] border border-neutral-900 bg-neutral-950 text-white shadow-2xl shadow-neutral-950/10">
+        <div className="flex flex-col gap-5 border-b border-white/10 bg-[radial-gradient(circle_at_top_right,_rgba(245,158,11,0.22),_transparent_32%),linear-gradient(135deg,_rgba(255,255,255,0.08),_transparent)] p-6 lg:flex-row lg:items-end lg:justify-between lg:p-8">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.16em] text-amber-300">
               Marketplace Sync
@@ -121,13 +121,13 @@ export default async function AdminEbayPage({
         </div>
       </section>
 
-      <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
+      <div className="mx-auto max-w-[1500px] space-y-6 py-6">
         {params.ebay ? (
           <div
-            className={`rounded-md border px-4 py-3 text-sm font-bold ${
+            className={`rounded-2xl border px-4 py-3 text-sm font-bold shadow-sm ring-1 ${
               params.ebay === "connected"
-                ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                : "border-rose-200 bg-rose-50 text-rose-800"
+                ? "border-emerald-200 bg-emerald-50 text-emerald-800 ring-emerald-950/5"
+                : "border-rose-200 bg-rose-50 text-rose-800 ring-rose-950/5"
             }`}
           >
             {params.ebay === "connected"
@@ -137,7 +137,7 @@ export default async function AdminEbayPage({
         ) : null}
 
         {!storeSettings.ebaySyncEnabled ? (
-          <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-800">
+          <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-800 shadow-sm ring-1 ring-rose-950/5">
             eBay sync is disabled for this store. Imports, full sync,
             reconnect, and post-sale quantity updates are blocked until it is
             enabled in Store Settings.
@@ -145,13 +145,13 @@ export default async function AdminEbayPage({
         ) : null}
 
         {storeSettings.ebaySyncEnabled && !hasEbayRefreshToken ? (
-          <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-900">
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-bold text-amber-900 shadow-sm ring-1 ring-amber-950/5">
             No eBay refresh token is saved for this store yet. Connect eBay
             once, approve TCOS, then come back here and run the import.
           </div>
         ) : null}
 
-        <section className="rounded-xl border-4 border-emerald-400 bg-emerald-50 p-6 text-emerald-950 shadow-lg">
+        <section className="rounded-3xl border border-emerald-300 bg-emerald-50 p-6 text-emerald-950 shadow-sm ring-1 ring-emerald-950/5">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <p className="text-sm font-black uppercase tracking-[0.18em] text-emerald-700">
@@ -172,34 +172,34 @@ export default async function AdminEbayPage({
               {storeSettings.ebaySyncEnabled && hasEbayRefreshToken ? (
                 <Link
                   href="/admin/ebay/import-runner"
-                  className="rounded-xl bg-neutral-950 px-6 py-4 text-center text-base font-black uppercase tracking-[0.08em] text-white hover:bg-neutral-800"
+                  className="rounded-2xl bg-neutral-950 px-6 py-4 text-center text-base font-black uppercase tracking-[0.08em] text-white shadow-sm transition hover:bg-neutral-800"
                 >
                   Open eBay Import Runner
                 </Link>
               ) : storeSettings.ebaySyncEnabled ? (
                 <Link
                   href="/api/ebay/auth"
-                  className="rounded-xl bg-amber-300 px-6 py-4 text-center text-base font-black uppercase tracking-[0.08em] text-neutral-950 hover:bg-amber-200"
+                  className="rounded-2xl bg-amber-300 px-6 py-4 text-center text-base font-black uppercase tracking-[0.08em] text-neutral-950 shadow-sm transition hover:bg-amber-200"
                 >
                   Connect eBay First
                 </Link>
               ) : (
                 <Link
                   href="/admin/settings"
-                  className="rounded-xl bg-rose-700 px-6 py-4 text-center text-base font-black uppercase tracking-[0.08em] text-white hover:bg-rose-800"
+                  className="rounded-2xl bg-rose-700 px-6 py-4 text-center text-base font-black uppercase tracking-[0.08em] text-white shadow-sm transition hover:bg-rose-800"
                 >
                   Enable eBay Sync First
                 </Link>
               )}
               <Link
                 href="/admin/ebay/sync-control"
-                className="rounded-xl border border-emerald-300 bg-white px-6 py-3 text-center text-sm font-black text-emerald-950 hover:bg-emerald-100"
+                className="rounded-2xl border border-emerald-300 bg-white px-6 py-3 text-center text-sm font-black text-emerald-950 shadow-sm transition hover:bg-emerald-100"
               >
                 Open guided import controls
               </Link>
               <Link
                 href="/admin/inventory"
-                className="rounded-xl border border-emerald-300 bg-white px-6 py-3 text-center text-sm font-black text-emerald-950 hover:bg-emerald-100"
+                className="rounded-2xl border border-emerald-300 bg-white px-6 py-3 text-center text-sm font-black text-emerald-950 shadow-sm transition hover:bg-emerald-100"
               >
                 Open TCOS inventory
               </Link>
@@ -221,7 +221,7 @@ export default async function AdminEbayPage({
           <Metric label="Sold Out" value={String(status.soldOutItems)} />
         </section>
 
-        <section className="rounded-md border border-neutral-200 bg-white p-5">
+        <section className="rounded-3xl border border-neutral-200 bg-white/95 p-5 shadow-sm ring-1 ring-black/[0.02]">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <h2 className="text-2xl font-black">Sync Window</h2>
@@ -237,7 +237,7 @@ export default async function AdminEbayPage({
           </div>
         </section>
 
-        <section className="rounded-md border border-neutral-200 bg-white">
+        <section className="overflow-hidden rounded-3xl border border-neutral-200 bg-white/95 shadow-sm ring-1 ring-black/[0.02]">
           <div className="flex flex-wrap items-start justify-between gap-3 border-b border-neutral-200 p-5">
             <div>
               <h2 className="text-2xl font-black">Listing Health Queue</h2>
@@ -246,7 +246,7 @@ export default async function AdminEbayPage({
                 first. Local-only items are allowed.
               </p>
             </div>
-            <span className="rounded border border-neutral-200 bg-neutral-100 px-3 py-1 text-xs font-black uppercase text-neutral-700">
+            <span className="rounded-full border border-neutral-200 bg-neutral-100 px-3 py-1 text-xs font-black uppercase text-neutral-700">
               Store {status.storeId.slice(-4)}
             </span>
           </div>
@@ -314,7 +314,7 @@ export default async function AdminEbayPage({
                       <td className="px-4 py-4">
                         <Link
                           href={`/admin/products/${row.legacyProductId}`}
-                          className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-bold hover:bg-neutral-50"
+                          className="rounded-full border border-neutral-300 bg-white px-3 py-2 text-xs font-bold shadow-sm transition hover:bg-neutral-50"
                         >
                           Open
                         </Link>
@@ -333,7 +333,7 @@ export default async function AdminEbayPage({
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border border-neutral-200 bg-white p-5">
+    <div className="rounded-3xl border border-neutral-200 bg-white/95 p-5 shadow-sm ring-1 ring-black/[0.02]">
       <p className="text-sm font-bold uppercase text-neutral-500">{label}</p>
       <p className="mt-3 text-3xl font-black">{value}</p>
     </div>
@@ -342,7 +342,7 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 function Info({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2">
+    <div className="rounded-2xl border border-neutral-200 bg-neutral-50 px-3 py-2 shadow-sm ring-1 ring-black/[0.02]">
       <dt className="text-xs font-bold uppercase text-neutral-500">{label}</dt>
       <dd className="mt-1 font-black">{value}</dd>
     </div>
@@ -361,13 +361,13 @@ function CommandLink({
   danger?: boolean;
 }) {
   const className = primary
-    ? "bg-amber-300 text-neutral-950 hover:bg-amber-200"
+    ? "bg-amber-300 text-neutral-950 shadow-sm hover:bg-amber-200"
     : danger
-    ? "border border-rose-400 text-rose-200 hover:bg-rose-950"
-    : "border border-white/20 text-white hover:bg-white/10";
+    ? "border border-rose-400 bg-rose-500/10 text-rose-100 hover:bg-rose-950"
+    : "border border-white/15 bg-white/10 text-white hover:bg-white/15";
 
   return (
-    <Link href={href} className={`rounded-md px-4 py-2 text-sm font-bold ${className}`}>
+    <Link href={href} className={`rounded-full px-4 py-2 text-sm font-bold transition ${className}`}>
       {label}
     </Link>
   );

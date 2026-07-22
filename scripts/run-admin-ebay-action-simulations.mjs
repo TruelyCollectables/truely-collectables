@@ -11,8 +11,16 @@ const inventoryIntakeSource = await readFile(
   ),
   "utf8",
 );
+const inventoryIntakePageSource = await readFile(
+  new URL("../src/app/admin/ebay/inventory-intake/page.tsx", import.meta.url),
+  "utf8",
+);
 const publisherSource = await readFile(
   new URL("../src/app/admin/ebay/publish/EbayPublisher.tsx", import.meta.url),
+  "utf8",
+);
+const publishPageSource = await readFile(
+  new URL("../src/app/admin/ebay/publish/page.tsx", import.meta.url),
   "utf8",
 );
 const ebayHealthSource = await readFile(
@@ -313,6 +321,45 @@ scenario("eBay import runner uses professional diagnostics copy", () => {
       `Expected eBay import runner to avoid rough operator copy ${fragment}.`,
     );
   }
+});
+
+scenario("eBay admin pages use professional command presentation", () => {
+  for (const [label, source] of [
+    ["eBay health", ebayHealthSource],
+    ["eBay sync control", syncControlSource],
+    ["eBay import runner", importRunnerPageSource],
+    ["eBay inventory intake", inventoryIntakePageSource],
+    ["eBay publisher page", publishPageSource],
+  ]) {
+    for (const fragment of [
+      "rounded-[2rem] border border-neutral-900 bg-neutral-950",
+      "shadow-2xl shadow-neutral-950/10",
+      "max-w-[1500px]",
+      "rounded-full",
+    ]) {
+      assert(
+        source.includes(fragment),
+        `Expected ${label} to use command-shell presentation fragment ${fragment}.`,
+      );
+    }
+
+    for (const roughShell of [
+      'bg-[#f4f1ea]',
+      'bg-[#101418]',
+      "max-w-7xl",
+      "rounded-md border border-white/20",
+    ]) {
+      assert(
+        !source.includes(roughShell),
+        `Expected ${label} to avoid rough shell fragment ${roughShell}.`,
+      );
+    }
+  }
+
+  assert(
+    syncControlSource.includes("focus:ring-4 focus:ring-black/10"),
+    "Expected eBay sync-control form fields to expose professional focus states.",
+  );
 });
 
 const failed = [];
