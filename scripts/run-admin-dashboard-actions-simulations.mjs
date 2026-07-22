@@ -308,6 +308,35 @@ scenario("admin command center exposes no-dead-end operator action map", () => {
   }
 });
 
+scenario("admin command center uses professional command presentation", () => {
+  for (const fragment of [
+    "rounded-[2rem] border border-neutral-900 bg-neutral-950",
+    "shadow-2xl shadow-neutral-950/10",
+    "max-w-[1500px]",
+    "rounded-full",
+    "border border-white/15 bg-white/10",
+    "rounded-3xl border border-neutral-200 bg-white/95",
+    "ring-1 ring-black/[0.02]",
+  ]) {
+    assert(
+      adminPageSource.includes(fragment),
+      `Expected admin command center presentation fragment ${fragment}.`,
+    );
+  }
+
+  for (const roughShell of [
+    'bg-[#f4f1ea]',
+    'bg-[#101418]',
+    "max-w-7xl",
+    "border border-white/20 text-white hover:bg-white/10",
+  ]) {
+    assert(
+      !adminPageSource.includes(roughShell),
+      `Expected admin command center to avoid rough shell fragment ${roughShell}.`,
+    );
+  }
+});
+
 scenario("admin command center exposes first-screen operator attention strip", () => {
   for (const fragment of [
     "type AttentionPanelRow",

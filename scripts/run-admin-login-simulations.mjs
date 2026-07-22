@@ -51,6 +51,29 @@ scenario("admin login page labels native submits while posting", () => {
   }
 });
 
+scenario("admin login page uses professional operator entry presentation", () => {
+  for (const fragment of [
+    "bg-[radial-gradient(circle_at_top_left",
+    "rounded-[2rem] border border-neutral-200 bg-white/95",
+    "shadow-2xl shadow-neutral-950/10",
+    "focus:ring-4 focus:ring-black/10",
+    "shadow-sm transition hover:bg-neutral-800",
+    "shadow-sm ring-1 ring-amber-950/5",
+  ]) {
+    assert(
+      loginPageSource.includes(fragment),
+      `Expected admin login professional presentation fragment ${fragment}.`,
+    );
+  }
+
+  for (const roughShell of ['bg-[#f4f1ea]', 'bg-[#101418]']) {
+    assert(
+      !loginPageSource.includes(roughShell),
+      `Expected admin login page to avoid rough shell fragment ${roughShell}.`,
+    );
+  }
+});
+
 scenario("admin login route keeps password paste and local rescue guards", () => {
   for (const fragment of [
     "password.trim()",

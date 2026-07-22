@@ -1158,9 +1158,9 @@ export default async function AdminDashboard() {
   }>;
 
   return (
-    <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
-      <section className="border-b border-neutral-200 bg-[#101418] text-white">
-        <div className="mx-auto flex max-w-7xl flex-col gap-6 px-6 py-6 lg:flex-row lg:items-end lg:justify-between">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(245,158,11,0.15),_transparent_34%),linear-gradient(180deg,_#faf7ef_0%,_#f4f1ea_42%,_#eee7da_100%)] px-4 py-6 text-neutral-950 sm:px-6 lg:px-8">
+      <section className="mx-auto max-w-[1500px] overflow-hidden rounded-[2rem] border border-neutral-900 bg-neutral-950 text-white shadow-2xl shadow-neutral-950/10">
+        <div className="flex flex-col gap-6 border-b border-white/10 bg-[radial-gradient(circle_at_top_right,_rgba(245,158,11,0.22),_transparent_32%),linear-gradient(135deg,_rgba(255,255,255,0.08),_transparent)] p-6 lg:flex-row lg:items-end lg:justify-between lg:p-8">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.16em] text-amber-300">
               {PLATFORM_SOFTWARE_NAME}
@@ -1168,7 +1168,7 @@ export default async function AdminDashboard() {
             <h1 className="mt-2 text-4xl font-black tracking-tight">
               {storeSettings.displayName} Command Center
             </h1>
-            <p className="mt-2 max-w-3xl text-sm text-neutral-300">
+            <p className="mt-2 max-w-3xl text-sm font-semibold text-neutral-300">
               Store #{storeSettings.storeId.slice(-4)} operational control for
               inventory, payments, offers, fulfillment, evidence, and launch
               readiness.
@@ -1231,12 +1231,12 @@ export default async function AdminDashboard() {
         </div>
       </section>
 
-      <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
+      <div className="mx-auto max-w-[1500px] space-y-6 py-6">
         <section
-          className={`rounded-2xl border p-5 shadow-sm ${
+          className={`rounded-3xl border p-5 shadow-sm ring-1 ${
             adminDataHealthIssues.length > 0
-              ? "border-rose-200 bg-rose-50 text-rose-950"
-              : "border-emerald-200 bg-emerald-50 text-emerald-950"
+              ? "border-rose-200 bg-rose-50 text-rose-950 ring-rose-950/5"
+              : "border-emerald-200 bg-emerald-50 text-emerald-950 ring-emerald-950/5"
           }`}
         >
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -1267,7 +1267,7 @@ export default async function AdminDashboard() {
                 <Link
                   key={issue.key}
                   href={adminHref(issue.href)}
-                  className="rounded-xl border border-rose-200 bg-white/70 p-4 text-sm font-semibold shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                  className="rounded-2xl border border-rose-200 bg-white/70 p-4 text-sm font-semibold shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
                 >
                   <p className="text-[11px] font-black uppercase tracking-widest text-rose-700">
                     {issue.label}
@@ -1278,7 +1278,7 @@ export default async function AdminDashboard() {
               ))}
               <Link
                 href={adminHref("/admin/production-smoke")}
-                className="rounded-xl border border-rose-200 bg-white/70 p-4 text-sm font-semibold shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+                className="rounded-2xl border border-rose-200 bg-white/70 p-4 text-sm font-semibold shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
               >
                 <p className="text-[11px] font-black uppercase tracking-widest text-rose-700">
                   Verification
@@ -1292,7 +1292,7 @@ export default async function AdminDashboard() {
           ) : null}
         </section>
 
-        <section className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+        <section className="rounded-3xl border border-neutral-200 bg-white/95 p-5 shadow-sm ring-1 ring-black/[0.02]">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p className="text-xs font-black uppercase tracking-[0.18em] text-rose-700">
@@ -1338,9 +1338,9 @@ export default async function AdminDashboard() {
           </div>
         </section>
 
-        <section className="overflow-hidden rounded-2xl border border-neutral-200 bg-[#15110b] shadow-sm">
+        <section className="overflow-hidden rounded-[2rem] border border-neutral-900 bg-neutral-950 shadow-2xl shadow-neutral-950/10">
           <div className="grid grid-cols-1 lg:grid-cols-[0.72fr_1.28fr]">
-            <div className="border-b border-white/10 bg-[radial-gradient(circle_at_top_left,_rgba(251,191,36,0.28),_transparent_42%),linear-gradient(135deg,_#231805,_#0f172a)] p-6 text-white lg:border-b-0 lg:border-r">
+            <div className="border-b border-white/10 bg-[radial-gradient(circle_at_top_left,_rgba(251,191,36,0.28),_transparent_42%),linear-gradient(135deg,_#231805,_#0f172a)] p-6 text-white lg:border-b-0 lg:border-r lg:border-white/10">
               <p className="text-xs font-black uppercase tracking-[0.2em] text-amber-200">
                 Operator priority playbook
               </p>
@@ -1367,7 +1367,7 @@ export default async function AdminDashboard() {
           </div>
         </section>
 
-        <section className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
+        <section className="rounded-3xl border border-neutral-200 bg-white/95 p-5 shadow-sm ring-1 ring-black/[0.02]">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p className="text-xs font-black uppercase tracking-[0.18em] text-neutral-500">
@@ -1399,7 +1399,7 @@ export default async function AdminDashboard() {
           </div>
         </section>
 
-        <section className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
+        <section className="rounded-3xl border border-neutral-200 bg-white/95 p-5 shadow-sm ring-1 ring-black/[0.02]">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p className="text-xs font-black uppercase tracking-[0.18em] text-neutral-500">
@@ -1430,7 +1430,7 @@ export default async function AdminDashboard() {
           </div>
         </section>
 
-        <section className="rounded-xl border border-neutral-200 bg-white shadow-sm">
+        <section className="overflow-hidden rounded-3xl border border-neutral-200 bg-white/95 shadow-sm ring-1 ring-black/[0.02]">
           <div className="flex flex-col gap-4 border-b border-neutral-200 p-5 lg:flex-row lg:items-start lg:justify-between">
             <div>
               <p className="text-xs font-black uppercase tracking-[0.18em] text-blue-700">
@@ -1619,7 +1619,7 @@ export default async function AdminDashboard() {
           )}
         </section>
 
-        <section className="rounded-xl border border-neutral-200 bg-[#101418] p-5 text-white shadow-sm">
+        <section className="rounded-[2rem] border border-neutral-900 bg-neutral-950 p-5 text-white shadow-2xl shadow-neutral-950/10">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p className="text-xs font-black uppercase tracking-[0.18em] text-amber-300">
@@ -1657,7 +1657,7 @@ export default async function AdminDashboard() {
         </section>
 
         <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1.35fr_0.65fr]">
-          <div className="rounded-md border border-neutral-200 bg-white">
+          <div className="overflow-hidden rounded-3xl border border-neutral-200 bg-white/95 shadow-sm ring-1 ring-black/[0.02]">
             <div className="flex flex-wrap items-start justify-between gap-4 border-b border-neutral-200 p-5">
               <div>
                 <h2 className="text-2xl font-black">Operations Board</h2>
@@ -2697,15 +2697,15 @@ function BaseCommandButton({
   danger?: boolean;
 }) {
   const className = primary
-    ? "bg-amber-300 text-neutral-950 hover:bg-amber-200"
+    ? "bg-amber-300 text-neutral-950 shadow-sm hover:bg-amber-200"
     : danger
-    ? "border border-rose-400 text-rose-200 hover:bg-rose-950"
-    : "border border-white/20 text-white hover:bg-white/10";
+    ? "border border-rose-400 bg-rose-500/10 text-rose-100 hover:bg-rose-950"
+    : "border border-white/15 bg-white/10 text-white hover:bg-white/15";
 
   return (
     <Link
       href={href}
-      className={`rounded-lg px-4 py-2 text-sm font-bold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300 ${className}`}
+      className={`rounded-full px-4 py-2 text-sm font-bold transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300 ${className}`}
     >
       {label}
     </Link>

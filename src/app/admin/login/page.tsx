@@ -43,10 +43,10 @@ export default async function AdminLoginPage({
   const adminPasswordConfigured = Boolean(process.env.ADMIN_PASSWORD);
 
   return (
-    <main className="min-h-screen bg-[#f4f1ea] px-6 py-12 text-neutral-950">
-      <div className="mx-auto flex min-h-[calc(100vh-6rem)] max-w-5xl items-center">
-        <section className="grid w-full overflow-hidden rounded-3xl border border-neutral-200 bg-white shadow-xl lg:grid-cols-[0.95fr_1.05fr]">
-          <div className="bg-[#101418] p-8 text-white lg:p-10">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(245,158,11,0.16),_transparent_34%),linear-gradient(180deg,_#faf7ef_0%,_#f4f1ea_42%,_#eee7da_100%)] px-4 py-8 text-neutral-950 sm:px-6 lg:px-8">
+      <div className="mx-auto flex min-h-[calc(100vh-4rem)] max-w-[1120px] items-center">
+        <section className="grid w-full overflow-hidden rounded-[2rem] border border-neutral-200 bg-white/95 shadow-2xl shadow-neutral-950/10 ring-1 ring-black/[0.02] lg:grid-cols-[0.95fr_1.05fr]">
+          <div className="bg-[radial-gradient(circle_at_top_right,_rgba(245,158,11,0.24),_transparent_34%),linear-gradient(135deg,_#111827,_#050505)] p-8 text-white lg:p-10">
             <p className="text-xs font-black uppercase tracking-[0.2em] text-amber-300">
               TCOS Admin
             </p>
@@ -60,7 +60,7 @@ export default async function AdminLoginPage({
             </p>
 
             <dl className="mt-8 space-y-3 text-sm">
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4 shadow-sm">
                 <dt className="text-xs font-black uppercase tracking-[0.16em] text-neutral-400">
                   Password source
                 </dt>
@@ -70,13 +70,13 @@ export default async function AdminLoginPage({
                     : "ADMIN_PASSWORD missing in process env"}
                 </dd>
               </div>
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4 shadow-sm">
                 <dt className="text-xs font-black uppercase tracking-[0.16em] text-neutral-400">
                   Destination
                 </dt>
                 <dd className="mt-1 break-all font-black">{nextPath}</dd>
               </div>
-              <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-4 shadow-sm">
                 <dt className="text-xs font-black uppercase tracking-[0.16em] text-neutral-400">
                   Copy/paste guard
                 </dt>
@@ -87,7 +87,7 @@ export default async function AdminLoginPage({
             </dl>
           </div>
 
-          <div className="p-8 lg:p-10">
+          <div className="bg-white/95 p-8 lg:p-10">
             <p className="text-sm font-black uppercase tracking-[0.16em] text-neutral-500">
               Secure operator entry
             </p>
@@ -114,12 +114,12 @@ export default async function AdminLoginPage({
                   autoComplete="current-password"
                   required
                   autoFocus
-                  className="mt-1 w-full rounded-2xl border border-neutral-300 px-4 py-3 font-semibold outline-none focus:border-neutral-950"
+                  className="mt-1 w-full rounded-2xl border border-neutral-300 px-4 py-3 font-semibold shadow-inner outline-none focus:border-neutral-950 focus:ring-4 focus:ring-black/10"
                 />
               </label>
 
               <AdminSubmitButton
-                className="w-full rounded-2xl bg-neutral-950 px-4 py-3 font-black text-white hover:bg-neutral-800"
+                className="w-full rounded-2xl bg-neutral-950 px-4 py-3 font-black text-white shadow-sm transition hover:bg-neutral-800"
                 pendingChildren="Signing in..."
                 title="Submit the typed ADMIN_PASSWORD and create the admin session cookie for this browser."
               >
@@ -132,13 +132,13 @@ export default async function AdminLoginPage({
             </form>
 
             {error ? (
-              <p className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-black text-rose-900">
+              <p className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-black text-rose-900 shadow-sm ring-1 ring-rose-950/5">
                 {error}
               </p>
             ) : null}
 
             {!adminPasswordConfigured ? (
-              <p className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-black text-amber-950">
+              <p className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm font-black text-amber-950 shadow-sm ring-1 ring-amber-950/5">
                 This process does not expose ADMIN_PASSWORD. In local
                 development, TCOS will also check .env.local and
                 .env.development.local.
@@ -149,12 +149,12 @@ export default async function AdminLoginPage({
               <form
                 action={`/api/admin/login?next=${encodeURIComponent(nextPath)}`}
                 method="post"
-                className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4"
+                className="mt-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm ring-1 ring-amber-950/5"
               >
                 <input type="hidden" name="next" value={nextPath} />
                 <input type="hidden" name="localDevelopmentLogin" value="1" />
                 <AdminSubmitButton
-                  className="w-full rounded-2xl border border-amber-300 bg-white px-4 py-3 text-sm font-black text-amber-950 hover:bg-amber-100"
+                  className="w-full rounded-2xl border border-amber-300 bg-white px-4 py-3 text-sm font-black text-amber-950 shadow-sm transition hover:bg-amber-100"
                   pendingChildren="Opening admin..."
                   title="Open the admin locally without the password box; this route is accepted only on localhost in non-production."
                 >
