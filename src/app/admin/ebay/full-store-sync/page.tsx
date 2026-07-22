@@ -5,7 +5,7 @@ export const dynamic = "force-dynamic";
 
 export default function FullStoreSyncPage() {
   return (
-    <main className="min-h-screen bg-[#f4f1ea] px-4 py-8 text-neutral-950 sm:px-6">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,#fff7ed_0,#f8fafc_38%,#eef2ff_100%)] px-4 py-6 text-neutral-950 sm:px-6 lg:px-8">
       <div className="mx-auto max-w-[1600px] space-y-7">
         <section className="rounded-3xl border-2 border-neutral-950 bg-neutral-950 px-6 py-8 text-white shadow-[7px_7px_0_#ffd633] lg:px-10">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">

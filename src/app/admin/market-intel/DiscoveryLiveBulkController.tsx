@@ -436,7 +436,7 @@ export default function DiscoveryLiveBulkController() {
   if (pathname !== "/admin/market-intel/discovery" || rows.length === 0) return null;
 
   return (
-    <section className="fixed inset-x-4 bottom-4 z-[80] mx-auto max-w-6xl rounded-xl border border-cyan-600 bg-[#101418] p-4 text-white shadow-2xl">
+    <section className="fixed inset-x-4 bottom-4 z-[80] mx-auto max-w-6xl rounded-3xl border border-neutral-900 bg-neutral-950 p-4 text-white shadow-2xl shadow-neutral-950/30 ring-1 ring-white/10">
       <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
         <div className="min-w-0">
           <p className="text-xs font-black uppercase tracking-[0.16em] text-cyan-300">

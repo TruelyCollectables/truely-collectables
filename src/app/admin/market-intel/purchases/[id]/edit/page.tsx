@@ -80,9 +80,9 @@ export default async function EditPurchasePage({ params, searchParams }: PagePro
   const deletePhrase = `DELETE PURCHASE #${purchase.purchase_number}`;
 
   return (
-    <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
-      <header className="border-b border-neutral-800 bg-[#101418] text-white">
-        <div className="mx-auto max-w-7xl px-6 py-8">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,#fff7ed_0,#f8fafc_40%,#ecfccb_100%)] px-4 py-6 text-neutral-950 sm:px-6 lg:px-8">
+      <header className="mx-auto max-w-[1500px] overflow-hidden rounded-[2rem] border border-neutral-900 bg-neutral-950 text-white shadow-2xl shadow-neutral-950/10">
+        <div className="bg-[radial-gradient(circle_at_top_left,rgba(251,191,36,0.24),transparent_34%),linear-gradient(135deg,#0f172a,#111827_55%,#1f2937)] p-6 lg:p-8">
           <Link
             href={adminHref(`/admin/market-intel/purchases/${purchase.id}`)}
             className="text-sm font-black text-amber-300 hover:underline"
@@ -101,7 +101,7 @@ export default async function EditPurchasePage({ params, searchParams }: PagePro
         </div>
       </header>
 
-      <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
+      <div className="mx-auto max-w-[1500px] space-y-6 py-6">
         {query?.saved === "corrected" ? (
           <Notice tone="success">
             Purchase corrected. TCOS recalculated the total lot cost and all-in cost per item.

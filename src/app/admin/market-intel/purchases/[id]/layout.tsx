@@ -16,7 +16,7 @@ export default async function PurchaseDetailLayout({
   return (
     <>
       <nav className="sticky top-0 z-40 border-b border-neutral-300 bg-white/95 px-4 py-3 shadow-sm backdrop-blur">
-        <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-2">
+        <div className="mx-auto flex max-w-[1500px] flex-wrap items-center gap-2">
           <Link
             href={adminHref(`/admin/market-intel/purchases/${id}`)}
             className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-100"

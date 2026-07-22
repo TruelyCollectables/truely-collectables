@@ -240,9 +240,9 @@ export default async function MarketIntelWatchCenterPage({
   const actionable = data.listings.filter((listing) => listing.score?.actionable);
 
   return (
-    <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
-      <header className="border-b border-neutral-800 bg-[#101418] text-white">
-        <div className="mx-auto max-w-[1500px] px-6 py-8">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,#ecfccb_0,#f8fafc_42%,#fff7ed_100%)] px-4 py-6 text-neutral-950 sm:px-6 lg:px-8">
+      <header className="mx-auto max-w-[1500px] overflow-hidden rounded-[2rem] border border-neutral-900 bg-neutral-950 text-white shadow-2xl shadow-neutral-950/10">
+        <div className="bg-[radial-gradient(circle_at_top_left,rgba(132,204,22,0.24),transparent_34%),linear-gradient(135deg,#0f172a,#111827_55%,#14532d)] p-6 lg:p-8">
           <Link
             href={adminHref("/admin/market-intel")}
             className="text-sm font-black text-amber-300 hover:underline"
@@ -262,7 +262,7 @@ export default async function MarketIntelWatchCenterPage({
         </div>
       </header>
 
-      <div className="mx-auto max-w-[1500px] space-y-6 px-6 py-6">
+      <div className="mx-auto max-w-[1500px] space-y-6 py-6">
         {data.errors.length > 0 ? (
           <section className="rounded-xl border border-amber-300 bg-amber-50 p-5 text-amber-950">
             <h2 className="text-xl font-black">Some intelligence is unavailable</h2>
