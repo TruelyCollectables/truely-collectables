@@ -230,246 +230,249 @@ export default async function AdminProductsPage({
   );
 
   return (
-    <main className="space-y-6 bg-neutral-50 px-6 py-8 text-neutral-950">
-      <section className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <p className="text-xs font-black uppercase tracking-[0.18em] text-emerald-700">
-              Inventory control
-            </p>
-            <h1 className="mt-2 text-4xl font-black tracking-tight">
-              Admin products
-            </h1>
-            <p className="mt-3 max-w-3xl text-sm font-semibold leading-6 text-neutral-600">
-              Review TCOS inventory, bulk-apply reusable descriptions, and open
-              individual product records for price, quantity, media, and
-              authenticity cleanup.
-            </p>
+    <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
+      <section className="border-b border-neutral-800 bg-[#101418] text-white shadow-2xl shadow-black/20">
+        <div className="mx-auto max-w-7xl px-6 py-8">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.22em] text-emerald-300">
+                Inventory control
+              </p>
+              <h1 className="mt-2 text-4xl font-black tracking-tight md:text-5xl">
+                Admin products
+              </h1>
+              <p className="mt-3 max-w-4xl text-sm font-semibold leading-7 text-neutral-300">
+                Review TCOS inventory, bulk-apply reusable descriptions, end
+                stale buyer availability, and open individual product records
+                for price, quantity, media, and authenticity cleanup.
+              </p>
+            </div>
+            <div className="grid min-w-[320px] grid-cols-3 gap-3 rounded-3xl border border-white/10 bg-white/[0.06] p-4 shadow-xl shadow-black/20">
+              <HeaderStat label="Products" value={String(products.length)} />
+              <HeaderStat label="Active" value={String(activeCount)} />
+              <HeaderStat label="On Hand" value={String(totalQuantity)} />
+            </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Link
-              href="/admin/products/new"
-              className="rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white hover:bg-neutral-800"
-            >
-              Add product
-            </Link>
-            <Link
-              href="/admin/ebay/inventory-intake"
-              className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-black text-emerald-950 hover:bg-emerald-100"
-            >
-              eBay intake
-            </Link>
-            <Link
-              href="/admin/logout"
-              className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50"
-            >
-              Logout
-            </Link>
+
+          <div className="mt-6 flex flex-wrap gap-3">
+            <CommandLink href="/admin/products/new" label="Add product" primary />
+            <CommandLink href="/admin/ebay/inventory-intake" label="eBay intake" />
+            <CommandLink href="/admin/logout" label="Logout" />
           </div>
         </div>
       </section>
 
-      {query?.bulkUpdated && (
-        <div className="rounded border border-green-300 bg-green-50 p-4 font-bold text-green-800">
-          <p>
-            Updated descriptions on {query.bulkUpdated} product
-            {query.bulkUpdated === "1" ? "" : "s"}.
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <Link
-              href="/admin/products#product-records"
-              className="rounded-md border border-green-300 bg-white px-3 py-2 text-sm font-black text-green-900 hover:bg-green-100"
-            >
-              Review product records
-            </Link>
-            <Link
-              href="/admin/products"
-              className="rounded-md border border-green-300 bg-white px-3 py-2 text-sm font-black text-green-900 hover:bg-green-100"
-            >
-              Continue bulk editing
-            </Link>
-          </div>
-        </div>
-      )}
-
-      {query?.bulkError && (
-        <div
-          role="alert"
-          aria-live="assertive"
-          className="rounded border border-red-300 bg-red-50 p-4 font-bold text-red-800"
-        >
-          Select at least one product and paste a description/code block first.
-        </div>
-      )}
-
-      {query?.saveError && (
-        <div
-          role="alert"
-          aria-live="assertive"
-          className="rounded border border-red-300 bg-red-50 p-4 font-bold text-red-800"
-        >
-          Product action needs attention: {query.saveError}
-        </div>
-      )}
-
-      {query?.statusEnded && (
-        <div
-          role="status"
-          aria-live="polite"
-          className="rounded border border-emerald-300 bg-emerald-50 p-4 font-bold text-emerald-800"
-        >
-          <p>
-            Product #{query.statusEnded}:{" "}
-            {adminProductStatusSuccessMessage("archived")}
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <Link
-              href={`/admin/products/${query.statusEnded}`}
-              className="rounded-md border border-emerald-300 bg-white px-3 py-2 text-sm font-black text-emerald-900 hover:bg-emerald-100"
-            >
-              Review ended product
-            </Link>
-            <Link
-              href="/admin/products"
-              className="rounded-md border border-emerald-300 bg-white px-3 py-2 text-sm font-black text-emerald-900 hover:bg-emerald-100"
-            >
-              Continue inventory review
-            </Link>
-          </div>
-        </div>
-      )}
-
-      <section className="grid gap-3 md:grid-cols-3">
-        <Metric label="Total products" value={String(products.length)} />
-        <Metric label="Active rows" value={String(activeCount)} tone="emerald" />
-        <Metric label="On-hand value" value={money(totalValue)} tone="sky" />
-      </section>
-
-      <section
-        id="product-records"
-        className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm"
-      >
-        <div className="mb-4">
-          <p className="text-xs font-black uppercase tracking-[0.16em] text-neutral-500">
-            Bulk tools
-          </p>
-          <h2 className="mt-2 text-2xl font-black">Description updater</h2>
-          <p className="mt-2 max-w-3xl text-sm font-semibold text-neutral-600">
-            Select rows below and append, prepend, or replace reusable listing
-            language without opening every product one at a time.
-          </p>
-        </div>
-        <BulkDescriptionEditor
-          products={products.map((product) => ({
-            legacyProductId: product.legacyProductId,
-            title: product.title,
-            price: product.price,
-            status: product.status,
-          }))}
-          action={bulkUpdateDescriptions}
-        />
-      </section>
-
-      <section className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
-        <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
-          <div>
-            <p className="text-xs font-black uppercase tracking-[0.16em] text-neutral-500">
-              Inventory rows
+      <div className="mx-auto max-w-7xl space-y-6 px-6 py-8">
+        {query?.bulkUpdated && (
+          <div className="rounded-2xl border border-green-300 bg-green-50 p-4 font-bold text-green-800 shadow-sm ring-1 ring-green-950/5">
+            <p>
+              Updated descriptions on {query.bulkUpdated} product
+              {query.bulkUpdated === "1" ? "" : "s"}.
             </p>
-            <h2 className="mt-2 text-2xl font-black">Product records</h2>
-          </div>
-          <p className="text-sm font-bold text-neutral-600">
-            {totalQuantity} total unit{totalQuantity === 1 ? "" : "s"} on hand
-          </p>
-        </div>
-
-        {products.length === 0 ? (
-          <div className="rounded-2xl border border-dashed border-neutral-300 bg-neutral-50 p-8 text-center">
-            <h3 className="text-xl font-black">No products yet</h3>
-            <p className="mt-2 text-sm font-semibold text-neutral-600">
-              Add a manual product or use InstaComp™ / eBay intake to start the
-              working inventory list.
-            </p>
-            <Link
-              href="/admin/products/new"
-              className="mt-4 inline-block rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white"
-            >
-              Add first product
-            </Link>
-          </div>
-        ) : (
-          <div className="grid gap-3">
-            {products.map((product) => (
-              <article
-                key={product.legacyProductId}
-                className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4"
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Link
+                href="/admin/products#product-records"
+                className="rounded-full border border-green-300 bg-white px-3 py-2 text-sm font-black text-green-900 transition hover:bg-green-100"
               >
-                <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-xl font-black">{product.title}</h3>
-                      <span
-                        className={`rounded-full border px-2 py-0.5 text-xs font-black ${statusTone(
-                          product.status,
-                        )}`}
-                      >
-                        {product.status || "unknown"}
-                      </span>
-                    </div>
-                    <dl className="mt-3 grid gap-2 text-sm font-semibold text-neutral-700 sm:grid-cols-2 lg:grid-cols-4">
-                      <ProductFact label="Price" value={money(product.price)} />
-                      <ProductFact label="Quantity" value={String(product.quantity)} />
-                      <ProductFact label="Source" value={product.source || "manual"} />
-                      <ProductFact label="Player" value={product.player || "—"} />
-                      <ProductFact label="Sport" value={product.sport || "—"} />
-                      <ProductFact
-                        label="Legacy ID"
-                        value={String(product.legacyProductId)}
-                      />
-                    </dl>
-                  </div>
-
-                  <div className="flex flex-wrap gap-2 md:flex-col md:items-stretch">
-                    <Link
-                      href={`/admin/products/${product.legacyProductId}`}
-                      className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-center text-sm font-black hover:bg-neutral-100"
-                    >
-                      Edit product
-                    </Link>
-
-                    {adminProductStatusZeroesQuantity(product.status) ? (
-                      <span
-                        className="rounded-md border border-neutral-200 bg-neutral-100 px-4 py-2 text-center text-sm font-black text-neutral-500"
-                        title={`This product is already ${product.status}; ended statuses are removed from active inventory and should carry quantity 0.`}
-                      >
-                        {product.status === "sold" ? "Ended / Sold" : "Ended / Archived"}
-                      </span>
-                    ) : (
-                      <form action={endProductEarly}>
-                        <input
-                          type="hidden"
-                          name="id"
-                          value={product.legacyProductId}
-                        />
-                        <AdminSubmitButton
-                          className="w-full rounded-md border border-rose-300 bg-rose-50 px-4 py-2 text-center text-sm font-black text-rose-950 hover:bg-rose-100"
-                          pendingChildren={`Ending #${product.legacyProductId}...`}
-                          title={productEndEarlyTitle(product)}
-                        >
-                          End early / qty 0
-                        </AdminSubmitButton>
-                        <p className="mt-1 text-xs font-black text-rose-800">
-                          {productEndEarlyHelp(product)}
-                        </p>
-                      </form>
-                    )}
-                  </div>
-                </div>
-              </article>
-            ))}
+                Review product records
+              </Link>
+              <Link
+                href="/admin/products"
+                className="rounded-full border border-green-300 bg-white px-3 py-2 text-sm font-black text-green-900 transition hover:bg-green-100"
+              >
+                Continue bulk editing
+              </Link>
+            </div>
           </div>
         )}
-      </section>
+
+        {query?.bulkError && (
+          <div
+            role="alert"
+            aria-live="assertive"
+            className="rounded-2xl border border-red-300 bg-red-50 p-4 font-bold text-red-800 shadow-sm ring-1 ring-red-950/5"
+          >
+            Select at least one product and paste a description/code block first.
+          </div>
+        )}
+
+        {query?.saveError && (
+          <div
+            role="alert"
+            aria-live="assertive"
+            className="rounded-2xl border border-red-300 bg-red-50 p-4 font-bold text-red-800 shadow-sm ring-1 ring-red-950/5"
+          >
+            Product action needs attention: {query.saveError}
+          </div>
+        )}
+
+        {query?.statusEnded && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="rounded-2xl border border-emerald-300 bg-emerald-50 p-4 font-bold text-emerald-800 shadow-sm ring-1 ring-emerald-950/5"
+          >
+            <p>
+              Product #{query.statusEnded}:{" "}
+              {adminProductStatusSuccessMessage("archived")}
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Link
+                href={`/admin/products/${query.statusEnded}`}
+                className="rounded-full border border-emerald-300 bg-white px-3 py-2 text-sm font-black text-emerald-900 transition hover:bg-emerald-100"
+              >
+                Review ended product
+              </Link>
+              <Link
+                href="/admin/products"
+                className="rounded-full border border-emerald-300 bg-white px-3 py-2 text-sm font-black text-emerald-900 transition hover:bg-emerald-100"
+              >
+                Continue inventory review
+              </Link>
+            </div>
+          </div>
+        )}
+
+        <section className="grid gap-3 md:grid-cols-3">
+          <Metric label="Total products" value={String(products.length)} />
+          <Metric label="Active rows" value={String(activeCount)} tone="emerald" />
+          <Metric label="On-hand value" value={money(totalValue)} tone="sky" />
+        </section>
+
+        <section
+          id="product-records"
+          className="rounded-3xl border border-neutral-200 bg-white/95 p-5 shadow-sm ring-1 ring-black/[0.02]"
+        >
+          <div className="mb-4">
+            <p className="text-xs font-black uppercase tracking-[0.16em] text-neutral-500">
+              Bulk tools
+            </p>
+            <h2 className="mt-2 text-2xl font-black">Description updater</h2>
+            <p className="mt-2 max-w-3xl text-sm font-semibold text-neutral-600">
+              Select rows below and append, prepend, or replace reusable listing
+              language without opening every product one at a time.
+            </p>
+          </div>
+          <BulkDescriptionEditor
+            products={products.map((product) => ({
+              legacyProductId: product.legacyProductId,
+              title: product.title,
+              price: product.price,
+              status: product.status,
+            }))}
+            action={bulkUpdateDescriptions}
+          />
+        </section>
+
+        <section className="rounded-3xl border border-neutral-200 bg-white/95 p-5 shadow-sm ring-1 ring-black/[0.02]">
+          <div className="mb-4 flex flex-col gap-2 md:flex-row md:items-end md:justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.16em] text-neutral-500">
+                Inventory rows
+              </p>
+              <h2 className="mt-2 text-2xl font-black">Product records</h2>
+            </div>
+            <p className="text-sm font-bold text-neutral-600">
+              {totalQuantity} total unit{totalQuantity === 1 ? "" : "s"} on hand
+            </p>
+          </div>
+
+          {products.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-neutral-300 bg-neutral-50 p-8 text-center">
+              <h3 className="text-xl font-black">No products yet</h3>
+              <p className="mt-2 text-sm font-semibold text-neutral-600">
+                Add a manual product or use InstaComp™ / eBay intake to start the
+                working inventory list.
+              </p>
+              <Link
+                href="/admin/products/new"
+                className="mt-4 inline-block rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white"
+              >
+                Add first product
+              </Link>
+            </div>
+          ) : (
+            <div className="grid gap-3">
+              {products.map((product) => (
+                <article
+                  key={product.legacyProductId}
+                  className="rounded-3xl border border-neutral-200 bg-neutral-50/90 p-4 shadow-sm ring-1 ring-black/[0.02] transition hover:bg-neutral-50"
+                >
+                  <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+                    <div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <h3 className="text-xl font-black">{product.title}</h3>
+                        <span
+                          className={`rounded-full border px-2 py-0.5 text-xs font-black ${statusTone(
+                            product.status,
+                          )}`}
+                        >
+                          {product.status || "unknown"}
+                        </span>
+                      </div>
+                      <dl className="mt-3 grid gap-2 text-sm font-semibold text-neutral-700 sm:grid-cols-2 lg:grid-cols-4">
+                        <ProductFact label="Price" value={money(product.price)} />
+                        <ProductFact
+                          label="Quantity"
+                          value={String(product.quantity)}
+                        />
+                        <ProductFact
+                          label="Source"
+                          value={product.source || "manual"}
+                        />
+                        <ProductFact label="Player" value={product.player || "—"} />
+                        <ProductFact label="Sport" value={product.sport || "—"} />
+                        <ProductFact
+                          label="Legacy ID"
+                          value={String(product.legacyProductId)}
+                        />
+                      </dl>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2 md:flex-col md:items-stretch">
+                      <Link
+                        href={`/admin/products/${product.legacyProductId}`}
+                        className="rounded-full border border-neutral-300 bg-white px-4 py-2 text-center text-sm font-black shadow-sm transition hover:border-neutral-500"
+                      >
+                        Edit product
+                      </Link>
+
+                      {adminProductStatusZeroesQuantity(product.status) ? (
+                        <span
+                          className="rounded-full border border-neutral-200 bg-neutral-100 px-4 py-2 text-center text-sm font-black text-neutral-500"
+                          title={`This product is already ${product.status}; ended statuses are removed from active inventory and should carry quantity 0.`}
+                        >
+                          {product.status === "sold"
+                            ? "Ended / Sold"
+                            : "Ended / Archived"}
+                        </span>
+                      ) : (
+                        <form action={endProductEarly}>
+                          <input
+                            type="hidden"
+                            name="id"
+                            value={product.legacyProductId}
+                          />
+                          <AdminSubmitButton
+                            className="w-full rounded-full border border-rose-300 bg-rose-50 px-4 py-2 text-center text-sm font-black text-rose-950 shadow-sm transition hover:bg-rose-100"
+                            pendingChildren={`Ending #${product.legacyProductId}...`}
+                            title={productEndEarlyTitle(product)}
+                          >
+                            End early / qty 0
+                          </AdminSubmitButton>
+                          <p className="mt-1 text-xs font-black text-rose-800">
+                            {productEndEarlyHelp(product)}
+                          </p>
+                        </form>
+                      )}
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
     </main>
   );
 }
@@ -491,7 +494,9 @@ function Metric({
         : "border-neutral-200 bg-white text-neutral-950";
 
   return (
-    <div className={`rounded-2xl border p-4 shadow-sm ${className}`}>
+    <div
+      className={`rounded-2xl border p-4 shadow-sm ring-1 ring-black/[0.02] ${className}`}
+    >
       <p className="text-xs font-black uppercase tracking-[0.14em] opacity-70">
         {label}
       </p>
@@ -508,5 +513,39 @@ function ProductFact({ label, value }: { label: string; value: string }) {
       </dt>
       <dd className="mt-1">{value}</dd>
     </div>
+  );
+}
+
+function HeaderStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-black/20 p-3 text-center">
+      <p className="text-[10px] font-black uppercase tracking-[0.16em] text-neutral-400">
+        {label}
+      </p>
+      <p className="mt-1 truncate text-lg font-black text-white">{value}</p>
+    </div>
+  );
+}
+
+function CommandLink({
+  href,
+  label,
+  primary = false,
+}: {
+  href: string;
+  label: string;
+  primary?: boolean;
+}) {
+  return (
+    <Link
+      href={href}
+      className={
+        primary
+          ? "rounded-full bg-white px-4 py-2 text-sm font-black text-neutral-950 shadow-sm transition hover:bg-neutral-200"
+          : "rounded-full border border-white/20 bg-white/5 px-4 py-2 text-sm font-black text-white transition hover:border-white hover:bg-white/10"
+      }
+    >
+      {label}
+    </Link>
   );
 }

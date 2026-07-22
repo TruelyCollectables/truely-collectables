@@ -2,11 +2,21 @@
   "extends": "./tsconfig.json",
   "include": [
     "next-env.d.ts",
-    "**/*.ts",
-    "**/*.tsx",
-    "**/*.mts",
-    ".next-build-check/types/**/*.ts",
-    ".next-build-check/dev/types/**/*.ts"
+    "next.config.ts",
+    "src/**/*.ts",
+    "src/**/*.tsx"
   ],
-  "exclude": ["node_modules", ".next"]
+  "exclude": [
+    "node_modules",
+    ".next",
+    ".next-16.2.10-turbopack-stall",
+    ".next-pre-16.2.10-security-block",
+    ".next-stale-build",
+    ".next-build-check",
+    ".next-build-check-*",
+    ".next-dev-check",
+    ".next-node-modules-block9-corrupt",
+    "TCOS_BACKUP",
+    "scripts"
+  ]
 }

@@ -278,6 +278,26 @@ scenario("product list exposes a direct end-early action", () => {
   }
 });
 
+scenario("product list uses professional inventory command presentation", () => {
+  for (const fragment of [
+    "stale buyer availability",
+    "HeaderStat label=\"Products\"",
+    "HeaderStat label=\"Active\"",
+    "HeaderStat label=\"On Hand\"",
+    "CommandLink href=\"/admin/products/new\" label=\"Add product\" primary",
+    "CommandLink href=\"/admin/ebay/inventory-intake\" label=\"eBay intake\"",
+    "rounded-3xl border border-neutral-200 bg-white/95",
+    "rounded-full border border-neutral-300 bg-white",
+    "rounded-full border border-rose-300 bg-rose-50",
+    "shadow-sm ring-1 ring-black/[0.02] transition hover:bg-neutral-50",
+  ]) {
+    assert(
+      productsPageSource.includes(fragment),
+      `Expected products list presentation fragment ${fragment}.`,
+    );
+  }
+});
+
 scenario("inventory engine enforces admin product status policy", () => {
   for (const fragment of [
     "adminProductStatusChangeError",
