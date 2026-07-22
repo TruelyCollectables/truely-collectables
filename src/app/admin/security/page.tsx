@@ -240,9 +240,9 @@ export default async function AdminSecurityPage({
   const caseNotice = securityCaseNotice(resolvedSearchParams.case);
 
   return (
-    <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
-      <section className="border-b border-neutral-800 bg-[#101418] text-white shadow-2xl shadow-black/20">
-        <div className="mx-auto max-w-7xl px-6 py-8">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(245,158,11,0.15),_transparent_34%),linear-gradient(180deg,_#faf7ef_0%,_#f4f1ea_42%,_#eee7da_100%)] px-4 py-6 text-neutral-950 sm:px-6 lg:px-8">
+      <section className="mx-auto max-w-[1500px] overflow-hidden rounded-[2rem] border border-neutral-900 bg-neutral-950 text-white shadow-2xl shadow-neutral-950/10">
+        <div className="border-b border-white/10 bg-[radial-gradient(circle_at_top_right,_rgba(245,158,11,0.22),_transparent_32%),linear-gradient(135deg,_rgba(255,255,255,0.08),_transparent)] p-6 lg:p-8">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p className="text-xs font-black uppercase tracking-[0.22em] text-amber-300">
@@ -259,7 +259,7 @@ export default async function AdminSecurityPage({
               </p>
             </div>
 
-            <div className="grid min-w-[300px] grid-cols-3 gap-3 rounded-3xl border border-white/10 bg-white/[0.06] p-4 shadow-xl shadow-black/20">
+            <div className="grid min-w-[300px] grid-cols-3 gap-3 rounded-3xl border border-white/10 bg-white/[0.06] p-4 shadow-xl shadow-neutral-950/20">
               <HeaderStat
                 label="Lockouts"
                 value={loginAuditUnavailable ? "N/A" : String(activeLockouts.length)}
@@ -289,7 +289,7 @@ export default async function AdminSecurityPage({
         </div>
       </section>
 
-      <div className="mx-auto max-w-7xl space-y-6 px-6 py-8">
+      <div className="mx-auto max-w-[1500px] space-y-6 py-6">
         {caseNotice ? (
           <section
             aria-live="assertive"
@@ -767,7 +767,7 @@ function CommandLink({ href, label }: { href: string; label: string }) {
   return (
     <Link
       href={href}
-      className="rounded-full border border-white/20 bg-white/5 px-4 py-2 text-sm font-bold text-white transition hover:border-white hover:bg-white/10"
+      className="rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-bold text-white shadow-sm transition hover:bg-white/15"
     >
       {label}
     </Link>
@@ -776,7 +776,7 @@ function CommandLink({ href, label }: { href: string; label: string }) {
 
 function HeaderStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-black/20 p-3 text-center">
+    <div className="rounded-2xl border border-white/10 bg-black/20 p-3 text-center shadow-sm">
       <p className="text-[10px] font-black uppercase tracking-[0.16em] text-neutral-400">
         {label}
       </p>

@@ -96,10 +96,22 @@ scenario("security IP dossier explains save scope and partial load failures", ()
     "Saving marks this IP reviewed now, updates status/severity, and",
     "records internal-only notes for future admin decisions.",
     "Save this IP investigation, update last-reviewed time, and preserve internal-only audit notes.",
+    "rounded-[2rem] border border-neutral-900 bg-neutral-950",
+    "max-w-[1500px]",
+    "border border-white/15 bg-white/10",
+    "focus:ring-4 focus:ring-black/10",
+    "overflow-hidden rounded-3xl border border-neutral-200 bg-white/95",
   ]) {
     assert(
       ipDetailSource.includes(fragment),
       `Expected security IP save/load feedback fragment ${fragment}.`,
+    );
+  }
+
+  for (const roughShell of ['bg-[#f4f1ea]', 'bg-[#101418]', "max-w-7xl"]) {
+    assert(
+      !ipDetailSource.includes(roughShell),
+      `Expected security IP dossier to avoid rough shell fragment ${roughShell}.`,
     );
   }
 });
@@ -165,6 +177,9 @@ scenario("security center uses professional command presentation", () => {
   for (const fragment of [
     "Security Command Center",
     "empty-looking",
+    "rounded-[2rem] border border-neutral-900 bg-neutral-950",
+    "shadow-2xl shadow-neutral-950/10",
+    "max-w-[1500px]",
     "HeaderStat",
     "label=\"Lockouts\"",
     "label=\"Blocked\"",
@@ -173,11 +188,18 @@ scenario("security center uses professional command presentation", () => {
     "Public attack surface",
     "Admin access log",
     "rounded-3xl border border-neutral-200 bg-white/95",
-    "rounded-full border border-white/20 bg-white/5",
+    "border border-white/15 bg-white/10",
   ]) {
     assert(
       securityIndexSource.includes(fragment),
       `Expected security center presentation fragment ${fragment}.`,
+    );
+  }
+
+  for (const roughShell of ['bg-[#f4f1ea]', 'bg-[#101418]', "max-w-7xl"]) {
+    assert(
+      !securityIndexSource.includes(roughShell),
+      `Expected security center to avoid rough shell fragment ${roughShell}.`,
     );
   }
 });

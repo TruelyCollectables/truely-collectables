@@ -186,9 +186,9 @@ export default async function AdminSettingsPage({
   const settings = await loadSettings();
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,#fff7ed_0,#f4f1ea_34%,#eef2ff_100%)] text-neutral-950">
-      <section className="border-b border-white/10 bg-[#101418] text-white shadow-2xl shadow-neutral-950/20">
-        <div className="mx-auto flex max-w-7xl flex-col gap-6 px-6 py-8 lg:flex-row lg:items-end lg:justify-between">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,#fff7ed_0,#f4f1ea_34%,#eef2ff_100%)] px-4 py-6 text-neutral-950 sm:px-6 lg:px-8">
+      <section className="mx-auto max-w-[1500px] overflow-hidden rounded-[2rem] border border-neutral-900 bg-neutral-950 text-white shadow-2xl shadow-neutral-950/10">
+        <div className="flex flex-col gap-6 border-b border-white/10 bg-[radial-gradient(circle_at_top_right,_rgba(245,158,11,0.22),_transparent_32%),linear-gradient(135deg,_rgba(255,255,255,0.08),_transparent)] p-6 lg:flex-row lg:items-end lg:justify-between lg:p-8">
           <div>
             <p className="text-sm font-black uppercase tracking-[0.18em] text-amber-300">
               Store Control Center
@@ -221,7 +221,7 @@ export default async function AdminSettingsPage({
         </div>
       </section>
 
-      <div className="mx-auto max-w-7xl space-y-6 px-6 py-8">
+      <div className="mx-auto max-w-[1500px] space-y-6 py-6">
         {params?.saved ? (
           <div
             role="status"
@@ -490,7 +490,7 @@ function CommandLink({ href, label }: { href: string; label: string }) {
   return (
     <Link
       href={href}
-      className="rounded-full border border-white/20 bg-white/[0.03] px-4 py-2 text-sm font-black text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-white/10 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
+      className="rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-white/15 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
     >
       {label}
     </Link>

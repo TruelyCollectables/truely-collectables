@@ -195,16 +195,26 @@ scenario("settings page exposes professional operator controls", () => {
     "Store identity",
     "Email routing",
     "eBay sync policy",
+    "rounded-[2rem] border border-neutral-900 bg-neutral-950",
+    "shadow-2xl shadow-neutral-950/10",
+    "max-w-[1500px]",
     "rounded-3xl border border-neutral-200 bg-white/90",
     "rounded-full bg-neutral-950",
     "transition hover:-translate-y-0.5",
     "focus:ring-2 focus:ring-amber-100",
     "shadow-sm ring-1 ring-black/[0.02]",
-    "rounded-full border border-white/20",
+    "border border-white/15 bg-white/10",
   ]) {
     assert(
       settingsPageSource.includes(fragment),
       `Expected settings page professional control fragment ${fragment}.`,
+    );
+  }
+
+  for (const roughShell of ['bg-[#101418]', "max-w-7xl"]) {
+    assert(
+      !settingsPageSource.includes(roughShell),
+      `Expected settings page to avoid rough shell fragment ${roughShell}.`,
     );
   }
 });
