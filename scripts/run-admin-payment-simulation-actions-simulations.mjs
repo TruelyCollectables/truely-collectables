@@ -149,13 +149,26 @@ scenario("payment simulation page keeps history failures operator-safe", () => {
     "SANDBOX LOCKED",
     "Run First Lab",
     "Keep Evidence Fresh",
+    "rounded-[2rem] border border-neutral-900 bg-neutral-950",
+    "shadow-2xl shadow-neutral-950/10",
+    "max-w-[1500px]",
+    "border border-white/15 bg-white/10",
     "rounded-3xl border border-violet-200 bg-violet-50",
     "rounded-full border px-3 py-2 text-sm font-black",
     "rounded-3xl border border-rose-200 bg-rose-50",
+    "rounded-3xl border border-neutral-200 bg-white/95",
+    "transition hover:-translate-y-0.5",
   ]) {
     assert(
       sources.page.includes(fragment),
       `Expected payment simulation page failure-safe fragment ${fragment}.`,
+    );
+  }
+
+  for (const roughShell of ['bg-[#f4f1ea]', 'bg-[#101418]', "max-w-7xl"]) {
+    assert(
+      !sources.page.includes(roughShell),
+      `Expected payment simulation page to avoid rough shell fragment ${roughShell}.`,
     );
   }
 

@@ -132,6 +132,14 @@ function money(value: number | string | null | undefined) {
   return `$${Number(value || 0).toFixed(2)}`;
 }
 
+function safeErrorMessage(error: { message?: string } | string | null | undefined) {
+  const message =
+    typeof error === "string"
+      ? error
+      : error?.message || "Unknown order review case data error.";
+  return String(message).replace(/\s+/g, " ").trim().slice(0, 220);
+}
+
 function shortDate(value: string | null | undefined) {
   if (!value) return "Not recorded";
 
@@ -184,6 +192,11 @@ function isMissingCaseTable(error: { code?: string; message?: string }) {
     message.includes("order_review_cases")
   );
 }
+
+const reviewPrimaryActionClass =
+  "rounded-full bg-amber-300 px-4 py-2 text-sm font-black text-neutral-950 shadow-sm transition hover:-translate-y-0.5 hover:bg-amber-200 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300";
+const reviewSecondaryActionClass =
+  "rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-white/15 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300";
 
 function uniqueNumbers(values: Array<number | null | undefined>) {
   return Array.from(
@@ -310,9 +323,12 @@ export default async function AdminOrderReviewCasesPage({
 
   if (error) {
     return (
-      <main className="min-h-screen bg-[#f4f1ea] p-8 text-neutral-950">
-        <div className="mx-auto max-w-5xl rounded-md border border-amber-200 bg-amber-50 p-6 text-amber-950">
-          <Link href="/admin" className="text-sm font-black underline">
+      <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,#fef3c7_0,#f8fafc_38%,#eef2ff_100%)] px-4 py-8 text-neutral-950 sm:px-6 lg:px-8">
+        <div className="mx-auto max-w-5xl rounded-[2rem] border border-amber-200 bg-white/95 p-6 text-amber-950 shadow-2xl shadow-amber-950/10 ring-1 ring-amber-900/10">
+          <Link
+            href="/admin"
+            className="inline-flex rounded-full bg-neutral-950 px-4 py-2 text-sm font-black text-white transition hover:-translate-y-0.5 hover:bg-neutral-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400"
+          >
             Back to Command Center
           </Link>
           <h1 className="mt-4 text-3xl font-black">
@@ -321,9 +337,9 @@ export default async function AdminOrderReviewCasesPage({
           <p className="mt-3 text-sm font-semibold">
             {isMissingCaseTable(error)
               ? "Apply the order review case migration before using the global case queue."
-              : error.message}
+              : safeErrorMessage(error)}
           </p>
-          <p className="mt-3 rounded border border-amber-300 bg-white p-3 font-mono text-sm">
+          <p className="mt-3 rounded-2xl border border-amber-300 bg-amber-50 p-3 font-mono text-sm shadow-sm">
             supabase/migrations/20260701215000_create_order_review_cases.sql
           </p>
         </div>
@@ -431,11 +447,61 @@ export default async function AdminOrderReviewCasesPage({
     const scope = payoutScope(reviewCase, payoutRows);
     return scope.heldRows.length > 0;
   });
+  const caseContextIssues: Array<{
+    source: string;
+    diagnostic: string;
+    impact: string;
+  }> = [];
+
+  if (ordersResult.error) {
+    caseContextIssues.push({
+      source: "Orders",
+      diagnostic: safeErrorMessage(ordersResult.error),
+      impact:
+        "Order totals, payment status, buyer identity, and fulfillment state cannot be treated as verified.",
+    });
+  }
+
+  if (payoutLedgerResult.error) {
+    caseContextIssues.push({
+      source: "Seller payout ledger",
+      diagnostic: safeErrorMessage(payoutLedgerResult.error),
+      impact:
+        "Payout hold counts and payable totals cannot be treated as complete.",
+    });
+  }
+
+  if (evidenceResult.error) {
+    caseContextIssues.push({
+      source: "Evidence packets",
+      diagnostic: safeErrorMessage(evidenceResult.error),
+      impact:
+        "Chargeback and delivery evidence history cannot be treated as missing or complete.",
+    });
+  }
+
+  if (caseEventsResult.error) {
+    caseContextIssues.push({
+      source: "Case activity",
+      diagnostic: safeErrorMessage(caseEventsResult.error),
+      impact:
+        "Recent status changes and operator notes cannot be trusted as current.",
+    });
+  }
+
+  if (casePacketsResult.error) {
+    caseContextIssues.push({
+      source: "Provider evidence packets",
+      diagnostic: safeErrorMessage(casePacketsResult.error),
+      impact:
+        "Stripe dispute packet status and due dates cannot be treated as complete.",
+    });
+  }
 
   return (
-    <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
-      <section className="border-b border-neutral-200 bg-[#101418] text-white">
-        <div className="mx-auto flex max-w-7xl flex-col gap-5 px-6 py-6 md:flex-row md:items-end md:justify-between">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,#fef3c7_0,#f8fafc_38%,#eef2ff_100%)] px-4 py-6 text-neutral-950 sm:px-6 lg:px-8">
+      <section className="mx-auto max-w-[1500px] overflow-hidden rounded-[2rem] border border-neutral-900 bg-neutral-950 text-white shadow-2xl shadow-neutral-950/10">
+        <div className="flex flex-col gap-5 bg-[radial-gradient(circle_at_top_left,rgba(251,191,36,0.24),transparent_35%),linear-gradient(135deg,#0f172a,#111827_55%,#1f2937)] p-6 md:flex-row md:items-end md:justify-between lg:p-8">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.16em] text-amber-300">
               TCOS Admin
@@ -452,19 +518,19 @@ export default async function AdminOrderReviewCasesPage({
           <div className="flex flex-wrap gap-2">
             <Link
               href="/admin"
-              className="rounded-md border border-white/20 px-4 py-2 text-sm font-bold text-white hover:bg-white/10"
+              className={reviewSecondaryActionClass}
             >
               Command Center
             </Link>
             <Link
               href="/admin/orders"
-              className="rounded-md border border-white/20 px-4 py-2 text-sm font-bold text-white hover:bg-white/10"
+              className={reviewSecondaryActionClass}
             >
               Orders
             </Link>
             <Link
               href="/admin/seller-payouts"
-              className="rounded-md bg-amber-300 px-4 py-2 text-sm font-bold text-neutral-950 hover:bg-amber-200"
+              className={reviewPrimaryActionClass}
             >
               Payouts
             </Link>
@@ -472,17 +538,35 @@ export default async function AdminOrderReviewCasesPage({
         </div>
       </section>
 
-      <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
-        {ordersResult.error || payoutLedgerResult.error || evidenceResult.error || caseEventsResult.error || casePacketsResult.error ? (
-          <section className="rounded-md border border-amber-200 bg-amber-50 p-5 text-sm font-semibold text-amber-950">
+      <div className="mx-auto max-w-[1500px] space-y-6 py-6">
+        {caseContextIssues.length > 0 ? (
+          <section
+            role="alert"
+            aria-live="assertive"
+            className="rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm font-semibold text-amber-950 shadow-sm ring-1 ring-amber-900/10"
+          >
             <h2 className="text-xl font-black">Some Case Context Is Missing</h2>
             <p className="mt-2">
-              {ordersResult.error?.message ||
-                payoutLedgerResult.error?.message ||
-                evidenceResult.error?.message ||
-                caseEventsResult.error?.message ||
-                casePacketsResult.error?.message}
+              This page loaded the case queue, but one or more linked data
+              sources did not. Treat the affected counts as unavailable instead
+              of assuming the queue is clear.
             </p>
+            <div className="mt-4 grid gap-3 lg:grid-cols-2">
+              {caseContextIssues.map((issue) => (
+                <section
+                  key={issue.source}
+                  className="rounded-2xl border border-amber-200 bg-white/80 p-4 shadow-sm"
+                >
+                  <p className="text-xs font-black uppercase tracking-[0.16em] text-amber-700">
+                    {issue.source}
+                  </p>
+                  <p className="mt-2 text-sm font-bold">{issue.impact}</p>
+                  <p className="mt-2 text-xs font-semibold text-amber-800">
+                    Diagnostic: {issue.diagnostic}
+                  </p>
+                </section>
+              ))}
+            </div>
           </section>
         ) : null}
 
@@ -514,7 +598,7 @@ export default async function AdminOrderReviewCasesPage({
           />
         </section>
 
-        <section className="rounded-md border border-neutral-200 bg-white p-5">
+        <section className="rounded-3xl border border-neutral-200 bg-white/95 p-5 shadow-sm ring-1 ring-black/[0.02]">
           <div className="flex flex-col gap-4">
             <div>
               <h2 className="text-xl font-black">Filters</h2>
@@ -544,7 +628,7 @@ export default async function AdminOrderReviewCasesPage({
           </div>
         </section>
 
-        <section className="rounded-md border border-neutral-200 bg-white">
+        <section className="overflow-hidden rounded-3xl border border-neutral-200 bg-white/95 shadow-sm ring-1 ring-black/[0.02]">
           <div className="border-b border-neutral-200 p-5">
             <h2 className="text-2xl font-black">Case Files</h2>
             <p className="mt-1 text-sm text-neutral-600">
@@ -620,14 +704,14 @@ export default async function AdminOrderReviewCasesPage({
                       </dl>
 
                       {reviewCase.outcome_summary ? (
-                        <p className="mt-4 rounded-md border border-neutral-200 bg-neutral-50 p-3 text-sm">
+                        <p className="mt-4 rounded-2xl border border-neutral-200 bg-neutral-50 p-3 text-sm shadow-sm">
                           <strong>Outcome:</strong>{" "}
                           {reviewCase.outcome_summary}
                         </p>
                       ) : null}
 
                       {latestEvent ? (
-                        <div className="mt-4 rounded-md border border-neutral-200 bg-neutral-50 p-3 text-sm">
+                        <div className="mt-4 rounded-2xl border border-neutral-200 bg-neutral-50 p-3 text-sm shadow-sm">
                           <p className="font-black">
                             Latest Event: {label(latestEvent.event_type)}
                           </p>
@@ -646,7 +730,7 @@ export default async function AdminOrderReviewCasesPage({
 
                       <a
                         href={`/api/admin/order-review-cases/${reviewCase.id}/packet`}
-                        className="mt-4 inline-block rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white hover:bg-neutral-800"
+                        className="mt-4 inline-flex rounded-full bg-neutral-950 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-neutral-800 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400"
                       >
                         Download Case Packet PDF
                       </a>
@@ -663,7 +747,7 @@ export default async function AdminOrderReviewCasesPage({
                     </div>
 
                     <div className="space-y-4 text-sm">
-                      <section className="rounded-md border border-neutral-200 bg-neutral-50 p-4">
+                      <section className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4 shadow-sm">
                         <h4 className="font-black">Order</h4>
                         <Link
                           href={`/admin/orders/${reviewCase.order_id}`}
@@ -700,7 +784,7 @@ export default async function AdminOrderReviewCasesPage({
                         </p>
                       </section>
 
-                      <section className="rounded-md border border-neutral-200 bg-neutral-50 p-4">
+                      <section className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4 shadow-sm">
                         <h4 className="font-black">Seller And Payout Hold</h4>
                         <p className="mt-2 break-all font-semibold">
                           {sellerLabel}
@@ -725,7 +809,7 @@ export default async function AdminOrderReviewCasesPage({
                         </dl>
                       </section>
 
-                      <section className="rounded-md border border-neutral-200 bg-neutral-50 p-4">
+                      <section className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4 shadow-sm">
                         <h4 className="font-black">Evidence</h4>
                         {evidence ? (
                           <>
@@ -737,7 +821,7 @@ export default async function AdminOrderReviewCasesPage({
                             </p>
                             <a
                               href={`/api/admin/files/${evidence.id}/download`}
-                              className="mt-3 inline-block rounded-md border border-neutral-300 bg-white px-3 py-2 font-black hover:bg-neutral-50"
+                              className="mt-3 inline-flex rounded-full border border-neutral-300 bg-white px-3 py-2 font-black shadow-sm transition hover:-translate-y-0.5 hover:bg-neutral-50 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400"
                             >
                               Download Evidence PDF
                             </a>
@@ -750,7 +834,7 @@ export default async function AdminOrderReviewCasesPage({
                       </section>
                     </div>
 
-                    <aside className="rounded-md border border-neutral-200 bg-neutral-50 p-4">
+                    <aside className="rounded-3xl border border-neutral-200 bg-neutral-50 p-4 shadow-sm ring-1 ring-black/[0.02]">
                       <h4 className="mb-3 font-black">Update Case</h4>
                       <CaseQueueActions
                         key={`${reviewCase.id}-${reviewCase.status || "open"}-${
@@ -771,7 +855,7 @@ export default async function AdminOrderReviewCasesPage({
           )}
         </section>
 
-        <section className="rounded-md border border-neutral-200 bg-white">
+        <section className="overflow-hidden rounded-3xl border border-neutral-200 bg-white/95 shadow-sm ring-1 ring-black/[0.02]">
           <div className="border-b border-neutral-200 p-5">
             <h2 className="text-2xl font-black">Recent Case Activity</h2>
             <p className="mt-1 text-sm text-neutral-600">
@@ -831,7 +915,7 @@ function MetricTile({
   detail: string;
 }) {
   return (
-    <div className="rounded-md border border-neutral-200 bg-white p-5">
+    <div className="rounded-3xl border border-neutral-200 bg-white/95 p-5 shadow-sm ring-1 ring-black/[0.02]">
       <p className="text-sm font-bold uppercase text-neutral-500">{label}</p>
       <p className="mt-3 text-3xl font-black tracking-tight">{value}</p>
       <p className="mt-2 text-sm text-neutral-600">{detail}</p>
@@ -860,8 +944,8 @@ function FilterGroup({
             href={hrefFor(value)}
             className={
               value === activeValue
-                ? "rounded-md bg-neutral-950 px-3 py-2 text-sm font-black text-white"
-                : "rounded-md border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm font-bold hover:bg-white"
+                ? "rounded-full bg-neutral-950 px-3 py-2 text-sm font-black text-white shadow-sm"
+                : "rounded-full border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm font-bold shadow-sm transition hover:-translate-y-0.5 hover:bg-white hover:shadow-md"
             }
           >
             {filterLabel}
@@ -880,7 +964,7 @@ function StatusBadge({
   className: string;
 }) {
   return (
-    <span className={`rounded border px-2 py-1 text-xs font-black ${className}`}>
+    <span className={`rounded-full border px-2 py-1 text-xs font-black ${className}`}>
       {labelText}
     </span>
   );

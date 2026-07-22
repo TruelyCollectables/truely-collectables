@@ -56,7 +56,7 @@ function safeErrorMessage(error: { message?: string } | string | null | undefine
 const paymentPrimaryActionClass =
   "rounded-full bg-violet-300 px-4 py-2 text-sm font-black text-neutral-950 shadow-sm transition hover:-translate-y-0.5 hover:bg-violet-200 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-300";
 const paymentSecondaryActionClass =
-  "rounded-full border border-white/20 bg-white/5 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-white/10 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-300";
+  "rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-white/15 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-300";
 
 export default async function PaymentSimulationsPage() {
   const supabase = createSupabaseServerClient({ admin: true });
@@ -136,9 +136,9 @@ export default async function PaymentSimulationsPage() {
           };
 
   return (
-    <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
-      <section className="border-b border-neutral-200 bg-[#101418] text-white">
-        <div className="mx-auto flex max-w-7xl flex-col gap-5 px-6 py-6 md:flex-row md:items-end md:justify-between">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,#f5f3ff_0,#f8fafc_40%,#fff7ed_100%)] px-4 py-6 text-neutral-950 sm:px-6 lg:px-8">
+      <section className="mx-auto max-w-[1500px] overflow-hidden rounded-[2rem] border border-neutral-900 bg-neutral-950 text-white shadow-2xl shadow-neutral-950/10">
+        <div className="flex flex-col gap-5 bg-[radial-gradient(circle_at_top_left,rgba(196,181,253,0.26),transparent_34%),linear-gradient(135deg,#111827,#18181b_55%,#312e81)] p-6 md:flex-row md:items-end md:justify-between lg:p-8">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.16em] text-violet-300">
               TCOS Payment Reliability
@@ -170,7 +170,7 @@ export default async function PaymentSimulationsPage() {
         </div>
       </section>
 
-      <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
+      <div className="mx-auto max-w-[1500px] space-y-6 py-6">
         <section className="rounded-3xl border border-violet-200 bg-violet-50 p-5 shadow-sm ring-1 ring-violet-900/10">
           <h2 className="text-xl font-black">Safety Boundary</h2>
           <p className="mt-2 text-sm">
@@ -243,14 +243,14 @@ export default async function PaymentSimulationsPage() {
 
         <section className="space-y-4">
           {runsUnavailable ? null : runs.length === 0 ? (
-            <p className="rounded-2xl border border-dashed border-neutral-300 bg-white p-5 text-sm font-semibold text-neutral-600 shadow-sm ring-1 ring-black/[0.02]">
+            <p className="rounded-3xl border border-dashed border-neutral-300 bg-white/95 p-5 text-sm font-semibold text-neutral-600 shadow-sm ring-1 ring-black/[0.02]">
               No payment reliability runs have been recorded yet.
             </p>
           ) : (
             runs.map((run) => (
               <article
                 key={run.id}
-                className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm ring-1 ring-black/[0.02]"
+                className="rounded-3xl border border-neutral-200 bg-white/95 p-5 shadow-sm ring-1 ring-black/[0.02]"
               >
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>

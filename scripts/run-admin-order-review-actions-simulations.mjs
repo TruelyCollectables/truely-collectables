@@ -1,6 +1,10 @@
 import { readFile } from "node:fs/promises";
 
 const sources = {
+  globalCaseQueue: await readFile(
+    new URL("../src/app/admin/order-review-cases/page.tsx", import.meta.url),
+    "utf8",
+  ),
   caseQueue: await readFile(
     new URL("../src/app/admin/order-review-cases/CaseQueueActions.tsx", import.meta.url),
     "utf8",
@@ -244,6 +248,53 @@ scenario("order detail page uses professional command presentation", () => {
     assert(
       sources.orderDetailPage.includes(fragment),
       `Expected order detail presentation fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("global order review queue uses professional failure-safe presentation", () => {
+  for (const fragment of [
+    "function safeErrorMessage",
+    "Unknown order review case data error.",
+    "replace(/\\s+/g, \" \").trim().slice(0, 220)",
+    "caseContextIssues",
+    "Some Case Context Is Missing",
+    "Treat the affected counts as unavailable instead",
+    "Order totals, payment status, buyer identity, and fulfillment state cannot be treated as verified.",
+    "Payout hold counts and payable totals cannot be treated as complete.",
+    "Chargeback and delivery evidence history cannot be treated as missing or complete.",
+    "Recent status changes and operator notes cannot be trusted as current.",
+    "Stripe dispute packet status and due dates cannot be treated as complete.",
+    "Diagnostic: {issue.diagnostic}",
+    "rounded-[2rem] border border-neutral-900 bg-neutral-950",
+    "shadow-2xl shadow-neutral-950/10",
+    "max-w-[1500px]",
+    "border border-white/15 bg-white/10",
+    "rounded-3xl border border-neutral-200 bg-white/95",
+    "shadow-sm ring-1 ring-black/[0.02]",
+    "rounded-full bg-amber-300",
+    "transition hover:-translate-y-0.5",
+  ]) {
+    assert(
+      sources.globalCaseQueue.includes(fragment),
+      `Expected global order review queue fragment ${fragment}.`,
+    );
+  }
+
+  for (const roughShell of [
+    'bg-[#f4f1ea]',
+    'bg-[#101418]',
+    "max-w-7xl",
+    "rounded-md border border-white/20",
+    "{ordersResult.error?.message",
+    "{payoutLedgerResult.error?.message",
+    "{evidenceResult.error?.message",
+    "{caseEventsResult.error?.message",
+    "{casePacketsResult.error?.message",
+  ]) {
+    assert(
+      !sources.globalCaseQueue.includes(roughShell),
+      `Expected global order review queue to avoid rough or unsafe fragment ${roughShell}.`,
     );
   }
 });
