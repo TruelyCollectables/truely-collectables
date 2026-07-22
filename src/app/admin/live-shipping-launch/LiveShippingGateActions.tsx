@@ -3,6 +3,17 @@
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 
+const gateActionPanelClass =
+  "grid gap-3 rounded-3xl border border-current/20 bg-white/80 p-4 shadow-sm ring-1 ring-black/[0.02]";
+const gateApproveButtonClass =
+  "rounded-full bg-emerald-700 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-emerald-800 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400 aria-disabled:cursor-not-allowed aria-disabled:opacity-50";
+const gateRevokeButtonClass =
+  "rounded-full bg-red-700 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-red-800 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-400 aria-disabled:cursor-not-allowed aria-disabled:opacity-50";
+const gateNeutralButtonClass =
+  "rounded-full border border-neutral-300 bg-white px-4 py-2 text-sm font-black text-neutral-900 shadow-sm transition hover:-translate-y-0.5 hover:bg-neutral-50 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 aria-disabled:cursor-not-allowed aria-disabled:opacity-50";
+const gateInputClass =
+  "mt-1 w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm font-semibold text-neutral-950 shadow-sm outline-none transition focus:border-sky-500 focus:ring-2 focus:ring-sky-200";
+
 export default function LiveShippingGateActions({
   approvalReady,
   approvalDatabaseReady,
@@ -144,7 +155,7 @@ export default function LiveShippingGateActions({
   }
 
   return (
-    <div className="grid gap-3 rounded-2xl border border-current/20 bg-white/70 p-4">
+    <div className={gateActionPanelClass}>
       <div>
         <p className="text-xs font-black uppercase tracking-[0.14em]">
           Gate action
@@ -162,7 +173,7 @@ export default function LiveShippingGateActions({
           aria-busy={busy === "approve"}
           title={approveDisabledReason || "Open the confirmation panel for live shipping approval."}
           onClick={() => beginAction("approve")}
-          className="rounded-md bg-green-700 px-4 py-2 text-sm font-black text-white hover:bg-green-800 aria-disabled:cursor-not-allowed aria-disabled:opacity-40"
+          className={gateApproveButtonClass}
         >
           {busy === "approve" ? "Approving..." : "Approve Live Shipping"}
         </button>
@@ -172,7 +183,7 @@ export default function LiveShippingGateActions({
           aria-busy={busy === "revoke"}
           title={revokeDisabledReason || "Open the confirmation panel for emergency live shipping revocation."}
           onClick={() => beginAction("revoke")}
-          className="rounded-md bg-red-700 px-4 py-2 text-sm font-black text-white hover:bg-red-800 aria-disabled:cursor-not-allowed aria-disabled:opacity-40"
+          className={gateRevokeButtonClass}
         >
           {busy === "revoke" ? "Revoking..." : "Emergency Revoke"}
         </button>
@@ -260,7 +271,7 @@ function LaunchConfirmationPanel({
           <input
             value={confirmation}
             onChange={(event) => onConfirmationChange(event.target.value)}
-            className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm text-neutral-950"
+            className={gateInputClass}
             placeholder={expected}
           />
         </label>
@@ -269,7 +280,7 @@ function LaunchConfirmationPanel({
           <input
             value={operator}
             onChange={(event) => onOperatorChange(event.target.value)}
-            className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm text-neutral-950"
+            className={gateInputClass}
             placeholder="Name for audit log"
           />
         </label>
@@ -278,7 +289,7 @@ function LaunchConfirmationPanel({
           <textarea
             value={note}
             onChange={(event) => onNoteChange(event.target.value)}
-            className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 text-sm text-neutral-950"
+            className={gateInputClass}
             placeholder="Optional launch/revocation note"
           />
         </label>
@@ -296,11 +307,7 @@ function LaunchConfirmationPanel({
                 ? "Record the emergency live shipping revocation in the immutable audit log."
                 : "Record the live shipping approval in the immutable audit log."
           }
-          className={`rounded-md px-4 py-2 text-sm font-black text-white aria-disabled:cursor-not-allowed aria-disabled:opacity-50 ${
-            isRevoke
-              ? "bg-red-700 hover:bg-red-800"
-              : "bg-emerald-700 hover:bg-emerald-800"
-          }`}
+          className={isRevoke ? gateRevokeButtonClass : gateApproveButtonClass}
         >
           {busy ? "Submitting..." : isRevoke ? "Revoke approval" : "Record approval"}
         </button>
@@ -313,7 +320,7 @@ function LaunchConfirmationPanel({
               ? "Wait for the live shipping gate submission to finish before cancelling."
               : "Close this confirmation panel without recording a gate change."
           }
-          className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black text-neutral-900 hover:bg-neutral-50 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+          className={gateNeutralButtonClass}
         >
           Cancel
         </button>
@@ -340,7 +347,7 @@ function ActionNotice({
     <p
       role={tone === "error" ? "alert" : "status"}
       aria-live={tone === "info" ? "polite" : "assertive"}
-      className={`w-full rounded-xl border px-3 py-2 text-sm font-bold ${className}`}
+      className={`w-full rounded-2xl border px-3 py-2 text-sm font-bold shadow-sm ${className}`}
     >
       {children}
     </p>

@@ -67,6 +67,17 @@ function assertGateFeedback(source, noun) {
     "onSubmit={() => void submit(pendingAction)}",
     `APPROVE LIVE ${capitalized.toUpperCase()}`,
     `REVOKE LIVE ${capitalized.toUpperCase()}`,
+    "gateActionPanelClass",
+    "gateApproveButtonClass",
+    "gateRevokeButtonClass",
+    "gateNeutralButtonClass",
+    "gateInputClass",
+    "rounded-3xl border border-current/20 bg-white/80",
+    "rounded-full bg-emerald-700",
+    "rounded-full bg-red-700",
+    "transition hover:-translate-y-0.5",
+    "focus:ring-2 focus:ring-sky-200",
+    "rounded-2xl border px-3 py-2 text-sm font-bold shadow-sm",
   ]) {
     assert(
       source.includes(fragment),
@@ -117,6 +128,65 @@ scenario("live launch pages keep approval history failures operator-safe", () =>
     assert(
       !source.includes("{eventsResult.error.message}"),
       `Expected live ${label} launch page to avoid rendering raw history provider errors.`,
+    );
+  }
+});
+
+scenario("live launch pages expose first-screen gate posture", () => {
+  for (const fragment of [
+    "type GatePostureTone",
+    "gatePrimaryLinkClass",
+    "gateSecondaryLinkClass",
+    "GatePostureCard",
+    "rounded-full bg-neutral-950",
+    "transition hover:-translate-y-0.5",
+    "ring-1 ring-black/[0.02]",
+  ]) {
+    assert(
+      sources.paymentPage.includes(fragment),
+      `Expected live payment page posture/polish fragment ${fragment}.`,
+    );
+    assert(
+      sources.shippingPage.includes(fragment),
+      `Expected live shipping page posture/polish fragment ${fragment}.`,
+    );
+  }
+
+  for (const fragment of [
+    "const paymentGatePosture =",
+    "RUNTIME ENABLED",
+    "APPROVAL BLOCKERS",
+    "LAUNCH LOCKED",
+    "READY FOR FINAL WINDOW",
+    "Payment gate posture",
+    "Database approval",
+    "Operator next step",
+    "NOT APPROVABLE",
+    "Monitor live checkout",
+    "Hold final runtime switch",
+  ]) {
+    assert(
+      sources.paymentPage.includes(fragment),
+      `Expected live payment page gate posture fragment ${fragment}.`,
+    );
+  }
+
+  for (const fragment of [
+    "const shippingGatePosture =",
+    "BLOCKERS PRESENT",
+    "REVIEW WARNINGS",
+    "Shipping gate posture",
+    "Provider readiness",
+    "SECRETS NEEDED",
+    "PROVIDER READY",
+    "Load provider secrets",
+    "Monitor live postage",
+    "gateAmberLinkClass",
+    "rounded-3xl border border-indigo-200 bg-indigo-50",
+  ]) {
+    assert(
+      sources.shippingPage.includes(fragment),
+      `Expected live shipping page gate posture fragment ${fragment}.`,
     );
   }
 });

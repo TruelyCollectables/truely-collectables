@@ -38,6 +38,15 @@ function safeErrorMessage(error: { message?: string } | string | null | undefine
   return String(message).replace(/\s+/g, " ").trim().slice(0, 220);
 }
 
+type GatePostureTone = "amber" | "emerald" | "red" | "sky";
+
+const gatePrimaryLinkClass =
+  "rounded-full bg-neutral-950 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-neutral-800 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400";
+const gateSecondaryLinkClass =
+  "rounded-full border border-neutral-300 bg-white px-4 py-2 text-sm font-black text-neutral-800 shadow-sm transition hover:-translate-y-0.5 hover:bg-neutral-50 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400";
+const gateAmberLinkClass =
+  "rounded-full border border-amber-300 bg-white px-4 py-2 text-sm font-black text-amber-950 shadow-sm transition hover:-translate-y-0.5 hover:bg-amber-100 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400";
+
 export default async function LiveShippingLaunchPage() {
   const supabase = createSupabaseServerClient({ admin: true });
   const storeId = getActiveStoreId();
@@ -67,11 +76,35 @@ export default async function LiveShippingLaunchPage() {
   const evidenceContractReady =
     providerSetupPacket.standardEnvelopeEvidenceContractReady;
   const purchaseAudit = report.purchaseAttemptAuditSimulation;
+  const shippingGatePosture = report.liveShippingEnabled
+    ? "RUNTIME ENABLED"
+    : blocked > 0
+      ? "BLOCKERS PRESENT"
+      : warning > 0
+        ? "REVIEW WARNINGS"
+        : "READY FOR FINAL WINDOW";
+  const shippingPostureTone: GatePostureTone = report.liveShippingEnabled
+    ? "emerald"
+    : blocked > 0
+      ? "red"
+      : warning > 0
+        ? "amber"
+        : "sky";
+  const shippingNextStep =
+    blocked > 0
+      ? "Clear launch blockers"
+      : missingCredentialGroups.length > 0
+        ? "Load provider secrets"
+        : warning > 0
+          ? "Review warnings"
+          : report.liveShippingEnabled
+            ? "Monitor live postage"
+            : "Prepare final approval";
 
   return (
     <main className="min-h-screen bg-neutral-50 px-6 py-8 text-neutral-950">
       <div className="mx-auto max-w-6xl space-y-6">
-        <section className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm">
+        <section className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm ring-1 ring-black/[0.02]">
           <div className="flex flex-wrap items-end justify-between gap-5">
             <div>
               <p className="text-xs font-black uppercase tracking-[0.18em] text-sky-700">
@@ -93,25 +126,25 @@ export default async function LiveShippingLaunchPage() {
             <div className="flex flex-wrap gap-3">
               <Link
                 href="/admin/shipping"
-                className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50"
+                className={gateSecondaryLinkClass}
               >
                 Shipping Ops
               </Link>
               <Link
                 href="/admin/shipping/simulations"
-                className="rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white hover:bg-neutral-800"
+                className={gatePrimaryLinkClass}
               >
                 Shipping Lab
               </Link>
               <Link
                 href="/admin/launch-readiness"
-                className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50"
+                className={gateSecondaryLinkClass}
               >
                 Launch Readiness
               </Link>
               <Link
                 href="/admin/launch-gate-drill"
-                className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50"
+                className={gateSecondaryLinkClass}
               >
                 Gate Drill
               </Link>
@@ -119,11 +152,36 @@ export default async function LiveShippingLaunchPage() {
           </div>
         </section>
 
+        <section className="grid gap-4 lg:grid-cols-3">
+          <GatePostureCard
+            detail={`Live shipping has ${blocked} blocker(s), ${warning} review warning(s), and ${passed} passing check(s).`}
+            label="Shipping gate posture"
+            status={shippingGatePosture}
+            tone={shippingPostureTone}
+          />
+          <GatePostureCard
+            detail={`${readyCredentialGroups.length}/${providerSetupPacket.credentialGroups.length} provider credential group(s) are ready; ${missingCredentialGroups.length} still require no-secret operator setup.`}
+            label="Provider readiness"
+            status={
+              missingCredentialGroups.length > 0
+                ? "SECRETS NEEDED"
+                : "PROVIDER READY"
+            }
+            tone={missingCredentialGroups.length > 0 ? "amber" : "emerald"}
+          />
+          <GatePostureCard
+            detail={`Purchase mode is ${report.purchaseMode}; live postage stays closed until approval, runtime switch, and provider evidence all line up.`}
+            label="Operator next step"
+            status={shippingNextStep.toUpperCase()}
+            tone={report.liveShippingEnabled ? "emerald" : "amber"}
+          />
+        </section>
+
         <section
-          className={`rounded-3xl border p-6 shadow-sm ${
+          className={`rounded-3xl border p-6 shadow-sm ring-1 ${
             report.liveShippingEnabled
-              ? "border-green-300 bg-green-50"
-              : "border-red-300 bg-red-50"
+              ? "border-green-300 bg-green-50 ring-green-900/10"
+              : "border-red-300 bg-red-50 ring-red-900/10"
           }`}
         >
           <div className="grid gap-4 md:grid-cols-5">
@@ -149,7 +207,7 @@ export default async function LiveShippingLaunchPage() {
           </div>
         </section>
 
-        <section className="rounded-3xl border border-amber-200 bg-amber-50 p-6 text-amber-950 shadow-sm">
+        <section className="rounded-3xl border border-amber-200 bg-amber-50 p-6 text-amber-950 shadow-sm ring-1 ring-amber-900/10">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <p className="text-xs font-black uppercase tracking-widest">
@@ -167,31 +225,31 @@ export default async function LiveShippingLaunchPage() {
             <div className="flex flex-wrap gap-3">
               <Link
                 href="/api/admin/shipping/provider-setup"
-                className="rounded-md border border-amber-300 bg-white px-4 py-2 text-sm font-black text-amber-950 hover:bg-amber-100"
+                className={gateAmberLinkClass}
               >
                 Setup JSON
               </Link>
               <Link
                 href="/api/admin/shipping/provider-setup?format=csv"
-                className="rounded-md border border-amber-300 bg-white px-4 py-2 text-sm font-black text-amber-950 hover:bg-amber-100"
+                className={gateAmberLinkClass}
               >
                 Setup CSV
               </Link>
               <Link
                 href="/api/admin/shipping/provider-setup?format=env-template"
-                className="rounded-md border border-amber-300 bg-white px-4 py-2 text-sm font-black text-amber-950 hover:bg-amber-100"
+                className={gateAmberLinkClass}
               >
                 Env Template
               </Link>
               <Link
                 href="/api/admin/shipping/provider-setup?format=vercel-commands"
-                className="rounded-md border border-amber-300 bg-white px-4 py-2 text-sm font-black text-amber-950 hover:bg-amber-100"
+                className={gateAmberLinkClass}
               >
                 Vercel Commands
               </Link>
               <Link
                 href="/api/admin/shipping/provider-setup?format=operator-checklist"
-                className="rounded-md border border-amber-300 bg-white px-4 py-2 text-sm font-black text-amber-950 hover:bg-amber-100"
+                className={gateAmberLinkClass}
               >
                 Operator Checklist
               </Link>
@@ -366,7 +424,7 @@ export default async function LiveShippingLaunchPage() {
           ))}
         </section>
 
-        <section className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm">
+        <section className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm ring-1 ring-black/[0.02]">
           <h2 className="text-xl font-black">Immutable Shipping Approval History</h2>
           {eventsResult.error ? (
             <HistoryUnavailableNotice
@@ -408,12 +466,45 @@ export default async function LiveShippingLaunchPage() {
   );
 }
 
+function GatePostureCard({
+  detail,
+  label: labelText,
+  status,
+  tone: cardTone,
+}: {
+  detail: string;
+  label: string;
+  status: string;
+  tone: GatePostureTone;
+}) {
+  const className =
+    cardTone === "emerald"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-950 ring-emerald-900/10"
+      : cardTone === "sky"
+        ? "border-sky-200 bg-sky-50 text-sky-950 ring-sky-900/10"
+        : cardTone === "amber"
+          ? "border-amber-200 bg-amber-50 text-amber-950 ring-amber-900/10"
+          : "border-red-200 bg-red-50 text-red-950 ring-red-900/10";
+
+  return (
+    <article className={`rounded-3xl border p-5 shadow-sm ring-1 ${className}`}>
+      <p className="text-xs font-black uppercase tracking-[0.16em] opacity-70">
+        {labelText}
+      </p>
+      <p className="mt-3 w-fit rounded-full border border-current bg-white/70 px-3 py-1 text-xs font-black">
+        {status}
+      </p>
+      <p className="mt-4 text-sm font-semibold leading-6">{detail}</p>
+    </article>
+  );
+}
+
 function HistoryUnavailableNotice({ diagnostic }: { diagnostic: string }) {
   return (
     <div
       role="alert"
       aria-live="assertive"
-      className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-950"
+      className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-950 shadow-sm ring-1 ring-rose-900/10"
     >
       <p className="font-black">Shipping approval history unavailable.</p>
       <p className="mt-2 font-semibold leading-6">
@@ -433,7 +524,7 @@ function GateMetric({
   value: string | number;
 }) {
   return (
-    <div className="rounded-2xl border border-current/20 bg-white/70 p-4">
+    <div className="rounded-2xl border border-current/20 bg-white/70 p-4 shadow-sm ring-1 ring-black/[0.02]">
       <p className="text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
         {metricLabel}
       </p>
@@ -448,7 +539,7 @@ function ProviderUnlockActionPlan({
   actionPlan: ProviderSetupActionPlanStep[];
 }) {
   return (
-    <article className="mt-5 rounded border border-indigo-200 bg-indigo-50 p-5 text-indigo-950">
+    <article className="mt-5 rounded-3xl border border-indigo-200 bg-indigo-50 p-5 text-indigo-950 shadow-sm ring-1 ring-indigo-900/10">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-xs font-black uppercase tracking-widest">
@@ -465,7 +556,7 @@ function ProviderUnlockActionPlan({
         </div>
         <Link
           href="/api/admin/shipping/provider-setup?format=operator-checklist"
-          className="rounded border border-indigo-300 bg-white px-4 py-2 text-sm font-black"
+          className="rounded-full border border-indigo-300 bg-white px-4 py-2 text-sm font-black shadow-sm transition hover:-translate-y-0.5 hover:bg-indigo-100 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-400"
         >
           Operator Checklist
         </Link>
@@ -475,7 +566,7 @@ function ProviderUnlockActionPlan({
         {actionPlan.map((step) => (
           <li
             key={step.order}
-            className={`rounded border p-3 ${
+            className={`rounded-2xl border p-3 shadow-sm ${
               step.status === "ready"
                 ? "border-green-200 bg-green-50 text-green-950"
                 : step.status === "guarded"
@@ -500,19 +591,19 @@ function ProviderUnlockActionPlan({
       <div className="mt-4 flex flex-wrap gap-3 text-sm font-black">
         <Link
           href="/api/admin/shipping/provider-setup?format=env-template"
-          className="rounded border border-indigo-300 bg-white px-3 py-2"
+          className="rounded-full border border-indigo-300 bg-white px-3 py-2 shadow-sm transition hover:-translate-y-0.5 hover:bg-indigo-100 hover:shadow-md"
         >
           Env Template
         </Link>
         <Link
           href="/api/admin/shipping/provider-setup?format=vercel-commands"
-          className="rounded border border-indigo-300 bg-white px-3 py-2"
+          className="rounded-full border border-indigo-300 bg-white px-3 py-2 shadow-sm transition hover:-translate-y-0.5 hover:bg-indigo-100 hover:shadow-md"
         >
           Vercel Commands
         </Link>
         <Link
           href="/admin/launch-readiness"
-          className="rounded border border-indigo-300 bg-white px-3 py-2"
+          className="rounded-full border border-indigo-300 bg-white px-3 py-2 shadow-sm transition hover:-translate-y-0.5 hover:bg-indigo-100 hover:shadow-md"
         >
           Launch Readiness
         </Link>
