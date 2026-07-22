@@ -246,38 +246,71 @@ export default function EbayDuplicateFinderClient() {
     }));
   }
 
-  async function mergeGroup(group: DuplicateGroup) {
+  async function runDuplicateMerge({
+    group,
+    duplicateProductIds,
+    mode,
+  }: {
+    group: DuplicateGroup;
+    duplicateProductIds: number[];
+    mode: "selected" | "all";
+  }) {
     if (showDuplicateActionBlocked("starting another merge or end/archive")) return;
 
     const keeperProductId = selectedKeeperProductIdForGroup(group);
-    const duplicateProductIds = group.rows
-      .map((row) => row.productId)
-      .filter((productId) => productId !== keeperProductId);
+    const normalizedDuplicateProductIds = Array.from(
+      new Set(
+        duplicateProductIds.filter(
+          (productId) => productId && productId !== keeperProductId,
+        ),
+      ),
+    );
     const keeperRow =
       group.rows.find((row) => row.productId === keeperProductId) || null;
-    const allDuplicateRows = group.rows.filter(
-      (row) => row.productId !== keeperProductId,
+    const targetDuplicateRows = group.rows.filter((row) =>
+      normalizedDuplicateProductIds.includes(row.productId),
     );
     const visibleMergedQuantity =
       Number(keeperRow?.quantity || 0) +
-      allDuplicateRows.reduce((sum, row) => sum + Number(row.quantity || 0), 0);
+      targetDuplicateRows.reduce((sum, row) => sum + Number(row.quantity || 0), 0);
 
-    if (!keeperProductId || duplicateProductIds.length === 0) {
+    if (!keeperProductId || normalizedDuplicateProductIds.length === 0) {
       showError("Pick one keeper with at least one different duplicate row first.");
       return;
     }
 
-    const duplicateScope = `${allDuplicateRows.length} duplicate row${
-      allDuplicateRows.length === 1 ? "" : "s"
-    } totaling quantity ${allDuplicateRows.reduce(
+    const actionLabel =
+      mode === "all" ? "all non-keeper duplicates" : "the selected duplicate";
+    const duplicateScope = `${targetDuplicateRows.length} duplicate row${
+      targetDuplicateRows.length === 1 ? "" : "s"
+    } totaling quantity ${targetDuplicateRows.reduce(
       (sum, row) => sum + Number(row.quantity || 0),
       0,
     )}`;
     const keeperScope = duplicateRowScope(keeperRow);
+    const requestBody =
+      mode === "all"
+        ? {
+            action: "merge-duplicates",
+            keeperProductId,
+            duplicateProductIds: normalizedDuplicateProductIds,
+            confirm: "MERGE_DUPLICATES",
+          }
+        : {
+            action: "merge-duplicate",
+            keeperProductId,
+            duplicateProductId: normalizedDuplicateProductIds[0],
+            confirm: "MERGE_DUPLICATE",
+          };
 
-    setActiveDuplicateAction({ groupKey: group.key, kind: "merge", stage: "previewing" });
+    setActiveDuplicateAction({
+      groupKey: group.key,
+      kind: "merge",
+      productId: mode === "all" ? undefined : normalizedDuplicateProductIds[0],
+      stage: "previewing",
+    });
     showNotice(
-      `Previewing merge for ${duplicateScope} into keeper ${keeperScope}...`,
+      `Previewing merge for ${actionLabel}: ${duplicateScope} into keeper ${keeperScope}...`,
     );
 
     try {
@@ -285,11 +318,8 @@ export default function EbayDuplicateFinderClient() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          action: "merge-duplicates",
-          keeperProductId,
-          duplicateProductIds,
+          ...requestBody,
           dryRun: true,
-          confirm: "MERGE_DUPLICATES",
         }),
       });
       const previewData = await previewResponse.json().catch(() => ({}));
@@ -307,20 +337,20 @@ export default function EbayDuplicateFinderClient() {
         );
       }
 
-      setActiveDuplicateAction({ groupKey: group.key, kind: "merge", stage: "applying" });
+      setActiveDuplicateAction({
+        groupKey: group.key,
+        kind: "merge",
+        productId: mode === "all" ? undefined : normalizedDuplicateProductIds[0],
+        stage: "applying",
+      });
       showNotice(
-        `Merging now: keeper ${keeperScope} will change from quantity ${preview.previousKeeperQuantity} to ${preview.mergedQuantity}; duplicate quantity ${preview.duplicateQuantity} will be archived to 0.`,
+        `Merging ${actionLabel} now: keeper ${keeperScope} will change from quantity ${preview.previousKeeperQuantity} to ${preview.mergedQuantity}; duplicate quantity ${preview.duplicateQuantity} will be archived to 0.`,
       );
 
       const response = await fetch("/api/admin/ebay-duplicates", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          action: "merge-duplicates",
-          keeperProductId,
-          duplicateProductIds,
-          confirm: "MERGE_DUPLICATES",
-        }),
+        body: JSON.stringify(requestBody),
       });
       const data = await response.json().catch(() => ({}));
 
@@ -347,6 +377,33 @@ export default function EbayDuplicateFinderClient() {
     } finally {
       setActiveDuplicateAction(null);
     }
+  }
+
+  async function mergeGroup(group: DuplicateGroup) {
+    const keeperProductId = selectedKeeperProductIdForGroup(group);
+    const duplicateProductIds = group.rows
+      .map((row) => row.productId)
+      .filter((productId) => productId !== keeperProductId);
+
+    await runDuplicateMerge({
+      group,
+      duplicateProductIds,
+      mode: "all",
+    });
+  }
+
+  async function mergeSelectedDuplicate(group: DuplicateGroup) {
+    const keeperProductId = selectedKeeperProductIdForGroup(group);
+    const duplicateProductId =
+      duplicates[group.key] ||
+      group.rows.find((row) => row.productId !== keeperProductId)?.productId ||
+      0;
+
+    await runDuplicateMerge({
+      group,
+      duplicateProductIds: duplicateProductId ? [duplicateProductId] : [],
+      mode: "selected",
+    });
   }
 
   async function endDuplicate(group: DuplicateGroup, duplicateProductId: number) {
@@ -503,8 +560,8 @@ export default function EbayDuplicateFinderClient() {
           groups.map((group) => {
             const duplicateCleanupBusy = Boolean(workingAction);
             const groupWorking = workingAction?.groupKey === group.key;
-            const groupMerging =
-              groupWorking && workingAction?.kind === "merge";
+            const groupMergingAll =
+              groupWorking && workingAction?.kind === "merge" && !workingAction.productId;
             const actionBlockedTitle = duplicateCleanupBusy
               ? "Finish the current duplicate cleanup action before changing this group."
               : "";
@@ -527,6 +584,9 @@ export default function EbayDuplicateFinderClient() {
             );
             const mergedQuantity =
               Number(keeperRow?.quantity || 0) + duplicateQuantity;
+            const selectedDuplicateQuantity = Number(duplicateRow?.quantity || 0);
+            const selectedMergedQuantity =
+              Number(keeperRow?.quantity || 0) + selectedDuplicateQuantity;
             const keeperScope = duplicateRowScope(keeperRow);
             const duplicateScope = duplicateRowScope(duplicateRow);
             const mergeActionTitle =
@@ -535,6 +595,10 @@ export default function EbayDuplicateFinderClient() {
                     allDuplicateRows.length === 1 ? "" : "s"
                   } totaling quantity ${duplicateQuantity} into keeper ${keeperScope}; keeper becomes quantity ${mergedQuantity}.`
                 : "";
+            const selectedMergeTitle =
+              keeperRow && duplicateRow
+                ? `Merge selected duplicate ${duplicateScope} into keeper ${keeperScope}; keeper becomes quantity ${selectedMergedQuantity}. Other duplicate rows stay active.`
+                : "";
             const endSelectedTitle = duplicateRow
               ? `End/archive selected duplicate ${duplicateScope}; this leaves keeper ${keeperScope} untouched.`
               : "";
@@ -542,10 +606,19 @@ export default function EbayDuplicateFinderClient() {
               duplicateCleanupBusy ||
               !keeperProductId ||
               allDuplicateRows.length === 0;
+            const selectedMergeUnavailable =
+              duplicateCleanupBusy ||
+              !keeperProductId ||
+              !duplicateProductId ||
+              keeperProductId === duplicateProductId;
             const endSelectedUnavailable =
               duplicateCleanupBusy ||
               !duplicateProductId ||
               keeperProductId === duplicateProductId;
+            const groupMergingSelected =
+              groupWorking &&
+              workingAction?.kind === "merge" &&
+              workingAction.productId === duplicateProductId;
 
             return (
               <article
@@ -568,9 +641,9 @@ export default function EbayDuplicateFinderClient() {
                           Duplicate merge plan
                         </p>
                         <p className="mt-2 text-sm font-black leading-6">
-                          Merge All archives every non-keeper row, not only the
-                          selected duplicate. The selected duplicate controls
-                          End Selected Only.
+                          Merge Selected Only archives the highlighted duplicate.
+                          Merge All archives every non-keeper row. The selected
+                          duplicate also controls End Selected Only.
                         </p>
                         <div className="mt-3 grid gap-2 text-xs font-black sm:grid-cols-3">
                           <div className="rounded-xl border border-amber-200 bg-white p-3">
@@ -586,11 +659,17 @@ export default function EbayDuplicateFinderClient() {
                               {allDuplicateRows.length === 1 ? "" : "s"} quantity{" "}
                               {duplicateQuantity}
                             </p>
+                            <p className="mt-1 text-[11px] text-neutral-500">
+                              Selected duplicate quantity {selectedDuplicateQuantity}
+                            </p>
                           </div>
                           <div className="rounded-xl border border-amber-200 bg-white p-3">
                             <p className="uppercase text-amber-700">Result</p>
                             <p className="mt-1 text-neutral-950">
                               keeper quantity {mergedQuantity}
+                            </p>
+                            <p className="mt-1 text-[11px] text-neutral-500">
+                              Selected merge quantity {selectedMergedQuantity}
                             </p>
                           </div>
                         </div>
@@ -601,16 +680,45 @@ export default function EbayDuplicateFinderClient() {
                   <div className="flex flex-wrap gap-2">
                     <button
                       type="button"
+                      onClick={() => void mergeSelectedDuplicate(group)}
+                      aria-disabled={selectedMergeUnavailable}
+                      aria-busy={groupMergingSelected}
+                      title={
+                        actionBlockedTitle ||
+                        (!keeperProductId
+                          ? "Choose the listing to keep before merging duplicate quantities."
+                          : !duplicateProductId
+                            ? "Choose the duplicate row to merge into the keeper first."
+                            : keeperProductId === duplicateProductId
+                              ? "The selected row is the keeper. Choose a different duplicate before merging it."
+                              : selectedMergeTitle)
+                      }
+                      className={`rounded-md px-5 py-3 text-sm font-black text-white ${
+                        selectedMergeUnavailable
+                          ? "cursor-not-allowed bg-neutral-400"
+                          : "bg-neutral-950 hover:bg-neutral-800"
+                      }`}
+                    >
+                      {groupMergingSelected
+                        ? workingAction?.stage === "previewing"
+                          ? "Previewing selected merge..."
+                          : "Merging selected..."
+                        : keeperRow && duplicateRow
+                          ? `Merge Selected → quantity ${selectedMergedQuantity}`
+                          : "Merge Selected Only"}
+                    </button>
+                    <button
+                      type="button"
                       onClick={() => void mergeGroup(group)}
                       aria-disabled={mergeUnavailable}
-                      aria-busy={groupMerging}
+                      aria-busy={groupMergingAll}
                       title={
                         actionBlockedTitle ||
                         (!keeperProductId
                           ? "Choose the listing to keep before merging duplicate quantities."
                           : allDuplicateRows.length === 0
                             ? "This group has no duplicate row different from the keeper."
-                            : mergeActionTitle)
+                        : mergeActionTitle)
                       }
                       className={`rounded-md px-5 py-3 text-sm font-black text-white ${
                         mergeUnavailable
@@ -618,7 +726,7 @@ export default function EbayDuplicateFinderClient() {
                           : "bg-rose-700 hover:bg-rose-800"
                       }`}
                     >
-                      {groupMerging
+                      {groupMergingAll
                         ? workingAction?.stage === "previewing"
                           ? "Previewing merge..."
                           : "Merging..."

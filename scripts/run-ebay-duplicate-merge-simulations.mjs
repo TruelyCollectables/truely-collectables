@@ -94,6 +94,19 @@ await scenario("plans multi-row duplicate quantity merge", () => {
   assert(plan.archivedDuplicateCount === 2, "Two duplicate rows should be archived");
 });
 
+await scenario("plans selected quantity two plus one duplicate merge", () => {
+  const plan = planEbayDuplicateQuantityMerge({
+    keeperProductId: 200,
+    keeperQuantity: 2,
+    duplicateRows: [{ productId: 201, quantity: 1 }],
+  });
+
+  assert(plan.previousKeeperQuantity === 2, "Keeper quantity should remain 2");
+  assert(plan.duplicateQuantity === 1, "Selected duplicate quantity should be 1");
+  assert(plan.mergedQuantity === 3, "Keeper should become quantity 2 + 1 = 3");
+  assert(plan.archivedDuplicateCount === 1, "Only the selected duplicate should archive");
+});
+
 await scenario("filters keeper and duplicate duplicate IDs from merge plan", () => {
   const plan = planEbayDuplicateQuantityMerge({
     keeperProductId: 100,
@@ -196,25 +209,38 @@ await scenario("duplicate finder previews destructive end and merge actions", ()
     "showError",
     "clearMessages",
     "Previewing merge...",
-    "Previewing merge for ${duplicateScope} into keeper ${keeperScope}...",
-    "Merging now: keeper ${keeperScope} will change from quantity",
+    "Previewing merge for ${actionLabel}: ${duplicateScope} into keeper ${keeperScope}...",
+    "Merging ${actionLabel} now: keeper ${keeperScope} will change from quantity",
     "duplicate quantity ${preview.duplicateQuantity} will be archived to 0.",
     "Previewing end/archive",
     "Previewing end/archive for duplicate ${duplicateScope}...",
     "That row is marked as the keeper",
     "Ending now: duplicate ${duplicateScope} will move from quantity",
     "const mergeActionTitle",
+    "const selectedMergeTitle",
     "const endSelectedTitle",
     "Merge ${allDuplicateRows.length} duplicate row",
     "into keeper ${keeperScope}; keeper becomes quantity ${mergedQuantity}.",
     "Duplicate merge plan",
-    "Merge All archives every non-keeper row, not only the",
-    "selected duplicate. The selected duplicate controls",
+    "Merge Selected Only archives the highlighted duplicate.",
+    "Merge All archives every non-keeper row.",
+    "The selected",
     "End Selected Only.",
     "#{keeperRow.productId} quantity {keeperRow.quantity}",
     "{allDuplicateRows.length} row",
     "{duplicateQuantity}",
+    "Selected duplicate quantity {selectedDuplicateQuantity}",
     "keeper quantity {mergedQuantity}",
+    "Selected merge quantity {selectedMergedQuantity}",
+    "async function mergeSelectedDuplicate(group: DuplicateGroup)",
+    "mode: \"selected\"",
+    "action: \"merge-duplicate\"",
+    "confirm: \"MERGE_DUPLICATE\"",
+    "Merge selected duplicate ${duplicateScope} into keeper ${keeperScope}; keeper becomes quantity ${selectedMergedQuantity}. Other duplicate rows stay active.",
+    "Merge Selected → quantity",
+    "Merge Selected Only",
+    "Previewing selected merge...",
+    "Merging selected...",
     "End/archive selected duplicate ${duplicateScope}; this leaves keeper ${keeperScope} untouched.",
     "Keep ${rowScope} as the survivor for this duplicate group.",
     "Select ${rowScope} as the duplicate to end or merge.",
@@ -224,10 +250,12 @@ await scenario("duplicate finder previews destructive end and merge actions", ()
     'role={tone === "error" ? "alert" : "status"}',
     'aria-busy={loading}',
     "aria-disabled={loading || Boolean(workingAction)}",
-    "aria-busy={groupMerging}",
+    "aria-busy={groupMergingSelected}",
+    "aria-busy={groupMergingAll}",
     'aria-busy={groupWorking && workingAction?.kind === "end"}',
     "aria-busy={rowEnding}",
     "aria-disabled={mergeUnavailable}",
+    "aria-disabled={selectedMergeUnavailable}",
     "aria-disabled={endSelectedUnavailable}",
     "aria-disabled={selectDuplicateUnavailable}",
     "aria-disabled={endRowUnavailable}",
@@ -292,13 +320,20 @@ await scenario("duplicate finder actions use immediate keeper selection", () => 
 
 await scenario("duplicate cleanup keeps eBay provider failures operator-readable", () => {
   for (const fragment of [
+    "const EBAY_DUPLICATE_PROVIDER_TIMEOUT_MS",
+    "function fetchEbayJsonWithTimeout",
+    "const controller = new AbortController()",
+    "signal: controller.signal",
+    "function ebayProviderTimeoutMessage",
+    "eBay provider request timed out while",
+    "Local TCOS cleanup can continue; refresh eBay sync or retry provider cleanup after the eBay connection responds.",
     "function ebayProviderFailureMessage",
     "eBay did not withdraw the duplicate offer.",
     "Local TCOS cleanup completed; refresh eBay sync or withdraw the duplicate listing from eBay.",
     "eBay did not update the keeper listing quantity.",
     "Local TCOS merge completed; refresh eBay sync or update the keeper listing quantity from eBay.",
     "providerResponse: response.ok ? undefined : data",
-    "function ebaySkippedMessage(action: string)",
+    "function ebaySkippedMessage(action: string, error?: unknown)",
     "eBay duplicate-offer cleanup was skipped.",
     "eBay keeper quantity update was skipped.",
     "detail: error instanceof Error ? error.message",
