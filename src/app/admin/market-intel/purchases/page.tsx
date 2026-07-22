@@ -116,9 +116,9 @@ export default async function MarketIntelPurchaseLedgerPage({
   );
 
   return (
-    <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
-      <section className="border-b border-neutral-800 bg-[#101418] text-white">
-        <div className="mx-auto max-w-[1500px] px-6 py-8">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_#fef3c7,_transparent_28%),linear-gradient(180deg,_#f8fafc,_#f5f5f4)] px-4 py-6 text-neutral-950 sm:px-6 lg:px-8">
+      <section className="mx-auto max-w-[1500px] overflow-hidden rounded-[2rem] border border-neutral-900 bg-neutral-950 text-white shadow-2xl shadow-neutral-950/10">
+        <div className="border-b border-white/10 bg-[radial-gradient(circle_at_top_right,_rgba(250,204,21,0.24),_transparent_34%),linear-gradient(135deg,_rgba(255,255,255,0.08),_transparent)] p-6 lg:p-8">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p className="text-xs font-black uppercase tracking-[0.2em] text-amber-300">
@@ -134,25 +134,25 @@ export default async function MarketIntelPurchaseLedgerPage({
             <div className="flex flex-wrap gap-2">
               <Link
                 href={adminHref("/admin/market-intel/purchases/new")}
-                className="rounded-md bg-amber-400 px-4 py-2 text-sm font-black text-black"
+                className="rounded-full bg-amber-300 px-4 py-2 text-sm font-black text-black shadow-sm transition hover:bg-amber-200"
               >
                 Add Card Show / Shop Purchase
               </Link>
               <Link
                 href={adminHref("/admin/market-intel/purchases/ebay-intake")}
-                className="rounded-md bg-lime-700 px-4 py-2 text-sm font-black text-white"
+                className="rounded-full bg-lime-600 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-lime-500"
               >
                 Add eBay Purchase
               </Link>
               <Link
                 href={adminHref("/admin/market-intel/portfolio")}
-                className="rounded-md border border-cyan-400 px-4 py-2 text-sm font-black text-cyan-200"
+                className="rounded-full border border-cyan-300/40 bg-cyan-300/10 px-4 py-2 text-sm font-black text-cyan-100 shadow-sm transition hover:bg-cyan-300/20"
               >
                 Portfolio Intelligence
               </Link>
               <Link
                 href={adminHref("/admin")}
-                className="rounded-md border border-neutral-600 px-4 py-2 text-sm font-black hover:bg-white hover:text-black"
+                className="rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-white/15"
               >
                 Back to Admin
               </Link>
@@ -161,7 +161,7 @@ export default async function MarketIntelPurchaseLedgerPage({
         </div>
       </section>
 
-      <div className="mx-auto max-w-[1500px] space-y-6 px-6 py-6">
+      <div className="mx-auto max-w-[1500px] space-y-6 py-6">
         <section className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-5">
           <Metric
             label={`${bucket === "all" ? "Total" : portfolioBucketLabel(bucket)} Invested`}
@@ -179,7 +179,7 @@ export default async function MarketIntelPurchaseLedgerPage({
           <Metric label="Personal Collection Cost Basis" value={money(strategyTotals.pc)} />
         </section>
 
-        <nav className="flex flex-wrap gap-2 rounded-xl border border-neutral-200 bg-white p-3 shadow-sm">
+        <nav className="flex flex-wrap gap-2 rounded-3xl border border-neutral-200 bg-white/95 p-3 shadow-sm ring-1 ring-black/[0.02]">
           <BucketLink href={adminHref("/admin/market-intel/purchases")} active={bucket === "all"}>
             All Purchases ({allRows.length})
           </BucketLink>
@@ -203,7 +203,7 @@ export default async function MarketIntelPurchaseLedgerPage({
           </BucketLink>
         </nav>
 
-        <section className="rounded-xl border border-cyan-200 bg-cyan-50 p-5 text-cyan-950">
+        <section className="rounded-3xl border border-cyan-200 bg-cyan-50 p-5 text-cyan-950 shadow-sm ring-1 ring-cyan-950/5">
           <h2 className="text-xl font-black">Research signal boundary</h2>
           <p className="mt-1 text-sm font-semibold leading-6">
             Buy, sell, cooling, and momentum labels are research prompts based on verified
@@ -212,7 +212,7 @@ export default async function MarketIntelPurchaseLedgerPage({
           </p>
         </section>
 
-        <section className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
+        <section className="overflow-hidden rounded-3xl border border-neutral-200 bg-white/95 shadow-sm ring-1 ring-black/[0.02]">
           <div className="border-b border-neutral-200 p-5">
             <h2 className="text-2xl font-black">
               {bucket === "all" ? "Tracked Purchase Positions" : portfolioBucketLabel(bucket)}
@@ -309,7 +309,7 @@ export default async function MarketIntelPurchaseLedgerPage({
                         <td className="max-w-64 px-4 py-4">
                           <span
                             title={row.signal.explanation}
-                            className={`inline-flex rounded-md border px-3 py-2 text-xs font-black ${signalTone(row.signal)}`}
+                            className={`inline-flex rounded-xl border px-3 py-2 text-xs font-black shadow-sm ${signalTone(row.signal)}`}
                           >
                             {row.signal.label}
                           </span>
@@ -318,7 +318,7 @@ export default async function MarketIntelPurchaseLedgerPage({
                           <div className="flex min-w-44 flex-col gap-2">
                             <Link
                               href={adminHref(`/admin/market-intel/purchases/${lot.id}`)}
-                              className="rounded-md bg-black px-3 py-2 text-center text-xs font-black text-white"
+                              className="rounded-xl bg-black px-3 py-2 text-center text-xs font-black text-white shadow-sm transition hover:bg-neutral-800"
                             >
                               Open Position
                             </Link>
@@ -327,7 +327,7 @@ export default async function MarketIntelPurchaseLedgerPage({
                                 href={adminHref(
                                   `/admin/market-intel/comps/${lot.collectible_identity_id}?from=purchase-ledger`,
                                 )}
-                                className="rounded-md border border-cyan-500 bg-cyan-50 px-3 py-2 text-center text-xs font-black text-cyan-950"
+                                className="rounded-xl border border-cyan-500 bg-cyan-50 px-3 py-2 text-center text-xs font-black text-cyan-950 shadow-sm transition hover:bg-cyan-100"
                               >
                                 InstaComp™ / Sold Comps
                               </Link>
@@ -361,8 +361,8 @@ function BucketLink({
       href={href}
       className={
         active
-          ? "rounded-md bg-black px-4 py-2 text-sm font-black text-white"
-          : "rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-100"
+          ? "rounded-full bg-black px-4 py-2 text-sm font-black text-white shadow-sm"
+          : "rounded-full border border-neutral-300 bg-white px-4 py-2 text-sm font-black shadow-sm transition hover:border-neutral-500 hover:bg-neutral-100"
       }
     >
       {children}
@@ -372,7 +372,7 @@ function BucketLink({
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
+    <div className="rounded-3xl border border-neutral-200 bg-white/95 p-5 shadow-sm ring-1 ring-black/[0.02]">
       <p className="text-xs font-black uppercase tracking-wider text-neutral-500">{label}</p>
       <p className="mt-2 text-2xl font-black">{value}</p>
     </div>
@@ -388,8 +388,8 @@ function MarketIntelRuntimeError({
 }) {
   const message = error instanceof Error ? error.message : "Unknown database error";
   return (
-    <main className="min-h-screen bg-[#f4f1ea] px-6 py-10 text-neutral-950">
-      <div className="mx-auto max-w-3xl rounded-xl border border-rose-300 bg-white p-6 shadow-sm">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_#fee2e2,_transparent_28%),linear-gradient(180deg,_#f8fafc,_#f5f5f4)] px-4 py-10 text-neutral-950 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-3xl rounded-3xl border border-rose-300 bg-white/95 p-6 shadow-sm ring-1 ring-rose-950/5">
         <p className="text-xs font-black uppercase tracking-[0.2em] text-rose-700">
           TCOS Market Intel™
         </p>
@@ -397,7 +397,7 @@ function MarketIntelRuntimeError({
         <p className="mt-3 break-words font-mono text-xs text-rose-800">{message}</p>
         <Link
           href={adminHref("/admin")}
-          className="mt-6 inline-block rounded-md bg-black px-4 py-2 font-black text-white"
+          className="mt-6 inline-flex rounded-xl bg-black px-4 py-2 font-black text-white shadow-sm transition hover:bg-neutral-800"
         >
           Back to Admin
         </Link>

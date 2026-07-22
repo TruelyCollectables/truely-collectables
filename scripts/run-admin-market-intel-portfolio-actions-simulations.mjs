@@ -17,6 +17,14 @@ const sources = {
     new URL("../src/app/admin/market-intel/discovery/page.tsx", import.meta.url),
     "utf8",
   ),
+  purchaseLedger: await readFile(
+    new URL("../src/app/admin/market-intel/purchases/page.tsx", import.meta.url),
+    "utf8",
+  ),
+  offlinePurchaseNew: await readFile(
+    new URL("../src/app/admin/market-intel/purchases/new/page.tsx", import.meta.url),
+    "utf8",
+  ),
   purchaseDetail: await readFile(
     new URL("../src/app/admin/market-intel/purchases/[id]/page.tsx", import.meta.url),
     "utf8",
@@ -178,6 +186,37 @@ scenario("eBay Purchase Inbox actions expose pending state", () => {
     assert(
       sources.ebayPurchaseIntake.includes(fragment),
       `Expected eBay Purchase Inbox pending/action fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("purchase ledger and intake pages use professional command presentation", () => {
+  for (const [key, label] of [
+    ["purchaseLedger", "purchase ledger"],
+    ["offlinePurchaseNew", "offline purchase intake"],
+    ["ebayPurchaseIntake", "eBay purchase inbox"],
+  ]) {
+    for (const fragment of [
+      "rounded-[2rem] border border-neutral-900 bg-neutral-950",
+      "shadow-2xl shadow-neutral-950/10",
+      "rounded-3xl border border-neutral-200 bg-white/95",
+      "shadow-sm ring-1 ring-black/[0.02]",
+      "rounded-full border border-white/15 bg-white/10",
+    ]) {
+      assert(
+        sources[key].includes(fragment),
+        `Expected ${label} presentation fragment ${fragment}.`,
+      );
+    }
+  }
+
+  for (const [key, label] of [
+    ["offlinePurchaseNew", "offline purchase intake"],
+    ["ebayPurchaseIntake", "eBay purchase inbox"],
+  ]) {
+    assert(
+      sources[key].includes("focus:ring-4 focus:ring-black/10"),
+      `Expected ${label} polished form focus styling.`,
     );
   }
 });

@@ -48,12 +48,12 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
   const addedCount = Math.max(0, Number(query?.added || 0));
 
   return (
-    <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
-      <header className="border-b border-neutral-800 bg-[#101418] text-white">
-        <div className="mx-auto max-w-7xl px-6 py-8">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_#ecfccb,_transparent_28%),linear-gradient(180deg,_#f8fafc,_#f5f5f4)] px-4 py-6 text-neutral-950 sm:px-6 lg:px-8">
+      <header className="mx-auto max-w-7xl overflow-hidden rounded-[2rem] border border-neutral-900 bg-neutral-950 text-white shadow-2xl shadow-neutral-950/10">
+        <div className="border-b border-white/10 bg-[radial-gradient(circle_at_top_right,_rgba(132,204,22,0.28),_transparent_34%),linear-gradient(135deg,_rgba(255,255,255,0.08),_transparent)] p-6 lg:p-8">
           <Link
             href={adminHref("/admin/market-intel/purchases")}
-            className="text-sm font-black text-amber-300 hover:underline"
+            className="inline-flex rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-white/15"
           >
             ← Purchase Ledger
           </Link>
@@ -68,7 +68,7 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
         </div>
       </header>
 
-      <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
+      <div className="mx-auto max-w-7xl space-y-6 py-6">
         {addedCount > 0 ? (
           <Notice>
             Added {addedCount} eBay purchase {addedCount === 1 ? "item" : "items"}
@@ -88,7 +88,7 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
         {query?.error ? <Notice error>{query.error}</Notice> : null}
 
         {query?.reconnect ? (
-          <section className="rounded-xl border border-amber-300 bg-amber-50 p-5 text-amber-950">
+          <section className="rounded-3xl border border-amber-300 bg-amber-50 p-5 text-amber-950 shadow-sm ring-1 ring-amber-950/5">
             <h2 className="text-2xl font-black">Reconnect the eBay buying account</h2>
             <p className="mt-2 font-semibold leading-6">
               The saved eBay authorization does not include buyer-order access yet. Reconnect
@@ -97,7 +97,7 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
             </p>
             <Link
               href={adminHref("/api/ebay/auth")}
-              className="mt-4 inline-flex rounded-md bg-black px-4 py-3 font-black text-white"
+              className="mt-4 inline-flex rounded-xl bg-black px-4 py-3 font-black text-white shadow-sm transition hover:bg-neutral-800"
             >
               Connect / Reconnect eBay
             </Link>
@@ -105,7 +105,7 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
         ) : null}
 
         {loadError ? (
-          <section className="rounded-xl border border-rose-300 bg-rose-50 p-6 text-rose-950">
+          <section className="rounded-3xl border border-rose-300 bg-rose-50 p-6 text-rose-950 shadow-sm ring-1 ring-rose-950/5">
             <h2 className="text-2xl font-black">Purchase Inbox database setup required</h2>
             <p className="mt-2 font-semibold">{loadError}</p>
             <p className="mt-3 text-sm font-bold">
@@ -116,7 +116,7 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
           </section>
         ) : null}
 
-        <section className="rounded-xl border border-cyan-200 bg-cyan-50 p-5 text-cyan-950">
+        <section className="rounded-3xl border border-cyan-200 bg-cyan-50 p-5 text-cyan-950 shadow-sm ring-1 ring-cyan-950/5">
           <h2 className="text-2xl font-black">One link for a private eBay order</h2>
           <p className="mt-2 font-semibold leading-6">
             Paste an <code>order.ebay.com/ord/show?orderId=...</code> link or the order number.
@@ -131,7 +131,7 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
           </div>
         </section>
 
-        <section className="rounded-xl border border-neutral-200 bg-white p-6 shadow-sm">
+        <section className="rounded-3xl border border-neutral-200 bg-white/95 p-6 shadow-sm ring-1 ring-black/[0.02]">
           <p className="text-xs font-black uppercase tracking-[0.18em] text-lime-800">
             Add purchase
           </p>
@@ -197,7 +197,7 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
             <Field name="buyerFees" label="Buyer fees — fallback" type="number" required defaultValue="0.00" step="0.01" min="0" />
             <Field name="otherCost" label="Other cost — fallback" type="number" required defaultValue="0.00" step="0.01" min="0" />
             <AdminSubmitButton
-              className="rounded-md bg-lime-700 px-4 py-3 font-black text-white md:col-span-2 xl:col-span-3"
+              className="rounded-xl bg-lime-700 px-4 py-3 font-black text-white shadow-sm transition hover:bg-lime-800 md:col-span-2 xl:col-span-3"
               pendingChildren="Importing eBay purchase..."
               disabled={Boolean(loadError)}
               disabledReason={loadError ? "Install the Purchase Inbox database migration first." : undefined}
@@ -218,7 +218,7 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
           <Metric label="Recorded Purchases" value={String(recorded.length)} />
         </section>
 
-        <section className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
+        <section className="overflow-hidden rounded-3xl border border-neutral-200 bg-white/95 shadow-sm ring-1 ring-black/[0.02]">
           <div className="border-b border-neutral-200 p-5">
             <h2 className="text-2xl font-black">Pending Purchase Inbox</h2>
             <p className="mt-1 text-sm font-semibold text-neutral-600">
@@ -281,7 +281,7 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
                 <AdminSubmitButton
                   name="action"
                   value="move_resale"
-                  className="rounded-md bg-blue-700 px-4 py-3 font-black text-white"
+                  className="rounded-xl bg-blue-700 px-4 py-3 font-black text-white shadow-sm transition hover:bg-blue-800"
                   pendingChildren="Moving to resale..."
                   title="Move selected pending purchase rows into Resale exact-card review without recording them in the ledger yet."
                 >
@@ -290,7 +290,7 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
                 <AdminSubmitButton
                   name="action"
                   value="move_hold"
-                  className="rounded-md bg-fuchsia-800 px-4 py-3 font-black text-white"
+                  className="rounded-xl bg-fuchsia-800 px-4 py-3 font-black text-white shadow-sm transition hover:bg-fuchsia-900"
                   pendingChildren="Moving to hold review..."
                   title="Move selected pending purchase rows into Hold / Investment exact-card review without recording them in the ledger yet."
                 >
@@ -299,7 +299,7 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
                 <AdminSubmitButton
                   name="action"
                   value="skip"
-                  className="rounded-md border border-neutral-400 bg-white px-4 py-3 font-black"
+                  className="rounded-xl border border-neutral-400 bg-white px-4 py-3 font-black shadow-sm transition hover:border-neutral-600 hover:bg-neutral-50"
                   pendingChildren="Skipping selected..."
                   title="Skip selected pending purchase rows so they leave the active review queue without creating ledger records."
                 >
@@ -316,7 +316,7 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
 
         <section
           id="moved-to-review"
-          className="overflow-hidden rounded-xl border border-fuchsia-300 bg-white shadow-sm scroll-mt-6"
+          className="scroll-mt-6 overflow-hidden rounded-3xl border border-fuchsia-300 bg-white/95 shadow-sm ring-1 ring-fuchsia-950/5"
         >
           <div className="flex flex-col gap-3 border-b border-fuchsia-200 bg-fuchsia-50 p-5 sm:flex-row sm:items-center sm:justify-between">
             <div>
@@ -331,7 +331,7 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
             </div>
             <Link
               href={adminHref("/admin/market-intel/discovery?from=purchase-inbox")}
-              className="inline-flex rounded-md border border-fuchsia-800 bg-white px-4 py-3 text-center font-black text-fuchsia-900"
+              className="inline-flex rounded-xl border border-fuchsia-800 bg-white px-4 py-3 text-center font-black text-fuchsia-900 shadow-sm transition hover:bg-fuchsia-50"
             >
               Open Full Exact Review Queue
             </Link>
@@ -374,12 +374,12 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
                       href={adminHref(
                         `/admin/market-intel/discovery?from=purchase-inbox#candidate-${row.identity_candidate_id}`,
                       )}
-                      className="inline-flex min-w-[190px] justify-center rounded-md bg-fuchsia-900 px-4 py-3 font-black text-white"
+                      className="inline-flex min-w-[190px] justify-center rounded-xl bg-fuchsia-900 px-4 py-3 font-black text-white shadow-sm transition hover:bg-fuchsia-950"
                     >
                       Open Exact Review
                     </Link>
                   ) : (
-                    <span className="rounded-md border border-rose-300 bg-rose-50 px-4 py-3 text-center text-sm font-black text-rose-950">
+                    <span className="rounded-xl border border-rose-300 bg-rose-50 px-4 py-3 text-center text-sm font-black text-rose-950">
                       Review link missing — move again or report this row
                     </span>
                   )}
@@ -394,7 +394,7 @@ export default async function EbayPurchaseIntakePage({ searchParams }: PageProps
 }
 
 const inputClass =
-  "mt-1 w-full rounded-md border border-neutral-300 bg-white px-3 py-2.5 font-semibold outline-none focus:border-black";
+  "mt-2 w-full rounded-xl border border-neutral-300 bg-white px-3 py-3 font-semibold shadow-inner shadow-neutral-100 outline-none transition focus:border-black focus:ring-4 focus:ring-black/10";
 
 function Field({
   name,
@@ -453,12 +453,12 @@ function Metric({
   return href ? (
     <Link
       href={href}
-      className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm transition hover:border-fuchsia-400 hover:bg-fuchsia-50"
+      className="rounded-3xl border border-neutral-200 bg-white/95 p-5 shadow-sm ring-1 ring-black/[0.02] transition hover:border-fuchsia-400 hover:bg-fuchsia-50"
     >
       {content}
     </Link>
   ) : (
-    <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">{content}</div>
+    <div className="rounded-3xl border border-neutral-200 bg-white/95 p-5 shadow-sm ring-1 ring-black/[0.02]">{content}</div>
   );
 }
 
@@ -467,8 +467,8 @@ function Notice({ children, error = false }: { children: React.ReactNode; error?
     <div
       className={
         error
-          ? "rounded-xl border border-rose-300 bg-rose-50 p-4 font-bold text-rose-950"
-          : "rounded-xl border border-emerald-300 bg-emerald-50 p-4 font-bold text-emerald-950"
+          ? "rounded-3xl border border-rose-300 bg-rose-50 p-4 font-bold text-rose-950 shadow-sm ring-1 ring-rose-950/5"
+          : "rounded-3xl border border-emerald-300 bg-emerald-50 p-4 font-bold text-emerald-950 shadow-sm ring-1 ring-emerald-950/5"
       }
     >
       {children}

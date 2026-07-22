@@ -15,7 +15,7 @@ type PageProps = {
 };
 
 const inputClass =
-  "mt-1 w-full rounded-md border border-neutral-300 bg-white px-3 py-2.5 font-semibold outline-none focus:border-black";
+  "mt-2 w-full rounded-xl border border-neutral-300 bg-white px-3 py-3 font-semibold shadow-inner shadow-neutral-100 outline-none transition focus:border-black focus:ring-4 focus:ring-black/10";
 
 export default async function NewOfflinePurchasePage({ searchParams }: PageProps) {
   const query = await searchParams;
@@ -23,12 +23,12 @@ export default async function NewOfflinePurchasePage({ searchParams }: PageProps
   const adminHref = (href: string) => addAdminHandoff(href, handoff);
 
   return (
-    <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
-      <header className="border-b border-neutral-800 bg-[#101418] text-white">
-        <div className="mx-auto max-w-7xl px-6 py-8">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_#ecfccb,_transparent_28%),linear-gradient(180deg,_#f8fafc,_#f5f5f4)] px-4 py-6 text-neutral-950 sm:px-6 lg:px-8">
+      <header className="mx-auto max-w-7xl overflow-hidden rounded-[2rem] border border-neutral-900 bg-neutral-950 text-white shadow-2xl shadow-neutral-950/10">
+        <div className="border-b border-white/10 bg-[radial-gradient(circle_at_top_right,_rgba(132,204,22,0.28),_transparent_34%),linear-gradient(135deg,_rgba(255,255,255,0.08),_transparent)] p-6 lg:p-8">
           <Link
             href={adminHref("/admin/market-intel/purchases")}
-            className="text-sm font-black text-amber-300 hover:underline"
+            className="inline-flex rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-white/15"
           >
             ← Purchase Ledger
           </Link>
@@ -45,14 +45,14 @@ export default async function NewOfflinePurchasePage({ searchParams }: PageProps
         </div>
       </header>
 
-      <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
+      <div className="mx-auto max-w-7xl space-y-6 py-6">
         {query?.error ? (
-          <div className="rounded-xl border border-rose-300 bg-rose-50 p-4 font-bold text-rose-950">
+          <div className="rounded-3xl border border-rose-300 bg-rose-50 p-4 font-bold text-rose-950 shadow-sm ring-1 ring-rose-950/5">
             {query.error}
           </div>
         ) : null}
 
-        <section className="rounded-xl border border-cyan-200 bg-cyan-50 p-5 text-cyan-950">
+        <section className="rounded-3xl border border-cyan-200 bg-cyan-50 p-5 text-cyan-950 shadow-sm ring-1 ring-cyan-950/5">
           <h2 className="text-2xl font-black">One entry creates the full position</h2>
           <p className="mt-2 font-semibold leading-6">
             TCOS creates or reuses the exact-card identity, records the cost basis, and opens
@@ -66,7 +66,7 @@ export default async function NewOfflinePurchasePage({ searchParams }: PageProps
           action={adminHref("/api/admin/market-intel/purchases/manual")}
           className="space-y-6"
         >
-          <section className="rounded-xl border border-neutral-200 bg-white p-6 shadow-sm">
+          <section className="rounded-3xl border border-neutral-200 bg-white/95 p-6 shadow-sm ring-1 ring-black/[0.02]">
             <p className="text-xs font-black uppercase tracking-[0.18em] text-lime-800">
               Acquisition
             </p>
@@ -93,14 +93,14 @@ export default async function NewOfflinePurchasePage({ searchParams }: PageProps
                 <option value="hold">Hold / Investment</option>
                 <option value="pc">Personal Collection</option>
               </SelectField>
-              <label className="flex items-center gap-3 rounded-md border border-neutral-300 bg-neutral-50 px-4 py-3 text-sm font-black md:col-span-2">
+              <label className="flex items-center gap-3 rounded-xl border border-neutral-300 bg-neutral-50 px-4 py-3 text-sm font-black shadow-sm md:col-span-2">
                 <input name="alreadyReceived" type="checkbox" defaultChecked className="h-5 w-5" />
                 Item is already received and in my possession
               </label>
             </div>
           </section>
 
-          <section className="rounded-xl border border-neutral-200 bg-white p-6 shadow-sm">
+          <section className="rounded-3xl border border-neutral-200 bg-white/95 p-6 shadow-sm ring-1 ring-black/[0.02]">
             <p className="text-xs font-black uppercase tracking-[0.18em] text-cyan-800">
               Exact card
             </p>
@@ -136,7 +136,7 @@ export default async function NewOfflinePurchasePage({ searchParams }: PageProps
               </SelectField>
               <Input name="gradingCompany" label="Grading company" placeholder="PSA" />
               <Input name="grade" label="Grade" placeholder="10" />
-              <div className="flex flex-wrap gap-5 rounded-md border border-neutral-200 bg-neutral-50 p-4 text-sm font-black xl:col-span-4">
+              <div className="flex flex-wrap gap-5 rounded-xl border border-neutral-200 bg-neutral-50 p-4 text-sm font-black shadow-sm xl:col-span-4">
                 <Check name="rookieDesignation" label="Rookie" />
                 <Check name="autograph" label="Autograph" />
                 <Check name="memorabilia" label="Memorabilia / relic" />
@@ -144,7 +144,7 @@ export default async function NewOfflinePurchasePage({ searchParams }: PageProps
             </div>
           </section>
 
-          <section className="rounded-xl border border-amber-200 bg-amber-50 p-6 shadow-sm">
+          <section className="rounded-3xl border border-amber-200 bg-amber-50 p-6 shadow-sm ring-1 ring-amber-950/5">
             <p className="text-xs font-black uppercase tracking-[0.18em] text-amber-800">
               Cost basis
             </p>
@@ -167,7 +167,7 @@ export default async function NewOfflinePurchasePage({ searchParams }: PageProps
           </section>
 
           <AdminSubmitButton
-            className="w-full rounded-xl bg-black px-6 py-4 text-xl font-black text-white"
+            className="w-full rounded-2xl bg-black px-6 py-4 text-xl font-black text-white shadow-sm transition hover:bg-neutral-800"
             pendingChildren="Creating purchase position..."
             title="Create the exact-card identity and offline Purchase Ledger position with the entered cost basis."
           >
