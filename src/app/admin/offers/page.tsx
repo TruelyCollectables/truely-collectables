@@ -186,132 +186,129 @@ export default async function AdminOffersPage() {
   );
 
   return (
-    <main className="space-y-6 bg-neutral-50 px-6 py-8 text-neutral-950">
-      <section className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <p className="text-xs font-black uppercase tracking-[0.18em] text-sky-700">
-              Offers desk
-            </p>
-            <h1 className="mt-2 text-4xl font-black tracking-tight">
-              Best Offers
-            </h1>
-            <p className="mt-3 max-w-3xl text-sm font-semibold leading-6 text-neutral-600">
-              Review buyer offers, accept checkout-ready deals, decline poor
-              offers, or send counter offers with clear Stripe payment links.
-            </p>
-            <p className="mt-2 text-xs font-bold text-neutral-400">
-              Last refreshed: {new Date().toLocaleString()}
-            </p>
-          </div>
-
-          <div className="flex flex-wrap gap-3">
-            <Link
-              href="/admin/products"
-              className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50"
-            >
-              Products
-            </Link>
-            <Link
-              href="/admin/orders"
-              className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50"
-            >
-              Orders
-            </Link>
-            <Link
-              href="/admin"
-              className="rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white hover:bg-neutral-800"
-            >
-              Dashboard
-            </Link>
-          </div>
-        </div>
-      </section>
-
-      {accountProfilesUnavailable ? (
-        <section
-          aria-live="polite"
-          role="status"
-          className="rounded-3xl border border-amber-200 bg-amber-50 p-5 text-amber-950 shadow-sm"
-        >
-          <h2 className="text-xl font-black">
-            Linked account profiles unavailable
-          </h2>
-          <p className="mt-2 max-w-4xl text-sm font-semibold leading-6">
-            Offers loaded, but buyer account enrichment did not. The offer desk
-            remains usable; rows with linked buyers will show that profile
-            details are unavailable instead of hiding the offer decision.
-          </p>
-          <p className="mt-3 rounded-xl border border-amber-200 bg-white px-4 py-3 text-sm font-bold">
-            {safeErrorMessage(accountProfilesError)}
-          </p>
-        </section>
-      ) : null}
-
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-        <MetricCard
-          label="Pending"
-          value={String(pendingOffers.length)}
-          detail={`${money(pendingValue)} waiting on admin decision`}
-        />
-        <MetricCard
-          label="Accepted"
-          value={String(acceptedOffers.length)}
-          detail="Checkout links created for buyers"
-        />
-        <MetricCard
-          label="Countered"
-          value={String(counteredOffers.length)}
-          detail="Buyer counter-offer links sent"
-        />
-        <MetricCard
-          label="Declined"
-          value={String(declinedOffers.length)}
-          detail="Offers closed without checkout"
-        />
-      </section>
-
-      <section className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
-        <div className="flex flex-wrap items-end justify-between gap-4">
-          <div>
-            <p className="text-xs font-black uppercase tracking-[0.16em] text-neutral-400">
-              Offer queue
-            </p>
-            <h2 className="mt-1 text-2xl font-black">Buyer offer decisions</h2>
-          </div>
-          <Link
-            href="/shop"
-            className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50"
-          >
-            View storefront
-          </Link>
-        </div>
-
-        <div className="mt-5 space-y-4">
-        {typedOffers.map((offer) => (
-          <OfferCard
-            key={offer.id}
-            offer={offer}
-            accountProfile={
-              offer.account_id
-                ? accountProfiles.get(offer.account_id)
-                : undefined
-            }
-            accountProfilesUnavailable={accountProfilesUnavailable}
-          />
-        ))}
-
-          {typedOffers.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-neutral-300 bg-neutral-50 p-6">
-              <h3 className="text-lg font-black">No buyer offers yet</h3>
-              <p className="mt-2 max-w-2xl text-sm font-semibold leading-6 text-neutral-600">
-                New product offers will appear here with buyer contact details,
-                account links, asking price, offer amount, and decision actions.
+    <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
+      <section className="border-b border-neutral-800 bg-[#101418] text-white shadow-2xl shadow-black/20">
+        <div className="mx-auto max-w-7xl px-6 py-8">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.22em] text-sky-300">
+                Offers desk
+              </p>
+              <h1 className="mt-2 text-4xl font-black tracking-tight md:text-5xl">
+                Best Offers
+              </h1>
+              <p className="mt-3 max-w-4xl text-sm font-semibold leading-7 text-neutral-300">
+                Review buyer offers, accept checkout-ready deals, decline poor
+                offers, or send counter offers with clear Stripe payment links.
+                Decision actions stay locked after pending status so stale
+                money-path clicks do not create duplicate checkout work.
+              </p>
+              <p className="mt-2 text-xs font-bold text-neutral-500">
+                Last refreshed: {new Date().toLocaleString()}
               </p>
             </div>
-          ) : null}
+
+            <div className="grid min-w-[320px] grid-cols-3 gap-3 rounded-3xl border border-white/10 bg-white/[0.06] p-4 shadow-xl shadow-black/20">
+              <HeaderStat label="Pending" value={String(pendingOffers.length)} />
+              <HeaderStat label="Open Value" value={money(pendingValue)} />
+              <HeaderStat label="Accepted" value={String(acceptedOffers.length)} />
+            </div>
+          </div>
+
+          <div className="mt-6 flex flex-wrap gap-3">
+            <CommandLink href="/admin/products" label="Products" />
+            <CommandLink href="/admin/orders" label="Orders" />
+            <CommandLink href="/admin" label="Dashboard" primary />
+          </div>
         </div>
       </section>
+
+      <div className="mx-auto max-w-7xl space-y-6 px-6 py-8">
+        {accountProfilesUnavailable ? (
+          <section
+            aria-live="polite"
+            role="status"
+            className="rounded-3xl border border-amber-200 bg-amber-50 p-5 text-amber-950 shadow-sm ring-1 ring-amber-950/5"
+          >
+            <h2 className="text-xl font-black">
+              Linked account profiles unavailable
+            </h2>
+            <p className="mt-2 max-w-4xl text-sm font-semibold leading-6">
+              Offers loaded, but buyer account enrichment did not. The offer desk
+              remains usable; rows with linked buyers will show that profile
+              details are unavailable instead of hiding the offer decision.
+            </p>
+            <p className="mt-3 rounded-xl border border-amber-200 bg-white px-4 py-3 text-sm font-bold">
+              {safeErrorMessage(accountProfilesError)}
+            </p>
+          </section>
+        ) : null}
+
+        <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+          <MetricCard
+            label="Pending"
+            value={String(pendingOffers.length)}
+            detail={`${money(pendingValue)} waiting on admin decision`}
+          />
+          <MetricCard
+            label="Accepted"
+            value={String(acceptedOffers.length)}
+            detail="Checkout links created for buyers"
+          />
+          <MetricCard
+            label="Countered"
+            value={String(counteredOffers.length)}
+            detail="Buyer counter-offer links sent"
+          />
+          <MetricCard
+            label="Declined"
+            value={String(declinedOffers.length)}
+            detail="Offers closed without checkout"
+          />
+        </section>
+
+        <section className="rounded-3xl border border-neutral-200 bg-white/95 p-5 shadow-sm ring-1 ring-black/[0.02]">
+          <div className="flex flex-wrap items-end justify-between gap-4">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.16em] text-sky-700">
+                Offer queue
+              </p>
+              <h2 className="mt-1 text-2xl font-black">Buyer offer decisions</h2>
+            </div>
+            <Link
+              href="/shop"
+              className="rounded-full border border-neutral-300 bg-white px-4 py-2 text-sm font-black shadow-sm transition hover:border-neutral-500"
+            >
+              View storefront
+            </Link>
+          </div>
+
+          <div className="mt-5 space-y-4">
+            {typedOffers.map((offer) => (
+              <OfferCard
+                key={offer.id}
+                offer={offer}
+                accountProfile={
+                  offer.account_id
+                    ? accountProfiles.get(offer.account_id)
+                    : undefined
+                }
+                accountProfilesUnavailable={accountProfilesUnavailable}
+              />
+            ))}
+
+            {typedOffers.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-neutral-300 bg-neutral-50 p-6">
+                <h3 className="text-lg font-black">No buyer offers yet</h3>
+                <p className="mt-2 max-w-2xl text-sm font-semibold leading-6 text-neutral-600">
+                  New product offers will appear here with buyer contact details,
+                  account links, asking price, offer amount, and decision actions.
+                </p>
+              </div>
+            ) : null}
+          </div>
+        </section>
+      </div>
     </main>
   );
 }
@@ -345,7 +342,7 @@ function MetricCard({
   detail: string;
 }) {
   return (
-    <div className="rounded-3xl border border-neutral-200 bg-white p-5 shadow-sm">
+    <div className="rounded-3xl border border-neutral-200 bg-white/95 p-5 shadow-sm ring-1 ring-black/[0.02]">
       <p className="text-xs font-black uppercase tracking-[0.16em] text-neutral-400">
         {label}
       </p>
@@ -369,7 +366,7 @@ function OfferCard({
   const isPending = offer.status === "pending";
 
   return (
-    <article className="grid gap-5 rounded-2xl border border-neutral-200 bg-neutral-50 p-5 xl:grid-cols-[160px_1.4fr_1fr_240px]">
+    <article className="grid gap-5 rounded-3xl border border-neutral-200 bg-neutral-50/90 p-5 shadow-sm ring-1 ring-black/[0.02] transition hover:bg-neutral-50 xl:grid-cols-[160px_1.4fr_1fr_240px]">
       <div className="overflow-hidden rounded-2xl border border-neutral-200 bg-white">
         <Image
           src={safeProductImage(product?.image_url)}
@@ -430,7 +427,7 @@ function OfferCard({
         {product?.id ? (
           <Link
             href={`/admin/products/${product.id}`}
-            className="mt-4 inline-flex rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50"
+            className="mt-4 inline-flex rounded-full border border-neutral-300 bg-white px-4 py-2 text-sm font-black shadow-sm transition hover:border-neutral-500"
           >
             Edit product
           </Link>
@@ -474,5 +471,39 @@ function OfferCard({
         productQuantity={product?.quantity ?? null}
       />
     </article>
+  );
+}
+
+function HeaderStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-black/20 p-3 text-center">
+      <p className="text-[10px] font-black uppercase tracking-[0.16em] text-neutral-400">
+        {label}
+      </p>
+      <p className="mt-1 truncate text-lg font-black text-white">{value}</p>
+    </div>
+  );
+}
+
+function CommandLink({
+  href,
+  label,
+  primary = false,
+}: {
+  href: string;
+  label: string;
+  primary?: boolean;
+}) {
+  return (
+    <Link
+      href={href}
+      className={
+        primary
+          ? "rounded-full bg-white px-4 py-2 text-sm font-black text-neutral-950 shadow-sm transition hover:bg-neutral-200"
+          : "rounded-full border border-white/20 bg-white/5 px-4 py-2 text-sm font-black text-white transition hover:border-white hover:bg-white/10"
+      }
+    >
+      {label}
+    </Link>
   );
 }

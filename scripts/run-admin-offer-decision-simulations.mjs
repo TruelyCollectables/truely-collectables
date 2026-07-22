@@ -173,6 +173,24 @@ scenario("offer desk keeps load and enrichment failures operator-readable", asyn
   );
 });
 
+scenario("offer desk uses professional command presentation", async () => {
+  const source = await readFile("src/app/admin/offers/page.tsx", "utf8");
+
+  for (const snippet of [
+    "Decision actions stay locked after pending status",
+    "HeaderStat label=\"Pending\"",
+    "HeaderStat label=\"Open Value\"",
+    "HeaderStat label=\"Accepted\"",
+    "CommandLink href=\"/admin/products\"",
+    "CommandLink href=\"/admin\" label=\"Dashboard\" primary",
+    "rounded-3xl border border-neutral-200 bg-white/95",
+    "rounded-full border border-neutral-300 bg-white",
+    "transition hover:bg-neutral-50 xl:grid-cols",
+  ]) {
+    assert(source.includes(snippet), `Expected offer desk presentation fragment ${snippet}`);
+  }
+});
+
 scenario("offer status routes use pending compare-and-set updates", async () => {
   const updateStatusSource = await readFile(
     "src/app/api/offers/update-status/route.ts",
