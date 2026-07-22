@@ -476,6 +476,41 @@ scenario("growth spec forms and value-list refreshes label long-running posts", 
   }
 });
 
+scenario("growth spec lab and prospects use professional command presentation", () => {
+  for (const [key, label] of [
+    ["growthSpecs", "Growth Spec Lab"],
+    ["growthProspects", "Growth Prospect Universe"],
+  ]) {
+    for (const fragment of [
+      "rounded-[2rem] border border-neutral-900 bg-neutral-950",
+      "shadow-2xl shadow-neutral-950/10",
+      "rounded-3xl border border-neutral-200 bg-white/95",
+      "shadow-sm ring-1 ring-black/[0.02]",
+      "rounded-full border border-white/15 bg-white/10",
+    ]) {
+      assert(
+        sources[key].includes(fragment),
+        `Expected ${label} presentation fragment ${fragment}.`,
+      );
+    }
+  }
+
+  assert(
+    sources.growthSpecs.includes("focus:ring-4 focus:ring-black/10"),
+    "Expected Growth Spec Lab polished form focus styling.",
+  );
+  for (const fragment of [
+    "rounded-3xl border border-fuchsia-200 bg-fuchsia-50/95",
+    "rounded-full bg-cyan-900",
+    "rounded-full border border-fuchsia-300 bg-white",
+  ]) {
+    assert(
+      sources.growthLayout.includes(fragment),
+      `Expected Growth Spec layout presentation fragment ${fragment}.`,
+    );
+  }
+});
+
 scenario("deal listing client actions retain inline busy and failure feedback", () => {
   for (const fragment of [
     "dealListingActionRunningRef",

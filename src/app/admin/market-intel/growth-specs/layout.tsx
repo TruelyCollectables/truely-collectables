@@ -47,8 +47,8 @@ export default async function GrowthSpecsLayout({
 
   return (
     <>
-      <section className="border-b border-fuchsia-200 bg-fuchsia-50 px-6 py-4 text-fuchsia-950">
-        <div className="mx-auto flex max-w-7xl flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+      <section className="bg-[#f4f1ea] px-4 pt-6 text-fuchsia-950 sm:px-6 lg:px-8">
+        <div className="mx-auto flex max-w-[1500px] flex-col gap-3 rounded-3xl border border-fuchsia-200 bg-fuchsia-50/95 p-5 shadow-sm ring-1 ring-fuchsia-950/5 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.16em]">
               Licensed Pro Value Universe
@@ -64,25 +64,25 @@ export default async function GrowthSpecsLayout({
           <div className="flex flex-wrap gap-2">
             <Link
               href="/admin/market-intel/discovery"
-              className="rounded-md bg-cyan-900 px-4 py-2 text-sm font-black text-white"
+              className="rounded-full bg-cyan-900 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-cyan-800"
             >
               Discover Exact Cards
             </Link>
             <Link
               href="/admin/market-intel/purchases/ebay-intake"
-              className="rounded-md bg-lime-800 px-4 py-2 text-sm font-black text-white"
+              className="rounded-full bg-lime-800 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-lime-700"
             >
               Add eBay Purchase
             </Link>
             <Link
               href="/admin/market-intel/growth-specs/prospects"
-              className="rounded-md bg-fuchsia-800 px-4 py-2 text-sm font-black text-white"
+              className="rounded-full bg-fuchsia-800 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-fuchsia-700"
             >
               View Value Watchlists
             </Link>
             <form method="post" action="/api/admin/market-intel/growth-specs/seed-prospects">
               <AdminSubmitButton
-                className="rounded-md border border-fuchsia-300 bg-white px-4 py-2 text-sm font-black"
+                className="rounded-full border border-fuchsia-300 bg-white px-4 py-2 text-sm font-black shadow-sm transition hover:bg-fuchsia-50"
                 pendingChildren="Refreshing lists..."
                 title="Refresh the curated Market Intel value watchlists while preserving exact-card research and history."
               >
