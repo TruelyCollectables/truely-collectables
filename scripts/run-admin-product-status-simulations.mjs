@@ -219,6 +219,25 @@ scenario("product editor submits explain action scope", () => {
   }
 });
 
+scenario("product detail uses professional command presentation", () => {
+  for (const fragment of [
+    "Product command desk",
+    "productAvailabilityPosture",
+    "Buyer availability",
+    "No-dead-end controls keep stock and buyer state aligned.",
+    "HeaderStat",
+    'label="Inventory value"',
+    "rounded-[2rem] border border-neutral-900 bg-neutral-950",
+    "fieldClassName",
+    "bg-white/95 p-6 shadow-sm ring-1 ring-black/[0.02]",
+  ]) {
+    assert(
+      productPageSource.includes(fragment),
+      `Expected product detail presentation fragment ${fragment}.`,
+    );
+  }
+});
+
 scenario("product pages avoid raw action failure copy", () => {
   for (const fragment of [
     "adminProductActionFailureMessage",

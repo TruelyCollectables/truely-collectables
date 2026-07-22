@@ -491,6 +491,40 @@ async function smokeRoute(route, cookieHeader) {
   };
 }
 
+async function smokeFirstProductDetail(cookieHeader) {
+  const response = await fetchWithTimeout(`${origin}/admin/products`, {
+    redirect: "manual",
+    headers: { cookie: cookieHeader },
+  });
+  const body = await response.text().catch(() => "");
+
+  if (response.status !== 200) {
+    return {
+      path: "/admin/products/[first]",
+      status: response.status,
+      ok: false,
+      failures: ["could not load product list for detail-route discovery"],
+    };
+  }
+
+  const productDetailMatch = body.match(/href="(\/admin\/products\/\d+(?:\?[^"]*)?)"/);
+
+  if (!productDetailMatch) {
+    return null;
+  }
+
+  const path = productDetailMatch[1].replaceAll("&amp;", "&");
+
+  return smokeRoute(
+    {
+      path,
+      auth: true,
+      expectedText: "Product command desk",
+    },
+    cookieHeader,
+  );
+}
+
 async function smokeAuthBoundary(check) {
   const response = await fetchWithTimeout(`${origin}${check.path}`, {
     redirect: "manual",
@@ -600,6 +634,12 @@ try {
 
   for (const check of authenticatedApiChecks) {
     apiResults.push(await smokeAuthenticatedApi(check, cookieHeader));
+  }
+
+  const productDetailResult = await smokeFirstProductDetail(cookieHeader);
+
+  if (productDetailResult) {
+    results.push(productDetailResult);
   }
 
   for (const route of smokeRoutes) {
