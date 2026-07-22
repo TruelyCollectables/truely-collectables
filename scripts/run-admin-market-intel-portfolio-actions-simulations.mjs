@@ -44,6 +44,10 @@ const sources = {
     ),
     "utf8",
   ),
+  ebayScanner: await readFile(
+    new URL("../src/app/admin/market-intel/ebay/page.tsx", import.meta.url),
+    "utf8",
+  ),
   ebayPurchaseRoute: await readFile(
     new URL(
       "../src/app/api/admin/market-intel/purchases/ebay-intake/route.ts",
@@ -252,6 +256,38 @@ scenario("market intel hub, watchlist, and comps use professional command presen
   for (const [key, label] of [
     ["watchlist", "Market Intel watchlist"],
     ["comps", "Market Intel comps"],
+  ]) {
+    assert(
+      sources[key].includes("focus:ring-4 focus:ring-black/10"),
+      `Expected ${label} polished form focus styling.`,
+    );
+  }
+});
+
+scenario("marketplace scanner, deal desk, and ingestion use professional command presentation", () => {
+  for (const [key, label] of [
+    ["ebayScanner", "eBay scanner"],
+    ["deals", "deal desk"],
+    ["ingestion", "ingestion health"],
+  ]) {
+    for (const fragment of [
+      "rounded-[2rem] border border-neutral-900 bg-neutral-950",
+      "shadow-2xl shadow-neutral-950/10",
+      "rounded-3xl border border-neutral-200 bg-white/95",
+      "shadow-sm ring-1 ring-black/[0.02]",
+      "rounded-full border border-white/15 bg-white/10",
+    ]) {
+      assert(
+        sources[key].includes(fragment),
+        `Expected ${label} presentation fragment ${fragment}.`,
+      );
+    }
+  }
+
+  for (const [key, label] of [
+    ["ebayScanner", "eBay scanner"],
+    ["deals", "deal desk"],
+    ["ingestion", "ingestion health"],
   ]) {
     assert(
       sources[key].includes("focus:ring-4 focus:ring-black/10"),

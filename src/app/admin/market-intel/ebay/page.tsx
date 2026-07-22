@@ -70,12 +70,12 @@ export default async function MarketIntelEbayPage({ searchParams }: PageProps) {
     .at(-1);
 
   return (
-    <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
-      <header className="border-b border-neutral-800 bg-[#101418] text-white">
-        <div className="mx-auto max-w-7xl px-6 py-8">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(14,165,233,0.13),_transparent_34%),linear-gradient(180deg,_#faf7ef_0%,_#f4f1ea_42%,_#eee7da_100%)] px-4 py-6 text-neutral-950 sm:px-6 lg:px-8">
+      <section className="mx-auto max-w-[1500px] overflow-hidden rounded-[2rem] border border-neutral-900 bg-neutral-950 text-white shadow-2xl shadow-neutral-950/10">
+        <div className="border-b border-white/10 bg-[radial-gradient(circle_at_top_right,_rgba(34,211,238,0.2),_transparent_32%),linear-gradient(135deg,_rgba(255,255,255,0.08),_transparent)] p-6 lg:p-8">
           <Link
             href={addAdminHandoff("/admin/market-intel", handoff)}
-            className="text-sm font-black text-amber-300 hover:underline"
+            className="inline-flex rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-white/15"
           >
             ← Market Intel Command Center
           </Link>
@@ -91,9 +91,9 @@ export default async function MarketIntelEbayPage({ searchParams }: PageProps) {
             deduplicates repeat scans, and sends them through the Shark List engine.
           </p>
         </div>
-      </header>
+      </section>
 
-      <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
+      <div className="mx-auto max-w-[1500px] space-y-6 py-6">
         {query?.scanned === "1" ? (
           <Notice error={Number(query.errors || 0) > 0}>
             Scanned {query.targets || "0"} exact market
@@ -107,8 +107,8 @@ export default async function MarketIntelEbayPage({ searchParams }: PageProps) {
         <section
           className={
             credentialsConfigured
-              ? "rounded-xl border border-emerald-200 bg-emerald-50 p-5 text-emerald-950"
-              : "rounded-xl border border-rose-200 bg-rose-50 p-5 text-rose-950"
+              ? "rounded-3xl border border-emerald-200 bg-emerald-50 p-5 text-emerald-950 shadow-sm ring-1 ring-emerald-950/5"
+              : "rounded-3xl border border-rose-200 bg-rose-50 p-5 text-rose-950 shadow-sm ring-1 ring-rose-950/5"
           }
         >
           <h2 className="text-xl font-black">
@@ -136,7 +136,7 @@ export default async function MarketIntelEbayPage({ searchParams }: PageProps) {
         </section>
 
         <section className="grid grid-cols-1 gap-6 xl:grid-cols-[0.75fr_1.25fr]">
-          <section className="rounded-xl border border-neutral-200 bg-white p-6 shadow-sm">
+          <section className="rounded-3xl border border-neutral-200 bg-white/95 p-6 shadow-sm ring-1 ring-black/[0.02]">
             <h2 className="text-2xl font-black">Run Scanner</h2>
             <p className="mt-2 text-sm font-semibold leading-6 text-neutral-600">
               Scan one exact card for focused testing or leave it blank to scan the
@@ -156,7 +156,7 @@ export default async function MarketIntelEbayPage({ searchParams }: PageProps) {
                 Exact card identity
                 <select
                   name="identityId"
-                  className="mt-1 w-full rounded-md border border-neutral-300 bg-white px-3 py-2 outline-none focus:border-black"
+                  className="mt-2 w-full rounded-xl border border-neutral-300 bg-white px-4 py-3 shadow-inner shadow-neutral-100 outline-none transition focus:border-black focus:ring-4 focus:ring-black/10"
                 >
                   <option value="">Scan catalog batch</option>
                   {compData.identities.map((identity) => (
@@ -198,14 +198,14 @@ export default async function MarketIntelEbayPage({ searchParams }: PageProps) {
                   scanDisabledReason ||
                   "Scan eBay and score results against exact Market Intel identities."
                 }
-                className="w-full rounded-md bg-black px-4 py-3 font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
+                className="w-full rounded-2xl bg-black px-4 py-3 font-black text-white shadow-sm transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-40"
                 pendingChildren="Scanning and scoring..."
               >
                 Scan eBay and Score Results
               </AdminSubmitButton>
             </form>
 
-            <div className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm font-semibold leading-6 text-amber-950">
+            <div className="mt-6 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm font-semibold leading-6 text-amber-950 shadow-sm ring-1 ring-amber-950/5">
               <strong>Confidence guard:</strong> candidates below the ingest threshold
               never enter Beta One. Candidates between 70–89 can be stored for review,
               but the Deal Engine suppresses strong buy labels until identity confidence
@@ -213,7 +213,7 @@ export default async function MarketIntelEbayPage({ searchParams }: PageProps) {
             </div>
           </section>
 
-          <section className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
+          <section className="overflow-hidden rounded-3xl border border-neutral-200 bg-white/95 shadow-sm ring-1 ring-black/[0.02]">
             <div className="flex flex-col gap-4 border-b border-neutral-200 p-5 sm:flex-row sm:items-end sm:justify-between">
               <div>
                 <h2 className="text-2xl font-black">Recent eBay Candidates</h2>
@@ -224,13 +224,13 @@ export default async function MarketIntelEbayPage({ searchParams }: PageProps) {
               <div className="flex flex-wrap gap-2">
                 <Link
                   href={addAdminHandoff("/admin/market-intel/deals", handoff)}
-                  className="rounded-md bg-black px-3 py-2 text-xs font-black text-white"
+                  className="rounded-full bg-black px-3 py-2 text-xs font-black text-white shadow-sm transition hover:bg-neutral-800"
                 >
                   Shark List
                 </Link>
                 <Link
                   href={addAdminHandoff("/admin/market-intel/ingestion", handoff)}
-                  className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-black"
+                  className="rounded-full border border-neutral-300 bg-white px-3 py-2 text-xs font-black shadow-sm transition hover:bg-neutral-50"
                 >
                   Ingestion Health
                 </Link>
@@ -248,10 +248,10 @@ export default async function MarketIntelEbayPage({ searchParams }: PageProps) {
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                       <div className="min-w-0">
                         <div className="flex flex-wrap gap-2">
-                          <span className="rounded-full border border-neutral-300 bg-neutral-100 px-2.5 py-1 text-xs font-black">
+                          <span className="rounded-full border border-neutral-300 bg-neutral-100 px-3 py-1 text-xs font-black">
                             {label(listing.score?.deal_label)}
                           </span>
-                          <span className="rounded-full border border-cyan-300 bg-cyan-50 px-2.5 py-1 text-xs font-black text-cyan-900">
+                          <span className="rounded-full border border-cyan-300 bg-cyan-50 px-3 py-1 text-xs font-black text-cyan-900">
                             MATCH {listing.identity_match_confidence?.toFixed(0) || "—"}%
                           </span>
                         </div>
@@ -292,7 +292,7 @@ export default async function MarketIntelEbayPage({ searchParams }: PageProps) {
           </section>
         </section>
 
-        <section className="rounded-xl border border-neutral-800 bg-[#101418] p-6 text-white">
+        <section className="rounded-3xl border border-neutral-800 bg-neutral-950 p-6 text-white shadow-2xl shadow-neutral-950/10">
           <p className="text-xs font-black uppercase tracking-[0.18em] text-lime-300">
             Hourly Automation Endpoint
           </p>
@@ -332,7 +332,7 @@ function NumberField({
         min={min}
         max={max}
         required
-        className="mt-1 w-full rounded-md border border-neutral-300 px-3 py-2 outline-none focus:border-black"
+        className="mt-2 w-full rounded-xl border border-neutral-300 px-4 py-3 shadow-inner shadow-neutral-100 outline-none transition focus:border-black focus:ring-4 focus:ring-black/10"
       />
     </label>
   );
@@ -340,7 +340,7 @@ function NumberField({
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
+    <div className="rounded-3xl border border-neutral-200 bg-white/95 p-5 shadow-sm ring-1 ring-black/[0.02]">
       <p className="text-xs font-black uppercase tracking-wider text-neutral-500">
         {label}
       </p>
@@ -351,7 +351,7 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 function SmallStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="min-w-24 rounded-lg border border-neutral-200 bg-neutral-50 p-3">
+    <div className="min-w-24 rounded-2xl border border-neutral-200 bg-neutral-50 p-3 shadow-sm ring-1 ring-black/[0.02]">
       <p className="text-[10px] font-black uppercase text-neutral-500">{label}</p>
       <p className="mt-1 font-black">{value}</p>
     </div>
@@ -371,8 +371,8 @@ function Notice({
       aria-live={error ? "assertive" : "polite"}
       className={
         error
-          ? "rounded-lg border border-rose-200 bg-rose-50 p-4 font-bold text-rose-900"
-          : "rounded-lg border border-emerald-200 bg-emerald-50 p-4 font-bold text-emerald-900"
+          ? "rounded-2xl border border-rose-200 bg-rose-50 p-4 font-bold text-rose-900 shadow-sm ring-1 ring-rose-950/5"
+          : "rounded-2xl border border-emerald-200 bg-emerald-50 p-4 font-bold text-emerald-900 shadow-sm ring-1 ring-emerald-950/5"
       }
     >
       {children}
