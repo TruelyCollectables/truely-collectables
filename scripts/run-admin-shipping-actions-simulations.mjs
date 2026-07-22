@@ -24,6 +24,10 @@ const sources = {
     new URL("../src/app/admin/shipping/ShippingClaimActions.tsx", import.meta.url),
     "utf8",
   ),
+  simulationsPage: await readFile(
+    new URL("../src/app/admin/shipping/simulations/page.tsx", import.meta.url),
+    "utf8",
+  ),
 };
 
 const scenarios = [];
@@ -201,6 +205,24 @@ scenario("shipping claim status actions expose typed live feedback", () => {
     assert(
       sources.claimActions.includes(fragment),
       `Expected shipping claim feedback fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("shipping simulation lab uses professional reliability presentation", () => {
+  for (const fragment of [
+    "TCOS Shipping Reliability",
+    "Shipping Simulation Lab",
+    "HeaderStat label=\"Shipping\"",
+    "label=\"Scenarios\"",
+    "label=\"Live Gate\"",
+    "rounded-3xl border border-blue-200 bg-blue-50",
+    "Seller-protection money trail",
+    "Live shipping approval report",
+  ]) {
+    assert(
+      sources.simulationsPage.includes(fragment),
+      `Expected shipping simulation presentation fragment ${fragment}.`,
     );
   }
 });

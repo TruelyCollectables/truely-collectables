@@ -30,33 +30,56 @@ export default async function ShippingSimulationsPage() {
     purchaseAudit.scenario_key_coverage_status === "passed";
 
   return (
-    <main className="min-h-screen bg-neutral-50 p-8 text-neutral-950">
-      <div className="mx-auto max-w-7xl space-y-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="text-sm font-black uppercase tracking-widest text-neutral-500">
-              TCOS Shipping Reliability
-            </p>
-            <h1 className="mt-2 text-4xl font-black">Shipping Simulation Lab</h1>
-            <p className="mt-2 max-w-3xl text-neutral-600">
-              Deterministic no-postage checks for Standard Envelope routing,
-              Ground Advantage fallback, seller coverage, adapter profiles, and
-              dry-run provider purchase plumbing. It also checks provider
-              purchase-attempt audit text for live-gate, missing-setup, dry-run,
-              and packet-output cases.
-            </p>
+    <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
+      <header className="border-b border-neutral-800 bg-[#101418] text-white shadow-2xl shadow-black/20">
+        <div className="mx-auto max-w-7xl px-6 py-8">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.22em] text-cyan-300">
+                TCOS Shipping Reliability
+              </p>
+              <h1 className="mt-2 text-4xl font-black tracking-tight md:text-5xl">
+                Shipping Simulation Lab
+              </h1>
+              <p className="mt-3 max-w-4xl font-semibold leading-7 text-neutral-300">
+                Deterministic no-postage checks for Standard Envelope routing,
+                Ground Advantage fallback, seller coverage, adapter profiles, and
+                dry-run provider purchase plumbing. It also verifies provider
+                purchase-attempt audit text for live-gate, missing-setup, dry-run,
+                and packet-output cases.
+              </p>
+            </div>
+            <div className="grid min-w-[300px] grid-cols-3 gap-3 rounded-3xl border border-white/10 bg-white/[0.06] p-4 shadow-xl shadow-black/20">
+              <HeaderStat label="Shipping" value={label(result.run_status)} />
+              <HeaderStat
+                label="Scenarios"
+                value={`${result.passed_count}/${result.scenario_count}`}
+              />
+              <HeaderStat
+                label="Live Gate"
+                value={label(result.live_approval.approval_status)}
+              />
+            </div>
           </div>
-          <div className="flex flex-wrap gap-3">
-            <Link href="/admin/shipping" className="rounded bg-neutral-950 px-4 py-2 font-bold text-white">
+          <div className="mt-6 flex flex-wrap gap-3">
+            <Link
+              href="/admin/shipping"
+              className="rounded-full bg-white px-4 py-2.5 text-sm font-black text-neutral-950 shadow-sm transition hover:bg-neutral-200"
+            >
               Shipping Ops
             </Link>
-            <Link href="/admin" className="rounded border bg-white px-4 py-2 font-bold">
+            <Link
+              href="/admin"
+              className="rounded-full border border-white/15 bg-white/5 px-4 py-2.5 text-sm font-black text-white transition hover:border-white hover:bg-white/10"
+            >
               Command Center
             </Link>
           </div>
         </div>
+      </header>
 
-        <section className="rounded border border-blue-200 bg-blue-50 p-5 text-blue-950">
+      <div className="mx-auto max-w-7xl space-y-6 px-6 py-8">
+        <section className="rounded-3xl border border-blue-200 bg-blue-50 p-5 text-blue-950 shadow-sm ring-1 ring-blue-950/5">
           <h2 className="text-xl font-black">Safety Boundary</h2>
           <p className="mt-2 text-sm font-semibold">
             This suite does not buy postage, contact USPS, contact Coverage, or
@@ -85,7 +108,7 @@ export default async function ShippingSimulationsPage() {
         </section>
 
         <section
-          className={`rounded border p-5 ${
+          className={`rounded-3xl border p-5 shadow-sm ring-1 ring-black/[0.02] ${
             scenarioCoveragePassed
               ? "border-emerald-200 bg-emerald-50 text-emerald-950"
               : "border-rose-200 bg-rose-50 text-rose-950"
@@ -124,7 +147,7 @@ export default async function ShippingSimulationsPage() {
             />
           </div>
 
-          <details className="mt-4 rounded border border-current bg-white/60 p-3 text-sm">
+          <details className="mt-4 rounded-2xl border border-current bg-white/60 p-3 text-sm shadow-inner">
             <summary className="cursor-pointer font-black">
               Expected scenario key manifest
             </summary>
@@ -136,7 +159,7 @@ export default async function ShippingSimulationsPage() {
           </details>
         </section>
 
-        <section className="rounded border border-indigo-200 bg-indigo-50 p-5 text-indigo-950">
+        <section className="rounded-3xl border border-indigo-200 bg-indigo-50 p-5 text-indigo-950 shadow-sm ring-1 ring-indigo-950/5">
           <p className="text-xs font-black uppercase tracking-widest opacity-75">
             Seller-protection money trail
           </p>
@@ -177,13 +200,13 @@ export default async function ShippingSimulationsPage() {
               }
             />
           </div>
-          <p className="mt-4 rounded border border-indigo-300 bg-white p-3 text-sm font-bold">
+          <p className="mt-4 rounded-2xl border border-indigo-300 bg-white p-3 text-sm font-bold shadow-sm">
             {result.seller_protection_allocation_contract.operatorProof}
           </p>
         </section>
 
         <section
-          className={`rounded border p-5 ${
+          className={`rounded-3xl border p-5 shadow-sm ring-1 ring-black/[0.02] ${
             purchaseAuditCoveragePassed
               ? "border-emerald-200 bg-emerald-50 text-emerald-950"
               : "border-rose-200 bg-rose-50 text-rose-950"
@@ -237,7 +260,7 @@ export default async function ShippingSimulationsPage() {
             />
           </div>
 
-          <details className="mt-4 rounded border border-current bg-white/60 p-3 text-sm">
+          <details className="mt-4 rounded-2xl border border-current bg-white/60 p-3 text-sm shadow-inner">
             <summary className="cursor-pointer font-black">
               Expected purchase audit scenario key manifest
             </summary>
@@ -252,7 +275,9 @@ export default async function ShippingSimulationsPage() {
             {purchaseAudit.scenarios.map((scenario) => (
               <article
                 key={scenario.scenario_key}
-                className={`rounded border p-4 ${tone(scenario.scenario_status)}`}
+                className={`rounded-2xl border p-4 shadow-sm ${tone(
+                  scenario.scenario_status,
+                )}`}
               >
                 <p className="text-xs font-black uppercase">
                   {label(scenario.scenario_status)} / {label(scenario.scenario_key)}
@@ -270,7 +295,7 @@ export default async function ShippingSimulationsPage() {
         </section>
 
         <section
-          className={`rounded border p-5 ${tone(
+          className={`rounded-3xl border p-5 shadow-sm ring-1 ring-black/[0.02] ${tone(
             result.live_approval.approval_status,
           )}`}
         >
@@ -317,7 +342,7 @@ export default async function ShippingSimulationsPage() {
           </div>
 
           {result.live_approval.blockers.length > 0 ? (
-            <div className="mt-4 rounded border border-current bg-white/60 p-3">
+            <div className="mt-4 rounded-2xl border border-current bg-white/60 p-3 shadow-inner">
               <h3 className="font-black">Live shipping blockers</h3>
               <ul className="mt-2 list-disc space-y-1 pl-5 text-sm font-bold">
                 {result.live_approval.blockers.map((blocker) => (
@@ -332,7 +357,9 @@ export default async function ShippingSimulationsPage() {
           {result.scenarios.map((scenario) => (
             <article
               key={scenario.scenario_key}
-              className={`rounded border p-5 ${tone(scenario.scenario_status)}`}
+              className={`rounded-3xl border p-5 shadow-sm ring-1 ring-black/[0.02] ${tone(
+                scenario.scenario_status,
+              )}`}
             >
               <p className="text-xs font-black uppercase">
                 {label(scenario.scenario_status)} / {label(scenario.scenario_key)}
@@ -354,9 +381,26 @@ export default async function ShippingSimulationsPage() {
 
 function Metric({ label: metricLabel, value }: { label: string; value: string }) {
   return (
-    <div className="rounded border bg-white p-4">
+    <div className="rounded-2xl border border-neutral-200 bg-white/95 p-4 shadow-sm ring-1 ring-black/[0.02]">
       <p className="text-xs font-black uppercase text-neutral-500">{metricLabel}</p>
       <p className="mt-2 break-words text-xl font-black">{value}</p>
+    </div>
+  );
+}
+
+function HeaderStat({
+  label: metricLabel,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-black/20 p-3 text-center">
+      <p className="text-[10px] font-black uppercase tracking-[0.16em] text-neutral-400">
+        {metricLabel}
+      </p>
+      <p className="mt-1 truncate text-lg font-black text-white">{value}</p>
     </div>
   );
 }
