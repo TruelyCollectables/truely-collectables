@@ -44,7 +44,7 @@ npm run status:deployment-control:handoff
 For a strict gate that fails while scheduled release automation is active or cannot be verified disabled:
 
 ```bash
-node scripts/status-deployment-control.mjs --strict
+npm run preflight:deployment-control
 ```
 
 The command is read-only. It does not push git refs, merge branches, start a Vercel deployment, change aliases, call production cron endpoints, or mutate GitHub workflow state.
@@ -56,6 +56,14 @@ npm run preflight:admin-release
 ```
 
 That command runs the strict deployment-control gate first, then runs the admin-dashboard verifier. It stays blocked until `TCOS Scheduled Production Release` is either disabled in GitHub Actions or converted to manual-only in the workflow file.
+
+The normal production verification path also starts with the same deployment-control gate:
+
+```bash
+npm run verify:production
+```
+
+Because `launch:production` runs `verify:production` before `deploy:production`, the standard production launch path also stops before any Vercel deployment when scheduled release automation is active or unverified.
 
 ## Single intentional admin-dashboard release path
 
