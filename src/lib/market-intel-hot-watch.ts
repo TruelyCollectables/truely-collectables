@@ -668,7 +668,7 @@ export async function runMarketIntelHotWatch(
       };
   const alerts = await syncAllMarketIntelAlerts();
 
-  let delivery: {
+  const delivery: {
     attempted: boolean;
     delivered: number;
     emailId: string | null;

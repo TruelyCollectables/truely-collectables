@@ -220,7 +220,11 @@ export default function SellerInventoryVisualTracker() {
   }, []);
 
   useEffect(() => {
-    if (token) void loadInventory();
+    if (!token) return;
+    const inventoryLoadId = window.setTimeout(() => {
+      void loadInventory();
+    }, 0);
+    return () => window.clearTimeout(inventoryLoadId);
   }, [loadInventory, token]);
 
   const selectedCardIds = useMemo(

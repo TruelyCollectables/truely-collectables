@@ -700,9 +700,12 @@ scenario("admin TSX surfaces avoid rough legacy shell fragments", () => {
   for (const entry of adminTsxEntries) {
     for (const roughShell of [
       'bg-[#f4f1ea]',
+      'bg-[#f4f1e8]',
+      'bg-[#f6f4ef]',
       'bg-[#101418]',
       "max-w-7xl",
       "rounded-xl border-4",
+      "border-4 border-neutral-950",
     ]) {
       assert(
         !entry.source.includes(roughShell),

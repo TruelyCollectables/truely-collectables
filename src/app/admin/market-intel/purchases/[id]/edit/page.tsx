@@ -83,12 +83,20 @@ export default async function EditPurchasePage({ params, searchParams }: PagePro
     <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,#fff7ed_0,#f8fafc_40%,#ecfccb_100%)] px-4 py-6 text-neutral-950 sm:px-6 lg:px-8">
       <header className="mx-auto max-w-[1500px] overflow-hidden rounded-[2rem] border border-neutral-900 bg-neutral-950 text-white shadow-2xl shadow-neutral-950/10">
         <div className="bg-[radial-gradient(circle_at_top_left,rgba(251,191,36,0.24),transparent_34%),linear-gradient(135deg,#0f172a,#111827_55%,#1f2937)] p-6 lg:p-8">
-          <Link
-            href={adminHref(`/admin/market-intel/purchases/${purchase.id}`)}
-            className="text-sm font-black text-amber-300 hover:underline"
-          >
-            ← Purchase #{purchase.purchase_number}
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <Link
+              href={adminHref(`/admin/market-intel/purchases/${purchase.id}`)}
+              className="inline-flex rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-white/15"
+            >
+              ← Purchase #{purchase.purchase_number}
+            </Link>
+            <Link
+              href={adminHref("/admin/market-intel/purchases")}
+              className="inline-flex rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-white/15"
+            >
+              Purchase Ledger
+            </Link>
+          </div>
           <p className="mt-5 text-xs font-black uppercase tracking-[0.2em] text-amber-300">
             Universal purchase correction
           </p>

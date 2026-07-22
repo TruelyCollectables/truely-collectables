@@ -16,9 +16,9 @@ export default function EbayPurchaseCompSyncEnhancer() {
     const mount = document.createElement("div");
     mount.dataset.ebayPurchaseCompSync = "1";
     content.prepend(mount);
-    setTarget(mount);
+    const targetUpdateId = window.setTimeout(() => setTarget(mount), 0);
     return () => {
-      setTarget(null);
+      window.clearTimeout(targetUpdateId);
       mount.remove();
     };
   }, [pathname]);

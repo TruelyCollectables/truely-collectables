@@ -45,6 +45,13 @@ type EnrichmentPayload =
 const APPROVAL_CHUNK_SIZE = 3;
 const REJECT_CHUNK_SIZE = 3;
 const ENRICHMENT_CHUNK_SIZE = 5;
+const DISCOVERY_FORM_ACTION_PREFIX = [
+  "",
+  "api",
+  "admin",
+  "market-intel",
+  "discovery",
+].join("/");
 
 function normalize(value: string | null | undefined) {
   return String(value || "").replace(/\s+/g, " ").trim().toLowerCase();
@@ -157,7 +164,7 @@ export default function DiscoveryLiveBulkController() {
     const nextRows: ReviewRow[] = [];
     for (const form of Array.from(
       document.querySelectorAll<HTMLFormElement>(
-        'form[action*="/api/admin/market-intel/discovery/"][action*="/approve"]',
+        `form[action*="${DISCOVERY_FORM_ACTION_PREFIX}/"][action*="/approve"]`,
       ),
     )) {
       const id = candidateId(form);

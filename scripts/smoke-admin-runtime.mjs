@@ -34,6 +34,11 @@ const smokeRoutes = [
     expectedText: "Add products",
   },
   {
+    path: "/admin/quick-list",
+    auth: true,
+    expectedText: "Accuracy Council + InstaComp™",
+  },
+  {
     path: "/admin/orders",
     auth: true,
     expectedText: "Orders",
@@ -94,6 +99,11 @@ const smokeRoutes = [
     expectedTexts: ["Customer Account Lookup", "Customer Accounts"],
   },
   {
+    path: "/admin/owner-seller-account",
+    auth: true,
+    expectedText: "Activate the owner seller account",
+  },
+  {
     path: "/admin/ebay",
     auth: true,
     expectedText: "eBay Reconciliation",
@@ -102,6 +112,11 @@ const smokeRoutes = [
     path: "/admin/ebay/import-runner",
     auth: true,
     expectedText: "eBay Import Runner",
+  },
+  {
+    path: "/admin/ebay/full-store-sync",
+    auth: true,
+    expectedText: "Full eBay Store Sync",
   },
   {
     path: "/admin/ebay/publish",
@@ -154,6 +169,11 @@ const smokeRoutes = [
     expectedText: "Player Watchlist",
   },
   {
+    path: "/admin/market-intel/watch-center",
+    auth: true,
+    expectedText: "Who, What, and When to Investigate",
+  },
+  {
     path: "/admin/market-intel/comps",
     auth: true,
     expectedText: "Exact-Card Sold Comps",
@@ -197,6 +217,11 @@ const smokeRoutes = [
     path: "/admin/market-intel/purchases",
     auth: true,
     expectedText: "Purchase Ledger",
+  },
+  {
+    path: "/admin/market-intel/purchases/deleted",
+    auth: true,
+    expectedText: "Duplicate removed",
   },
   {
     path: "/admin/market-intel/purchases/new",
@@ -360,6 +385,7 @@ function startDevServer() {
       "127.0.0.1",
       "--port",
       String(port),
+      "--webpack",
     ],
     {
       cwd: process.cwd(),

@@ -8,6 +8,14 @@ type MissingField = {
   element: HTMLInputElement | HTMLSelectElement | null;
 };
 
+const DISCOVERY_FORM_ACTION_PREFIX = [
+  "",
+  "api",
+  "admin",
+  "market-intel",
+  "discovery",
+].join("/");
+
 function textValue(form: HTMLFormElement, name: string) {
   const field = form.elements.namedItem(name);
   if (field instanceof HTMLInputElement || field instanceof HTMLSelectElement) {
@@ -95,7 +103,7 @@ export default function DiscoveryReviewEnhancer() {
     const cleanups: Array<() => void> = [];
     const approvalForms = Array.from(
       document.querySelectorAll<HTMLFormElement>(
-        'form[action*="/api/admin/market-intel/discovery/"][action*="/approve"]',
+        `form[action*="${DISCOVERY_FORM_ACTION_PREFIX}/"][action*="/approve"]`,
       ),
     );
 

@@ -76,7 +76,7 @@ export default async function MarketIntelReadinessPage({
             <div>
               <Link
                 href={href("/admin/market-intel")}
-                className="inline-flex rounded-full border border-white/10 bg-white/5 px-3 py-1.5 text-sm font-black text-amber-300 transition hover:border-amber-300/50 hover:bg-amber-300/10"
+                className="inline-flex rounded-full border border-white/15 bg-white/10 px-3 py-1.5 text-sm font-black text-white shadow-sm transition hover:bg-white/15"
               >
                 ← Market Intel Command Center
               </Link>
@@ -202,7 +202,7 @@ export default async function MarketIntelReadinessPage({
           ))}
         </section>
 
-        <section className="rounded-3xl border border-neutral-900 bg-neutral-950 p-6 text-white shadow-2xl shadow-neutral-950/10 ring-1 ring-white/10">
+        <section className="rounded-3xl border border-neutral-800 bg-neutral-950 p-6 text-white shadow-2xl shadow-neutral-950/10 ring-1 ring-white/10">
           <p className="text-xs font-black uppercase tracking-[0.18em] text-lime-300">
             Beta One Operating Loop
           </p>

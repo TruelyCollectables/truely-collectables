@@ -795,6 +795,7 @@ export default async function AdminDashboard() {
         { href: "/admin/ebay", label: "Reconciliation" },
         { href: "/admin/ebay/inventory-intake", label: "Inventory Intake" },
         { href: "/admin/ebay/import-runner", label: "Import Runner" },
+        { href: "/admin/ebay/full-store-sync", label: "Full Store Sync" },
         { href: "/admin/ebay/publish", label: "Listing Launcher" },
         { href: "/admin/ebay/sync-control", label: "Sync Control" },
         { href: "/admin/ebay/duplicates", label: "Duplicate Cleanup" },
@@ -806,6 +807,7 @@ export default async function AdminDashboard() {
       links: [
         { href: "/admin/instacomp-direct", label: "Direct Scan Lab" },
         { href: "/admin/instacomp", label: "Scan Lab" },
+        { href: "/admin/quick-list", label: "Quick List" },
         { href: "/admin/products", label: "Products" },
         { href: "/admin/products/new", label: "New Product" },
         { href: "/admin/inventory", label: "Inventory Bridge" },
@@ -819,6 +821,7 @@ export default async function AdminDashboard() {
         { href: "/admin/market-intel", label: "Command Desk" },
         { href: "/admin/market-intel/readiness", label: "Readiness" },
         { href: "/admin/market-intel/watchlist", label: "Watchlist" },
+        { href: "/admin/market-intel/watch-center", label: "Watch Center" },
         { href: "/admin/market-intel/comps", label: "Sold Comps" },
         { href: "/admin/market-intel/discovery", label: "Discovery Desk" },
         { href: "/admin/market-intel/ebay", label: "Active Scanner" },
@@ -831,6 +834,10 @@ export default async function AdminDashboard() {
         { href: "/admin/market-intel/buy", label: "Buy Desk" },
         { href: "/admin/market-intel/portfolio", label: "Portfolio" },
         { href: "/admin/market-intel/purchases", label: "Purchase Ledger" },
+        {
+          href: "/admin/market-intel/purchases/deleted",
+          label: "Purchase Delete Result",
+        },
         {
           href: "/admin/market-intel/purchases/new",
           label: "Offline Purchase",
@@ -868,6 +875,7 @@ export default async function AdminDashboard() {
         { href: "/admin/order-review-cases", label: "Review Cases" },
         { href: "/admin/offers", label: "Offers" },
         { href: "/admin/accounts", label: "Accounts" },
+        { href: "/admin/owner-seller-account", label: "Owner Seller Login" },
         { href: "/admin/files", label: "Files" },
         { href: "/admin/settings", label: "Settings" },
         { href: "/admin/security", label: "Security" },
