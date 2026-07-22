@@ -498,8 +498,8 @@ export default function EbayDuplicateFinderClient() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
-      <section className="rounded-xl border-4 border-amber-300 bg-amber-50 p-5 text-amber-950">
+    <div className="mx-auto max-w-7xl space-y-6 px-6 py-8">
+      <section className="rounded-3xl border border-amber-200/80 bg-white/85 p-6 text-amber-950 shadow-sm ring-1 ring-black/[0.02] backdrop-blur">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
             <h2 className="text-3xl font-black">Duplicate cleanup queue</h2>
@@ -516,7 +516,7 @@ export default function EbayDuplicateFinderClient() {
             onClick={() => void loadGroups()}
             aria-disabled={loading || Boolean(workingAction)}
             aria-busy={loading}
-            className="rounded-md bg-neutral-950 px-5 py-3 text-sm font-black text-white hover:bg-neutral-800 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
+            className="rounded-full bg-neutral-950 px-5 py-3 text-sm font-black text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-neutral-800 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-400 aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
           >
             {loading ? "Scanning..." : "Rescan Duplicates"}
           </button>
@@ -549,11 +549,11 @@ export default function EbayDuplicateFinderClient() {
 
       <section className="space-y-4">
         {loading ? (
-          <div className="rounded-md border border-neutral-200 bg-white p-8 text-sm font-bold text-neutral-600">
+          <div className="rounded-3xl border border-neutral-200 bg-white/85 p-10 text-sm font-bold text-neutral-600 shadow-sm ring-1 ring-black/[0.02]">
             Scanning active eBay rows for duplicates...
           </div>
         ) : !hasGroups ? (
-          <div className="rounded-md border border-emerald-200 bg-emerald-50 p-8 text-sm font-black text-emerald-900">
+          <div className="rounded-3xl border border-emerald-200 bg-emerald-50/90 p-10 text-sm font-black text-emerald-900 shadow-sm ring-1 ring-emerald-900/5">
             No exact duplicate groups found right now.
           </div>
         ) : (
@@ -623,7 +623,7 @@ export default function EbayDuplicateFinderClient() {
             return (
               <article
                 key={group.key}
-                className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm"
+                className="rounded-3xl border border-neutral-200 bg-white/90 p-5 shadow-sm ring-1 ring-black/[0.02] backdrop-blur"
               >
                 <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                   <div>
@@ -693,7 +693,7 @@ export default function EbayDuplicateFinderClient() {
                               ? "The selected row is the keeper. Choose a different duplicate before merging it."
                               : selectedMergeTitle)
                       }
-                      className={`rounded-md px-5 py-3 text-sm font-black text-white ${
+                      className={`rounded-full px-5 py-3 text-sm font-black text-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400 ${
                         selectedMergeUnavailable
                           ? "cursor-not-allowed bg-neutral-400"
                           : "bg-neutral-950 hover:bg-neutral-800"
@@ -720,7 +720,7 @@ export default function EbayDuplicateFinderClient() {
                             ? "This group has no duplicate row different from the keeper."
                         : mergeActionTitle)
                       }
-                      className={`rounded-md px-5 py-3 text-sm font-black text-white ${
+                      className={`rounded-full px-5 py-3 text-sm font-black text-white shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 ${
                         mergeUnavailable
                           ? "cursor-not-allowed bg-neutral-400"
                           : "bg-rose-700 hover:bg-rose-800"
@@ -747,7 +747,7 @@ export default function EbayDuplicateFinderClient() {
                             ? "The selected row is the keeper. Choose a different duplicate before ending it."
                             : endSelectedTitle)
                       }
-                      className={`rounded-md border px-5 py-3 text-sm font-black ${
+                      className={`rounded-full border px-5 py-3 text-sm font-black shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${
                         endSelectedUnavailable
                           ? "cursor-not-allowed border-neutral-300 bg-white text-neutral-400"
                           : "border-rose-300 bg-white text-rose-800 hover:bg-rose-50"
@@ -777,7 +777,7 @@ export default function EbayDuplicateFinderClient() {
                     return (
                       <div
                         key={row.productId}
-                        className={`rounded-lg border p-4 ${
+                        className={`rounded-2xl border p-4 shadow-sm ${
                           isKeeper
                             ? "border-emerald-300 bg-emerald-50"
                             : isDuplicate
@@ -825,7 +825,7 @@ export default function EbayDuplicateFinderClient() {
                                 ? "Finish the current duplicate cleanup action before changing keepers."
                                 : `Keep ${rowScope} as the survivor for this duplicate group.`
                             }
-                            className={`rounded-md border px-3 py-2 text-xs font-black ${
+                            className={`rounded-full border px-3 py-2 text-xs font-black shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400 ${
                               duplicateCleanupBusy
                                 ? "cursor-not-allowed opacity-50"
                                 : isKeeper
@@ -846,7 +846,7 @@ export default function EbayDuplicateFinderClient() {
                                   ? "This row is marked as the keeper, so it cannot be selected as the duplicate."
                                   : `Select ${rowScope} as the duplicate to end or merge.`
                             }
-                            className={`rounded-md border px-3 py-2 text-xs font-black ${
+                            className={`rounded-full border px-3 py-2 text-xs font-black shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-400 ${
                               isDuplicate
                                 ? "border-rose-700 bg-rose-700 text-white"
                                 : selectDuplicateUnavailable
@@ -868,7 +868,7 @@ export default function EbayDuplicateFinderClient() {
                                   ? "This row is marked as the keeper. Choose another keeper before ending it."
                                   : `Preview and end/archive duplicate ${rowScope}; quantity will become 0 after confirmation.`
                             }
-                            className={`rounded-md border px-3 py-2 text-xs font-black text-orange-900 ${
+                            className={`rounded-full border px-3 py-2 text-xs font-black text-orange-900 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-orange-400 ${
                               endRowUnavailable
                                 ? "cursor-not-allowed opacity-40"
                                 : "border-orange-300 bg-white hover:bg-orange-50"
@@ -885,7 +885,7 @@ export default function EbayDuplicateFinderClient() {
                               href={`https://www.ebay.com/itm/${row.ebayItemId}`}
                               target="_blank"
                               rel="noreferrer"
-                              className="rounded-md border border-neutral-300 bg-white px-3 py-2 text-xs font-black hover:bg-neutral-50"
+                              className="rounded-full border border-neutral-300 bg-white px-3 py-2 text-xs font-black shadow-sm transition hover:-translate-y-0.5 hover:bg-neutral-50 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-400"
                             >
                               eBay
                             </a>
@@ -921,7 +921,7 @@ function ActionNotice({
   return (
     <section
       aria-live={tone === "info" ? "polite" : "assertive"}
-      className={`rounded-md border px-4 py-3 text-sm font-black ${className}`}
+      className={`rounded-2xl border px-4 py-3 text-sm font-black shadow-sm ring-1 ring-black/[0.02] ${className}`}
       role={tone === "error" ? "alert" : "status"}
     >
       {children}
@@ -946,7 +946,7 @@ function Metric({
         : "border-neutral-200 bg-white";
 
   return (
-    <div className={`rounded-md border p-4 ${toneClass}`}>
+    <div className={`rounded-2xl border p-4 shadow-sm ring-1 ring-black/[0.02] ${toneClass}`}>
       <p className="text-xs font-black uppercase text-neutral-500">{label}</p>
       <p className="mt-2 text-2xl font-black">{value}</p>
     </div>
