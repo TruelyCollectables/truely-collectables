@@ -207,6 +207,27 @@ scenario("seller payout page does not show false-empty payout queues", () => {
   }
 });
 
+scenario("seller payout page uses professional money-desk presentation", () => {
+  for (const fragment of [
+    "Seller Money Desk",
+    "Connect readiness",
+    "Cash-out controls",
+    "Audit protected",
+    "rounded-full bg-amber-300",
+    "transition hover:-translate-y-0.5",
+    "rounded-3xl border border-amber-200 bg-amber-50",
+    "rounded-2xl border border-neutral-200 bg-white/90",
+    "overflow-hidden rounded-3xl border border-neutral-200 bg-white/90",
+    "shadow-sm ring-1 ring-black/[0.02]",
+    "rounded-full border border-current/20",
+  ]) {
+    assert(
+      sources.page.includes(fragment),
+      `Expected seller payout professional presentation fragment ${fragment}.`,
+    );
+  }
+});
+
 const failed = [];
 
 for (const item of scenarios) {
