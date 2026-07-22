@@ -1,6 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { runEbayAuthoritativeStoreSync } from "../../../../lib/ebay-authoritative-store-sync";
 import { syncRecentLegacyEbayQuantities } from "../../../../lib/ebay-fixed-price-backfill";
+import { repairEbayListingImages } from "../../../../lib/ebay-image-repair";
 import { getActiveStoreId } from "../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 
@@ -36,6 +37,8 @@ export async function GET(request: Request) {
   let authoritativeSync: Awaited<
     ReturnType<typeof runEbayAuthoritativeStoreSync>
   > | null = null;
+  let imageRepair: Awaited<ReturnType<typeof repairEbayListingImages>> | null =
+    null;
   let quantitySync: Awaited<
     ReturnType<typeof syncRecentLegacyEbayQuantities>
   > | null = null;
@@ -69,6 +72,23 @@ export async function GET(request: Request) {
   }
 
   try {
+    imageRepair = await repairEbayListingImages({ supabase, storeId });
+    if (imageRepair.errors.length > 0) {
+      errors.push({
+        step: "ebay_front_back_image_repair",
+        error: `${imageRepair.errors.length} listing${
+          imageRepair.errors.length === 1 ? "" : "s"
+        } could not complete front/back image repair.`,
+      });
+    }
+  } catch (error: any) {
+    errors.push({
+      step: "ebay_front_back_image_repair",
+      error: String(error?.message || "eBay image repair failed").slice(0, 500),
+    });
+  }
+
+  try {
     quantitySync = await syncRecentLegacyEbayQuantities({
       supabase,
       storeId,
@@ -88,6 +108,7 @@ export async function GET(request: Request) {
       storeId,
       durationMs: Date.now() - startedAt,
       authoritativeSync,
+      imageRepair,
       quantitySync,
       errors,
     },
