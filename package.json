@@ -93,6 +93,7 @@
     "status:production:json": "node scripts/deploy-production.mjs --quota-status --json",
     "status:deployment-control": "node scripts/status-deployment-control.mjs",
     "status:deployment-control:json": "node scripts/status-deployment-control.mjs --json",
+    "preflight:admin-release": "node scripts/status-deployment-control.mjs --strict && npm run verify:admin-dashboard",
     "status:backup-runway": "node scripts/status-backup-runway.mjs",
     "status:backup-runway:json": "node scripts/status-backup-runway.mjs --json",
     "archive:backup-runway": "node scripts/archive-backup-runway.mjs",

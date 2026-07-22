@@ -35,13 +35,21 @@ For machine-readable output:
 npm run status:deployment-control:json
 ```
 
-For a strict gate that fails while scheduled release automation is still active:
+For a strict gate that fails while scheduled release automation is active or cannot be verified disabled:
 
 ```bash
 node scripts/status-deployment-control.mjs --strict
 ```
 
 The command is read-only. It does not push git refs, merge branches, start a Vercel deployment, change aliases, call production cron endpoints, or mutate GitHub workflow state.
+
+For the release-window gate, use:
+
+```bash
+npm run preflight:admin-release
+```
+
+That command runs the strict deployment-control gate first, then runs the admin-dashboard verifier. It stays blocked until `TCOS Scheduled Production Release` is either disabled in GitHub Actions or converted to manual-only in the workflow file.
 
 ## Single intentional admin-dashboard release path
 
@@ -50,8 +58,7 @@ The command is read-only. It does not push git refs, merge branches, start a Ver
 3. Immediately before release, rerun:
 
    ```bash
-   npm run status:deployment-control
-   npm run verify:admin-dashboard
+   npm run preflight:admin-release
    ```
 
 4. Merge `admin-dashboard-work` into `main` once.

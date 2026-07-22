@@ -131,9 +131,9 @@ function checkScheduledReleaseWorkflowFile() {
 
   if (hasScheduleTrigger && pushesMain) {
     return {
-      status: "attention",
+      status: "warn",
       summary:
-        "Scheduled Production Release can push to main automatically when its work-branch merge succeeds.",
+        "Scheduled Production Release would be able to push main automatically if the workflow is active.",
       evidence: {
         path: scheduledReleaseWorkflowPath,
         hasScheduleTrigger,
@@ -144,7 +144,7 @@ function checkScheduledReleaseWorkflowFile() {
         summaryLooksFalsePositive,
       },
       next:
-        "Disable this workflow or convert it to workflow_dispatch-only before an intentional one-build admin dashboard release.",
+        "Confirm GitHub reports this workflow disabled, or convert it to workflow_dispatch-only before an intentional one-build admin dashboard release.",
     };
   }
 
@@ -162,6 +162,68 @@ function checkScheduledReleaseWorkflowFile() {
       summaryLooksFalsePositive,
     },
     next: "Use workflow_dispatch or a manual merge only when a production release is approved.",
+  };
+}
+
+function checkReleaseReadinessGate(workflowFileResult, githubWorkflowResult) {
+  const fileCanAutoPushMain =
+    workflowFileResult.evidence.hasScheduleTrigger === true &&
+    workflowFileResult.evidence.pushesMain === true;
+  const githubState = githubWorkflowResult.evidence.state || null;
+
+  if (!fileCanAutoPushMain) {
+    return {
+      status: "pass",
+      summary:
+        "Scheduled release automation is manual-only by file configuration.",
+      evidence: {
+        fileCanAutoPushMain,
+        githubState,
+      },
+      next:
+        "Proceed only after explicit deploy approval and normal admin-dashboard verification.",
+    };
+  }
+
+  if (githubWorkflowResult.status === "pass" && githubState !== "active") {
+    return {
+      status: "pass",
+      summary:
+        "Scheduled release workflow can auto-push by file, but GitHub reports it disabled/inactive.",
+      evidence: {
+        fileCanAutoPushMain,
+        githubState,
+      },
+      next:
+        "Keep the workflow disabled through the approved one-build admin dashboard release.",
+    };
+  }
+
+  if (githubWorkflowResult.status === "attention" && githubState === "active") {
+    return {
+      status: "attention",
+      summary:
+        "Scheduled release workflow is active and can push main automatically.",
+      evidence: {
+        fileCanAutoPushMain,
+        githubState,
+      },
+      next:
+        "Disable TCOS Scheduled Production Release in GitHub Actions before merging admin-dashboard-work to main.",
+    };
+  }
+
+  return {
+    status: "attention",
+    summary:
+      "Scheduled release workflow can auto-push by file, and GitHub disabled state was not proven.",
+    evidence: {
+      fileCanAutoPushMain,
+      githubState,
+      githubCheckStatus: githubWorkflowResult.status,
+    },
+    next:
+      "Rerun with GitHub network access, or manually confirm the workflow is disabled in GitHub Actions before release.",
   };
 }
 
@@ -269,8 +331,7 @@ async function checkGithubWorkflowState() {
 function buildReleasePath(checks) {
   const scheduledReleaseNeedsAttention = checks.some(
     (check) =>
-      (check.id === "github-scheduled-release-state" ||
-        check.id === "scheduled-release-workflow-file") &&
+      check.id === "release-readiness-gate" &&
       check.result.status === "attention",
   );
 
@@ -279,7 +340,7 @@ function buildReleasePath(checks) {
       ? "Disable TCOS Scheduled Production Release in GitHub Actions, or confirm it is manual-only."
       : "Confirm TCOS Scheduled Production Release remains disabled/manual-only.",
     "Keep admin-dashboard-work parked until an explicit deploy approval is given.",
-    "Immediately before release, rerun npm run status:deployment-control and npm run verify:admin-dashboard.",
+    "Immediately before release, run npm run preflight:admin-release.",
     "Merge admin-dashboard-work into main once; do not push additional main commits during the same window.",
     "Let the main-only Vercel integration create the single production deployment.",
     "Run production smoke after the Vercel deployment is live.",
@@ -337,17 +398,30 @@ const checks = [
     label: "Vercel cron classification",
     result: checkVercelCrons(),
   },
+];
+const scheduledReleaseWorkflowFileResult = checkScheduledReleaseWorkflowFile();
+const githubWorkflowStateResult = await checkGithubWorkflowState();
+
+checks.push(
   {
     id: "scheduled-release-workflow-file",
     label: "Scheduled release workflow file",
-    result: checkScheduledReleaseWorkflowFile(),
+    result: scheduledReleaseWorkflowFileResult,
   },
   {
     id: "github-scheduled-release-state",
     label: "GitHub Scheduled Production Release state",
-    result: await checkGithubWorkflowState(),
+    result: githubWorkflowStateResult,
   },
-];
+  {
+    id: "release-readiness-gate",
+    label: "Admin dashboard release readiness gate",
+    result: checkReleaseReadinessGate(
+      scheduledReleaseWorkflowFileResult,
+      githubWorkflowStateResult,
+    ),
+  },
+);
 
 const payload = {
   schema: "tcos.deploymentControlStatus.v1",
