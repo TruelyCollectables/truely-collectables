@@ -197,6 +197,63 @@ function statusTone(value: string | null | undefined) {
   return "border-neutral-200 bg-white text-neutral-950";
 }
 
+function orderCommandPosture({
+  activeDryRunShippingLabel,
+  fulfillmentStatus,
+  needsReview,
+  paymentStatus,
+}: {
+  activeDryRunShippingLabel: boolean;
+  fulfillmentStatus: string | null;
+  needsReview: boolean;
+  paymentStatus: string | null;
+}): {
+  detail: string;
+  label: string;
+  tone: "neutral" | "emerald" | "sky" | "amber" | "rose";
+} {
+  const payment = String(paymentStatus || "").toLowerCase();
+  const fulfillment = String(fulfillmentStatus || "").toLowerCase();
+
+  if (activeDryRunShippingLabel) {
+    return {
+      detail: "Replace simulated shipping proof before treating this order as shipped.",
+      label: "Dry-run proof attached",
+      tone: "rose",
+    };
+  }
+
+  if (needsReview) {
+    return {
+      detail: "Verify shipping evidence, inventory, and payment before release.",
+      label: "Review hold",
+      tone: "amber",
+    };
+  }
+
+  if (fulfillment === "shipped") {
+    return {
+      detail: "Fulfillment is marked shipped; keep evidence and tracking current.",
+      label: "Shipped",
+      tone: "emerald",
+    };
+  }
+
+  if (payment === "paid") {
+    return {
+      detail: "Paid order is ready for fulfillment checks and shipping proof.",
+      label: "Ready to fulfill",
+      tone: "sky",
+    };
+  }
+
+  return {
+    detail: "Payment or fulfillment status needs operator review.",
+    label: "Needs review",
+    tone: "neutral",
+  };
+}
+
 function dateLabel(value: string | null | undefined) {
   return value ? new Date(value).toLocaleString() : "Not saved";
 }
@@ -225,6 +282,39 @@ function OrderMetric({
         {metricLabel}
       </p>
       <p className="mt-2 text-2xl font-black">{value}</p>
+    </div>
+  );
+}
+
+function OrderHeaderStat({
+  detail,
+  label: statLabel,
+  tone = "neutral",
+  value,
+}: {
+  detail: string;
+  label: string;
+  tone?: "neutral" | "emerald" | "sky" | "amber" | "rose";
+  value: string;
+}) {
+  const accentClassName =
+    tone === "emerald"
+      ? "text-emerald-200"
+      : tone === "sky"
+        ? "text-sky-200"
+        : tone === "amber"
+          ? "text-amber-200"
+          : tone === "rose"
+            ? "text-rose-200"
+            : "text-neutral-200";
+
+  return (
+    <div className="bg-neutral-950/80 p-4">
+      <p className="text-[11px] font-black uppercase tracking-[0.18em] text-neutral-400">
+        {statLabel}
+      </p>
+      <p className={`mt-2 text-2xl font-black ${accentClassName}`}>{value}</p>
+      <p className="mt-1 text-xs font-bold leading-5 text-neutral-400">{detail}</p>
     </div>
   );
 }
@@ -453,8 +543,8 @@ export default async function AdminOrderDetailPage({
 
   if (error || !order) {
     return (
-      <main className="bg-neutral-50 px-6 py-8 text-neutral-950">
-        <section className="mx-auto max-w-4xl rounded-3xl border border-red-200 bg-white p-6 shadow-sm">
+      <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_#e0f2fe,_transparent_28%),linear-gradient(180deg,_#f8fafc,_#f5f5f4)] px-4 py-6 text-neutral-950 sm:px-6 lg:px-8">
+        <section className="mx-auto max-w-4xl rounded-3xl border border-red-200 bg-white/95 p-6 shadow-sm ring-1 ring-red-950/5">
           <p className="text-xs font-black uppercase tracking-[0.16em] text-red-700">
             Order detail
           </p>
@@ -466,7 +556,7 @@ export default async function AdminOrderDetailPage({
           </p>
           <Link
             href="/admin/orders"
-            className="mt-5 inline-block rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white"
+            className="mt-5 inline-flex rounded-xl bg-neutral-950 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-neutral-800"
           >
             Back to fulfillment center
           </Link>
@@ -756,52 +846,95 @@ export default async function AdminOrderDetailPage({
       (activeShippingLabel &&
         isDryRunShippingLabel(activeShippingLabel, shippingTrackingEvents)),
   );
+  const orderPosture = orderCommandPosture({
+    activeDryRunShippingLabel,
+    fulfillmentStatus: typedOrder.fulfillment_status,
+    needsReview,
+    paymentStatus: typedOrder.status,
+  });
+  const customerLabel =
+    typedOrder.customer_email || typedOrder.customer_name || "Customer not captured";
+  const itemCount = Number(typedOrder.item_count || typedOrder.order_items?.length || 0);
 
   return (
-    <main className="space-y-6 bg-neutral-50 px-6 py-8 text-neutral-950">
-      <section className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm">
-        <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <Link
-              href="/admin/orders"
-              className="text-sm font-black text-neutral-600 underline"
-            >
-              ← Back to fulfillment center
-            </Link>
-            <p className="mt-5 text-xs font-black uppercase tracking-[0.18em] text-sky-700">
-              Order detail
-            </p>
-            <h1 className="mt-2 text-4xl font-black tracking-tight">
-              Order #{typedOrder.id}
-            </h1>
-            <p className="mt-3 text-sm font-semibold text-neutral-600">
-              Created {new Date(typedOrder.created_at).toLocaleString()} ·{" "}
-              {typedOrder.customer_email || "No customer email"}
-            </p>
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_#e0f2fe,_transparent_28%),linear-gradient(180deg,_#f8fafc,_#f5f5f4)] px-4 py-6 text-neutral-950 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl space-y-6">
+        <section className="overflow-hidden rounded-[2rem] border border-neutral-900 bg-neutral-950 shadow-2xl shadow-neutral-950/10">
+          <div className="border-b border-white/10 bg-[radial-gradient(circle_at_top_right,_rgba(56,189,248,0.28),_transparent_34%),linear-gradient(135deg,_rgba(255,255,255,0.08),_transparent)] p-6 lg:p-8">
+            <div className="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+              <div className="max-w-4xl">
+                <Link
+                  href="/admin/orders"
+                  className="inline-flex rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-white/15"
+                >
+                  ← Back to fulfillment center
+                </Link>
+                <p className="mt-6 text-xs font-black uppercase tracking-[0.22em] text-sky-300">
+                  Order command desk
+                </p>
+                <h1 className="mt-3 text-4xl font-black tracking-tight text-white lg:text-5xl">
+                  Order #{typedOrder.id}
+                </h1>
+                <p className="mt-4 flex flex-wrap items-center gap-2 text-sm font-semibold text-neutral-300">
+                  <span>Created {new Date(typedOrder.created_at).toLocaleString()}</span>
+                  <span aria-hidden="true">·</span>
+                  <span>{customerLabel}</span>
+                  <span className="rounded-full border border-white/15 bg-white/10 px-3 py-1 text-xs font-black uppercase tracking-wide text-white">
+                    {orderPosture.label}
+                  </span>
+                </p>
+              </div>
+
+              <div className="flex flex-wrap gap-3">
+                <Link
+                  href={`/admin/orders/${typedOrder.id}/packing-slip`}
+                  className="rounded-full border border-sky-300/30 bg-sky-300/10 px-4 py-2 text-sm font-black text-sky-100 shadow-sm transition hover:bg-sky-300/20"
+                >
+                  Packing slip
+                </Link>
+                <Link
+                  href="/admin/files"
+                  className="rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-white/15"
+                >
+                  Evidence files
+                </Link>
+                <Link
+                  href="/admin/orders"
+                  className="rounded-full bg-white px-4 py-2 text-sm font-black text-neutral-950 shadow-sm transition hover:bg-sky-50"
+                >
+                  Orders
+                </Link>
+              </div>
+            </div>
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            <Link
-              href={`/admin/orders/${typedOrder.id}/packing-slip`}
-              className="rounded-md border border-sky-300 bg-sky-50 px-4 py-2 text-sm font-black text-sky-950 hover:bg-sky-100"
-            >
-              Packing slip
-            </Link>
-            <Link
-              href="/admin/files"
-              className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50"
-            >
-              Evidence files
-            </Link>
-            <Link
-              href="/admin/orders"
-              className="rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white hover:bg-neutral-800"
-            >
-              Orders
-            </Link>
+          <div className="grid gap-px bg-white/10 sm:grid-cols-2 lg:grid-cols-4">
+            <OrderHeaderStat
+              label="Payment"
+              value={label(typedOrder.status)}
+              detail="Checkout payment state for this order."
+              tone={typedOrder.status === "paid" ? "emerald" : orderPosture.tone}
+            />
+            <OrderHeaderStat
+              label="Fulfillment"
+              value={label(typedOrder.fulfillment_status)}
+              detail="Shipment and handling state for the operator."
+              tone={orderPosture.tone}
+            />
+            <OrderHeaderStat
+              label="Operator posture"
+              value={orderPosture.label}
+              detail={orderPosture.detail}
+              tone={orderPosture.tone}
+            />
+            <OrderHeaderStat
+              label="Total paid"
+              value={money(totalPaid)}
+              detail={`${itemCount} ${itemCount === 1 ? "item" : "items"} in this checkout.`}
+              tone="sky"
+            />
           </div>
-        </div>
-      </section>
+        </section>
 
       {needsReview ? (
         <section className="rounded-2xl border border-amber-200 bg-amber-50 p-5 text-amber-950 shadow-sm">
@@ -1618,6 +1751,7 @@ export default async function AdminOrderDetailPage({
           </Link>
         </div>
       </AdminSection>
+      </div>
     </main>
   );
 }

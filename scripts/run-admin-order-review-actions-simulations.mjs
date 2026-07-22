@@ -230,6 +230,24 @@ scenario("order detail page keeps linked order records failure-safe", () => {
   }
 });
 
+scenario("order detail page uses professional command presentation", () => {
+  for (const fragment of [
+    "Order command desk",
+    "orderCommandPosture",
+    "OrderHeaderStat",
+    "Operator posture",
+    "Checkout payment state for this order.",
+    "Replace simulated shipping proof before treating this order as shipped.",
+    "rounded-[2rem] border border-neutral-900 bg-neutral-950",
+    "bg-white/95 p-6 shadow-sm ring-1 ring-red-950/5",
+  ]) {
+    assert(
+      sources.orderDetailPage.includes(fragment),
+      `Expected order detail presentation fragment ${fragment}.`,
+    );
+  }
+});
+
 const failed = [];
 
 for (const item of scenarios) {

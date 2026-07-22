@@ -525,6 +525,40 @@ async function smokeFirstProductDetail(cookieHeader) {
   );
 }
 
+async function smokeFirstOrderDetail(cookieHeader) {
+  const response = await fetchWithTimeout(`${origin}/admin/orders`, {
+    redirect: "manual",
+    headers: { cookie: cookieHeader },
+  });
+  const body = await response.text().catch(() => "");
+
+  if (response.status !== 200) {
+    return {
+      path: "/admin/orders/[first]",
+      status: response.status,
+      ok: false,
+      failures: ["could not load order list for detail-route discovery"],
+    };
+  }
+
+  const orderDetailMatch = body.match(/href="(\/admin\/orders\/\d+(?:\?[^"]*)?)"/);
+
+  if (!orderDetailMatch) {
+    return null;
+  }
+
+  const path = orderDetailMatch[1].replaceAll("&amp;", "&");
+
+  return smokeRoute(
+    {
+      path,
+      auth: true,
+      expectedText: "Order command desk",
+    },
+    cookieHeader,
+  );
+}
+
 async function smokeAuthBoundary(check) {
   const response = await fetchWithTimeout(`${origin}${check.path}`, {
     redirect: "manual",
@@ -640,6 +674,12 @@ try {
 
   if (productDetailResult) {
     results.push(productDetailResult);
+  }
+
+  const orderDetailResult = await smokeFirstOrderDetail(cookieHeader);
+
+  if (orderDetailResult) {
+    results.push(orderDetailResult);
   }
 
   for (const route of smokeRoutes) {
