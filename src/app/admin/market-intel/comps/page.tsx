@@ -14,7 +14,7 @@ type PageProps = {
 };
 
 const fieldClass =
-  "mt-1 w-full rounded-md border border-neutral-300 bg-white px-3 py-2 outline-none focus:border-black";
+  "mt-2 w-full rounded-xl border border-neutral-300 bg-white px-4 py-3 shadow-inner shadow-neutral-100 outline-none transition focus:border-black focus:ring-4 focus:ring-black/10";
 
 function money(value: number | null | undefined) {
   return value === null || value === undefined ? "—" : `$${Number(value).toFixed(2)}`;
@@ -27,12 +27,12 @@ export default async function MarketIntelCompsPage({ searchParams }: PageProps) 
   const pricedCount = identities.filter((identity) => identity.latestValue?.conservative_value).length;
 
   return (
-    <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
-      <header className="bg-[#101418] text-white">
-        <div className="mx-auto max-w-7xl px-6 py-8">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(14,165,233,0.13),_transparent_34%),linear-gradient(180deg,_#faf7ef_0%,_#f4f1ea_42%,_#eee7da_100%)] px-4 py-6 text-neutral-950 sm:px-6 lg:px-8">
+      <section className="mx-auto max-w-[1500px] overflow-hidden rounded-[2rem] border border-neutral-900 bg-neutral-950 text-white shadow-2xl shadow-neutral-950/10">
+        <div className="border-b border-white/10 bg-[radial-gradient(circle_at_top_right,_rgba(34,211,238,0.2),_transparent_32%),linear-gradient(135deg,_rgba(255,255,255,0.08),_transparent)] p-6 lg:p-8">
           <Link
             href={addAdminHandoff("/admin/market-intel", handoff)}
-            className="text-sm font-black text-amber-300 hover:underline"
+            className="inline-flex rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-white/15"
           >
             ← Market Intel Command Center
           </Link>
@@ -44,11 +44,11 @@ export default async function MarketIntelCompsPage({ searchParams }: PageProps) 
             Raw and graded cards stay separate. Every market value can be traced to the exact verified sales underneath it.
           </p>
         </div>
-      </header>
+      </section>
 
-      <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
+      <div className="mx-auto max-w-[1500px] space-y-6 py-6">
         {query?.error ? (
-          <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 font-bold text-rose-900">
+          <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 font-bold text-rose-900 shadow-sm ring-1 ring-rose-950/5">
             {query.error}
           </div>
         ) : null}
@@ -68,14 +68,14 @@ export default async function MarketIntelCompsPage({ searchParams }: PageProps) 
         </section>
 
         <section className="grid grid-cols-1 gap-6 xl:grid-cols-[0.8fr_1.2fr]">
-          <section className="rounded-xl border border-neutral-200 bg-white p-6 shadow-sm">
+          <section className="rounded-3xl border border-neutral-200 bg-white/95 p-6 shadow-sm ring-1 ring-black/[0.02]">
             <h2 className="text-2xl font-black">Create Exact Card</h2>
             <p className="mt-1 text-sm font-semibold text-neutral-600">
               Every field changes the market identity. Base, parallel, raw, PSA 10, autograph, and numbered cards never share comps.
             </p>
 
             {subjects.length === 0 ? (
-              <p className="mt-5 rounded-lg border border-amber-200 bg-amber-50 p-4 font-bold text-amber-950">
+              <p className="mt-5 rounded-2xl border border-amber-200 bg-amber-50 p-4 font-bold text-amber-950 shadow-sm ring-1 ring-amber-950/5">
                 Add players to the watchlist before creating card identities.
               </p>
             ) : (
@@ -122,7 +122,7 @@ export default async function MarketIntelCompsPage({ searchParams }: PageProps) 
                   <Check name="memorabilia" label="Memorabilia" />
                 </div>
                 <AdminSubmitButton
-                  className="rounded-md bg-black px-5 py-3 font-black text-white sm:col-span-2"
+                  className="rounded-2xl bg-black px-5 py-3 font-black text-white shadow-sm transition hover:bg-neutral-800 sm:col-span-2"
                   pendingChildren="Creating identity..."
                   title="Create a reusable exact-card identity for comps, scanner matching, deal scoring, and purchase review."
                 >
@@ -135,7 +135,7 @@ export default async function MarketIntelCompsPage({ searchParams }: PageProps) 
             )}
           </section>
 
-          <section className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
+          <section className="overflow-hidden rounded-3xl border border-neutral-200 bg-white/95 shadow-sm ring-1 ring-black/[0.02]">
             <div className="border-b border-neutral-200 p-5">
               <h2 className="text-2xl font-black">Card Markets</h2>
               <p className="mt-1 text-sm font-semibold text-neutral-600">
@@ -156,7 +156,7 @@ export default async function MarketIntelCompsPage({ searchParams }: PageProps) 
                         `/admin/market-intel/comps/${identity.id}`,
                         handoff,
                       )}
-                      className="block p-5 hover:bg-neutral-50"
+                      className="block p-5 transition hover:bg-neutral-50"
                     >
                       <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
                         <div>
@@ -203,15 +203,15 @@ function Input(props: {
 
 function Check({ name, label }: { name: string; label: string }) {
   return (
-    <label className="flex items-center gap-2">
-      <input name={name} type="checkbox" /> {label}
+    <label className="flex items-center gap-2 rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2 shadow-inner shadow-neutral-100">
+      <input name={name} type="checkbox" className="accent-black" /> {label}
     </label>
   );
 }
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
+    <div className="rounded-3xl border border-neutral-200 bg-white/95 p-5 shadow-sm ring-1 ring-black/[0.02]">
       <p className="text-xs font-black uppercase tracking-wider text-neutral-500">{label}</p>
       <p className="mt-2 text-3xl font-black">{value}</p>
     </div>
@@ -220,7 +220,7 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 function SmallStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="min-w-24 rounded-lg border border-neutral-200 bg-neutral-50 p-3">
+    <div className="min-w-24 rounded-2xl border border-neutral-200 bg-neutral-50 p-3 shadow-sm ring-1 ring-black/[0.02]">
       <p className="text-[10px] font-black uppercase text-neutral-500">{label}</p>
       <p className="mt-1 font-black">{value}</p>
     </div>

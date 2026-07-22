@@ -73,12 +73,12 @@ export default async function MarketIntelAdminPage({
   ].filter(Boolean);
 
   return (
-    <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
-      <header className="border-b border-neutral-800 bg-[#101418] text-white">
-        <div className="mx-auto max-w-7xl px-6 py-8">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(14,165,233,0.13),_transparent_34%),linear-gradient(180deg,_#faf7ef_0%,_#f4f1ea_42%,_#eee7da_100%)] px-4 py-6 text-neutral-950 sm:px-6 lg:px-8">
+      <section className="mx-auto max-w-[1500px] overflow-hidden rounded-[2rem] border border-neutral-900 bg-neutral-950 text-white shadow-2xl shadow-neutral-950/10">
+        <div className="border-b border-white/10 bg-[radial-gradient(circle_at_top_right,_rgba(34,211,238,0.2),_transparent_32%),linear-gradient(135deg,_rgba(255,255,255,0.08),_transparent)] p-6 lg:p-8">
           <Link
             href={addAdminHandoff("/admin", handoff)}
-            className="text-sm font-black text-amber-300 hover:underline"
+            className="inline-flex rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-white/15"
           >
             ← Main Admin
           </Link>
@@ -94,11 +94,11 @@ export default async function MarketIntelAdminPage({
             same exact-card data engine.
           </p>
         </div>
-      </header>
+      </section>
 
-      <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
+      <div className="mx-auto max-w-[1500px] space-y-6 py-6">
         {errors.length > 0 ? (
-          <section className="rounded-xl border border-rose-200 bg-rose-50 p-5 text-rose-950">
+          <section className="rounded-3xl border border-rose-200 bg-rose-50 p-5 text-rose-950 shadow-sm ring-1 ring-rose-950/5">
             <h2 className="font-black">Some Market Intel data could not load</h2>
             <p className="mt-1 text-sm font-semibold">
               Open System Readiness for the exact missing table, permission, environment
@@ -110,8 +110,8 @@ export default async function MarketIntelAdminPage({
         <section
           className={
             readiness?.ready
-              ? "rounded-xl border border-emerald-200 bg-emerald-50 p-5 text-emerald-950"
-              : "rounded-xl border border-amber-200 bg-amber-50 p-5 text-amber-950"
+              ? "rounded-3xl border border-emerald-200 bg-emerald-50 p-5 text-emerald-950 shadow-sm ring-1 ring-emerald-950/5"
+              : "rounded-3xl border border-amber-200 bg-amber-50 p-5 text-amber-950 shadow-sm ring-1 ring-amber-950/5"
           }
         >
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -127,7 +127,7 @@ export default async function MarketIntelAdminPage({
             </div>
             <Link
               href={addAdminHandoff("/admin/market-intel/readiness", handoff)}
-              className="w-fit rounded-md bg-black px-4 py-2.5 text-sm font-black text-white"
+              className="w-fit rounded-full bg-black px-4 py-2.5 text-sm font-black text-white shadow-sm transition hover:bg-neutral-800"
             >
               Open Readiness Audit
             </Link>
@@ -249,7 +249,7 @@ export default async function MarketIntelAdminPage({
           />
         </section>
 
-        <section className="rounded-xl border border-neutral-200 bg-white p-6 shadow-sm">
+        <section className="rounded-3xl border border-neutral-200 bg-white/95 p-6 shadow-sm ring-1 ring-black/[0.02]">
           <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
             <div>
               <p className="text-xs font-black uppercase tracking-[0.18em] text-cyan-700">
@@ -259,7 +259,7 @@ export default async function MarketIntelAdminPage({
             </div>
             <Link
               href={addAdminHandoff("/admin/market-intel/watchlist", handoff)}
-              className="w-fit rounded-md bg-black px-4 py-2.5 text-sm font-black text-white"
+              className="w-fit rounded-full bg-black px-4 py-2.5 text-sm font-black text-white shadow-sm transition hover:bg-neutral-800"
             >
               Add or Pause Players
             </Link>
@@ -274,7 +274,7 @@ export default async function MarketIntelAdminPage({
               {activeTargets.slice(0, 15).map((row) => (
                 <div
                   key={row.id}
-                  className="rounded-lg border border-neutral-200 bg-neutral-50 p-4"
+                  className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4 shadow-sm ring-1 ring-black/[0.02]"
                 >
                   <p className="text-lg font-black">
                     {row.subject?.name || "Unmatched target"}
@@ -299,7 +299,7 @@ export default async function MarketIntelAdminPage({
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
+    <div className="rounded-3xl border border-neutral-200 bg-white/95 p-5 shadow-sm ring-1 ring-black/[0.02]">
       <p className="text-xs font-black uppercase tracking-wider text-neutral-500">
         {label}
       </p>
@@ -325,13 +325,15 @@ function Workbench({
 }) {
   const toneClass =
     tone === "amber"
-      ? "border-amber-200 bg-amber-50"
+      ? "border-amber-200 bg-amber-50 ring-amber-950/5"
       : tone === "cyan"
-        ? "border-cyan-200 bg-cyan-50"
-        : "border-neutral-200 bg-white";
+        ? "border-cyan-200 bg-cyan-50 ring-cyan-950/5"
+        : "border-neutral-200 bg-white/95 ring-black/[0.02]";
 
   return (
-    <article className={`rounded-xl border p-6 shadow-sm ${toneClass}`}>
+    <article
+      className={`rounded-3xl border p-6 shadow-sm ring-1 transition hover:-translate-y-0.5 hover:shadow-md ${toneClass}`}
+    >
       <p className="text-xs font-black uppercase tracking-[0.18em] text-neutral-600">
         {eyebrow}
       </p>
@@ -339,7 +341,7 @@ function Workbench({
       <p className="mt-3 font-semibold leading-6 text-neutral-700">{detail}</p>
       <Link
         href={href}
-        className="mt-5 inline-block rounded-md bg-black px-4 py-2.5 text-sm font-black text-white"
+        className="mt-5 inline-block rounded-full bg-black px-4 py-2.5 text-sm font-black text-white shadow-sm transition hover:bg-neutral-800"
       >
         {action}
       </Link>

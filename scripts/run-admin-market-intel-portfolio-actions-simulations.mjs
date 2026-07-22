@@ -1,6 +1,14 @@
 import { readFile } from "node:fs/promises";
 
 const sources = {
+  hub: await readFile(
+    new URL("../src/app/admin/market-intel/page.tsx", import.meta.url),
+    "utf8",
+  ),
+  watchlist: await readFile(
+    new URL("../src/app/admin/market-intel/watchlist/page.tsx", import.meta.url),
+    "utf8",
+  ),
   buy: await readFile(
     new URL("../src/app/admin/market-intel/buy/page.tsx", import.meta.url),
     "utf8",
@@ -213,6 +221,37 @@ scenario("purchase ledger and intake pages use professional command presentation
   for (const [key, label] of [
     ["offlinePurchaseNew", "offline purchase intake"],
     ["ebayPurchaseIntake", "eBay purchase inbox"],
+  ]) {
+    assert(
+      sources[key].includes("focus:ring-4 focus:ring-black/10"),
+      `Expected ${label} polished form focus styling.`,
+    );
+  }
+});
+
+scenario("market intel hub, watchlist, and comps use professional command presentation", () => {
+  for (const [key, label] of [
+    ["hub", "Market Intel hub"],
+    ["watchlist", "Market Intel watchlist"],
+    ["comps", "Market Intel comps"],
+  ]) {
+    for (const fragment of [
+      "rounded-[2rem] border border-neutral-900 bg-neutral-950",
+      "shadow-2xl shadow-neutral-950/10",
+      "rounded-3xl border border-neutral-200 bg-white/95",
+      "shadow-sm ring-1 ring-black/[0.02]",
+      "rounded-full border border-white/15 bg-white/10",
+    ]) {
+      assert(
+        sources[key].includes(fragment),
+        `Expected ${label} presentation fragment ${fragment}.`,
+      );
+    }
+  }
+
+  for (const [key, label] of [
+    ["watchlist", "Market Intel watchlist"],
+    ["comps", "Market Intel comps"],
   ]) {
     assert(
       sources[key].includes("focus:ring-4 focus:ring-black/10"),
