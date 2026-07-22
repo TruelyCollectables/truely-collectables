@@ -242,6 +242,23 @@ scenario("category review page does not show false-clear import queues", () => {
   );
 });
 
+scenario("category review page uses professional command presentation", () => {
+  for (const fragment of [
+    "Category Intelligence",
+    "rounded-[2rem] border border-neutral-900 bg-neutral-950",
+    "rounded-3xl border border-neutral-200 bg-white/95",
+    "shadow-sm ring-1 ring-black/[0.02]",
+    "rounded-full border border-white/20 bg-white/10",
+    "transition hover:bg-neutral-50",
+    "inline-flex rounded-xl border border-neutral-300 bg-white",
+  ]) {
+    assert(
+      adminCategoryReviewPageSource.includes(fragment),
+      `Expected category review presentation fragment ${fragment}.`,
+    );
+  }
+});
+
 scenario("admin error recovery keeps a retry action and safe navigation", () => {
   for (const fragment of [
     "unstable_retry()",
