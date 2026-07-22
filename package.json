@@ -91,6 +91,8 @@
     "check:production-guardrails": "node scripts/check-production-guardrails.mjs",
     "status:production": "node scripts/deploy-production.mjs --quota-status",
     "status:production:json": "node scripts/deploy-production.mjs --quota-status --json",
+    "status:deployment-control": "node scripts/status-deployment-control.mjs",
+    "status:deployment-control:json": "node scripts/status-deployment-control.mjs --json",
     "status:backup-runway": "node scripts/status-backup-runway.mjs",
     "status:backup-runway:json": "node scripts/status-backup-runway.mjs --json",
     "archive:backup-runway": "node scripts/archive-backup-runway.mjs",
