@@ -26,7 +26,7 @@ const percentage = (value: number | null | undefined) => {
 const label = (value: string | null | undefined) =>
   value ? value.replaceAll("_", " ").toUpperCase() : "NOT SET";
 const inputClass =
-  "mt-1 w-full rounded-md border border-neutral-300 bg-white px-3 py-2.5 outline-none focus:border-black";
+  "mt-2 w-full rounded-xl border border-neutral-300 bg-white px-4 py-3 shadow-inner shadow-neutral-100 outline-none transition focus:border-black focus:ring-4 focus:ring-black/10";
 
 type PageProps = {
   params: Promise<{ id: string }>;
@@ -86,14 +86,14 @@ export default async function MarketIntelPurchaseDetailPage({
     remaining <= 0 ? "All purchased units have already been recorded as sold." : "";
 
   return (
-    <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
-      <header className="border-b border-neutral-800 bg-[#101418] text-white">
-        <div className="mx-auto max-w-7xl px-6 py-8">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(14,165,233,0.13),_transparent_34%),linear-gradient(180deg,_#faf7ef_0%,_#f4f1ea_42%,_#eee7da_100%)] px-4 py-6 text-neutral-950 sm:px-6 lg:px-8">
+      <section className="mx-auto max-w-[1500px] overflow-hidden rounded-[2rem] border border-neutral-900 bg-neutral-950 text-white shadow-2xl shadow-neutral-950/10">
+        <div className="border-b border-white/10 bg-[radial-gradient(circle_at_top_right,_rgba(34,211,238,0.2),_transparent_32%),linear-gradient(135deg,_rgba(255,255,255,0.08),_transparent)] p-6 lg:p-8">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <Link
                 href={adminHref("/admin/market-intel/purchases")}
-                className="text-sm font-black text-amber-300 hover:underline"
+                className="inline-flex rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-white/15"
               >
                 ← Purchase Ledger
               </Link>
@@ -132,23 +132,23 @@ export default async function MarketIntelPurchaseDetailPage({
                   href={adminHref(
                     `/admin/market-intel/comps/${lot.collectible_identity_id}?from=purchase-${lot.id}`,
                   )}
-                  className="rounded-md bg-cyan-400 px-4 py-3 font-black text-black"
+                  className="rounded-full bg-cyan-300 px-4 py-3 font-black text-black shadow-sm transition hover:bg-cyan-200"
                 >
                   InstaComp™ / Sold Comps
                 </Link>
               ) : null}
               <Link
                 href={adminHref("/admin/market-intel/purchases/new")}
-                className="rounded-md border border-amber-400 px-4 py-3 font-black text-amber-200"
+                className="rounded-full border border-amber-300/60 bg-amber-300/10 px-4 py-3 font-black text-amber-100 shadow-sm transition hover:bg-amber-300/20"
               >
                 Add Offline Purchase
               </Link>
             </div>
           </div>
         </div>
-      </header>
+      </section>
 
-      <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
+      <div className="mx-auto max-w-[1500px] space-y-6 py-6">
         {query?.saved === "1" ? (
           <Notice tone="success">Sale saved and gross profit recalculated.</Notice>
         ) : null}
@@ -184,7 +184,7 @@ export default async function MarketIntelPurchaseDetailPage({
 
         <section className="grid grid-cols-1 gap-6 xl:grid-cols-[0.75fr_1.25fr]">
           <aside className="space-y-6">
-            <section className="rounded-xl border border-neutral-200 bg-white p-6 shadow-sm">
+            <section className="rounded-3xl border border-neutral-200 bg-white/95 p-6 shadow-sm ring-1 ring-black/[0.02]">
               <p className="text-xs font-black uppercase tracking-[0.18em] text-fuchsia-800">
                 Position control
               </p>
@@ -214,7 +214,7 @@ export default async function MarketIntelPurchaseDetailPage({
                   </select>
                 </label>
                 <AdminSubmitButton
-                  className="w-full rounded-md bg-fuchsia-900 px-4 py-3 font-black text-white"
+                  className="w-full rounded-2xl bg-fuchsia-900 px-4 py-3 font-black text-white shadow-sm transition hover:bg-fuchsia-800"
                   pendingChildren="Updating strategy..."
                   title="Move this purchase between Resale, Hold / Investment, and Personal Collection without changing its cost basis."
                 >
@@ -223,7 +223,9 @@ export default async function MarketIntelPurchaseDetailPage({
               </form>
             </section>
 
-            <section className={`rounded-xl border p-6 ${signalTone(intelligence.signal)}`}>
+            <section
+              className={`rounded-3xl border p-6 shadow-sm ring-1 ring-black/[0.02] ${signalTone(intelligence.signal)}`}
+            >
               <p className="text-xs font-black uppercase tracking-[0.18em]">
                 TCOS research signal
               </p>
@@ -237,7 +239,7 @@ export default async function MarketIntelPurchaseDetailPage({
               </p>
             </section>
 
-            <section className="rounded-xl border border-neutral-200 bg-white p-6 shadow-sm">
+            <section className="rounded-3xl border border-neutral-200 bg-white/95 p-6 shadow-sm ring-1 ring-black/[0.02]">
               <h2 className="text-xl font-black">Position Summary</h2>
               <dl className="mt-5 space-y-3 text-sm">
                 <Row label="Acquisition source" value={sourceLabel} />
@@ -269,7 +271,7 @@ export default async function MarketIntelPurchaseDetailPage({
           </aside>
 
           <div className="space-y-6">
-            <section className="rounded-xl border border-cyan-200 bg-cyan-50 p-6 text-cyan-950">
+            <section className="rounded-3xl border border-cyan-200 bg-cyan-50 p-6 text-cyan-950 shadow-sm ring-1 ring-cyan-950/5">
               <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                 <div>
                   <p className="text-xs font-black uppercase tracking-[0.18em]">
@@ -284,7 +286,7 @@ export default async function MarketIntelPurchaseDetailPage({
                 {lot.collectible_identity_id ? (
                   <Link
                     href={adminHref(`/admin/market-intel/comps/${lot.collectible_identity_id}`)}
-                    className="rounded-md bg-cyan-950 px-4 py-3 text-center font-black text-white"
+                    className="rounded-full bg-cyan-950 px-4 py-3 text-center font-black text-white shadow-sm transition hover:bg-cyan-900"
                   >
                     Open Full InstaComp™ Market
                   </Link>
@@ -315,14 +317,14 @@ export default async function MarketIntelPurchaseDetailPage({
               </div>
 
               {intelligence.purchaseBaselineSource === "nearest_after" ? (
-                <p className="mt-4 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm font-bold text-amber-950">
+                <p className="mt-4 rounded-2xl border border-amber-300 bg-amber-50 p-3 text-sm font-bold text-amber-950 shadow-sm ring-1 ring-amber-950/5">
                   No saved market snapshot existed on or before the purchase date, so TCOS is
                   showing the nearest later snapshot and labels it as a fallback.
                 </p>
               ) : null}
             </section>
 
-            <section className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
+            <section className="overflow-hidden rounded-3xl border border-neutral-200 bg-white/95 shadow-sm ring-1 ring-black/[0.02]">
               <div className="border-b border-neutral-200 p-5">
                 <h2 className="text-2xl font-black">Sales Comps Around Purchase Date</h2>
                 <p className="mt-1 text-sm font-semibold text-neutral-600">
@@ -337,7 +339,7 @@ export default async function MarketIntelPurchaseDetailPage({
                   {lot.collectible_identity_id ? (
                     <Link
                       href={adminHref(`/admin/market-intel/comps/${lot.collectible_identity_id}`)}
-                      className="mt-4 inline-flex rounded-md bg-black px-4 py-2.5 font-black text-white"
+                      className="mt-4 inline-flex rounded-full bg-black px-4 py-2.5 font-black text-white shadow-sm transition hover:bg-neutral-800"
                     >
                       Add or Review Sold Comps
                     </Link>
@@ -397,7 +399,7 @@ export default async function MarketIntelPurchaseDetailPage({
         </section>
 
         <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-          <div className="rounded-xl border border-neutral-200 bg-white p-6 shadow-sm">
+          <div className="rounded-3xl border border-neutral-200 bg-white/95 p-6 shadow-sm ring-1 ring-black/[0.02]">
             <div className="flex flex-wrap items-start justify-between gap-4">
               <div>
                 <h2 className="text-2xl font-black">Record a Sale</h2>
@@ -413,7 +415,7 @@ export default async function MarketIntelPurchaseDetailPage({
                   )}
                 >
                   <AdminSubmitButton
-                    className="rounded-md bg-emerald-600 px-4 py-2 text-sm font-black text-white hover:bg-emerald-700"
+                    className="rounded-full bg-emerald-600 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-emerald-700"
                     pendingChildren="Marking received..."
                     disabledReason="Updates receipt status only; sale recording and realized profit stay separate."
                     title="Mark this purchase lot as received so it can move from inbound tracking into inventory review."
@@ -490,7 +492,7 @@ export default async function MarketIntelPurchaseDetailPage({
                   saleSaveDisabledReason ||
                   "Save this sale and recalculate realized gross profit."
                 }
-                className="rounded-md bg-black px-5 py-3 font-black text-white hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-40 sm:col-span-2"
+                className="rounded-2xl bg-black px-5 py-3 font-black text-white shadow-sm transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-40 sm:col-span-2"
                 pendingChildren="Saving sale..."
               >
                 Save Sale and Recalculate GP
@@ -498,7 +500,7 @@ export default async function MarketIntelPurchaseDetailPage({
             </form>
           </div>
 
-          <section className="rounded-xl border border-amber-200 bg-amber-50 p-6">
+          <section className="rounded-3xl border border-amber-200 bg-amber-50 p-6 shadow-sm ring-1 ring-amber-950/5">
             <h2 className="text-xl font-black">Cost Basis Rule</h2>
             <p className="mt-2 text-sm font-semibold leading-6 text-amber-950">
               Every card carries a {money(unitCost)} cost basis. Realized GP equals actual net
@@ -508,7 +510,7 @@ export default async function MarketIntelPurchaseDetailPage({
           </section>
         </section>
 
-        <section className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
+        <section className="overflow-hidden rounded-3xl border border-neutral-200 bg-white/95 shadow-sm ring-1 ring-black/[0.02]">
           <div className="border-b border-neutral-200 p-5">
             <h2 className="text-2xl font-black">Recorded Sales</h2>
           </div>
@@ -599,7 +601,7 @@ function Metric({
   valueClassName?: string;
 }) {
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
+    <div className="rounded-3xl border border-neutral-200 bg-white/95 p-5 shadow-sm ring-1 ring-black/[0.02]">
       <p className="text-xs font-black uppercase tracking-wide text-neutral-500">{label}</p>
       <p className={`mt-2 text-2xl font-black ${valueClassName}`}>{value}</p>
     </div>
@@ -608,7 +610,7 @@ function Metric({
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-cyan-200 bg-white p-3">
+    <div className="rounded-2xl border border-cyan-200 bg-white p-3 shadow-sm ring-1 ring-cyan-950/5">
       <p className="text-[10px] font-black uppercase tracking-wide text-neutral-500">{label}</p>
       <p className="mt-1 text-lg font-black">{value}</p>
     </div>
@@ -645,8 +647,8 @@ function Notice({
       aria-live={tone === "error" ? "assertive" : "polite"}
       className={
         tone === "success"
-          ? "rounded-xl border border-emerald-300 bg-emerald-50 p-4 font-bold text-emerald-950"
-          : "rounded-xl border border-rose-300 bg-rose-50 p-4 font-bold text-rose-950"
+          ? "rounded-2xl border border-emerald-300 bg-emerald-50 p-4 font-bold text-emerald-950 shadow-sm ring-1 ring-emerald-950/5"
+          : "rounded-2xl border border-rose-300 bg-rose-50 p-4 font-bold text-rose-950 shadow-sm ring-1 ring-rose-950/5"
       }
     >
       {children}

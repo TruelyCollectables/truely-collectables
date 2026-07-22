@@ -43,12 +43,12 @@ export default async function MarketIntelPurchaseDeskPage({
   const { candidates, totals } = await getMarketIntelPurchaseDesk();
 
   return (
-    <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
-      <header className="border-b border-neutral-800 bg-[#101418] text-white">
-        <div className="mx-auto max-w-7xl px-6 py-8">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(132,204,22,0.16),_transparent_34%),linear-gradient(180deg,_#faf7ef_0%,_#f4f1ea_42%,_#eee7da_100%)] px-4 py-6 text-neutral-950 sm:px-6 lg:px-8">
+      <section className="mx-auto max-w-[1500px] overflow-hidden rounded-[2rem] border border-neutral-900 bg-neutral-950 text-white shadow-2xl shadow-neutral-950/10">
+        <div className="border-b border-white/10 bg-[radial-gradient(circle_at_top_right,_rgba(190,242,100,0.22),_transparent_32%),linear-gradient(135deg,_rgba(255,255,255,0.08),_transparent)] p-6 lg:p-8">
           <Link
             href={addAdminHandoff("/admin/market-intel", handoff)}
-            className="text-sm font-black text-amber-300 hover:underline"
+            className="inline-flex rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-white/15"
           >
             ← Market Intel Command Center
           </Link>
@@ -64,11 +64,11 @@ export default async function MarketIntelPurchaseDeskPage({
             inventory position in one step.
           </p>
         </div>
-      </header>
+      </section>
 
-      <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
+      <div className="mx-auto max-w-[1500px] space-y-6 py-6">
         {query?.error ? (
-          <div className="rounded-lg border border-rose-200 bg-rose-50 p-4 font-bold text-rose-900">
+          <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 font-bold text-rose-900 shadow-sm ring-1 ring-rose-950/5">
             {query.error}
           </div>
         ) : null}
@@ -84,7 +84,7 @@ export default async function MarketIntelPurchaseDeskPage({
         </section>
 
         {candidates.length === 0 ? (
-          <section className="rounded-xl border border-neutral-200 bg-white p-8 shadow-sm">
+          <section className="rounded-3xl border border-neutral-200 bg-white/95 p-8 shadow-sm ring-1 ring-black/[0.02]">
             <h2 className="text-2xl font-black">Nothing qualifies for purchase yet.</h2>
             <p className="mt-2 font-semibold text-neutral-600">
               The Buy Desk only shows listings that passed exact-card identity,
@@ -92,7 +92,7 @@ export default async function MarketIntelPurchaseDeskPage({
             </p>
             <Link
               href={addAdminHandoff("/admin/market-intel/deals", handoff)}
-              className="mt-5 inline-block rounded-md bg-black px-4 py-2.5 text-sm font-black text-white"
+              className="mt-5 inline-block rounded-full bg-black px-4 py-2.5 text-sm font-black text-white shadow-sm transition hover:bg-neutral-800"
             >
               Open Shark List™
             </Link>
@@ -131,8 +131,8 @@ function CandidateCard({
       : 0;
 
   return (
-    <article className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
-      <div className="border-b border-neutral-200 bg-[#101418] p-5 text-white">
+    <article className="overflow-hidden rounded-3xl border border-neutral-200 bg-white/95 shadow-sm ring-1 ring-black/[0.02]">
+      <div className="border-b border-white/10 bg-neutral-950 p-5 text-white">
         <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
           <div className="flex min-w-0 gap-4">
             <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-lime-300 text-xl font-black text-black">
@@ -212,7 +212,7 @@ function CandidateCard({
               value={String(candidate.expected_units_sold)}
             />
           </div>
-          <p className="mt-4 rounded-lg border border-neutral-200 bg-neutral-50 p-4 text-sm font-semibold leading-6 text-neutral-700">
+          <p className="mt-4 rounded-2xl border border-neutral-200 bg-neutral-50 p-4 text-sm font-semibold leading-6 text-neutral-700 shadow-inner shadow-neutral-100">
             {score.reason || "No scoring explanation saved."}
           </p>
           <p className="mt-2 text-xs font-bold text-neutral-500">
@@ -222,13 +222,13 @@ function CandidateCard({
             href={candidate.direct_url}
             target="_blank"
             rel="noreferrer"
-            className="mt-4 inline-block rounded-md border border-neutral-300 px-4 py-2.5 text-sm font-black hover:bg-neutral-100"
+            className="mt-4 inline-block rounded-full border border-neutral-300 bg-white px-4 py-2.5 text-sm font-black shadow-sm transition hover:bg-neutral-100"
           >
             OPEN EXACT LIVE LISTING
           </a>
         </section>
 
-        <section className="rounded-xl border border-amber-200 bg-amber-50 p-5">
+        <section className="rounded-3xl border border-amber-200 bg-amber-50 p-5 shadow-sm ring-1 ring-amber-950/5">
           <h2 className="text-xl font-black">Record Actual Purchase</h2>
           {candidate.existing_purchase_lot_id ? (
             <div className="mt-4">
@@ -240,7 +240,7 @@ function CandidateCard({
                   `/admin/market-intel/purchases/${candidate.existing_purchase_lot_id}`,
                   handoff,
                 )}
-                className="mt-4 inline-block rounded-md bg-black px-4 py-2.5 text-sm font-black text-white"
+                className="mt-4 inline-block rounded-full bg-black px-4 py-2.5 text-sm font-black text-white shadow-sm transition hover:bg-neutral-800"
               >
                 Open Tracked Purchase
               </Link>
@@ -263,7 +263,7 @@ function CandidateCard({
                   step="0.01"
                   required
                   defaultValue={Number(score.delivered_cost || 0).toFixed(2)}
-                  className="mt-1 w-full rounded-md border border-amber-300 bg-white px-3 py-2.5 outline-none focus:border-black"
+                  className="mt-2 w-full rounded-xl border border-amber-300 bg-white px-4 py-3 shadow-inner shadow-amber-100 outline-none transition focus:border-black focus:ring-4 focus:ring-black/10"
                 />
               </label>
               <label className="block text-sm font-black">
@@ -274,7 +274,7 @@ function CandidateCard({
                   min="1"
                   required
                   defaultValue={candidate.quantity}
-                  className="mt-1 w-full rounded-md border border-amber-300 bg-white px-3 py-2.5 outline-none focus:border-black"
+                  className="mt-2 w-full rounded-xl border border-amber-300 bg-white px-4 py-3 shadow-inner shadow-amber-100 outline-none transition focus:border-black focus:ring-4 focus:ring-black/10"
                 />
               </label>
               <label className="block text-sm font-black">
@@ -283,15 +283,15 @@ function CandidateCard({
                   name="purchaseDate"
                   type="date"
                   defaultValue={new Date().toISOString().slice(0, 10)}
-                  className="mt-1 w-full rounded-md border border-amber-300 bg-white px-3 py-2.5 outline-none focus:border-black"
+                  className="mt-2 w-full rounded-xl border border-amber-300 bg-white px-4 py-3 shadow-inner shadow-amber-100 outline-none transition focus:border-black focus:ring-4 focus:ring-black/10"
                 />
               </label>
-              <label className="flex items-center gap-2 text-sm font-black">
-                <input name="alreadyReceived" type="checkbox" />
+              <label className="flex items-center gap-2 rounded-xl border border-amber-200 bg-white/80 px-3 py-2 text-sm font-black shadow-inner shadow-amber-100">
+                <input name="alreadyReceived" type="checkbox" className="accent-black" />
                 Already received and in inventory
               </label>
               <AdminSubmitButton
-                className="w-full rounded-md bg-black px-4 py-3 font-black text-white"
+                className="w-full rounded-2xl bg-black px-4 py-3 font-black text-white shadow-sm transition hover:bg-neutral-800"
                 pendingChildren="Creating purchase position..."
                 title="Create a Market Intel purchase position from this deal candidate using the final delivered cost basis."
               >
@@ -312,7 +312,7 @@ function CandidateCard({
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
+    <div className="rounded-3xl border border-neutral-200 bg-white/95 p-5 shadow-sm ring-1 ring-black/[0.02]">
       <p className="text-xs font-black uppercase tracking-wider text-neutral-500">
         {label}
       </p>
@@ -323,7 +323,7 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-neutral-200 bg-white p-3">
+    <div className="rounded-2xl border border-neutral-200 bg-white p-3 shadow-sm ring-1 ring-black/[0.02]">
       <p className="text-[10px] font-black uppercase tracking-wide text-neutral-500">
         {label}
       </p>
@@ -334,7 +334,7 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 function DarkStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="min-w-28 rounded-lg border border-neutral-700 bg-neutral-900 p-3 text-center">
+    <div className="min-w-28 rounded-2xl border border-neutral-700 bg-neutral-900 p-3 text-center shadow-inner">
       <p className="text-[10px] font-black uppercase tracking-wide text-neutral-400">
         {label}
       </p>
@@ -345,7 +345,7 @@ function DarkStat({ label, value }: { label: string; value: string }) {
 
 function Badge({ value }: { value: string }) {
   return (
-    <span className="rounded-full border border-lime-400 bg-lime-100 px-2.5 py-1 text-xs font-black text-lime-950">
+    <span className="rounded-full border border-lime-400 bg-lime-100 px-3 py-1 text-xs font-black text-lime-950">
       {label(value)}
     </span>
   );
