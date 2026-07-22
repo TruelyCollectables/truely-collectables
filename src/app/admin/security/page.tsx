@@ -241,22 +241,47 @@ export default async function AdminSecurityPage({
 
   return (
     <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
-      <section className="border-b border-neutral-200 bg-[#101418] text-white">
-        <div className="mx-auto flex max-w-7xl flex-col gap-5 px-6 py-6 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.16em] text-amber-300">
-              Security Center
-            </p>
-            <h1 className="mt-2 text-4xl font-black tracking-tight">
-              Security Command Center
-            </h1>
-            <p className="mt-2 max-w-3xl text-sm text-neutral-300">
-              Review admin login attempts, public money-path throttles,
-              identity risk, and IP activity for Store #{storeId.slice(-4)}.
-            </p>
+      <section className="border-b border-neutral-800 bg-[#101418] text-white shadow-2xl shadow-black/20">
+        <div className="mx-auto max-w-7xl px-6 py-8">
+          <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.22em] text-amber-300">
+                Security Center
+              </p>
+              <h1 className="mt-2 text-4xl font-black tracking-tight md:text-5xl">
+                Security Command Center
+              </h1>
+              <p className="mt-3 max-w-4xl text-sm font-semibold leading-7 text-neutral-300">
+                Review admin login attempts, public money-path throttles,
+                identity risk, and IP activity for Store #{storeId.slice(-4)}.
+                Unavailable audit storage stays explicit so an empty-looking
+                page never hides a missing security table.
+              </p>
+            </div>
+
+            <div className="grid min-w-[300px] grid-cols-3 gap-3 rounded-3xl border border-white/10 bg-white/[0.06] p-4 shadow-xl shadow-black/20">
+              <HeaderStat
+                label="Lockouts"
+                value={loginAuditUnavailable ? "N/A" : String(activeLockouts.length)}
+              />
+              <HeaderStat
+                label="Blocked"
+                value={
+                  rateLimitAuditUnavailable
+                    ? "N/A"
+                    : String(blockedRateLimitEvents.length)
+                }
+              />
+              <HeaderStat
+                label="Cases"
+                value={
+                  investigationsUnavailable ? "N/A" : String(investigations.length)
+                }
+              />
+            </div>
           </div>
 
-          <div className="flex flex-wrap gap-2">
+          <div className="mt-6 flex flex-wrap gap-2">
             <CommandLink href="/admin" label="Command Center" />
             <CommandLink href="/admin/settings" label="Settings" />
             <CommandLink href="/admin/launch-readiness" label="Readiness" />
@@ -264,11 +289,11 @@ export default async function AdminSecurityPage({
         </div>
       </section>
 
-      <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
+      <div className="mx-auto max-w-7xl space-y-6 px-6 py-8">
         {caseNotice ? (
           <section
             aria-live="assertive"
-            className={`rounded-md border px-5 py-4 ${caseNotice.className}`}
+            className={`rounded-2xl border px-5 py-4 shadow-sm ring-1 ring-black/[0.02] ${caseNotice.className}`}
             role="alert"
           >
             <h2 className="text-lg font-black">{caseNotice.title}</h2>
@@ -277,7 +302,7 @@ export default async function AdminSecurityPage({
         ) : null}
 
         {loginResult.error ? (
-          <section className="rounded-md border border-rose-200 bg-rose-50 p-5 text-rose-800">
+          <section className="rounded-3xl border border-rose-200 bg-rose-50 p-5 text-rose-800 shadow-sm ring-1 ring-rose-950/5">
             <h2 className="text-xl font-black">Login Audit Unavailable</h2>
             <p className="mt-2 text-sm font-semibold">
               {safeErrorMessage(loginResult.error)}
@@ -290,7 +315,7 @@ export default async function AdminSecurityPage({
         ) : null}
 
         {rateLimitResult.error ? (
-          <section className="rounded-md border border-rose-200 bg-rose-50 p-5 text-rose-800">
+          <section className="rounded-3xl border border-rose-200 bg-rose-50 p-5 text-rose-800 shadow-sm ring-1 ring-rose-950/5">
             <h2 className="text-xl font-black">Public Endpoint Audit Unavailable</h2>
             <p className="mt-2 text-sm font-semibold">
               {safeErrorMessage(rateLimitResult.error)}
@@ -305,7 +330,7 @@ export default async function AdminSecurityPage({
         ) : null}
 
         {investigationResult.error ? (
-          <section className="rounded-md border border-rose-200 bg-rose-50 p-5 text-rose-800">
+          <section className="rounded-3xl border border-rose-200 bg-rose-50 p-5 text-rose-800 shadow-sm ring-1 ring-rose-950/5">
             <h2 className="text-xl font-black">Investigation Cases Unavailable</h2>
             <p className="mt-2 text-sm font-semibold">
               {safeErrorMessage(investigationResult.error)}
@@ -319,8 +344,11 @@ export default async function AdminSecurityPage({
           </section>
         ) : null}
 
-        <section className="rounded-md border border-neutral-200 bg-white">
-          <div className="border-b border-neutral-200 p-5">
+        <section className="overflow-hidden rounded-3xl border border-neutral-200 bg-white/95 shadow-sm ring-1 ring-black/[0.02]">
+          <div className="border-b border-neutral-200 bg-gradient-to-r from-white to-amber-50/60 p-5">
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-amber-700">
+              Case board
+            </p>
             <h2 className="text-2xl font-black">Active IP Investigations</h2>
             <p className="mt-1 text-sm text-neutral-600">
               Watched, review, and resolved IP cases saved from IP dossiers.
@@ -369,7 +397,7 @@ export default async function AdminSecurityPage({
                       </td>
                       <td className="px-4 py-4">
                         <span
-                          className={`rounded border px-2 py-1 text-xs font-black ${investigationTone(
+                          className={`rounded-full border px-2.5 py-1 text-xs font-black ${investigationTone(
                             investigation.status,
                           )}`}
                         >
@@ -378,7 +406,7 @@ export default async function AdminSecurityPage({
                       </td>
                       <td className="px-4 py-4">
                         <span
-                          className={`rounded border px-2 py-1 text-xs font-black ${investigationTone(
+                          className={`rounded-full border px-2.5 py-1 text-xs font-black ${investigationTone(
                             investigation.severity,
                           )}`}
                         >
@@ -444,9 +472,12 @@ export default async function AdminSecurityPage({
           />
         </section>
 
-        <section className="rounded-md border border-neutral-200 bg-white p-5">
+        <section className="rounded-3xl border border-neutral-200 bg-white/95 p-5 shadow-sm ring-1 ring-black/[0.02]">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
+              <p className="text-xs font-black uppercase tracking-[0.18em] text-sky-700">
+                Public attack surface
+              </p>
               <h2 className="text-2xl font-black">Public Money-Path Activity</h2>
               <p className="mt-1 text-sm text-neutral-600">
                 Checkout, public offers, seller payout onboarding, and binding
@@ -455,7 +486,7 @@ export default async function AdminSecurityPage({
             </div>
             <div className="grid grid-cols-2 gap-2 text-sm md:grid-cols-4">
               {rateLimitAuditUnavailable ? (
-                <div className="col-span-full rounded border border-rose-200 bg-rose-50 px-3 py-2 text-rose-800">
+                <div className="col-span-full rounded-2xl border border-rose-200 bg-rose-50 px-3 py-2 text-rose-800">
                   <p className="text-sm font-black">
                     Endpoint counts unavailable
                   </p>
@@ -468,7 +499,7 @@ export default async function AdminSecurityPage({
                 ? Object.entries(endpointCounts).map(([endpoint, count]) => (
                     <div
                       key={endpoint}
-                      className="rounded border border-neutral-200 bg-neutral-50 px-3 py-2"
+                      className="rounded-2xl border border-neutral-200 bg-neutral-50 px-3 py-2 shadow-sm"
                     >
                       <p className="text-lg font-black">{count}</p>
                       <p className="text-xs font-bold uppercase text-neutral-500">
@@ -523,7 +554,7 @@ export default async function AdminSecurityPage({
                       </td>
                       <td className="px-4 py-4">
                         <span
-                          className={`rounded border px-2 py-1 text-xs font-black ${rateLimitTone(
+                          className={`rounded-full border px-2.5 py-1 text-xs font-black ${rateLimitTone(
                             event,
                           )}`}
                         >
@@ -618,8 +649,11 @@ export default async function AdminSecurityPage({
           />
         </section>
 
-        <section className="rounded-md border border-neutral-200 bg-white">
-          <div className="border-b border-neutral-200 p-5">
+        <section className="overflow-hidden rounded-3xl border border-neutral-200 bg-white/95 shadow-sm ring-1 ring-black/[0.02]">
+          <div className="border-b border-neutral-200 bg-gradient-to-r from-white to-sky-50/60 p-5">
+            <p className="text-xs font-black uppercase tracking-[0.18em] text-sky-700">
+              Admin access log
+            </p>
             <h2 className="text-2xl font-black">Recent Login Attempts</h2>
             <p className="mt-1 text-sm text-neutral-600">
               Showing the latest 100 attempts. Successful attempts are kept for
@@ -665,7 +699,7 @@ export default async function AdminSecurityPage({
                       </td>
                       <td className="px-4 py-4">
                         <span
-                          className={`rounded border px-2 py-1 text-xs font-black ${statusTone(
+                          className={`rounded-full border px-2.5 py-1 text-xs font-black ${statusTone(
                             attempt,
                           )}`}
                         >
@@ -720,7 +754,7 @@ function Metric({
       : "text-neutral-950";
 
   return (
-    <div className="rounded-md border border-neutral-200 bg-white p-5">
+    <div className="rounded-2xl border border-neutral-200 bg-white/95 p-5 shadow-sm ring-1 ring-black/[0.02]">
       <p className="text-sm font-bold uppercase text-neutral-500">{label}</p>
       <p className={`mt-3 break-words text-3xl font-black ${toneClass}`}>
         {value}
@@ -733,9 +767,20 @@ function CommandLink({ href, label }: { href: string; label: string }) {
   return (
     <Link
       href={href}
-      className="rounded-md border border-white/20 px-4 py-2 text-sm font-bold text-white hover:bg-white/10"
+      className="rounded-full border border-white/20 bg-white/5 px-4 py-2 text-sm font-bold text-white transition hover:border-white hover:bg-white/10"
     >
       {label}
     </Link>
+  );
+}
+
+function HeaderStat({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-white/10 bg-black/20 p-3 text-center">
+      <p className="text-[10px] font-black uppercase tracking-[0.16em] text-neutral-400">
+        {label}
+      </p>
+      <p className="mt-1 truncate text-lg font-black text-white">{value}</p>
+    </div>
   );
 }

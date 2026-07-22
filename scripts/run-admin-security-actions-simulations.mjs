@@ -161,6 +161,27 @@ scenario("security center does not show false-empty audit queues", () => {
   );
 });
 
+scenario("security center uses professional command presentation", () => {
+  for (const fragment of [
+    "Security Command Center",
+    "empty-looking",
+    "HeaderStat",
+    "label=\"Lockouts\"",
+    "label=\"Blocked\"",
+    "label=\"Cases\"",
+    "Case board",
+    "Public attack surface",
+    "Admin access log",
+    "rounded-3xl border border-neutral-200 bg-white/95",
+    "rounded-full border border-white/20 bg-white/5",
+  ]) {
+    assert(
+      securityIndexSource.includes(fragment),
+      `Expected security center presentation fragment ${fragment}.`,
+    );
+  }
+});
+
 const failed = [];
 
 for (const item of scenarios) {
