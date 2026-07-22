@@ -17,7 +17,7 @@ type PageProps = {
 };
 
 const fieldClass =
-  "mt-1 w-full rounded-md border border-neutral-300 bg-white px-3 py-2 outline-none focus:border-black";
+  "mt-2 w-full rounded-xl border border-neutral-300 bg-white px-4 py-3 shadow-inner shadow-neutral-100 outline-none transition focus:border-black focus:ring-4 focus:ring-black/10";
 
 function money(value: number | null | undefined) {
   return value === null || value === undefined ? "—" : `$${Number(value).toFixed(2)}`;
@@ -46,12 +46,12 @@ export default async function MarketIntelCompDetailPage({
   );
 
   return (
-    <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
-      <header className="bg-[#101418] text-white">
-        <div className="mx-auto max-w-7xl px-6 py-8">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(14,165,233,0.13),_transparent_34%),linear-gradient(180deg,_#faf7ef_0%,_#f4f1ea_42%,_#eee7da_100%)] px-4 py-6 text-neutral-950 sm:px-6 lg:px-8">
+      <section className="mx-auto max-w-[1500px] overflow-hidden rounded-[2rem] border border-neutral-900 bg-neutral-950 text-white shadow-2xl shadow-neutral-950/10">
+        <div className="border-b border-white/10 bg-[radial-gradient(circle_at_top_right,_rgba(34,211,238,0.2),_transparent_32%),linear-gradient(135deg,_rgba(255,255,255,0.08),_transparent)] p-6 lg:p-8">
           <Link
             href={addAdminHandoff("/admin/market-intel/comps", handoff)}
-            className="text-sm font-black text-amber-300 hover:underline"
+            className="inline-flex rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-white/15"
           >
             ← Exact-Card Markets
           </Link>
@@ -65,9 +65,9 @@ export default async function MarketIntelCompDetailPage({
             {identity.identity_key}
           </p>
         </div>
-      </header>
+      </section>
 
-      <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
+      <div className="mx-auto max-w-[1500px] space-y-6 py-6">
         {query?.saved === "identity" ? <Notice>Exact identity created.</Notice> : null}
         {query?.saved === "comp" ? <Notice>Verified sale saved and market value recalculated.</Notice> : null}
         {query?.saved === "value" ? <Notice>Market value recalculated.</Notice> : null}
@@ -84,7 +84,7 @@ export default async function MarketIntelCompDetailPage({
 
         <section className="grid grid-cols-1 gap-6 xl:grid-cols-[0.9fr_1.1fr]">
           <div className="space-y-6">
-            <section className="rounded-xl border border-neutral-200 bg-white p-6 shadow-sm">
+            <section className="rounded-3xl border border-neutral-200 bg-white/95 p-6 shadow-sm ring-1 ring-black/[0.02]">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
                   <h2 className="text-2xl font-black">Market Value</h2>
@@ -100,7 +100,7 @@ export default async function MarketIntelCompDetailPage({
                   )}
                 >
                   <AdminSubmitButton
-                    className="rounded-md bg-black px-4 py-2.5 text-sm font-black text-white"
+                    className="rounded-full bg-black px-4 py-2.5 text-sm font-black text-white shadow-sm transition hover:bg-neutral-800"
                     pendingChildren="Recalculating..."
                     title="Recalculate the market-value snapshot from verified, included, non-outlier sold comps for this exact identity."
                   >
@@ -121,12 +121,12 @@ export default async function MarketIntelCompDetailPage({
                 <Stat label="Included Rows" value={String(includedComps.length)} />
               </div>
 
-              <p className="mt-5 rounded-lg border border-neutral-200 bg-neutral-50 p-4 text-sm font-semibold leading-6 text-neutral-700">
+              <p className="mt-5 rounded-2xl border border-neutral-200 bg-neutral-50 p-4 text-sm font-semibold leading-6 text-neutral-700 shadow-inner shadow-neutral-100">
                 {latest?.calculation_notes || "No market-value snapshot yet. Add a verified sale and Beta One will calculate it."}
               </p>
             </section>
 
-            <section className="rounded-xl border border-cyan-200 bg-cyan-50 p-6">
+            <section className="rounded-3xl border border-cyan-200 bg-cyan-50 p-6 shadow-sm ring-1 ring-cyan-950/5">
               <h2 className="text-xl font-black">Exact Identity Guard</h2>
               <dl className="mt-4 space-y-2 text-sm font-semibold text-cyan-950">
                 <Row label="Player" value={identity.subject?.name || "Not matched"} />
@@ -140,7 +140,7 @@ export default async function MarketIntelCompDetailPage({
             </section>
           </div>
 
-          <section className="rounded-xl border border-neutral-200 bg-white p-6 shadow-sm">
+          <section className="rounded-3xl border border-neutral-200 bg-white/95 p-6 shadow-sm ring-1 ring-black/[0.02]">
             <h2 className="text-2xl font-black">Add Verified Sold Comp</h2>
             <p className="mt-1 text-sm font-semibold text-neutral-600">
               Enter the actual sold price. Shipping and buyer fees are included in delivered value.
@@ -184,7 +184,7 @@ export default async function MarketIntelCompDetailPage({
                 <Check name="excluded" label="Exclude from value" />
               </div>
               <AdminSubmitButton
-                className="rounded-md bg-black px-5 py-3 font-black text-white sm:col-span-2"
+                className="rounded-2xl bg-black px-5 py-3 font-black text-white shadow-sm transition hover:bg-neutral-800 sm:col-span-2"
                 pendingChildren="Saving comp..."
                 title="Save this verified sold comp and include or exclude it from the exact-card market-value calculation based on the form flags."
               >
@@ -197,7 +197,7 @@ export default async function MarketIntelCompDetailPage({
           </section>
         </section>
 
-        <section className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
+        <section className="overflow-hidden rounded-3xl border border-neutral-200 bg-white/95 shadow-sm ring-1 ring-black/[0.02]">
           <div className="border-b border-neutral-200 p-5">
             <h2 className="text-2xl font-black">Verified Sale History</h2>
           </div>
@@ -277,15 +277,15 @@ function Input(props: {
 
 function Check({ name, label }: { name: string; label: string }) {
   return (
-    <label className="flex items-center gap-2">
-      <input name={name} type="checkbox" /> {label}
+    <label className="flex items-center gap-2 rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2 shadow-inner shadow-neutral-100">
+      <input name={name} type="checkbox" className="accent-black" /> {label}
     </label>
   );
 }
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white p-5 shadow-sm">
+    <div className="rounded-3xl border border-neutral-200 bg-white/95 p-5 shadow-sm ring-1 ring-black/[0.02]">
       <p className="text-xs font-black uppercase tracking-wider text-neutral-500">{label}</p>
       <p className="mt-2 text-2xl font-black">{value}</p>
     </div>
@@ -294,7 +294,7 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-4">
+    <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4 shadow-sm ring-1 ring-black/[0.02]">
       <p className="text-xs font-black uppercase text-neutral-500">{label}</p>
       <p className="mt-1 text-xl font-black">{value}</p>
     </div>
@@ -315,7 +315,11 @@ function Notice({ children, error = false }: { children: React.ReactNode; error?
     <div
       role={error ? "alert" : "status"}
       aria-live={error ? "assertive" : "polite"}
-      className={error ? "rounded-lg border border-rose-200 bg-rose-50 p-4 font-bold text-rose-900" : "rounded-lg border border-emerald-200 bg-emerald-50 p-4 font-bold text-emerald-900"}
+      className={
+        error
+          ? "rounded-2xl border border-rose-200 bg-rose-50 p-4 font-bold text-rose-900 shadow-sm ring-1 ring-rose-950/5"
+          : "rounded-2xl border border-emerald-200 bg-emerald-50 p-4 font-bold text-emerald-900 shadow-sm ring-1 ring-emerald-950/5"
+      }
     >
       {children}
     </div>

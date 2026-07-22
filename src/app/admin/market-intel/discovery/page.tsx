@@ -26,7 +26,7 @@ type PageProps = {
 };
 
 const inputClass =
-  "mt-1 w-full rounded-md border border-neutral-300 bg-white px-3 py-2 text-sm font-semibold outline-none focus:border-black";
+  "mt-2 w-full rounded-xl border border-neutral-300 bg-white px-4 py-3 text-sm font-semibold shadow-inner shadow-neutral-100 outline-none transition focus:border-black focus:ring-4 focus:ring-black/10";
 
 function money(value: number | null | undefined) {
   return value === null || value === undefined ? "—" : `$${Number(value).toFixed(2)}`;
@@ -64,12 +64,12 @@ export default async function IdentityDiscoveryPage({ searchParams }: PageProps)
   const approved = data?.approved || [];
 
   return (
-    <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
-      <header className="border-b border-neutral-800 bg-[#101418] text-white">
-        <div className="mx-auto max-w-7xl px-6 py-8">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(217,70,239,0.12),_transparent_34%),linear-gradient(180deg,_#faf7ef_0%,_#f4f1ea_42%,_#eee7da_100%)] px-4 py-6 text-neutral-950 sm:px-6 lg:px-8">
+      <section className="mx-auto max-w-[1500px] overflow-hidden rounded-[2rem] border border-neutral-900 bg-neutral-950 text-white shadow-2xl shadow-neutral-950/10">
+        <div className="border-b border-white/10 bg-[radial-gradient(circle_at_top_right,_rgba(217,70,239,0.2),_transparent_32%),linear-gradient(135deg,_rgba(255,255,255,0.08),_transparent)] p-6 lg:p-8">
           <Link
             href={addAdminHandoff("/admin/market-intel", handoff)}
-            className="text-sm font-black text-amber-300 hover:underline"
+            className="inline-flex rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-white/15"
           >
             ← Market Intel Command Center
           </Link>
@@ -85,9 +85,9 @@ export default async function IdentityDiscoveryPage({ searchParams }: PageProps)
             only exact licensed professional identities into live scoring.
           </p>
         </div>
-      </header>
+      </section>
 
-      <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
+      <div className="mx-auto max-w-[1500px] space-y-6 py-6">
         {query?.scanned === "1" ? (
           <Notice>
             Discovery scan parsed {query.parsed || "0"} candidates, created {query.created || "0"}, and refreshed {query.updated || "0"}.
@@ -100,7 +100,7 @@ export default async function IdentityDiscoveryPage({ searchParams }: PageProps)
         {query?.error ? <Notice error>{query.error}</Notice> : null}
 
         {loadError ? (
-          <section className="rounded-xl border border-rose-300 bg-rose-50 p-6 text-rose-950">
+          <section className="rounded-3xl border border-rose-300 bg-rose-50 p-6 text-rose-950 shadow-sm ring-1 ring-rose-950/5">
             <h2 className="text-2xl font-black">Discovery migration required</h2>
             <p className="mt-2 font-semibold leading-6">{loadError}</p>
             <p className="mt-3 text-sm font-bold">
@@ -109,7 +109,7 @@ export default async function IdentityDiscoveryPage({ searchParams }: PageProps)
           </section>
         ) : null}
 
-        <section className="rounded-xl border border-rose-300 bg-rose-50 p-5 text-rose-950">
+        <section className="rounded-3xl border border-rose-300 bg-rose-50 p-5 text-rose-950 shadow-sm ring-1 ring-rose-950/5">
           <p className="text-xs font-black uppercase tracking-[0.18em]">Hard scope</p>
           <h2 className="mt-1 text-2xl font-black">No base. No college. No unlicensed.</h2>
           <p className="mt-2 font-semibold leading-6">
@@ -125,7 +125,7 @@ export default async function IdentityDiscoveryPage({ searchParams }: PageProps)
           <Metric label="All Candidates" value={String(data?.totals.all || 0)} />
         </section>
 
-        <section className="rounded-xl border border-cyan-200 bg-cyan-50 p-6 text-cyan-950">
+        <section className="rounded-3xl border border-cyan-200 bg-cyan-50 p-6 text-cyan-950 shadow-sm ring-1 ring-cyan-950/5">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p className="text-xs font-black uppercase tracking-[0.18em]">Discovery scan</p>
@@ -159,7 +159,7 @@ export default async function IdentityDiscoveryPage({ searchParams }: PageProps)
                 </select>
               </label>
               <AdminSubmitButton
-                className="col-span-2 rounded-md bg-cyan-900 px-4 py-3 font-black text-white"
+                className="col-span-2 rounded-2xl bg-cyan-900 px-4 py-3 font-black text-white shadow-sm transition hover:bg-cyan-800"
                 pendingChildren="Scanning eBay..."
                 title="Run the Market Intel eBay scanner for the selected watchlist scope and save review candidates."
               >
@@ -178,7 +178,7 @@ export default async function IdentityDiscoveryPage({ searchParams }: PageProps)
             <h2 className="mt-1 text-3xl font-black">Pending Exact Identities</h2>
           </div>
           {pending.length === 0 ? (
-            <div className="rounded-xl border border-dashed border-neutral-300 bg-white p-8 text-center">
+            <div className="rounded-3xl border border-dashed border-neutral-300 bg-white/95 p-8 text-center shadow-sm ring-1 ring-black/[0.02]">
               <h3 className="text-xl font-black">No pending candidates yet</h3>
               <p className="mt-2 font-semibold text-neutral-600">
                 Run Discovery Scan. Results must pass player, professional-license, and non-base filters before appearing here.
@@ -196,7 +196,7 @@ export default async function IdentityDiscoveryPage({ searchParams }: PageProps)
         </section>
 
         {approved.length > 0 ? (
-          <section className="overflow-hidden rounded-xl border border-emerald-200 bg-white shadow-sm">
+          <section className="overflow-hidden rounded-3xl border border-emerald-200 bg-white/95 shadow-sm ring-1 ring-emerald-950/5">
             <div className="border-b border-emerald-200 bg-emerald-50 p-5">
               <h2 className="text-2xl font-black text-emerald-950">Recently Approved</h2>
             </div>
@@ -240,7 +240,7 @@ function CandidateReview({
   return (
     <article
       id={`candidate-${candidate.id}`}
-      className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm"
+      className="overflow-hidden rounded-3xl border border-neutral-200 bg-white/95 shadow-sm ring-1 ring-black/[0.02]"
     >
       <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr]">
         <div className="border-b border-neutral-200 bg-neutral-100 p-4 lg:border-b-0 lg:border-r">
@@ -250,10 +250,10 @@ function CandidateReview({
             <img
               src={image}
               alt={candidate.original_title}
-              className="aspect-square w-full rounded-lg bg-white object-contain"
+              className="aspect-square w-full rounded-2xl bg-white object-contain shadow-sm ring-1 ring-black/[0.02]"
             />
           ) : (
-            <div className="flex aspect-square items-center justify-center rounded-lg border border-dashed border-neutral-300 bg-white font-bold text-neutral-500">
+            <div className="flex aspect-square items-center justify-center rounded-2xl border border-dashed border-neutral-300 bg-white font-bold text-neutral-500 shadow-sm">
               No image
             </div>
           )}
@@ -351,7 +351,7 @@ function CandidateReview({
             </div>
 
             <AdminSubmitButton
-              className="rounded-md bg-emerald-700 px-4 py-3 font-black text-white md:col-span-2 xl:col-span-4"
+              className="rounded-2xl bg-emerald-700 px-4 py-3 font-black text-white shadow-sm transition hover:bg-emerald-600 md:col-span-2 xl:col-span-4"
               pendingChildren="Approving and scoring..."
               title="Approve this candidate as an exact-card identity, attach it to the listing, and calculate the listing score."
             >
@@ -372,11 +372,11 @@ function CandidateReview({
           >
             <input
               name="reason"
-              className={inputClass.replace("mt-1 ", "")}
+              className={inputClass.replace("mt-2 ", "")}
               placeholder="Reason: base, wrong player, unlicensed, bad parse…"
             />
             <AdminSubmitButton
-              className="shrink-0 rounded-md border border-rose-300 bg-rose-50 px-4 py-2 font-black text-rose-950"
+              className="shrink-0 rounded-2xl border border-rose-300 bg-rose-50 px-4 py-2 font-black text-rose-950 shadow-sm transition hover:bg-rose-100"
               pendingChildren="Rejecting..."
               title="Reject this discovery candidate with the entered reason and remove it from the approval queue."
             >
@@ -430,8 +430,13 @@ function Check({
   defaultChecked: boolean;
 }) {
   return (
-    <label className="flex items-center gap-2 text-sm font-black">
-      <input name={name} type="checkbox" defaultChecked={defaultChecked} className="h-4 w-4" />
+    <label className="flex items-center gap-2 rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm font-black shadow-inner shadow-neutral-100">
+      <input
+        name={name}
+        type="checkbox"
+        defaultChecked={defaultChecked}
+        className="h-4 w-4 accent-black"
+      />
       {label}
     </label>
   );
@@ -451,9 +456,9 @@ function Metric({
       ? "border-emerald-200 bg-emerald-50 text-emerald-950"
       : tone === "cyan"
         ? "border-cyan-200 bg-cyan-50 text-cyan-950"
-        : "border-neutral-200 bg-white text-neutral-950";
+      : "border-neutral-200 bg-white/95 text-neutral-950";
   return (
-    <div className={`rounded-xl border p-4 shadow-sm ${className}`}>
+    <div className={`rounded-3xl border p-4 shadow-sm ring-1 ring-black/[0.02] ${className}`}>
       <p className="text-xs font-black uppercase tracking-wider opacity-70">{label}</p>
       <p className="mt-2 text-2xl font-black">{value}</p>
     </div>
@@ -462,7 +467,7 @@ function Metric({
 
 function SmallFact({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border border-neutral-200 bg-white p-2">
+    <div className="rounded-2xl border border-neutral-200 bg-white p-2 shadow-sm ring-1 ring-black/[0.02]">
       <dt className="text-[10px] font-black uppercase tracking-wide text-neutral-500">{label}</dt>
       <dd className="mt-1 font-black">{value}</dd>
     </div>
@@ -476,8 +481,8 @@ function Notice({ children, error = false }: { children: React.ReactNode; error?
       aria-live={error ? "assertive" : "polite"}
       className={
         error
-          ? "rounded-xl border border-rose-300 bg-rose-50 p-4 font-bold text-rose-950"
-          : "rounded-xl border border-emerald-300 bg-emerald-50 p-4 font-bold text-emerald-950"
+          ? "rounded-2xl border border-rose-300 bg-rose-50 p-4 font-bold text-rose-950 shadow-sm ring-1 ring-rose-950/5"
+          : "rounded-2xl border border-emerald-300 bg-emerald-50 p-4 font-bold text-emerald-950 shadow-sm ring-1 ring-emerald-950/5"
       }
     >
       {children}
