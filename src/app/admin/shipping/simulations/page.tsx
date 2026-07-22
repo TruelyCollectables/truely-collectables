@@ -30,9 +30,9 @@ export default async function ShippingSimulationsPage() {
     purchaseAudit.scenario_key_coverage_status === "passed";
 
   return (
-    <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
-      <header className="border-b border-neutral-800 bg-[#101418] text-white shadow-2xl shadow-black/20">
-        <div className="mx-auto max-w-7xl px-6 py-8">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,#ecfeff_0,#f8fafc_40%,#fff7ed_100%)] px-4 py-6 text-neutral-950 sm:px-6 lg:px-8">
+      <header className="mx-auto max-w-[1500px] overflow-hidden rounded-[2rem] border border-neutral-900 bg-neutral-950 text-white shadow-2xl shadow-neutral-950/10">
+        <div className="bg-[radial-gradient(circle_at_top_left,rgba(103,232,249,0.24),transparent_34%),linear-gradient(135deg,#0f172a,#111827_55%,#164e63)] p-6 lg:p-8">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p className="text-xs font-black uppercase tracking-[0.22em] text-cyan-300">
@@ -64,13 +64,13 @@ export default async function ShippingSimulationsPage() {
           <div className="mt-6 flex flex-wrap gap-3">
             <Link
               href="/admin/shipping"
-              className="rounded-full bg-white px-4 py-2.5 text-sm font-black text-neutral-950 shadow-sm transition hover:bg-neutral-200"
+              className="rounded-full bg-white px-4 py-2.5 text-sm font-black text-neutral-950 shadow-sm transition hover:-translate-y-0.5 hover:bg-neutral-200 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300"
             >
               Shipping Ops
             </Link>
             <Link
               href="/admin"
-              className="rounded-full border border-white/15 bg-white/5 px-4 py-2.5 text-sm font-black text-white transition hover:border-white hover:bg-white/10"
+              className="rounded-full border border-white/15 bg-white/10 px-4 py-2.5 text-sm font-black text-white shadow-sm transition hover:-translate-y-0.5 hover:border-white hover:bg-white/15 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-cyan-300"
             >
               Command Center
             </Link>
@@ -78,7 +78,7 @@ export default async function ShippingSimulationsPage() {
         </div>
       </header>
 
-      <div className="mx-auto max-w-7xl space-y-6 px-6 py-8">
+      <div className="mx-auto max-w-[1500px] space-y-6 py-6">
         <section className="rounded-3xl border border-blue-200 bg-blue-50 p-5 text-blue-950 shadow-sm ring-1 ring-blue-950/5">
           <h2 className="text-xl font-black">Safety Boundary</h2>
           <p className="mt-2 text-sm font-semibold">

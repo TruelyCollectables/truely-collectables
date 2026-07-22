@@ -213,6 +213,10 @@ scenario("seller payout page uses professional money-desk presentation", () => {
     "Connect readiness",
     "Cash-out controls",
     "Audit protected",
+    "rounded-[2rem] border border-neutral-900 bg-neutral-950",
+    "shadow-2xl shadow-neutral-950/10",
+    "max-w-[1500px]",
+    "border border-white/15 bg-white/10",
     "rounded-full bg-amber-300",
     "transition hover:-translate-y-0.5",
     "rounded-3xl border border-amber-200 bg-amber-50",
@@ -224,6 +228,18 @@ scenario("seller payout page uses professional money-desk presentation", () => {
     assert(
       sources.page.includes(fragment),
       `Expected seller payout professional presentation fragment ${fragment}.`,
+    );
+  }
+
+  for (const roughShell of [
+    'bg-[#f4f1ea]',
+    'bg-[#101418]',
+    "max-w-7xl",
+    "border border-white/20 bg-white/[0.03]",
+  ]) {
+    assert(
+      !sources.page.includes(roughShell),
+      `Expected seller payout page to avoid rough shell fragment ${roughShell}.`,
     );
   }
 });

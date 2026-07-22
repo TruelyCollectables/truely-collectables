@@ -12,6 +12,10 @@ const duplicateFinderSource = await readFile(
   new URL("../src/app/admin/ebay/duplicates/EbayDuplicateFinderClient.tsx", import.meta.url),
   "utf8",
 );
+const duplicatePageSource = await readFile(
+  new URL("../src/app/admin/ebay/duplicates/page.tsx", import.meta.url),
+  "utf8",
+);
 const duplicateRouteSource = await readFile(
   new URL("../src/app/api/admin/ebay-duplicates/route.ts", import.meta.url),
   "utf8",
@@ -389,6 +393,38 @@ await scenario("duplicate finder uses professional quantity labels", () => {
     assert(
       !duplicateFinderSource.includes(roughFragment),
       `Expected duplicate finder to avoid rough quantity shorthand ${roughFragment}.`,
+    );
+  }
+});
+
+await scenario("duplicate finder page uses professional command presentation", () => {
+  for (const fragment of [
+    "Duplicate Cleanup Desk",
+    "eBay Duplicate Finder",
+    "Exact-match only",
+    "Quantity-safe merge",
+    "Bounded eBay cleanup",
+    "rounded-[2rem] border border-neutral-900 bg-neutral-950",
+    "shadow-2xl shadow-neutral-950/10",
+    "max-w-[1500px]",
+    "border border-white/15 bg-white/10",
+    "transition hover:-translate-y-0.5",
+  ]) {
+    assert(
+      duplicatePageSource.includes(fragment),
+      `Expected duplicate finder page presentation fragment ${fragment}.`,
+    );
+  }
+
+  for (const roughShell of [
+    'bg-[#f4f1ea]',
+    'bg-[#101418]',
+    "max-w-7xl",
+    "border border-white/20 bg-white/[0.03]",
+  ]) {
+    assert(
+      !duplicatePageSource.includes(roughShell),
+      `Expected duplicate finder page to avoid rough shell fragment ${roughShell}.`,
     );
   }
 });

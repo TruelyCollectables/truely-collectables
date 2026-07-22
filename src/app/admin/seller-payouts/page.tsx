@@ -592,9 +592,9 @@ export default async function AdminSellerPayoutsPage() {
   );
 
   return (
-    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,#fff7ed_0,#f4f1ea_34%,#eef2ff_100%)] text-neutral-950">
-      <section className="border-b border-white/10 bg-[#101418] text-white shadow-2xl shadow-neutral-950/20">
-        <div className="mx-auto flex max-w-7xl flex-col gap-6 px-6 py-8 md:flex-row md:items-end md:justify-between">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,#fff7ed_0,#f8fafc_38%,#eef2ff_100%)] px-4 py-6 text-neutral-950 sm:px-6 lg:px-8">
+      <section className="mx-auto max-w-[1500px] overflow-hidden rounded-[2rem] border border-neutral-900 bg-neutral-950 text-white shadow-2xl shadow-neutral-950/10">
+        <div className="flex flex-col gap-6 bg-[radial-gradient(circle_at_top_left,rgba(251,191,36,0.24),transparent_34%),linear-gradient(135deg,#0f172a,#111827_55%,#1f2937)] p-6 md:flex-row md:items-end md:justify-between lg:p-8">
           <div>
             <p className="text-sm font-black uppercase tracking-[0.18em] text-amber-300">
               Seller Money Desk
@@ -622,13 +622,13 @@ export default async function AdminSellerPayoutsPage() {
           <div className="flex flex-wrap gap-2">
             <Link
               href="/admin/financial-reconciliation"
-              className="rounded-full border border-white/20 bg-white/[0.03] px-4 py-2 text-sm font-black text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-white/10 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
+              className="rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-white/15 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
             >
               Money Audit
             </Link>
             <Link
               href="/admin"
-              className="rounded-full border border-white/20 bg-white/[0.03] px-4 py-2 text-sm font-black text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-white/10 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
+              className="rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-white/15 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-300"
             >
               Command Center
             </Link>
@@ -642,7 +642,7 @@ export default async function AdminSellerPayoutsPage() {
         </div>
       </section>
 
-      <div className="mx-auto max-w-7xl space-y-6 px-6 py-8">
+      <div className="mx-auto max-w-[1500px] space-y-6 py-6">
         {error ? (
           <section className="rounded-3xl border border-amber-200 bg-amber-50 p-5 text-amber-950 shadow-sm ring-1 ring-amber-900/10">
             <h2 className="text-xl font-black">Payout Ledger Not Available</h2>
@@ -1103,7 +1103,7 @@ export default async function AdminSellerPayoutsPage() {
                         {request.request_note || "No seller note."}
                       </p>
                       {request.admin_note ? (
-                        <p className="mt-2 rounded bg-neutral-50 p-2 text-xs font-semibold text-neutral-700">
+                        <p className="mt-2 rounded-2xl bg-neutral-50 p-2 text-xs font-semibold text-neutral-700 shadow-sm">
                           Admin: {request.admin_note}
                         </p>
                       ) : null}
@@ -1113,7 +1113,7 @@ export default async function AdminSellerPayoutsPage() {
                       </p>
                       {cashOutPayoutProofCard(request)}
                       {blocker?.isBlocked ? (
-                        <div className="mt-2 rounded border border-amber-200 bg-amber-50 p-2 text-xs font-semibold text-amber-950">
+                        <div className="mt-2 rounded-2xl border border-amber-200 bg-amber-50 p-2 text-xs font-semibold text-amber-950 shadow-sm">
                           <p>{blockerReason}</p>
                           <div className="mt-2 flex flex-wrap gap-2">
                             {blocker.affectedOrderIds.map((orderId) => (
@@ -1132,7 +1132,7 @@ export default async function AdminSellerPayoutsPage() {
 
                     <div className="space-y-3">
                       <span
-                        className={`h-fit w-fit rounded border px-2 py-1 text-xs font-black ${statusTone(
+                        className={`h-fit w-fit rounded-full border px-2 py-1 text-xs font-black ${statusTone(
                           request.status,
                         )}`}
                       >
@@ -1159,7 +1159,7 @@ export default async function AdminSellerPayoutsPage() {
           )}
         </section>
 
-        <section className="rounded-md border border-neutral-200 bg-white">
+        <section className="overflow-hidden rounded-3xl border border-neutral-200 bg-white/90 shadow-sm ring-1 ring-black/[0.02] backdrop-blur">
           <div className="border-b border-neutral-200 p-5">
             <h2 className="text-2xl font-black">
               Dag Danky Holdings LLC Rake Ledger
@@ -1249,7 +1249,7 @@ export default async function AdminSellerPayoutsPage() {
 
                     <div className="flex flex-col gap-2 xl:items-end">
                       <span
-                        className={`w-fit rounded border px-2 py-1 text-xs font-black ${statusTone(
+                        className={`w-fit rounded-full border px-2 py-1 text-xs font-black ${statusTone(
                           entry.fee_status,
                         )}`}
                       >
@@ -1268,7 +1268,7 @@ export default async function AdminSellerPayoutsPage() {
           )}
         </section>
 
-        <section className="rounded-md border border-neutral-200 bg-white">
+        <section className="overflow-hidden rounded-3xl border border-neutral-200 bg-white/90 shadow-sm ring-1 ring-black/[0.02] backdrop-blur">
           <div className="border-b border-neutral-200 p-5">
             <h2 className="text-2xl font-black">Seller Payout Ledger Entries</h2>
             <p className="mt-1 text-sm text-neutral-600">
@@ -1379,7 +1379,7 @@ export default async function AdminSellerPayoutsPage() {
 
                     <div className="space-y-3">
                       <span
-                        className={`w-fit rounded border px-2 py-1 text-xs font-black ${statusTone(
+                        className={`w-fit rounded-full border px-2 py-1 text-xs font-black ${statusTone(
                           entry.payout_status,
                         )}`}
                       >
@@ -1518,7 +1518,7 @@ function SellerProtectionMiniCard({
 }) {
   return (
     <div
-      className={`rounded border p-2 text-xs ${sellerProtectionTone(summary.status)}`}
+      className={`rounded-2xl border p-2 text-xs shadow-sm ${sellerProtectionTone(summary.status)}`}
     >
       <p className="font-black">Under-$20 Protection</p>
       <p className="mt-1 font-semibold">{summary.label}</p>

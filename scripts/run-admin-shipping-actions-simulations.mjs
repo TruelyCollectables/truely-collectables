@@ -216,6 +216,11 @@ scenario("shipping simulation lab uses professional reliability presentation", (
     "HeaderStat label=\"Shipping\"",
     "label=\"Scenarios\"",
     "label=\"Live Gate\"",
+    "rounded-[2rem] border border-neutral-900 bg-neutral-950",
+    "shadow-2xl shadow-neutral-950/10",
+    "max-w-[1500px]",
+    "border border-white/15 bg-white/10",
+    "transition hover:-translate-y-0.5",
     "rounded-3xl border border-blue-200 bg-blue-50",
     "Seller-protection money trail",
     "Live shipping approval report",
@@ -223,6 +228,13 @@ scenario("shipping simulation lab uses professional reliability presentation", (
     assert(
       sources.simulationsPage.includes(fragment),
       `Expected shipping simulation presentation fragment ${fragment}.`,
+    );
+  }
+
+  for (const roughShell of ['bg-[#f4f1ea]', 'bg-[#101418]', "max-w-7xl"]) {
+    assert(
+      !sources.simulationsPage.includes(roughShell),
+      `Expected shipping simulation lab to avoid rough shell fragment ${roughShell}.`,
     );
   }
 });
