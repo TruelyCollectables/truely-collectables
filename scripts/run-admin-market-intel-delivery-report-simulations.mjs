@@ -12,6 +12,10 @@ const reportsPageSource = await readFile(
   new URL("../src/app/admin/market-intel/reports/page.tsx", import.meta.url),
   "utf8",
 );
+const readinessPageSource = await readFile(
+  new URL("../src/app/admin/market-intel/readiness/page.tsx", import.meta.url),
+  "utf8",
+);
 const adminSubmitButtonSource = await readFile(
   new URL("../src/app/admin/AdminSubmitButton.tsx", import.meta.url),
   "utf8",
@@ -118,6 +122,36 @@ scenario("reports page labels long-running outbox and report actions", () => {
     assert(
       reportsPageSource.includes(label),
       `Expected reports pending label ${label} to be present.`,
+    );
+  }
+});
+
+scenario("reports and readiness pages use professional command-desk presentation", () => {
+  for (const fragment of [
+    "Intelligence Report Desk",
+    "HeaderStat label=\"Pending Alerts\"",
+    "HeaderStat label=\"Open Net\"",
+    "rounded-3xl border border-cyan-200 bg-cyan-50/95",
+    "Instant Deal Queue",
+    "Audit trail",
+  ]) {
+    assert(
+      reportsPageSource.includes(fragment),
+      `Expected reports presentation fragment ${fragment}.`,
+    );
+  }
+
+  for (const fragment of [
+    "Readiness Control Board",
+    "operator-grade audit",
+    "HeaderStat label=\"Required\"",
+    "Ready to operate",
+    "Action required",
+    "rounded-3xl border border-neutral-800 bg-[#101418]",
+  ]) {
+    assert(
+      readinessPageSource.includes(fragment),
+      `Expected readiness presentation fragment ${fragment}.`,
     );
   }
 });

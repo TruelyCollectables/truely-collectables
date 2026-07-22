@@ -146,7 +146,7 @@ const smokeRoutes = [
   {
     path: "/admin/market-intel/readiness",
     auth: true,
-    expectedText: "System Readiness",
+    expectedText: "Readiness Control Board",
   },
   {
     path: "/admin/market-intel/watchlist",
@@ -216,7 +216,7 @@ const smokeRoutes = [
   {
     path: "/admin/market-intel/reports",
     auth: true,
-    expectedText: "Daily Intelligence + Alert Outbox",
+    expectedText: "Intelligence Report Desk",
   },
   {
     path: "/admin/market-intel/delivery",
