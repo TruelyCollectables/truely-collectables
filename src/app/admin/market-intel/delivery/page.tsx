@@ -112,12 +112,12 @@ export default async function MarketIntelDeliveryPage({
   const latestReportBlocker = latestReportDisabledReason(config, latestReport);
 
   return (
-    <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
-      <header className="border-b border-neutral-800 bg-[#101418] text-white">
-        <div className="mx-auto max-w-7xl px-6 py-8">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(132,204,22,0.16),_transparent_34%),linear-gradient(180deg,_#faf7ef_0%,_#f4f1ea_42%,_#eee7da_100%)] px-4 py-6 text-neutral-950 sm:px-6 lg:px-8">
+      <section className="mx-auto max-w-[1500px] overflow-hidden rounded-[2rem] border border-neutral-900 bg-neutral-950 text-white shadow-2xl shadow-neutral-950/10">
+        <div className="border-b border-white/10 bg-[radial-gradient(circle_at_top_right,_rgba(190,242,100,0.22),_transparent_32%),linear-gradient(135deg,_rgba(255,255,255,0.08),_transparent)] p-6 lg:p-8">
           <Link
             href={addAdminHandoff("/admin/market-intel", handoff)}
-            className="text-sm font-black text-amber-300 hover:underline"
+            className="inline-flex rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-white/15"
           >
             ← Market Intel Command Center
           </Link>
@@ -133,9 +133,9 @@ export default async function MarketIntelDeliveryPage({
             alert outbox and report history so nothing unchanged gets sent twice.
           </p>
         </div>
-      </header>
+      </section>
 
-      <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
+      <div className="mx-auto max-w-[1500px] space-y-6 py-6">
         {query?.alertsDelivered !== undefined ? (
           <Notice>
             Delivered {query.alertsDelivered} pending alert
@@ -152,7 +152,7 @@ export default async function MarketIntelDeliveryPage({
         {query?.error ? <Notice error>{query.error}</Notice> : null}
 
         {loadError ? (
-          <section className="rounded-xl border border-rose-200 bg-rose-50 p-6 text-rose-950">
+          <section className="rounded-3xl border border-rose-200 bg-rose-50 p-6 text-rose-950 shadow-sm ring-1 ring-rose-950/5">
             <h2 className="text-xl font-black">Alert/report migration required</h2>
             <p className="mt-2 font-semibold leading-6">{loadError}</p>
             <p className="mt-3 text-sm font-bold">
@@ -164,8 +164,8 @@ export default async function MarketIntelDeliveryPage({
         <section
           className={
             config.configured && config.enabled
-              ? "rounded-xl border border-emerald-200 bg-emerald-50 p-6 text-emerald-950"
-              : "rounded-xl border border-rose-200 bg-rose-50 p-6 text-rose-950"
+              ? "rounded-3xl border border-emerald-200 bg-emerald-50 p-6 text-emerald-950 shadow-sm ring-1 ring-emerald-950/5"
+              : "rounded-3xl border border-rose-200 bg-rose-50 p-6 text-rose-950 shadow-sm ring-1 ring-rose-950/5"
           }
         >
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
@@ -186,7 +186,7 @@ export default async function MarketIntelDeliveryPage({
                   : `Missing: ${config.missing.join(", ") || "No missing values"}.`}
               </p>
             </div>
-            <div className="rounded-lg border border-current/20 bg-white/50 p-4 text-sm font-bold">
+            <div className="rounded-2xl border border-current/20 bg-white/50 p-4 text-sm font-bold shadow-inner">
               <p>Enabled: {config.enabled ? "YES" : "NO"}</p>
               <p>From: {config.from || "Not set"}</p>
               <p>
@@ -206,7 +206,7 @@ export default async function MarketIntelDeliveryPage({
         </section>
 
         <section className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <section className="rounded-xl border border-cyan-200 bg-cyan-50 p-6">
+          <section className="rounded-3xl border border-cyan-200 bg-cyan-50 p-6 shadow-sm ring-1 ring-cyan-950/5">
             <p className="text-xs font-black uppercase tracking-[0.18em] text-cyan-800">
               Hourly Deal Delivery
             </p>
@@ -229,7 +229,7 @@ export default async function MarketIntelDeliveryPage({
                 disabled={Boolean(pendingAlertBlocker)}
                 disabledReason={pendingAlertBlocker}
                 title={pendingAlertBlocker || "Send up to 10 pending Market Intel alerts."}
-                className="w-full rounded-md bg-cyan-800 px-4 py-3 font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
+                className="w-full rounded-2xl bg-cyan-800 px-4 py-3 font-black text-white shadow-sm transition hover:bg-cyan-900 disabled:cursor-not-allowed disabled:opacity-40"
                 pendingChildren="Sending pending alerts..."
               >
                 Send {Math.min(10, pending.length)} Pending Alert
@@ -241,7 +241,7 @@ export default async function MarketIntelDeliveryPage({
             </p>
           </section>
 
-          <section className="rounded-xl border border-amber-200 bg-amber-50 p-6">
+          <section className="rounded-3xl border border-amber-200 bg-amber-50 p-6 shadow-sm ring-1 ring-amber-950/5">
             <p className="text-xs font-black uppercase tracking-[0.18em] text-amber-800">
               Daily Intelligence Delivery
             </p>
@@ -266,7 +266,7 @@ export default async function MarketIntelDeliveryPage({
                 disabled={Boolean(latestReportBlocker)}
                 disabledReason={latestReportBlocker}
                 title={latestReportBlocker || "Send the latest generated Market Intel daily report."}
-                className="w-full rounded-md bg-black px-4 py-3 font-black text-white disabled:cursor-not-allowed disabled:opacity-40"
+                className="w-full rounded-2xl bg-black px-4 py-3 font-black text-white shadow-sm transition hover:bg-neutral-800 disabled:cursor-not-allowed disabled:opacity-40"
                 pendingChildren="Sending latest report..."
               >
                 {latestReport?.status === "delivered"
@@ -281,7 +281,7 @@ export default async function MarketIntelDeliveryPage({
         </section>
 
         <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1.1fr_0.9fr]">
-          <section className="overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-sm">
+          <section className="overflow-hidden rounded-3xl border border-neutral-200 bg-white/95 shadow-sm ring-1 ring-black/[0.02]">
             <div className="border-b border-neutral-200 p-5">
               <h2 className="text-2xl font-black">Pending Delivery Queue</h2>
             </div>
@@ -329,12 +329,12 @@ export default async function MarketIntelDeliveryPage({
             )}
           </section>
 
-          <section className="rounded-xl border border-neutral-800 bg-[#101418] p-6 text-white">
+          <section className="rounded-3xl border border-neutral-800 bg-neutral-950 p-6 text-white shadow-2xl shadow-neutral-950/10">
             <p className="text-xs font-black uppercase tracking-[0.18em] text-lime-300">
               Required Production Variables
             </p>
             <h2 className="mt-1 text-2xl font-black">Vercel Environment</h2>
-            <pre className="mt-4 overflow-x-auto rounded-lg border border-neutral-700 bg-black p-4 text-xs leading-6 text-neutral-200">{`MARKET_INTEL_EMAIL_ENABLED=true
+            <pre className="mt-4 overflow-x-auto rounded-2xl border border-neutral-700 bg-black p-4 text-xs leading-6 text-neutral-200 shadow-inner">{`MARKET_INTEL_EMAIL_ENABLED=true
 MARKET_INTEL_FROM_EMAIL=TCOS Market Intel <alerts@your-verified-domain.com>
 MARKET_INTEL_ALERT_EMAIL=your-private-inbox@example.com
 RESEND_API_KEY=already-used-by-the-store`}</pre>
@@ -352,7 +352,7 @@ RESEND_API_KEY=already-used-by-the-store`}</pre>
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white p-4 shadow-sm">
+    <div className="rounded-3xl border border-neutral-200 bg-white/95 p-4 shadow-sm ring-1 ring-black/[0.02]">
       <p className="text-[11px] font-black uppercase tracking-wider text-neutral-500">
         {label}
       </p>
@@ -363,7 +363,7 @@ function Metric({ label, value }: { label: string; value: string }) {
 
 function SmallStat({ label, value }: { label: string; value: string }) {
   return (
-    <div className="min-w-24 rounded-lg border border-neutral-200 bg-neutral-50 p-3">
+    <div className="min-w-24 rounded-2xl border border-neutral-200 bg-neutral-50 p-3 shadow-sm ring-1 ring-black/[0.02]">
       <p className="text-[10px] font-black uppercase text-neutral-500">{label}</p>
       <p className="mt-1 font-black">{value}</p>
     </div>
@@ -383,8 +383,8 @@ function Notice({
       aria-live={error ? "assertive" : "polite"}
       className={
         error
-          ? "rounded-lg border border-rose-200 bg-rose-50 p-4 font-bold text-rose-900"
-          : "rounded-lg border border-emerald-200 bg-emerald-50 p-4 font-bold text-emerald-900"
+          ? "rounded-2xl border border-rose-200 bg-rose-50 p-4 font-bold text-rose-900 shadow-sm ring-1 ring-rose-950/5"
+          : "rounded-2xl border border-emerald-200 bg-emerald-50 p-4 font-bold text-emerald-900 shadow-sm ring-1 ring-emerald-950/5"
       }
     >
       {children}

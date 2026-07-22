@@ -70,7 +70,7 @@ export default async function MarketIntelReadinessPage({
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,#ecfeff_0,#f8fafc_40%,#fff7ed_100%)] px-4 py-6 text-neutral-950 sm:px-6 lg:px-8">
-      <header className="mx-auto max-w-[1500px] overflow-hidden rounded-[2rem] border border-neutral-900 bg-neutral-950 text-white shadow-2xl shadow-neutral-950/10">
+      <section className="mx-auto max-w-[1500px] overflow-hidden rounded-[2rem] border border-neutral-900 bg-neutral-950 text-white shadow-2xl shadow-neutral-950/10">
         <div className="bg-[radial-gradient(circle_at_top_left,rgba(103,232,249,0.24),transparent_34%),linear-gradient(135deg,#0f172a,#111827_55%,#164e63)] p-6 lg:p-8">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div>
@@ -99,7 +99,7 @@ export default async function MarketIntelReadinessPage({
             </div>
           </div>
         </div>
-      </header>
+      </section>
 
       <div className="mx-auto max-w-[1500px] space-y-6 py-6">
         <section
@@ -202,7 +202,7 @@ export default async function MarketIntelReadinessPage({
           ))}
         </section>
 
-        <section className="rounded-3xl border border-neutral-900 bg-neutral-950 p-6 text-white shadow-xl shadow-neutral-950/10 ring-1 ring-white/10">
+        <section className="rounded-3xl border border-neutral-900 bg-neutral-950 p-6 text-white shadow-2xl shadow-neutral-950/10 ring-1 ring-white/10">
           <p className="text-xs font-black uppercase tracking-[0.18em] text-lime-300">
             Beta One Operating Loop
           </p>

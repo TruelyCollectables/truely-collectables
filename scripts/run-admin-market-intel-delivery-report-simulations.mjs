@@ -128,6 +128,9 @@ scenario("reports page labels long-running outbox and report actions", () => {
 
 scenario("reports and readiness pages use professional command-desk presentation", () => {
   for (const fragment of [
+    "rounded-[2rem] border border-neutral-900 bg-neutral-950",
+    "shadow-2xl shadow-neutral-950/10",
+    "rounded-full border border-white/15 bg-white/10",
     "Intelligence Report Desk",
     "HeaderStat label=\"Pending Alerts\"",
     "HeaderStat label=\"Open Net\"",
@@ -142,16 +145,47 @@ scenario("reports and readiness pages use professional command-desk presentation
   }
 
   for (const fragment of [
+    "rounded-[2rem] border border-neutral-900 bg-neutral-950",
+    "shadow-2xl shadow-neutral-950/10",
+    "rounded-full border border-white/15 bg-white/10",
     "Readiness Control Board",
     "operator-grade audit",
     "HeaderStat label=\"Required\"",
     "Ready to operate",
     "Action required",
-    "rounded-3xl border border-neutral-800 bg-[#101418]",
+    "rounded-3xl border border-neutral-800 bg-neutral-950",
   ]) {
     assert(
       readinessPageSource.includes(fragment),
       `Expected readiness presentation fragment ${fragment}.`,
+    );
+  }
+});
+
+scenario("delivery center and test email use professional command presentation", () => {
+  for (const fragment of [
+    "rounded-[2rem] border border-neutral-900 bg-neutral-950",
+    "shadow-2xl shadow-neutral-950/10",
+    "rounded-3xl border border-neutral-200 bg-white/95",
+    "shadow-sm ring-1 ring-black/[0.02]",
+    "rounded-full border border-white/15 bg-white/10",
+  ]) {
+    assert(
+      deliveryPageSource.includes(fragment),
+      `Expected delivery presentation fragment ${fragment}.`,
+    );
+  }
+
+  for (const fragment of [
+    "rounded-[2rem] border border-neutral-900 bg-neutral-950",
+    "shadow-2xl shadow-neutral-950/10",
+    "inline-flex rounded-full border border-neutral-300 bg-white/90",
+    "rounded-3xl border border-emerald-200",
+    "rounded-2xl bg-black px-5 py-4",
+  ]) {
+    assert(
+      testEmailPageSource.includes(fragment),
+      `Expected test email presentation fragment ${fragment}.`,
     );
   }
 });
