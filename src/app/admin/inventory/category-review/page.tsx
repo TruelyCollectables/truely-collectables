@@ -192,7 +192,7 @@ export default async function CategoryReviewPage() {
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_#fef3c7,_transparent_28%),linear-gradient(180deg,_#f8fafc,_#f5f5f4)] px-4 py-6 text-neutral-950 sm:px-6 lg:px-8">
-      <section className="mx-auto max-w-7xl overflow-hidden rounded-[2rem] border border-neutral-900 bg-neutral-950 text-white shadow-2xl shadow-neutral-950/10">
+      <section className="mx-auto max-w-[1500px] overflow-hidden rounded-[2rem] border border-neutral-900 bg-neutral-950 text-white shadow-2xl shadow-neutral-950/10">
         <div className="flex flex-col gap-5 border-b border-white/10 bg-[radial-gradient(circle_at_top_right,_rgba(251,191,36,0.28),_transparent_34%),linear-gradient(135deg,_rgba(255,255,255,0.08),_transparent)] p-6 lg:flex-row lg:items-end lg:justify-between lg:p-8">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.16em] text-amber-300">
@@ -216,7 +216,7 @@ export default async function CategoryReviewPage() {
         </div>
       </section>
 
-      <div className="mx-auto max-w-7xl space-y-6 py-6">
+      <div className="mx-auto max-w-[1500px] space-y-6 py-6">
         {error ? (
           <section className="rounded-3xl border border-rose-200 bg-rose-50 p-5 text-sm font-bold text-rose-900 shadow-sm ring-1 ring-rose-950/5">
             <h2 className="text-lg font-black text-rose-950">

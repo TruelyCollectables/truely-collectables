@@ -517,7 +517,7 @@ export default function BulkCandidateControls({
       ) : null}
 
       {candidates.length > 0 ? (
-        <div className="fixed inset-x-4 bottom-4 z-[60] mx-auto max-w-5xl rounded-xl border border-neutral-700 bg-[#101418] p-4 text-white shadow-2xl">
+        <div className="fixed inset-x-4 bottom-4 z-[60] mx-auto max-w-5xl rounded-3xl border border-neutral-900 bg-neutral-950 p-4 text-white shadow-2xl shadow-neutral-950/30 ring-1 ring-white/10">
           <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
             <div>
               <p className="text-xs font-black uppercase tracking-[0.16em] text-cyan-300">

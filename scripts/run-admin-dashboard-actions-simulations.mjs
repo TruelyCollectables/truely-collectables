@@ -119,6 +119,14 @@ const adminPageEntries = await Promise.all(
     source: await readFile(filePath, "utf8"),
   })),
 );
+const adminTsxEntries = await Promise.all(
+  (
+    await walkFiles(adminRoot, (filePath) => filePath.endsWith(".tsx"))
+  ).map(async (filePath) => ({
+    filePath,
+    source: await readFile(filePath, "utf8"),
+  })),
+);
 const staticAdminPageRoutes = adminPageEntries
   .map((entry) => entry.route)
   .filter((route) => !route.includes("["))
@@ -685,6 +693,22 @@ scenario("admin page shells do not strand operators", () => {
       hasDirectAdminNavigation || usesGuardedSharedShell(entry.source),
       `Expected ${entry.route} to expose admin navigation directly or use a guarded shared admin shell.`,
     );
+  }
+});
+
+scenario("admin TSX surfaces avoid rough legacy shell fragments", () => {
+  for (const entry of adminTsxEntries) {
+    for (const roughShell of [
+      'bg-[#f4f1ea]',
+      'bg-[#101418]',
+      "max-w-7xl",
+      "rounded-xl border-4",
+    ]) {
+      assert(
+        !entry.source.includes(roughShell),
+        `Expected ${path.relative(repoRoot, entry.filePath)} to avoid rough legacy shell fragment ${roughShell}.`,
+      );
+    }
   }
 });
 

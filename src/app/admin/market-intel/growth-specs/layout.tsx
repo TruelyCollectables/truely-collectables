@@ -47,7 +47,7 @@ export default async function GrowthSpecsLayout({
 
   return (
     <>
-      <section className="bg-[#f4f1ea] px-4 pt-6 text-fuchsia-950 sm:px-6 lg:px-8">
+      <section className="bg-[radial-gradient(circle_at_top_left,#fae8ff_0,#f8fafc_44%,#f7fee7_100%)] px-4 pt-6 text-fuchsia-950 sm:px-6 lg:px-8">
         <div className="mx-auto flex max-w-[1500px] flex-col gap-3 rounded-3xl border border-fuchsia-200 bg-fuchsia-50/95 p-5 shadow-sm ring-1 ring-fuchsia-950/5 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <p className="text-xs font-black uppercase tracking-[0.16em]">

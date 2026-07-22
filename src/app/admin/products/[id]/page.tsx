@@ -330,7 +330,7 @@ export default async function AdminProductEditPage({
 
   return (
     <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_#ecfdf5,_transparent_28%),linear-gradient(180deg,_#f8fafc,_#f5f5f4)] px-4 py-6 text-neutral-950 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-7xl space-y-6">
+      <div className="mx-auto max-w-[1500px] space-y-6">
         <section className="overflow-hidden rounded-[2rem] border border-neutral-900 bg-neutral-950 shadow-2xl shadow-neutral-950/10">
           <div className="border-b border-white/10 bg-[radial-gradient(circle_at_top_right,_rgba(16,185,129,0.28),_transparent_34%),linear-gradient(135deg,_rgba(255,255,255,0.08),_transparent)] p-6 lg:p-8">
             <div className="flex flex-wrap items-start justify-between gap-6">

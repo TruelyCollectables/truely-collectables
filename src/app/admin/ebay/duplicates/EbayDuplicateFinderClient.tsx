@@ -498,7 +498,7 @@ export default function EbayDuplicateFinderClient() {
   }
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6 px-6 py-8">
+    <div className="mx-auto max-w-[1500px] space-y-6 py-6">
       <section className="rounded-3xl border border-amber-200/80 bg-white/85 p-6 text-amber-950 shadow-sm ring-1 ring-black/[0.02] backdrop-blur">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>

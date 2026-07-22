@@ -186,7 +186,7 @@ export default function EbayImportRunner() {
   }
 
   return (
-    <section className="rounded-xl border-4 border-emerald-400 bg-emerald-50 p-6 text-emerald-950 shadow-lg">
+    <section className="rounded-3xl border border-emerald-200 bg-emerald-50 p-6 text-emerald-950 shadow-sm ring-1 ring-emerald-950/5">
       <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
         <div>
           <p className="text-sm font-black uppercase tracking-[0.18em] text-emerald-700">

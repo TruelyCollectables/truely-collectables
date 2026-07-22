@@ -23,8 +23,8 @@ export default function AdminError({
   }, [error]);
 
   return (
-    <main className="min-h-screen bg-[#f4f1ea] px-6 py-10 text-neutral-950">
-      <section className="mx-auto max-w-4xl overflow-hidden rounded-2xl border border-rose-200 bg-white shadow-sm">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,#fff1f2_0,#f8fafc_40%,#fff7ed_100%)] px-4 py-8 text-neutral-950 sm:px-6 lg:px-8">
+      <section className="mx-auto max-w-[1000px] overflow-hidden rounded-[2rem] border border-rose-200 bg-white/95 shadow-2xl shadow-rose-950/10 ring-1 ring-rose-950/5">
         <div className="border-b border-rose-200 bg-rose-50 p-6">
           <p className="text-xs font-black uppercase tracking-[0.2em] text-rose-700">
             Admin recovery
@@ -40,7 +40,7 @@ export default function AdminError({
         </div>
 
         <div className="grid gap-5 p-6">
-          <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-4">
+          <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4 shadow-sm">
             <p className="text-xs font-black uppercase tracking-wide text-neutral-500">
               Safe recovery reference
             </p>
@@ -58,19 +58,19 @@ export default function AdminError({
             <button
               type="button"
               onClick={() => unstable_retry()}
-              className="rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white hover:bg-neutral-800"
+              className="rounded-full bg-neutral-950 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-neutral-800 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
             >
               Retry This Panel
             </button>
             <Link
               href="/admin"
-              className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50"
+              className="rounded-full border border-neutral-300 bg-white px-4 py-2 text-sm font-black shadow-sm transition hover:-translate-y-0.5 hover:bg-neutral-50 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
             >
               Admin Command Center
             </Link>
             <Link
               href="/admin/production-smoke"
-              className="rounded-md border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-black text-amber-950 hover:bg-amber-100"
+              className="rounded-full border border-amber-300 bg-amber-50 px-4 py-2 text-sm font-black text-amber-950 shadow-sm transition hover:-translate-y-0.5 hover:bg-amber-100 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-rose-300"
             >
               Production Smoke
             </Link>

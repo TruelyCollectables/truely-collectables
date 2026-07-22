@@ -348,7 +348,7 @@ export default function SelectedPurchaseControls({
 
       {modalOpen ? (
         <div className="fixed inset-0 z-[90] overflow-y-auto bg-black/70 p-4">
-          <div className="mx-auto my-6 max-w-7xl rounded-2xl bg-[#f4f1ea] p-5 shadow-2xl">
+          <div className="mx-auto my-6 max-w-[1500px] rounded-3xl border border-neutral-200 bg-white/95 p-5 shadow-2xl shadow-neutral-950/20 ring-1 ring-black/[0.04]">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
                 <p className="text-xs font-black uppercase tracking-[0.18em] text-lime-800">

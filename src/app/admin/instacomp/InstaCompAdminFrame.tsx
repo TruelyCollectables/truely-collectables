@@ -45,9 +45,9 @@ export default function InstaCompAdminFrame({
   children,
 }: InstaCompAdminFrameProps) {
   return (
-    <main className="min-h-screen bg-[#f4f1ea] px-6 py-8 text-neutral-950">
-      <div className="mx-auto max-w-7xl">
-        <section className="overflow-hidden rounded-3xl border border-neutral-900 bg-[#101418] text-white shadow-xl">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,#ecfeff_0,#f8fafc_40%,#fff7ed_100%)] px-4 py-6 text-neutral-950 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-[1500px]">
+        <section className="overflow-hidden rounded-[2rem] border border-neutral-900 bg-neutral-950 text-white shadow-2xl shadow-neutral-950/10">
           <div className="grid gap-8 p-6 lg:grid-cols-[1.08fr_0.92fr] lg:p-8">
             <div>
               <p className="text-xs font-black uppercase tracking-[0.22em] text-cyan-300">

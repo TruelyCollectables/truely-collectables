@@ -961,7 +961,7 @@ export default async function AdminShippingPage() {
 
   return (
     <main className="min-h-screen bg-neutral-50 px-6 py-8 text-neutral-950">
-      <div className="mx-auto max-w-7xl space-y-6">
+      <div className="mx-auto max-w-[1500px] space-y-6">
         <section className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm">
           <div className="flex flex-wrap items-end justify-between gap-5">
             <div>
