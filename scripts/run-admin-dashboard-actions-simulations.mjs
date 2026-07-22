@@ -730,8 +730,12 @@ scenario("admin accounts page keeps partial linked-data failures operator-readab
     "Linked activity",
     "Linked order/offer counts are labeled unavailable instead of shown as false zeroes.",
     "separate buyer readiness from admin access",
-    "overflow-hidden rounded-3xl border border-neutral-200 bg-white shadow-sm ring-1",
-    "rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm ring-1",
+    "rounded-[2rem] border border-neutral-900 bg-neutral-950",
+    "shadow-2xl shadow-neutral-950/10",
+    "max-w-[1500px]",
+    "border border-white/15 bg-white/10",
+    "overflow-hidden rounded-3xl border border-neutral-200 bg-white/95 shadow-sm ring-1",
+    "rounded-3xl border border-neutral-200 bg-white/95 p-5 shadow-sm ring-1",
     "transition hover:bg-neutral-50",
     "focus-visible:outline-amber-300",
   ]) {
@@ -746,6 +750,12 @@ scenario("admin accounts page keeps partial linked-data failures operator-readab
       !adminAccountsPageSource.includes("throw offersResult.error"),
     "Expected account linked-data failures to render inline instead of crashing the page.",
   );
+  for (const roughShell of ['bg-[#f4f1ea]', 'bg-[#101418]', "max-w-7xl"]) {
+    assert(
+      !adminAccountsPageSource.includes(roughShell),
+      `Expected accounts page to avoid rough shell fragment ${roughShell}.`,
+    );
+  }
 });
 
 scenario("admin files page does not show false-empty evidence queues", () => {

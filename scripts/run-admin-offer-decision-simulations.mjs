@@ -178,6 +178,10 @@ scenario("offer desk uses professional command presentation", async () => {
 
   for (const snippet of [
     "Decision actions stay locked after pending status",
+    "rounded-[2rem] border border-neutral-900 bg-neutral-950",
+    "shadow-2xl shadow-neutral-950/10",
+    "max-w-[1500px]",
+    "border border-white/15 bg-white/10",
     "HeaderStat label=\"Pending\"",
     "HeaderStat label=\"Open Value\"",
     "HeaderStat label=\"Accepted\"",
@@ -188,6 +192,13 @@ scenario("offer desk uses professional command presentation", async () => {
     "transition hover:bg-neutral-50 xl:grid-cols",
   ]) {
     assert(source.includes(snippet), `Expected offer desk presentation fragment ${snippet}`);
+  }
+
+  for (const roughShell of ['bg-[#f4f1ea]', 'bg-[#101418]', "max-w-7xl"]) {
+    assert(
+      !source.includes(roughShell),
+      `Expected offer desk to avoid rough shell fragment ${roughShell}.`,
+    );
   }
 });
 
