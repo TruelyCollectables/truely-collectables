@@ -189,6 +189,26 @@ scenario("settings page announces scoped save feedback and eBay sync impact", ()
   }
 });
 
+scenario("settings page exposes professional operator controls", () => {
+  for (const fragment of [
+    "Store Control Center",
+    "Store identity",
+    "Email routing",
+    "eBay sync policy",
+    "rounded-3xl border border-neutral-200 bg-white/90",
+    "rounded-full bg-neutral-950",
+    "transition hover:-translate-y-0.5",
+    "focus:ring-2 focus:ring-amber-100",
+    "shadow-sm ring-1 ring-black/[0.02]",
+    "rounded-full border border-white/20",
+  ]) {
+    assert(
+      settingsPageSource.includes(fragment),
+      `Expected settings page professional control fragment ${fragment}.`,
+    );
+  }
+});
+
 const failed = [];
 
 for (const item of scenarios) {
