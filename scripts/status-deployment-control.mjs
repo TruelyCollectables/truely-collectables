@@ -3,6 +3,7 @@ import path from "node:path";
 
 const args = new Set(process.argv.slice(2));
 const jsonOutput = args.has("--json");
+const handoffOutput = args.has("--handoff");
 const strict = args.has("--strict");
 const repoRoot = process.cwd();
 const githubRepo =
@@ -348,6 +349,44 @@ function buildReleasePath(checks) {
   ];
 }
 
+function buildAutomationHandoff(githubWorkflowResult) {
+  const workflowUrl = `https://github.com/${githubRepo}/actions/workflows/tcos-scheduled-production-release.yml`;
+  const workflowFileUrl =
+    githubWorkflowResult.evidence.url ||
+    `https://github.com/${githubRepo}/blob/main/${scheduledReleaseWorkflowPath}`;
+  const workflowId = githubWorkflowResult.evidence.id || null;
+  const workflowState = githubWorkflowResult.evidence.state || "unknown";
+
+  return {
+    title: "TCOS Scheduled Production Release approval handoff",
+    currentState: workflowState,
+    workflowUrl,
+    workflowFileUrl,
+    disableReason:
+      "Disable this scheduled release workflow before merging admin-dashboard-work so no automation can push main and trigger an unapproved Vercel production build.",
+    dashboardSteps: [
+      `Open ${workflowUrl}`,
+      "Use the workflow menu to disable the workflow.",
+      "Rerun npm run status:deployment-control and confirm the Admin dashboard release readiness gate is PASS.",
+      "Keep the workflow disabled until the approved one-build admin dashboard release is finished.",
+      "After release and smoke verification, decide whether to re-enable it, convert it to manual-only, or leave it disabled.",
+    ],
+    cliSteps: workflowId
+      ? [
+          `gh workflow disable ${workflowId} --repo ${githubRepo}`,
+          "npm run status:deployment-control",
+          `gh workflow enable ${workflowId} --repo ${githubRepo} # only after release/spend review`,
+        ]
+      : [
+          `gh workflow disable "TCOS Scheduled Production Release" --repo ${githubRepo}`,
+          "npm run status:deployment-control",
+          `gh workflow enable "TCOS Scheduled Production Release" --repo ${githubRepo} # only after release/spend review`,
+        ],
+    noDeployGuarantee:
+      "Disabling or enabling a GitHub Actions workflow changes workflow scheduling state only. It does not merge code, push main, or start a Vercel deployment.",
+  };
+}
+
 function printTextReport(payload) {
   console.log("TCOS deployment build-control status:");
   console.log(`- overall: ${payload.overall}`);
@@ -385,6 +424,28 @@ function printTextReport(payload) {
   payload.singleReleasePath.forEach((step, index) => {
     console.log(`${index + 1}. ${step}`);
   });
+}
+
+function printAutomationHandoff(payload) {
+  const handoff = payload.automationHandoff;
+
+  console.log("");
+  console.log(handoff.title);
+  console.log(`- current GitHub state: ${handoff.currentState}`);
+  console.log(`- workflow: ${handoff.workflowUrl}`);
+  console.log(`- why disable: ${handoff.disableReason}`);
+  console.log("");
+  console.log("Dashboard steps:");
+  handoff.dashboardSteps.forEach((step, index) => {
+    console.log(`${index + 1}. ${step}`);
+  });
+  console.log("");
+  console.log("CLI equivalent, if gh is installed and authenticated:");
+  handoff.cliSteps.forEach((step, index) => {
+    console.log(`${index + 1}. ${step}`);
+  });
+  console.log("");
+  console.log(`No-deploy guarantee: ${handoff.noDeployGuarantee}`);
 }
 
 const checks = [
@@ -430,6 +491,7 @@ const payload = {
   strict,
   checks,
   singleReleasePath: buildReleasePath(checks),
+  automationHandoff: buildAutomationHandoff(githubWorkflowStateResult),
   noDeployGuarantee:
     "This command is read-only. It does not push git refs, merge branches, start a Vercel deployment, change aliases, call production cron endpoints, or mutate GitHub workflow state.",
 };
@@ -438,6 +500,9 @@ if (jsonOutput) {
   console.log(JSON.stringify(payload, null, 2));
 } else {
   printTextReport(payload);
+  if (handoffOutput) {
+    printAutomationHandoff(payload);
+  }
 }
 
 if (strict && ["attention", "fail"].includes(payload.overall)) {

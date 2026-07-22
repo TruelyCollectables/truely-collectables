@@ -35,6 +35,12 @@ For machine-readable output:
 npm run status:deployment-control:json
 ```
 
+For an operator handoff that prints the exact workflow-disable/re-enable instructions:
+
+```bash
+npm run status:deployment-control:handoff
+```
+
 For a strict gate that fails while scheduled release automation is active or cannot be verified disabled:
 
 ```bash
