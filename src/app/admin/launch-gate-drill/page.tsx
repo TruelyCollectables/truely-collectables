@@ -48,9 +48,9 @@ export default async function LaunchGateDrillPage() {
   const report = await runLaunchGateDrill({ supabase, storeId });
 
   return (
-    <main className="min-h-screen bg-neutral-50 px-6 py-8 text-neutral-950">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,#eff6ff_0,#f8fafc_38%,#fff7ed_100%)] px-6 py-8 text-neutral-950">
       <div className="mx-auto max-w-6xl space-y-6">
-        <section className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm">
+        <section className="rounded-3xl border border-neutral-200 bg-white/90 p-6 shadow-sm ring-1 ring-black/[0.02] backdrop-blur">
           <div className="flex flex-wrap items-end justify-between gap-5">
             <div>
               <p className="text-xs font-black uppercase tracking-[0.18em] text-sky-700">
@@ -71,25 +71,25 @@ export default async function LaunchGateDrillPage() {
             <div className="flex flex-wrap gap-3">
               <Link
                 href="/admin/launch-readiness"
-                className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50"
+                className="rounded-full border border-neutral-300 bg-white px-4 py-2 text-sm font-black shadow-sm transition hover:-translate-y-0.5 hover:bg-neutral-50 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
               >
                 Launch Readiness
               </Link>
               <Link
                 href="/api/admin/launch-gate-drill?format=markdown"
-                className="rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white hover:bg-neutral-800"
+                className="rounded-full bg-neutral-950 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:-translate-y-0.5 hover:bg-neutral-800 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
               >
                 Download Drill Report
               </Link>
               <Link
                 href="/admin/live-payment-launch"
-                className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50"
+                className="rounded-full border border-neutral-300 bg-white px-4 py-2 text-sm font-black shadow-sm transition hover:-translate-y-0.5 hover:bg-neutral-50 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
               >
                 Payment Gate
               </Link>
               <Link
                 href="/admin/live-shipping-launch"
-                className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black hover:bg-neutral-50"
+                className="rounded-full border border-neutral-300 bg-white px-4 py-2 text-sm font-black shadow-sm transition hover:-translate-y-0.5 hover:bg-neutral-50 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-400"
               >
                 Shipping Gate
               </Link>
@@ -98,7 +98,7 @@ export default async function LaunchGateDrillPage() {
         </section>
 
         <section
-          className={`rounded-3xl border p-6 shadow-sm ${
+          className={`rounded-3xl border p-6 shadow-sm ring-1 ring-black/[0.02] ${
             report.summary.failed === 0
               ? "border-green-300 bg-green-50"
               : "border-red-300 bg-red-50"
@@ -179,7 +179,7 @@ export default async function LaunchGateDrillPage() {
           <PostureCard title="Shipping Launch Posture" posture={report.posture.shipping} />
         </section>
 
-        <section className="rounded-3xl border border-emerald-200 bg-emerald-50 p-6 text-emerald-950 shadow-sm">
+        <section className="rounded-3xl border border-emerald-200 bg-emerald-50 p-6 text-emerald-950 shadow-sm ring-1 ring-emerald-900/5">
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <p className="text-xs font-black uppercase tracking-widest">
@@ -194,7 +194,7 @@ export default async function LaunchGateDrillPage() {
             </div>
             <Link
               href="/admin/live-payment-launch"
-              className="rounded-md border border-emerald-300 bg-white px-4 py-2 text-sm font-black hover:bg-emerald-100"
+              className="rounded-full border border-emerald-300 bg-white px-4 py-2 text-sm font-black shadow-sm transition hover:-translate-y-0.5 hover:bg-emerald-100 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-400"
             >
               Open Live Payment Gate
             </Link>
@@ -257,11 +257,11 @@ export default async function LaunchGateDrillPage() {
           {report.checks.map((item) => (
             <article
               key={item.key}
-              className={`rounded-2xl border p-5 shadow-sm ${tone(item.status)}`}
+              className={`rounded-2xl border p-5 shadow-sm ring-1 ring-black/[0.02] ${tone(item.status)}`}
             >
               <div className="flex items-start justify-between gap-4">
                 <h2 className="font-black">{item.label}</h2>
-                <span className="rounded border border-current px-2 py-1 text-xs font-black uppercase">
+                <span className="rounded-full border border-current px-2 py-1 text-xs font-black uppercase">
                   {label(item.status)}
                 </span>
               </div>
@@ -295,7 +295,7 @@ export default async function LaunchGateDrillPage() {
           </div>
         </section>
 
-        <section className="rounded-3xl border border-neutral-200 bg-white p-6 shadow-sm">
+        <section className="rounded-3xl border border-neutral-200 bg-white/90 p-6 shadow-sm ring-1 ring-black/[0.02] backdrop-blur">
           <h2 className="text-xl font-black">What This Proves</h2>
           <div className="mt-4 grid gap-4 text-sm leading-6 md:grid-cols-3">
             <p>
@@ -323,7 +323,7 @@ function ShippingProviderUnlockPlan({
   actionPlan: ProviderSetupActionPlanStep[];
 }) {
   return (
-    <section className="mb-8 rounded border border-indigo-200 bg-indigo-50 p-6 text-indigo-950">
+    <section className="mb-8 rounded-3xl border border-indigo-200 bg-indigo-50 p-6 text-indigo-950 shadow-sm ring-1 ring-indigo-900/5">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-xs font-black uppercase tracking-widest">
@@ -340,7 +340,7 @@ function ShippingProviderUnlockPlan({
         </div>
         <Link
           href="/api/admin/shipping/provider-setup?format=operator-checklist"
-          className="rounded border border-indigo-300 bg-white px-4 py-2 text-sm font-black"
+          className="rounded-full border border-indigo-300 bg-white px-4 py-2 text-sm font-black shadow-sm transition hover:-translate-y-0.5 hover:bg-indigo-100 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-400"
         >
           Operator Checklist
         </Link>
@@ -350,7 +350,7 @@ function ShippingProviderUnlockPlan({
         {actionPlan.map((step) => (
           <li
             key={step.order}
-            className={`rounded border p-3 ${
+            className={`rounded-2xl border p-3 shadow-sm ring-1 ring-black/[0.02] ${
               step.status === "ready"
                 ? "border-green-200 bg-green-50 text-green-950"
                 : step.status === "guarded"
@@ -362,7 +362,7 @@ function ShippingProviderUnlockPlan({
               <h3 className="font-black">
                 {step.order}. {step.title}
               </h3>
-              <span className="rounded border border-current px-2 py-1 text-[10px] font-black uppercase">
+              <span className="rounded-full border border-current px-2 py-1 text-[10px] font-black uppercase">
                 {step.status}
               </span>
             </div>
@@ -375,19 +375,19 @@ function ShippingProviderUnlockPlan({
       <div className="mt-4 flex flex-wrap gap-3 text-sm font-black">
         <Link
           href="/api/admin/shipping/provider-setup?format=env-template"
-          className="rounded border border-indigo-300 bg-white px-3 py-2"
+          className="rounded-full border border-indigo-300 bg-white px-3 py-2 shadow-sm transition hover:-translate-y-0.5 hover:bg-indigo-100 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-400"
         >
           Env Template
         </Link>
         <Link
           href="/api/admin/shipping/provider-setup?format=vercel-commands"
-          className="rounded border border-indigo-300 bg-white px-3 py-2"
+          className="rounded-full border border-indigo-300 bg-white px-3 py-2 shadow-sm transition hover:-translate-y-0.5 hover:bg-indigo-100 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-400"
         >
           Vercel Commands
         </Link>
         <Link
           href="/admin/live-shipping-launch"
-          className="rounded border border-indigo-300 bg-white px-3 py-2"
+          className="rounded-full border border-indigo-300 bg-white px-3 py-2 shadow-sm transition hover:-translate-y-0.5 hover:bg-indigo-100 hover:shadow-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-400"
         >
           Live Shipping Gate
         </Link>
@@ -410,7 +410,7 @@ function PostureCard({
   );
 
   return (
-    <article className={`rounded border p-5 ${postureTone(posture.status)}`}>
+    <article className={`rounded-3xl border p-5 shadow-sm ring-1 ring-black/[0.02] ${postureTone(posture.status)}`}>
       <div className="flex items-start justify-between gap-4">
         <div>
           <p className="text-xs font-black uppercase tracking-widest opacity-70">
@@ -418,7 +418,7 @@ function PostureCard({
           </p>
           <h2 className="mt-1 text-xl font-black">{posture.label}</h2>
         </div>
-        <span className="rounded border border-current px-2 py-1 text-xs font-black uppercase">
+        <span className="rounded-full border border-current px-2 py-1 text-xs font-black uppercase">
           {postureLabel(posture.status)}
         </span>
       </div>
@@ -433,13 +433,13 @@ function PostureCard({
             {visibleBlockedChecks.map((check) => (
               <span
                 key={check}
-                className="rounded border border-current px-2 py-1 text-xs font-bold"
+                className="rounded-full border border-current px-2 py-1 text-xs font-bold"
               >
                 {check}
               </span>
             ))}
             {hiddenBlockedCount > 0 ? (
-              <span className="rounded border border-current px-2 py-1 text-xs font-bold">
+              <span className="rounded-full border border-current px-2 py-1 text-xs font-bold">
                 +{hiddenBlockedCount} more
               </span>
             ) : null}
@@ -476,7 +476,7 @@ function MiniRunwayCount({
         : "text-red-700";
 
   return (
-    <div className="rounded border border-emerald-200 bg-white p-3">
+    <div className="rounded-2xl border border-emerald-200 bg-white p-3 shadow-sm ring-1 ring-emerald-900/5">
       <p className={`text-2xl font-black ${toneClass}`}>{value}</p>
       <p className="text-xs font-black uppercase text-neutral-500">{label}</p>
     </div>

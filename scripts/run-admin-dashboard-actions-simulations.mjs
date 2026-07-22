@@ -33,6 +33,10 @@ const launchReadinessPageSource = await readFile(
   new URL("../src/app/admin/launch-readiness/page.tsx", import.meta.url),
   "utf8",
 );
+const launchGateDrillPageSource = await readFile(
+  new URL("../src/app/admin/launch-gate-drill/page.tsx", import.meta.url),
+  "utf8",
+);
 const adminNewProductPageSource = await readFile(
   new URL("../src/app/admin/products/new/page.tsx", import.meta.url),
   "utf8",
@@ -409,6 +413,26 @@ scenario("launch readiness keeps capability failures operator-safe", () => {
     assert(
       !launchReadinessPageSource.includes(forbidden),
       `Expected launch readiness page not to expose raw failure fragment ${forbidden}.`,
+    );
+  }
+});
+
+scenario("launch gate drill uses professional runtime-smoke presentation", () => {
+  for (const fragment of [
+    "bg-[radial-gradient(circle_at_top_left,#eff6ff_0,#f8fafc_38%,#fff7ed_100%)]",
+    "rounded-full bg-neutral-950",
+    "transition hover:-translate-y-0.5",
+    "focus-visible:outline-sky-400",
+    "shadow-sm ring-1 ring-black/[0.02]",
+    "rounded-3xl border border-indigo-200 bg-indigo-50",
+    "rounded-full border border-indigo-300",
+    "rounded-full border border-current",
+    "rounded-2xl border border-emerald-200 bg-white p-3 shadow-sm",
+    "Download Drill Report",
+  ]) {
+    assert(
+      launchGateDrillPageSource.includes(fragment),
+      `Expected launch gate drill professional presentation fragment ${fragment}.`,
     );
   }
 });
