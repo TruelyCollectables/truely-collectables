@@ -304,6 +304,10 @@ scenario("product list exposes a direct end-early action", () => {
 scenario("product list uses professional inventory command presentation", () => {
   for (const fragment of [
     "stale buyer availability",
+    "rounded-[2rem] border border-neutral-900 bg-neutral-950",
+    "shadow-2xl shadow-neutral-950/10",
+    "max-w-[1500px]",
+    "border border-white/15 bg-white/10",
     "HeaderStat label=\"Products\"",
     "HeaderStat label=\"Active\"",
     "HeaderStat label=\"On Hand\"",
@@ -319,6 +323,13 @@ scenario("product list uses professional inventory command presentation", () => 
       `Expected products list presentation fragment ${fragment}.`,
     );
   }
+
+  for (const roughShell of ['bg-[#f4f1ea]', 'bg-[#101418]', "max-w-7xl"]) {
+    assert(
+      !productsPageSource.includes(roughShell),
+      `Expected products list to avoid rough shell fragment ${roughShell}.`,
+    );
+  }
 });
 
 scenario("new product intake keeps manual creation safe and professional", () => {
@@ -326,6 +337,11 @@ scenario("new product intake keeps manual creation safe and professional", () =>
     "adminProductActionFailureMessage",
     "Manual product could not be created.",
     "Inventory intake",
+    "rounded-[2rem] border border-neutral-900 bg-neutral-950",
+    "shadow-2xl shadow-neutral-950/10",
+    "max-w-[1500px]",
+    "border border-white/15 bg-white/10",
+    "focus:ring-4 focus:ring-black/10",
     "HeaderStat label=\"Scanner\"",
     "HeaderStat label=\"Manual\"",
     "HeaderStat label=\"Publish\"",
@@ -348,6 +364,12 @@ scenario("new product intake keeps manual creation safe and professional", () =>
     !newProductPageSource.includes("error.message.trim()"),
     "Expected new product intake to avoid raw create error messages.",
   );
+  for (const roughShell of ['bg-[#f4f1ea]', 'bg-[#101418]', "max-w-7xl"]) {
+    assert(
+      !newProductPageSource.includes(roughShell),
+      `Expected new product intake to avoid rough shell fragment ${roughShell}.`,
+    );
+  }
 });
 
 scenario("inventory engine enforces admin product status policy", () => {

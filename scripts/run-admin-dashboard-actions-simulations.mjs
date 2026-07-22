@@ -189,10 +189,22 @@ scenario("inventory bridge and manual product submits explain scope", () => {
     "Backfill Inventory Bridge",
     "Backfill missing inventory bridge records from existing product data without publishing or changing live listings.",
     "Repairs local inventory bridge records only; buyer-facing products and eBay listings are not published.",
+    "rounded-[2rem] border border-neutral-900 bg-neutral-950",
+    "max-w-[1500px]",
+    "border border-white/15 bg-white/10",
+    "rounded-3xl border border-neutral-200 bg-white/95",
+    "shadow-sm ring-1 ring-black/[0.02]",
   ]) {
     assert(
       adminInventoryPageSource.includes(fragment),
       `Expected inventory bridge action-scope fragment ${fragment}.`,
+    );
+  }
+
+  for (const roughShell of ['bg-[#f4f1ea]', 'bg-[#101418]', "max-w-7xl"]) {
+    assert(
+      !adminInventoryPageSource.includes(roughShell),
+      `Expected inventory bridge to avoid rough shell fragment ${roughShell}.`,
     );
   }
 

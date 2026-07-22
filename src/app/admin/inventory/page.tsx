@@ -78,9 +78,9 @@ export default async function AdminInventoryPage({
   const visibleRows = [...attentionRows, ...cleanRows].slice(0, 150);
 
   return (
-    <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
-      <section className="border-b border-neutral-200 bg-[#101418] text-white">
-        <div className="mx-auto flex max-w-7xl flex-col gap-5 px-6 py-6 lg:flex-row lg:items-end lg:justify-between">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(245,158,11,0.15),_transparent_34%),linear-gradient(180deg,_#faf7ef_0%,_#f4f1ea_42%,_#eee7da_100%)] px-4 py-6 text-neutral-950 sm:px-6 lg:px-8">
+      <section className="mx-auto max-w-[1500px] overflow-hidden rounded-[2rem] border border-neutral-900 bg-neutral-950 text-white shadow-2xl shadow-neutral-950/10">
+        <div className="flex flex-col gap-5 border-b border-white/10 bg-[radial-gradient(circle_at_top_right,_rgba(245,158,11,0.22),_transparent_32%),linear-gradient(135deg,_rgba(255,255,255,0.08),_transparent)] p-6 lg:flex-row lg:items-end lg:justify-between lg:p-8">
           <div>
             <p className="text-sm font-semibold uppercase tracking-[0.16em] text-amber-300">
               Universal Inventory Engine
@@ -88,7 +88,7 @@ export default async function AdminInventoryPage({
             <h1 className="mt-2 text-4xl font-black tracking-tight">
               Inventory Bridge
             </h1>
-            <p className="mt-2 max-w-3xl text-sm text-neutral-300">
+            <p className="mt-2 max-w-3xl text-sm font-semibold text-neutral-300">
               Store-scoped reconciliation between legacy storefront products and
               TCOS inventory records.
             </p>
@@ -97,25 +97,25 @@ export default async function AdminInventoryPage({
           <div className="flex flex-wrap gap-2">
             <Link
               href="/admin"
-              className="rounded-md border border-white/20 px-4 py-2 text-sm font-bold hover:bg-white/10"
+              className="rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-bold transition hover:bg-white/15"
             >
               Command Center
             </Link>
             <Link
               href="/admin/products"
-              className="rounded-md border border-white/20 px-4 py-2 text-sm font-bold hover:bg-white/10"
+              className="rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-bold transition hover:bg-white/15"
             >
               Products
             </Link>
             <Link
               href="/admin/inventory/category-review"
-              className="rounded-md border border-white/20 px-4 py-2 text-sm font-bold hover:bg-white/10"
+              className="rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-bold transition hover:bg-white/15"
             >
               Category Review
             </Link>
             <form action={backfillInventory}>
               <AdminSubmitButton
-                className="rounded-md bg-amber-300 px-4 py-2 text-sm font-black text-neutral-950 hover:bg-amber-200"
+                className="rounded-full bg-amber-300 px-4 py-2 text-sm font-black text-neutral-950 shadow-sm transition hover:bg-amber-200"
                 pendingChildren="Backfilling..."
                 title="Backfill missing inventory bridge records from existing product data without publishing or changing live listings."
               >
@@ -129,14 +129,14 @@ export default async function AdminInventoryPage({
         </div>
       </section>
 
-      <div className="mx-auto max-w-7xl space-y-6 px-6 py-6">
+      <div className="mx-auto max-w-[1500px] space-y-6 py-6">
         {params?.backfill === "complete" ? (
-          <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800">
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-bold text-emerald-800 shadow-sm ring-1 ring-emerald-950/5">
             Inventory backfill completed. Current bridge status is shown below.
           </div>
         ) : null}
         {params?.backfillError ? (
-          <div className="rounded-md border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-800">
+          <div className="rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm font-bold text-rose-800 shadow-sm ring-1 ring-rose-950/5">
             Inventory backfill failed: {params.backfillError}
           </div>
         ) : null}
@@ -158,7 +158,7 @@ export default async function AdminInventoryPage({
           />
         </section>
 
-        <section className="rounded-md border border-neutral-200 bg-white">
+        <section className="overflow-hidden rounded-3xl border border-neutral-200 bg-white/95 shadow-sm ring-1 ring-black/[0.02]">
           <div className="flex flex-wrap items-start justify-between gap-3 border-b border-neutral-200 p-5">
             <div>
               <h2 className="text-2xl font-black">Reconciliation Queue</h2>
@@ -167,7 +167,7 @@ export default async function AdminInventoryPage({
                 bridge failure unless quantity or price also mismatches.
               </p>
             </div>
-            <span className="rounded border border-neutral-200 bg-neutral-100 px-3 py-1 text-xs font-black uppercase text-neutral-700">
+            <span className="rounded-full border border-neutral-200 bg-neutral-100 px-3 py-1 text-xs font-black uppercase text-neutral-700">
               Store {status.storeId.slice(-4)}
             </span>
           </div>
@@ -232,7 +232,7 @@ export default async function AdminInventoryPage({
                           {row.issues.map((issue) => (
                             <span
                               key={issue}
-                              className={`rounded border px-2 py-1 text-[11px] font-black ${issueTone(issue)}`}
+                              className={`rounded-full border px-2 py-1 text-[11px] font-black ${issueTone(issue)}`}
                             >
                               {issueLabel(issue)}
                             </span>
@@ -242,7 +242,7 @@ export default async function AdminInventoryPage({
                       <td className="px-4 py-4">
                         <Link
                           href={`/admin/products/${row.legacyProductId}`}
-                          className="rounded-md border border-neutral-300 px-3 py-2 text-xs font-bold hover:bg-neutral-50"
+                          className="rounded-full border border-neutral-300 bg-white px-3 py-2 text-xs font-bold shadow-sm transition hover:bg-neutral-50"
                         >
                           Open
                         </Link>
@@ -261,7 +261,7 @@ export default async function AdminInventoryPage({
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-md border border-neutral-200 bg-white p-5">
+    <div className="rounded-3xl border border-neutral-200 bg-white/95 p-5 shadow-sm ring-1 ring-black/[0.02]">
       <p className="text-sm font-bold uppercase text-neutral-500">{label}</p>
       <p className="mt-3 text-3xl font-black">{value}</p>
     </div>

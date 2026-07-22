@@ -188,25 +188,25 @@ export default async function AdminProductsPage({
     );
 
     return (
-      <main className="bg-neutral-50 px-6 py-8 text-neutral-950">
-        <section className="mx-auto max-w-4xl rounded-3xl border border-red-200 bg-white p-6 shadow-sm">
+      <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(244,63,94,0.12),_transparent_34%),linear-gradient(180deg,_#faf7ef_0%,_#f4f1ea_42%,_#eee7da_100%)] px-4 py-8 text-neutral-950 sm:px-6 lg:px-8">
+        <section className="mx-auto max-w-4xl rounded-3xl border border-red-200 bg-white/95 p-6 shadow-sm ring-1 ring-red-950/5">
           <p className="text-xs font-black uppercase tracking-[0.16em] text-red-700">
             Admin products
           </p>
           <h1 className="mt-2 text-3xl font-black">Error loading products</h1>
-          <p className="mt-3 rounded border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-950">
+          <p className="mt-3 rounded-2xl border border-red-200 bg-red-50 px-3 py-2 text-sm font-bold text-red-950 shadow-sm ring-1 ring-red-950/5">
             {loadFailure}
           </p>
           <div className="mt-5 flex flex-wrap gap-3">
             <Link
               href="/admin/products"
-              className="rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white"
+              className="rounded-full bg-neutral-950 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-neutral-800"
             >
               Retry
             </Link>
             <Link
               href="/admin"
-              className="rounded-md border border-neutral-300 bg-white px-4 py-2 text-sm font-black"
+              className="rounded-full border border-neutral-300 bg-white px-4 py-2 text-sm font-black shadow-sm transition hover:bg-neutral-50"
             >
               Admin dashboard
             </Link>
@@ -230,9 +230,9 @@ export default async function AdminProductsPage({
   );
 
   return (
-    <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
-      <section className="border-b border-neutral-800 bg-[#101418] text-white shadow-2xl shadow-black/20">
-        <div className="mx-auto max-w-7xl px-6 py-8">
+    <main className="min-h-screen bg-[radial-gradient(circle_at_top_left,_rgba(16,185,129,0.14),_transparent_34%),linear-gradient(180deg,_#faf7ef_0%,_#f4f1ea_42%,_#eee7da_100%)] px-4 py-6 text-neutral-950 sm:px-6 lg:px-8">
+      <section className="mx-auto max-w-[1500px] overflow-hidden rounded-[2rem] border border-neutral-900 bg-neutral-950 text-white shadow-2xl shadow-neutral-950/10">
+        <div className="border-b border-white/10 bg-[radial-gradient(circle_at_top_right,_rgba(16,185,129,0.2),_transparent_32%),linear-gradient(135deg,_rgba(255,255,255,0.08),_transparent)] p-6 lg:p-8">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <p className="text-xs font-black uppercase tracking-[0.22em] text-emerald-300">
@@ -247,7 +247,7 @@ export default async function AdminProductsPage({
                 for price, quantity, media, and authenticity cleanup.
               </p>
             </div>
-            <div className="grid min-w-[320px] grid-cols-3 gap-3 rounded-3xl border border-white/10 bg-white/[0.06] p-4 shadow-xl shadow-black/20">
+            <div className="grid min-w-[320px] grid-cols-3 gap-3 rounded-3xl border border-white/10 bg-white/[0.06] p-4 shadow-xl shadow-neutral-950/20">
               <HeaderStat label="Products" value={String(products.length)} />
               <HeaderStat label="Active" value={String(activeCount)} />
               <HeaderStat label="On Hand" value={String(totalQuantity)} />
@@ -262,7 +262,7 @@ export default async function AdminProductsPage({
         </div>
       </section>
 
-      <div className="mx-auto max-w-7xl space-y-6 px-6 py-8">
+      <div className="mx-auto max-w-[1500px] space-y-6 py-6">
         {query?.bulkUpdated && (
           <div className="rounded-2xl border border-green-300 bg-green-50 p-4 font-bold text-green-800 shadow-sm ring-1 ring-green-950/5">
             <p>
@@ -272,13 +272,13 @@ export default async function AdminProductsPage({
             <div className="mt-3 flex flex-wrap gap-2">
               <Link
                 href="/admin/products#product-records"
-                className="rounded-full border border-green-300 bg-white px-3 py-2 text-sm font-black text-green-900 transition hover:bg-green-100"
+                className="rounded-full border border-green-300 bg-white px-3 py-2 text-sm font-black text-green-900 shadow-sm transition hover:bg-green-100"
               >
                 Review product records
               </Link>
               <Link
                 href="/admin/products"
-                className="rounded-full border border-green-300 bg-white px-3 py-2 text-sm font-black text-green-900 transition hover:bg-green-100"
+                className="rounded-full border border-green-300 bg-white px-3 py-2 text-sm font-black text-green-900 shadow-sm transition hover:bg-green-100"
               >
                 Continue bulk editing
               </Link>
@@ -386,7 +386,7 @@ export default async function AdminProductsPage({
               </p>
               <Link
                 href="/admin/products/new"
-                className="mt-4 inline-block rounded-md bg-neutral-950 px-4 py-2 text-sm font-black text-white"
+                className="mt-4 inline-block rounded-full bg-neutral-950 px-4 py-2 text-sm font-black text-white shadow-sm transition hover:bg-neutral-800"
               >
                 Add first product
               </Link>
@@ -542,7 +542,7 @@ function CommandLink({
       className={
         primary
           ? "rounded-full bg-white px-4 py-2 text-sm font-black text-neutral-950 shadow-sm transition hover:bg-neutral-200"
-          : "rounded-full border border-white/20 bg-white/5 px-4 py-2 text-sm font-black text-white transition hover:border-white hover:bg-white/10"
+          : "rounded-full border border-white/15 bg-white/10 px-4 py-2 text-sm font-black text-white transition hover:bg-white/15"
       }
     >
       {label}
