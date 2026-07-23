@@ -1,0 +1,23 @@
+{
+  "name": "@tcos/market-intel-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "TCOS Market Intel MCP connector for public deal discovery, InstaComp analysis, deduplication, seller-risk review, and portfolio synchronization.",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "node --watch src/server.mjs",
+    "start": "node src/server.mjs",
+    "test": "node --test test/*.test.mjs",
+    "check": "node --check src/config.mjs && node --check src/logic.mjs && node --check src/repository.mjs && node --check src/public-search.mjs && node --check src/server.mjs && npm test",
+    "seed": "node src/seed.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@supabase/supabase-js": "^2.108.1",
+    "express": "^5.2.1",
+    "zod": "^4.4.3"
+  }
+}
