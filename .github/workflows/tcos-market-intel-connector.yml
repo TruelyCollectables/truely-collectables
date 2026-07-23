@@ -29,3 +29,5 @@ jobs:
           cache-dependency-path: connectors/tcos-market-intel-mcp/package.json
       - run: npm install
       - run: npm run check
+      - name: Build connector Docker image
+        run: docker build -t tcos-market-intel-connector:test .
