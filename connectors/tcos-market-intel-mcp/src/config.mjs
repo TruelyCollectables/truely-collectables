@@ -22,7 +22,7 @@ export const config = Object.freeze({
   supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL || process.env.SUPABASE_URL || "",
   supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || "",
   openAiApiKey: process.env.OPENAI_API_KEY || "",
-  searchModel: process.env.TCOS_SEARCH_MODEL || "gpt-5.6-terra",
+  searchModel: process.env.TCOS_SEARCH_MODEL || "gpt-5",
   searchMaxResults: Math.max(1, Math.min(50, parseNumber(process.env.TCOS_SEARCH_MAX_RESULTS, 20))),
   ebayBrowseAccessToken: process.env.EBAY_BROWSE_ACCESS_TOKEN || "",
   xBearerToken: process.env.X_BEARER_TOKEN || "",
