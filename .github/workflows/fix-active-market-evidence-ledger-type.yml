@@ -1,0 +1,42 @@
+name: Fix Active Market Evidence Ledger Type
+
+on:
+  push:
+    branches:
+      - agent/show-active-market-evidence-ledger
+    paths:
+      - "scripts/fix-active-market-evidence-ledger-type.mjs"
+      - ".github/workflows/fix-active-market-evidence-ledger-type.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  fix-type:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Apply type fix
+        run: node scripts/fix-active-market-evidence-ledger-type.mjs
+
+      - name: Validate patch
+        run: git diff --check
+
+      - name: Commit type fix
+        run: |
+          if git diff --quiet; then
+            echo "Evidence ledger type was already fixed."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/app/seller/inventory/ActiveMarketEvidenceLedger.tsx
+          git commit -m "Fix Active Market evidence ledger type"
+          git push origin HEAD:${{ github.ref_name }}
