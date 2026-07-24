@@ -1,0 +1,42 @@
+name: Fix Active Market Direct Proof Receipt Type
+
+on:
+  push:
+    branches:
+      - agent/prove-active-market-competitors-directly
+    paths:
+      - "scripts/fix-active-market-direct-proof-receipt-type.mjs"
+      - ".github/workflows/fix-active-market-direct-proof-receipt-type.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  fix-receipt-type:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref_name }}
+          fetch-depth: 0
+
+      - name: Apply receipt type fix
+        run: node scripts/fix-active-market-direct-proof-receipt-type.mjs
+
+      - name: Validate patch
+        run: git diff --check
+
+      - name: Commit receipt type fix
+        run: |
+          if git diff --quiet; then
+            echo "Direct-proof receipt type was already fixed."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/lib/active-market-competitor-proof-guard.ts
+          git commit -m "Fix Active Market direct proof receipt type"
+          git push origin HEAD:${{ github.ref_name }}
