@@ -174,6 +174,10 @@ export function auditActiveMarketIntegrity(input: {
     const matchLevel = text(candidate.matchLevel || "scouting");
     const identifiers = candidateIdentifiers(candidate);
 
+    if (candidate.directProofConfirmed !== true) {
+      pushUnique(failures, "verified_competitor_missing_direct_item_proof");
+    }
+
     if (targetState !== "unknown" && state !== targetState) {
       pushUnique(
         failures,

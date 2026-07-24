@@ -28,6 +28,7 @@ const competitor = {
   fixedPrice: true,
   matchScore: 96,
   matchLevel: "exact",
+  directProofConfirmed: true,
   url: "https://www.ebay.com/itm/111",
 };
 
@@ -102,6 +103,22 @@ const scenarios: Scenario[] = [
     tracking: validTracking(valid),
     selfListingId: "999",
     expectedPass: true,
+  },
+  {
+    name: "verified competitor without direct item proof blocks pricing",
+    attack: validAttack({
+      competitors: [{ ...competitor, directProofConfirmed: false }],
+      lowestCompetitor: { ...competitor, directProofConfirmed: false },
+    }),
+    tracking: validTracking(
+      validAttack({
+        competitors: [{ ...competitor, directProofConfirmed: false }],
+        lowestCompetitor: { ...competitor, directProofConfirmed: false },
+      }),
+    ),
+    selfListingId: "999",
+    expectedPass: false,
+    expectedFailure: "verified_competitor_missing_direct_item_proof",
   },
   {
     name: "ripped listing left in scouting blocks pricing",
