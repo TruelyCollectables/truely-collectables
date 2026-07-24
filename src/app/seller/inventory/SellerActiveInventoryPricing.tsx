@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { getFreshAccountSession } from "../../account/account-session";
+import ActiveMarketEvidenceLedger from "./ActiveMarketEvidenceLedger";
 
 const PAGE_SIZE = 48;
 const MAX_BATCH = 10;
@@ -1151,6 +1152,8 @@ function AttackBoard({
           ) : null}
         </>
       )}
+
+      <ActiveMarketEvidenceLedger attack={attack} />
 
       <p className="mt-3 text-xs font-semibold">
         {attack.taxNote ||
