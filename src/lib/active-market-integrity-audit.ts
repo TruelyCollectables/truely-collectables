@@ -34,6 +34,7 @@ function text(value: unknown): string {
 }
 
 function number(value: unknown): number | null {
+  if (value === null || value === undefined || value === "") return null;
   const result = Number(value);
   return Number.isFinite(result) ? result : null;
 }
@@ -126,7 +127,12 @@ export function auditActiveMarketIntegrity(input: {
     attack.packagingState === "sealed" || attack.packagingState === "opened"
       ? (attack.packagingState as ActiveMarketPackagingState)
       : "unknown";
-  const oppositeState = targetState === "sealed" ? "opened" : targetState === "opened" ? "sealed" : null;
+  const oppositeState =
+    targetState === "sealed"
+      ? "opened"
+      : targetState === "opened"
+        ? "sealed"
+        : null;
   const selfListing = record(attack.selfListing);
   const selfIds = Array.from(
     new Set(
@@ -184,7 +190,10 @@ export function auditActiveMarketIntegrity(input: {
     }
     if (
       selfIds.some((selfId) =>
-        identifiers.some((identifier) => identifier.includes(selfId) || selfId.includes(identifier)),
+        identifiers.some(
+          (identifier) =>
+            identifier.includes(selfId) || selfId.includes(identifier),
+        ),
       )
     ) {
       pushUnique(failures, "seller_own_listing_present_in_competitors");
@@ -199,7 +208,10 @@ export function auditActiveMarketIntegrity(input: {
     }
     if (
       selfIds.some((selfId) =>
-        identifiers.some((identifier) => identifier.includes(selfId) || selfId.includes(identifier)),
+        identifiers.some(
+          (identifier) =>
+            identifier.includes(selfId) || selfId.includes(identifier),
+        ),
       )
     ) {
       pushUnique(failures, "seller_own_listing_present_in_scouting");
@@ -209,7 +221,8 @@ export function auditActiveMarketIntegrity(input: {
   const knownCompetitors = competitors
     .map((candidate) => ({ candidate, landed: number(candidate.landedPrice) }))
     .filter(
-      (entry): entry is { candidate: Json; landed: number } => entry.landed !== null,
+      (entry): entry is { candidate: Json; landed: number } =>
+        entry.landed !== null,
     )
     .sort((left, right) => left.landed - right.landed);
   const expectedLowest = knownCompetitors[0] || null;
@@ -218,13 +231,22 @@ export function auditActiveMarketIntegrity(input: {
 
   if (!expectedLowest) {
     if (storedLowestLanded !== null || Object.keys(storedLowest).length > 0) {
-      pushUnique(failures, "stale_lowest_competitor_present_without_landed_candidate");
+      pushUnique(
+        failures,
+        "stale_lowest_competitor_present_without_landed_candidate",
+      );
     }
     if (array(attack.suggestions).length > 0) {
-      pushUnique(failures, "pricing_suggestions_present_without_landed_candidate");
+      pushUnique(
+        failures,
+        "pricing_suggestions_present_without_landed_candidate",
+      );
     }
     if (number(attack.gapToLowest) !== null) {
-      pushUnique(failures, "stale_gap_to_lowest_present_without_landed_candidate");
+      pushUnique(
+        failures,
+        "stale_gap_to_lowest_present_without_landed_candidate",
+      );
     }
   } else {
     if (!sameMoney(storedLowestLanded, expectedLowest.landed)) {
@@ -248,7 +270,10 @@ export function auditActiveMarketIntegrity(input: {
     pushUnique(failures, "pricing_trusted_without_verified_competitor");
   }
   if (attack.marketIntegrityStatus === "complete" && !selfListingConfirmed) {
-    pushUnique(failures, "market_marked_complete_without_confirmed_self_listing");
+    pushUnique(
+      failures,
+      "market_marked_complete_without_confirmed_self_listing",
+    );
   }
   if (
     exactActiveCount === 0 &&
@@ -256,7 +281,10 @@ export function auditActiveMarketIntegrity(input: {
       number(tracking.deltaAmount) !== null ||
       number(tracking.deltaPercent) !== null)
   ) {
-    pushUnique(failures, "stale_market_value_or_delta_present_without_verified_competitor");
+    pushUnique(
+      failures,
+      "stale_market_value_or_delta_present_without_verified_competitor",
+    );
   }
 
   const topMarketComps = array(tracking.topMarketComps);
