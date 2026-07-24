@@ -62,6 +62,7 @@ type SourceCoverage = {
 };
 
 type ActiveMarketAttackEvidence = {
+  [key: string]: unknown;
   evidenceAccounting?: EvidenceAccounting | null;
   evidenceAccountingReceipt?: string | null;
   sourceCoverage?: SourceCoverage | null;
