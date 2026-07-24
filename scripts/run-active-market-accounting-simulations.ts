@@ -68,7 +68,7 @@ const ripped = candidate(
 );
 const wrongPlayer = candidate(
   "444444444444",
-  "2023-24 Upper Deck Ice Frozen In Ice RIPPED Nathan MacKinnon #FI-1",
+  "2023-24 Upper Deck Ice Frozen In Ice UNRIPPED Nathan MacKinnon #FI-1",
 );
 const wrongNumber = candidate(
   "555555555555",
