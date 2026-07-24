@@ -1,4 +1,4 @@
-import { handleActiveMarketAttackWithAccountingGuard } from "../../../../../../../lib/active-market-accounting-guard";
+import { handleActiveMarketAttackWithSourceCoverageGuard } from "../../../../../../../lib/active-market-source-coverage-guard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,5 +8,5 @@ export async function POST(
   request: Request,
   context: { params: Promise<{ inventoryItemId: string }> },
 ) {
-  return handleActiveMarketAttackWithAccountingGuard(request, context);
+  return handleActiveMarketAttackWithSourceCoverageGuard(request, context);
 }
