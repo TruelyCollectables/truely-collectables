@@ -5,10 +5,13 @@ on:
     paths:
       - "src/lib/active-market-*.ts"
       - "src/app/api/account/seller/inventory/**/active-market-attack/route.ts"
+      - "src/app/api/account/seller/inventory/active-pricing/route.ts"
+      - "src/app/seller/inventory/SellerActiveInventoryPricing.tsx"
       - "scripts/run-active-market-integrity-simulations.ts"
       - "scripts/run-active-market-accounting-simulations.ts"
       - "scripts/run-active-market-source-coverage-simulations.ts"
       - "scripts/run-active-market-scan-lease-simulations.ts"
+      - "scripts/run-active-market-read-freshness-simulations.ts"
       - ".github/workflows/active-market-integrity.yml"
   push:
     branches:
@@ -16,10 +19,13 @@ on:
     paths:
       - "src/lib/active-market-*.ts"
       - "src/app/api/account/seller/inventory/**/active-market-attack/route.ts"
+      - "src/app/api/account/seller/inventory/active-pricing/route.ts"
+      - "src/app/seller/inventory/SellerActiveInventoryPricing.tsx"
       - "scripts/run-active-market-integrity-simulations.ts"
       - "scripts/run-active-market-accounting-simulations.ts"
       - "scripts/run-active-market-source-coverage-simulations.ts"
       - "scripts/run-active-market-scan-lease-simulations.ts"
+      - "scripts/run-active-market-read-freshness-simulations.ts"
       - ".github/workflows/active-market-integrity.yml"
   workflow_dispatch:
 
@@ -54,3 +60,6 @@ jobs:
 
       - name: Run Active Market scan lease simulations
         run: node --import tsx scripts/run-active-market-scan-lease-simulations.ts
+
+      - name: Run Active Market read freshness simulations
+        run: node --import tsx scripts/run-active-market-read-freshness-simulations.ts
