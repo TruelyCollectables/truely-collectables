@@ -522,11 +522,12 @@ export async function handleActiveMarketAttackWithCompetitorProofGuard(
     identity: targetIdentity(targetTitle, tracking, fallbackPlayer),
     proofs,
   });
+  const reconciledAttack = record(reconciled.attack);
   const proofReceipt = receipt({
     targetTitle,
     competitorIds,
     proofs,
-    verified: list(reconciled.attack.competitors).map((value) => {
+    verified: list(reconciledAttack.competitors).map((value) => {
       const candidate = record(value);
       return {
         itemId: canonicalActiveMarketProofItemId(candidate),
@@ -539,22 +540,22 @@ export async function handleActiveMarketAttackWithCompetitorProofGuard(
   const allDirectlyProved =
     reconciled.directAttemptedCount === reconciled.directConfirmedCount;
   const baseTax =
-    stripOldDirectProofNote(reconciled.attack.taxNote) ||
+    stripOldDirectProofNote(reconciledAttack.taxNote) ||
     "Sales tax is excluded because it varies by buyer location and is not controlled by the seller.";
   const directMessage = `ACTIVE MARKET DIRECT COMPETITOR PROOF: ${reconciled.directConfirmedCount}/${reconciled.directAttemptedCount} previously verified competitors remained eligible after direct item lookup. Receipt ${proofReceipt}.`;
   const marketLabel = String(
-    record(reconciled.attack.marketLocation).label || "US estimate",
+    record(reconciledAttack.marketLocation).label || "US estimate",
   )
     .replace(/\s*·\s*direct proof \d+\/\d+.*$/i, "")
     .trim();
   const nextAttack: Json = {
-    ...reconciled.attack,
+    ...reconciledAttack,
     competitorDirectProofReceipt: proofReceipt,
     competitorDirectProofPassed: allDirectlyProved,
     competitorDirectProofCheckedAt: new Date().toISOString(),
     taxNote: `${baseTax} ${directMessage}`,
     marketLocation: {
-      ...record(reconciled.attack.marketLocation),
+      ...record(reconciledAttack.marketLocation),
       label: `${marketLabel} · direct proof ${reconciled.directConfirmedCount}/${reconciled.directAttemptedCount}`,
     },
     updatedAt: new Date().toISOString(),
