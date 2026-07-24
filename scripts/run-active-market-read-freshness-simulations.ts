@@ -17,6 +17,12 @@ function assert(condition: unknown, message: string) {
   if (!condition) throw new Error(message);
 }
 
+function resultTracking(
+  result: ReturnType<typeof quarantineActiveMarketTrackingForRead>,
+): Json {
+  return (result.tracking || {}) as Json;
+}
+
 const now = new Date("2026-07-24T23:00:00.000Z");
 const receipt = "abcdef1234567890abcdef12";
 
@@ -72,7 +78,7 @@ const scenarios: Scenario[] = [
     verify(result) {
       assert(result.freshness.ageMinutes === 5, "Expected oldest evidence age of five minutes");
       assert(
-        result.tracking?.activeMarketAttack?.suggestions?.length === 1,
+        resultTracking(result).activeMarketAttack?.suggestions?.length === 1,
         "Fresh suggestions should remain visible",
       );
     },
@@ -103,7 +109,7 @@ const scenarios: Scenario[] = [
         "Expected stale reason",
       );
       assert(
-        result.tracking?.pricingEvidenceMode === "active_market_refresh_required",
+        resultTracking(result).pricingEvidenceMode === "active_market_refresh_required",
         "Expected refresh-required mode",
       );
     },
@@ -252,7 +258,7 @@ const scenarios: Scenario[] = [
     expectedTrusted: true,
     verify(result) {
       assert(
-        result.tracking?.pricingEvidenceMode === "exact_sold_and_market",
+        resultTracking(result).pricingEvidenceMode === "exact_sold_and_market",
         "Sold evidence mode should remain unchanged",
       );
     },
@@ -273,11 +279,11 @@ const scenarios: Scenario[] = [
     expectedTrusted: false,
     verify(result) {
       assert(
-        result.tracking?.pricingEvidenceMode === "active_market_scan_running",
+        resultTracking(result).pricingEvidenceMode === "active_market_scan_running",
         "Expected running mode",
       );
       assert(
-        result.tracking?.activeMarketAttack?.suggestions?.length === 0,
+        resultTracking(result).activeMarketAttack?.suggestions?.length === 0,
         "Running scan must hide old suggestions",
       );
     },
@@ -291,7 +297,7 @@ const scenarios: Scenario[] = [
     expectedTrusted: false,
     verify(result) {
       assert(
-        result.tracking?.reviewReasons?.includes("active_market_scan_lease_expired"),
+        resultTracking(result).reviewReasons?.includes("active_market_scan_lease_expired"),
         "Expected expired lease reason",
       );
     },
@@ -332,7 +338,7 @@ const scenarios: Scenario[] = [
     expectedStatus: "refresh_required",
     expectedTrusted: false,
     verify(result) {
-      const tracking = result.tracking || {};
+      const tracking = resultTracking(result);
       const attack = tracking.activeMarketAttack || {};
       assert(tracking.marketPrice === null, "Market price must be cleared");
       assert(tracking.deltaAmount === null, "Delta amount must be cleared");
@@ -366,8 +372,8 @@ for (const scenario of scenarios) {
       `Expected status ${scenario.expectedStatus}, received ${result.freshness.status}; reasons=${result.freshness.reasons.join(", ")}`,
     );
     assert(
-      result.tracking?.trustedForPricing === scenario.expectedTrusted,
-      `Expected trusted=${scenario.expectedTrusted}, received ${result.tracking?.trustedForPricing}`,
+      resultTracking(result).trustedForPricing === scenario.expectedTrusted,
+      `Expected trusted=${scenario.expectedTrusted}, received ${resultTracking(result).trustedForPricing}`,
     );
     scenario.verify?.(result);
     results.push({ name: scenario.name, status: "passed" });
