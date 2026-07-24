@@ -1,4 +1,4 @@
-import { handleActiveMarketAttackWithIntegrityGuard } from "../../../../../../../lib/active-market-integrity-guard";
+import { handleActiveMarketAttackWithAccountingGuard } from "../../../../../../../lib/active-market-accounting-guard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -8,5 +8,5 @@ export async function POST(
   request: Request,
   context: { params: Promise<{ inventoryItemId: string }> },
 ) {
-  return handleActiveMarketAttackWithIntegrityGuard(request, context);
+  return handleActiveMarketAttackWithAccountingGuard(request, context);
 }
