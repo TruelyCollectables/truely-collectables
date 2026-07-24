@@ -7,6 +7,7 @@ on:
       - "src/app/api/account/seller/inventory/**/active-market-attack/route.ts"
       - "scripts/run-active-market-integrity-simulations.ts"
       - "scripts/run-active-market-accounting-simulations.ts"
+      - "scripts/run-active-market-source-coverage-simulations.ts"
       - ".github/workflows/active-market-integrity.yml"
   push:
     branches:
@@ -16,6 +17,7 @@ on:
       - "src/app/api/account/seller/inventory/**/active-market-attack/route.ts"
       - "scripts/run-active-market-integrity-simulations.ts"
       - "scripts/run-active-market-accounting-simulations.ts"
+      - "scripts/run-active-market-source-coverage-simulations.ts"
       - ".github/workflows/active-market-integrity.yml"
   workflow_dispatch:
 
@@ -44,3 +46,6 @@ jobs:
 
       - name: Run Active Market evidence accounting simulations
         run: node --import tsx scripts/run-active-market-accounting-simulations.ts
+
+      - name: Run Active Market source coverage simulations
+        run: node --import tsx scripts/run-active-market-source-coverage-simulations.ts
