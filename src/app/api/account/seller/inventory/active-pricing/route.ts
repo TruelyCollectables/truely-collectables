@@ -7,6 +7,7 @@ import {
   tradingCardCategoryMetadata,
 } from "../../../../../../lib/collectible-category-policy";
 import { getActiveStoreId } from "../../../../../../lib/stores";
+import { quarantineActiveMarketTrackingForRead } from "../../../../../../lib/active-market-read-freshness";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
 
 export const dynamic = "force-dynamic";
@@ -82,7 +83,11 @@ function cleanSearch(value: string | null) {
 function currentTracking(metadata: Record<string, unknown> | null) {
   const root = recordValue(recordValue(metadata).instacomp_tracking);
   const current = recordValue(root.current);
-  return Object.keys(current).length > 0 ? current : null;
+  if (!Object.keys(current).length) return null;
+  return quarantineActiveMarketTrackingForRead({
+    metadata,
+    tracking: current,
+  }).tracking;
 }
 
 function uniqueImages(values: Array<string | null | undefined>) {
