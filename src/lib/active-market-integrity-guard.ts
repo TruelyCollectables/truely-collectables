@@ -4,7 +4,7 @@ import {
   ensureAccountStoreMembership,
   getAuthenticatedAccountFromRequest,
 } from "./account-auth";
-import { handleActiveMarketAttackWithCompetitorProofGuard } from "./active-market-competitor-proof-guard";
+import { handleActiveMarketAttackWithConsensusGuard } from "./active-market-consensus-guard";
 import { auditActiveMarketIntegrity } from "./active-market-integrity-audit";
 import { getActiveStoreId } from "./stores";
 import { createSupabaseServerClient } from "./supabase-server";
@@ -38,7 +38,7 @@ export async function handleActiveMarketAttackWithIntegrityGuard(
   request: Request,
   context: { params: Promise<{ inventoryItemId: string }> },
 ) {
-  const baseResponse = await handleActiveMarketAttackWithCompetitorProofGuard(
+  const baseResponse = await handleActiveMarketAttackWithConsensusGuard(
     request,
     context,
   );
@@ -97,7 +97,7 @@ export async function handleActiveMarketAttackWithIntegrityGuard(
     .trim();
   const nextAttack: Json = {
     ...attack,
-    schema: "truely.activeMarketAttack.v11",
+    schema: "truely.activeMarketAttack.v15",
     integrityAuditVersion: "active-market-integrity-v1",
     integrityAuditPassed: audit.passed,
     integrityAuditFailures: audit.failures,
@@ -161,7 +161,7 @@ export async function handleActiveMarketAttackWithIntegrityGuard(
         ...metadata,
         instacomp_tracking: {
           ...root,
-          schema: "truely.instacompInventoryTrackingHistory.v11",
+          schema: "truely.instacompInventoryTrackingHistory.v15",
           current: nextTracking,
         },
       },
