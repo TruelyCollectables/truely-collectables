@@ -526,12 +526,15 @@ export async function handleActiveMarketAttackWithCompetitorProofGuard(
     targetTitle,
     competitorIds,
     proofs,
-    verified: list(reconciled.attack.competitors).map((candidate) => ({
-      itemId: canonicalActiveMarketProofItemId(candidate),
-      price: candidate.price,
-      shippingCost: candidate.shippingCost,
-      landedPrice: candidate.landedPrice,
-    })),
+    verified: list(reconciled.attack.competitors).map((value) => {
+      const candidate = record(value);
+      return {
+        itemId: canonicalActiveMarketProofItemId(candidate),
+        price: candidate.price,
+        shippingCost: candidate.shippingCost,
+        landedPrice: candidate.landedPrice,
+      };
+    }),
   });
   const allDirectlyProved =
     reconciled.directAttemptedCount === reconciled.directConfirmedCount;
