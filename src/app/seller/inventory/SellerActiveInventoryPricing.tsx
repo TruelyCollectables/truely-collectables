@@ -220,6 +220,15 @@ function evidenceModeLabel(value: string | null | undefined) {
     active_market_attack: "Active Market Attack Mode",
     active_market_scouting: "Active Market Scouting",
     active_market_no_results: "No active-market results",
+    active_market_refresh_required:
+      "Refresh required — saved market evidence is stale",
+    active_market_scan_running: "Active Market scan running",
+    active_market_scan_failed: "Last Active Market scan failed",
+    active_market_source_coverage_blocked:
+      "Active Market source coverage blocked",
+    active_market_evidence_accounting_blocked:
+      "Active Market evidence accounting blocked",
+    active_market_integrity_blocked: "Active Market integrity blocked",
     no_exact_market: "No exact market evidence",
   };
   return labels[String(value || "")] || "Not checked";
