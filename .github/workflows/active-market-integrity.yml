@@ -1,0 +1,41 @@
+name: Active Market Integrity
+
+on:
+  pull_request:
+    paths:
+      - "src/lib/active-market-*.ts"
+      - "src/app/api/account/seller/inventory/**/active-market-attack/route.ts"
+      - "scripts/run-active-market-integrity-simulations.ts"
+      - ".github/workflows/active-market-integrity.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "src/lib/active-market-*.ts"
+      - "src/app/api/account/seller/inventory/**/active-market-attack/route.ts"
+      - "scripts/run-active-market-integrity-simulations.ts"
+      - ".github/workflows/active-market-integrity.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  integrity-regressions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run Active Market integrity simulations
+        run: node --import tsx scripts/run-active-market-integrity-simulations.ts
