@@ -4,8 +4,8 @@ import {
   ensureAccountStoreMembership,
   getAuthenticatedAccountFromRequest,
 } from "./account-auth";
+import { handleActiveMarketAttackWithCompetitorProofGuard } from "./active-market-competitor-proof-guard";
 import { auditActiveMarketIntegrity } from "./active-market-integrity-audit";
-import { handleActiveMarketAttackWithProofGuard } from "./active-market-proof-guard";
 import { getActiveStoreId } from "./stores";
 import { createSupabaseServerClient } from "./supabase-server";
 
@@ -38,7 +38,10 @@ export async function handleActiveMarketAttackWithIntegrityGuard(
   request: Request,
   context: { params: Promise<{ inventoryItemId: string }> },
 ) {
-  const baseResponse = await handleActiveMarketAttackWithProofGuard(request, context);
+  const baseResponse = await handleActiveMarketAttackWithCompetitorProofGuard(
+    request,
+    context,
+  );
   const payload: any = await baseResponse.json().catch(() => null);
   if (!payload || !baseResponse.ok || payload.success !== true) {
     return Response.json(payload || { error: "Active Market Attack Mode failed." }, {
