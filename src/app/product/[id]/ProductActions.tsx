@@ -41,10 +41,9 @@ export default function ProductActions({ product }: { product: Product }) {
 
         if (nextImages.length) setImages(nextImages);
       })
-      .catch((error) => {
-        if (error?.name !== "AbortError") {
-          console.error("Product images could not be loaded", error);
-        }
+      .catch((error: unknown) => {
+        if (error instanceof Error && error.name === "AbortError") return;
+        console.error("Product images could not be loaded", error);
       });
 
     return () => controller.abort();
