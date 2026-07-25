@@ -27,6 +27,7 @@ create index if not exists checkout_inventory_reservations_session_idx
 
 alter table public.checkout_inventory_reservations enable row level security;
 revoke all on public.checkout_inventory_reservations from anon, authenticated;
+grant select, insert, update, delete on public.checkout_inventory_reservations to service_role;
 
 drop function if exists public.tcos_reserve_checkout_inventory(uuid, uuid, jsonb, integer);
 create function public.tcos_reserve_checkout_inventory(
