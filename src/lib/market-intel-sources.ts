@@ -300,7 +300,8 @@ export function marketIntelSourceValuationPolicyLabel(
 export function assertMarketIntelSourceAllowsSoldCompValuation(slug: string) {
   if (marketIntelSourceAllowsSoldCompValuation(slug)) return;
   const normalized = normalizedSourceSlug(slug);
-  const source = sourceRegistry.find((entry) => entry.slug === normalized);
+  const source: MarketIntelSourceDefinition | undefined =
+    sourceRegistry.find((entry) => entry.slug === normalized);
   const label = source?.displayName || slug || "This source";
   const policy =
     source?.usagePolicy === "price_guide_research_only"
