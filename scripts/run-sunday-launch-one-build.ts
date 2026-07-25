@@ -112,15 +112,20 @@ function paymentAndInventoryChecks() {
     "requireAvailableCartItems(cart)",
     "reserveCheckoutInventory",
     "attachStripeSessionToCheckoutReservation",
+    "CHECKOUT_RESERVATION_MINUTES",
     'payment_method_types: ["card"]',
     "expires_at: stripeExpiresAt",
+    "31 * 60",
     "idempotencyKey: stripeIdempotencyKey",
     "inventory_reservation_expires_at",
     "legacy_product_id: String(product.legacyProductId)",
+    "checkout.sessions.expire(session.id)",
+    "reservationMayBeReleased = false",
   ]);
 
   contains("src/lib/checkout-inventory-reservations.ts", [
     "tcos_reserve_checkout_inventory",
+    "CHECKOUT_RESERVATION_MINUTES = 32",
     "releaseCheckoutReservation",
     "Checkout reservation did not cover every cart line",
     "One or more cards were just reserved by another buyer",
@@ -131,8 +136,9 @@ function paymentAndInventoryChecks() {
     [
       "create table if not exists public.checkout_inventory_reservations",
       "for update",
-      "checkout_attempt_id <> p_checkout_attempt_id",
+      "reservation.checkout_attempt_id <> p_checkout_attempt_id",
       "insufficient_inventory",
+      "grant select, insert, update, delete",
       "grant execute on function public.tcos_reserve_checkout_inventory",
     ],
   );
@@ -145,6 +151,19 @@ function paymentAndInventoryChecks() {
     "syncEbayQuantityAfterSale",
     'status: "paid_inventory_review"',
     "finishStripeWebhookEvent",
+  ]);
+
+  contains("src/lib/stripe-reconciliation.ts", [
+    'mismatch_type: expectedCategory ? "stripe_only"',
+    'severity: category === "charge" ? "critical"',
+    "Stripe ${category} has no TCOS record",
+    "stripe_reconciliation_items",
+  ]);
+
+  contains("src/app/api/cron/stripe-reconciliation/route.ts", [
+    "validCronAuthorization",
+    "reconcileStripeDaily",
+    'source: "scheduled_cron"',
   ]);
 }
 
@@ -181,7 +200,7 @@ function searchVisibilityChecks() {
   ]);
   contains("src/app/sitemap.ts", [
     "inventoryEngine.listAvailable()",
-    "`\${origin}/product/\${product.legacyProductId}`",
+    "`${origin}/product/${product.legacyProductId}`",
     "images: image ? [image] : undefined",
   ]);
   contains("src/app/layout.tsx", [
