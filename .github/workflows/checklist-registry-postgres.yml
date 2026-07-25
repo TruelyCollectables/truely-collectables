@@ -1,0 +1,365 @@
+name: Checklist Registry Postgres
+
+on:
+  pull_request:
+    paths:
+      - "supabase/migrations/20260725_tcos_checklist_registry_core.sql"
+      - ".github/workflows/checklist-registry-postgres.yml"
+  push:
+    branches:
+      - "feature/tcos-checklist-registry-release-calendar-v1"
+    paths:
+      - "supabase/migrations/20260725_tcos_checklist_registry_core.sql"
+      - ".github/workflows/checklist-registry-postgres.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-migration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: checklist_registry_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d checklist_registry_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      PGDATABASE: checklist_registry_test
+      MIGRATION_FILE: supabase/migrations/20260725_tcos_checklist_registry_core.sql
+
+    steps:
+      - name: Check out branch
+        uses: actions/checkout@v4
+
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes postgresql-client
+
+      - name: Create Supabase-compatible database roles
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          do $$
+          begin
+            create role anon nologin;
+          exception when duplicate_object then
+            null;
+          end;
+          $$;
+
+          do $$
+          begin
+            create role authenticated nologin;
+          exception when duplicate_object then
+            null;
+          end;
+          $$;
+
+          do $$
+          begin
+            create role service_role nologin bypassrls;
+          exception when duplicate_object then
+            null;
+          end;
+          $$;
+          SQL
+
+      - name: Apply migration
+        run: psql -v ON_ERROR_STOP=1 --file "$MIGRATION_FILE"
+
+      - name: Reapply migration to prove idempotence
+        run: psql -v ON_ERROR_STOP=1 --file "$MIGRATION_FILE"
+
+      - name: Verify schema, privacy, history, and version contracts
+        run: |
+          psql -v ON_ERROR_STOP=1 <<'SQL'
+          do $$
+          declare
+            registry_table_count integer;
+            rls_table_count integer;
+            public_policy_count integer;
+            public_grant_count integer;
+            service_select_count integer;
+            history_trigger_count integer;
+            basketball_id uuid;
+            wnba_id uuid;
+            panini_id uuid;
+            release_id uuid;
+            revision_id uuid;
+            source_file_id uuid;
+            append_update_blocked boolean := false;
+            append_delete_blocked boolean := false;
+            duplicate_hash_blocked boolean := false;
+            duplicate_version_blocked boolean := false;
+          begin
+            select count(*)
+              into registry_table_count
+            from pg_class relation
+            join pg_namespace namespace on namespace.oid = relation.relnamespace
+            where namespace.nspname = 'public'
+              and relation.relkind = 'r'
+              and relation.relname like 'checklist\_%' escape '\';
+
+            if registry_table_count <> 24 then
+              raise exception 'Expected 24 Registry tables, found %', registry_table_count;
+            end if;
+
+            select count(*)
+              into rls_table_count
+            from pg_class relation
+            join pg_namespace namespace on namespace.oid = relation.relnamespace
+            where namespace.nspname = 'public'
+              and relation.relkind = 'r'
+              and relation.relname like 'checklist\_%' escape '\'
+              and relation.relrowsecurity;
+
+            if rls_table_count <> 24 then
+              raise exception 'Expected RLS on 24 Registry tables, found %', rls_table_count;
+            end if;
+
+            select count(*)
+              into public_policy_count
+            from pg_policies
+            where schemaname = 'public'
+              and tablename like 'checklist\_%' escape '\';
+
+            if public_policy_count <> 0 then
+              raise exception 'Registry must not create public RLS policies; found %', public_policy_count;
+            end if;
+
+            select count(*)
+              into public_grant_count
+            from information_schema.role_table_grants
+            where table_schema = 'public'
+              and table_name like 'checklist\_%' escape '\'
+              and grantee in ('anon', 'authenticated');
+
+            if public_grant_count <> 0 then
+              raise exception 'anon/authenticated unexpectedly have % Registry grants', public_grant_count;
+            end if;
+
+            select count(*)
+              into service_select_count
+            from information_schema.role_table_grants
+            where table_schema = 'public'
+              and table_name like 'checklist\_%' escape '\'
+              and grantee = 'service_role'
+              and privilege_type = 'SELECT';
+
+            if service_select_count <> 24 then
+              raise exception 'service_role SELECT grants expected on 24 tables, found %', service_select_count;
+            end if;
+
+            select count(*)
+              into history_trigger_count
+            from pg_trigger trigger_row
+            join pg_class relation on relation.oid = trigger_row.tgrelid
+            join pg_namespace namespace on namespace.oid = relation.relnamespace
+            where namespace.nspname = 'public'
+              and relation.relname in (
+                'checklist_release_date_revisions',
+                'checklist_release_status_events',
+                'checklist_revision_diffs'
+              )
+              and trigger_row.tgname like '%_append_only'
+              and not trigger_row.tgisinternal;
+
+            if history_trigger_count <> 3 then
+              raise exception 'Expected 3 append-only history triggers, found %', history_trigger_count;
+            end if;
+
+            select id into basketball_id
+            from public.checklist_sports
+            where slug = 'basketball';
+
+            select id into wnba_id
+            from public.checklist_leagues
+            where sport_id = basketball_id and slug = 'wnba';
+
+            if basketball_id is null or wnba_id is null then
+              raise exception 'WNBA taxonomy seed is missing or not scoped beneath Basketball';
+            end if;
+
+            select id into panini_id
+            from public.checklist_manufacturers
+            where slug = 'panini';
+
+            insert into public.checklist_releases (
+              manufacturer_id,
+              sport_id,
+              league_id,
+              product_name,
+              slug,
+              release_year,
+              current_release_date,
+              release_status,
+              checklist_status,
+              import_status
+            ) values (
+              panini_id,
+              basketball_id,
+              wnba_id,
+              '2025 Panini Select WNBA CI Fixture',
+              '2025-panini-select-wnba-ci-fixture',
+              '2025',
+              date '2025-08-01',
+              'release_date_confirmed',
+              'pending',
+              'not_started'
+            )
+            returning id into release_id;
+
+            insert into public.checklist_release_date_revisions (
+              release_id,
+              date_kind,
+              previous_date,
+              new_date,
+              change_reason
+            ) values (
+              release_id,
+              'current_release_date',
+              date '2025-07-25',
+              date '2025-08-01',
+              'CI append-only verification'
+            )
+            returning id into revision_id;
+
+            begin
+              update public.checklist_release_date_revisions
+              set change_reason = 'Mutation should be rejected'
+              where id = revision_id;
+            exception when others then
+              if position('append-only' in sqlerrm) > 0 then
+                append_update_blocked := true;
+              else
+                raise;
+              end if;
+            end;
+
+            begin
+              delete from public.checklist_release_date_revisions
+              where id = revision_id;
+            exception when others then
+              if position('append-only' in sqlerrm) > 0 then
+                append_delete_blocked := true;
+              else
+                raise;
+              end if;
+            end;
+
+            if not append_update_blocked or not append_delete_blocked then
+              raise exception 'Append-only history did not reject update and delete';
+            end if;
+
+            insert into public.checklist_source_files (
+              release_id,
+              source_file_type,
+              source_url,
+              original_filename,
+              storage_object_path,
+              mime_type,
+              size_bytes,
+              sha256
+            ) values (
+              release_id,
+              'checklist',
+              'https://example.test/checklist.xlsx',
+              'checklist.xlsx',
+              'ci/checklist.xlsx',
+              'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+              100,
+              repeat('a', 64)
+            )
+            returning id into source_file_id;
+
+            begin
+              insert into public.checklist_source_files (
+                release_id,
+                source_file_type,
+                source_url,
+                original_filename,
+                storage_object_path,
+                mime_type,
+                size_bytes,
+                sha256
+              ) values (
+                release_id,
+                'checklist',
+                'https://example.test/checklist-copy.xlsx',
+                'checklist-copy.xlsx',
+                'ci/checklist-copy.xlsx',
+                'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+                100,
+                repeat('a', 64)
+              );
+            exception when unique_violation then
+              duplicate_hash_blocked := true;
+            end;
+
+            if not duplicate_hash_blocked then
+              raise exception 'Duplicate source-file SHA-256 was not rejected';
+            end if;
+
+            insert into public.checklist_versions (
+              release_id,
+              source_file_id,
+              version_number,
+              parser_version
+            ) values (
+              release_id,
+              source_file_id,
+              1,
+              'ci-parser-v1'
+            );
+
+            begin
+              insert into public.checklist_versions (
+                release_id,
+                source_file_id,
+                version_number,
+                parser_version
+              ) values (
+                release_id,
+                source_file_id,
+                2,
+                'ci-parser-v1'
+              );
+            exception when unique_violation then
+              duplicate_version_blocked := true;
+            end;
+
+            if not duplicate_version_blocked then
+              raise exception 'Duplicate source/parser/schema version was not rejected';
+            end if;
+          end;
+          $$;
+
+          select json_build_object(
+            'schema', 'tcos.checklist.postgresVerification.v1',
+            'status', 'passed',
+            'registry_tables', 24,
+            'migration_applications', 2,
+            'rls_tables', 24,
+            'public_policies', 0,
+            'append_only_history', true,
+            'source_hash_deduplication', true,
+            'version_deduplication', true
+          );
+          SQL
