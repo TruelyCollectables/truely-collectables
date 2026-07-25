@@ -33,7 +33,7 @@ create function public.tcos_reserve_checkout_inventory(
   p_store_id uuid,
   p_checkout_attempt_id uuid,
   p_items jsonb,
-  p_ttl_minutes integer default 30
+  p_ttl_minutes integer default 32
 )
 returns table (
   reservation_id uuid,
@@ -52,7 +52,7 @@ declare
   v_requested integer;
   v_inventory public.inventory_items%rowtype;
   v_other_reserved integer;
-  v_expires_at timestamptz := now() + make_interval(mins => least(greatest(coalesce(p_ttl_minutes, 30), 30), 60));
+  v_expires_at timestamptz := now() + make_interval(mins => least(greatest(coalesce(p_ttl_minutes, 32), 32), 60));
   v_reservation public.checkout_inventory_reservations%rowtype;
 begin
   if p_items is null or jsonb_typeof(p_items) <> 'array' or jsonb_array_length(p_items) = 0 then
@@ -80,6 +80,8 @@ begin
       from public.inventory_items
      where store_id = p_store_id
        and legacy_product_id = v_product_id
+     order by updated_at desc nulls last, id desc
+     limit 1
      for update;
 
     if not found then
