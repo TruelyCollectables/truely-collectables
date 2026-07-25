@@ -1,5 +1,11 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import {
+  listingImageAltText,
+  listingImageIdentity,
+  normalizeListingImageUrls,
+  preferHighResolutionListingImage,
+} from "../src/lib/listing-image-utils";
 import { isLaunchSportsCard } from "../src/lib/sports-card-launch-scope";
 
 const adminEngine = fs.readFileSync(
@@ -28,6 +34,22 @@ const importRunner = fs.readFileSync(
 );
 const publicInventoryEngine = fs.readFileSync(
   "src/lib/server-inventory-engine.ts",
+  "utf8",
+);
+const productImageRoute = fs.readFileSync(
+  "src/app/api/storefront/product-images/[id]/route.ts",
+  "utf8",
+);
+const productActions = fs.readFileSync(
+  "src/app/product/[id]/ProductActions.tsx",
+  "utf8",
+);
+const imageSync = fs.readFileSync(
+  "src/lib/ebay-front-back-image-sync.ts",
+  "utf8",
+);
+const scheduledEbaySync = fs.readFileSync(
+  "src/app/api/cron/ebay-store-fixed-price-sync/route.ts",
   "utf8",
 );
 
@@ -109,6 +131,76 @@ assert.match(
   publicInventoryEngine,
   /async getByLegacyProductIds\([\s\S]*return items\.filter\(isLaunchSportsCard\);/,
   "Bulk public product lookups must enforce the same launch scope.",
+);
+
+assert.match(
+  productImageRoute,
+  /createServerInventoryEngine\(\)\.getByLegacyProductId/,
+  "The public product-image endpoint must reuse the sports-card scope guard.",
+);
+assert.match(
+  productImageRoute,
+  /normalizeListingImageUrls\([\s\S]*\)\.slice\(0, 2\)/,
+  "Public product images must be deduplicated and limited to front/back.",
+);
+assert.match(
+  productActions,
+  /\/api\/storefront\/product-images\/\$\{product\.id\}/,
+  "Product pages must load the scoped front/back image response.",
+);
+assert.match(
+  productActions,
+  /index === 0 \? "Front" : "Back"/,
+  "The native product photo panel must label front and back deterministically.",
+);
+assert.match(
+  imageSync,
+  /ebay_front_back_image_sync_version/,
+  "The eBay image repair must use a persisted one-time synchronization version.",
+);
+assert.match(
+  imageSync,
+  /sort_order: index,[\s\S]*is_primary: index === 0/,
+  "Image repair must remove sort collisions and preserve exactly one primary image.",
+);
+assert.match(
+  scheduledEbaySync,
+  /syncEbayFrontBackImages/,
+  "The scheduled authoritative eBay job must run the guarded front/back image sync.",
+);
+
+assert.equal(
+  preferHighResolutionListingImage(
+    "https://i.ebayimg.com/images/g/example/s-l140.jpg",
+  ),
+  "https://i.ebayimg.com/images/g/example/s-l1600.jpg",
+  "eBay thumbnails must be upgraded to the high-resolution image path.",
+);
+assert.equal(
+  listingImageIdentity(
+    "https://i.ebayimg.com/images/g/example/s-l140.jpg",
+  ),
+  listingImageIdentity(
+    "https://i.ebayimg.com/images/g/example/s-l1600.jpg",
+  ),
+  "Different eBay size variants of the same photo must share one identity.",
+);
+assert.deepEqual(
+  normalizeListingImageUrls([
+    "https://i.ebayimg.com/images/g/front/s-l140.jpg",
+    "https://i.ebayimg.com/images/g/front/s-l1600.jpg",
+    "https://i.ebayimg.com/images/g/back/s-l140.jpg",
+  ]),
+  [
+    "https://i.ebayimg.com/images/g/front/s-l1600.jpg",
+    "https://i.ebayimg.com/images/g/back/s-l1600.jpg",
+  ],
+  "Image normalization must keep one front and one distinct back photo.",
+);
+assert.equal(
+  listingImageAltText("Test Card", 1),
+  "Test Card back",
+  "The second synchronized image must receive a back-photo alt label.",
 );
 
 assert.match(
@@ -213,4 +305,6 @@ for (const testCase of launchScopeCases) {
   );
 }
 
-console.log("eBay import and sports-card launch-scope simulations passed: 32/32");
+console.log(
+  "eBay import, sports-card scope, and front/back image simulations passed: 43/43",
+);
