@@ -89,7 +89,7 @@ begin
     return;
   end if;
 
-  if v_reservation.status not in ('active', 'expired') then
+  if v_reservation.status <> 'active' or v_reservation.expires_at <= now() then
     raise exception 'reservation_consume_not_active:%', p_legacy_product_id;
   end if;
 
@@ -152,6 +152,7 @@ declare
   v_inventory public.inventory_items%rowtype;
   v_previous integer;
   v_new integer;
+  v_other_reserved integer;
 begin
   if p_quantity is null or p_quantity <= 0 then
     raise exception 'order_inventory_quantity_invalid';
@@ -197,9 +198,17 @@ begin
     raise exception 'inventory_product_not_found:%', p_legacy_product_id;
   end if;
 
+  select coalesce(sum(reservation.quantity), 0)::integer
+    into v_other_reserved
+    from public.checkout_inventory_reservations as reservation
+   where reservation.store_id = p_store_id
+     and reservation.legacy_product_id = p_legacy_product_id
+     and reservation.status = 'active'
+     and reservation.expires_at > now();
+
   v_previous := coalesce(v_inventory.quantity, 0);
 
-  if v_previous < p_quantity then
+  if v_previous - v_other_reserved < p_quantity then
     raise exception 'insufficient_inventory:%', p_legacy_product_id;
   end if;
 
