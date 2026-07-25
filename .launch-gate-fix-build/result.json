@@ -1,0 +1,13 @@
+{
+  "suite": "internal-owner-live-payment-gate-fix-v1",
+  "commit": "2db80555fb8817910ef6646e4c13684bb05dddc0",
+  "passed": true,
+  "outcomes": {
+    "install": "success",
+    "owner_marker": "success",
+    "launch_contract": "success",
+    "shipping": "success",
+    "lint": "success",
+    "production_build": "success"
+  }
+}

@@ -1,0 +1,74 @@
+
+> truely-collectables@0.1.0 verify:shipping
+> npm run simulate:lettertrack-evidence && npm run simulate:shipping-purchase-audit && npm run simulate:shipping
+
+
+> truely-collectables@0.1.0 simulate:lettertrack-evidence
+> node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/run-lettertrack-evidence-simulations.mjs
+
+PASS delivered evidence blocks seller-protection payout without override - LetterTrack / USPS IMb delivered evidence is present. Add an internal note containing an override reason before marking this seller-protection claim paid.
+PASS not-delivered evidence supports seller-protection payout review - LetterTrack / USPS IMb evidence supports not-delivered, exception, or returned claim review.
+PASS delivery exception evidence supports claim review - LetterTrack / USPS IMb evidence supports not-delivered, exception, or returned claim review.
+PASS returned evidence supports claim review - LetterTrack / USPS IMb evidence supports not-delivered, exception, or returned claim review.
+PASS in-transit-only evidence blocks payout without override - Record LetterTrack / USPS IMb Not Delivered, Delivery Exception, or Returned evidence before marking this seller-protection claim paid, or add an internal override note.
+PASS explicit override note can allow exceptional payout - Operator override note accepted even though LetterTrack evidence does not independently support seller-protection reimbursement.
+PASS saved explicit override note can allow exceptional payout - Operator override note accepted even though LetterTrack evidence does not independently support seller-protection reimbursement.
+PASS weak override note does not bypass delivered evidence - LetterTrack / USPS IMb delivered evidence is present. Add an internal note containing an override reason before marking this seller-protection claim paid.
+PASS delivered evidence wins over earlier not-delivered evidence - LetterTrack / USPS IMb delivered evidence is present. Add an internal note containing an override reason before marking this seller-protection claim paid.
+PASS non-LetterTrack events are ignored by the LetterTrack summary - No LetterTrack delivery evidence has been recorded yet.
+PASS seller-protection evidence reviews are recorded on claim review statuses only - submitted, under_review, approved, paid, and denied create audit reviews for eligible under-$20 claims.
+PASS seller-protection evidence review stores status, note, evidence, and gate - LetterTrack / USPS IMb evidence supports not-delivered, exception, or returned claim review.
+LetterTrack evidence simulations: 12/12 passed.
+
+> truely-collectables@0.1.0 simulate:shipping-purchase-audit
+> node --import tsx scripts/run-shipping-purchase-audit-simulations.ts
+
+PASS live_gate_blocker_evidence_ready - Live-gate blocked provider purchases keep the Standard Envelope evidence validator, setup blocker, adapter profile, and admin identity audit text.
+PASS provider_setup_blocker_evidence_blocked - Missing provider setup blockers show blocked Standard Envelope evidence validator state, coverage credential gaps, and identity risk.
+PASS dry_run_purchase_attempt_audit_sentence - Dry-run purchase-attempt audit sentences include status, missing provider readiness, purchase mode, and timestamp.
+PASS empty_purchase_attempt_audit_lines - Empty purchase-attempt packet lines explicitly say no latest provider purchase attempt is saved.
+PASS packet_purchase_attempt_audit_lines - Packet purchase-attempt audit lines include the Standard Envelope evidence summary, live gate reason, and provider profile.
+Shipping purchase audit simulations: 5/5 passed; expected 5 scenarios.
+PASS shipping_purchase_audit_expected_scenario_count - expected 5, found 5
+PASS shipping_purchase_audit_expected_scenario_keys - missing none; unexpected none
+
+> truely-collectables@0.1.0 simulate:shipping
+> node --import tsx scripts/run-shipping-simulations.ts
+
+Shipping simulation suite 2026-07-14.6: 20/20 passed; expected 20 scenarios.
+PASS shipping_simulation_expected_scenario_count - expected 20, found 20
+PASS shipping_simulation_expected_scenario_keys - missing none; unexpected none
+PASS standard_envelope_under_20_and_3oz - A raw-card order at $19.99 and 3 estimated oz stays on Standard Envelope at the expected $1.32 pre-July-12 rate.
+PASS standard_envelope_over_20_forces_ground_advantage - A card order over $20.00 is forced from Standard Envelope to Ground Advantage.
+PASS standard_envelope_over_3oz_forces_ground_advantage - A raw-card order estimated above 3 oz is forced from Standard Envelope to Ground Advantage.
+PASS coverage_required_for_standard_and_ground - Seller protection coverage is required for both Standard Envelope and Ground Advantage shipments.
+PASS under_20_seller_protection_opted_in_item_only - An opted-in under-$20 Standard Envelope sale withholds 2%, reimburses protected item amount only, and excludes shipping.
+PASS under_20_seller_protection_not_opted_in_seller_liability - A non-opted-in under-$20 Standard Envelope sale withholds no reserve, reimburses $0, and leaves refund liability with the seller.
+PASS under_20_seller_protection_caps_mixed_rows - Mixed under-$20 claim rows cap reimbursement at $20, include only opted-in protected item amounts, track excluded shipping, and leave unprotected rows out of TCOS reimbursement.
+PASS under_20_seller_protection_seller_order_visibility - Seller order views can show under-$20 protection status, 2% reserve, protected item cap, unprotected row liability, and shipping excluded from reimbursement.
+PASS under_20_seller_protection_reimbursement_allocation - Seller-protection Mark Paid allocation creates credits only for eligible payable seller rows, stops at the $20 cap, records operator-readable skip reasons for unprotected/forged/missing-seller/zero-covered/cap-reached rows, and keeps shipping excluded.
+PASS under_20_seller_protection_item_only_allocation_vs_seller_liability - Opted-in under-$20 Standard Envelope reimbursement allocates item sale amount only and records excluded shipping, while a non-opted-in seller row receives no TCOS allocation and remains responsible for the buyer refund.
+PASS under_20_seller_protection_buyer_refund_gate - Under-$20 seller-protection Mark Paid requires a current or previously saved internal note confirming buyer refund evidence or a refund reference before TCOS credits the seller.
+PASS shipping_adapter_profiles_are_auditable - Shipping adapter profiles expose provider, carrier, credential, Coverage, live-support, and manual-fallback state without calling a live provider.
+PASS provider_setup_standard_envelope_evidence_contract - Provider setup exports state that LetterTrack / USPS IMb supplies trackable delivery evidence while TCOS Under-$20 Seller Protection remains an optional internal, item-only, non-insurance program, and the shared live gate validator rejects unsafe contract drift.
+PASS lettertrack_standard_envelope_export - Standard Envelope labels can be exported to a LetterTrack import CSV with recipient address, order reference, value, IMb recording instructions, and an operator-readable skipped-row reason summary.
+PASS lettertrack_csv_seller_protection_contract - LetterTrack CSV rows carry the under-$20 seller-protection contract: opt-in required, 2% reserve, $20 item-only cap, shipping excluded, and IMb delivery-evidence requirement.
+PASS lettertrack_delivery_evidence_claim_review_rules - LetterTrack IMb delivery evidence snapshots distinguish delivered shipments from not-delivered claim-review support before under-$20 seller-protection reimbursement.
+PASS lettertrack_seller_protection_paid_gate - Under-$20 seller-protection payout blocks delivered LetterTrack evidence, allows not-delivered review evidence, and accepts a current or previously saved explicit override note for exceptions.
+PASS lettertrack_seller_protection_evidence_review_audit - Under-$20 seller-protection claim status changes save a LetterTrack evidence review audit record before payout.
+PASS dry_run_standard_envelope_purchase - The dry-run adapter simulates a Standard Envelope IMb, coverage policy, and current-rate postage without buying postage.
+PASS dry_run_ground_advantage_purchase - The dry-run adapter simulates a Ground Advantage tracking number, coverage policy, and postage without buying postage.
+Live shipping approval: blocked (0/7 requirements ready).
+Live shipping blockers:
+- Provider Credentials
+- Live Adapter Implementation
+- Quote / Buy / Void Tests
+- Coverage Purchase Tests
+- Webhook + Reconciliation
+- Simulation Suite
+- Admin Live Shipping Approval
+- TCOS_STANDARD_ENVELOPE_PROVIDER or LETTERTRACK_ACCOUNT_CONFIGURED
+- LETTERTRACK_IMPORT_WORKFLOW_APPROVED or TCOS_STANDARD_ENVELOPE_API_KEY or IMB_PROVIDER_API_KEY
+- TCOS_PARCEL_LABEL_PROVIDER or EASYPOST_API_KEY or SHIPPO_API_TOKEN
+- TCOS_SHIPPING_COVERAGE_PROVIDER
+- TCOS_SHIPPING_COVERAGE_API_KEY or COVERAGE_API_KEY

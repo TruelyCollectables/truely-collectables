@@ -1,0 +1,82 @@
+PASS Standard Envelope one-card rate
+PASS Standard Envelope two-card rate
+PASS Standard Envelope three-card rate
+PASS Four cards exceed Standard Envelope weight
+PASS Over-$20 Standard Envelope request falls back to Ground Advantage
+PASS Ground Advantage first five cards
+PASS Ground Advantage sixth card
+PASS Ground Advantage free-shipping threshold
+PASS Priority Mail first five cards
+PASS Priority Mail sixth card
+PASS Priority Mail free-shipping threshold
+PASS src/app/api/checkout/route.ts contains requireAvailableCartItems(cart)
+PASS src/app/api/checkout/route.ts contains reserveCheckoutInventory
+PASS src/app/api/checkout/route.ts contains attachStripeSessionToCheckoutReservation
+PASS src/app/api/checkout/route.ts contains CHECKOUT_RESERVATION_MINUTES
+PASS src/app/api/checkout/route.ts contains payment_method_types: ["card"]
+PASS src/app/api/checkout/route.ts contains expires_at: stripeExpiresAt
+PASS src/app/api/checkout/route.ts contains 31 * 60
+PASS src/app/api/checkout/route.ts contains idempotencyKey: stripeIdempotencyKey
+PASS src/app/api/checkout/route.ts contains inventory_reservation_expires_at
+PASS src/app/api/checkout/route.ts contains legacy_product_id: String(product.legacyProductId)
+PASS src/app/api/checkout/route.ts contains checkout.sessions.expire(session.id)
+PASS src/app/api/checkout/route.ts contains reservationMayBeReleased = false
+PASS src/lib/checkout-inventory-reservations.ts contains tcos_reserve_checkout_inventory
+PASS src/lib/checkout-inventory-reservations.ts contains CHECKOUT_RESERVATION_MINUTES = 32
+PASS src/lib/checkout-inventory-reservations.ts contains releaseCheckoutReservation
+PASS src/lib/checkout-inventory-reservations.ts contains Checkout reservation did not cover every cart line
+PASS src/lib/checkout-inventory-reservations.ts contains One or more cards were just reserved by another buyer
+PASS supabase/migrations/20260725010000_checkout_inventory_reservations.sql contains create table if not exists public.checkout_inventory_reservations
+PASS supabase/migrations/20260725010000_checkout_inventory_reservations.sql contains for update
+PASS supabase/migrations/20260725010000_checkout_inventory_reservations.sql contains reservation.checkout_attempt_id <> p_checkout_attempt_id
+PASS supabase/migrations/20260725010000_checkout_inventory_reservations.sql contains insufficient_inventory
+PASS supabase/migrations/20260725010000_checkout_inventory_reservations.sql contains grant select, insert, update, delete
+PASS supabase/migrations/20260725010000_checkout_inventory_reservations.sql contains grant execute on function public.tcos_reserve_checkout_inventory
+PASS src/app/api/webhook/route.ts contains claimStripeWebhookEvent
+PASS src/app/api/webhook/route.ts contains event.type !== "checkout.session.completed"
+PASS src/app/api/webhook/route.ts contains .eq("stripe_session_id", session.id)
+PASS src/app/api/webhook/route.ts contains decrementAfterSale
+PASS src/app/api/webhook/route.ts contains syncEbayQuantityAfterSale
+PASS src/app/api/webhook/route.ts contains status: "paid_inventory_review"
+PASS src/app/api/webhook/route.ts contains finishStripeWebhookEvent
+PASS src/lib/stripe-reconciliation.ts contains mismatch_type: expectedCategory ? "stripe_only"
+PASS src/lib/stripe-reconciliation.ts contains severity: category === "charge" ? "critical"
+PASS src/lib/stripe-reconciliation.ts contains Stripe ${category} has no TCOS record
+PASS src/lib/stripe-reconciliation.ts contains stripe_reconciliation_items
+PASS src/app/api/cron/stripe-reconciliation/route.ts contains validCronAuthorization
+PASS src/app/api/cron/stripe-reconciliation/route.ts contains reconcileStripeDaily
+PASS src/app/api/cron/stripe-reconciliation/route.ts contains source: "scheduled_cron"
+PASS src/app/api/ebay/full-sync/route.ts contains const MAX_BATCHES = 25
+PASS src/app/api/ebay/full-sync/route.ts contains importEbayListingsPage
+PASS src/app/api/ebay/full-sync/route.ts contains message: "Full eBay sync completed"
+PASS src/app/api/ebay/full-sync/route.ts contains policyNeedsReview
+PASS src/app/api/ebay/full-sync/route.ts contains policyBlocked
+PASS src/app/api/ebay/full-sync/route.ts contains markedSold
+PASS src/lib/ebay-sync.ts contains upsertFromEbayListing
+PASS src/lib/ebay-sync.ts contains markEbayListingInactive
+PASS src/lib/ebay-sync.ts contains reason: "missing_sku"
+PASS src/lib/ebay-sync.ts contains reason: "invalid_listing_price"
+PASS src/modules/inventory/engine.ts contains last_seen_at: new Date().toISOString()
+PASS src/modules/inventory/engine.ts contains getEbayReconciliationStatus
+PASS src/modules/inventory/engine.ts contains issues.push("stale_sync")
+PASS src/proxy.ts contains if (pathname.startsWith("/api/ebay")) return true
+PASS src/proxy.ts contains url.hostname = "truelycollectables.com"
+PASS src/app/robots.ts contains allow: ["/", "/shop", "/product/"]
+PASS src/app/robots.ts contains "/admin/"
+PASS src/app/robots.ts contains "/api/"
+PASS src/app/robots.ts contains sitemap:
+PASS src/app/sitemap.ts contains inventoryEngine.listAvailable()
+PASS src/app/sitemap.ts contains `${origin}/product/${product.legacyProductId}`
+PASS src/app/sitemap.ts contains images: image ? [image] : undefined
+PASS src/app/layout.tsx contains GOOGLE_SITE_VERIFICATION
+PASS src/app/layout.tsx contains "@type": "Organization"
+PASS src/app/layout.tsx contains metadataBase
+PASS src/app/shop/page.tsx contains canonical: "/shop"
+PASS src/app/shop/page.tsx contains title: "Shop Sports Cards"
+PASS src/app/product/[id]/page.tsx contains "@type": "Product"
+PASS src/app/product/[id]/page.tsx contains "@type": "Offer"
+PASS src/app/product/[id]/page.tsx contains canonicalPath
+PASS src/app/product/[id]/page.tsx contains https://schema.org/InStock
+PASS src/app/cart/page.tsx contains index: false
+PASS src/app/cart/page.tsx contains follow: false
+Sunday launch contract passed: 81/81

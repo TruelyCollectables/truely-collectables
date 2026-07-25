@@ -1,0 +1,276 @@
+
+> truely-collectables@0.1.0 build
+> next build --webpack
+
+⚠ No build cache found. Please configure build caching for faster rebuilds. Read more: https://nextjs.org/docs/messages/no-cache
+Attention: Next.js now collects completely anonymous telemetry regarding usage.
+This information is used to shape Next.js' roadmap and prioritize features.
+You can learn more, including how to opt-out if you'd not like to participate in this anonymous program, by visiting the following URL:
+https://nextjs.org/telemetry
+
+▲ Next.js 16.2.10 (webpack)
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 25.6s
+  Running TypeScript ...
+  Finished TypeScript in 37.6s ...
+  Collecting page data using 3 workers ...
+  Generating static pages using 3 workers (0/43) ...
+  Generating static pages using 3 workers (10/43) 
+  Generating static pages using 3 workers (21/43) 
+  Generating static pages using 3 workers (32/43) 
+✓ Generating static pages using 3 workers (43/43) in 631ms
+  Finalizing page optimization ...
+  Collecting build traces ...
+
+Route (app)
+┌ ƒ /
+├ ○ /_not-found
+├ ○ /account
+├ ○ /account/login
+├ ○ /account/signup
+├ ƒ /admin
+├ ƒ /admin/accounts
+├ ƒ /admin/ebay
+├ ƒ /admin/ebay/duplicates
+├ ƒ /admin/ebay/full-store-sync
+├ ƒ /admin/ebay/import-runner
+├ ƒ /admin/ebay/inventory-intake
+├ ƒ /admin/ebay/publish
+├ ƒ /admin/ebay/sync-control
+├ ƒ /admin/files
+├ ƒ /admin/financial-reconciliation
+├ ƒ /admin/instacomp
+├ ƒ /admin/instacomp-direct
+├ ƒ /admin/inventory
+├ ƒ /admin/inventory/category-review
+├ ƒ /admin/launch-gate-drill
+├ ƒ /admin/launch-readiness
+├ ƒ /admin/live-payment-launch
+├ ƒ /admin/live-shipping-launch
+├ ƒ /admin/login
+├ ƒ /admin/logout
+├ ƒ /admin/market-intel
+├ ƒ /admin/market-intel/buy
+├ ƒ /admin/market-intel/comps
+├ ƒ /admin/market-intel/comps/[id]
+├ ƒ /admin/market-intel/deals
+├ ƒ /admin/market-intel/delivery
+├ ƒ /admin/market-intel/delivery/test
+├ ƒ /admin/market-intel/discovery
+├ ƒ /admin/market-intel/ebay
+├ ƒ /admin/market-intel/growth-specs
+├ ƒ /admin/market-intel/growth-specs/prospects
+├ ƒ /admin/market-intel/ingestion
+├ ƒ /admin/market-intel/portfolio
+├ ƒ /admin/market-intel/purchases
+├ ƒ /admin/market-intel/purchases/[id]
+├ ƒ /admin/market-intel/purchases/[id]/edit
+├ ƒ /admin/market-intel/purchases/deleted
+├ ƒ /admin/market-intel/purchases/ebay-intake
+├ ƒ /admin/market-intel/purchases/new
+├ ƒ /admin/market-intel/readiness
+├ ƒ /admin/market-intel/reports
+├ ƒ /admin/market-intel/watch-center
+├ ƒ /admin/market-intel/watchlist
+├ ƒ /admin/offers
+├ ƒ /admin/order-review-cases
+├ ƒ /admin/orders
+├ ƒ /admin/orders/[id]
+├ ƒ /admin/orders/[id]/packing-slip
+├ ○ /admin/owner-seller-account
+├ ƒ /admin/payment-simulations
+├ ƒ /admin/production-smoke
+├ ƒ /admin/products
+├ ƒ /admin/products/[id]
+├ ƒ /admin/products/new
+├ ƒ /admin/quick-list
+├ ƒ /admin/security
+├ ƒ /admin/security/ip/[ip]
+├ ƒ /admin/seller-payouts
+├ ƒ /admin/settings
+├ ƒ /admin/shipping
+├ ƒ /admin/shipping/simulations
+├ ƒ /api/account/collector/binding-offers
+├ ƒ /api/account/collector/exports
+├ ƒ /api/account/collector/imports
+├ ƒ /api/account/collector/items
+├ ƒ /api/account/collector/messages
+├ ƒ /api/account/collector/profile
+├ ƒ /api/account/collector/social
+├ ƒ /api/account/dashboard/preferences
+├ ƒ /api/account/login
+├ ƒ /api/account/orders
+├ ƒ /api/account/seller/inventory
+├ ƒ /api/account/seller/inventory/[inventoryItemId]
+├ ƒ /api/account/seller/inventory/[inventoryItemId]/activate
+├ ƒ /api/account/seller/inventory/[inventoryItemId]/active-market-attack
+├ ƒ /api/account/seller/inventory/[inventoryItemId]/archive
+├ ƒ /api/account/seller/inventory/[inventoryItemId]/description
+├ ƒ /api/account/seller/inventory/[inventoryItemId]/instacomp-tracking
+├ ƒ /api/account/seller/inventory/[inventoryItemId]/market-check
+├ ƒ /api/account/seller/inventory/active-pricing
+├ ƒ /api/account/seller/inventory/bulk-status
+├ ƒ /api/account/seller/inventory/exact-card-enhancements
+├ ƒ /api/account/seller/inventory/visual-tracker
+├ ƒ /api/account/seller/marketplace-connections
+├ ƒ /api/account/seller/marketplace-connections/ebay/auth
+├ ƒ /api/account/seller/marketplace-connections/ebay/disconnect
+├ ƒ /api/account/seller/marketplace-connections/ebay/import-preview
+├ ƒ /api/account/seller/marketplace-connections/ebay/intake-decision
+├ ƒ /api/account/seller/marketplace-connections/ebay/intake-normalize
+├ ƒ /api/account/seller/marketplace-connections/ebay/orders
+├ ƒ /api/account/seller/marketplace-connections/ebay/reconcile
+├ ƒ /api/account/seller/marketplace-connections/ebay/staged-items
+├ ƒ /api/account/seller/marketplace-connections/ebay/staged-items/promote
+├ ƒ /api/account/seller/marketplace-connections/ebay/status
+├ ƒ /api/account/seller/marketplace-connections/ebay/sync-control
+├ ƒ /api/account/seller/orders
+├ ƒ /api/account/seller/orders/[id]
+├ ƒ /api/account/seller/payout-onboarding
+├ ƒ /api/account/seller/payout-requests
+├ ƒ /api/account/seller/quick-list
+├ ƒ /api/account/signup
+├ ƒ /api/admin/brag-weekly-report
+├ ƒ /api/admin/ebay-duplicates
+├ ƒ /api/admin/ebay-inventory-intake
+├ ƒ /api/admin/ebay/full-store-sync
+├ ƒ /api/admin/files/[id]/download
+├ ƒ /api/admin/financial-reconciliation
+├ ƒ /api/admin/instacomp-price-radar/adjust
+├ ƒ /api/admin/instacomp-price-radar/ignore
+├ ƒ /api/admin/launch-gate-drill
+├ ƒ /api/admin/launch-readiness
+├ ƒ /api/admin/live-payment-launch
+├ ƒ /api/admin/live-payment-launch/webhook-smoke
+├ ƒ /api/admin/live-shipping-launch
+├ ƒ /api/admin/login
+├ ƒ /api/admin/logout
+├ ƒ /api/admin/market-intel/alerts/[id]/status
+├ ƒ /api/admin/market-intel/alerts/deliver
+├ ƒ /api/admin/market-intel/alerts/sync
+├ ƒ /api/admin/market-intel/comps
+├ ƒ /api/admin/market-intel/comps/[id]/recalculate
+├ ƒ /api/admin/market-intel/deals/rescore
+├ ƒ /api/admin/market-intel/delivery/test
+├ ƒ /api/admin/market-intel/discovery/[id]/approve
+├ ƒ /api/admin/market-intel/discovery/[id]/purchase
+├ ƒ /api/admin/market-intel/discovery/[id]/reject
+├ ƒ /api/admin/market-intel/discovery/bulk
+├ ƒ /api/admin/market-intel/discovery/enrich-card-numbers
+├ ƒ /api/admin/market-intel/discovery/scan
+├ ƒ /api/admin/market-intel/ebay/scan
+├ ƒ /api/admin/market-intel/growth-specs
+├ ƒ /api/admin/market-intel/growth-specs/[id]/status
+├ ƒ /api/admin/market-intel/growth-specs/seed-prospects
+├ ƒ /api/admin/market-intel/identities
+├ ƒ /api/admin/market-intel/identities/[id]/track-today
+├ ƒ /api/admin/market-intel/ingestion/cleanup
+├ ƒ /api/admin/market-intel/instacomp/resolve
+├ ƒ /api/admin/market-intel/listings
+├ ƒ /api/admin/market-intel/listings/[id]/end
+├ ƒ /api/admin/market-intel/listings/[id]/purchase
+├ ƒ /api/admin/market-intel/purchases/[id]/delete
+├ ƒ /api/admin/market-intel/purchases/[id]/edit
+├ ƒ /api/admin/market-intel/purchases/[id]/receive
+├ ƒ /api/admin/market-intel/purchases/[id]/strategy
+├ ƒ /api/admin/market-intel/purchases/ebay-intake
+├ ƒ /api/admin/market-intel/purchases/ebay-intake/comp-sync
+├ ƒ /api/admin/market-intel/purchases/manual
+├ ƒ /api/admin/market-intel/reports/deliver
+├ ƒ /api/admin/market-intel/reports/generate
+├ ƒ /api/admin/market-intel/sales
+├ ƒ /api/admin/market-intel/watchlist
+├ ƒ /api/admin/market-intel/watchlist/[id]/toggle
+├ ƒ /api/admin/market-intel/watchlist/seed
+├ ƒ /api/admin/order-review-cases
+├ ƒ /api/admin/order-review-cases/[id]/packet
+├ ƒ /api/admin/order-review-cases/[id]/payout-resolution
+├ ƒ /api/admin/order-review-cases/[id]/stripe-evidence
+├ ƒ /api/admin/orders/[id]/shipping-claims
+├ ƒ /api/admin/orders/[id]/shipping-labels
+├ ƒ /api/admin/owner-seller-account
+├ ƒ /api/admin/payment-simulations
+├ ƒ /api/admin/payment-simulations/checkout-e2e
+├ ƒ /api/admin/products/[id]/save
+├ ƒ /api/admin/quick-list
+├ ƒ /api/admin/seller-payouts/connect-refresh
+├ ƒ /api/admin/seller-payouts/ledger
+├ ƒ /api/admin/seller-payouts/requests
+├ ƒ /api/admin/shipping-claims/[id]
+├ ƒ /api/admin/shipping-claims/[id]/packet
+├ ƒ /api/admin/shipping-labels/[id]/coverage-policy
+├ ƒ /api/admin/shipping-labels/[id]/packet
+├ ƒ /api/admin/shipping-labels/[id]/tracking-event
+├ ƒ /api/admin/shipping/dry-run-cleanup
+├ ƒ /api/admin/shipping/exceptions
+├ ƒ /api/admin/shipping/lettertrack-export
+├ ƒ /api/admin/shipping/provider-setup
+├ ƒ /api/admin/shipping/simulations
+├ ƒ /api/checkout
+├ ƒ /api/cron/ebay-store-fixed-price-sync
+├ ƒ /api/cron/market-intel/alerts/deliver
+├ ƒ /api/cron/market-intel/alerts/growth-deliver
+├ ƒ /api/cron/market-intel/alerts/sync
+├ ƒ /api/cron/market-intel/cleanup
+├ ƒ /api/cron/market-intel/ebay/discovery-scan
+├ ƒ /api/cron/market-intel/ebay/growth-scan
+├ ƒ /api/cron/market-intel/ebay/hot-watch
+├ ƒ /api/cron/market-intel/ebay/scan
+├ ƒ /api/cron/market-intel/ingest
+├ ƒ /api/cron/market-intel/reports/daily
+├ ƒ /api/cron/seller-ebay-reconciliation
+├ ƒ /api/cron/stripe-reconciliation
+├ ƒ /api/ebay/auth
+├ ƒ /api/ebay/callback
+├ ƒ /api/ebay/full-sync
+├ ƒ /api/ebay/import-listings
+├ ƒ /api/ebay/listings
+├ ƒ /api/ebay/notifications
+├ ƒ /api/ebay/publish
+├ ƒ /api/ebay/publish/images
+├ ƒ /api/ebay/test
+├ ƒ /api/instacomp/draft-listings
+├ ƒ /api/instacomp/jobs
+├ ƒ /api/instacomp/jobs/[id]
+├ ƒ /api/instacomp/jobs/[id]/claim
+├ ƒ /api/instacomp/jobs/[id]/items
+├ ƒ /api/instacomp/jobs/[id]/items/[itemId]
+├ ƒ /api/instacomp/jobs/[id]/items/[itemId]/complete
+├ ƒ /api/instacomp/jobs/[id]/items/[itemId]/fail
+├ ƒ /api/instacomp/jobs/[id]/items/[itemId]/retry
+├ ƒ /api/instacomp/jobs/[id]/knowledge-base
+├ ƒ /api/instacomp/scan
+├ ƒ /api/instacomp/trade-items
+├ ƒ /api/offers/counter
+├ ƒ /api/offers/create
+├ ƒ /api/offers/update-status
+├ ƒ /api/orders/mark-shipped
+├ ƒ /api/orders/update-tracking
+├ ƒ /api/stripe/webhook
+├ ƒ /api/webhook
+├ ƒ /brag/[slug]
+├ ƒ /cart
+├ ƒ /ebay/test
+├ ƒ /instacomp-test
+├ ƒ /product/[id]
+├ ○ /robots.txt
+├ ○ /seller
+├ ƒ /seller-terms
+├ ○ /seller/inventory
+├ ƒ /seller/marketplaces
+├ ○ /seller/orders
+├ ƒ /seller/orders/[id]
+├ ○ /seller/payouts
+├ ƒ /shop
+├ ƒ /sitemap.xml
+├ ƒ /success
+├ ƒ /terms
+└ ƒ /trade
+
+
+ƒ Proxy (Middleware)
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+
