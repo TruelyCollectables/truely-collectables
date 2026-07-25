@@ -1,0 +1,12 @@
+{
+  "suite": "truely-sunday-launch-one-build-v1",
+  "commit": "7724f95660f35a5096446562ac6c0222b1dbb536",
+  "passed": false,
+  "outcomes": {
+    "install": "success",
+    "launch_contract": "failure",
+    "shipping": "success",
+    "lint": "success",
+    "production_build": "failure"
+  }
+}

@@ -1,0 +1,17 @@
+/home/runner/work/truely-collectables/truely-collectables/scripts/run-sunday-launch-one-build.ts:20
+  if (!passed) throw new Error(`${name}: ${detail}`);
+                     ^
+
+Error: src/lib/ebay-sync.ts contains last_seen_at: required launch contract is missing: last_seen_at
+    at check (/home/runner/work/truely-collectables/truely-collectables/scripts/run-sunday-launch-one-build.ts:20:22)
+    at contains (/home/runner/work/truely-collectables/truely-collectables/scripts/run-sunday-launch-one-build.ts:40:5)
+    at inventorySyncChecks (/home/runner/work/truely-collectables/truely-collectables/scripts/run-sunday-launch-one-build.ts:180:3)
+    at <anonymous> (/home/runner/work/truely-collectables/truely-collectables/scripts/run-sunday-launch-one-build.ts:229:1)
+    at Object.<anonymous> (/home/runner/work/truely-collectables/truely-collectables/scripts/run-sunday-launch-one-build.ts:249:1)
+    at Module._compile (node:internal/modules/cjs/loader:1781:14)
+    at Object.transformer (/home/runner/work/truely-collectables/truely-collectables/node_modules/tsx/dist/register-BoI6-WNn.cjs:9:3252)
+    at Module.load (node:internal/modules/cjs/loader:1505:32)
+    at Function._load (node:internal/modules/cjs/loader:1309:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
+
+Node.js v22.23.1
