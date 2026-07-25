@@ -12,6 +12,7 @@ const PAGE_SIZE = 200;
 const MAX_PAGES = 25;
 const IMAGE_SYNC_VERSION = 1;
 const APPLY_CONCURRENCY = 8;
+const MAX_ITEMS_PER_RUN = 150;
 
 type InventoryImageRow = {
   id: string;
@@ -241,34 +242,23 @@ async function readAllListingImages(params: {
   };
 }
 
-function isEbayImage(value: string) {
-  return listingImageIdentity(value).startsWith("ebay:");
-}
-
 function chooseFinalImages(remoteImages: string[], existingImages: InventoryImageRow[]) {
-  if (!remoteImages.length) {
-    return normalizeListingImageUrls(
-      existingImages
-        .slice()
-        .sort((left, right) => left.sort_order - right.sort_order)
-        .map((image) => image.image_url),
-    );
+  const normalizedExisting = normalizeListingImageUrls(
+    existingImages
+      .slice()
+      .sort((left, right) => left.sort_order - right.sort_order)
+      .map((image) => image.image_url),
+  );
+
+  if (!remoteImages.length) return normalizedExisting;
+
+  if (remoteImages.length >= 2) {
+    return normalizeListingImageUrls([...remoteImages, ...normalizedExisting]);
   }
 
-  const existingNonEbay = existingImages
-    .filter((image) => !isEbayImage(image.image_url))
-    .sort((left, right) => left.sort_order - right.sort_order)
-    .map((image) => image.image_url);
-  const existingEbay = existingImages
-    .filter((image) => isEbayImage(image.image_url))
-    .sort((left, right) => left.sort_order - right.sort_order)
-    .map((image) => image.image_url);
+  if (normalizedExisting.length >= 2) return normalizedExisting;
 
-  return normalizeListingImageUrls(
-    remoteImages.length >= 2
-      ? [...remoteImages, ...existingNonEbay]
-      : [...remoteImages, ...existingNonEbay, ...existingEbay],
-  );
+  return normalizeListingImageUrls([...remoteImages, ...normalizedExisting]);
 }
 
 async function synchronizeImageRows(params: {
@@ -409,6 +399,7 @@ export async function syncEbayFrontBackImages(params: {
       pagesRead: remote.pagesRead,
       cycleComplete: remote.cycleComplete,
       oneImageRemoteListings: 0,
+      remainingCandidates: 0,
       errors: [],
     };
   }
@@ -422,6 +413,20 @@ export async function syncEbayFrontBackImages(params: {
 
   const inventories = (inventoryRows || []) as InventoryRow[];
   const inventoryIds = inventories.map((inventory) => inventory.id);
+  if (!inventoryIds.length) {
+    return {
+      checked: 0,
+      updated: 0,
+      imagesAdded: 0,
+      imagesRemoved: 0,
+      pagesRead: remote.pagesRead,
+      cycleComplete: remote.cycleComplete,
+      oneImageRemoteListings: 0,
+      remainingCandidates: 0,
+      errors: [],
+    };
+  }
+
   const { data: imageRows, error: imageError } = await params.supabase
     .from("inventory_images")
     .select("id,inventory_item_id,image_url,alt_text,sort_order,is_primary")
@@ -436,8 +441,7 @@ export async function syncEbayFrontBackImages(params: {
   }
 
   const productById = new Map(products.map((product) => [Number(product.id), product]));
-  const candidates = inventories.filter((inventory) => {
-    const metadata = recordValue(inventory.metadata);
+  const allCandidates = inventories.filter((inventory) => {
     const product = productById.get(Number(inventory.legacy_product_id));
     const remoteImages = product
       ? remote.byItemId.get(String(product.ebay_item_id || "")) || []
@@ -451,12 +455,11 @@ export async function syncEbayFrontBackImages(params: {
       currentImages.length;
 
     return (
-      Number(metadata.ebay_front_back_image_sync_version || 0) !==
-        IMAGE_SYNC_VERSION ||
       distinctCurrent.length < Math.min(remoteImages.length, 2) ||
       hasSortCollision
     );
   });
+  const candidates = allCandidates.slice(0, MAX_ITEMS_PER_RUN);
 
   let updated = 0;
   let imagesAdded = 0;
@@ -523,6 +526,7 @@ export async function syncEbayFrontBackImages(params: {
     pagesRead: remote.pagesRead,
     cycleComplete: remote.cycleComplete,
     oneImageRemoteListings,
+    remainingCandidates: Math.max(allCandidates.length - candidates.length, 0),
     errors,
   };
 }
