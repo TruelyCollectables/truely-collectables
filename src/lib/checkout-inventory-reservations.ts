@@ -11,6 +11,13 @@ type ReservationRow = {
   expires_at: string;
 };
 
+type ReservationConsumptionRow = {
+  inventory_item_id: string;
+  previous_quantity: number;
+  new_quantity: number;
+  already_consumed: boolean;
+};
+
 function reservationError(error: unknown): InventoryEngineError | Error {
   const message =
     error && typeof error === "object" && "message" in error
@@ -38,7 +45,29 @@ function reservationError(error: unknown): InventoryEngineError | Error {
     );
   }
 
-  if (message.includes("reservation_cart_")) {
+  if (message.includes("reservation_consume_not_found")) {
+    return new InventoryEngineError(
+      "The paid checkout no longer has a matching inventory reservation.",
+      409,
+    );
+  }
+
+  if (
+    message.includes("reservation_consume_session_mismatch") ||
+    message.includes("reservation_consume_quantity_mismatch") ||
+    message.includes("reservation_consume_not_active")
+  ) {
+    return new InventoryEngineError(
+      "The paid checkout reservation could not be safely reconciled.",
+      409,
+    );
+  }
+
+  if (
+    message.includes("reservation_cart_") ||
+    message.includes("reservation_consume_quantity_invalid") ||
+    message.includes("reservation_consume_session_missing")
+  ) {
     return new InventoryEngineError("The cart could not be reserved.", 400);
   }
 
@@ -102,6 +131,43 @@ export async function attachStripeSessionToCheckoutReservation(params: {
     .eq("status", "active");
 
   if (error) throw error;
+}
+
+export async function consumeCheckoutReservationAfterSale(params: {
+  supabase: SupabaseClient;
+  storeId: string;
+  checkoutAttemptId: string;
+  legacyProductId: number;
+  quantity: number;
+  stripeSessionId: string;
+}) {
+  const { data, error } = await params.supabase.rpc(
+    "tcos_consume_checkout_reservation_after_sale",
+    {
+      p_store_id: params.storeId,
+      p_checkout_attempt_id: params.checkoutAttemptId,
+      p_legacy_product_id: params.legacyProductId,
+      p_quantity: params.quantity,
+      p_stripe_session_id: params.stripeSessionId,
+    },
+  );
+
+  if (error) throw reservationError(error);
+
+  const row = (Array.isArray(data) ? data[0] : data) as
+    | ReservationConsumptionRow
+    | null;
+
+  if (!row) {
+    throw new Error("Checkout reservation consumption returned no result.");
+  }
+
+  return {
+    inventoryItemId: row.inventory_item_id,
+    previousQuantity: Number(row.previous_quantity || 0),
+    newQuantity: Number(row.new_quantity || 0),
+    alreadyConsumed: row.already_consumed === true,
+  };
 }
 
 export async function releaseCheckoutReservation(params: {
