@@ -17,6 +17,7 @@ on:
   push:
     branches:
       - main
+      - launch/sunday-one-build
     paths:
       - "src/lib/active-market-*.ts"
       - "src/app/api/account/seller/inventory/**/active-market-attack/route.ts"
@@ -28,6 +29,11 @@ on:
       - "scripts/run-active-market-scan-lease-simulations.ts"
       - "scripts/run-active-market-read-freshness-simulations.ts"
       - "scripts/run-active-market-competitor-proof-simulations.ts"
+      - "src/modules/inventory/admin-engine.ts"
+      - "src/modules/inventory/index.ts"
+      - "src/app/api/ebay/import-listings/route.ts"
+      - "src/app/admin/ebay/import-runner/EbayImportRunner.tsx"
+      - "scripts/run-ebay-import-admin-client-simulations.ts"
       - ".github/workflows/active-market-integrity.yml"
   workflow_dispatch:
 
@@ -36,6 +42,7 @@ permissions:
 
 jobs:
   integrity-regressions:
+    if: github.ref != 'refs/heads/launch/sunday-one-build'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -68,3 +75,34 @@ jobs:
 
       - name: Run Active Market direct competitor proof simulations
         run: node --import tsx scripts/run-active-market-competitor-proof-simulations.ts
+
+  ebay-import-safety:
+    if: github.ref == 'refs/heads/launch/sunday-one-build'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run eBay import admin-client simulations
+        run: node --import tsx scripts/run-ebay-import-admin-client-simulations.ts
+
+      - name: Run lint
+        run: npm run lint
+
+      - name: Build production application
+        run: npm run build
