@@ -78,6 +78,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
+      CI_BUILD_MODE: one-combined-launch-build
       NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
       NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
       SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
