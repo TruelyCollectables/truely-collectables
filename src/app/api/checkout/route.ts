@@ -43,6 +43,7 @@ import {
 } from "../../../lib/checkout-attempts";
 import {
   attachStripeSessionToCheckoutReservation,
+  CHECKOUT_RESERVATION_MINUTES,
   releaseCheckoutReservation,
   reserveCheckoutInventory,
 } from "../../../lib/checkout-inventory-reservations";
@@ -54,10 +55,12 @@ export async function POST(request: Request) {
   let checkoutJournal:
     | {
         supabase: SupabaseClient;
+        stripe: Stripe;
         rowId: string;
         storeId: string;
         checkoutAttemptId: string;
         reservationCreated: boolean;
+        stripeSessionId: string | null;
       }
     | null = null;
 
@@ -335,10 +338,12 @@ export async function POST(request: Request) {
 
     checkoutJournal = {
       supabase,
+      stripe,
       rowId: claim.rowId,
       storeId,
       checkoutAttemptId,
       reservationCreated: false,
+      stripeSessionId: null,
     };
     let tosAcceptanceEventId = claim.tosAcceptanceEventId;
 
@@ -379,10 +384,10 @@ export async function POST(request: Request) {
       storeId,
       checkoutAttemptId,
       cart,
-      ttlMinutes: 31,
+      ttlMinutes: CHECKOUT_RESERVATION_MINUTES,
     });
     checkoutJournal.reservationCreated = true;
-    const stripeExpiresAt = Math.floor(Date.now() / 1000) + 30 * 60;
+    const stripeExpiresAt = Math.floor(Date.now() / 1000) + 31 * 60;
 
     if (stripeExpiresAt >= reservation.expiresAtUnix) {
       throw new Error(
@@ -415,6 +420,8 @@ export async function POST(request: Request) {
       },
     );
 
+    checkoutJournal.stripeSessionId = session.id;
+
     if (!session.url) {
       throw new Error("Stripe did not return a hosted Checkout URL");
     }
@@ -440,7 +447,31 @@ export async function POST(request: Request) {
     });
   } catch (error: any) {
     if (checkoutJournal) {
-      if (checkoutJournal.reservationCreated) {
+      let reservationMayBeReleased = checkoutJournal.stripeSessionId === null;
+
+      if (checkoutJournal.stripeSessionId) {
+        try {
+          const session = await checkoutJournal.stripe.checkout.sessions.retrieve(
+            checkoutJournal.stripeSessionId,
+          );
+
+          if (session.status === "open") {
+            await checkoutJournal.stripe.checkout.sessions.expire(session.id);
+            reservationMayBeReleased = true;
+          } else if (session.status === "complete") {
+            reservationMayBeReleased = false;
+          } else {
+            reservationMayBeReleased = true;
+          }
+        } catch {
+          reservationMayBeReleased = false;
+          console.error(
+            "Orphaned Stripe Checkout Session could not be safely inspected or expired",
+          );
+        }
+      }
+
+      if (checkoutJournal.reservationCreated && reservationMayBeReleased) {
         try {
           await releaseCheckoutReservation({
             supabase: checkoutJournal.supabase,
