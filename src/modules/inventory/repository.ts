@@ -126,11 +126,27 @@ export class InventoryRepository {
       throw new Error("Cannot upsert inventory item without a SKU");
     }
 
-    const existing = await this.getBySku(input.sku);
+    const existingByLegacyProduct = input.legacy_product_id
+      ? await this.getByLegacyProductId(input.legacy_product_id)
+      : null;
+    const existingBySku = await this.getBySku(input.sku);
+
+    if (
+      existingByLegacyProduct &&
+      existingBySku &&
+      existingByLegacyProduct.id !== existingBySku.id
+    ) {
+      throw new Error(
+        `Inventory identity conflict for legacy product ${input.legacy_product_id} and SKU ${input.sku}`,
+      );
+    }
+
+    const existing = existingByLegacyProduct ?? existingBySku;
+    const canonicalSku = existingByLegacyProduct?.sku ?? input.sku;
     const payload = {
       seller_account_id: input.seller_account_id ?? null,
       legacy_product_id: input.legacy_product_id ?? null,
-      sku: input.sku,
+      sku: canonicalSku,
       title: input.title,
       description: input.description ?? null,
       category: input.category ?? "other",
