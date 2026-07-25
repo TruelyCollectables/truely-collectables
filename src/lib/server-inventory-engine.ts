@@ -24,6 +24,16 @@ class PublicStorefrontInventoryEngine extends InventoryEngine {
       new Set(items.map((item) => item.sport?.trim()).filter(Boolean) as string[]),
     ).sort();
   }
+
+  async getByLegacyProductId(legacyProductId: number) {
+    const item = await super.getByLegacyProductId(legacyProductId);
+    return item && isLaunchSportsCard(item) ? item : null;
+  }
+
+  async getByLegacyProductIds(legacyProductIds: number[]) {
+    const items = await super.getByLegacyProductIds(legacyProductIds);
+    return items.filter(isLaunchSportsCard);
+  }
 }
 
 export function createServerInventoryEngine() {
