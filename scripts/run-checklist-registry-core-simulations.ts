@@ -5,7 +5,7 @@ import {
   buildChecklistIdentityFingerprint,
   buildInstaCompCompFingerprint,
   type ChecklistIdentityInput,
-} from "../src/lib/checklist-registry/identity.ts";
+} from "../src/lib/checklist-registry/identity";
 
 type Scenario = {
   key: string;
