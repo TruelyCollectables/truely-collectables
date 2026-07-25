@@ -59,12 +59,12 @@ begin
     raise exception 'reservation_cart_empty';
   end if;
 
-  update public.checkout_inventory_reservations
+  update public.checkout_inventory_reservations as reservation
      set status = 'expired',
          updated_at = now()
-   where store_id = p_store_id
-     and status = 'active'
-     and expires_at <= now();
+   where reservation.store_id = p_store_id
+     and reservation.status = 'active'
+     and reservation.expires_at <= now();
 
   for v_item in select value from jsonb_array_elements(p_items)
   loop
@@ -75,12 +75,12 @@ begin
       raise exception 'reservation_cart_invalid';
     end if;
 
-    select *
+    select inventory.*
       into v_inventory
-      from public.inventory_items
-     where store_id = p_store_id
-       and legacy_product_id = v_product_id
-     order by updated_at desc nulls last, id desc
+      from public.inventory_items as inventory
+     where inventory.store_id = p_store_id
+       and inventory.legacy_product_id = v_product_id
+     order by inventory.updated_at desc nulls last, inventory.id desc
      limit 1
      for update;
 
@@ -92,14 +92,14 @@ begin
       raise exception 'inventory_not_active:%', v_product_id;
     end if;
 
-    select coalesce(sum(quantity), 0)::integer
+    select coalesce(sum(reservation.quantity), 0)::integer
       into v_other_reserved
-      from public.checkout_inventory_reservations
-     where store_id = p_store_id
-       and legacy_product_id = v_product_id
-       and status = 'active'
-       and expires_at > now()
-       and checkout_attempt_id <> p_checkout_attempt_id;
+      from public.checkout_inventory_reservations as reservation
+     where reservation.store_id = p_store_id
+       and reservation.legacy_product_id = v_product_id
+       and reservation.status = 'active'
+       and reservation.expires_at > now()
+       and reservation.checkout_attempt_id <> p_checkout_attempt_id;
 
     if coalesce(v_inventory.quantity, 0) - v_other_reserved < v_requested then
       raise exception 'insufficient_inventory:%', v_product_id;
