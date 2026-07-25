@@ -1,0 +1,56 @@
+name: Sunday Launch One Build
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "src/app/api/checkout/route.ts"
+      - "src/app/api/webhook/route.ts"
+      - "src/app/api/ebay/full-sync/route.ts"
+      - "src/app/cart/page.tsx"
+      - "src/app/layout.tsx"
+      - "src/app/robots.ts"
+      - "src/app/shop/page.tsx"
+      - "src/app/sitemap.ts"
+      - "src/app/product/**"
+      - "src/lib/checkout-inventory-reservations.ts"
+      - "src/lib/ebay-sync.ts"
+      - "src/lib/shipping.ts"
+      - "src/proxy.ts"
+      - "supabase/migrations/20260725010000_checkout_inventory_reservations.sql"
+      - "scripts/run-sunday-launch-one-build.ts"
+      - ".github/workflows/sunday-launch-one-build.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  launch-one-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify Sunday launch contract
+        run: node --import tsx scripts/run-sunday-launch-one-build.ts
+
+      - name: Run shipping verification
+        run: npm run verify:shipping
+
+      - name: Run lint
+        run: npm run lint
+
+      - name: Build production application once
+        run: npm run build
