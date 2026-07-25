@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { isLaunchSportsCard } from "../src/lib/sports-card-launch-scope";
 
 const adminEngine = fs.readFileSync(
   "src/modules/inventory/admin-engine.ts",
@@ -19,6 +20,10 @@ const importRoute = fs.readFileSync(
 );
 const importRunner = fs.readFileSync(
   "src/app/admin/ebay/import-runner/EbayImportRunner.tsx",
+  "utf8",
+);
+const publicInventoryEngine = fs.readFileSync(
+  "src/lib/server-inventory-engine.ts",
   "utf8",
 );
 
@@ -62,6 +67,17 @@ assert.match(
 );
 
 assert.match(
+  publicInventoryEngine,
+  /items\.filter\(isLaunchSportsCard\)/,
+  "Every public inventory feed must enforce the sports-card launch scope.",
+);
+assert.match(
+  publicInventoryEngine,
+  /class PublicStorefrontInventoryEngine extends InventoryEngine/,
+  "Public storefront filtering must preserve the full InventoryEngine API.",
+);
+
+assert.match(
   importRoute,
   /limit: Number\(url\.searchParams\.get\("limit"\) \|\| "10"\)/,
   "Import route must default to ten-listing batches.",
@@ -92,4 +108,75 @@ assert.match(
   "Import status banner must distinguish error red from success blue.",
 );
 
-console.log("eBay import admin-client simulations passed: 12/12");
+const launchScopeCases = [
+  {
+    title: "2025-26 Upper Deck #702 Florian Xhekaj",
+    sport: null,
+    expected: true,
+  },
+  {
+    title: "2023 Topps Max Meyer 1988 35th Chrome RC Auto /249 PSA 8",
+    sport: null,
+    expected: true,
+  },
+  {
+    title: "2025-26 SP Game Used #115 Dustin Byfuglien Red Jersey",
+    sport: "HOCKEY",
+    expected: true,
+  },
+  {
+    title: "2014-15 Flawless Nick Van Exel Momentous Autographed Memorabilia /20",
+    sport: "BASKETBALL",
+    expected: true,
+  },
+  {
+    title: "2017-18 SP Authentic #188 Cole Sillinger #/999",
+    sport: "HOCKEY",
+    expected: true,
+  },
+  {
+    title: "18-19 Contenders Nick Van Exel Legendary Auto /99",
+    sport: "BASKETBALL",
+    expected: true,
+  },
+  {
+    title: "Wailord ex 016/084 Double Rare Pokemon Pitch Black 2026 NM",
+    sport: null,
+    expected: false,
+  },
+  {
+    title: "Prize Pack Series Cards #005 Basic Psychic Energy",
+    sport: null,
+    expected: false,
+  },
+  {
+    title: "Adidas Ultraboost Men's Running Shoes Size 11",
+    sport: null,
+    expected: false,
+  },
+  {
+    title: "Upper Deck Authenticated Wayne Gretzky Signed Puck",
+    sport: "HOCKEY",
+    expected: false,
+  },
+  {
+    title: "Connor McDavid Autographed Edmonton Oilers Jersey",
+    sport: "HOCKEY",
+    expected: false,
+  },
+  {
+    title: "Oakley Sports Sunglasses Black",
+    sport: null,
+    expected: false,
+  },
+] as const;
+
+for (const testCase of launchScopeCases) {
+  assert.equal(
+    isLaunchSportsCard(testCase),
+    testCase.expected,
+    `Unexpected launch scope decision for: ${testCase.title}`,
+  );
+}
+
+console.log("eBay import and sports-card launch-scope simulations passed: 26/26");
