@@ -182,7 +182,12 @@ function inventorySyncChecks() {
     "markEbayListingInactive",
     'reason: "missing_sku"',
     'reason: "invalid_listing_price"',
-    "last_seen_at",
+  ]);
+
+  contains("src/modules/inventory/engine.ts", [
+    "last_seen_at: new Date().toISOString()",
+    "getEbayReconciliationStatus",
+    'issues.push("stale_sync")',
   ]);
 
   contains("src/proxy.ts", [
