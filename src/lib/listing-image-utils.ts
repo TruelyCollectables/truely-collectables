@@ -52,6 +52,24 @@ export function normalizeListingImageUrls(values: unknown[]) {
   return images;
 }
 
+export function selectFrontBackListingImages(values: unknown[]) {
+  const normalized = normalizeListingImageUrls(values);
+  const firstTwo = normalized.slice(0, 2);
+
+  if (
+    firstTwo.length === 2 &&
+    firstTwo.every((image) => listingImageIdentity(image).startsWith("ebay:"))
+  ) {
+    return firstTwo;
+  }
+
+  const nonEbay = normalized.filter(
+    (image) => !listingImageIdentity(image).startsWith("ebay:"),
+  );
+
+  return (nonEbay.length >= 2 ? nonEbay : normalized).slice(0, 2);
+}
+
 export function listingImageLabel(index: number) {
   if (index === 0) return "front";
   if (index === 1) return "back";
