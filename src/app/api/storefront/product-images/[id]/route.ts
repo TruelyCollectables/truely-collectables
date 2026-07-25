@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { normalizeListingImageUrls } from "../../../../../lib/listing-image-utils";
+import { selectFrontBackListingImages } from "../../../../../lib/listing-image-utils";
 import { createServerInventoryEngine } from "../../../../../lib/server-inventory-engine";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
 
@@ -44,10 +44,10 @@ export async function GET(
     ...imageRows.filter((image: any) => image.is_primary === true),
     ...imageRows.filter((image: any) => image.is_primary !== true),
   ];
-  const images = normalizeListingImageUrls([
+  const images = selectFrontBackListingImages([
     ...orderedRows.map((image: any) => image.image_url),
     product.imageUrl,
-  ]).slice(0, 2);
+  ]);
 
   return NextResponse.json(
     {
