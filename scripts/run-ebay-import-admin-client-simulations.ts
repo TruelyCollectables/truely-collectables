@@ -13,6 +13,10 @@ const importRoute = fs.readFileSync(
   "src/app/api/ebay/import-listings/route.ts",
   "utf8",
 );
+const importRunner = fs.readFileSync(
+  "src/app/admin/ebay/import-runner/EbayImportRunner.tsx",
+  "utf8",
+);
 
 assert.match(
   adminEngine,
@@ -49,5 +53,20 @@ assert.match(
   /success: false,[\s\S]*status: 409/,
   "Diagnostic failures must stop the browser runner with a non-success response.",
 );
+assert.match(
+  importRunner,
+  /const \[limit, setLimit\] = useState\(10\);/,
+  "Browser import runner must default to ten listings.",
+);
+assert.match(
+  importRunner,
+  /\{\[5, 10\]\.map\(\(value\) => \(/,
+  "Browser import runner must offer only timeout-safe batch sizes.",
+);
+assert.match(
+  importRunner,
+  /border-rose-300 bg-rose-50[\s\S]*border-sky-300 bg-sky-50/,
+  "Import status banner must distinguish error red from success blue.",
+);
 
-console.log("eBay import admin-client simulations passed: 7/7");
+console.log("eBay import admin-client simulations passed: 10/10");
