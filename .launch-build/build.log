@@ -11,24 +11,24 @@ https://nextjs.org/telemetry
 ▲ Next.js 16.2.10 (webpack)
 
   Creating an optimized production build ...
-✓ Compiled successfully in 26.7s
+✓ Compiled successfully in 27.6s
   Running TypeScript ...
-  Finished TypeScript in 38.3s ...
+  Finished TypeScript in 39.9s ...
   Collecting page data using 3 workers ...
 Error: Missing Supabase environment variables
     at 4823 (.next/server/chunks/9253.js:1:216)
     at g (.next/server/webpack-runtime.js:1:136)
     at 69253 (.next/server/chunks/9253.js:1:9552)
     at g (.next/server/webpack-runtime.js:1:136)
-    at 96810 (.next/server/app/sitemap.xml/route.js:16:229)
+    at 43768 (.next/server/app/api/offers/create/route.js:1:863)
     at g (.next/server/webpack-runtime.js:1:136)
-    at 41887 (.next/server/app/sitemap.xml/route.js:1:1683)
-    at g (.next/server/webpack-runtime.js:1:136)
-    at <unknown> (.next/server/app/sitemap.xml/route.js:16:437)
+    at <unknown> (.next/server/app/api/offers/create/route.js:18:7156)
     at g.X (.next/server/webpack-runtime.js:1:1189)
+    at <unknown> (.next/server/app/api/offers/create/route.js:18:7116)
+    at Object.<anonymous> (.next/server/app/api/offers/create/route.js:18:7188)
 
 > Build error occurred
-Error: Failed to collect page data for /sitemap.xml
+Error: Failed to collect page data for /api/offers/create
     at ignore-listed frames {
   type: 'Error'
 }
