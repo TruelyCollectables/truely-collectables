@@ -5,6 +5,7 @@ import {
   listingImageIdentity,
   normalizeListingImageUrls,
   preferHighResolutionListingImage,
+  selectFrontBackListingImages,
 } from "../src/lib/listing-image-utils";
 import { isLaunchSportsCard } from "../src/lib/sports-card-launch-scope";
 
@@ -140,8 +141,8 @@ assert.match(
 );
 assert.match(
   productImageRoute,
-  /normalizeListingImageUrls\([\s\S]*\)\.slice\(0, 2\)/,
-  "Public product images must be deduplicated and limited to front/back.",
+  /selectFrontBackListingImages/,
+  "Public product images must choose one complete front/back pair.",
 );
 assert.match(
   productActions,
@@ -196,6 +197,18 @@ assert.deepEqual(
     "https://i.ebayimg.com/images/g/back/s-l1600.jpg",
   ],
   "Image normalization must keep one front and one distinct back photo.",
+);
+assert.deepEqual(
+  selectFrontBackListingImages([
+    "https://i.ebayimg.com/images/g/front/s-l140.jpg",
+    "https://storage.googleapis.com/cards/front.jpg",
+    "https://storage.googleapis.com/cards/back.jpg",
+  ]),
+  [
+    "https://storage.googleapis.com/cards/front.jpg",
+    "https://storage.googleapis.com/cards/back.jpg",
+  ],
+  "A complete existing front/back pair must beat a lone eBay thumbnail.",
 );
 assert.equal(
   listingImageAltText("Test Card", 1),
@@ -306,5 +319,5 @@ for (const testCase of launchScopeCases) {
 }
 
 console.log(
-  "eBay import, sports-card scope, and front/back image simulations passed: 43/43",
+  "eBay import, sports-card scope, and front/back image simulations passed: 44/44",
 );
