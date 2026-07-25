@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import Image from "next/image";
 import ClearCartOnSuccess from "../../components/ClearCartOnSuccess";
@@ -6,6 +7,28 @@ import type { UniversalInventoryItem } from "../../modules/inventory";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
+
+export const metadata: Metadata = {
+  title: "Shop Sports Cards",
+  description:
+    "Shop live sports-card inventory from Truely Collectables by player, sport, set, rookie, autograph, grade, parallel, or card number.",
+  alternates: {
+    canonical: "/shop",
+  },
+  openGraph: {
+    title: "Shop Sports Cards | Truely Collectables",
+    description:
+      "Search live sports-card inventory and check out securely from Truely Collectables.",
+    url: "/shop",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Shop Sports Cards | Truely Collectables",
+    description:
+      "Search live sports-card inventory and check out securely from Truely Collectables.",
+  },
+};
 
 export default async function Shop({
   searchParams,
