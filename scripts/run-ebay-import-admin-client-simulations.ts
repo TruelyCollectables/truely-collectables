@@ -9,6 +9,10 @@ const inventoryIndex = fs.readFileSync(
   "src/modules/inventory/index.ts",
   "utf8",
 );
+const inventoryRepository = fs.readFileSync(
+  "src/modules/inventory/repository.ts",
+  "utf8",
+);
 const importRoute = fs.readFileSync(
   "src/app/api/ebay/import-listings/route.ts",
   "utf8",
@@ -38,6 +42,25 @@ assert.match(
   /export \{ adminInventoryEngine as inventoryEngine \} from "\.\/admin-engine";/,
   "Shared server imports must resolve inventoryEngine to the admin-backed engine.",
 );
+
+const upsertStart = inventoryRepository.indexOf("async upsertBySku");
+const legacyProductLookup = inventoryRepository.indexOf(
+  "getByLegacyProductId",
+  upsertStart,
+);
+const skuLookup = inventoryRepository.indexOf("getBySku", upsertStart);
+assert.ok(
+  upsertStart >= 0 &&
+    legacyProductLookup > upsertStart &&
+    skuLookup > legacyProductLookup,
+  "Inventory upserts must resolve the existing legacy product row before falling back to SKU.",
+);
+assert.match(
+  inventoryRepository,
+  /existingByLegacyProductId\s*\?\?\s*\(await this\.getBySku\(input\.sku\)\)/,
+  "SKU fallback must reuse the canonical product-linked inventory row when available.",
+);
+
 assert.match(
   importRoute,
   /limit: Number\(url\.searchParams\.get\("limit"\) \|\| "10"\)/,
@@ -69,4 +92,4 @@ assert.match(
   "Import status banner must distinguish error red from success blue.",
 );
 
-console.log("eBay import admin-client simulations passed: 10/10");
+console.log("eBay import admin-client simulations passed: 12/12");
