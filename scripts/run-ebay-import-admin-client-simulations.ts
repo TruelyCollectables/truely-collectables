@@ -10,6 +10,10 @@ const inventoryIndex = fs.readFileSync(
   "src/modules/inventory/index.ts",
   "utf8",
 );
+const checkoutInventoryEngine = fs.readFileSync(
+  "src/modules/inventory/checkout-engine.ts",
+  "utf8",
+);
 const inventoryRepository = fs.readFileSync(
   "src/modules/inventory/repository.ts",
   "utf8",
@@ -47,6 +51,26 @@ assert.match(
   /export \{ adminInventoryEngine as inventoryEngine \} from "\.\/admin-engine";/,
   "Shared server imports must resolve inventoryEngine to the admin-backed engine.",
 );
+assert.match(
+  inventoryIndex,
+  /export \{ InventoryEngine \} from "\.\/checkout-engine";/,
+  "Public checkout imports must resolve InventoryEngine to the launch-scope guard.",
+);
+assert.match(
+  checkoutInventoryEngine,
+  /class InventoryEngine extends BaseInventoryEngine/,
+  "Checkout launch-scope enforcement must preserve the base inventory API.",
+);
+assert.match(
+  checkoutInventoryEngine,
+  /items\.find\(\(item\) => !isLaunchSportsCard\(item\)\)/,
+  "Checkout must reject every cart line outside the sports-card launch scope.",
+);
+assert.match(
+  checkoutInventoryEngine,
+  /Product \$\{blockedItem\.legacyProductId\} is not available for purchase/,
+  "Checkout must fail closed before reserving an out-of-scope item.",
+);
 
 const upsertStart = inventoryRepository.indexOf("async upsertBySku");
 const legacyProductLookup = inventoryRepository.indexOf(
@@ -75,6 +99,16 @@ assert.match(
   publicInventoryEngine,
   /class PublicStorefrontInventoryEngine extends InventoryEngine/,
   "Public storefront filtering must preserve the full InventoryEngine API.",
+);
+assert.match(
+  publicInventoryEngine,
+  /async getByLegacyProductId\([\s\S]*return item && isLaunchSportsCard\(item\) \? item : null;/,
+  "Direct product URLs must return no product when launch scope rejects the item.",
+);
+assert.match(
+  publicInventoryEngine,
+  /async getByLegacyProductIds\([\s\S]*return items\.filter\(isLaunchSportsCard\);/,
+  "Bulk public product lookups must enforce the same launch scope.",
 );
 
 assert.match(
@@ -179,4 +213,4 @@ for (const testCase of launchScopeCases) {
   );
 }
 
-console.log("eBay import and sports-card launch-scope simulations passed: 26/26");
+console.log("eBay import and sports-card launch-scope simulations passed: 32/32");
