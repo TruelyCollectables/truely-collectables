@@ -67,7 +67,7 @@ export default function EbayImportRunner() {
   const [status, setStatus] = useState("Ready.");
   const [runId, setRunId] = useState("");
   const [offset, setOffset] = useState(0);
-  const [limit, setLimit] = useState(25);
+  const [limit, setLimit] = useState(10);
   const [maxBatches, setMaxBatches] = useState(80);
   const [totals, setTotals] = useState<Totals>(EMPTY_TOTALS);
   const [lastResult, setLastResult] = useState<ImportBatchResult | null>(null);
@@ -258,7 +258,7 @@ export default function EbayImportRunner() {
             disabled={busy}
             className="mt-1 w-full rounded border border-emerald-300 bg-white px-3 py-2"
           >
-            {[10, 25, 50, 100].map((value) => (
+            {[5, 10].map((value) => (
               <option key={value} value={value}>
                 {value} listings
               </option>
