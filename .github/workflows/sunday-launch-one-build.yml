@@ -1,26 +1,9 @@
 name: Sunday Launch One Build
 
 on:
-  pull_request:
+  push:
     branches:
-      - main
-    paths:
-      - "src/app/api/checkout/route.ts"
-      - "src/app/api/webhook/route.ts"
-      - "src/app/api/ebay/full-sync/route.ts"
-      - "src/app/cart/page.tsx"
-      - "src/app/layout.tsx"
-      - "src/app/robots.ts"
-      - "src/app/shop/page.tsx"
-      - "src/app/sitemap.ts"
-      - "src/app/product/**"
-      - "src/lib/checkout-inventory-reservations.ts"
-      - "src/lib/ebay-sync.ts"
-      - "src/lib/shipping.ts"
-      - "src/proxy.ts"
-      - "supabase/migrations/20260725010000_checkout_inventory_reservations.sql"
-      - "scripts/run-sunday-launch-one-build.ts"
-      - ".github/workflows/sunday-launch-one-build.yml"
+      - launch/sunday-one-build
   workflow_dispatch:
 
 permissions:
