@@ -1,4 +1,4 @@
-name: Active Market Integrity
+name: Integrity and Release Validation
 
 on:
   pull_request:
@@ -7,12 +7,22 @@ on:
       - "src/app/api/account/seller/inventory/**/active-market-attack/route.ts"
       - "src/app/api/account/seller/inventory/active-pricing/route.ts"
       - "src/app/seller/inventory/SellerActiveInventoryPricing.tsx"
-      - "scripts/run-active-market-integrity-simulations.ts"
-      - "scripts/run-active-market-accounting-simulations.ts"
-      - "scripts/run-active-market-source-coverage-simulations.ts"
-      - "scripts/run-active-market-scan-lease-simulations.ts"
-      - "scripts/run-active-market-read-freshness-simulations.ts"
-      - "scripts/run-active-market-competitor-proof-simulations.ts"
+      - "scripts/run-active-market-*-simulations.ts"
+      - "src/app/api/checkout/route.ts"
+      - "src/lib/checkout-inventory-reservations.ts"
+      - "src/lib/live-payment-launch*.ts"
+      - "src/app/api/admin/seller-payouts/connect-refresh/route.ts"
+      - "src/app/api/ebay/import-listings/route.ts"
+      - "src/app/admin/ebay/import-runner/EbayImportRunner.tsx"
+      - "src/modules/inventory/admin-engine.ts"
+      - "src/modules/inventory/index.ts"
+      - "src/app/layout.tsx"
+      - "src/app/shop/page.tsx"
+      - "src/app/cart/page.tsx"
+      - "scripts/run-sunday-launch-one-build.ts"
+      - "scripts/run-live-payment-owner-marker-simulations.ts"
+      - "scripts/run-ebay-import-admin-client-simulations.ts"
+      - "supabase/migrations/20260725010000_checkout_inventory_reservations.sql"
       - ".github/workflows/active-market-integrity.yml"
   push:
     branches:
@@ -22,12 +32,22 @@ on:
       - "src/app/api/account/seller/inventory/**/active-market-attack/route.ts"
       - "src/app/api/account/seller/inventory/active-pricing/route.ts"
       - "src/app/seller/inventory/SellerActiveInventoryPricing.tsx"
-      - "scripts/run-active-market-integrity-simulations.ts"
-      - "scripts/run-active-market-accounting-simulations.ts"
-      - "scripts/run-active-market-source-coverage-simulations.ts"
-      - "scripts/run-active-market-scan-lease-simulations.ts"
-      - "scripts/run-active-market-read-freshness-simulations.ts"
-      - "scripts/run-active-market-competitor-proof-simulations.ts"
+      - "scripts/run-active-market-*-simulations.ts"
+      - "src/app/api/checkout/route.ts"
+      - "src/lib/checkout-inventory-reservations.ts"
+      - "src/lib/live-payment-launch*.ts"
+      - "src/app/api/admin/seller-payouts/connect-refresh/route.ts"
+      - "src/app/api/ebay/import-listings/route.ts"
+      - "src/app/admin/ebay/import-runner/EbayImportRunner.tsx"
+      - "src/modules/inventory/admin-engine.ts"
+      - "src/modules/inventory/index.ts"
+      - "src/app/layout.tsx"
+      - "src/app/shop/page.tsx"
+      - "src/app/cart/page.tsx"
+      - "scripts/run-sunday-launch-one-build.ts"
+      - "scripts/run-live-payment-owner-marker-simulations.ts"
+      - "scripts/run-ebay-import-admin-client-simulations.ts"
+      - "supabase/migrations/20260725010000_checkout_inventory_reservations.sql"
       - ".github/workflows/active-market-integrity.yml"
   workflow_dispatch:
 
@@ -35,7 +55,7 @@ permissions:
   contents: read
 
 jobs:
-  integrity-regressions:
+  active-market-integrity:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -68,3 +88,50 @@ jobs:
 
       - name: Run Active Market direct competitor proof simulations
         run: node --import tsx scripts/run-active-market-competitor-proof-simulations.ts
+
+  launch-release-validation:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+      ADMIN_PASSWORD: build-only-placeholder-password
+      ADMIN_SESSION_SECRET: build-only-placeholder-session-secret
+      EBAY_CLIENT_ID: build-only-placeholder-client-id
+      EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+      EBAY_ENVIRONMENT: production
+      TCOS_LIVE_PAYMENTS_ENABLED: "false"
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: "false"
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Validate Sunday launch contract
+        run: node --import tsx scripts/run-sunday-launch-one-build.ts
+
+      - name: Validate payment owner marker
+        run: node --import tsx scripts/run-live-payment-owner-marker-simulations.ts
+
+      - name: Validate eBay admin client
+        run: node --import tsx scripts/run-ebay-import-admin-client-simulations.ts
+
+      - name: Run lint
+        run: npm run lint
+
+      - name: Build production application
+        run: npm run build
