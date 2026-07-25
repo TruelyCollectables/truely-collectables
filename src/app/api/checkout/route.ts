@@ -17,9 +17,7 @@ import {
   TERMS_OF_SERVICE_VERSION,
   hasAcceptedTerms,
 } from "../../../lib/legal";
-import {
-  metadataSafeIdentity,
-} from "../../../lib/client-identity";
+import { metadataSafeIdentity } from "../../../lib/client-identity";
 import { recordTermsAcceptance } from "../../../lib/tos-acceptance";
 import { getActiveStoreId } from "../../../lib/stores";
 import { getAuthenticatedAccountFromRequest } from "../../../lib/account-auth";
@@ -43,13 +41,27 @@ import {
   failCheckoutAttempt,
   isCheckoutAttemptId,
 } from "../../../lib/checkout-attempts";
+import {
+  attachStripeSessionToCheckoutReservation,
+  CHECKOUT_RESERVATION_MINUTES,
+  releaseCheckoutReservation,
+  reserveCheckoutInventory,
+} from "../../../lib/checkout-inventory-reservations";
 import { getStripePaymentRuntime } from "../../../lib/live-payment-launch";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
   let checkoutJournal:
-    | { supabase: SupabaseClient; rowId: string }
+    | {
+        supabase: SupabaseClient;
+        stripe: Stripe;
+        rowId: string;
+        storeId: string;
+        checkoutAttemptId: string;
+        reservationCreated: boolean;
+        stripeSessionId: string | null;
+      }
     | null = null;
 
   try {
@@ -92,7 +104,7 @@ export async function POST(request: Request) {
     if (!tosAccepted) {
       return NextResponse.json(
         { error: "Terms of Service must be accepted before checkout" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -114,10 +126,7 @@ export async function POST(request: Request) {
 
     if (!rateLimit.allowed) {
       const blocked = publicEndpointRateLimitResponse(rateLimit);
-      return NextResponse.json(
-        blocked.body,
-        { status: blocked.status }
-      );
+      return NextResponse.json(blocked.body, { status: blocked.status });
     }
 
     const clientIdentity = rateLimit.identity;
@@ -125,11 +134,12 @@ export async function POST(request: Request) {
     if (!isShippingMethod(requestedShippingMethod)) {
       return NextResponse.json(
         { error: "Invalid shipping method" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
-    const inventoryItems = await checkoutInventoryEngine.requireAvailableCartItems(cart);
+    const inventoryItems =
+      await checkoutInventoryEngine.requireAvailableCartItems(cart);
     const inventoryMetadataResult = await supabase
       .from("inventory_items")
       .select("legacy_product_id,metadata")
@@ -149,7 +159,8 @@ export async function POST(request: Request) {
         .map((item: any) => Number(item.legacy_product_id)),
     );
     const freeShippingPromoApplies =
-      cart.length > 0 && cart.every((item) => freeShippingProductIds.has(item.id));
+      cart.length > 0 &&
+      cart.every((item) => freeShippingProductIds.has(item.id));
 
     const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [];
     let subtotal = 0;
@@ -157,13 +168,13 @@ export async function POST(request: Request) {
 
     for (const cartItem of cart) {
       const product = inventoryItems.find(
-        (item) => item.legacyProductId === cartItem.id
+        (item) => item.legacyProductId === cartItem.id,
       );
 
       if (!product) {
         return NextResponse.json(
           { error: `Product ${cartItem.id} not found` },
-          { status: 404 }
+          { status: 404 },
         );
       }
 
@@ -178,6 +189,10 @@ export async function POST(request: Request) {
           product_data: {
             name: product.title,
             images: product.imageUrl ? [product.imageUrl] : [],
+            metadata: {
+              legacy_product_id: String(product.legacyProductId),
+              sku: product.sku || "",
+            },
           },
           unit_amount: Math.round(price * 100),
         },
@@ -210,9 +225,10 @@ export async function POST(request: Request) {
         currency: "usd",
         product_data: {
           name:
-            shippingAmount === 0
-              ? `${shippingName} - FREE`
-              : shippingName,
+            shippingAmount === 0 ? `${shippingName} - FREE` : shippingName,
+          metadata: {
+            tcos_line_type: "shipping",
+          },
         },
         unit_amount: Math.round(shippingAmount * 100),
       },
@@ -258,6 +274,7 @@ export async function POST(request: Request) {
     const cancelUrl = `${origin}/cart`;
     const requestFingerprint = checkoutRequestFingerprint({
       mode: "payment",
+      payment_method_types: ["card"],
       line_items: lineItems,
       shipping_address_collection: { allowed_countries: ["US"] },
       metadata: baseMetadata,
@@ -290,7 +307,7 @@ export async function POST(request: Request) {
         claim.stripeSessionId,
       );
 
-      if (existingSession.url) {
+      if (existingSession.url && existingSession.status === "open") {
         return NextResponse.json({
           url: existingSession.url,
           replayed: true,
@@ -319,7 +336,15 @@ export async function POST(request: Request) {
       );
     }
 
-    checkoutJournal = { supabase, rowId: claim.rowId };
+    checkoutJournal = {
+      supabase,
+      stripe,
+      rowId: claim.rowId,
+      storeId,
+      checkoutAttemptId,
+      reservationCreated: false,
+      stripeSessionId: null,
+    };
     let tosAcceptanceEventId = claim.tosAcceptanceEventId;
 
     if (!tosAcceptanceEventId) {
@@ -354,28 +379,59 @@ export async function POST(request: Request) {
       });
     }
 
-    const session = await stripe.checkout.sessions.create({
-      mode: "payment",
-      client_reference_id: checkoutAttemptId,
-      line_items: lineItems,
-      shipping_address_collection: {
-        allowed_countries: ["US"],
-      },
-      metadata: {
-        ...baseMetadata,
-        tos_accepted_at: claim.tosAcceptedAt,
-        tos_acceptance_event_id: tosAcceptanceEventId,
-        ...claim.identityMetadata,
-      },
-      success_url: successUrl,
-      cancel_url: cancelUrl,
-    }, {
-      idempotencyKey: stripeIdempotencyKey,
+    const reservation = await reserveCheckoutInventory({
+      supabase,
+      storeId,
+      checkoutAttemptId,
+      cart,
+      ttlMinutes: CHECKOUT_RESERVATION_MINUTES,
     });
+    checkoutJournal.reservationCreated = true;
+    const stripeExpiresAt = Math.floor(Date.now() / 1000) + 31 * 60;
+
+    if (stripeExpiresAt >= reservation.expiresAtUnix) {
+      throw new Error(
+        "The inventory reservation does not safely cover the Stripe payment window.",
+      );
+    }
+
+    const session = await stripe.checkout.sessions.create(
+      {
+        mode: "payment",
+        payment_method_types: ["card"],
+        client_reference_id: checkoutAttemptId,
+        line_items: lineItems,
+        shipping_address_collection: {
+          allowed_countries: ["US"],
+        },
+        metadata: {
+          ...baseMetadata,
+          inventory_reservation_expires_at: reservation.expiresAt,
+          tos_accepted_at: claim.tosAcceptedAt,
+          tos_acceptance_event_id: tosAcceptanceEventId,
+          ...claim.identityMetadata,
+        },
+        expires_at: stripeExpiresAt,
+        success_url: successUrl,
+        cancel_url: cancelUrl,
+      },
+      {
+        idempotencyKey: stripeIdempotencyKey,
+      },
+    );
+
+    checkoutJournal.stripeSessionId = session.id;
 
     if (!session.url) {
       throw new Error("Stripe did not return a hosted Checkout URL");
     }
+
+    await attachStripeSessionToCheckoutReservation({
+      supabase,
+      storeId,
+      checkoutAttemptId,
+      stripeSessionId: session.id,
+    });
 
     await completeCheckoutAttempt({
       supabase,
@@ -387,12 +443,50 @@ export async function POST(request: Request) {
       url: session.url,
       replayed: false,
       checkoutAttemptId,
+      reservationExpiresAt: reservation.expiresAt,
     });
   } catch (error: any) {
     if (checkoutJournal) {
+      let reservationMayBeReleased = checkoutJournal.stripeSessionId === null;
+
+      if (checkoutJournal.stripeSessionId) {
+        try {
+          const session = await checkoutJournal.stripe.checkout.sessions.retrieve(
+            checkoutJournal.stripeSessionId,
+          );
+
+          if (session.status === "open") {
+            await checkoutJournal.stripe.checkout.sessions.expire(session.id);
+            reservationMayBeReleased = true;
+          } else if (session.status === "complete") {
+            reservationMayBeReleased = false;
+          } else {
+            reservationMayBeReleased = true;
+          }
+        } catch {
+          reservationMayBeReleased = false;
+          console.error(
+            "Orphaned Stripe Checkout Session could not be safely inspected or expired",
+          );
+        }
+      }
+
+      if (checkoutJournal.reservationCreated && reservationMayBeReleased) {
+        try {
+          await releaseCheckoutReservation({
+            supabase: checkoutJournal.supabase,
+            storeId: checkoutJournal.storeId,
+            checkoutAttemptId: checkoutJournal.checkoutAttemptId,
+          });
+        } catch {
+          console.error("Checkout inventory reservation could not be released");
+        }
+      }
+
       try {
         await failCheckoutAttempt({
-          ...checkoutJournal,
+          supabase: checkoutJournal.supabase,
+          rowId: checkoutJournal.rowId,
           error,
         });
       } catch {
@@ -403,7 +497,7 @@ export async function POST(request: Request) {
     if (error instanceof InventoryEngineError) {
       return NextResponse.json(
         { error: error.message, retryable: false },
-        { status: error.statusCode }
+        { status: error.statusCode },
       );
     }
 
@@ -412,7 +506,7 @@ export async function POST(request: Request) {
         error: error.message || "Checkout failed",
         retryable: Boolean(checkoutJournal),
       },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

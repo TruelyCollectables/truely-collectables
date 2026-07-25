@@ -1,13 +1,15 @@
 import type { Metadata } from "next";
 import { GeistMono } from "geist/font/mono";
 import { GeistSans } from "geist/font/sans";
-import { STORE_BRAND_NAME } from "../lib/legal";
+import { STORE_BRAND_NAME, STORE_LEGAL_NAME } from "../lib/legal";
 import { configuredSiteOrigin } from "../lib/site-origin";
 import "./globals.css";
 import Navbar from "./components/Navbar";
 
+const siteOrigin = configuredSiteOrigin();
+
 export const metadata: Metadata = {
-  metadataBase: new URL(configuredSiteOrigin()),
+  metadataBase: new URL(siteOrigin),
   title: {
     default: `${STORE_BRAND_NAME} | Sports Cards for Sale`,
     template: `%s | ${STORE_BRAND_NAME}`,
@@ -27,6 +29,9 @@ export const metadata: Metadata = {
   ],
   alternates: {
     canonical: "/",
+  },
+  verification: {
+    google: process.env.GOOGLE_SITE_VERIFICATION || undefined,
   },
   openGraph: {
     title: `${STORE_BRAND_NAME} | Sports Cards for Sale`,
@@ -49,12 +54,27 @@ export default function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const organizationJsonLd = {
+    "@context": "https://schema.org",
+    "@type": "Organization",
+    name: STORE_LEGAL_NAME,
+    alternateName: STORE_BRAND_NAME,
+    url: siteOrigin,
+    sameAs: [],
+  };
+
   return (
     <html
       lang="en"
       className={`${GeistSans.variable} ${GeistMono.variable} h-full antialiased`}
     >
       <body className="flex min-h-full flex-col bg-[#f6f4ef] text-neutral-950">
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify(organizationJsonLd).replaceAll("<", "\\u003c"),
+          }}
+        />
         <Navbar />
         {children}
       </body>
