@@ -1,4 +1,4 @@
-import type { UniversalInventoryItem } from "../modules/inventory";
+import type { UniversalInventoryItem } from "../modules/inventory/types";
 
 export type SportsCardLaunchCandidate = Pick<
   UniversalInventoryItem,
