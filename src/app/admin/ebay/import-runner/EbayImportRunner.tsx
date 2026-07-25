@@ -185,6 +185,18 @@ export default function EbayImportRunner() {
     setStatus("Stop requested. Finishing current batch...");
   }
 
+  const importSucceeded =
+    !busy &&
+    !error &&
+    status === "Import complete. Open TCOS inventory and verify the rows.";
+  const statusPanelClass = error
+    ? "mt-5 rounded-xl border border-rose-300 bg-rose-50 p-4 text-rose-950 shadow-sm ring-1 ring-rose-900/10"
+    : importSucceeded
+      ? "mt-5 rounded-xl border border-sky-300 bg-sky-50 p-4 text-sky-950 shadow-sm ring-1 ring-sky-900/10"
+      : busy
+        ? "mt-5 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950 shadow-sm ring-1 ring-amber-900/10"
+        : "mt-5 rounded-xl border border-emerald-200 bg-white p-4 text-neutral-950";
+
   return (
     <section className="rounded-3xl border border-emerald-200 bg-emerald-50 p-6 text-emerald-950 shadow-sm ring-1 ring-emerald-950/5">
       <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
@@ -278,16 +290,16 @@ export default function EbayImportRunner() {
         </label>
       </div>
 
-      <div className="mt-5 rounded-xl border border-emerald-200 bg-white p-4">
-        <p className="text-sm font-black text-neutral-950">{status}</p>
+      <div
+        role={error ? "alert" : "status"}
+        aria-live={error ? "assertive" : "polite"}
+        className={statusPanelClass}
+      >
+        <p className="text-sm font-black">{status}</p>
         {runId ? (
-          <p className="mt-1 text-xs font-bold text-neutral-600">Run ID: {runId}</p>
+          <p className="mt-1 text-xs font-bold opacity-70">Run ID: {runId}</p>
         ) : null}
-        {error ? (
-          <div className="mt-3 rounded border border-rose-200 bg-rose-50 p-3 text-sm font-black text-rose-800">
-            {error}
-          </div>
-        ) : null}
+        {error ? <p className="mt-3 text-sm font-black">{error}</p> : null}
       </div>
 
       <div className="mt-5 grid gap-3 md:grid-cols-4 xl:grid-cols-8">
