@@ -126,9 +126,10 @@ function paymentAndInventoryChecks() {
   contains("src/lib/checkout-inventory-reservations.ts", [
     "tcos_reserve_checkout_inventory",
     "CHECKOUT_RESERVATION_MINUTES = 32",
+    "consumeCheckoutReservationAfterSale",
+    "decrementOrderInventoryOnce",
     "releaseCheckoutReservation",
     "Checkout reservation did not cover every cart line",
-    "One or more cards were just reserved by another buyer",
   ]);
 
   contains(
@@ -143,14 +144,37 @@ function paymentAndInventoryChecks() {
     ],
   );
 
+  contains(
+    "supabase/migrations/20260725170000_consume_checkout_reservations.sql",
+    [
+      "create table if not exists public.order_inventory_consumptions",
+      "tcos_consume_checkout_reservation_after_sale",
+      "tcos_decrement_order_inventory_once",
+      "pg_advisory_xact_lock",
+      "status = 'consumed'",
+      "already_consumed",
+    ],
+  );
+
   contains("src/app/api/webhook/route.ts", [
     "claimStripeWebhookEvent",
     'event.type !== "checkout.session.completed"',
+    "finalizeCheckoutOrder",
+    "processStripeRefundEvent",
+    "processStripeDisputeEvent",
+    "finishStripeWebhookEvent",
+    "failStripeWebhookEvent",
+  ]);
+
+  contains("src/lib/checkout-order-finalization.ts", [
     '.eq("stripe_session_id", session.id)',
-    "decrementAfterSale",
+    "getByLegacyProductIds",
+    "consumeCheckoutReservationAfterSale",
+    "decrementOrderInventoryOnce",
     "syncEbayQuantityAfterSale",
     'status: "paid_inventory_review"',
-    "finishStripeWebhookEvent",
+    "existingProductIds",
+    "createTransactionEvidenceReport",
   ]);
 
   contains("src/lib/stripe-reconciliation.ts", [
@@ -236,7 +260,7 @@ searchVisibilityChecks();
 
 const failed = checks.filter((item) => !item.passed);
 const output = {
-  suite: "truely-sunday-launch-one-build-v1",
+  suite: "truely-sunday-launch-one-build-v2",
   checkedAt: new Date().toISOString(),
   passed: failed.length === 0,
   total: checks.length,
