@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { InventoryEngineError } from "../modules/inventory";
 
-export const CHECKOUT_RESERVATION_MINUTES = 30;
+export const CHECKOUT_RESERVATION_MINUTES = 32;
 
 type ReservationRow = {
   reservation_id: string;
