@@ -126,7 +126,11 @@ export class InventoryRepository {
       throw new Error("Cannot upsert inventory item without a SKU");
     }
 
-    const existing = await this.getBySku(input.sku);
+    const existingByLegacyProductId =
+      input.legacy_product_id !== null && input.legacy_product_id !== undefined
+        ? await this.getByLegacyProductId(input.legacy_product_id)
+        : null;
+    const existing = existingByLegacyProductId ?? (await this.getBySku(input.sku));
     const payload = {
       seller_account_id: input.seller_account_id ?? null,
       legacy_product_id: input.legacy_product_id ?? null,
