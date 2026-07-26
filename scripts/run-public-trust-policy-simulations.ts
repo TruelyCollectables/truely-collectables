@@ -82,14 +82,24 @@ for (const token of [
 }
 
 const shipping = read("src/app/shipping/page.tsx");
-assert.ok(shipping.includes("SHIPPING_RULES"), "Shipping policy must use checkout shipping constants.");
+for (const token of [
+  "SHIPPING_RULES",
+  "STANDARD_ENVELOPE_BUYER_PRICE",
+  "STANDARD_ENVELOPE_MAX_CARDS",
+  "STANDARD_ENVELOPE_MAX_SUBTOTAL",
+  "GROUND_ADVANTAGE_TEN_OUNCE_PRICE",
+  "PRIORITY_MAIL_BUYER_PRICE",
+  "FREE_PRIORITY_MAIL_THRESHOLD",
+]) {
+  assert.ok(shipping.includes(token), `Shipping policy must use checkout constant ${token}.`);
+}
 assert.ok(
-  shipping.includes("standardEnvelopeRateForEstimatedOunces"),
-  "Shipping policy must calculate current Standard Envelope rates from checkout code.",
+  shipping.includes("original listing price controls the minimum shipping tier"),
+  "Shipping policy must explain accepted-offer listing-price basis.",
 );
 assert.ok(
-  shipping.includes("STANDARD_ENVELOPE_MAX_SUBTOTAL"),
-  "Shipping policy must use the checkout envelope subtotal limit.",
+  shipping.includes("limited letter visibility"),
+  "Shipping policy must disclose limited IMb scan visibility.",
 );
 
 const privacy = read("src/app/privacy/page.tsx");

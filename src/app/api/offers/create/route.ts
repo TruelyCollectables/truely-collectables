@@ -8,9 +8,7 @@ import { recordTermsAcceptance } from "../../../../lib/tos-acceptance";
 import { getStoreSettings } from "../../../../lib/store-settings";
 import { getActiveStoreId } from "../../../../lib/stores";
 import { getAuthenticatedAccountFromRequest } from "../../../../lib/account-auth";
-import {
-  InventoryEngineError,
-} from "../../../../modules/inventory";
+import { InventoryEngineError } from "../../../../modules/inventory";
 import { configuredSiteOrigin } from "../../../../lib/site-origin";
 import {
   checkPublicEndpointRateLimit,
@@ -19,6 +17,7 @@ import {
 } from "../../../../lib/public-endpoint-rate-limit";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 import { createServerInventoryEngine } from "../../../../lib/server-inventory-engine";
+import { buildOfferShippingSnapshot } from "../../../../lib/offer-shipping";
 
 const MAX_NAME_LENGTH = 120;
 const MAX_EMAIL_LENGTH = 254;
@@ -43,7 +42,6 @@ function cleanMoney(value: unknown) {
   const amount = Number(text);
 
   if (!Number.isFinite(amount)) return null;
-
   return Math.round(amount * 100) / 100;
 }
 
@@ -59,12 +57,10 @@ function escapeHtml(value: unknown) {
 export async function POST(req: Request) {
   try {
     const resendApiKey = process.env.RESEND_API_KEY;
-
     const supabase = createSupabaseServerClient({ admin: true });
     const storeId = getActiveStoreId();
     const storeSettings = await getStoreSettings(supabase, storeId);
     const account = await getAuthenticatedAccountFromRequest(req);
-
     const body = await req.json();
     const productId = Number(body.productId);
     const name = cleanText(body.name, MAX_NAME_LENGTH);
@@ -76,21 +72,21 @@ export async function POST(req: Request) {
     if (!Number.isInteger(productId) || productId <= 0) {
       return NextResponse.json(
         { error: "A valid product is required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
     if (!name) {
       return NextResponse.json(
         { error: "Customer name is required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
     if (!isValidEmail(email)) {
       return NextResponse.json(
         { error: "A valid customer email is required" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -101,14 +97,14 @@ export async function POST(req: Request) {
     ) {
       return NextResponse.json(
         { error: "Offer amount must be between $1 and $100,000" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
     if (!tosAccepted) {
       return NextResponse.json(
         { error: "Terms of Service must be accepted before submitting an offer" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
@@ -120,19 +116,19 @@ export async function POST(req: Request) {
 
     if (!rateLimit.allowed) {
       const blocked = publicEndpointRateLimitResponse(rateLimit);
-      return NextResponse.json(
-        blocked.body,
-        { status: blocked.status }
-      );
+      return NextResponse.json(blocked.body, { status: blocked.status });
     }
 
     const clientIdentity = rateLimit.identity;
-
     const inventoryEngine = createServerInventoryEngine();
     const [product] = await inventoryEngine.requireAvailableCartItems([
       { id: productId, quantity: 1 },
     ]);
-
+    const listingPriceAtOffer = Math.round(Number(product.price || 0) * 100) / 100;
+    const minimumShipping = buildOfferShippingSnapshot({
+      saleSubtotal: offerAmount,
+      listingPriceBasis: listingPriceAtOffer,
+    });
     const tosAcceptanceEventId = await recordTermsAcceptance(supabase, {
       contextType: "offer",
       tosKind: "buyer",
@@ -148,6 +144,10 @@ export async function POST(req: Request) {
       customer_name: name,
       customer_email: email,
       offer_amount: offerAmount,
+      listing_price_at_offer: listingPriceAtOffer,
+      minimum_shipping_method_at_offer: minimumShipping.method,
+      minimum_shipping_amount_at_offer: minimumShipping.amount,
+      shipping_profile_at_offer: minimumShipping.profile,
       tos_accepted: true,
       tos_version: tosVersion,
       tos_accepted_at: new Date().toISOString(),
@@ -179,21 +179,15 @@ export async function POST(req: Request) {
         subject: "New Best Offer Received",
         html: `
           <h2>New Best Offer Received</h2>
-
           <p><strong>Product:</strong> ${escapeHtml(offer.products?.title || product.title)}</p>
-          <p><strong>Asking Price:</strong> $${Number(offer.products?.price || product.price || 0).toFixed(2)}</p>
+          <p><strong>Original Listing Price:</strong> $${listingPriceAtOffer.toFixed(2)}</p>
           <p><strong>Offer Amount:</strong> $${Number(offer.offer_amount).toFixed(2)}</p>
-
+          <p><strong>Minimum Shipping:</strong> ${escapeHtml(minimumShipping.name)} — $${minimumShipping.amount.toFixed(2)}</p>
+          <p>The buyer may upgrade shipping during payment, but the original listing price controls the minimum tier.</p>
           <hr />
-
           <p><strong>Customer Name:</strong> ${escapeHtml(offer.customer_name)}</p>
           <p><strong>Customer Email:</strong> ${escapeHtml(offer.customer_email)}</p>
-
-          <p>
-            <a href="${escapeHtml(adminOffersUrl)}">
-              Review this offer
-            </a>
-          </p>
+          <p><a href="${escapeHtml(adminOffersUrl)}">Review this offer</a></p>
         `,
       });
     }
@@ -208,13 +202,13 @@ export async function POST(req: Request) {
     if (err instanceof InventoryEngineError) {
       return NextResponse.json(
         { error: err.message },
-        { status: err.statusCode }
+        { status: err.statusCode },
       );
     }
 
     return NextResponse.json(
       { error: "Failed to create offer" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }

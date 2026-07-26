@@ -50,7 +50,7 @@ export type LetterTrackExportRow = {
   sellerProtectionCoverageBasis: string;
   sellerProtectionReimbursesShipping: string;
   deliveryEvidenceRequirement: string;
-  tcosStatus: string;
+  fulfillmentStatus: string;
   notes: string;
 };
 
@@ -88,7 +88,7 @@ const csvHeaders: Array<keyof LetterTrackExportRow> = [
   "sellerProtectionCoverageBasis",
   "sellerProtectionReimbursesShipping",
   "deliveryEvidenceRequirement",
-  "tcosStatus",
+  "fulfillmentStatus",
   "notes",
 ];
 
@@ -111,7 +111,6 @@ function metadataNumber(metadata: Record<string, unknown> | null, key: string) {
 function csvCell(value: unknown) {
   const raw = text(value);
   const escaped = raw.replaceAll('"', '""');
-
   return /[",\n\r]/.test(escaped) ? `"${escaped}"` : escaped;
 }
 
@@ -128,7 +127,6 @@ export function letterTrackSkippedReasonSummary(
   if (skipped.length === 0) return "none";
 
   const counts = new Map<string, number>();
-
   for (const row of skipped) {
     counts.set(row.reason, (counts.get(row.reason) || 0) + 1);
   }
@@ -154,7 +152,7 @@ export function buildLetterTrackExport(params: {
       skipped.push({
         orderId: label.order_id,
         labelId: label.id,
-        reason: "Order row was not found for this Standard Envelope label.",
+        reason: "Order row was not found for this Tracked Card Letter label.",
       });
       continue;
     }
@@ -183,7 +181,7 @@ export function buildLetterTrackExport(params: {
       "standard_envelope_estimated_oz",
     );
     const declaredValue = money(label.coverage_amount || order.subtotal || order.total);
-    const orderNumber = `TCOS-${order.id}`;
+    const orderNumber = `TRUELY-${order.id}`;
 
     rows.push({
       orderNumber,
@@ -201,22 +199,22 @@ export function buildLetterTrackExport(params: {
       internalReference: `${orderNumber}-${label.id.slice(0, 8)}`,
       postageInstruction:
         estimatedOunces && estimatedOunces > 0
-          ? `USPS First-Class letter with LetterTrack IMb, estimated ${estimatedOunces} oz; apply current USPS postage.`
-          : "USPS First-Class letter with LetterTrack IMb; apply current USPS postage.",
+          ? `USPS First-Class letter with LetterTrack IMb, estimated ${estimatedOunces} oz; apply current USPS metered postage.`
+          : "USPS First-Class letter with LetterTrack IMb; weigh the sealed letter and apply current USPS metered postage.",
       trackingProvider: "LetterTrack / USPS Informed Visibility IMb",
       coverageInstruction:
-        "TCOS under-$20 seller protection is internal and item-only when the seller opted in; LetterTrack provides delivery evidence, not external insurance.",
-      sellerProtectionProgram: "TCOS Under-$20 Seller Protection",
-      sellerProtectionOptInRequired: "yes - seller must opt in per shipment",
+        "Truely Collectables under-$20 seller protection is internal and item-only when applicable; LetterTrack provides limited delivery evidence, not external insurance.",
+      sellerProtectionProgram: "Truely Collectables Under-$20 Seller Protection",
+      sellerProtectionOptInRequired: "store program rules apply",
       sellerProtectionReserveRate: "2%",
       sellerProtectionMaxCoverage: "$20.00 item sale amount",
       sellerProtectionCoverageBasis: "item_sale_amount_excluding_shipping",
       sellerProtectionReimbursesShipping: "no",
       deliveryEvidenceRequirement:
-        "USPS IMb / LetterTrack status must show delivered to close the delivery trail; not-delivered, exception, or returned evidence supports claim review.",
-      tcosStatus: label.label_status || "planned",
+        "USPS IMb / LetterTrack scans are limited and may be incomplete. Record the available scan trail and any delivery-related status for support review.",
+      fulfillmentStatus: label.label_status || "planned",
       notes:
-        "After LetterTrack prints/assigns the IMb, record the IMb/tracking reference back on the TCOS shipping label before marking shipped.",
+        "After LetterTrack prints or assigns the IMb, record the IMb reference in Truely Collectables before marking the order shipped.",
     });
   }
 
