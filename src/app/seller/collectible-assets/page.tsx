@@ -77,6 +77,7 @@ export default function CollectibleAssetsPage() {
   const [data, setData] = useState<ResponseData>({});
   const [loading, setLoading] = useState(true);
   const [refreshingId, setRefreshingId] = useState<string | null>(null);
+  const [verifyingId, setVerifyingId] = useState<string | null>(null);
   const [filter, setFilter] = useState("all");
 
   async function load(accessToken?: string | null) {
@@ -135,6 +136,44 @@ export default function CollectibleAssetsPage() {
       }));
     } finally {
       setRefreshingId(null);
+    }
+  }
+
+  async function verifyGrader(asset: Asset, action: "refresh" | "manual_verify") {
+    if (!token || !asset.gradingCompany || !asset.gradingCertNumber) return;
+    let note: string | null = null;
+    if (action === "manual_verify") {
+      note = window.prompt(
+        `Describe what you confirmed on the official ${asset.gradingCompany} cert page.`,
+      );
+      if (!note?.trim()) return;
+    }
+
+    setVerifyingId(asset.assetId);
+    try {
+      const response = await fetch(
+        `/api/account/seller/collectible-assets/${asset.assetId}/grader-verification`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({ action, note }),
+        },
+      );
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(result?.error || "Grader verification failed.");
+      }
+      await load(token);
+    } catch (error: any) {
+      setData((current) => ({
+        ...current,
+        error: error?.message || "Grader verification failed.",
+      }));
+    } finally {
+      setVerifyingId(null);
     }
   }
 
@@ -219,9 +258,24 @@ export default function CollectibleAssetsPage() {
                     {asset.lifecycleStatus.replaceAll("_", " ")}
                   </span>
                   {asset.gradingCompany ? (
-                    <span className="rounded-full border border-sky-300 bg-sky-50 px-3 py-1 text-xs font-black text-sky-900">
-                      {asset.gradingCompany} {asset.gradingGrade}
-                    </span>
+                    <>
+                      <span className="rounded-full border border-sky-300 bg-sky-50 px-3 py-1 text-xs font-black text-sky-900">
+                        {asset.gradingCompany} {asset.gradingGrade}
+                      </span>
+                      <span
+                        className={`rounded-full border px-3 py-1 text-xs font-black uppercase ${
+                          ["verified", "manual_verified"].includes(
+                            asset.graderVerificationStatus,
+                          )
+                            ? "border-emerald-300 bg-emerald-50 text-emerald-900"
+                            : asset.graderVerificationStatus === "conflict"
+                              ? "border-rose-300 bg-rose-50 text-rose-900"
+                              : "border-amber-300 bg-amber-50 text-amber-900"
+                        }`}
+                      >
+                        Cert {asset.graderVerificationStatus.replaceAll("_", " ")}
+                      </span>
+                    </>
                   ) : null}
                   {asset.exactSerialNumber ? (
                     <span className="rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-black text-amber-900">
@@ -241,14 +295,36 @@ export default function CollectibleAssetsPage() {
                 </div>
 
                 {asset.graderVerificationUrl ? (
-                  <a
-                    href={asset.graderVerificationUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="mt-4 inline-flex rounded-full border-2 border-neutral-950 px-4 py-2 text-sm font-black"
-                  >
-                    Open official {asset.gradingCompany} cert record
-                  </a>
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <a
+                      href={asset.graderVerificationUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex rounded-full border-2 border-neutral-950 px-4 py-2 text-sm font-black"
+                    >
+                      Open official {asset.gradingCompany} cert record
+                    </a>
+                    <button
+                      type="button"
+                      disabled={verifyingId === asset.assetId}
+                      onClick={() => void verifyGrader(asset, "refresh")}
+                      className="rounded-full border-2 border-neutral-950 bg-sky-100 px-4 py-2 text-sm font-black disabled:opacity-40"
+                    >
+                      Recheck official cert
+                    </button>
+                    {!["verified", "manual_verified"].includes(
+                      asset.graderVerificationStatus,
+                    ) ? (
+                      <button
+                        type="button"
+                        disabled={verifyingId === asset.assetId}
+                        onClick={() => void verifyGrader(asset, "manual_verify")}
+                        className="rounded-full border-2 border-neutral-950 bg-amber-100 px-4 py-2 text-sm font-black disabled:opacity-40"
+                      >
+                        Mark manually verified
+                      </button>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>
 
