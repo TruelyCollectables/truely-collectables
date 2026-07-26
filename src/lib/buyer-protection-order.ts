@@ -49,7 +49,7 @@ export async function persistBuyerProtectionForOrder(params: {
   if (!termsAcceptedAt || !consentSource) {
     throw new Error("Paid Buyer Protection is missing consent evidence.");
   }
-  if (!['always_on', 'one_time'].includes(preferenceMode)) {
+  if (!["always_on", "one_time"].includes(preferenceMode)) {
     throw new Error("Paid Buyer Protection preference mode is invalid.");
   }
 
@@ -71,13 +71,21 @@ export async function persistBuyerProtectionForOrder(params: {
         shipping_reimbursable: false,
         protection_fee_reimbursable: false,
         consent_ip_address:
-          params.metadata.tos_ip_address || null,
+          params.metadata.buyer_protection_consent_ip_address ||
+          params.metadata.tos_ip_address ||
+          null,
         consent_user_agent:
-          params.metadata.tos_user_agent || null,
+          params.metadata.buyer_protection_consent_user_agent ||
+          params.metadata.tos_user_agent ||
+          null,
         consent_ip_risk:
-          params.metadata.tos_ip_risk || null,
+          params.metadata.buyer_protection_consent_ip_risk ||
+          params.metadata.tos_ip_risk ||
+          null,
         consent_ip_block_reason:
-          params.metadata.tos_ip_block_reason || null,
+          params.metadata.buyer_protection_consent_ip_block_reason ||
+          params.metadata.tos_ip_block_reason ||
+          null,
         metadata: {
           stripe_checkout_metadata_verified: true,
           is_test: params.isTest === true,
