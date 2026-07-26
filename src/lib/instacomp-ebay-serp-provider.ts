@@ -41,7 +41,7 @@ function normalizeKey(value: string) {
 
 function cacheKey(query: string, lane: EbayLane) {
   return createHash("sha256")
-    .update(`serpapi_ebay_${lane}:${normalizeKey(query)}`)
+    .update(`serpapi_ebay_v4_${lane}:${normalizeKey(query)}`)
     .digest("hex");
 }
 
@@ -139,11 +139,11 @@ async function readCache(query: string, lane: EbayLane) {
     .maybeSingle();
   if (error || !data?.result_payload) return null;
   const payload = data.result_payload as CachedPayload;
-  return Array.isArray(payload.items) ? payload.items : null;
+  return Array.isArray(payload.items) && payload.items.length ? payload.items : null;
 }
 
 async function writeCache(query: string, lane: EbayLane, items: EbaySerpItem[]) {
-  if (!SUPABASE_URL || !SUPABASE_KEY) return;
+  if (!SUPABASE_URL || !SUPABASE_KEY || !items.length) return;
   const supabase = createClient(SUPABASE_URL, SUPABASE_KEY);
   const now = new Date();
   const ttl = lane === "sold" ? SOLD_CACHE_TTL_MS : ACTIVE_CACHE_TTL_MS;
@@ -233,6 +233,91 @@ function titleForMatching(title: string, ai: InstaCompAiResult) {
   return additions.length ? `${title} ${additions.join(" ")}` : title;
 }
 
+function normalizedWords(value: string) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " " )
+    .trim()
+    .split(/\s+/)
+    .filter((token) => token.length > 1);
+}
+
+function compactIdentity(value: string | null | undefined) {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function titleSerialDenominator(value: string | null | undefined) {
+  const matches = Array.from(String(value || "").matchAll(/(?:\b\d{1,6}\s*)?\/\s*(\d{1,6})\b/g));
+  const parsed = matches
+    .map((match) => Number(match[1]))
+    .filter((number) => Number.isFinite(number) && number > 0);
+  return parsed.length ? parsed[parsed.length - 1] : null;
+}
+
+function deterministicExactTitle(
+  title: string,
+  query: string,
+  ai: InstaCompAiResult,
+  flags: string[],
+) {
+  if (flags.some((flag) => /parallel mismatch|wrong parallel|excluded/i.test(flag))) return false;
+  const normalizedTitle = " " + normalizedWords(title).join(" " ) + " ";
+  const titleCompact = compactIdentity(title);
+  const player = normalizedWords(String(ai.player || ""));
+  if (player.length && !player.every((token) => normalizedTitle.includes(" " + token + " "))) return false;
+  const year = compactIdentity(ai.year);
+  if (year && !titleCompact.includes(year)) return false;
+  const cardNumber = compactIdentity(ai.cardNumber);
+  if (cardNumber && !titleCompact.includes(cardNumber)) return false;
+
+  const distinctiveParallelTokens = normalizedWords(String(ai.parallel || "")).filter(
+    (token) => !["prizm", "refractor", "parallel", "foil", "holo"].includes(token),
+  );
+  if (
+    distinctiveParallelTokens.length &&
+    !distinctiveParallelTokens.every((token) => normalizedTitle.includes(" " + token + " "))
+  ) return false;
+
+  const targetDenominator = titleSerialDenominator(ai.serialNumber);
+  if (targetDenominator && titleSerialDenominator(title) !== targetDenominator) return false;
+
+  if (ai.gradingCompany) {
+    const grader = compactIdentity(ai.gradingCompany);
+    if (grader && !titleCompact.includes(grader)) return false;
+  }
+  if (ai.gradeValue) {
+    const grade = compactIdentity(String(ai.gradeValue));
+    if (grade && !titleCompact.includes(grade)) return false;
+  }
+
+  const queryTokens = normalizedWords(query).filter(
+    (token) => !["panini", "topps", "upper", "deck", "rookie", "card"].includes(token),
+  );
+  const covered = queryTokens.filter((token) => normalizedTitle.includes(" " + token + " " )).length;
+  const coverage = queryTokens.length ? covered / queryTokens.length : 0;
+  return coverage >= 0.68;
+}
+
+function promoteDeterministicExact(
+  comps: InstaCompComp[],
+  query: string,
+  ai: InstaCompAiResult,
+  lane: EbayLane,
+) {
+  return comps.map((comp) => {
+    if (!deterministicExactTitle(comp.title, query, ai, comp.flags)) return comp;
+    const flags = comp.flags.filter(
+      (flag) => !/guidance comp|not used for pricing|not exact parallel/i.test(flag),
+    );
+    flags.push("deterministic exact identity");
+    return {
+      ...comp,
+      sourceCategory: lane === "sold" ? ("sold" as const) : ("marketplace" as const),
+      flags: Array.from(new Set(flags)).slice(0, 20),
+    };
+  });
+}
+
 function rawComps(items: EbaySerpItem[], lane: EbayLane) {
   return items.map((item) => ({
     title: item.title,
@@ -291,10 +376,12 @@ async function provider(query: string, ai: InstaCompAiResult, lane: EbayLane) {
     } satisfies InstaCompProviderResult;
   }
 
-  const results = scoreWithSetEvidence(fetched.items, lane, ai).slice(
-    0,
-    lane === "sold" ? 50 : 30,
-  );
+  const results = promoteDeterministicExact(
+    scoreWithSetEvidence(fetched.items, lane, ai),
+    query,
+    ai,
+    lane,
+  ).slice(0, lane === "sold" ? 50 : 30);
   return {
     source: lane === "sold" ? "ebay_sold_serpapi" : "ebay_active_serpapi",
     label: lane === "sold" ? "eBay Sold" : "eBay Active",

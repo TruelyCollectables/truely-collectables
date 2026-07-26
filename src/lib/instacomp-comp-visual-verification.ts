@@ -68,6 +68,7 @@ async function remoteImageToDataUrl(url: string) {
 }
 
 function requiresVisualVerification(candidate: InstaCompVisualCandidate) {
+  if (candidate.flags.some((flag) => /deterministic exact identity/i.test(flag))) return false;
   return candidate.flags.some((flag) =>
     /parallel mismatch|not exact parallel|guidance comp|not used for pricing/i.test(flag),
   );

@@ -260,6 +260,10 @@ export async function GET(request: Request) {
           soldCompEvidence: evidenceList(instaComp.soldCompEvidence),
           activeCompetition: evidenceList(instaComp.activeCompetition),
           rejectedCandidates: evidenceList(instaComp.rejectedCandidates),
+          excludedCompEvidence: evidenceList(instaComp.excludedCompEvidence),
+          excludedCompCount: Array.isArray(instaComp.excludedCompUrls)
+            ? instaComp.excludedCompUrls.length
+            : 0,
           providerCoverage: providerCoverageList(instaComp.providerCoverage),
           sourceLinks: {
             ebaySoldUrl: textValue(sourceLinks.ebaySoldUrl),
