@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import CartClient from "./CartClient";
+import CheckoutPolicyNotice from "./CheckoutPolicyNotice";
 import { createSupabaseServerClient } from "../../lib/supabase-server";
 import { getStoreSettings } from "../../lib/store-settings";
 
@@ -18,5 +19,10 @@ export default async function CartPage() {
   const supabase = createSupabaseServerClient();
   const storeSettings = await getStoreSettings(supabase);
 
-  return <CartClient storeDisplayName={storeSettings.displayName} />;
+  return (
+    <>
+      <CartClient storeDisplayName={storeSettings.displayName} />
+      <CheckoutPolicyNotice />
+    </>
+  );
 }

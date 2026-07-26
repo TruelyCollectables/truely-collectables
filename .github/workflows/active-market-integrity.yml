@@ -13,6 +13,7 @@ on:
       - "src/lib/live-payment-launch*.ts"
       - "src/lib/live-payment-status-presentation.ts"
       - "src/lib/marketplace-token-crypto.ts"
+      - "src/lib/legal.ts"
       - "src/app/admin/live-payment-launch/**"
       - "src/app/admin/ebay/import-runner/EbayImportRunner.tsx"
       - "src/app/product/[id]/ProductActions.tsx"
@@ -21,8 +22,17 @@ on:
       - "src/modules/inventory/admin-engine.ts"
       - "src/modules/inventory/index.ts"
       - "src/app/layout.tsx"
+      - "src/app/components/Footer.tsx"
+      - "src/app/components/PolicyShell.tsx"
       - "src/app/shop/page.tsx"
       - "src/app/cart/page.tsx"
+      - "src/app/cart/CheckoutPolicyNotice.tsx"
+      - "src/app/terms/page.tsx"
+      - "src/app/privacy/**"
+      - "src/app/shipping/**"
+      - "src/app/returns/**"
+      - "src/app/contact/**"
+      - "src/app/sitemap.ts"
       - "scripts/run-sunday-launch-one-build.ts"
       - "scripts/run-live-payment-owner-marker-simulations.ts"
       - "scripts/run-live-payment-status-color-simulations.ts"
@@ -30,6 +40,7 @@ on:
       - "scripts/run-checkout-webhook-idempotency-simulations.ts"
       - "scripts/run-offer-checkout-idempotency-simulations.ts"
       - "scripts/run-ebay-oauth-state-simulations.ts"
+      - "scripts/run-public-trust-policy-simulations.ts"
       - "scripts/run-privileged-api-route-audit.mjs"
       - "scripts/run-launch-database-migration-coverage.mjs"
       - "scripts/run-launch-database-schema-definition-simulations.mjs"
@@ -50,6 +61,7 @@ on:
       - "src/lib/live-payment-launch*.ts"
       - "src/lib/live-payment-status-presentation.ts"
       - "src/lib/marketplace-token-crypto.ts"
+      - "src/lib/legal.ts"
       - "src/app/admin/live-payment-launch/**"
       - "src/app/admin/ebay/import-runner/EbayImportRunner.tsx"
       - "src/app/product/[id]/ProductActions.tsx"
@@ -58,8 +70,17 @@ on:
       - "src/modules/inventory/admin-engine.ts"
       - "src/modules/inventory/index.ts"
       - "src/app/layout.tsx"
+      - "src/app/components/Footer.tsx"
+      - "src/app/components/PolicyShell.tsx"
       - "src/app/shop/page.tsx"
       - "src/app/cart/page.tsx"
+      - "src/app/cart/CheckoutPolicyNotice.tsx"
+      - "src/app/terms/page.tsx"
+      - "src/app/privacy/**"
+      - "src/app/shipping/**"
+      - "src/app/returns/**"
+      - "src/app/contact/**"
+      - "src/app/sitemap.ts"
       - "scripts/run-sunday-launch-one-build.ts"
       - "scripts/run-live-payment-owner-marker-simulations.ts"
       - "scripts/run-live-payment-status-color-simulations.ts"
@@ -67,6 +88,7 @@ on:
       - "scripts/run-checkout-webhook-idempotency-simulations.ts"
       - "scripts/run-offer-checkout-idempotency-simulations.ts"
       - "scripts/run-ebay-oauth-state-simulations.ts"
+      - "scripts/run-public-trust-policy-simulations.ts"
       - "scripts/run-privileged-api-route-audit.mjs"
       - "scripts/run-launch-database-migration-coverage.mjs"
       - "scripts/run-launch-database-schema-definition-simulations.mjs"
@@ -195,6 +217,9 @@ jobs:
 
       - name: Validate payment owner marker
         run: node --import tsx scripts/run-live-payment-owner-marker-simulations.ts
+
+      - name: Validate public trust policies
+        run: node --import tsx scripts/run-public-trust-policy-simulations.ts
 
       - name: Validate live payment semantic colors
         run: node --import tsx scripts/run-live-payment-status-color-simulations.ts

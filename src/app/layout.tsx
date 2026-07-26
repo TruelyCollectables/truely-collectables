@@ -1,10 +1,15 @@
 import type { Metadata } from "next";
 import { GeistMono } from "geist/font/mono";
 import { GeistSans } from "geist/font/sans";
-import { STORE_BRAND_NAME, STORE_LEGAL_NAME } from "../lib/legal";
+import {
+  STORE_BRAND_NAME,
+  STORE_LEGAL_NAME,
+  STORE_SUPPORT_EMAIL,
+} from "../lib/legal";
 import { configuredSiteOrigin } from "../lib/site-origin";
 import "./globals.css";
 import Navbar from "./components/Navbar";
+import Footer from "./components/Footer";
 
 const siteOrigin = configuredSiteOrigin();
 
@@ -60,6 +65,7 @@ export default function RootLayout({
     name: STORE_LEGAL_NAME,
     alternateName: STORE_BRAND_NAME,
     url: siteOrigin,
+    email: STORE_SUPPORT_EMAIL,
     sameAs: [],
   };
 
@@ -77,6 +83,7 @@ export default function RootLayout({
         />
         <Navbar />
         {children}
+        <Footer />
       </body>
     </html>
   );
