@@ -1,4 +1,4 @@
-name: Production Environment Smoke And Live-Money Readiness
+name: Protected Live-Payment Readiness Check
 
 on:
   pull_request:
@@ -12,76 +12,31 @@ permissions:
   contents: read
 
 jobs:
-  production-environment-smoke:
+  protected-live-payment-readiness:
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 10
     env:
-      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
-      VERCEL_SCOPE: truelycollectables-projects
-      VERCEL_PROJECT_NAME: truely-collectables
+      TCOS_CRON_SECRET: ${{ secrets.TCOS_CRON_SECRET }}
     steps:
-      - name: Check out current main
-        uses: actions/checkout@v4
-        with:
-          ref: main
-          fetch-depth: 0
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Verify Vercel authentication
-        run: test -n "${VERCEL_TOKEN:-}"
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Link Production project without deployment
+      - name: Call protected Production readiness endpoint
+        shell: bash
         run: |
-          mkdir -p "$RUNNER_TEMP/tcos-vercel-cli-56.2.0"
-          npm --prefix "$RUNNER_TEMP/tcos-vercel-cli-56.2.0" exec --yes --package=vercel@56.2.0 -- \
-            vercel --cwd "$PWD" link --yes --project "$VERCEL_PROJECT_NAME" \
-            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" --no-color
+          set -euo pipefail
+          test -n "${TCOS_CRON_SECRET:-}" || { echo "TCOS_CRON_SECRET is missing"; exit 1; }
+          status=$(curl --silent --show-error \
+            --output protected-live-payment-readiness.json \
+            --write-out "%{http_code}" \
+            --header "Authorization: Bearer ${TCOS_CRON_SECRET}" \
+            "https://truelycollectables.com/api/cron/live-payment-readiness")
+          echo "HTTP status: $status"
+          test "$status" = "200"
+          jq -e '.success == true and .simulatedFinalRuntimeSwitch == true' protected-live-payment-readiness.json >/dev/null
 
-      - name: Run live-money status with real Production environment
-        id: live_money
-        continue-on-error: true
-        run: |
-          npm --prefix "$RUNNER_TEMP/tcos-vercel-cli-56.2.0" exec --yes --package=vercel@56.2.0 -- \
-            vercel --cwd "$PWD" env run -e production --scope "$VERCEL_SCOPE" \
-            --token "$VERCEL_TOKEN" --no-color -- \
-            node --import tsx scripts/status-live-money.ts --allow-blocked --json \
-            > production-live-money-status.json
-
-      - name: Run full Production smoke with real Production environment
-        id: smoke
-        continue-on-error: true
-        run: |
-          npm --prefix "$RUNNER_TEMP/tcos-vercel-cli-56.2.0" exec --yes --package=vercel@56.2.0 -- \
-            vercel --cwd "$PWD" env run -e production --scope "$VERCEL_SCOPE" \
-            --token "$VERCEL_TOKEN" --no-color -- \
-            node scripts/smoke-production.mjs \
-            > production-smoke.log 2>&1
-
-      - name: Upload redacted Production evidence
+      - name: Upload redacted live-payment readiness
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: production-environment-smoke-evidence
-          path: |
-            production-live-money-status.json
-            production-smoke.log
+          name: protected-live-payment-readiness-evidence
+          path: protected-live-payment-readiness.json
           if-no-files-found: error
           retention-days: 7
-
-      - name: Remove Vercel project cache
-        if: always()
-        run: rm -rf .vercel
-
-      - name: Enforce Production smoke
-        if: steps.live_money.outcome == 'failure' || steps.smoke.outcome == 'failure'
-        run: |
-          echo "Production environment status or smoke failed. Review the redacted artifact."
-          exit 1
