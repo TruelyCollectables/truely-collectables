@@ -56,15 +56,15 @@ export default async function Shop({
 
   if (error) {
     return (
-      <main className="p-8">
-        <h1>Error loading products</h1>
-        <pre>{error.message}</pre>
+      <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
+        <h1 className="text-2xl font-black">Error loading products</h1>
+        <p className="mt-3 break-words text-sm text-red-700">{error.message}</p>
       </main>
     );
   }
 
   return (
-    <main className="mx-auto max-w-7xl px-6 py-8">
+    <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
       <ClearCartOnSuccess />
 
       <section className="mb-8 flex flex-wrap items-end justify-between gap-4 border-b border-neutral-200 pb-6">
@@ -72,7 +72,7 @@ export default async function Shop({
           <p className="text-sm font-bold uppercase text-neutral-500">
             Active Inventory
           </p>
-          <h1 className="mt-2 text-4xl font-black md:text-5xl">
+          <h1 className="mt-2 text-3xl font-black sm:text-4xl md:text-5xl">
             Shop Sports Cards
           </h1>
           <p className="mt-3 max-w-2xl text-neutral-600">
@@ -86,19 +86,19 @@ export default async function Shop({
         </p>
       </section>
 
-      <form className="mb-8 grid grid-cols-1 gap-3 rounded border bg-white p-4 md:grid-cols-4">
+      <form className="mb-8 grid grid-cols-1 gap-3 rounded border bg-white p-3 sm:p-4 md:grid-cols-4">
         <input
           type="text"
           name="q"
           placeholder="Search player, card, sport..."
           defaultValue={q}
-          className="rounded border px-4 py-3 md:col-span-2"
+          className="min-h-12 rounded border px-4 py-3 text-base md:col-span-2"
         />
 
         <select
           name="sport"
           defaultValue={sport}
-          className="rounded border px-4 py-3"
+          className="min-h-12 rounded border px-4 py-3 text-base"
         >
           <option value="">All Sports</option>
 
@@ -111,7 +111,7 @@ export default async function Shop({
 
         <button
           type="submit"
-          className="rounded bg-neutral-950 px-4 py-3 font-bold text-white hover:bg-neutral-800"
+          className="min-h-12 rounded bg-neutral-950 px-4 py-3 font-bold text-white hover:bg-neutral-800"
         >
           Search
         </button>
@@ -125,16 +125,22 @@ export default async function Shop({
             key={product.legacyProductId}
             className="overflow-hidden rounded border bg-white"
           >
-            <div className="relative aspect-[4/5] bg-neutral-100">
-              <Image
-                src={product.imageUrl || "/placeholder.png"}
-                alt={product.title}
-                fill
-                sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
-                unoptimized
-                className="object-cover"
-              />
-            </div>
+            <Link
+              href={`/product/${product.legacyProductId}`}
+              className="block"
+              aria-label={`View ${product.title}`}
+            >
+              <div className="relative aspect-[4/5] bg-neutral-100">
+                <Image
+                  src={product.imageUrl || "/placeholder.png"}
+                  alt={product.title}
+                  fill
+                  sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
+                  unoptimized
+                  className="object-contain p-2"
+                />
+              </div>
+            </Link>
 
             <div className="p-4">
               <h2 className="line-clamp-2 min-h-14 text-lg font-black leading-7">
@@ -157,9 +163,9 @@ export default async function Shop({
 
               <Link
                 href={`/product/${product.legacyProductId}`}
-                className="mt-4 block w-full rounded border border-neutral-950 px-4 py-2 text-center font-bold hover:bg-neutral-950 hover:text-white"
+                className="mt-4 flex min-h-11 w-full items-center justify-center rounded border border-neutral-950 px-4 py-2 text-center font-bold hover:bg-neutral-950 hover:text-white"
               >
-                View Research Page
+                View Card
               </Link>
             </div>
           </article>
