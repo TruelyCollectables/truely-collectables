@@ -1,1 +1,1 @@
-Trigger final InstaComp sold-plus-active sweet-spot integration.
+Trigger final InstaComp sold-plus-active sweet-spot validation after explicit engine commit.
