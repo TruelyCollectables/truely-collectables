@@ -243,6 +243,7 @@ export async function GET(request: Request) {
           listingPriceSource: textValue(instaComp.listingPriceSource),
           soldCompEvidence: evidenceList(instaComp.soldCompEvidence),
           activeCompetition: evidenceList(instaComp.activeCompetition),
+          rejectedCandidates: evidenceList(instaComp.rejectedCandidates),
           providerCoverage: providerCoverageList(instaComp.providerCoverage),
           sourceLinks: {
             ebaySoldUrl: textValue(sourceLinks.ebaySoldUrl),

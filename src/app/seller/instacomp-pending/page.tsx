@@ -64,6 +64,7 @@ type PendingItem = {
     listingPriceSource: string | null;
     soldCompEvidence: CompEvidence[];
     activeCompetition: CompEvidence[];
+    rejectedCandidates: CompEvidence[];
     providerCoverage: Array<{
       source: string | null;
       label: string | null;
@@ -134,7 +135,8 @@ function dateLabel(value: string | null | undefined) {
 
 function scoreLabel(value: number | null) {
   if (value === null || !Number.isFinite(value)) return null;
-  return `${Math.round(value * 100)}% match`;
+  if (value >= 0 && value <= 1) return `${Math.round(value * 100)}% normalized match`;
+  return `${Math.round(value)} evidence points`;
 }
 
 function evidenceDate(comp: CompEvidence) {
@@ -1160,6 +1162,36 @@ export default function InstaCompPendingPage() {
                             </p>
                           )}
                         </div>
+                        {item.instaComp.rejectedCandidates.length ? (
+                          <details className="mt-3 rounded-lg border border-rose-300 bg-rose-50 p-3">
+                            <summary className="cursor-pointer text-sm font-black text-rose-950">
+                              Rejected near matches ({item.instaComp.rejectedCandidates.length})
+                            </summary>
+                            <p className="mt-2 text-xs font-semibold text-rose-900">
+                              These listings were found but failed exact identity. They are never competition and never affect price.
+                            </p>
+                            <div className="mt-2 space-y-2">
+                              {item.instaComp.rejectedCandidates.map((comp, index) => (
+                                <a
+                                  key={`rejected-${comp.url}-${index}`}
+                                  href={comp.url || "#"}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="block rounded-md border border-rose-200 bg-white p-2"
+                                >
+                                  <span className="block text-sm font-black text-neutral-950">{comp.title}</span>
+                                  <span className="mt-1 block text-xs font-bold text-neutral-700">
+                                    {money(comp.price)} · {comp.sourceLabel}
+                                    {scoreLabel(comp.matchScore) ? ` · ${scoreLabel(comp.matchScore)}` : ""}
+                                  </span>
+                                  <span className="mt-1 block text-[11px] font-semibold text-rose-800">
+                                    {comp.flags.filter((flag) => /parallel mismatch|not exact parallel|guidance comp|not used for pricing/i.test(flag)).join(" · ") || "Rejected by exact-card identity filter"}
+                                  </span>
+                                </a>
+                              ))}
+                            </div>
+                          </details>
+                        ) : null}
                         {item.instaComp.sourceLinks.ebayActiveUrl ? (
                           <a
                             href={item.instaComp.sourceLinks.ebayActiveUrl}

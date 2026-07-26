@@ -58,7 +58,7 @@ function compactComp(value: any) {
     sourceLabel: String(value?.sourceLabel || value?.source || "Source").slice(0, 120),
     sourceCategory: String(value?.sourceCategory || "broad").slice(0, 40),
     matchScore: Number.isFinite(Number(value?.matchScore))
-      ? Math.max(0, Math.min(1, Number(value.matchScore)))
+      ? Number(value.matchScore)
       : null,
     flags: Array.isArray(value?.flags)
       ? value.flags.map((flag: unknown) => String(flag).slice(0, 120)).slice(0, 20)
@@ -80,7 +80,7 @@ function compactCompList(values: unknown, limit = 20) {
 function isExcludedEvidence(comp: ReturnType<typeof compactComp>) {
   return Boolean(
     comp?.flags.some((flag: string) =>
-      /excluded|guidance comp|not used for pricing/i.test(flag),
+      /excluded|guidance comp|not used for pricing|parallel mismatch|not exact parallel/i.test(flag),
     ),
   );
 }
@@ -263,13 +263,19 @@ export async function POST(request: NextRequest) {
     const soldCompEvidence = compactCompList(scan?.soldComps, 20).filter(
       (comp) => comp.sourceCategory === "sold" && !isExcludedEvidence(comp),
     );
-    const activeCompetition = compactCompList(
+    const competitionCandidates = compactCompList(
       Array.isArray(scan?.remainingCards) ? scan.remainingCards : scan?.activeComps,
       20,
     ).filter(
       (comp) =>
         (comp.sourceCategory === "marketplace" || comp.sourceCategory === "auction") &&
         !isOwnStoreCompetition(comp),
+    );
+    const activeCompetition = competitionCandidates.filter(
+      (comp) => !isExcludedEvidence(comp),
+    );
+    const rejectedCandidates = competitionCandidates.filter((comp) =>
+      isExcludedEvidence(comp),
     );
 
     const reliableSoldCompCount = soldCompEvidence.length;
@@ -333,6 +339,7 @@ export async function POST(request: NextRequest) {
         providerCoverage,
         soldCompEvidence,
         activeCompetition,
+        rejectedCandidates,
         sourceLinks,
         searchQuery: scan.searchQuery || null,
         scannedAt: pricingCheckedAt,
@@ -361,6 +368,7 @@ export async function POST(request: NextRequest) {
       reliableSoldCompCount: hasReliableSoldComps ? reliableSoldCompCount : 0,
       soldCompEvidence,
       activeCompetition,
+      rejectedCandidates,
       sourceLinks,
       providerCoverage,
       providerProblems: failedProviders,
