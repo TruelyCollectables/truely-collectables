@@ -3,6 +3,7 @@ name: Integrity and Release Validation
 on:
   pull_request:
     paths:
+      - "package.json"
       - "src/lib/active-market-*.ts"
       - "src/app/api/**/route.ts"
       - "src/proxy.ts"
@@ -53,6 +54,7 @@ on:
       - "scripts/run-live-payment-status-color-simulations.ts"
       - "scripts/run-live-money-bootstrap-fail-closed-simulations.mjs"
       - "scripts/run-launch-readiness-service-role-blocker-simulations.mjs"
+      - "scripts/run-production-deploy-environment-gate-simulations.mjs"
       - "scripts/run-ebay-import-admin-client-simulations.ts"
       - "scripts/run-checkout-webhook-idempotency-simulations.ts"
       - "scripts/run-offer-checkout-idempotency-simulations.ts"
@@ -73,6 +75,7 @@ on:
     branches:
       - main
     paths:
+      - "package.json"
       - "src/lib/active-market-*.ts"
       - "src/app/api/**/route.ts"
       - "src/proxy.ts"
@@ -123,6 +126,7 @@ on:
       - "scripts/run-live-payment-status-color-simulations.ts"
       - "scripts/run-live-money-bootstrap-fail-closed-simulations.mjs"
       - "scripts/run-launch-readiness-service-role-blocker-simulations.mjs"
+      - "scripts/run-production-deploy-environment-gate-simulations.mjs"
       - "scripts/run-ebay-import-admin-client-simulations.ts"
       - "scripts/run-checkout-webhook-idempotency-simulations.ts"
       - "scripts/run-offer-checkout-idempotency-simulations.ts"
@@ -210,6 +214,9 @@ jobs:
 
       - name: Validate Vercel production environment audit
         run: node scripts/audit-vercel-production-environment.mjs --self-test
+
+      - name: Validate production deploy environment gate
+        run: node scripts/run-production-deploy-environment-gate-simulations.mjs
 
       - name: Audit launch database migration coverage
         id: migration_coverage_audit
