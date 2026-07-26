@@ -6,16 +6,16 @@ import {
   instaCompImageExtension,
   requireInstaCompJobActor,
   requireInstaCompJobSupabase,
-} from "../../../../../lib/instacomp-job-server";
+} from "../../../../lib/instacomp-job-server";
 import {
   parsePhysicalSerial,
   verifyGraderCertification,
-} from "../../../../../lib/collectible-assets";
+} from "../../../../lib/collectible-assets";
 import {
   InventoryEngine,
   InventoryRepository,
-} from "../../../../../modules/inventory";
-import type { AuthenticityProfile } from "../../../../../lib/authenticity";
+} from "../../../../modules/inventory";
+import type { AuthenticityProfile } from "../../../../lib/authenticity";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";

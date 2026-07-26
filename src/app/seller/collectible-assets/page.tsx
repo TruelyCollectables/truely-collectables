@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { getFreshAccountSession } from "../account/account-session";
+import { getFreshAccountSession } from "../../account/account-session";
 
 type Asset = {
   assetId: string;
