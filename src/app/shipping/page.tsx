@@ -1,10 +1,17 @@
 import type { Metadata } from "next";
 import PolicyShell from "../components/PolicyShell";
 import {
+  FREE_PRIORITY_MAIL_THRESHOLD,
+  GROUND_ADVANTAGE_TEN_OUNCE_MAX_CARDS,
+  GROUND_ADVANTAGE_TEN_OUNCE_MIN_CARDS,
+  GROUND_ADVANTAGE_TEN_OUNCE_PRICE,
+  PRIORITY_MAIL_BUYER_PRICE,
+  PRIORITY_MAIL_MIN_CARDS,
   SHIPPING_RULES,
+  STANDARD_ENVELOPE_BUYER_PRICE,
+  STANDARD_ENVELOPE_MAX_CARDS,
   STANDARD_ENVELOPE_MAX_ESTIMATED_OUNCES,
   STANDARD_ENVELOPE_MAX_SUBTOTAL,
-  standardEnvelopeRateForEstimatedOunces,
 } from "../../lib/shipping";
 import {
   STORE_BRAND_NAME,
@@ -21,11 +28,6 @@ export const metadata: Metadata = {
 };
 
 export default function ShippingPage() {
-  const envelopeRates = Array.from(
-    { length: STANDARD_ENVELOPE_MAX_ESTIMATED_OUNCES },
-    (_, index) => standardEnvelopeRateForEstimatedOunces({ estimatedOunces: index + 1 }),
-  );
-
   return (
     <PolicyShell eyebrow={STORE_LEGAL_NAME} title="Shipping Policy">
       <section>
@@ -38,23 +40,28 @@ export default function ShippingPage() {
       </section>
 
       <section>
-        <h2 className="text-2xl font-black">Available methods and rates</h2>
+        <h2 className="text-2xl font-black">Shipping choices and minimum tiers</h2>
+        <p className="mt-2">
+          Checkout automatically selects the lowest eligible method. Buyers may
+          upgrade to any premium method shown in the shipping dropdown. A buyer
+          cannot select a method below the order&apos;s required minimum.
+        </p>
         <div className="mt-4 space-y-4">
           <div className="border-2 border-neutral-950 bg-white p-5">
             <h3 className="text-xl font-black">
               {SHIPPING_RULES.STANDARD_ENVELOPE.name}
             </h3>
-            <p className="mt-2">
-              Available for eligible raw-card orders up to $
-              {STANDARD_ENVELOPE_MAX_SUBTOTAL.toFixed(2)} and up to{" "}
-              {STANDARD_ENVELOPE_MAX_ESTIMATED_OUNCES} estimated ounces.
-            </p>
             <p className="mt-2 font-bold">
-              Current ounce rates: {envelopeRates.map((rate) => `$${rate.toFixed(2)}`).join(" · ")}
+              ${STANDARD_ENVELOPE_BUYER_PRICE.toFixed(2)} for up to{" "}
+              {STANDARD_ENVELOPE_MAX_CARDS} qualifying raw cards with a combined
+              original listing-price total of ${STANDARD_ENVELOPE_MAX_SUBTOTAL.toFixed(2)}
+              or less and a maximum estimated weight of{" "}
+              {STANDARD_ENVELOPE_MAX_ESTIMATED_OUNCES} ounces.
             </p>
             <p className="mt-2 text-sm text-neutral-600">
-              USPS Intelligent Mail barcode visibility is used when available.
-              Scan history may be more limited than parcel tracking.
+              LetterTrack / USPS Intelligent Mail barcode scan visibility is used
+              when available. This is limited letter visibility, not guaranteed
+              package tracking, insurance, or proof of delivery.
             </p>
           </div>
 
@@ -63,14 +70,15 @@ export default function ShippingPage() {
               {SHIPPING_RULES.GROUND_ADVANTAGE.name}
             </h3>
             <p className="mt-2">
-              ${SHIPPING_RULES.GROUND_ADVANTAGE.basePrice.toFixed(2)} for the first{" "}
-              {SHIPPING_RULES.GROUND_ADVANTAGE.cardsIncluded} cards, plus $
-              {SHIPPING_RULES.GROUND_ADVANTAGE.additionalCardPrice.toFixed(2)} for
-              each additional card.
+              $6.99 for 1–5 cards. Cards 6–12 add $0.25 each after the fifth card.
             </p>
             <p className="mt-2 font-bold">
-              Free at ${SHIPPING_RULES.GROUND_ADVANTAGE.freeShippingThreshold.toFixed(2)}
-              or more. Estimated carrier transit: {SHIPPING_RULES.GROUND_ADVANTAGE.deliveryEstimate}.
+              {GROUND_ADVANTAGE_TEN_OUNCE_MIN_CARDS}–
+              {GROUND_ADVANTAGE_TEN_OUNCE_MAX_CARDS} cards use the 10-ounce Ground
+              Advantage tier at ${GROUND_ADVANTAGE_TEN_OUNCE_PRICE.toFixed(2)}.
+            </p>
+            <p className="mt-2 text-sm text-neutral-600">
+              Estimated carrier transit: {SHIPPING_RULES.GROUND_ADVANTAGE.deliveryEstimate}.
             </p>
           </div>
 
@@ -79,26 +87,50 @@ export default function ShippingPage() {
               {SHIPPING_RULES.PRIORITY_MAIL.name}
             </h3>
             <p className="mt-2">
-              ${SHIPPING_RULES.PRIORITY_MAIL.basePrice.toFixed(2)} for the first{" "}
-              {SHIPPING_RULES.PRIORITY_MAIL.cardsIncluded} cards, plus $
-              {SHIPPING_RULES.PRIORITY_MAIL.additionalCardPrice.toFixed(2)} for each
-              additional card.
+              ${PRIORITY_MAIL_BUYER_PRICE.toFixed(2)} for orders containing{" "}
+              {PRIORITY_MAIL_MIN_CARDS} or more cards, or whenever the buyer chooses
+              Priority Mail as a premium upgrade.
             </p>
             <p className="mt-2 font-bold">
-              Free at ${SHIPPING_RULES.PRIORITY_MAIL.freeShippingThreshold.toFixed(2)}
-              or more. Estimated carrier transit: {SHIPPING_RULES.PRIORITY_MAIL.deliveryEstimate}.
+              Orders over ${FREE_PRIORITY_MAIL_THRESHOLD.toFixed(2)} ship by Priority
+              Mail free.
+            </p>
+            <p className="mt-2 text-sm text-neutral-600">
+              Estimated carrier transit: {SHIPPING_RULES.PRIORITY_MAIL.deliveryEstimate}.
             </p>
           </div>
         </div>
       </section>
 
       <section>
+        <h2 className="text-2xl font-black">Accepted offers</h2>
+        <p className="mt-2">
+          The original listing price controls the minimum shipping tier. An accepted
+          offer does not unlock cheaper shipping. For example, a card listed at $24
+          and sold through an $18 offer still requires Ground Advantage or Priority
+          Mail. A card originally listed at $20 remains eligible for the Tracked Card
+          Letter when all physical limits are met.
+        </p>
+      </section>
+
+      <section>
+        <h2 className="text-2xl font-black">Physical card-letter limits</h2>
+        <p className="mt-2">
+          The Tracked Card Letter is for raw cards only. The sealed mailpiece must
+          remain within the stated card-count, weight, thickness, size, flexibility,
+          and machinability limits. Graded slabs, magnetic holders, thick memorabilia
+          cards, oversized cards, or any mailpiece that fails the letter requirements
+          must use Ground Advantage or Priority Mail.
+        </p>
+      </section>
+
+      <section>
         <h2 className="text-2xl font-black">Processing and delivery</h2>
         <p className="mt-2">
           Delivery estimates describe normal carrier transit after a shipment is
-          accepted by the carrier. They are not guaranteed delivery dates and do
-          not include order review, packing, weekends, holidays, weather events,
-          address corrections, or carrier delays.
+          accepted by the carrier. They are not guaranteed delivery dates and do not
+          include order review, packing, weekends, holidays, weather events, address
+          corrections, or carrier delays.
         </p>
       </section>
 
@@ -110,16 +142,6 @@ export default function ShippingPage() {
           item is missing, or the shipment appears to have been delivered to the
           wrong location. Keep the packaging and take clear photos when damage is
           involved.
-        </p>
-      </section>
-
-      <section>
-        <h2 className="text-2xl font-black">Returned or undeliverable packages</h2>
-        <p className="mt-2">
-          Orders returned because of an incomplete, incorrect, refused, or
-          undeliverable address may require an additional shipping payment before
-          reshipment. Any refund will be evaluated after the returned package is
-          received and inspected.
         </p>
       </section>
 
