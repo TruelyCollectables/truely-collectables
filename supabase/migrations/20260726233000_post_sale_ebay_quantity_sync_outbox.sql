@@ -73,7 +73,7 @@ begin
     return new;
   end if;
 
-  insert into public.ebay_quantity_sync_outbox (
+  insert into public.ebay_quantity_sync_outbox as existing (
     store_id,
     source_type,
     source_id,
@@ -105,11 +105,11 @@ begin
     order_id = excluded.order_id,
     sku = excluded.sku,
     ebay_item_id = excluded.ebay_item_id,
-    desired_quantity = least(public.ebay_quantity_sync_outbox.desired_quantity, excluded.desired_quantity),
+    desired_quantity = least(existing.desired_quantity, excluded.desired_quantity),
     status = case
-      when public.ebay_quantity_sync_outbox.status = 'synced'
-       and public.ebay_quantity_sync_outbox.desired_quantity <= excluded.desired_quantity
-      then public.ebay_quantity_sync_outbox.status
+      when existing.status = 'synced'
+       and existing.desired_quantity <= excluded.desired_quantity
+      then existing.status
       else 'pending'
     end,
     next_attempt_at = now(),
@@ -140,7 +140,7 @@ begin
     return new;
   end if;
 
-  insert into public.ebay_quantity_sync_outbox (
+  insert into public.ebay_quantity_sync_outbox as existing (
     store_id,
     source_type,
     source_id,
@@ -171,11 +171,11 @@ begin
   do update set
     sku = excluded.sku,
     ebay_item_id = excluded.ebay_item_id,
-    desired_quantity = least(public.ebay_quantity_sync_outbox.desired_quantity, excluded.desired_quantity),
+    desired_quantity = least(existing.desired_quantity, excluded.desired_quantity),
     status = case
-      when public.ebay_quantity_sync_outbox.status = 'synced'
-       and public.ebay_quantity_sync_outbox.desired_quantity <= excluded.desired_quantity
-      then public.ebay_quantity_sync_outbox.status
+      when existing.status = 'synced'
+       and existing.desired_quantity <= excluded.desired_quantity
+      then existing.status
       else 'pending'
     end,
     next_attempt_at = now(),
@@ -207,23 +207,36 @@ security definer
 set search_path = pg_catalog, public, pg_temp
 as $$
 declare
+  v_pending_quantity integer;
+  v_inventory_quantity integer;
   v_safe_quantity integer;
 begin
-  select least(
-    coalesce(min(outbox.desired_quantity), new.quantity),
-    coalesce(inventory.quantity, new.quantity)
-  )
-  into v_safe_quantity
+  select min(outbox.desired_quantity)
+  into v_pending_quantity
   from public.ebay_quantity_sync_outbox outbox
-  left join public.inventory_items inventory
-    on inventory.store_id = new.store_id
-   and inventory.legacy_product_id = new.id
   where outbox.store_id = new.store_id
     and outbox.legacy_product_id = new.id
-    and outbox.status = 'pending'
-  group by inventory.quantity;
+    and outbox.status = 'pending';
 
-  if v_safe_quantity is not null and new.quantity > v_safe_quantity then
+  if v_pending_quantity is null then
+    return new;
+  end if;
+
+  select inventory.quantity
+  into v_inventory_quantity
+  from public.inventory_items inventory
+  where inventory.store_id = new.store_id
+    and inventory.legacy_product_id = new.id
+  order by inventory.updated_at desc nulls last, inventory.id desc
+  limit 1;
+
+  v_safe_quantity := least(
+    v_pending_quantity,
+    coalesce(v_inventory_quantity, old.quantity, new.quantity),
+    coalesce(old.quantity, new.quantity)
+  );
+
+  if new.quantity > v_safe_quantity then
     new.quantity := greatest(v_safe_quantity, 0);
   end if;
 
@@ -238,19 +251,27 @@ security definer
 set search_path = pg_catalog, public, pg_temp
 as $$
 declare
+  v_pending_quantity integer;
   v_safe_quantity integer;
 begin
-  select least(
-    coalesce(min(outbox.desired_quantity), new.quantity),
-    coalesce(old.quantity, new.quantity)
-  )
-  into v_safe_quantity
+  select min(outbox.desired_quantity)
+  into v_pending_quantity
   from public.ebay_quantity_sync_outbox outbox
   where outbox.store_id = new.store_id
     and outbox.legacy_product_id = new.legacy_product_id
     and outbox.status = 'pending';
 
-  if v_safe_quantity is not null and new.quantity > v_safe_quantity then
+  if v_pending_quantity is null then
+    return new;
+  end if;
+
+  v_safe_quantity := least(
+    v_pending_quantity,
+    coalesce(old.quantity, new.quantity),
+    new.quantity
+  );
+
+  if new.quantity > v_safe_quantity then
     new.quantity := greatest(v_safe_quantity, 0);
     new.status := case when new.quantity > 0 then 'active' else 'sold' end;
   end if;
