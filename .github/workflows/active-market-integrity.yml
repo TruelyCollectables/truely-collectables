@@ -108,7 +108,7 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
       NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
       STRIPE_SECRET_KEY: sk_test_build_only_placeholder
-      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only-placeholder
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
       STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
       ADMIN_PASSWORD: build-only-placeholder-password
       ADMIN_SESSION_SECRET: build-only-placeholder-session-secret
