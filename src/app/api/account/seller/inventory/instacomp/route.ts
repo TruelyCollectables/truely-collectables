@@ -4,6 +4,7 @@ import {
   getAuthenticatedAccountFromRequest,
 } from "../../../../../../lib/account-auth";
 import { normalizeListingImageUrls } from "../../../../../../lib/listing-image-utils";
+import { verifyInstaCompCompetitionImages } from "../../../../../../lib/instacomp-comp-visual-verification";
 import { getActiveStoreId } from "../../../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../../../lib/supabase-server";
 import { POST as runInstaCompScan } from "../../../../instacomp/scan/route";
@@ -268,15 +269,22 @@ export async function POST(request: NextRequest) {
       20,
     ).filter(
       (comp) =>
-        (comp.sourceCategory === "marketplace" || comp.sourceCategory === "auction") &&
+        (comp.sourceCategory === "marketplace" ||
+          comp.sourceCategory === "auction" ||
+          comp.source === "ebay_active") &&
         !isOwnStoreCompetition(comp),
     );
-    const activeCompetition = competitionCandidates.filter(
-      (comp) => !isExcludedEvidence(comp),
+    const visualCompetitionReview = await verifyInstaCompCompetitionImages({
+      targetFrontImage: files[0],
+      targetAi: scan.ai,
+      candidates: competitionCandidates,
+    });
+    const activeCompetition = visualCompetitionReview.accepted.filter(
+      (comp) =>
+        (comp.sourceCategory === "marketplace" || comp.sourceCategory === "auction") &&
+        !isExcludedEvidence(comp),
     );
-    const rejectedCandidates = competitionCandidates.filter((comp) =>
-      isExcludedEvidence(comp),
-    );
+    const rejectedCandidates = visualCompetitionReview.rejected;
 
     const reliableSoldCompCount = soldCompEvidence.length;
     const priceCandidate = roundedPrice(
@@ -340,6 +348,12 @@ export async function POST(request: NextRequest) {
         soldCompEvidence,
         activeCompetition,
         rejectedCandidates,
+        visualCompetitionReview: {
+          reviewedCount: visualCompetitionReview.reviewedCount,
+          titleOverrides: visualCompetitionReview.titleOverrides,
+          configured: visualCompetitionReview.configured,
+          model: visualCompetitionReview.model,
+        },
         sourceLinks,
         searchQuery: scan.searchQuery || null,
         scannedAt: pricingCheckedAt,
@@ -369,6 +383,12 @@ export async function POST(request: NextRequest) {
       soldCompEvidence,
       activeCompetition,
       rejectedCandidates,
+      visualCompetitionReview: {
+        reviewedCount: visualCompetitionReview.reviewedCount,
+        titleOverrides: visualCompetitionReview.titleOverrides,
+        configured: visualCompetitionReview.configured,
+        model: visualCompetitionReview.model,
+      },
       sourceLinks,
       providerCoverage,
       providerProblems: failedProviders,
