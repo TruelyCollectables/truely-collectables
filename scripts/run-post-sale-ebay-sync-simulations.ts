@@ -56,6 +56,15 @@ const cronRoute = readFileSync(
   "src/app/api/cron/ebay-store-fixed-price-sync/route.ts",
   "utf8",
 );
+const checkoutButton = readFileSync(
+  "src/app/components/CheckoutButton.tsx",
+  "utf8",
+);
+const clearCartOnSuccess = readFileSync(
+  "src/components/ClearCartOnSuccess.tsx",
+  "utf8",
+);
+const checkoutRoute = readFileSync("src/app/api/checkout/route.ts", "utf8");
 
 for (const required of [
   "create table if not exists public.ebay_quantity_sync_outbox",
@@ -86,4 +95,29 @@ assert.ok(
   "the existing scheduled run must retry failed customer notifications",
 );
 
-console.log("Post-sale eBay quantity and notification safety simulations passed.");
+const redirectBlockStart = checkoutButton.indexOf("if (data.url) {");
+const redirectBlockEnd = checkoutButton.indexOf(
+  "if (data.retryable !== true)",
+  redirectBlockStart,
+);
+assert.ok(redirectBlockStart >= 0 && redirectBlockEnd > redirectBlockStart);
+const redirectBlock = checkoutButton.slice(redirectBlockStart, redirectBlockEnd);
+assert.ok(
+  !redirectBlock.includes("clearCheckoutAttempt()"),
+  "the browser must retain the attempt while the Stripe Session remains open",
+);
+assert.ok(
+  checkoutRoute.includes('claim.requestStatus === "session_created"') &&
+    checkoutRoute.includes("replayed: true"),
+  "the server must replay an existing open Stripe Session",
+);
+assert.ok(
+  clearCartOnSuccess.includes(
+    "sessionStorage.removeItem(CHECKOUT_ATTEMPT_STORAGE_KEY)",
+  ),
+  "the attempt must clear only after the success page verifies payment",
+);
+
+console.log(
+  "Post-sale eBay quantity, customer notification, and checkout replay safety simulations passed.",
+);
