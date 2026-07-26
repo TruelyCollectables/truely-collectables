@@ -10,7 +10,6 @@ on:
 
 permissions:
   contents: write
-  id-token: write
 
 jobs:
   probe:
@@ -26,16 +25,11 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Pull production environment
-        shell: bash
-        run: |
-          npx vercel link --yes --project truely-collectables --scope truelycollectables-projects
-          npx vercel pull --yes --environment=production
       - name: Probe completed listings
         shell: bash
         run: |
           set +e
-          node --env-file=.env.production.local --import tsx scripts/probe-ebay-completed-market.ts > docs/instacomp-ebay-completed-probe.log 2>&1
+          node --import tsx scripts/probe-ebay-completed-market.ts > docs/instacomp-ebay-completed-probe.log 2>&1
           STATUS=$?
           echo "probe_status=$STATUS" >> docs/instacomp-ebay-completed-probe.log
           exit 0
