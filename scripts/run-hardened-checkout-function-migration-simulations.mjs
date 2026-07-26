@@ -115,4 +115,4 @@ const decrement = functionDefinition("tcos_decrement_order_inventory_once");
 assert.ok(decrement.includes("from public.orders order_row"), "Order-based decrement must verify the store-scoped order exists.");
 assert.ok(decrement.includes("pg_advisory_xact_lock"), "Order decrement must share the store/product lock.");
 
-console.log("Hardened checkout function migration simulations passed: 43/43");
+console.log("Hardened checkout function migration simulations passed.");
