@@ -145,6 +145,30 @@ function isImageUrl(value: string | null) {
   return Boolean(value && /^https?:\/\//i.test(value));
 }
 
+async function scanPendingItem(item: PendingItem, accessToken: string) {
+  const response = await fetch("/api/account/seller/inventory/instacomp", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({
+      inventoryItemId: item.inventoryItemId,
+      aiCouncilTier: "adaptive",
+    }),
+  });
+  const data = await response.json();
+  if (!response.ok || data.success !== true) {
+    throw new Error(data.error || "InstaComp pricing failed.");
+  }
+  return data as {
+    suggestedPrice: number;
+    pricingStatus: PricingStatus;
+    pricingReason: string;
+    reliableSoldCompCount: number;
+  };
+}
+
 export default function InstaCompPendingPage() {
   const [items, setItems] = useState<PendingItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -267,30 +291,6 @@ export default function InstaCompPendingPage() {
     [sortedItems],
   );
 
-  async function scanItem(item: PendingItem, accessToken: string) {
-    const response = await fetch("/api/account/seller/inventory/instacomp", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({
-        inventoryItemId: item.inventoryItemId,
-        aiCouncilTier: "adaptive",
-      }),
-    });
-    const data = await response.json();
-    if (!response.ok || data.success !== true) {
-      throw new Error(data.error || "InstaComp pricing failed.");
-    }
-    return data as {
-      suggestedPrice: number;
-      pricingStatus: PricingStatus;
-      pricingReason: string;
-      reliableSoldCompCount: number;
-    };
-  }
-
   async function runPricingBatch(targets: PendingItem[], mode: string) {
     if (!targets.length) {
       setError("Select one or more cards first.");
@@ -311,7 +311,7 @@ export default function InstaCompPendingPage() {
       for (const [index, item] of targets.entries()) {
         setPricingItemId(item.inventoryItemId);
         try {
-          const result = await scanItem(item, session.access_token);
+          const result = await scanPendingItem(item, session.access_token);
           if (result.suggestedPrice > 0) reliable += 1;
         } catch {
           failures += 1;
@@ -353,7 +353,7 @@ export default function InstaCompPendingPage() {
           setPricingItemId(item.inventoryItemId);
           setBatchProgress({ current: index + 1, total: targets.length });
           try {
-            await scanItem(item, session.access_token);
+            await scanPendingItem(item, session.access_token);
           } catch {
             failures += 1;
           }
@@ -379,7 +379,7 @@ export default function InstaCompPendingPage() {
     try {
       const session = await getFreshAccountSession(5 * 60, false);
       if (!session?.access_token) throw new Error("Log in to run InstaComp pricing.");
-      const result = await scanItem(item, session.access_token);
+      const result = await scanPendingItem(item, session.access_token);
       setNotice(
         result.suggestedPrice > 0
           ? `${item.title}: InstaComp suggests ${money(result.suggestedPrice)} from ${result.reliableSoldCompCount} reliable sold comp${result.reliableSoldCompCount === 1 ? "" : "s"}.`
