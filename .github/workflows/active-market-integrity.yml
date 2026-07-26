@@ -139,7 +139,18 @@ jobs:
           cache: npm
 
       - name: Audit launch database migration coverage
+        id: migration_coverage_audit
+        continue-on-error: true
         run: node scripts/run-launch-database-migration-coverage.mjs
+
+      - name: Upload launch database migration coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: launch-database-migration-coverage
+          path: launch-database-migration-coverage.json
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Audit privileged API route protection
         id: privileged_api_audit
@@ -154,6 +165,10 @@ jobs:
           path: privileged-api-route-audit.json
           if-no-files-found: error
           retention-days: 7
+
+      - name: Enforce launch database migration coverage
+        if: steps.migration_coverage_audit.outcome == 'failure'
+        run: exit 1
 
       - name: Enforce privileged API route audit
         if: steps.privileged_api_audit.outcome == 'failure'
