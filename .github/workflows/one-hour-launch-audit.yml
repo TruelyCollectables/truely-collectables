@@ -23,6 +23,7 @@ jobs:
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      TCOS_CRON_SECRET: ${{ secrets.TCOS_CRON_SECRET }}
       VERCEL_SCOPE: truelycollectables-projects
       VERCEL_PROJECT_NAME: truely-collectables
     steps:
@@ -95,6 +96,36 @@ jobs:
         shell: bash
         run: node scripts/audit-live-money-database-preflight.mjs
 
+      - name: Verify protected Production Stripe reconciliation
+        id: stripe_cron
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${TCOS_CRON_SECRET:-}" || { echo "TCOS_CRON_SECRET is missing"; exit 1; }
+          status=$(curl --silent --show-error --output "$RUNNER_TEMP/stripe-reconciliation.json" --write-out "%{http_code}" \
+            --header "Authorization: Bearer ${TCOS_CRON_SECRET}" \
+            "https://truelycollectables.com/api/cron/stripe-reconciliation")
+          node - "$status" "$RUNNER_TEMP/stripe-reconciliation.json" <<'NODE'
+          const fs = require('fs');
+          const status = Number(process.argv[2]);
+          const raw = fs.readFileSync(process.argv[3], 'utf8');
+          let body = null;
+          try { body = JSON.parse(raw); } catch {}
+          const safe = {
+            checkedAt: new Date().toISOString(),
+            httpStatus: status,
+            success: body?.success === true,
+            error: typeof body?.error === 'string' ? body.error : null,
+            runIdPresent: Boolean(body?.runId || body?.run_id),
+            itemCount: Number(body?.itemCount ?? body?.item_count ?? body?.items?.length ?? 0),
+            discrepancyCount: Number(body?.discrepancyCount ?? body?.discrepancy_count ?? 0),
+            secretValuesIncluded: false
+          };
+          fs.writeFileSync('production-stripe-cron-verification.json', JSON.stringify(safe, null, 2) + '\n');
+          if (status !== 200 || body?.success !== true) process.exit(1);
+NODE
+
       - name: Upload redacted launch audit
         if: always()
         uses: actions/upload-artifact@v4
@@ -106,6 +137,7 @@ jobs:
             supabase-management-launch-audit.json
             unapplied-storefront-migrations.json
             live-money-database-preflight.json
+            production-stripe-cron-verification.json
           if-no-files-found: error
           retention-days: 2
 
@@ -114,4 +146,4 @@ jobs:
         shell: bash
         run: |
           rm -rf .vercel
-          rm -f .env.storefront.production vercel-production-env-names.txt vercel-quota-status.json one-hour-launch-audit.json public-supabase-schema-audit.json supabase-management-launch-audit.json unapplied-storefront-migrations.json live-money-database-preflight.json
+          rm -f .env.storefront.production vercel-production-env-names.txt vercel-quota-status.json one-hour-launch-audit.json public-supabase-schema-audit.json supabase-management-launch-audit.json unapplied-storefront-migrations.json live-money-database-preflight.json production-stripe-cron-verification.json
