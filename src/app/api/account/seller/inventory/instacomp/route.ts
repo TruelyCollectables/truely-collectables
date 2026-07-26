@@ -36,6 +36,13 @@ function imageExtension(type: string) {
   return "jpg";
 }
 
+function roundedPrice(value: unknown) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0
+    ? Math.round(parsed * 100) / 100
+    : 0;
+}
+
 async function downloadImage(url: string, index: number) {
   const response = await fetch(url, {
     signal: AbortSignal.timeout(25_000),
@@ -173,7 +180,10 @@ export async function POST(request: NextRequest) {
       scan = JSON.parse(scanText);
     } catch {
       return NextResponse.json(
-        { error: "InstaComp returned an unreadable response.", details: scanText.slice(0, 1000) },
+        {
+          error: "InstaComp returned an unreadable response.",
+          details: scanText.slice(0, 1000),
+        },
         { status: 502 },
       );
     }
@@ -187,9 +197,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const existingInstaComp = recordValue(metadata.instacomp);
-    const suggestedPrice =
-      Number(scan?.stats?.suggestedPrice || scan?.stats?.median || 0) || null;
     const providerCoverage = Array.isArray(scan?.providers)
       ? scan.providers.map((provider: any) => ({
           source: provider?.source || null,
@@ -199,6 +206,38 @@ export async function POST(request: NextRequest) {
           message: provider?.message || null,
         }))
       : [];
+    const failedProviders = providerCoverage.filter(
+      (provider: any) =>
+        provider.status === "error" || provider.status === "not_configured",
+    );
+    const exactCompCount = Array.isArray(scan.marketValueComps)
+      ? scan.marketValueComps.length
+      : 0;
+    const priceCandidate = roundedPrice(
+      scan?.stats?.suggestedPrice || scan?.stats?.median || 0,
+    );
+    const trustedForPricing = scan?.review?.trustedForPricing === true;
+    const hasReliableSoldComps =
+      trustedForPricing && exactCompCount > 0 && priceCandidate > 0;
+    const suggestedPrice = hasReliableSoldComps ? priceCandidate : 0;
+    const pricingStatus = hasReliableSoldComps
+      ? "suggested_from_reliable_sold_comps"
+      : "seller_price_required";
+    const providerFailureSummary = failedProviders
+      .slice(0, 3)
+      .map(
+        (provider: any) =>
+          provider.message || `${provider.label || provider.source || "Provider"} unavailable`,
+      )
+      .join("; ");
+    const pricingReason = hasReliableSoldComps
+      ? `${exactCompCount} reliable exact sold comp${exactCompCount === 1 ? "" : "s"} passed identity and pricing trust checks.`
+      : providerFailureSummary
+        ? `No reliable sold-comp price was available. ${providerFailureSummary} Seller sets the price.`
+        : "No reliable sold comps passed the exact-card identity and pricing trust checks. Seller sets the price.";
+    const pricingCheckedAt = new Date().toISOString();
+
+    const existingInstaComp = recordValue(metadata.instacomp);
     const nextMetadata = {
       ...metadata,
       instacomp: {
@@ -212,28 +251,27 @@ export async function POST(request: NextRequest) {
           scan?.review?.trustedForPricing === true,
         hasBackImage: files.length >= 2,
         marketPrice: suggestedPrice,
-        listingPrice: existingInstaComp.listingPrice || null,
-        listingPriceSource: existingInstaComp.listingPriceSource || null,
+        suggestedPrice,
+        pricingStatus,
+        pricingReason,
+        reliableSoldCompCount: hasReliableSoldComps ? exactCompCount : 0,
+        pricingCheckedAt,
+        trustedForPricing: hasReliableSoldComps,
+        listingPrice: existingInstaComp.listingPrice ?? null,
+        listingPriceSource: existingInstaComp.listingPriceSource ?? null,
         ai: scan.ai,
         review: scan.review || null,
         providerCoverage,
         searchQuery: scan.searchQuery || null,
-        scannedAt: new Date().toISOString(),
+        scannedAt: pricingCheckedAt,
       },
     };
     const { error: updateError } = await supabase
       .from("inventory_items")
-      .update({ metadata: nextMetadata, updated_at: new Date().toISOString() })
+      .update({ metadata: nextMetadata, updated_at: pricingCheckedAt })
       .eq("id", item.id)
       .eq("store_id", storeId);
     if (updateError) throw updateError;
-
-    const exactCompCount = Array.isArray(scan.marketValueComps)
-      ? scan.marketValueComps.length
-      : 0;
-    const failedProviders = providerCoverage.filter(
-      (provider: any) => provider.status === "error" || provider.status === "not_configured",
-    );
 
     return NextResponse.json({
       success: true,
@@ -244,7 +282,11 @@ export async function POST(request: NextRequest) {
       ai: scan.ai,
       review: scan.review || null,
       suggestedPrice,
+      pricingStatus,
+      pricingReason,
+      trustedForPricing: hasReliableSoldComps,
       exactCompCount,
+      reliableSoldCompCount: hasReliableSoldComps ? exactCompCount : 0,
       providerCoverage,
       providerProblems: failedProviders,
       imageCountUsed: files.length,
