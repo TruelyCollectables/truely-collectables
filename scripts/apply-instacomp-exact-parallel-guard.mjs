@@ -153,8 +153,8 @@ sellerScan = replaceOnce(
 
 sellerScan = replaceOnce(
   sellerScan,
-  "        soldCompEvidence,\n        activeCompetition,\n        providerCoverage,",
-  "        soldCompEvidence,\n        activeCompetition,\n        rejectedCandidates,\n        providerCoverage,",
+  "        providerCoverage,\n        soldCompEvidence,\n        activeCompetition,\n        sourceLinks,",
+  "        providerCoverage,\n        soldCompEvidence,\n        activeCompetition,\n        rejectedCandidates,\n        sourceLinks,",
   "rejected candidate persistence",
 );
 
@@ -325,5 +325,6 @@ write(workflowPath, workflow);
 
 fs.rmSync("scripts/apply-instacomp-exact-parallel-guard.mjs");
 fs.rmSync(".github/workflows/apply-instacomp-exact-parallel-guard.yml");
+fs.rmSync("docs/instacomp-exact-parallel-guard-trigger.md");
 
 console.log("Applied InstaComp exact-parallel guard and removed one-shot patch machinery.");
