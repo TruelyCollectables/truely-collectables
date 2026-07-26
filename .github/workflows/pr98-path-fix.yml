@@ -1,0 +1,38 @@
+name: PR 98 One-Time Import Path Fix
+
+on:
+  push:
+    branches:
+      - agent/verified-pending-assets-20260725
+    paths:
+      - ".github/workflows/pr98-path-fix.yml"
+
+permissions:
+  contents: write
+
+jobs:
+  fix-paths:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/verified-pending-assets-20260725
+      - name: Correct relative import paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          sed -i 's#../../../../../lib/instacomp-job-server#../../../../lib/instacomp-job-server#' src/app/api/admin/verified-reference-import/route.ts
+          sed -i 's#../../../../../lib/collectible-assets#../../../../lib/collectible-assets#' src/app/api/admin/verified-reference-import/route.ts
+          sed -i 's#../../../../../modules/inventory#../../../../modules/inventory#' src/app/api/admin/verified-reference-import/route.ts
+          sed -i 's#../../../../../lib/authenticity#../../../../lib/authenticity#' src/app/api/admin/verified-reference-import/route.ts
+          sed -i 's#"../account/account-session"#"../../account/account-session"#' src/app/seller/collectible-assets/page.tsx
+          git diff --check
+      - name: Commit corrected paths
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "Truely Collectables CI"
+          git config user.email "sales@truelycollectables.com"
+          git add src/app/api/admin/verified-reference-import/route.ts src/app/seller/collectible-assets/page.tsx
+          git commit -m "Fix verified collectible import paths"
+          git push origin HEAD:agent/verified-pending-assets-20260725
