@@ -14,16 +14,23 @@ on:
       - "src/lib/live-payment-status-presentation.ts"
       - "src/lib/marketplace-token-crypto.ts"
       - "src/lib/post-purchase-status.ts"
+      - "src/lib/buyer-protection*.ts"
+      - "src/lib/offer-checkout-token.ts"
       - "src/lib/legal.ts"
       - "src/app/admin/live-payment-launch/**"
+      - "src/app/admin/buyer-protection/**"
       - "src/app/admin/ebay/import-runner/EbayImportRunner.tsx"
       - "src/app/product/**"
       - "src/app/success/**"
       - "src/app/account/orders/**"
+      - "src/app/account/buyer-protection/**"
+      - "src/app/buyer-protection/**"
+      - "src/app/offer-checkout/**"
       - "src/components/ClearCartOnSuccess.tsx"
       - "src/lib/ebay-front-back-image-sync.ts"
       - "src/lib/listing-image-utils.ts"
       - "src/modules/inventory/admin-engine.ts"
+      - "src/modules/inventory/engine.ts"
       - "src/modules/inventory/index.ts"
       - "src/app/layout.tsx"
       - "src/app/components/Navbar.tsx"
@@ -48,6 +55,7 @@ on:
       - "scripts/run-public-trust-policy-simulations.ts"
       - "scripts/run-mobile-buyer-flow-simulations.ts"
       - "scripts/run-post-purchase-buyer-flow-simulations.ts"
+      - "scripts/run-buyer-protection-simulations.ts"
       - "scripts/run-privileged-api-route-audit.mjs"
       - "scripts/run-launch-database-migration-coverage.mjs"
       - "scripts/run-launch-database-schema-definition-simulations.mjs"
@@ -69,16 +77,23 @@ on:
       - "src/lib/live-payment-status-presentation.ts"
       - "src/lib/marketplace-token-crypto.ts"
       - "src/lib/post-purchase-status.ts"
+      - "src/lib/buyer-protection*.ts"
+      - "src/lib/offer-checkout-token.ts"
       - "src/lib/legal.ts"
       - "src/app/admin/live-payment-launch/**"
+      - "src/app/admin/buyer-protection/**"
       - "src/app/admin/ebay/import-runner/EbayImportRunner.tsx"
       - "src/app/product/**"
       - "src/app/success/**"
       - "src/app/account/orders/**"
+      - "src/app/account/buyer-protection/**"
+      - "src/app/buyer-protection/**"
+      - "src/app/offer-checkout/**"
       - "src/components/ClearCartOnSuccess.tsx"
       - "src/lib/ebay-front-back-image-sync.ts"
       - "src/lib/listing-image-utils.ts"
       - "src/modules/inventory/admin-engine.ts"
+      - "src/modules/inventory/engine.ts"
       - "src/modules/inventory/index.ts"
       - "src/app/layout.tsx"
       - "src/app/components/Navbar.tsx"
@@ -103,6 +118,7 @@ on:
       - "scripts/run-public-trust-policy-simulations.ts"
       - "scripts/run-mobile-buyer-flow-simulations.ts"
       - "scripts/run-post-purchase-buyer-flow-simulations.ts"
+      - "scripts/run-buyer-protection-simulations.ts"
       - "scripts/run-privileged-api-route-audit.mjs"
       - "scripts/run-launch-database-migration-coverage.mjs"
       - "scripts/run-launch-database-schema-definition-simulations.mjs"
@@ -234,6 +250,9 @@ jobs:
 
       - name: Validate public trust policies
         run: node --import tsx scripts/run-public-trust-policy-simulations.ts
+
+      - name: Validate Buyer Protection and storefront images
+        run: node --import tsx scripts/run-buyer-protection-simulations.ts
 
       - name: Validate mobile buyer flow
         run: node --import tsx scripts/run-mobile-buyer-flow-simulations.ts

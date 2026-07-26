@@ -18,6 +18,10 @@ import {
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 import { createServerInventoryEngine } from "../../../../lib/server-inventory-engine";
 import { buildOfferShippingSnapshot } from "../../../../lib/offer-shipping";
+import {
+  BUYER_PROTECTION_POLICY_VERSION,
+} from "../../../../lib/buyer-protection";
+import { resolveBuyerProtectionSelection } from "../../../../lib/buyer-protection-server";
 
 const MAX_NAME_LENGTH = 120;
 const MAX_EMAIL_LENGTH = 254;
@@ -129,6 +133,20 @@ export async function POST(req: Request) {
       saleSubtotal: offerAmount,
       listingPriceBasis: listingPriceAtOffer,
     });
+    const buyerProtection = await resolveBuyerProtectionSelection({
+      supabase,
+      storeId,
+      accountId: account?.id || null,
+      shippingMethod: minimumShipping.method,
+      itemSubtotal: offerAmount,
+      itemCount: 1,
+      requestedSelected: body.buyerProtectionSelected === true,
+      requestedPreferenceMode: body.buyerProtectionPreferenceMode,
+      termsAccepted: body.buyerProtectionTermsAccepted === true,
+      policyVersion:
+        body.buyerProtectionPolicyVersion || BUYER_PROTECTION_POLICY_VERSION,
+      identity: clientIdentity,
+    });
     const tosAcceptanceEventId = await recordTermsAcceptance(supabase, {
       contextType: "offer",
       tosKind: "buyer",
@@ -148,6 +166,14 @@ export async function POST(req: Request) {
       minimum_shipping_method_at_offer: minimumShipping.method,
       minimum_shipping_amount_at_offer: minimumShipping.amount,
       shipping_profile_at_offer: minimumShipping.profile,
+      buyer_protection_selected: buyerProtection.selected,
+      buyer_protection_fee: buyerProtection.feeAmount,
+      buyer_protection_covered_amount: buyerProtection.coveredAmount,
+      buyer_protection_policy_version: buyerProtection.policyVersion,
+      buyer_protection_terms_accepted_at: buyerProtection.termsAcceptedAt,
+      buyer_protection_consent_source: buyerProtection.consentSource,
+      buyer_protection_preference_mode:
+        buyerProtection.selected ? buyerProtection.preferenceMode : null,
       tos_accepted: true,
       tos_version: tosVersion,
       tos_accepted_at: new Date().toISOString(),
@@ -183,6 +209,7 @@ export async function POST(req: Request) {
           <p><strong>Original Listing Price:</strong> $${listingPriceAtOffer.toFixed(2)}</p>
           <p><strong>Offer Amount:</strong> $${Number(offer.offer_amount).toFixed(2)}</p>
           <p><strong>Minimum Shipping:</strong> ${escapeHtml(minimumShipping.name)} — $${minimumShipping.amount.toFixed(2)}</p>
+          <p><strong>Buyer Protection:</strong> ${buyerProtection.selected ? `$${buyerProtection.feeAmount.toFixed(2)} covering $${buyerProtection.coveredAmount.toFixed(2)}` : "Not selected"}</p>
           <p>The buyer may upgrade shipping during payment, but the original listing price controls the minimum tier.</p>
           <hr />
           <p><strong>Customer Name:</strong> ${escapeHtml(offer.customer_name)}</p>
@@ -207,7 +234,7 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json(
-      { error: "Failed to create offer" },
+      { error: err.message || "Failed to create offer" },
       { status: 500 },
     );
   }

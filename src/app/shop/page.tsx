@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import Image from "next/image";
 import ClearCartOnSuccess from "../../components/ClearCartOnSuccess";
+import { preferHighResolutionListingImage } from "../../lib/listing-image-utils";
 import { createServerInventoryEngine } from "../../lib/server-inventory-engine";
 import type { UniversalInventoryItem } from "../../modules/inventory";
 
@@ -120,56 +121,62 @@ export default async function Shop({
       {products.length === 0 && <p className="text-gray-600">No cards found.</p>}
 
       <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
-        {products.map((product) => (
-          <article
-            key={product.legacyProductId}
-            className="overflow-hidden rounded border bg-white"
-          >
-            <Link
-              href={`/product/${product.legacyProductId}`}
-              className="block"
-              aria-label={`View ${product.title}`}
+        {products.map((product) => {
+          const storefrontImage =
+            preferHighResolutionListingImage(product.imageUrl) ||
+            "/placeholder.png";
+
+          return (
+            <article
+              key={product.legacyProductId}
+              className="overflow-hidden rounded border bg-white"
             >
-              <div className="relative aspect-[4/5] bg-neutral-100">
-                <Image
-                  src={product.imageUrl || "/placeholder.png"}
-                  alt={product.title}
-                  fill
-                  sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
-                  unoptimized
-                  className="object-contain p-2"
-                />
-              </div>
-            </Link>
-
-            <div className="p-4">
-              <h2 className="line-clamp-2 min-h-14 text-lg font-black leading-7">
-                {product.title}
-              </h2>
-
-              <p className="mt-2 text-sm text-neutral-500">
-                {product.sport || "Collectable"}
-                {product.player ? ` - ${product.player}` : ""}
-              </p>
-
-              <div className="mt-4 flex items-center justify-between gap-3">
-                <p className="text-2xl font-black">
-                  ${Number(product.price).toFixed(2)}
-                </p>
-                <p className="rounded bg-neutral-100 px-2 py-1 text-xs font-bold text-neutral-600">
-                  Qty {product.quantity}
-                </p>
-              </div>
-
               <Link
                 href={`/product/${product.legacyProductId}`}
-                className="mt-4 flex min-h-11 w-full items-center justify-center rounded border border-neutral-950 px-4 py-2 text-center font-bold hover:bg-neutral-950 hover:text-white"
+                className="block"
+                aria-label={`View ${product.title}`}
               >
-                View Card
+                <div className="relative aspect-[4/5] bg-neutral-100">
+                  <Image
+                    src={storefrontImage}
+                    alt={product.title}
+                    fill
+                    sizes="(min-width: 1280px) 300px, (min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
+                    quality={90}
+                    className="object-contain p-2"
+                  />
+                </div>
               </Link>
-            </div>
-          </article>
-        ))}
+
+              <div className="p-4">
+                <h2 className="line-clamp-2 min-h-14 text-lg font-black leading-7">
+                  {product.title}
+                </h2>
+
+                <p className="mt-2 text-sm text-neutral-500">
+                  {product.sport || "Collectable"}
+                  {product.player ? ` - ${product.player}` : ""}
+                </p>
+
+                <div className="mt-4 flex items-center justify-between gap-3">
+                  <p className="text-2xl font-black">
+                    ${Number(product.price).toFixed(2)}
+                  </p>
+                  <p className="rounded bg-neutral-100 px-2 py-1 text-xs font-bold text-neutral-600">
+                    Qty {product.quantity}
+                  </p>
+                </div>
+
+                <Link
+                  href={`/product/${product.legacyProductId}`}
+                  className="mt-4 flex min-h-11 w-full items-center justify-center rounded border border-neutral-950 px-4 py-2 text-center font-bold hover:bg-neutral-950 hover:text-white"
+                >
+                  View Card
+                </Link>
+              </div>
+            </article>
+          );
+        })}
       </div>
     </main>
   );

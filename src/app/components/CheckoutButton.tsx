@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import type { BuyerProtectionCheckoutChoice } from "../cart/BuyerProtectionOption";
 import type { ShippingMethod } from "../../lib/shipping";
 import { TERMS_OF_SERVICE_VERSION } from "../../lib/legal";
 import { getAccountSession } from "../account/account-session";
@@ -14,10 +15,15 @@ type StoredCheckoutAttempt = {
   createdAt: string;
 };
 
-function checkoutAttemptFor(cart: unknown, shippingMethod: ShippingMethod) {
+function checkoutAttemptFor(
+  cart: unknown,
+  shippingMethod: ShippingMethod,
+  buyerProtection: BuyerProtectionCheckoutChoice,
+) {
   const signature = JSON.stringify({
     cart,
     shippingMethod,
+    buyerProtection,
     tosVersion: TERMS_OF_SERVICE_VERSION,
   });
 
@@ -58,9 +64,11 @@ function clearCheckoutAttempt() {
 export default function CheckoutButton({
   shippingMethod = "GROUND_ADVANTAGE",
   termsAccepted,
+  buyerProtection,
 }: {
   shippingMethod?: ShippingMethod;
   termsAccepted: boolean;
+  buyerProtection: BuyerProtectionCheckoutChoice;
 }) {
   const [loading, setLoading] = useState(false);
   const inFlightRef = useRef(false);
@@ -74,12 +82,25 @@ export default function CheckoutButton({
         return;
       }
 
+      if (
+        buyerProtection.selected &&
+        !buyerProtection.storedConsentCurrent &&
+        !buyerProtection.termsAccepted
+      ) {
+        alert("Please accept the Buyer Protection terms before checkout.");
+        return;
+      }
+
       inFlightRef.current = true;
       setLoading(true);
 
       const cart = JSON.parse(localStorage.getItem("cart") || "[]");
       const accountSession = getAccountSession();
-      const checkoutAttempt = checkoutAttemptFor(cart, shippingMethod);
+      const checkoutAttempt = checkoutAttemptFor(
+        cart,
+        shippingMethod,
+        buyerProtection,
+      );
 
       const response = await fetch("/api/checkout", {
         method: "POST",
@@ -92,6 +113,10 @@ export default function CheckoutButton({
         body: JSON.stringify({
           cart,
           shippingMethod,
+          buyerProtectionSelected: buyerProtection.selected,
+          buyerProtectionPreferenceMode: buyerProtection.preferenceMode,
+          buyerProtectionTermsAccepted: buyerProtection.termsAccepted,
+          buyerProtectionPolicyVersion: buyerProtection.policyVersion,
           tosAccepted: termsAccepted,
           tosVersion: TERMS_OF_SERVICE_VERSION,
           checkoutAttemptId: checkoutAttempt.id,

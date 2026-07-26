@@ -1,22 +1,17 @@
 import { NextResponse } from "next/server";
-import Stripe from "stripe";
 import { Resend } from "resend";
 import { InventoryEngineError } from "../../../../modules/inventory";
 import { getStoreSettings } from "../../../../lib/store-settings";
 import { getActiveStoreId } from "../../../../lib/stores";
 import { trustedRequestOrigin } from "../../../../lib/site-origin";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
-import { getStripePaymentRuntime } from "../../../../lib/live-payment-launch";
 import { createServerInventoryEngine } from "../../../../lib/server-inventory-engine";
 import {
   adminOfferDecisionError,
   normalizedOfferMoney,
 } from "../../../../lib/admin-offer-decision";
-import {
-  buildOfferShippingSnapshot,
-  offerShippingMetadata,
-  offerStripeShippingOptions,
-} from "../../../../lib/offer-shipping";
+import { buildOfferShippingSnapshot } from "../../../../lib/offer-shipping";
+import { createOfferCheckoutToken } from "../../../../lib/offer-checkout-token";
 
 export const dynamic = "force-dynamic";
 
@@ -58,7 +53,10 @@ export async function POST(req: Request) {
     }
 
     if (!offer.products) {
-      return NextResponse.json({ error: "Product not found for this offer" }, { status: 404 });
+      return NextResponse.json(
+        { error: "Product not found for this offer" },
+        { status: 404 },
+      );
     }
 
     const decisionError = adminOfferDecisionError({
@@ -79,9 +77,7 @@ export async function POST(req: Request) {
       { id: Number(offer.products.id), quantity: 1 },
     ]);
 
-    const origin = trustedRequestOrigin(req);
     const amount = normalizedOfferMoney(counterAmount);
-
     if (!amount || amount <= 0) {
       return NextResponse.json(
         { error: "Offer action needs: positive counter amount." },
@@ -96,88 +92,20 @@ export async function POST(req: Request) {
       saleSubtotal: amount,
       listingPriceBasis,
     });
-    const shippingOptions = offerStripeShippingOptions({
-      saleSubtotal: amount,
-      listingPriceBasis,
-    });
-    const stripeRuntime = await getStripePaymentRuntime({ storeId, supabase });
-
-    if (!stripeRuntime.allowed || !stripeRuntime.stripeKey) {
-      return NextResponse.json(
-        { error: stripeRuntime.reason },
-        { status: 503 },
-      );
-    }
-
-    const stripe = new Stripe(stripeRuntime.stripeKey);
-    const stripeIdempotencyKey = [
-      "tcos",
-      "offer",
-      "counter",
+    const origin = trustedRequestOrigin(req);
+    const token = createOfferCheckoutToken({
+      offerId: Number(offer.id),
       storeId,
-      String(offer.id),
-      String(Math.round(amount * 100)),
-    ].join("_");
-    const session = await stripe.checkout.sessions.create(
-      {
-        mode: "payment",
-        customer_email: offer.customer_email,
-        shipping_address_collection: {
-          allowed_countries: ["US"],
-        },
-        shipping_options: shippingOptions,
-        line_items: [
-          {
-            price_data: {
-              currency: "usd",
-              product_data: {
-                name: offer.products.title,
-                images: offer.products.image_url ? [offer.products.image_url] : [],
-              },
-              unit_amount: Math.round(amount * 100),
-            },
-            quantity: 1,
-          },
-        ],
-        metadata: {
-          store_id: storeId,
-          account_id: offer.account_id || "",
-          offer_id: String(offer.id),
-          product_id: String(offer.products.id),
-          ebay_item_id: offer.products.ebay_item_id || "",
-          type: "accepted_offer",
-          counter_amount: String(amount),
-          cart: JSON.stringify([{ id: Number(offer.products.id), quantity: 1 }]),
-          subtotal: amount.toFixed(2),
-          item_count: "1",
-          shipping_selection_mode: "stripe_shipping_options",
-          minimum_shipping_method: minimumShipping.method,
-          minimum_shipping_amount: minimumShipping.amount.toFixed(2),
-          ...offerShippingMetadata(minimumShipping),
-          tos_accepted: offer.tos_accepted ? "true" : "false",
-          tos_version: offer.tos_version || "",
-          tos_accepted_at: offer.tos_accepted_at || "",
-          tos_acceptance_event_id: offer.tos_acceptance_event_id || "",
-          tos_ip_address: offer.tos_ip_address || "",
-          tos_user_agent: offer.tos_user_agent || "",
-          tos_ip_risk: offer.tos_ip_risk || "",
-          tos_ip_block_reason: offer.tos_ip_block_reason || "",
-        },
-        success_url: `${origin}/success?type=counter&session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${origin}/product/${offer.products.id}`,
-      },
-      {
-        idempotencyKey: stripeIdempotencyKey,
-      },
-    );
+    });
+    const checkoutUrl = `${origin}/offer-checkout/${offer.id}?token=${encodeURIComponent(token)}`;
 
     const { data: updatedOffer, error: updateError } = await supabase
       .from("offers")
       .update({
         status: "countered",
         counter_amount: amount,
-        stripe_checkout_url: session.url,
-        stripe_session_id: session.id,
+        stripe_checkout_url: checkoutUrl,
+        stripe_session_id: null,
         updated_at: new Date().toISOString(),
       })
       .eq("id", offerId)
@@ -192,12 +120,15 @@ export async function POST(req: Request) {
 
     if (!updatedOffer) {
       return NextResponse.json(
-        { error: "Offer is no longer pending. Refresh offers before deciding again." },
+        {
+          error:
+            "Offer is no longer pending. Refresh offers before deciding again.",
+        },
         { status: 409 },
       );
     }
 
-    if (resend && session.url) {
+    if (resend) {
       const storeName = storeSettings.displayName.trim() || "our store";
       await resend.emails.send({
         from: storeSettings.orderFromEmail,
@@ -209,9 +140,9 @@ export async function POST(req: Request) {
           <p>Thank you for your offer on <strong>${offer.products.title}</strong>.</p>
           <p>Your original offer was <strong>$${Number(offer.offer_amount).toFixed(2)}</strong>.</p>
           <p>We can accept a counter offer of <strong>$${amount.toFixed(2)}</strong>.</p>
-          <p>Shipping starts with <strong>${minimumShipping.name}</strong> at <strong>$${minimumShipping.amount.toFixed(2)}</strong>, based on the original $${listingPriceBasis.toFixed(2)} listing price. You may choose a premium shipping upgrade during payment.</p>
-          <p>You can accept and pay securely here:</p>
-          <p><a href="${session.url}" style="display:inline-block;padding:12px 18px;background:#000;color:#fff;text-decoration:none;border-radius:6px;">Accept Counter Offer</a></p>
+          <p>Shipping starts with <strong>${minimumShipping.name}</strong> at <strong>$${minimumShipping.amount.toFixed(2)}</strong>, based on the original $${listingPriceBasis.toFixed(2)} listing price.</p>
+          <p>Choose shipping and optional Buyer Protection before secure payment:</p>
+          <p><a href="${checkoutUrl}" style="display:inline-block;padding:12px 18px;background:#000;color:#fff;text-decoration:none;border-radius:6px;">Choose Shipping and Pay</a></p>
           <p>Thank you,<br/>${storeName}</p>
         `,
       });
@@ -220,7 +151,7 @@ export async function POST(req: Request) {
     return NextResponse.json({
       success: true,
       offer: updatedOffer,
-      checkoutUrl: session.url,
+      checkoutUrl,
     });
   } catch (error: any) {
     if (error instanceof InventoryEngineError) {

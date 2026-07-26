@@ -15,6 +15,7 @@ import {
   decrementOrderInventoryOnce,
 } from "./checkout-inventory-reservations";
 import { selectedCheckoutShipping } from "./stripe-selected-shipping";
+import { persistBuyerProtectionForOrder } from "./buyer-protection-order";
 
 export async function finalizeCheckoutOrder(params: {
   supabase: SupabaseClient;
@@ -156,6 +157,16 @@ export async function finalizeCheckoutOrder(params: {
     if (error || !order) throw error || new Error("Order insert failed");
     orderId = Number(order.id);
   }
+
+  await persistBuyerProtectionForOrder({
+    supabase,
+    storeId,
+    orderId,
+    accountId,
+    shippingMethod,
+    metadata,
+    isTest: isE2ETest,
+  });
 
   const { data: existingItems, error: existingItemsError } = await supabase
     .from("order_items")
