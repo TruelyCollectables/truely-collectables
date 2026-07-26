@@ -177,6 +177,8 @@ export default async function SuccessPage({
   const paymentVerified = ["confirmed", "processing"].includes(
     postPurchase.state,
   );
+  const shouldClearCart =
+    paymentVerified && postPurchase.purchaseType === "cart";
   const purchasedProducts = paymentVerified
     ? await getPurchasedProducts(postPurchase.metadata, supabase)
     : [];
@@ -206,7 +208,7 @@ export default async function SuccessPage({
       className="min-h-screen px-4 py-10 text-white sm:px-6 sm:py-12"
       style={backgroundStyle}
     >
-      <ClearCartOnSuccess clearOnLoad={paymentVerified} />
+      <ClearCartOnSuccess clearOnLoad={shouldClearCart} />
 
       <section className="mx-auto flex max-w-4xl flex-col gap-8 text-center">
         <div>
