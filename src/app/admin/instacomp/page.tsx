@@ -1,4 +1,5 @@
 import { createClient } from "@supabase/supabase-js";
+import DuckAiWitness from "./DuckAiWitness";
 import InstaCompAdminFrame from "./InstaCompAdminFrame";
 import InstaCompScanner from "./InstaCompScanner";
 
@@ -79,7 +80,7 @@ export default async function InstaCompAdminPage({
     <InstaCompAdminFrame
       eyebrow="Admin scan workbench"
       title="InstaComp™ Scan Lab"
-      description="Identify cards with AI, verify the exact card identity, remove bad rows, merge duplicate quantities, refresh comps, and turn clean scan results into priced TCOS drafts."
+      description="Identify cards with AI, verify the exact card identity, remove bad rows, merge duplicate quantities, refresh comps, and turn clean scan results into priced TCOS drafts. Duck.ai is available below as a free manual council witness."
       notice={
         openedFromSellerEbayStaging ? (
           <section className="rounded-3xl border border-blue-200 bg-blue-50 p-5 shadow-sm">
@@ -113,6 +114,7 @@ export default async function InstaCompAdminPage({
       }
     >
       <InstaCompScanner />
+      <DuckAiWitness />
 
       <section className="mt-7 overflow-hidden rounded-3xl border border-neutral-200 bg-white shadow-sm">
         <div className="border-b border-neutral-200 p-5">
