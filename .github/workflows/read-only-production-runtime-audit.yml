@@ -1,0 +1,132 @@
+name: Read-Only Production Runtime Audit
+
+on:
+  push:
+    branches:
+      - agent/read-only-production-runtime-audit-20260726
+    paths:
+      - "scripts/capture-production-runtime-readiness.ts"
+      - ".github/workflows/read-only-production-runtime-audit.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  production-runtime-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+      VERCEL_PROJECT_NAME: truely-collectables
+      TCOS_RUNTIME_AUDIT_OUTPUT: production-runtime-readiness.json
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify read-only Vercel authentication
+        id: vercel_auth
+        continue-on-error: true
+        shell: bash
+        run: |
+          if [ -z "${VERCEL_TOKEN:-}" ]; then
+            cat > production-runtime-auth.json <<'JSON'
+          {
+            "schema": "tcos.productionRuntimeAuth.v1",
+            "authenticated": false,
+            "blocker": "GitHub repository secret VERCEL_TOKEN is not configured.",
+            "deploymentStarted": false,
+            "secretValuesPrinted": false
+          }
+          JSON
+            exit 1
+          fi
+          cat > production-runtime-auth.json <<'JSON'
+          {
+            "schema": "tcos.productionRuntimeAuth.v1",
+            "authenticated": true,
+            "blocker": null,
+            "deploymentStarted": false,
+            "secretValuesPrinted": false
+          }
+          JSON
+
+      - name: Link the known Vercel project without deployment
+        id: vercel_link
+        if: steps.vercel_auth.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/tcos-vercel-cli-56.2.0"
+          npm --prefix "$RUNNER_TEMP/tcos-vercel-cli-56.2.0" exec --yes --package=vercel@56.2.0 -- \
+            vercel --cwd "$PWD" link --yes --project "$VERCEL_PROJECT_NAME" \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" --no-color
+
+      - name: Audit Production environment variable names
+        id: environment_names
+        if: steps.vercel_link.outcome == 'success'
+        continue-on-error: true
+        run: node scripts/audit-vercel-production-environment.mjs --json > vercel-production-environment-audit.json
+
+      - name: Evaluate the real Production runtime without deployment
+        id: runtime_audit
+        if: steps.environment_names.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        run: |
+          npm --prefix "$RUNNER_TEMP/tcos-vercel-cli-56.2.0" exec --yes --package=vercel@56.2.0 -- \
+            vercel --cwd "$PWD" env run -e production \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" --no-color -- \
+            env TCOS_RUNTIME_AUDIT_OUTPUT="$PWD/$TCOS_RUNTIME_AUDIT_OUTPUT" \
+            node --import tsx scripts/capture-production-runtime-readiness.ts
+
+      - name: Upload redacted Production readiness evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-runtime-readiness-evidence
+          path: |
+            production-runtime-auth.json
+            vercel-production-environment-audit.json
+            production-runtime-readiness.json
+          if-no-files-found: warn
+          retention-days: 7
+
+      - name: Remove linked-project cache and runtime evidence
+        if: always()
+        shell: bash
+        run: |
+          rm -rf .vercel
+          rm -f production-runtime-readiness.json vercel-production-environment-audit.json
+
+      - name: Enforce Production readiness audit completion
+        if: always()
+        shell: bash
+        run: |
+          if [ "${{ steps.vercel_auth.outcome }}" != "success" ]; then
+            echo "Production audit blocked: VERCEL_TOKEN is unavailable."
+            exit 1
+          fi
+          if [ "${{ steps.vercel_link.outcome }}" != "success" ]; then
+            echo "Production audit blocked: the known Vercel project could not be linked read-only."
+            exit 1
+          fi
+          if [ "${{ steps.environment_names.outcome }}" != "success" ]; then
+            echo "Production audit blocked: required Production environment variable names are incomplete."
+            exit 1
+          fi
+          if [ "${{ steps.runtime_audit.outcome }}" != "success" ]; then
+            echo "Production runtime is not ready for the final launch window. Review the redacted evidence artifact."
+            exit 1
+          fi
+          echo "Production runtime is ready for the controlled final launch window. No deployment was started."
