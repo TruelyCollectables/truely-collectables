@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - "scripts/run-one-hour-launch-audit.mjs"
+      - "scripts/audit-public-supabase-schema-from-storefront.mjs"
       - ".github/workflows/one-hour-launch-audit.yml"
   workflow_dispatch:
 
@@ -68,12 +69,18 @@ jobs:
         shell: bash
         run: node scripts/run-one-hour-launch-audit.mjs
 
+      - name: Audit live Supabase schema through public storefront assets
+        shell: bash
+        run: node scripts/audit-public-supabase-schema-from-storefront.mjs
+
       - name: Upload redacted launch audit
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: one-hour-launch-audit-evidence
-          path: one-hour-launch-audit.json
+          path: |
+            one-hour-launch-audit.json
+            public-supabase-schema-audit.json
           if-no-files-found: error
           retention-days: 2
 
@@ -82,4 +89,4 @@ jobs:
         shell: bash
         run: |
           rm -rf .vercel
-          rm -f .env.storefront.production vercel-production-env-names.txt vercel-quota-status.json one-hour-launch-audit.json
+          rm -f .env.storefront.production vercel-production-env-names.txt vercel-quota-status.json one-hour-launch-audit.json public-supabase-schema-audit.json
