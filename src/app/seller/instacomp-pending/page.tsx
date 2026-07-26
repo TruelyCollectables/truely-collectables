@@ -2,13 +2,29 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getFreshAccountSession } from "../../account/account-session";
 
 type PricingStatus =
   | "not_run"
   | "suggested_from_reliable_sold_comps"
   | "seller_price_required";
+
+type CompEvidence = {
+  title: string;
+  price: number;
+  currency: string;
+  url: string | null;
+  imageUrl: string | null;
+  source: string | null;
+  sourceLabel: string;
+  sourceCategory: string | null;
+  matchScore: number | null;
+  flags: string[];
+  soldAt: string | null;
+  listedAt: string | null;
+  observedAt: string | null;
+};
 
 type PendingItem = {
   inventoryItemId: string;
@@ -22,6 +38,17 @@ type PendingItem = {
   imageUrl: string | null;
   createdAt: string | null;
   updatedAt: string | null;
+  uniquePhysicalCopy: boolean;
+  quantityRule: string;
+  activationReadiness: {
+    ready: boolean;
+    blockers: string[];
+  };
+  sellerReview: {
+    identityConfirmed: boolean;
+    confirmedAt: string | null;
+    confirmedBy: string | null;
+  };
   instaComp: {
     source: string | null;
     scanId: string | null;
@@ -35,16 +62,33 @@ type PendingItem = {
     pricingCheckedAt: string | null;
     listingPrice: number | null;
     listingPriceSource: string | null;
+    soldCompEvidence: CompEvidence[];
+    activeCompetition: CompEvidence[];
+    providerCoverage: Array<{
+      source: string | null;
+      label: string | null;
+      status: string | null;
+      resultCount: number;
+      message: string | null;
+      searchUrl: string | null;
+    }>;
+    sourceLinks: {
+      ebaySoldUrl: string | null;
+      ebayActiveUrl: string | null;
+      broadCardMarketUrl: string | null;
+    };
     gradingCompany: string | null;
     gradingGrade: string | null;
     gradingCertNumber: string | null;
     graderVerificationStatus: string;
     graderVerificationUrl: string | null;
   };
-  activationReadiness: {
-    ready: boolean;
-    blockers: string[];
-  };
+};
+
+type DraftEdit = {
+  title: string;
+  description: string;
+  quantity: string;
 };
 
 function money(value: number | null | undefined) {
@@ -82,6 +126,49 @@ function graderStatusLabel(status: string) {
   return label(status);
 }
 
+function dateLabel(value: string | null | undefined) {
+  if (!value) return null;
+  const parsed = new Date(value);
+  return Number.isFinite(parsed.getTime()) ? parsed.toLocaleDateString() : value;
+}
+
+function scoreLabel(value: number | null) {
+  if (value === null || !Number.isFinite(value)) return null;
+  return `${Math.round(value * 100)}% match`;
+}
+
+function evidenceDate(comp: CompEvidence) {
+  return dateLabel(comp.soldAt || comp.listedAt || comp.observedAt);
+}
+
+function isImageUrl(value: string | null) {
+  return Boolean(value && /^https?:\/\//i.test(value));
+}
+
+async function scanPendingItem(item: PendingItem, accessToken: string) {
+  const response = await fetch("/api/account/seller/inventory/instacomp", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    },
+    body: JSON.stringify({
+      inventoryItemId: item.inventoryItemId,
+      aiCouncilTier: "adaptive",
+    }),
+  });
+  const data = await response.json();
+  if (!response.ok || data.success !== true) {
+    throw new Error(data.error || "InstaComp pricing failed.");
+  }
+  return data as {
+    suggestedPrice: number;
+    pricingStatus: PricingStatus;
+    pricingReason: string;
+    reliableSoldCompCount: number;
+  };
+}
+
 export default function InstaCompPendingPage() {
   const [items, setItems] = useState<PendingItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -89,11 +176,18 @@ export default function InstaCompPendingPage() {
   const [loggedOut, setLoggedOut] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [pricingItemId, setPricingItemId] = useState<string | null>(null);
-  const [pricingAll, setPricingAll] = useState(false);
-  const [pricingProgress, setPricingProgress] = useState({ current: 0, total: 0 });
-  const [savingPriceId, setSavingPriceId] = useState<string | null>(null);
+  const [batchMode, setBatchMode] = useState<string | null>(null);
+  const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0 });
+  const [savingItemId, setSavingItemId] = useState<string | null>(null);
   const [manualPrices, setManualPrices] = useState<Record<string, string>>({});
+  const [draftEdits, setDraftEdits] = useState<Record<string, DraftEdit>>({});
+  const [bulkQuantity, setBulkQuantity] = useState("");
+  const [bulkPrice, setBulkPrice] = useState("");
+  const [autoPricing, setAutoPricing] = useState(false);
+  const autoAttempted = useRef(new Set<string>());
+  const autoRunning = useRef(false);
 
   const loadPending = useCallback(async (silent = false) => {
     if (silent) setRefreshing(true);
@@ -120,7 +214,23 @@ export default function InstaCompPendingPage() {
         throw new Error(data.error || "Could not load InstaComp pending listings.");
       }
 
-      setItems(Array.isArray(data.items) ? (data.items as PendingItem[]) : []);
+      const nextItems = Array.isArray(data.items)
+        ? (data.items as PendingItem[])
+        : [];
+      const nextIds = new Set(nextItems.map((item) => item.inventoryItemId));
+      setItems(nextItems);
+      setSelectedIds((current) => current.filter((id) => nextIds.has(id)));
+      setDraftEdits((current) => {
+        const next: Record<string, DraftEdit> = {};
+        for (const item of nextItems) {
+          next[item.inventoryItemId] = current[item.inventoryItemId] || {
+            title: item.title,
+            description: item.description || "",
+            quantity: String(item.quantity),
+          };
+        }
+        return next;
+      });
     } catch (nextError: unknown) {
       setItems([]);
       setError(
@@ -150,6 +260,14 @@ export default function InstaCompPendingPage() {
     [items],
   );
 
+  const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
+  const selectedItems = useMemo(
+    () => sortedItems.filter((item) => selectedSet.has(item.inventoryItemId)),
+    [selectedSet, sortedItems],
+  );
+  const allSelected =
+    sortedItems.length > 0 && selectedItems.length === sortedItems.length;
+
   const pricingSummary = useMemo(
     () =>
       sortedItems.reduce(
@@ -173,39 +291,95 @@ export default function InstaCompPendingPage() {
     [sortedItems],
   );
 
-  async function scanItem(item: PendingItem, accessToken: string) {
-    const response = await fetch("/api/account/seller/inventory/instacomp", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${accessToken}`,
-      },
-      body: JSON.stringify({
-        inventoryItemId: item.inventoryItemId,
-        aiCouncilTier: "adaptive",
-      }),
-    });
-    const data = await response.json();
-    if (!response.ok || data.success !== true) {
-      throw new Error(data.error || "InstaComp pricing failed.");
+  async function runPricingBatch(targets: PendingItem[], mode: string) {
+    if (!targets.length) {
+      setError("Select one or more cards first.");
+      return;
     }
-    return data as {
-      suggestedPrice: number;
-      pricingStatus: PricingStatus;
-      pricingReason: string;
-      reliableSoldCompCount: number;
-    };
-  }
 
-  async function runPricing(item: PendingItem) {
     setError("");
     setNotice("");
-    setPricingItemId(item.inventoryItemId);
+    setBatchMode(mode);
+    setBatchProgress({ current: 0, total: targets.length });
 
+    let failures = 0;
+    let reliable = 0;
     try {
       const session = await getFreshAccountSession(5 * 60, false);
       if (!session?.access_token) throw new Error("Log in to run InstaComp pricing.");
-      const result = await scanItem(item, session.access_token);
+
+      for (const [index, item] of targets.entries()) {
+        setPricingItemId(item.inventoryItemId);
+        try {
+          const result = await scanPendingItem(item, session.access_token);
+          if (result.suggestedPrice > 0) reliable += 1;
+        } catch {
+          failures += 1;
+        }
+        setBatchProgress({ current: index + 1, total: targets.length });
+      }
+
+      setNotice(
+        `InstaComp finished ${targets.length - failures}/${targets.length} cards. ${reliable} received sold-comp suggestions; ${targets.length - failures - reliable} require seller pricing; ${failures} need a retry.`,
+      );
+      await loadPending(true);
+    } catch (nextError: unknown) {
+      setError(errorMessage(nextError, "Could not run InstaComp pricing."));
+    } finally {
+      setPricingItemId(null);
+      setBatchMode(null);
+    }
+  }
+
+  useEffect(() => {
+    if (loading || autoRunning.current || !items.length) return;
+    const targets = items.filter(
+      (item) =>
+        item.instaComp.pricingStatus === "not_run" &&
+        !autoAttempted.current.has(item.inventoryItemId),
+    );
+    if (!targets.length) return;
+
+    targets.forEach((item) => autoAttempted.current.add(item.inventoryItemId));
+    autoRunning.current = true;
+    setAutoPricing(true);
+
+    void (async () => {
+      let failures = 0;
+      try {
+        const session = await getFreshAccountSession(5 * 60, false);
+        if (!session?.access_token) return;
+        for (const [index, item] of targets.entries()) {
+          setPricingItemId(item.inventoryItemId);
+          setBatchProgress({ current: index + 1, total: targets.length });
+          try {
+            await scanPendingItem(item, session.access_token);
+          } catch {
+            failures += 1;
+          }
+        }
+        setNotice(
+          failures
+            ? `Automatic InstaComp intake finished with ${failures} card${failures === 1 ? "" : "s"} needing a retry.`
+            : "Automatic InstaComp intake finished. Every new draft now has a pricing outcome.",
+        );
+        await loadPending(true);
+      } finally {
+        setPricingItemId(null);
+        setAutoPricing(false);
+        autoRunning.current = false;
+      }
+    })();
+  }, [items, loadPending, loading]);
+
+  async function runOnePricing(item: PendingItem) {
+    setError("");
+    setNotice("");
+    setPricingItemId(item.inventoryItemId);
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Log in to run InstaComp pricing.");
+      const result = await scanPendingItem(item, session.access_token);
       setNotice(
         result.suggestedPrice > 0
           ? `${item.title}: InstaComp suggests ${money(result.suggestedPrice)} from ${result.reliableSoldCompCount} reliable sold comp${result.reliableSoldCompCount === 1 ? "" : "s"}.`
@@ -219,53 +393,10 @@ export default function InstaCompPendingPage() {
     }
   }
 
-  async function runAllPricing() {
-    if (
-      !window.confirm(
-        `Run InstaComp sold-comp pricing on all ${sortedItems.length} private drafts?`,
-      )
-    ) {
-      return;
-    }
-
-    setError("");
-    setNotice("");
-    setPricingAll(true);
-    setPricingProgress({ current: 0, total: sortedItems.length });
-
-    let failures = 0;
-    try {
-      const session = await getFreshAccountSession(5 * 60, false);
-      if (!session?.access_token) throw new Error("Log in to run InstaComp pricing.");
-
-      for (const [index, item] of sortedItems.entries()) {
-        setPricingItemId(item.inventoryItemId);
-        try {
-          await scanItem(item, session.access_token);
-        } catch {
-          failures += 1;
-        }
-        setPricingProgress({ current: index + 1, total: sortedItems.length });
-      }
-
-      await loadPending(true);
-      setNotice(
-        failures === 0
-          ? `InstaComp produced a pricing outcome for all ${sortedItems.length} cards.`
-          : `InstaComp finished ${sortedItems.length - failures} cards; ${failures} need a retry because the scan or provider failed.`,
-      );
-    } catch (nextError: unknown) {
-      setError(errorMessage(nextError, "Could not run batch InstaComp pricing."));
-    } finally {
-      setPricingItemId(null);
-      setPricingAll(false);
-    }
-  }
-
   async function savePrice(item: PendingItem, mode: "suggested" | "manual") {
     setError("");
     setNotice("");
-    setSavingPriceId(item.inventoryItemId);
+    setSavingItemId(item.inventoryItemId);
 
     try {
       const session = await getFreshAccountSession(5 * 60, false);
@@ -299,43 +430,273 @@ export default function InstaCompPendingPage() {
     } catch (nextError: unknown) {
       setError(errorMessage(nextError, "Could not set the listing price."));
     } finally {
-      setSavingPriceId(null);
+      setSavingItemId(null);
     }
   }
+
+  async function saveDetails(item: PendingItem) {
+    const edit = draftEdits[item.inventoryItemId];
+    if (!edit) return;
+    setError("");
+    setNotice("");
+    setSavingItemId(item.inventoryItemId);
+
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Log in to edit this draft.");
+      const response = await fetch(
+        "/api/account/seller/instacomp-pending/update",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            inventoryItemId: item.inventoryItemId,
+            title: edit.title,
+            description: edit.description,
+            quantity: Number(edit.quantity),
+          }),
+        },
+      );
+      const data = await response.json();
+      if (!response.ok || data.updated !== 1) {
+        throw new Error(
+          data.error || data.results?.[0]?.error || "Could not save draft edits.",
+        );
+      }
+      setNotice(`${item.title}: title, description, and quantity saved.`);
+      await loadPending(true);
+    } catch (nextError: unknown) {
+      setError(errorMessage(nextError, "Could not save draft edits."));
+    } finally {
+      setSavingItemId(null);
+    }
+  }
+
+  async function setSelectedQuantity() {
+    if (!selectedItems.length) {
+      setError("Select one or more cards first.");
+      return;
+    }
+    const quantity = Number(bulkQuantity);
+    if (!Number.isInteger(quantity) || quantity < 1) {
+      setError("Enter a whole-number quantity of at least 1.");
+      return;
+    }
+
+    setBatchMode("quantity");
+    setError("");
+    setNotice("");
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Log in to edit quantity.");
+      const response = await fetch(
+        "/api/account/seller/instacomp-pending/update",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({ itemIds: selectedIds, quantity }),
+        },
+      );
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not set quantity.");
+      setNotice(
+        `Quantity updated on ${data.updated} card${data.updated === 1 ? "" : "s"}; ${data.failed} unique serial/cert copies or other rows were not changed.`,
+      );
+      await loadPending(true);
+    } catch (nextError: unknown) {
+      setError(errorMessage(nextError, "Could not set selected quantity."));
+    } finally {
+      setBatchMode(null);
+    }
+  }
+
+  async function applySelectedSuggestions() {
+    const targets = selectedItems.filter(
+      (item) =>
+        item.instaComp.pricingStatus ===
+          "suggested_from_reliable_sold_comps" &&
+        Number(item.instaComp.suggestedPrice || 0) > 0,
+    );
+    if (!targets.length) {
+      setError("None of the selected cards has a reliable sold-comp suggestion.");
+      return;
+    }
+
+    setBatchMode("suggestions");
+    setBatchProgress({ current: 0, total: targets.length });
+    setError("");
+    let failures = 0;
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Log in to apply prices.");
+      for (const [index, item] of targets.entries()) {
+        const response = await fetch(
+          "/api/account/seller/instacomp-pending/price",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${session.access_token}`,
+            },
+            body: JSON.stringify({
+              inventoryItemId: item.inventoryItemId,
+              mode: "suggested",
+            }),
+          },
+        );
+        if (!response.ok) failures += 1;
+        setBatchProgress({ current: index + 1, total: targets.length });
+      }
+      setNotice(
+        `Applied reliable suggestions to ${targets.length - failures}/${targets.length} selected cards.`,
+      );
+      await loadPending(true);
+    } catch (nextError: unknown) {
+      setError(errorMessage(nextError, "Could not apply selected suggestions."));
+    } finally {
+      setBatchMode(null);
+    }
+  }
+
+  async function setSelectedManualPrice() {
+    const price = Number(bulkPrice);
+    if (!selectedItems.length) {
+      setError("Select one or more cards first.");
+      return;
+    }
+    if (!Number.isFinite(price) || price <= 0) {
+      setError("Enter a seller price greater than $0.00.");
+      return;
+    }
+
+    setBatchMode("manual-price");
+    setBatchProgress({ current: 0, total: selectedItems.length });
+    setError("");
+    let failures = 0;
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Log in to set prices.");
+      for (const [index, item] of selectedItems.entries()) {
+        const response = await fetch(
+          "/api/account/seller/instacomp-pending/price",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${session.access_token}`,
+            },
+            body: JSON.stringify({
+              inventoryItemId: item.inventoryItemId,
+              mode: "manual",
+              price,
+            }),
+          },
+        );
+        if (!response.ok) failures += 1;
+        setBatchProgress({ current: index + 1, total: selectedItems.length });
+      }
+      setNotice(
+        `Seller price ${money(price)} applied to ${selectedItems.length - failures}/${selectedItems.length} selected cards.`,
+      );
+      await loadPending(true);
+    } catch (nextError: unknown) {
+      setError(errorMessage(nextError, "Could not set selected prices."));
+    } finally {
+      setBatchMode(null);
+    }
+  }
+
+  async function publishItems(targets: PendingItem[]) {
+    if (!targets.length) {
+      setError("Select one or more cards first.");
+      return;
+    }
+    const notReady = targets.filter((item) => !item.activationReadiness.ready);
+    if (notReady.length) {
+      setError(
+        `${notReady.length} selected card${notReady.length === 1 ? " is" : "s are"} not publish-ready. Clear the listed blockers first.`,
+      );
+      return;
+    }
+    const confirmed = window.confirm(
+      `Publish ${targets.length} card${targets.length === 1 ? "" : "s"}? You are confirming that the images, exact identity, condition, variation, serial, grade, cert, quantity, and price are correct.`,
+    );
+    if (!confirmed) return;
+
+    setBatchMode("publish");
+    setError("");
+    setNotice("");
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Log in to publish listings.");
+      const response = await fetch(
+        "/api/account/seller/instacomp-pending/publish",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            itemIds: targets.map((item) => item.inventoryItemId),
+            confirmIdentity: true,
+          }),
+        },
+      );
+      const data = await response.json();
+      if (!response.ok) throw new Error(data.error || "Could not publish listings.");
+      setNotice(
+        `Published ${data.published} card${data.published === 1 ? "" : "s"}; ${data.failed} failed and remain private drafts.`,
+      );
+      setSelectedIds([]);
+      await loadPending(true);
+    } catch (nextError: unknown) {
+      setError(errorMessage(nextError, "Could not publish selected listings."));
+    } finally {
+      setBatchMode(null);
+    }
+  }
+
+  function toggleSelected(id: string) {
+    setSelectedIds((current) =>
+      current.includes(id)
+        ? current.filter((value) => value !== id)
+        : [...current, id],
+    );
+  }
+
+  const controlsDisabled = Boolean(batchMode || autoPricing);
 
   return (
     <main className="min-h-screen bg-[#f4f1ea] text-neutral-950">
       <section className="border-b-4 border-sky-300 bg-gradient-to-r from-sky-950 via-slate-950 to-emerald-950 px-5 py-8 text-white">
         <div className="mx-auto max-w-7xl">
           <p className="text-xs font-black uppercase tracking-[0.2em] text-sky-200">
-            InstaComp™ / Private Draft Queue
+            InstaComp™ / Selectable Review Queue
           </p>
           <div className="mt-3 flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
             <div>
               <h1 className="text-4xl font-black tracking-tight sm:text-5xl">
                 Pending Listings
               </h1>
-              <p className="mt-3 max-w-3xl text-sm font-semibold leading-6 text-slate-200">
-                Every card receives a price outcome. A suggestion above $0.00 comes only
-                from reliable exact sold comps. $0.00 means no reliable sold comps passed,
-                so the seller sets the price.
+              <p className="mt-3 max-w-4xl text-sm font-semibold leading-6 text-slate-200">
+                New scanned drafts automatically receive an InstaComp outcome. Sold comps
+                alone calculate suggested price. Active listings are shown separately as
+                current competition. Select any combination to scan, price, edit quantity,
+                or publish after seller verification.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
               <button
                 type="button"
-                onClick={() => void runAllPricing()}
-                disabled={pricingAll || loading || sortedItems.length === 0}
-                className="rounded-full bg-emerald-300 px-4 py-2 text-sm font-black text-emerald-950 disabled:opacity-50"
-              >
-                {pricingAll
-                  ? `Pricing ${pricingProgress.current}/${pricingProgress.total}`
-                  : `Price All ${sortedItems.length} with InstaComp`}
-              </button>
-              <button
-                type="button"
                 onClick={() => void loadPending(true)}
-                disabled={refreshing || loading || pricingAll}
+                disabled={refreshing || loading || controlsDisabled}
                 className="rounded-full bg-sky-300 px-4 py-2 text-sm font-black text-slate-950 disabled:opacity-50"
               >
                 {refreshing ? "Reloading..." : "Reload Drafts"}
@@ -352,12 +713,13 @@ export default function InstaCompPendingPage() {
       </section>
 
       <div className="mx-auto max-w-7xl space-y-5 px-5 py-7">
-        <section className="grid gap-3 sm:grid-cols-4">
+        <section className="grid gap-3 sm:grid-cols-5">
           {[
-            ["Drafts Found", loading ? "…" : sortedItems.length],
-            ["Reliable Suggestions", pricingSummary.suggested],
+            ["Drafts", loading ? "…" : sortedItems.length],
+            ["Selected", selectedItems.length],
+            ["Sold Suggestions", pricingSummary.suggested],
             ["Seller Pricing", pricingSummary.sellerRequired],
-            ["Pricing Not Run", pricingSummary.notRun],
+            ["Auto Pricing", autoPricing ? "Running" : pricingSummary.notRun],
           ].map(([title, value]) => (
             <div
               key={String(title)}
@@ -366,9 +728,109 @@ export default function InstaCompPendingPage() {
               <p className="text-xs font-black uppercase tracking-[0.14em] text-neutral-500">
                 {title}
               </p>
-              <p className="mt-2 text-3xl font-black">{value}</p>
+              <p className="mt-2 text-2xl font-black">{value}</p>
             </div>
           ))}
+        </section>
+
+        <section className="sticky top-0 z-20 rounded-2xl border-2 border-neutral-900 bg-white p-4 shadow-[6px_6px_0_#111]">
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setSelectedIds(sortedItems.map((item) => item.inventoryItemId))}
+              disabled={allSelected || controlsDisabled || sortedItems.length === 0}
+              className="rounded-full bg-neutral-950 px-4 py-2 text-xs font-black text-white disabled:opacity-40"
+            >
+              Select All
+            </button>
+            <button
+              type="button"
+              onClick={() => setSelectedIds([])}
+              disabled={!selectedIds.length || controlsDisabled}
+              className="rounded-full border-2 border-neutral-400 px-4 py-2 text-xs font-black disabled:opacity-40"
+            >
+              Clear Selection
+            </button>
+            <button
+              type="button"
+              onClick={() => void runPricingBatch(selectedItems, "selected-pricing")}
+              disabled={!selectedItems.length || controlsDisabled}
+              className="rounded-full bg-sky-800 px-4 py-2 text-xs font-black text-white disabled:opacity-40"
+            >
+              InstaComp Selected ({selectedItems.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => void runPricingBatch(sortedItems, "all-pricing")}
+              disabled={!sortedItems.length || controlsDisabled}
+              className="rounded-full bg-emerald-700 px-4 py-2 text-xs font-black text-white disabled:opacity-40"
+            >
+              InstaComp All ({sortedItems.length})
+            </button>
+            <button
+              type="button"
+              onClick={() => void applySelectedSuggestions()}
+              disabled={!selectedItems.length || controlsDisabled}
+              className="rounded-full bg-emerald-200 px-4 py-2 text-xs font-black text-emerald-950 disabled:opacity-40"
+            >
+              Use Selected Suggestions
+            </button>
+            <button
+              type="button"
+              onClick={() => void publishItems(selectedItems)}
+              disabled={!selectedItems.length || controlsDisabled}
+              className="rounded-full bg-amber-300 px-4 py-2 text-xs font-black text-neutral-950 disabled:opacity-40"
+            >
+              Publish Verified Selected
+            </button>
+          </div>
+
+          <div className="mt-3 grid gap-3 lg:grid-cols-2">
+            <div className="flex gap-2">
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={bulkQuantity}
+                onChange={(event) => setBulkQuantity(event.target.value)}
+                placeholder="Selected quantity"
+                className="min-w-0 flex-1 rounded-lg border-2 border-neutral-400 px-3 py-2 text-sm font-bold"
+              />
+              <button
+                type="button"
+                onClick={() => void setSelectedQuantity()}
+                disabled={!selectedItems.length || controlsDisabled}
+                className="rounded-lg bg-neutral-950 px-3 py-2 text-xs font-black text-white disabled:opacity-40"
+              >
+                Set Quantity
+              </button>
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={bulkPrice}
+                onChange={(event) => setBulkPrice(event.target.value)}
+                placeholder="Selected seller price"
+                className="min-w-0 flex-1 rounded-lg border-2 border-neutral-400 px-3 py-2 text-sm font-bold"
+              />
+              <button
+                type="button"
+                onClick={() => void setSelectedManualPrice()}
+                disabled={!selectedItems.length || controlsDisabled}
+                className="rounded-lg bg-neutral-950 px-3 py-2 text-xs font-black text-white disabled:opacity-40"
+              >
+                Set Price
+              </button>
+            </div>
+          </div>
+
+          {batchMode || autoPricing ? (
+            <p className="mt-3 text-xs font-black text-sky-900">
+              {autoPricing ? "Automatic intake pricing" : label(batchMode)}: {batchProgress.current}/{batchProgress.total}
+            </p>
+          ) : null}
         </section>
 
         {loggedOut ? (
@@ -395,11 +857,11 @@ export default function InstaCompPendingPage() {
 
         {!loading && !loggedOut && !error && sortedItems.length === 0 ? (
           <section className="rounded-2xl border-2 border-neutral-900 bg-white p-6 shadow-[6px_6px_0_#111]">
-            <h2 className="text-2xl font-black">No InstaComp drafts were returned</h2>
+            <h2 className="text-2xl font-black">No InstaComp drafts are waiting</h2>
           </section>
         ) : null}
 
-        <section className="grid gap-5 lg:grid-cols-2">
+        <section className="space-y-6">
           {sortedItems.map((item) => {
             const suggestion = item.instaComp.suggestedPrice;
             const reliableSuggestion =
@@ -407,26 +869,46 @@ export default function InstaCompPendingPage() {
                 "suggested_from_reliable_sold_comps" &&
               typeof suggestion === "number" &&
               suggestion > 0;
-            const priceBusy = savingPriceId === item.inventoryItemId;
+            const priceBusy = savingItemId === item.inventoryItemId;
             const scanBusy = pricingItemId === item.inventoryItemId;
+            const edit = draftEdits[item.inventoryItemId] || {
+              title: item.title,
+              description: item.description || "",
+              quantity: String(item.quantity),
+            };
+            const selected = selectedSet.has(item.inventoryItemId);
 
             return (
               <article
                 key={item.inventoryItemId}
-                className="overflow-hidden rounded-2xl border-2 border-neutral-900 bg-white shadow-[7px_7px_0_#111]"
+                className={`overflow-hidden rounded-2xl border-2 bg-white shadow-[7px_7px_0_#111] ${
+                  selected ? "border-sky-700 ring-4 ring-sky-200" : "border-neutral-900"
+                }`}
               >
-                <div className="grid gap-0 sm:grid-cols-[190px_minmax(0,1fr)]">
-                  <div className="relative min-h-64 border-b-2 border-neutral-900 bg-neutral-100 sm:border-b-0 sm:border-r-2">
+                <div className="border-b-2 border-neutral-900 bg-neutral-950 px-4 py-3 text-white">
+                  <label className="flex cursor-pointer items-center gap-3 text-sm font-black">
+                    <input
+                      type="checkbox"
+                      checked={selected}
+                      onChange={() => toggleSelected(item.inventoryItemId)}
+                      className="h-5 w-5"
+                    />
+                    Select this card for bulk actions
+                  </label>
+                </div>
+
+                <div className="grid gap-0 lg:grid-cols-[230px_minmax(0,1fr)]">
+                  <div className="relative min-h-80 border-b-2 border-neutral-900 bg-neutral-100 lg:border-b-0 lg:border-r-2">
                     {item.imageUrl ? (
                       <Image
                         src={item.imageUrl}
                         alt={`${item.title} front scan`}
                         fill
-                        sizes="(max-width: 640px) 100vw, 190px"
+                        sizes="(max-width: 1024px) 100vw, 230px"
                         className="object-contain p-3"
                       />
                     ) : (
-                      <div className="flex h-full min-h-64 items-center justify-center p-5 text-center text-sm font-bold text-neutral-500">
+                      <div className="flex h-full min-h-80 items-center justify-center p-5 text-center text-sm font-bold text-neutral-500">
                         Front scan unavailable
                       </div>
                     )}
@@ -449,16 +931,21 @@ export default function InstaCompPendingPage() {
                       >
                         {item.activationReadiness.ready ? "READY" : "NEEDS WORK"}
                       </span>
+                      {item.uniquePhysicalCopy ? (
+                        <span className="rounded-full bg-violet-200 px-3 py-1 text-xs font-black">
+                          UNIQUE PHYSICAL COPY
+                        </span>
+                      ) : null}
                     </div>
 
-                    <h2 className="mt-4 text-xl font-black leading-tight">
+                    <h2 className="mt-4 text-2xl font-black leading-tight">
                       {item.title}
                     </h2>
                     <p className="mt-2 text-xs font-bold text-neutral-500">
                       SKU {item.sku || "Not recorded"}
                     </p>
 
-                    <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
+                    <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-3">
                       <div>
                         <dt className="text-xs font-black uppercase text-neutral-500">
                           Listing price
@@ -515,17 +1002,17 @@ export default function InstaCompPendingPage() {
                       <div className="mt-3 flex flex-wrap gap-2">
                         <button
                           type="button"
-                          onClick={() => void runPricing(item)}
-                          disabled={scanBusy || pricingAll}
+                          onClick={() => void runOnePricing(item)}
+                          disabled={scanBusy || controlsDisabled}
                           className="rounded-full bg-sky-900 px-3 py-2 text-xs font-black text-white disabled:opacity-50"
                         >
-                          {scanBusy ? "Running InstaComp..." : "Run InstaComp Pricing"}
+                          {scanBusy ? "Running InstaComp..." : "Run / Re-run InstaComp"}
                         </button>
                         {reliableSuggestion ? (
                           <button
                             type="button"
                             onClick={() => void savePrice(item, "suggested")}
-                            disabled={priceBusy}
+                            disabled={priceBusy || controlsDisabled}
                             className="rounded-full bg-emerald-700 px-3 py-2 text-xs font-black text-white disabled:opacity-50"
                           >
                             {priceBusy
@@ -552,12 +1039,138 @@ export default function InstaCompPendingPage() {
                         <button
                           type="button"
                           onClick={() => void savePrice(item, "manual")}
-                          disabled={priceBusy}
+                          disabled={priceBusy || controlsDisabled}
                           className="rounded-lg bg-neutral-950 px-3 py-2 text-xs font-black text-white disabled:opacity-50"
                         >
                           Save Seller Price
                         </button>
                       </div>
+                    </div>
+
+                    <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                      <details className="rounded-xl border-2 border-emerald-300 bg-emerald-50 p-3" open>
+                        <summary className="cursor-pointer font-black text-emerald-950">
+                          Sold comps used for pricing ({item.instaComp.soldCompEvidence.length})
+                        </summary>
+                        <p className="mt-2 text-xs font-semibold text-emerald-900">
+                          Click every source to verify the same player, card number, parallel,
+                          serial, grade, cert, variation, and condition.
+                        </p>
+                        <div className="mt-3 space-y-2">
+                          {item.instaComp.soldCompEvidence.length ? (
+                            item.instaComp.soldCompEvidence.map((comp, index) => (
+                              <a
+                                key={`${comp.url}-${index}`}
+                                href={comp.url || "#"}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="flex gap-3 rounded-lg border border-emerald-300 bg-white p-2 hover:border-emerald-700"
+                              >
+                                {isImageUrl(comp.imageUrl) ? (
+                                  <Image
+                                    src={comp.imageUrl!}
+                                    alt="Sold comp"
+                                    width={48}
+                                    height={64}
+                                    unoptimized
+                                    className="h-16 w-12 object-contain"
+                                  />
+                                ) : null}
+                                <span className="min-w-0 flex-1">
+                                  <span className="block text-sm font-black text-neutral-950">
+                                    {comp.title}
+                                  </span>
+                                  <span className="mt-1 block text-xs font-bold text-neutral-700">
+                                    {money(comp.price)} · {comp.sourceLabel}
+                                    {evidenceDate(comp) ? ` · ${evidenceDate(comp)}` : ""}
+                                    {scoreLabel(comp.matchScore)
+                                      ? ` · ${scoreLabel(comp.matchScore)}`
+                                      : ""}
+                                  </span>
+                                  {comp.flags.length ? (
+                                    <span className="mt-1 block text-[11px] font-semibold text-neutral-500">
+                                      {comp.flags.join(" · ")}
+                                    </span>
+                                  ) : null}
+                                </span>
+                              </a>
+                            ))
+                          ) : (
+                            <p className="rounded-lg bg-white p-3 text-sm font-bold text-neutral-700">
+                              No direct sold listing passed the exact-card pricing filter.
+                            </p>
+                          )}
+                        </div>
+                        {item.instaComp.sourceLinks.ebaySoldUrl ? (
+                          <a
+                            href={item.instaComp.sourceLinks.ebaySoldUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="mt-3 inline-block text-sm font-black text-emerald-900 underline"
+                          >
+                            Open full sold-search verification
+                          </a>
+                        ) : null}
+                      </details>
+
+                      <details className="rounded-xl border-2 border-amber-300 bg-amber-50 p-3" open>
+                        <summary className="cursor-pointer font-black text-amber-950">
+                          Current active competition ({item.instaComp.activeCompetition.length})
+                        </summary>
+                        <p className="mt-2 text-xs font-semibold text-amber-900">
+                          These are currently for sale and never calculate the sold-comp
+                          suggestion.
+                        </p>
+                        <div className="mt-3 space-y-2">
+                          {item.instaComp.activeCompetition.length ? (
+                            item.instaComp.activeCompetition.map((comp, index) => (
+                              <a
+                                key={`${comp.url}-${index}`}
+                                href={comp.url || "#"}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="flex gap-3 rounded-lg border border-amber-300 bg-white p-2 hover:border-amber-700"
+                              >
+                                {isImageUrl(comp.imageUrl) ? (
+                                  <Image
+                                    src={comp.imageUrl!}
+                                    alt="Active competitor"
+                                    width={48}
+                                    height={64}
+                                    unoptimized
+                                    className="h-16 w-12 object-contain"
+                                  />
+                                ) : null}
+                                <span className="min-w-0 flex-1">
+                                  <span className="block text-sm font-black text-neutral-950">
+                                    {comp.title}
+                                  </span>
+                                  <span className="mt-1 block text-xs font-bold text-neutral-700">
+                                    {money(comp.price)} · {comp.sourceLabel}
+                                    {scoreLabel(comp.matchScore)
+                                      ? ` · ${scoreLabel(comp.matchScore)}`
+                                      : ""}
+                                  </span>
+                                </span>
+                              </a>
+                            ))
+                          ) : (
+                            <p className="rounded-lg bg-white p-3 text-sm font-bold text-neutral-700">
+                              No current exact competition listing was ingested.
+                            </p>
+                          )}
+                        </div>
+                        {item.instaComp.sourceLinks.ebayActiveUrl ? (
+                          <a
+                            href={item.instaComp.sourceLinks.ebayActiveUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="mt-3 inline-block text-sm font-black text-amber-900 underline"
+                          >
+                            Open full active-listing search
+                          </a>
+                        ) : null}
+                      </details>
                     </div>
 
                     {item.instaComp.gradingCompany ? (
@@ -588,6 +1201,78 @@ export default function InstaCompPendingPage() {
                       </div>
                     ) : null}
 
+                    <details className="mt-4 rounded-xl border-2 border-neutral-300 bg-neutral-50 p-3">
+                      <summary className="cursor-pointer font-black">
+                        Edit listing identity, description, and quantity
+                      </summary>
+                      <div className="mt-3 space-y-3">
+                        <label className="block text-xs font-black uppercase text-neutral-600">
+                          Title
+                          <input
+                            value={edit.title}
+                            onChange={(event) =>
+                              setDraftEdits((current) => ({
+                                ...current,
+                                [item.inventoryItemId]: {
+                                  ...edit,
+                                  title: event.target.value,
+                                },
+                              }))
+                            }
+                            className="mt-1 w-full rounded-lg border-2 border-neutral-400 px-3 py-2 text-sm font-bold normal-case"
+                          />
+                        </label>
+                        <label className="block text-xs font-black uppercase text-neutral-600">
+                          Description
+                          <textarea
+                            value={edit.description}
+                            onChange={(event) =>
+                              setDraftEdits((current) => ({
+                                ...current,
+                                [item.inventoryItemId]: {
+                                  ...edit,
+                                  description: event.target.value,
+                                },
+                              }))
+                            }
+                            rows={5}
+                            className="mt-1 w-full rounded-lg border-2 border-neutral-400 px-3 py-2 text-sm font-semibold normal-case"
+                          />
+                        </label>
+                        <label className="block text-xs font-black uppercase text-neutral-600">
+                          Quantity
+                          <input
+                            type="number"
+                            min="1"
+                            step="1"
+                            value={edit.quantity}
+                            disabled={item.uniquePhysicalCopy}
+                            onChange={(event) =>
+                              setDraftEdits((current) => ({
+                                ...current,
+                                [item.inventoryItemId]: {
+                                  ...edit,
+                                  quantity: event.target.value,
+                                },
+                              }))
+                            }
+                            className="mt-1 w-full rounded-lg border-2 border-neutral-400 px-3 py-2 text-sm font-bold normal-case disabled:bg-neutral-200"
+                          />
+                        </label>
+                        <p className="text-xs font-semibold text-neutral-600">
+                          {item.quantityRule}
+                        </p>
+                        <button
+                          type="button"
+                          onClick={() => void saveDetails(item)}
+                          disabled={priceBusy || controlsDisabled}
+                          className="rounded-full bg-neutral-950 px-4 py-2 text-xs font-black text-white disabled:opacity-50"
+                        >
+                          Save Draft Edits
+                        </button>
+                      </div>
+                    </details>
+
                     {item.activationReadiness.blockers.length > 0 ? (
                       <div className="mt-4 rounded-xl border border-rose-300 bg-rose-50 p-3">
                         <p className="text-xs font-black uppercase text-rose-800">
@@ -601,18 +1286,38 @@ export default function InstaCompPendingPage() {
                       </div>
                     ) : null}
 
+                    <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl border-2 border-neutral-900 bg-neutral-100 p-3">
+                      <button
+                        type="button"
+                        onClick={() => void publishItems([item])}
+                        disabled={!item.activationReadiness.ready || controlsDisabled}
+                        className="rounded-full bg-amber-300 px-4 py-2 text-sm font-black text-neutral-950 disabled:cursor-not-allowed disabled:opacity-40"
+                      >
+                        Publish as Seller-Verified
+                      </button>
+                      <p className="text-xs font-semibold text-neutral-700">
+                        Publishing requires your final confirmation and never happens
+                        automatically.
+                      </p>
+                    </div>
+
                     <details className="mt-4 rounded-xl border border-neutral-300 bg-neutral-50 p-3">
                       <summary className="cursor-pointer text-sm font-black">
-                        Listing description and record IDs
+                        Provider coverage and record IDs
                       </summary>
-                      <p className="mt-3 whitespace-pre-wrap text-sm text-neutral-700">
-                        {item.description || "No description stored."}
-                      </p>
-                      <p className="mt-3 break-all text-xs text-neutral-500">
-                        Inventory: {item.inventoryItemId}
-                        <br />
-                        Scan: {item.instaComp.scanId || "Not recorded"}
-                      </p>
+                      <div className="mt-3 space-y-2 text-xs">
+                        {item.instaComp.providerCoverage.map((provider, index) => (
+                          <p key={`${provider.source}-${index}`}>
+                            <strong>{provider.label || provider.source || "Provider"}</strong>: {provider.status || "unknown"} · {provider.resultCount} results
+                            {provider.message ? ` · ${provider.message}` : ""}
+                          </p>
+                        ))}
+                        <p className="break-all text-neutral-500">
+                          Inventory: {item.inventoryItemId}
+                          <br />
+                          Scan: {item.instaComp.scanId || "Not recorded"}
+                        </p>
+                      </div>
                     </details>
                   </div>
                 </div>

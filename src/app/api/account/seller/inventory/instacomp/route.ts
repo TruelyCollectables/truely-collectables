@@ -43,6 +43,54 @@ function roundedPrice(value: unknown) {
     : 0;
 }
 
+function compactComp(value: any) {
+  const price = roundedPrice(value?.price);
+  const url = String(value?.url || "").trim();
+  if (!price || !url) return null;
+
+  return {
+    title: String(value?.title || "Untitled comp").slice(0, 300),
+    price,
+    currency: String(value?.currency || "USD").slice(0, 12),
+    url,
+    imageUrl: typeof value?.imageUrl === "string" ? value.imageUrl : null,
+    source: String(value?.source || "unknown").slice(0, 100),
+    sourceLabel: String(value?.sourceLabel || value?.source || "Source").slice(0, 120),
+    sourceCategory: String(value?.sourceCategory || "broad").slice(0, 40),
+    matchScore: Number.isFinite(Number(value?.matchScore))
+      ? Math.max(0, Math.min(1, Number(value.matchScore)))
+      : null,
+    flags: Array.isArray(value?.flags)
+      ? value.flags.map((flag: unknown) => String(flag).slice(0, 120)).slice(0, 20)
+      : [],
+    soldAt: typeof value?.soldAt === "string" ? value.soldAt : null,
+    listedAt: typeof value?.listedAt === "string" ? value.listedAt : null,
+    observedAt: typeof value?.observedAt === "string" ? value.observedAt : null,
+  };
+}
+
+function compactCompList(values: unknown, limit = 20) {
+  if (!Array.isArray(values)) return [];
+  return values
+    .map(compactComp)
+    .filter((value): value is NonNullable<ReturnType<typeof compactComp>> => Boolean(value))
+    .slice(0, limit);
+}
+
+function isExcludedEvidence(comp: ReturnType<typeof compactComp>) {
+  return Boolean(
+    comp?.flags.some((flag: string) =>
+      /excluded|guidance comp|not used for pricing/i.test(flag),
+    ),
+  );
+}
+
+function isOwnStoreCompetition(comp: ReturnType<typeof compactComp>) {
+  if (!comp) return true;
+  if (comp.source.toLowerCase() === "tcos_inventory") return true;
+  return comp.flags.some((flag: string) => /seller listing|own listing|store listing/i.test(flag));
+}
+
 async function downloadImage(url: string, index: number) {
   const response = await fetch(url, {
     signal: AbortSignal.timeout(25_000),
@@ -204,21 +252,33 @@ export async function POST(request: NextRequest) {
           status: provider?.status || null,
           resultCount: Array.isArray(provider?.results) ? provider.results.length : 0,
           message: provider?.message || null,
+          searchUrl: typeof provider?.searchUrl === "string" ? provider.searchUrl : null,
         }))
       : [];
     const failedProviders = providerCoverage.filter(
       (provider: any) =>
         provider.status === "error" || provider.status === "not_configured",
     );
-    const exactCompCount = Array.isArray(scan.marketValueComps)
-      ? scan.marketValueComps.length
-      : 0;
+
+    const soldCompEvidence = compactCompList(scan?.soldComps, 20).filter(
+      (comp) => comp.sourceCategory === "sold" && !isExcludedEvidence(comp),
+    );
+    const activeCompetition = compactCompList(
+      Array.isArray(scan?.remainingCards) ? scan.remainingCards : scan?.activeComps,
+      20,
+    ).filter(
+      (comp) =>
+        (comp.sourceCategory === "marketplace" || comp.sourceCategory === "auction") &&
+        !isOwnStoreCompetition(comp),
+    );
+
+    const reliableSoldCompCount = soldCompEvidence.length;
     const priceCandidate = roundedPrice(
-      scan?.stats?.suggestedPrice || scan?.stats?.median || 0,
+      scan?.soldStats?.suggestedPrice || scan?.soldStats?.median || 0,
     );
     const trustedForPricing = scan?.review?.trustedForPricing === true;
     const hasReliableSoldComps =
-      trustedForPricing && exactCompCount > 0 && priceCandidate > 0;
+      trustedForPricing && reliableSoldCompCount > 0 && priceCandidate > 0;
     const suggestedPrice = hasReliableSoldComps ? priceCandidate : 0;
     const pricingStatus = hasReliableSoldComps
       ? "suggested_from_reliable_sold_comps"
@@ -231,18 +291,27 @@ export async function POST(request: NextRequest) {
       )
       .join("; ");
     const pricingReason = hasReliableSoldComps
-      ? `${exactCompCount} reliable exact sold comp${exactCompCount === 1 ? "" : "s"} passed identity and pricing trust checks.`
+      ? `${reliableSoldCompCount} reliable exact sold comp${reliableSoldCompCount === 1 ? "" : "s"} passed identity and pricing trust checks. Active listings were not used to calculate this price.`
       : providerFailureSummary
-        ? `No reliable sold-comp price was available. ${providerFailureSummary} Seller sets the price.`
-        : "No reliable sold comps passed the exact-card identity and pricing trust checks. Seller sets the price.";
+        ? `No reliable sold-comp price was available. ${providerFailureSummary} Active listings are shown only as competition. Seller sets the price.`
+        : "No reliable sold comps passed the exact-card identity and pricing trust checks. Active listings are shown only as competition. Seller sets the price.";
     const pricingCheckedAt = new Date().toISOString();
+    const sourceLinks = {
+      ebaySoldUrl: typeof scan?.links?.ebaySoldUrl === "string" ? scan.links.ebaySoldUrl : null,
+      ebayActiveUrl:
+        typeof scan?.links?.ebayActiveUrl === "string" ? scan.links.ebayActiveUrl : null,
+      broadCardMarketUrl:
+        typeof scan?.links?.broadCardMarketUrl === "string"
+          ? scan.links.broadCardMarketUrl
+          : null,
+    };
 
     const existingInstaComp = recordValue(metadata.instacomp);
     const nextMetadata = {
       ...metadata,
       instacomp: {
         ...existingInstaComp,
-        schema: "truely.instacompInventoryScan.v1",
+        schema: "truely.instacompInventoryScan.v2",
         source: "seller_inventory_action",
         scanId: scan.scanId || null,
         humanVerified: existingInstaComp.humanVerified === true,
@@ -254,7 +323,7 @@ export async function POST(request: NextRequest) {
         suggestedPrice,
         pricingStatus,
         pricingReason,
-        reliableSoldCompCount: hasReliableSoldComps ? exactCompCount : 0,
+        reliableSoldCompCount: hasReliableSoldComps ? reliableSoldCompCount : 0,
         pricingCheckedAt,
         trustedForPricing: hasReliableSoldComps,
         listingPrice: existingInstaComp.listingPrice ?? null,
@@ -262,6 +331,9 @@ export async function POST(request: NextRequest) {
         ai: scan.ai,
         review: scan.review || null,
         providerCoverage,
+        soldCompEvidence,
+        activeCompetition,
+        sourceLinks,
         searchQuery: scan.searchQuery || null,
         scannedAt: pricingCheckedAt,
       },
@@ -285,8 +357,11 @@ export async function POST(request: NextRequest) {
       pricingStatus,
       pricingReason,
       trustedForPricing: hasReliableSoldComps,
-      exactCompCount,
-      reliableSoldCompCount: hasReliableSoldComps ? exactCompCount : 0,
+      exactCompCount: reliableSoldCompCount,
+      reliableSoldCompCount: hasReliableSoldComps ? reliableSoldCompCount : 0,
+      soldCompEvidence,
+      activeCompetition,
+      sourceLinks,
       providerCoverage,
       providerProblems: failedProviders,
       imageCountUsed: files.length,
