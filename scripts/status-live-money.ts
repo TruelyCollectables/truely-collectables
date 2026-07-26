@@ -48,16 +48,9 @@ function missingEnvironmentVariables() {
   return missing;
 }
 
-function liveSecretStatus(
-  primary: string | undefined,
-  fallback: string | undefined,
-  prefix: string,
-) {
-  if (hasPrefix(primary, prefix)) return "configured";
-  if (hasPrefix(fallback, prefix)) return "configured via fallback";
-  if (configured(primary) || configured(fallback)) {
-    return "present but not live-shaped";
-  }
+function liveSecretStatus(value: string | undefined, prefix: string) {
+  if (hasPrefix(value, prefix)) return "configured";
+  if (configured(value)) return "present but not live-shaped";
   return "missing";
 }
 
@@ -88,7 +81,6 @@ function localEnvironmentStatus() {
         label: "Stripe live secret key",
         status: liveSecretStatus(
           process.env.STRIPE_LIVE_SECRET_KEY,
-          process.env.STRIPE_SECRET_KEY,
           "sk_live_",
         ),
       },
@@ -96,7 +88,6 @@ function localEnvironmentStatus() {
         label: "Stripe live publishable key",
         status: liveSecretStatus(
           process.env.NEXT_PUBLIC_STRIPE_LIVE_PUBLISHABLE_KEY,
-          process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY,
           "pk_live_",
         ),
       },
@@ -104,7 +95,6 @@ function localEnvironmentStatus() {
         label: "Stripe live webhook secret",
         status: liveSecretStatus(
           process.env.STRIPE_LIVE_WEBHOOK_SECRET,
-          process.env.STRIPE_WEBHOOK_SECRET,
           "whsec_",
         ),
       },

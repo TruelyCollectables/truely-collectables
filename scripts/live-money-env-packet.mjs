@@ -34,7 +34,7 @@ const finalLivePaymentRuntime = [
   {
     key: "STRIPE_LIVE_SECRET_KEY",
     placeholder: "sk_live_<redacted>",
-    note: "Live Stripe secret key. Prefer this live-suffixed name over unsuffixed compatibility fallbacks.",
+    note: "Dedicated live Stripe secret key. This exact variable is required; generic Stripe variables are not accepted for live Checkout.",
   },
   {
     key: "NEXT_PUBLIC_STRIPE_LIVE_PUBLISHABLE_KEY",
