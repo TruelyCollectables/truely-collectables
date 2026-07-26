@@ -4,13 +4,15 @@ on:
   push:
     branches:
       - agent/instacomp-exact-parallel-guard-20260726
+  pull_request:
+    types: [opened, synchronize, reopened]
 
 permissions:
   contents: write
 
 jobs:
   patch:
-    if: github.actor != 'github-actions[bot]'
+    if: github.actor != 'github-actions[bot]' && (github.event_name == 'push' || github.head_ref == 'agent/instacomp-exact-parallel-guard-20260726')
     runs-on: ubuntu-latest
     steps:
       - name: Check out exact-parallel branch
