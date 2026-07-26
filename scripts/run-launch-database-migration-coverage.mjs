@@ -3,6 +3,7 @@ import path from "node:path";
 
 const root = process.cwd();
 const migrationsDirectory = path.join(root, "supabase", "migrations");
+const reportPath = path.join(root, "launch-database-migration-coverage.json");
 
 const requirements = [
   {
@@ -172,6 +173,16 @@ for (const result of results) {
 }
 
 const missing = results.filter((result) => !result.covered);
+const report = {
+  generatedAt: new Date().toISOString(),
+  migrationFileCount: migrationFiles.length,
+  requiredObjectCount: results.length,
+  coveredObjectCount: results.length - missing.length,
+  missingObjectCount: missing.length,
+  requirements: results,
+};
+
+fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
 
 if (missing.length > 0) {
   throw new Error(
