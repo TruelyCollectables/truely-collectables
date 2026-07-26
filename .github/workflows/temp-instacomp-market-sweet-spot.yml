@@ -56,7 +56,9 @@ jobs:
       - name: Apply full market-pricing package
         id: patch
         continue-on-error: true
-        run: node scripts/apply-instacomp-market-sweet-spot.mjs > /tmp/instacomp-market-patch.log 2>&1
+        run: |
+          node scripts/apply-instacomp-market-sweet-spot.mjs > /tmp/instacomp-market-patch.log 2>&1
+          node scripts/fix-instacomp-market-guard.mjs >> /tmp/instacomp-market-patch.log 2>&1
 
       - name: Persist patch failure evidence
         if: steps.patch.outcome == 'failure'
@@ -86,6 +88,7 @@ jobs:
         run: |
           rm -f scripts/apply-instacomp-market-sweet-spot.mjs
           rm -f scripts/normalize-instacomp-market-patch-targets.mjs
+          rm -f scripts/fix-instacomp-market-guard.mjs
           rm -f docs/instacomp-market-patch-failure.txt
           rm -f docs/.instacomp-market-sweet-spot-retry
           git config user.name "github-actions[bot]"
@@ -98,6 +101,7 @@ jobs:
             scripts/run-instacomp-market-sweet-spot-regressions.ts \
             scripts/apply-instacomp-market-sweet-spot.mjs \
             scripts/normalize-instacomp-market-patch-targets.mjs \
+            scripts/fix-instacomp-market-guard.mjs \
             docs/instacomp-market-patch-failure.txt \
             docs/.instacomp-market-sweet-spot-retry
           if git diff --cached --quiet; then
