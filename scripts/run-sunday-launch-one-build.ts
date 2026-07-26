@@ -22,9 +22,16 @@ function check(name: string, condition: unknown, detail: string) {
 }
 
 function equal(name: string, actual: unknown, expected: unknown) {
+  const structured =
+    (actual !== null && typeof actual === "object") ||
+    (expected !== null && typeof expected === "object");
+  const passed = structured
+    ? JSON.stringify(actual) === JSON.stringify(expected)
+    : Object.is(actual, expected);
+
   check(
     name,
-    Object.is(actual, expected),
+    passed,
     `expected ${JSON.stringify(expected)}, received ${JSON.stringify(actual)}`,
   );
 }
@@ -82,25 +89,21 @@ function shippingChecks() {
   );
   equal(
     "Ten-dollar order exposes all premium choices",
-    JSON.stringify(
-      getAvailableShippingMethods({
-        itemCount: 1,
-        subtotal: 10,
-        listingPriceBasis: 10,
-      }),
-    ),
-    JSON.stringify(["STANDARD_ENVELOPE", "GROUND_ADVANTAGE", "PRIORITY_MAIL"]),
+    getAvailableShippingMethods({
+      itemCount: 1,
+      subtotal: 10,
+      listingPriceBasis: 10,
+    }),
+    ["STANDARD_ENVELOPE", "GROUND_ADVANTAGE", "PRIORITY_MAIL"],
   );
   equal(
     "Twenty-four-dollar listing hides the letter tier",
-    JSON.stringify(
-      getAvailableShippingMethods({
-        itemCount: 1,
-        subtotal: 18,
-        listingPriceBasis: 24,
-      }),
-    ),
-    JSON.stringify(["GROUND_ADVANTAGE", "PRIORITY_MAIL"]),
+    getAvailableShippingMethods({
+      itemCount: 1,
+      subtotal: 18,
+      listingPriceBasis: 24,
+    }),
+    ["GROUND_ADVANTAGE", "PRIORITY_MAIL"],
   );
   equal(
     "Ground Advantage first five cards",
