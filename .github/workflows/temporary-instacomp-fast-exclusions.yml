@@ -59,7 +59,7 @@ jobs:
             echo "Sold-cache and deterministic-exact correction already applied." >> /tmp/instacomp-fast.log
             PATCH_EXACT=0
           else
-            node scripts/apply-instacomp-sold-cache-exact-override.mjs >> /tmp/instacomp-fast.log 2>&1
+            node scripts/apply-instacomp-sold-cache-exact-override-v2.mjs >> /tmp/instacomp-fast.log 2>&1
             PATCH_EXACT=$?
           fi
 
