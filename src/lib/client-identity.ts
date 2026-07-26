@@ -22,15 +22,22 @@ function firstHeaderIp(value: string | null): string | null {
   if (!value) return null;
 
   const forwardedMatch = /for="?([^;,"]+)/i.exec(value);
-  const rawValue = forwardedMatch?.[1] || value.split(",")[0];
-
-  return rawValue
+  let candidate = (forwardedMatch?.[1] || value.split(",")[0])
     .trim()
-    .replace(/^\[/, "")
-    .replace(/\]$/, "")
-    .replace(/^::ffff:/i, "")
-    .split(":")[0]
-    .trim();
+    .replace(/^"|"$/g, "");
+
+  if (candidate.startsWith("[")) {
+    const closingBracket = candidate.indexOf("]");
+    if (closingBracket > 1) candidate = candidate.slice(1, closingBracket);
+  } else if (/^\d{1,3}(?:\.\d{1,3}){3}:\d+$/.test(candidate)) {
+    candidate = candidate.slice(0, candidate.lastIndexOf(":"));
+  }
+
+  if (candidate.toLowerCase().startsWith("::ffff:")) {
+    candidate = candidate.slice(7);
+  }
+
+  return candidate.trim() || null;
 }
 
 function isIpv4(value: string): boolean {
@@ -45,10 +52,18 @@ function isIpv4(value: string): boolean {
   });
 }
 
+function isIpv6(value: string): boolean {
+  return value.includes(":") && /^[0-9a-f:.]+$/i.test(value);
+}
+
+function isRecognizedIp(value: string): boolean {
+  return isIpv4(value) || isIpv6(value);
+}
+
 function isPrivateOrReservedIpv4(value: string): boolean {
   if (!isIpv4(value)) return false;
 
-  const [a, b] = value.split(".").map(Number);
+  const [a, b, c] = value.split(".").map(Number);
 
   return (
     a === 0 ||
@@ -59,7 +74,7 @@ function isPrivateOrReservedIpv4(value: string): boolean {
     (a === 172 && b >= 16 && b <= 31) ||
     (a === 192 && b === 168) ||
     (a === 192 && b === 0) ||
-    (a === 192 && b === 0 && value.split(".")[2] === "2") ||
+    (a === 192 && b === 0 && c === 2) ||
     (a === 198 && (b === 18 || b === 19)) ||
     (a === 198 && b === 51) ||
     (a === 203 && b === 0) ||
@@ -71,17 +86,19 @@ function isPrivateOrReservedIpv6(value: string): boolean {
   const normalized = value.toLowerCase();
 
   return (
+    normalized === "::" ||
     normalized === "::1" ||
     normalized.startsWith("fc") ||
     normalized.startsWith("fd") ||
-    normalized.startsWith("fe80:")
+    normalized.startsWith("fe80:") ||
+    normalized.startsWith("2001:db8:")
   );
 }
 
 function isPrivateOrReservedIp(value: string): boolean {
   if (isIpv4(value)) return isPrivateOrReservedIpv4(value);
-
-  return isPrivateOrReservedIpv6(value);
+  if (isIpv6(value)) return isPrivateOrReservedIpv6(value);
+  return true;
 }
 
 function truncate(value: string | null, maxLength: number): string | null {
@@ -113,7 +130,7 @@ function getClientIp(headers: Headers): string | null {
   for (const headerName of IP_HEADER_NAMES) {
     const ipAddress = firstHeaderIp(headers.get(headerName));
 
-    if (ipAddress) return ipAddress;
+    if (ipAddress && isRecognizedIp(ipAddress)) return ipAddress;
   }
 
   return null;
@@ -182,22 +199,46 @@ async function checkIpIntelligence(ipAddress: string): Promise<{
   };
 }
 
+function uncheckedIdentity(params: {
+  ipAddress: string | null;
+  userAgent: string | null;
+  evidence: Record<string, string | null>;
+  reason: string;
+}): ClientIdentity {
+  return {
+    ipAddress: params.ipAddress,
+    userAgent: params.userAgent,
+    risk: "unchecked",
+    blocked: false,
+    blockReason: params.reason,
+    evidence: params.evidence,
+  };
+}
+
 export async function getClientIdentity(request: Request): Promise<ClientIdentity> {
   const ipAddress = getClientIp(request.headers);
   const userAgent = truncate(request.headers.get("user-agent"), 500);
   const evidence = buildEvidence(request.headers);
-  const allowPrivateIp = process.env.NODE_ENV !== "production";
+  const production = process.env.NODE_ENV === "production";
+  const intelligenceRequired = process.env.IP_INTELLIGENCE_REQUIRED === "true";
 
   if (!ipAddress) {
-    if (allowPrivateIp) {
-      return {
+    if (!production) {
+      return uncheckedIdentity({
         ipAddress: "development",
         userAgent,
-        risk: "unchecked",
-        blocked: false,
-        blockReason: null,
         evidence,
-      };
+        reason: "development_identity",
+      });
+    }
+
+    if (!intelligenceRequired) {
+      return uncheckedIdentity({
+        ipAddress: null,
+        userAgent,
+        evidence,
+        reason: "missing_public_ip_unchecked",
+      });
     }
 
     return {
@@ -210,7 +251,16 @@ export async function getClientIdentity(request: Request): Promise<ClientIdentit
     };
   }
 
-  if (isPrivateOrReservedIp(ipAddress) && !allowPrivateIp) {
+  if (isPrivateOrReservedIp(ipAddress) && production) {
+    if (!intelligenceRequired) {
+      return uncheckedIdentity({
+        ipAddress,
+        userAgent,
+        evidence,
+        reason: "private_or_reserved_ip_unchecked",
+      });
+    }
+
     return {
       ipAddress,
       userAgent,
@@ -252,3 +302,11 @@ export function metadataSafeIdentity(identity: ClientIdentity) {
     tos_ip_block_reason: identity.blockReason || "",
   };
 }
+
+export const clientIdentityTestHelpers = {
+  firstHeaderIp,
+  isIpv4,
+  isIpv6,
+  isRecognizedIp,
+  isPrivateOrReservedIp,
+};
