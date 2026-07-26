@@ -1,9 +1,7 @@
 import { NextResponse } from "next/server";
 import Stripe from "stripe";
 import { Resend } from "resend";
-import {
-  InventoryEngineError,
-} from "../../../../modules/inventory";
+import { InventoryEngineError } from "../../../../modules/inventory";
 import { getStoreSettings } from "../../../../lib/store-settings";
 import { getActiveStoreId } from "../../../../lib/stores";
 import { trustedRequestOrigin } from "../../../../lib/site-origin";
@@ -15,32 +13,32 @@ import {
   normalizedOfferMoney,
   type AdminOfferDecisionAction,
 } from "../../../../lib/admin-offer-decision";
+import {
+  buildOfferShippingSnapshot,
+  offerShippingMetadata,
+  offerStripeShippingOptions,
+} from "../../../../lib/offer-shipping";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: Request) {
   try {
     const resendKey = process.env.RESEND_API_KEY;
-
     const supabase = createSupabaseServerClient({ admin: true });
     const resend = resendKey ? new Resend(resendKey) : null;
     const storeId = getActiveStoreId();
     const storeSettings = await getStoreSettings(supabase, storeId);
-
     const { offerId, status } = await req.json();
 
     if (!offerId || !status) {
       return NextResponse.json(
         { error: "Missing offerId or status" },
-        { status: 400 }
+        { status: 400 },
       );
     }
 
     if (!["accepted", "declined"].includes(status)) {
-      return NextResponse.json(
-        { error: "Invalid status" },
-        { status: 400 }
-      );
+      return NextResponse.json({ error: "Invalid status" }, { status: 400 });
     }
 
     const { data: offer, error: offerError } = await supabase
@@ -53,15 +51,12 @@ export async function POST(req: Request) {
     if (offerError || !offer) {
       return NextResponse.json(
         { error: offerError?.message || "Offer not found" },
-        { status: 404 }
+        { status: 404 },
       );
     }
 
     if (!offer.products) {
-      return NextResponse.json(
-        { error: "Product not found for this offer" },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: "Product not found for this offer" }, { status: 404 });
     }
 
     const action = status as AdminOfferDecisionAction;
@@ -103,7 +98,6 @@ export async function POST(req: Request) {
 
       if (resend) {
         const storeName = storeSettings.displayName.trim() || "our store";
-
         await resend.emails.send({
           from: storeSettings.orderFromEmail,
           to: offer.customer_email,
@@ -127,7 +121,6 @@ export async function POST(req: Request) {
     ]);
 
     const origin = trustedRequestOrigin(req);
-
     const amount = normalizedOfferMoney(offer.offer_amount);
 
     if (!amount || amount <= 0) {
@@ -137,13 +130,26 @@ export async function POST(req: Request) {
       );
     }
 
+    const listingPriceBasis = Number(
+      offer.listing_price_at_offer ?? offer.products.price ?? amount,
+    );
+    const minimumShipping = buildOfferShippingSnapshot({
+      saleSubtotal: amount,
+      listingPriceBasis,
+    });
+    const shippingOptions = offerStripeShippingOptions({
+      saleSubtotal: amount,
+      listingPriceBasis,
+    });
     const stripeRuntime = await getStripePaymentRuntime({ storeId, supabase });
+
     if (!stripeRuntime.allowed || !stripeRuntime.stripeKey) {
       return NextResponse.json(
         { error: stripeRuntime.reason },
         { status: 503 },
       );
     }
+
     const stripe = new Stripe(stripeRuntime.stripeKey);
     const stripeIdempotencyKey = [
       "tcos",
@@ -161,6 +167,7 @@ export async function POST(req: Request) {
         shipping_address_collection: {
           allowed_countries: ["US"],
         },
+        shipping_options: shippingOptions,
         line_items: [
           {
             price_data: {
@@ -185,9 +192,10 @@ export async function POST(req: Request) {
           cart: JSON.stringify([{ id: Number(offer.products.id), quantity: 1 }]),
           subtotal: amount.toFixed(2),
           item_count: "1",
-          shipping_method: "OFFER_CHECKOUT",
-          shipping_name: "Offer checkout",
-          shipping_amount: "0.00",
+          shipping_selection_mode: "stripe_shipping_options",
+          minimum_shipping_method: minimumShipping.method,
+          minimum_shipping_amount: minimumShipping.amount.toFixed(2),
+          ...offerShippingMetadata(minimumShipping),
           tos_accepted: offer.tos_accepted ? "true" : "false",
           tos_version: offer.tos_version || "",
           tos_accepted_at: offer.tos_accepted_at || "",
@@ -232,7 +240,6 @@ export async function POST(req: Request) {
 
     if (resend && session.url) {
       const storeName = storeSettings.displayName.trim() || "our store";
-
       await resend.emails.send({
         from: storeSettings.orderFromEmail,
         to: offer.customer_email,
@@ -242,12 +249,9 @@ export async function POST(req: Request) {
           <p>Hi ${offer.customer_name || "there"},</p>
           <p>Your offer on <strong>${offer.products.title}</strong> was accepted.</p>
           <p>Accepted price: <strong>$${amount.toFixed(2)}</strong></p>
+          <p>Shipping starts with <strong>${minimumShipping.name}</strong> at <strong>$${minimumShipping.amount.toFixed(2)}</strong>, based on the original $${listingPriceBasis.toFixed(2)} listing price. You may choose a premium shipping upgrade during payment.</p>
           <p>Pay securely here:</p>
-          <p>
-            <a href="${session.url}" style="display:inline-block;padding:12px 18px;background:#000;color:#fff;text-decoration:none;border-radius:6px;">
-              Pay Now
-            </a>
-          </p>
+          <p><a href="${session.url}" style="display:inline-block;padding:12px 18px;background:#000;color:#fff;text-decoration:none;border-radius:6px;">Pay Now</a></p>
           <p>Thank you,<br/>${storeName}</p>
         `,
       });
@@ -262,13 +266,13 @@ export async function POST(req: Request) {
     if (error instanceof InventoryEngineError) {
       return NextResponse.json(
         { error: error.message },
-        { status: error.statusCode }
+        { status: error.statusCode },
       );
     }
 
     return NextResponse.json(
       { error: error.message || "Failed to update offer" },
-      { status: 500 }
+      { status: 500 },
     );
   }
 }
