@@ -1,12 +1,10 @@
-name: Authenticated Production Smoke And Stripe Readiness
+name: Production Environment Smoke And Live-Money Readiness
 
 on:
   pull_request:
     branches:
       - main
     paths:
-      - "scripts/audit-authenticated-production-readiness.mjs"
-      - "scripts/verify-production-stripe-cron.mjs"
       - ".github/workflows/authenticated-production-smoke.yml"
   workflow_dispatch:
 
@@ -14,66 +12,76 @@ permissions:
   contents: read
 
 jobs:
-  authenticated-production-smoke:
+  production-environment-smoke:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 35
     env:
-      SMOKE_ADMIN_PASSWORD: ${{ secrets.SMOKE_ADMIN_PASSWORD }}
-      TCOS_CRON_SECRET: ${{ secrets.TCOS_CRON_SECRET }}
-      SMOKE_BASE_URL: https://truelycollectables.com
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+      VERCEL_PROJECT_NAME: truely-collectables
     steps:
-      - name: Check out temporary launch-audit branch
+      - name: Check out current main
         uses: actions/checkout@v4
         with:
-          ref: agent/one-hour-launch-audit-20260726
+          ref: main
           fetch-depth: 0
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 22
+          cache: npm
 
-      - name: Verify protected Production Stripe reconciliation
-        run: node scripts/verify-production-stripe-cron.mjs
+      - name: Verify Vercel authentication
+        run: test -n "${VERCEL_TOKEN:-}"
 
-      - name: Check admin smoke secret availability
-        id: admin_secret
-        shell: bash
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Link Production project without deployment
         run: |
-          if test -n "${SMOKE_ADMIN_PASSWORD:-}"; then
-            echo "available=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "available=false" >> "$GITHUB_OUTPUT"
-            echo "SMOKE_ADMIN_PASSWORD is unavailable; protected Stripe verification completed."
-          fi
+          mkdir -p "$RUNNER_TEMP/tcos-vercel-cli-56.2.0"
+          npm --prefix "$RUNNER_TEMP/tcos-vercel-cli-56.2.0" exec --yes --package=vercel@56.2.0 -- \
+            vercel --cwd "$PWD" link --yes --project "$VERCEL_PROJECT_NAME" \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" --no-color
 
-      - name: Run authenticated redacted Launch Readiness audit
-        if: ${{ steps.admin_secret.outputs.available == 'true' }}
-        id: readiness
+      - name: Run live-money status with real Production environment
+        id: live_money
         continue-on-error: true
-        run: node scripts/audit-authenticated-production-readiness.mjs > authenticated-production-readiness.log 2>&1
+        run: |
+          npm --prefix "$RUNNER_TEMP/tcos-vercel-cli-56.2.0" exec --yes --package=vercel@56.2.0 -- \
+            vercel --cwd "$PWD" env run -e production --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" --no-color -- \
+            node --import tsx scripts/status-live-money.ts --allow-blocked --json \
+            > production-live-money-status.json
 
-      - name: Run complete existing Production smoke suite
-        if: ${{ steps.admin_secret.outputs.available == 'true' }}
+      - name: Run full Production smoke with real Production environment
         id: smoke
         continue-on-error: true
-        run: node scripts/smoke-production.mjs > production-smoke.log 2>&1
+        run: |
+          npm --prefix "$RUNNER_TEMP/tcos-vercel-cli-56.2.0" exec --yes --package=vercel@56.2.0 -- \
+            vercel --cwd "$PWD" env run -e production --scope "$VERCEL_SCOPE" \
+            --token "$VERCEL_TOKEN" --no-color -- \
+            node scripts/smoke-production.mjs \
+            > production-smoke.log 2>&1
 
-      - name: Upload redacted smoke evidence
+      - name: Upload redacted Production evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: authenticated-production-smoke-evidence
+          name: production-environment-smoke-evidence
           path: |
-            production-stripe-cron-verification.json
-            authenticated-production-readiness.json
-            authenticated-production-readiness.log
+            production-live-money-status.json
             production-smoke.log
           if-no-files-found: error
           retention-days: 7
 
-      - name: Enforce authenticated readiness and smoke when available
-        if: ${{ steps.admin_secret.outputs.available == 'true' && (steps.readiness.outcome == 'failure' || steps.smoke.outcome == 'failure') }}
+      - name: Remove Vercel project cache
+        if: always()
+        run: rm -rf .vercel
+
+      - name: Enforce Production smoke
+        if: steps.live_money.outcome == 'failure' || steps.smoke.outcome == 'failure'
         run: |
-          echo "Authenticated Production readiness or smoke failed. Review the redacted artifact."
+          echo "Production environment status or smoke failed. Review the redacted artifact."
           exit 1
