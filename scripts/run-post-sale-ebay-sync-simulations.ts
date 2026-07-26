@@ -5,6 +5,7 @@ import {
   ebayQuantityRetryDelaySeconds,
   selectLowestSafeEbayQuantity,
 } from "../src/lib/ebay-quantity-sync-safety";
+import { offerCheckoutAttemptId } from "../src/lib/offer-checkout-attempt";
 
 const cases: Array<{ values: unknown[]; expected: number; label: string }> = [
   {
@@ -75,8 +76,32 @@ assert.equal(
   false,
 );
 
+const offerAttemptA = offerCheckoutAttemptId({
+  storeId: "00000000-0000-0000-0000-000000000001",
+  offerId: 101,
+});
+const offerAttemptAReplay = offerCheckoutAttemptId({
+  storeId: "00000000-0000-0000-0000-000000000001",
+  offerId: 101,
+});
+const offerAttemptB = offerCheckoutAttemptId({
+  storeId: "00000000-0000-0000-0000-000000000001",
+  offerId: 102,
+});
+assert.match(
+  offerAttemptA,
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-8[0-9a-f]{3}-[0-9a-f]{12}$/,
+  "accepted offers must map to a valid deterministic checkout UUID",
+);
+assert.equal(offerAttemptA, offerAttemptAReplay);
+assert.notEqual(offerAttemptA, offerAttemptB);
+
 const migration = readFileSync(
   "supabase/migrations/20260726233000_post_sale_ebay_quantity_sync_outbox.sql",
+  "utf8",
+);
+const attachedReservationMigration = readFileSync(
+  "supabase/migrations/20260726234000_consume_attached_offer_checkout_reservations.sql",
   "utf8",
 );
 const cronRoute = readFileSync(
@@ -93,6 +118,18 @@ const clearCartOnSuccess = readFileSync(
 );
 const checkoutRoute = readFileSync("src/app/api/checkout/route.ts", "utf8");
 const clientIdentity = readFileSync("src/lib/client-identity.ts", "utf8");
+const offerCreateRoute = readFileSync(
+  "src/app/api/offers/create/route.ts",
+  "utf8",
+);
+const offerCheckoutRoute = readFileSync(
+  "src/app/api/offers/buyer-checkout/route.ts",
+  "utf8",
+);
+const reservedOfferCheckout = readFileSync(
+  "src/lib/reserved-offer-checkout.ts",
+  "utf8",
+);
 
 for (const required of [
   "create table if not exists public.ebay_quantity_sync_outbox",
@@ -137,7 +174,7 @@ assert.ok(
 assert.ok(
   checkoutRoute.includes('claim.requestStatus === "session_created"') &&
     checkoutRoute.includes("replayed: true"),
-  "the server must replay an existing open Stripe Session",
+  "the cart server must replay an existing open Stripe Session",
 );
 assert.ok(
   clearCartOnSuccess.includes(
@@ -153,6 +190,50 @@ assert.ok(
   "optional TCOS IP intelligence must not block the Truely Collectables storefront",
 );
 
+assert.ok(
+  offerCreateRoute.includes("ownerNotificationDelivered") &&
+    offerCreateRoute.includes('console.error("Best-offer owner notification failed:"'),
+  "a saved offer must remain successful when the owner email fails",
+);
+
+const offerReservePosition = reservedOfferCheckout.indexOf(
+  "reserveCheckoutInventory({",
+);
+const offerStripeCreatePosition = reservedOfferCheckout.indexOf(
+  "checkout.sessions.create(",
+);
+assert.ok(offerReservePosition >= 0 && offerStripeCreatePosition >= 0);
+assert.ok(
+  offerReservePosition < offerStripeCreatePosition,
+  "accepted-offer inventory must be reserved before Stripe creates a payable session",
+);
+assert.ok(
+  reservedOfferCheckout.includes('claim.requestStatus === "session_created"') &&
+    reservedOfferCheckout.includes("replayed: true"),
+  "accepted-offer retries must replay the existing open Stripe Session",
+);
+assert.ok(
+  reservedOfferCheckout.includes(
+    "const stripeIdempotencyKey = `truely_offer_checkout_${params.storeId}_${checkoutAttemptId}`",
+  ),
+  "accepted-offer idempotency must not vary by shipping or protection choice",
+);
+assert.ok(
+  offerCheckoutRoute.includes("startReservedOfferCheckout({") &&
+    !offerCheckoutRoute.includes("checkout.sessions.create("),
+  "the accepted-offer route must use the reservation-backed session lifecycle exclusively",
+);
+assert.ok(
+  attachedReservationMigration.indexOf("reservation.stripe_session_id") <
+    attachedReservationMigration.indexOf("select coalesce(sum(reservation.quantity)"),
+  "an attached paid reservation must be consumed before the legacy unreserved decrement path",
+);
+assert.ok(
+  attachedReservationMigration.includes("set status = 'consumed'") &&
+    attachedReservationMigration.includes("insert into public.order_inventory_consumptions"),
+  "accepted-offer reservation consumption must update both reservation and exactly-once consumption records",
+);
+
 console.log(
-  "Post-sale eBay quantity, customer notification, checkout replay, and storefront identity safety simulations passed.",
+  "Post-sale eBay quantity, customer notification, checkout replay, storefront identity, offer submission, and accepted-offer reservation safety simulations passed.",
 );
