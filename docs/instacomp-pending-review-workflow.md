@@ -8,6 +8,7 @@ The pending queue is a seller-controlled review boundary.
 - A `$0.00` suggestion means no reliable sold comps passed and the seller must set the price.
 - Active listings are displayed separately as current competition and never calculate the sold-comp suggestion.
 - Every ingested sold or active evidence row preserves its direct source URL for operator verification.
+- Comp-evidence flags are normalized to typed text before exclusion, competition, and pricing checks.
 - Sellers may select one, some, or all pending cards for InstaComp, pricing, quantity, and publishing actions.
 - Publishing always requires explicit seller confirmation of images, identity, condition, variation, serial, grade, certification, quantity, and price.
 - Raw, non-serialized identical copies may share quantity.
