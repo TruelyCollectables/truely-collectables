@@ -145,9 +145,26 @@ export async function resolveBuyerProtectionSelection(params: {
     };
   }
 
-  const selected = currentAlwaysOn
-    ? true
-    : params.requestedSelected;
+  if (!eligibility.eligible) {
+    if (params.requestedSelected && !currentAlwaysOn) {
+      throw new Error(eligibility.reason || "Buyer Protection is not available.");
+    }
+
+    return {
+      selected: false,
+      feeAmount: 0,
+      coveredAmount: 0,
+      policyVersion: null,
+      termsAcceptedAt: null,
+      consentSource: currentAlwaysOn
+        ? "account_saved_not_applicable_to_order"
+        : null,
+      preferenceMode: currentAlwaysOn ? "always_on" : requestedMode,
+      eligibilityReason: eligibility.reason,
+    };
+  }
+
+  const selected = currentAlwaysOn ? true : params.requestedSelected;
 
   if (!selected) {
     return {
@@ -160,10 +177,6 @@ export async function resolveBuyerProtectionSelection(params: {
       preferenceMode: params.accountId ? requestedMode : "one_time",
       eligibilityReason: eligibility.reason,
     };
-  }
-
-  if (!eligibility.eligible) {
-    throw new Error(eligibility.reason || "Buyer Protection is not available.");
   }
 
   if (currentAlwaysOn && params.accountId) {
