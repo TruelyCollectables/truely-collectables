@@ -1,0 +1,46 @@
+name: Temporary eBay Completed Probe
+
+on:
+  push:
+    branches:
+      - agent/instacomp-exact-market-proof-20260726
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  probe:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: agent/instacomp-exact-market-proof-20260726
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Pull production environment
+        shell: bash
+        run: |
+          npx vercel link --yes --project truely-collectables --scope truelycollectables-projects
+          npx vercel pull --yes --environment=production
+      - name: Probe completed listings
+        shell: bash
+        run: |
+          set +e
+          node --env-file=.env.production.local --import tsx scripts/probe-ebay-completed-market.ts > docs/instacomp-ebay-completed-probe.log 2>&1
+          STATUS=$?
+          echo "probe_status=$STATUS" >> docs/instacomp-ebay-completed-probe.log
+          exit 0
+      - name: Commit probe evidence
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/instacomp-ebay-completed-probe.json docs/instacomp-ebay-completed-probe.log || true
+          git commit -m "Record direct eBay completed market probe" || true
+          git push origin HEAD:agent/instacomp-exact-market-proof-20260726
