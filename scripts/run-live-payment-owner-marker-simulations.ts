@@ -166,17 +166,17 @@ assert.match(
 );
 assert.match(
   core,
-  /const internalOwnerRows = sellerRows\.filter\(\(row\) =>\s*isInternalPlatformStoreOwnerPayoutAccount\(row, storeId\)/s,
+  /const internalOwnerRows = sellerRows\.filter\(\(row\) =>[\s\S]*?isInternalPlatformStoreOwnerPayoutAccount\(row, storeId\)/,
   "The core launch check must identify internal owner settlement rows.",
 );
 assert.match(
   core,
-  /const externalRows = sellerRows\.filter\(\s*\(row\) => !isInternalPlatformStoreOwnerPayoutAccount\(row, storeId\)/s,
+  /const externalRows = sellerRows\.filter\([\s\S]*?\(row\) => !isInternalPlatformStoreOwnerPayoutAccount\(row, storeId\)/,
   "The core launch check must remove internal owner rows before external verification.",
 );
 assert.match(
   core,
-  /externalRows\s*\.map\(\(row\) => row\.provider_account_id\)\s*\.filter\(isExternalStripeConnectAccountId\)/s,
+  /externalRows[\s\S]*?\.map\(\(row\) => row\.provider_account_id\)[\s\S]*?\.filter\(isExternalStripeConnectAccountId\)/,
   "Only validated external acct_ IDs may enter Stripe verification.",
 );
 assert.match(
