@@ -93,6 +93,22 @@ function called(content: string, name: string) {
 }
 
 function explicitProtection(route: string, content: string) {
+  if (route === "/api/checkout") {
+    const checkoutGuards =
+      called(content, "checkPublicEndpointRateLimit") &&
+      called(content, "getStripePaymentRuntime") &&
+      /requireAvailableCartItems\s*\(/.test(content);
+    return checkoutGuards ? "explicit public checkout guard contract" : null;
+  }
+
+  if (route === "/api/offers/create") {
+    const offerGuards =
+      called(content, "checkPublicEndpointRateLimit") &&
+      /requireAvailableCartItems\s*\(/.test(content) &&
+      called(content, "recordTermsAcceptance");
+    return offerGuards ? "explicit public offer guard contract" : null;
+  }
+
   const accountAuth = called(content, "getAuthenticatedAccountFromRequest");
   const publicRateLimit = called(content, "checkPublicEndpointRateLimit");
   const adminSession =
@@ -119,22 +135,6 @@ function explicitProtection(route: string, content: string) {
   if (stripeSignature) return "Stripe webhook signature validation";
   if (signedWebhook) return "signed webhook validation";
   if (timingSafeBearer) return "timing-safe bearer authorization";
-
-  if (route === "/api/checkout") {
-    const checkoutGuards =
-      called(content, "checkPublicEndpointRateLimit") &&
-      called(content, "getStripePaymentRuntime") &&
-      /requireAvailableCartItems\s*\(/.test(content);
-    return checkoutGuards ? "explicit public checkout guard contract" : null;
-  }
-
-  if (route === "/api/offers/create") {
-    const offerGuards =
-      called(content, "checkPublicEndpointRateLimit") &&
-      /requireAvailableCartItems\s*\(/.test(content) &&
-      called(content, "recordTermsAcceptance");
-    return offerGuards ? "explicit public offer guard contract" : null;
-  }
 
   return null;
 }
