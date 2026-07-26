@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { createAdminMarketplaceOAuthState } from "../../../../lib/marketplace-token-crypto";
 import { getActiveStoreId } from "../../../../lib/stores";
 import { getStoreSettings } from "../../../../lib/store-settings";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
@@ -28,19 +29,25 @@ export async function GET() {
   }
 
   const redirectUri = "Truely_Collecta-TruelyCo-Truely-kmpcb";
-
   const scope = [
     "https://api.ebay.com/oauth/api_scope",
     "https://api.ebay.com/oauth/api_scope/sell.inventory",
     "https://api.ebay.com/oauth/api_scope/sell.account.readonly",
   ].join(" ");
-
+  const state = createAdminMarketplaceOAuthState({
+    storeId,
+    provider: "ebay",
+  });
+  const authBase =
+    storeSettings.ebayEnvironment === "sandbox"
+      ? "https://auth.sandbox.ebay.com/oauth2/authorize"
+      : "https://auth.ebay.com/oauth2/authorize";
   const url =
-    `https://auth.ebay.com/oauth2/authorize?` +
-    `client_id=${clientId}` +
+    `${authBase}?client_id=${clientId}` +
     `&response_type=code` +
     `&redirect_uri=${redirectUri}` +
-    `&scope=${encodeURIComponent(scope)}`;
+    `&scope=${encodeURIComponent(scope)}` +
+    `&state=${encodeURIComponent(state)}`;
 
   return NextResponse.redirect(url);
 }

@@ -11,6 +11,7 @@ on:
       - "src/lib/checkout-inventory-reservations.ts"
       - "src/lib/checkout-order-finalization.ts"
       - "src/lib/live-payment-launch*.ts"
+      - "src/lib/marketplace-token-crypto.ts"
       - "src/app/admin/ebay/import-runner/EbayImportRunner.tsx"
       - "src/app/product/[id]/ProductActions.tsx"
       - "src/lib/ebay-front-back-image-sync.ts"
@@ -25,6 +26,7 @@ on:
       - "scripts/run-ebay-import-admin-client-simulations.ts"
       - "scripts/run-checkout-webhook-idempotency-simulations.ts"
       - "scripts/run-offer-checkout-idempotency-simulations.ts"
+      - "scripts/run-ebay-oauth-state-simulations.ts"
       - "scripts/run-privileged-api-route-audit.mjs"
       - "supabase/migrations/20260725010000_checkout_inventory_reservations.sql"
       - "supabase/migrations/20260725170000_consume_checkout_reservations.sql"
@@ -41,6 +43,7 @@ on:
       - "src/lib/checkout-inventory-reservations.ts"
       - "src/lib/checkout-order-finalization.ts"
       - "src/lib/live-payment-launch*.ts"
+      - "src/lib/marketplace-token-crypto.ts"
       - "src/app/admin/ebay/import-runner/EbayImportRunner.tsx"
       - "src/app/product/[id]/ProductActions.tsx"
       - "src/lib/ebay-front-back-image-sync.ts"
@@ -55,6 +58,7 @@ on:
       - "scripts/run-ebay-import-admin-client-simulations.ts"
       - "scripts/run-checkout-webhook-idempotency-simulations.ts"
       - "scripts/run-offer-checkout-idempotency-simulations.ts"
+      - "scripts/run-ebay-oauth-state-simulations.ts"
       - "scripts/run-privileged-api-route-audit.mjs"
       - "supabase/migrations/20260725010000_checkout_inventory_reservations.sql"
       - "supabase/migrations/20260725170000_consume_checkout_reservations.sql"
@@ -148,6 +152,9 @@ jobs:
 
       - name: Install dependencies
         run: npm ci
+
+      - name: Validate eBay OAuth state security
+        run: node --import tsx scripts/run-ebay-oauth-state-simulations.ts
 
       - name: Validate Sunday launch contract
         run: node --import tsx scripts/run-sunday-launch-one-build.ts
