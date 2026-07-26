@@ -1,12 +1,14 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import InstaCompStoreActions from "./InstaCompStoreActions";
+import InventoryQueryNavigationGuard from "./InventoryQueryNavigationGuard";
 
 export default function SellerInventoryLayout({
   children,
 }: Readonly<{ children: ReactNode }>) {
   return (
     <>
+      <InventoryQueryNavigationGuard />
       <section className="border-b-4 border-sky-300 bg-gradient-to-r from-sky-950 via-slate-950 to-emerald-950 px-4 py-5 text-white sm:px-6">
         <div className="mx-auto max-w-7xl">
           <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
