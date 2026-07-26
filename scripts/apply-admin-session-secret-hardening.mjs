@@ -1,5 +1,6 @@
 import fs from "node:fs";
 
+// Re-triggered after the temporary workflow existed on the audit branch.
 function replaceExact(path, before, after) {
   const source = fs.readFileSync(path, "utf8");
   if (!source.includes(before)) {
