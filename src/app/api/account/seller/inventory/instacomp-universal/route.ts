@@ -3,7 +3,7 @@ import {
   ensureAccountStoreMembership,
   getAuthenticatedAccountFromRequest,
 } from "../../../../../../lib/account-auth";
-import { buildInstaCompQueries, type InstaCompComp } from "../../../../../../lib/instacomp";
+import { buildInstaCompQueries } from "../../../../../../lib/instacomp";
 import { verifyInstaCompCompetitionImages } from "../../../../../../lib/instacomp-comp-visual-verification";
 import { getUniversalEbaySerpProviders } from "../../../../../../lib/instacomp-ebay-serp-provider";
 import { normalizeListingImageUrls } from "../../../../../../lib/listing-image-utils";
@@ -161,7 +161,6 @@ export async function POST(request: NextRequest) {
       status: "active",
     });
 
-    const legacyRequest = request.clone();
     const body = await request.json().catch(() => ({}));
     const inventoryItemId = String(body?.inventoryItemId || "").trim();
     if (!inventoryItemId) {
@@ -171,6 +170,14 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    const legacyHeaders = new Headers(request.headers);
+    legacyHeaders.set("content-type", "application/json");
+    legacyHeaders.delete("content-length");
+    const legacyRequest = new NextRequest(request.url, {
+      method: "POST",
+      headers: legacyHeaders,
+      body: JSON.stringify(body),
+    });
     const legacyResponse = await runLegacySellerInstaComp(legacyRequest);
     const legacyText = await legacyResponse.text();
     let legacy: Record<string, any>;
@@ -234,7 +241,9 @@ export async function POST(request: NextRequest) {
       product?.image_url,
       ...(Array.isArray(metadata.ebay_image_urls) ? metadata.ebay_image_urls : []),
     ]);
-    if (!targetUrls.length) throw new Error("The scanned card has no target image for comp verification.");
+    if (!targetUrls.length) {
+      throw new Error("The scanned card has no target image for comp verification.");
+    }
     const targetFrontImage = await downloadFrontImage(targetUrls[0]);
 
     const ai = legacy.ai;
