@@ -1,6 +1,12 @@
 name: Apply Storefront Identity Scope Correction
 
 on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "scripts/apply-storefront-identity-scope-correction.py"
+      - ".github/workflows/apply-storefront-identity-scope-correction.yml"
   push:
     branches:
       - agent/storefront-remove-ip-intelligence-launch-blocker-20260726
