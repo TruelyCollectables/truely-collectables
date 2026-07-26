@@ -31,9 +31,12 @@ export default function BuyerProtectionOption(props: {
   available: boolean;
   onChange: (choice: BuyerProtectionCheckoutChoice) => void;
 }) {
+  const [session] = useState(() =>
+    typeof window === "undefined" ? null : getAccountSession(),
+  );
+  const signedIn = Boolean(session?.access_token);
   const [choice, setChoice] = useState<BuyerProtectionCheckoutChoice>(EMPTY_CHOICE);
-  const [signedIn, setSignedIn] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(signedIn);
   const [requiresReacceptance, setRequiresReacceptance] = useState(false);
 
   function update(next: BuyerProtectionCheckoutChoice) {
@@ -45,23 +48,18 @@ export default function BuyerProtectionOption(props: {
   }
 
   useEffect(() => {
+    if (!session?.access_token) return;
+
     let cancelled = false;
-    const session = getAccountSession();
-    setSignedIn(Boolean(session?.access_token));
-
-    if (!session?.access_token) {
-      setLoading(false);
-      props.onChange(EMPTY_CHOICE);
-      return;
-    }
-
     fetch("/api/account/buyer-protection/preference", {
       headers: { Authorization: `Bearer ${session.access_token}` },
       cache: "no-store",
     })
       .then(async (response) => {
         const payload = await response.json().catch(() => ({}));
-        if (!response.ok) throw new Error(payload.error || "Preference unavailable");
+        if (!response.ok) {
+          throw new Error(payload.error || "Preference unavailable");
+        }
         return payload;
       })
       .then((payload) => {
@@ -83,10 +81,14 @@ export default function BuyerProtectionOption(props: {
               }
             : EMPTY_CHOICE;
         setRequiresReacceptance(payload.requiresReacceptance === true);
-        update(next);
+        setChoice(next);
+        props.onChange(next);
       })
       .catch(() => {
-        if (!cancelled) update(EMPTY_CHOICE);
+        if (!cancelled) {
+          setChoice(EMPTY_CHOICE);
+          props.onChange(EMPTY_CHOICE);
+        }
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -95,14 +97,7 @@ export default function BuyerProtectionOption(props: {
     return () => {
       cancelled = true;
     };
-  }, []);
-
-  useEffect(() => {
-    props.onChange({
-      ...choice,
-      selected: props.available && choice.selected,
-    });
-  }, [props.available]);
+  }, [session?.access_token, props.onChange]);
 
   const needsAcceptance =
     choice.selected && !choice.storedConsentCurrent;
