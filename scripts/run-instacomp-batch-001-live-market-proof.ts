@@ -1,9 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import {
-  getUniversalEbaySerpProviders,
-} from "../src/lib/instacomp-ebay-serp-provider";
-import type { InstaCompAiResult, InstaCompComp } from "../src/lib/instacomp";
+import type { InstaCompAiResult } from "../src/lib/instacomp";
+import { getExactEbayMarketProviders } from "../src/lib/instacomp-exact-market-provider";
 import { calculateInstaCompSweetSpot } from "../src/lib/instacomp-sweet-spot";
 
 type FixtureCard = {
@@ -12,104 +10,97 @@ type FixtureCard = {
   ai: InstaCompAiResult;
 };
 
-function exactRows(rows: InstaCompComp[]) {
-  return rows.filter(
-    (row) =>
-      !row.flags.includes("guidance comp") &&
-      !row.flags.includes("not used for pricing") &&
-      !row.flags.some((flag) =>
-        /parallel mismatch|not exact parallel|excluded|wrong grade|wrong card/i.test(flag),
-      ),
-  );
-}
-
 async function main() {
-  if (!process.env.SERPAPI_API_KEY) {
-    throw new Error("SERPAPI_API_KEY is required for the live six-card market proof.");
-  }
-
+  assert.ok(
+    process.env.SERPAPI_API_KEY,
+    "SERPAPI_API_KEY is required for the live six-card exact-market proof",
+  );
   const fixture = JSON.parse(
     fs.readFileSync("scripts/fixtures/instacomp-batch-001-exact-market.json", "utf8"),
   ) as { cards: FixtureCard[] };
 
-  const report: Array<Record<string, unknown>> = [];
+  const startedAt = new Date().toISOString();
+  const cards: Array<Record<string, unknown>> = [];
   for (const card of fixture.cards) {
-    try {
-      const result = await getUniversalEbaySerpProviders({
-        exactTitle: card.exactTitle,
-        fallbackQuery: card.exactTitle,
-        ai: card.ai,
-      });
-      const sold = exactRows(result.sold.results);
-      const active = exactRows(result.active.results);
-      const pricing = calculateInstaCompSweetSpot({ sold, active });
-      const suggestedPrice = sold.length > 0 ? pricing.suggestedPrice : 0;
+    const market = await getExactEbayMarketProviders({
+      exactTitle: card.exactTitle,
+      fallbackQuery: card.exactTitle,
+      ai: card.ai,
+    });
+    const sold = market.sold.results;
+    const active = market.active.results;
+    const pricing = calculateInstaCompSweetSpot({ sold, active });
+    const suggestedPrice = sold.length > 0 ? pricing.suggestedPrice : 0;
 
-      report.push({
-        id: card.id,
-        title: card.exactTitle,
-        queries: result.queries,
-        soldCount: sold.length,
-        activeCount: active.length,
-        suggestedPrice,
-        pricingStrategy: sold.length > 0 ? pricing.strategy : "seller_price_required",
-        pricingExplanation:
-          sold.length > 0
-            ? pricing.explanation
-            : "No exact sold listing passed; seller pricing is required.",
-        sold: sold.slice(0, 10).map((row) => ({
-          title: row.title,
-          deliveredPrice: row.price,
-          itemPrice: row.itemPrice ?? null,
-          shippingPrice: row.shippingPrice ?? null,
-          soldAt: row.soldAt ?? null,
-          url: row.url,
-          flags: row.flags,
-        })),
-        active: active.slice(0, 10).map((row) => ({
-          title: row.title,
-          deliveredPrice: row.price,
-          itemPrice: row.itemPrice ?? null,
-          shippingPrice: row.shippingPrice ?? null,
-          listedAt: row.listedAt ?? null,
-          url: row.url,
-          flags: row.flags,
-        })),
-        soldProviderStatus: result.sold.status,
-        activeProviderStatus: result.active.status,
-        soldMessage: result.sold.message,
-        activeMessage: result.active.message,
-      });
-    } catch (error) {
-      report.push({
-        id: card.id,
-        title: card.exactTitle,
-        soldCount: 0,
-        activeCount: 0,
-        suggestedPrice: 0,
-        error: error instanceof Error ? error.message : String(error),
-      });
-    }
+    cards.push({
+      id: card.id,
+      identity: card.exactTitle,
+      queries: market.queries,
+      soldProviderStatus: market.sold.status,
+      activeProviderStatus: market.active.status,
+      soldMessage: market.sold.message,
+      activeMessage: market.active.message,
+      soldCount: sold.length,
+      activeCount: active.length,
+      suggestedPrice,
+      pricing: { ...pricing, suggestedPrice },
+      sold: sold.map((comp) => ({
+        title: comp.title,
+        deliveredPrice: comp.price,
+        soldAt: comp.soldAt || null,
+        url: comp.url,
+        imageUrl: comp.imageUrl,
+        matchScore: comp.matchScore,
+        flags: comp.flags,
+      })),
+      active: active.map((comp) => ({
+        title: comp.title,
+        deliveredPrice: comp.price,
+        listedAt: comp.listedAt || null,
+        url: comp.url,
+        imageUrl: comp.imageUrl,
+        matchScore: comp.matchScore,
+        flags: comp.flags,
+      })),
+      providerAttempts: {
+        sold: market.sold.attempts,
+        active: market.active.attempts,
+      },
+    });
   }
 
+  const failures = cards.filter(
+    (card) =>
+      card.soldProviderStatus !== "live" ||
+      card.activeProviderStatus !== "live" ||
+      Number(card.soldCount || 0) < 1 ||
+      Number(card.activeCount || 0) < 1 ||
+      Number(card.suggestedPrice || 0) <= 0,
+  );
+
+  const proof = {
+    schema: "tcos.instacompBatch001LiveMarketProof.v1",
+    startedAt,
+    completedAt: new Date().toISOString(),
+    success: failures.length === 0,
+    cardCount: cards.length,
+    failures: failures.map((card) => card.id),
+    cards,
+  };
   fs.mkdirSync("docs", { recursive: true });
   fs.writeFileSync(
     "docs/instacomp-batch-001-live-market-proof.json",
-    JSON.stringify({ generatedAt: new Date().toISOString(), cards: report }, null, 2),
+    `${JSON.stringify(proof, null, 2)}\n`,
   );
 
-  const failures = report.filter(
-    (row) =>
-      Number(row.soldCount || 0) < 1 ||
-      Number(row.activeCount || 0) < 1 ||
-      Number(row.suggestedPrice || 0) <= 0,
-  );
   assert.equal(
     failures.length,
     0,
-    `Live exact-market proof is blocked for: ${failures.map((row) => row.id).join(", ")}`,
+    `Live exact-market proof is blocked for: ${failures.map((card) => card.id).join(", ")}`,
   );
-  console.log(JSON.stringify({ success: true, cards: report }, null, 2));
+  console.log(
+    `InstaComp Batch 001 live proof passed: ${cards.length}/6 cards each returned strict exact sold evidence, strict exact active competition, and a sold-backed suggested price.`,
+  );
 }
 
 main().catch((error) => {
