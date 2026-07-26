@@ -65,7 +65,24 @@ jobs:
         run: npm ci
 
       - name: Validate live-payment identity lock
-        run: node --import tsx scripts/run-live-payment-identity-gate-simulations.ts
+        id: identity_gate
+        continue-on-error: true
+        run: node --import tsx scripts/run-live-payment-identity-gate-simulations.ts > live-payment-identity-gate.log 2>&1
+
+      - name: Upload live-payment identity evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: live-payment-identity-gate-evidence
+          path: live-payment-identity-gate.log
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Enforce live-payment identity lock
+        if: steps.identity_gate.outcome == 'failure'
+        run: |
+          cat live-payment-identity-gate.log
+          exit 1
 
       - name: Validate payment owner marker
         run: node --import tsx scripts/run-live-payment-owner-marker-simulations.ts
