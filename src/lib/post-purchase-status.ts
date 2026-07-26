@@ -34,6 +34,11 @@ export type PostPurchaseStatus = {
   detail: string;
 };
 
+type CheckoutSessionProof = Pick<
+  Stripe.Checkout.Session,
+  "mode" | "status" | "payment_status" | "metadata"
+>;
+
 function configuredStripeKeys() {
   return Array.from(
     new Set(
@@ -66,6 +71,17 @@ function normalizedMetadata(
   );
 }
 
+export function belongsToActiveStorePayment(
+  session: CheckoutSessionProof,
+  storeId: string,
+) {
+  return session.mode === "payment" && session.metadata?.store_id === storeId;
+}
+
+export function isCompletedPaidCheckout(session: CheckoutSessionProof) {
+  return session.status === "complete" && session.payment_status === "paid";
+}
+
 export async function resolvePostPurchaseStatus(params: {
   sessionId?: string | null;
   requestedType?: string | null;
@@ -84,7 +100,8 @@ export async function resolvePostPurchaseStatus(params: {
       accountLinked: false,
       stripeAmountTotal: null,
       order: null,
-      detail: "A Stripe Checkout Session ID was not provided, so payment cannot be verified.",
+      detail:
+        "A Stripe Checkout Session ID was not provided, so payment cannot be verified.",
     };
   }
 
@@ -122,7 +139,7 @@ export async function resolvePostPurchaseStatus(params: {
   const stripeAmountTotal =
     typeof session.amount_total === "number" ? session.amount_total / 100 : null;
 
-  if (metadata.store_id !== params.storeId || session.mode !== "payment") {
+  if (!belongsToActiveStorePayment(session, params.storeId)) {
     return {
       state: "unverified",
       sessionId,
@@ -135,10 +152,7 @@ export async function resolvePostPurchaseStatus(params: {
     };
   }
 
-  const paymentVerified =
-    session.status === "complete" && session.payment_status === "paid";
-
-  if (!paymentVerified) {
+  if (!isCompletedPaidCheckout(session)) {
     return {
       state: "incomplete",
       sessionId,
@@ -195,6 +209,7 @@ export async function resolvePostPurchaseStatus(params: {
       trackingNumber: orderResult.data.tracking_number || null,
       carrier: orderResult.data.carrier || null,
     },
-    detail: "Stripe payment and the webhook-created order record are both verified.",
+    detail:
+      "Stripe payment and the webhook-created order record are both verified.",
   };
 }
