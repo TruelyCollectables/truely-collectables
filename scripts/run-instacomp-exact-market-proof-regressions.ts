@@ -39,6 +39,11 @@ function candidate(title: string, price: number, index: number) {
   };
 }
 
+function mustReject(card: FixtureCard, title: string, label: string, index: number) {
+  const rows = filterAndRankExactMatches([candidate(title, 1, index)], card.ai, 20, 0);
+  assert.equal(rows.length, 0, `${card.id}: ${label} must be rejected`);
+}
+
 assert.equal(fixture.cards.length, 6, "Batch 001 must contain exactly six proof cards");
 assert.equal(
   normalizeInstaCompParallelForExactMatching("Base /99"),
@@ -92,37 +97,42 @@ for (const [cardIndex, card] of fixture.cards.entries()) {
   const accepted = filterAndRankExactMatches(exactRows, card.ai, 20, 35);
   assert.ok(accepted.length >= 1, `${card.id}: at least one exact title must be accepted`);
 
-  const wrongRun = filterAndRankExactMatches(
-    [candidate(card.wrongDenominator, 1, 100 + cardIndex)],
-    card.ai,
-    20,
-    0,
-  );
-  assert.equal(
-    wrongRun.length,
-    0,
-    `${card.id}: wrong serial run or numbered variation must be rejected`,
-  );
+  mustReject(card, card.wrongDenominator, "wrong serial run or numbered variation", 100 + cardIndex);
+  mustReject(card, card.wrongParallel, "wrong parallel or wrong grade", 200 + cardIndex);
+  mustReject(card, `Lot of 3 ${card.exactTitles[0]}`, "multi-card lot", 300 + cardIndex);
 
-  const wrongParallel = filterAndRankExactMatches(
-    [candidate(card.wrongParallel, 1, 200 + cardIndex)],
-    card.ai,
-    20,
-    0,
+  const wrongPlayer = card.exactTitles[0].replace(
+    new RegExp(String(card.ai.player).replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"),
+    "Different Player",
   );
-  assert.equal(
-    wrongParallel.length,
-    0,
-    `${card.id}: wrong parallel or wrong grade must be rejected`,
-  );
+  mustReject(card, wrongPlayer, "wrong player", 400 + cardIndex);
 
-  const lot = filterAndRankExactMatches(
-    [candidate(`Lot of 3 ${card.exactTitles[0]}`, 1, 300 + cardIndex)],
-    card.ai,
-    20,
-    0,
+  const wrongYear = card.exactTitles[0].replace(String(card.ai.year), "1901");
+  mustReject(card, wrongYear, "wrong year", 500 + cardIndex);
+
+  const wrongCardNumber = card.exactTitles[0].replace(
+    String(card.ai.cardNumber),
+    `WRONG-${cardIndex}`,
   );
-  assert.equal(lot.length, 0, `${card.id}: lots must never support single-card pricing`);
+  mustReject(card, wrongCardNumber, "wrong card number", 600 + cardIndex);
+
+  if (card.ai.isAuto) {
+    const missingAuto = card.exactTitles[0]
+      .replace(/autographs?|autos?|signed|signatures?/gi, "Insert")
+      .replace(/\s+/g, " ");
+    mustReject(card, missingAuto, "missing autograph evidence", 700 + cardIndex);
+  } else {
+    mustReject(card, `${card.exactTitles[0]} Autograph`, "unexpected autograph", 800 + cardIndex);
+  }
+
+  if (card.ai.isRelic) {
+    const missingRelic = card.exactTitles[0]
+      .replace(/swatches?|patches?|jerseys?|relics?|memorabilia|materials?/gi, "Insert")
+      .replace(/\s+/g, " ");
+    mustReject(card, missingRelic, "missing relic evidence", 900 + cardIndex);
+  } else {
+    mustReject(card, `${card.exactTitles[0]} Patch`, "unexpected relic", 1000 + cardIndex);
+  }
 
   const sold = accepted.map((row, index) => ({ ...row, price: 12 + index * 2 }));
   const active = accepted.map((row, index) => ({ ...row, price: 18 + index * 2 }));
@@ -163,7 +173,30 @@ assert.ok(proofSource.includes("providerAcrossQueries"));
 assert.ok(proofSource.includes("serpapi_ebay_v6_"));
 assert.ok(proofSource.includes("targetExactCount"));
 assert.ok(proofSource.includes("priceIncludesShipping: true"));
+assert.ok(proofSource.includes("candidateDenominator !== null"));
+assert.ok(proofSource.includes('flags.includes("grade")'));
+
+const universalRoute = fs.readFileSync(
+  "src/app/api/account/seller/inventory/instacomp-universal/route.ts",
+  "utf8",
+);
+const excludeRoute = fs.readFileSync(
+  "src/app/api/account/seller/instacomp-pending/exclude-comp/route.ts",
+  "utf8",
+);
+assert.ok(
+  universalRoute.includes(
+    "const suggestedPrice = hasReliableSoldComps ? pricingAnalysis.suggestedPrice : 0",
+  ),
+  "Universal pricing must remain $0 without exact sold evidence",
+);
+assert.ok(
+  excludeRoute.includes(
+    "const suggestedPrice = hasReliableSoldComps ? pricingAnalysis.suggestedPrice : 0",
+  ),
+  "Excluding the last exact sold comp must reset suggestion to $0",
+);
 
 console.log(
-  "InstaComp Batch 001 exact-market regression passed: six exact identities, strict denominator/non-numbered gates, exact parallel/grade rejection, progressive sold+active queries, delivered-price normalization, and sold-backed pricing.",
+  "InstaComp Batch 001 exact-market regression passed: six exact identities, strict player/year/card/parallel/grade/condition/print-run gates, three-dimensional sold+active evidence, delivered-price normalization, and sold-only suggested-price trust.",
 );
