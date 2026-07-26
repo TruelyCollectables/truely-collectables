@@ -14,6 +14,7 @@ import {
   consumeCheckoutReservationAfterSale,
   decrementOrderInventoryOnce,
 } from "./checkout-inventory-reservations";
+import { selectedCheckoutShipping } from "./stripe-selected-shipping";
 
 export async function finalizeCheckoutOrder(params: {
   supabase: SupabaseClient;
@@ -23,7 +24,7 @@ export async function finalizeCheckoutOrder(params: {
   storeId: string;
   inventoryEngine: InventoryEngine;
 }) {
-  const { supabase, event, session, storeId, inventoryEngine } = params;
+  const { supabase, stripe, event, session, storeId, inventoryEngine } = params;
   const metadata = session.metadata || {};
   const collectedInfo = session.collected_information as any;
   const customerEmail =
@@ -34,10 +35,15 @@ export async function finalizeCheckoutOrder(params: {
   const shippingCountry = shipping?.country || null;
   const shippingAllowed = isAllowedShippingCountry(shippingCountry);
   const total = Number(session.amount_total || 0) / 100;
-  const shippingMethod = metadata.shipping_method || null;
-  const shippingName = metadata.shipping_name || null;
-  const shippingAmount = Number(metadata.shipping_amount || 0);
-  const subtotal = Number(metadata.subtotal || total);
+  const selectedShipping = await selectedCheckoutShipping({
+    stripe,
+    session,
+    metadata,
+  });
+  const shippingMethod = selectedShipping.method;
+  const shippingName = selectedShipping.name;
+  const shippingAmount = selectedShipping.amount;
+  const subtotal = Number(metadata.subtotal || total - shippingAmount);
   const itemCount = Number(metadata.item_count || 0);
   const accountId = metadata.account_id || null;
   const offerId = metadata.offer_id;
