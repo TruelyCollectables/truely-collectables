@@ -37,7 +37,7 @@ export async function GET(request: Request) {
     const { data, error } = await supabase
       .from("orders")
       .select(
-        "id,created_at,total,status,fulfillment_status,shipping_name,tracking_number,carrier,item_count,contains_seller_items,seller_item_count,store_item_count",
+        "id,created_at,total,status,payment_status,fulfillment_status,shipping_name,tracking_number,carrier,item_count,contains_seller_items,seller_item_count,store_item_count",
       )
       .eq("store_id", storeId)
       .eq("account_id", account.id)
@@ -48,6 +48,34 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
+    const orderIds = (data || [])
+      .map((order) => Number(order.id))
+      .filter((orderId) => Number.isFinite(orderId) && orderId > 0);
+    const orderItemsResult =
+      orderIds.length === 0
+        ? { data: [], error: null }
+        : await supabase
+            .from("order_items")
+            .select("order_id,product_id,title,price,quantity")
+            .eq("store_id", storeId)
+            .in("order_id", orderIds)
+            .order("id", { ascending: true });
+
+    if (orderItemsResult.error) {
+      return NextResponse.json(
+        { error: orderItemsResult.error.message },
+        { status: 500 },
+      );
+    }
+
+    const itemsByOrderId = new Map<number, typeof orderItemsResult.data>();
+    for (const item of orderItemsResult.data || []) {
+      const orderId = Number(item.order_id);
+      const current = itemsByOrderId.get(orderId) || [];
+      current.push(item);
+      itemsByOrderId.set(orderId, current);
+    }
+
     const orders = (data ?? []).map((order) => {
       const dryRunShipping = isDryRunShippingReference(order.tracking_number);
 
@@ -56,13 +84,15 @@ export async function GET(request: Request) {
         tracking_number: dryRunShipping ? null : order.tracking_number,
         carrier: dryRunShipping ? null : order.carrier,
         dry_run_shipping_blocked: dryRunShipping,
+        items: itemsByOrderId.get(Number(order.id)) || [],
       };
     });
     const dryRunShippingBlockedCount = orders.filter(
       (order) => order.dry_run_shipping_blocked,
     ).length;
     const sellerItemOrderCount = orders.filter(
-      (order) => order.contains_seller_items || Number(order.seller_item_count || 0) > 0,
+      (order) =>
+        order.contains_seller_items || Number(order.seller_item_count || 0) > 0,
     ).length;
 
     return NextResponse.json(
