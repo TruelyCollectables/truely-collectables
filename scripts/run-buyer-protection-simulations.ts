@@ -95,7 +95,10 @@ for (const token of [
   "7 full days",
   "21 calendar days",
 ]) {
-  assert.ok(protectionOption.includes(token), `Protection choice must include ${token}.`);
+  assert.ok(
+    protectionOption.includes(token),
+    `Protection choice must include ${token}.`,
+  );
 }
 
 const checkout = read("src/app/api/checkout/route.ts");
@@ -119,7 +122,10 @@ for (const token of [
   "BUYER_PROTECTION_POLICY_VERSION",
   'non_reimbursable: ["shipping", "buyer_protection_fee"]',
 ]) {
-  assert.ok(protectionOrder.includes(token), `Paid protection must enforce ${token}.`);
+  assert.ok(
+    protectionOrder.includes(token),
+    `Paid protection must enforce ${token}.`,
+  );
 }
 
 const offerCreate = read("src/app/api/offers/create/route.ts");
@@ -146,7 +152,10 @@ for (const token of [
   'tcos_line_type: "buyer_protection"',
   "checkout.sessions.create",
 ]) {
-  assert.ok(offerBuyerCheckout.includes(token), `Offer checkout must include ${token}.`);
+  assert.ok(
+    offerBuyerCheckout.includes(token),
+    `Offer checkout must include ${token}.`,
+  );
 }
 
 const claims = read("src/app/api/account/buyer-protection/claims/route.ts");
@@ -169,7 +178,10 @@ for (const token of [
   'protection_fee_refunded: "false"',
   "idempotencyKey",
 ]) {
-  assert.ok(adminClaims.includes(token), `Admin reimbursement must include ${token}.`);
+  assert.ok(
+    adminClaims.includes(token),
+    `Admin reimbursement must include ${token}.`,
+  );
 }
 
 const migration = read(
@@ -205,6 +217,18 @@ assert.ok(
 assert.ok(
   inventoryEngine.includes("backfillInventoryItemsFromProducts"),
   "The storefront image fix must not replace the complete inventory engine.",
+);
+
+const duckAiWitness = read("src/app/admin/instacomp/DuckAiWitness.tsx");
+assert.match(
+  duckAiWitness,
+  /useState<SavedWitness\[\]>\(loadSavedWitnesses\)/,
+  "Duck.ai witness history must use lazy browser storage initialization.",
+);
+assert.doesNotMatch(
+  duckAiWitness,
+  /useEffect\(\(\) => \{\s*setSavedWitnesses\(loadSavedWitnesses\(\)\)/,
+  "Duck.ai witness history must not synchronously set state inside an effect.",
 );
 
 console.log("Buyer Protection and storefront image simulations passed.");
