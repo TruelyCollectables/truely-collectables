@@ -1,123 +1,166 @@
 install=0
-regression=1
+regression=0
 lint=0
-build=1
-validated_commit=1f17f4d0faa2d3a8bd403a3c4453ab9fdc115a03
+build=0
+validated_commit=c95cf436e8030cab8c52870613085f7f7ea6340b
 --- log tail ---
+├ ƒ /api/admin/brag-weekly-report
+├ ƒ /api/admin/buyer-protection/claims/update
+├ ƒ /api/admin/ebay-duplicates
+├ ƒ /api/admin/ebay-inventory-intake
+├ ƒ /api/admin/ebay/full-store-sync
+├ ƒ /api/admin/ebay/launch-ready-sync
+├ ƒ /api/admin/files/[id]/download
+├ ƒ /api/admin/financial-reconciliation
+├ ƒ /api/admin/instacomp-price-radar/adjust
+├ ƒ /api/admin/instacomp-price-radar/ignore
+├ ƒ /api/admin/launch-gate-drill
+├ ƒ /api/admin/launch-readiness
+├ ƒ /api/admin/live-payment-launch
+├ ƒ /api/admin/live-payment-launch/webhook-smoke
+├ ƒ /api/admin/live-shipping-launch
+├ ƒ /api/admin/login
+├ ƒ /api/admin/logout
+├ ƒ /api/admin/market-intel/alerts/[id]/status
+├ ƒ /api/admin/market-intel/alerts/deliver
+├ ƒ /api/admin/market-intel/alerts/sync
+├ ƒ /api/admin/market-intel/comps
+├ ƒ /api/admin/market-intel/comps/[id]/recalculate
+├ ƒ /api/admin/market-intel/deals/rescore
+├ ƒ /api/admin/market-intel/delivery/test
+├ ƒ /api/admin/market-intel/discovery/[id]/approve
+├ ƒ /api/admin/market-intel/discovery/[id]/purchase
+├ ƒ /api/admin/market-intel/discovery/[id]/reject
+├ ƒ /api/admin/market-intel/discovery/bulk
+├ ƒ /api/admin/market-intel/discovery/enrich-card-numbers
+├ ƒ /api/admin/market-intel/discovery/scan
+├ ƒ /api/admin/market-intel/ebay/scan
+├ ƒ /api/admin/market-intel/growth-specs
+├ ƒ /api/admin/market-intel/growth-specs/[id]/status
+├ ƒ /api/admin/market-intel/growth-specs/seed-prospects
+├ ƒ /api/admin/market-intel/identities
+├ ƒ /api/admin/market-intel/identities/[id]/track-today
+├ ƒ /api/admin/market-intel/ingestion/cleanup
+├ ƒ /api/admin/market-intel/instacomp/resolve
+├ ƒ /api/admin/market-intel/listings
+├ ƒ /api/admin/market-intel/listings/[id]/end
+├ ƒ /api/admin/market-intel/listings/[id]/purchase
+├ ƒ /api/admin/market-intel/purchases/[id]/delete
+├ ƒ /api/admin/market-intel/purchases/[id]/edit
+├ ƒ /api/admin/market-intel/purchases/[id]/receive
+├ ƒ /api/admin/market-intel/purchases/[id]/strategy
+├ ƒ /api/admin/market-intel/purchases/ebay-intake
+├ ƒ /api/admin/market-intel/purchases/ebay-intake/comp-sync
+├ ƒ /api/admin/market-intel/purchases/manual
+├ ƒ /api/admin/market-intel/reports/deliver
+├ ƒ /api/admin/market-intel/reports/generate
+├ ƒ /api/admin/market-intel/sales
+├ ƒ /api/admin/market-intel/watchlist
+├ ƒ /api/admin/market-intel/watchlist/[id]/toggle
+├ ƒ /api/admin/market-intel/watchlist/seed
+├ ƒ /api/admin/order-notifications/retry
+├ ƒ /api/admin/order-review-cases
+├ ƒ /api/admin/order-review-cases/[id]/packet
+├ ƒ /api/admin/order-review-cases/[id]/payout-resolution
+├ ƒ /api/admin/order-review-cases/[id]/stripe-evidence
+├ ƒ /api/admin/orders/[id]/shipping-claims
+├ ƒ /api/admin/orders/[id]/shipping-labels
+├ ƒ /api/admin/owner-seller-account
+├ ƒ /api/admin/payment-simulations
+├ ƒ /api/admin/payment-simulations/checkout-e2e
+├ ƒ /api/admin/products/[id]/save
+├ ƒ /api/admin/quick-list
+├ ƒ /api/admin/seller-payouts/connect-refresh
+├ ƒ /api/admin/seller-payouts/ledger
+├ ƒ /api/admin/seller-payouts/requests
+├ ƒ /api/admin/shipping-claims/[id]
+├ ƒ /api/admin/shipping-claims/[id]/packet
+├ ƒ /api/admin/shipping-labels/[id]/coverage-policy
+├ ƒ /api/admin/shipping-labels/[id]/packet
+├ ƒ /api/admin/shipping-labels/[id]/tracking-event
+├ ƒ /api/admin/shipping/dry-run-cleanup
+├ ƒ /api/admin/shipping/exceptions
+├ ƒ /api/admin/shipping/lettertrack-export
+├ ƒ /api/admin/shipping/provider-setup
+├ ƒ /api/admin/shipping/simulations
+├ ƒ /api/admin/verified-reference-bootstrap
+├ ƒ /api/admin/verified-reference-import
+├ ƒ /api/checkout
+├ ƒ /api/cron/ebay-store-fixed-price-sync
+├ ƒ /api/cron/market-intel/alerts/deliver
+├ ƒ /api/cron/market-intel/alerts/growth-deliver
+├ ƒ /api/cron/market-intel/alerts/sync
+├ ƒ /api/cron/market-intel/cleanup
+├ ƒ /api/cron/market-intel/ebay/discovery-scan
+├ ƒ /api/cron/market-intel/ebay/growth-scan
+├ ƒ /api/cron/market-intel/ebay/hot-watch
+├ ƒ /api/cron/market-intel/ebay/scan
+├ ƒ /api/cron/market-intel/ingest
+├ ƒ /api/cron/market-intel/reports/daily
+├ ƒ /api/cron/order-notifications
+├ ƒ /api/cron/seller-ebay-reconciliation
+├ ƒ /api/cron/stripe-reconciliation
+├ ƒ /api/ebay/auth
+├ ƒ /api/ebay/callback
+├ ƒ /api/ebay/full-sync
+├ ƒ /api/ebay/import-listings
+├ ƒ /api/ebay/listings
+├ ƒ /api/ebay/notifications
+├ ƒ /api/ebay/publish
+├ ƒ /api/ebay/publish/images
+├ ƒ /api/ebay/test
+├ ƒ /api/instacomp/draft-listings
+├ ƒ /api/instacomp/jobs
+├ ƒ /api/instacomp/jobs/[id]
+├ ƒ /api/instacomp/jobs/[id]/claim
+├ ƒ /api/instacomp/jobs/[id]/items
+├ ƒ /api/instacomp/jobs/[id]/items/[itemId]
+├ ƒ /api/instacomp/jobs/[id]/items/[itemId]/complete
+├ ƒ /api/instacomp/jobs/[id]/items/[itemId]/fail
+├ ƒ /api/instacomp/jobs/[id]/items/[itemId]/retry
+├ ƒ /api/instacomp/jobs/[id]/knowledge-base
+├ ƒ /api/instacomp/scan
+├ ƒ /api/instacomp/trade-items
+├ ƒ /api/offers/buyer-checkout
+├ ƒ /api/offers/counter
+├ ƒ /api/offers/create
+├ ƒ /api/offers/update-status
+├ ƒ /api/orders/mark-shipped
+├ ƒ /api/orders/update-tracking
+├ ƒ /api/storefront/product-images/[id]
+├ ƒ /api/stripe/webhook
+├ ƒ /api/verified-reference-bootstrap
+├ ƒ /api/webhook
+├ ƒ /brag/[slug]
+├ ○ /buyer-protection
+├ ƒ /cart
+├ ○ /contact
+├ ƒ /ebay/test
+├ ƒ /instacomp-test
+├ ƒ /offer-checkout/[id]
+├ ○ /privacy
+├ ƒ /product/[id]
+├ ○ /returns
+├ ○ /robots.txt
+├ ○ /seller
+├ ƒ /seller-terms
+├ ○ /seller/collectible-assets
+├ ○ /seller/instacomp-pending
+├ ○ /seller/inventory
+├ ƒ /seller/marketplaces
+├ ○ /seller/orders
+├ ƒ /seller/orders/[id]
+├ ○ /seller/payouts
+├ ƒ /shipping
+├ ƒ /shop
+├ ƒ /sitemap.xml
+├ ƒ /success
+├ ƒ /terms
+└ ƒ /trade
 
-added 377 packages, and audited 378 packages in 11s
 
-143 packages are looking for funding
-  run `npm fund` for details
+ƒ Proxy (Middleware)
 
-6 high severity vulnerabilities
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
 
-To address issues that do not require attention, run:
-  npm audit fix
-
-To address all issues, run:
-  npm audit fix --force
-
-Run `npm audit` for details.
-node:internal/modules/run_main:123
-    triggerUncaughtException(
-    ^
-
-AssertionError [ERR_ASSERTION]: All seven exact Red Rookie Swatches sales must pass even when titles omit relic/MEM wording.
-
-0 !== 7
-
-    at assert (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-universal-ebay-sold-regressions.ts:85:8)
-    at Object.<anonymous> (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-universal-ebay-sold-regressions.ts:113:1)
-    at Module._compile (node:internal/modules/cjs/loader:1781:14)
-    at Object.transformer (/home/runner/work/truely-collectables/truely-collectables/node_modules/tsx/dist/register-BoI6-WNn.cjs:9:3252)
-    at Module.load (node:internal/modules/cjs/loader:1505:32)
-    at Function._load (node:internal/modules/cjs/loader:1309:12)
-    at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
-    at loadCJSModuleWithModuleLoad (node:internal/modules/esm/translators:335:3)
-    at ModuleWrap.<anonymous> (node:internal/modules/esm/translators:235:7)
-    at ModuleJob.run (node:internal/modules/esm/module_job:343:25) {
-  generatedMessage: false,
-  code: 'ERR_ASSERTION',
-  actual: 0,
-  expected: 7,
-  operator: 'strictEqual',
-  diff: 'simple'
-}
-
-Node.js v22.23.1
-
-> truely-collectables@0.1.0 lint
-> eslint
-
-[BABEL] Note: The code generator has deoptimised the styling of /home/runner/work/truely-collectables/truely-collectables/src/app/admin/instacomp/InstaCompScanner.tsx as it exceeds the max of 500KB.
-
-/home/runner/work/truely-collectables/truely-collectables/scripts/run-active-market-scan-lease-simulations.ts
-  9:8  warning  'ActiveMarketScanLease' is defined but never used  @typescript-eslint/no-unused-vars
-
-/home/runner/work/truely-collectables/truely-collectables/src/app/admin/quick-list/QuickListWorkbench.tsx
-  226:22  warning  '_index' is defined but never used                                                                                                                                                                                                                                                       @typescript-eslint/no-unused-vars
-  344:6   warning  React Hook useEffect has a missing dependency: 'scanQueuedRows'. Either include it or remove the dependency array                                                                                                                                                                        react-hooks/exhaustive-deps
-  828:23  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
-  833:25  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
-
-/home/runner/work/truely-collectables/truely-collectables/src/app/admin/quick-list/TruelyAccuracyWorkbench.tsx
-  294:22  warning  '_index' is defined but never used                                                                           @typescript-eslint/no-unused-vars
-  664:6   warning  React Hook useEffect has a missing dependency: 'scanRows'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
-
-/home/runner/work/truely-collectables/truely-collectables/src/app/admin/verified-reference-import/VerifiedReferenceImportWorkbench.tsx
-  58:9  warning  The 'results' logical expression could make the dependencies of useMemo Hook (at line 61) change on every render. To fix this, wrap the initialization of 'results' in its own useMemo() Hook  react-hooks/exhaustive-deps
-
-/home/runner/work/truely-collectables/truely-collectables/src/app/api/account/seller/inventory/instacomp-universal/route.ts
-  6:38  warning  'InstaCompComp' is defined but never used  @typescript-eslint/no-unused-vars
-
-/home/runner/work/truely-collectables/truely-collectables/src/app/seller/SellerOneSpotListingCenter.tsx
-  562:19  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
-  563:38  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
-  621:36  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
-
-/home/runner/work/truely-collectables/truely-collectables/src/app/seller/collectible-assets/page.tsx
-  104:6   warning  React Hook useEffect has a missing dependency: 'load'. Either include it or remove the dependency array                                                                                                                                                                                  react-hooks/exhaustive-deps
-  239:19  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
-
-/home/runner/work/truely-collectables/truely-collectables/src/app/seller/inventory/SellerActiveInventoryPricing.tsx
-  660:23  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
-
-/home/runner/work/truely-collectables/truely-collectables/src/app/seller/inventory/SellerInventoryVisualTracker.tsx
-  118:10  warning  'titleCase' is defined but never used                                                                                                                                                                                                                                                    @typescript-eslint/no-unused-vars
-  454:23  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
-
-/home/runner/work/truely-collectables/truely-collectables/src/lib/instacomp-ebay-serp-provider.ts
-  7:8  warning  'InstaCompComp' is defined but never used  @typescript-eslint/no-unused-vars
-
-✖ 18 problems (0 errors, 18 warnings)
-
-
-> truely-collectables@0.1.0 build
-> next build --webpack
-
-⚠ No build cache found. Please configure build caching for faster rebuilds. Read more: https://nextjs.org/docs/messages/no-cache
-Attention: Next.js now collects completely anonymous telemetry regarding usage.
-This information is used to shape Next.js' roadmap and prioritize features.
-You can learn more, including how to opt-out if you'd not like to participate in this anonymous program, by visiting the following URL:
-https://nextjs.org/telemetry
-
-▲ Next.js 16.2.10 (webpack)
-
-  Creating an optimized production build ...
-✓ Compiled successfully in 28.3s
-  Running TypeScript ...
-Failed to type check.
-
-./src/app/api/account/seller/inventory/instacomp-universal/route.ts:174:59
-Type error: Argument of type 'Request' is not assignable to parameter of type 'NextRequest'.
-  Type 'Request' is missing the following properties from type 'NextRequest': cookies, nextUrl, page, ua
-
-  [90m172 |[0m     }
-  [90m173 |[0m
-[31m[1m>[0m [90m174 |[0m     [36mconst[0m legacyResponse = [36mawait[0m runLegacySellerInstaComp(legacyRequest);
-  [90m    |[0m                                                           [31m[1m^[0m
-  [90m175 |[0m     [36mconst[0m legacyText = [36mawait[0m legacyResponse.text();
-  [90m176 |[0m     [36mlet[0m legacy: [33mRecord[0m<string, any>;
-  [90m177 |[0m     [36mtry[0m {
-Next.js build worker exited with code: 1 and signal: null
