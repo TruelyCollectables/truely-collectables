@@ -256,17 +256,15 @@ function buildReadinessItems(
       status:
         identityRequired && isConfigured(process.env.IP_INTELLIGENCE_API_URL)
           ? "ready"
-          : identityRequired
-          ? "blocked"
-          : "warning",
+          : "blocked",
       detail:
         identityRequired && isConfigured(process.env.IP_INTELLIGENCE_API_URL)
-          ? "IP intelligence is required and configured."
+          ? "IP intelligence is required and configured for live Checkout."
           : identityRequired
-          ? "IP_INTELLIGENCE_REQUIRED is true, but IP_INTELLIGENCE_API_URL is missing."
-          : "IP intelligence is not required.",
+            ? "IP_INTELLIGENCE_REQUIRED is true, but IP_INTELLIGENCE_API_URL is missing."
+            : "IP intelligence enforcement is disabled, so live Checkout remains blocked.",
       action:
-        "For launch, keep IP_INTELLIGENCE_REQUIRED=true and configure the provider URL/API key.",
+        "Set IP_INTELLIGENCE_REQUIRED=true and configure IP_INTELLIGENCE_API_URL before launch.",
     },
     {
       label: "Transaction Evidence Email",
