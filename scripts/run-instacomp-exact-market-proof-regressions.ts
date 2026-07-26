@@ -127,7 +127,7 @@ for (const [cardIndex, card] of fixture.cards.entries()) {
 
   if (card.ai.isRelic) {
     const missingRelic = card.exactTitles[0]
-      .replace(/swatches?|patches?|jerseys?|relics?|memorabilia|materials?/gi, "Insert")
+      .replace(/swatch(?:es)?|patch(?:es)?|jersey(?:s)?|relic(?:s)?|memorabilia|material(?:s)?/gi, "Insert")
       .replace(/\s+/g, " ");
     mustReject(card, missingRelic, "missing relic evidence", 900 + cardIndex);
   } else {
