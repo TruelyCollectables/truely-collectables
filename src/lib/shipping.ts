@@ -23,6 +23,7 @@ export const UNDER_20_SELLER_PROTECTION_RATE = 0.02;
 export const UNDER_20_SELLER_PROTECTION_MAX_COVERAGE = 20;
 export const UNDER_20_SELLER_PROTECTION_METADATA_KEY =
   "under20SellerProtectionOptIn";
+
 const STANDARD_ENVELOPE_RATE_CHANGE_UTC = Date.UTC(2026, 6, 12, 7, 0, 0);
 const STANDARD_ENVELOPE_RATES_BEFORE_JULY_12_2026 = [0.74, 1.03, 1.32];
 const STANDARD_ENVELOPE_RATES_FROM_JULY_12_2026 = [0.78, 1.07, 1.36];
@@ -38,7 +39,6 @@ export const SHIPPING_RULES = {
     deliveryEstimate:
       "Limited USPS Intelligent Mail barcode scan visibility when available",
   },
-
   GROUND_ADVANTAGE: {
     name: "USPS Ground Advantage",
     shortName: "Ground Advantage",
@@ -48,7 +48,6 @@ export const SHIPPING_RULES = {
     freeShippingThreshold: null,
     deliveryEstimate: "2–5 business days",
   },
-
   PRIORITY_MAIL: {
     name: "USPS Priority Mail",
     shortName: "Priority Mail",
@@ -60,6 +59,12 @@ export const SHIPPING_RULES = {
   },
 } as const;
 
+const SHIPPING_METHODS: ShippingMethod[] = [
+  "STANDARD_ENVELOPE",
+  "GROUND_ADVANTAGE",
+  "PRIORITY_MAIL",
+];
+
 const shippingMethodRank: Record<ShippingMethod, number> = {
   STANDARD_ENVELOPE: 0,
   GROUND_ADVANTAGE: 1,
@@ -67,11 +72,7 @@ const shippingMethodRank: Record<ShippingMethod, number> = {
 };
 
 export function isShippingMethod(value: unknown): value is ShippingMethod {
-  return (
-    value === "STANDARD_ENVELOPE" ||
-    value === "GROUND_ADVANTAGE" ||
-    value === "PRIORITY_MAIL"
-  );
+  return SHIPPING_METHODS.includes(value as ShippingMethod);
 }
 
 export function estimateStandardEnvelopeOunces({
@@ -163,21 +164,41 @@ export function getMinimumShippingMethod({
   subtotal: number;
   listingPriceBasis?: number;
 }): ShippingMethod {
-  if (Number(subtotal || 0) > FREE_PRIORITY_MAIL_THRESHOLD) {
+  if (
+    Number(subtotal || 0) > FREE_PRIORITY_MAIL_THRESHOLD ||
+    itemCount >= PRIORITY_MAIL_MIN_CARDS
+  ) {
     return "PRIORITY_MAIL";
   }
 
-  if (itemCount >= PRIORITY_MAIL_MIN_CARDS) {
-    return "PRIORITY_MAIL";
-  }
+  return getStandardEnvelopeEligibility({
+    itemCount,
+    subtotal,
+    listingPriceBasis,
+  }).eligible
+    ? "STANDARD_ENVELOPE"
+    : "GROUND_ADVANTAGE";
+}
 
-  const trackedLetter = getStandardEnvelopeEligibility({
+export function getAvailableShippingMethods({
+  itemCount,
+  subtotal,
+  listingPriceBasis = subtotal,
+}: {
+  itemCount: number;
+  subtotal: number;
+  listingPriceBasis?: number;
+}): ShippingMethod[] {
+  const minimumMethod = getMinimumShippingMethod({
     itemCount,
     subtotal,
     listingPriceBasis,
   });
+  const minimumRank = shippingMethodRank[minimumMethod];
 
-  return trackedLetter.eligible ? "STANDARD_ENVELOPE" : "GROUND_ADVANTAGE";
+  return SHIPPING_METHODS.filter(
+    (method) => shippingMethodRank[method] >= minimumRank,
+  );
 }
 
 export function resolveShippingMethod({
@@ -226,6 +247,52 @@ export function resolveShippingMethod({
     standardEnvelope,
     reason,
   };
+}
+
+export function calculateShipping({
+  itemCount,
+  subtotal,
+  method,
+  listingPriceBasis = subtotal,
+}: {
+  itemCount: number;
+  subtotal: number;
+  method: ShippingMethod;
+  listingPriceBasis?: number;
+}) {
+  const resolved = resolveShippingMethod({
+    requestedMethod: method,
+    itemCount,
+    subtotal,
+    listingPriceBasis,
+  });
+
+  if (resolved.method === "PRIORITY_MAIL") {
+    return Number(subtotal || 0) > FREE_PRIORITY_MAIL_THRESHOLD
+      ? 0
+      : PRIORITY_MAIL_BUYER_PRICE;
+  }
+
+  if (resolved.method === "STANDARD_ENVELOPE") {
+    return STANDARD_ENVELOPE_BUYER_PRICE;
+  }
+
+  if (
+    itemCount >= GROUND_ADVANTAGE_TEN_OUNCE_MIN_CARDS &&
+    itemCount <= GROUND_ADVANTAGE_TEN_OUNCE_MAX_CARDS
+  ) {
+    return GROUND_ADVANTAGE_TEN_OUNCE_PRICE;
+  }
+
+  const extraCards = Math.max(
+    Math.min(itemCount, 12) - SHIPPING_RULES.GROUND_ADVANTAGE.cardsIncluded,
+    0,
+  );
+
+  return (
+    SHIPPING_RULES.GROUND_ADVANTAGE.basePrice +
+    extraCards * SHIPPING_RULES.GROUND_ADVANTAGE.additionalCardPrice
+  );
 }
 
 export function getShippingCoverage({
@@ -325,52 +392,6 @@ export function mergeUnder20SellerProtectionOptIn(
   return root;
 }
 
-export function calculateShipping({
-  itemCount,
-  subtotal,
-  method,
-  listingPriceBasis = subtotal,
-}: {
-  itemCount: number;
-  subtotal: number;
-  method: ShippingMethod;
-  listingPriceBasis?: number;
-}) {
-  const resolved = resolveShippingMethod({
-    requestedMethod: method,
-    itemCount,
-    subtotal,
-    listingPriceBasis,
-  });
-
-  if (resolved.method === "PRIORITY_MAIL") {
-    return Number(subtotal || 0) > FREE_PRIORITY_MAIL_THRESHOLD
-      ? 0
-      : PRIORITY_MAIL_BUYER_PRICE;
-  }
-
-  if (resolved.method === "STANDARD_ENVELOPE") {
-    return STANDARD_ENVELOPE_BUYER_PRICE;
-  }
-
-  if (
-    itemCount >= GROUND_ADVANTAGE_TEN_OUNCE_MIN_CARDS &&
-    itemCount <= GROUND_ADVANTAGE_TEN_OUNCE_MAX_CARDS
-  ) {
-    return GROUND_ADVANTAGE_TEN_OUNCE_PRICE;
-  }
-
-  const extraCards = Math.max(
-    Math.min(itemCount, 12) - SHIPPING_RULES.GROUND_ADVANTAGE.cardsIncluded,
-    0,
-  );
-
-  return (
-    SHIPPING_RULES.GROUND_ADVANTAGE.basePrice +
-    extraCards * SHIPPING_RULES.GROUND_ADVANTAGE.additionalCardPrice
-  );
-}
-
 export function getFreeShippingMessage({
   subtotal,
   method,
@@ -390,15 +411,5 @@ export function getFreeShippingMessage({
     return `Priority Mail is $${PRIORITY_MAIL_BUYER_PRICE.toFixed(2)}. Orders over $${FREE_PRIORITY_MAIL_THRESHOLD.toFixed(2)} ship Priority Mail free.`;
   }
 
-  if (
-    itemCountForMessage(subtotal) === null
-  ) {
-    return `Ground Advantage starts at $${SHIPPING_RULES.GROUND_ADVANTAGE.basePrice.toFixed(2)}. Orders over $${FREE_PRIORITY_MAIL_THRESHOLD.toFixed(2)} ship Priority Mail free.`;
-  }
-
-  return `Ground Advantage starts at $${SHIPPING_RULES.GROUND_ADVANTAGE.basePrice.toFixed(2)}. Orders over $${FREE_PRIORITY_MAIL_THRESHOLD.toFixed(2)} ship Priority Mail free.`;
-}
-
-function itemCountForMessage(_subtotal: number) {
-  return null;
+  return `Ground Advantage starts at $${SHIPPING_RULES.GROUND_ADVANTAGE.basePrice.toFixed(2)}. You may upgrade to Priority Mail for $${PRIORITY_MAIL_BUYER_PRICE.toFixed(2)}. Orders over $${FREE_PRIORITY_MAIL_THRESHOLD.toFixed(2)} ship Priority Mail free.`;
 }
