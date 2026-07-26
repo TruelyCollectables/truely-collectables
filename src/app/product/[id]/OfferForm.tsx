@@ -105,9 +105,13 @@ export default function OfferForm({
         type="button"
         onClick={() => setOpen(!open)}
         aria-expanded={open}
-        className="min-h-12 w-full rounded border px-4 py-3 text-base font-bold"
+        aria-label="Shoot Me an Offer"
+        className="flex min-h-12 w-full items-center justify-center rounded border px-4 py-3 text-base font-bold"
       >
-        Make Best Offer
+        <span>Shoot Me an Offer</span>
+        <sup aria-hidden="true" className="ml-0.5 text-[0.55em] leading-none">
+          ™
+        </sup>
       </button>
 
       {open ? (
