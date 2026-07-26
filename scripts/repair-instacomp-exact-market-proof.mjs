@@ -63,4 +63,34 @@ function replaceRequired(source, before, after, file) {
   fs.writeFileSync(file, source);
 }
 
-console.log("Repaired InstaComp exact-market matcher and transform.");
+{
+  const file = "src/app/api/account/seller/inventory/instacomp-universal/route.ts";
+  let source = fs.readFileSync(file, "utf8");
+  source = replaceRequired(
+    source,
+    `    const suggestedPrice = pricingAnalysis.suggestedPrice;\n    const reliableSoldCompCount = pricingAnalysis.soldCount;\n    const hasReliableSoldComps = pricingAnalysis.soldCount > 0;\n    const pricingStatus = suggestedPrice > 0\n      ? "suggested_from_reliable_sold_comps"\n      : "seller_price_required";\n    const pricingReason = pricingAnalysis.explanation;`,
+    `    const reliableSoldCompCount = pricingAnalysis.soldCount;\n    const hasReliableSoldComps = reliableSoldCompCount > 0;\n    const suggestedPrice = hasReliableSoldComps ? pricingAnalysis.suggestedPrice : 0;\n    const pricingStatus = hasReliableSoldComps && suggestedPrice > 0\n      ? "suggested_from_reliable_sold_comps"\n      : "seller_price_required";\n    const pricingReason = hasReliableSoldComps\n      ? pricingAnalysis.explanation\n      : activeCompetition.length\n        ? `No exact sold listing passed. \${activeCompetition.length} exact active listing\${activeCompetition.length === 1 ? " is" : "s are"} shown only as current competition; seller pricing is required.`\n        : "No exact sold or active listing passed; seller pricing is required.";`,
+    file,
+  );
+  fs.writeFileSync(file, source);
+}
+
+{
+  const file = "src/app/api/account/seller/instacomp-pending/exclude-comp/route.ts";
+  let source = fs.readFileSync(file, "utf8");
+  source = replaceRequired(
+    source,
+    `    const suggestedPrice = pricingAnalysis.suggestedPrice;\n    const hasReliableSoldComps = pricingAnalysis.soldCount > 0;\n    const pricingStatus = suggestedPrice > 0\n      ? "suggested_from_reliable_sold_comps"\n      : "seller_price_required";`,
+    `    const hasReliableSoldComps = pricingAnalysis.soldCount > 0;\n    const suggestedPrice = hasReliableSoldComps ? pricingAnalysis.suggestedPrice : 0;\n    const pricingStatus = hasReliableSoldComps && suggestedPrice > 0\n      ? "suggested_from_reliable_sold_comps"\n      : "seller_price_required";`,
+    file,
+  );
+  source = replaceRequired(
+    source,
+    `        pricingReason: pricingAnalysis.explanation,`,
+    `        pricingReason: hasReliableSoldComps\n          ? pricingAnalysis.explanation\n          : nextActive.length\n            ? `No exact sold listing remains. \${nextActive.length} exact active listing\${nextActive.length === 1 ? " is" : "s are"} shown only as competition; seller pricing is required.`\n            : "No exact sold or active listing remains; seller pricing is required.",`,
+    file,
+  );
+  fs.writeFileSync(file, source);
+}
+
+console.log("Repaired InstaComp exact-market matcher, transform, and sold-only pricing trust.");
