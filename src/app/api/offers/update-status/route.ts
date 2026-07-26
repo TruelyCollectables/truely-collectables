@@ -145,52 +145,65 @@ export async function POST(req: Request) {
       );
     }
     const stripe = new Stripe(stripeRuntime.stripeKey);
+    const stripeIdempotencyKey = [
+      "tcos",
+      "offer",
+      "accept",
+      storeId,
+      String(offer.id),
+      String(Math.round(amount * 100)),
+    ].join("_");
 
-    const session = await stripe.checkout.sessions.create({
-      mode: "payment",
-      customer_email: offer.customer_email,
-      shipping_address_collection: {
-        allowed_countries: ["US"],
-      },
-      line_items: [
-        {
-          price_data: {
-            currency: "usd",
-            product_data: {
-              name: offer.products.title,
-              images: offer.products.image_url ? [offer.products.image_url] : [],
-            },
-            unit_amount: Math.round(amount * 100),
-          },
-          quantity: 1,
+    const session = await stripe.checkout.sessions.create(
+      {
+        mode: "payment",
+        customer_email: offer.customer_email,
+        shipping_address_collection: {
+          allowed_countries: ["US"],
         },
-      ],
-      metadata: {
-        store_id: storeId,
-        account_id: offer.account_id || "",
-        type: "accepted_offer",
-        offer_id: String(offer.id),
-        product_id: String(offer.products.id),
-        ebay_item_id: offer.products.ebay_item_id || "",
-        offer_amount: String(amount),
-        cart: JSON.stringify([{ id: Number(offer.products.id), quantity: 1 }]),
-        subtotal: amount.toFixed(2),
-        item_count: "1",
-        shipping_method: "OFFER_CHECKOUT",
-        shipping_name: "Offer checkout",
-        shipping_amount: "0.00",
-        tos_accepted: offer.tos_accepted ? "true" : "false",
-        tos_version: offer.tos_version || "",
-        tos_accepted_at: offer.tos_accepted_at || "",
-        tos_acceptance_event_id: offer.tos_acceptance_event_id || "",
-        tos_ip_address: offer.tos_ip_address || "",
-        tos_user_agent: offer.tos_user_agent || "",
-        tos_ip_risk: offer.tos_ip_risk || "",
-        tos_ip_block_reason: offer.tos_ip_block_reason || "",
+        line_items: [
+          {
+            price_data: {
+              currency: "usd",
+              product_data: {
+                name: offer.products.title,
+                images: offer.products.image_url ? [offer.products.image_url] : [],
+              },
+              unit_amount: Math.round(amount * 100),
+            },
+            quantity: 1,
+          },
+        ],
+        metadata: {
+          store_id: storeId,
+          account_id: offer.account_id || "",
+          type: "accepted_offer",
+          offer_id: String(offer.id),
+          product_id: String(offer.products.id),
+          ebay_item_id: offer.products.ebay_item_id || "",
+          offer_amount: String(amount),
+          cart: JSON.stringify([{ id: Number(offer.products.id), quantity: 1 }]),
+          subtotal: amount.toFixed(2),
+          item_count: "1",
+          shipping_method: "OFFER_CHECKOUT",
+          shipping_name: "Offer checkout",
+          shipping_amount: "0.00",
+          tos_accepted: offer.tos_accepted ? "true" : "false",
+          tos_version: offer.tos_version || "",
+          tos_accepted_at: offer.tos_accepted_at || "",
+          tos_acceptance_event_id: offer.tos_acceptance_event_id || "",
+          tos_ip_address: offer.tos_ip_address || "",
+          tos_user_agent: offer.tos_user_agent || "",
+          tos_ip_risk: offer.tos_ip_risk || "",
+          tos_ip_block_reason: offer.tos_ip_block_reason || "",
+        },
+        success_url: `${origin}/success?type=offer&session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${origin}/product/${offer.products.id}`,
       },
-      success_url: `${origin}/success?type=offer&session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: `${origin}/product/${offer.products.id}`,
-    });
+      {
+        idempotencyKey: stripeIdempotencyKey,
+      },
+    );
 
     const { data: updatedOffer, error: updateError } = await supabase
       .from("offers")
