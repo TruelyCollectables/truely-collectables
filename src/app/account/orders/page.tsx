@@ -55,26 +55,22 @@ function statusLabel(order: AccountOrder) {
 }
 
 export default function BuyerOrdersPage() {
-  const [session, setSession] = useState<StoredAccountSession | null>(null);
+  const [session] = useState<StoredAccountSession | null>(() =>
+    typeof window === "undefined" ? null : getAccountSession(),
+  );
   const [orders, setOrders] = useState<AccountOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [copiedTracking, setCopiedTracking] = useState<string | null>(null);
 
   useEffect(() => {
-    const currentSession = getAccountSession();
-    setSession(currentSession);
-
-    if (!currentSession?.access_token) {
-      setLoading(false);
-      return;
-    }
+    if (!session?.access_token) return;
 
     const controller = new AbortController();
 
     fetch("/api/account/orders", {
       headers: {
-        Authorization: `Bearer ${currentSession.access_token}`,
+        Authorization: `Bearer ${session.access_token}`,
       },
       signal: controller.signal,
       cache: "no-store",
@@ -98,7 +94,7 @@ export default function BuyerOrdersPage() {
       .finally(() => setLoading(false));
 
     return () => controller.abort();
-  }, []);
+  }, [session]);
 
   async function copyTracking(value: string) {
     try {
