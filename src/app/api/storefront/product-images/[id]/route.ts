@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { selectFrontBackListingImages } from "../../../../../lib/listing-image-utils";
+import { normalizeListingImageUrls } from "../../../../../lib/listing-image-utils";
 import { createServerInventoryEngine } from "../../../../../lib/server-inventory-engine";
 import { createSupabaseServerClient } from "../../../../../lib/supabase-server";
 
@@ -44,7 +44,7 @@ export async function GET(
     ...imageRows.filter((image: any) => image.is_primary === true),
     ...imageRows.filter((image: any) => image.is_primary !== true),
   ];
-  const images = selectFrontBackListingImages([
+  const images = normalizeListingImageUrls([
     ...orderedRows.map((image: any) => image.image_url),
     product.imageUrl,
   ]);
@@ -53,8 +53,7 @@ export async function GET(
     {
       productId: legacyProductId,
       images,
-      hasFront: images.length >= 1,
-      hasBack: images.length >= 2,
+      imageCount: images.length,
     },
     {
       headers: {
