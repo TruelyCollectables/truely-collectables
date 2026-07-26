@@ -26,6 +26,33 @@ type CompEvidence = {
   observedAt: string | null;
 };
 
+type MarketStats = {
+  count: number;
+  usedCount: number;
+  outliersRemoved: number;
+  low: number | null;
+  q1: number | null;
+  median: number | null;
+  average: number | null;
+  q3: number | null;
+  high: number | null;
+};
+
+type PricingModel = {
+  strategy: string | null;
+  confidence: string | null;
+  marketValue: number | null;
+  quickSalePrice: number | null;
+  stretchPrice: number | null;
+  activeInfluenceApplied: boolean;
+  sold: MarketStats & { recencyWeightedMedian: number | null };
+  active: MarketStats & {
+    competitiveEntryPrice: number | null;
+    competitiveTargetPrice: number | null;
+  };
+  rationale: string[];
+};
+
 type PendingItem = {
   inventoryItemId: string;
   legacyProductId: number | null;
@@ -60,6 +87,7 @@ type PendingItem = {
     pricingReason: string;
     reliableSoldCompCount: number;
     pricingCheckedAt: string | null;
+    pricingModel: PricingModel;
     listingPrice: number | null;
     listingPriceSource: string | null;
     soldCompEvidence: CompEvidence[];
@@ -737,10 +765,10 @@ export default function InstaCompPendingPage() {
                 Pending Listings
               </h1>
               <p className="mt-3 max-w-4xl text-sm font-semibold leading-6 text-slate-200">
-                New scanned drafts automatically receive an InstaComp outcome. Sold comps
-                alone calculate suggested price. Active listings are shown separately as
-                current competition. Select any combination to scan, price, edit quantity,
-                or publish after seller verification.
+                 New scanned drafts automatically receive a complete market outcome. Exact
+                 sold comps establish proven value; exact active listings position the live
+                 competitive sweet spot. TCOS shows quick-sale, market-value, Suggested Price,
+                 and stretch positions before the seller edits or publishes.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -768,7 +796,7 @@ export default function InstaCompPendingPage() {
           {[
             ["Drafts", loading ? "…" : sortedItems.length],
             ["Selected", selectedItems.length],
-            ["Sold Suggestions", pricingSummary.suggested],
+            ["Market Suggestions", pricingSummary.suggested],
             ["Seller Pricing", pricingSummary.sellerRequired],
             ["Auto Pricing", autoPricing ? "Running" : pricingSummary.notRun],
           ].map(([title, value]) => (
@@ -895,7 +923,7 @@ export default function InstaCompPendingPage() {
                 <div className="absolute inset-0 animate-pulse bg-gradient-to-r from-transparent via-white/50 to-transparent" />
               </div>
               <p className="mt-2 text-[11px] font-bold text-sky-900">
-                Images → exact identity → sold evidence → active listing image verification → save result
+                Images → exact identity → sold market → active competition → sweet-spot pricing → save result
                 {batchProgress.total > 1
                   ? ` · ${batchProgress.current}/${batchProgress.total} cards complete`
                   : " · elapsed time updates while the server is working"}
@@ -1067,10 +1095,33 @@ export default function InstaCompPendingPage() {
                       <p className="text-xs font-black uppercase text-sky-900">
                         InstaComp pricing outcome
                       </p>
-                      <p className="mt-1 text-sm font-semibold text-sky-950">
-                        {item.instaComp.pricingReason}
-                      </p>
-                      <div className="mt-3 flex flex-wrap gap-2">
+                       <p className="mt-1 text-sm font-semibold text-sky-950">
+                         {item.instaComp.pricingReason}
+                       </p>
+                       {item.instaComp.pricingModel.strategy ? (
+                         <div className="mt-3 rounded-lg border border-sky-300 bg-white p-3">
+                           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                             <div><p className="text-[11px] font-black uppercase text-neutral-500">Quick sale</p><p className="text-xl font-black">{money(item.instaComp.pricingModel.quickSalePrice)}</p></div>
+                             <div><p className="text-[11px] font-black uppercase text-neutral-500">Sold market value</p><p className="text-xl font-black">{money(item.instaComp.pricingModel.marketValue)}</p></div>
+                             <div><p className="text-[11px] font-black uppercase text-neutral-500">Suggested Price</p><p className="text-xl font-black text-emerald-800">{money(item.instaComp.suggestedPrice)}</p></div>
+                             <div><p className="text-[11px] font-black uppercase text-neutral-500">Stretch price</p><p className="text-xl font-black">{money(item.instaComp.pricingModel.stretchPrice)}</p></div>
+                           </div>
+                           <p className="mt-3 text-xs font-black uppercase text-sky-900">
+                             {label(item.instaComp.pricingModel.strategy)} · {label(item.instaComp.pricingModel.confidence)} confidence
+                           </p>
+                           <p className="mt-1 text-xs font-semibold text-neutral-700">
+                             Sold used {item.instaComp.pricingModel.sold.usedCount}/{item.instaComp.pricingModel.sold.count} · Active used {item.instaComp.pricingModel.active.usedCount}/{item.instaComp.pricingModel.active.count}
+                             {item.instaComp.pricingModel.sold.outliersRemoved ? ` · ${item.instaComp.pricingModel.sold.outliersRemoved} sold outlier${item.instaComp.pricingModel.sold.outliersRemoved === 1 ? "" : "s"} removed` : ""}
+                             {item.instaComp.pricingModel.active.outliersRemoved ? ` · ${item.instaComp.pricingModel.active.outliersRemoved} active outlier${item.instaComp.pricingModel.active.outliersRemoved === 1 ? "" : "s"} removed` : ""}
+                           </p>
+                           {item.instaComp.pricingModel.rationale.length ? (
+                             <ul className="mt-2 space-y-1 text-xs font-semibold text-neutral-700">
+                               {item.instaComp.pricingModel.rationale.map((reason, reasonIndex) => <li key={reasonIndex}>• {reason}</li>)}
+                             </ul>
+                           ) : null}
+                         </div>
+                       ) : null}
+                       <div className="mt-3 flex flex-wrap gap-2">
                         <button
                           type="button"
                           onClick={() => void runOnePricing(item)}
@@ -1121,7 +1172,7 @@ export default function InstaCompPendingPage() {
                     <div className="mt-4 grid gap-4 xl:grid-cols-2">
                       <details className="rounded-xl border-2 border-emerald-300 bg-emerald-50 p-3" open>
                         <summary className="cursor-pointer font-black text-emerald-950">
-                          Sold comps used for pricing ({item.instaComp.soldCompEvidence.length})
+                          Exact sold comps establishing market value ({item.instaComp.soldCompEvidence.length})
                         </summary>
                         <p className="mt-2 text-xs font-semibold text-emerald-900">
                           Click every source to verify the same player, card number, parallel,
@@ -1189,8 +1240,8 @@ export default function InstaCompPendingPage() {
                           Current active competition ({item.instaComp.activeCompetition.length})
                         </summary>
                         <p className="mt-2 text-xs font-semibold text-amber-900">
-                          These are currently for sale and never calculate the sold-comp
-                          suggestion.
+                           These exact current listings position the competitive sweet spot.
+                           Sold history still anchors value so TCOS never blindly copies asking prices.
                         </p>
                         <div className="mt-3 space-y-2">
                           {item.instaComp.activeCompetition.length ? (

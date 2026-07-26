@@ -74,6 +74,47 @@ function providerCoverageList(value: unknown) {
     });
 }
 
+function marketStats(value: unknown) {
+  const row = recordValue(value);
+  return {
+    count: Math.max(0, Number(row.count || 0)),
+    usedCount: Math.max(0, Number(row.usedCount || 0)),
+    outliersRemoved: Math.max(0, Number(row.outliersRemoved || 0)),
+    low: optionalPrice(row.low),
+    q1: optionalPrice(row.q1),
+    median: optionalPrice(row.median),
+    average: optionalPrice(row.average),
+    q3: optionalPrice(row.q3),
+    high: optionalPrice(row.high),
+  };
+}
+
+function pricingModelValue(value: unknown) {
+  const model = recordValue(value);
+  const sold = recordValue(model.sold);
+  const active = recordValue(model.active);
+  return {
+    strategy: textValue(model.strategy),
+    confidence: textValue(model.confidence),
+    marketValue: optionalPrice(model.marketValue),
+    quickSalePrice: optionalPrice(model.quickSalePrice),
+    stretchPrice: optionalPrice(model.stretchPrice),
+    activeInfluenceApplied: model.activeInfluenceApplied === true,
+    sold: {
+      ...marketStats(sold),
+      recencyWeightedMedian: optionalPrice(sold.recencyWeightedMedian),
+    },
+    active: {
+      ...marketStats(active),
+      competitiveEntryPrice: optionalPrice(active.competitiveEntryPrice),
+      competitiveTargetPrice: optionalPrice(active.competitiveTargetPrice),
+    },
+    rationale: Array.isArray(model.rationale)
+      ? model.rationale.map((entry) => String(entry)).slice(0, 10)
+      : [],
+  };
+}
+
 function effectiveGraderStatus(metadata: Record<string, unknown>) {
   const instaComp = recordValue(metadata.instacomp);
   const collectibleAsset = recordValue(metadata.collectible_asset);
@@ -163,6 +204,7 @@ export async function GET(request: Request) {
       const graderVerification = recordValue(metadata.grader_verification);
       const sellerReview = recordValue(metadata.seller_review);
       const sourceLinks = recordValue(instaComp.sourceLinks);
+      const pricingModel = pricingModelValue(instaComp.pricingModel);
       const product = row.legacy_product_id
         ? productMap.get(row.legacy_product_id)
         : null;
@@ -239,6 +281,7 @@ export async function GET(request: Request) {
             Number(instaComp.reliableSoldCompCount || 0),
           ),
           pricingCheckedAt: textValue(instaComp.pricingCheckedAt),
+          pricingModel,
           listingPrice: optionalPrice(instaComp.listingPrice),
           listingPriceSource: textValue(instaComp.listingPriceSource),
           soldCompEvidence: evidenceList(instaComp.soldCompEvidence),
@@ -270,11 +313,11 @@ export async function GET(request: Request) {
         count: items.length,
         pricingRule: {
           reliableSoldComps:
-            "Only exact sold comps calculate the suggested price. Active listings never set it.",
+            "Exact sold comps establish market value; exact active listings position the Suggested Price inside the live competitive market.",
           noReliableSoldComps:
-            "$0.00 means no reliable sold comps passed; seller pricing is required.",
+            "$0.00 means no reliable sold comps passed; active asking prices alone cannot prove value, so seller pricing is required.",
           activeCompetition:
-            "Active listings are shown separately only to inspect current competition.",
+            "Active listings influence competitive positioning only after sold value is established.",
         },
       },
       { headers: { "Cache-Control": "no-store" } },
