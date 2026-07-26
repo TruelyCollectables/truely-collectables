@@ -9,6 +9,18 @@ import { createSupabaseServerClient } from "../../../lib/supabase-server";
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
+type OfferProduct = {
+  id: number | string;
+  title: string;
+  image_url: string | null;
+  price: number | string;
+  quantity: number | string;
+};
+
+function firstProduct(value: OfferProduct | OfferProduct[] | null | undefined) {
+  return Array.isArray(value) ? value[0] || null : value || null;
+}
+
 export default async function OfferCheckoutPage({
   params,
   searchParams,
@@ -26,13 +38,16 @@ export default async function OfferCheckoutPage({
       throw new Error("Offer checkout link is invalid.");
     }
     parseOfferCheckoutToken({ token, storeId, offerId });
-  } catch (error: any) {
+  } catch (error) {
+    const detail =
+      error instanceof Error
+        ? error.message
+        : "This offer checkout link is invalid or expired.";
+
     return (
       <main className="mx-auto max-w-3xl px-4 py-12 text-center sm:px-6">
         <h1 className="text-4xl font-black">Offer Checkout Unavailable</h1>
-        <p className="mt-4 text-neutral-600">
-          {error.message || "This offer checkout link is invalid or expired."}
-        </p>
+        <p className="mt-4 text-neutral-600">{detail}</p>
         <Link
           href="/shop"
           className="mt-6 inline-flex rounded bg-neutral-950 px-5 py-3 font-black text-white"
@@ -52,8 +67,11 @@ export default async function OfferCheckoutPage({
     .eq("id", offerId)
     .eq("store_id", storeId)
     .single();
+  const product = firstProduct(
+    (offer?.products || null) as OfferProduct | OfferProduct[] | null,
+  );
 
-  if (error || !offer?.products) {
+  if (error || !offer || !product) {
     return (
       <main className="mx-auto max-w-3xl px-4 py-12 text-center sm:px-6">
         <h1 className="text-4xl font-black">Offer Not Found</h1>
@@ -99,18 +117,16 @@ export default async function OfferCheckoutPage({
     offer.status === "countered" ? offer.counter_amount : offer.offer_amount,
   );
   const listingPriceBasis = Number(
-    offer.listing_price_at_offer ?? offer.products.price,
+    offer.listing_price_at_offer ?? product.price,
   );
 
   return (
     <OfferCheckoutClient
       offerId={Number(offer.id)}
       token={token}
-      productId={Number(offer.products.id)}
-      title={offer.products.title}
-      imageUrl={
-        preferHighResolutionListingImage(offer.products.image_url) || null
-      }
+      productId={Number(product.id)}
+      title={product.title}
+      imageUrl={preferHighResolutionListingImage(product.image_url) || null}
       saleSubtotal={saleSubtotal}
       listingPriceBasis={listingPriceBasis}
       buyerProtectionSelected={offer.buyer_protection_selected === true}
