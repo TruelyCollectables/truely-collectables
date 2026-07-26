@@ -22,10 +22,10 @@ jobs:
       TCOS_CRON_SECRET: ${{ secrets.TCOS_CRON_SECRET }}
       SMOKE_BASE_URL: https://truelycollectables.com
     steps:
-      - name: Check out current main
+      - name: Check out temporary launch-audit branch
         uses: actions/checkout@v4
         with:
-          ref: main
+          ref: agent/one-hour-launch-audit-20260726
           fetch-depth: 0
 
       - name: Set up Node.js
