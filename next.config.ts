@@ -6,6 +6,14 @@ const tsconfigPath = process.env.NEXT_TSCONFIG_PATH;
 const nextConfig: NextConfig = {
   ...(distDir ? { distDir } : {}),
   ...(tsconfigPath ? { typescript: { tsconfigPath } } : {}),
+  async rewrites() {
+    return [
+      {
+        source: "/api/account/seller/inventory/instacomp",
+        destination: "/api/account/seller/inventory/instacomp-universal",
+      },
+    ];
+  },
   images: {
     remotePatterns: [
       {
