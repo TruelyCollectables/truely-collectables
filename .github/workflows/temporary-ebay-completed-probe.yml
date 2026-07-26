@@ -9,11 +9,10 @@ on:
       - main
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   probe:
-    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -25,19 +24,16 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - name: Probe completed listings
+      - name: Probe completed listings and print evidence
         shell: bash
         run: |
           set +e
           node --import tsx scripts/probe-ebay-completed-market.ts > docs/instacomp-ebay-completed-probe.log 2>&1
           STATUS=$?
           echo "probe_status=$STATUS" >> docs/instacomp-ebay-completed-probe.log
-          exit 0
-      - name: Commit probe evidence
-        shell: bash
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add docs/instacomp-ebay-completed-probe.json docs/instacomp-ebay-completed-probe.log || true
-          git commit -m "Record direct eBay completed market probe" || true
-          git push origin HEAD:agent/instacomp-exact-market-proof-20260726
+          cat docs/instacomp-ebay-completed-probe.log
+          if [ -f docs/instacomp-ebay-completed-probe.json ]; then
+            echo "--- structured report ---"
+            cat docs/instacomp-ebay-completed-probe.json
+          fi
+          exit "$STATUS"
