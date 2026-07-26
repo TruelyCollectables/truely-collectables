@@ -27,7 +27,10 @@ const EMPTY_CHOICE: BuyerProtectionCheckoutChoice = {
   storedConsentCurrent: false,
 };
 
-export default function BuyerProtectionOption(props: {
+export default function BuyerProtectionOption({
+  available,
+  onChange,
+}: {
   available: boolean;
   onChange: (choice: BuyerProtectionCheckoutChoice) => void;
 }) {
@@ -41,9 +44,9 @@ export default function BuyerProtectionOption(props: {
 
   function update(next: BuyerProtectionCheckoutChoice) {
     setChoice(next);
-    props.onChange({
+    onChange({
       ...next,
-      selected: props.available && next.selected,
+      selected: available && next.selected,
     });
   }
 
@@ -82,12 +85,12 @@ export default function BuyerProtectionOption(props: {
             : EMPTY_CHOICE;
         setRequiresReacceptance(payload.requiresReacceptance === true);
         setChoice(next);
-        props.onChange(next);
+        onChange(next);
       })
       .catch(() => {
         if (!cancelled) {
           setChoice(EMPTY_CHOICE);
-          props.onChange(EMPTY_CHOICE);
+          onChange(EMPTY_CHOICE);
         }
       })
       .finally(() => {
@@ -97,7 +100,7 @@ export default function BuyerProtectionOption(props: {
     return () => {
       cancelled = true;
     };
-  }, [session?.access_token, props.onChange]);
+  }, [session?.access_token, onChange]);
 
   const needsAcceptance =
     choice.selected && !choice.storedConsentCurrent;
@@ -141,7 +144,7 @@ export default function BuyerProtectionOption(props: {
         </Link>
       </div>
 
-      {!props.available ? (
+      {!available ? (
         <p className="mt-3 rounded border border-amber-200 bg-amber-50 p-3 text-sm font-bold text-amber-950">
           Available only when Tracked Card Letter is the selected shipping method.
         </p>
