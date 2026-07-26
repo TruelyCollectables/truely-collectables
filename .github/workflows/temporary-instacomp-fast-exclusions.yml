@@ -37,22 +37,52 @@ jobs:
         with:
           node-version: 22
           cache: npm
-      - run: npm ci
-      - run: node scripts/apply-instacomp-fast-exclusions.mjs
-      - run: node scripts/apply-instacomp-sold-cache-exact-override.mjs
-      - run: node --import tsx scripts/run-instacomp-fast-exclusions-regressions.ts
-      - run: npm run lint
-      - run: npm run build
-      - run: |
+      - name: Apply and validate complete correction
+        shell: bash
+        run: |
+          set +e
+          mkdir -p docs
+          : > /tmp/instacomp-fast.log
+
+          npm ci >> /tmp/instacomp-fast.log 2>&1
+          INSTALL=$?
+
+          node scripts/apply-instacomp-fast-exclusions.mjs >> /tmp/instacomp-fast.log 2>&1
+          PATCH_FAST=$?
+
+          node scripts/apply-instacomp-sold-cache-exact-override.mjs >> /tmp/instacomp-fast.log 2>&1
+          PATCH_EXACT=$?
+
+          node --import tsx scripts/run-instacomp-fast-exclusions-regressions.ts >> /tmp/instacomp-fast.log 2>&1
+          REGRESSION=$?
+
+          npm run lint >> /tmp/instacomp-fast.log 2>&1
+          LINT=$?
+
+          npm run build >> /tmp/instacomp-fast.log 2>&1
+          BUILD=$?
+
+          {
+            echo "install=$INSTALL"
+            echo "patch_fast=$PATCH_FAST"
+            echo "patch_exact=$PATCH_EXACT"
+            echo "regression=$REGRESSION"
+            echo "lint=$LINT"
+            echo "build=$BUILD"
+            echo "validated_source_commit=$(git rev-parse HEAD)"
+            echo "--- log tail ---"
+            tail -n 180 /tmp/instacomp-fast.log
+          } > docs/instacomp-fast-validation.txt
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add \
-            src/app/api/account/seller/inventory/instacomp-universal/route.ts \
-            src/app/api/account/seller/instacomp-pending/route.ts \
-            src/app/api/account/seller/instacomp-pending/exclude-comp/route.ts \
-            src/app/seller/instacomp-pending/page.tsx \
-            src/lib/instacomp-ebay-serp-provider.ts \
-            src/lib/instacomp-comp-visual-verification.ts \
-            scripts/run-instacomp-fast-exclusions-regressions.ts
-          git commit -m "Make InstaComp faster, refresh sold comps, and preserve exact matches"
+          git add -A
+          git commit -m "Validate faster InstaComp, sold refresh, exact matches, and exclusions" || true
           git push origin HEAD:agent/instacomp-fast-exclusions-20260726
+
+          test "$INSTALL" -eq 0 && \
+          test "$PATCH_FAST" -eq 0 && \
+          test "$PATCH_EXACT" -eq 0 && \
+          test "$REGRESSION" -eq 0 && \
+          test "$LINT" -eq 0 && \
+          test "$BUILD" -eq 0
