@@ -24,11 +24,11 @@ function routePath(file) {
   return relative ? `/api/${relative}` : "/api";
 }
 
-function mutationMethods(content) {
+function routeMethods(content) {
   const methods = new Set();
   const patterns = [
-    /export\s+(?:async\s+)?function\s+(POST|PUT|PATCH|DELETE)\s*\(/g,
-    /export\s+const\s+(POST|PUT|PATCH|DELETE)\s*=/g,
+    /export\s+(?:async\s+)?function\s+(GET|POST|PUT|PATCH|DELETE|HEAD)\s*\(/g,
+    /export\s+const\s+(GET|POST|PUT|PATCH|DELETE|HEAD)\s*=/g,
   ];
 
   for (const pattern of patterns) {
@@ -86,9 +86,11 @@ function called(content, name) {
   return new RegExp(`\\b${name}\\s*\\(`).test(content);
 }
 
-function explicitProtection(route, content) {
+function explicitProtection(route, content, methods) {
   if (route === "/api/checkout") {
     const checkoutGuards =
+      methods.length === 1 &&
+      methods[0] === "POST" &&
       called(content, "checkPublicEndpointRateLimit") &&
       called(content, "getStripePaymentRuntime") &&
       /requireAvailableCartItems\s*\(/.test(content);
@@ -97,10 +99,25 @@ function explicitProtection(route, content) {
 
   if (route === "/api/offers/create") {
     const offerGuards =
+      methods.length === 1 &&
+      methods[0] === "POST" &&
       called(content, "checkPublicEndpointRateLimit") &&
       /requireAvailableCartItems\s*\(/.test(content) &&
       called(content, "recordTermsAcceptance");
     return offerGuards ? "explicit public offer guard contract" : null;
+  }
+
+  if (route === "/api/storefront/product-images/[id]") {
+    const storefrontImageGuards =
+      methods.length === 1 &&
+      methods[0] === "GET" &&
+      called(content, "createServerInventoryEngine") &&
+      /getByLegacyProductId\s*\(/.test(content) &&
+      /inventoryItemId/.test(content) &&
+      /normalizeListingImageUrls\s*\(/.test(content);
+    return storefrontImageGuards
+      ? "explicit launch-scoped public product-image read contract"
+      : null;
   }
 
   if (called(content, "requireInstaCompJobActor")) {
@@ -174,14 +191,15 @@ const audits = [];
 
 for (const file of routeFiles) {
   const content = source(file);
-  const methods = mutationMethods(content);
+  const methods = routeMethods(content);
   if (methods.length === 0) continue;
 
   const signals = privilegedSignals(content);
   if (signals.length === 0) continue;
 
   const route = routePath(file);
-  const protection = proxyProtected(route) || explicitProtection(route, content);
+  const protection =
+    proxyProtected(route) || explicitProtection(route, content, methods);
 
   audits.push({
     file: path.relative(repositoryRoot, file).split(path.sep).join("/"),
@@ -196,7 +214,7 @@ const unsafe = audits.filter((audit) => !audit.protection);
 const report = {
   generatedAt: new Date().toISOString(),
   routeFilesScanned: routeFiles.length,
-  privilegedMutationRoutes: audits.length,
+  privilegedRoutes: audits.length,
   protectedRoutes: audits.length - unsafe.length,
   unsafeRoutes: unsafe.length,
   audits,
@@ -221,12 +239,12 @@ if (unsafe.length > 0) {
     .join("\n");
 
   throw new Error(
-    `Privileged mutation routes lack a recognized protection contract:\n${details}`,
+    `Privileged API routes lack a recognized protection contract:\n${details}`,
   );
 }
 
 console.log(
-  `Privileged API route audit passed: ${audits.length} protected mutation route${
+  `Privileged API route audit passed: ${audits.length} protected route${
     audits.length === 1 ? "" : "s"
   } checked across ${routeFiles.length} API route files.`,
 );
