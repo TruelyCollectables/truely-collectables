@@ -308,6 +308,59 @@ function parallelTokens(value: string | null | undefined) {
     );
 }
 
+const PARALLEL_COLOR_TOKENS = [
+  "red",
+  "blue",
+  "green",
+  "gold",
+  "silver",
+  "purple",
+  "orange",
+  "pink",
+  "black",
+  "white",
+  "yellow",
+  "teal",
+  "aqua",
+  "bronze",
+  "copper",
+] as const;
+
+function titleHasWholeToken(title: string, token: string) {
+  return new RegExp(`(?:^|[^a-z0-9])${token}(?:$|[^a-z0-9])`, "i").test(title);
+}
+
+export function explainInstaCompParallelMismatch(
+  title: string,
+  targetParallel: string | null | undefined,
+) {
+  const requiredTokens = parallelTokens(targetParallel);
+  if (!requiredTokens.length) return null;
+
+  const normalizedTitle = normalizeText(title);
+  const targetColors = requiredTokens.filter((token) =>
+    PARALLEL_COLOR_TOKENS.includes(token as (typeof PARALLEL_COLOR_TOKENS)[number]),
+  );
+  const listingColors = PARALLEL_COLOR_TOKENS.filter((token) =>
+    titleHasWholeToken(normalizedTitle, token),
+  );
+  const conflictingColors = listingColors.filter(
+    (token) => !targetColors.includes(token),
+  );
+  const expected = cleanPart(targetParallel) || "the identified parallel";
+
+  if (conflictingColors.length) {
+    return `parallel mismatch: expected ${expected}; listing says ${conflictingColors.join("/")}`;
+  }
+
+  const missingTokens = requiredTokens.filter(
+    (token) => !titleHasWholeToken(normalizedTitle, token),
+  );
+  if (!missingTokens.length) return null;
+
+  return `parallel mismatch: expected ${expected}; missing ${missingTokens.join(" ")}`;
+}
+
 export function buildInstaCompQueries(ai: InstaCompAiResult) {
   const serialRun = serialRunSearchToken(ai.serialNumber);
   const parallelPart = searchParallelPart(ai.parallel);
@@ -591,6 +644,7 @@ export function scoreCompMatch(title: string, ai: InstaCompAiResult) {
   const grader = normalizeText(normalizeGradingCompany(ai.gradingCompany));
   const grade = normalizeText(ai.gradeValue);
   const certificationNumber = cleanCertificationNumber(ai.certificationNumber);
+  const parallelMismatch = explainInstaCompParallelMismatch(title, ai.parallel);
 
   if (player && t.includes(player)) {
     score += 30;
@@ -654,6 +708,12 @@ export function scoreCompMatch(title: string, ai: InstaCompAiResult) {
         flags.push("parallel partial");
       }
     }
+  }
+
+  if (parallelMismatch) {
+    score -= 150;
+    flags.push(parallelMismatch);
+    flags.push("not exact parallel");
   }
 
   if (serial.normalized) {
@@ -778,6 +838,10 @@ export function filterAndRankExactMatches(
     })
     .filter((comp) => comp.price > 0)
     .filter((comp) => !comp.flags.includes("excluded"))
+    .filter(
+      (comp) =>
+        !comp.flags.some((flag) => flag.startsWith("parallel mismatch:")),
+    )
     .filter(
       (comp) =>
         (!requiresPlayerEvidence || comp.flags.includes("player")) &&

@@ -5,13 +5,16 @@ on:
     paths:
       - "package.json"
       - "src/lib/active-market-*.ts"
+      - "src/lib/instacomp.ts"
       - "src/app/api/**/route.ts"
       - "src/proxy.ts"
       - "src/lib/supabase-server.ts"
       - "scripts/status-live-money.ts"
       - "src/app/admin/launch-readiness/**"
       - "src/app/seller/inventory/SellerActiveInventoryPricing.tsx"
+      - "src/app/seller/instacomp-pending/**"
       - "scripts/run-active-market-*-simulations.ts"
+      - "scripts/run-instacomp-exact-parallel-regressions.ts"
       - "src/lib/checkout-inventory-reservations.ts"
       - "src/lib/checkout-order-finalization.ts"
       - "src/lib/live-payment-launch*.ts"
@@ -77,13 +80,16 @@ on:
     paths:
       - "package.json"
       - "src/lib/active-market-*.ts"
+      - "src/lib/instacomp.ts"
       - "src/app/api/**/route.ts"
       - "src/proxy.ts"
       - "src/lib/supabase-server.ts"
       - "scripts/status-live-money.ts"
       - "src/app/admin/launch-readiness/**"
       - "src/app/seller/inventory/SellerActiveInventoryPricing.tsx"
+      - "src/app/seller/instacomp-pending/**"
       - "scripts/run-active-market-*-simulations.ts"
+      - "scripts/run-instacomp-exact-parallel-regressions.ts"
       - "src/lib/checkout-inventory-reservations.ts"
       - "src/lib/checkout-order-finalization.ts"
       - "src/lib/live-payment-launch*.ts"
@@ -298,6 +304,9 @@ jobs:
 
       - name: Validate eBay admin client
         run: node --import tsx scripts/run-ebay-import-admin-client-simulations.ts
+
+      - name: Validate InstaComp exact-parallel rejection
+        run: node --import tsx scripts/run-instacomp-exact-parallel-regressions.ts
 
       - name: Validate checkout webhook idempotency
         run: node --import tsx scripts/run-checkout-webhook-idempotency-simulations.ts
