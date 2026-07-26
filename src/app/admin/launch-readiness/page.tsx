@@ -192,12 +192,12 @@ function buildReadinessItems(
       label: "Supabase Service Role",
       status: isConfigured(process.env.SUPABASE_SERVICE_ROLE_KEY)
         ? "ready"
-        : "warning",
+        : "blocked",
       detail: isConfigured(process.env.SUPABASE_SERVICE_ROLE_KEY)
-        ? "SUPABASE_SERVICE_ROLE_KEY is configured for admin-only writes and webhook operations."
-        : "Admin-only writes and webhook operations currently fall back to the public anon key.",
+        ? "SUPABASE_SERVICE_ROLE_KEY is configured for admin-only writes, launch checks, and webhook operations."
+        : "SUPABASE_SERVICE_ROLE_KEY is missing. Privileged Supabase clients fail closed, so admin writes, database launch checks, and payment webhooks cannot rely on the public anon key.",
       action:
-        "Set SUPABASE_SERVICE_ROLE_KEY before launch so admin settings, launch checks, and payment webhooks do not depend on public-key table permissions.",
+        "Set SUPABASE_SERVICE_ROLE_KEY in the Vercel Production environment and the local operator environment, then rerun Launch Readiness before any live-payment or deployment approval.",
     },
     {
       label: "Admin Access",
