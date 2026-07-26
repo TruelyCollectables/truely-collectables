@@ -47,11 +47,21 @@ jobs:
           npm ci >> /tmp/instacomp-fast.log 2>&1
           INSTALL=$?
 
-          node scripts/apply-instacomp-fast-exclusions.mjs >> /tmp/instacomp-fast.log 2>&1
-          PATCH_FAST=$?
+          if grep -q "fastLane = true" src/app/api/account/seller/inventory/instacomp-universal/route.ts; then
+            echo "Fast lane already applied." >> /tmp/instacomp-fast.log
+            PATCH_FAST=0
+          else
+            node scripts/apply-instacomp-fast-exclusions.mjs >> /tmp/instacomp-fast.log 2>&1
+            PATCH_FAST=$?
+          fi
 
-          node scripts/apply-instacomp-sold-cache-exact-override.mjs >> /tmp/instacomp-fast.log 2>&1
-          PATCH_EXACT=$?
+          if grep -q "serpapi_ebay_v4_" src/lib/instacomp-ebay-serp-provider.ts; then
+            echo "Sold-cache and deterministic-exact correction already applied." >> /tmp/instacomp-fast.log
+            PATCH_EXACT=0
+          else
+            node scripts/apply-instacomp-sold-cache-exact-override.mjs >> /tmp/instacomp-fast.log 2>&1
+            PATCH_EXACT=$?
+          fi
 
           node --import tsx scripts/run-instacomp-fast-exclusions-regressions.ts >> /tmp/instacomp-fast.log 2>&1
           REGRESSION=$?
@@ -70,8 +80,12 @@ jobs:
             echo "lint=$LINT"
             echo "build=$BUILD"
             echo "validated_source_commit=$(git rev-parse HEAD)"
+            echo "--- errors and assertions ---"
+            grep -nE "Error:|AssertionError|error |✖|Failed to|Missing " /tmp/instacomp-fast.log | tail -n 120 || true
+            echo "--- log head ---"
+            head -n 120 /tmp/instacomp-fast.log
             echo "--- log tail ---"
-            tail -n 180 /tmp/instacomp-fast.log
+            tail -n 120 /tmp/instacomp-fast.log
           } > docs/instacomp-fast-validation.txt
 
           git config user.name "github-actions[bot]"
