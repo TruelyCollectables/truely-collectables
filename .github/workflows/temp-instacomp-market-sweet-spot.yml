@@ -51,7 +51,24 @@ jobs:
         run: npm ci
 
       - name: Apply full market-pricing package
-        run: node scripts/apply-instacomp-market-sweet-spot.mjs
+        id: patch
+        continue-on-error: true
+        run: node scripts/apply-instacomp-market-sweet-spot.mjs > /tmp/instacomp-market-patch.log 2>&1
+
+      - name: Persist patch failure evidence
+        if: steps.patch.outcome == 'failure'
+        run: |
+          cp /tmp/instacomp-market-patch.log /tmp/instacomp-market-patch.saved
+          git reset --hard HEAD
+          mkdir -p docs
+          cp /tmp/instacomp-market-patch.saved docs/instacomp-market-patch-failure.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/instacomp-market-patch-failure.txt
+          git commit -m "Record InstaComp market patch failure"
+          git push origin HEAD:agent/instacomp-market-sweet-spot-20260726
+          cat docs/instacomp-market-patch-failure.txt
+          exit 1
 
       - name: Run market sweet-spot regressions
         run: node --import tsx scripts/run-instacomp-market-sweet-spot-regressions.ts
@@ -65,6 +82,7 @@ jobs:
       - name: Commit validated package
         run: |
           rm -f scripts/apply-instacomp-market-sweet-spot.mjs
+          rm -f docs/instacomp-market-patch-failure.txt
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src/lib/instacomp-market-pricing.ts \
@@ -73,7 +91,8 @@ jobs:
             src/app/api/account/seller/instacomp-pending/price/route.ts \
             src/app/seller/instacomp-pending/page.tsx \
             scripts/run-instacomp-market-sweet-spot-regressions.ts \
-            scripts/apply-instacomp-market-sweet-spot.mjs
+            scripts/apply-instacomp-market-sweet-spot.mjs \
+            docs/instacomp-market-patch-failure.txt
           if git diff --cached --quiet; then
             echo "No market-pricing changes remain to commit."
             exit 0
