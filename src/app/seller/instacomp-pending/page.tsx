@@ -76,9 +76,12 @@ export default function InstaCompPendingPage() {
         throw new Error(data.error || "Could not load InstaComp pending listings.");
       }
 
-      const allItems = Array.isArray(data.items) ? (data.items as PendingItem[]) : [];
+      const allItems = Array.isArray(data.items)
+        ? (data.items as PendingItem[])
+        : [];
       const pending = allItems.filter(
-        (item) => item.status === "draft" && item.instaComp?.isInstaCompDraft === true,
+        (item) =>
+          item.status === "draft" && item.instaComp?.isInstaCompDraft === true,
       );
 
       setItems(pending);
@@ -106,7 +109,9 @@ export default function InstaCompPendingPage() {
   const sortedItems = useMemo(
     () =>
       [...items].sort((left, right) =>
-        String(left.sku || left.title).localeCompare(String(right.sku || right.title)),
+        String(left.sku || left.title).localeCompare(
+          String(right.sku || right.title),
+        ),
       ),
     [items],
   );
@@ -161,7 +166,9 @@ export default function InstaCompPendingPage() {
             <p className="text-xs font-black uppercase tracking-[0.16em] text-neutral-500">
               Drafts Found
             </p>
-            <p className="mt-2 text-3xl font-black">{loading ? "…" : sortedItems.length}</p>
+            <p className="mt-2 text-3xl font-black">
+              {loading ? "…" : sortedItems.length}
+            </p>
           </div>
           <div className="rounded-2xl border-2 border-neutral-900 bg-white p-4 shadow-[5px_5px_0_#111]">
             <p className="text-xs font-black uppercase tracking-[0.16em] text-neutral-500">
@@ -179,7 +186,7 @@ export default function InstaCompPendingPage() {
 
         {loggedOut ? (
           <section className="rounded-2xl border-2 border-amber-700 bg-amber-50 p-5 font-semibold text-amber-950">
-            Your local seller session is not available.{" ""}
+            Your local seller session is not available.{" "}
             <Link href="/account/login" className="font-black underline">
               Log in to TCOS
             </Link>
@@ -195,7 +202,9 @@ export default function InstaCompPendingPage() {
 
         {!loading && !loggedOut && !error && sortedItems.length === 0 ? (
           <section className="rounded-2xl border-2 border-neutral-900 bg-white p-6 shadow-[6px_6px_0_#111]">
-            <h2 className="text-2xl font-black">No InstaComp drafts were returned</h2>
+            <h2 className="text-2xl font-black">
+              No InstaComp drafts were returned
+            </h2>
             <p className="mt-2 text-sm font-semibold text-neutral-700">
               The page successfully rejected the active catalog, but the seller inventory
               API did not return any draft rows marked as InstaComp. This is a database or
@@ -246,30 +255,46 @@ export default function InstaCompPendingPage() {
                     </span>
                   </div>
 
-                  <h2 className="mt-4 text-xl font-black leading-tight">{item.title}</h2>
+                  <h2 className="mt-4 text-xl font-black leading-tight">
+                    {item.title}
+                  </h2>
                   <p className="mt-2 text-xs font-bold text-neutral-500">
                     SKU {item.sku || "Not recorded"}
                   </p>
 
                   <dl className="mt-4 grid grid-cols-2 gap-3 text-sm">
                     <div>
-                      <dt className="text-xs font-black uppercase text-neutral-500">Price</dt>
+                      <dt className="text-xs font-black uppercase text-neutral-500">
+                        Price
+                      </dt>
                       <dd className="mt-1 font-bold">{money(item.price)}</dd>
                     </div>
                     <div>
-                      <dt className="text-xs font-black uppercase text-neutral-500">Quantity</dt>
+                      <dt className="text-xs font-black uppercase text-neutral-500">
+                        Quantity
+                      </dt>
                       <dd className="mt-1 font-bold">{item.quantity}</dd>
                     </div>
                     <div>
-                      <dt className="text-xs font-black uppercase text-neutral-500">Serial</dt>
-                      <dd className="mt-1 font-bold">{item.instaComp?.serialNumber || "Not numbered"}</dd>
+                      <dt className="text-xs font-black uppercase text-neutral-500">
+                        Serial
+                      </dt>
+                      <dd className="mt-1 font-bold">
+                        {item.instaComp?.serialNumber || "Not numbered"}
+                      </dd>
                     </div>
                     <div>
-                      <dt className="text-xs font-black uppercase text-neutral-500">Back scan</dt>
-                      <dd className="mt-1 font-bold">{item.instaComp?.hasBackImage ? "Stored" : "Missing"}</dd>
+                      <dt className="text-xs font-black uppercase text-neutral-500">
+                        Back scan
+                      </dt>
+                      <dd className="mt-1 font-bold">
+                        {item.instaComp?.hasBackImage ? "Stored" : "Missing"}
+                      </dd>
                     </div>
                     <div>
-                      <dt className="text-xs font-black uppercase text-neutral-500">Market value</dt>
+                      <dt className="text-xs font-black uppercase text-neutral-500">
+                        Market value
+                      </dt>
                       <dd className="mt-1 font-bold">
                         {item.instaComp?.marketPrice
                           ? money(item.instaComp.marketPrice)
@@ -277,8 +302,12 @@ export default function InstaCompPendingPage() {
                       </dd>
                     </div>
                     <div>
-                      <dt className="text-xs font-black uppercase text-neutral-500">Source</dt>
-                      <dd className="mt-1 font-bold">{label(item.instaComp?.source)}</dd>
+                      <dt className="text-xs font-black uppercase text-neutral-500">
+                        Source
+                      </dt>
+                      <dd className="mt-1 font-bold">
+                        {label(item.instaComp?.source)}
+                      </dd>
                     </div>
                   </dl>
 
