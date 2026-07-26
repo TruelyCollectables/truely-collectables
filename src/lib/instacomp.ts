@@ -642,7 +642,7 @@ export function looksLikeBadCompTitle(title: string, ai?: InstaCompAiResult) {
   }
 
   if (ai && !ai.isRelic) {
-    if (containsAny(t, [" relic", " patch", " jersey", " memorabilia"])) {
+    if (containsAny(t, [" relic", " patch", " jersey", " memorabilia", " swatch", " material"])) {
       return true;
     }
   }
@@ -812,7 +812,7 @@ export function scoreCompMatch(title: string, ai: InstaCompAiResult) {
 
   if (
     ai.isRelic &&
-    containsAny(` ${t} `, [" relic ", " patch ", " jersey ", " memorabilia "])
+    containsAny(` ${t} `, [" relic ", " patch ", " jersey ", " memorabilia ", " swatch ", " swatches ", " material ", " materials "])
   ) {
     score += 12;
     flags.push("relic");

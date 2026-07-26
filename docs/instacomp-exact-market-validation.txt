@@ -1,170 +1,150 @@
 install=0
-patch=1
+patch=0
 regression_pass_1=1
 regression_pass_2=1
 regression_pass_3=1
 live_six_card_market_proof=1
-lint=1
+lint=0
 build=0
-validated_source_commit=9696eca95f57c0dee6139a2bfb4771fa80753ad1
+validated_source_commit=75c4e6733244fb48897dc789fd0ad5733f16062a
 --- assertions and errors with context ---
-15-Run `npm audit` for details.
-16-file:///home/runner/work/truely-collectables/truely-collectables/scripts/repair-instacomp-exact-market-proof.mjs:72
-17-    `    const reliableSoldCompCount = pricingAnalysis.soldCount;\n    const hasReliableSoldComps = reliableSoldCompCount > 0;\n    const suggestedPrice = hasReliableSoldComps ? pricingAnalysis.suggestedPrice : 0;\n    const pricingStatus = hasReliableSoldComps && suggestedPrice > 0\n      ? "suggested_from_reliable_sold_comps"\n      : "seller_price_required";\n    const pricingReason = hasReliableSoldComps\n      ? pricingAnalysis.explanation\n      : activeCompetition.length\n        ? `No exact sold listing passed. \${activeCompetition.length} exact active listing\${activeCompetition.length === 1 ? " is" : "s are"} shown only as current competition; seller pricing is required.`\n        : "No exact sold or active listing passed; seller pricing is required.";`,
-18-    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-19-
-20:SyntaxError: missing ) after argument list
-21-    at compileSourceTextModule (node:internal/modules/esm/utils:346:16)
-22-    at ModuleLoader.moduleStrategy (node:internal/modules/esm/translators:110:18)
-23-    at #translate (node:internal/modules/esm/loader:559:20)
-24-    at afterLoad (node:internal/modules/esm/loader:612:29)
-25-    at ModuleLoader.loadAndTranslate (node:internal/modules/esm/loader:617:12)
-26-    at #createModuleJob (node:internal/modules/esm/loader:640:36)
-27-    at #getJobFromResolveResult (node:internal/modules/esm/loader:353:34)
-28-    at ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:321:41)
-29-    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:680:25)
-30-
-31-Node.js v22.23.1
-32-node:internal/modules/run_main:123
-33-    triggerUncaughtException(
-34-    ^
-35-
-36:AssertionError [ERR_ASSERTION]: batch-001-card-02: at least one exact title must be accepted
-37-    at assert (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-exact-market-proof-regressions.ts:98:10)
-38-    at Object.<anonymous> (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-exact-market-proof-regressions.ts:202:1)
-39-    at Module._compile (node:internal/modules/cjs/loader:1781:14)
-40-    at Object.transformer (/home/runner/work/truely-collectables/truely-collectables/node_modules/tsx/dist/register-BoI6-WNn.cjs:9:3252)
-41-    at Module.load (node:internal/modules/cjs/loader:1505:32)
-42-    at Function._load (node:internal/modules/cjs/loader:1309:12)
-43-    at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
-44-    at loadCJSModuleWithModuleLoad (node:internal/modules/esm/translators:335:3)
-45-    at ModuleWrap.<anonymous> (node:internal/modules/esm/translators:235:7)
-46-    at ModuleJob.run (node:internal/modules/esm/module_job:343:25) {
-47-  generatedMessage: false,
-48-  code: 'ERR_ASSERTION',
-49-  actual: false,
-50-  expected: true,
-51-  operator: '==',
-52-  diff: 'simple'
+16-Repaired InstaComp exact-market matcher, transform, and sold-only pricing trust.
+17-node:internal/modules/run_main:123
+18-    triggerUncaughtException(
+19-    ^
+20-
+21:AssertionError [ERR_ASSERTION]: batch-001-card-03: missing relic evidence must be rejected
+22-
+23-1 !== 0
+24-
+25-    at mustReject (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-exact-market-proof-regressions.ts:44:10)
+26-    at assert (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-exact-market-proof-regressions.ts:132:5)
+27-    at Object.<anonymous> (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-exact-market-proof-regressions.ts:202:1)
+28-    at Module._compile (node:internal/modules/cjs/loader:1781:14)
+29-    at Object.transformer (/home/runner/work/truely-collectables/truely-collectables/node_modules/tsx/dist/register-BoI6-WNn.cjs:9:3252)
+30-    at Module.load (node:internal/modules/cjs/loader:1505:32)
+31-    at Function._load (node:internal/modules/cjs/loader:1309:12)
+32-    at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
+33-    at loadCJSModuleWithModuleLoad (node:internal/modules/esm/translators:335:3)
+34-    at ModuleWrap.<anonymous> (node:internal/modules/esm/translators:235:7) {
+35-  generatedMessage: false,
+36-  code: 'ERR_ASSERTION',
+37-  actual: 1,
 --
-55-Node.js v22.23.1
-56-node:internal/modules/run_main:123
-57-    triggerUncaughtException(
-58-    ^
-59-
-60:AssertionError [ERR_ASSERTION]: batch-001-card-02: at least one exact title must be accepted
-61-    at assert (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-exact-market-proof-regressions.ts:98:10)
-62-    at Object.<anonymous> (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-exact-market-proof-regressions.ts:202:1)
-63-    at Module._compile (node:internal/modules/cjs/loader:1781:14)
-64-    at Object.transformer (/home/runner/work/truely-collectables/truely-collectables/node_modules/tsx/dist/register-BoI6-WNn.cjs:9:3252)
-65-    at Module.load (node:internal/modules/cjs/loader:1505:32)
-66-    at Function._load (node:internal/modules/cjs/loader:1309:12)
-67-    at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
-68-    at loadCJSModuleWithModuleLoad (node:internal/modules/esm/translators:335:3)
-69-    at ModuleWrap.<anonymous> (node:internal/modules/esm/translators:235:7)
-70-    at ModuleJob.run (node:internal/modules/esm/module_job:343:25) {
-71-  generatedMessage: false,
-72-  code: 'ERR_ASSERTION',
-73-  actual: false,
-74-  expected: true,
-75-  operator: '==',
-76-  diff: 'simple'
+43-Node.js v22.23.1
+44-node:internal/modules/run_main:123
+45-    triggerUncaughtException(
+46-    ^
+47-
+48:AssertionError [ERR_ASSERTION]: batch-001-card-03: missing relic evidence must be rejected
+49-
+50-1 !== 0
+51-
+52-    at mustReject (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-exact-market-proof-regressions.ts:44:10)
+53-    at assert (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-exact-market-proof-regressions.ts:132:5)
+54-    at Object.<anonymous> (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-exact-market-proof-regressions.ts:202:1)
+55-    at Module._compile (node:internal/modules/cjs/loader:1781:14)
+56-    at Object.transformer (/home/runner/work/truely-collectables/truely-collectables/node_modules/tsx/dist/register-BoI6-WNn.cjs:9:3252)
+57-    at Module.load (node:internal/modules/cjs/loader:1505:32)
+58-    at Function._load (node:internal/modules/cjs/loader:1309:12)
+59-    at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
+60-    at loadCJSModuleWithModuleLoad (node:internal/modules/esm/translators:335:3)
+61-    at ModuleWrap.<anonymous> (node:internal/modules/esm/translators:235:7) {
+62-  generatedMessage: false,
+63-  code: 'ERR_ASSERTION',
+64-  actual: 1,
 --
-79-Node.js v22.23.1
-80-node:internal/modules/run_main:123
-81-    triggerUncaughtException(
-82-    ^
-83-
-84:AssertionError [ERR_ASSERTION]: batch-001-card-02: at least one exact title must be accepted
-85-    at assert (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-exact-market-proof-regressions.ts:98:10)
-86-    at Object.<anonymous> (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-exact-market-proof-regressions.ts:202:1)
-87-    at Module._compile (node:internal/modules/cjs/loader:1781:14)
-88-    at Object.transformer (/home/runner/work/truely-collectables/truely-collectables/node_modules/tsx/dist/register-BoI6-WNn.cjs:9:3252)
-89-    at Module.load (node:internal/modules/cjs/loader:1505:32)
-90-    at Function._load (node:internal/modules/cjs/loader:1309:12)
-91-    at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
-92-    at loadCJSModuleWithModuleLoad (node:internal/modules/esm/translators:335:3)
-93-    at ModuleWrap.<anonymous> (node:internal/modules/esm/translators:235:7)
-94-    at ModuleJob.run (node:internal/modules/esm/module_job:343:25) {
-95-  generatedMessage: false,
-96-  code: 'ERR_ASSERTION',
-97-  actual: false,
-98-  expected: true,
-99-  operator: '==',
-100-  diff: 'simple'
+70-Node.js v22.23.1
+71-node:internal/modules/run_main:123
+72-    triggerUncaughtException(
+73-    ^
+74-
+75:AssertionError [ERR_ASSERTION]: batch-001-card-03: missing relic evidence must be rejected
+76-
+77-1 !== 0
+78-
+79-    at mustReject (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-exact-market-proof-regressions.ts:44:10)
+80-    at assert (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-exact-market-proof-regressions.ts:132:5)
+81-    at Object.<anonymous> (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-exact-market-proof-regressions.ts:202:1)
+82-    at Module._compile (node:internal/modules/cjs/loader:1781:14)
+83-    at Object.transformer (/home/runner/work/truely-collectables/truely-collectables/node_modules/tsx/dist/register-BoI6-WNn.cjs:9:3252)
+84-    at Module.load (node:internal/modules/cjs/loader:1505:32)
+85-    at Function._load (node:internal/modules/cjs/loader:1309:12)
+86-    at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
+87-    at loadCJSModuleWithModuleLoad (node:internal/modules/esm/translators:335:3)
+88-    at ModuleWrap.<anonymous> (node:internal/modules/esm/translators:235:7) {
+89-  generatedMessage: false,
+90-  code: 'ERR_ASSERTION',
+91-  actual: 1,
 --
-102-
-103-Node.js v22.23.1
-104-npm warn exec The following package was not found and will be installed: vercel@57.0.0
-105-npm warn deprecated stream-to-promise@2.2.0: Deprecated. Use node:stream/promises and node:stream/consumers instead.
-106-npm warn deprecated tar@7.5.7: Old versions of tar are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
-107:Vercel CLI 57.0.0 (Node.js 22.23.1)
-108:> NOTE: The Vercel CLI now collects telemetry regarding usage of the CLI.
-109-> This information is used to shape the CLI roadmap and prioritize features.
-110-> You can learn more, including how to opt-out if you'd not like to participate in this program, by visiting the following URL:
-111-> https://vercel.com/docs/cli/about-telemetry
+96-
+97-Node.js v22.23.1
+98-npm warn exec The following package was not found and will be installed: vercel@57.0.0
+99-npm warn deprecated stream-to-promise@2.2.0: Deprecated. Use node:stream/promises and node:stream/consumers instead.
+100-npm warn deprecated tar@7.5.7: Old versions of tar are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
+101:Vercel CLI 57.0.0 (Node.js 22.23.1)
+102:> NOTE: The Vercel CLI now collects telemetry regarding usage of the CLI.
+103-> This information is used to shape the CLI roadmap and prioritize features.
+104-> You can learn more, including how to opt-out if you'd not like to participate in this program, by visiting the following URL:
+105-> https://vercel.com/docs/cli/about-telemetry
+106-
+107-  Directory       ~/work/truely-collectables/truely-collectables
+108-
+109-Searching for existing projects…
+110-
+111-✓ Linked          truelycollectables-projects/truely-collectables
 112-
-113-  Directory       ~/work/truely-collectables/truely-collectables
-114-
-115-Searching for existing projects…
+113-Retrieving project…
+114-> Downloading a fresh `VERCEL_OIDC_TOKEN` for truelycollectables-projects/truely-collectables
+115-Downloading
 116-
-117-✓ Linked          truelycollectables-projects/truely-collectables
-118-
+117-✓ Created         .env.local file
+118:Vercel CLI 57.0.0 (Node.js 22.23.1)
 119-Retrieving project…
-120-> Downloading a fresh `VERCEL_OIDC_TOKEN` for truelycollectables-projects/truely-collectables
+120-> Downloading `production` environment variables for truelycollectables-projects/truely-collectables
 121-Downloading
 122-
-123-✓ Created         .env.local file
-124:Vercel CLI 57.0.0 (Node.js 22.23.1)
-125-Retrieving project…
-126-> Downloading `production` environment variables for truelycollectables-projects/truely-collectables
-127-Downloading
-128-
-129-✓ Created         .env.production.local file
-130-node:internal/modules/run_main:123
-131-    triggerUncaughtException(
-132-    ^
-133-
-134:Error: Transform failed with 1 error:
-135-/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-batch-001-live-market-proof.ts:37:19: ERROR: Top-level await is currently not supported with the "cjs" output format
-136-    at failureErrorWithLog (/home/runner/work/truely-collectables/truely-collectables/node_modules/esbuild/lib/main.js:1748:15)
-137-    at /home/runner/work/truely-collectables/truely-collectables/node_modules/esbuild/lib/main.js:1017:50
-138-    at responseCallbacks.<computed> (/home/runner/work/truely-collectables/truely-collectables/node_modules/esbuild/lib/main.js:884:9)
-139-    at handleIncomingPacket (/home/runner/work/truely-collectables/truely-collectables/node_modules/esbuild/lib/main.js:939:12)
-140-    at Socket.readFromStdout (/home/runner/work/truely-collectables/truely-collectables/node_modules/esbuild/lib/main.js:862:7)
-141-    at Socket.emit (node:events:519:28)
-142-    at addChunk (node:internal/streams/readable:561:12)
-143-    at readableAddChunkPushByteMode (node:internal/streams/readable:512:3)
-144-    at Readable.push (node:internal/streams/readable:392:5)
-145-    at Pipe.onStreamRead (node:internal/stream_base_commons:189:23) {
-146-  name: 'TransformError'
-147-}
-148-
-149-Node.js v22.23.1
-150-
+123-✓ Created         .env.production.local file
+124:Error: SERPAPI_API_KEY is required for the live six-card market proof.
+125-    at main (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-batch-001-live-market-proof.ts:28:11)
+126-    at assert (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-batch-001-live-market-proof.ts:115:1)
+127-    at Object.<anonymous> (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-batch-001-live-market-proof.ts:118:2)
+128-    at Module._compile (node:internal/modules/cjs/loader:1781:14)
+129-    at Object.transformer (/home/runner/work/truely-collectables/truely-collectables/node_modules/tsx/dist/register-BoI6-WNn.cjs:9:3252)
+130-    at Module.load (node:internal/modules/cjs/loader:1505:32)
+131-    at Function._load (node:internal/modules/cjs/loader:1309:12)
+132-    at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
+133-    at loadCJSModuleWithModuleLoad (node:internal/modules/esm/translators:335:3)
+134-    at ModuleWrap.<anonymous> (node:internal/modules/esm/translators:235:7)
+135-
+136-> truely-collectables@0.1.0 lint
+137-> eslint
+138-
+139-[BABEL] Note: The code generator has deoptimised the styling of /home/runner/work/truely-collectables/truely-collectables/src/app/admin/instacomp/InstaCompScanner.tsx as it exceeds the max of 500KB.
+140-
 --
-189-  454:23  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+171-  454:23  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+172-
+173-/home/runner/work/truely-collectables/truely-collectables/src/lib/instacomp-ebay-serp-provider.ts
+174-  519:10  warning  'hasExactResult' is defined but never used  @typescript-eslint/no-unused-vars
+175-
+176:✖ 17 problems (0 errors, 17 warnings)
+177-
+178-
+179-> truely-collectables@0.1.0 build
+180-> next build --webpack
+181-
+182-⚠ No build cache found. Please configure build caching for faster rebuilds. Read more: https://nextjs.org/docs/messages/no-cache
+183-Attention: Next.js now collects completely anonymous telemetry regarding usage.
+184-This information is used to shape Next.js' roadmap and prioritize features.
+185-You can learn more, including how to opt-out if you'd not like to participate in this anonymous program, by visiting the following URL:
+186-https://nextjs.org/telemetry
+187-
+188-▲ Next.js 16.2.10 (webpack)
+189-- Environments: .env.production.local, .env.local
 190-
-191-/home/runner/work/truely-collectables/truely-collectables/src/lib/instacomp-ebay-serp-provider.ts
-192-  512:10  warning  'hasExactResult' is defined but never used  @typescript-eslint/no-unused-vars
-193-
-194:✖ 18 problems (1 error, 17 warnings)
-195-
-196-
-197-> truely-collectables@0.1.0 build
-198-> next build --webpack
-199-
-200-⚠ No build cache found. Please configure build caching for faster rebuilds. Read more: https://nextjs.org/docs/messages/no-cache
-201-Attention: Next.js now collects completely anonymous telemetry regarding usage.
-202-This information is used to shape Next.js' roadmap and prioritize features.
-203-You can learn more, including how to opt-out if you'd not like to participate in this anonymous program, by visiting the following URL:
-204-https://nextjs.org/telemetry
-205-
-206-▲ Next.js 16.2.10 (webpack)
-207-- Environments: .env.production.local, .env.local
-208-
-209-  Creating an optimized production build ...
-210-✓ Compiled successfully in 27.1s
+191-  Creating an optimized production build ...
+192-✓ Compiled successfully in 27.6s
 --- log head ---
 
 added 377 packages, and audited 378 packages in 12s
@@ -181,28 +161,17 @@ To address all issues, run:
   npm audit fix --force
 
 Run `npm audit` for details.
-file:///home/runner/work/truely-collectables/truely-collectables/scripts/repair-instacomp-exact-market-proof.mjs:72
-    `    const reliableSoldCompCount = pricingAnalysis.soldCount;\n    const hasReliableSoldComps = reliableSoldCompCount > 0;\n    const suggestedPrice = hasReliableSoldComps ? pricingAnalysis.suggestedPrice : 0;\n    const pricingStatus = hasReliableSoldComps && suggestedPrice > 0\n      ? "suggested_from_reliable_sold_comps"\n      : "seller_price_required";\n    const pricingReason = hasReliableSoldComps\n      ? pricingAnalysis.explanation\n      : activeCompetition.length\n        ? `No exact sold listing passed. \${activeCompetition.length} exact active listing\${activeCompetition.length === 1 ? " is" : "s are"} shown only as current competition; seller pricing is required.`\n        : "No exact sold or active listing passed; seller pricing is required.";`,
-    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-
-SyntaxError: missing ) after argument list
-    at compileSourceTextModule (node:internal/modules/esm/utils:346:16)
-    at ModuleLoader.moduleStrategy (node:internal/modules/esm/translators:110:18)
-    at #translate (node:internal/modules/esm/loader:559:20)
-    at afterLoad (node:internal/modules/esm/loader:612:29)
-    at ModuleLoader.loadAndTranslate (node:internal/modules/esm/loader:617:12)
-    at #createModuleJob (node:internal/modules/esm/loader:640:36)
-    at #getJobFromResolveResult (node:internal/modules/esm/loader:353:34)
-    at ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:321:41)
-    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:680:25)
-
-Node.js v22.23.1
+Repaired InstaComp exact-market matcher, transform, and sold-only pricing trust.
 node:internal/modules/run_main:123
     triggerUncaughtException(
     ^
 
-AssertionError [ERR_ASSERTION]: batch-001-card-02: at least one exact title must be accepted
-    at assert (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-exact-market-proof-regressions.ts:98:10)
+AssertionError [ERR_ASSERTION]: batch-001-card-03: missing relic evidence must be rejected
+
+1 !== 0
+
+    at mustReject (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-exact-market-proof-regressions.ts:44:10)
+    at assert (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-exact-market-proof-regressions.ts:132:5)
     at Object.<anonymous> (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-exact-market-proof-regressions.ts:202:1)
     at Module._compile (node:internal/modules/cjs/loader:1781:14)
     at Object.transformer (/home/runner/work/truely-collectables/truely-collectables/node_modules/tsx/dist/register-BoI6-WNn.cjs:9:3252)
@@ -210,13 +179,12 @@ AssertionError [ERR_ASSERTION]: batch-001-card-02: at least one exact title must
     at Function._load (node:internal/modules/cjs/loader:1309:12)
     at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
     at loadCJSModuleWithModuleLoad (node:internal/modules/esm/translators:335:3)
-    at ModuleWrap.<anonymous> (node:internal/modules/esm/translators:235:7)
-    at ModuleJob.run (node:internal/modules/esm/module_job:343:25) {
+    at ModuleWrap.<anonymous> (node:internal/modules/esm/translators:235:7) {
   generatedMessage: false,
   code: 'ERR_ASSERTION',
-  actual: false,
-  expected: true,
-  operator: '==',
+  actual: 1,
+  expected: 0,
+  operator: 'strictEqual',
   diff: 'simple'
 }
 
@@ -225,8 +193,12 @@ node:internal/modules/run_main:123
     triggerUncaughtException(
     ^
 
-AssertionError [ERR_ASSERTION]: batch-001-card-02: at least one exact title must be accepted
-    at assert (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-exact-market-proof-regressions.ts:98:10)
+AssertionError [ERR_ASSERTION]: batch-001-card-03: missing relic evidence must be rejected
+
+1 !== 0
+
+    at mustReject (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-exact-market-proof-regressions.ts:44:10)
+    at assert (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-exact-market-proof-regressions.ts:132:5)
     at Object.<anonymous> (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-exact-market-proof-regressions.ts:202:1)
     at Module._compile (node:internal/modules/cjs/loader:1781:14)
     at Object.transformer (/home/runner/work/truely-collectables/truely-collectables/node_modules/tsx/dist/register-BoI6-WNn.cjs:9:3252)
@@ -234,13 +206,12 @@ AssertionError [ERR_ASSERTION]: batch-001-card-02: at least one exact title must
     at Function._load (node:internal/modules/cjs/loader:1309:12)
     at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
     at loadCJSModuleWithModuleLoad (node:internal/modules/esm/translators:335:3)
-    at ModuleWrap.<anonymous> (node:internal/modules/esm/translators:235:7)
-    at ModuleJob.run (node:internal/modules/esm/module_job:343:25) {
+    at ModuleWrap.<anonymous> (node:internal/modules/esm/translators:235:7) {
   generatedMessage: false,
   code: 'ERR_ASSERTION',
-  actual: false,
-  expected: true,
-  operator: '==',
+  actual: 1,
+  expected: 0,
+  operator: 'strictEqual',
   diff: 'simple'
 }
 
@@ -249,8 +220,12 @@ node:internal/modules/run_main:123
     triggerUncaughtException(
     ^
 
-AssertionError [ERR_ASSERTION]: batch-001-card-02: at least one exact title must be accepted
-    at assert (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-exact-market-proof-regressions.ts:98:10)
+AssertionError [ERR_ASSERTION]: batch-001-card-03: missing relic evidence must be rejected
+
+1 !== 0
+
+    at mustReject (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-exact-market-proof-regressions.ts:44:10)
+    at assert (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-exact-market-proof-regressions.ts:132:5)
     at Object.<anonymous> (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-exact-market-proof-regressions.ts:202:1)
     at Module._compile (node:internal/modules/cjs/loader:1781:14)
     at Object.transformer (/home/runner/work/truely-collectables/truely-collectables/node_modules/tsx/dist/register-BoI6-WNn.cjs:9:3252)
@@ -258,13 +233,12 @@ AssertionError [ERR_ASSERTION]: batch-001-card-02: at least one exact title must
     at Function._load (node:internal/modules/cjs/loader:1309:12)
     at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
     at loadCJSModuleWithModuleLoad (node:internal/modules/esm/translators:335:3)
-    at ModuleWrap.<anonymous> (node:internal/modules/esm/translators:235:7)
-    at ModuleJob.run (node:internal/modules/esm/module_job:343:25) {
+    at ModuleWrap.<anonymous> (node:internal/modules/esm/translators:235:7) {
   generatedMessage: false,
   code: 'ERR_ASSERTION',
-  actual: false,
-  expected: true,
-  operator: '==',
+  actual: 1,
+  expected: 0,
+  operator: 'strictEqual',
   diff: 'simple'
 }
 
@@ -295,34 +269,22 @@ Retrieving project…
 Downloading
 
 ✓ Created         .env.production.local file
-node:internal/modules/run_main:123
-    triggerUncaughtException(
-    ^
-
-Error: Transform failed with 1 error:
-/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-batch-001-live-market-proof.ts:37:19: ERROR: Top-level await is currently not supported with the "cjs" output format
-    at failureErrorWithLog (/home/runner/work/truely-collectables/truely-collectables/node_modules/esbuild/lib/main.js:1748:15)
-    at /home/runner/work/truely-collectables/truely-collectables/node_modules/esbuild/lib/main.js:1017:50
-    at responseCallbacks.<computed> (/home/runner/work/truely-collectables/truely-collectables/node_modules/esbuild/lib/main.js:884:9)
-    at handleIncomingPacket (/home/runner/work/truely-collectables/truely-collectables/node_modules/esbuild/lib/main.js:939:12)
-    at Socket.readFromStdout (/home/runner/work/truely-collectables/truely-collectables/node_modules/esbuild/lib/main.js:862:7)
-    at Socket.emit (node:events:519:28)
-    at addChunk (node:internal/streams/readable:561:12)
-    at readableAddChunkPushByteMode (node:internal/streams/readable:512:3)
-    at Readable.push (node:internal/streams/readable:392:5)
-    at Pipe.onStreamRead (node:internal/stream_base_commons:189:23) {
-  name: 'TransformError'
-}
-
-Node.js v22.23.1
+Error: SERPAPI_API_KEY is required for the live six-card market proof.
+    at main (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-batch-001-live-market-proof.ts:28:11)
+    at assert (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-batch-001-live-market-proof.ts:115:1)
+    at Object.<anonymous> (/home/runner/work/truely-collectables/truely-collectables/scripts/run-instacomp-batch-001-live-market-proof.ts:118:2)
+    at Module._compile (node:internal/modules/cjs/loader:1781:14)
+    at Object.transformer (/home/runner/work/truely-collectables/truely-collectables/node_modules/tsx/dist/register-BoI6-WNn.cjs:9:3252)
+    at Module.load (node:internal/modules/cjs/loader:1505:32)
+    at Function._load (node:internal/modules/cjs/loader:1309:12)
+    at wrapModuleLoad (node:internal/modules/cjs/loader:254:19)
+    at loadCJSModuleWithModuleLoad (node:internal/modules/esm/translators:335:3)
+    at ModuleWrap.<anonymous> (node:internal/modules/esm/translators:235:7)
 
 > truely-collectables@0.1.0 lint
 > eslint
 
 [BABEL] Note: The code generator has deoptimised the styling of /home/runner/work/truely-collectables/truely-collectables/src/app/admin/instacomp/InstaCompScanner.tsx as it exceeds the max of 500KB.
-
-/home/runner/work/truely-collectables/truely-collectables/scripts/repair-instacomp-exact-market-proof.mjs
-  72:495  error  Parsing error: ',' expected
 
 /home/runner/work/truely-collectables/truely-collectables/scripts/run-active-market-scan-lease-simulations.ts
   9:8  warning  'ActiveMarketScanLease' is defined but never used  @typescript-eslint/no-unused-vars
@@ -346,6 +308,24 @@ Node.js v22.23.1
   621:36  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
 
 /home/runner/work/truely-collectables/truely-collectables/src/app/seller/collectible-assets/page.tsx
+  104:6   warning  React Hook useEffect has a missing dependency: 'load'. Either include it or remove the dependency array                                                                                                                                                                                  react-hooks/exhaustive-deps
+  239:19  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+/home/runner/work/truely-collectables/truely-collectables/src/app/seller/inventory/SellerActiveInventoryPricing.tsx
+  660:23  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+/home/runner/work/truely-collectables/truely-collectables/src/app/seller/inventory/SellerInventoryVisualTracker.tsx
+  118:10  warning  'titleCase' is defined but never used                                                                                                                                                                                                                                                    @typescript-eslint/no-unused-vars
+  454:23  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
+
+/home/runner/work/truely-collectables/truely-collectables/src/lib/instacomp-ebay-serp-provider.ts
+  519:10  warning  'hasExactResult' is defined but never used  @typescript-eslint/no-unused-vars
+
+✖ 17 problems (0 errors, 17 warnings)
+
+
+> truely-collectables@0.1.0 build
+> next build --webpack
 --- log tail ---
 ├ ○ /account/signup
 ├ ƒ /admin

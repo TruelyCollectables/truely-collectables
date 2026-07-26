@@ -358,13 +358,19 @@ export async function POST(request: NextRequest) {
       sold: soldCompEvidence,
       active: activeCompetition,
     });
-    const suggestedPrice = pricingAnalysis.suggestedPrice;
     const reliableSoldCompCount = pricingAnalysis.soldCount;
-    const hasReliableSoldComps = pricingAnalysis.soldCount > 0;
-    const pricingStatus = suggestedPrice > 0
+    const hasReliableSoldComps = reliableSoldCompCount > 0;
+    const suggestedPrice = hasReliableSoldComps ? pricingAnalysis.suggestedPrice : 0;
+    const pricingStatus = hasReliableSoldComps && suggestedPrice > 0
       ? "suggested_from_reliable_sold_comps"
       : "seller_price_required";
-    const pricingReason = pricingAnalysis.explanation;
+    const pricingReason = hasReliableSoldComps
+      ? pricingAnalysis.explanation
+      : activeCompetition.length
+        ? "No exact sold listing passed. " + activeCompetition.length +
+          " exact active listing" + (activeCompetition.length === 1 ? " is" : "s are") +
+          " shown only as current competition; seller pricing is required."
+        : "No exact sold or active listing passed; seller pricing is required.";
     const checkedAt = new Date().toISOString();
 
     const existingCoverage = Array.isArray(currentInstaComp.providerCoverage)

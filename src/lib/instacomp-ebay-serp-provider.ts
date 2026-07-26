@@ -280,7 +280,11 @@ function compactSearchPart(value: string | null | undefined) {
 }
 
 function escapeRegExp(value: string) {
-  return value.replace(/[|\{}()[\]^$+*?.-]/g, "\\function deterministicExactTitle");
+  const special = "\\^$.*+?()[]{}|";
+  return value
+    .split("")
+    .map((character) => special.includes(character) ? `\\${character}` : character)
+    .join("");
 }
 
 function sanitizeExactSearchQuery(value: string, ai: InstaCompAiResult) {
@@ -382,7 +386,9 @@ function deterministicExactTitle(
   const cardNumber = compactIdentity(ai.cardNumber);
   if (cardNumber && !titleCompact.includes(cardNumber)) return false;
 
-  const distinctiveParallelTokens = normalizedWords(String(ai.parallel || "")).filter(
+  const distinctiveParallelTokens = normalizedWords(
+    normalizeInstaCompParallelForExactMatching(ai.parallel),
+  ).filter(
     (token) => !["prizm", "refractor", "parallel", "foil", "holo"].includes(token),
   );
   if (
@@ -391,16 +397,17 @@ function deterministicExactTitle(
   ) return false;
 
   const targetDenominator = titleSerialDenominator(ai.serialNumber);
-  if (targetDenominator && titleSerialDenominator(title) !== targetDenominator) return false;
+  const candidateDenominator = titleSerialDenominator(title);
+  if (targetDenominator) {
+    if (candidateDenominator !== targetDenominator) return false;
+  } else if (candidateDenominator !== null) {
+    return false;
+  }
 
-  if (ai.gradingCompany) {
-    const grader = compactIdentity(ai.gradingCompany);
-    if (grader && !titleCompact.includes(grader)) return false;
-  }
-  if (ai.gradeValue) {
-    const grade = compactIdentity(String(ai.gradeValue));
-    if (grade && !titleCompact.includes(grade)) return false;
-  }
+  if (ai.gradingCompany && !flags.includes("grader")) return false;
+  if (ai.gradeValue && !flags.includes("grade")) return false;
+  if (ai.isAuto && !flags.includes("autograph")) return false;
+  if (ai.isRelic && !flags.includes("relic")) return false;
 
   const queryTokens = normalizedWords(query).filter(
     (token) => !["panini", "topps", "upper", "deck", "rookie", "card"].includes(token),
