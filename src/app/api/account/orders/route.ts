@@ -6,6 +6,14 @@ import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 
 export const dynamic = "force-dynamic";
 
+type AccountOrderItemRow = {
+  order_id: number | string;
+  product_id: number | null;
+  title: string | null;
+  price: number | null;
+  quantity: number | null;
+};
+
 function getSupabaseClient() {
   return createSupabaseServerClient({ admin: true });
 }
@@ -53,7 +61,7 @@ export async function GET(request: Request) {
       .filter((orderId) => Number.isFinite(orderId) && orderId > 0);
     const orderItemsResult =
       orderIds.length === 0
-        ? { data: [], error: null }
+        ? { data: [] as AccountOrderItemRow[], error: null }
         : await supabase
             .from("order_items")
             .select("order_id,product_id,title,price,quantity")
@@ -68,8 +76,9 @@ export async function GET(request: Request) {
       );
     }
 
-    const itemsByOrderId = new Map<number, typeof orderItemsResult.data>();
-    for (const item of orderItemsResult.data || []) {
+    const itemRows = (orderItemsResult.data || []) as AccountOrderItemRow[];
+    const itemsByOrderId = new Map<number, AccountOrderItemRow[]>();
+    for (const item of itemRows) {
       const orderId = Number(item.order_id);
       const current = itemsByOrderId.get(orderId) || [];
       current.push(item);
