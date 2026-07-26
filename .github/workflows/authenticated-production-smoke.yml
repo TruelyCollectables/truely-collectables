@@ -18,8 +18,9 @@ jobs:
     env:
       TCOS_CRON_SECRET: ${{ secrets.TCOS_CRON_SECRET }}
       READINESS_URL: https://truelycollectables.com/api/cron/live-payment-readiness
+      RETARGET_URL: https://truelycollectables.com/api/cron/live-webhook-retarget
     steps:
-      - name: Repair exact live Stripe webhook endpoint
+      - name: Retarget and repair the sole live Stripe webhook endpoint
         shell: bash
         run: |
           set -euo pipefail
@@ -29,10 +30,10 @@ jobs:
             --output live-webhook-repair.json \
             --write-out "%{http_code}" \
             --header "Authorization: Bearer ${TCOS_CRON_SECRET}" \
-            "$READINESS_URL")
+            "$RETARGET_URL")
           echo "Webhook repair HTTP status: $status"
           test "$status" = "200"
-          jq -e '.success == true and .status == "enabled" and (.enabledRequiredEventCount == .requiredEventCount) and .signingSecretRotated == false' live-webhook-repair.json >/dev/null
+          jq -e '.success == true and .urlMatchesProduction == true and .status == "enabled" and (.enabledRequiredEventCount == .requiredEventCount) and .signingSecretRotated == false' live-webhook-repair.json >/dev/null
 
       - name: Verify every approval check before database approval
         shell: bash
@@ -57,7 +58,7 @@ jobs:
             --write-out "%{http_code}" \
             --header "Authorization: Bearer ${TCOS_CRON_SECRET}" \
             --header "Content-Type: application/json" \
-            --data '{"confirmation":"APPROVE LIVE PAYMENTS","operator":"Truely Collectables Owner","note":"Final protected launch approval after live webhook repair, 12/12 database preflight, 8/8 checkout E2E, successful Production deployment, and zero approval blockers on July 26, 2026."}' \
+            --data '{"confirmation":"APPROVE LIVE PAYMENTS","operator":"Truely Collectables Owner","note":"Final protected launch approval after live webhook retargeting, 12/12 database preflight, 8/8 checkout E2E, successful Production deployment, and zero approval blockers on July 26, 2026."}' \
             "$READINESS_URL")
           echo "Database approval HTTP status: $status"
           test "$status" = "200"
