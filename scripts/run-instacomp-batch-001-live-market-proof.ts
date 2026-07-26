@@ -4,6 +4,7 @@ import {
   getUniversalEbaySerpProviders,
 } from "../src/lib/instacomp-ebay-serp-provider";
 import type { InstaCompAiResult, InstaCompComp } from "../src/lib/instacomp";
+import { calculateInstaCompSweetSpot } from "../src/lib/instacomp-sweet-spot";
 
 type FixtureCard = {
   id: string;
@@ -40,12 +41,21 @@ for (const card of fixture.cards) {
     });
     const sold = exactRows(result.sold.results);
     const active = exactRows(result.active.results);
+    const pricing = calculateInstaCompSweetSpot({ sold, active });
+    const suggestedPrice = sold.length > 0 ? pricing.suggestedPrice : 0;
+
     report.push({
       id: card.id,
       title: card.exactTitle,
       queries: result.queries,
       soldCount: sold.length,
       activeCount: active.length,
+      suggestedPrice,
+      pricingStrategy: sold.length > 0 ? pricing.strategy : "seller_price_required",
+      pricingExplanation:
+        sold.length > 0
+          ? pricing.explanation
+          : "No exact sold listing passed; seller pricing is required.",
       sold: sold.slice(0, 10).map((row) => ({
         title: row.title,
         deliveredPrice: row.price,
@@ -75,6 +85,7 @@ for (const card of fixture.cards) {
       title: card.exactTitle,
       soldCount: 0,
       activeCount: 0,
+      suggestedPrice: 0,
       error: error instanceof Error ? error.message : String(error),
     });
   }
@@ -87,7 +98,10 @@ fs.writeFileSync(
 );
 
 const failures = report.filter(
-  (row) => Number(row.soldCount || 0) < 1 || Number(row.activeCount || 0) < 1,
+  (row) =>
+    Number(row.soldCount || 0) < 1 ||
+    Number(row.activeCount || 0) < 1 ||
+    Number(row.suggestedPrice || 0) <= 0,
 );
 assert.equal(
   failures.length,
