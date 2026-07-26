@@ -9,7 +9,12 @@ const createOfferRoute = source("src/app/api/offers/create/route.ts");
 const acceptOfferRoute = source("src/app/api/offers/update-status/route.ts");
 const counterOfferRoute = source("src/app/api/offers/counter/route.ts");
 const buyerCheckoutRoute = source("src/app/api/offers/buyer-checkout/route.ts");
+const reservedOfferCheckout = source("src/lib/reserved-offer-checkout.ts");
+const offerCheckoutAttempt = source("src/lib/offer-checkout-attempt.ts");
 const offerCheckoutToken = source("src/lib/offer-checkout-token.ts");
+const attachedReservationMigration = source(
+  "supabase/migrations/20260726234000_consume_attached_offer_checkout_reservations.sql",
+);
 
 for (const [name, route] of [
   ["public offer creation", createOfferRoute],
@@ -57,28 +62,63 @@ assert.match(
 );
 assert.match(
   buyerCheckoutRoute,
-  /existingSession\.status === "open"[\s\S]*checkout\.sessions\.expire/,
-  "Buyer-configured offer checkout must expire an obsolete open session before replacing it.",
+  /startReservedOfferCheckout\(\{/,
+  "Buyer-configured offer checkout must use the reservation-backed lifecycle.",
 );
-assert.match(
-  buyerCheckoutRoute,
-  /const stripeIdempotencyKey = `truely_offer_checkout_\$\{storeId\}_\$\{offer\.id\}_\$\{selectionKey\}`/,
-  "Buyer-configured offer checkout must derive its idempotency key from store, offer, amount, shipping, and protection selection.",
-);
-assert.match(
-  buyerCheckoutRoute,
-  /idempotencyKey: stripeIdempotencyKey/,
-  "Buyer-configured offer Stripe session creation must use the deterministic idempotency key.",
-);
-assert.match(
+assert.doesNotMatch(
   buyerCheckoutRoute,
   /checkout\.sessions\.create/,
-  "Only the buyer-configured offer checkout route may create the Stripe session.",
+  "The route must not bypass the reservation helper to create Stripe sessions directly.",
+);
+assert.match(
+  reservedOfferCheckout,
+  /reserveCheckoutInventory\(\{[\s\S]*checkout\.sessions\.create\(/,
+  "Accepted-offer inventory must be reserved before Stripe creates a payable session.",
+);
+assert.match(
+  reservedOfferCheckout,
+  /claimCheckoutAttempt\(\{[\s\S]*requestStatus === "session_created"[\s\S]*replayed: true/,
+  "Accepted-offer retries must claim one durable attempt and replay its open session.",
+);
+assert.match(
+  reservedOfferCheckout,
+  /const stripeIdempotencyKey = `truely_offer_checkout_\$\{params\.storeId\}_\$\{checkoutAttemptId\}`/,
+  "Accepted-offer idempotency must be tied to one offer attempt, not a mutable selection.",
+);
+assert.doesNotMatch(
+  reservedOfferCheckout,
+  /selectionKey/,
+  "Shipping or protection changes must not create parallel payable sessions for one accepted offer.",
+);
+assert.match(
+  reservedOfferCheckout,
+  /legacy\.status === "open"[\s\S]*checkout\.sessions\.expire\(legacy\.id\)/,
+  "Unreserved legacy offer sessions must be expired before a reservation-backed replacement is created.",
+);
+assert.match(
+  reservedOfferCheckout,
+  /attachStripeSessionToCheckoutReservation/,
+  "The Stripe Session must be durably attached to the accepted-offer reservation.",
+);
+assert.match(
+  reservedOfferCheckout,
+  /releaseCheckoutReservation/,
+  "Failed accepted-offer session creation must release its reservation when safe.",
+);
+assert.match(
+  offerCheckoutAttempt,
+  /createHash\("sha256"\)/,
+  "Each offer must derive a deterministic checkout-attempt UUID.",
 );
 assert.match(
   buyerCheckoutRoute,
   /buyer_protection_selected/,
   "Buyer-configured offer checkout must preserve the protection selection.",
+);
+assert.match(
+  attachedReservationMigration,
+  /reservation\.stripe_session_id = v_order_stripe_session_id[\s\S]*set status = 'consumed'/,
+  "A paid accepted-offer session must consume its attached reservation atomically.",
 );
 
 for (const token of [
@@ -94,4 +134,6 @@ for (const token of [
   );
 }
 
-console.log("Offer checkout scope and idempotency simulations passed: 18/18");
+console.log(
+  "Offer checkout scope, reservation, and idempotency simulations passed: 22/22",
+);
