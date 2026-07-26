@@ -1,1 +1,1 @@
-Retry deterministic sold-plus-active market-pricing validation after normalizing source targets.
+Run the final complete market-pricing validation with corrected strategy fixtures and lone-active guard.
