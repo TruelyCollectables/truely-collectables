@@ -136,7 +136,7 @@ assert.match(
 );
 assert.match(
   buyerOrdersPage,
-  /Authorization:\s*`Bearer \$\{currentSession\.access_token\}`/,
+  /Authorization:\s*`Bearer \$\{session\.access_token\}`/,
   "The standalone buyer orders page must authenticate its API request.",
 );
 assert.match(
