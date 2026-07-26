@@ -39,6 +39,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: node scripts/apply-instacomp-fast-exclusions.mjs
+      - run: node scripts/apply-instacomp-sold-cache-exact-override.mjs
       - run: node --import tsx scripts/run-instacomp-fast-exclusions-regressions.ts
       - run: npm run lint
       - run: npm run build
@@ -50,6 +51,8 @@ jobs:
             src/app/api/account/seller/instacomp-pending/route.ts \
             src/app/api/account/seller/instacomp-pending/exclude-comp/route.ts \
             src/app/seller/instacomp-pending/page.tsx \
+            src/lib/instacomp-ebay-serp-provider.ts \
+            src/lib/instacomp-comp-visual-verification.ts \
             scripts/run-instacomp-fast-exclusions-regressions.ts
-          git commit -m "Make InstaComp reruns faster and add persistent comp exclusions"
+          git commit -m "Make InstaComp faster, refresh sold comps, and preserve exact matches"
           git push origin HEAD:agent/instacomp-fast-exclusions-20260726
