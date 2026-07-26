@@ -115,9 +115,13 @@ export default function ProductActions({ product }: { product: Product }) {
       <button
         type="button"
         onClick={handleBuyNow}
-        className="min-h-12 w-full rounded bg-black px-4 py-3 text-base font-bold text-white"
+        aria-label="Make It Mine"
+        className="flex min-h-12 w-full items-center justify-center rounded bg-black px-4 py-3 text-base font-bold text-white"
       >
-        Make It Mine
+        <span>Make It Mine</span>
+        <sup aria-hidden="true" className="ml-0.5 text-[0.55em] leading-none">
+          ™
+        </sup>
       </button>
 
       <button
