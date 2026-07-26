@@ -4,15 +4,12 @@ on:
   push:
     branches:
       - main
-  pull_request:
-    branches:
-      - main
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
-  patch:
+  validate:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     env:
@@ -41,12 +38,5 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: node scripts/apply-instacomp-sweetspot-pricing.mjs
       - run: npm run lint
       - run: npm run build
-      - run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add src/lib/instacomp-sweet-spot.ts src/app/api/account/seller/inventory/instacomp-universal/route.ts src/app/api/account/seller/instacomp-pending/route.ts src/app/seller/instacomp-pending/page.tsx
-          git commit -m "Calculate InstaComp sweet spot from sold and active markets"
-          git push origin HEAD:agent/instacomp-sweetspot-pricing-20260726
