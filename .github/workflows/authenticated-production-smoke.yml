@@ -1,3 +1,4 @@
+# Fresh run after SMOKE_ADMIN_PASSWORD repository-secret creation.
 name: Authenticated Production Smoke And Stripe Readiness
 
 on:
