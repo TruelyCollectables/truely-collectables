@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import {
   existsSync,
   readFileSync,
@@ -326,9 +326,6 @@ async function main() {
     "NEXT_PUBLIC_SUPABASE_URL",
     "SUPABASE_SERVICE_ROLE_KEY",
   ].filter((name) => !process.env[name]?.trim());
-  if (!process.env.ADMIN_SESSION_SECRET?.trim() && !process.env.ADMIN_PASSWORD?.trim()) {
-    missingEnv.push("ADMIN_SESSION_SECRET or ADMIN_PASSWORD");
-  }
   if (missingEnv.length > 0) {
     fail(
       "The local repo is missing required production credentials in .env.local.",
@@ -341,6 +338,10 @@ async function main() {
   }
 
   console.log("\n=== APPLYING DIRECTLY TO SUPABASE ===");
+  if (!process.env.ADMIN_SESSION_SECRET?.trim() && !process.env.ADMIN_PASSWORD?.trim()) {
+    process.env.ADMIN_SESSION_SECRET = randomBytes(32).toString("hex");
+    console.log("Using an ephemeral in-process admin session for this local import only.");
+  }
   const [{ createAdminSessionValue, ADMIN_SESSION_COOKIE_NAME }, routeModule] =
     await Promise.all([
       import("../src/lib/admin-session.ts"),
