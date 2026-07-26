@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import { runEbayAuthoritativeStoreSync } from "../../../../lib/ebay-authoritative-store-sync";
+import { syncEbayAllListingImages } from "../../../../lib/ebay-all-image-sync";
 import { syncRecentLegacyEbayQuantities } from "../../../../lib/ebay-fixed-price-backfill";
-import { syncEbayFrontBackImages } from "../../../../lib/ebay-front-back-image-sync";
 import { getActiveStoreId } from "../../../../lib/stores";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 
@@ -37,7 +37,7 @@ export async function GET(request: Request) {
   let authoritativeSync: Awaited<
     ReturnType<typeof runEbayAuthoritativeStoreSync>
   > | null = null;
-  let imageSync: Awaited<ReturnType<typeof syncEbayFrontBackImages>> | null =
+  let imageSync: Awaited<ReturnType<typeof syncEbayAllListingImages>> | null =
     null;
   let quantitySync: Awaited<
     ReturnType<typeof syncRecentLegacyEbayQuantities>
@@ -72,23 +72,23 @@ export async function GET(request: Request) {
   }
 
   try {
-    imageSync = await syncEbayFrontBackImages({
+    imageSync = await syncEbayAllListingImages({
       supabase,
       storeId,
     });
 
     if (imageSync.errors.length > 0) {
       errors.push({
-        step: "ebay_front_back_image_sync",
+        step: "ebay_all_image_sync",
         error: `${imageSync.errors.length} listing${
           imageSync.errors.length === 1 ? "" : "s"
-        } could not complete front/back image synchronization.`,
+        } could not complete 1-20 image synchronization.`,
       });
     }
   } catch (error: any) {
     errors.push({
-      step: "ebay_front_back_image_sync",
-      error: String(error?.message || "Front/back image sync failed").slice(
+      step: "ebay_all_image_sync",
+      error: String(error?.message || "Full eBay image sync failed").slice(
         0,
         500,
       ),
