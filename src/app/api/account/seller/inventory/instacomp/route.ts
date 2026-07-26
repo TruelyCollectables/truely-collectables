@@ -79,7 +79,7 @@ function compactCompList(values: unknown, limit = 20) {
 
 function isExcludedEvidence(comp: ReturnType<typeof compactComp>) {
   return Boolean(
-    comp?.flags.some((flag) =>
+    comp?.flags.some((flag: string) =>
       /excluded|guidance comp|not used for pricing/i.test(flag),
     ),
   );
@@ -88,7 +88,7 @@ function isExcludedEvidence(comp: ReturnType<typeof compactComp>) {
 function isOwnStoreCompetition(comp: ReturnType<typeof compactComp>) {
   if (!comp) return true;
   if (comp.source.toLowerCase() === "tcos_inventory") return true;
-  return comp.flags.some((flag) => /seller listing|own listing|store listing/i.test(flag));
+  return comp.flags.some((flag: string) => /seller listing|own listing|store listing/i.test(flag));
 }
 
 async function downloadImage(url: string, index: number) {
