@@ -7,7 +7,10 @@ on:
     paths:
       - "src/lib/ebay-quantity-sync-outbox.ts"
       - "src/lib/ebay-quantity-sync-safety.ts"
+      - "src/lib/client-identity.ts"
       - "src/app/api/cron/ebay-store-fixed-price-sync/route.ts"
+      - "src/app/components/CheckoutButton.tsx"
+      - "src/components/ClearCartOnSuccess.tsx"
       - "supabase/migrations/20260726233000_post_sale_ebay_quantity_sync_outbox.sql"
       - "scripts/run-post-sale-ebay-sync-simulations.ts"
       - ".github/workflows/emergency-post-launch-audit.yml"
