@@ -4,20 +4,13 @@ on:
   pull_request:
     paths:
       - "src/lib/active-market-*.ts"
-      - "src/app/api/account/seller/inventory/**/active-market-attack/route.ts"
-      - "src/app/api/account/seller/inventory/active-pricing/route.ts"
+      - "src/app/api/**/route.ts"
+      - "src/proxy.ts"
       - "src/app/seller/inventory/SellerActiveInventoryPricing.tsx"
       - "scripts/run-active-market-*-simulations.ts"
-      - "src/app/api/checkout/route.ts"
-      - "src/app/api/webhook/route.ts"
-      - "src/app/api/offers/**/route.ts"
       - "src/lib/checkout-inventory-reservations.ts"
       - "src/lib/checkout-order-finalization.ts"
       - "src/lib/live-payment-launch*.ts"
-      - "src/app/api/admin/seller-payouts/connect-refresh/route.ts"
-      - "src/app/api/ebay/import-listings/route.ts"
-      - "src/app/api/cron/ebay-store-fixed-price-sync/route.ts"
-      - "src/app/api/storefront/product-images/**/route.ts"
       - "src/app/admin/ebay/import-runner/EbayImportRunner.tsx"
       - "src/app/product/[id]/ProductActions.tsx"
       - "src/lib/ebay-front-back-image-sync.ts"
@@ -32,6 +25,7 @@ on:
       - "scripts/run-ebay-import-admin-client-simulations.ts"
       - "scripts/run-checkout-webhook-idempotency-simulations.ts"
       - "scripts/run-offer-checkout-idempotency-simulations.ts"
+      - "scripts/run-privileged-api-route-audit.ts"
       - "supabase/migrations/20260725010000_checkout_inventory_reservations.sql"
       - "supabase/migrations/20260725170000_consume_checkout_reservations.sql"
       - ".github/workflows/active-market-integrity.yml"
@@ -40,20 +34,13 @@ on:
       - main
     paths:
       - "src/lib/active-market-*.ts"
-      - "src/app/api/account/seller/inventory/**/active-market-attack/route.ts"
-      - "src/app/api/account/seller/inventory/active-pricing/route.ts"
+      - "src/app/api/**/route.ts"
+      - "src/proxy.ts"
       - "src/app/seller/inventory/SellerActiveInventoryPricing.tsx"
       - "scripts/run-active-market-*-simulations.ts"
-      - "src/app/api/checkout/route.ts"
-      - "src/app/api/webhook/route.ts"
-      - "src/app/api/offers/**/route.ts"
       - "src/lib/checkout-inventory-reservations.ts"
       - "src/lib/checkout-order-finalization.ts"
       - "src/lib/live-payment-launch*.ts"
-      - "src/app/api/admin/seller-payouts/connect-refresh/route.ts"
-      - "src/app/api/ebay/import-listings/route.ts"
-      - "src/app/api/cron/ebay-store-fixed-price-sync/route.ts"
-      - "src/app/api/storefront/product-images/**/route.ts"
       - "src/app/admin/ebay/import-runner/EbayImportRunner.tsx"
       - "src/app/product/[id]/ProductActions.tsx"
       - "src/lib/ebay-front-back-image-sync.ts"
@@ -68,6 +55,7 @@ on:
       - "scripts/run-ebay-import-admin-client-simulations.ts"
       - "scripts/run-checkout-webhook-idempotency-simulations.ts"
       - "scripts/run-offer-checkout-idempotency-simulations.ts"
+      - "scripts/run-privileged-api-route-audit.ts"
       - "supabase/migrations/20260725010000_checkout_inventory_reservations.sql"
       - "supabase/migrations/20260725170000_consume_checkout_reservations.sql"
       - ".github/workflows/active-market-integrity.yml"
@@ -120,7 +108,7 @@ jobs:
       SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
       NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
       STRIPE_SECRET_KEY: sk_test_build_only_placeholder
-      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only-placeholder
       STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
       ADMIN_PASSWORD: build-only-placeholder-password
       ADMIN_SESSION_SECRET: build-only-placeholder-session-secret
@@ -157,6 +145,9 @@ jobs:
 
       - name: Validate offer checkout idempotency
         run: node --import tsx scripts/run-offer-checkout-idempotency-simulations.ts
+
+      - name: Audit privileged API route protection
+        run: node --import tsx scripts/run-privileged-api-route-audit.ts
 
       - name: Run lint
         run: npm run lint
