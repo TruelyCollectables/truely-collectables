@@ -1,17 +1,16 @@
 install=0
 patch_fast=0
-patch_exact=1
+patch_exact=0
 regression=0
 lint=1
 build=0
-validated_source_commit=95bc17306115d7bb294d6e05544b39e36b3aa252
+validated_source_commit=6828119759ef56ce0434ab8cf3d481191511462a
 --- errors and assertions ---
-20:SyntaxError: missing ) after argument list
-40:  76:28  error  Parsing error: ',' expected
-77:✖ 18 problems (1 error, 17 warnings)
+26:  76:28  error  Parsing error: ',' expected
+60:✖ 17 problems (1 error, 16 warnings)
 --- log head ---
 
-added 377 packages, and audited 378 packages in 11s
+added 377 packages, and audited 378 packages in 12s
 
 143 packages are looking for funding
   run `npm fund` for details
@@ -26,21 +25,7 @@ To address all issues, run:
 
 Run `npm audit` for details.
 Fast lane already applied.
-file:///home/runner/work/truely-collectables/truely-collectables/scripts/apply-instacomp-sold-cache-exact-override.mjs:50
-  `function normalizedWords(value: string) {
-
-SyntaxError: missing ) after argument list
-    at compileSourceTextModule (node:internal/modules/esm/utils:346:16)
-    at ModuleLoader.moduleStrategy (node:internal/modules/esm/translators:110:18)
-    at #translate (node:internal/modules/esm/loader:559:20)
-    at afterLoad (node:internal/modules/esm/loader:612:29)
-    at ModuleLoader.loadAndTranslate (node:internal/modules/esm/loader:617:12)
-    at #createModuleJob (node:internal/modules/esm/loader:640:36)
-    at #getJobFromResolveResult (node:internal/modules/esm/loader:353:34)
-    at ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:321:41)
-    at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:680:25)
-
-Node.js v22.23.1
+Applied sold-cache reset and deterministic exact-match acceptance safely.
 InstaComp speed/exclusion regression passed: trusted cards skip duplicate identity scans, batches run two at a time, sold and active comps have persistent exclusion controls, and exclusions recalculate without rescanning.
 
 > truely-collectables@0.1.0 lint
@@ -83,10 +68,7 @@ InstaComp speed/exclusion regression passed: trusted cards skip duplicate identi
   118:10  warning  'titleCase' is defined but never used                                                                                                                                                                                                                                                    @typescript-eslint/no-unused-vars
   454:23  warning  Using `<img>` could result in slower LCP and higher bandwidth. Consider using `<Image />` from `next/image` or a custom image loader to automatically optimize images. This may incur additional usage or cost from your provider. See: https://nextjs.org/docs/messages/no-img-element  @next/next/no-img-element
 
-/home/runner/work/truely-collectables/truely-collectables/src/lib/instacomp-ebay-serp-provider.ts
-  7:8  warning  'InstaCompComp' is defined but never used  @typescript-eslint/no-unused-vars
-
-✖ 18 problems (1 error, 17 warnings)
+✖ 17 problems (1 error, 16 warnings)
 
 
 > truely-collectables@0.1.0 build
@@ -101,15 +83,15 @@ https://nextjs.org/telemetry
 ▲ Next.js 16.2.10 (webpack)
 
   Creating an optimized production build ...
-✓ Compiled successfully in 27.1s
+✓ Compiled successfully in 26.8s
   Running TypeScript ...
-  Finished TypeScript in 41s ...
+  Finished TypeScript in 39.8s ...
   Collecting page data using 3 workers ...
   Generating static pages using 3 workers (0/51) ...
   Generating static pages using 3 workers (12/51) 
   Generating static pages using 3 workers (25/51) 
   Generating static pages using 3 workers (38/51) 
-✓ Generating static pages using 3 workers (51/51) in 871ms
+✓ Generating static pages using 3 workers (51/51) in 845ms
   Finalizing page optimization ...
   Collecting build traces ...
 
@@ -130,6 +112,23 @@ Route (app)
 ├ ƒ /admin/ebay/import-runner
 ├ ƒ /admin/ebay/inventory-intake
 ├ ƒ /admin/ebay/launch-ready-sync
+├ ƒ /admin/ebay/publish
+├ ƒ /admin/ebay/sync-control
+├ ƒ /admin/files
+├ ƒ /admin/financial-reconciliation
+├ ƒ /admin/instacomp
+├ ƒ /admin/instacomp-direct
+├ ƒ /admin/inventory
+├ ƒ /admin/inventory/category-review
+├ ƒ /admin/launch-gate-drill
+├ ƒ /admin/launch-readiness
+├ ƒ /admin/live-payment-launch
+├ ƒ /admin/live-shipping-launch
+├ ƒ /admin/login
+├ ƒ /admin/logout
+├ ƒ /admin/market-intel
+├ ƒ /admin/market-intel/buy
+├ ƒ /admin/market-intel/comps
 --- log tail ---
 ├ ƒ /api/admin/market-intel/listings/[id]/purchase
 ├ ƒ /api/admin/market-intel/purchases/[id]/delete
