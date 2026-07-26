@@ -9,6 +9,7 @@ on:
       - "scripts/audit-public-supabase-schema-from-storefront.mjs"
       - "scripts/run-supabase-management-launch-audit.mjs"
       - "scripts/audit-unapplied-storefront-migrations.mjs"
+      - "scripts/audit-live-money-database-preflight.mjs"
       - ".github/workflows/one-hour-launch-audit.yml"
   workflow_dispatch:
 
@@ -88,6 +89,12 @@ jobs:
         shell: bash
         run: node scripts/audit-unapplied-storefront-migrations.mjs
 
+      - name: Audit live-money database blockers
+        id: live_money_db
+        continue-on-error: true
+        shell: bash
+        run: node scripts/audit-live-money-database-preflight.mjs
+
       - name: Upload redacted launch audit
         if: always()
         uses: actions/upload-artifact@v4
@@ -98,6 +105,7 @@ jobs:
             public-supabase-schema-audit.json
             supabase-management-launch-audit.json
             unapplied-storefront-migrations.json
+            live-money-database-preflight.json
           if-no-files-found: error
           retention-days: 2
 
@@ -106,4 +114,4 @@ jobs:
         shell: bash
         run: |
           rm -rf .vercel
-          rm -f .env.storefront.production vercel-production-env-names.txt vercel-quota-status.json one-hour-launch-audit.json public-supabase-schema-audit.json supabase-management-launch-audit.json unapplied-storefront-migrations.json
+          rm -f .env.storefront.production vercel-production-env-names.txt vercel-quota-status.json one-hour-launch-audit.json public-supabase-schema-audit.json supabase-management-launch-audit.json unapplied-storefront-migrations.json live-money-database-preflight.json
