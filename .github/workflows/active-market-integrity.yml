@@ -13,10 +13,14 @@ on:
       - "src/lib/live-payment-launch*.ts"
       - "src/lib/live-payment-status-presentation.ts"
       - "src/lib/marketplace-token-crypto.ts"
+      - "src/lib/post-purchase-status.ts"
       - "src/lib/legal.ts"
       - "src/app/admin/live-payment-launch/**"
       - "src/app/admin/ebay/import-runner/EbayImportRunner.tsx"
       - "src/app/product/**"
+      - "src/app/success/**"
+      - "src/app/account/orders/**"
+      - "src/components/ClearCartOnSuccess.tsx"
       - "src/lib/ebay-front-back-image-sync.ts"
       - "src/lib/listing-image-utils.ts"
       - "src/modules/inventory/admin-engine.ts"
@@ -43,6 +47,7 @@ on:
       - "scripts/run-ebay-oauth-state-simulations.ts"
       - "scripts/run-public-trust-policy-simulations.ts"
       - "scripts/run-mobile-buyer-flow-simulations.ts"
+      - "scripts/run-post-purchase-buyer-flow-simulations.ts"
       - "scripts/run-privileged-api-route-audit.mjs"
       - "scripts/run-launch-database-migration-coverage.mjs"
       - "scripts/run-launch-database-schema-definition-simulations.mjs"
@@ -63,10 +68,14 @@ on:
       - "src/lib/live-payment-launch*.ts"
       - "src/lib/live-payment-status-presentation.ts"
       - "src/lib/marketplace-token-crypto.ts"
+      - "src/lib/post-purchase-status.ts"
       - "src/lib/legal.ts"
       - "src/app/admin/live-payment-launch/**"
       - "src/app/admin/ebay/import-runner/EbayImportRunner.tsx"
       - "src/app/product/**"
+      - "src/app/success/**"
+      - "src/app/account/orders/**"
+      - "src/components/ClearCartOnSuccess.tsx"
       - "src/lib/ebay-front-back-image-sync.ts"
       - "src/lib/listing-image-utils.ts"
       - "src/modules/inventory/admin-engine.ts"
@@ -93,6 +102,7 @@ on:
       - "scripts/run-ebay-oauth-state-simulations.ts"
       - "scripts/run-public-trust-policy-simulations.ts"
       - "scripts/run-mobile-buyer-flow-simulations.ts"
+      - "scripts/run-post-purchase-buyer-flow-simulations.ts"
       - "scripts/run-privileged-api-route-audit.mjs"
       - "scripts/run-launch-database-migration-coverage.mjs"
       - "scripts/run-launch-database-schema-definition-simulations.mjs"
@@ -227,6 +237,9 @@ jobs:
 
       - name: Validate mobile buyer flow
         run: node --import tsx scripts/run-mobile-buyer-flow-simulations.ts
+
+      - name: Validate post-purchase buyer flow
+        run: node --import tsx scripts/run-post-purchase-buyer-flow-simulations.ts
 
       - name: Validate live payment semantic colors
         run: node --import tsx scripts/run-live-payment-status-color-simulations.ts
