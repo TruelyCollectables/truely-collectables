@@ -31,8 +31,7 @@ on:
       - "scripts/run-offer-checkout-idempotency-simulations.ts"
       - "scripts/run-ebay-oauth-state-simulations.ts"
       - "scripts/run-privileged-api-route-audit.mjs"
-      - "supabase/migrations/20260725010000_checkout_inventory_reservations.sql"
-      - "supabase/migrations/20260725170000_consume_checkout_reservations.sql"
+      - "supabase/migrations/**"
       - ".github/workflows/active-market-integrity.yml"
   push:
     branches:
@@ -66,8 +65,7 @@ on:
       - "scripts/run-offer-checkout-idempotency-simulations.ts"
       - "scripts/run-ebay-oauth-state-simulations.ts"
       - "scripts/run-privileged-api-route-audit.mjs"
-      - "supabase/migrations/20260725010000_checkout_inventory_reservations.sql"
-      - "supabase/migrations/20260725170000_consume_checkout_reservations.sql"
+      - "supabase/migrations/**"
       - ".github/workflows/active-market-integrity.yml"
   workflow_dispatch:
 
