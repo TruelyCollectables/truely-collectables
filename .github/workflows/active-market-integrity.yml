@@ -59,6 +59,7 @@ on:
       - "scripts/run-buyer-protection-simulations.ts"
       - "scripts/run-privileged-api-route-audit.mjs"
       - "scripts/run-supabase-service-role-fail-closed-simulations.mjs"
+      - "scripts/audit-vercel-production-environment.mjs"
       - "scripts/run-launch-database-migration-coverage.mjs"
       - "scripts/run-launch-database-schema-definition-simulations.mjs"
       - "scripts/run-hardened-checkout-function-migration-simulations.mjs"
@@ -124,6 +125,7 @@ on:
       - "scripts/run-buyer-protection-simulations.ts"
       - "scripts/run-privileged-api-route-audit.mjs"
       - "scripts/run-supabase-service-role-fail-closed-simulations.mjs"
+      - "scripts/audit-vercel-production-environment.mjs"
       - "scripts/run-launch-database-migration-coverage.mjs"
       - "scripts/run-launch-database-schema-definition-simulations.mjs"
       - "scripts/run-hardened-checkout-function-migration-simulations.mjs"
@@ -197,6 +199,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
+
+      - name: Validate Vercel production environment audit
+        run: node scripts/audit-vercel-production-environment.mjs --self-test
 
       - name: Audit launch database migration coverage
         id: migration_coverage_audit
