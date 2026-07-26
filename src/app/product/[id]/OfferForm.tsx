@@ -1,6 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import BuyerProtectionOption, {
+  type BuyerProtectionCheckoutChoice,
+} from "../../cart/BuyerProtectionOption";
+import { BUYER_PROTECTION_POLICY_VERSION } from "../../../lib/buyer-protection";
 import {
   TERMS_OF_SERVICE_PATH,
   TERMS_OF_SERVICE_VERSION,
@@ -8,6 +12,14 @@ import {
 import { getAccountSession } from "../../account/account-session";
 
 type MessageTone = "success" | "error" | null;
+
+const EMPTY_PROTECTION_CHOICE: BuyerProtectionCheckoutChoice = {
+  selected: false,
+  preferenceMode: "one_time",
+  termsAccepted: false,
+  policyVersion: BUYER_PROTECTION_POLICY_VERSION,
+  storedConsentCurrent: false,
+};
 
 export default function OfferForm({
   productId,
@@ -20,11 +32,22 @@ export default function OfferForm({
   const [message, setMessage] = useState("");
   const [messageTone, setMessageTone] = useState<MessageTone>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [buyerProtection, setBuyerProtection] =
+    useState<BuyerProtectionCheckoutChoice>(EMPTY_PROTECTION_CHOICE);
 
   async function submitOffer(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
 
     if (submitting) return;
+    if (
+      buyerProtection.selected &&
+      !buyerProtection.storedConsentCurrent &&
+      !buyerProtection.termsAccepted
+    ) {
+      setMessage("Accept the Buyer Protection terms or turn protection off.");
+      setMessageTone("error");
+      return;
+    }
 
     const form = e.currentTarget;
     const formData = new FormData(form);
@@ -48,6 +71,10 @@ export default function OfferForm({
           name: formData.get("name"),
           email: formData.get("email"),
           offerAmount: Number(formData.get("offerAmount")),
+          buyerProtectionSelected: buyerProtection.selected,
+          buyerProtectionPreferenceMode: buyerProtection.preferenceMode,
+          buyerProtectionTermsAccepted: buyerProtection.termsAccepted,
+          buyerProtectionPolicyVersion: buyerProtection.policyVersion,
           tosAccepted: formData.get("tosAccepted") === "on",
           tosVersion: TERMS_OF_SERVICE_VERSION,
         }),
@@ -108,10 +135,16 @@ export default function OfferForm({
             type="number"
             required
             min="1"
+            max={price}
             step="0.01"
             inputMode="decimal"
             placeholder={`Offer amount, asking $${price.toFixed(2)}`}
             className="min-h-12 w-full rounded border px-3 py-2 text-base"
+          />
+
+          <BuyerProtectionOption
+            available={price <= 20}
+            onChange={setBuyerProtection}
           />
 
           <label className="flex min-h-12 items-start gap-3 rounded border p-3 text-sm leading-6">
