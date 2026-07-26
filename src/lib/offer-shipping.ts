@@ -1,3 +1,4 @@
+import type Stripe from "stripe";
 import {
   calculateShipping,
   getAvailableShippingMethods,
@@ -113,4 +114,21 @@ export function offerShippingMetadata(snapshot: OfferShippingSnapshot) {
     ),
     shipping_policy_reason: snapshot.resolutionReason,
   };
+}
+
+export function offerStripeShippingOptions(params: {
+  saleSubtotal: number;
+  listingPriceBasis: number;
+}): Stripe.Checkout.SessionCreateParams.ShippingOption[] {
+  return offerShippingChoices(params).map((choice) => ({
+    shipping_rate_data: {
+      type: "fixed_amount",
+      fixed_amount: {
+        amount: Math.round(choice.amount * 100),
+        currency: "usd",
+      },
+      display_name: choice.name,
+      metadata: offerShippingMetadata(choice),
+    },
+  }));
 }
