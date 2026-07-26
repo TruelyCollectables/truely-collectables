@@ -15,7 +15,7 @@ export async function persistBuyerProtectionForOrder(params: {
   storeId: string;
   orderId: number;
   accountId?: string | null;
-  shippingMethod: string;
+  shippingMethod: string | null | undefined;
   metadata: Record<string, string>;
   isTest?: boolean;
 }) {
