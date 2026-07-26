@@ -13,6 +13,9 @@ type PricingStatus =
 type CompEvidence = {
   title: string;
   price: number;
+  itemPrice: number | null;
+  shippingPrice: number | null;
+  priceIncludesShipping: boolean;
   currency: string;
   url: string | null;
   imageUrl: string | null;
@@ -89,6 +92,7 @@ type PendingItem = {
       resultCount: number;
       message: string | null;
       searchUrl: string | null;
+      queryAttempts: string[];
     }>;
     sourceLinks: {
       ebaySoldUrl: string | null;
@@ -1256,7 +1260,7 @@ export default function InstaCompPendingPage() {
                                     {comp.title}
                                   </span>
                                   <span className="mt-1 block text-xs font-bold text-neutral-700">
-                                    {money(comp.price)} · {comp.sourceLabel}
+                                    {money(comp.price)}{comp.priceIncludesShipping ? " delivered" : ""} · {comp.sourceLabel}
                                     {evidenceDate(comp) ? ` · ${evidenceDate(comp)}` : ""}
                                     {scoreLabel(comp.matchScore)
                                       ? ` · ${scoreLabel(comp.matchScore)}`
@@ -1343,7 +1347,7 @@ export default function InstaCompPendingPage() {
                                     {comp.title}
                                   </span>
                                   <span className="mt-1 block text-xs font-bold text-neutral-700">
-                                    {money(comp.price)} · {comp.sourceLabel}
+                                    {money(comp.price)}{comp.priceIncludesShipping ? " delivered" : ""} · {comp.sourceLabel}
                                     {scoreLabel(comp.matchScore)
                                       ? ` · ${scoreLabel(comp.matchScore)}`
                                       : ""}
@@ -1395,7 +1399,7 @@ export default function InstaCompPendingPage() {
                                 >
                                   <span className="block text-sm font-black text-neutral-950">{comp.title}</span>
                                   <span className="mt-1 block text-xs font-bold text-neutral-700">
-                                    {money(comp.price)} · {comp.sourceLabel}
+                                    {money(comp.price)}{comp.priceIncludesShipping ? " delivered" : ""} · {comp.sourceLabel}
                                     {scoreLabel(comp.matchScore) ? ` · ${scoreLabel(comp.matchScore)}` : ""}
                                   </span>
                                   <span className="mt-1 block text-[11px] font-semibold text-rose-800">

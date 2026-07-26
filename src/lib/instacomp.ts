@@ -42,6 +42,9 @@ export type InstaCompProviderStatus =
 export type InstaCompComp = {
   title: string;
   price: number;
+  itemPrice?: number | null;
+  shippingPrice?: number | null;
+  priceIncludesShipping?: boolean;
   currency: string;
   url: string;
   imageUrl: string | null;
@@ -260,16 +263,34 @@ function serialRunAdjustmentFactor(targetDenominator: number, compDenominator: n
   return Math.max(0.4, Math.min(3, raw));
 }
 
+function normalizedParallelDescriptor(value: string | null | undefined) {
+  let normalized = normalizeText(value).replace(/\s*&\s*/g, " and ");
+  if (!normalized || isUncertainParallel(value)) return "";
+
+  normalized = normalized
+    .replace(/\b(?:serial(?:ly)?[-\s]?numbered|numbered)\b(?:\s*(?:to|\/))?\s*\d{1,6}\b/g, " ")
+    .replace(/\b\d{1,6}\s*\/\s*\d{1,6}\b/g, " ")
+    .replace(/(?:^|\s)\/\s*\d{1,6}\b/g, " ")
+    .replace(/\bbase\b/g, " ")
+    .replace(/\b(?:memorabilia|relic|autograph|auto)\s+issue\b/g, " ")
+    .replace(/\bissue\b/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  if (["standard", "standard card", "regular", "regular card", "card"].includes(normalized)) {
+    return "";
+  }
+  return normalized;
+}
+
+export function normalizeInstaCompParallelForExactMatching(
+  value: string | null | undefined,
+) {
+  return normalizedParallelDescriptor(value);
+}
+
 function isBaseParallel(value: string | null | undefined) {
-  const normalized = normalizeText(value);
-  return (
-    normalized === "base" ||
-    normalized === "base card" ||
-    normalized === "standard" ||
-    normalized === "standard card" ||
-    normalized === "regular" ||
-    normalized === "regular card"
-  );
+  return normalizedParallelDescriptor(value) === "";
 }
 
 function isUncertainParallel(value: string | null | undefined) {
@@ -279,21 +300,18 @@ function isUncertainParallel(value: string | null | undefined) {
 }
 
 function searchParallelPart(value: string | null | undefined) {
-  if (!value || isBaseParallel(value) || isUncertainParallel(value)) return "";
-
-  return cleanPart(value);
+  const normalized = normalizedParallelDescriptor(value);
+  return normalized ? cleanPart(normalized) : "";
 }
 
 function parallelTokens(value: string | null | undefined) {
-  const normalized = normalizeText(value);
+  const normalized = normalizedParallelDescriptor(value);
+  if (!normalized) return [];
 
-  if (!normalized || isBaseParallel(value) || isUncertainParallel(value)) {
-    return [];
-  }
-
-  return normalized
+  const tokens = normalized
     .split(/\s+/)
     .map((token) => token.trim())
+    .filter((token) => /^[a-z0-9]+$/.test(token))
     .filter(Boolean)
     .filter(
       (token) =>
@@ -304,8 +322,13 @@ function parallelTokens(value: string | null | undefined) {
           "uncertain",
           "version",
           "card",
-        ].includes(token)
+          "and",
+        ].includes(token),
     );
+  const distinctive = tokens.filter(
+    (token) => !["prizm", "refractor", "foil", "holo"].includes(token),
+  );
+  return distinctive.length ? distinctive : tokens;
 }
 
 const PARALLEL_COLOR_TOKENS = [
@@ -863,9 +886,9 @@ export function filterAndRankExactMatches(
         comp.flags.includes("parallel partial")
     )
     .filter((comp) => {
-      if (!targetDenominator) return true;
-
-      return serialRunDenominatorFromTitle(comp.title) === targetDenominator;
+      const compDenominator = serialRunDenominatorFromTitle(comp.title);
+      if (targetDenominator) return compDenominator === targetDenominator;
+      return compDenominator === null;
     })
     .filter((comp) => comp.matchScore >= minScore)
     .sort((a, b) => {
