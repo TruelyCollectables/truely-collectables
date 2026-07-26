@@ -40,6 +40,21 @@ function recordValue(value: unknown): Record<string, unknown> {
     : {};
 }
 
+function stringList(value: unknown) {
+  return Array.isArray(value)
+    ? value.map((entry) => String(entry || "").trim()).filter(Boolean).slice(0, 250)
+    : [];
+}
+
+function hasUsableStoredIdentity(ai: Record<string, unknown>) {
+  return Boolean(
+    String(ai.player || "").trim() &&
+      String(ai.year || "").trim() &&
+      String(ai.setName || ai.brand || "").trim() &&
+      String(ai.cardNumber || "").trim(),
+  );
+}
+
 function normalizedEvidence(value: unknown): Evidence | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const row = value as Record<string, unknown>;
@@ -157,28 +172,9 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const legacyHeaders = new Headers(request.headers);
-    legacyHeaders.set("content-type", "application/json");
-    legacyHeaders.delete("content-length");
-    const legacyRequest = new NextRequest(request.url, {
-      method: "POST",
-      headers: legacyHeaders,
-      body: JSON.stringify(body),
-    });
-    const legacyResponse = await runLegacySellerInstaComp(legacyRequest);
-    const legacyText = await legacyResponse.text();
-    let legacy: Record<string, any>;
-    try {
-      legacy = JSON.parse(legacyText);
-    } catch {
-      return NextResponse.json(
-        { error: "The base InstaComp scan returned an unreadable response." },
-        { status: 502 },
-      );
-    }
-    if (!legacyResponse.ok || legacy?.success !== true) {
-      return NextResponse.json(legacy, { status: legacyResponse.status || 500 });
-    }
+    const scanStartedAt = Date.now();
+    let legacy: Record<string, any> | null = null;
+    let fastLane = false;
 
     const supabase = createSupabaseServerClient({ admin: true });
     const storeId = getActiveStoreId();
@@ -222,7 +218,62 @@ export async function POST(request: NextRequest) {
       ]);
     if (imageError) throw imageError;
 
-    const metadata = recordValue(item.metadata);
+    let metadata = recordValue(item.metadata);
+    let currentInstaComp = recordValue(metadata.instacomp);
+    const storedAi = recordValue(currentInstaComp.ai);
+    const forceIdentityRescan = body?.forceIdentityRescan === true;
+    const trustedStoredIdentity =
+      currentInstaComp.trustedForIdentity === true ||
+      currentInstaComp.humanVerified === true ||
+      Boolean(String(currentInstaComp.scanId || "").trim());
+
+    if (!forceIdentityRescan && trustedStoredIdentity && hasUsableStoredIdentity(storedAi)) {
+      fastLane = true;
+      legacy = {
+        success: true,
+        ai: storedAi,
+        scanId: currentInstaComp.scanId || null,
+        review: currentInstaComp.review || null,
+        soldCompEvidence: currentInstaComp.soldCompEvidence || [],
+        activeCompetition: currentInstaComp.activeCompetition || [],
+        rejectedCandidates: currentInstaComp.rejectedCandidates || [],
+        providerCoverage: currentInstaComp.providerCoverage || [],
+      };
+    } else {
+      const legacyHeaders = new Headers(request.headers);
+      legacyHeaders.set("content-type", "application/json");
+      legacyHeaders.delete("content-length");
+      const legacyRequest = new NextRequest(request.url, {
+        method: "POST",
+        headers: legacyHeaders,
+        body: JSON.stringify(body),
+      });
+      const legacyResponse = await runLegacySellerInstaComp(legacyRequest);
+      const legacyText = await legacyResponse.text();
+      try {
+        legacy = JSON.parse(legacyText);
+      } catch {
+        return NextResponse.json(
+          { error: "The base InstaComp scan returned an unreadable response." },
+          { status: 502 },
+        );
+      }
+      if (!legacyResponse.ok || legacy?.success !== true) {
+        return NextResponse.json(legacy, { status: legacyResponse.status || 500 });
+      }
+      const { data: refreshedItem, error: refreshError } = await supabase
+        .from("inventory_items")
+        .select("metadata")
+        .eq("id", item.id)
+        .eq("store_id", storeId)
+        .maybeSingle();
+      if (refreshError) throw refreshError;
+      metadata = recordValue(refreshedItem?.metadata || item.metadata);
+      currentInstaComp = recordValue(metadata.instacomp);
+    }
+
+    if (!legacy) throw new Error("InstaComp identity preparation failed.");
+
     const targetUrls = normalizeListingImageUrls([
       ...(imageRows || []).map((row: any) => row.image_url),
       product?.image_url,
@@ -231,18 +282,21 @@ export async function POST(request: NextRequest) {
     if (!targetUrls.length) {
       throw new Error("The scanned card has no target image for comp verification.");
     }
-    const targetFrontImage = await downloadFrontImage(targetUrls[0]);
+    const targetFrontImagePromise = downloadFrontImage(targetUrls[0]);
 
     const ai = legacy.ai;
     if (!ai || typeof ai !== "object") {
       throw new Error("The base scan did not return a usable card identity.");
     }
     const fallbackQuery = buildInstaCompQueries(ai).primary;
-    const universal = await getUniversalEbaySerpProviders({
-      exactTitle: item.title,
-      fallbackQuery,
-      ai,
-    });
+    const [universal, targetFrontImage] = await Promise.all([
+      getUniversalEbaySerpProviders({
+        exactTitle: item.title,
+        fallbackQuery,
+        ai,
+      }),
+      targetFrontImagePromise,
+    ]);
 
     const soldCandidates = evidenceList(universal.sold.results, 50);
     const activeCandidates = evidenceList(universal.active.results, 30);
@@ -273,13 +327,16 @@ export async function POST(request: NextRequest) {
     const legacyActive = evidenceList(legacy.activeCompetition, 30).filter(
       (row) => !isExcluded(row),
     );
-    const soldCompEvidence = dedupeEvidence([...universalSold, ...legacySold], 50);
+    const excludedCompUrls = new Set(stringList(currentInstaComp.excludedCompUrls));
+    const soldCompEvidence = dedupeEvidence([...universalSold, ...legacySold], 50).filter(
+      (row) => !excludedCompUrls.has(row.url),
+    );
     const activeCompetition = dedupeEvidence(
       universal.active.status === "live" && universalActive.length
         ? universalActive
         : [...universalActive, ...legacyActive],
       30,
-    );
+    ).filter((row) => !excludedCompUrls.has(row.url));
     const rejectedCandidates = dedupeEvidence(
       [
         ...evidenceList(soldReview.rejected, 30),
@@ -302,7 +359,6 @@ export async function POST(request: NextRequest) {
     const pricingReason = pricingAnalysis.explanation;
     const checkedAt = new Date().toISOString();
 
-    const currentInstaComp = recordValue(metadata.instacomp);
     const existingCoverage = Array.isArray(currentInstaComp.providerCoverage)
       ? currentInstaComp.providerCoverage.filter((row: any) => {
           const source = String(row?.source || "");
@@ -332,6 +388,10 @@ export async function POST(request: NextRequest) {
         pricingStatus,
         pricingReason,
         pricingAnalysis,
+        excludedCompUrls: Array.from(excludedCompUrls),
+        excludedCompEvidence: Array.isArray(currentInstaComp.excludedCompEvidence)
+          ? currentInstaComp.excludedCompEvidence
+          : [],
         reliableSoldCompCount: hasReliableSoldComps ? reliableSoldCompCount : 0,
         pricingCheckedAt: checkedAt,
         trustedForPricing: hasReliableSoldComps,
@@ -382,6 +442,8 @@ export async function POST(request: NextRequest) {
         soldTitleOverrides: soldReview.titleOverrides,
         activeTitleOverrides: activeReview.titleOverrides,
       },
+      fastLane,
+      durationMs: Date.now() - scanStartedAt,
     });
   } catch (error: any) {
     return NextResponse.json(

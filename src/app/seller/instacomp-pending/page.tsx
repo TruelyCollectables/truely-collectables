@@ -80,6 +80,8 @@ type PendingItem = {
     soldCompEvidence: CompEvidence[];
     activeCompetition: CompEvidence[];
     rejectedCandidates: CompEvidence[];
+    excludedCompEvidence: CompEvidence[];
+    excludedCompCount: number;
     providerCoverage: Array<{
       source: string | null;
       label: string | null;
@@ -162,6 +164,23 @@ function isImageUrl(value: string | null) {
   return Boolean(value && /^https?:\/\//i.test(value));
 }
 
+async function runWithConcurrency<T>(
+  values: T[],
+  concurrency: number,
+  worker: (value: T, index: number) => Promise<void>,
+) {
+  let cursor = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, values.length) }, async () => {
+      while (cursor < values.length) {
+        const index = cursor;
+        cursor += 1;
+        await worker(values[index], index);
+      }
+    }),
+  );
+}
+
 async function scanPendingItem(item: PendingItem, accessToken: string) {
   const response = await fetch("/api/account/seller/inventory/instacomp", {
     method: "POST",
@@ -183,6 +202,8 @@ async function scanPendingItem(item: PendingItem, accessToken: string) {
     pricingStatus: PricingStatus;
     pricingReason: string;
     reliableSoldCompCount: number;
+    fastLane?: boolean;
+    durationMs?: number;
   };
 }
 
@@ -198,6 +219,7 @@ export default function InstaCompPendingPage() {
   const [batchMode, setBatchMode] = useState<string | null>(null);
   const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0 });
   const [savingItemId, setSavingItemId] = useState<string | null>(null);
+  const [excludingCompKey, setExcludingCompKey] = useState<string | null>(null);
   const [manualPrices, setManualPrices] = useState<Record<string, string>>({});
   const [draftEdits, setDraftEdits] = useState<Record<string, DraftEdit>>({});
   const [bulkQuantity, setBulkQuantity] = useState("");
@@ -359,19 +381,20 @@ export default function InstaCompPendingPage() {
       if (!session?.access_token) throw new Error("Log in to run InstaComp pricing.");
       setScanPercent(12);
 
-      for (const [index, item] of targets.entries()) {
+      let completed = 0;
+      await runWithConcurrency(targets, 2, async (item) => {
         setPricingItemId(item.inventoryItemId);
         setScanSubject(item.title);
-        setScanPercent(Math.max(12, Math.floor((index / targets.length) * 100)));
         try {
           const result = await scanPendingItem(item, session.access_token);
           if (result.suggestedPrice > 0) reliable += 1;
         } catch {
           failures += 1;
         }
-        setBatchProgress({ current: index + 1, total: targets.length });
-        setScanPercent(Math.floor(((index + 1) / targets.length) * 100));
-      }
+        completed += 1;
+        setBatchProgress({ current: completed, total: targets.length });
+        setScanPercent(Math.floor((completed / targets.length) * 100));
+      });
 
       setNotice(
         `InstaComp finished ${targets.length - failures}/${targets.length} cards. ${reliable} received sold-comp suggestions; ${targets.length - failures - reliable} require seller pricing; ${failures} need a retry.`,
@@ -406,19 +429,19 @@ export default function InstaCompPendingPage() {
         const session = await getFreshAccountSession(5 * 60, false);
         if (!session?.access_token) return;
         setScanPercent(12);
-        for (const [index, item] of targets.entries()) {
+        let completed = 0;
+        await runWithConcurrency(targets, 2, async (item) => {
           setPricingItemId(item.inventoryItemId);
           setScanSubject(item.title);
-          setBatchProgress({ current: index, total: targets.length });
-          setScanPercent(Math.max(12, Math.floor((index / targets.length) * 100)));
           try {
             await scanPendingItem(item, session.access_token);
           } catch {
             failures += 1;
           }
-          setBatchProgress({ current: index + 1, total: targets.length });
-          setScanPercent(Math.floor(((index + 1) / targets.length) * 100));
-        }
+          completed += 1;
+          setBatchProgress({ current: completed, total: targets.length });
+          setScanPercent(Math.floor((completed / targets.length) * 100));
+        });
         setNotice(
           failures
             ? `Automatic InstaComp intake finished with ${failures} card${failures === 1 ? "" : "s"} needing a retry.`
@@ -456,6 +479,49 @@ export default function InstaCompPendingPage() {
     } finally {
       setPricingItemId(null);
       finishVisibleScan();
+    }
+  }
+
+  async function excludeComp(
+    item: PendingItem,
+    comp: CompEvidence,
+    lane: "sold" | "active",
+  ) {
+    if (!comp.url) return;
+    const key = `${item.inventoryItemId}:${comp.url}`;
+    setExcludingCompKey(key);
+    setError("");
+    setNotice("");
+    try {
+      const session = await getFreshAccountSession(5 * 60, false);
+      if (!session?.access_token) throw new Error("Log in to exclude a comp.");
+      const response = await fetch(
+        "/api/account/seller/instacomp-pending/exclude-comp",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+          body: JSON.stringify({
+            inventoryItemId: item.inventoryItemId,
+            compUrl: comp.url,
+            lane,
+          }),
+        },
+      );
+      const data = await response.json();
+      if (!response.ok || data.success !== true) {
+        throw new Error(data.error || "Could not exclude this comp.");
+      }
+      setNotice(
+        `${item.title}: excluded ${comp.title} and recalculated the suggestion to ${money(data.suggestedPrice)} without rescanning.`,
+      );
+      await loadPending(true);
+    } catch (nextError: unknown) {
+      setError(errorMessage(nextError, "Could not exclude this comp."));
+    } finally {
+      setExcludingCompKey(null);
     }
   }
 
@@ -1165,13 +1231,16 @@ export default function InstaCompPendingPage() {
                         <div className="mt-3 space-y-2">
                           {item.instaComp.soldCompEvidence.length ? (
                             item.instaComp.soldCompEvidence.map((comp, index) => (
-                              <a
+                              <div
                                 key={`${comp.url}-${index}`}
-                                href={comp.url || "#"}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="flex gap-3 rounded-lg border border-emerald-300 bg-white p-2 hover:border-emerald-700"
+                                className="relative rounded-lg border border-emerald-300 bg-white hover:border-emerald-700"
                               >
+                                <a
+                                  href={comp.url || "#"}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="flex gap-3 p-2 pr-12"
+                                >
                                 {isImageUrl(comp.imageUrl) ? (
                                   <Image
                                     src={comp.imageUrl!}
@@ -1199,7 +1268,21 @@ export default function InstaCompPendingPage() {
                                     </span>
                                   ) : null}
                                 </span>
-                              </a>
+                                </a>
+                                <button
+                                  type="button"
+                                  title="Exclude this sold comp and recalculate"
+                                  aria-label="Exclude this sold comp"
+                                  onClick={() => void excludeComp(item, comp, "sold")}
+                                  disabled={
+                                    excludingCompKey === `${item.inventoryItemId}:${comp.url}` ||
+                                    controlsDisabled
+                                  }
+                                  className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-rose-700 text-lg font-black text-white disabled:opacity-40"
+                                >
+                                  ×
+                                </button>
+                              </div>
                             ))
                           ) : (
                             <p className="rounded-lg bg-white p-3 text-sm font-bold text-neutral-700">
@@ -1207,6 +1290,11 @@ export default function InstaCompPendingPage() {
                             </p>
                           )}
                         </div>
+                        {item.instaComp.excludedCompCount > 0 ? (
+                          <p className="mt-3 rounded-lg bg-rose-100 p-2 text-xs font-black text-rose-900">
+                            {item.instaComp.excludedCompCount} comp{item.instaComp.excludedCompCount === 1 ? "" : "s"} permanently excluded from this card and future reruns.
+                          </p>
+                        ) : null}
                         {item.instaComp.sourceLinks.ebaySoldUrl ? (
                           <a
                             href={item.instaComp.sourceLinks.ebaySoldUrl}
@@ -1230,13 +1318,16 @@ export default function InstaCompPendingPage() {
                         <div className="mt-3 space-y-2">
                           {item.instaComp.activeCompetition.length ? (
                             item.instaComp.activeCompetition.map((comp, index) => (
-                              <a
+                              <div
                                 key={`${comp.url}-${index}`}
-                                href={comp.url || "#"}
-                                target="_blank"
-                                rel="noreferrer"
-                                className="flex gap-3 rounded-lg border border-amber-300 bg-white p-2 hover:border-amber-700"
+                                className="relative rounded-lg border border-amber-300 bg-white hover:border-amber-700"
                               >
+                                <a
+                                  href={comp.url || "#"}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className="flex gap-3 p-2 pr-12"
+                                >
                                 {isImageUrl(comp.imageUrl) ? (
                                   <Image
                                     src={comp.imageUrl!}
@@ -1263,7 +1354,21 @@ export default function InstaCompPendingPage() {
                                     </span>
                                   ) : null}
                                 </span>
-                              </a>
+                                </a>
+                                <button
+                                  type="button"
+                                  title="Exclude this active comp and recalculate"
+                                  aria-label="Exclude this active comp"
+                                  onClick={() => void excludeComp(item, comp, "active")}
+                                  disabled={
+                                    excludingCompKey === `${item.inventoryItemId}:${comp.url}` ||
+                                    controlsDisabled
+                                  }
+                                  className="absolute right-2 top-2 flex h-8 w-8 items-center justify-center rounded-full bg-rose-700 text-lg font-black text-white disabled:opacity-40"
+                                >
+                                  ×
+                                </button>
+                              </div>
                             ))
                           ) : (
                             <p className="rounded-lg bg-white p-3 text-sm font-bold text-neutral-700">
