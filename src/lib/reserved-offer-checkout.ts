@@ -126,12 +126,23 @@ export async function startReservedOfferCheckout(params: {
         );
         const legacyAttemptId = legacy.metadata?.checkout_attempt_id || null;
 
+        if (legacy.status === "complete") {
+          throw new ReservedOfferCheckoutError(
+            "This accepted offer payment has already completed and is being finalized.",
+            409,
+            false,
+          );
+        }
+
         if (legacy.status === "open" && legacyAttemptId !== checkoutAttemptId) {
           await params.stripe.checkout.sessions.expire(legacy.id);
         }
-      } catch {
-        // Missing, expired, or already-finished legacy sessions do not block the
-        // new reservation-backed session.
+      } catch (legacyError) {
+        if (legacyError instanceof ReservedOfferCheckoutError) {
+          throw legacyError;
+        }
+        // Missing or already-expired legacy sessions do not block the new
+        // reservation-backed session.
       }
     }
 
