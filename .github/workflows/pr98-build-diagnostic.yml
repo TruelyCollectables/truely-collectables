@@ -50,9 +50,11 @@ jobs:
         continue-on-error: true
         shell: bash
         run: |
+          set +e
           npm run build > /tmp/pr98-build.log 2>&1
           status=$?
           tail -n 100 /tmp/pr98-build.log > pr98-build-tail.txt
+          echo "build_status=$status" >> "$GITHUB_OUTPUT"
           exit $status
       - name: Upload exact build failure tail
         if: always()
