@@ -7,6 +7,7 @@ on:
     paths:
       - "scripts/run-one-hour-launch-audit.mjs"
       - "scripts/audit-public-supabase-schema-from-storefront.mjs"
+      - "scripts/run-supabase-management-launch-audit.mjs"
       - ".github/workflows/one-hour-launch-audit.yml"
   workflow_dispatch:
 
@@ -19,6 +20,7 @@ jobs:
     timeout-minutes: 20
     env:
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
       VERCEL_SCOPE: truelycollectables-projects
       VERCEL_PROJECT_NAME: truely-collectables
     steps:
@@ -73,6 +75,12 @@ jobs:
         shell: bash
         run: node scripts/audit-public-supabase-schema-from-storefront.mjs
 
+      - name: Audit Supabase through the Management API
+        id: supabase_management
+        continue-on-error: true
+        shell: bash
+        run: node scripts/run-supabase-management-launch-audit.mjs
+
       - name: Upload redacted launch audit
         if: always()
         uses: actions/upload-artifact@v4
@@ -81,6 +89,7 @@ jobs:
           path: |
             one-hour-launch-audit.json
             public-supabase-schema-audit.json
+            supabase-management-launch-audit.json
           if-no-files-found: error
           retention-days: 2
 
@@ -89,4 +98,4 @@ jobs:
         shell: bash
         run: |
           rm -rf .vercel
-          rm -f .env.storefront.production vercel-production-env-names.txt vercel-quota-status.json one-hour-launch-audit.json public-supabase-schema-audit.json
+          rm -f .env.storefront.production vercel-production-env-names.txt vercel-quota-status.json one-hour-launch-audit.json public-supabase-schema-audit.json supabase-management-launch-audit.json
