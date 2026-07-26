@@ -17,6 +17,11 @@ import {
   TERMS_OF_SERVICE_VERSION,
   hasAcceptedTerms,
 } from "../../../lib/legal";
+import {
+  BUYER_PROTECTION_FEE,
+  BUYER_PROTECTION_POLICY_VERSION,
+} from "../../../lib/buyer-protection";
+import { resolveBuyerProtectionSelection } from "../../../lib/buyer-protection-server";
 import { metadataSafeIdentity } from "../../../lib/client-identity";
 import { recordTermsAcceptance } from "../../../lib/tos-acceptance";
 import { getActiveStoreId } from "../../../lib/stores";
@@ -219,6 +224,20 @@ export async function POST(request: Request) {
       method: shippingMethod,
       subtotal,
     });
+    const buyerProtection = await resolveBuyerProtectionSelection({
+      supabase,
+      storeId,
+      accountId: account?.id || null,
+      shippingMethod,
+      itemSubtotal: subtotal,
+      itemCount,
+      requestedSelected: body.buyerProtectionSelected === true,
+      requestedPreferenceMode: body.buyerProtectionPreferenceMode,
+      termsAccepted: body.buyerProtectionTermsAccepted === true,
+      policyVersion:
+        body.buyerProtectionPolicyVersion || BUYER_PROTECTION_POLICY_VERSION,
+      identity: clientIdentity,
+    });
 
     lineItems.push({
       price_data: {
@@ -234,6 +253,25 @@ export async function POST(request: Request) {
       },
       quantity: 1,
     });
+
+    if (buyerProtection.selected) {
+      lineItems.push({
+        price_data: {
+          currency: "usd",
+          product_data: {
+            name: "Truely Collectables Buyer Protection",
+            description:
+              "Optional reimbursement program for a qualifying Tracked Card Letter order; item subtotal only, up to $20.",
+            metadata: {
+              tcos_line_type: "buyer_protection",
+              policy_version: buyerProtection.policyVersion || "",
+            },
+          },
+          unit_amount: Math.round(BUYER_PROTECTION_FEE * 100),
+        },
+        quantity: 1,
+      });
+    }
 
     const origin = trustedRequestOrigin(request);
     const stripeIdempotencyKey = `tcos_checkout_${storeId}_${checkoutAttemptId}`;
@@ -265,6 +303,15 @@ export async function POST(request: Request) {
       shipping_coverage_amount: shippingCoverage.coveredAmount.toFixed(2),
       shipping_coverage_buyer_charge:
         shippingCoverage.buyerCharge.toFixed(2),
+      buyer_protection_selected: buyerProtection.selected ? "true" : "false",
+      buyer_protection_fee: buyerProtection.feeAmount.toFixed(2),
+      buyer_protection_covered_amount:
+        buyerProtection.coveredAmount.toFixed(2),
+      buyer_protection_policy_version: buyerProtection.policyVersion || "",
+      buyer_protection_terms_accepted_at:
+        buyerProtection.termsAcceptedAt || "",
+      buyer_protection_consent_source: buyerProtection.consentSource || "",
+      buyer_protection_preference_mode: buyerProtection.preferenceMode,
       subtotal: subtotal.toFixed(2),
       item_count: String(itemCount),
       tos_accepted: "true",
