@@ -6,6 +6,7 @@ on:
       - "src/lib/active-market-*.ts"
       - "src/app/api/**/route.ts"
       - "src/proxy.ts"
+      - "src/lib/supabase-server.ts"
       - "src/app/seller/inventory/SellerActiveInventoryPricing.tsx"
       - "scripts/run-active-market-*-simulations.ts"
       - "src/lib/checkout-inventory-reservations.ts"
@@ -57,6 +58,7 @@ on:
       - "scripts/run-post-purchase-buyer-flow-simulations.ts"
       - "scripts/run-buyer-protection-simulations.ts"
       - "scripts/run-privileged-api-route-audit.mjs"
+      - "scripts/run-supabase-service-role-fail-closed-simulations.mjs"
       - "scripts/run-launch-database-migration-coverage.mjs"
       - "scripts/run-launch-database-schema-definition-simulations.mjs"
       - "scripts/run-hardened-checkout-function-migration-simulations.mjs"
@@ -69,6 +71,7 @@ on:
       - "src/lib/active-market-*.ts"
       - "src/app/api/**/route.ts"
       - "src/proxy.ts"
+      - "src/lib/supabase-server.ts"
       - "src/app/seller/inventory/SellerActiveInventoryPricing.tsx"
       - "scripts/run-active-market-*-simulations.ts"
       - "src/lib/checkout-inventory-reservations.ts"
@@ -120,6 +123,7 @@ on:
       - "scripts/run-post-purchase-buyer-flow-simulations.ts"
       - "scripts/run-buyer-protection-simulations.ts"
       - "scripts/run-privileged-api-route-audit.mjs"
+      - "scripts/run-supabase-service-role-fail-closed-simulations.mjs"
       - "scripts/run-launch-database-migration-coverage.mjs"
       - "scripts/run-launch-database-schema-definition-simulations.mjs"
       - "scripts/run-hardened-checkout-function-migration-simulations.mjs"
@@ -213,6 +217,9 @@ jobs:
 
       - name: Validate hardened checkout function migration
         run: node scripts/run-hardened-checkout-function-migration-simulations.mjs
+
+      - name: Validate Supabase service-role fail-closed behavior
+        run: node scripts/run-supabase-service-role-fail-closed-simulations.mjs
 
       - name: Audit privileged API route protection
         id: privileged_api_audit
