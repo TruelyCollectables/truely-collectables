@@ -47,6 +47,91 @@ const SHIPPING_PROVIDER_VERCEL_COMMANDS_HREF =
 const SHIPPING_PROVIDER_OPERATOR_CHECKLIST_HREF =
   "/api/admin/shipping/provider-setup?format=operator-checklist";
 
+function missingPrivilegedSupabaseEnvironment() {
+  return [
+    "NEXT_PUBLIC_SUPABASE_URL",
+    "NEXT_PUBLIC_SUPABASE_ANON_KEY",
+    "SUPABASE_SERVICE_ROLE_KEY",
+  ].filter((name) => !process.env[name]?.trim());
+}
+
+function buildPrivilegedSupabaseBlocker(
+  origin: string | null,
+  missingEnvironmentVariables: string[],
+) {
+  const href = "/admin/launch-readiness";
+  const detail =
+    "Launch Readiness cannot verify privileged database state because the required Supabase bootstrap environment is incomplete. Admin Supabase clients fail closed and do not substitute the public anon key for the service-role key.";
+  const action = `Set the missing Vercel Production and local operator environment variable name${
+    missingEnvironmentVariables.length === 1 ? "" : "s"
+  }: ${missingEnvironmentVariables.join(", ")}. Then rerun Launch Readiness before any live-payment or deployment approval.`;
+  const attentionItem = {
+    label: "Supabase Privileged Bootstrap",
+    status: "blocked" as const,
+    detail,
+    action,
+    href,
+    url: absoluteUrl(origin, href),
+  };
+
+  return {
+    generatedAt: new Date().toISOString(),
+    storeId: getActiveStoreId(),
+    status: {
+      overall: "blocked" as const,
+      nextStep: action,
+      href,
+      url: absoluteUrl(origin, href),
+    },
+    summary: {
+      ready: 0,
+      review: 0,
+      blocked: 1,
+    },
+    missingEnvironmentVariables,
+    attentionItems: [attentionItem],
+    deploymentStarted: false,
+    environmentValuesReadOrPrinted: false,
+    readOnlyGuarantee:
+      "No environment values were read or printed, and no deployment, Checkout, payment, postage, launch approval, or database mutation was started.",
+  };
+}
+
+function privilegedSupabaseBlockerMarkdown(
+  blocker: ReturnType<typeof buildPrivilegedSupabaseBlocker>,
+  title: string,
+) {
+  const item = blocker.attentionItems[0];
+  return [
+    `# ${title}`,
+    "",
+    `Generated: ${blocker.generatedAt}`,
+    `Store: ${blocker.storeId}`,
+    "",
+    "## Current Launch Posture",
+    "",
+    "- Overall: blocked",
+    `- Operator next step: ${blocker.status.nextStep}`,
+    `- Operator link: ${blocker.status.url || blocker.status.href}`,
+    "- Ready: 0",
+    "- Review: 0",
+    "- Blocked: 1",
+    "",
+    "## Attention Items",
+    "",
+    `- **BLOCKED - ${item.label}:** ${item.detail} Next: ${item.action}`,
+    "",
+    "## Safety",
+    "",
+    `- Deployment started: ${blocker.deploymentStarted ? "yes" : "no"}`,
+    `- Environment values read or printed: ${
+      blocker.environmentValuesReadOrPrinted ? "yes" : "no"
+    }`,
+    `- ${blocker.readOnlyGuarantee}`,
+    "",
+  ].join("\n");
+}
+
 function statusFromCheck(status: "passed" | "warning" | "blocked") {
   if (status === "passed") return "ready" as const;
   if (status === "warning") return "review" as const;
@@ -693,8 +778,66 @@ async function buildBrief(origin: string | null = null) {
 export async function GET(request: Request) {
   try {
     const requestUrl = new URL(request.url);
-    const brief = await buildBrief(requestUrl.origin);
     const format = requestUrl.searchParams.get("format");
+    const missingEnvironmentVariables = missingPrivilegedSupabaseEnvironment();
+
+    if (missingEnvironmentVariables.length > 0) {
+      const blocker = buildPrivilegedSupabaseBlocker(
+        requestUrl.origin,
+        missingEnvironmentVariables,
+      );
+
+      if (format === "markdown" || format === "md") {
+        return new Response(
+          privilegedSupabaseBlockerMarkdown(
+            blocker,
+            "TCOS Launch Readiness Brief",
+          ),
+          {
+            status: 503,
+            headers: {
+              "Cache-Control": "no-store",
+              "Content-Disposition":
+                'attachment; filename="tcos-launch-readiness-brief.md"',
+              "Content-Type": "text/markdown; charset=utf-8",
+            },
+          },
+        );
+      }
+
+      if (format === "handoff-bundle") {
+        return new Response(
+          privilegedSupabaseBlockerMarkdown(
+            blocker,
+            "TCOS Launch Hand-off Bundle",
+          ),
+          {
+            status: 503,
+            headers: {
+              "Cache-Control": "no-store",
+              "Content-Disposition":
+                'attachment; filename="tcos-launch-handoff-bundle.md"',
+              "Content-Type": "text/markdown; charset=utf-8",
+            },
+          },
+        );
+      }
+
+      return NextResponse.json(
+        {
+          success: false,
+          brief: blocker,
+        },
+        {
+          status: 503,
+          headers: {
+            "Cache-Control": "no-store",
+          },
+        },
+      );
+    }
+
+    const brief = await buildBrief(requestUrl.origin);
 
     if (format === "markdown" || format === "md") {
       return new Response(markdownForBrief(brief), {

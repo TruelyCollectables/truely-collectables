@@ -8,6 +8,7 @@ on:
       - "src/proxy.ts"
       - "src/lib/supabase-server.ts"
       - "scripts/status-live-money.ts"
+      - "src/app/admin/launch-readiness/**"
       - "src/app/seller/inventory/SellerActiveInventoryPricing.tsx"
       - "scripts/run-active-market-*-simulations.ts"
       - "src/lib/checkout-inventory-reservations.ts"
@@ -51,6 +52,7 @@ on:
       - "scripts/run-live-payment-owner-marker-simulations.ts"
       - "scripts/run-live-payment-status-color-simulations.ts"
       - "scripts/run-live-money-bootstrap-fail-closed-simulations.mjs"
+      - "scripts/run-launch-readiness-service-role-blocker-simulations.mjs"
       - "scripts/run-ebay-import-admin-client-simulations.ts"
       - "scripts/run-checkout-webhook-idempotency-simulations.ts"
       - "scripts/run-offer-checkout-idempotency-simulations.ts"
@@ -76,6 +78,7 @@ on:
       - "src/proxy.ts"
       - "src/lib/supabase-server.ts"
       - "scripts/status-live-money.ts"
+      - "src/app/admin/launch-readiness/**"
       - "src/app/seller/inventory/SellerActiveInventoryPricing.tsx"
       - "scripts/run-active-market-*-simulations.ts"
       - "src/lib/checkout-inventory-reservations.ts"
@@ -119,6 +122,7 @@ on:
       - "scripts/run-live-payment-owner-marker-simulations.ts"
       - "scripts/run-live-payment-status-color-simulations.ts"
       - "scripts/run-live-money-bootstrap-fail-closed-simulations.mjs"
+      - "scripts/run-launch-readiness-service-role-blocker-simulations.mjs"
       - "scripts/run-ebay-import-admin-client-simulations.ts"
       - "scripts/run-checkout-webhook-idempotency-simulations.ts"
       - "scripts/run-offer-checkout-idempotency-simulations.ts"
@@ -232,6 +236,9 @@ jobs:
 
       - name: Validate live-money bootstrap fail-closed behavior
         run: node scripts/run-live-money-bootstrap-fail-closed-simulations.mjs
+
+      - name: Validate Launch Readiness service-role blocker
+        run: node scripts/run-launch-readiness-service-role-blocker-simulations.mjs
 
       - name: Audit privileged API route protection
         id: privileged_api_audit
