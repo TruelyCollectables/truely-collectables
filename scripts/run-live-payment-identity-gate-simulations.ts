@@ -59,7 +59,7 @@ async function main() {
       reason: null,
     });
 
-    process.env.NODE_ENV = "production";
+    process.env["NODE_ENV"] = "production";
     process.env.IP_INTELLIGENCE_REQUIRED = "true";
     delete process.env.IP_INTELLIGENCE_API_URL;
     const blockedIdentity = await getClientIdentity(
