@@ -26,6 +26,54 @@ function optionalPrice(value: unknown) {
     : null;
 }
 
+function evidenceList(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((entry) => entry && typeof entry === "object" && !Array.isArray(entry))
+    .map((entry) => {
+      const row = entry as Record<string, unknown>;
+      return {
+        title: textValue(row.title) || "Untitled listing",
+        price: optionalPrice(row.price) || 0,
+        currency: textValue(row.currency) || "USD",
+        url: textValue(row.url),
+        imageUrl: textValue(row.imageUrl),
+        source: textValue(row.source),
+        sourceLabel: textValue(row.sourceLabel) || textValue(row.source) || "Source",
+        sourceCategory: textValue(row.sourceCategory),
+        matchScore:
+          Number.isFinite(Number(row.matchScore)) && Number(row.matchScore) >= 0
+            ? Number(row.matchScore)
+            : null,
+        flags: Array.isArray(row.flags)
+          ? row.flags.map((flag) => String(flag)).slice(0, 20)
+          : [],
+        soldAt: textValue(row.soldAt),
+        listedAt: textValue(row.listedAt),
+        observedAt: textValue(row.observedAt),
+      };
+    })
+    .filter((entry) => entry.url && entry.price > 0)
+    .slice(0, 20);
+}
+
+function providerCoverageList(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((entry) => entry && typeof entry === "object" && !Array.isArray(entry))
+    .map((entry) => {
+      const row = entry as Record<string, unknown>;
+      return {
+        source: textValue(row.source),
+        label: textValue(row.label),
+        status: textValue(row.status),
+        resultCount: Math.max(0, Number(row.resultCount || 0)),
+        message: textValue(row.message),
+        searchUrl: textValue(row.searchUrl),
+      };
+    });
+}
+
 function effectiveGraderStatus(metadata: Record<string, unknown>) {
   const instaComp = recordValue(metadata.instacomp);
   const collectibleAsset = recordValue(metadata.collectible_asset);
@@ -113,6 +161,8 @@ export async function GET(request: Request) {
       const ai = recordValue(instaComp.ai);
       const collectibleAsset = recordValue(metadata.collectible_asset);
       const graderVerification = recordValue(metadata.grader_verification);
+      const sellerReview = recordValue(metadata.seller_review);
+      const sourceLinks = recordValue(instaComp.sourceLinks);
       const product = row.legacy_product_id
         ? productMap.get(row.legacy_product_id)
         : null;
@@ -137,6 +187,12 @@ export async function GET(request: Request) {
         category: row.category || null,
         metadata,
       });
+      const exactSerialNumber = textValue(collectibleAsset.exact_serial_number);
+      const gradingCertNumber =
+        textValue(collectibleAsset.grading_cert_number) ||
+        textValue(ai.gradingCertNumber) ||
+        textValue(ai.certificationNumber);
+      const uniquePhysicalCopy = Boolean(exactSerialNumber || gradingCertNumber);
 
       return {
         inventoryItemId: row.id,
@@ -150,15 +206,24 @@ export async function GET(request: Request) {
         imageUrl: product?.image_url || null,
         createdAt: row.created_at,
         updatedAt: row.updated_at,
+        uniquePhysicalCopy,
+        quantityRule: uniquePhysicalCopy
+          ? "Serial-numbered and graded-cert copies stay quantity 1 so each physical asset keeps its own history."
+          : "Additional identical raw, non-serialized copies may be merged into this quantity.",
         activationReadiness: {
           ready: blockers.length === 0,
           blockers,
+        },
+        sellerReview: {
+          identityConfirmed: sellerReview.identity_confirmed === true,
+          confirmedAt: textValue(sellerReview.confirmed_at),
+          confirmedBy: textValue(sellerReview.confirmed_by),
         },
         instaComp: {
           source: textValue(instaComp.source),
           scanId: textValue(instaComp.scanId),
           humanVerified: instaComp.humanVerified === true,
-          serialNumber: textValue(ai.serialNumber),
+          serialNumber: textValue(ai.serialNumber) || exactSerialNumber,
           hasBackImage: instaComp.hasBackImage === true,
           suggestedPrice,
           pricingStatus,
@@ -176,14 +241,20 @@ export async function GET(request: Request) {
           pricingCheckedAt: textValue(instaComp.pricingCheckedAt),
           listingPrice: optionalPrice(instaComp.listingPrice),
           listingPriceSource: textValue(instaComp.listingPriceSource),
+          soldCompEvidence: evidenceList(instaComp.soldCompEvidence),
+          activeCompetition: evidenceList(instaComp.activeCompetition),
+          providerCoverage: providerCoverageList(instaComp.providerCoverage),
+          sourceLinks: {
+            ebaySoldUrl: textValue(sourceLinks.ebaySoldUrl),
+            ebayActiveUrl: textValue(sourceLinks.ebayActiveUrl),
+            broadCardMarketUrl: textValue(sourceLinks.broadCardMarketUrl),
+          },
           gradingCompany:
             textValue(collectibleAsset.grading_company) ||
             textValue(ai.gradingCompany),
           gradingGrade:
             textValue(collectibleAsset.grading_grade) || textValue(ai.gradeValue),
-          gradingCertNumber:
-            textValue(collectibleAsset.grading_cert_number) ||
-            textValue(ai.gradingCertNumber),
+          gradingCertNumber,
           graderVerificationStatus: effectiveGraderStatus(metadata),
           graderVerificationUrl:
             textValue(collectibleAsset.grader_verification_url) ||
@@ -197,9 +268,12 @@ export async function GET(request: Request) {
         items,
         count: items.length,
         pricingRule: {
-          reliableSoldComps: "Suggested price is greater than $0.00.",
+          reliableSoldComps:
+            "Only exact sold comps calculate the suggested price. Active listings never set it.",
           noReliableSoldComps:
             "$0.00 means no reliable sold comps passed; seller pricing is required.",
+          activeCompetition:
+            "Active listings are shown separately only to inspect current competition.",
         },
       },
       { headers: { "Cache-Control": "no-store" } },
