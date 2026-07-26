@@ -8,6 +8,7 @@ on:
       - "scripts/run-one-hour-launch-audit.mjs"
       - "scripts/audit-public-supabase-schema-from-storefront.mjs"
       - "scripts/run-supabase-management-launch-audit.mjs"
+      - "scripts/audit-unapplied-storefront-migrations.mjs"
       - ".github/workflows/one-hour-launch-audit.yml"
   workflow_dispatch:
 
@@ -81,6 +82,12 @@ jobs:
         shell: bash
         run: node scripts/run-supabase-management-launch-audit.mjs
 
+      - name: Compare live history to repository storefront migrations
+        id: migration_compare
+        continue-on-error: true
+        shell: bash
+        run: node scripts/audit-unapplied-storefront-migrations.mjs
+
       - name: Upload redacted launch audit
         if: always()
         uses: actions/upload-artifact@v4
@@ -90,6 +97,7 @@ jobs:
             one-hour-launch-audit.json
             public-supabase-schema-audit.json
             supabase-management-launch-audit.json
+            unapplied-storefront-migrations.json
           if-no-files-found: error
           retention-days: 2
 
@@ -98,4 +106,4 @@ jobs:
         shell: bash
         run: |
           rm -rf .vercel
-          rm -f .env.storefront.production vercel-production-env-names.txt vercel-quota-status.json one-hour-launch-audit.json public-supabase-schema-audit.json supabase-management-launch-audit.json
+          rm -f .env.storefront.production vercel-production-env-names.txt vercel-quota-status.json one-hour-launch-audit.json public-supabase-schema-audit.json supabase-management-launch-audit.json unapplied-storefront-migrations.json
