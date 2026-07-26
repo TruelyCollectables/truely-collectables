@@ -5,7 +5,6 @@ import { getClientIdentity } from "../src/lib/client-identity";
 import { getLivePaymentRuntimeGate } from "../src/lib/live-payment-launch";
 
 const originalEnvironment = {
-  NODE_ENV: process.env.NODE_ENV,
   TCOS_LIVE_PAYMENTS_ENABLED: process.env.TCOS_LIVE_PAYMENTS_ENABLED,
   IP_INTELLIGENCE_REQUIRED: process.env.IP_INTELLIGENCE_REQUIRED,
   IP_INTELLIGENCE_API_URL: process.env.IP_INTELLIGENCE_API_URL,
@@ -59,7 +58,6 @@ async function main() {
       reason: null,
     });
 
-    process.env["NODE_ENV"] = "production";
     process.env.IP_INTELLIGENCE_REQUIRED = "true";
     delete process.env.IP_INTELLIGENCE_API_URL;
     const blockedIdentity = await getClientIdentity(
