@@ -2,4 +2,4 @@
 
 Temporary trigger for the isolated InstaComp eBay sold/active repair branch.
 
-Validation-only run triggered after the universal wrapper request fix and exact-title provider finalization.
+Final stable validation run: branch frozen until install, regression, lint, and build evidence is written.
