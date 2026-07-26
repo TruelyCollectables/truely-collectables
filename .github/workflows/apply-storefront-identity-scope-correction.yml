@@ -39,8 +39,7 @@ jobs:
             src/lib/live-payment-launch-core.ts \
             src/app/admin/launch-readiness/page.tsx \
             scripts/audit-vercel-production-environment.mjs \
-            scripts/run-live-payment-identity-gate-simulations.ts \
-            .github/workflows/live-payment-identity-gate.yml
+            scripts/run-live-payment-identity-gate-simulations.ts
           if git diff --cached --quiet; then
             echo "No storefront scope changes were needed."
             exit 0
