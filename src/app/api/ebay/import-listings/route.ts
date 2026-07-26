@@ -1,8 +1,11 @@
 import { NextResponse } from "next/server";
 import { importEbayListingsPage } from "../../../../lib/ebay-sync";
+import { syncEbayAllListingImages } from "../../../../lib/ebay-all-image-sync";
+import { getActiveStoreId } from "../../../../lib/stores";
+import { createSupabaseServerClient } from "../../../../lib/supabase-server";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 export async function GET(request: Request) {
   try {
@@ -28,7 +31,15 @@ export async function GET(request: Request) {
       );
     }
 
-    return NextResponse.json(result);
+    const imageSync =
+      result.nextOffset === null
+        ? await syncEbayAllListingImages({
+            supabase: createSupabaseServerClient({ admin: true }),
+            storeId: getActiveStoreId(),
+          })
+        : null;
+
+    return NextResponse.json({ ...result, imageSync });
   } catch (error: any) {
     const message = error.message || "eBay import failed";
 

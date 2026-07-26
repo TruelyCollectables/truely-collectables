@@ -5,6 +5,7 @@ import {
   requireInstaCompJobSupabase,
 } from "../../../../../lib/instacomp-job-server";
 import { runEbayAuthoritativeStoreSync } from "../../../../../lib/ebay-authoritative-store-sync";
+import { syncEbayAllListingImages } from "../../../../../lib/ebay-all-image-sync";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -72,10 +73,15 @@ export async function POST(request: Request) {
       mode: "apply",
       deactivateEnded: body?.deactivateEnded === true,
     });
+    const imageSync = await syncEbayAllListingImages({
+      supabase,
+      storeId: actor.storeId,
+    });
+    const success = result.failed === 0 && imageSync.errors.length === 0;
 
     return NextResponse.json(
-      { success: result.failed === 0, result },
-      { status: result.failed === 0 ? 200 : 207 },
+      { success, result, imageSync },
+      { status: success ? 200 : 207 },
     );
   } catch (error) {
     return errorResponse(error);

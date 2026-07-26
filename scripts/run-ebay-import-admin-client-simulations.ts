@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import {
+  MAX_LISTING_IMAGES,
   listingImageAltText,
   listingImageIdentity,
   normalizeListingImageUrls,
@@ -46,7 +47,7 @@ const productActions = fs.readFileSync(
   "utf8",
 );
 const imageSync = fs.readFileSync(
-  "src/lib/ebay-front-back-image-sync.ts",
+  "src/lib/ebay-all-image-sync.ts",
   "utf8",
 );
 const scheduledEbaySync = fs.readFileSync(
@@ -154,10 +155,15 @@ assert.match(
   /index === 0 \? "Front" : "Back"/,
   "The native product photo panel must label front and back deterministically.",
 );
+assert.equal(
+  MAX_LISTING_IMAGES,
+  20,
+  "Inventory ingestion must preserve up to twenty ordered listing images.",
+);
 assert.match(
   imageSync,
-  /ebay_front_back_image_sync_version/,
-  "The eBay image repair must use a persisted one-time synchronization version.",
+  /ebay_all_image_sync_version/,
+  "The eBay image repair must persist the complete-image synchronization version.",
 );
 assert.match(
   imageSync,
@@ -165,9 +171,14 @@ assert.match(
   "Image repair must remove sort collisions and preserve exactly one primary image.",
 );
 assert.match(
+  imageSync,
+  /imageListsMatch\(currentImages, finalImages\)/,
+  "Image repair must compare the complete ordered image list rather than stopping at two images.",
+);
+assert.match(
   scheduledEbaySync,
-  /syncEbayFrontBackImages/,
-  "The scheduled authoritative eBay job must run the guarded front/back image sync.",
+  /syncEbayAllListingImages/,
+  "The scheduled authoritative eBay job must run complete 1–20 image reconciliation.",
 );
 
 assert.equal(
@@ -197,6 +208,21 @@ assert.deepEqual(
     "https://i.ebayimg.com/images/g/back/s-l1600.jpg",
   ],
   "Image normalization must keep one front and one distinct back photo.",
+);
+const twentyFiveImages = Array.from(
+  { length: 25 },
+  (_, index) => `https://i.ebayimg.com/images/g/photo-${index + 1}/s-l140.jpg`,
+);
+const normalizedTwenty = normalizeListingImageUrls(twentyFiveImages);
+assert.equal(
+  normalizedTwenty.length,
+  20,
+  "Image normalization must retain the first twenty distinct listing images.",
+);
+assert.equal(
+  normalizedTwenty.at(-1),
+  "https://i.ebayimg.com/images/g/photo-20/s-l1600.jpg",
+  "The twenty-image cap must preserve eBay listing order.",
 );
 assert.deepEqual(
   selectFrontBackListingImages([
@@ -230,6 +256,11 @@ assert.match(
   importRoute,
   /success: false,[\s\S]*status: 409/,
   "Diagnostic failures must stop the browser runner with a non-success response.",
+);
+assert.match(
+  importRoute,
+  /result\.nextOffset === null[\s\S]*syncEbayAllListingImages/,
+  "The final paged import must reconcile every available eBay image.",
 );
 assert.match(
   importRunner,
@@ -319,5 +350,5 @@ for (const testCase of launchScopeCases) {
 }
 
 console.log(
-  "eBay import, sports-card scope, and front/back image simulations passed: 44/44",
+  "eBay import, sports-card scope, and complete 1–20 image simulations passed: 48/48",
 );
