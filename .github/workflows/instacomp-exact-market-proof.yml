@@ -1,0 +1,64 @@
+name: InstaComp Exact Market Proof
+
+on:
+  push:
+    branches:
+      - agent/instacomp-exact-market-proof-20260726
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  exact-market-proof:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      SERPAPI_API_KEY: ${{ secrets.SERPAPI_API_KEY }}
+      NEXT_PUBLIC_SUPABASE_URL: http://127.0.0.1:54321
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: build-only-placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: build-only-placeholder-service-role-key
+      NEXT_PUBLIC_SITE_URL: https://truelycollectables.com
+      ADMIN_PASSWORD: build-only-placeholder-password
+      ADMIN_SESSION_SECRET: build-only-placeholder-session-secret
+      OPENAI_API_KEY: build-only-placeholder-openai-key
+      STRIPE_SECRET_KEY: sk_test_build_only_placeholder
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_build_only_placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_build_only_placeholder
+      EBAY_CLIENT_ID: build-only-placeholder-client-id
+      EBAY_CLIENT_SECRET: build-only-placeholder-client-secret
+      EBAY_ENVIRONMENT: production
+      TCOS_LIVE_PAYMENTS_ENABLED: "false"
+      TCOS_SHIPPING_PURCHASE_MODE: dry_run
+      TCOS_LIVE_SHIPPING_ENABLED: "false"
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Test pass 1 - six-card exact identity and market gates
+        run: node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
+      - name: Test pass 2 - repeat exactness regression from clean process
+        run: node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
+      - name: Test pass 3 - repeat exactness regression again
+        run: node --import tsx scripts/run-instacomp-exact-market-proof-regressions.ts
+      - name: Lint complete application
+        run: npm run lint
+      - name: Build complete production application
+        run: npm run build
+      - name: Live six-card sold and active market proof
+        shell: bash
+        run: |
+          test -n "$SERPAPI_API_KEY" || { echo "SERPAPI_API_KEY repository secret is missing"; exit 1; }
+          node --import tsx scripts/run-instacomp-batch-001-live-market-proof.ts
+      - name: Upload live proof
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instacomp-batch-001-live-market-proof
+          path: docs/instacomp-batch-001-live-market-proof.json
+          if-no-files-found: warn
