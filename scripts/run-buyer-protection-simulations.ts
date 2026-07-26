@@ -193,11 +193,18 @@ assert.ok(policy.includes("not insurance"));
 assert.ok(policy.includes("BUYER_PROTECTION_POLICY_VERSION"));
 
 const shop = read("src/app/shop/page.tsx");
+assert.ok(shop.includes("preferHighResolutionListingImage"));
 assert.ok(shop.includes("quality={90}"));
 assert.doesNotMatch(shop, /\bunoptimized\b/);
 
 const inventoryEngine = read("src/modules/inventory/engine.ts");
-assert.ok(inventoryEngine.includes("preferHighResolutionListingImage"));
-assert.ok(inventoryEngine.includes("storefrontImageUrl"));
+assert.ok(
+  inventoryEngine.includes("last_seen_at: new Date().toISOString()"),
+  "The storefront image fix must not remove existing eBay freshness writes.",
+);
+assert.ok(
+  inventoryEngine.includes("backfillInventoryItemsFromProducts"),
+  "The storefront image fix must not replace the complete inventory engine.",
+);
 
 console.log("Buyer Protection and storefront image simulations passed.");
