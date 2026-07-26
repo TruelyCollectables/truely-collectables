@@ -1,0 +1,57 @@
+name: Production Stripe Cron Verification
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/production-stripe-cron-verification.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify-production-stripe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      TCOS_CRON_SECRET: ${{ secrets.TCOS_CRON_SECRET }}
+    steps:
+      - name: Verify protected Production Stripe reconciliation
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${TCOS_CRON_SECRET:-}" || { echo "TCOS_CRON_SECRET is missing"; exit 1; }
+          status=$(curl --silent --show-error --output "$RUNNER_TEMP/stripe-reconciliation.json" --write-out "%{http_code}" \
+            --header "Authorization: Bearer ${TCOS_CRON_SECRET}" \
+            "https://truelycollectables.com/api/cron/stripe-reconciliation")
+          node - "$status" "$RUNNER_TEMP/stripe-reconciliation.json" <<'NODE'
+          const fs = require('fs');
+          const status = Number(process.argv[2]);
+          const file = process.argv[3];
+          const raw = fs.readFileSync(file, 'utf8');
+          let body = null;
+          try { body = JSON.parse(raw); } catch {}
+          const safe = {
+            checkedAt: new Date().toISOString(),
+            httpStatus: status,
+            success: body?.success === true,
+            error: typeof body?.error === 'string' ? body.error : null,
+            runIdPresent: Boolean(body?.runId || body?.run_id),
+            itemCount: Number(body?.itemCount ?? body?.item_count ?? body?.items?.length ?? 0),
+            discrepancyCount: Number(body?.discrepancyCount ?? body?.discrepancy_count ?? 0),
+            secretValuesIncluded: false,
+          };
+          fs.writeFileSync('production-stripe-cron-verification.json', JSON.stringify(safe, null, 2) + '\n');
+          if (status !== 200 || body?.success !== true) process.exit(1);
+NODE
+
+      - name: Upload redacted Stripe verification
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-stripe-cron-verification
+          path: production-stripe-cron-verification.json
+          if-no-files-found: error
+          retention-days: 7
