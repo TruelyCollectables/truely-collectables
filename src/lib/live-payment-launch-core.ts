@@ -160,6 +160,8 @@ function actionForLivePaymentCheck(check: LivePaymentCheck) {
       return "Stage matching STRIPE_LIVE_SECRET_KEY and NEXT_PUBLIC_STRIPE_LIVE_PUBLISHABLE_KEY values in production.";
     case "production_origin":
       return "Set NEXT_PUBLIC_SITE_URL or the store primary domain to the HTTPS production origin.";
+    case "identity_intelligence":
+      return "Set IP_INTELLIGENCE_REQUIRED=true and configure IP_INTELLIGENCE_API_URL before approving live Checkout.";
     case "platform_fee":
       return "Restore the active store seller commission rate to the approved 8% launch fee.";
     case "checkout_e2e":
@@ -291,6 +293,20 @@ export async function getLivePaymentRuntimeGate(params: {
       allowed: false,
       mode: "live" as const,
       reason: "Live payments are administratively locked.",
+    };
+  }
+
+  const identityIntelligenceRequired =
+    process.env.IP_INTELLIGENCE_REQUIRED === "true";
+  const identityIntelligenceProviderConfigured = Boolean(
+    process.env.IP_INTELLIGENCE_API_URL?.trim(),
+  );
+  if (!identityIntelligenceRequired || !identityIntelligenceProviderConfigured) {
+    return {
+      allowed: false,
+      mode: "live" as const,
+      reason:
+        "Live payments require configured identity and VPN intelligence enforcement.",
     };
   }
 
@@ -499,6 +515,26 @@ export async function evaluateLivePaymentLaunch(params?: {
       origin
         ? `The expected payment origin is ${origin}.`
         : "A valid HTTPS NEXT_PUBLIC_SITE_URL or primary store domain is required.",
+    ),
+  );
+
+  const identityIntelligenceRequired =
+    process.env.IP_INTELLIGENCE_REQUIRED === "true";
+  const identityIntelligenceProviderConfigured = Boolean(
+    process.env.IP_INTELLIGENCE_API_URL?.trim(),
+  );
+  checks.push(
+    check(
+      "identity_intelligence",
+      "Identity And VPN Blocking",
+      identityIntelligenceRequired && identityIntelligenceProviderConfigured
+        ? "passed"
+        : "blocked",
+      identityIntelligenceRequired && identityIntelligenceProviderConfigured
+        ? "IP intelligence is required and a provider URL is configured for live Checkout."
+        : identityIntelligenceRequired
+          ? "IP_INTELLIGENCE_REQUIRED is true, but IP_INTELLIGENCE_API_URL is missing."
+          : "IP intelligence enforcement is disabled; live Checkout cannot be approved.",
     ),
   );
 
