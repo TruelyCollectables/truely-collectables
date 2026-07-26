@@ -7,6 +7,8 @@ import {
 } from "../../../lib/legal";
 import { getAccountSession } from "../../account/account-session";
 
+type MessageTone = "success" | "error" | null;
+
 export default function OfferForm({
   productId,
   price,
@@ -16,41 +18,58 @@ export default function OfferForm({
 }) {
   const [open, setOpen] = useState(false);
   const [message, setMessage] = useState("");
+  const [messageTone, setMessageTone] = useState<MessageTone>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   async function submitOffer(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+
+    if (submitting) return;
 
     const form = e.currentTarget;
     const formData = new FormData(form);
     const accountSession = getAccountSession();
 
-    const res = await fetch("/api/offers/create", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(accountSession?.access_token
-          ? { Authorization: `Bearer ${accountSession.access_token}` }
-          : {}),
-      },
-      body: JSON.stringify({
-        productId,
-        name: formData.get("name"),
-        email: formData.get("email"),
-        offerAmount: Number(formData.get("offerAmount")),
-        tosAccepted: formData.get("tosAccepted") === "on",
-        tosVersion: TERMS_OF_SERVICE_VERSION,
-      }),
-    });
+    setSubmitting(true);
+    setMessage("");
+    setMessageTone(null);
 
-    const data = await res.json();
+    try {
+      const res = await fetch("/api/offers/create", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(accountSession?.access_token
+            ? { Authorization: `Bearer ${accountSession.access_token}` }
+            : {}),
+        },
+        body: JSON.stringify({
+          productId,
+          name: formData.get("name"),
+          email: formData.get("email"),
+          offerAmount: Number(formData.get("offerAmount")),
+          tosAccepted: formData.get("tosAccepted") === "on",
+          tosVersion: TERMS_OF_SERVICE_VERSION,
+        }),
+      });
 
-    if (!res.ok) {
-      setMessage(data.error || "Something went wrong.");
-      return;
+      const data = await res.json();
+
+      if (!res.ok) {
+        setMessage(data.error || "Something went wrong.");
+        setMessageTone("error");
+        return;
+      }
+
+      setMessage("Offer submitted successfully!");
+      setMessageTone("success");
+      form.reset();
+    } catch {
+      setMessage("Offer could not be submitted. Please try again.");
+      setMessageTone("error");
+    } finally {
+      setSubmitting(false);
     }
-
-    setMessage("Offer submitted successfully!");
-    form.reset();
   }
 
   return (
@@ -58,26 +77,30 @@ export default function OfferForm({
       <button
         type="button"
         onClick={() => setOpen(!open)}
-        className="w-full border rounded py-3 font-bold"
+        aria-expanded={open}
+        className="min-h-12 w-full rounded border px-4 py-3 text-base font-bold"
       >
         Make Best Offer
       </button>
 
-      {open && (
-        <form onSubmit={submitOffer} className="mt-4 border rounded p-4 space-y-3">
+      {open ? (
+        <form onSubmit={submitOffer} className="mt-4 space-y-3 rounded border p-4">
           <input
             name="name"
             required
+            autoComplete="name"
             placeholder="Your name"
-            className="w-full border rounded p-2"
+            className="min-h-12 w-full rounded border px-3 py-2 text-base"
           />
 
           <input
             name="email"
             type="email"
             required
+            autoComplete="email"
+            inputMode="email"
             placeholder="Your email"
-            className="w-full border rounded p-2"
+            className="min-h-12 w-full rounded border px-3 py-2 text-base"
           />
 
           <input
@@ -86,16 +109,17 @@ export default function OfferForm({
             required
             min="1"
             step="0.01"
+            inputMode="decimal"
             placeholder={`Offer amount, asking $${price.toFixed(2)}`}
-            className="w-full border rounded p-2"
+            className="min-h-12 w-full rounded border px-3 py-2 text-base"
           />
 
-          <label className="flex items-start gap-3 rounded border p-3 text-sm leading-6">
+          <label className="flex min-h-12 items-start gap-3 rounded border p-3 text-sm leading-6">
             <input
               type="checkbox"
               name="tosAccepted"
               required
-              className="mt-1"
+              className="mt-1 h-5 w-5 shrink-0"
             />
 
             <span>
@@ -114,14 +138,25 @@ export default function OfferForm({
 
           <button
             type="submit"
-            className="w-full bg-black text-white rounded py-2 font-bold"
+            disabled={submitting}
+            className="min-h-12 w-full rounded bg-black px-4 py-3 text-base font-bold text-white disabled:opacity-50"
           >
-            Submit Offer
+            {submitting ? "Submitting..." : "Submit Offer"}
           </button>
 
-          {message && <p className="text-sm font-bold">{message}</p>}
+          <div aria-live="polite" className="min-h-6">
+            {message ? (
+              <p
+                className={`text-sm font-bold ${
+                  messageTone === "error" ? "text-red-700" : "text-emerald-700"
+                }`}
+              >
+                {message}
+              </p>
+            ) : null}
+          </div>
         </form>
-      )}
+      ) : null}
     </div>
   );
 }
