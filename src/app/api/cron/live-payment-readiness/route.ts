@@ -52,7 +52,6 @@ export async function GET(request: Request) {
           label: check.label,
           status: check.status,
           detail: check.detail,
-          action: check.action,
         })),
         readOnlyGuarantee:
           "This protected endpoint performs read-only launch evaluation only. It does not create Checkout Sessions, payments, refunds, disputes, payouts, postage, approvals, revocations, deployments, or environment changes.",
