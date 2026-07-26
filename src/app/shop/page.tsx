@@ -135,8 +135,8 @@ export default async function Shop({
                   src={product.imageUrl || "/placeholder.png"}
                   alt={product.title}
                   fill
-                  sizes="(min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
-                  unoptimized
+                  sizes="(min-width: 1280px) 300px, (min-width: 1024px) 25vw, (min-width: 640px) 50vw, 100vw"
+                  quality={90}
                   className="object-contain p-2"
                 />
               </div>
