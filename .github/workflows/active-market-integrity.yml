@@ -33,6 +33,7 @@ on:
       - "scripts/run-privileged-api-route-audit.mjs"
       - "scripts/run-launch-database-migration-coverage.mjs"
       - "scripts/run-launch-database-schema-definition-simulations.mjs"
+      - "scripts/run-hardened-checkout-function-migration-simulations.mjs"
       - "supabase/migrations/**"
       - ".github/workflows/active-market-integrity.yml"
   push:
@@ -69,6 +70,7 @@ on:
       - "scripts/run-privileged-api-route-audit.mjs"
       - "scripts/run-launch-database-migration-coverage.mjs"
       - "scripts/run-launch-database-schema-definition-simulations.mjs"
+      - "scripts/run-hardened-checkout-function-migration-simulations.mjs"
       - "supabase/migrations/**"
       - ".github/workflows/active-market-integrity.yml"
   workflow_dispatch:
@@ -156,6 +158,9 @@ jobs:
 
       - name: Validate launch database schema definitions
         run: node scripts/run-launch-database-schema-definition-simulations.mjs
+
+      - name: Validate hardened checkout function migration
+        run: node scripts/run-hardened-checkout-function-migration-simulations.mjs
 
       - name: Audit privileged API route protection
         id: privileged_api_audit
