@@ -2,4 +2,4 @@
 
 Trigger the one-shot patcher that verifies mislabeled active listings from their images and adds visible scan progress.
 
-Retriggered after the temporary workflow was active on main.
+Final trigger after removing the workflow actor guard.
