@@ -1,0 +1,50 @@
+name: Production Deploy Environment Gate
+
+on:
+  pull_request:
+    paths:
+      - "package.json"
+      - "scripts/deploy-production.mjs"
+      - "scripts/audit-vercel-production-environment.mjs"
+      - "scripts/run-production-deploy-environment-gate-simulations.mjs"
+      - "scripts/run-internal-deploy-environment-gate-simulations.mjs"
+      - ".github/workflows/production-deploy-environment-gate.yml"
+  push:
+    branches:
+      - main
+    paths:
+      - "package.json"
+      - "scripts/deploy-production.mjs"
+      - "scripts/audit-vercel-production-environment.mjs"
+      - "scripts/run-production-deploy-environment-gate-simulations.mjs"
+      - "scripts/run-internal-deploy-environment-gate-simulations.mjs"
+      - ".github/workflows/production-deploy-environment-gate.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  production-deploy-environment-gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Validate deploy script syntax
+        run: node --check scripts/deploy-production.mjs
+
+      - name: Validate Vercel Production environment audit
+        run: node scripts/audit-vercel-production-environment.mjs --self-test
+
+      - name: Validate supported deploy command ordering
+        run: node scripts/run-production-deploy-environment-gate-simulations.mjs
+
+      - name: Validate direct deploy script ordering
+        run: node scripts/run-internal-deploy-environment-gate-simulations.mjs
