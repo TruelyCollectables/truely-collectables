@@ -5,7 +5,6 @@ import {
   isDryRunShippingReference,
   type DryRunShippingLabelLike,
 } from "../../../../lib/shipping-dry-run";
-import { getStoreSettings } from "../../../../lib/store-settings";
 import { getActiveStoreId } from "../../../../lib/stores";
 import { enqueueAndAttemptOrderNotification } from "../../../../lib/order-notifications";
 import { createSupabaseServerClient } from "../../../../lib/supabase-server";
@@ -30,11 +29,8 @@ type ActiveShippingLabel = DryRunShippingLabelLike & {
 
 export async function POST(req: Request) {
   try {
-    const resendApiKey = process.env.RESEND_API_KEY;
     const supabase = createSupabaseServerClient({ admin: true });
     const storeId = getActiveStoreId();
-    const storeSettings = await getStoreSettings(supabase, storeId);
-    const activeStoreName = storeName(storeSettings.displayName);
 
     const body = await req.json();
     const orderId = Number(body.orderId);
