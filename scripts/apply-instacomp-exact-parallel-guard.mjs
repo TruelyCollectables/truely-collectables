@@ -40,8 +40,7 @@ instacomp = replaceOnce(
 ] as const;
 
 function titleHasWholeToken(title: string, token: string) {
-  const escaped = token.replace(/[.*+?^\${}()|[\\]\\]/g, "\\$&");
-  return new RegExp(\`(?:^|[^a-z0-9])\${escaped}(?:$|[^a-z0-9])\`, "i").test(title);
+  return new RegExp(\`(?:^|[^a-z0-9])\${token}(?:$|[^a-z0-9])\`, "i").test(title);
 }
 
 export function explainInstaCompParallelMismatch(
@@ -52,11 +51,6 @@ export function explainInstaCompParallelMismatch(
   if (!requiredTokens.length) return null;
 
   const normalizedTitle = normalizeText(title);
-  const missingTokens = requiredTokens.filter(
-    (token) => !titleHasWholeToken(normalizedTitle, token),
-  );
-  if (!missingTokens.length) return null;
-
   const targetColors = requiredTokens.filter((token) =>
     PARALLEL_COLOR_TOKENS.includes(token as (typeof PARALLEL_COLOR_TOKENS)[number]),
   );
@@ -71,6 +65,11 @@ export function explainInstaCompParallelMismatch(
   if (conflictingColors.length) {
     return \`parallel mismatch: expected \${expected}; listing says \${conflictingColors.join("/")}\`;
   }
+
+  const missingTokens = requiredTokens.filter(
+    (token) => !titleHasWholeToken(normalizedTitle, token),
+  );
+  if (!missingTokens.length) return null;
 
   return \`parallel mismatch: expected \${expected}; missing \${missingTokens.join(" ")}\`;
 }
@@ -110,6 +109,13 @@ write(instacompPath, instacomp);
 
 const sellerScanPath = "src/app/api/account/seller/inventory/instacomp/route.ts";
 let sellerScan = read(sellerScanPath);
+
+sellerScan = replaceOnce(
+  sellerScan,
+  "      ? Math.max(0, Math.min(1, Number(value.matchScore)))\n      : null,",
+  "      ? Number(value.matchScore)\n      : null,",
+  "raw evidence score preservation",
+);
 
 sellerScan = replaceOnce(
   sellerScan,
@@ -154,8 +160,8 @@ sellerScan = replaceOnce(
 
 sellerScan = replaceOnce(
   sellerScan,
-  "      providerCoverage,\n      providerProblems: failedProviders,",
-  "      providerCoverage,\n      rejectedCandidates,\n      providerProblems: failedProviders,",
+  "      activeCompetition,\n      sourceLinks,\n      providerCoverage,",
+  "      activeCompetition,\n      rejectedCandidates,\n      sourceLinks,\n      providerCoverage,",
   "rejected candidate response",
 );
 
@@ -277,17 +283,20 @@ const comp = (title: string): Omit<InstaCompComp, "matchScore" | "flags"> => ({
 
 const red = comp("2025 Panini Select Shedeur Sanders Rookie Swatches Red Prizm #RSW-SSS");
 const blue = comp("2025 Panini Select Shedeur Sanders Rookie Swatches Blue Prizm #RSW-SSS");
+const redWhiteBlue = comp("2025 Panini Select Shedeur Sanders Rookie Swatches Red White Blue Prizm #RSW-SSS");
 
 assert.equal(filterAndRankExactMatches([red], target, 5, 0).length, 1);
 assert.equal(filterAndRankExactMatches([blue], target, 5, 0).length, 0);
+assert.equal(filterAndRankExactMatches([redWhiteBlue], target, 5, 0).length, 0);
 assert.match(explainInstaCompParallelMismatch(blue.title, target.parallel) || "", /expected Red Prizm; listing says blue/i);
+assert.match(explainInstaCompParallelMismatch(redWhiteBlue.title, target.parallel) || "", /expected Red Prizm; listing says blue\/white|expected Red Prizm; listing says white\/blue/i);
 assert.ok(scoreCompMatch(red.title, target).score > scoreCompMatch(blue.title, target).score);
 const guidance = filterAndRankGuidanceMatches([blue], target, 5, -1000);
 assert.equal(guidance.length, 1);
 assert.ok(guidance[0].flags.some((flag) => /parallel mismatch: expected Red Prizm; listing says blue/i.test(flag)));
 assert.ok(guidance[0].flags.includes("not exact parallel"));
 
-console.log("InstaComp exact-parallel regression passed: Blue Prizm is rejected for a Red Prizm target and cannot appear as exact competition.");
+console.log("InstaComp exact-parallel regression passed: Blue and Red/White/Blue Prizms are rejected for a Red Prizm target and cannot appear as exact competition.");
 `,
 );
 
