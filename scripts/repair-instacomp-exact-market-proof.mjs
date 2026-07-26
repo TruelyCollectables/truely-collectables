@@ -35,7 +35,7 @@ function replaceRequired(source, before, after, file) {
   source = replaceRequired(
     source,
     `function escapeRegExp(value: string) {\n  return value.replace(/[|\\{}()[\\]^$+*?.-]/g, "\\\\function deterministicExactTitle");\n}`,
-    `function escapeRegExp(value: string) {\n  return value.replace(/[.*+?^\\${}()|[\\]\\\\]/g, (match) => \`\\\\\${match}\`);\n}`,
+    `function escapeRegExp(value: string) {\n  const special = "\\\\^$.*+?()[]{}|";\n  return value\n    .split("")\n    .map((character) => special.includes(character) ? \`\\\\\${character}\` : character)\n    .join("");\n}`,
     file,
   );
 
