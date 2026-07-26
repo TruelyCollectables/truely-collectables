@@ -1,0 +1,45 @@
+name: Apply Internal Deploy Environment Gate
+
+on:
+  push:
+    branches:
+      - agent/internal-deploy-environment-gate-20260726
+    paths:
+      - scripts/apply-internal-deploy-environment-gate.mjs
+      - .github/workflows/apply-internal-deploy-environment-gate.yml
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: github.actor == 'TruelyCollectables'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check out audit branch
+        uses: actions/checkout@v4
+        with:
+          ref: agent/internal-deploy-environment-gate-20260726
+          fetch-depth: 0
+
+      - name: Apply exact deploy-script transformation
+        run: node scripts/apply-internal-deploy-environment-gate.mjs
+
+      - name: Validate patch shape
+        run: |
+          node --check scripts/deploy-production.mjs
+          git diff --check
+
+      - name: Commit transformed deploy script
+        shell: bash
+        run: |
+          if git diff --quiet -- scripts/deploy-production.mjs; then
+            echo "No deploy-production.mjs change was produced."
+            exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add scripts/deploy-production.mjs
+          git commit -m "Enforce environment audit inside production deploy"
+          git push origin HEAD:agent/internal-deploy-environment-gate-20260726
