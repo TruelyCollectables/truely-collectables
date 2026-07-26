@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { addToCart } from "../../../lib/cart";
 
@@ -19,6 +20,7 @@ export default function ProductActions({ product }: { product: Product }) {
   const [images, setImages] = useState<string[]>(
     product.image_url ? [product.image_url] : [],
   );
+  const [cartMessage, setCartMessage] = useState("");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -61,7 +63,7 @@ export default function ProductActions({ product }: { product: Product }) {
 
   function handleAddToCart() {
     addProductToCart();
-    alert("Added to cart!");
+    setCartMessage("Added to cart.");
   }
 
   function handleBuyNow() {
@@ -70,7 +72,7 @@ export default function ProductActions({ product }: { product: Product }) {
   }
 
   return (
-    <div className="space-y-4">
+    <div id="purchase" className="scroll-mt-40 space-y-4">
       {images.length ? (
         <section className="rounded border bg-neutral-50 p-3">
           <div className="flex items-center justify-between gap-3">
@@ -82,7 +84,7 @@ export default function ProductActions({ product }: { product: Product }) {
             </span>
           </div>
 
-          <div className="mt-3 grid grid-cols-2 gap-3">
+          <div className="mt-3 grid grid-cols-1 gap-3 min-[360px]:grid-cols-2">
             {images.slice(0, 2).map((image, index) => (
               <figure key={`${image}-${index}`}>
                 <div className="relative aspect-[3/4] overflow-hidden rounded border bg-white">
@@ -90,7 +92,7 @@ export default function ProductActions({ product }: { product: Product }) {
                     src={image}
                     alt={`${product.title} ${index === 0 ? "front" : "back"}`}
                     fill
-                    sizes="200px"
+                    sizes="(max-width: 359px) 100vw, (max-width: 1023px) 50vw, 200px"
                     unoptimized
                     className="object-contain p-1"
                   />
@@ -111,18 +113,31 @@ export default function ProductActions({ product }: { product: Product }) {
       ) : null}
 
       <button
+        type="button"
         onClick={handleBuyNow}
-        className="w-full rounded bg-black py-3 font-bold text-white"
+        className="min-h-12 w-full rounded bg-black px-4 py-3 text-base font-bold text-white"
       >
         Make It Mine
       </button>
 
       <button
+        type="button"
         onClick={handleAddToCart}
-        className="w-full rounded border py-3 font-bold"
+        className="min-h-12 w-full rounded border px-4 py-3 text-base font-bold"
       >
         Add To Cart
       </button>
+
+      <div aria-live="polite" className="min-h-6 text-sm font-bold text-emerald-700">
+        {cartMessage ? (
+          <>
+            {cartMessage}{" "}
+            <Link href="/cart" className="underline underline-offset-4">
+              View cart
+            </Link>
+          </>
+        ) : null}
+      </div>
     </div>
   );
 }
