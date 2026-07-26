@@ -103,4 +103,4 @@ assert.deepEqual(
   "A recorded approval must be green.",
 );
 
-console.log("Live payment semantic status color simulations passed: 13/13");
+console.log("Live payment semantic status color simulations passed: 15/15");
