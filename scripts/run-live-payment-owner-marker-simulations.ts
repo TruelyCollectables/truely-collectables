@@ -57,6 +57,45 @@ assert.equal(
   "Malformed external seller IDs must remain blocked.",
 );
 
+const sellerRows = [
+  validOwner,
+  { provider_account_id: "acct_1AbCdEfGhIjKlMnO", metadata: {} },
+  { provider_account_id: "seller-row-123", metadata: {} },
+];
+const internalOwnerRows = sellerRows.filter((row) =>
+  isInternalPlatformStoreOwnerPayoutAccount(row, storeId),
+);
+const externalRows = sellerRows.filter(
+  (row) => !isInternalPlatformStoreOwnerPayoutAccount(row, storeId),
+);
+const externalAccountIds = externalRows
+  .map((row) => row.provider_account_id)
+  .filter(isExternalStripeConnectAccountId);
+const invalidExternalRows = externalRows.filter(
+  (row) => !isExternalStripeConnectAccountId(row.provider_account_id),
+);
+
+assert.deepEqual(
+  internalOwnerRows.map((row) => row.provider_account_id),
+  [`platform_store_owner:${storeId}`],
+  "The repaired platform-owner row must be classified as internal.",
+);
+assert.deepEqual(
+  externalAccountIds,
+  ["acct_1AbCdEfGhIjKlMnO"],
+  "Only genuine acct_ identifiers may be sent to Stripe for Connect verification.",
+);
+assert.equal(
+  externalAccountIds.includes(`platform_store_owner:${storeId}`),
+  false,
+  "The platform-owner identifier must never be sent to Stripe as a Connect account.",
+);
+assert.equal(
+  invalidExternalRows.length,
+  1,
+  "Malformed external payout rows must remain fail-closed.",
+);
+
 const migrationPath = path.join(
   process.cwd(),
   "supabase/migrations/20260726020000_enforce_platform_owner_payout_marker.sql",
@@ -114,4 +153,51 @@ assert.doesNotMatch(
   "The repair must never delete payout account rows.",
 );
 
-console.log("Live payment owner-marker simulations passed: 16/16");
+const corePath = path.join(
+  process.cwd(),
+  "src/lib/live-payment-launch-core.ts",
+);
+const core = fs.readFileSync(corePath, "utf8");
+
+assert.match(
+  core,
+  /\.select\("provider_account_id,onboarding_status,payouts_enabled,details_submitted,disabled_reason,metadata"\)/,
+  "The core launch check must retrieve metadata needed to prove the internal-owner contract.",
+);
+assert.match(
+  core,
+  /const internalOwnerRows = sellerRows\.filter\(\(row\) =>[\s\S]*?isInternalPlatformStoreOwnerPayoutAccount\(row, storeId\)/,
+  "The core launch check must identify internal owner settlement rows.",
+);
+assert.match(
+  core,
+  /const externalRows = sellerRows\.filter\([\s\S]*?\(row\) => !isInternalPlatformStoreOwnerPayoutAccount\(row, storeId\)/,
+  "The core launch check must remove internal owner rows before external verification.",
+);
+assert.match(
+  core,
+  /externalRows[\s\S]*?\.map\(\(row\) => row\.provider_account_id\)[\s\S]*?\.filter\(isExternalStripeConnectAccountId\)/,
+  "Only validated external acct_ IDs may enter Stripe verification.",
+);
+assert.match(
+  core,
+  /externalAccountIds\.map\(async \(accountId\) =>[\s\S]*stripe\.accounts\.retrieve\(accountId\)/,
+  "Stripe retrieval must iterate only over the validated external account list.",
+);
+assert.doesNotMatch(
+  core,
+  /const connectedSellerIds = sellerRows/,
+  "The old all-rows Connect loop must not return.",
+);
+assert.doesNotMatch(
+  core,
+  /One or more stored seller accounts are not valid, submitted, and payout-enabled in live mode\./,
+  "The ambiguous old blocker message must not return.",
+);
+assert.match(
+  core,
+  /internal platform-store-owner settlement record\(s\) correctly bypass Connect onboarding/,
+  "The core launch check must emit explicit passing evidence for internal owner rows.",
+);
+
+console.log("Live payment owner-marker simulations passed.");

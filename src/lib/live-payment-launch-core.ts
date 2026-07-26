@@ -83,6 +83,36 @@ type GateRow = {
   approved_by?: string | null;
 };
 
+type SellerPayoutAccountRow = {
+  provider_account_id?: string | null;
+  metadata?: unknown;
+};
+
+function metadataRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function isInternalPlatformStoreOwnerPayoutAccount(
+  row: SellerPayoutAccountRow,
+  storeId: string,
+) {
+  const metadata = metadataRecord(row.metadata);
+
+  return (
+    row.provider_account_id === `platform_store_owner:${storeId}` &&
+    metadata.settlement_mode === "platform_store_owner" &&
+    metadata.connect_required === false &&
+    metadata.platform_stripe_account === true &&
+    metadata.provider_account_id_kind === "internal_platform_owner"
+  );
+}
+
+function isExternalStripeConnectAccountId(value: unknown): value is string {
+  return /^acct_[A-Za-z0-9]+$/.test(String(value || ""));
+}
+
 function paymentMode() {
   if (getStripeLiveSecretKey() && getStripeLivePublishableKey()) {
     return "live" as const;
@@ -151,7 +181,7 @@ function actionForLivePaymentCheck(check: LivePaymentCheck) {
     case "live_webhook_endpoint":
       return "Enable the live Stripe webhook endpoint at the production /api/webhook URL with every required financial event.";
     case "seller_connect":
-      return "Confirm stored Stripe Connect seller accounts are submitted and payout-enabled, or remove stale seller rows.";
+      return "Confirm every external acct_ Stripe Connect seller is live and payout-enabled. Internal platform-store-owner settlement records do not require Connect onboarding.";
     case "stripe_api_access":
       return "Restore live Stripe API validation by staging valid live keys and checking Stripe account/webhook access.";
     default:
@@ -411,7 +441,7 @@ export async function evaluateLivePaymentLaunch(params?: {
         .like("title", "[TCOS TEST]%"),
       supabase
         .from("seller_payout_accounts")
-        .select("provider_account_id,onboarding_status,payouts_enabled,details_submitted,disabled_reason")
+        .select("provider_account_id,onboarding_status,payouts_enabled,details_submitted,disabled_reason,metadata")
         .eq("store_id", storeId)
         .eq("provider", "stripe_connect"),
       getDryRunShippingCleanupSummary({ supabase, storeId }),
@@ -614,34 +644,82 @@ export async function evaluateLivePaymentLaunch(params?: {
         ),
       );
 
-      const sellerRows = sellerAccountsResult.data || [];
-      const connectedSellerIds = sellerRows
-        .map((row) => row.provider_account_id)
-        .filter((value): value is string => Boolean(value));
-      const sellerChecks = await Promise.all(
-        connectedSellerIds.slice(0, 100).map(async (accountId) => {
-          try {
-            const account = await stripe.accounts.retrieve(accountId);
-            return account.details_submitted && account.payouts_enabled;
-          } catch {
-            return false;
-          }
-        }),
-      );
-      const sellersReady =
-        !sellerAccountsResult.error && sellerChecks.every(Boolean);
-      checks.push(
-        check(
+      let sellerCheck: LivePaymentCheck;
+      if (sellerAccountsResult.error) {
+        sellerCheck = check(
           "seller_connect",
           "Stripe Connect Sellers",
-          sellersReady ? "passed" : "blocked",
-          connectedSellerIds.length === 0
-            ? "No connected seller requires live payout activation yet."
-            : sellersReady
-            ? `${connectedSellerIds.length} connected seller account(s) are live and payout-enabled.`
-            : "One or more stored seller accounts are not valid, submitted, and payout-enabled in live mode.",
-        ),
-      );
+          "blocked",
+          `Seller payout accounts could not be verified: ${sellerAccountsResult.error.message}`,
+        );
+      } else {
+        const sellerRows =
+          (sellerAccountsResult.data || []) as SellerPayoutAccountRow[];
+        const internalOwnerRows = sellerRows.filter((row) =>
+          isInternalPlatformStoreOwnerPayoutAccount(row, storeId),
+        );
+        const externalRows = sellerRows.filter(
+          (row) => !isInternalPlatformStoreOwnerPayoutAccount(row, storeId),
+        );
+        const invalidExternalRows = externalRows.filter(
+          (row) => !isExternalStripeConnectAccountId(row.provider_account_id),
+        );
+        const externalAccountIds = Array.from(
+          new Set(
+            externalRows
+              .map((row) => row.provider_account_id)
+              .filter(isExternalStripeConnectAccountId),
+          ),
+        );
+
+        if (invalidExternalRows.length > 0) {
+          sellerCheck = check(
+            "seller_connect",
+            "Stripe Connect Sellers",
+            "blocked",
+            `${invalidExternalRows.length} external seller payout row(s) have invalid Stripe Connect account IDs. Real connected accounts must use acct_ IDs.`,
+          );
+        } else if (externalAccountIds.length === 0) {
+          sellerCheck = check(
+            "seller_connect",
+            "Stripe Connect Sellers",
+            "passed",
+            internalOwnerRows.length > 0
+              ? `${internalOwnerRows.length} internal platform-store-owner settlement record(s) correctly bypass Connect onboarding; no external seller requires payout activation yet.`
+              : "No external connected seller requires live payout activation yet.",
+          );
+        } else if (externalAccountIds.length > 100) {
+          sellerCheck = check(
+            "seller_connect",
+            "Stripe Connect Sellers",
+            "blocked",
+            "More than 100 external Stripe Connect sellers require verification. Review the excess rows before live approval.",
+          );
+        } else {
+          const verification = await Promise.all(
+            externalAccountIds.map(async (accountId) => {
+              try {
+                const account = await stripe.accounts.retrieve(accountId);
+                return !(
+                  "deleted" in account && account.deleted
+                ) && account.details_submitted === true && account.payouts_enabled === true;
+              } catch {
+                return false;
+              }
+            }),
+          );
+          const failedCount = verification.filter((passed) => !passed).length;
+          sellerCheck = check(
+            "seller_connect",
+            "Stripe Connect Sellers",
+            failedCount === 0 ? "passed" : "blocked",
+            failedCount === 0
+              ? `${externalAccountIds.length} external connected seller account(s) are live and payout-enabled${internalOwnerRows.length > 0 ? `; ${internalOwnerRows.length} internal owner settlement record(s) were correctly excluded` : ""}.`
+              : `${failedCount} of ${externalAccountIds.length} external connected seller account(s) are invalid, incomplete, or not payout-enabled in live mode.`,
+          );
+        }
+      }
+      checks.push(sellerCheck);
     } catch (error: any) {
       checks.push(
         check(
