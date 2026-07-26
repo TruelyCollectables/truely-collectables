@@ -4,6 +4,7 @@ export type CartItem = {
   price: number;
   quantity: number;
   image_url?: string;
+  shipping_profile?: "card_letter_eligible" | "parcel_only";
 };
 
 export function getCart(): CartItem[] {
@@ -15,10 +16,12 @@ export function getCart(): CartItem[] {
 
 export function addToCart(item: CartItem) {
   const cart = getCart();
-  const existing = cart.find((p) => p.id === item.id);
+  const existing = cart.find((product) => product.id === item.id);
 
   if (existing) {
     existing.quantity += 1;
+    existing.shipping_profile =
+      item.shipping_profile || existing.shipping_profile;
   } else {
     cart.push(item);
   }
