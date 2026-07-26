@@ -32,7 +32,6 @@ export async function GET() {
 
     const labels = (labelsData || []) as LetterTrackExportLabel[];
     const orderIds = Array.from(new Set(labels.map((label) => label.order_id)));
-
     const ordersResult =
       orderIds.length === 0
         ? { data: [], error: null }
@@ -52,10 +51,7 @@ export async function GET() {
         order,
       ]),
     );
-    const exportResult = buildLetterTrackExport({
-      labels,
-      ordersById,
-    });
+    const exportResult = buildLetterTrackExport({ labels, ordersById });
     const csv = letterTrackCsvContent(exportResult.rows);
     const skippedReasonSummary = letterTrackSkippedReasonSummary(
       exportResult.skipped,
@@ -66,11 +62,11 @@ export async function GET() {
       status: 200,
       headers: {
         "Content-Type": "text/csv; charset=utf-8",
-        "Content-Disposition": `attachment; filename="tcos-lettertrack-standard-envelope-${exportedAt}.csv"`,
+        "Content-Disposition": `attachment; filename="truely-collectables-lettertrack-${exportedAt}.csv"`,
         "Cache-Control": "no-store",
-        "X-TCOS-LetterTrack-Rows": String(exportResult.rows.length),
-        "X-TCOS-LetterTrack-Skipped": String(exportResult.skipped.length),
-        "X-TCOS-LetterTrack-Skipped-Reasons": skippedReasonSummary,
+        "X-Truely-LetterTrack-Rows": String(exportResult.rows.length),
+        "X-Truely-LetterTrack-Skipped": String(exportResult.skipped.length),
+        "X-Truely-LetterTrack-Skipped-Reasons": skippedReasonSummary,
       },
     });
   } catch (error: any) {
