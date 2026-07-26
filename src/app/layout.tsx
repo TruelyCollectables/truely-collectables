@@ -5,6 +5,7 @@ import { STORE_BRAND_NAME, STORE_LEGAL_NAME } from "../lib/legal";
 import { configuredSiteOrigin } from "../lib/site-origin";
 import "./globals.css";
 import Navbar from "./components/Navbar";
+import Footer from "./components/Footer";
 
 const siteOrigin = configuredSiteOrigin();
 
@@ -77,6 +78,7 @@ export default function RootLayout({
         />
         <Navbar />
         {children}
+        <Footer />
       </body>
     </html>
   );
