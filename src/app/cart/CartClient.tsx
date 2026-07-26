@@ -125,20 +125,22 @@ export default function CartClient(props: { storeDisplayName: string }) {
   const total = subtotal + selectedShipping;
 
   return (
-    <main className="mx-auto max-w-5xl px-6 py-8">
+    <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
       <div className="mb-8 border-b border-neutral-200 pb-6">
         <p className="text-sm font-bold uppercase text-neutral-500">
           Secure Checkout
         </p>
-        <h1 className="mt-2 text-4xl font-black md:text-5xl">Shopping Cart</h1>
+        <h1 className="mt-2 text-3xl font-black sm:text-4xl md:text-5xl">
+          Shopping Cart
+        </h1>
       </div>
 
       {cart.length === 0 ? (
-        <section className="rounded border bg-white p-8">
+        <section className="rounded border bg-white p-6 sm:p-8">
           <p className="text-lg font-bold">Your cart is empty.</p>
           <Link
             href="/shop"
-            className="mt-5 inline-block rounded bg-neutral-950 px-5 py-3 font-bold text-white"
+            className="mt-5 inline-flex min-h-12 items-center justify-center rounded bg-neutral-950 px-5 py-3 font-bold text-white"
           >
             Shop Inventory
           </Link>
@@ -155,50 +157,62 @@ export default function CartClient(props: { storeDisplayName: string }) {
                   <Image
                     src={item.image_url}
                     alt={item.title}
-                    width={112}
-                    height={112}
+                    width={240}
+                    height={240}
                     unoptimized
-                    className="h-28 w-28 rounded object-cover"
+                    className="h-44 w-full rounded bg-neutral-50 object-contain p-2 sm:h-28 sm:w-28 sm:shrink-0"
                   />
                 ) : null}
 
-                <div className="flex-1">
-                  <h2 className="font-black">{item.title}</h2>
+                <div className="min-w-0 flex-1">
+                  <Link
+                    href={`/product/${item.id}`}
+                    className="block break-words font-black underline-offset-4 hover:underline"
+                  >
+                    {item.title}
+                  </Link>
                   <p className="mt-1 text-neutral-600">
                     ${Number(item.price).toFixed(2)} each
                   </p>
 
-                  <div className="mt-3 flex items-center gap-3">
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
                     <button
+                      type="button"
                       onClick={() => decreaseQuantity(item.id)}
-                      className="rounded border px-3 py-1 font-bold"
+                      aria-label={`Decrease quantity for ${item.title}`}
+                      className="inline-flex min-h-11 min-w-11 items-center justify-center rounded border px-3 font-bold"
                     >
-                      -
+                      −
                     </button>
-                    <span className="text-sm font-bold">Qty: {item.quantity}</span>
+                    <span className="min-w-16 text-center text-sm font-bold">
+                      Qty: {item.quantity}
+                    </span>
                     <button
+                      type="button"
                       onClick={() => increaseQuantity(item.id)}
-                      className="rounded border px-3 py-1 font-bold"
+                      aria-label={`Increase quantity for ${item.title}`}
+                      className="inline-flex min-h-11 min-w-11 items-center justify-center rounded border px-3 font-bold"
                     >
                       +
                     </button>
                     <button
+                      type="button"
                       onClick={() => removeItem(item.id)}
-                      className="ml-2 text-sm font-bold text-red-600"
+                      className="inline-flex min-h-11 items-center justify-center rounded border border-red-200 px-3 text-sm font-bold text-red-700"
                     >
                       Remove
                     </button>
                   </div>
                 </div>
 
-                <div className="text-xl font-black">
+                <div className="self-end text-xl font-black sm:self-auto">
                   ${(Number(item.price) * item.quantity).toFixed(2)}
                 </div>
               </div>
             ))}
           </section>
 
-          <section className="h-fit rounded border bg-white p-5">
+          <section className="h-fit rounded border bg-white p-4 sm:p-5">
             <h2 className="text-2xl font-black">Order Summary</h2>
 
             <div className="mt-4 space-y-2 text-sm">
@@ -225,57 +239,68 @@ export default function CartClient(props: { storeDisplayName: string }) {
                     : "cursor-not-allowed bg-neutral-50 text-neutral-500"
                 }`}
               >
-                <input
-                  type="radio"
-                  checked={selectedShippingMethod === "STANDARD_ENVELOPE"}
-                  onChange={() => setShippingMethod("STANDARD_ENVELOPE")}
-                  disabled={!standardEnvelopeEligibility.eligible}
-                  className="mr-2"
-                />
-                {SHIPPING_RULES.STANDARD_ENVELOPE.name} -{" "}
-                <strong>${standardEnvelopeShipping.toFixed(2)}</strong>
+                <span className="flex items-start gap-3">
+                  <input
+                    type="radio"
+                    checked={selectedShippingMethod === "STANDARD_ENVELOPE"}
+                    onChange={() => setShippingMethod("STANDARD_ENVELOPE")}
+                    disabled={!standardEnvelopeEligibility.eligible}
+                    className="mt-0.5 h-5 w-5 shrink-0"
+                  />
+                  <span>
+                    {SHIPPING_RULES.STANDARD_ENVELOPE.name} -{" "}
+                    <strong>${standardEnvelopeShipping.toFixed(2)}</strong>
+                  </span>
+                </span>
                 <span className="mt-2 block text-xs font-semibold text-neutral-600">
                   Raw-card envelope only, with USPS IMb delivery evidence.
-                  Eligible up to $20.00 and 3 estimated oz; current cart
-                  estimate:{" "}
+                  Eligible up to $20.00 and 3 estimated oz; current cart estimate:{" "}
                   {standardEnvelopeEligibility.estimatedOunces} oz.
                 </span>
                 {!standardEnvelopeEligibility.eligible ? (
                   <span className="mt-2 block text-xs font-bold text-amber-700">
-                    {standardEnvelopeEligibility.reason} USPS Ground Advantage
-                    is required.
+                    {standardEnvelopeEligibility.reason} USPS Ground Advantage is
+                    required.
                   </span>
                 ) : null}
               </label>
 
               <label className="mt-3 block cursor-pointer rounded border p-4">
-                <input
-                  type="radio"
-                  checked={selectedShippingMethod === "GROUND_ADVANTAGE"}
-                  onChange={() => setShippingMethod("GROUND_ADVANTAGE")}
-                  className="mr-2"
-                />
-                {SHIPPING_RULES.GROUND_ADVANTAGE.name} -{" "}
-                <strong>
-                  {groundShipping === 0
-                    ? "FREE"
-                    : `$${groundShipping.toFixed(2)}`}
-                </strong>
+                <span className="flex items-start gap-3">
+                  <input
+                    type="radio"
+                    checked={selectedShippingMethod === "GROUND_ADVANTAGE"}
+                    onChange={() => setShippingMethod("GROUND_ADVANTAGE")}
+                    className="mt-0.5 h-5 w-5 shrink-0"
+                  />
+                  <span>
+                    {SHIPPING_RULES.GROUND_ADVANTAGE.name} -{" "}
+                    <strong>
+                      {groundShipping === 0
+                        ? "FREE"
+                        : `$${groundShipping.toFixed(2)}`}
+                    </strong>
+                  </span>
+                </span>
               </label>
 
               <label className="mt-3 block cursor-pointer rounded border p-4">
-                <input
-                  type="radio"
-                  checked={selectedShippingMethod === "PRIORITY_MAIL"}
-                  onChange={() => setShippingMethod("PRIORITY_MAIL")}
-                  className="mr-2"
-                />
-                {SHIPPING_RULES.PRIORITY_MAIL.name} -{" "}
-                <strong>
-                  {priorityShipping === 0
-                    ? "FREE"
-                    : `$${priorityShipping.toFixed(2)}`}
-                </strong>
+                <span className="flex items-start gap-3">
+                  <input
+                    type="radio"
+                    checked={selectedShippingMethod === "PRIORITY_MAIL"}
+                    onChange={() => setShippingMethod("PRIORITY_MAIL")}
+                    className="mt-0.5 h-5 w-5 shrink-0"
+                  />
+                  <span>
+                    {SHIPPING_RULES.PRIORITY_MAIL.name} -{" "}
+                    <strong>
+                      {priorityShipping === 0
+                        ? "FREE"
+                        : `$${priorityShipping.toFixed(2)}`}
+                    </strong>
+                  </span>
+                </span>
               </label>
 
               <div className="mt-4 rounded border border-blue-200 bg-blue-50 p-4 text-sm">
@@ -296,9 +321,9 @@ export default function CartClient(props: { storeDisplayName: string }) {
                     <p className="mt-1 font-semibold text-emerald-900">
                       {shippingCoverage.provider} delivery evidence is required
                       for under-$20 envelope orders and is expected to show USPS
-                      scan history through Out for Delivery / Delivered in
-                      Mailbox when USPS data is available. No separate buyer fee
-                      is added at checkout.
+                      scan history through Out for Delivery / Delivered in Mailbox
+                      when USPS data is available. No separate buyer fee is added
+                      at checkout.
                     </p>
                   </>
                 ) : (
@@ -309,9 +334,8 @@ export default function CartClient(props: { storeDisplayName: string }) {
                     <p className="mt-1 font-semibold text-emerald-900">
                       {shippingCoverage.provider} coverage is required for every
                       TCOS parcel shipment and protects the seller for up to $
-                      {shippingCoverage.coveredAmount.toFixed(2)} in item
-                      value. No separate buyer coverage fee is added at
-                      checkout.
+                      {shippingCoverage.coveredAmount.toFixed(2)} in item value. No
+                      separate buyer coverage fee is added at checkout.
                     </p>
                   </>
                 )}
@@ -329,12 +353,12 @@ export default function CartClient(props: { storeDisplayName: string }) {
               </div>
             </div>
 
-            <label className="mt-6 flex items-start gap-3 rounded border p-4 text-sm leading-6">
+            <label className="mt-6 flex min-h-12 items-start gap-3 rounded border p-4 text-sm leading-6">
               <input
                 type="checkbox"
                 checked={termsAccepted}
                 onChange={(event) => setTermsAccepted(event.target.checked)}
-                className="mt-1"
+                className="mt-1 h-5 w-5 shrink-0"
               />
               <span>
                 I agree to the{" "}
@@ -361,8 +385,9 @@ export default function CartClient(props: { storeDisplayName: string }) {
               />
 
               <button
+                type="button"
                 onClick={clearCart}
-                className="rounded border px-4 py-3 font-bold"
+                className="min-h-12 rounded border px-4 py-3 font-bold"
               >
                 Clear Cart
               </button>
