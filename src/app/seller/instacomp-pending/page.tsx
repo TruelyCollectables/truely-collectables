@@ -163,6 +163,7 @@ export default function InstaCompPendingPage() {
   const [bulkPrice, setBulkPrice] = useState("");
   const [autoPricing, setAutoPricing] = useState(false);
   const autoAttempted = useRef(new Set<string>());
+  const autoRunning = useRef(false);
 
   const loadPending = useCallback(async (silent = false) => {
     if (silent) setRefreshing(true);
@@ -331,7 +332,7 @@ export default function InstaCompPendingPage() {
   }
 
   useEffect(() => {
-    if (loading || autoPricing || !items.length) return;
+    if (loading || autoRunning.current || !items.length) return;
     const targets = items.filter(
       (item) =>
         item.instaComp.pricingStatus === "not_run" &&
@@ -340,7 +341,7 @@ export default function InstaCompPendingPage() {
     if (!targets.length) return;
 
     targets.forEach((item) => autoAttempted.current.add(item.inventoryItemId));
-    let cancelled = false;
+    autoRunning.current = true;
     setAutoPricing(true);
 
     void (async () => {
@@ -349,7 +350,6 @@ export default function InstaCompPendingPage() {
         const session = await getFreshAccountSession(5 * 60, false);
         if (!session?.access_token) return;
         for (const [index, item] of targets.entries()) {
-          if (cancelled) return;
           setPricingItemId(item.inventoryItemId);
           setBatchProgress({ current: index + 1, total: targets.length });
           try {
@@ -358,26 +358,19 @@ export default function InstaCompPendingPage() {
             failures += 1;
           }
         }
-        if (!cancelled) {
-          setNotice(
-            failures
-              ? `Automatic InstaComp intake finished with ${failures} card${failures === 1 ? "" : "s"} needing a retry.`
-              : "Automatic InstaComp intake finished. Every new draft now has a pricing outcome.",
-          );
-          await loadPending(true);
-        }
+        setNotice(
+          failures
+            ? `Automatic InstaComp intake finished with ${failures} card${failures === 1 ? "" : "s"} needing a retry.`
+            : "Automatic InstaComp intake finished. Every new draft now has a pricing outcome.",
+        );
+        await loadPending(true);
       } finally {
-        if (!cancelled) {
-          setPricingItemId(null);
-          setAutoPricing(false);
-        }
+        setPricingItemId(null);
+        setAutoPricing(false);
+        autoRunning.current = false;
       }
     })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [autoPricing, items, loadPending, loading]);
+  }, [items, loadPending, loading]);
 
   async function runOnePricing(item: PendingItem) {
     setError("");
