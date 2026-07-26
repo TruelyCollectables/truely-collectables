@@ -1,7 +1,10 @@
 name: Read-Only Production Runtime Audit
 
-# Re-triggered after this temporary workflow existed on the audit branch.
 on:
+  pull_request:
+    paths:
+      - "scripts/capture-production-runtime-readiness.ts"
+      - ".github/workflows/read-only-production-runtime-audit.yml"
   push:
     branches:
       - agent/read-only-production-runtime-audit-20260726
