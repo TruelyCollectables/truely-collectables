@@ -1,0 +1,68 @@
+name: Storefront Production Environment Audit
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/storefront-production-env-audit.yml"
+      - "scripts/audit-vercel-production-environment.mjs"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  storefront-production-env-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_SCOPE: truelycollectables-projects
+      VERCEL_PROJECT_NAME: truely-collectables
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify Vercel audit authentication
+        shell: bash
+        run: |
+          if [ -z "${VERCEL_TOKEN:-}" ]; then
+            echo "VERCEL_TOKEN is unavailable."
+            exit 1
+          fi
+
+      - name: Link known Vercel project without deployment
+        shell: bash
+        run: |
+          mkdir -p "$RUNNER_TEMP/tcos-vercel-cli-56.2.0"
+          npm --prefix "$RUNNER_TEMP/tcos-vercel-cli-56.2.0" exec --yes --package=vercel@56.2.0 -- \
+            vercel --cwd "$PWD" link --yes --project "$VERCEL_PROJECT_NAME" \
+            --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" --no-color
+
+      - name: Audit storefront Production variable names
+        id: storefront_env
+        continue-on-error: true
+        run: node scripts/audit-vercel-production-environment.mjs --json > storefront-production-env-audit.json
+
+      - name: Upload redacted storefront environment evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: storefront-production-env-audit-evidence
+          path: storefront-production-env-audit.json
+          if-no-files-found: error
+          retention-days: 7
+
+      - name: Remove linked-project cache
+        if: always()
+        run: rm -rf .vercel
+
+      - name: Enforce storefront environment audit
+        if: steps.storefront_env.outcome == 'failure'
+        run: |
+          cat storefront-production-env-audit.json
+          exit 1
