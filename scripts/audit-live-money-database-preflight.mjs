@@ -45,9 +45,9 @@ if (!projectRef) throw new Error("Could not derive Supabase project ref.");
 
 const result = await query(projectRef, `
 with active_store as (
-  select id, seller_commission_rate
+  select store_id as id, seller_commission_rate
     from public.store_settings
-   order by created_at asc nulls last
+   order by store_id
    limit 1
 ), latest_e2e as (
   select run_status, scenario_count, passed_count, failed_count, completed_at
