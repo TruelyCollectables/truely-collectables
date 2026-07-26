@@ -1,5 +1,9 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { syncEbayQuantityAfterSale } from "./ebay";
+import {
+  ebayQuantityRetryDelaySeconds,
+  selectLowestSafeEbayQuantity,
+} from "./ebay-quantity-sync-safety";
 
 type EbayQuantitySyncOutboxRow = {
   id: string;
@@ -33,16 +37,6 @@ export type EbayQuantitySyncRetryResult = {
     error: string;
   }>;
 };
-
-function safeNonNegativeInteger(value: unknown) {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : null;
-}
-
-function retryDelaySeconds(attemptCount: number) {
-  const exponent = Math.min(Math.max(attemptCount, 0), 5);
-  return Math.min(15 * 60 * 2 ** exponent, 6 * 60 * 60);
-}
 
 function cleanError(error: unknown) {
   return (error instanceof Error ? error.message : String(error || "Unknown eBay quantity sync failure"))
@@ -150,15 +144,11 @@ export async function retryPendingEbayQuantitySyncs(params: {
         continue;
       }
 
-      const quantityCandidates = [
-        ...productRows.map((row) => safeNonNegativeInteger(row.desired_quantity)),
-        safeNonNegativeInteger(product.quantity),
-        safeNonNegativeInteger(inventory?.quantity),
-      ].filter((value): value is number => value !== null);
-      if (!quantityCandidates.length) {
-        throw new Error("No safe local quantity was available for the eBay update.");
-      }
-      const targetQuantity = Math.min(...quantityCandidates);
+      const targetQuantity = selectLowestSafeEbayQuantity([
+        ...productRows.map((row) => row.desired_quantity),
+        product.quantity,
+        inventory?.quantity,
+      ]);
       const sku = product.sku || productRows.find((row) => row.sku)?.sku || null;
       const ebayItemId =
         product.ebay_item_id ||
@@ -206,7 +196,7 @@ export async function retryPendingEbayQuantitySyncs(params: {
     } catch (syncError) {
       const message = cleanError(syncError);
       const nextAttemptAt = new Date(
-        Date.now() + retryDelaySeconds(maximumAttemptCount) * 1000,
+        Date.now() + ebayQuantityRetryDelaySeconds(maximumAttemptCount) * 1000,
       ).toISOString();
       try {
         await markRows({
