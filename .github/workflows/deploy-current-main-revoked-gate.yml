@@ -38,7 +38,7 @@ jobs:
       TCOS_SHIPPING_PURCHASE_MODE: dry_run
       TCOS_LIVE_SHIPPING_ENABLED: "false"
     steps:
-      - name: Check out exact current main
+      - name: Check out current main
         uses: actions/checkout@v4
         with:
           ref: main
@@ -64,6 +64,20 @@ jobs:
       - name: Build current main locally
         run: npm run build
 
+      - name: Refresh to newest main if it advanced during validation
+        shell: bash
+        run: |
+          git fetch origin main
+          if [ "$(git rev-parse HEAD)" != "$(git rev-parse origin/main)" ]; then
+            echo "main advanced during validation; rebuilding newest origin/main"
+            git reset --hard origin/main
+            npm ci
+            npm run lint
+            npm run build
+          fi
+          test "$(git rev-parse HEAD)" = "$(git rev-parse origin/main)"
+          test -z "$(git status --short)"
+
       - name: Link the known Vercel project without deploying
         shell: bash
         run: |
@@ -72,20 +86,22 @@ jobs:
             vercel --cwd "$PWD" link --yes --project "$VERCEL_PROJECT_NAME" \
             --scope "$VERCEL_SCOPE" --token "$VERCEL_TOKEN" --no-color
 
-      - name: Deploy current main to Production
+      - name: Deploy newest main to Production
         id: deploy
         continue-on-error: true
         shell: bash
         run: |
-          set -o pipefail
-          node scripts/deploy-production.mjs 2>&1 | tee production-deploy.log
+          node scripts/deploy-production.mjs > "$RUNNER_TEMP/production-deploy.log" 2>&1
+          status=$?
+          cat "$RUNNER_TEMP/production-deploy.log"
+          exit $status
 
       - name: Upload deployment evidence
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: current-main-production-deploy-evidence
-          path: production-deploy.log
+          path: ${{ runner.temp }}/production-deploy.log
           if-no-files-found: warn
           retention-days: 7
 
