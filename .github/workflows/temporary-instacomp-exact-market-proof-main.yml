@@ -95,7 +95,27 @@ jobs:
             fi
           fi
 
-          if [ -z "${SERPAPI_API_KEY:-}" ]; then unset SERPAPI_API_KEY; fi
+          unset SERPAPI_API_KEY
+          unset EBAY_CLIENT_ID EBAY_CLIENT_SECRET
+          unset GOOGLE_CSE_API_KEY GOOGLE_CUSTOM_SEARCH_API_KEY GOOGLE_CSE_CX GOOGLE_CUSTOM_SEARCH_CX
+          unset PRICECHARTING_API_TOKEN SPORTSCARDSPRO_API_TOKEN SPORTSCARDS_PRO_API_TOKEN
+
+          node "${LIVE_ENV_ARGS[@]}" -e '
+            const names = [
+              "SERPAPI_API_KEY",
+              "EBAY_CLIENT_ID",
+              "EBAY_CLIENT_SECRET",
+              "GOOGLE_CSE_API_KEY",
+              "GOOGLE_CUSTOM_SEARCH_API_KEY",
+              "GOOGLE_CSE_CX",
+              "GOOGLE_CUSTOM_SEARCH_CX",
+              "PRICECHARTING_API_TOKEN",
+              "SPORTSCARDSPRO_API_TOKEN",
+              "SPORTSCARDS_PRO_API_TOKEN"
+            ];
+            console.log("provider_env_presence=" + JSON.stringify(Object.fromEntries(names.map((name) => [name, Boolean(process.env[name])]))));
+          ' >> .codex-run/instacomp-exact-market-proof.log 2>&1
+
           node "${LIVE_ENV_ARGS[@]}" --import tsx scripts/run-instacomp-batch-001-live-market-proof.ts >> .codex-run/instacomp-exact-market-proof.log 2>&1
           LIVE=$?
 
@@ -104,7 +124,7 @@ jobs:
           npm run build >> .codex-run/instacomp-exact-market-proof.log 2>&1
           BUILD=$?
 
-          rm -rf .vercel .env.production.local
+          rm -rf .vercel .env.production.local .env.local
 
           {
             echo "install=$INSTALL"
@@ -116,6 +136,8 @@ jobs:
             echo "lint=$LINT"
             echo "build=$BUILD"
             echo "validated_source_commit=$(git rev-parse HEAD)"
+            echo "--- provider configuration (presence only) ---"
+            grep "provider_env_presence=" .codex-run/instacomp-exact-market-proof.log || true
             echo "--- assertions and errors with context ---"
             grep -nE -B 5 -A 16 "AssertionError|Error:|Transform failed|release remains blocked|Live exact-market proof is blocked|Failed to|error TS|✖|Vercel" .codex-run/instacomp-exact-market-proof.log | tail -n 360 || true
             echo "--- log head ---"
