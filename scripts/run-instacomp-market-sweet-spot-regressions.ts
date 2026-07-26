@@ -31,16 +31,16 @@ assert.equal(market.active.competitiveTargetPrice, 6.98);
 
 const competitive = calculateInstaCompMarketPricing({
   sold,
-  active: [{ price: 4.5 }, { price: 4.75 }, { price: 5.25 }],
+  active: [{ price: 4.0 }, { price: 4.25 }, { price: 4.5 }],
   now: new Date("2026-07-26T12:00:00Z"),
 });
 assert.equal(competitive.strategy, "active_competitive_sweet_spot");
-assert.ok(competitive.suggestedPrice <= 4.74);
-assert.ok(competitive.suggestedPrice >= competitive.quickSalePrice);
+assert.ok(competitive.suggestedPrice <= 4.24);
+assert.ok(competitive.suggestedPrice >= competitive.marketValue);
 
 const compression = calculateInstaCompMarketPricing({
   sold,
-  active: [{ price: 2.99 }, { price: 3.1 }, { price: 3.25 }],
+  active: [{ price: 2.0 }, { price: 2.25 }, { price: 2.5 }],
   now: new Date("2026-07-26T12:00:00Z"),
 });
 assert.equal(compression.strategy, "active_market_compression");
@@ -53,6 +53,7 @@ const loneLow = calculateInstaCompMarketPricing({
 });
 assert.equal(loneLow.strategy, "single_active_outlier_guard");
 assert.ok(loneLow.suggestedPrice >= loneLow.quickSalePrice);
+assert.ok(loneLow.suggestedPrice > 1.0);
 
 const soldOnly = calculateInstaCompMarketPricing({
   sold,
