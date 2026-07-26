@@ -5,6 +5,7 @@ import path from "node:path";
 const repositoryRoot = process.cwd();
 const apiRoot = path.join(repositoryRoot, "src/app/api");
 const proxyPath = path.join(repositoryRoot, "src/proxy.ts");
+const reportPath = path.join(repositoryRoot, "privileged-api-route-audit.json");
 
 function walk(directory) {
   return fs.readdirSync(directory, { withFileTypes: true }).flatMap((entry) => {
@@ -171,6 +172,16 @@ for (const file of routeFiles) {
 }
 
 const unsafe = audits.filter((audit) => !audit.protection);
+const report = {
+  generatedAt: new Date().toISOString(),
+  routeFilesScanned: routeFiles.length,
+  privilegedMutationRoutes: audits.length,
+  protectedRoutes: audits.length - unsafe.length,
+  unsafeRoutes: unsafe.length,
+  audits,
+};
+
+fs.writeFileSync(reportPath, `${JSON.stringify(report, null, 2)}\n`, "utf8");
 
 for (const audit of audits) {
   console.log(
