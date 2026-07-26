@@ -5,6 +5,7 @@ import path from "node:path";
 const repositoryRoot = process.cwd();
 const apiRoot = path.join(repositoryRoot, "src/app/api");
 const proxyPath = path.join(repositoryRoot, "src/proxy.ts");
+const instaCompActorPath = path.join(repositoryRoot, "src/lib/instacomp-job-server.ts");
 const reportPath = path.join(repositoryRoot, "privileged-api-route-audit.json");
 
 function walk(directory) {
@@ -102,6 +103,10 @@ function explicitProtection(route, content) {
     return offerGuards ? "explicit public offer guard contract" : null;
   }
 
+  if (called(content, "requireInstaCompJobActor")) {
+    return "verified InstaComp seller-or-admin actor validation";
+  }
+
   const accountAuth = called(content, "getAuthenticatedAccountFromRequest");
   const publicRateLimit = called(content, "checkPublicEndpointRateLimit");
   const adminSession =
@@ -134,6 +139,7 @@ function explicitProtection(route, content) {
 
 assert.ok(fs.existsSync(apiRoot), "API route root is missing.");
 assert.ok(fs.existsSync(proxyPath), "src/proxy.ts is missing.");
+assert.ok(fs.existsSync(instaCompActorPath), "InstaComp actor helper is missing.");
 
 const proxySource = source(proxyPath);
 for (const [name, pattern] of [
@@ -146,6 +152,21 @@ for (const [name, pattern] of [
   ["admin cookie validation", /isValidAdminSessionValue\(adminCookie\)/],
 ]) {
   assert.match(proxySource, pattern, `Proxy protection is missing for ${name}.`);
+}
+
+const instaCompActorSource = source(instaCompActorPath);
+for (const [name, pattern] of [
+  ["service-role fail-closed check", /requireInstaCompJobSupabase\(\)/],
+  ["bearer user validation", /supabase\.auth\.getUser\(token\)/],
+  ["active seller membership", /\.eq\("role", "seller"\)[\s\S]*\.eq\("status", "active"\)/],
+  ["signed admin cookie validation", /isValidAdminSessionValue\(adminSession\)/],
+  ["unauthorized failure", /INSTACOMP_JOB_UNAUTHORIZED/],
+]) {
+  assert.match(
+    instaCompActorSource,
+    pattern,
+    `InstaComp actor authentication is missing ${name}.`,
+  );
 }
 
 const routeFiles = walk(apiRoot).filter((file) => file.endsWith(`${path.sep}route.ts`));
