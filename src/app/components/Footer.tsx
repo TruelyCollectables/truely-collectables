@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { BUYER_PROTECTION_PATH } from "../../lib/buyer-protection";
 import {
   CONTACT_PATH,
   PRIVACY_POLICY_PATH,
@@ -12,6 +13,7 @@ import {
 
 const policyLinks = [
   { href: SHIPPING_POLICY_PATH, label: "Shipping" },
+  { href: BUYER_PROTECTION_PATH, label: "Buyer Protection" },
   { href: RETURNS_POLICY_PATH, label: "Returns & Refunds" },
   { href: PRIVACY_POLICY_PATH, label: "Privacy" },
   { href: TERMS_OF_SERVICE_PATH, label: "Terms" },
