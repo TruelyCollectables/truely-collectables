@@ -30,6 +30,8 @@ jobs:
         run: |
           set +e
           : > ebay-admin-validation.log
+          echo "=== integrity workflow command ===" | tee -a ebay-admin-validation.log
+          grep -R -n -B 4 -A 8 "Validate eBay admin client" .github/workflows 2>&1 | tee -a ebay-admin-validation.log
           echo "=== simulate:admin-ebay-actions ===" | tee -a ebay-admin-validation.log
           npm run simulate:admin-ebay-actions 2>&1 | tee -a ebay-admin-validation.log
           echo "exit=$?" | tee -a ebay-admin-validation.log
