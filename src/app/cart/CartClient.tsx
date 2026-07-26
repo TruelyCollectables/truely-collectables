@@ -4,6 +4,13 @@ import Link from "next/link";
 import Image from "next/image";
 import { useState } from "react";
 import CheckoutButton from "../components/CheckoutButton";
+import BuyerProtectionOption, {
+  type BuyerProtectionCheckoutChoice,
+} from "./BuyerProtectionOption";
+import {
+  BUYER_PROTECTION_FEE,
+  BUYER_PROTECTION_POLICY_VERSION,
+} from "../../lib/buyer-protection";
 import {
   calculateShipping,
   getAvailableShippingMethods,
@@ -25,6 +32,14 @@ type CartItem = {
   price: number;
   quantity: number;
   image_url?: string;
+};
+
+const EMPTY_PROTECTION_CHOICE: BuyerProtectionCheckoutChoice = {
+  selected: false,
+  preferenceMode: "one_time",
+  termsAccepted: false,
+  policyVersion: BUYER_PROTECTION_POLICY_VERSION,
+  storedConsentCurrent: false,
 };
 
 export default function CartClient(props: { storeDisplayName: string }) {
@@ -49,6 +64,8 @@ export default function CartClient(props: { storeDisplayName: string }) {
   });
   const [shippingMethod, setShippingMethod] =
     useState<ShippingMethod>("STANDARD_ENVELOPE");
+  const [buyerProtection, setBuyerProtection] =
+    useState<BuyerProtectionCheckoutChoice>(EMPTY_PROTECTION_CHOICE);
   const [termsAccepted, setTermsAccepted] = useState(false);
 
   function saveCart(updatedCart: CartItem[]) {
@@ -116,7 +133,17 @@ export default function CartClient(props: { storeDisplayName: string }) {
     listingPriceBasis,
     method: selectedShippingMethod,
   });
-  const total = subtotal + selectedShipping;
+  const buyerProtectionAvailable =
+    selectedShippingMethod === "STANDARD_ENVELOPE" &&
+    standardEnvelopeEligibility.eligible;
+  const resolvedBuyerProtection: BuyerProtectionCheckoutChoice = {
+    ...buyerProtection,
+    selected: buyerProtectionAvailable && buyerProtection.selected,
+  };
+  const buyerProtectionFee = resolvedBuyerProtection.selected
+    ? BUYER_PROTECTION_FEE
+    : 0;
+  const total = subtotal + selectedShipping + buyerProtectionFee;
 
   function shippingPrice(method: ShippingMethod) {
     return calculateShipping({
@@ -162,7 +189,7 @@ export default function CartClient(props: { storeDisplayName: string }) {
                     alt={item.title}
                     width={240}
                     height={240}
-                    unoptimized
+                    quality={90}
                     className="h-44 w-full rounded bg-neutral-50 object-contain p-2 sm:h-28 sm:w-28 sm:shrink-0"
                   />
                 ) : null}
@@ -264,7 +291,7 @@ export default function CartClient(props: { storeDisplayName: string }) {
                 </p>
                 <p className="mt-1 font-semibold">
                   {selectedShippingMethod === "STANDARD_ENVELOPE"
-                    ? `Up to 4 qualifying raw cards, original listing-price total $20.00 or less, maximum estimated weight 3 oz. USPS IMb scan visibility is limited and not guaranteed package tracking.`
+                    ? "Up to 4 qualifying raw cards, original listing-price total $20.00 or less, maximum estimated weight 3 oz. USPS IMb scan visibility is limited and not guaranteed package tracking."
                     : SHIPPING_RULES[selectedShippingMethod].deliveryEstimate}
                 </p>
                 {!standardEnvelopeEligibility.eligible &&
@@ -307,6 +334,11 @@ export default function CartClient(props: { storeDisplayName: string }) {
                   </>
                 )}
               </div>
+
+              <BuyerProtectionOption
+                available={buyerProtectionAvailable}
+                onChange={setBuyerProtection}
+              />
             </div>
 
             <div className="mt-6 space-y-2 border-t pt-4 text-sm">
@@ -318,6 +350,12 @@ export default function CartClient(props: { storeDisplayName: string }) {
                     : `$${selectedShipping.toFixed(2)}`}
                 </strong>
               </div>
+              {buyerProtectionFee > 0 ? (
+                <div className="flex justify-between">
+                  <span>Buyer Protection</span>
+                  <strong>${buyerProtectionFee.toFixed(2)}</strong>
+                </div>
+              ) : null}
               <div className="flex justify-between text-xl">
                 <span className="font-black">Total</span>
                 <strong>${total.toFixed(2)}</strong>
@@ -353,6 +391,7 @@ export default function CartClient(props: { storeDisplayName: string }) {
               <CheckoutButton
                 shippingMethod={selectedShippingMethod}
                 termsAccepted={termsAccepted}
+                buyerProtection={resolvedBuyerProtection}
               />
 
               <button
