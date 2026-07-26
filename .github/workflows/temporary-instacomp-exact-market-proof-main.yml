@@ -1,15 +1,21 @@
 name: Temporary InstaComp Exact Market Proof Main Trigger
 
 on:
-  push:
+  pull_request:
     branches:
       - main
+  workflow_dispatch:
 
 permissions:
   contents: write
 
+concurrency:
+  group: instacomp-exact-market-proof-pr
+  cancel-in-progress: true
+
 jobs:
   patch-test-and-prove:
+    if: github.actor != 'github-actions[bot]'
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -59,6 +65,7 @@ jobs:
             node scripts/repair-instacomp-exact-market-proof.mjs >> .codex-run/instacomp-exact-market-proof.log 2>&1
           else
             node scripts/apply-instacomp-exact-market-proof.mjs >> .codex-run/instacomp-exact-market-proof.log 2>&1
+            node scripts/repair-instacomp-exact-market-proof.mjs >> .codex-run/instacomp-exact-market-proof.log 2>&1
           fi
           PATCH=$?
 
@@ -102,17 +109,17 @@ jobs:
             echo "build=$BUILD"
             echo "validated_source_commit=$(git rev-parse HEAD)"
             echo "--- assertions and errors with context ---"
-            grep -nE -B 4 -A 12 "AssertionError|Error:|Transform failed|release remains blocked|Live exact-market proof is blocked|Failed to|error TS|✖" .codex-run/instacomp-exact-market-proof.log | tail -n 300 || true
+            grep -nE -B 5 -A 16 "AssertionError|Error:|Transform failed|release remains blocked|Live exact-market proof is blocked|Failed to|error TS|✖" .codex-run/instacomp-exact-market-proof.log | tail -n 360 || true
             echo "--- log head ---"
-            head -n 160 .codex-run/instacomp-exact-market-proof.log
+            head -n 180 .codex-run/instacomp-exact-market-proof.log
             echo "--- log tail ---"
-            tail -n 260 .codex-run/instacomp-exact-market-proof.log
+            tail -n 280 .codex-run/instacomp-exact-market-proof.log
           } > docs/instacomp-exact-market-validation.txt
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add src scripts docs
-          git commit -m "Harden InstaComp exact sold and active market proof" || true
+          git commit -m "Validate repaired InstaComp exact sold and active proof" || true
           git push origin HEAD:agent/instacomp-exact-market-proof-20260726
           PUSH=$?
 
