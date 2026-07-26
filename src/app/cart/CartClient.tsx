@@ -6,6 +6,7 @@ import { useState } from "react";
 import CheckoutButton from "../components/CheckoutButton";
 import {
   calculateShipping,
+  getAvailableShippingMethods,
   getFreeShippingMessage,
   getShippingCoverage,
   getStandardEnvelopeEligibility,
@@ -38,7 +39,6 @@ export default function CartClient(props: { storeDisplayName: string }) {
     }
 
     const storedCart = localStorage.getItem("cart");
-
     if (!storedCart) return [];
 
     try {
@@ -88,29 +88,22 @@ export default function CartClient(props: { storeDisplayName: string }) {
     0,
   );
   const itemCount = cart.reduce((sum, item) => sum + item.quantity, 0);
+  const listingPriceBasis = subtotal;
   const standardEnvelopeEligibility = getStandardEnvelopeEligibility({
     itemCount,
     subtotal,
+    listingPriceBasis,
   });
-  const standardEnvelopeShipping = calculateShipping({
+  const availableShippingMethods = getAvailableShippingMethods({
     itemCount,
     subtotal,
-    method: "STANDARD_ENVELOPE",
-  });
-  const groundShipping = calculateShipping({
-    itemCount,
-    subtotal,
-    method: "GROUND_ADVANTAGE",
-  });
-  const priorityShipping = calculateShipping({
-    itemCount,
-    subtotal,
-    method: "PRIORITY_MAIL",
+    listingPriceBasis,
   });
   const resolvedShipping = resolveShippingMethod({
     requestedMethod: shippingMethod,
     itemCount,
     subtotal,
+    listingPriceBasis,
   });
   const selectedShippingMethod = resolvedShipping.method;
   const shippingCoverage = getShippingCoverage({
@@ -120,9 +113,19 @@ export default function CartClient(props: { storeDisplayName: string }) {
   const selectedShipping = calculateShipping({
     itemCount,
     subtotal,
+    listingPriceBasis,
     method: selectedShippingMethod,
   });
   const total = subtotal + selectedShipping;
+
+  function shippingPrice(method: ShippingMethod) {
+    return calculateShipping({
+      itemCount,
+      subtotal,
+      listingPriceBasis,
+      method,
+    });
+  }
 
   return (
     <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
@@ -227,83 +230,52 @@ export default function CartClient(props: { storeDisplayName: string }) {
             </div>
 
             <div className="mt-6">
-              <h3 className="text-lg font-black">Choose Shipping</h3>
-              <p className="mt-1 text-sm font-semibold text-neutral-600">
-                Shipping is currently available only to United States addresses.
-              </p>
-
               <label
-                className={`mt-3 block rounded border p-4 ${
-                  standardEnvelopeEligibility.eligible
-                    ? "cursor-pointer"
-                    : "cursor-not-allowed bg-neutral-50 text-neutral-500"
-                }`}
+                htmlFor="shipping-method"
+                className="block text-lg font-black"
               >
-                <span className="flex items-start gap-3">
-                  <input
-                    type="radio"
-                    checked={selectedShippingMethod === "STANDARD_ENVELOPE"}
-                    onChange={() => setShippingMethod("STANDARD_ENVELOPE")}
-                    disabled={!standardEnvelopeEligibility.eligible}
-                    className="mt-0.5 h-5 w-5 shrink-0"
-                  />
-                  <span>
-                    {SHIPPING_RULES.STANDARD_ENVELOPE.name} -{" "}
-                    <strong>${standardEnvelopeShipping.toFixed(2)}</strong>
-                  </span>
-                </span>
-                <span className="mt-2 block text-xs font-semibold text-neutral-600">
-                  Raw-card envelope only, with USPS IMb delivery evidence.
-                  Eligible up to $20.00 and 3 estimated oz; current cart estimate:{" "}
-                  {standardEnvelopeEligibility.estimatedOunces} oz.
-                </span>
-                {!standardEnvelopeEligibility.eligible ? (
-                  <span className="mt-2 block text-xs font-bold text-amber-700">
-                    {standardEnvelopeEligibility.reason} USPS Ground Advantage is
-                    required.
-                  </span>
+                Choose Shipping
+              </label>
+              <p className="mt-1 text-sm font-semibold text-neutral-600">
+                The lowest eligible method is selected automatically. You may
+                upgrade to a premium method whenever it is available.
+              </p>
+              <select
+                id="shipping-method"
+                value={selectedShippingMethod}
+                onChange={(event) =>
+                  setShippingMethod(event.target.value as ShippingMethod)
+                }
+                className="mt-3 min-h-12 w-full rounded border border-neutral-300 bg-white px-3 text-base font-bold"
+              >
+                {availableShippingMethods.map((method) => {
+                  const price = shippingPrice(method);
+                  return (
+                    <option key={method} value={method}>
+                      {SHIPPING_RULES[method].name} — {price === 0 ? "FREE" : `$${price.toFixed(2)}`}
+                    </option>
+                  );
+                })}
+              </select>
+
+              <div className="mt-3 rounded border border-blue-200 bg-blue-50 p-4 text-sm text-blue-950">
+                <p className="font-black">
+                  {SHIPPING_RULES[selectedShippingMethod].name}
+                </p>
+                <p className="mt-1 font-semibold">
+                  {selectedShippingMethod === "STANDARD_ENVELOPE"
+                    ? `Up to 4 qualifying raw cards, original listing-price total $20.00 or less, maximum estimated weight 3 oz. USPS IMb scan visibility is limited and not guaranteed package tracking.`
+                    : SHIPPING_RULES[selectedShippingMethod].deliveryEstimate}
+                </p>
+                {!standardEnvelopeEligibility.eligible &&
+                selectedShippingMethod !== "STANDARD_ENVELOPE" ? (
+                  <p className="mt-2 text-xs font-bold text-amber-800">
+                    Tracked Card Letter is unavailable: {standardEnvelopeEligibility.reason}
+                  </p>
                 ) : null}
-              </label>
+              </div>
 
-              <label className="mt-3 block cursor-pointer rounded border p-4">
-                <span className="flex items-start gap-3">
-                  <input
-                    type="radio"
-                    checked={selectedShippingMethod === "GROUND_ADVANTAGE"}
-                    onChange={() => setShippingMethod("GROUND_ADVANTAGE")}
-                    className="mt-0.5 h-5 w-5 shrink-0"
-                  />
-                  <span>
-                    {SHIPPING_RULES.GROUND_ADVANTAGE.name} -{" "}
-                    <strong>
-                      {groundShipping === 0
-                        ? "FREE"
-                        : `$${groundShipping.toFixed(2)}`}
-                    </strong>
-                  </span>
-                </span>
-              </label>
-
-              <label className="mt-3 block cursor-pointer rounded border p-4">
-                <span className="flex items-start gap-3">
-                  <input
-                    type="radio"
-                    checked={selectedShippingMethod === "PRIORITY_MAIL"}
-                    onChange={() => setShippingMethod("PRIORITY_MAIL")}
-                    className="mt-0.5 h-5 w-5 shrink-0"
-                  />
-                  <span>
-                    {SHIPPING_RULES.PRIORITY_MAIL.name} -{" "}
-                    <strong>
-                      {priorityShipping === 0
-                        ? "FREE"
-                        : `$${priorityShipping.toFixed(2)}`}
-                    </strong>
-                  </span>
-                </span>
-              </label>
-
-              <div className="mt-4 rounded border border-blue-200 bg-blue-50 p-4 text-sm">
+              <div className="mt-3 rounded border border-neutral-200 bg-neutral-50 p-4 text-sm">
                 <p>
                   {getFreeShippingMessage({
                     subtotal,
@@ -316,26 +288,21 @@ export default function CartClient(props: { storeDisplayName: string }) {
                 {selectedShippingMethod === "STANDARD_ENVELOPE" ? (
                   <>
                     <p className="font-black text-emerald-950">
-                      Delivery tracking included
+                      Limited letter tracking included
                     </p>
                     <p className="mt-1 font-semibold text-emerald-900">
-                      {shippingCoverage.provider} delivery evidence is required
-                      for under-$20 envelope orders and is expected to show USPS
-                      scan history through Out for Delivery / Delivered in Mailbox
-                      when USPS data is available. No separate buyer fee is added
-                      at checkout.
+                      {shippingCoverage.provider} may show USPS processing and
+                      delivery-related scans when data is available. It is not
+                      guaranteed package tracking, insurance, or proof of delivery.
                     </p>
                   </>
                 ) : (
                   <>
                     <p className="font-black text-emerald-950">
-                      Seller shipping coverage included
+                      Full parcel tracking
                     </p>
                     <p className="mt-1 font-semibold text-emerald-900">
-                      {shippingCoverage.provider} coverage is required for every
-                      TCOS parcel shipment and protects the seller for up to $
-                      {shippingCoverage.coveredAmount.toFixed(2)} in item value. No
-                      separate buyer coverage fee is added at checkout.
+                      Ground Advantage and Priority Mail use carrier parcel tracking.
                     </p>
                   </>
                 )}
@@ -345,7 +312,11 @@ export default function CartClient(props: { storeDisplayName: string }) {
             <div className="mt-6 space-y-2 border-t pt-4 text-sm">
               <div className="flex justify-between">
                 <span>Shipping</span>
-                <strong>${selectedShipping.toFixed(2)}</strong>
+                <strong>
+                  {selectedShipping === 0
+                    ? "FREE"
+                    : `$${selectedShipping.toFixed(2)}`}
+                </strong>
               </div>
               <div className="flex justify-between text-xl">
                 <span className="font-black">Total</span>
