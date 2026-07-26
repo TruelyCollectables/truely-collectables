@@ -4,7 +4,6 @@ import {
   filterAndRankExactMatches,
   normalizeInstaCompParallelForExactMatching,
   type InstaCompAiResult,
-  type InstaCompComp,
 } from "../src/lib/instacomp";
 import {
   buildExactEbayQueryLadder,
