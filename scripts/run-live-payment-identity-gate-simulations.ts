@@ -17,98 +17,96 @@ function restoreEnvironment() {
   }
 }
 
+function fakeApprovedSupabase() {
+  return {
+    from(table: string) {
+      const builder: Record<string, unknown> = {};
+      Object.assign(builder, {
+        select: () => builder,
+        eq: () => builder,
+        limit: () => builder,
+        maybeSingle: async () =>
+          table === "live_payment_launch_gates"
+            ? {
+                data: {
+                  gate_status: "approved",
+                  approval_version: "tcos-live-payments-v1",
+                },
+                error: null,
+              }
+            : { data: null, error: null },
+        then: (
+          resolve: (value: unknown) => unknown,
+          reject: (reason: unknown) => unknown,
+        ) => Promise.resolve({ data: [], error: null }).then(resolve, reject),
+      });
+      return builder;
+    },
+  } as never;
+}
+
 async function main() {
   try {
     process.env.TCOS_LIVE_PAYMENTS_ENABLED = "true";
     process.env.IP_INTELLIGENCE_REQUIRED = "false";
     delete process.env.IP_INTELLIGENCE_API_URL;
 
-    const disabledGate = await getLivePaymentRuntimeGate({
-      stripeKey: "sk_live_identity_gate_fixture",
-      supabase: {} as never,
+    const storefrontGate = await getLivePaymentRuntimeGate({
+      stripeKey: "sk_live_storefront_scope_fixture",
+      supabase: fakeApprovedSupabase(),
     });
-    assert.equal(disabledGate.allowed, false);
-    assert.equal(disabledGate.mode, "live");
-    assert.match(
-      String(disabledGate.reason),
-      /identity and VPN intelligence enforcement/i,
-      "Live runtime must fail closed when identity intelligence is disabled.",
-    );
-
-    process.env.IP_INTELLIGENCE_REQUIRED = "true";
-    delete process.env.IP_INTELLIGENCE_API_URL;
-    const missingProviderGate = await getLivePaymentRuntimeGate({
-      stripeKey: "sk_live_identity_gate_fixture",
-      supabase: {} as never,
-    });
-    assert.equal(missingProviderGate.allowed, false);
-    assert.match(
-      String(missingProviderGate.reason),
-      /identity and VPN intelligence enforcement/i,
-      "Live runtime must fail closed when the identity provider URL is missing.",
-    );
-
-    const testGate = await getLivePaymentRuntimeGate({
-      stripeKey: "sk_test_identity_gate_fixture",
-      supabase: {} as never,
-    });
-    assert.deepEqual(testGate, {
+    assert.deepEqual(storefrontGate, {
       allowed: true,
-      mode: "test",
+      mode: "live",
       reason: null,
     });
 
+    const optionalIdentity = await getClientIdentity(
+      new Request("https://truelycollectables.com/checkout", {
+        headers: {
+          "x-forwarded-for": "8.8.8.8",
+          "user-agent": "storefront-identity-scope-simulation",
+        },
+      }),
+    );
+    assert.equal(optionalIdentity.blocked, false);
+    assert.equal(optionalIdentity.risk, "unchecked");
+
     process.env.IP_INTELLIGENCE_REQUIRED = "true";
     delete process.env.IP_INTELLIGENCE_API_URL;
-    const blockedIdentity = await getClientIdentity(
+    const optedInButMisconfigured = await getClientIdentity(
       new Request("https://truelycollectables.com/checkout", {
         headers: {
           "x-forwarded-for": "8.8.8.8",
-          "user-agent": "identity-gate-simulation",
+          "user-agent": "storefront-identity-scope-simulation",
         },
       }),
     );
-    assert.equal(blockedIdentity.blocked, true);
-    assert.equal(blockedIdentity.blockReason, "ip_intelligence_not_configured");
-
-    process.env.IP_INTELLIGENCE_REQUIRED = "false";
-    const uncheckedIdentity = await getClientIdentity(
-      new Request("https://truelycollectables.com/checkout", {
-        headers: {
-          "x-forwarded-for": "8.8.8.8",
-          "user-agent": "identity-gate-simulation",
-        },
-      }),
+    assert.equal(optedInButMisconfigured.blocked, true);
+    assert.equal(
+      optedInButMisconfigured.blockReason,
+      "ip_intelligence_not_configured",
     );
-    assert.equal(uncheckedIdentity.blocked, false);
-    assert.equal(uncheckedIdentity.risk, "unchecked");
 
     const coreSource = fs.readFileSync(
       path.join(process.cwd(), "src/lib/live-payment-launch-core.ts"),
       "utf8",
     );
-    for (const fragment of [
-      'case "identity_intelligence"',
-      '"identity_intelligence",\n      "Identity And VPN Blocking"',
-      "Live payments require configured identity and VPN intelligence enforcement.",
-      "IP intelligence enforcement is disabled; live Checkout cannot be approved.",
-    ]) {
-      assert.ok(
-        coreSource.includes(fragment),
-        `Live-payment core is missing ${fragment}.`,
-      );
-    }
-    const runtimeIdentityIndex = coreSource.indexOf(
-      "const identityIntelligenceRequired =",
-    );
-    const runtimeSupabaseIndex = coreSource.indexOf(
-      "const supabase =\n    params.supabase || createSupabaseServerClient",
+    assert.ok(
+      !coreSource.includes(
+        "Live payments require configured identity and VPN intelligence enforcement.",
+      ),
+      "Truely Collectables live-payment runtime must not require TCOS VPN intelligence.",
     );
     assert.ok(
-      runtimeIdentityIndex >= 0 &&
-        runtimeSupabaseIndex >= 0 &&
-        runtimeIdentityIndex < runtimeSupabaseIndex,
-      "Live runtime must reject missing identity configuration before privileged database evaluation.",
+      coreSource.includes("Optional TCOS Identity And VPN Intelligence"),
+      "The optional TCOS hardening check must remain visible without becoming a storefront blocker.",
+    );
+    assert.ok(
+      coreSource.includes(
+        "does not block the Truely Collectables sports-card storefront",
+      ),
+      "The live-payment report must state the storefront scope explicitly.",
     );
 
     const readinessSource = fs.readFileSync(
@@ -117,9 +115,9 @@ async function main() {
     );
     assert.ok(
       readinessSource.includes(
-        "IP intelligence enforcement is disabled, so live Checkout remains blocked.",
+        "not a Truely Collectables storefront launch requirement",
       ),
-      "Launch Readiness must show disabled identity intelligence as blocked.",
+      "Launch Readiness must classify VPN intelligence as post-launch TCOS hardening.",
     );
 
     const auditSource = fs.readFileSync(
@@ -129,13 +127,17 @@ async function main() {
       ),
       "utf8",
     );
+    const requiredList = auditSource.slice(
+      auditSource.indexOf("const requiredProductionKeys"),
+      auditSource.indexOf("]);", auditSource.indexOf("const requiredProductionKeys")) + 3,
+    );
     for (const name of [
       "IP_INTELLIGENCE_REQUIRED",
       "IP_INTELLIGENCE_API_URL",
     ]) {
       assert.ok(
-        auditSource.includes(`"${name}"`),
-        `Vercel Production environment audit must require ${name}.`,
+        !requiredList.includes(name),
+        `Vercel storefront launch audit must not require ${name}.`,
       );
     }
 
@@ -153,11 +155,11 @@ async function main() {
       identityCheckIndex >= 0 &&
         stripeCreateIndex >= 0 &&
         identityCheckIndex < stripeCreateIndex,
-      "Checkout must verify client identity before creating a Stripe Checkout Session.",
+      "Checkout must retain rate limiting and identity evidence before creating a Stripe Checkout Session.",
     );
 
     console.log(
-      "Live-payment identity-gate simulations passed: live approval/runtime require identity intelligence, actual checkout identity fails closed, and test mode remains usable.",
+      "Storefront identity-scope simulations passed: VPN/proxy intelligence is optional TCOS hardening, Truely Collectables live Checkout is not blocked when it is disabled, opt-in misconfiguration still fails closed, and checkout rate limiting remains enforced.",
     );
   } finally {
     restoreEnvironment();

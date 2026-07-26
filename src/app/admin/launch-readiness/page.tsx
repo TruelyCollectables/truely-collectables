@@ -252,19 +252,21 @@ function buildReadinessItems(
         "Enable the required refund and charge.dispute events for /api/webhook in Stripe Workbench, test them, then set STRIPE_FINANCIAL_EVENTS_VERIFIED=true.",
     },
     {
-      label: "Identity And VPN Blocking",
+      label: "Optional TCOS Identity And VPN Intelligence",
       status:
         identityRequired && isConfigured(process.env.IP_INTELLIGENCE_API_URL)
           ? "ready"
-          : "blocked",
+          : identityRequired
+            ? "blocked"
+            : "warning",
       detail:
         identityRequired && isConfigured(process.env.IP_INTELLIGENCE_API_URL)
-          ? "IP intelligence is required and configured for live Checkout."
+          ? "Optional TCOS identity intelligence is configured. It is not required for the Truely Collectables storefront launch."
           : identityRequired
-            ? "IP_INTELLIGENCE_REQUIRED is true, but IP_INTELLIGENCE_API_URL is missing."
-            : "IP intelligence enforcement is disabled, so live Checkout remains blocked.",
+            ? "IP_INTELLIGENCE_REQUIRED is true, but IP_INTELLIGENCE_API_URL is missing. Disable the optional feature or configure it before Checkout."
+            : "VPN/proxy intelligence is deferred to the post-launch TCOS security roadmap and does not block the Truely Collectables sports-card storefront.",
       action:
-        "Set IP_INTELLIGENCE_REQUIRED=true and configure IP_INTELLIGENCE_API_URL before launch.",
+        "Treat this as optional post-launch TCOS hardening, not a Truely Collectables storefront launch requirement.",
     },
     {
       label: "Transaction Evidence Email",
